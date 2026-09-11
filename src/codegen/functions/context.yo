@@ -90,8 +90,18 @@ EvidenceParameter :: ref(
 CondBranchPostWhileExprs :: ref(
   struct(
     branch_index : usize,
+    /// The arm's identity on `sm->cond_branch_<field>`: its own code plus
+    /// every code written while its body ran (`CondBranch.codes`). For a
+    /// MERGED slot, the union over its clients.
+    codes : ArrayList(usize),
     cond_branch_field_index : usize,
     exprs : ArrayList(AstExpr),
+    /// The slot's clients in order (inner arm first): each client's own
+    /// `codes` and how many leading `exprs` are its. A client's code runs only
+    /// under ITS guard — the loop arm's post-loop statements must not run
+    /// when a sibling nested arm was taken and the loop never started.
+    part_codes : ArrayList(ArrayList(usize)),
+    part_lens : ArrayList(usize),
     deferred_drop_expressions : Option(ArrayList(AstExpr)),
     /// When true, skip the `sm->cond_branch_N` guard (nested conds share the field).
     skip_cond_branch_check : Option(bool)
@@ -120,7 +130,45 @@ merge_cond_branch_post_while_exprs :: (
     existing,
     .None => incoming,
     .Some(ex) => {
-      guards_disagree := (!(ex.branch_index == incoming.branch_index) || !(ex.cond_branch_field_index == incoming.cond_branch_field_index));
+      // Two clients with different arms: the merged code runs for EITHER
+      // arm's codes (a union), no longer unconditionally.
+      merged_codes := ArrayList(usize).new();
+      (ci : usize) = usize(0);
+      while(ci < ex.codes.len(), {
+        match(
+          ex.codes.get(ci),
+          .Some(c) => {
+            merged_codes.push(c);
+          },
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      ci = usize(0);
+      while(ci < incoming.codes.len(), {
+        match(
+          incoming.codes.get(ci),
+          .Some(c) => {
+            (dup : bool) = false;
+            (di : usize) = usize(0);
+            while((di < merged_codes.len()) && !dup, {
+              match(
+                merged_codes.get(di),
+                .Some(m) => if(m == c, {
+                  dup = true;
+                }),
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+            if(!dup, {
+              merged_codes.push(c);
+            });
+          },
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
       merged_exprs := ArrayList(AstExpr).new();
       (i : usize) = usize(0);
       while(i < ex.exprs.len(), {
@@ -181,15 +229,56 @@ merge_cond_branch_post_while_exprs :: (
       );
       ex_skip := match(ex.skip_cond_branch_check, .Some(b) => b, .None => false);
       in_skip := match(incoming.skip_cond_branch_check, .Some(b) => b, .None => false);
+      merged_part_codes := ArrayList(ArrayList(usize)).new();
+      merged_part_lens := ArrayList(usize).new();
+      (pi : usize) = usize(0);
+      while(pi < ex.part_codes.len(), {
+        match(
+          ex.part_codes.get(pi),
+          .Some(pc) => {
+            merged_part_codes.push(pc);
+          },
+          .None => ()
+        );
+        match(
+          ex.part_lens.get(pi),
+          .Some(pl) => {
+            merged_part_lens.push(pl);
+          },
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+      pi = usize(0);
+      while(pi < incoming.part_codes.len(), {
+        match(
+          incoming.part_codes.get(pi),
+          .Some(pc) => {
+            merged_part_codes.push(pc);
+          },
+          .None => ()
+        );
+        match(
+          incoming.part_lens.get(pi),
+          .Some(pl) => {
+            merged_part_lens.push(pl);
+          },
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
       CondBranchPostWhileExprs(
         branch_index : ex.branch_index,
+        codes : merged_codes,
         cond_branch_field_index : ex.cond_branch_field_index,
         exprs : merged_exprs,
+        part_codes : merged_part_codes,
+        part_lens : merged_part_lens,
         deferred_drop_expressions : cond(
           (merged_drops.len() > usize(0)) => Option(ArrayList(AstExpr)).Some(merged_drops),
           true => Option(ArrayList(AstExpr)).None
         ),
-        skip_cond_branch_check : Option(bool).Some(ex_skip || in_skip || guards_disagree)
+        skip_cond_branch_check : Option(bool).Some(ex_skip || in_skip)
       )
     }
   )
@@ -233,16 +322,27 @@ CondBranch :: ref(
     await_exprs : Option(ArrayList(AstExpr)),
     /// When this arm's await lives inside a cond/match NESTED in the arm body
     /// (`.Git(..) => { x := match(o, .Some(v) => v, .None => io.await(...)); … }`),
-    /// the nested instance's own dispatch record: it writes its own
-    /// `cond_branch_N_n<depth>` field, so this arm's dispatch code survives
-    /// and the resume runs a two-level switch — the nested arm's remaining
-    /// code, then this arm's. Before this the nested instance overwrote the
-    /// shared `cond_branch_N` and this arm's remaining statements were a dead
-    /// `case` (issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
-    /// An INDEX into `FunctionGenerationContext.nested_cond_records` — the
-    /// record type names `CondBranch`, and two type definitions may not name
-    /// each other.
-    nested : Option(usize)
+    /// the nested instance's record (an INDEX into
+    /// `FunctionGenerationContext.nested_cond_records` — the record type names
+    /// `CondBranch`, and two type definitions may not name each other). The
+    /// nested instance shares this arm's `sm->cond_branch_N` field, and its
+    /// arms register in the same await-point entry (their codes are unique
+    /// within the function, so every consumer keyed on the field still
+    /// identifies them). This arm's continuation is emitted as ONE case
+    /// covering `codes` — a switch over the nested arms' remaining code, then
+    /// this arm's. Before this the nested write left this arm's statements a
+    /// dead `case` (issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
+    nested : Option(usize),
+    /// The nested record this arm belongs to (`.None` for a top-level arm).
+    /// An owned arm's remaining code is emitted inside its owner arm's case,
+    /// and its await value goes to the nested instance's own target.
+    owner : Option(usize),
+    /// This arm's identity on `sm->cond_branch_N`: its own dispatch code plus
+    /// every code allocated while its body was emitted (nested cond/match
+    /// arms, conds inside while loops, …) — any of them in the field means
+    /// this arm ran. `[index]` for an arm with nothing nested, so emission is
+    /// unchanged there.
+    codes : ArrayList(usize)
   )
 );
 /// A chained cond/match continuation: an outer cond's remaining code that shares
@@ -266,10 +366,13 @@ AsyncCondBranchInfo :: ref(
     /// The `cond_branch_X` index to use in the switch (continuation states).
     cond_branch_field_index : Option(usize),
     chained_branches : Option(ArrayList(ChainedCondBranches)),
-    /// A NESTED instance's own state-machine field (`cond_branch_N_n<depth>`);
-    /// `.None` for a top-level instance, which dispatches on
-    /// `cond_branch_<cond_branch_field_index | await index>`.
-    cond_field_name : Option(String)
+    /// A NESTED instance's record only: the record of the instance IT is
+    /// nested in (`.None` when the enclosing arm belongs to the top-level
+    /// entry), and whether it is the enclosing arm's TAIL expression — then a
+    /// nested arm whose value IS the await hands it to the enclosing level's
+    /// target. Both `.None`/`false` for a top-level entry.
+    nested_owner : Option(usize),
+    tail_of_enclosing_arm : bool
   )
 );
 /// Per-await-point info about a while loop containing an await. Mirrors the
@@ -418,14 +521,22 @@ FunctionGenerationContext :: ref(
     /// return value — its non-await branches must emit Future completion. Mirrors
     /// `asyncBodyReturnExpr`.
     async_body_return_expr : Option(AstExpr),
-    /// Nested cond/match emission (see `CondBranch.nested`). While a cond/match
-    /// NESTED inside an awaiting arm is being emitted, its branch records go to
-    /// this sink instead of the await point's entry and its dispatch writes go
-    /// to `cond_branch_N_n<nested_cond_depth>`.
-    nested_cond_sink : Option(AsyncCondBranchInfo),
-    /// The nested instances' dispatch records, addressed by `CondBranch.nested`.
+    /// Nested cond/match emission (see `CondBranch.nested`). Set by
+    /// `_emit_nested_cond_or_match` right before it calls the cond/match
+    /// emitter for a NESTED instance: the record (an index into
+    /// `nested_cond_records`) that instance's arms belong to. The emitter
+    /// CLAIMS it at entry (`generate_cond_with_await` / `generate_match_with_await`
+    /// move it into `nested_cond_owner` and clear it), so an instance emitted
+    /// inside one of its arm bodies some other way — a cond in a while body —
+    /// finds nothing here and registers as an ordinary entry arm.
+    nested_cond_sink : Option(usize),
+    /// The record the instance CURRENTLY being emitted registers its arms
+    /// under (`CondBranch.owner`; targets go there instead of the entry):
+    /// `.None` for a top-level instance. Saved/restored around each instance.
+    nested_cond_owner : Option(usize),
+    /// The nested instances' records, addressed by `CondBranch.nested` /
+    /// `CondBranch.owner` / `AsyncCondBranchInfo.nested_owner`.
     nested_cond_records : ArrayList(AsyncCondBranchInfo),
-    nested_cond_depth : usize,
     /// Effect-evidence parameters in scope (implicit label → evidence param), for
     /// explicit-effects dispatch / effect injection. Mirrors `currentEvidenceParams`.
     current_evidence_params : Option(HashMap(String, EvidenceParameter)),
@@ -498,9 +609,9 @@ impl(
       async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
       cond_branch_case_seq : usize(0),
       async_body_return_expr : Option(AstExpr).None,
-      nested_cond_sink : Option(AsyncCondBranchInfo).None,
+      nested_cond_sink : Option(usize).None,
+      nested_cond_owner : Option(usize).None,
       nested_cond_records : ArrayList(AsyncCondBranchInfo).new(),
-      nested_cond_depth : usize(0),
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
       deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
       current_assignment_save_temp : Option(String).None,

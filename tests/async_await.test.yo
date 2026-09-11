@@ -4828,9 +4828,11 @@ test("Test a module global survives a suspension point", {
 // A cond/match with an awaiting arm NESTED inside an awaiting match arm
 // (issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
 // The enclosing arm's statements after the nested instance used to be a dead
-// dispatch case — the whole arm vanished, exit 0, `check` clean. The resume
-// now dispatches on a per-nesting-level field (`cond_branch_N_n<d>`) and a
-// nested arm that completes synchronously runs the enclosing statements inline.
+// dispatch case — the whole arm vanished, exit 0, `check` clean. The enclosing
+// arm's case now covers its nested arms' dispatch codes (unique per function
+// on the shared `cond_branch_N`), runs the taken nested arm's remaining code
+// and then its own, and a nested arm that completes synchronously still runs
+// the enclosing statements.
 // ---------------------------------------------------------------------------
 _NestedParsed :: enum(
   Git(name : String, pinned_ref : Option(String)),
@@ -4992,6 +4994,94 @@ _nested_if_statement :: (fn(parsed : _NestedParsed, io : Io) -> Impl(Future(Stri
     out
   })
 );
+/// Shape F — dispatch-mode nested arms mixing a NAMED future with an
+/// anonymous one of a different shape: the suspension must go through each
+/// nested arm's own access (a representative would read the named future's
+/// slot as NULL and skip the await, or cast the slot to the wrong struct).
+_nested_named_mix :: (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+  rio.async((aio : Io) => {
+    fut := shape_ten(aio);
+    r := cond(
+      (n == usize(0)) => i32(1),
+      true => cond(
+        (n == usize(1)) => aio.await(fut, aio),
+        true => aio.await(shape_twenty(aio), aio)
+      )
+    );
+    return(r)
+  })
+);
+/// Shape G — the same mix bound inside a match arm, with a statement after it.
+_nested_named_mix_bound :: (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+  rio.async((aio : Io) => {
+    fut := shape_twenty(aio);
+    (acc : i32) = i32(0);
+    match(
+      n,
+      0 => {
+        acc = i32(1);
+      },
+      _ => {
+        v := cond(
+          (n == usize(1)) => aio.await(shape_ten(aio), aio),
+          true => aio.await(fut, aio)
+        );
+        acc = (v + i32(100));
+      }
+    );
+    return(acc)
+  })
+);
+/// Shape H — a nested cond whose arm LOOPS with an await, then statements of
+/// the enclosing arm: the loop arm's post-loop code must run for that arm
+/// only, and the enclosing statements for both nested arms.
+_nested_loop_step :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    n + usize(1)
+  })
+);
+_nested_loop_arm :: (fn(mode : usize, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    first := e.io.await(_nested_loop_step(usize(0), e.io), e);
+    cond(
+      (mode == usize(0)) => {
+        log.push_str("plain;");
+      },
+      true => {
+        cond(
+          (mode == usize(1)) => {
+            log.push_str("no-loop;");
+          },
+          true => {
+            (i : usize) = first;
+            while(runtime(i < usize(3)), {
+              r := e.io.await(_nested_loop_step(i, e.io), e);
+              i = r;
+              log.push_string(`i=${i.to_string()};`);
+            });
+            log.push_str("loop-done;");
+          }
+        );
+        log.push_str("outer-tail;");
+      }
+    );
+    log.push_str("end");
+    log
+  })
+);
+/// Shape I — a while body that RE-ASSIGNS an outer local from an await
+/// (`i = e.io.await(...)`, not `:=`).
+_while_reassign_await :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => {
+    (i : usize) = usize(0);
+    while(runtime(i < usize(3)), {
+      i = e.io.await(_nested_loop_step(i, e.io), e);
+    });
+    i
+  })
+);
 test("an awaiting inner match inside a match arm keeps the arm's trailing statements", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -5046,4 +5136,30 @@ test("an awaiting if statement after a bound await, then the arm's tail value", 
   assert(latest == "fetched:resolved;resolved;raylib", `resolved: the if body ran and the tail value reached the result (got ${latest})`);
   path := io.await(_nested_if_statement(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
   assert(path == "mylib", "a synchronous sibling arm is unaffected");
+});
+test("nested cond arms mixing a named and an anonymous future await through their own access", {
+  if(arch == Arch.Wasm32, return(()));
+  assert(io.await(_nested_named_mix(usize(0), io), io) == i32(1), "plain outer arm");
+  assert(io.await(_nested_named_mix(usize(1), io), io) == i32(10), "named nested arm");
+  assert(io.await(_nested_named_mix(usize(2), io), io) == i32(20), "anonymous nested arm of another shape");
+  assert(io.await(_nested_named_mix_bound(usize(0), io), io) == i32(1), "plain outer arm (bound form)");
+  assert(io.await(_nested_named_mix_bound(usize(1), io), io) == i32(110), "anonymous nested arm, then the arm's statement");
+  assert(io.await(_nested_named_mix_bound(usize(2), io), io) == i32(120), "named nested arm, then the arm's statement");
+});
+test("a nested arm that loops with an await runs its post-loop code for that arm only", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  plain := io.await(_nested_loop_arm(usize(0), io), bundle);
+  assert(plain == "plain;end", `the plain outer arm runs nothing of the other arm (got ${plain})`);
+  no_loop := io.await(_nested_loop_arm(usize(1), io), bundle);
+  assert(no_loop == "no-loop;outer-tail;end", `the synchronous nested arm: enclosing tail, no post-loop code (got ${no_loop})`);
+  looped := io.await(_nested_loop_arm(usize(2), io), bundle);
+  assert(looped == "i=2;i=3;loop-done;outer-tail;end", `the looping nested arm: iterations, post-loop code, enclosing tail (got ${looped})`);
+});
+test("a while body that re-assigns an outer local from an await stores the future", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  got := io.await(_while_reassign_await(io), IoExn(io : io, exn : exn));
+  assert(got == usize(3), `the loop advanced through the awaited values (got ${got.to_string()})`);
 });

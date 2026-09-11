@@ -80,48 +80,69 @@ nesting level (the same "poll + store per depth" shape C36's
 
 ## Fix (2026-09-11)
 
-One dispatch field per nesting level, in `src/codegen/async/`:
+The dispatch codes `_alloc_cond_branch_codes` hands out are unique within a
+function, so a nested arm's code in the shared `sm->cond_branch_N` identifies
+BOTH the nested arm and the arm enclosing it. The fix keeps the single field
+and one entry per await point (every legacy consumer — chained layers,
+post-while continuations, the dispatch-mode switches, chained entries — keeps
+identifying arms by code on that field) and adds the structure the resume
+side was missing, in `src/codegen/async/`:
 
-- **Struct.** `AsyncBlockStructInfo.nested_cond_depth` (`max_nested_cond_depth`
-  over the body) declares `int cond_branch_N_n<d>;` next to `cond_branch_N`
-  for every nesting level `d` (`exprs/async.yo`).
-- **Store side** (`state_code_gen.yo`). `generate_cond_branch_with_await`
-  returns a `BranchEmission(remaining, nested)`. A nested cond/match in an
-  awaiting arm — bare, or the RHS of `x := …` / `x = …` (the bound form used
-  to fall through EVERY case and emit nothing) — goes through
-  `_emit_nested_cond_or_match`: a fresh `AsyncCondBranchInfo` sink is
-  installed in `context.nested_cond_sink`, `context.nested_cond_depth` is
-  bumped, and the nested instance's `sm->cond_branch_N_n<d> = k` writes
-  (`_cond_field_name`) and arm registrations (`_push_cond_branch`,
-  `_set_cond_branch_target`, `_store_cond_branch_info`) land in that sink
-  instead of the enclosing point's entry. The sink is pushed to
-  `context.nested_cond_records`; its index is the enclosing arm's
-  `CondBranch.nested` (an index, because `CondBranch` and
-  `AsyncCondBranchInfo` may not name each other).
-- **Resume side** (`state_machine.yo`). `_emit_nested_level_switch` switches
-  on the nested field, binds the taken nested arm's result (or hands it to the
-  nested instance's `x :=` target), recurses for deeper levels, runs the
-  nested arm's remaining code — and then the caller runs the ENCLOSING arm's
-  remaining code: the two-level dispatch that replaced the dead `case`.
-  Dispatch-mode points extract per nested arm through the recursive
-  `_emit_dispatch_extraction_case`. Uniform (slot-guarded) points emit the
-  nested-bearing arms AFTER the guard in `_emit_nested_branch_continuation`,
-  with the bindings under a `__yo_had_future_N` C local remembered from before
-  the guard, so a nested arm that completed synchronously (no future stored,
-  guard skipped) still runs the enclosing arm's statements — once, because
-  emitting the remaining code twice re-referenced the cached temporaries of
-  its own next await.
-- The "nested match claims the dispatch slot" fatal for dispatch-mode points
-  is gone; that shape is now emitted.
+- **Registration** (`state_code_gen.yo`). `generate_cond_branch_with_await`
+  returns a `BranchEmission(remaining, nested, codes)`. A nested cond/match in
+  an awaiting arm — bare, or the RHS of `x := …` / `x = …` (the bound form used
+  to fall through EVERY emitter case and emit nothing) — goes through
+  `_emit_nested_cond_or_match`: a fresh `AsyncCondBranchInfo` record is
+  pushed to `context.nested_cond_records` and handed to the cond/match emitter
+  through `context.nested_cond_sink`, which the emitter CLAIMS at entry into
+  `context.nested_cond_owner` (restored at exit) — so exactly the instance's
+  own arms register in the await point's entry as usual AND in that record
+  (`CondBranch.owner` names it), with its TARGETS going to the record only —
+  the entry's targets stay the top-level instance's. An instance emitted inside
+  one of its arm bodies some other way (a cond in a while body) finds no sink
+  and registers as an ordinary entry arm, keeping its own case. The record is
+  the enclosing arm's `CondBranch.nested`.
+  `CondBranch.codes` is the arm's own code plus every code allocated while its
+  body was emitted (nested arms, conds inside while loops, …). The legacy
+  "nested claimed the slot" special cases (`_push_chained_match_arm`, the
+  trivial-remaining post-while routing, the inner-wins store skip) are gone;
+  `_store_cond_branch_info` always unions by code.
+- **Resume** (`state_machine.yo`). The continuation switch emits an arm holding
+  a nested instance as ONE case labelled with the codes `_assign_case_labels`
+  gives it — within one switch each code goes to the arm with the smallest
+  code window containing it (a cond in a while body over the arm enclosing the
+  loop), and codes nobody more specific claims (a synchronous nested arm's,
+  which never registers) go to the enclosing arm — whose body is
+  `_emit_nested_level_switch` — a switch on the
+  same field over the nested arms' codes that binds the taken arm's result (or
+  hands it to the instance's target), recurses for deeper nesting and runs the
+  nested arm's remaining code — followed by the enclosing arm's remaining code.
+  Owned arms get no case of their own. Uniform (slot-guarded) points emit these
+  cases AFTER the guard in `_emit_nested_branch_continuation`, with the bindings
+  under a `__yo_had_future_N` C local captured before the guard, so a nested
+  arm that completed synchronously (no future stored, guard skipped) still runs
+  the enclosing arm's statements — once. Chained layers and post-while
+  continuations test `_codes_guard(field, codes)` instead of `== index`, and
+  chained records carry the arm's `codes`. Dispatch-mode suspension and
+  extraction switch over the nested arms' own cases (exact future shape and
+  named-ness per arm); the enclosing arm, whose code never holds the field at
+  the point, gets none. A nested arm whose value IS the await hands it to its
+  instance's target, resolved up the owner chain (`_branch_value_target`), and
+  a bare nested instance that is the enclosing arm's tail inherits the
+  enclosing level's target (`tail_of_enclosing_arm`).
 
-Programs without nesting emit byte-identical C (checked with `--emit-c-to`
-on the direct-await control shape).
+Programs without nesting emit byte-identical C (`codes == [index]`, so the
+labels and guards are unchanged).
 
 **Gate:** `tests/async_await.test.yo` — "an awaiting inner match inside a
 match arm keeps the arm's trailing statements", "the yo install shape: inner
 match, a second bound await, an awaiting if, and a sibling arm binding the
 same name", "two nesting levels: an awaiting cond inside a match inside a
-match arm". All three fail (dropped arm / mis-typed slot) before the fix.
+match arm", "nested cond arms mixing a named and an anonymous future await
+through their own access"; plus `tests/fs/dir.test.yo` (`create_dir_all`: a
+nested cond whose arm holds an awaiting while and a further await) as the
+regression canary for the shared-field consumers. The pre-fix compiler cannot
+C-compile the batch holding the first three (the mis-typed slot).
 
 ## Fix direction (as filed)
 

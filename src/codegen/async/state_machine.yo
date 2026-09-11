@@ -15,7 +15,7 @@
 { lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while } :: import("./state_code_gen.yo");
+{ StateSegment, split_into_state_segments, generate_await_expression, generate_state_segment_code, hoist_non_splittable_awaits, await_is_while_condition, is_io_future_type, cond_await_point_needs_dispatch, cond_branch_future_access, CondBranchFutureAccess, collect_branch_await_exprs, _find_branch_await_target_variable_id, cond_branch_expr_in_while, _single_part_codes, _single_part_len } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -1667,6 +1667,81 @@ _dispatch_branches :: (fn(cbd : AsyncCondBranchInfo, cond_field : usize, ap_inde
   );
   all
 });
+/// One `case` of the dispatch-mode suspension switch, suspending through the
+/// arm's OWN future access (shape and named-ness). Nested cond/match arms are
+/// entry arms with their own codes, so each gets its own exact case here;
+/// the enclosing arm gets none (see below).
+_emit_dispatch_suspension_case :: (
+  fn(
+    branch : CondBranch,
+    ap : AwaitPoint,
+    next_s : String,
+    resume_function_name : String,
+    depth : usize,
+    outer_loop_info : Option(WhileLoopInfo),
+    indent : String,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  // An arm whose await lives in a NESTED cond/match never holds the field
+  // at this point — the nested arm's write comes after its own — so it has
+  // no case of its own: the nested arms are entry arms and get theirs.
+  if(branch.nested.is_some(), return(()));
+  ae_opt := match(
+    branch.await_exprs,
+    .Some(aes) => aes.get(depth),
+    .None => Option(AstExpr).None
+  );
+  match(
+    ae_opt,
+    // A branch with fewer awaits than this depth never reaches this
+    // state — no case; the default skips.
+    .None => (),
+    .Some(ae) => match(
+      cond_branch_future_access(ae, ap, context),
+      .None => {
+        bt := ast_expr_token(ae);
+        codegen_fatal(`internal: dispatch-mode await point ${ap.base.index.to_string()} branch ${branch.index.to_string()} future access unresolvable (${bt.module_path}:${(bt.row + usize(1)).to_string()}:${(bt.column + usize(1)).to_string()})`);
+      },
+      .Some(acc_info) => {
+        em.emit_string_line(`${indent}case ${branch.index.to_string()}: {`);
+        if(!(acc_info.is_named), {
+          // A live code with a NULL slot means this arm's own store
+          // never ran (e.g. a nested plain arm kept the code, or this
+          // record is a dead outer layer) — nothing to await.
+          em.emit_string_line(`${indent}  if (sm->await_future_${ap.base.index.to_string()} == NULL) {`);
+          em.emit_string_line(`${indent}    sm->state = ${next_s};`);
+          em.emit_string_line(`${indent}    goto state_${next_s};`);
+          em.emit_string_line(`${indent}  }`);
+        });
+        branch_while_info := cond(
+          cond_branch_expr_in_while(ap.base, ae) =>
+            match(context.async_while_loop_info, .Some(m) => m.get(ap.base.index), .None => Option(WhileLoopInfo).None),
+          true => outer_loop_info
+        );
+        match(
+          branch_while_info,
+          .Some(wi) => {
+            wli := match(wi.while_loop_origin_index, .Some(o) => o, .None => ap.base.index);
+            em.emit_string_line(`${indent}  // Only await if while loop is still active (not broken)`);
+            em.emit_string_line(`${indent}  if (sm->while_loop_${wli.to_string()}_active) {`);
+            _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, `${indent}    `, context);
+            em.emit_string_line(`${indent}  } else {`);
+            em.emit_string_line(`${indent}    // While loop was broken, jump to code after loop`);
+            em.emit_string_line(`${indent}    goto after_while_loop_${wli.to_string()};`);
+            em.emit_string_line(`${indent}  }`);
+          },
+          .None => {
+            _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, `${indent}  `, context);
+          }
+        );
+        em.emit_string_line(`${indent}  break;`);
+        em.emit_string_line(`${indent}}`);
+      }
+    )
+  );
+});
 _emit_await_suspension_dispatch :: (
   fn(
     ap : AwaitPoint,
@@ -1712,59 +1787,7 @@ _emit_await_suspension_dispatch :: (
     match(
       dispatch_branches.get(bi),
       .Some(branch) => if(branch.has_await, {
-        ae_opt := match(
-          branch.await_exprs,
-          .Some(aes) => aes.get(depth),
-          .None => Option(AstExpr).None
-        );
-        match(
-          ae_opt,
-          // A branch with fewer awaits than this depth never reaches this
-          // state — no case; the default skips.
-          .None => (),
-          .Some(ae) => match(
-            cond_branch_future_access(ae, ap, context),
-            .None => {
-              bt := ast_expr_token(ae);
-              codegen_fatal(`internal: dispatch-mode await point ${ap.base.index.to_string()} branch ${branch.index.to_string()} future access unresolvable (${bt.module_path}:${(bt.row + usize(1)).to_string()}:${(bt.column + usize(1)).to_string()})`);
-            },
-            .Some(acc_info) => {
-              em.emit_string_line(`        case ${branch.index.to_string()}: {`);
-              if(!(acc_info.is_named), {
-                // A live code with a NULL slot means this arm's own store
-                // never ran (e.g. a nested plain arm kept the code, or this
-                // record is a dead outer layer) — nothing to await.
-                em.emit_string_line(`          if (sm->await_future_${ap.base.index.to_string()} == NULL) {`);
-                em.emit_string_line(`            sm->state = ${next_s};`);
-                em.emit_string_line(`            goto state_${next_s};`);
-                em.emit_string_line(`          }`);
-              });
-              branch_while_info := cond(
-                cond_branch_expr_in_while(ap.base, ae) =>
-                  match(context.async_while_loop_info, .Some(m) => m.get(ap.base.index), .None => Option(WhileLoopInfo).None),
-                true => outer_loop_info
-              );
-              match(
-                branch_while_info,
-                .Some(wi) => {
-                  wli := match(wi.while_loop_origin_index, .Some(o) => o, .None => ap.base.index);
-                  em.emit_string_line(`          // Only await if while loop is still active (not broken)`);
-                  em.emit_string_line(`          if (sm->while_loop_${wli.to_string()}_active) {`);
-                  _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, String.from("            "), context);
-                  em.emit_string_line(`          } else {`);
-                  em.emit_string_line(`            // While loop was broken, jump to code after loop`);
-                  em.emit_string_line(`            goto after_while_loop_${wli.to_string()};`);
-                  em.emit_string_line(`          }`);
-                },
-                .None => {
-                  _emit_await_suspension_core(acc_info.access.clone(), acc_info.is_io_future, next_s.clone(), resume_function_name.clone(), ae, String.from("          "), context);
-                }
-              );
-              em.emit_string_line(`          break;`);
-              em.emit_string_line(`        }`);
-            }
-          )
-        );
+        _emit_dispatch_suspension_case(branch, ap, next_s.clone(), resume_function_name.clone(), depth, outer_loop_info, String.from("        "), context);
       }),
       .None => ()
     );
@@ -2008,26 +2031,173 @@ _cond_layer_target :: (
   )
 );
 /// The destination of a NESTED instance's value: its own `x :=` target, else —
-/// when it is the enclosing arm's TAIL (no remaining statements), so its value
-/// IS the enclosing arm's value — the enclosing level's target.
+/// when it is the enclosing arm's TAIL expression, so its value IS the
+/// enclosing arm's value — the enclosing level's target.
 _nested_level_target :: (
-  fn(branch : CondBranch, ninfo : AsyncCondBranchInfo, enclosing_target : Option(String)) -> Option(String)
+  fn(ninfo : AsyncCondBranchInfo, enclosing_target : Option(String)) -> Option(String)
 )(
   match(
     ninfo.target_assignment_code,
     .Some(t) => Option(String).Some(t),
-    .None => if(
-      match(branch.remaining_exprs, .Some(r) => (r.len() == usize(0)), .None => true),
-      enclosing_target,
-      Option(String).None
-    )
+    .None => if(ninfo.tail_of_enclosing_arm, enclosing_target, Option(String).None)
   )
 );
-/// One `case` of the dispatch-mode extraction switch. A branch whose await
-/// lives in a NESTED cond/match (`branch.nested`) switches on the nested
-/// instance's own field and extracts per nested arm, recursively — the
-/// destinations are the nested arms' own bindings, or the nested instance's
-/// registered target when the nested arm's value IS the await.
+/// `_nested_level_target` resolved up the owner chain: the target of the
+/// nested record `k`, given the top-level entry's target `layer_target`.
+_instance_target :: (
+  fn(k : usize, layer_target : Option(String), context : FunctionGenerationContext) -> Option(String)
+)(
+  match(
+    context.nested_cond_records.get(k),
+    .Some(rec) => _nested_level_target(
+      rec,
+      match(rec.nested_owner, .Some(o) => recur(o, layer_target, context), .None => layer_target)
+    ),
+    .None => Option(String).None
+  )
+);
+/// Where an arm's value goes when its value IS the await: an owned (nested)
+/// arm's instance target, a top-level arm's layer target.
+_branch_value_target :: (
+  fn(branch : CondBranch, layer_target : Option(String), context : FunctionGenerationContext) -> Option(String)
+)(
+  match(branch.owner, .Some(k) => _instance_target(k, layer_target, context), .None => layer_target)
+);
+/// Which arm of one `switch (sm->cond_branch_N)` owns each dispatch code. An
+/// arm's `codes` is the window of codes allocated while its body was emitted,
+/// so windows are nested or disjoint: a code inside several windows belongs
+/// to the arm with the SMALLEST one (the arm actually written last — a cond in
+/// a while body over the arm enclosing the loop, a nested arm over the arm
+/// enclosing it when the nested arm has a case of its own). Codes nobody more
+/// specific claims — a synchronous nested arm's, which never registers — go
+/// to the enclosing arm, so its continuation still runs. Returns
+/// branch index → the codes to label its case with.
+_assign_case_labels :: (
+  fn(branches : ArrayList(CondBranch), context : FunctionGenerationContext) -> HashMap(usize, ArrayList(usize))
+)({
+  // Order by window size, ascending; stable within a size.
+  order := ArrayList(usize).new();
+  (i : usize) = usize(0);
+  while(i < branches.len(), {
+    order.push(i);
+    i = (i + usize(1));
+  });
+  (a : usize) = usize(1);
+  while(a < order.len(), {
+    (b : usize) = a;
+    (moving : bool) = true;
+    while((b > usize(0)) && moving, {
+      cur := match(order.get(b), .Some(x) => x, .None => usize(0));
+      prev := match(order.get(b - usize(1)), .Some(x) => x, .None => usize(0));
+      cur_len := match(branches.get(cur), .Some(br) => br.codes.len(), .None => usize(0));
+      prev_len := match(branches.get(prev), .Some(br) => br.codes.len(), .None => usize(0));
+      if(cur_len < prev_len, {
+        order.swap(b, b - usize(1));
+        b = (b - usize(1));
+      }, {
+        moving = false;
+      });
+    });
+    a = (a + usize(1));
+  });
+  claimed := HashSet(usize).new();
+  out := HashMap(usize, ArrayList(usize)).new();
+  (oi : usize) = usize(0);
+  while(oi < order.len(), {
+    bi := match(order.get(oi), .Some(x) => x, .None => usize(0));
+    match(
+      branches.get(bi),
+      .Some(br) => {
+        mine := ArrayList(usize).new();
+        (ci : usize) = usize(0);
+        while(ci < br.codes.len(), {
+          match(
+            br.codes.get(ci),
+            .Some(c) => if(!(claimed.contains(c)), {
+              claimed.insert(c);
+              mine.push(c);
+            }),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        out.insert(br.index, mine);
+      },
+      .None => ()
+    );
+    oi = (oi + usize(1));
+  });
+  out
+});
+/// The arms that get a case of their own in an entry's continuation switch:
+/// every arm not OWNED by a nested record (owned arms run inside their owner
+/// arm's case, so they must not claim codes in the owner's switch).
+_unowned_branches :: (fn(branches : ArrayList(CondBranch)) -> ArrayList(CondBranch))({
+  out := ArrayList(CondBranch).new();
+  (i : usize) = usize(0);
+  while(i < branches.len(), {
+    match(
+      branches.get(i),
+      .Some(b) => if(b.owner.is_none(), {
+        out.push(b);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// `case a: case b: …` for the codes `_assign_case_labels` gave `branch`.
+_case_labels :: (fn(labels : HashMap(usize, ArrayList(usize)), branch : CondBranch) -> String)({
+  codes := match(
+    labels.get(branch.index),
+    .Some(l) => l,
+    .None => {
+      own := ArrayList(usize).new();
+      own.push(branch.index);
+      own
+    }
+  );
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < codes.len(), {
+    match(
+      codes.get(i),
+      .Some(c) => {
+        if(i > usize(0), {
+          out.push_str(" ");
+        });
+        out.push_string(`case ${c.to_string()}:`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// `(f == a || f == b …)` over `codes` — the arm identity test for `if` guards.
+_codes_guard :: (fn(field : String, codes : ArrayList(usize)) -> String)({
+  out := String.from("(");
+  (i : usize) = usize(0);
+  while(i < codes.len(), {
+    match(
+      codes.get(i),
+      .Some(c) => {
+        if(i > usize(0), {
+          out.push_str(" || ");
+        });
+        out.push_string(`${field} == ${c.to_string()}`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out.push_str(")");
+  out
+});
+/// One `case` of the dispatch-mode extraction switch. A nested cond/match
+/// arm's destination is its own binding, or — when its value IS the await —
+/// its instance's target (`_branch_value_target`), never the entry's.
 _emit_dispatch_extraction_case :: (
   fn(
     branch : CondBranch,
@@ -2042,37 +2212,8 @@ _emit_dispatch_extraction_case :: (
 )({
   em := context.base.emitter;
   prev_idx_s := prev_await.base.index.to_string();
-  match(
-    branch.nested,
-    .Some(nk) => match(
-      context.nested_cond_records.get(nk),
-      .Some(ninfo) => {
-        field := match(ninfo.cond_field_name, .Some(f) => f, .None => `cond_branch_${prev_idx_s}`);
-        em.emit_string_line(`        case ${branch.index.to_string()}: {`);
-        em.emit_string_line(`          // Nested cond/match: extract per nested arm`);
-        em.emit_string_line(`          switch (sm->${field}) {`);
-        level_target := _nested_level_target(branch, ninfo, level_target_assignment);
-        (ni : usize) = usize(0);
-        while(ni < ninfo.branches.len(), {
-          match(
-            ninfo.branches.get(ni),
-            .Some(inner) => if(inner.has_await, {
-              recur(inner, level_target, async_block_id.clone(), prev_await, depth, slot.clone(), context, cross_boundary_ids);
-            }),
-            .None => ()
-          );
-          ni = (ni + usize(1));
-        });
-        em.emit_string_line(`          default: break;`);
-        em.emit_string_line(`          }`);
-        em.emit_string_line(`          break;`);
-        em.emit_string_line(`        }`);
-        return(());
-      },
-      .None => ()
-    ),
-    .None => ()
-  );
+  // See _emit_dispatch_suspension_case: the nested arms carry the live codes.
+  if(branch.nested.is_some(), return(()));
   ae_opt := match(
     branch.await_exprs,
     .Some(aes) => aes.get(depth),
@@ -2129,7 +2270,7 @@ _emit_dispatch_extraction_case :: (
           // after it) — its result IS the cond's value.
           .None => if(match(branch.remaining_exprs, .Some(r) => (r.len() == usize(0)), .None => true), {
             match(
-              level_target_assignment,
+              _branch_value_target(branch, level_target_assignment, context),
               .Some(tac) => {
                 dest = Option(String).Some(tac.clone());
               },
@@ -2361,6 +2502,8 @@ _chain_additional_remaining :: (
     context : FunctionGenerationContext,
     next_index : usize,
     branch_index : usize,
+    /// The arm's identity set (`CondBranch.codes`), carried onto the chained record.
+    codes : ArrayList(usize),
     branch_value : AstExpr,
     additional_remaining : ArrayList(AstExpr),
     deferred_drops : Option(ArrayList(AstExpr)),
@@ -2388,7 +2531,9 @@ _chain_additional_remaining :: (
       has_await => Option(ArrayList(AstExpr)).Some(chained_awaits),
       true => Option(ArrayList(AstExpr)).None
     ),
-    nested : Option(usize).None
+    nested : Option(usize).None,
+    owner : Option(usize).None,
+    codes : codes
   );
   if(context.async_cond_branch_info.is_none(), {
     context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
@@ -2415,7 +2560,8 @@ _chain_additional_remaining :: (
           target_assignment_code : Option(String).None,
           cond_branch_field_index : Option(usize).Some(cond_branch_field_index),
           chained_branches : Option(ArrayList(ChainedCondBranches)).None,
-          cond_field_name : Option(String).None
+          nested_owner : Option(usize).None,
+          tail_of_enclosing_arm : false
         )
       );
     }
@@ -2623,8 +2769,11 @@ _emit_cond_branch_remaining :: (
                         nested_while.cond_branch_post_while_exprs,
                         CondBranchPostWhileExprs(
                           branch_index : branch.index,
+                          codes : branch.codes,
                           cond_branch_field_index : cond_field,
                           exprs : additional_remaining,
+                          part_codes : _single_part_codes(branch.codes),
+                          part_lens : _single_part_len(additional_remaining.len()),
                           deferred_drop_expressions : branch.deferred_drop_expressions,
                           skip_cond_branch_check : Option(bool).None
                         )
@@ -2653,7 +2802,7 @@ _emit_cond_branch_remaining :: (
               .Some(ae) => _find_branch_await_target_variable_id(ae, context),
               .None => Option(String).None
             );
-            _chain_additional_remaining(context, ap.base.index, branch.index, branch.value, additional_remaining, branch.deferred_drop_expressions, cond_field, additional_target);
+            _chain_additional_remaining(context, ap.base.index, branch.index, branch.codes, branch.value, additional_remaining, branch.deferred_drop_expressions, cond_field, additional_target);
           });
           true
         }, false),
@@ -2690,11 +2839,11 @@ _emit_cond_branch_remaining :: (
   );
 });
 /// The resume-side switch for a cond/match NESTED inside an awaiting arm
-/// (`CondBranch.nested`): dispatch on the nested instance's own field, bind
-/// the taken arm's await result, recurse into deeper nesting, run that arm's
-/// remaining code. The caller then runs the ENCLOSING arm's remaining code —
-/// the two-level dispatch that replaced the dead `case` the enclosing arm's
-/// statements used to be keyed on
+/// (`CondBranch.nested`): dispatch on the shared field over the nested arms'
+/// codes, bind the taken arm's await result, recurse into deeper nesting, run
+/// that arm's remaining code. The caller then runs the ENCLOSING arm's
+/// remaining code — the two-level dispatch that replaced the dead `case` the
+/// enclosing arm's statements used to be keyed on
 /// (issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
 _emit_nested_level_switch :: (
   fn(
@@ -2724,16 +2873,16 @@ _emit_nested_level_switch :: (
   ) -> unit
 )({
   em := context.base.emitter;
-  field := match(ninfo.cond_field_name, .Some(f) => f, .None => `cond_branch_${prev_await.base.index.to_string()}`);
   idx_s := prev_await.base.index.to_string();
-  em.emit_string_line(`${indent}// Nested cond/match: dispatch on its own field, then fall through to the enclosing arm`);
-  em.emit_string_line(`${indent}switch (sm->${field}) {`);
+  labels := _assign_case_labels(ninfo.branches, context);
+  em.emit_string_line(`${indent}// Nested cond/match: dispatch on the nested arm's code, then fall through to the enclosing arm`);
+  em.emit_string_line(`${indent}switch (sm->cond_branch_${cond_field.to_string()}) {`);
   (ni : usize) = usize(0);
   while(ni < ninfo.branches.len(), {
     match(
       ninfo.branches.get(ni),
       .Some(inner) => if(inner.has_await, {
-        em.emit_string_line(`${indent}  case ${inner.index.to_string()}: {`);
+        em.emit_string_line(`${indent}  ${_case_labels(labels, inner)} {`);
         em.emit_string_line(`${indent}    ASYNC_DEBUG("${async_block_id}: Executing remaining code from nested branch ${inner.index.to_string()}\\n");`);
         inner_indent := `${indent}    `;
         if(inner.nested.is_none(), {
@@ -2774,7 +2923,7 @@ _emit_nested_level_switch :: (
             inner.nested,
             .Some(nk) => match(
               context.nested_cond_records.get(nk),
-              .Some(nn) => recur(nn, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, inner_indent.clone(), context, cross_boundary_ids, dispatch_mode, _nested_level_target(inner, nn, level_target), c_guard),
+              .Some(nn) => recur(nn, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, inner_indent.clone(), context, cross_boundary_ids, dispatch_mode, _nested_level_target(nn, level_target), c_guard),
               .None => ()
             ),
             .None => ()
@@ -2851,6 +3000,7 @@ _emit_nested_branch_continuation :: (
         if(_cond_point_has_nested_arm(prev_await, context), {
           cond_field := match(cbd.cond_branch_field_index, .Some(x) => x, .None => prev_await.base.index);
           layer_target := _cond_layer_target(cbd, cond_field, context);
+          labels := _assign_case_labels(_unowned_branches(cbd.branches), context);
           idx_s := prev_await.base.index.to_string();
           c_guard := Option(String).Some(`__yo_had_future_${idx_s}`);
           em.emit_string_line(`      // Arms with a nested cond/match: run whether or not the nested arm awaited`);
@@ -2862,10 +3012,10 @@ _emit_nested_branch_continuation :: (
               .Some(branch) => match(
                 branch.nested,
                 .Some(nk) => if(branch.has_await, {
-                  em.emit_string_line(`        case ${branch.index.to_string()}: {`);
+                  em.emit_string_line(`        ${_case_labels(labels, branch)} {`);
                   match(
                     context.nested_cond_records.get(nk),
-                    .Some(ninfo) => _emit_nested_level_switch(ninfo, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, `          `, context, cross_boundary_ids, false, _nested_level_target(branch, ninfo, layer_target), c_guard),
+                    .Some(ninfo) => _emit_nested_level_switch(ninfo, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, `          `, context, cross_boundary_ids, false, _nested_level_target(ninfo, layer_target), c_guard),
                     .None => ()
                   );
                   _emit_cond_branch_remaining(branch, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, layer_target, `          `, context);
@@ -2934,6 +3084,7 @@ _emit_cond_branch_continuation :: (
         if(any_await, {
           cond_field := match(cbd.cond_branch_field_index, .Some(x) => x, .None => prev_await.base.index);
           layer_target := _cond_layer_target(cbd, cond_field, context);
+          labels := _assign_case_labels(_unowned_branches(cbd.branches), context);
           skip_switch := (cond_field == usize.MAX);
           em.emit_string_line(`      // Execute remaining code from chosen cond branch`);
           if(!(skip_switch), {
@@ -2947,9 +3098,11 @@ _emit_cond_branch_continuation :: (
               // slot guard by `_emit_nested_branch_continuation` — their
               // remaining code must also run when the nested arm completed
               // synchronously (no future, guard skipped).
-              .Some(branch) => if(branch.has_await && (dispatch_mode || branch.nested.is_none()), {
+              // An OWNED arm (one of a nested instance's) runs inside its
+              // owner arm's case — never as a case of its own here.
+              .Some(branch) => if((branch.has_await && branch.owner.is_none()) && (dispatch_mode || branch.nested.is_none()), {
                 if(!(skip_switch), {
-                  em.emit_string_line(`        case ${branch.index.to_string()}: {`);
+                  em.emit_string_line(`        ${_case_labels(labels, branch)} {`);
                 });
                 em.emit_string_line(`          ASYNC_DEBUG("${async_block_id}: Executing remaining code from branch ${branch.index.to_string()}\\n");`);
                 // Bind THIS branch's own await result. Several arms share one
@@ -2998,7 +3151,7 @@ _emit_cond_branch_continuation :: (
                   branch.nested,
                   .Some(nk) => match(
                     context.nested_cond_records.get(nk),
-                    .Some(ninfo) => _emit_nested_level_switch(ninfo, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, `          `, context, cross_boundary_ids, dispatch_mode, _nested_level_target(branch, ninfo, layer_target), Option(String).None),
+                    .Some(ninfo) => _emit_nested_level_switch(ninfo, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, `          `, context, cross_boundary_ids, dispatch_mode, _nested_level_target(ninfo, layer_target), Option(String).None),
                     .None => ()
                   ),
                   .None => ()
@@ -3111,7 +3264,8 @@ _emit_outer_chained_branch_layers :: (
                     layer.branches.get(ci),
                     .Some(cb) => if(cb.has_await && match(cb.remaining_exprs, .Some(r) => (r.len() > usize(0)), .None => false), {
                       em.emit_string_line(`      // Outer cond branch ${cb.index.to_string()} remaining code (chained)`);
-                      em.emit_string_line(`      if (sm->cond_branch_${layer.cond_branch_field_index.to_string()} == ${cb.index.to_string()}) {`);
+                      layer_guard := _codes_guard(`sm->cond_branch_${layer.cond_branch_field_index.to_string()}`, cb.codes);
+                      em.emit_string_line(`      if ${layer_guard} {`);
                       // The layer's tail value is the OUTER arm's value — it goes
                       // to the outer cond's target (`_cond_layer_target`).
                       outer_target := match(
@@ -3165,7 +3319,8 @@ _emit_post_while_cond_branch :: (
         em.emit_string_line(`      {`);
       }, {
         em.emit_string_line(`      // Execute post-while-loop code from cond branch`);
-        em.emit_string_line(`      if (sm->cond_branch_${pw.cond_branch_field_index.to_string()} == ${pw.branch_index.to_string()}) {`);
+        pw_guard := _codes_guard(`sm->cond_branch_${pw.cond_branch_field_index.to_string()}`, pw.codes);
+        em.emit_string_line(`      if ${pw_guard} {`);
       });
       prev_in_sm := context.in_async_state_machine;
       prev_smv := context.state_machine_variables;
@@ -3180,12 +3335,35 @@ _emit_post_while_cond_branch :: (
       has_next := match(segment.await_point, .Some(_) => true, .None => false);
       (found : bool) = false;
       additional := ArrayList(AstExpr).new();
+      // Several clients merged into this slot (inner arm first): each one's
+      // statements run under ITS OWN codes guard. A single client's guard is
+      // the slot's, already emitted above.
+      multi_part := (pw.part_codes.len() > usize(1));
+      (part : usize) = usize(0);
+      (part_end : usize) = match(pw.part_lens.get(usize(0)), .Some(l) => l, .None => pw.exprs.len());
+      (part_open : bool) = false;
       (i : usize) = usize(0);
       while(i < pw.exprs.len(), {
         expr := match(pw.exprs.get(i), .Some(e) => e, .None => body_expr);
+        while((i >= part_end) && ((part + usize(1)) < pw.part_lens.len()), {
+          if(part_open, {
+            em.emit_string_line(`        }`);
+            part_open = false;
+          });
+          part = (part + usize(1));
+          part_end = (part_end + match(pw.part_lens.get(part), .Some(l) => l, .None => usize(0)));
+        });
         if(found, {
           additional.push(expr);
         }, {
+          if(multi_part && !(part_open), {
+            part_guard := _codes_guard(
+              `sm->cond_branch_${pw.cond_branch_field_index.to_string()}`,
+              match(pw.part_codes.get(part), .Some(pc) => pc, .None => pw.codes)
+            );
+            em.emit_string_line(`        if ${part_guard} {`);
+            part_open = true;
+          });
           if(has_next && expr_contains_await(expr), {
             found = true;
             match(segment.await_point, .Some(ap) => generate_remaining_expr_future(expr, ap, analysis, `        `, context), .None => ());
@@ -3203,12 +3381,15 @@ _emit_post_while_cond_branch :: (
         });
         i = (i + usize(1));
       });
+      if(part_open, {
+        em.emit_string_line(`        }`);
+      });
       chained := match(
         segment.await_point,
         .Some(ap) => if(found, {
           ccf := if(skip_check, usize.MAX, pw.cond_branch_field_index);
           bv := match(pw.exprs.get(usize(0)), .Some(e) => e, .None => body_expr);
-          _chain_additional_remaining(context, ap.base.index, pw.branch_index, bv, additional, pw.deferred_drop_expressions, ccf, Option(String).None);
+          _chain_additional_remaining(context, ap.base.index, pw.branch_index, pw.codes, bv, additional, pw.deferred_drop_expressions, ccf, Option(String).None);
           true
         }, false),
         .None => false

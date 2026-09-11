@@ -1,0 +1,52 @@
+// Reproducer for issues/fixed/async-post-while-code-runs-for-a-sibling-nested-arm.md
+// Expected: `plain;end`, `no-loop;outer-tail;end`, `i=2;i=3;loop-done;outer-tail;end`. Pre-fix the second line read `no-loop;loop-done;outer-tail;end`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+{ yield } :: import("std/async");
+
+step :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    n + usize(1)
+  })
+);
+// A nested cond whose arm LOOPS with an await, followed by statements of the
+// ENCLOSING arm — the create_dir_all shape plus a trailing enclosing statement.
+walk :: (fn(mode : usize, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    first := e.io.await(step(usize(0), e.io), e);
+    cond(
+      (mode == usize(0)) => {
+        log.push_str("plain;");
+      },
+      true => {
+        cond(
+          (mode == usize(1)) => {
+            log.push_str("no-loop;");
+          },
+          true => {
+            (i : usize) = first;
+            while(runtime(i < usize(3)), {
+              r := e.io.await(step(i, e.io), e);
+              i = r;
+              log.push_string(`i=${i.to_string()};`);
+            });
+            log.push_str("loop-done;");
+          }
+        );
+        log.push_str("outer-tail;");
+      }
+    );
+    log.push_str("end");
+    log
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  b := IoExn(io : io, exn : exn);
+  println(io.await(walk(usize(0), io), b));
+  println(io.await(walk(usize(1), io), b));
+  println(io.await(walk(usize(2), io), b));
+});
+export(main);
