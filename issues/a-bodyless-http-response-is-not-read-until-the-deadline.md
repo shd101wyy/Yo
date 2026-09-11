@@ -57,7 +57,44 @@ Ruled out locally so the next session does not repeat them:
 - An x86_64 build under Rosetta could not be produced — homebrew's OpenSSL is
   arm-only, so `--target x86_64-apple-darwin` fails to link `TLS_client_method`.
 
-## The most likely cause: the client's read is a two-arm match with an await in each arm
+## Three suspects EXCLUDED by measurement (2026-09-11)
+
+Recorded so none of them is re-investigated. Each was excluded by comparing
+emitted C or by reading the registration flags, not by a passing test.
+
+1. **The two-arm `_Transport.read` dispatch — NO.** The shape (an enum with two
+   payload arms, each `n = e.io.await(stream.read(...), e)` over
+   differently-shaped futures) was written standalone and emitted with a
+   pre-#592 compiler and with #592's: the C is BYTE-IDENTICAL, and both
+   binaries compute the right answer over 200 alternating iterations. None of
+   #592's six dispatch fixes touch a plain two-arm point.
+
+2. **An edge-triggered readiness registration that misses an edge that already
+   happened — NO, not on macOS.** `__yo_io_register_kevent`
+   (`src/codegen/async/runtime_io_macos.yo`) issues
+   `EV_SET(..., EV_ADD | EV_ONESHOT, ...)` with **no `EV_CLEAR`**, so
+   `EVFILT_READ` is LEVEL-triggered: registering it against a socket whose
+   buffer already holds the response fires immediately.
+
+3. **The while-loop family — NO.** `read_http_message_buffered`'s read loop is
+   an outer `while` whose await is its first statement, with a NESTED `while`
+   (no await) inside a `cond` arm after it, both testing the same `done` flag.
+   That combination was compared function-by-function between a pre-#592
+   compiler and #592+#593: **362 functions on both sides, 0 bodies differ**.
+   The only raw-text difference in the whole file is one unreferenced struct
+   slot (`__yo_t1 var_N; // io`, 0 uses) that the post-fix suspension analysis
+   stops declaring. No store, no read, no branch.
+
+   Worth noting for any future A/B: the compiler's own emission never includes
+   this function, because `std/http` is not in `src/main.yo`'s import closure.
+   An emit A/B over the compiler tree therefore says nothing about it, and the
+   comparison has to be driven from a small program that imports the module.
+
+**That leaves the platform I/O completion path.** The client-side checkpoints
+now on this branch answer the remaining question directly: whether the read is
+never ISSUED, or issued and never woken.
+
+## Earlier hypothesis, now refuted: a two-arm match with an await in each arm
 
 `std/http/client.yo`'s `_Transport.read` is an `io.async` body whose only
 await sits inside a `match`, once per arm:
@@ -88,9 +125,10 @@ It also explains the timing-dependence. Which arm's continuation is emitted as
 the representative, and whether the loop delivers the completion inline or
 through the ready queue, decides whether the mis-routed path is taken.
 
-**So the first thing to do after #592 lands is re-run this branch's battery.**
-If the hang is gone, this issue closes with #592 rather than needing a runtime
-fix. If it survives, the runtime question below is the next one.
+**This was wrong** — see exclusion 1 above. #592 landed and the shape it
+would have had to fix emits identically on both compilers. Kept because the
+reasoning is the right reasoning for the NEXT dispatch-shaped suspicion; only
+the conclusion was wrong.
 
 ## Where to look, if #592 does not fix it
 
