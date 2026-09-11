@@ -4824,3 +4824,392 @@ test("Test a module global survives a suspension point", {
   assert(d == usize(2), "a spawned suspending body saw its own increments");
   assert(_g_async_counter == usize(2), "and they landed on the real global");
 });
+// ---------------------------------------------------------------------------
+// A cond/match with an awaiting arm NESTED inside an awaiting match arm
+// (issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
+// The enclosing arm's statements after the nested instance used to be a dead
+// dispatch case — the whole arm vanished, exit 0, `check` clean. The enclosing
+// arm's case now covers its nested arms' dispatch codes (unique per function
+// on the shared `cond_branch_N`), runs the taken nested arm's remaining code
+// and then its own, and a nested arm that completes synchronously still runs
+// the enclosing statements.
+// ---------------------------------------------------------------------------
+_NestedParsed :: enum(
+  Git(name : String, pinned_ref : Option(String)),
+  Path(name : String, rel : String),
+  Other
+);
+_nested_resolve :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    s := String.from("resolved");
+    s
+  })
+);
+_nested_append :: (fn(line : String, io : Io) -> Impl(Future(bool, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    line.len() > usize(0)
+  })
+);
+/// Shape A — the reproducer: a value-producing inner match whose `.None` arm
+/// awaits (tail await) and whose `.Some` arm is synchronous, followed by
+/// statements that use the bound value and an outer pattern binding.
+_nested_shape_a :: (fn(parsed : _NestedParsed, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := match(
+      parsed,
+      .Other => String.from("other"),
+      .Path(
+        p_name,
+        p_rel
+      ) => `${p_name}@${p_rel}`,
+      .Git(
+        g_name,
+        g_pinned_ref
+      ) => {
+        ref_str := match(
+          g_pinned_ref,
+          .Some(r) => r,
+          .None => e.io.await(_nested_resolve(e.io), e)
+        );
+        tail := `${ref_str};${g_name}`;
+        tail
+      }
+    );
+    out
+  })
+);
+/// Shape B — the `yo install` shape: the inner match, then a SECOND await
+/// bound to a local, then an `if` whose body awaits; a sibling arm binds the
+/// same local name from its own await.
+_nested_shape_b :: (fn(parsed : _NestedParsed, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := match(
+      parsed,
+      .Other => String.from("other"),
+      .Path(
+        p_name,
+        p_rel
+      ) => {
+        added := e.io.await(_nested_append(`${p_name} path ${p_rel}`, e.io), e);
+        if(added, `path-added:${p_name}`, `path-skipped:${p_name}`)
+      },
+      .Git(
+        g_name,
+        g_pinned_ref
+      ) => {
+        ref_str := match(
+          g_pinned_ref,
+          .Some(r) => r,
+          .None => e.io.await(_nested_resolve(e.io), e)
+        );
+        added := e.io.await(_nested_append(`${g_name}@${ref_str}`, e.io), e);
+        fetched := if(added, {
+          second := e.io.await(_nested_resolve(e.io), e);
+          `fetched:${second}`
+        }, String.from("not-fetched"));
+        `${ref_str};${fetched};${g_name}`
+      }
+    );
+    out
+  })
+);
+/// Shape C — two nesting levels: match → match → cond with an awaiting arm.
+_nested_shape_c :: (fn(parsed : _NestedParsed, deep : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := match(
+      parsed,
+      .Other => String.from("other"),
+      .Path(
+        p_name,
+        _
+      ) => p_name,
+      .Git(
+        g_name,
+        g_pinned_ref
+      ) => {
+        inner := match(
+          g_pinned_ref,
+          .Some(r) => r,
+          .None => {
+            picked := cond(
+              deep => e.io.await(_nested_resolve(e.io), e),
+              true => String.from("shallow")
+            );
+            `${picked}!`
+          }
+        );
+        `${inner};${g_name}`
+      }
+    );
+    out
+  })
+);
+/// Shape D — a value-producing cond whose arm awaits TWICE (two plain bound
+/// awaits): the arm's tail value after the second await must reach the bound
+/// result (issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md).
+_nested_two_awaits :: (fn(flag : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := cond(
+      flag => {
+        a := e.io.await(_nested_resolve(e.io), e);
+        b := e.io.await(_nested_append(a.clone(), e.io), e);
+        `${a}|${b.to_string()}`
+      },
+      true => String.from("no")
+    );
+    out
+  })
+);
+/// Shape E — an awaiting `if` STATEMENT after a bound await, then the arm's
+/// tail value (the `yo install` `.Git` arm with `if(added, { … await fetch … })`).
+_nested_if_statement :: (fn(parsed : _NestedParsed, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    out := match(
+      parsed,
+      .Other => String.from("other"),
+      .Path(
+        p_name,
+        _
+      ) => p_name,
+      .Git(
+        g_name,
+        g_pinned_ref
+      ) => {
+        ref_str := match(
+          g_pinned_ref,
+          .Some(r) => r,
+          .None => e.io.await(_nested_resolve(e.io), e)
+        );
+        added := e.io.await(_nested_append(g_name.clone(), e.io), e);
+        if(added, {
+          second := e.io.await(_nested_resolve(e.io), e);
+          log.push_string(`fetched:${second};`);
+        });
+        `${log}${ref_str};${g_name}`
+      }
+    );
+    out
+  })
+);
+/// Shape F — dispatch-mode nested arms mixing a NAMED future with an
+/// anonymous one of a different shape: the suspension must go through each
+/// nested arm's own access (a representative would read the named future's
+/// slot as NULL and skip the await, or cast the slot to the wrong struct).
+_nested_named_mix :: (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+  rio.async((aio : Io) => {
+    fut := shape_ten(aio);
+    r := cond(
+      (n == usize(0)) => i32(1),
+      true => cond(
+        (n == usize(1)) => aio.await(fut, aio),
+        true => aio.await(shape_twenty(aio), aio)
+      )
+    );
+    return(r)
+  })
+);
+/// Shape G — the same mix bound inside a match arm, with a statement after it.
+_nested_named_mix_bound :: (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+  rio.async((aio : Io) => {
+    fut := shape_twenty(aio);
+    (acc : i32) = i32(0);
+    match(
+      n,
+      0 => {
+        acc = i32(1);
+      },
+      _ => {
+        v := cond(
+          (n == usize(1)) => aio.await(shape_ten(aio), aio),
+          true => aio.await(fut, aio)
+        );
+        acc = (v + i32(100));
+      }
+    );
+    return(acc)
+  })
+);
+/// Shape H — a nested cond whose arm LOOPS with an await, then statements of
+/// the enclosing arm: the loop arm's post-loop code must run for that arm
+/// only, and the enclosing statements for both nested arms.
+_nested_loop_step :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    n + usize(1)
+  })
+);
+_nested_loop_arm :: (fn(mode : usize, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    first := e.io.await(_nested_loop_step(usize(0), e.io), e);
+    cond(
+      (mode == usize(0)) => {
+        log.push_str("plain;");
+      },
+      true => {
+        cond(
+          (mode == usize(1)) => {
+            log.push_str("no-loop;");
+          },
+          true => {
+            (i : usize) = first;
+            while(runtime(i < usize(3)), {
+              r := e.io.await(_nested_loop_step(i, e.io), e);
+              i = r;
+              log.push_string(`i=${i.to_string()};`);
+            });
+            log.push_str("loop-done;");
+          }
+        );
+        log.push_str("outer-tail;");
+      }
+    );
+    log.push_str("end");
+    log
+  })
+);
+/// Shape I — a while body that RE-ASSIGNS an outer local from an await
+/// (`i = e.io.await(...)`, not `:=`).
+_while_reassign_await :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => {
+    (i : usize) = usize(0);
+    while(runtime(i < usize(3)), {
+      i = e.io.await(_nested_loop_step(i, e.io), e);
+    });
+    i
+  })
+);
+/// Shape J — two sibling arms whose SECOND awaits bind same-typed locals:
+/// the arm registered second lands in a chained layer of the sibling's
+/// entry, and its binding must still be assigned there.
+_sib_flag :: (fn(io : Io) -> Impl(Future(bool, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    true
+  })
+);
+_sib_name :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    String.from("nm")
+  })
+);
+_SibKind :: enum(A, B);
+_sibling_second_awaits :: (fn(k : _SibKind, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    match(
+      k,
+      .A => {
+        present := e.io.await(_sib_flag(e.io), e);
+        log.push_string(`A:present=${present.to_string()};`);
+        added := e.io.await(_sib_flag(e.io), e);
+        if(added, {
+          log.push_str("A:added;");
+        });
+      },
+      .B => {
+        nm := e.io.await(_sib_name(e.io), e);
+        log.push_string(`B:nm=${nm};`);
+        added := e.io.await(_sib_flag(e.io), e);
+        if(added, {
+          log.push_str("B:added;");
+        });
+      }
+    );
+    log
+  })
+);
+test("an awaiting inner match inside a match arm keeps the arm's trailing statements", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  pinned := io.await(_nested_shape_a(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), bundle);
+  assert(pinned == "v6;raylib", `synchronous inner arm: the trailing statements ran with the bound value (got ${pinned})`);
+  resolved := io.await(_nested_shape_a(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), bundle);
+  assert(resolved == "resolved;raylib", `awaiting inner arm: the trailing statements ran after the resume (got ${resolved})`);
+  other := io.await(_nested_shape_a(_NestedParsed.Other, io), bundle);
+  assert(other == "other", "an unrelated arm is unaffected");
+  path := io.await(_nested_shape_a(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
+  assert(path == "mylib@../mylib", "a synchronous sibling arm is unaffected");
+});
+test("the yo install shape: inner match, a second bound await, an awaiting if, and a sibling arm binding the same name", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  pinned := io.await(_nested_shape_b(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), bundle);
+  assert(pinned == "v6;fetched:resolved;raylib", `pinned ref: every statement of the arm ran (got ${pinned})`);
+  latest := io.await(_nested_shape_b(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), bundle);
+  assert(latest == "resolved;fetched:resolved;raylib", `resolved ref: every statement of the arm ran (got ${latest})`);
+  path := io.await(_nested_shape_b(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
+  assert(path == "path-added:mylib", `the sibling arm's own await binding is intact (got ${path})`);
+});
+test("two nesting levels: an awaiting cond inside a match inside a match arm", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  deep := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).None), true, io), bundle);
+  assert(deep == "resolved!;n", `innermost await: both enclosing levels' trailing statements ran (got ${deep})`);
+  shallow := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).None), false, io), bundle);
+  assert(shallow == "shallow!;n", `innermost synchronous arm: both enclosing levels completed inline (got ${shallow})`);
+  pinned := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).Some(String.from("v1"))), true, io), bundle);
+  assert(pinned == "v1;n", `middle synchronous arm (got ${pinned})`);
+});
+test("a value-producing cond arm that awaits twice keeps its tail value", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  got := io.await(_nested_two_awaits(true, io), bundle);
+  assert(got == "resolved|true", `the tail value after the second await reached the bound result (got ${got})`);
+  other := io.await(_nested_two_awaits(false, io), bundle);
+  assert(other == "no", "the synchronous arm is unaffected");
+});
+test("an awaiting if statement after a bound await, then the arm's tail value", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  pinned := io.await(_nested_if_statement(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), bundle);
+  assert(pinned == "fetched:resolved;v6;raylib", `pinned: the if body ran and the tail value reached the result (got ${pinned})`);
+  latest := io.await(_nested_if_statement(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), bundle);
+  assert(latest == "fetched:resolved;resolved;raylib", `resolved: the if body ran and the tail value reached the result (got ${latest})`);
+  path := io.await(_nested_if_statement(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
+  assert(path == "mylib", "a synchronous sibling arm is unaffected");
+});
+test("nested cond arms mixing a named and an anonymous future await through their own access", {
+  if(arch == Arch.Wasm32, return(()));
+  assert(io.await(_nested_named_mix(usize(0), io), io) == i32(1), "plain outer arm");
+  assert(io.await(_nested_named_mix(usize(1), io), io) == i32(10), "named nested arm");
+  assert(io.await(_nested_named_mix(usize(2), io), io) == i32(20), "anonymous nested arm of another shape");
+  assert(io.await(_nested_named_mix_bound(usize(0), io), io) == i32(1), "plain outer arm (bound form)");
+  assert(io.await(_nested_named_mix_bound(usize(1), io), io) == i32(110), "anonymous nested arm, then the arm's statement");
+  assert(io.await(_nested_named_mix_bound(usize(2), io), io) == i32(120), "named nested arm, then the arm's statement");
+});
+test("a nested arm that loops with an await runs its post-loop code for that arm only", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  plain := io.await(_nested_loop_arm(usize(0), io), bundle);
+  assert(plain == "plain;end", `the plain outer arm runs nothing of the other arm (got ${plain})`);
+  no_loop := io.await(_nested_loop_arm(usize(1), io), bundle);
+  assert(no_loop == "no-loop;outer-tail;end", `the synchronous nested arm: enclosing tail, no post-loop code (got ${no_loop})`);
+  looped := io.await(_nested_loop_arm(usize(2), io), bundle);
+  assert(looped == "i=2;i=3;loop-done;outer-tail;end", `the looping nested arm: iterations, post-loop code, enclosing tail (got ${looped})`);
+});
+test("a while body that re-assigns an outer local from an await stores the future", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  got := io.await(_while_reassign_await(io), IoExn(io : io, exn : exn));
+  assert(got == usize(3), `the loop advanced through the awaited values (got ${got.to_string()})`);
+});
+test("a sibling arm's second-await binding is assigned when its continuation is a chained layer", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  a := io.await(_sibling_second_awaits(_SibKind.A, io), bundle);
+  assert(a == "A:present=true;A:added;", `the first arm binds both awaits (got ${a})`);
+  b := io.await(_sibling_second_awaits(_SibKind.B, io), bundle);
+  assert(b == "B:nm=nm;B:added;", `the second arm's second-await binding is assigned (got ${b})`);
+});

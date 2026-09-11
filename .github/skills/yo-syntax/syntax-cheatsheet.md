@@ -1691,14 +1691,26 @@ fmt` silently destroyed non-ASCII source at rc=0. `Token.column` is likewise a
 rune column, so a width added to it must be a RUNE count
 (`value.chars().count()`), never `value.len()`.
 
-## Async: await only at the async-closure statement level
+## Async: awaits nested in cond/match arms
 
-An `e.io.await(...)` nested inside if-branches of an `io.async` closure has
-been observed to compile SILENTLY WRONG (the branch's continuation never
-ran — issues/async-await-nested-if-lost-continuation.md; `check` cannot
-catch it, and only SOME shapes are rejected at codegen). Until that bug is
-minimized and fixed: hoist every await-bearing step to a top-level
-statement of the closure and branch on plain booleans afterwards.
+Three silent mis-lowerings of an `e.io.await(...)` inside cond/match arms of an
+`io.async` closure were minimized and FIXED on 2026-09-11 (`check` never saw
+them — the state-machine emitter lives in codegen):
+
+- a cond/match with an awaiting arm NESTED inside another awaiting arm
+  (`ref_str := match(o, .Some(r) => r, .None => e.io.await(...))` followed by
+  more statements) dropped the enclosing arm's remaining statements —
+  issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md;
+- a value-producing arm that awaits TWICE lost its tail value (`out` stayed
+  zeroed), and `fetched := if(added, { … await … }, …)` after an arm's first
+  await emitted nothing —
+  issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md.
+
+Each shape now has a test in `tests/async_await.test.yo`. One older report of
+this family (issues/async-await-nested-if-lost-continuation.md, a nested
+awaiting `if` after a PLAIN helper that awaits internally, 2026-08-22) was
+never minimized; its reconstructed shape passes, so if you meet it again,
+distill it and file the reproducer rather than hoisting around it.
 
 ## Block bodies cannot START with `cond(`/`match(` — and other body-statement rules
 
