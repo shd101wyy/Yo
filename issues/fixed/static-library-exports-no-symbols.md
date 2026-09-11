@@ -1,7 +1,7 @@
 # `yo compile --static-library` exports no symbols — every function is `static inline` under a mangled name
 
-**Status:** OPEN
-**Found:** 2026-09-11, while fixing `issues/step-link-does-not-link-the-static-library.md`:
+**Status:** FIXED 2026-09-11 (branch `p0/static-library-exports`, stacked on #577). Three changes in `src/codegen/`: `CodeGenContext.current_module_id` (never assigned) became `current_module_path`, set by `compile_module` from `module_env.module_path`; the collector decides "defined in the entry module" by comparing the function body's token module path with it — CANONICALIZED (`_canonical_module_path`: strip `file://`, absolutize against cwd, `normalize()`), because the entry module's tokens carry the CLI spelling while `env.module_path` is the `file://<abs>` key; and `__yo_alloc_fail` is `static` in library mode (both allocator arms). Plain-named external exports are emitted for `--static-library` builds only — native executables keep mangled names (a plain `read`/`open` export would collide with libc; TS also plain-named wasm executables for `-sEXPORTED_FUNCTIONS`, deferred until a consumer needs it). Verified: `nm libadd.a` shows `T _add`, the runtime helper is `t`; cli-case `build-link-static` runs the docs example and prints `7`; native emission of an executable is byte-identical before/after (`cmp` of `--emit-c-to` output).
+**Found:** 2026-09-11, while fixing `issues/fixed/step-link-does-not-link-the-static-library.md`:
 once the build runner passed `libadd.a` to the consumer's link, the link still
 failed with `Undefined symbols: "_add"` — because the archive does not contain
 `add`. Reproduced with `yo 0.2.30` and with a compiler built from `develop`.

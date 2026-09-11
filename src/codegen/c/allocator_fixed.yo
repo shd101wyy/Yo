@@ -50,6 +50,8 @@ void* __yo_fixed_aligned_alloc(size_t alignment, size_t size);`
 emit_fixed_allocator_impl :: (fn(context : CodeGenContext) -> unit)({
   em := context.emitter;
   debug_heap := context.debug_heap;
+  // `static` in library mode — see the non-fixed arm in c/collection.yo.
+  alloc_fail_linkage := if(context.is_library, "static ", "");
   // WASM keeps the direct-call main, so the reporter is called there in
   // person; hosted targets register it with atexit at allocator init.
   atexit_reporter := (debug_heap && !is_target_wasm(context.target_info));
@@ -498,7 +500,7 @@ void* __yo_fixed_aligned_alloc(size_t alignment, size_t size) {
 }
 
 // OOM panic for the fixed arm: name the request and the heap state.
-void __yo_alloc_fail(size_t size) {
+${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
   __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
   fprintf(stderr,
       "out of memory: requested %zu bytes (fixed heap %zu bytes, live %zu bytes in %zu blocks)\\n",

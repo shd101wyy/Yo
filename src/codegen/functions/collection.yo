@@ -23,6 +23,9 @@ pragma(Pragma.AllowUnsafe);
 { is_control_fn, mark_as_effect_record_member, get_func_type, fn_has_specializations } :: import("../../function_value.yo");
 { get_all_some_types, type_contains_rc_type, type_contains_some_type, type_contains_some_type_deep, func_params_have_raw_some_type } :: import("../../types/utils.yo");
 { CodeGenContext, DynImplEntry, type_key, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ is_target_wasm } :: import("../../target.yo");
+{ Path } :: import("std/path");
+{ cwd } :: import("std/env");
 // Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): yo-self
 // has no codegen-time monomorphizer, so the trace collector drives the evaluator's
 // create_specialized_function_inline. These are the normal codegen->evaluator
@@ -467,6 +470,24 @@ _func_has_some_param :: (fn(fid : String) -> bool)(
     _ => false
   )
 );
+/// One canonical spelling for a module path: `file://` stripped, made
+/// absolute against the process cwd, lexically normalized.
+_canonical_module_path :: (fn(p : String) -> String)({
+  stripped := p.replace(String.from("file://"), String.new());
+  abs := if(Path.new(stripped.clone()).is_absolute(), stripped, {
+    cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+    Path.new(cwd_str).join(Path.new(stripped)).to_string()
+  });
+  Path.new(abs).normalize().to_string()
+});
+/// True when `token_path` names the same file as `entry_path`. The two are
+/// spelled differently on purpose: a demand-loaded module's tokens carry the
+/// `file://<abs>` cache key, but the ENTRY module's tokens carry the path as
+/// typed on the command line (`src/lib.yo`) so diagnostics stay relative,
+/// while `env.module_path` is always the `file://<abs>` key.
+_is_entry_module_path :: (fn(token_path : String, entry_path : String) -> bool)(
+  (_canonical_module_path(token_path) == _canonical_module_path(entry_path))
+);
 /// Register one module field as a reachable function if it is a FuncVal,
 /// applying the main / library / executable C-naming rules, then collect the
 /// functions its body calls. Mirrors the per-field body of collectRequiredFunctions.
@@ -486,20 +507,23 @@ _collect_required_function_field :: (
       context.register_function(func_id.clone(), value, String.from("__yo_user_main"));
     },
     true => {
-      // Library and executable modes share the same plain-vs-mangled logic:
-      // top-level exports from the CURRENT module use their plain label (for
-      // external linkage) unless that plain name collides; everything else is
-      // mangled by func_id.
+      // A top-level export of the ENTRY module gets its plain label as C name
+      // with external linkage — where a consumer needs the name: static
+      // libraries (`extern("Yo", …)` in the linking program) and wasm
+      // executables (emcc `-sEXPORTED_FUNCTIONS`). Native executables keep
+      // mangled names: a plain `read`/`open`/`free` export would collide with
+      // libc at the C level and nothing consumes those symbols. "Entry module"
+      // is decided by the defining token's module path — Yo func ids
+      // (`fn_yo_id_<N>`) carry no module component, so TS's `fn_<module-id>_`
+      // prefix test could never match (issues/fixed/static-library-exports-no-symbols.md).
+      // A plain name that collides with an already-registered C name falls
+      // back to the mangled one.
+      wants_plain_exports := (context.is_library || is_target_wasm(context.target_info));
       from_current_module := (
-        is_top_level_export
+        (is_top_level_export && wants_plain_exports)
         && match(
-          context.current_module_id,
-          .Some(mid) => {
-            prefix := String.from("fn_");
-            prefix.push_string(mid.clone());
-            prefix.push_str("_");
-            func_id.clone().starts_with(prefix)
-          },
+          context.current_module_path,
+          .Some(entry_path) => _is_entry_module_path(ast_expr_token(_func_val_body(value)).module_path, entry_path),
           .None => false
         )
       );
