@@ -23,14 +23,14 @@ pragma(Pragma.AllowUnsafe);
   BK_C_INCLUDE
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set, expr_info_table_get, register_extern_c_global } :: import("../../expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../env.yo");
+{ Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { is_function_type } :: import("../../types/guards.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit, t_some_t } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ register_extern_type_name } :: import("../../types/guards.yo");
+{ register_extern_type_name, register_adopted_extern_c_type, type_decl_id } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -57,6 +57,25 @@ record_c_include_for_extern :: (fn(name : String, header : String) -> unit)({
 get_c_include_for_extern :: (fn(name : String) -> Option(String))(
   g_extern_c_includes.get(name)
 );
+/// The already-bound type a `c_include` `Name : Type` field should ADOPT, or
+/// `.None` when the name is free (the ordinary opaque-handle case).
+///
+/// Adoptable means: the name resolves in this module's environment to a real
+/// type value that carries a declaration id — a `struct(...)` or `enum(...)`
+/// written in Yo. A `union(...)` has no id to key the registry by and is not
+/// adopted; neither is a SomeT (an opaque handle from an earlier `c_include`
+/// or `extern`), which would be adopting a placeholder as itself.
+_adoptable_type_binding :: (fn(env : Environment, name : String) -> Option(TypeValue))({
+  vars := get_variables_from_env(env, name);
+  n := vars.len();
+  if(n == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  v := match(vars.get(n - usize(1)), .Some(x) => x, .None => return(Option(TypeValue).None));
+  val := match(v.value.get(usize(0)), .Some(x) => x, .None => return(Option(TypeValue).None));
+  ty := match(val, .TypeVal(t) => t, _ => return(Option(TypeValue).None));
+  match(type_decl_id(ty), .Some(_) => Option(TypeValue).Some(ty), .None => Option(TypeValue).None)
+});
 evaluate_c_include :: (
   fn(
     expr : AstExpr,
@@ -275,7 +294,29 @@ User code should normally call stdlib wrappers (e.g. functions in
           // `i32(unsafe(getpid()))` failed is_convertible_numeric_type's
           // extern clause and FTT'd (the sys/signal red).
           register_extern_type_name(result.label.clone());
-          EvalValue.TypeVal(t_some_t(result.label.clone(), usize(0)))
+          // ADOPT, don't shadow. When the label ALREADY names a module type,
+          // `Name : Type` is not declaring a new opaque handle — it is saying
+          // "the Yo type `Name` IS the C type `Name` in this header". Replacing
+          // it with an opaque placeholder is what made every C struct
+          // UNCONSTRUCTIBLE (`Vector2(x : …)` → "TypeVal SomeT callee without
+          // FnTrait"), so a by-value C ABI could not be expressed at all.
+          //
+          // Adoption keeps the real, constructible type and records the C name
+          // + header for codegen, which then lowers the type to `Vector2`
+          // instead of `__yo_t7` and emits NO definition of its own (the header
+          // has one). See issues/fixed/c-include-cannot-express-a-by-value-c-struct.md.
+          match(
+            _adoptable_type_binding(env, result.label.clone()),
+            .Some(existing_ty) => {
+              register_adopted_extern_c_type(
+                match(type_decl_id(existing_ty), .Some(d) => d, .None => String.from("")),
+                result.label.clone(),
+                c_header_file.clone()
+              );
+              EvalValue.TypeVal(existing_ty)
+            },
+            .None => EvalValue.TypeVal(t_some_t(result.label.clone(), usize(0)))
+          )
         },
         true => create_unknown_val_with_name(result.field_type, result.label.clone())
       ),
