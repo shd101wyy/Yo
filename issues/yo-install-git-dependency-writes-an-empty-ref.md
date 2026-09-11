@@ -1,10 +1,16 @@
 # `yo install user/repo[@tag]` writes `ref: ""` to `deps.yo`, skips the fetch, and exits 0
 
-**Status:** OPEN — root cause FIXED 2026-09-11 (`fix/async-nested-match-dead-arm`,
-`issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md`);
-the data-path hardening in "Fix direction" item 2 is still owed, and the
-install flow itself is only fixed in a binary whose OWN body was compiled by a
-compiler carrying the fix (gen-2 — the released seed still has the old lowering).
+**Status:** OPEN — the install flow is FIXED 2026-09-11 (`fix/async-nested-match-dead-arm`):
+`yo install shd101wyy/raylib_yo@v0.0.6` with a gen-2 compiler writes
+`ref: "v0.0.6"`, prints `Fetching dependency...`, and writes `yo.lock` with the
+resolved commit and hash. Two emitter bugs had to go for that —
+`issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md`
+(the `ref: ""`) and
+`issues/fixed/async-chained-sibling-arm-second-await-binding-never-assigned.md`
+(the fetch after `added := await …` never running). Only in a binary whose OWN
+body was compiled by a compiler carrying the fixes (gen-2 — the released seed
+still has the old lowering). Kept open for the data-path hardening in "Fix
+direction" item 2.
 **Found:** 2026-09-11, auditing the dependency subsystem
 (`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with the released
 `yo 0.2.30` on macOS and with a compiler built from `develop` (`94fae98f8`)
