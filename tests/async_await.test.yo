@@ -3688,8 +3688,8 @@ test("Test same-named pattern bindings in sibling match arms passed to a capturi
 // ---------------------------------------------------------------------------
 // A bare `if` whose branch awaits and then EARLY-RETURNS, in an async body.
 //
-// `yo fetch`'s prune-stale-lock path (src/fetch.yo run_fetch) is this
-// shape. Two independent miscompiles hid here, one per compiler:
+// The old `yo fetch` prune-stale-lock path (the retired src/fetch_command.yo)
+// was this shape. Two independent miscompiles hid here, one per compiler:
 //
 //  - TS: the branch's remaining code after its first await hit
 //    `generateRemainingExprFuture`, which handled nested cond/match/while/
@@ -4514,7 +4514,7 @@ test("Test spawn inside a loop runs tasks concurrently", {
   // leaves room for a loaded CI runner while still failing a serial fallback.
   assert(elapsed < i64(800), `spawned tasks must run concurrently, took ${elapsed.to_string()}ms`);
 });
-// Regression (issues/async-future-result-never-dropped.md): a ref value
+// Regression (issues/fixed/async-future-result-never-dropped.md): a ref value
 // RETURNED from an io.async body must be disposed once the last reference
 // drops. The future OWNS its stored result (awaiters only DUP it out), and
 // the future's generated dispose used to skip the result slot entirely —
@@ -4552,7 +4552,7 @@ test("async-produced ref result is disposed when the last reference drops", {
   };
   assert(g_async_result_disposed == i32(3), "discarded await result is disposed with the future");
 });
-// Regression (same family as issues/async-future-result-never-dropped.md):
+// Regression (same family as issues/fixed/async-future-result-never-dropped.md):
 // JoinHandle.await's result extraction must DUP the value out of the spawned
 // future — the old bare copy handed out a borrowed reference that became a
 // use-after-free once futures started dropping their results (it was what
@@ -5394,4 +5394,195 @@ test("two matches on a loop local in an async while body", {
   srcs.push(_MmSrc.Path(String.from("p")));
   got := io.await(_match_loop_local_twice(srcs, io), IoExn(io : io, exn : exn));
   assert(got == "u1:tags(u1);u2:v2;local:p;", `every iteration matched its local twice and awaited when needed (got ${got})`);
+});
+// Regression: the async state-machine lowering of a cond/match whose OTHER arm
+// awaits assigned the non-awaiting arm's value BARE — no deferred dup — so a
+// pattern-bound payload (`.Some(h) => h`) or a named local as the arm value
+// was owned twice and released twice at completion: the caller received an
+// empty (freed) String. The sync match emitter applied the dup all along
+// (issues/fixed/async-match-arm-borrowed-payload-released-twice.md).
+_bp_sidecar :: (fn(some : bool, io : Io) -> Impl(Future(Option(String), IoExn)))(
+  io.async((e : IoExn) => if(some, Option(String).Some(String.from("abc")), Option(String).None))
+);
+_bp_compute :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => String.from("computed"))
+);
+_bp_pick_match :: (fn(some : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    o := e.io.await(_bp_sidecar(some, e.io), e);
+    got := match(
+      o,
+      .Some(h) => h,
+      .None => {
+        fresh := e.io.await(_bp_compute(e.io), e);
+        fresh
+      }
+    );
+    // Returned directly: the completion drops run AFTER the result is taken,
+    // which is where the missing +1 showed (an empty string came back).
+    got
+  })
+);
+_bp_pick_cond :: (fn(flag : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    x := String.from("abc");
+    got := if(flag, x, {
+      fresh := e.io.await(_bp_compute(e.io), e);
+      fresh
+    });
+    got
+  })
+);
+(g_bp_disposed : i32) = i32(0);
+_BpHandle :: ref(struct(tag : i32));
+impl(
+  _BpHandle,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_bp_disposed = (g_bp_disposed + i32(1));
+    })
+  )
+);
+_bp_make_handle :: (fn(io : Io) -> Impl(Future(_BpHandle, IoExn)))(
+  io.async((e : IoExn) => _BpHandle(tag : i32(9)))
+);
+_bp_pick_handle :: (fn(o : Option(_BpHandle), io : Io) -> Impl(Future(_BpHandle, IoExn)))(
+  io.async((e : IoExn) => {
+    got := match(
+      o,
+      .Some(h) => h,
+      .None => {
+        fresh := e.io.await(_bp_make_handle(e.io), e);
+        fresh
+      }
+    );
+    got
+  })
+);
+// The match IS the body's tail (the completion path).
+_bp_pick_handle_tail :: (fn(o : Option(_BpHandle), io : Io) -> Impl(Future(_BpHandle, IoExn)))(
+  io.async(
+    (e : IoExn) => match(
+      o,
+      .Some(h) => h,
+      .None => {
+        fresh := e.io.await(_bp_make_handle(e.io), e);
+        fresh
+      }
+    )
+  )
+);
+test("borrowed arm value: a payload out of the non-awaiting arm of an awaiting match keeps its reference", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  b := IoExn(io : io, exn : exn);
+  some := io.await(_bp_pick_match(true, io), b);
+  assert(some == "abc", `the Some arm's payload survives the completion drops (got "${some}")`);
+  none := io.await(_bp_pick_match(false, io), b);
+  assert(none == "computed", `the awaiting arm still works (got "${none}")`);
+});
+test("borrowed arm value: a named local out of the non-awaiting arm of an awaiting cond keeps its reference", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  b := IoExn(io : io, exn : exn);
+  taken := io.await(_bp_pick_cond(true, io), b);
+  assert(taken == "abc", `the local handed out of the arm survives the completion drops (got "${taken}")`);
+  other := io.await(_bp_pick_cond(false, io), b);
+  assert(other == "computed", `the awaiting arm still works (got "${other}")`);
+});
+test("borrowed arm value: released exactly once, in the bound and the tail shape", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  b := IoExn(io : io, exn : exn);
+  before := g_bp_disposed;
+  {
+    r := io.await(_bp_pick_handle(Option(_BpHandle).Some(_BpHandle(tag : i32(1))), io), b);
+    assert(r.tag == i32(1), "the Some arm's handle");
+    assert(g_bp_disposed == before, "nothing disposed while the result is live");
+  };
+  assert(g_bp_disposed == (before + i32(1)), "the handle is disposed exactly once after the result dies");
+  {
+    r2 := io.await(_bp_pick_handle(Option(_BpHandle).None, io), b);
+    assert(r2.tag == i32(9), "the awaiting arm's handle");
+  };
+  assert(g_bp_disposed == (before + i32(2)), "the awaited handle is disposed exactly once");
+  {
+    r3 := io.await(_bp_pick_handle_tail(Option(_BpHandle).Some(_BpHandle(tag : i32(2))), io), b);
+    assert(r3.tag == i32(2), "the tail-shape Some arm's handle");
+    assert(g_bp_disposed == (before + i32(2)), "nothing disposed while the tail result is live");
+  };
+  assert(g_bp_disposed == (before + i32(3)), "the tail-shape handle is disposed exactly once");
+});
+// Regression: an `io.async` closure never released its CAPTURED values. The
+// call site dups every captured variable into the capture struct (the future
+// owns one reference), but neither dispose path dropped it — the sync-future
+// path even rebuilt a borrowed copy and orphaned the dup'd temp. Every async
+// call leaked its captures (issues/fixed/io-async-closure-captures-never-released.md).
+(g_cap_disposed : i32) = i32(0);
+_CapHandle :: ref(struct(tag : i32));
+impl(
+  _CapHandle,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_cap_disposed = (g_cap_disposed + i32(1));
+    })
+  )
+);
+_cap_tick :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(io.async((e : IoExn) => i32(1)));
+// sync-future body (no await), a ref param captured
+_cap_sync_ref :: (fn(h : _CapHandle, io : Io) -> Impl(Future(i32, IoExn)))(io.async((e : IoExn) => h.tag));
+// state-machine body (awaits), a ref param captured
+_cap_sm_ref :: (fn(h : _CapHandle, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    k := e.io.await(_cap_tick(e.io), e);
+    h.tag + k
+  })
+);
+// sync-future body, an Option(ref) param captured
+_cap_sync_opt :: (fn(o : Option(_CapHandle), io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => match(o, .Some(h) => h.tag, .None => i32(0)))
+);
+// state-machine body, an Option(ref) param captured
+_cap_sm_opt :: (fn(o : Option(_CapHandle), io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    k := e.io.await(_cap_tick(e.io), e);
+    match(o, .Some(h) => (h.tag + k), .None => k)
+  })
+);
+// state-machine body, a String captured and read after an await (a value-shaped capture)
+_cap_sm_str :: (fn(s : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    k := e.io.await(_cap_tick(e.io), e);
+    `${s}:${k.to_string()}`
+  })
+);
+test("an io.async closure releases its captured values when the future dies", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  b := IoExn(io : io, exn : exn);
+  before := g_cap_disposed;
+  // Each await sits in its own block: a temp's release is a scope-end drop, so
+  // the count is read after the scope that owned the future has closed.
+  {
+    a := io.await(_cap_sync_ref(_CapHandle(tag : i32(1)), io), b);
+    assert(a == i32(1), "sync body reads the capture");
+  };
+  assert(g_cap_disposed == (before + i32(1)), `a ref captured by a sync-future body is released (disposed ${(g_cap_disposed - before).to_string()})`);
+  {
+    c := io.await(_cap_sm_ref(_CapHandle(tag : i32(2)), io), b);
+    assert(c == i32(3), "state-machine body reads the capture after an await");
+  };
+  assert(g_cap_disposed == (before + i32(2)), `a ref captured by a state machine is released (disposed ${(g_cap_disposed - before).to_string()})`);
+  {
+    d := io.await(_cap_sync_opt(Option(_CapHandle).Some(_CapHandle(tag : i32(3))), io), b);
+    assert(d == i32(3), "sync body matches the captured Option");
+  };
+  assert(g_cap_disposed == (before + i32(3)), `an Option(ref) captured by a sync-future body is released (disposed ${(g_cap_disposed - before).to_string()})`);
+  {
+    f := io.await(_cap_sm_opt(Option(_CapHandle).Some(_CapHandle(tag : i32(4))), io), b);
+    assert(f == i32(5), "state-machine body matches the captured Option after an await");
+  };
+  assert(g_cap_disposed == (before + i32(4)), `an Option(ref) captured by a state machine is released (disposed ${(g_cap_disposed - before).to_string()})`);
+  g := io.await(_cap_sm_str(String.from("cap"), io), b);
+  assert(g == "cap:1", `a captured String is intact after the await (got ${g})`);
 });

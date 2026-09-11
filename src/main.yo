@@ -62,7 +62,7 @@ _(env : proc_env) :: import("std/env");
 { parse } :: import("./parser.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir } :: import("./cache.yo");
-{ AddOptions, run_add, run_remove, run_install } :: import("./install_command.yo");
+{ AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build } :: import("./build_runner.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -4505,7 +4505,7 @@ run_remove_cmd :: (
 /// Run the `install` subcommand — fetch every git dependency `yo.toml` names
 /// into the global cache and write `yo.lock`.
 ///
-///   yo install [--verbose|-v]
+///   yo install [--locked] [--offline] [--verbose|-v]
 run_install_cmd :: (
   fn(
     argv : ArrayList(String),
@@ -4513,14 +4513,26 @@ run_install_cmd :: (
     exn : Exception
   ) -> unit
 )({
-  usage := "Usage: yo install [--verbose]";
+  usage := "Usage: yo install [--locked] [--offline] [--verbose]";
   (verbose : bool) = false;
+  (locked : bool) = false;
+  (offline : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     arg := argv(ai);
     cond(
       ((arg == "--verbose") || (arg == "-v")) => {
         verbose = true;
+      },
+      (arg == "--locked") => {
+        locked = true;
+      },
+      (arg == "--offline") => {
+        offline = true;
+      },
+      (arg == "--frozen") => {
+        locked = true;
+        offline = true;
       },
       arg.starts_with(String.from("-")) => {
         exn.throw(dyn(`install: unknown option '${arg}'. ${usage}`));
@@ -4531,12 +4543,19 @@ run_install_cmd :: (
     );
     ai = (ai + usize(1));
   });
-  io.await(run_install(false, ArrayList(String).new(), verbose, io, exn), IoExn(io : io, exn : exn));
+  io.await(
+    run_install(
+      InstallOptions(update : false, names : ArrayList(String).new(), latest : false, locked : locked, offline : offline, verbose : verbose),
+      io,
+      exn
+    ),
+    IoExn(io : io, exn : exn)
+  );
 });
 /// Run the `update` subcommand — re-resolve dependencies within their
 /// requirements (all, or the named ones) and rewrite `yo.lock`.
 ///
-///   yo update [name…] [--verbose|-v]
+///   yo update [name…] [--latest] [--offline] [--verbose|-v]
 run_update_cmd :: (
   fn(
     argv : ArrayList(String),
@@ -4544,15 +4563,23 @@ run_update_cmd :: (
     exn : Exception
   ) -> unit
 )({
-  usage := "Usage: yo update [name...] [--verbose]";
+  usage := "Usage: yo update [name...] [--latest] [--offline] [--verbose]";
   names := ArrayList(String).new();
   (verbose : bool) = false;
+  (latest : bool) = false;
+  (offline : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     arg := argv(ai);
     cond(
       ((arg == "--verbose") || (arg == "-v")) => {
         verbose = true;
+      },
+      (arg == "--latest") => {
+        latest = true;
+      },
+      (arg == "--offline") => {
+        offline = true;
       },
       arg.starts_with(String.from("-")) => {
         exn.throw(dyn(`update: unknown option '${arg}'. ${usage}`));
@@ -4561,7 +4588,10 @@ run_update_cmd :: (
     );
     ai = (ai + usize(1));
   });
-  io.await(run_install(true, names, verbose, io, exn), IoExn(io : io, exn : exn));
+  io.await(
+    run_install(InstallOptions(update : true, names : names, latest : latest, locked : false, offline : offline, verbose : verbose), io, exn),
+    IoExn(io : io, exn : exn)
+  );
 });
 /// Run the `build` subcommand — evaluate `build.yo` and execute the requested
 /// steps (default: `install`).
@@ -4601,6 +4631,8 @@ run_build_cmd :: (
   (dry_run : bool) = false;
   (verbose : bool) = false;
   (summary : bool) = false;
+  (locked : bool) = false;
+  (offline : bool) = false;
   (watch : bool) = false;
   (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
@@ -4650,6 +4682,16 @@ run_build_cmd :: (
       (arg == "--summary") => {
         summary = true;
       },
+      (arg == "--locked") => {
+        locked = true;
+      },
+      (arg == "--offline") => {
+        offline = true;
+      },
+      (arg == "--frozen") => {
+        locked = true;
+        offline = true;
+      },
       (arg == "--watch") => {
         watch = true;
       },
@@ -4672,7 +4714,7 @@ run_build_cmd :: (
         );
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--dry-run] [--verbose] [--summary]`));
+        exn.throw(dyn(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--dry-run] [--locked] [--offline] [--verbose] [--summary]`));
       },
       true => {
         steps.push(arg);
@@ -4690,7 +4732,9 @@ run_build_cmd :: (
     dry_run : dry_run,
     verbose : verbose,
     summary : summary,
-    defines : defines
+    defines : defines,
+    locked : locked,
+    offline : offline
   );
   if(!(watch), {
     io.await(run_build(opts, io, exn), IoExn(io : io, exn : exn));
@@ -5091,7 +5135,7 @@ Examples:
 
 yo remove <name>                 Delete a dependency from yo.toml
 yo install                       Fetch what yo.toml declares, write yo.lock
-yo update [name...]              Re-resolve dependencies within their ranges
+yo update [name...]              Re-resolve dependencies (--latest bumps ranges)
 
 yo test [path] [options]         Run tests
 Example:
@@ -5469,6 +5513,9 @@ Options:
   -t, --target <triple>     Cross-compile target
   --sysroot <dir>           Sysroot for cross-compilation
   -D<name>=<value>          Pass an option to build.yo
+  --locked                  Fail if fetching dependencies would change yo.lock
+  --offline                 Fail if fetching dependencies would need the network
+  --frozen                  --locked and --offline
   --watch                   Rebuild on source changes
   --poll-ms <ms>            Watch poll interval
   -v, --verbose             Verbose output
@@ -5492,6 +5539,9 @@ Examples:
   -t, --target <triple>     交叉编译目标
   --sysroot <dir>           交叉编译的 sysroot
   -D<name>=<value>          给 build.yo 传递选项
+  --locked                  若抓取依赖会改动 yo.lock 则失败
+  --offline                 若抓取依赖需要联网则失败
+  --frozen                  同时 --locked 与 --offline
   --watch                   源码变化时重新构建
   --poll-ms <ms>            监听轮询间隔
   -v, --verbose             详细输出
@@ -5815,22 +5865,31 @@ Example:
       tr(
         `Usage: yo install [options]
 
-Fetch every git dependency yo.toml declares into the global cache and
-write yo.lock. A lock entry that still satisfies its requirement is kept;
-stale entries are pruned. \`yo build\` runs the same step for dependencies
-the cache lacks.
+Resolve the dependency graph yo.toml declares — every package's own
+yo.toml is read too, and one ref per package must satisfy every
+requirement on it — fetch the trees into the global cache and write
+yo.lock. A lock entry that still satisfies its requirements is kept;
+stale entries are pruned. \`yo build\` runs the same step for
+dependencies the cache lacks.
 
 Options:
+  --locked                   Fail if yo.lock would change (CI)
+  --offline                  Fail if the network would be needed
+  --frozen                   --locked and --offline
   -v, --verbose              Show detailed fetch progress
 
 Example:
   $ yo install`,
         `用法：yo install [options]
 
-把 yo.toml 声明的全部 git 依赖抓取到全局缓存并写入 yo.lock。仍满足
-需求的锁条目保留；过期条目剪除。\`yo build\` 对缓存缺失的依赖执行同一步骤。
+解析 yo.toml 声明的依赖图——每个包自己的 yo.toml 也会读取，每个包只选
+一个同时满足所有需求的 ref——把源码树抓取到全局缓存并写入 yo.lock。
+仍满足需求的锁条目保留；过期条目剪除。\`yo build\` 对缓存缺失的依赖执行同一步骤。
 
 选项：
+  --locked                   若 yo.lock 会改动则失败（CI）
+  --offline                  若需要联网则失败
+  --frozen                   同时 --locked 与 --offline
   -v, --verbose              显示详细的抓取进度
 
 示例：
@@ -5843,25 +5902,33 @@ Example:
 
 Re-resolve dependencies within their requirements — the highest tag a
 version range allows, the tip of a branch — and rewrite yo.lock. Names
-limit the update to those dependencies.
+limit the update to those dependencies. --latest also raises each
+version range in yo.toml to the newest release (^X.Y.Z).
 
 Options:
+  --latest                   Bump version ranges to the newest release
+  --offline                  Fail if the network would be needed
   -v, --verbose              Show detailed progress
 
 Examples:
   $ yo update
-  $ yo update raylib_yo`,
+  $ yo update raylib_yo
+  $ yo update --latest`,
         `用法：yo update [name...] [options]
 
 在需求范围内重新解析依赖——版本范围允许的最高标签、分支的最新提交——
-并重写 yo.lock。给出名字则只更新这些依赖。
+并重写 yo.lock。给出名字则只更新这些依赖。--latest 还会把 yo.toml 中的
+版本范围提升到最新发布版（^X.Y.Z）。
 
 选项：
+  --latest                   把版本范围提升到最新发布版
+  --offline                  若需要联网则失败
   -v, --verbose              显示详细进度
 
 示例：
   $ yo update
-  $ yo update raylib_yo`
+  $ yo update raylib_yo
+  $ yo update --latest`
       )
     ),
     (subcmd == "cache") => Option(String).Some(

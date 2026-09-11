@@ -1,7 +1,17 @@
 # TS codegen: undeclared temp referenced in a drop for a short-circuit `||` chain ending in `Option.is_some()`
 
-**Status: OPEN (minimization pending).** Found 2026-08-13 while building the
-method-miss fix (`issues/fixed/yo-self-method-miss-degrades-to-unit.md`).
+**Status: FIXED 2026-09-12** — minimized and fixed as
+`issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md`: the
+`||` chain sat in a BARE (non-block) match arm, and the bare-body emitters did not
+feed the arm's scope-end drops into the pending path the short-circuit lowering
+drops branch-scoped temps through, so the `Option` temp's drop landed after its
+`if` block had closed. The "huge fn / nested arm" context was incidental; the
+minimal shape is `.Ok(c) => assert(c && (make(c) == "dev"), …)`. The regression
+guard (the `||`-ending-in-`Option.is_some()` shape inside a match arm inside a
+cond arm) is in `tests/rc.test.yo`.
+
+Found 2026-08-13 while building the method-miss fix
+(`issues/fixed/yo-self-method-miss-degrades-to-unit.md`).
 
 ## Symptom
 

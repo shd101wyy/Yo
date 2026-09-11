@@ -27,8 +27,8 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Add a pinned dependency   | `yo add user/repo@v1.2.3` (tag) / `yo add user/repo@^1.2` |
 | Add a local dependency    | `yo add ./path/to/dep`                                    |
 | Remove a dependency       | `yo remove name`                                          |
-| Fetch what yo.toml names  | `yo install`                                              |
-| Re-resolve within ranges  | `yo update [name...]`                                     |
+| Fetch what yo.toml names  | `yo install` (`--locked` in CI, `--offline`, `--frozen`)  |
+| Re-resolve within ranges  | `yo update [name...]` (`--latest` also bumps the ranges)  |
 
 ## Project layout
 
@@ -266,8 +266,10 @@ yo add user/repo              # latest release tag → version = "^X.Y.Z" in yo.
 yo add user/repo@^1.2         # a range; @v1.0.0 pins a tag; --branch / --rev / --path <subdir> / --name / --dev
 yo add ./relative/path        # local path dependency
 yo remove name
-yo install                    # fetch what yo.toml declares, write yo.lock
+yo install                    # resolve the graph (every package's yo.toml), fetch, write yo.lock v2
+yo install --locked           # CI: fail if yo.lock would change; --offline: fail if the network is needed; --frozen = both
 yo update [name...]           # re-resolve within ranges / to branch tips
+yo update --latest            # also rewrite each version range in yo.toml to ^<newest release>
 ```
 
 - Dependencies are DATA in `yo.toml` (`[dependencies]` / `[dev-dependencies]`); `yo add`/`yo remove` edit it in place, comments kept

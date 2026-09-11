@@ -315,7 +315,7 @@ compiler will not name those sites for you.
 
 ## Build system tests
 
-- The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
+- The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `resolver.test.yo`, `manifest.test.yo`, `toml_edit.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
 - Tests cover: build registry, artifacts, steps, DAG, dependencies, lock file, target parsing, path deps, transitive deps.
 - Run them like any other internal test: `yo test ./tests/internal/build_runner.test.yo --parallel 1`.
 - End-to-end CLI subcommand behaviour is covered separately by the `tests/cli-cases/` corpus.

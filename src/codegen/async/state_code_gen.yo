@@ -21,6 +21,7 @@
 { expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
+{ arm_value_with_dups } :: import("../exprs/drop_dup.yo");
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await, register_fsm_emitters } :: import("./_fsm.yo");
 { get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
@@ -2186,7 +2187,7 @@ _emit_non_await_branch_async_completion :: (
       match(
         begin_args.get(nba - usize(1)),
         .Some(last_arg) => {
-          last_code := _call_generate_expr(last_arg, indent, context);
+          last_code := _value_code_with_dups(last_arg, indent, context);
           if(last_code.len() > usize(0), {
             em.emit_string_line(`${indent}sm->result = ${last_code};`);
           });
@@ -2222,7 +2223,7 @@ _emit_non_await_branch_async_completion :: (
   }, {
     // Non-begin: the expression directly IS the result value.
     if(!(is_unit), {
-      code := _call_generate_expr(value, indent, context);
+      code := _value_code_with_dups(value, indent, context);
       if(code.len() > usize(0), {
         em.emit_string_line(`${indent}sm->result = ${code};`);
       });
@@ -2283,7 +2284,8 @@ _emit_branch_value_inline :: (
       match(
         begin_args.get(j),
         .Some(arg) => {
-          arg_code := _call_generate_expr(arg, indent, context);
+          is_last_value := ((j == (begin_args.len() - usize(1))) && value_target.is_some());
+          arg_code := if(is_last_value, _value_code_with_dups(arg, indent, context), _call_generate_expr(arg, indent, context));
           if((arg_code == "break") && in_while, {
             em.emit_string_line(`${indent}sm->while_loop_${idx_s}_active = false;`);
             em.emit_string_line(`${indent}goto while_loop_${idx_s}_end;`);
@@ -2341,7 +2343,7 @@ _emit_branch_value_inline :: (
       .None => ()
     );
   }, {
-    code := _call_generate_expr(value, indent, context);
+    code := if(value_target.is_some(), _value_code_with_dups(value, indent, context), _call_generate_expr(value, indent, context));
     if((code == "break") && in_while, {
       em.emit_string_line(`${indent}sm->while_loop_${idx_s}_active = false;`);
       em.emit_string_line(`${indent}goto while_loop_${idx_s}_end;`);
@@ -2972,6 +2974,20 @@ _find_variant_index :: (fn(variant_names : ArrayList(String), variant_name : Str
   });
   found
 });
+/// The C for a non-awaiting arm's VALUE that has a destination (a binding,
+/// the tail result, an assignment target): the arm's deferred `___dup`s
+/// applied, exactly as the sync match emitter does through
+/// `arm_value_with_dups`. A pattern-bound payload leaving its arm (`.Some(h)
+/// => h`) or a named local as the arm value is BORROWED — the destination
+/// needs its own +1, or the completion drops release the object once per
+/// owner (issues/fixed/async-match-arm-borrowed-payload-released-twice.md).
+_value_code_with_dups :: (fn(value : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+  match(
+    arm_value_with_dups(value, indent.clone(), context),
+    .Some(fc) => fc,
+    .None => _call_generate_expr(value, indent, context)
+  )
+);
 /// Emit the non-await body of a cond/match branch with target-aware assignment:
 /// `sm->var_<target>` / `<target_code>` / bare statement. Mirrors the duplicated
 /// non-await emit in `generateMatchWithAwait`'s cases.
@@ -2985,7 +3001,8 @@ _emit_match_case_value :: (
   ) -> unit
 )({
   em := context.base.emitter;
-  code := _call_generate_expr(value, indent, context);
+  has_destination := (target_variable_id.is_some() || target_assignment_code.is_some());
+  code := if(has_destination, _value_code_with_dups(value, indent, context), _call_generate_expr(value, indent, context));
   match(
     target_variable_id,
     .Some(tvid) => {

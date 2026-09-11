@@ -1,11 +1,14 @@
-//! Git dependency fetching for the Yo build system.
-//!
-//! Handles cloning git repos, resolving refs, computing content hashes,
-//! and managing the global dependency cache (~/.cache/yo/deps/).
-//!
-//! This mirrors `src/fetch.ts`.
+//! The dependency cache primitives (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+//! §4.3–§4.4, the cache half): `fetch_package` brings ONE git package at ONE
+//! ref into the global cache (`~/.cache/yo/deps/<name>-<commit12>`) — deciding
+//! its commit (the lock's, or `git ls-remote`), verifying a cached tree against
+//! the lock's `integrity`, cloning what is missing — and the content hashing
+//! behind that (`compute_content_hash`, the `.yo-content-hash` sidecar). Which
+//! packages and which refs is the resolver's decision (`src/resolver.yo`);
+//! `yo.lock` itself is `src/lock_file.yo`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ println } :: import("std/fmt");
 { Command } :: import("std/process/command");
 { AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
@@ -22,24 +25,7 @@ pragma(Pragma.AllowUnsafe);
 { remove_dir_all } :: import("std/fs/walker");
 { Sha256 } :: import("std/crypto/sha256");
 hex :: import("std/encoding/hex");
-{
-  LockEntry,
-  LockFile,
-  read_lock_file,
-  save_lock_file,
-  find_lock_entry,
-  upsert_lock_entry
-} :: import("./lock_file.yo");
-{
-  get_global_deps_cache_dir,
-  get_cached_dep_dir,
-  ensure_global_deps_cache_dir
-} :: import("./cache.yo");
-// The fetch input is a MANIFEST dependency with its ref decided
-// (`install_command.yo` resolves a `version` range to the tag it selects);
-// `build.yo` no longer declares dependencies
-// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1).
-{ ResolvedGitDependency } :: import("./manifest.yo");
+{ get_cached_dep_dir } :: import("./cache.yo");
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -54,18 +40,15 @@ CachedDepState :: ref(
   )
 );
 /// Result of fetching one dependency.
-FetchDepResult :: ref(
+/// What fetching one package into the cache yields.
+FetchedPackage :: ref(
   struct(
-    lock_file : LockFile,
-    dep_path : String
-  )
-);
-/// Result of fetching all dependencies.
-FetchResult :: ref(
-  struct(
-    resolved_paths : ArrayList(String),
-    resolved_names : ArrayList(String),
-    lock_file : LockFile
+    /// The commit the package's tree is at.
+    commit : String,
+    /// `sha256-…` of the normalized tree (`compute_content_hash`).
+    integrity : String,
+    /// The cache directory holding the tree.
+    dir : String
   )
 );
 // ---------------------------------------------------------------------------
@@ -396,9 +379,16 @@ inspect_cached_dep :: (
       ), {
         // Try sidecar first for O(1) verification
         sidecar_hash := e.io.await(read_sidecar_hash(cached_path, e.io, e.exn), e);
+        // `h.clone()`, not `h`: the SEED compiler hands a borrowed payload out
+        // of the non-awaiting arm of an awaiting match without a dup, so the
+        // sidecar string was released twice at completion and the caller
+        // read a freed `actual_hash` (the rc=133 second `yo install`). Fixed
+        // in this tree's emitter
+        // (issues/fixed/async-match-arm-borrowed-payload-released-twice.md);
+        // the clone stays until the seed carries the fix.
         actual_hash := match(
           sidecar_hash,
-          .Some(h) => h,
+          .Some(h) => h.clone(),
           .None => {
             // Recompute and write sidecar
             h := e.io.await(compute_content_hash(cached_path, e.io, e.exn), e);
@@ -558,261 +548,87 @@ clone_repo :: (
 // ---------------------------------------------------------------------------
 // Dependency fetching
 // ---------------------------------------------------------------------------
-/// Fetch a single dependency.
-fetch_dep :: (
+/// Fetch ONE git package into the global cache
+/// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.3–§4.4, the cache half):
+/// decide its commit — the lock's `locked_commit` unless `refresh`
+/// (`yo update`), else `git ls-remote` for `ref` — then reuse the cached tree
+/// when it is present and its content hash matches `expected_integrity`
+/// (the lock's), and clone otherwise. A tree whose hash disagrees with the
+/// lock is evicted and re-fetched; a re-fetched tree that STILL disagrees is
+/// an integrity error. Under `offline` any step that would touch the network
+/// is an error instead. Every await is a top-level statement of the body.
+fetch_package :: (
   fn(
     cache_dir : String,
-    dep : ResolvedGitDependency,
-    lock_file : LockFile,
+    name : String,
+    url : String,
+    ref : String,
+    locked_commit : Option(String),
+    expected_integrity : Option(String),
+    refresh : bool,
+    offline : bool,
     verbose : bool,
     io : Io,
     exn : Exception
-  ) -> Impl(Future(FetchDepResult, IoExn))
+  ) -> Impl(Future(FetchedPackage, IoExn))
 )(
   io.async((e : IoExn) => {
-    // `yo update` asks for this dependency's ref to be re-resolved.
-    update := dep.refresh;
-    existing_entry := find_lock_entry(lock_file, dep.name);
-    ref_changed := match(
-      existing_entry,
-      .None => false,
-      .Some(ent) => !(ent.ref == dep.ref)
-    );
-    // Check if already up-to-date
-    // The await is BOUND first and wrapped after. Written as
-    // `Option(CachedDepState).Some(e.io.await(…))` it sat nested inside a larger
-    // expression, which the state machine cannot split — and inside a cond/match
-    // branch that used to be dropped SILENTLY (no `sm->await_future_N` store), so
-    // `fetch` never inspected the cache and always re-fetched. It is a loud
-    // compile error now; this is the shape that actually works.
-    cached_state_opt := match(
-      existing_entry,
-      .None => Option(CachedDepState).None,
-      .Some(ent) => cond(
-        (!update && (ent.commit.len() > usize(0))) => {
-          inspected := e.io.await(inspect_cached_dep(cache_dir, dep.name, ent.commit, ent.hash, e.io, e.exn), e);
-          Option(CachedDepState).Some(inspected)
-        },
-        true => Option(CachedDepState).None
-      )
-    );
-    entry_has_commit := match(
-      existing_entry,
-      .None => false,
-      .Some(ent) => (ent.commit.len() > usize(0))
-    );
-    cache_ok_opt := match(
-      cached_state_opt,
-      .None => false,
-      .Some(s) => match(s.status, .Ok => true, _ => false)
-    );
-    up_to_date := (!update && !ref_changed && (entry_has_commit && cache_ok_opt));
-    if(up_to_date, {
-      cached_path := match(
-        cached_state_opt,
-        .None => String.new(),
-        .Some(s) => s.cached_path
-      );
-      sub_path := cond(
-        dep.subdir.is_empty() => cached_path,
-        true => Path.new(cached_path).join(Path.new(dep.subdir)).to_string()
-      );
-      return(FetchDepResult(lock_file : lock_file, dep_path : sub_path));
+    (commit : String) = match(locked_commit, .Some(c) => if(refresh, String.new(), c), .None => String.new());
+    needs_ls_remote := (commit.len() == usize(0));
+    if(needs_ls_remote && offline, {
+      e.exn.throw(dyn(`Error: --offline: resolving "${name}" (${url} @ ${ref}) to a commit needs the network`));
     });
-    // Resolve git ref
-    commit := e.io.await(resolve_git_ref(dep.url, dep.ref, e.io, e.exn), e);
-    // Check if lock already has this commit and cache is valid
-    commit_matches := match(
-      existing_entry,
-      .None => false,
-      .Some(ent) => (ent.commit == commit)
-    );
-    if(!update && commit_matches, {
-      state := match(
-        cached_state_opt,
-        .Some(s) => s,
-        .None => match(
-          existing_entry,
-          .None => CachedDepState(status : CachedDepStatus.MissingPath, cached_path : String.new(), actual_hash : .None),
-          .Some(ent) => e.io.await(inspect_cached_dep(cache_dir, dep.name, ent.commit, ent.hash, e.io, e.exn), e)
-        )
-      );
-      cache_ok := match(state.status, .Ok => true, _ => false);
-      if(cache_ok, {
-        // Update ref in lock if it changed
-        updated_lock := if(
-          ref_changed,
-          match(
-            existing_entry,
-            .None => lock_file,
-            .Some(ent) => upsert_lock_entry(
-              lock_file,
-              LockEntry(
-                name : ent.name,
-                url : ent.url,
-                ref : dep.ref,
-                commit : ent.commit,
-                hash : ent.hash
-              )
-            )
-          ),
-          lock_file
-        );
-        sub_path := cond(
-          dep.subdir.is_empty() => state.cached_path,
-          true => Path.new(state.cached_path).join(Path.new(dep.subdir)).to_string()
-        );
-        return(FetchDepResult(lock_file : updated_lock, dep_path : sub_path));
+    if(needs_ls_remote, {
+      if(verbose, {
+        println(`  ${name}: resolving ${ref} at ${url}...`);
       });
-      // Evict corrupt / hash-mismatch cache entry
-      path_exists := e.io.await(exists(Path.new(state.cached_path), e.io), e.io);
-      if(path_exists, {
-        e.io.await(remove_dir_all(Path.new(state.cached_path), e.io), e);
+      resolved := e.io.await(resolve_git_ref(url.clone(), ref.clone(), e.io, e.exn), e);
+      commit = resolved;
+    });
+    expected := match(expected_integrity, .Some(h) => h, .None => String.new());
+    state := e.io.await(inspect_cached_dep(cache_dir.clone(), name.clone(), commit.clone(), expected.clone(), e.io, e.exn), e);
+    (integrity : String) = match(state.actual_hash, .Some(h) => h, .None => String.new());
+    (dir : String) = state.cached_path.clone();
+    is_ok := match(state.status, .Ok => true, _ => false);
+    // Present, but the lock has no hash to compare against: the sidecar (or a
+    // full hash) is the tree's integrity.
+    needs_hash := match(state.status, .MissingHash => true, _ => false);
+    if(needs_hash, {
+      sidecar := e.io.await(read_sidecar_hash(dir.clone(), e.io, e.exn), e);
+      integrity = match(sidecar, .Some(h) => h, .None => String.new());
+    });
+    needs_full_hash := (needs_hash && (integrity.len() == usize(0)));
+    if(needs_full_hash, {
+      computed := e.io.await(compute_content_hash(dir.clone(), e.io, e.exn), e);
+      e.io.await(write_sidecar_hash(dir.clone(), computed.clone(), e.io, e.exn), e);
+      integrity = computed;
+    });
+    is_mismatch := match(state.status, .HashMismatch => true, _ => false);
+    if(is_mismatch, {
+      println(`  ${name}: cached tree ${dir} does not match yo.lock (${expected}) — re-fetching`);
+      e.io.await(remove_dir_all(Path.new(dir.clone()), e.io), e);
+    });
+    needs_clone := (is_mismatch || match(state.status, .MissingPath => true, _ => false));
+    if(needs_clone && offline, {
+      e.exn.throw(dyn(`Error: --offline: "${name}" (${url} @ ${commit}) is not in the cache`));
+    });
+    if(needs_clone, {
+      if(verbose, {
+        println(`  ${name}: cloning ${url} @ ${commit}...`);
+      });
+      cloned := e.io.await(clone_repo(cache_dir.clone(), url.clone(), commit.clone(), name.clone(), e.io, e.exn), e);
+      dir = cloned;
+      computed := e.io.await(compute_content_hash(dir.clone(), e.io, e.exn), e);
+      e.io.await(write_sidecar_hash(dir.clone(), computed.clone(), e.io, e.exn), e);
+      integrity = computed;
+      if((expected.len() > usize(0)) && (expected != integrity), {
+        e.exn.throw(dyn(`Error: integrity mismatch for "${name}" at ${commit}: yo.lock records ${expected}, the fetched tree hashes to ${integrity}. If the dependency's history was rewritten, run \`yo update ${name}\`.`));
       });
     });
-    // Clone the repo
-    cloned_path := e.io.await(clone_repo(cache_dir, dep.url, commit, dep.name, e.io, e.exn), e);
-    // Compute content hash and write sidecar
-    content_hash := e.io.await(compute_content_hash(cloned_path, e.io, e.exn), e);
-    e.io.await(write_sidecar_hash(cloned_path, content_hash, e.io, e.exn), e);
-    // Update lock entry
-    new_entry := LockEntry(
-      name : dep.name,
-      url : dep.url,
-      ref : dep.ref,
-      commit : commit,
-      hash : content_hash
-    );
-    updated_lock := upsert_lock_entry(lock_file, new_entry);
-    sub_path := cond(
-      dep.subdir.is_empty() => cloned_path,
-      true => Path.new(cloned_path).join(Path.new(dep.subdir)).to_string()
-    );
-    FetchDepResult(lock_file : updated_lock, dep_path : sub_path)
-  })
-);
-/// Fetch all git dependencies, update `yo.lock`, and return resolved paths.
-fetch_all_deps :: (
-  fn(
-    project_dir : String,
-    deps : ArrayList(ResolvedGitDependency),
-    verbose : bool,
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(FetchResult, IoExn))
-)(
-  io.async((e : IoExn) => {
-    cache_dir := e.io.await(ensure_global_deps_cache_dir(e.io, e.exn), e);
-    resolved_paths := ArrayList(String).new();
-    resolved_names := ArrayList(String).new();
-    if(deps.len() == usize(0), {
-      // Prune stale lock entries even with no deps
-      existing_lock := e.io.await(read_lock_file(Path.new(project_dir), e.io, e.exn), e);
-      if(existing_lock.dependencies.len() > usize(0), {
-        empty_lock := LockFile(dependencies : ArrayList(LockEntry).new());
-        e.io.await(save_lock_file(Path.new(project_dir), empty_lock, e.io, e.exn), e);
-      });
-      return(
-        FetchResult(
-          resolved_paths : resolved_paths,
-          resolved_names : resolved_names,
-          lock_file : LockFile(dependencies : ArrayList(LockEntry).new())
-        )
-      );
+    if(is_ok && verbose, {
+      println(`  ${name}: cached at ${dir}`);
     });
-    lock_file := e.io.await(read_lock_file(Path.new(project_dir), e.io, e.exn), e);
-    n := deps.len();
-    i := usize(0);
-    current_lock := lock_file;
-    while(i < n, {
-      match(
-        deps.get(i),
-        .None => (),
-        .Some(dep) => {
-          result := e.io.await(fetch_dep(cache_dir, dep, current_lock, verbose, e.io, e.exn), e);
-          current_lock = result.lock_file;
-          resolved_paths.push(result.dep_path);
-          resolved_names.push(dep.name);
-        }
-      );
-      i = (i + usize(1));
-    });
-    // Prune stale lock entries (deps no longer in yo.toml)
-    pruned_deps := ArrayList(LockEntry).new();
-    k := usize(0);
-    while(k < current_lock.dependencies.len(), {
-      match(
-        current_lock.dependencies.get(k),
-        .None => (),
-        .Some(entry) => {
-          still_declared := false;
-          m := usize(0);
-          while(m < deps.len(), {
-            match(
-              deps.get(m),
-              .None => (),
-              .Some(dep) => if(dep.name == entry.name, {
-                still_declared = true;
-              })
-            );
-            m = (m + usize(1));
-          });
-          if(still_declared, {
-            pruned_deps.push(entry);
-          });
-        }
-      );
-      k = (k + usize(1));
-    });
-    final_lock := LockFile(dependencies : pruned_deps);
-    e.io.await(save_lock_file(Path.new(project_dir), final_lock, e.io, e.exn), e);
-    FetchResult(
-      resolved_paths : resolved_paths,
-      resolved_names : resolved_names,
-      lock_file : final_lock
-    )
-  })
-);
-/// Check whether all dependencies are already cached and valid.
-are_deps_cached :: (
-  fn(
-    project_dir : String,
-    deps : ArrayList(ResolvedGitDependency),
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(bool, IoExn))
-)(
-  io.async((e : IoExn) => {
-    if(deps.len() == usize(0), {
-      return(true);
-    });
-    lock_file := e.io.await(read_lock_file(Path.new(project_dir), e.io, e.exn), e);
-    cache_dir := get_global_deps_cache_dir();
-    all_cached := true;
-    i := usize(0);
-    while((i < deps.len()) && all_cached, {
-      match(
-        deps.get(i),
-        .None => (),
-        .Some(dep) => {
-          entry_opt := find_lock_entry(lock_file, dep.name);
-          ok := match(
-            entry_opt,
-            .None => false,
-            .Some(entry) =>
-              if(entry.commit.len() == usize(0), false, {
-                state := e.io.await(inspect_cached_dep(cache_dir, dep.name, entry.commit, entry.hash, e.io, e.exn), e);
-                match(state.status, .Ok => true, _ => false)
-              })
-          );
-          if(!ok, {
-            all_cached = false;
-          });
-        }
-      );
-      i = (i + usize(1));
-    });
-    all_cached
+    FetchedPackage(commit : commit, integrity : integrity, dir : dir)
   })
 );
 // ---------------------------------------------------------------------------
@@ -822,18 +638,15 @@ export(
   remove_dir_all,
   CachedDepStatus,
   CachedDepState,
-  FetchDepResult,
-  FetchResult,
+  FetchedPackage,
   SIDECAR_FILENAME,
   normalize_line_endings,
-  get_cached_dep_dir,
   sort_dir_entries,
   compute_content_hash,
   write_sidecar_hash,
+  read_sidecar_hash,
   inspect_cached_dep,
   resolve_git_ref,
   clone_repo,
-  fetch_dep,
-  fetch_all_deps,
-  are_deps_cached
+  fetch_package
 );

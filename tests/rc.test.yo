@@ -1206,3 +1206,73 @@ test("a container in a cond arm and in a while body behave the same way", {
     "still exactly one dispose: a loop body taking a reference per iteration must release it per iteration"
   );
 });
+// Regression: a short-circuit operand INSIDE a bare (non-block) body — a
+// match arm, a cond arm, a single-expression fn body, a loop body — declares
+// its temps inside the `if (lhs) {` C block the `&&`/`||` lowers to, and can
+// only drop them there. The bare-body emitters did not feed the body's
+// scope-end drops into the pending path (the block-body emitters did), so the
+// temp's drop was left to the post-call flush AFTER the block closed: an
+// undeclared C identifier, i.e. the whole test file failed to compile
+// (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
+// Dispose deltas pin "exactly once" so the in-branch drop is neither missing
+// nor doubled.
+(g_sc_disposed : i32) = i32(0);
+ScHandle :: ref(struct(tag : i32));
+impl(
+  ScHandle,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_sc_disposed = (g_sc_disposed + i32(1));
+    })
+  )
+);
+mk_sc :: (fn(n : i32) -> ScHandle)(ScHandle(tag : n));
+mk_sc_opt :: (fn(n : i32) -> Option(ScHandle))(Option(ScHandle).Some(ScHandle(tag : n)));
+sc_check_body :: (fn(c : bool) -> unit)(assert(c && (mk_sc(i32(3)).tag == i32(3)), "single-expression fn body"));
+(g_sc_i : usize) = usize(0);
+sc_step :: (fn(ok : bool) -> unit)({
+  g_sc_i = if(ok, g_sc_i + usize(1), usize(99));
+});
+test("short-circuit RHS temp inside a bare match arm is dropped in the branch", {
+  before := g_sc_disposed;
+  r := Result(bool, String).Ok(true);
+  match(r, .Ok(c) => assert(c && (mk_sc(i32(1)).tag == i32(1)), "bare match arm"), .Err(_) => assert(false, "Ok expected"));
+  assert(g_sc_disposed == (before + i32(1)), "the RHS temp is disposed exactly once");
+  // The LHS short-circuits: the RHS never runs, nothing is created, nothing is dropped.
+  r2 := Result(bool, String).Ok(false);
+  match(r2, .Ok(c) => assert(!(c && (mk_sc(i32(1)).tag == i32(1))), "false LHS"), .Err(_) => assert(false, "Ok expected"));
+  assert(g_sc_disposed == (before + i32(1)), "a skipped RHS disposes nothing");
+});
+test("short-circuit RHS temp inside a bare cond arm is dropped in the branch", {
+  before := g_sc_disposed;
+  c := true;
+  cond(c => assert(c && (mk_sc(i32(2)).tag == i32(2)), "bare cond arm"), true => assert(false, "unreachable"));
+  assert(g_sc_disposed == (before + i32(1)), "the RHS temp is disposed exactly once");
+});
+test("short-circuit RHS temp inside a single-expression fn body is dropped in the branch", {
+  before := g_sc_disposed;
+  sc_check_body(true);
+  assert(g_sc_disposed == (before + i32(1)), "the RHS temp is disposed exactly once");
+  sc_check_body(true);
+  assert(g_sc_disposed == (before + i32(2)), "once per call");
+});
+test("short-circuit RHS temp inside a bare loop body is dropped per iteration", {
+  before := g_sc_disposed;
+  g_sc_i = usize(0);
+  c := true;
+  while(g_sc_i < usize(3), sc_step(c && (mk_sc(i32(4)).tag == i32(4))));
+  assert(g_sc_i == usize(3), "three iterations");
+  assert(g_sc_disposed == (before + i32(3)), "one temp disposed per iteration");
+});
+test("|| chain ending in Option.is_some() inside a match arm inside a cond arm", {
+  // The shape of issues/fixed/ts-codegen-undeclared-temp-in-short-circuit-option-drop.md.
+  before := g_sc_disposed;
+  flag := true;
+  o := Option(bool).Some(false);
+  result := cond(
+    flag => match(o, .Some(x) => assert(x || mk_sc_opt(i32(5)).is_some(), "Option RHS"), .None => assert(false, "Some expected")),
+    true => assert(false, "unreachable")
+  );
+  _ := result;
+  assert(g_sc_disposed == (before + i32(1)), "the Option temp's payload is disposed exactly once");
+});

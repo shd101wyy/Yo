@@ -54,6 +54,7 @@ _(env : proc_env) :: import("std/env");
   read_lock_text
 } :: import("./manifest.yo");
 { install_dependencies } :: import("./install_command.yo");
+{ ResolveMode } :: import("./resolver.yo");
 { resolve_all_system_libraries } :: import("./pkg_config.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { TargetInfo, parse_target, host_target, is_target_windows, is_target_wasm } :: import("./target.yo");
@@ -71,7 +72,11 @@ BuildOptions :: ref(
     defines : HashMap(String, String),
     c_compiler : Option(String),
     sysroot : Option(String),
-    summary : bool
+    summary : bool,
+    /// `--locked`: fail if fetching dependencies would change `yo.lock`.
+    locked : bool,
+    /// `--offline`: fail if fetching dependencies would need the network.
+    offline : bool
   )
 );
 // ---------------------------------------------------------------------------
@@ -322,6 +327,8 @@ resolve_build_import_roots :: (
   fn(
     manifest_opt : Option(Manifest),
     registry : BuildRegistry,
+    locked : bool,
+    offline : bool,
     verbose : bool,
     io : Io,
     exn : Exception
@@ -351,7 +358,7 @@ resolve_build_import_roots :: (
       println(String.from("Dependencies not cached — fetching..."));
     });
     if(needs_fetch, {
-      e.io.await(install_dependencies(manifest, false, ArrayList(String).new(), verbose, e.io, e.exn), e);
+      _ := e.io.await(install_dependencies(manifest, ResolveMode.Install, locked, offline, verbose, e.io, e.exn), e);
     });
     final_roots := if(needs_fetch, _manifest_roots(manifest, e.exn), roots);
     if(final_roots.unavailable.len() > usize(0), {
@@ -1838,7 +1845,7 @@ run_build :: (
     // are fetched here when the cache lacks them. Runs before the single
     // evaluator reset that follows (see evaluate_build_file).
     manifest_opt := project_manifest(project_dir.clone(), e.exn);
-    e.io.await(resolve_build_import_roots(manifest_opt, registry, options.verbose, e.io, e.exn), e);
+    e.io.await(resolve_build_import_roots(manifest_opt, registry, options.locked, options.offline, options.verbose, e.io, e.exn), e);
     project_name := match(manifest_opt, .Some(m) => m.name.clone(), .None => String.new());
     mm_reset();
     // Resolve system libraries per-artifact via pkg-config

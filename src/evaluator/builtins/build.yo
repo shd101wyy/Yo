@@ -605,7 +605,7 @@ impl(
 // The global registry
 // ---------------------------------------------------------------------------
 // `build.yo` evaluation populates ONE registry, which the caller then reads —
-// `yo build` for the DAG, `yo fetch`/`yo install` for the dependency list. TS
+// `yo build` for the DAG and the referenced dependency names. TS
 // keeps it in a module-level `globalRegistry` with lazy construction; this is
 // the same thing.
 (g_build_registry : Option(BuildRegistry)) = Option(BuildRegistry).None;
@@ -944,7 +944,7 @@ _build_attach_system_library :: (
 ///
 /// On the REAL path (concrete comptime args — i.e. a top-level `build.yo` being
 /// evaluated) every builtin mutates `get_build_registry()`, exactly as TS does.
-/// That is what `yo build`, `yo fetch` and `yo install` read: without it the
+/// That is what `yo build` reads: without it the
 /// registry stays empty and `yo build` builds an empty DAG and exits 0.
 evaluate_yo_build_functions :: (
   fn(

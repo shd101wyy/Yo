@@ -665,13 +665,44 @@ matched against `git ls-remote --tags`, exact `tag`/`rev`, `branch` and bare
 Gates: cli-cases `add-path-dep-import`, `install-git-dep-semver` (offline bare
 repository, `^1` picks v1.2.0), `install-no-deps`, the rewritten
 `build-*-dep-*` cases; `tests/internal/{manifest,toml_edit,install_command}`.
-Not in P1.3 (next, **P1.4**): version unification across the graph (one
-version per compatible range — today each declared range resolves for its
-declarer, and the same name at two roots is an error), `yo.lock` v2 with the
-graph and `integrity`, the content-addressed store, `--locked`/`--frozen`/
-`--offline`, `yo update --latest`, `build.manifest` in `build.yo`; then §4.5.2
-dependency `build.yo` evaluation + system-library propagation, §4.5.3 linking,
-§4.5.4 shared libraries.
+**P1.4a — the resolver and `yo.lock` v2** (`p1/resolver-lock-v2`, stacked
+on P1.3): `src/resolver.yo` walks the graph from the root manifest — every
+fetched package's `yo.toml` is read, its non-dev dependencies join under
+their names — and unifies EVERY requirement on a package into one ref
+(`choose_ref`: the highest tag inside all ranges; exact `tag`/`rev`/`branch`
+pins must agree, and a version tag pin must fit the ranges; otherwise an
+error naming each requirer). One version per dependency NAME (the §4.2
+two-majors relaxation is deferred — one flat import namespace). A lock entry
+that still satisfies its requirements is reused without the network. Rounds
+run to a fixpoint (a later requirer can move an earlier choice, which
+re-expands that package). `yo.lock` v2 (`src/lock_file.yo`): `version = 2`,
+`[[package]]` with `source = "git+url#ref"` / `"path+rel"`, `commit`,
+`integrity`, `dependencies`; sorted, atomic write, v1 rejected and
+regenerated. `src/fetch.yo` reduced to `fetch_package` (commit decision,
+sidecar/lock integrity check with evict-and-refetch, a still-mismatching
+refetch is an error) over the existing `deps/<name>-<commit12>` cache
+layout. `--locked` / `--offline` / `--frozen` on `yo install` and `yo build`;
+`yo update --latest` rewrites out-of-range `version` ranges to `^X.Y.Z`
+through `toml_edit`. Gates: `tests/internal/{resolver,lock_file}.test.yo`
+(unification + lock-reuse tables), cli-cases `install-transitive-git`,
+`install-unifies-versions`, `install-conflicting-requirements`,
+`lock-locked-fails-when-stale`, `install-frozen-offline`,
+`update-latest-bumps-range`. Four compiler bugs surfaced and were fixed en
+route, each with a red-first gate: a short-circuit operand inside a BARE arm/fn/
+loop body dropped its temp after its C block closed
+(issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md);
+an unbound name inside an `io.async` body passed `yo check` (now a hard swallow
+class, issues/fixed/async-closure-body-unknown-identifier-passes-check.md);
+the async lowering of a match/cond with an awaiting arm handed the other arm's
+borrowed value out without a dup — released twice
+(issues/fixed/async-match-arm-borrowed-payload-released-twice.md); and
+every `io.async` closure leaked its captured values — neither dispose path
+released the capture struct the call site had dup'd
+(issues/fixed/io-async-closure-captures-never-released.md).
+Not in P1.4a (next, **P1.4b**): the content-addressed store (§4.4 — bare
+mirrors, `store/<sha256>` trees, `gc`, a lock across concurrent installs),
+`build.manifest` in `build.yo`; then §4.5.2 dependency `build.yo` evaluation
++ system-library propagation, §4.5.3 linking, §4.5.4 shared libraries.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

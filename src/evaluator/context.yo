@@ -1024,25 +1024,39 @@ forward_ref_diagnostic :: (fn(msg : String) -> Option(String))({
 });
 /// The swallow classes that must surface at check time even from the SILENT
 /// trial sites (the deferred-generic trials, TS ts:112 catch parity):
-/// forward references get the enriched diagnostic above, and an ARITY
-/// mismatch against the resolved callee is knowable at def time — the hole
-/// that shipped broken `yo version install` in v0.2.19/v0.2.20: check stayed
+/// forward references get the enriched diagnostic above; an ARITY mismatch
+/// against the resolved callee is knowable at def time — the hole that
+/// shipped broken `yo version install` in v0.2.19/v0.2.20: check stayed
 /// green, the swallow ate "Argument count mismatch", and the async state
 /// machine emitted a too-few-arguments C call (UB — garbage values, not an
-/// error). issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md.
+/// error), issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md;
+/// and an UNBOUND NAME that is bound nowhere — Yo scopes lexically, a
+/// module-level name is forced on the miss (lazy top-level bindings) and a
+/// later runtime binding is the forward-reference class above, so a
+/// `Variable "x" not found.` that survives to the swallow is a typo or a
+/// missing import, and no later call can bind it. Swallowing it hollowed an
+/// `io.async` body (a closure body is trialled ONCE — nothing re-evaluates it
+/// at a call) while `check` stayed green; the missing `println` import only
+/// surfaced as codegen's "body was never fully evaluated" ICE
+/// (issues/fixed/async-closure-body-unknown-identifier-passes-check.md).
 hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
   match(
     forward_ref_diagnostic(msg),
     .Some(fwd) => Option(String).Some(fwd),
     .None =>
       cond(
-        msg.contains(String.from("Argument count mismatch")) => {
-          // The swallowed dyn-message often already carries an "Error: "
-          // prefix; format_error_message adds its own — strip one to avoid
-          // "Error: Error:".
+        (msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found.")))) => {
+          // The swallowed dyn-message often already carries an "Error: " or
+          // "error[E0401]: " prefix; format_error_message adds its own —
+          // strip one to avoid "Error: Error:" / "error[E0401]: error[E0401]:".
           err_prefix := String.from("Error: ");
           cond(
             msg.starts_with(err_prefix) => Option(String).Some(msg.substring(err_prefix.len(), msg.len())),
+            msg.starts_with(String.from("error[")) => match(
+              msg.index_of(String.from("]: ")),
+              .Some(k) => Option(String).Some(msg.substring(k + usize(3), msg.len())),
+              .None => Option(String).Some(msg)
+            ),
             true => Option(String).Some(msg)
           )
         },
