@@ -70,6 +70,28 @@ test("Test a wake before the park suspends is not lost", {
 });
 
 // ---------------------------------------------------------------------------
+// 1b. Awaiting the park does not RELEASE it.
+//
+// `Park.wait` awaits `self._future` — a future read out of a field, which the
+// struct still owns and still drops in its own dispose. An await that takes
+// that reference instead of one of its own frees the future while the park and
+// its wakers still point at it
+// (issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md).
+// Two awaits make the imbalance unambiguous: the count reaches zero with two
+// live holders left, so the ASan-armed CI legs report a use-after-free rather
+// than a one-off drop at scope end.
+// ---------------------------------------------------------------------------
+test("Test awaiting the same park twice does not release its future twice", {
+  p := Park.new();
+  w := p.waker();
+  w.wake();
+  io.await(p.wait(io), io);
+  io.await(p.wait(io), io);
+  assert(w.is_woken(), "the park survived both awaits, and is still woken");
+  assert(p.waker().is_woken(), "and it can still hand out a waker");
+});
+
+// ---------------------------------------------------------------------------
 // 2. Waking twice is a no-op, which is what lets a waiter list signal
 //    everyone without tracking who already ran.
 // ---------------------------------------------------------------------------
