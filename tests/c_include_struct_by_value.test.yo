@@ -1,0 +1,67 @@
+//! A C struct crossing the ABI BY VALUE, in both directions.
+//!
+//! `c_include("<header>", Name : Type, ...)` where `Name` already names a Yo
+//! type ADOPTS that type: it declares "this Yo struct IS the C struct `Name`
+//! in this header". Codegen then lowers it to the plain C name and emits no
+//! definition of its own, so the value the C function receives (and returns)
+//! is laid out by the C compiler, from the header.
+//!
+//! Before adoption, the `Name : Type` field overwrote the Yo type with an
+//! opaque handle, so the struct could not even be CONSTRUCTED
+//! (`Vector2(x : …)` → "TypeVal SomeT callee without FnTrait") and every C
+//! library built on by-value structs — raylib, SDL — was unreachable.
+//! See issues/fixed/c-include-cannot-express-a-by-value-c-struct.md.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+/// The Yo mirror of the header's `struct YoTestPoint { double x; double y; }`.
+YoTestPoint :: struct(x : f64, y : f64);
+c_include(
+  "\"c_include_struct_by_value.h\"",
+  YoTestPoint :
+    Type,
+  yo_test_point_make :
+    (fn(x : f64, y : f64) -> YoTestPoint),
+  yo_test_point_dot :
+    (fn(a : YoTestPoint, b : YoTestPoint) -> f64),
+  yo_test_point_add :
+    (fn(a : YoTestPoint, b : YoTestPoint) -> YoTestPoint)
+);
+test("an adopted C struct is still constructible from Yo", {
+  p := YoTestPoint(x : f64(3.0), y : f64(4.0));
+  assert(p.x == f64(3.0), "the x the constructor was given");
+  assert(p.y == f64(4.0), "and the y");
+});
+test("a Yo-built struct crosses into C by value", {
+  a := YoTestPoint(x : f64(1.0), y : f64(2.0));
+  b := YoTestPoint(x : f64(3.0), y : f64(4.0));
+  // 1*3 + 2*4. A wrong layout or a Yo-side definition competing with the
+  // header's would put garbage here rather than 11.
+  assert(unsafe(yo_test_point_dot(a, b)) == f64(11.0), "the C function read both fields of both arguments");
+});
+test("a struct returned from C by value is readable in Yo", {
+  p := unsafe(yo_test_point_make(f64(5.5), f64(-2.25)));
+  assert(p.x == f64(5.5), "the x C built");
+  assert(p.y == f64(-2.25), "and the y");
+});
+test("a struct round-trips through C and back", {
+  a := YoTestPoint(x : f64(1.5), y : f64(2.5));
+  b := YoTestPoint(x : f64(0.25), y : f64(0.75));
+  s := unsafe(yo_test_point_add(a, b));
+  assert(s.x == f64(1.75), "x summed");
+  assert(s.y == f64(3.25), "y summed");
+  // And the result is an ordinary Yo value: it goes back into C unchanged.
+  assert(unsafe(yo_test_point_dot(s, YoTestPoint(x : f64(2.0), y : f64(0.0)))) == f64(3.5), "the returned value is a full Yo value");
+});
+test("an adopted type is an ordinary Yo type everywhere else", {
+  // Adoption must not make the type special on the Yo side: it is still
+  // assignable, copyable, and usable as a parameter and a return type.
+  scaled := (fn(p : YoTestPoint, k : f64) -> YoTestPoint)(
+    YoTestPoint(x : (p.x * k), y : (p.y * k))
+  );
+  p := YoTestPoint(x : f64(2.0), y : f64(3.0));
+  q := p;
+  r := scaled(q, f64(2.0));
+  assert(r.x == f64(4.0), "a Yo function returns the adopted type by value");
+  assert(r.y == f64(6.0), "both fields");
+  assert(p.x == f64(2.0), "and the original is untouched (value semantics)");
+});

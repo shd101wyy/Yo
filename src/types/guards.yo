@@ -11,6 +11,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 // ---------------------------------------------------------------------------
@@ -30,6 +31,56 @@ register_extern_type_name :: (fn(name : String) -> unit)({
   ()
 });
 is_extern_type_name :: (fn(name : String) -> bool)(g_extern_type_names.contains(name));
+// ---------------------------------------------------------------------------
+// c_include TYPE ADOPTION — "this Yo type IS the C type `Name` in <header>".
+//
+// `c_include("<raylib.h>", Color : Type, …)` where `Color` ALREADY names a
+// module type does not declare a new opaque type: it says the Yo struct just
+// declared IS that header's C struct. The C compiler therefore already has a
+// definition and a name for it, so codegen must lower the type to that plain
+// name (`Color`, not `__yo_t7`) and must NOT emit a competing definition — the
+// only way a C struct can cross the ABI BY VALUE.
+//
+// TS carries this on the type itself (`type.isExtern` + `type.externName`,
+// src/types/utils.ts); yo-self's `TypeValue` has no such field, so this registry
+// stands in — the same stand-in shape as `g_extern_type_names` above, and the
+// "Gap 3: extern-C names not modelled generally" note in
+// `codegen/types/collection.yo` is what it closes.
+//
+// Keyed by the type's DECLARATION id (`Struct.id` / `EnumT.id`), which the
+// evaluator and codegen can both read straight off the `TypeValue` without
+// having to agree on a structural key (codegen's `type_key` is not reachable
+// from the evaluator).
+// ---------------------------------------------------------------------------
+/// The C name a Yo type was adopted under, and the header that defines it.
+AdoptedExternCType :: ref(struct(c_name : String, c_header : String));
+(g_adopted_extern_c_types : HashMap(String, AdoptedExternCType)) = HashMap(String, AdoptedExternCType).new();
+register_adopted_extern_c_type :: (
+  fn(decl_id : String, c_name : String, header : String) -> unit
+)({
+  if((decl_id.len() > usize(0)) && (c_name.len() > usize(0)), {
+    g_adopted_extern_c_types.insert(decl_id, AdoptedExternCType(c_name : c_name, c_header : header));
+  });
+  ()
+});
+/// The declaration id a `c_include` adoption is keyed by, for the type kinds
+/// that HAVE one. A `union(...)` carries no id and cannot be adopted.
+type_decl_id :: (fn(t : TypeValue) -> Option(String))(
+  match(
+    t,
+    .Struct({ id : sid }) => if(sid.len() > usize(0), Option(String).Some(sid.clone()), Option(String).None),
+    .EnumT({ id : eid }) => if(eid.len() > usize(0), Option(String).Some(eid.clone()), Option(String).None),
+    _ => Option(String).None
+  )
+);
+/// The C name + header this type was adopted under by a `c_include`, if any.
+get_adopted_extern_c_type :: (fn(t : TypeValue) -> Option(AdoptedExternCType))(
+  match(
+    type_decl_id(t),
+    .Some(did) => g_adopted_extern_c_types.get(did),
+    .None => Option(AdoptedExternCType).None
+  )
+);
 // ---------------------------------------------------------------------------
 // Resolved-concrete bridge indirection (mirrors TS reading
 // `someType.resolvedConcreteType`). guards.yo is low-level and cannot import
@@ -745,6 +796,10 @@ export(
   set_lookup_some_resolved_concrete,
   register_extern_type_name,
   is_extern_type_name,
+  AdoptedExternCType,
+  register_adopted_extern_c_type,
+  get_adopted_extern_c_type,
+  type_decl_id,
   is_function_specializable,
   // Box / effects-row guards
   is_boxed_type,
