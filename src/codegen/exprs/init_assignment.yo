@@ -28,6 +28,7 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
@@ -451,6 +452,24 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     }, {
       // Non-array scalar initialization.
       sanitized_var_name := get_variable_name_for_codegen(var_name.clone(), Option(Environment).Some(lhs_ei.env));
+      // A STATIC-dispatch call whose callee's prototype returns `void` has no
+      // value, whatever this binding's own types say. They can disagree: a
+      // generic `Impl(Fn(...) -> T)` callee specialised at `T = unit` emits a
+      // `void` prototype while both `rei.ty` and `lhs_type` still carry the
+      // unresolved `T`, whose spelling is the erasure `void*` — so neither the
+      // `rhs_is_unit` guard below nor the `!is_unit_type(lhs_type)` guard fires
+      // and the C came out `void* t = <void call>; void* v = t;`. Ask the
+      // callee.
+      // See issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
+      rhs_is_void_call := match(
+        rhs,
+        .FnCall(_, rhs_callee, _, _, _) => match(
+          static_dispatch_callee_return_type(rhs_callee, context.base),
+          .Some(sd_ret) => (sd_ret == `void`),
+          .None => false
+        ),
+        .Atom(_, _) => false
+      );
       rhs_code := match(
         context.base.get_expr_info(rhs),
         .Some(rei) => match(
@@ -471,7 +490,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
               // the missing half. Resolve through SomeT first, so a type
               // parameter that resolves to unit takes the same path.
               // See issues/fixed/binding-a-unit-returning-call-emits-invalid-c.md.
-              rhs_is_unit := is_unit_type(resolve_some_type_to_concrete(effective_type));
+              rhs_is_unit := (rhs_is_void_call || is_unit_type(resolve_some_type_to_concrete(effective_type)));
               if(rhs_is_unit, {
                 // No value to hold, so no declaration — but the code must
                 // still RUN. Most unit calls are already emitted as a
@@ -524,7 +543,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
       // `s2 compile main.yo` UAF; see issues/fixed/yo-self-dyn-throw-double-drop.md).
       rhs_is_deref := (ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) && match(rhs, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(pe) => ast_expr_is_atom_of(pe, "*"), .None => false), .Atom(_, _) => false));
       rhs_has_dup := match(context.base.get_expr_info(rhs), .Some(r2) => match(r2.deferred_dup_expressions, .Some(d2) => (d2.len() > usize(0)), .None => false), .None => false);
-      if(!is_unit_type(lhs_type), {
+      if(!is_unit_type(lhs_type) && !rhs_is_void_call, {
         // get_variable_type_string (not get_type_string + manual name append)
         // so the scalar binding's C name is REGISTERED in declared_c_var_names
         // — _keep_pending_drop (return.yo) rejects a drop whose target was

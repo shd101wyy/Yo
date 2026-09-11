@@ -1,0 +1,26 @@
+//! D18b repro: a Thread(T)-shaped spawn whose callback returns a ZST.
+//! `Thread(T).spawn` takes `cb : Impl(Fn(io : Io) -> T)` and the thread body
+//! sends `cb(io)` down a Channel(T). At T = unit the spawn lowering binds the
+//! callback's unit result to a `void*` temp and the C does not compile:
+//!   error: initializing 'void *' with an expression of incompatible type 'void'
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ Channel } :: import("std/sync/channel");
+{ Thread } :: import("std/thread");
+_spawn_zst :: (
+  fn(generic(T : Type), cb : Impl(Fn(io : Io) -> T), where(T <: (Send, Acyclic))) -> Channel(T)
+)({
+  chan := Channel(T).new(usize(1));
+  sink := chan;
+  t := Thread.spawn((io : Io) => {
+    sink.send(cb(io));
+    ()
+  });
+  t.join();
+  chan
+});
+main :: (fn(io : Io) -> unit)({
+  c := _spawn_zst((io : Io) => ());
+  match(c.try_recv(), .Ok(_) => println(`unit value delivered`), .Err(_) => println(`no value`));
+});
+export(main);

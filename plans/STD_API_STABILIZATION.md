@@ -215,11 +215,18 @@ the work in §4 does not re-open them.
   `Dispose` before `try_recv`; `Thread(i32).join()` returning the body's
   value), but it cannot be landed:
   * writing the call-and-send INLINE in the spawn closure does not compile at
-    `T = unit` — the emitted C is `void* tmp = <void expr>` for the captured
-    callback's ZST result and the `Channel(unit).send` specialisation is never
-    emitted. Narrowed to `src/codegen/exprs/parallelism.yo`, which gives spawn
-    callbacks their own capture-struct lowering ("selects the primitive +
-    (unit) return convention"), with three controls that all work.
+    `T = unit`. This was TWO defects, not one, and the first is now FIXED. The
+    `void* tmp = <void expr>` half was not `parallelism.yo` at all: it was the
+    `cc_` static-dispatch call site in `other_fn_call.yo` (plus the binding
+    emitter one level up) reading the CALL EXPRESSION's type — still the
+    unresolved `T`, spelled as the erasure `void*` — instead of the callee's
+    own emitted prototype, which says `void`
+    (`issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md`,
+    red-first test in `tests/closure_param_forwarding.test.yo`). The repro is
+    down from two C errors to one. The remaining half — the
+    `Channel(unit).send` specialisation being CALLED and never emitted, its
+    mangled name appearing exactly once in the whole translation unit — is
+    `issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
   * routing it through a top-level generic helper dodges that, and then hits
     the OTHER wall: the spawn closure now CAPTURES `cb`, and #451's Send
     enforcement rejects it —

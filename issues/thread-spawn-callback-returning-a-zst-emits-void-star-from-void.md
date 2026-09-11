@@ -1,8 +1,33 @@
 # `Thread(T).spawn` cannot take a callback returning a ZST — the spawn path emits `void* tmp = <void expr>`
 
-**Status:** OPEN, and D18 part 2 is **BLOCKED**. The workaround recorded below
-dodges this bug and then hits a SECOND wall — see "Why the workaround does not
-land either".
+**Status:** the FIRST symptom is **FIXED** (2026-09-12); D18 part 2 is still
+**BLOCKED** on the second and on the `Send` capture judgement. The workaround
+recorded below dodges this bug and then hits that wall — see "Why the
+workaround does not land either".
+
+> **CORRECTION 2026-09-12 — "specific to the thread-spawn lowering" was
+> wrong.** The three controls below are not enough to narrow it there.
+> `issues/repros/closure-call-void-result.yo` reproduces symptom 1 with **no
+> thread, no spawn, no channel**: a plain closure that captures an
+> `Impl(Fn(n : i32) -> T)` parameter and binds its call at `T = unit`. The
+> lowering in `src/codegen/exprs/parallelism.yo` is NOT involved.
+>
+> The real cause was the `cc_` static-dispatch call site in
+> `other_fn_call.yo` (and the binding emitter one level up in
+> `init_assignment.yo`) reading the CALL EXPRESSION's type — still the
+> unresolved `T`, spelled as the erasure `void*` — instead of the callee's own
+> emitted prototype, which says `void`. All three emitters ask the callee now.
+> See `issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md`
+> for the mechanism, the measurements, and the red-first test.
+>
+> Symptom 2 — the `Channel(unit).send` specialisation called and never emitted
+> — is also NOT the spawn lowering. It is two manglings of one specialisation:
+> `_compute_compile_time_signature` gates its `rtparam<i>` segment on the
+> SHALLOW `is_unit_type`, so a parameter that RESOLVES to unit contributes no
+> segment from one caller and `rtparam1_<T's id>` from another. Filed as
+> `issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
+>
+> The D18b repro is accordingly down from two C errors to one.
 
 Found 2026-09-07 attempting **D18 part 2**
 (`plans/STD_API_STABILIZATION.md` §2: *"`Thread(T).spawn` carries its result and
