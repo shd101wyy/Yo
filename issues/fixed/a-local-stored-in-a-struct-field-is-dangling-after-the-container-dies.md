@@ -1,6 +1,6 @@
 # A local stored into a struct field is dangling once the container dies
 
-**Status:** OPEN. Found 2026-09-11 while writing the Dispose-counter gate for
+**Status:** FIXED 2026-09-11. Found 2026-09-11 while writing the Dispose-counter gate for
 the spawn-capture leak fix
 (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`). **Pre-existing**
 — reproduces identically under the v0.2.30 seed and under a `develop` tree
@@ -109,3 +109,40 @@ dup/drop pair again.
 Tests: the reproducer as a `tests/` case in both spellings (`atomic(ref(...))`
 and `ref(...)`), with a Dispose counter as the oracle rather than a leak
 checker, plus the same-scope canary.
+
+## Fix
+
+`_optimize_dup_drop_pairs` (`src/evaluator/exprs/begin.yo`) gains one gate: a
+dup whose own `ExprInfo.env` is DEEPER than the candidate's frame
+(`ei.env.frames.len() > v.frame_level + 1`) cannot cancel that candidate's
+scope-end drop. The pair then survives — the local keeps its dup and its drop,
+the nested container releases what it took, and the totals balance.
+
+**Measured by the dup's env depth rather than by restructuring the collector.**
+The first attempt made `_search_dup_calls` treat a nested `begin` as a unit and
+mark everything inside it. That also took ALIAS bindings (`env := env_in`) off
+the CONSUMED path the early-return drop machinery uses, and the A/B emit-diff —
+the same `src/main.yo` through the old and new compilers — showed **165 fewer
+`__yo_decr_rc` calls**, i.e. `env` never dropped at all on some paths. The
+depth gate's diff is `__yo_incr_rc` **+5** and `__yo_decr_rc` **+39**, both up:
+one restored dup and one restored drop per exit path, which is exactly what
+refusing a cancellation should cost.
+
+Cond/match arms and `while` bodies are deliberately NOT caught. Measured, with
+the `atomic(ref(...))` spelling that frees immediately: a container in a cond
+arm, in both arms of a cond, in both arms of a match, and in a `while` body all
+behave correctly today — the branch-aware collection path and the `while`
+early-return in `_search_dup_calls` already keep them — and an arm body's frame
+is not deeper than the frame being optimized.
+
+Tests in `tests/rc.test.yo`, all over a module-level Dispose counter so both
+directions are caught (an early free AND an unmatched dup that never disposes):
+
+- a container one block deep, and two blocks deep — **red before the fix**;
+- the SAME-scope container, which must keep its cancellation (the
+  over-cancellation canary: two disposes means the gate went too wide, none
+  means a dup is unmatched);
+- a cond arm and a `while` body, which must also keep theirs.
+
+Verified on the merged tree: suite **4131 passed / 0 failed**,
+`gates_fast.sh` GATE 0–8 **`failures=0`**, `fixpoint_only.sh` **`FIXPOINT_HOLDS`**.

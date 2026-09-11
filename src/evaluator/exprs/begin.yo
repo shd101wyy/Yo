@@ -1237,6 +1237,48 @@ _optimize_dup_drop_pairs :: (
               // copies need their own drop — never cancel (begin.ts:1900-1909).
               value_type_with_rc := (!is_reference_struct_type(base.ty) && type_contains_rc_type(base.ty));
               partial := _ids_list_contains(merged.vars_with_partial_branch_dups, base_id.clone());
+              // A dup taken in a DEEPER SCOPE than the candidate's own frame
+              // — the body of a nested `{ … }` block — feeds a container whose
+              // scope end comes FIRST. Cancelling the pair moves this local's
+              // only count into that container, and the inner block's drop
+              // then frees a value the outer scope goes on using:
+              //
+              //   sink := S.new();
+              //   { h := H(sink : sink); };   // h dies here, taking sink's count
+              //   sink.count();               // use after free
+              //
+              // A `ref` holding a `ref` is cycle-capable and therefore
+              // GC-TRACKED, so `__yo_decr_rc` buffers a possible root instead
+              // of freeing on the spot and the fault reads as a correct
+              // answer; an `atomic(ref(…))` is an Iso type, never tracked, and
+              // faults immediately. That asymmetry is why this survived
+              // (issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md).
+              //
+              // Measured by the dup's own `ExprInfo.env` depth rather than by
+              // restructuring the collector: a traversal that treats a nested
+              // `begin` as a unit also takes ALIAS bindings (`env := env_in`)
+              // off the consumed path the early-return drop machinery uses,
+              // which cost 165 `__yo_decr_rc` calls in the compiler's own
+              // emit. Cond/match arms and `while` bodies are deliberately NOT
+              // caught: they are measured correct today (the branch-aware
+              // path and the while early-return above already keep them), and
+              // an arm body's frame is not deeper than this one's.
+              (nested_dup : bool) = false;
+              (ndi : usize) = usize(0);
+              while((ndi < dups.len()) && !nested_dup, {
+                match(
+                  dups.get(ndi),
+                  .Some(nd) => match(
+                    expr_info_table_get(ctx.expr_info_table, ast_expr_id(nd)),
+                    .Some(ndei) => if(ndei.env.frames.len() > (v.frame_level + usize(1)), {
+                      nested_dup = true;
+                    }),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                ndi = (ndi + usize(1));
+              });
               // A main-path dup in a child AFTER an early-return child: the
               // early return never executes the dup, so the value is still
               // live and needs the scope-exit drop (begin.ts:1919-1935).
@@ -1283,7 +1325,7 @@ _optimize_dup_drop_pairs :: (
                   bci2 = (bci2 + usize(1));
                 });
               });
-              gates_ok := (!value_type_with_rc && (!partial && (!ret_before_dup && ((consumed_dups == usize(0)) && !base_consumed))));
+              gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && !base_consumed)))));
               if(gates_ok, {
                 // Count RUNTIME dups — every collected dup counts
                 // (begin.ts:1930-1955).
