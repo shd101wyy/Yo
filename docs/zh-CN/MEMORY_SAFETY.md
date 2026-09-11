@@ -129,7 +129,7 @@ pragma(Pragma.AllowUnsafe);
 
 copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
   // extern 调用必须包在 unsafe(...) 里 —— 见下面的"逐调用审计标记"。
-  _ := unsafe(memcpy((*void)(dst), (*void)(src), n));
+  unsafe(memcpy((*void)(dst), (*void)(src), n));
 });
 ```
 

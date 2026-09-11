@@ -145,8 +145,7 @@ test("value-enum holding a recursive ref(enum) field (RC-cycle analysis)", {
   h := Holder.Boxed(b : box(Holder.Plain(n : i32(1))), t : Nest.Tip(n : i32(9)));
   match(
     h,
-    .Boxed(b, t) => {
-      _ := b;
+    .Boxed(_, t) => {
       assert(nest_sum(t) == i32(9), "ref-enum field inside a value-enum");
     },
     .Plain(_) => ()

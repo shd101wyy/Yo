@@ -20,7 +20,7 @@ use_cfg :: (fn(c : CFG) -> i32)(c.n);
 echo_cfg :: (fn(c : CFG, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async((e : IoExn) => {
     before := use_cfg(c);
-    _ := e.io.await(yield(e.io), e);
+    e.io.await(yield(e.io), e);
     after := use_cfg(c);
     after - before
   })

@@ -223,7 +223,7 @@ impl(
     g_ms_in_progress.insert(fid.clone(), true);
     local_touched := ArrayList(String).new();
     mutates := _MsW.walk(body, table, local_touched);
-    ___ := g_ms_in_progress.remove(fid.clone());
+    g_ms_in_progress.remove(fid.clone());
     // Remove the self edge (pure self-recursion does not poison memoization).
     (li : usize) = usize(0);
     filtered_touched := ArrayList(String).new();
@@ -1368,7 +1368,7 @@ impl(
       );
       ri = (ri + usize(1));
     });
-    ___ := g_msp_in_progress.remove(fid.clone());
+    g_msp_in_progress.remove(fid.clone());
     filtered := ArrayList(String).new();
     (li : usize) = usize(0);
     while(li < local_touched.len(), {
