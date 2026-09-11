@@ -79,6 +79,16 @@ missed it because the escape path passes `skip_already_dropped = true` and never
 consulted the emitted set). A drop whose C has already been emitted at the escape point
 is skipped there, the same emitted-once contract the scope-end flushes follow.
 
+That guard only works if every emission RECORDS. The two scope-end flushes
+(`generate_deferred_drop_expressions` in `drop_dup.yo`, `_emit_deferred_drops` in
+`begin.yo`) inserted into `emitted_deferred_drop_ids` inside their `code.len() > 0`
+branch — but an enum/Option-typed target (a `String` temp) lowers to a multi-line
+`switch` the drop generator writes to the emitter itself, returning "", so those drops
+were emitted but never recorded and the escape path still released them twice (the ref
+shape was fixed, the `String` shape still died with rc 138). Both flushes now record
+unconditionally and emit conditionally, the way `and_or.yo`'s two emission points
+already did (`issues/fixed/short-circuit-chain-inner-operand-temps-still-leak.md` records the same "emitted but unrecorded" class).
+
 ## Gates
 
 - `tests/rc.test.yo`: five tests — bare match arm, bare cond arm, single-expression fn

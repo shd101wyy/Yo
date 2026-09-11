@@ -887,12 +887,22 @@ generate_deferred_drop_expressions :: (
                   );
                   if(!sc_skip, {
                     code := _call_generate_expr(drop_expr, indent.clone(), context);
+                    // Record unconditionally, emit conditionally: an
+                    // enum/Option-typed target lowers to a multi-line `switch`
+                    // the drop generator writes to the emitter itself and
+                    // hands back "" — the drop is on the page either way, and
+                    // bookkeeping hung off `len() > 0` left exactly those
+                    // drops unrecorded, so the early-exit path
+                    // (return.yo's generate_pending_deferred_drops) released
+                    // a bare arm's String temps a second time (the
+                    // "unwind argument built by a may-unwind call" test).
+                    // Same contract as and_or.yo's two emission points.
+                    context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
                     if(code.len() > usize(0), {
                       line := indent.clone();
                       line.push_string(code);
                       line.push_str(";");
                       em.emit_string_line(line);
-                      context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
                     });
                   });
                 });
