@@ -1,9 +1,11 @@
 # A body-less HTTP response reaches the socket and the client's read never completes — macOS, timing-dependent
 
 **Found**: 2026-09-11, by the server-side checkpoints added to
-`tests/http/http.test.yo` for #556. **Class**: a lost read wake-up in the
-async runtime, visible as a ten-second `HttpError.Timeout` on an exchange that
-completes in ~1 ms. **Status**: OPEN.
+`tests/http/http.test.yo` for #556. **Class**: a lost wake-up in the async
+runtime, visible as a ten-second `HttpError.Timeout` on an exchange that
+completes in ~1 ms. **Status**: OPEN. The "lost READ wake-up" reading is
+REFUTED as of 2026-09-12 — the read completes with the whole response in hand
+(see "The client-side trace" below); what is lost is one level up.
 
 ## What the checkpoints prove
 
@@ -93,6 +95,63 @@ emitted C or by reading the registration flags, not by a passing test.
 **That leaves the platform I/O completion path.** The client-side checkpoints
 now on this branch answer the remaining question directly: whether the read is
 never ISSUED, or issued and never woken.
+
+## The client-side trace (2026-09-12) — the read completes, and the exchange still hangs
+
+Run **34610920605**, job **103332927203**, `test (macos-26-intel)`. The
+checkpoints inside `read_http_message_buffered`'s read loop came back, and they
+refute the heading of this issue:
+
+```
+[204] issuing request two on the pooled connection
+[wire] issuing read (have=0)      (D)
+[wire] read returned 38           (C')
+[srv] framed 38 request byte(s)
+[srv] wrote 46 of 46 answer byte(s)
+[srv] awaiting a framed request (carry=0)
+[wire] issuing read (have=0)      (E)
+[wire] read returned 46           (D')
+unexpected exception: HTTP request timed out
+```
+
+Both peers frame through the SAME function, so the prints interleave. Pairing
+them by who can produce which byte count — requests are 38 bytes, responses 46
+— the client's read `D` **returned all 46 bytes of the response**, and then
+nothing else was printed for ten seconds: not the next loop iteration, not the
+test's `[204] response two`.
+
+So the read is issued, the read is woken, and the whole response is in the
+client's buffer. "A lost read wake-up" is the wrong heading. What is lost sits
+one level UP, and there are exactly two candidates:
+
+1. **The parent await never resumes.** `_do_fetch` awaits
+   `read_http_message_buffered(...)` as a nested async-block future. If that
+   inner future completes and the continuation registered by the parent's
+   await is never invoked, the task stops exactly where the trace stops.
+2. **`_fetch_follow` finishes and nobody notices.** `_fetch_deadline`
+   (`std/http/client.yo`) does not await the exchange — it spawns it and spins:
+
+   ```rust
+   h := e.io.spawn(_fetch_follow(url_str, opts, pool, e.io), e);
+   dh := e.io.spawn(sleep(limit, e.io), e.io);
+   while(runtime(!h.is_finished() && !dh.is_finished()), {
+     e.io.await(yield(e.io), e.io);
+   });
+   ```
+
+   `is_finished()` reads the spawned future's state word
+   (`__yo_join_handle_state_raw`). If the exchange completes and that word is
+   not published where this loop reads it, the spin runs until the 1 ms-timer
+   `yield`s have burned the whole ten seconds and `dh` wins — which produces
+   `HttpError.Timeout` with the request long since answered.
+
+The pairing above is INFERRED, not read off the log, which is a defect in the
+instrumentation rather than in the reasoning. The checkpoints therefore now
+carry a `REQ`/`RSP` tag (the server frames Requests, the client Responses), a
+third print marks the read loop EXITING, and `client.yo` brackets its await on
+either side. The next trace separates the two candidates without inference: if
+`[wire RSP] loop done` prints and `[clt] parent await resumed` does not, it is
+candidate 1; if both print and the deadline still fires, it is candidate 2.
 
 ## Earlier hypothesis, now refuted: a two-arm match with an await in each arm
 
