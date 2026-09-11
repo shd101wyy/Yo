@@ -325,6 +325,9 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   set_lookup_some_resolved_concrete(lookup_some_resolved_concrete);
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
+  // The entry module's path decides which top-level exports get plain,
+  // externally-linked C names (functions/collection.yo).
+  base.current_module_path = Option(String).Some(module_env.module_path.clone());
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md): record function byte
   // ranges and split cross-chunk statics. MUST stay false by default — the
   // single-file emission is gated byte-identical. `chunk_auto_cap >= 1` is the

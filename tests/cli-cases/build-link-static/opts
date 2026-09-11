@@ -1,0 +1,8 @@
+# `exe.link(lib)` on a static_library must LINK it: the docs' "Cross-Module
+# Linking with extern Yo" example, which used to fail with `Undefined symbols:
+# "_add"` because the link only ordered the DAG
+# (issues/fixed/step-link-does-not-link-the-static-library.md). The built program's
+# own output (`7`) is the assertion; the Building lines pin that both artifacts
+# were compiled in order. clang chatter carries environment-specific paths.
+timeout=600
+stdout_keep=^(Building|7$)
