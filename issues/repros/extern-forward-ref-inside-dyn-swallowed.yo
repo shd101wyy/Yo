@@ -1,0 +1,17 @@
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ Exception } :: import("std/error");
+{ println } :: import("std/fmt");
+{ IoError } :: import("std/sys/errors");
+// The extern is declared AFTER the function that calls it.
+fail_with_errno :: (fn(exn : Exception) -> unit)({
+  exn.throw(dyn(IoError.from_errno(__yo_errno())));
+});
+extern(
+  "Yo",
+  __yo_errno : (fn() -> i32)
+);
+main :: (fn() -> unit)({
+  println("ok");
+});
+export(main);

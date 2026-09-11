@@ -1,0 +1,193 @@
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert, panic } :: import("std/assert");
+{
+  Manifest,
+  ManifestModule,
+  ManifestDependency,
+  DependencySource,
+  GitRequirement,
+  parse_manifest,
+  abs_under
+} :: import("../../src/manifest.yo");
+_ok :: (fn(text : str) -> Manifest)(
+  match(
+    parse_manifest(String.from(text), String.from("/proj/yo.toml")),
+    .Ok(m) => m,
+    .Err(msg) => {
+      panic(`expected a manifest, got: ${msg}`);
+      Manifest(
+        path : String.new(),
+        dir : String.new(),
+        name : String.new(),
+        version : String.new(),
+        description : String.new(),
+        license : String.new(),
+        yo_version : String.new(),
+        modules : ArrayList(ManifestModule).new(),
+        dependencies : ArrayList(ManifestDependency).new()
+      )
+    }
+  )
+);
+_err :: (fn(text : str) -> String)(
+  match(
+    parse_manifest(String.from(text), String.from("/proj/yo.toml")),
+    .Ok(_) => {
+      panic("expected an error");
+      String.new()
+    },
+    .Err(msg) => msg
+  )
+);
+// ---------------------------------------------------------------------------
+// [package]
+// ---------------------------------------------------------------------------
+test("parse_manifest: a name alone is a complete manifest", {
+  m := _ok("[package]\nname = \"app\"\n");
+  assert(m.name == "app", "name");
+  assert(m.version == "", "version defaults to empty");
+  assert(m.dir == "/proj", "dir is the manifest's directory");
+  assert(m.path == "/proj/yo.toml", "path");
+  assert(m.modules.len() == usize(0), "no modules");
+  assert(m.dependencies.len() == usize(0), "no dependencies");
+});
+test("parse_manifest: every [package] field is read", {
+  m := _ok("[package]\nname = \"tetris_yo\"\nversion = \"0.3.0\"\ndescription = \"Tetris\"\nlicense = \"MIT\"\nyo = \"0.2.30\"\n");
+  assert(m.version == "0.3.0", "version");
+  assert(m.description == "Tetris", "description");
+  assert(m.license == "MIT", "license");
+  assert(m.yo_version == "0.2.30", "yo");
+});
+test("parse_manifest: missing [package] is an error naming the file", {
+  msg := _err("[dependencies]\n");
+  assert(msg.contains("/proj/yo.toml"), "names the file");
+  assert(msg.contains("[package]"), "names the table");
+});
+test("parse_manifest: [package] without a name is an error", {
+  msg := _err("[package]\nversion = \"1.0.0\"\n");
+  assert(msg.contains("name is required"), msg);
+});
+test("parse_manifest: a name with a path separator is rejected", {
+  msg := _err("[package]\nname = \"a/b\"\n");
+  assert(msg.contains("path separator"), msg);
+});
+test("parse_manifest: a non-string field is an error naming the key", {
+  msg := _err("[package]\nname = 42\n");
+  assert(msg.contains("\"name\" must be a string"), msg);
+});
+test("parse_manifest: invalid TOML reports the TOML error", {
+  msg := _err("[package\nname = \"app\"\n");
+  assert(msg.contains("TOML error"), msg);
+});
+// ---------------------------------------------------------------------------
+// [modules]
+// ---------------------------------------------------------------------------
+test("parse_manifest: [modules] entries keep declaration order", {
+  m := _ok("[package]\nname = \"app\"\n\n[modules]\ndefault = \"src/lib.yo\"\nboard = \"src/board.yo\"\n");
+  assert(m.modules.len() == usize(2), "two modules");
+  assert(m.modules(usize(0)).name == "default", "first is default");
+  assert(m.modules(usize(0)).root == "src/lib.yo", "default root");
+  assert(m.modules(usize(1)).name == "board", "second is board");
+  assert(m.find_module(String.from("board")).is_some(), "find_module");
+  assert(m.find_module(String.from("nope")).is_none(), "find_module miss");
+});
+test("parse_manifest: a non-string module root is an error", {
+  msg := _err("[package]\nname = \"app\"\n[modules]\ndefault = 1\n");
+  assert(msg.contains("[modules] default must be a string path"), msg);
+});
+test("parse_manifest: a module name with a slash is rejected", {
+  msg := _err("[package]\nname = \"app\"\n[modules]\n\"a/b\" = \"x.yo\"\n");
+  assert(msg.contains("may not contain \"/\""), msg);
+});
+// ---------------------------------------------------------------------------
+// [dependencies] / [dev-dependencies]
+// ---------------------------------------------------------------------------
+_DEPS :: "[package]\nname = \"app\"\n\n[dependencies]\nraylib_yo = { git = \"https://github.com/shd101wyy/raylib_yo\", version = \"^0.0.6\" }\njson-yo = { git = \"https://github.com/user/json-yo\", tag = \"v1.2.0\" }\nutils = { git = \"https://github.com/user/mono\", version = \"~2.1\", path = \"packages/utils\" }\nmylib = { path = \"../mylib\" }\nhead = { git = \"https://github.com/user/head\" }\nmain = { git = \"https://github.com/user/main\", branch = \"main\" }\npinned = { git = \"https://github.com/user/pinned\", rev = \"0123abcd\" }\n\n[dev-dependencies]\nsnapshot = { git = \"https://github.com/user/snapshot-yo\", version = \"^0.4\" }\n";
+test("parse_manifest: every dependency shape parses", {
+  m := _ok(_DEPS);
+  assert(m.dependencies.len() == usize(8), `8 dependencies, got ${m.dependencies.len().to_string()}`);
+  r := m.find_dependency(String.from("raylib_yo")).unwrap();
+  match(
+    r.source,
+    .Git(url, req, subdir) => {
+      assert(url == "https://github.com/shd101wyy/raylib_yo", "url");
+      assert(subdir == "", "no subdir");
+      match(req, .Version(v) => assert(v == "^0.0.6", "version req"), _ => panic("expected a version requirement"));
+    },
+    .Path(_) => panic("raylib_yo is a git dependency")
+  );
+  assert(!r.dev, "not dev");
+  j := m.find_dependency(String.from("json-yo")).unwrap();
+  match(
+    j.source,
+    .Git(_, req, _) => match(req, .Tag(t) => assert(t == "v1.2.0", "tag"), _ => panic("expected a tag")),
+    .Path(_) => panic("json-yo is a git dependency")
+  );
+  u := m.find_dependency(String.from("utils")).unwrap();
+  match(
+    u.source,
+    .Git(_, _, subdir) => assert(subdir == "packages/utils", "subdir"),
+    .Path(_) => panic("utils is a git dependency")
+  );
+  p := m.find_dependency(String.from("mylib")).unwrap();
+  match(
+    p.source,
+    .Git(_, _, _) => panic("mylib is a path dependency"),
+    .Path(path) => assert(path == "../mylib", "path")
+  );
+  h := m.find_dependency(String.from("head")).unwrap();
+  match(
+    h.source,
+    .Git(_, req, _) => match(req, .DefaultBranch => (), _ => panic("git alone is the default branch")),
+    .Path(_) => panic("head is a git dependency")
+  );
+  b := m.find_dependency(String.from("main")).unwrap();
+  match(
+    b.source,
+    .Git(_, req, _) => match(req, .Branch(br) => assert(br == "main", "branch"), _ => panic("expected a branch")),
+    .Path(_) => panic("main is a git dependency")
+  );
+  pin := m.find_dependency(String.from("pinned")).unwrap();
+  match(
+    pin.source,
+    .Git(_, req, _) => match(req, .Rev(sha) => assert(sha == "0123abcd", "rev"), _ => panic("expected a rev")),
+    .Path(_) => panic("pinned is a git dependency")
+  );
+  s := m.find_dependency(String.from("snapshot")).unwrap();
+  assert(s.dev, "dev-dependencies are flagged");
+  assert(m.git_dependencies().len() == usize(7), "git_dependencies excludes the path dependency");
+});
+test("parse_manifest: a dependency that is not an inline table is an error", {
+  msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = \"1.0\"\n");
+  assert(msg.contains("must be an inline table"), msg);
+});
+test("parse_manifest: an unknown dependency key is an error (typos never mean default branch)", {
+  msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { git = \"u\", verison = \"1\" }\n");
+  assert(msg.contains("unknown key \"verison\""), msg);
+});
+test("parse_manifest: two pins on one git dependency is an error", {
+  msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { git = \"u\", tag = \"v1\", branch = \"main\" }\n");
+  assert(msg.contains("only one of version, tag, branch, rev"), msg);
+});
+test("parse_manifest: a path dependency cannot pin a ref", {
+  msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { path = \"../foo\", tag = \"v1\" }\n");
+  assert(msg.contains("cannot have version, tag, branch or rev"), msg);
+});
+test("parse_manifest: a dependency without a source is an error", {
+  msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { version = \"1\" }\n");
+  assert(msg.contains("needs a source"), msg);
+});
+test("parse_manifest: the same name in [dependencies] and [dev-dependencies] is an error", {
+  msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { path = \"../foo\" }\n[dev-dependencies]\nfoo = { path = \"../foo2\" }\n");
+  assert(msg.contains("declared in both"), msg);
+});
+// ---------------------------------------------------------------------------
+// abs_under
+// ---------------------------------------------------------------------------
+test("abs_under: joins and normalizes a relative path", {
+  assert(abs_under(String.from("/proj"), String.from("../mylib/./src/lib.yo")) == "/mylib/src/lib.yo", "normalized");
+});
+test("abs_under: an absolute path is kept", {
+  assert(abs_under(String.from("/proj"), String.from("/abs/x.yo")) == "/abs/x.yo", "absolute");
+});

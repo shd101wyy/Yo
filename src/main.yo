@@ -62,8 +62,7 @@ _(env : proc_env) :: import("std/env");
 { parse } :: import("./parser.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir } :: import("./cache.yo");
-{ FetchOptions, run_fetch } :: import("./fetch_command.yo");
-{ InstallOptions, run_install } :: import("./install_command.yo");
+{ AddOptions, run_add, run_remove, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build } :: import("./build_runner.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -4378,88 +4377,63 @@ run_cache :: (
     }
   );
 });
-/// Run the `fetch` subcommand — fetch git dependencies into the global cache.
+/// Run the `add` subcommand — declare a dependency in `yo.toml`, resolve and
+/// fetch it, write `yo.lock`.
 ///
-/// Flag contract mirrors `src/yo-cli.ts:861-893`:
-///   yo fetch [--build-file <path>] [--verbose|-v] [--update|-u]
-run_fetch_cmd :: (
+///   yo add <spec> [--dev] [--path <subdir>] [--name <name>] [--branch <b>] [--rev <sha>] [--verbose|-v]
+run_add_cmd :: (
   fn(
     argv : ArrayList(String),
     io : Io,
     exn : Exception
   ) -> unit
 )({
-  (build_file : String) = String.from("./build.yo");
-  (verbose : bool) = false;
-  (update : bool) = false;
-  (ai : usize) = usize(2);
-  while(ai < argv.len(), {
-    arg := argv(ai);
-    cond(
-      (arg == "--build-file") => {
-        if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("fetch: --build-file requires a value")));
-        });
-        build_file = argv(ai + usize(1));
-        ai = (ai + usize(1));
-      },
-      arg.starts_with(String.from("--build-file=")) => {
-        build_file = arg.substring(usize(13), arg.len());
-      },
-      ((arg == "--verbose") || (arg == "-v")) => {
-        verbose = true;
-      },
-      ((arg == "--update") || (arg == "-u")) => {
-        update = true;
-      },
-      true => {
-        exn.throw(dyn(`fetch: unknown option '${arg}'. Usage: yo fetch [--build-file <path>] [--verbose] [--update]`));
-      }
-    );
-    ai = (ai + usize(1));
-  });
-  io.await(
-    run_fetch(FetchOptions(build_file : build_file, verbose : verbose, update : update), io, exn),
-    IoExn(io : io, exn : exn)
-  );
-});
-/// Run the `install` subcommand — add a dependency to `deps.yo` and fetch it.
-///
-/// Flag contract mirrors `src/yo-cli.ts:894-926`:
-///   yo install <package> [--build-file <path>] [--verbose|-v]
-run_install_cmd :: (
-  fn(
-    argv : ArrayList(String),
-    io : Io,
-    exn : Exception
-  ) -> unit
-)({
+  usage := "Usage: yo add <spec> [--dev] [--path <subdir>] [--name <name>] [--branch <branch>] [--rev <sha>] [--verbose]";
   (package_spec : String) = String.new();
   (package_seen : bool) = false;
-  (build_file : String) = String.from("./build.yo");
+  (dev : bool) = false;
+  (subdir : Option(String)) = Option(String).None;
+  (name : Option(String)) = Option(String).None;
+  (branch : Option(String)) = Option(String).None;
+  (rev : Option(String)) = Option(String).None;
   (verbose : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     arg := argv(ai);
+    needs_value := ((arg == "--path") || ((arg == "--name") || ((arg == "--branch") || (arg == "--rev"))));
     cond(
-      (arg == "--build-file") => {
+      needs_value => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("install: --build-file requires a value")));
+          exn.throw(dyn(`add: ${arg} requires a value. ${usage}`));
         });
-        build_file = argv(ai + usize(1));
+        value := argv(ai + usize(1));
+        cond(
+          (arg == "--path") => {
+            subdir = Option(String).Some(value);
+          },
+          (arg == "--name") => {
+            name = Option(String).Some(value);
+          },
+          (arg == "--branch") => {
+            branch = Option(String).Some(value);
+          },
+          true => {
+            rev = Option(String).Some(value);
+          }
+        );
         ai = (ai + usize(1));
       },
-      arg.starts_with(String.from("--build-file=")) => {
-        build_file = arg.substring(usize(13), arg.len());
+      (arg == "--dev") => {
+        dev = true;
       },
       ((arg == "--verbose") || (arg == "-v")) => {
         verbose = true;
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`install: unknown option '${arg}'. Usage: yo install <package> [--build-file <path>] [--verbose]`));
+        exn.throw(dyn(`add: unknown option '${arg}'. ${usage}`));
       },
       package_seen => {
-        exn.throw(dyn(`install: unexpected extra argument '${arg}'. Usage: yo install <package> [--build-file <path>] [--verbose]`));
+        exn.throw(dyn(`add: unexpected extra argument '${arg}'. ${usage}`));
       },
       true => {
         package_spec = arg;
@@ -4469,16 +4443,125 @@ run_install_cmd :: (
     ai = (ai + usize(1));
   });
   if(!(package_seen), {
-    exn.throw(dyn(String.from("install: missing package. Usage: yo install <package> [--build-file <path>] [--verbose]")));
+    exn.throw(dyn(`add: missing package. ${usage}`));
   });
   io.await(
-    run_install(
-      InstallOptions(package_spec : package_spec, build_file : build_file, verbose : verbose),
+    run_add(
+      AddOptions(
+        package_spec : package_spec,
+        dev : dev,
+        subdir : subdir,
+        name : name,
+        branch : branch,
+        rev : rev,
+        verbose : verbose
+      ),
       io,
       exn
     ),
     IoExn(io : io, exn : exn)
   );
+});
+/// Run the `remove` subcommand — delete a dependency from `yo.toml` and prune
+/// it from `yo.lock`.
+///
+///   yo remove <name> [--verbose|-v]
+run_remove_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  usage := "Usage: yo remove <name> [--verbose]";
+  (name : String) = String.new();
+  (name_seen : bool) = false;
+  (verbose : bool) = false;
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    arg := argv(ai);
+    cond(
+      ((arg == "--verbose") || (arg == "-v")) => {
+        verbose = true;
+      },
+      arg.starts_with(String.from("-")) => {
+        exn.throw(dyn(`remove: unknown option '${arg}'. ${usage}`));
+      },
+      name_seen => {
+        exn.throw(dyn(`remove: unexpected extra argument '${arg}'. ${usage}`));
+      },
+      true => {
+        name = arg;
+        name_seen = true;
+      }
+    );
+    ai = (ai + usize(1));
+  });
+  if(!(name_seen), {
+    exn.throw(dyn(`remove: missing dependency name. ${usage}`));
+  });
+  io.await(run_remove(name, verbose, io, exn), IoExn(io : io, exn : exn));
+});
+/// Run the `install` subcommand — fetch every git dependency `yo.toml` names
+/// into the global cache and write `yo.lock`.
+///
+///   yo install [--verbose|-v]
+run_install_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  usage := "Usage: yo install [--verbose]";
+  (verbose : bool) = false;
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    arg := argv(ai);
+    cond(
+      ((arg == "--verbose") || (arg == "-v")) => {
+        verbose = true;
+      },
+      arg.starts_with(String.from("-")) => {
+        exn.throw(dyn(`install: unknown option '${arg}'. ${usage}`));
+      },
+      true => {
+        exn.throw(dyn(`install: unexpected argument '${arg}'. \`yo install\` fetches what yo.toml declares; add a dependency with \`yo add ${arg}\`.`));
+      }
+    );
+    ai = (ai + usize(1));
+  });
+  io.await(run_install(false, ArrayList(String).new(), verbose, io, exn), IoExn(io : io, exn : exn));
+});
+/// Run the `update` subcommand — re-resolve dependencies within their
+/// requirements (all, or the named ones) and rewrite `yo.lock`.
+///
+///   yo update [name…] [--verbose|-v]
+run_update_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  usage := "Usage: yo update [name...] [--verbose]";
+  names := ArrayList(String).new();
+  (verbose : bool) = false;
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    arg := argv(ai);
+    cond(
+      ((arg == "--verbose") || (arg == "-v")) => {
+        verbose = true;
+      },
+      arg.starts_with(String.from("-")) => {
+        exn.throw(dyn(`update: unknown option '${arg}'. ${usage}`));
+      },
+      true => names.push(arg)
+    );
+    ai = (ai + usize(1));
+  });
+  io.await(run_install(true, names, verbose, io, exn), IoExn(io : io, exn : exn));
 });
 /// Run the `build` subcommand — evaluate `build.yo` and execute the requested
 /// steps (default: `install`).
@@ -5000,17 +5083,15 @@ Examples:
   $ yo init                      Initialize in current directory
   $ yo init my-project           Initialize in ./my-project
 
-yo fetch [options]               Fetch git dependencies into .yo-cache
+yo add <spec>                    Declare a dependency in yo.toml and fetch it
 Examples:
-  $ yo fetch                     Fetch all dependencies from build.yo
-  $ yo fetch --verbose           Show detailed fetch progress
-  $ yo fetch --update            Re-resolve refs to latest commits
+  $ yo add user/repo             Latest release tag, as version = "^X.Y.Z"
+  $ yo add user/repo@^1.2        Semver range
+  $ yo add ./path/to/dep         Local path dependency
 
-yo install <package>             Install a dependency from GitHub
-Examples:
-  $ yo install github.com/user/repo          Latest semver tag
-  $ yo install github.com/user/repo@v1.0.0   Pinned version
-  $ yo install user/repo                     Shorthand for GitHub
+yo remove <name>                 Delete a dependency from yo.toml
+yo install                       Fetch what yo.toml declares, write yo.lock
+yo update [name...]              Re-resolve dependencies within their ranges
 
 yo test [path] [options]         Run tests
 Example:
@@ -5086,17 +5167,15 @@ yo init [dir] [options]          初始化一个新的 Yo 项目
   $ yo init                      在当前目录初始化
   $ yo init my-project           初始化到 ./my-project
 
-yo fetch [options]               把 git 依赖抓取到 .yo-cache
+yo add <spec>                    把依赖写入 yo.toml 并抓取
 示例：
-  $ yo fetch                     抓取 build.yo 的全部依赖
-  $ yo fetch --verbose           显示详细的抓取进度
-  $ yo fetch --update            把 ref 重新解析到最新提交
+  $ yo add user/repo             最新发布标签，写成 version = "^X.Y.Z"
+  $ yo add user/repo@^1.2        semver 范围
+  $ yo add ./path/to/dep         本地路径依赖
 
-yo install <package>             从 GitHub 安装依赖
-示例：
-  $ yo install github.com/user/repo          最新 semver 标签
-  $ yo install github.com/user/repo@v1.0.0   锁定版本
-  $ yo install user/repo                     GitHub 简写
+yo remove <name>                 从 yo.toml 删除依赖
+yo install                       抓取 yo.toml 声明的依赖并写入 yo.lock
+yo update [name...]              在范围内重新解析依赖
 
 yo test [path] [options]         运行测试
 示例：
@@ -5652,65 +5731,137 @@ Examples:
   $ yo init my-project --name my-project`
       )
     ),
-    (subcmd == "fetch") => Option(String).Some(
+    (subcmd == "add") => Option(String).Some(
       tr(
-        `Usage: yo fetch [options]
+        `Usage: yo add <spec> [options]
 
-Fetch the git dependencies declared in build.yo into the global cache and
-write yo.lock (stale lock entries are pruned automatically).
+Declare a dependency in yo.toml (edited in place, comments kept), resolve
+it, fetch every git dependency into the global cache and write yo.lock.
+Without an @version the latest release tag is chosen and written as a
+caret range (version = "^X.Y.Z"); a repository without release tags is
+pinned to its default branch.
+
+Specs:
+  user/repo                  GitHub shorthand
+  user/repo@^1.2             Semver range (^, ~, =, >=, <, *, or a bare version)
+  user/repo@v1.2.0           Exact tag
+  github.com/user/repo, https://…, git@host:path
+  ./path/to/dep              Local path dependency
 
 Options:
-  -u, --update              Re-resolve refs to the latest commits
-  -v, --verbose             Show detailed fetch progress
-  --build-file <path>       Use an alternate build.yo
+  --dev                      Add to [dev-dependencies]
+  --path <subdir>            The package's directory inside the repository
+  --name <name>              Import name (default: the repository name)
+  --branch <branch>          Follow a branch (pinned to a commit in yo.lock)
+  --rev <sha>                Pin a commit
+  -v, --verbose              Show detailed progress
 
 Examples:
-  $ yo fetch
-  $ yo fetch --update`,
-        `用法：yo fetch [options]
+  $ yo add shd101wyy/raylib_yo
+  $ yo add user/json-yo@^1.2
+  $ yo add ./libs/mylib
+  $ yo add user/snapshot --dev`,
+        `用法：yo add <spec> [options]
 
-把 build.yo 声明的 git 依赖抓取到全局缓存并写入 yo.lock
-（过期的锁条目会自动剪除）。
+把依赖写入 yo.toml（原地编辑，保留注释），解析并抓取全部 git 依赖到
+全局缓存，写入 yo.lock。不带 @version 时选择最新的发布标签，写成
+caret 范围（version = "^X.Y.Z"）；没有发布标签的仓库锁定到默认分支。
+
+规格：
+  user/repo                  GitHub 简写
+  user/repo@^1.2             semver 范围（^、~、=、>=、<、*，或裸版本号）
+  user/repo@v1.2.0           精确标签
+  github.com/user/repo、https://…、git@host:path
+  ./path/to/dep              本地路径依赖
 
 选项：
-  -u, --update              重新把 ref 解析到最新提交
-  -v, --verbose             显示详细的抓取进度
-  --build-file <path>       使用其他 build.yo
+  --dev                      写入 [dev-dependencies]
+  --path <subdir>            包在仓库内的子目录
+  --name <name>              导入名（默认：仓库名）
+  --branch <branch>          跟随分支（yo.lock 锁定提交）
+  --rev <sha>                锁定某个提交
+  -v, --verbose              显示详细进度
 
 示例：
-  $ yo fetch
-  $ yo fetch --update`
+  $ yo add shd101wyy/raylib_yo
+  $ yo add user/json-yo@^1.2
+  $ yo add ./libs/mylib
+  $ yo add user/snapshot --dev`
+      )
+    ),
+    (subcmd == "remove") => Option(String).Some(
+      tr(
+        `Usage: yo remove <name> [options]
+
+Delete a dependency from yo.toml and prune it from yo.lock.
+
+Options:
+  -v, --verbose              Show detailed progress
+
+Example:
+  $ yo remove raylib_yo`,
+        `用法：yo remove <name> [options]
+
+从 yo.toml 删除依赖并从 yo.lock 剪除。
+
+选项：
+  -v, --verbose              显示详细进度
+
+示例：
+  $ yo remove raylib_yo`
       )
     ),
     (subcmd == "install") => Option(String).Some(
       tr(
-        `Usage: yo install <package> [options]
+        `Usage: yo install [options]
 
-Add a dependency to build.yo and fetch it. Accepts GitHub shorthands,
-pinned versions, and local paths.
+Fetch every git dependency yo.toml declares into the global cache and
+write yo.lock. A lock entry that still satisfies its requirement is kept;
+stale entries are pruned. \`yo build\` runs the same step for dependencies
+the cache lacks.
 
 Options:
-  -v, --verbose             Show detailed progress
-  --build-file <path>       Use an alternate build.yo
+  -v, --verbose              Show detailed fetch progress
 
-Examples:
-  $ yo install user/repo               Latest semver tag from GitHub
-  $ yo install user/repo@v1.0.0        Pinned version
-  $ yo install github.com/user/repo    Full form
-  $ yo install ./path/to/dep           Local path dependency`,
-        `用法：yo install <package> [options]
+Example:
+  $ yo install`,
+        `用法：yo install [options]
 
-把依赖加入 build.yo 并抓取。支持 GitHub 简写、锁定版本和本地路径。
+把 yo.toml 声明的全部 git 依赖抓取到全局缓存并写入 yo.lock。仍满足
+需求的锁条目保留；过期条目剪除。\`yo build\` 对缓存缺失的依赖执行同一步骤。
 
 选项：
-  -v, --verbose             显示详细进度
-  --build-file <path>       使用其他 build.yo
+  -v, --verbose              显示详细的抓取进度
 
 示例：
-  $ yo install user/repo               GitHub 上的最新 semver 标签
-  $ yo install user/repo@v1.0.0        锁定版本
-  $ yo install github.com/user/repo    完整形式
-  $ yo install ./path/to/dep           本地路径依赖`
+  $ yo install`
+      )
+    ),
+    (subcmd == "update") => Option(String).Some(
+      tr(
+        `Usage: yo update [name...] [options]
+
+Re-resolve dependencies within their requirements — the highest tag a
+version range allows, the tip of a branch — and rewrite yo.lock. Names
+limit the update to those dependencies.
+
+Options:
+  -v, --verbose              Show detailed progress
+
+Examples:
+  $ yo update
+  $ yo update raylib_yo`,
+        `用法：yo update [name...] [options]
+
+在需求范围内重新解析依赖——版本范围允许的最高标签、分支的最新提交——
+并重写 yo.lock。给出名字则只更新这些依赖。
+
+选项：
+  -v, --verbose              显示详细进度
+
+示例：
+  $ yo update
+  $ yo update raylib_yo`
       )
     ),
     (subcmd == "cache") => Option(String).Some(
@@ -6136,10 +6287,14 @@ main :: (fn(io : Io) -> unit)({
     run_init(argv, io, exn);
   }, if(subcmd == "build", {
     run_build_cmd(argv, io, exn);
-  }, if(subcmd == "fetch", {
-    run_fetch_cmd(argv, io, exn);
+  }, if(subcmd == "add", {
+    run_add_cmd(argv, io, exn);
+  }, if(subcmd == "remove", {
+    run_remove_cmd(argv, io, exn);
   }, if(subcmd == "install", {
     run_install_cmd(argv, io, exn);
+  }, if(subcmd == "update", {
+    run_update_cmd(argv, io, exn);
   }, if(subcmd == "cache", {
     run_cache(argv, io, exn);
   }, if(subcmd == "doc", {
