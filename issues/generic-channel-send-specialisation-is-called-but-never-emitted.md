@@ -75,12 +75,70 @@ and fixing it is what made this one legible: before, the argument was a
 both: `_capture_judgement_type` resolves a captured closure to its capture
 STRUCT and then rejects it as not `Send`. D18b needs all three.
 
+## ROOT CAUSE (measured 2026-09-12): two manglings of the same specialisation
+
+Add a direct `Channel(unit).send(())` in `main` — which forces the
+specialisation to be collected from a call whose argument type is plainly
+`unit` — and the C gains a prototype AND a definition, while the closure's
+call STILL does not link:
+
+```
+warning: call to undeclared function 'yo_id_14942_…_rtparam1_2193_ret_enum_…'
+```
+
+Diffing the declared name against the called one, they agree for 509
+characters and then:
+
+```
+decl: …_std_sync_atomic_yo_ret_enum_yo_id_14941_value_unit_error_unit
+call: …_std_sync_atomic_yo_rtparam1_2193_ret_enum_yo_id_14941_value_unit_error_unit
+```
+
+The declaration omits the second runtime parameter from the mangled signature;
+the call includes it, as type id `2193` — the generic `T` itself.
+
+`_compute_compile_time_signature` (`src/evaluator/calls/helper.yo:1412`) is
+where they part:
+
+```rust
+ptype := match(runtime_param_tys.get(rti), .Some(t) => t, .None => t_unit());
+if(!(is_unit_type(ptype)), {
+  seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_key(ptype))}`;
+  parts.push(seg);
+});
+```
+
+`is_unit_type` is the SHALLOW test — it does not walk the SomeT resolution
+chain — and `type_key`'s SomeT arm deliberately keys by the SomeT's OWN id
+rather than hopping through its resolution cell (the comment there records why:
+a blanket hop over-merged the dyn/box closure-wrapper family). So the same
+parameter contributes NO segment when the caller sees `unit` and the segment
+`rtparam1_2193` when it sees the still-unresolved `T`. Two signatures, two
+specialised func ids, one runtime function: the callee is emitted under one
+name and called under the other.
+
+Without the warm-up call there is no second caller, so the only specialisation
+is the `rtparam1_2193` one — and that one is never emitted at all, which is the
+form the D18b repro shows.
+
+## Why this is NOT a one-line fix
+
+Resolving `ptype` through its SomeT chain before the unit test makes the two
+manglings agree, and that is the right shape. But it is a change to the
+signature every specialisation in the compiler is keyed by, so it moves
+`yo_id_*` names tree-wide and has to clear the bootstrap FIXPOINT gate — it
+belongs in its own PR with the full battery, not bolted onto another fix.
+
+It is also probably not sufficient on its own. With the segment omitted, the
+closure's call mints the spec with a param type that is still the raw SomeT,
+and `should_skip_function_codegen` drops a spec whose signature carries one
+(`func_params_have_raw_some_type`) — which would put us back at an emitted call
+to an unemitted callee, just under a different name. The spec's PARAM TYPES
+need the resolution too, not only its name.
+
 ## Where to look
 
-`should_skip_function_codegen` (`src/codegen/functions/declarations.yo`) drops
-a spec "whose registered return still carries an unresolved SomeT", and the
-NAMED-callee path in `other_fn_call.yo` degrades such a call to an FTT
-comment. Neither happened here: the call was emitted as a real call. So either
-the spec was never registered at all, or it was registered under a key the
-emission loop does not iterate. Start by dumping `function_order` for a name
-containing `yo_id_14942`.
+`_compute_compile_time_signature` (`src/evaluator/calls/helper.yo`, the
+`rtparam` loop), `type_key`'s `SomeT` arm and `_tk_resolve_arg_slot`
+(`src/types/type_key.yo`), and `should_skip_function_codegen` /
+`func_params_have_raw_some_type` (`src/codegen/functions/declarations.yo`).
