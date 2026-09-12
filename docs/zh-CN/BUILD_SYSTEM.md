@@ -795,6 +795,46 @@ run_step :: build.step("run", "Run native build");
 run_step.depend_on(run_native);
 ```
 
+## 工作空间（workspace）
+
+同一个仓库中的多个包，共享一次检出：
+
+```toml
+# 仓库根目录的 yo.toml
+[package]
+name = "my-project"
+version = "0.1.0"
+
+[workspace]
+members = ["packages/*", "examples/demo"]
+```
+
+每个成员都是普通的包，拥有自己的 `yo.toml` 与 `build.yo`；成员之间通过路径依赖
+互相引用（`core = { path = "../core" }`）。
+
+| | |
+| --- | --- |
+| `yo build -p <name>` | 构建某一个成员，效果等同于先 `cd` 进去再构建 |
+| `yo test --workspace` | 一次运行所有成员的测试，只输出一份汇总 |
+
+成员用其 `[package] name` 指定，而不是目录名——其他地方（`import("name")`、
+`build.dependency("name")`）称呼一个成员时用的也是这个名字。指定不存在的名字时，
+错误信息会列出实际存在的成员。
+
+**成员模式**是相对路径，且只允许在**最后一段**使用 `*`：
+
+- `examples/demo`——字面路径。它必须存在且含有 `yo.toml`，否则构建报错并指出该
+  模式；成员列表里的拼写错误不应该悄悄地构建出一个更小的工作空间。
+- `packages/*`——`packages/` 下所有含 `yo.toml` 的目录。glob 匹配不到任何内容不是
+  错误（空的 `packages/` 是合法状态），匹配到但没有清单的目录会被跳过而不报错——
+  glob 本身就是一个过滤器。
+
+只有最后一段可以使用 glob，并且模式不能是绝对路径、也不能包含 `..`：成员是指向
+工作空间**内部**的路径，这两种写法都会把成员放到根目录之外。
+
+成员按排序后的顺序访问，因此构建与测试的输出在各平台间保持稳定（原始目录顺序并
+不稳定）。
+
 ## 依赖管理
 
 依赖在包清单 `yo.toml` 中声明——它是数据而不是代码：任何工具都能在不运行任何东西的情况下读取它，`yo add` / `yo remove` 原地编辑它并保留你的注释和格式。
