@@ -1016,9 +1016,10 @@ is the first-build fallback — but it can no longer produce a STALE cache, beca
 the walk's stamp is only ever COMPARED, never recorded; the recorded stamp comes
 from the depfile the child just wrote.
 
-**P1 is complete as of 2026-09-12**, along with P3's §4.8 and §4.9, and
-**P2 (§5.1, §5.2, §5.4) landed 2026-09-13**. What remains is **§4.6
-workspaces**. P4 stays designed and unscheduled.
+**The plan is COMPLETE as of 2026-09-13**: P0, P1, P2 (§5.1, §5.2, §5.4) and
+P3 (§4.6, §4.8, §4.9) have all landed. P4 (registry, `yo publish`) stays
+designed and deliberately unscheduled — §4.10 records its shape so nothing here
+precludes it.
 
 **§5.1 — `comptime_read_file`** (landed). `comptime_read_file(path)` reads a
 file during evaluation and yields its bytes as a `comptime_str`, bounded the way
@@ -1130,6 +1131,48 @@ not, in both forms, reporting all four through step descriptions. The stamp half
 cannot be a cli-case (the harness cannot vary `env=` between steps) and was
 verified directly: build, rebuild with the same environment → `(cached: inputs
 unchanged, skipping compile)`, rebuild with the variable CHANGED → recompiles.
+
+**§4.6 — workspaces** (landed). A repository-root `yo.toml` declares
+`[workspace] members = [...]`; each member is an ordinary package with its own
+manifest and build file. `yo build -p <name>` builds one member — resolving it
+to that member's build file is the whole implementation, since `project_dir` is
+that file's parent and everything downstream derives from it — and `yo test
+--workspace` runs every member's tests in ONE run with a single summary.
+
+A member is named by its `[package] name`, not its directory: that is what a
+member is called everywhere else (`import("name")`, `build.dependency("name")`).
+A name no member declares lists the ones that do, rather than failing with
+"build file not found".
+
+Member patterns are relative paths with `*` allowed in the LAST segment only —
+a member is a path INTO the workspace, not a tree search, and `packages/*/x/*`
+would make "which directory owns the lock" ambiguous. An absolute pattern or one
+containing `..` is rejected for the same reason. A literal member without a
+`yo.toml` is an error naming the pattern (a typo should not silently build a
+smaller workspace); a glob match without one is skipped, because a glob is a
+filter by construction. Members are visited in sorted order, so output is stable
+across platforms — raw `read_dir` order is not.
+
+Not included, and not needed by anything today: `{ workspace = true }`
+dependency inheritance and a single root `yo.lock`. Members refer to each other
+as ordinary path dependencies, which has worked since P1.3, and each carries its
+own lock. Both are additive when a second version of one dependency across two
+members actually becomes a problem.
+
+Gates: cli-cases `build-workspace-member` (a fixture exercising BOTH pattern
+forms — `packages/*` and `examples/demo` — whose root build file deliberately
+builds nothing, so an ignored `-p` fails the case) and `test-workspace`. The
+error paths were verified directly: `-p` with an unknown name lists the members,
+and both `-p` and `--workspace` inside a plain package say so rather than
+degrading silently.
+
+One codegen defect surfaced and is filed, not fixed:
+`issues/async-body-local-read-by-two-matches-is-emitted-twice.md` — a local
+bound in an `io.async` `while` body and read by two separate `match`es is
+DECLARED twice in the emitted C. `check` and `compile --skip-c-compiler` both
+pass; only a full build shows it. §4.6 avoids the shape by lifting the split
+into a plain `fn`, which is better code anyway, but the defect is still there
+for the next person who writes the natural form.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path
