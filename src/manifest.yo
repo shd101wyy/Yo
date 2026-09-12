@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("std/fmt");
 { parse, TomlValue } :: import("std/encoding/toml");
 { parse_lock_file, find_lock_entry } :: import("./lock_file.yo");
-{ get_global_deps_cache_dir, get_cached_dep_dir } :: import("./cache.yo");
+{ get_global_cache_dir, store_tree_dir } :: import("./cache.yo");
 /// The manifest's file name, looked up in the entry file's directory and every
 /// directory above it.
 MANIFEST_FILENAME :: "yo.toml";
@@ -550,9 +550,9 @@ ImportRoots :: ref(
 );
 /// The directory a dependency's sources live in, or the reason it is not
 /// available. A path dependency is `<manifest dir>/<path>`; a git dependency
-/// is its entry in the ROOT project's `yo.lock` mapped into the global cache
-/// (`<cache>/deps/<name>-<commit12>/<subdir>`) — dependencies' own git
-/// dependencies are recorded in the root lock too.
+/// is its entry in the ROOT project's `yo.lock` mapped into the store by its
+/// integrity hash (`<cache>/store/sha256/<hash>/<subdir>`) — dependencies'
+/// own git dependencies are recorded in the root lock too.
 _unavailable :: (fn(name : String, reason : String, fetchable : bool) -> UnavailableImport)(
   UnavailableImport(name : name, reason : reason, fetchable : fetchable)
 );
@@ -593,13 +593,19 @@ _dependency_dir :: (
           return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" is not installed (no yo.lock entry) — run \`yo install\``, true)));
         }
       );
-      if(entry.commit.len() == usize(0), {
-        return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" has no commit in yo.lock — run \`yo install\``, true)));
+      if(entry.integrity.len() == usize(0), {
+        return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" has no integrity hash in yo.lock — run \`yo install\``, true)));
       });
-      cached := get_cached_dep_dir(get_global_deps_cache_dir(), dep.name.clone(), entry.commit);
-      dir := if(subdir.len() == usize(0), cached, abs_under(cached, subdir.clone()));
+      stored := match(
+        store_tree_dir(get_global_cache_dir(), entry.integrity.clone()),
+        .Ok(d) => d,
+        .Err(msg) => {
+          return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}": yo.lock ${msg} — run \`yo install\``, true)));
+        }
+      );
+      dir := if(subdir.len() == usize(0), stored, abs_under(stored, subdir.clone()));
       if(!file_exists_sync(dir.clone()), {
-        return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" is not in the cache (${dir}) — run \`yo install\``, true)));
+        return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" is not in the store (${dir}) — run \`yo install\``, true)));
       });
       Result(String, UnavailableImport).Ok(dir)
     }

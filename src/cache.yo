@@ -6,15 +6,25 @@
 //!   3. `~/.cache/yo`  (Linux/macOS default)
 //!   4. `%LOCALAPPDATA%\yo\cache`  (Windows default)
 //!
-//! Cache structure:
+//! Cache structure (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.4):
 //! ```
 //!   <cache_root>/
-//!     deps/      — fetched dependency source trees (<name>-<commit12>/)
-//!     versions/  — versioned Yo installations (<version>/)
+//!     store/sha256/<64 hex>/   — one extracted package tree per content hash
+//!     store/sha256/<64 hex>.verified — written after a full hash confirmed the tree
+//!     git/<sha256(url)>.git/   — bare mirrors of the remotes, fetched on demand
+//!     index/<sha256(url)>.tags — the last `git ls-remote --tags` answer per remote
+//!     store.lock               — the flock around store and mirror mutations
+//!     projects                 — the projects `yo install` ran in (for `yo cache gc`)
+//!     versions/                — versioned Yo installations (<version>/)
 //! ```
 //!
-//! This mirrors `src/cache.ts`.
+//! A package tree is named by the hash of its normalized contents
+//! (`fetch.compute_content_hash`, the lock's `integrity`), so the same tree
+//! reached through two names or two commits is stored once, and a tree whose
+//! contents drift no longer answers to its name.
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ sha256_hex } :: import("std/crypto/sha256");
 { Path } :: import("std/path");
 { env, current_exe, home_dir } :: import("std/env");
 { platform, Platform } :: import("std/process");
@@ -63,29 +73,101 @@ get_global_cache_dir :: (fn() -> String)({
     }
   )
 });
-/// Return the global dependency cache directory (`<cache_root>/deps`).
-get_global_deps_cache_dir :: (fn() -> String)(
-  get_global_cache_dir().concat(String.from("/deps"))
+/// The lock's `integrity` values start with this; the store strips it.
+INTEGRITY_PREFIX :: "sha256-";
+/// `<cache_root>/store/sha256` — the package trees, one directory per hash.
+get_store_dir :: (fn(cache_root : String) -> String)(
+  cache_root.concat(String.from("/store/sha256"))
 );
-/// The directory one fetched dependency tree lives in:
-/// `<cache_dir>/<name>-<first 12 hex of commit>`. Pure path arithmetic — the
-/// manifest resolver computes it synchronously from `yo.lock`, the fetcher
-/// writes into it.
-get_cached_dep_dir :: (fn(cache_dir : String, dep_name : String, commit : String) -> String)({
-  short_commit := commit.substring(usize(0), usize(12));
-  result := cache_dir.clone();
-  result.push_str("/");
-  result.push_string(dep_name);
-  result.push_str("-");
-  result.push_string(short_commit);
-  result
+_is_lower_hex :: (fn(s : String) -> bool)({
+  bytes := s.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    is_digit := ((b >= u8(48)) && (b <= u8(57)));
+    is_af := ((b >= u8(97)) && (b <= u8(102)));
+    if(!(is_digit || is_af), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
 });
-/// Ensure the global dependency cache directory exists and return its path.
-ensure_global_deps_cache_dir :: (fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn)))(
+/// The store directory of the tree whose lock `integrity` is `sha256-<64 hex>`
+/// (`<cache_root>/store/sha256/<hex>`), or what is wrong with the value.
+/// Pure path arithmetic — the manifest resolver computes it synchronously from
+/// `yo.lock`; the fetcher writes into it.
+store_tree_dir :: (fn(cache_root : String, integrity : String) -> Result(String, String))({
+  prefix := String.from(INTEGRITY_PREFIX);
+  if(!integrity.starts_with(prefix.clone()), {
+    return(Result(String, String).Err(`integrity "${integrity}" does not start with "${INTEGRITY_PREFIX}"`));
+  });
+  hex := integrity.substring(prefix.len(), integrity.len());
+  if((hex.len() != usize(64)) || !_is_lower_hex(hex.clone()), {
+    return(Result(String, String).Err(`integrity "${integrity}" is not "${INTEGRITY_PREFIX}" followed by 64 lowercase hex digits`));
+  });
+  dir := get_store_dir(cache_root);
+  dir.push_str("/");
+  dir.push_string(hex);
+  Result(String, String).Ok(dir)
+});
+/// `<tree dir>.verified` — a sibling file written only after a full hash of
+/// the landed tree matched its name. A tree without it is re-hashed before it
+/// is trusted (an interrupted install, a hand-edited store).
+store_verified_marker :: (fn(tree_dir : String) -> String)(
+  tree_dir.concat(String.from(".verified"))
+);
+/// `<cache_root>/git` — the bare mirrors.
+get_git_mirrors_dir :: (fn(cache_root : String) -> String)(
+  cache_root.concat(String.from("/git"))
+);
+/// The hex SHA-256 of a remote URL — the file-system name every per-remote
+/// artifact (mirror, tag index) is filed under.
+url_key :: (fn(url : String) -> String)(
+  sha256_hex(url.as_bytes())
+);
+/// `<cache_root>/git/<sha256(url)>.git` — the bare mirror of `url`.
+git_mirror_dir :: (fn(cache_root : String, url : String) -> String)({
+  dir := get_git_mirrors_dir(cache_root);
+  dir.push_str("/");
+  dir.push_string(url_key(url));
+  dir.push_str(".git");
+  dir
+});
+/// `<cache_root>/index` — the per-remote `ls-remote` answers.
+get_index_dir :: (fn(cache_root : String) -> String)(
+  cache_root.concat(String.from("/index"))
+);
+/// `<cache_root>/index/<sha256(url)>.tags` — the last `git ls-remote --tags`
+/// output for `url`, rewritten every online run and the ONLY tag source under
+/// `--offline`.
+tags_index_path :: (fn(cache_root : String, url : String) -> String)({
+  p := get_index_dir(cache_root);
+  p.push_str("/");
+  p.push_string(url_key(url));
+  p.push_str(".tags");
+  p
+});
+/// `<cache_root>/store.lock` — held (`flock`) around every store and mirror
+/// mutation, so two installs never extract into the same name at once.
+store_lock_path :: (fn(cache_root : String) -> String)(
+  cache_root.concat(String.from("/store.lock"))
+);
+/// `<cache_root>/projects` — one absolute project directory per line, every
+/// project `yo install` has resolved; `yo cache gc` keeps what their locks
+/// reference and forgets projects that no longer exist.
+projects_registry_path :: (fn(cache_root : String) -> String)(
+  cache_root.concat(String.from("/projects"))
+);
+/// Create the store, mirror and index directories and return the cache root.
+ensure_cache_layout :: (fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
-    dir := get_global_deps_cache_dir();
-    e.io.await(create_dir_all(Path.new(dir), e.io), e);
-    dir
+    root := get_global_cache_dir();
+    e.io.await(create_dir_all(Path.new(get_store_dir(root.clone())), e.io), e);
+    e.io.await(create_dir_all(Path.new(get_git_mirrors_dir(root.clone())), e.io), e);
+    e.io.await(create_dir_all(Path.new(get_index_dir(root.clone())), e.io), e);
+    root
   })
 );
 /// Return the global versioned Yo installations cache directory (`<cache_root>/versions`).
@@ -146,9 +228,18 @@ get_install_version_dir :: (fn(version : String) -> Option(String))(
 );
 export(
   get_global_cache_dir,
-  get_global_deps_cache_dir,
-  get_cached_dep_dir,
-  ensure_global_deps_cache_dir,
+  INTEGRITY_PREFIX,
+  get_store_dir,
+  store_tree_dir,
+  store_verified_marker,
+  get_git_mirrors_dir,
+  url_key,
+  git_mirror_dir,
+  get_index_dir,
+  tags_index_path,
+  store_lock_path,
+  projects_registry_path,
+  ensure_cache_layout,
   get_global_versions_cache_dir,
   get_version_cache_dir,
   get_install_versions_dir,

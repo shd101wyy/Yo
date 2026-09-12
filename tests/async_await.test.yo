@@ -5586,3 +5586,112 @@ test("an io.async closure releases its captured values when the future dies", {
   g := io.await(_cap_sm_str(String.from("cap"), io), b);
   assert(g == "cap:1", `a captured String is intact after the await (got ${g})`);
 });
+// A nested bare block `{ …; }` holding an await, as a STATEMENT of an async
+// cond/match arm, was silently dropped by the async lowering — the arm's
+// header was emitted and none of its code (the file arm of the dependency
+// store's content hasher, so every stored tree hashed alike); as a top-level
+// statement of the body it was an internal compiler error instead. The body
+// is now flattened before analysis
+// (issues/fixed/async-nested-bare-block-in-loop-arm-dropped.md). Each shape
+// below computes the same total through a nested block and flat, from sizes
+// that arrive through an await; `0` stands for a directory entry.
+_nb_size :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => n)
+);
+_nb_cond_nested :: (fn(sizes : ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => {
+    (total : usize) = usize(0);
+    (i : usize) = usize(0);
+    while(i < sizes.len(), {
+      n := sizes(i);
+      i = (i + usize(1));
+      if(n == usize(0), {
+        total = (total + usize(1000));
+      }, {
+        {
+          got := e.io.await(_nb_size(n, e.io), e);
+          total = (total + got);
+        };
+      });
+    });
+    total
+  })
+);
+_nb_cond_flat :: (fn(sizes : ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => {
+    (total : usize) = usize(0);
+    (i : usize) = usize(0);
+    while(i < sizes.len(), {
+      n := sizes(i);
+      i = (i + usize(1));
+      if(n == usize(0), {
+        total = (total + usize(1000));
+      }, {
+        got := e.io.await(_nb_size(n, e.io), e);
+        total = (total + got);
+      });
+    });
+    total
+  })
+);
+_nb_match_nested :: (fn(sizes : ArrayList(usize), io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => {
+    (total : usize) = usize(0);
+    (i : usize) = usize(0);
+    while(i < sizes.len(), {
+      n := sizes(i);
+      i = (i + usize(1));
+      kind := if(n == usize(0), Option(usize).None, Option(usize).Some(n));
+      match(
+        kind,
+        .None => {
+          total = (total + usize(1000));
+        },
+        .Some(m) => {
+          {
+            got := e.io.await(_nb_size(m, e.io), e);
+            total = (total + got);
+          };
+        }
+      );
+    });
+    total
+  })
+);
+_nb_top_nested :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async((e : IoExn) => {
+    (total : usize) = usize(7);
+    {
+      got := e.io.await(_nb_size(n, e.io), e);
+      total = (total + got);
+    };
+    total
+  })
+);
+_nb_sizes :: (fn() -> ArrayList(usize))({
+  s := ArrayList(usize).new();
+  s.push(usize(3));
+  s.push(usize(0));
+  s.push(usize(5));
+  s
+});
+test("nested bare block with an await as a cond-arm statement inside a loop runs", {
+  exn := Exception(throw : (_err -> unwind(())));
+  b := IoExn(io : io, exn : exn);
+  nested := io.await(_nb_cond_nested(_nb_sizes(), io), b);
+  flat := io.await(_nb_cond_flat(_nb_sizes(), io), b);
+  assert(flat == usize(1008), `flat total (got ${flat.to_string()})`);
+  assert(nested == flat, `the nested block's statements ran (nested ${nested.to_string()}, flat ${flat.to_string()})`);
+});
+test("nested bare block with an await as a match-arm statement inside a loop runs", {
+  exn := Exception(throw : (_err -> unwind(())));
+  b := IoExn(io : io, exn : exn);
+  nested := io.await(_nb_match_nested(_nb_sizes(), io), b);
+  assert(nested == usize(1008), `the nested block's statements ran (got ${nested.to_string()})`);
+});
+test("nested bare block with an await as a top-level statement of the body compiles and runs", {
+  exn := Exception(throw : (_err -> unwind(())));
+  b := IoExn(io : io, exn : exn);
+  got := io.await(_nb_top_nested(usize(5), io), b);
+  assert(got == usize(12), `7 + 5 (got ${got.to_string()})`);
+});

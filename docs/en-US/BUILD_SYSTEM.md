@@ -882,15 +882,33 @@ Compiling a dependency's artifacts and linking them into the consumer (plans/BUI
 
 ### Global Cache
 
-Dependencies are cached globally to avoid redundant downloads across projects:
+Dependencies are stored globally, once per distinct tree, so two projects (or two commits with the same contents) share one copy:
 
 ```bash
 # Show cache location
 yo cache path           # e.g., ~/.cache/yo
 
-# Clear cache
+# Remove the dependency store (package trees, mirrors, tag lists); cached Yo versions stay
 yo cache clean
+
+# Remove only what no recorded project's yo.lock references any more
+yo cache gc
 ```
+
+The layout under the cache root:
+
+```
+~/.cache/yo/
+├── store/sha256/<hash>/          # one extracted package tree per content hash (the lock's `integrity`)
+├── store/sha256/<hash>.verified  # written after a full hash confirmed the tree
+├── git/<sha256(url)>.git/        # a bare mirror per remote, fetched incrementally
+├── index/<sha256(url)>.tags      # the last `git ls-remote --tags` answer per remote (the tag source under --offline)
+├── store.lock                    # the lock two concurrent installs take turns on
+├── projects                      # every project `yo install` ran in — what `yo cache gc` keeps
+└── versions/                     # cached Yo toolchains (`yo version`)
+```
+
+A package tree's name **is** its content hash, so `import("dep")` resolves from `yo.lock` alone (`integrity` → `store/sha256/<hash>`), `yo build` on a fresh checkout finds everything the lock names without touching the network, and a tree whose contents drift no longer answers to its name. `yo build` also links `yo-out/deps/<name>` → the store tree of each dependency, so an editor can open a dependency's source by a stable path (outputs, not inputs; not created on Windows).
 
 **Resolution order:**
 
@@ -929,9 +947,9 @@ integrity = "sha256-9a0b2e..."
 
 `source` is `git+<url>#<ref>` or `path+<path relative to yo.toml>`; `version` is the semver of a chosen tag (absent for a branch, a commit or a path); `dependencies` lists the package's own dependency names. A path package has no commit or hash — it is live.
 
-1. **At fetch time** — `yo install` clones the package at the resolved commit, walks the extracted file tree, and computes a SHA-256 hash of all file names and contents. The hash is written to `yo.lock` and to a `.yo-content-hash` sidecar file inside the cached directory.
+1. **At fetch time** — `yo install` brings the commit into the remote's bare mirror (`git clone --mirror` once, `git fetch` after), extracts the tree under a temporary name in the store, walks it and computes a SHA-256 hash of all file names and contents, then renames it to `store/sha256/<hash>` and writes the `.verified` marker. The hash is the lock entry's `integrity`. A fetched tree whose hash disagrees with the lock's is an integrity error — the dependency's history was rewritten, and `yo update <name>` is the way to accept the new tree.
 
-2. **At install time** — a package whose lock entry is reused is verified against the sidecar (O(1)); on a match nothing is fetched. A missing sidecar triggers a full re-hash; a cached tree whose hash disagrees with the lock (tampered or corrupted files) is deleted and re-cloned, and a re-fetched tree that **still** disagrees is an integrity error — the dependency's history was rewritten, and `yo update <name>` is the way to accept the new tree.
+2. **At install time** — a package whose lock entry is reused is looked up by its hash: a stored tree with its `.verified` marker is used as is (no network, no hashing); a tree without the marker (an interrupted install, a hand-edited store) is re-hashed first, and one that no longer hashes to its name is removed and fetched again.
 
 **Cross-platform stability:** the hash normalizes `\r\n` → `\n`, so the same dependency hashes identically on Windows and Linux, and file names are sorted with locale-independent ordering. This follows Zig's model of hashing the extracted content rather than archive bytes.
 
@@ -1027,10 +1045,11 @@ yo cache <action>
 
 Actions:
   path                   Print the global cache directory path
-  clean                  Remove all cached dependencies
+  clean                  Remove the dependency store (store/, git/, index/); cached Yo versions are kept
+  gc                     Remove the trees, mirrors and tag lists no recorded project's yo.lock references
 ```
 
-The cache location can be overridden via the `YO_CACHE_DIR` environment variable.
+`gc` reads the `yo.lock` of every project `yo install` has run in (recorded in `<cache>/projects`; a project whose directory or lock is gone is forgotten) and removes every store tree, mirror and tag list none of them references. The cache location can be overridden via the `YO_CACHE_DIR` environment variable.
 
 ## Documentation Generation
 

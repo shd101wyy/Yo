@@ -20,13 +20,11 @@
 //! (issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
 { rune, String } :: import("std/string");
 { println } :: import("std/fmt");
-{ env } :: import("std/env");
 { Path } :: import("std/path");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
-{ Command } :: import("std/process/command");
-{ ensure_global_deps_cache_dir } :: import("./cache.yo");
-{ fetch_package } :: import("./fetch.yo");
+{ ensure_cache_layout } :: import("./cache.yo");
+{ fetch_package, git_command, git_remote_url, read_tags_index, write_tags_index, record_project } :: import("./fetch.yo");
 {
   LockEntry,
   LockFile,
@@ -533,9 +531,7 @@ ls_remote_tags :: (
   ) -> Impl(Future(Result(String, String), IoExn))
 )(
   io.async((e : IoExn) => {
-    // Never prompt for credentials.
-    env.set(String.from("GIT_TERMINAL_PROMPT"), String.from("0"));
-    cmd := Command.new(String.from("git"));
+    cmd := git_command();
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--tags"));
     cmd.arg(String.from("--"));
@@ -559,8 +555,7 @@ resolve_default_branch :: (
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
-    env.set(String.from("GIT_TERMINAL_PROMPT"), String.from("0"));
-    cmd := Command.new(String.from("git"));
+    cmd := git_command();
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--symref"));
     cmd.arg(String.from("--"));
@@ -885,7 +880,9 @@ _State :: ref(
   struct(
     manifest : Manifest,
     options : ResolveOptions,
-    cache_dir : String,
+    /// The cache root (`cache.get_global_cache_dir`): the store, the mirrors
+    /// and the tag index live under it.
+    cache_root : String,
     old_lock : LockFile,
     packages : ArrayList(_Package),
     /// `ls-remote --tags` output per URL, fetched once per run.
@@ -1154,22 +1151,37 @@ _resolve_package :: (
     tags_needed := (needs_tags && !reuse);
     cached_tags := _cached_text(state.tag_urls, state.tag_texts, pkg.url.clone());
     fetch_tags := (tags_needed && cached_tags.is_none());
+    // What git is given: a local path made absolute against the root
+    // manifest's directory (git resolves paths against the child's cwd).
+    remote := git_remote_url(state.manifest.dir.clone(), pkg.url.clone());
+    // Under --offline the tag list is the index's last answer for this
+    // remote, or nothing; online it is fetched once per run and recorded.
+    (indexed : Option(String)) = Option(String).None;
     if(fetch_tags && state.options.offline, {
-      e.exn.throw(dyn(`Error: --offline: resolving "${pkg.name}" needs the tags of ${pkg.url}`));
+      from_index := e.io.await(read_tags_index(state.cache_root.clone(), remote.clone(), e.io, e.exn), e);
+      indexed = from_index;
     });
-    if(fetch_tags, {
+    if(fetch_tags && (state.options.offline && indexed.is_none()), {
+      e.exn.throw(dyn(`Error: --offline: resolving "${pkg.name}" needs the tags of ${pkg.url}, and the cache has no tag list for it`));
+    });
+    if(fetch_tags && state.options.offline, {
+      state.tag_urls.push(pkg.url.clone());
+      state.tag_texts.push(match(indexed, .Some(t) => t.clone(), .None => String.new()));
+    });
+    if(fetch_tags && !state.options.offline, {
       if(verbose, {
         println(`  ${pkg.name}: listing the tags of ${pkg.url}...`);
       });
-      listed := e.io.await(ls_remote_tags(pkg.url.clone(), e.io, e.exn), e);
+      listed := e.io.await(ls_remote_tags(remote.clone(), e.io, e.exn), e);
       text := match(
         listed,
-        .Ok(t) => t,
+        .Ok(t) => t.clone(),
         .Err(msg) => {
           e.exn.throw(dyn(`Error: ${msg}`));
           String.new()
         }
       );
+      e.io.await(write_tags_index(state.cache_root.clone(), remote.clone(), text.clone(), e.io, e.exn), e);
       state.tag_urls.push(pkg.url.clone());
       state.tag_texts.push(text);
     });
@@ -1202,7 +1214,7 @@ _resolve_package :: (
       e.exn.throw(dyn(`Error: --offline: resolving the default branch of ${pkg.url} ("${pkg.name}") needs the network`));
     });
     if(resolve_branch, {
-      branch := e.io.await(resolve_default_branch(pkg.url.clone(), e.io, e.exn), e);
+      branch := e.io.await(resolve_default_branch(remote.clone(), e.io, e.exn), e);
       state.branch_urls.push(pkg.url.clone());
       state.branch_names.push(branch);
     });
@@ -1222,9 +1234,9 @@ _resolve_package :: (
     expected_integrity := if(from_lock, Option(String).Some(old_integrity.clone()), Option(String).None);
     fetched := e.io.await(
       fetch_package(
-        state.cache_dir.clone(),
+        state.cache_root.clone(),
         pkg.name.clone(),
-        pkg.url.clone(),
+        remote.clone(),
         ref_text.clone(),
         locked_commit,
         expected_integrity,
@@ -1302,6 +1314,18 @@ _build_lock :: (fn(state : _State) -> LockFile)({
   });
   LockFile(packages : entries)
 });
+/// Does the lock name at least one store tree (a git package with an
+/// integrity hash)?
+_lock_uses_store :: (fn(lock : LockFile) -> bool)({
+  (i : usize) = usize(0);
+  while(i < lock.packages.len(), {
+    if(lock.packages(i).integrity.len() > usize(0), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 /// Names whose entries differ between `old` and `new` — the `--locked` report.
 _lock_diff :: (fn(old : LockFile, new : LockFile) -> String)({
   out := String.new();
@@ -1340,7 +1364,7 @@ resolve_and_fetch :: (
 )(
   io.async((e : IoExn) => {
     root_dir := manifest.dir.clone();
-    cache_dir := e.io.await(ensure_global_deps_cache_dir(e.io, e.exn), e);
+    cache_root := e.io.await(ensure_cache_layout(e.io, e.exn), e);
     read := e.io.await(read_lock_file(Path.new(root_dir.clone()), e.io, e.exn), e);
     match(
       read.problem,
@@ -1358,7 +1382,7 @@ resolve_and_fetch :: (
     state := _State(
       manifest : manifest,
       options : options,
-      cache_dir : cache_dir,
+      cache_root : cache_root,
       old_lock : read.lock,
       packages : ArrayList(_Package).new(),
       tag_urls : ArrayList(String).new(),
@@ -1397,6 +1421,12 @@ resolve_and_fetch :: (
       println(`Wrote yo.lock (${new_lock.packages.len().to_string()} package(s)).`);
     }, {
       println("yo.lock is up to date.");
+    });
+    // For `yo cache gc`: a project whose lock names store trees is recorded,
+    // so gc keeps them; a project of path packages alone references nothing.
+    uses_store := _lock_uses_store(new_lock);
+    if(uses_store, {
+      e.io.await(record_project(cache_root.clone(), root_dir.clone(), e.io, e.exn), e);
     });
     new_lock
   })
