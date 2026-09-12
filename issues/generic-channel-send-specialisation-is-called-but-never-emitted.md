@@ -121,6 +121,65 @@ Without the warm-up call there is no second caller, so the only specialisation
 is the `rtparam1_2193` one — and that one is never emitted at all, which is the
 form the D18b repro shows.
 
+## MEASURED 2026-09-12: the resolution does not exist in ANY channel
+
+Three fixes were built and measured, and all three are dead ends. Recorded so
+none of them is retried:
+
+1. **Resolve the `rtparam` unit test through the SomeT chain** (the obvious
+   reading of the section above). No effect — and the reason is that
+   `_spec_resolve_arg_ty` (`src/evaluator/calls/helper.yo`) ALREADY walks both
+   the per-object `resolved_concrete` cell and the global registry before the
+   argument type reaches `compute_compile_time_signature`.
+2. **Add the CALLER-ENV channel** to that resolution
+   (`get_value_of_some_type_from_env`). No effect.
+3. **Stop refusing a `unit` answer in the call-result resolution**
+   (`src/evaluator/calls/function.yo`'s `rt_none_resolved` guard, which rejects
+   both `is_some_type` and `is_unit_type`). No effect on this shape. Worth
+   knowing anyway, because the `is_unit_type` half of that guard is wrong on
+   its own terms — `_do_chain_resolve` returns the SomeT ITSELF on every miss
+   (name unbound, non-type value, self-binding, cycle), so it can never hand
+   back `unit` as a soft-failure and the clause can only reject a genuine
+   `R := unit`. It is a latent defect with no reproducer yet.
+
+A probe at the point the signature's argument types are collected says why:
+
+```
+[PROBE-SIG] fid=yo_id_14943 rti=1
+            raw=T : (Send + Acyclic)
+            cell=T : (Send + Acyclic)
+            env=T : (Send + Acyclic)
+            key=2193
+```
+
+The argument's type is `_spawn_zst`'s OWN generic binder, complete with its
+where-clause traits, and it is unresolved in **all three** channels — the
+per-object cell, the global registry, and the caller's environment.
+
+**So the resolution is not missing, it does not exist yet.** The
+`Channel(T).send` specialisation is minted during an evaluation in which `T`
+is still abstract, and nothing ever re-mints it for `T = unit`. Its sibling in
+the same function body resolves fine: `chan := Channel(T).new(...)` emits
+`Channel(unit)`, which is why `rtparam0` of the very same call reads
+`..._unit_...`. The closure that `Thread.spawn` receives is what carries the
+abstract evaluation into codegen.
+
+That reframes the whole issue. It is not "which resolution channel is the
+signature missing"; it is **why is a call inside a closure defined in a
+generic body specialised from an abstract-`T` evaluation, and never
+re-specialised when the enclosing function is**.
+
+One more fact worth chasing first, because it may be the cheaper half: the
+call site emits a full mangled name, and that name can only come from
+`_c_func_name`, which reads `CodeGenContext.get_function_entry`. So the
+abstract spec IS registered in `functions` — it is registered and never
+emitted. Either `should_skip_function_codegen` drops it at the emission loop
+while the call site's identical check at `other_fn_call.yo:2053` did not fire
+(different path: is `sink.send(...)` reaching the named-callee arm at all?), or
+it was registered AFTER both the declaration loop and the body loop had passed
+it. Dumping `function_order` for `yo_id_14943` at the end of collection settles
+which.
+
 ## Why this is NOT a one-line fix
 
 Resolving `ptype` through its SomeT chain before the unit test makes the two
@@ -129,16 +188,10 @@ signature every specialisation in the compiler is keyed by, so it moves
 `yo_id_*` names tree-wide and has to clear the bootstrap FIXPOINT gate — it
 belongs in its own PR with the full battery, not bolted onto another fix.
 
-Resolving at READ may not even be possible here. The sibling defect's
-investigation established that the CALL's result `SomeT` has no recorded
-resolution at codegen time at all —
-`resolve_some_type_to_concrete` consults both the per-object `resolved_concrete`
-cell and the global registry and finds neither, which is why
-`init_assignment.yo`'s existing `rhs_is_unit` guard missed. If the `T` in
-`rtparam1_2193` is in the same state, the resolution has to be RECORDED at
-specialisation time rather than looked up later, and that is evaluator work on
-how a generic body's ExprInfos are stamped for a specialisation. (Not measured
-for this particular `SomeT` — measure it before choosing a direction.)
+Resolving at read is NOT available here — measured, see the section above. The
+resolution has to be RECORDED at specialisation time rather than looked up
+later, and that is evaluator work on how a generic body's ExprInfos are stamped
+for a specialisation.
 
 It is also probably not sufficient on its own. With the segment omitted, the
 closure's call mints the spec with a param type that is still the raw SomeT,
