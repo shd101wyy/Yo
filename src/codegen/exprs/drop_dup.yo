@@ -23,7 +23,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_array_type, is_tuple_type, is_dyn_type, is_atomic_reference_struct_type, is_reference_struct_type, is_atomic_reference_enum_type, is_reference_enum_type, is_iso_type, is_struct_type, is_enum_type, is_some_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ type_implements_future } :: import("../../evaluator/trait_checking.yo");
+{ type_implements_future, type_implements_fn } :: import("../../evaluator/trait_checking.yo");
 { expr_info_converted_runtime_type, expr_info_closure_function_value } :: import("../../expr_info.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
@@ -32,6 +32,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
+{ resolve_some_type_to_concrete } :: import("./closures.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
@@ -169,6 +170,43 @@ resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue,
   );
   value_type
 });
+/// A value whose STATIC type is an `Impl(Fn(...))` SomeT IS, at runtime, the
+/// argument closure's CAPTURE STRUCT — that is what the C parameter carries and
+/// what `get_type_string` renders. Resolve the wrapper before asking whether
+/// there is anything to retain or release.
+///
+/// Without this, every RC value reached through a closure-typed slot leaked:
+/// `type_contains_rc_type` is `false` for a bare SomeT, so the drop walk
+/// skipped the slot entirely and `generate_drop_code_for_value` returned "" for
+/// a closure local. Two measured shapes, both at zero `dispose` calls where one
+/// was due:
+///
+///   * a closure local (`(f : Impl(Fn() -> unit)) = () => { … tracked … }`)
+///     never released its captures at scope end;
+///   * a closure captured BY another closure — which is what
+///     `Thread(T).spawn`'s result-relaying wrapper does — was never released by
+///     the spawn wrapper either, because the wrapper's walk skipped the `cb`
+///     field for the same reason.
+///
+/// Both are the "empty-string drop fallback" class
+/// (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md): a
+/// silent `""` for an unrecognised type. Narrow by construction — ONLY an
+/// `Impl(Fn)` SomeT resolves here. An `Impl(Future)` keeps its own arm below
+/// (its release is an RC decrement on the state-machine handle, not a field
+/// walk), and every other SomeT is left exactly as it was.
+_resolve_closure_impl_type :: (fn(ty : TypeValue) -> TypeValue)(
+  cond(
+    (is_some_type(ty) && type_implements_fn(ty)) => resolve_some_type_to_concrete(ty),
+    true => ty
+  )
+);
+/// `type_contains_rc_type` through a closure-typed slot. Every RC test in this
+/// module goes through it so the drop and dup walks stay symmetric: a field
+/// that is dup'd must be dropped, and a slot this predicate calls RC-free is
+/// touched by neither.
+_contains_rc :: (fn(ty : TypeValue) -> bool)(
+  type_contains_rc_type(_resolve_closure_impl_type(ty))
+);
 /// Generate drop code for a value of any type (recursive for arrays/tuples).
 /// Mirrors `generateDropCodeForValue`. Note: emits at column 0 (no indent),
 /// faithful to the TS emitLine calls.
@@ -178,8 +216,8 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
   // variant lists, so the per-variant RC walk below emits a switch with NO
   // arms — a silent no-op drop/dup for any recursive enum value (the json
   // element-loss family).
-  concrete_type := resolve_enum_shell(resolve_struct_shell(value_type));
-  if(!type_contains_rc_type(concrete_type), {
+  concrete_type := resolve_enum_shell(resolve_struct_shell(_resolve_closure_impl_type(value_type)));
+  if(!_contains_rc(concrete_type), {
     return(String.from(""));
   });
   em := context.base.emitter;
@@ -235,7 +273,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
         while(i < n, {
           match(
             fts.get(i),
-            .Some(ft) => if(type_contains_rc_type(ft), {
+            .Some(ft) => if(_contains_rc(ft), {
               fc := String.from("(");
               fc.push_string(value_code.clone());
               fc.push_str(")._");
@@ -333,7 +371,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
             while(ci < nf, {
               match(
                 fields.get(ci),
-                .Some(ft) => if(type_contains_rc_type(ft), {
+                .Some(ft) => if(_contains_rc(ft), {
                   has_rc = true;
                 }),
                 .None => ()
@@ -347,7 +385,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
               while(fi < nf, {
                 match(
                   fields.get(fi),
-                  .Some(ft) => if(type_contains_rc_type(ft), {
+                  .Some(ft) => if(_contains_rc(ft), {
                     flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
                     fname := sanitize_for_c_identifier(flabel, false);
                     access := `(${value_code.clone()}).data.${vname.clone()}.${fname}`;
@@ -384,7 +422,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
       match(
         nt_rfs.get(usize(0)),
         .Some(nt_f) => cond(
-          type_contains_rc_type(nt_f.ty) => recur(value_code.clone(), nt_f.ty, context),
+          _contains_rc(nt_f.ty) => recur(value_code.clone(), nt_f.ty, context),
           true => String.from("")
         ),
         .None => String.from("")
@@ -412,7 +450,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
         while(vs_fi < vs_rfs.len(), {
           match(
             vs_rfs.get(vs_fi),
-            .Some(vs_f) => if(type_contains_rc_type(vs_f.ty), {
+            .Some(vs_f) => if(_contains_rc(vs_f.ty), {
               fref := String.from("(");
               fref.push_string(value_code.clone());
               fref.push_str(").");
@@ -438,7 +476,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
 /// Mirrors `generateDupCodeForValue`.
 generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, context : FunctionGenerationContext) -> String)({
   // Resolve recursive-type SHELLS first — see generate_drop_code_for_value.
-  concrete_type := resolve_enum_shell(resolve_struct_shell(value_type));
+  concrete_type := resolve_enum_shell(resolve_struct_shell(_resolve_closure_impl_type(value_type)));
   em := context.base.emitter;
   cond(
     // Impl(Future(…)) SomeT — increment the state machine handle's refcount.
@@ -511,7 +549,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
         while(i < n, {
           match(
             fts.get(i),
-            .Some(ft) => if(type_contains_rc_type(ft), {
+            .Some(ft) => if(_contains_rc(ft), {
               fref := temp_var.clone();
               fref.push_str("._");
               fref.push_string(i.to_string());
@@ -601,7 +639,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
       match(
         rfs.get(usize(0)),
         .Some(f) => cond(
-          type_contains_rc_type(f.ty) => recur(value_code.clone(), f.ty, context),
+          _contains_rc(f.ty) => recur(value_code.clone(), f.ty, context),
           true => value_code.clone()
         ),
         .None => value_code.clone()
@@ -622,7 +660,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
       while(ci < rfs.len(), {
         match(
           rfs.get(ci),
-          .Some(f) => if(type_contains_rc_type(f.ty), {
+          .Some(f) => if(_contains_rc(f.ty), {
             has_rc = true;
           }),
           .None => ()
@@ -645,7 +683,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
           while(fi < rfs.len(), {
             match(
               rfs.get(fi),
-              .Some(f) => if(type_contains_rc_type(f.ty), {
+              .Some(f) => if(_contains_rc(f.ty), {
                 fref := temp_var.clone();
                 fref.push_str(".");
                 fref.push_string(sanitize_for_c_identifier(f.label.clone(), false));
@@ -721,7 +759,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
               while(ed_ci < ed_nf, {
                 match(
                   ed_fields.get(ed_ci),
-                  .Some(ed_ft0) => if(type_contains_rc_type(ed_ft0), {
+                  .Some(ed_ft0) => if(_contains_rc(ed_ft0), {
                     ed_has_rc = true;
                   }),
                   .None => ()
@@ -735,7 +773,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
                 while(ed_fi < ed_nf, {
                   match(
                     ed_fields.get(ed_fi),
-                    .Some(ed_ft) => if(type_contains_rc_type(ed_ft), {
+                    .Some(ed_ft) => if(_contains_rc(ed_ft), {
                       ed_flabel := match(ed_labels.get(ed_fi), .Some(l) => l, .None => String.from(""));
                       ed_fname := sanitize_for_c_identifier(ed_flabel, false);
                       ed_access := `(${ed_temp.clone()}).data.${ed_vname.clone()}.${ed_fname}`;

@@ -33,7 +33,7 @@ test("wait_timeout returns true when signalled before the deadline", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
   ready := Channel(i32).new(usize(1));
-  signaller := Thread.spawn(io => {
+  signaller := Thread(unit).spawn(io => {
     ready.recv();
     m._raw_lock();
     cv.signal();
@@ -82,7 +82,7 @@ test("wait blocks until signalled, with the predicate re-checked", {
   cv := Cond.new();
   flag := AtomicI32.new(i32(0));
   waiting := Channel(i32).new(usize(1));
-  setter := Thread.spawn(io => {
+  setter := Thread(unit).spawn(io => {
     waiting.recv();
     m._raw_lock();
     flag.store(i32(1), MemoryOrder.SeqCst);
@@ -106,11 +106,11 @@ test("broadcast releases every waiter", {
   flag := AtomicI32.new(i32(0));
   woken := AtomicI32.new(i32(0));
   parked := Channel(i32).new(usize(4));
-  handles := ArrayList(Thread).new();
+  handles := ArrayList(Thread(unit)).new();
   (t : i64) = i64(0);
   while(runtime(t < i64(4)), {
     handles.push(
-      Thread.spawn(io => {
+      Thread(unit).spawn(io => {
         m._raw_lock();
         parked.send(i32(1));
         while(runtime(flag.load(MemoryOrder.SeqCst) == i32(0)), {

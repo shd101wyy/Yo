@@ -9,14 +9,14 @@ import("std/libc/stdio");
 { ArrayList } :: import("std/collections/array_list");
 log :: import("std/log");
 test("Thread spawn and join without captures", {
-  thread := Thread.spawn(
+  thread := Thread(unit).spawn(
     io => () // Thread runs with no captures
   );
   thread.join();
 });
 test("Thread spawn and join with i32 capture", {
   value := 42;
-  thread := Thread.spawn(io => {
+  thread := Thread(unit).spawn(io => {
     // Use captured value
     assert(value == 42);
   });
@@ -25,14 +25,14 @@ test("Thread spawn and join with i32 capture", {
 test("Thread spawn and join with multiple captures", {
   x := 100;
   y := 200;
-  thread := Thread.spawn(io => {
+  thread := Thread(unit).spawn(io => {
     // Use captured values
     assert((x + y) == 300);
   });
   thread.join();
 });
 test("Thread with async task", {
-  thread := Thread.spawn(io => {
+  thread := Thread(unit).spawn(io => {
     task := io.async((io : Io) => {
       io.await(yield(io), io);
     });
@@ -41,7 +41,7 @@ test("Thread with async task", {
   thread.join();
 });
 test("Thread with async returning value", {
-  thread := Thread.spawn(io => {
+  thread := Thread(unit).spawn(io => {
     x := 10;
     y := 20;
     task := io.async((io : Io) => {
@@ -54,7 +54,7 @@ test("Thread with async returning value", {
   thread.join();
 });
 test("Thread with async loop", {
-  thread := Thread.spawn(io => {
+  thread := Thread(unit).spawn(io => {
     task := io.async((io : Io) => {
       counter := 0;
       while(runtime(counter < i32(5)), {
@@ -69,7 +69,7 @@ test("Thread with async loop", {
   thread.join();
 });
 test("Thread with multiple async tasks", {
-  thread := Thread.spawn(io => {
+  thread := Thread(unit).spawn(io => {
     task1 := io.async((io : Io) => {
       io.await(yield(io), io);
       return(i32(1));
@@ -89,7 +89,7 @@ test("Thread with multiple async tasks", {
 test "Thread spawn and join with multiple boxed captures", {
   x := box(100);
   y := box(200);
-  thread := Thread.spawn((io) => {
+  thread := Thread(unit).spawn((io) => {
     // Use captured values
     assert((x.* + y.*) == 300);
   });
@@ -101,7 +101,7 @@ test "Thread spawn and join with multiple boxed captures", {
 // JoinHandle::drop): the thread still runs to completion and the OS reclaims
 // it. The helper exists so the handle drops at a known point.
 _spawn_and_drop_handle :: (fn(out : Channel(i32)) -> unit)({
-  t := Thread.spawn(io => {
+  t := Thread(unit).spawn(io => {
     out.send(i32(7));
     ()
   });
@@ -113,7 +113,7 @@ test("dropping an un-joined Thread detaches it: the work still completes", {
   assert(out.recv().unwrap() == i32(7), "the detached thread ran to completion");
 });
 test("join marks the handle joined, and dropping a joined handle releases nothing twice", {
-  t := Thread.spawn(io => ());
+  t := Thread(unit).spawn(io => ());
   assert(!t.is_joined(), "not joined yet");
   t.join();
   assert(t.is_joined(), "joined once");
@@ -126,11 +126,11 @@ test("std/log configuration and filtering are safe from several threads at once"
   // concurrently at level Off (nothing is written); it must neither crash nor
   // tear, and it ends in the state the last writer set. A canary rather than a
   // red-first witness: a data race has no deterministic observable natively.
-  threads := ArrayList(Thread).new();
+  threads := ArrayList(Thread(unit)).new();
   (t : i32) = i32(0);
   while(t < i32(4), t = (t + i32(1)), {
     threads.push(
-      Thread.spawn(io => {
+      Thread(unit).spawn(io => {
         (i : i32) = i32(0);
         while(i < i32(500), i = (i + i32(1)), {
           log.set_level(log.Level.Off);
@@ -195,7 +195,7 @@ test("Thread spawn releases its closure's captures", {
     // release it — and since the capture is a move (the heap copy inherits
     // the call-site struct's references), that release is the last one.
     tracked := _Tracked(tag : i32(7));
-    t := Thread.spawn(io => {
+    t := Thread(unit).spawn(io => {
       assert(tracked.tag == i32(7), "the capture arrived on the thread");
       ()
     });
@@ -224,7 +224,7 @@ test("Thread spawn's captured local is still owned by the caller", {
   _spawn_dispose_count.store(usize(0), MemoryOrder.Release);
   {
     tracked := _Tracked(tag : i32(9));
-    t := Thread.spawn(io => {
+    t := Thread(unit).spawn(io => {
       _x := tracked.tag;
       ()
     });
@@ -248,7 +248,7 @@ test("Thread spawn releases captures on every iteration of a loop", {
   (i : i32) = i32(0);
   while(i < i32(16), i = (i + i32(1)), {
     tracked := _Tracked(tag : i);
-    t := Thread.spawn(io => {
+    t := Thread(unit).spawn(io => {
       _x := tracked.tag;
       ()
     });
@@ -277,7 +277,7 @@ _spawn_zst_relay :: (
 )({
   chan := Channel(T).new(usize(1));
   sink := chan;
-  t := Thread.spawn((io : Io) => {
+  t := Thread(unit).spawn((io : Io) => {
     sink.send(cb(io));
     ()
   });
