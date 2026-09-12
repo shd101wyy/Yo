@@ -234,6 +234,7 @@ impl(
   ),
   register_executable : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
+    Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.Executable,
@@ -264,6 +265,7 @@ impl(
   }),
   register_static_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
+    Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.StaticLibrary,
@@ -294,6 +296,7 @@ impl(
   }),
   register_shared_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
+    Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.SharedLibrary,
@@ -322,11 +325,17 @@ impl(
       )
     );
   }),
-  register_test : (fn(inout(self) : Self, suite : BuildTestSuite) -> unit)({
+  register_test : (fn(inout(self) : Self, suite : BuildTestSuite, exn : Exception) -> unit)({
+    Self._check_name_taken(self, suite.name.clone(), "a test suite", exn);
     self.test_suites.push(suite);
   }),
   register_run : (fn(inout(self) : Self, artifact_name : String, args : ArrayList(String)) -> unit)({
     synth_name := `run:${artifact_name}`;
+    // The name is derived from the artifact, so `build.run(exe)` twice names
+    // ONE node; the later call's arguments win.
+    if(self.find_run_step(synth_name.clone()).is_some(), {
+      self.remove_run_step(synth_name.clone());
+    });
     self.run_steps.push(
       BuildRunStep(
         name : synth_name,
@@ -335,7 +344,22 @@ impl(
       )
     );
   }),
-  register_step : (fn(inout(self) : Self, name : String, description : String) -> unit)({
+  /// Drop the run step named `name`, if any. `register_run` replaces rather
+  /// than duplicating: the name is derived from the artifact.
+  remove_run_step : (fn(inout(self) : Self, name : String) -> unit)({
+    kept := ArrayList(BuildRunStep).new();
+    (i : usize) = usize(0);
+    while(i < self.run_steps.len(), {
+      step := self.run_steps(i);
+      if(step.name != name, {
+        kept.push(step);
+      });
+      i = (i + usize(1));
+    });
+    self.run_steps = kept;
+  }),
+  register_step : (fn(inout(self) : Self, name : String, description : String, exn : Exception) -> unit)({
+    Self._check_name_taken(self, name.clone(), "a step", exn);
     self.steps.push(
       BuildStep(
         name : name,
@@ -441,7 +465,8 @@ impl(
     });
     self.artifacts = new_artifacts;
   }),
-  register_doc : (fn(inout(self) : Self, config : BuildDocConfig) -> unit)({
+  register_doc : (fn(inout(self) : Self, config : BuildDocConfig, exn : Exception) -> unit)({
+    Self._check_name_taken(self, config.name.clone(), "a documentation step", exn);
     self.doc_configs.push(config);
   }),
   /// Attach a system library to a registered module. No-op when the module is
@@ -603,6 +628,28 @@ impl(
     self.doc_configs = ArrayList(BuildDocConfig).new();
     self.cli_options = HashMap(String, String).new();
     self.declared_options = HashMap(String, BuildDeclaredOption).new();
+  }),
+  /// The name every registry is keyed by is ONE namespace: `resolve_dependency`
+  /// answers artifact → test → run → doc → step and takes the first match, so
+  /// two entities sharing a name make one of them unreachable — `depend_on`
+  /// silently built the wrong thing (the plan's B11). Only artifacts were
+  /// checked, and only against other artifacts.
+  _check_name_taken : (fn(inout(self) : Self, name : String, registering : str, exn : Exception) -> unit)({
+    taken := cond(
+      self.find_artifact(name.clone()).is_some() => "an artifact",
+      self.find_test(name.clone()).is_some() => "a test suite",
+      self.find_run_step(name.clone()).is_some() => "a run step",
+      self.find_documentation(name.clone()).is_some() => "a documentation step",
+      self.find_step(name.clone()).is_some() => "a step",
+      true => ""
+    );
+    if(taken.len() > usize(0), {
+      exn.throw(
+        dyn(
+          `Build error: the name "${name}" is already registered as ${taken}; ${registering} cannot reuse it. Build names share one namespace — steps, artifacts, tests, run and doc steps.`
+        )
+      );
+    });
   }),
   _check_duplicate_artifact_name : (fn(inout(self) : Self, name : String, exn : Exception) -> unit)({
     i := usize(0);
@@ -1188,7 +1235,8 @@ evaluate_yo_build_functions :: (
         bail : false,
         parallel : i32(1),
         exclude : exclude_list
-      )
+      ),
+      exn
     );
     return(_build_unit_result(expr, env, ctx));
   });
@@ -1204,7 +1252,8 @@ evaluate_yo_build_functions :: (
     _build_require_args(args, usize(2), String.from("__yo_build_step expects 2 arguments (name, description)"), expr, exn);
     reg.register_step(
       _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-      _build_extract_string(args, usize(1), "description", expr, ctx, exn)
+      _build_extract_string(args, usize(1), "description", expr, ctx, exn),
+      exn
     );
     return(_build_unit_result(expr, env, ctx));
   });
@@ -1222,7 +1271,8 @@ evaluate_yo_build_functions :: (
         logo : _build_extract_string(args, usize(7), "logo", expr, ctx, exn),
         favicon : _build_extract_string(args, usize(8), "favicon", expr, ctx, exn),
         version : _build_extract_string(args, usize(9), "version", expr, ctx, exn)
-      )
+      ),
+      exn
     );
     return(_build_unit_result(expr, env, ctx));
   });

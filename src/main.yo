@@ -4734,6 +4734,10 @@ run_build_cmd :: (
   (build_file : String) = String.from("./build.yo");
   (list_steps : bool) = false;
   (list_options : bool) = false;
+  // Everything after `--` goes to whatever a `run` step executes (the plan's
+  // B9): `yo build run -- --port 8080`.
+  run_args := ArrayList(String).new();
+  (after_dashdash : bool) = false;
   (dry_run : bool) = false;
   (verbose : bool) = false;
   (summary : bool) = false;
@@ -4776,9 +4780,17 @@ run_build_cmd :: (
       arg.starts_with(String.from("--build-file=")) => {
         build_file = arg.substring(usize(13), arg.len());
       },
+      // NB: the loop advances `ai` itself; only an arm that consumes an EXTRA
+      // argument (a flag's value) bumps it. Bumping it here too swallowed
+      // every other token: `-- one two three` arrived as `two`.
+      after_dashdash => {
+        run_args.push(arg.clone());
+      },
+      (arg == "--") => {
+        after_dashdash = true;
+      },
       (arg == "--list-options") => {
         list_options = true;
-        ai = (ai + usize(1));
       },
       (arg == "--list-steps") => {
         list_steps = true;
@@ -4840,6 +4852,7 @@ run_build_cmd :: (
     build_file : build_file,
     list_steps : list_steps,
     list_options : list_options,
+    run_args : run_args,
     dry_run : dry_run,
     verbose : verbose,
     summary : summary,

@@ -114,9 +114,9 @@ keeping. The runner is where the port is incomplete. Reproduced on 0.2.30:
 | B6 | failures do not stop dependents — a `run` node runs after its artifact failed; `Tests failed (exit n)` / `Executable exited with code n` are computed and never printed (`:1124-1126`, `:1142-1144`); a dependency name that resolves to nothing is silently dropped from the DAG (`:250-252`), so `install.depend_on(<typo>)` is a no-op | code | this plan (§4.7) **FIXED P1.4f** |
 | B7 | `--dry-run` prints `[dry-run] Would execute step: X` without building the DAG, validating the step, or detecting cycles (`:1701-1705`); help text says "Resolve the build graph without running it" | reproduced | this plan (§4.7) **FIXED P1.4f** |
 | B8 | `ReleaseSmall` ≡ `ReleaseSafe` (`--optimize 2` both); no level passes `-g` although `std/build.yo:19-33` documents `-O0 -g` / `-O2 -g` | code | `issues/build-release-small-is-identical-to-release-safe.md` (pre-existing) |
-| B9 | `build.run(exe)` steps cannot receive arguments: `BuildRunStep.args` is always empty, there is no `--` on the CLI (`main.yo:4572-4577`) | code | this plan (§4.7) |
-| B10 | the Phase-A artifact stamp (`_artifact_input_stamp`, `:404-609`) hashes **every** `.yo` under the project (including `tests/`) and the whole std tree per artifact: any edit anywhere invalidates every artifact; directories whose name contains a `.` are never walked (`:477`) — sources under `my.pkg/` are silently excluded (stale-cache risk); the walk runs even when `YO_BUILD_NO_CACHE=1` | code | this plan (§4.9) |
-| B11 | registries are keyed by bare name with first-match resolution artifact → test → run → doc → step (`builtins/build.yo:600-637`); steps/tests/docs/runs have no duplicate check; `Step.link(sys)` before `build.system_library({name: sys})` is misread as an artifact link and dropped (`:1168-1177`) | code | this plan (§4.7) |
+| B9 | `build.run(exe)` steps cannot receive arguments: `BuildRunStep.args` is always empty, there is no `--` on the CLI (`main.yo:4572-4577`) | code | this plan (§4.7) **FIXED P1.4g** |
+| B10 | the Phase-A artifact stamp (`_artifact_input_stamp`, `:404-609`) hashes **every** `.yo` under the project (including `tests/`) and the whole std tree per artifact: any edit anywhere invalidates every artifact; directories whose name contains a `.` are never walked (`:477`) — sources under `my.pkg/` are silently excluded (stale-cache risk); the walk runs even when `YO_BUILD_NO_CACHE=1` | code | this plan (§4.9) **FIXED P1.4g** (the dotted-directory blind spot and the disabled-cache walk; the over-hashing is §4.9) |
+| B11 | registries are keyed by bare name with first-match resolution artifact → test → run → doc → step (`builtins/build.yo:600-637`); steps/tests/docs/runs have no duplicate check; `Step.link(sys)` before `build.system_library({name: sys})` is misread as an artifact link and dropped (`:1168-1177`) | code | this plan (§4.7) **FIXED P1.4g** |
 | B12 | `_dfs_cycle` skips the dependency after a not-in-map one (`:348-350`, missing `continue`); harmless today only because `_walk_dag` never emits such edges | code | fix with B6 **FIXED P1.4f** |
 | B13 | write-only state throughout: `BuildDocConfig.include_deps/logo/favicon` accepted and never forwarded (`:1177-1185`), `BuildTestSuite.target/verbose/bail/parallel` hard-coded, `runtime_files`, `ExecutionContext.dry_run`, `StepResult.duration_ms` always 0 | code | clean up with each phase |
 | B14 | `yo init`'s `build.yo` imports `{ assert, panic } :: import("std/assert")` and uses neither (`src/init.yo:75-106`) | reproduced | nit, fix in P0 |
@@ -850,12 +850,35 @@ sub-parse uses `get_expression_program` now and propagates `has_template_spec`
 upward. It bites the BOOTSTRAP too — the seed parses `src/` — so `src/` keeps
 the separator bound to a variable until a seed carries the fix.
 
-Not in P1.4f (next): the rest of §4.7 — B5 (the level scheduler runs
-sequentially, §4.8), B9 (`build.run` takes no arguments), B10/§4.9 (the
-artifact stamp hashes every `.yo` under the project and skips directories whose
-name contains a `.`), B11 (registries keyed by bare name with first-match
-resolution and no duplicate checks for steps/tests/docs/runs) and the rest of
-B13 — then §4.6 workspaces and the P2/P3 phases.
+**P1.4g — §4.7 continued** (`p1/runner-part2`, stacked on P1.4f):
+
+- **B9** a `run` step could not be given arguments (`BuildRunStep.args` was
+  always empty and the CLI had no `--`). Everything after `--` now reaches the
+  program, after any arguments the build file declared: `yo build run -- --port
+  8080`.
+- **B10**, the correctness half: the artifact input stamp walked a directory
+  only when its name had NO DOT — a heuristic standing in for "is this a
+  file?". Every source under `my.pkg/` or `v1.2/` was therefore invisible to
+  the stamp, so editing it left the artifact "cached" and the build silently
+  did nothing. The walk now asks the directory ENTRY (`file_type`), and does
+  not run at all under `YO_BUILD_NO_CACHE=1`, where its answer is discarded.
+  (The over-hashing half — every `.yo` under the project plus the whole std
+  tree, per artifact — is §4.9's depfile work and is not addressed here.)
+- **B11** build names are ONE namespace, because `resolve_dependency` answers
+  artifact → test → run → doc → step and takes the first match. Only artifacts
+  were checked, and only against artifacts, so a step/test/doc could take a
+  name already in use and silently become unreachable. Every registration
+  checks now, naming the kind that holds it; `build.run(exe)` twice names one
+  node (its name is derived from the artifact) rather than duplicating it.
+
+Gates: cli-cases `build-run-args`, `build-stamp-dotted-dir` (a `.yo` file is
+added under `my.pkg/` BETWEEN two builds — a cache hit on the second is the
+bug) and `build-name-collision`.
+
+Not in P1.4g (next): B5/§4.8 (the nodes of a level run one after another), the
+rest of B13 (`BuildDocConfig.include_deps/logo/favicon` and the test suite's
+`target/verbose/bail/parallel` are accepted and never forwarded), §4.9's
+depfile-scoped stamps, then §4.6 workspaces and the P2/P3 phases.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

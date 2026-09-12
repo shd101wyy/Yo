@@ -70,8 +70,18 @@ _deps1 :: (fn(a : String) -> ArrayList(String))({
   l
 });
 test("build_dag: empty step produces a single-node DAG", {
+  // The registries' duplicate-name checks take an Exception; a test that is
+  // not exercising them wants one that fails loudly.
+  exn := Exception(
+    throw : (
+      _err -> {
+        assert(false, "unexpected registry error");
+        unwind(());
+      }
+    )
+  );
   reg := BuildRegistry.new();
-  reg.register_step(String.from("install"), String.from("Build all"));
+  reg.register_step(String.from("install"), String.from("Build all"), exn);
   dag := build_dag(reg, String.from("install"));
   assert(dag.len() == usize(1), "root step only");
   node := dag(usize(0));
@@ -113,7 +123,7 @@ test("build_dag: step with artifact dependencies", {
   reg := BuildRegistry.new();
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
   reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("lib-a"), String.from("./src/a.yo")), exn);
-  reg.register_step(String.from("install"), String.from("Build all"));
+  reg.register_step(String.from("install"), String.from("Build all"), exn);
   reg.add_step_dependency(String.from("install"), String.from("app"));
   reg.add_step_dependency(String.from("install"), String.from("lib-a"));
   dag := build_dag(reg, String.from("install"));
@@ -134,7 +144,7 @@ test("build_dag: linked artifacts create edges", {
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
   reg.register_static_library(_mk_artifact(ArtifactKind.StaticLibrary, String.from("mylib"), String.from("./src/lib.yo")), exn);
   reg.register_link(String.from("app"), String.from("mylib"));
-  reg.register_step(String.from("install"), String.from("Build all"));
+  reg.register_step(String.from("install"), String.from("Build all"), exn);
   reg.add_step_dependency(String.from("install"), String.from("app"));
   dag := build_dag(reg, String.from("install"));
   match(
@@ -155,7 +165,7 @@ test("build_dag: run step depends on its artifact", {
   reg := BuildRegistry.new();
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
   reg.register_run(String.from("app"), ArrayList(String).new());
-  reg.register_step(String.from("run"), String.from("Run the app"));
+  reg.register_step(String.from("run"), String.from("Run the app"), exn);
   reg.add_step_dependency(String.from("run"), String.from("run:app"));
   dag := build_dag(reg, String.from("run"));
   match(
@@ -178,9 +188,9 @@ test("build_dag: nested steps are walked transitively", {
   );
   reg := BuildRegistry.new();
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo")), exn);
-  reg.register_step(String.from("compile"), String.from("Compile step"));
+  reg.register_step(String.from("compile"), String.from("Compile step"), exn);
   reg.add_step_dependency(String.from("compile"), String.from("app"));
-  reg.register_step(String.from("install"), String.from("Install step"));
+  reg.register_step(String.from("install"), String.from("Install step"), exn);
   reg.add_step_dependency(String.from("install"), String.from("compile"));
   dag := build_dag(reg, String.from("install"));
   assert(dag.len() == usize(3), "install, compile, app");
@@ -205,7 +215,7 @@ test("build_dag: deduplicates shared dependencies", {
   reg.register_executable(_mk_artifact(ArtifactKind.Executable, String.from("app-b"), String.from("./src/b.yo")), exn);
   reg.register_link(String.from("app-a"), String.from("common"));
   reg.register_link(String.from("app-b"), String.from("common"));
-  reg.register_step(String.from("install"), String.from("Build all"));
+  reg.register_step(String.from("install"), String.from("Build all"), exn);
   reg.add_step_dependency(String.from("install"), String.from("app-a"));
   reg.add_step_dependency(String.from("install"), String.from("app-b"));
   dag := build_dag(reg, String.from("install"));
