@@ -196,22 +196,77 @@ expected with a SIBLING call's resolution") and works around with
 such guard. `io.async` is declared in the PRELUDE, whose env is cached for the
 whole program, which is why the binding outlives the call.
 
-### What to try next
+### What to try next, and the obstacle each candidate hits
 
 Not another name-based special case — that is what the first cut of the
-value-param fix got wrong (see the ID-vs-name table above). The candidates, in
-the order they look most likely to be right:
+value-param fix got wrong (see the ID-vs-name table above). Three candidates,
+each read far enough to name what stands in its way, so the next attempt starts
+from a design rather than a hunt.
 
-1. make the binding call-scoped: find which env frame the synthesizer's
-   `_bind_some_type` writes `T` into for a prelude-declared callee, and give
-   io.async's per-call freshened binders a per-call frame to bind in, so the
-   next call's by-name read cannot see the previous one;
-2. make the READ identity-aware: `_resolve_some_types_deep` should not adopt an
-   env binding for a nested SomeT when the binding was not made for THIS SomeT's
-   id — the value-space equivalent of TS's per-call SomeType identity.
+**The shape of the problem.** TS gets per-call identity for free: it mints a
+fresh `SomeType` OBJECT per call and identity is the object. yo-self's env is
+keyed by NAME, so a per-call freshened binder (`_freshen_io_builtin_callee`
+mints a fresh id) is still looked up by the name `T` — and finds whatever the
+previous call bound under that name. Every candidate below is a different answer
+to "how does a name-keyed env carry per-call identity".
 
-The A/B for either is the four-program table above: the method-call form must
-keep working and the other three must start.
+0. **Check WHICH env the read uses first — it may be the wrong one.**
+   `_resolve_some_types_deep` is called at the three stamp sites with
+   `call_result_*.caller_env` ("Resolve through the CALL's env, where the
+   enclosing specialization binds the binder concretely"). That is the right
+   env for the ENCLOSING function's binder. It is NOT obviously the right env
+   for the CALLEE's own forall `T`, which `try_to_call_function_with_arguments`
+   binds into `callee_env` — where Step 6's per-call marker lives. A by-name
+   read of `T` against the CALLER's chain cannot see that marker and can see a
+   previous call's concrete binding instead, which is exactly the observed
+   shape. Cheapest to falsify: print the env identity (module path + frame
+   count) at the `nres_from_env` registration and compare it with the env Step 6
+   bound the marker into. If they differ, the fix may be as small as resolving
+   a callee-owned binder against the callee env, and candidates 1-3 below are
+   not needed.
+
+1. **Make the READ identity-aware.** `_do_chain_resolve`
+   (`src/types/env_lookup.yo`) ALREADY guards this: a concrete resolution is
+   adopted only if `_was_self_bound(env, name, id)` — did this env ever bind
+   this NAME to a SomeT with THIS id. A freshened binder was never self-bound,
+   so that guard correctly says no. The hole is the fallback right after it:
+   `_def_frame_confirms_binding` is **id-blind** — it looks up the definition
+   FRAME for the name, finds a concrete type, and confirms on
+   `type_to_string` equality. A freshened SomeT copies the original's
+   `frame_level`, so it inherits the previous call's binding through exactly
+   that fallback. *Obstacle:* the fallback exists because "the self-referential
+   marker is gone once `synthesize_types` rebinds the variable to the concrete
+   type" — by then the id is no longer recoverable from the env, so making it
+   id-aware needs a new channel recording WHICH SomeT id a concrete binding was
+   made for. The place for that channel is `VariableRare` (`src/env.yo`), the
+   existing bag for infrequently-used `Variable` fields, set by
+   `_bind_some_type`; `_def_frame_confirms_binding` would then need a
+   `_lookup_by_frame` variant that returns the VARIABLE rather than its
+   TypeValue, and must fall back to today's behaviour when the field is unset
+   or it will over-reject every binding made by a site that does not set it.
+   Bounded, but not a one-liner.
+
+2. **Do not let a freshened binder claim the declaration's frame.** If
+   `_freshen_io_builtin_callee`'s fresh SomeTs carried no `frame_level` (or a
+   per-call one), `_def_frame_confirms_binding` would return `false` for them
+   via its own `_some_frame_level` → `.None` early-out, and candidate 1's hole
+   closes with no new channel. *Obstacle:* `frame_level` is load-bearing for
+   `_lookup_by_frame` elsewhere; this needs the def-frame consumers audited
+   before it can be called safe.
+
+3. **Per-call NAMES, not just per-call ids.** The honest translation of TS's
+   object identity into a name-keyed env. *Obstacle:* names are compared as
+   data in several places — `_skip_fallback`'s `_nsn == "E"`, the reserved
+   `"Impl"`, and the forall-label match `fv_mn == flabel` in
+   `try_to_call_function_with_arguments`, whose labels come from the FuncVal's
+   `forall_names` rather than from the type. Renaming the type's binders alone
+   desynchronises that match.
+
+The A/B for any of them is the four-program table above: the method-call form
+must keep working and the other three must start. Gate with `check ./src` and
+`check ./std` FIRST — both are minutes, and this is the hottest type-resolution
+path in the evaluator, so an over-narrowed guard shows up there long before the
+suite.
 
 `std/thread.yo`'s `spawn_blocking` has exactly this shape, which is why waker
 step 5 (`plans/WAKER_BASED_SCHEDULING.md`) is not landed with it.
