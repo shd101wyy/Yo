@@ -40,7 +40,7 @@ _(env : pa_dbg_env) :: import("std/env");
   ComptimeRef
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of } :: import("../context.yo");
 { get_struct_fields } :: import("../types/field.yo");
 {
   EvalValue,
@@ -1721,6 +1721,21 @@ Raw pointer operations may dereference invalid memory.`
       });
       if(is_valid_variable_name(property_expr), {
         mod_label := ast_expr_token(property_expr).value;
+        // Phase 3 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6):
+        // attribute this module-member read — the enclosing def (forcing
+        // top) gains a def-level edge; an ordered statement (empty stack)
+        // degrades to the importer's ordered-read table.
+        match(
+          base_ty,
+          .Struct({ id : pa3_sns, is_source_namespace : pa3_is_sns }) => if(pa3_is_sns, {
+            match(
+              sns_module_of(pa3_sns.clone()),
+              .Some(pa3_target) => record_module_member_read(env.module_path, pa3_target, mod_label.clone()),
+              .None => ()
+            );
+          }),
+          _ => ()
+        );
         mod_labels_rt := match(
           base_ty,
           .Struct({ field_labels : labels }) => labels,

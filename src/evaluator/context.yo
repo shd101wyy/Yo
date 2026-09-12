@@ -48,6 +48,7 @@ _(env : ctx_dbg_env) :: import("std/env");
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
+{ fnv1a64 } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // PathCollection now imported from ../expr_info.yo (Phase 2k)
 // ---------------------------------------------------------------------------
@@ -1094,7 +1095,13 @@ PendingDef :: ref(
     /// The module-frame Variable once bound — pre-bound from phase A on a
     /// re-entrant reference, otherwise the one the definition's own evaluation
     /// added to the module frame.
-    variable : Option(Variable)
+    variable : Option(Variable),
+    /// Phase 3 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6): the FNV-1a
+    /// of the definition's canonical rendering (`ast_expr_to_string`) — the
+    /// per-definition source hash the invalidator diffs against. Rendering,
+    /// not the token span: a comment-only or whitespace-only edit produces
+    /// the same rendering and correctly invalidates nothing.
+    src_hash : u64
   )
 );
 /// One active module walk. `ctx` is a COPY of the walker's context taken at
@@ -1128,6 +1135,130 @@ ModuleWalk :: ref(
 /// walk is over. Only names this mechanism bound are ever served — never a
 /// runtime module global, which a stripped fn env must keep hiding.
 (g_finished_walks : HashMap(String, ModuleWalk)) = HashMap(String, ModuleWalk).new();
+/// Phase 3 (§6) — per-definition dependency tracking.
+///
+/// Def key: `<module_path>#<index>#<row>#<name>` — index (the statement's
+/// position in the walk's begin_exprs) is the identity; row and name ride
+/// along for readability. Keys are stable across compiles of the same source.
+///
+/// `g_def_hash` holds each definition's `src_hash` AS OF ITS LAST WALK; the
+/// invalidator re-parses a changed file, hashes its definitions, and diffs
+/// against this table before any walk re-runs.
+(g_def_hash : HashMap(String, u64)) = HashMap(String, u64).new();
+/// Ordered-statement sequence hash per module (see `begin_module_walk`).
+(g_module_stmt_hash : HashMap(String, u64)) = HashMap(String, u64).new();
+/// Definition count per module as of its last walk (removal detection for
+/// the parse-only differ — def indices are dense, so count equality plus
+/// per-key hash equality means no removals).
+(g_module_def_count : HashMap(String, usize)) = HashMap(String, usize).new();
+/// Dependent def key → the set of def keys it needed. Fed at every FORCE and
+/// at every finished-walk SERVE (the miss only fires once — a Done def served
+/// later still records the edge) and at module-member reads
+/// (`record_module_member_read`).
+(g_def_deps : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
+/// ORDERED-statement reads (made with an EMPTY forcing stack — destructured
+/// imports, module globals): importer module → target module → field names
+/// read. Not attributable to a definition, so a hit invalidates the importer
+/// at file granularity (the conservative fallback of §6 step 5).
+(g_module_ordered_reads : HashMap(String, HashMap(String, HashSet(String)))) =
+  HashMap(String, HashMap(String, HashSet(String))).new();
+/// source-namespace struct id → module path. Populated at every module
+/// value construction (each load mints its own id), consumed by the
+/// member-read hooks to attribute a field access to a module.
+(g_sns_module : HashMap(String, String)) = HashMap(String, String).new();
+register_sns_module :: (fn(struct_id : String, module_path : String) -> unit)({
+  _ := g_sns_module.insert(struct_id, module_path);
+});
+/// The module behind a source-namespace struct id, if known.
+sns_module_of :: (fn(struct_id : String) -> Option(String))(
+  g_sns_module.get(struct_id)
+);
+/// The stored source hash of one definition, for the parse-only differ.
+stored_def_hash :: (fn(module_path : String, index : usize, name : String) -> Option(u64))(
+  g_def_hash.get(def_key(module_path, index, name))
+);
+/// The stored ordered-statement sequence hash of a module.
+stored_stmt_hash :: (fn(module_path : String) -> Option(u64))(
+  g_module_stmt_hash.get(module_path)
+);
+/// The stored definition count of a module's last walk.
+stored_def_count :: (fn(module_path : String) -> Option(usize))(
+  g_module_def_count.get(module_path)
+);
+/// def key helper. `index` (the statement's position in the walk's
+/// begin_exprs) + name — deliberately ROW-FREE: inserting a comment or a
+/// blank line shifts every row but no index, and the def hashes themselves
+/// are rendering-based (whitespace- and comment-insensitive).
+def_key :: (fn(module_path : String, index : usize, name : String) -> String)(
+  `${module_path}#${index.to_string()}#${name}`
+);
+/// The key of `def` in `walk`.
+walk_def_key :: (fn(walk : ModuleWalk, def : PendingDef) -> String)(
+  def_key(walk.module_path, def.index, def.name)
+);
+/// Record that the definition currently being evaluated (the forcing-stack
+/// top) depends on `dependee`. A no-op when nothing is being forced (an
+/// ordered statement, a root) — those go to `record_module_member_read`'s
+/// module-level table instead.
+record_def_dependency :: (fn(dependee : String) -> unit)({
+  match(
+    current_forcing_def(),
+    .Some(_) => {
+      (top : PendingDef) = match(
+        g_forcing_stack.get(g_forcing_stack.len() - usize(1)),
+        .Some(d) => d,
+        .None => return(())
+      );
+      dk := def_key(ast_expr_token(top.expr).module_path, top.index, top.name);
+      deps := match(
+        g_def_deps.get(dk),
+        .Some(existing) => existing,
+        .None => HashSet(String).new()
+      );
+      deps.insert(dependee);
+      _ := g_def_deps.insert(dk, deps);
+    },
+    .None => ()
+  );
+});
+/// Record an ORDERED-statement read (forcing stack empty) of `field` on
+/// `target_module` from `importer`.
+record_module_ordered_read :: (fn(importer : String, target_module : String, field : String) -> unit)({
+  by_target := match(
+    g_module_ordered_reads.get(importer),
+    .Some(existing) => existing,
+    .None => HashMap(String, HashSet(String)).new()
+  );
+  fields := match(
+    by_target.get(target_module),
+    .Some(fs) => fs,
+    .None => HashSet(String).new()
+  );
+  fields.insert(field);
+  _ := by_target.insert(target_module, fields);
+  _ := g_module_ordered_reads.insert(importer, by_target);
+});
+/// Module-member read hook shared by the property-access path: the
+/// enclosing def (forcing top) records a def-level edge when the field
+/// resolves to a definition of `target_module`; otherwise (or with an empty
+/// stack) it degrades to the ordered-read table.
+record_module_member_read :: (fn(importer : String, target_module : String, field : String) -> unit)({
+  target_def := match(
+    g_finished_walks.get(target_module),
+    .Some(fwalk) => _find_def_by_name(fwalk.defs, field, false),
+    .None => Option(PendingDef).None
+  );
+  match(
+    target_def,
+    .Some(d) => record_def_dependency(def_key(target_module, d.index, d.name)),
+    .None => ()
+  );
+  match(
+    current_forcing_def(),
+    .None => record_module_ordered_read(importer, target_module, field),
+    .Some(_) => ()
+  );
+});
 /// The forcer slot. Returns `.None` on success, `.Some(message)` on failure.
 ForcePendingDefFn :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String));
 (g_force_pending_def_fn : Option(ForcePendingDefFn)) = Option(ForcePendingDefFn).None;
@@ -1222,7 +1353,8 @@ _make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bo
       failure : Option(String).None,
       phase_a_value : Option(EvalValue).None,
       phase_a_type : Option(TypeValue).None,
-      variable : Option(Variable).None
+      variable : Option(Variable).None,
+      src_hash : fnv1a64(ast_expr_to_string(e))
     )
   )
 );
@@ -1321,6 +1453,40 @@ begin_module_walk :: (
     defs : defs,
     by_index : by_index
   );
+  // Phase 3 (§6): record each definition's source hash as of THIS walk. A
+  // re-walk of the same source recomputes the same values; the invalidator
+  // diffs against this table BEFORE any walk re-runs. The ORDERED statements
+  // (non-deferred: imports, pragmas, runtime globals) hash as one sequence —
+  // a change there is not attributable to a definition, so it forces the
+  // file-level path.
+  if(runtime(true), {
+    stmt_hash_state := String.new();
+    (si : usize) = usize(0);
+    while(si < begin_exprs.len(), {
+      match(
+        begin_exprs.get(si),
+        .Some(se) => if(walk.by_index.get(si).is_none(), {
+          stmt_hash_state.push_string(ast_expr_to_string(se));
+          stmt_hash_state.push_str("\n");
+        }),
+        .None => ()
+      );
+      si = (si + usize(1));
+    });
+    _ := g_module_stmt_hash.insert(module_path, fnv1a64(stmt_hash_state));
+  });
+  (hi : usize) = usize(0);
+  while(hi < defs.len(), {
+    match(
+      defs.get(hi),
+      .Some(d) => {
+        _ := g_def_hash.insert(def_key(module_path, d.index, d.name), d.src_hash);
+      },
+      .None => ()
+    );
+    hi = (hi + usize(1));
+  });
+  _ := g_module_def_count.insert(module_path, defs.len());
   g_module_walks.push(walk);
   walk
 });
@@ -1558,6 +1724,10 @@ force_pending_def :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String))
   if(ctx_dbg_env.get(`YO_DEBUG_LAZY`).is_some(), {
     eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.len().to_string()})`);
   });
+  // Phase 3 (§6): the definition currently being evaluated (the forcing
+  // stack top) NEEDS this one — record the dependency edge. In-order roots
+  // (empty stack) record nothing.
+  record_def_dependency(def_key(walk.module_path, def.index, def.name));
   push_forcing_def(def);
   result := match(
     g_force_pending_def_fn,
@@ -1652,7 +1822,13 @@ resolve_pending_definition :: (fn(name : String, module_path : String) -> Pendin
         def.state,
         .Done => match(
           def.variable,
-          .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
+          .Some(v) => {
+            // Phase 3 (§6): a served Done definition is a dependency of
+            // whoever asked — the miss only fires once, so the edge is
+            // recorded HERE, not at the forcing.
+            record_def_dependency(def_key(walk.module_path, def.index, def.name));
+            PendingResolution.Resolved(v, walk.module_frame_id)
+          },
           .None => PendingResolution.NotPending
         ),
         .Failed => PendingResolution.Error(match(def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))),
@@ -1699,7 +1875,11 @@ resolve_pending_definition :: (fn(name : String, module_path : String) -> Pendin
         _find_def_by_name(fwalk.defs, name, false),
         .Some(def) => match(
           def.variable,
-          .Some(v) => PendingResolution.Resolved(v, fwalk.module_frame_id),
+          .Some(v) => {
+            // Phase 3 (§6): cross-module serve — same edge recording.
+            record_def_dependency(def_key(fwalk.module_path, def.index, def.name));
+            PendingResolution.Resolved(v, fwalk.module_frame_id)
+          },
           .None => PendingResolution.NotPending
         ),
         .None => PendingResolution.NotPending
@@ -1925,7 +2105,8 @@ make_impl_pending_field :: (fn(label : String, colon_expr : AstExpr, top_index :
       failure : Option(String).None,
       phase_a_value : Option(EvalValue).None,
       phase_a_type : Option(TypeValue).None,
-      variable : Option(Variable).None
+      variable : Option(Variable).None,
+      src_hash : fnv1a64(ast_expr_to_string(colon_expr))
     ),
     result_ty : Option(TypeValue).None,
     result_value : Option(EvalValue).None,
@@ -2140,6 +2321,13 @@ track_variable_usage :: (
 );
 
 export(
+  record_module_member_read,
+  register_sns_module,
+  sns_module_of,
+  stored_def_hash,
+  stored_stmt_hash,
+  stored_def_count,
+  classify_pending_def,
   PathCollection,
   path_collection_new,
   LoadModuleResult,
