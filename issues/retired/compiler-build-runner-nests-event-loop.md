@@ -26,6 +26,17 @@ turn that into an abort, a policy change to make deliberately, with a release
 of strict `yo test` runs behind it); `yo test` arms it for every test child.
 Original record follows.
 
+**Postscript 2026-09-12.** The retirement's supporting sentence — "`src/`
+contains no `io.spawn` at all" — has not been true for a while: `build_runner`'s
+`_git_output_task`, `_read_dir_task`, `_read_bytes_task` and `_write_string_task`
+all spawn, and P1.4h's parallel DAG levels spawn a task per node. Those are
+safe only because each one uses the `is_finished()` + `await yield(io)` poll
+shape; the first draft of P1.4h collected its tasks with `join_all` instead and
+`YO_ASYNC_STRICT=1` aborted every `yo build`
+(issues/fixed/build-scheduler-join-all-nests-the-event-loop.md). The guard is
+still clean across the compiler's paths — the standing rule is the shape, not
+the absence of `io.spawn`.
+
 **Status (original)**: OPEN. The guard is therefore armed by `YO_ASYNC_STRICT=1` only;
 `yo test` sets it for every test child (so `tests/` is enforced — the whole
 suite passes strict), and ordinary programs, including the compiler itself,

@@ -81,6 +81,8 @@ BuildOptions :: ref(
     list_options : bool,
     /// Everything after `--`, handed to whatever a `run` step executes.
     run_args : ArrayList(String),
+    /// `-j N` / `--jobs N`: nodes per DAG level to run at once (default 1).
+    jobs : usize,
     steps : ArrayList(String),
     defines : HashMap(String, String),
     c_compiler : Option(String),
@@ -128,7 +130,10 @@ ExecutionContext :: ref(
     /// Everything after `--` on the `yo build` command line: the arguments a
     /// `run` step hands to the program it runs. `BuildRunStep.args` was always
     /// empty and there was no way to pass any (the plan's B9).
-    run_args : ArrayList(String)
+    run_args : ArrayList(String),
+    /// `-j N`: how many nodes of one DAG level may run at once (§4.8). 1 keeps
+    /// their output in DAG order, which every recorded golden depends on.
+    jobs : usize
   )
 );
 /// `git describe --tags --always` in the project dir, or `.None` when that fails
@@ -2065,8 +2070,98 @@ _execute_node_unless_blocked :: (
         )
       );
     });
+    node_t0 := Instant.now();
     r := e.io.await(execute_node(node, ctx, e.io, e.exn), e);
+    r.duration_ms = node_t0.elapsed().as_millis();
     r
+  })
+);
+/// True while any handle in `handles` is still running. The poll predicate of
+/// `_execute_batch` below — a plain `fn` so the `while` condition carries no
+/// suspension point.
+_any_task_pending :: (fn(handles : ArrayList(JoinHandle(StepResult))) -> bool)({
+  (i : usize) = usize(0);
+  while(i < handles.len(), {
+    if(!(handles(i).is_finished()), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Run a batch of ready nodes CONCURRENTLY and collect their results in the
+/// batch's own order (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.8). Each
+/// node is a task; the compile/test/run children they spawn are what actually
+/// overlap. A task that unwinds is recorded as a failure rather than losing
+/// the node.
+_execute_batch :: (
+  fn(
+    batch : ArrayList(DAGNode),
+    results : HashMap(String, StepResult),
+    ctx : ExecutionContext,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    handles := ArrayList(JoinHandle(StepResult)).new();
+    (i : usize) = usize(0);
+    while(i < batch.len(), {
+      node := batch(i);
+      blocked := _dependency_failed(node, results);
+      handles.push(e.io.spawn(_execute_node_unless_blocked(node, blocked, ctx, e.io, e.exn), e));
+      i = (i + usize(1));
+    });
+    // NOT `join_all`. Its body awaits each handle in turn, and
+    // `JoinHandle.await` on a handle that has NOT finished is a blocking
+    // `__yo_async_poll_step` loop — while `_execute_batch` itself runs inside
+    // `run_build`'s RESUMED continuation, so that loop nests the event loop.
+    // C37's guard aborts on exactly this under `YO_ASYNC_STRICT=1`
+    // (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md), and
+    // outside strict mode it silently serialises the scheduler it was added to
+    // parallelise.
+    //
+    // The shape the guard's own message prescribes instead: poll
+    // `is_finished()` and await `yield`. Once every handle is terminal,
+    // `h.await` reads the result without polling at all — the emitted loop's
+    // condition is false on entry.
+    while(runtime(_any_task_pending(handles)), {
+      e.io.await(yield(e.io), e.io);
+    });
+    outs := ArrayList(Option(StepResult)).new();
+    (oi : usize) = usize(0);
+    while(oi < handles.len(), {
+      outs.push(handles(oi).await(e.io));
+      oi = (oi + usize(1));
+    });
+    i = usize(0);
+    while(i < batch.len(), {
+      node := batch(i);
+      result := match(
+        outs.get(i),
+        .Some(o) => match(
+          o,
+          .Some(r) => r,
+          .None => StepResult(
+            name : node.name.clone(),
+            kind : node.kind,
+            success : false,
+            duration_ms : i64(0),
+            description : `failed ${node.name}`
+          )
+        ),
+        .None => StepResult(
+          name : node.name.clone(),
+          kind : node.kind,
+          success : false,
+          duration_ms : i64(0),
+          description : `failed ${node.name}`
+        )
+      );
+      results.insert(node.name, result);
+      i = (i + usize(1));
+    });
+    ()
   })
 );
 execute_dag :: (
@@ -2125,19 +2220,23 @@ execute_dag :: (
       if(ready.len() == usize(0), {
         e.exn.throw(dyn(String.from("Error: Build DAG stalled — possible undetected cycle.")));
       });
-      // Execute ready nodes
+      // Execute the ready nodes, `ctx.jobs` at a time (§4.8). The default is
+      // 1: the nodes' output streams to the user's terminal in DAG order, and
+      // every recorded cli-case golden depends on that order. `-j N` opts into
+      // overlap, and then the nodes' output interleaves, the way `make -j`
+      // does.
       rn := ready.len();
+      width := if(ctx.jobs < usize(1), usize(1), ctx.jobs);
       k := usize(0);
       while(k < rn, {
-        node := ready(k);
-        blocked := _dependency_failed(node, results);
-        // `StepResult.duration_ms` was always 0 while the docs described a
-        // summary showing each node's duration (the plan's B13).
-        node_t0 := Instant.now();
-        result := e.io.await(_execute_node_unless_blocked(node, blocked, ctx, e.io, e.exn), e);
-        result.duration_ms = node_t0.elapsed().as_millis();
-        results.insert(node.name, result);
-        k = (k + usize(1));
+        batch := ArrayList(DAGNode).new();
+        (bi : usize) = usize(0);
+        while((bi < width) && ((k + bi) < rn), {
+          batch.push(ready(k + bi));
+          bi = (bi + usize(1));
+        });
+        k = (k + batch.len());
+        e.io.await(_execute_batch(batch, results, ctx, e.io, e.exn), e);
       });
       // Mark complete and update in-degrees
       k = usize(0);
@@ -2735,7 +2834,8 @@ run_build :: (
       verbose : options.verbose,
       dry_run : options.dry_run,
       summary : options.summary,
-      run_args : options.run_args
+      run_args : options.run_args,
+      jobs : options.jobs
     );
     requested := if(options.steps.len() == usize(0), {
       defaults := ArrayList(String).new();

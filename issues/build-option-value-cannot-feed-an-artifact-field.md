@@ -46,20 +46,53 @@ is satisfied by a literal or by a BUILTIN call — which is why
 `(target : comptime_str) ?= __yo_build_target_host()` works while a wrapper's
 return does not.
 
-## Two candidate fixes
+## Two candidate fixes — (1) is RULED OUT (probed 2026-09-12)
 
-1. **Widen the config fields.** Declare the string fields of the build config
-   structs so they accept a comptime-known `str` as well as a literal. Needs a
-   check that `comptime(str)` is legal in a struct FIELD position, and it is
-   seed-sensitive: the seed evaluates `std/build.yo` on every bootstrap
-   `yo build` (see the AGENTS.md pitfall), so the change must be verified with
-   the actual seed bundle before it lands.
-2. **Coerce in the evaluator**: accept a comptime-KNOWN `str` value where
-   `comptime_str` is expected. Broader, and it touches every `comptime_str`
-   parameter in the language, not just the build API.
+1. ~~**Widen the config fields**, declaring them `comptime(str)`.~~ Not
+   possible: `comptime(...)` is a PARAMETER annotation and does not parse in a
+   field type position —
 
-(1) is the smaller blast radius and is what the plan's §4.7 slice should try
-first. Whichever lands, the gate is a cli-case building an artifact whose root
+   ```rust
+   S :: struct((x : comptime(str)) ?= "a");
+   // error[E0401]: Variable "comptime" not found … did you mean "Comptime"?
+   ```
+
+   And declaring the field plain `str` loses what the builtin needs: with
+   `x : comptime_str` a literal argument keeps its compile-time value
+   (`comptime_assert(t.x == "lit")` passes), while with `x : str` the field
+   read is a runtime value and the same assert fails with
+   `E1101: Expected bool value for "comptime_assert"`. The build builtins read
+   their arguments through `ExprInfo.value` (`_build_arg_value`), so a `str`
+   field would make every build call look like a trial evaluation.
+
+2. **Accept a comptime-KNOWN value where `comptime_str` is expected.** This is
+   the fix. The site is the struct-literal field check in
+   `src/evaluator/calls/type.yo` (~`:317`), which for a comptime-only field
+   type compares the argument's UNCONVERTED type against the field's:
+
+   ```yo
+   arg_type := if(
+     _is_comptime_only_type_approx(member_element.ty),
+     arg_info.ty,
+     convert_comptime_type_to_runtime_type(arg_info.ty, env)
+   );
+   if(!are_types_compatible(arg_type, member_element.ty), { … throw … });
+   ```
+
+   `arg_info.value` is in hand right there, so the rule "a `str` whose value is
+   a known `StrLit` satisfies `comptime_str`" can be applied at this site
+   without touching `are_types_compatible`, whose callers have no value. The
+   same argument value is what gets stored into `values(…)` afterwards, so the
+   builtin sees the string.
+
+   Scope to settle when implementing: whether the rule belongs only to the
+   struct-literal site or also to plain `comptime_str` PARAMETERS (`f ::
+   (fn(comptime(x) : comptime_str) …)`), and what the analogous rule is for
+   `comptime_int` / `comptime_bool`.
+
+The language rule is worth stating once in
+`.github/instructions/yo-design.instructions.md` when this lands: `comptime_str`
+means "known at compile time", and today it means "written as a literal". Whichever lands, the gate is a cli-case building an artifact whose root
 or name comes from `-Dname=value`, plus the dependency form
 `-D<dep>.<opt>=value` — the runner already namespaces those
 (`_namespaced_defines`, §4.5.2), and that plumbing has no end-to-end gate until

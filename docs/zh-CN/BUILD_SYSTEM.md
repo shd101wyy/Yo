@@ -246,7 +246,13 @@ Level 2: install                （依赖 app, tests）
 yo build run -- --port 8080 --verbose
 ```
 
-> **注意**：同一层级内的节点目前是逐个执行的；DAG 现在带来的是层级顺序本身。层内并行属于 `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` §4.8。
+默认情况下，同一层级内的节点**逐个执行**，因此它们的输出按 DAG 顺序到达终端。`-j N`（`--jobs N`）让其中最多 N 个同时运行：
+
+```bash
+yo build -j 4
+```
+
+并发的节点会交错输出，就像 `make -j` 一样——之后的 `--summary` 树仍按 DAG 顺序打印，并带上每个节点自己的耗时。
 
 ### `Step`
 
@@ -662,6 +668,7 @@ Options:
   --verbose, -v          详细构建输出
   --dry-run              解析构建图并打印，不执行任何构建
   --list-options         列出此构建文件声明的选项
+  -j, --jobs <N>         同一 DAG 层级最多同时运行 N 个节点（默认 1）
   --list-steps           列出可用的构建步骤
   --locked               若抓取依赖会改动 yo.lock 则失败
   --offline              若抓取依赖需要联网则失败
