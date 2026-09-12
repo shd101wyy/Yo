@@ -1,0 +1,24 @@
+# The Yo compiler's own manifest.
+#
+# Its reason to exist is the `[dependencies]` table: `src/doc/render_html.yo`
+# and `scripts/build_site.yo` render Markdown with `markdown_yo`, which used to
+# be the `vendor/markdown_yo` git submodule and is now an ordinary dependency
+# resolved by Yo's own package management (the dogfooding milestone of
+# plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md).
+#
+# There is no `[modules]` table on purpose: the compiler is an executable, not
+# a library, so nothing may `import("yo")`.
+
+[package]
+name = "yo"
+version = "0.2.31"
+description = "The Yo programming language compiler, written in Yo"
+license = "MIT"
+
+[dependencies]
+# Pinned by REV, not by a semver range: the commit that compiles against the
+# current language is the head of `migrate-to-latest-yo`, which carries no
+# release tag. This is the exact pin the submodule held
+# (v0.0.4-9-ga46f700), so un-vendoring changes the resolution mechanism and
+# nothing about which source is compiled.
+markdown_yo = { git = "https://github.com/shd101wyy/markdown_yo", rev = "a46f7004bbf39ba8eb35692619e422b78026f6cb" }

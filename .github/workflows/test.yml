@@ -377,6 +377,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       # The same two commands release.yml runs, with the version read from the
       # same source of truth the release computes its bump from.
       - name: Generate documentation website
@@ -385,7 +388,7 @@ jobs:
         run: |
           # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
           # renames — `insert`, `read_to_string` — landed 2026-08-25); the
-          # vendored markdown_yo and build_site.yo speak the TREE std, so both
+          # markdown_yo and build_site.yo speak the TREE std, so both
           # the site-builder compile and the `yo doc` runs the site binary
           # spawns must resolve std from the checkout, exactly like the
           # `yo build` bootstrap does.
@@ -475,6 +478,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: Verifier unit tests (real solver)
         run: yo test ./tests/internal/verifier.test.yo --bail -v
@@ -586,6 +592,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       # --std-path ./std is LOAD-BEARING: without it the seed compiles against
       # its OWN bundled std instead of this checkout's (same note as the
@@ -899,6 +908,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       - name: Build the candidate compiler (previous seed, native)
         env:
           YO_MAIN_STACK_MB: "4096"
@@ -1056,6 +1068,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: suite-candidate
+
+      - name: Make the candidate executable
+        run: chmod +x yo-candidate
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: ./yo-candidate
 
       # The allocator travels with the matrix row (see the matrix comment):
       # system for macOS, mimalloc for the Windows native legs.
@@ -1259,6 +1279,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       # The whole chain runs on the bundled mimalloc: glibc malloc inflates
       # the emit's RSS ~72% over its live set (15.5 GB observed vs 9.0 GB
       # for the same emit on macOS), which put the libc-allocator runs right
@@ -1390,6 +1413,14 @@ jobs:
           name: bootstrap-stage2
           path: /tmp/stage2
 
+      - name: Make the stage-2 binary executable
+        run: chmod +x /tmp/stage2/yo-stage2-bin
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: /tmp/stage2/yo-stage2-bin
+
       # Same zswap + THP-off + cgroup-cap + sampler treatment as the
       # stage-2 emit — see that step's comment. Extra context: the
       # SELF-BUILT binary's emit touches ~39 GB (vs stage-1's ~28 GB), which
@@ -1497,6 +1528,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
@@ -1630,6 +1664,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
@@ -1768,6 +1805,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       # Emit-only: no C compiler runs here, so the host's glibc never enters
       # the artifact. --std-path ./std is load-bearing (the seed would
@@ -1911,6 +1951,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
@@ -2165,6 +2208,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
