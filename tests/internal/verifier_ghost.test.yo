@@ -51,13 +51,13 @@ _load_reports :: (
   std_path := resolve_std_path();
   targets := ArrayList(String).new();
   targets.push(rel_path.clone());
-  targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
   set_verify_target_paths(targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
-  outcome := mm_load_file(rel.clone(), std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
   match(
     _take_load_error(),
     .Some(rendered) => {
