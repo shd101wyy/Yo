@@ -134,7 +134,7 @@ test_step.depend_on(tests);
 | `target`   | `comptime_str` | `target_host`    | 目标三元组   |
 | `optimize` | `Optimize`     | `Optimize.Debug` | 优化级别     |
 
-共享库使用 `-shared -fPIC` 编译，生成 `.so`（Linux）、`.dylib`（macOS）或 `.dll`（Windows）。
+共享库使用 `-shared -fPIC` 编译，在 `yo-out/<target>/lib/` 下生成 `lib<name>.so`（Linux）、`lib<name>.dylib`（macOS）或 `lib<name>.dll`（Windows）。它采用与静态库相同的产出方式——顶层导出获得普通的、对外链接的 C 名称，且没有 `main` 包装——因此程序通过 `extern("Yo", name : (fn(…) -> …))` 调用它们。链接共享库的产物在编译时会带上 `-L <目录> -l<名称>`，并在 macOS 与 Linux 上附加该目录的 `-Wl,-rpath`，使程序在**运行**时也能找到这个库。
 
 ### `TestSuite`
 

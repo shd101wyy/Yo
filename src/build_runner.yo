@@ -63,7 +63,7 @@ _(env : proc_env) :: import("std/env");
 { ResolveMode } :: import("./resolver.yo");
 { resolve_all_system_libraries } :: import("./pkg_config.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
-{ TargetInfo, parse_target, host_target, is_target_windows, is_target_wasm } :: import("./target.yo");
+{ TargetInfo, parse_target, host_target, is_target_windows, is_target_macos, is_target_wasm } :: import("./target.yo");
 // ---------------------------------------------------------------------------
 // Build options  (mirrors TypeScript BuildOptions interface)
 // ---------------------------------------------------------------------------
@@ -217,7 +217,9 @@ get_artifact_output_file_name :: (
       return(`lib${name}`);
     },
     .SharedLibrary => {
-      return(name.clone());
+      // The platform extension is appended by the child compile, exactly as
+      // `.a` is for a static library (plan §4.5.4).
+      return(`lib${name}`);
     },
     .Executable => ()
   );
@@ -798,6 +800,71 @@ _collect_linked_static_libs :: (
   });
   out
 });
+/// The `-L`/`-l`/rpath flags for every SHARED library an artifact links,
+/// transitively (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.3). A
+/// shared library is found by the loader at RUN time, so its directory travels
+/// with the program as an rpath — otherwise the program builds and then dies
+/// with "image not found". Windows resolves DLLs by directory, so it gets no
+/// rpath. Returns flat pairs: `-L`, dir, `-l`, name, … followed by the rpath
+/// flags, which the caller appends to `--cflags`.
+_collect_linked_shared_libs :: (
+  fn(
+    registry : BuildRegistry,
+    artifact : BuildArtifact,
+    project_dir : String,
+    effective_target : String,
+    dirs_out : ArrayList(String),
+    names_out : ArrayList(String)
+  ) -> unit
+)({
+  seen := ArrayList(String).new();
+  pending := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < artifact.linked_artifacts.len(), {
+    pending.push(artifact.linked_artifacts(i).clone());
+    i = (i + usize(1));
+  });
+  while(pending.len() > usize(0), {
+    name := pending.pop().unwrap();
+    already := false;
+    (j : usize) = usize(0);
+    while(j < seen.len(), {
+      if(seen(j) == name, {
+        already = true;
+      });
+      j = (j + usize(1));
+    });
+    if(!already, {
+      seen.push(name.clone());
+      match(
+        registry.find_artifact(name.clone()),
+        .Some(lib) => {
+          match(
+            lib.kind,
+            .SharedLibrary => {
+              dirs_out.push(_artifact_output_dir(lib, project_dir.clone(), effective_target.clone(), "lib"));
+              names_out.push(lib.name.clone());
+              (k : usize) = usize(0);
+              while(k < lib.linked_artifacts.len(), {
+                pending.push(lib.linked_artifacts(k).clone());
+                k = (k + usize(1));
+              });
+            },
+            .StaticLibrary => {
+              (k2 : usize) = usize(0);
+              while(k2 < lib.linked_artifacts.len(), {
+                pending.push(lib.linked_artifacts(k2).clone());
+                k2 = (k2 + usize(1));
+              });
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
+    });
+  });
+});
 // ---------------------------------------------------------------------------
 // Build DAG
 // ---------------------------------------------------------------------------
@@ -1183,23 +1250,6 @@ compile_artifact :: (
       .Some(t) => t,
       .None => artifact.target
     );
-    // `SharedLibrary` has no compile mode yet: `yo compile` knows only
-    // `--static-library`, so the artifact was compiled as an EXECUTABLE into
-    // `lib/` and failed on the missing `main`
-    // (issues/shared-library-artifact-is-compiled-as-an-executable.md). Until
-    // the shared-library mode lands (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
-    // §4.5.4) the honest answer is a clear error, not a confusing link failure.
-    match(
-      artifact.kind,
-      .SharedLibrary => {
-        return(
-          Result(unit, String).Err(
-            `shared_library "${artifact.name}" is not supported yet — yo compile has no shared-library mode (issues/shared-library-artifact-is-compiled-as-an-executable.md). Use static_library.`
-          )
-        );
-      },
-      _ => ()
-    );
     is_lib := match(
       artifact.kind,
       .StaticLibrary => true,
@@ -1247,7 +1297,15 @@ compile_artifact :: (
       .None => String.new()
     );
     rel_output := Path.new(output_path.to_string()).relative_to(Path.new(ctx.project_dir.clone()));
-    lib_suffix := match(artifact.kind, .StaticLibrary => ".a", _ => "");
+    // The child appends these itself; the Building line and the cache's
+    // existence probe have to agree with it.
+    eff_ti_lib := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
+    shared_ext := cond(
+      is_target_windows(eff_ti_lib) => String.from(".dll"),
+      is_target_macos(eff_ti_lib) => String.from(".dylib"),
+      true => String.from(".so")
+    );
+    lib_suffix := match(artifact.kind, .StaticLibrary => String.from(".a"), .SharedLibrary => shared_ext.clone(), _ => String.new());
     println(`Building ${project_name}${version_suffix} → ${rel_output}${lib_suffix}`);
     // The manifest's import roots → the child's `--imports` mapping file,
     // written beside the output. Top-level awaits (see the cache block below).
@@ -1355,6 +1413,38 @@ compile_artifact :: (
       cmd.arg(linked_libs(i));
       i = (i + usize(1));
     });
+    // Shared libraries are linked by name out of their directory, and that
+    // directory travels as an rpath so the loader still finds them (§4.5.3).
+    shared_dirs := ArrayList(String).new();
+    shared_names := ArrayList(String).new();
+    _collect_linked_shared_libs(
+      ctx.registry,
+      artifact,
+      ctx.project_dir.clone(),
+      effective_target.clone(),
+      shared_dirs,
+      shared_names
+    );
+    rpath_flags := ArrayList(String).new();
+    i = usize(0);
+    while(i < shared_dirs.len(), {
+      cmd.arg(String.from("-L"));
+      cmd.arg(shared_dirs(i).clone());
+      cmd.arg(String.from("-l"));
+      cmd.arg(shared_names(i).clone());
+      if(!(is_target_windows(eff_ti_lib)), {
+        // ABSOLUTE: the loader resolves an rpath at run time, from whatever
+        // directory the program is started in, so a `./yo-out/...` rpath would
+        // only work from the project root.
+        d := shared_dirs(i);
+        abs_d := if(Path.new(d.clone()).is_absolute(), d.clone(), {
+          base := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+          Path.new(base).join(Path.new(d.clone())).normalize().to_string()
+        });
+        rpath_flags.push(`-Wl,-rpath,${abs_d}`);
+      });
+      i = (i + usize(1));
+    });
     i = usize(0);
     n = artifact.include_paths.len();
     while(i < n, {
@@ -1453,14 +1543,31 @@ compile_artifact :: (
     if(is_static_lib, {
       cmd.arg(String.from("--static-library"));
     });
+    is_shared_lib := match(artifact.kind, .SharedLibrary => true, _ => false);
+    if(is_shared_lib, {
+      cmd.arg(String.from("--shared-library"));
+    });
     // Forward the error format so artifact-compile failures render per
     // --error-format (P3 threading, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md).
     if(!(error_format() == "human"), {
       cmd.arg(String.from("--error-format"));
       cmd.arg(error_format());
     });
-    if(artifact.c_flags.len() > usize(0), {
-      joined := ` `.join(artifact.c_flags);
+    // The artifact's own cflags plus the rpaths its shared libraries need —
+    // `--cflags` is the only channel to the C driver's link line.
+    all_cflags := ArrayList(String).new();
+    i = usize(0);
+    while(i < artifact.c_flags.len(), {
+      all_cflags.push(artifact.c_flags(i).clone());
+      i = (i + usize(1));
+    });
+    i = usize(0);
+    while(i < rpath_flags.len(), {
+      all_cflags.push(rpath_flags(i).clone());
+      i = (i + usize(1));
+    });
+    if(all_cflags.len() > usize(0), {
+      joined := ` `.join(all_cflags);
       cmd.arg(String.from("--cflags"));
       cmd.arg(joined);
     });

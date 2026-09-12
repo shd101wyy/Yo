@@ -135,7 +135,7 @@ Build artifacts use struct types with default field values (like Zig's options p
 | `target`   | `comptime_str` | `target_host`    | Target triple               |
 | `optimize` | `Optimize`     | `Optimize.Debug` | Optimization level          |
 
-Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib` (macOS), or `.dll` (Windows).
+Shared libraries compile with `-shared -fPIC` and produce `lib<name>.so` (Linux), `lib<name>.dylib` (macOS) or `lib<name>.dll` (Windows) in `yo-out/<target>/lib/`. The library emission is the static library's — top-level exports get plain, externally linked C names and there is no `main` wrapper — so a program reaches them with `extern("Yo", name : (fn(…) -> …))`. An artifact that links one is compiled with `-L <dir> -l<name>` and, on macOS and Linux, an `-Wl,-rpath` for that directory, so the program finds the library at RUN time as well as at link time.
 
 ### `TestSuite`
 

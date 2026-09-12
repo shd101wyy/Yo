@@ -107,7 +107,7 @@ keeping. The runner is where the port is incomplete. Reproduced on 0.2.30:
 | # | finding | evidence | issue |
 | --- | --- | --- | --- |
 | B1 | `exe.link(lib)` for a `static_library` orders the build and **does not link** — the docs' "Cross-Module Linking with `extern "Yo"`" example fails with `Undefined symbols: "_add"`. `linked_artifacts` is read only by `_walk_dag` (`build_runner.yo:257-266`); `compile_artifact` never emits `--extern lib<name>.a` | reproduced | `issues/fixed/step-link-does-not-link-the-static-library.md` |
-| B2 | `build.shared_library` compiles its root as an **executable** (no `--shared` mode exists in `yo compile`), fails on `_main`, output has no `lib` prefix or extension | reproduced | `issues/shared-library-artifact-is-compiled-as-an-executable.md` |
+| B2 | `build.shared_library` compiles its root as an **executable** (no `--shared` mode exists in `yo compile`), fails on `_main`, output has no `lib` prefix or extension | reproduced | `issues/fixed/shared-library-artifact-is-compiled-as-an-executable.md` |
 | B3 | a parse or evaluation error in `build.yo` is **swallowed**: `evaluate_build_file` binds `mm_load_yo_file`'s outcome to `_outcome` and never calls `_take_load_error` (`build_runner.yo:1491-1510`). The user sees `Unknown step "install". Available: (none)`. The duplicate-artifact-name diagnostic that exists (`builtins/build.yo:652-670`) is therefore never shown; `yo fetch` has the same swallow (`fetch_command.yo:97-103`) | reproduced | `issues/fixed/build-yo-evaluation-errors-are-swallowed.md` |
 | B4 | `-D` options are **unvalidated**: undeclared names accepted silently (`declared_options` has no reader outside the builtins file), values are untyped strings, `yo build --help` does not list the project's options although `docs/en-US/BUILD_SYSTEM.md` says it does | reproduced | this plan (§4.7) |
 | B5 | the DAG scheduler computes Kahn levels and then runs each level **sequentially** (`execute_dag`, `build_runner.yo:1260-1266`); the docs' rationale ("the Yo evaluator uses global state") is obsolete since artifacts compile in child processes | code | this plan (§4.8) |
@@ -794,9 +794,29 @@ fixed. Gate: cli-case `build-dep-artifact` (a path dependency whose `build.yo`
 defines the library the program calls through `extern("Yo", …)`), verified red
 first with `Undefined symbols: "_square"`.
 
-Not in P1.4d (next): §4.5.3's remaining half (shared-library link lines and
-rpath), §4.5.4 shared libraries, then §4.7's runner-correctness list — where
-the `build.option` bug above belongs.
+**P1.4e — §4.5.4 shared libraries, and §4.5.3's other half** (`p1/shared-lib`,
+stacked on P1.4d). `yo compile --shared-library` reuses the library emission
+(plain exported names, no `main` wrapper — the same `is_library` path the
+static mode takes) and links `-shared -fPIC` into
+`lib<name>.{dylib,so,dll}`, appending the platform extension the way the static
+mode appends `.a`. The runner passes the flag for a `SharedLibrary` artifact,
+names the output `lib<name>`, and teaches the Building line and the cache's
+existence probe the same suffix. A consumer that links one is compiled with
+`-L <dir> -l<name>` plus `-Wl,-rpath,<dir>` on macOS and Linux — a shared
+library is found by the LOADER at run time, so without the rpath the program
+links and then dies with "image not found". The P0 mitigation (a clear
+rejection, cli-case `build-shared-library-unsupported`) is replaced by cli-case
+`build-shared-library`: it builds the library, links it into a program through
+`extern("Yo", …)` and asserts the program's own output.
+B2 is closed — `issues/fixed/shared-library-artifact-is-compiled-as-an-executable.md`.
+
+Not in P1.4e (next): §4.7's runner-correctness list — B4 (`-D` options are
+unvalidated, and the `build.option` type bug filed in P1.4d blocks them
+entirely), B5 (the level scheduler runs sequentially), B6 (failures do not stop
+dependents; a dependency name that resolves to nothing is dropped silently),
+B7 (`--dry-run` builds no DAG), B9 (`build.run` takes no arguments), B10/§4.9
+(stamp granularity), B11 (registry name collisions), B13 (write-only state) —
+then §4.6 workspaces and the P2/P3 phases.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path
