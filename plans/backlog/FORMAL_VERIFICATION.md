@@ -1150,7 +1150,8 @@ a broken invariant is a compile error naming the failing iteration.
 > verify-target body whose def-time trial throws (E0902 param
 > reassignment — illegal Yo; E0401 unimported `assert`) reaches the
 > verifier hollow — the pipeline now records and reports the swallowed
-> CAUSE. SECOND ROW LANDED on feat/fv5-quantifiers (2026-09-11, tasks
+> CAUSE. SECOND ROW LANDED via #564 (develop 43d95eefa, 2026-09-12 —
+> all 26 checks green, after three develop merges rode along; tasks
 > 1 + 4's inout half): the quantifier builtins `forall` /
 > `exists` / `==>` (§6) are real (`forall` is the PLAIN word the
 > lexer reserved for it since FORALL_TO_GENERIC — the hold-back is
