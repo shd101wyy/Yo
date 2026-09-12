@@ -1301,7 +1301,7 @@ DocConfig :: struct(
 - 客户端搜索
 - 侧边栏导航
 - 所有 CSS/JS 内联 — 可从 `file://` URL 直接打开，无需 CDN
-- 使用 [markdown_yo](https://www.npmjs.com/package/markdown_yo) 进行 Markdown 渲染
+- 使用 [markdown_yo](https://github.com/shd101wyy/markdown_yo) 进行 Markdown 渲染 —— 它是编译器自身在 `yo.toml` 里声明的依赖，由 `yo install` 解析
 
 **Markdown**：生成 `README.md`（模块索引）和 `module/<name>.md`（每模块页面）。适合嵌入 GitHub 仓库或其他基于 Markdown 的文档系统。
 

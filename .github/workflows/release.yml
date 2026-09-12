@@ -396,13 +396,16 @@ jobs:
           # first attempt died exactly here, run 32567883597).
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       - name: Generate documentation website
         env:
           YO_STD: ${{ github.workspace }}/std
         run: |
           # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
           # renames — `insert`, `read_to_string` — landed 2026-08-25); the
-          # vendored markdown_yo and build_site.yo speak the TREE std, so both
+          # markdown_yo and build_site.yo speak the TREE std, so both
           # the site-builder compile and the `yo doc` runs the site binary
           # spawns must resolve std from the checkout, exactly like the
           # `yo build` bootstrap does.
@@ -560,6 +563,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       # The CANDIDATE (this release's compiler) must do the cross-emits, not
       # the seed. v0.2.7 predates f7b5cc460 ("fold comptime platform/arch
@@ -978,6 +984,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       # Phase 1 — emit C on the glibc host, with the SEED (P2.5 step 24:
       # previous release builds the current compiler; this retires bun/node

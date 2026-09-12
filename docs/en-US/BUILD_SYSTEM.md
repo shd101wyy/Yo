@@ -1321,7 +1321,7 @@ and `yo doc --favicon <path>`.
 - Client-side search
 - Sidebar navigation
 - All CSS/JS inlined — works from `file://` URLs, no CDN needed
-- Uses [markdown_yo](https://www.npmjs.com/package/markdown_yo) for Markdown rendering
+- Uses [markdown_yo](https://github.com/shd101wyy/markdown_yo) for Markdown rendering — a `yo.toml` dependency of the compiler itself, resolved by `yo install`
 
 **Markdown**: Generates `README.md` (module index) and `module/<name>.md` (per-module pages). Useful for embedding in GitHub repos or other Markdown-based documentation systems.
 

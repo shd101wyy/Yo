@@ -135,7 +135,7 @@ Source .yo files
 | `src/doc/builder.yo`          | Builds DocModel from comments + evaluator output |
 | `src/doc/model.yo`            | DocModel type definitions                        |
 | `src/doc/sections.yo`         | Parses ## Returns, ## Examples, etc.             |
-| `src/doc/render_html.yo`      | Renders DocModel to static HTML site             |
+| `src/doc/render_html.yo`      | Renders DocModel to static HTML site — Markdown→HTML goes through `import("markdown_yo")`, a `yo.toml` DEPENDENCY of this repo (it was the `vendor/markdown_yo` submodule until 2026-09-13), so a fresh clone needs `yo install` before `yo doc --format html` compiles |
 | `src/doc/render_html_assets.yo` | Inlined CSS/JS assets for the HTML site        |
 | `src/doc/render_markdown.yo`  | Renders DocModel to Markdown                     |
 | `src/doc/render_json.yo`      | Exports DocModel as JSON                         |

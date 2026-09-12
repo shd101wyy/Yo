@@ -1,8 +1,10 @@
 # Build system & dependency system — audit and redesign plan
 
 _Status: **COMPLETE (2026-09-13)** — P0, P1, P2 (§5.1, §5.2, §5.4) and P3
-(§4.6, §4.8, §4.9) have all landed. P4 (registry, `yo publish`) is designed
-and deliberately not scheduled; §4.10 records its shape._
+(§4.6, §4.8, §4.9) have all landed, and the dogfooding milestone with them:
+`vendor/markdown_yo` is un-vendored and the compiler resolves it through its
+own package manager. P4 (registry, `yo publish`) is designed and deliberately
+not scheduled; §4.10 records its shape._
 
 _Proposed 2026-09-11, revised the same day after maintainer review — the
 manifest is **declarative data read without the evaluator**; after weighing
@@ -1103,9 +1105,8 @@ cross-check that the JSON and TOML trees agree, runtime asserts, and
 `comptime_expect_error` on a malformed document of each format (both verified
 directly to be real compile errors, not swallowed).
 
-The dogfooding milestone below — un-vendoring `vendor/markdown_yo` — is now
-unblocked: every piece it named (the manifest, the resolver, the store,
-`--imports` in every command) is on develop.
+The dogfooding milestone below — un-vendoring `vendor/markdown_yo` — is DONE;
+see its section for what shipped.
 
 **§5.4 — `build.env`** (landed). A build file may read environment variables;
 nothing else may. `build.env(name, fallback)` gives the value or the fallback,
@@ -1190,18 +1191,54 @@ malformed state machine, not an independent defect in local spilling. The
 lesson — read the whole error list before attributing one of them — is recorded
 in the retired doc. `_split_member_pattern` stays on readability grounds.
 
-**Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
-The compiler itself imports the Markdown renderer by submodule path
-(`src/doc/render_html.yo` → `import("../../vendor/markdown_yo/src/lib.yo")`);
-the target is `import("markdown_yo")` resolved through the repo-root
-`yo.toml` and the store, with the submodule deleted. This is the end-to-end
-proof for P1.3/P1.4 on the compiler's own build. It is SEED-GATED twice over:
-the seed that compiles `src/main.yo` must resolve the manifest import (or be
-handed `--imports markdown_yo=<store path>` by the bootstrap scripts — the
-seed gains `--imports` with v0.2.31), and CI must fetch the dependency before
-the seed compile. So: land P1.3 first, then un-vendor in a PR that also
-teaches `scripts/bootstrap/*` and the workflows to fetch/`--imports` it, once
-a seed with `--imports` is published.
+**Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`
+— LANDED 2026-09-13.** The compiler used to import the Markdown renderer by
+submodule path (`src/doc/render_html.yo` →
+`import("../../vendor/markdown_yo/src/lib.yo")`). It now says
+`import("markdown_yo")`, resolved through the repo-root `yo.toml` and the
+content-addressed store; `scripts/build_site.yo` says the same; the submodule
+and its `.gitmodules` entry are gone. This is the end-to-end proof for
+P1.3/P1.4 on the compiler's own build: the manifest, the resolver, the lock,
+the store and the import-root closure all carry the compiler's own build.
+
+**Pinned by `rev`, not by a range.** The commit that compiles against the
+current language is the head of `migrate-to-latest-yo`, which carries no
+release tag, so `yo.toml` names the sha the submodule held
+(`a46f7004…`, `v0.0.4-9-ga46f700`). Un-vendoring therefore changes the
+resolution MECHANISM and nothing about which source is compiled — a deliberate
+property, so a regression here can only be the package manager's.
+
+**How the seed gate was actually resolved.** The draft above proposed handing
+the seed `--imports markdown_yo=<store path>` from the bootstrap scripts. That
+is not enough on its own: `--imports` tells a compiler where a dependency IS,
+and the v0.2.31 seed predates the whole `yo.toml` stack, so nothing in that
+generation can PUT it there — the scripts would have had to `git clone` the
+dependency themselves, which is re-vendoring in bash. The milestone instead
+waited for a seed built from this stack. With that seed, `yo.toml` discovery
+does the resolving and `yo install` does the fetching, and no `--imports`
+plumbing is needed anywhere.
+
+**What CI needed.** `yo build` fetches on its own (`install_dependencies` runs
+before the graph is built), so a job that only calls `yo build` is unchanged. A
+job that calls `yo compile` / `check` / `test` directly does need the store
+populated first: those resolve import roots but do not fetch, and a missing
+entry is a compile error naming `yo install`. Rather than reason per job about
+which commands it happens to use, every job that runs `yo` against this tree
+gained one step — `.github/actions/install-deps`, a composite running
+`yo install --locked` (the committed lock is authoritative in CI; a resolution
+that would change it fails there rather than drifting). Jobs whose compiler is
+a downloaded artifact rather than a PATH entry pass its path to the action.
+`submodules: recursive` stays on every checkout — `vendor/mimalloc` is still a
+submodule.
+
+**Follow-up, deliberately NOT taken here.** Cargo fetches for `cargo check` as
+well as `cargo build`; Yo currently fetches only in `build`. Making
+`check`/`compile`/`test` materialize a locked-but-absent dependency would
+delete the CI step above and the "run `yo install`" error with it. It is not in
+this change because import-root resolution is synchronous and pre-`Io` by
+construction (`src/manifest.yo` says so at the top), so on-demand fetching
+there is a real design change — and it would make the LSP reach the network.
+Worth doing; worth doing as its own decision.
 
 Sequencing: P0 is independent and small — land it first, it makes P1's
 failures visible. P1 is the campaign; §4.5.1 (`--imports`) is its first cut

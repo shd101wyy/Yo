@@ -3,9 +3,10 @@
 //!
 //! Markdown→HTML goes through `markdown_yo` — the TS side loads its npm WASM
 //! build (`createRenderer(null, {html: true, fullFeatures: true})`); this port
-//! imports the library's SOURCE from the `vendor/markdown_yo` submodule
-//! (branch `migrate-to-latest-yo` — the same library migrated to current Yo)
-//! and builds the equivalent `Options`: `default_options()` + `html` + every
+//! imports the library's SOURCE as an ordinary dependency — `yo.toml` pins
+//! `markdown_yo` by rev and `yo install` puts it in the store, so the name
+//! resolves through Yo's own package management — and builds the equivalent
+//! `Options`: `default_options()` + `html` + every
 //! `fullFeatures` flag the npm loader sets (see npm/index.js `buildFlags`:
 //! subscript, superscript, mark, math, emoji, wikilink, critic, abbr,
 //! deflist, admonition, callout, footnote — NOT typographer/breaks/xhtml/
@@ -38,7 +39,7 @@ import("std/fmt");
   doc_trait_kind_to_string
 } :: import("./model.yo");
 { generate_css, generate_search_js, generate_highlight_js } :: import("./render_html_assets.yo");
-{ markdown_to_html, Options, default_options } :: import("../../vendor/markdown_yo/src/lib.yo");
+{ markdown_to_html, Options, default_options } :: import("markdown_yo");
 // ── Markdown rendering ───────────────────────────────────────────────
 /// The Options the TS renderer runs with ({html: true, fullFeatures: true}).
 _doc_md_options :: (fn() -> Options)({

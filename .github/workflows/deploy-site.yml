@@ -49,9 +49,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.version }}
-          # build_site.yo imports vendor/markdown_yo — without submodules the
-          # compile dies with "file or directory not found" (first dispatch,
-          # 2026-08-22). Recursive, matching release.yml's checkouts.
+          # vendor/mimalloc only — `markdown_yo` stopped being a submodule
+          # when it became a yo.toml dependency, and is fetched by the
+          # install-deps step below. Recursive, matching release.yml's
+          # checkouts.
           submodules: recursive
 
       # The seed is a dynamically linked Linux binary whose async runtime
@@ -69,13 +70,16 @@ jobs:
         with:
           version: ${{ inputs.builder != '' && inputs.builder || inputs.version }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       - name: Generate documentation website
         env:
           YO_STD: ${{ github.workspace }}/std
         run: |
           # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
           # renames — `insert`, `read_to_string` — landed 2026-08-25); the
-          # vendored markdown_yo and build_site.yo speak the TREE std, so both
+          # markdown_yo and build_site.yo speak the TREE std, so both
           # the site-builder compile and the `yo doc` runs the site binary
           # spawns must resolve std from the checkout, exactly like the
           # `yo build` bootstrap does.
