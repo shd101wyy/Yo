@@ -1016,16 +1016,163 @@ is the first-build fallback — but it can no longer produce a STALE cache, beca
 the walk's stamp is only ever COMPARED, never recorded; the recorded stamp comes
 from the depfile the child just wrote.
 
-**P1 is complete as of 2026-09-12**, along with P3's §4.8 and §4.9. What
-remains, in the order the plan proposes: the rest of **P2** (compile-time
-inputs — §5.1 `comptime_read_file`, §5.2 `ComptimeValue` + the JSON/TOML
-parsers, §5.4 `build.env`, §5.5 plumbing, of which §5.5's `--emit-deps` half
-landed early here because §4.9 needed it), then **§4.6 workspaces**. P4 stays
-designed and unscheduled.
+**The plan is COMPLETE as of 2026-09-13**: P0, P1, P2 (§5.1, §5.2, §5.4) and
+P3 (§4.6, §4.8, §4.9) have all landed. P4 (registry, `yo publish`) stays
+designed and deliberately unscheduled — §4.10 records its shape so nothing here
+precludes it.
+
+**§5.1 — `comptime_read_file`** (landed). `comptime_read_file(path)` reads a
+file during evaluation and yields its bytes as a `comptime_str`, bounded the way
+Zig bounds `@embedFile`: the path resolves against the IMPORTING FILE (never the
+process cwd, which would give one module different answers depending on where
+`yo build` ran), and it must land inside that file's package root — the nearest
+`yo.toml` above it, else the nearest `build.yo`, else its own directory. The
+check runs on the lexically folded path, so `..` cannot climb out and back in.
+Outside the root, and a missing file, are compile errors at the call site.
+
+The read is an INPUT EDGE, which is what makes it safe to cache: it records into
+the §4.9 list, so `--emit-deps` names the data file and the artifact stamp
+invalidates when it changes. Without that a build would cache over an edited
+data file forever.
+
+That edge needed the input record reachable from both the module loader and an
+evaluator builtin, which is an import cycle (the module manager imports the
+evaluator), so the registry moved out of `module_manager.yo` into
+`src/input_record.yo`. A definition-time trial or CTFE probe does not touch the
+disk — it computes its path from placeholder arguments — and gets the type with
+an unknown value instead.
+
+Gate: `tests/comptime.test.yo` — a module-level `::` binding (so the read really
+happens at compile time), a `comptime_assert` on the bytes, runtime asserts on
+the content and byte length, a `..` path that stays inside the root, and three
+`comptime_expect_error` cases: an absolute path outside the root, a `..` that
+climbs out, and a missing file. Verified RED first (`E0401: Variable
+"comptime_read_file" not found`).
+
+Note carried into §5.2: `comptime_str.len()` does not fold at compile time —
+not for a `comptime_read_file` result and not for a plain literal either — so
+the length assert is a runtime one.
+
+**§5.2 — `comptime_json_parse` / `comptime_toml_parse`** (landed). Both take a
+compile-time string and return a `ComptimeValue`, the prelude enum modelling a
+document with comptime scalars and `ComptimeList`. Composed with §5.1 —
+`comptime_json_parse(comptime_read_file("./config.json"))` — a configuration
+file becomes constants, and a wrong parse fails to COMPILE rather than at run
+time.
+
+Two departures from the design as drafted, both forced by the language and both
+verified by probe before any code was written:
+
+- **`ComptimeEntry` is not expressible.** The plan sketched
+  `Table(ComptimeList(ComptimeEntry))` with `ComptimeEntry.value :
+  ComptimeValue`. Those are mutually recursive TYPE definitions and the
+  evaluator rejects them ("cyclic definition: CE → CV → CE"). The landed shape
+  is PARALLEL `keys` and `values` lists — exactly what `std/encoding/json`'s
+  `JsonValue.Object` and `std/encoding/toml`'s `TomlValue.Table` already use,
+  and it needs only `Self`.
+- **A recursive enum must say `Self`, not its own name.** `CV ::
+  enum(… ComptimeList(CV))` is the same cyclic-definition error.
+
+The parsers are NOT reimplemented: `std/encoding/json` and `std/encoding/toml`
+run at the COMPILER's runtime and their `JsonValue` / `TomlValue` results are
+lifted into `EvalValue`. One parser, one set of bugs, and the std code never has
+to be comptime-evaluable. A parse error is a compile error at the call site
+carrying the parser's own position.
+
+JSON has one number type, so a whole-valued number lifts to `.Int` — `{"port":
+8080}` reads back as an integer, not `8080.0`. The cut is on the value, not the
+spelling, because the document cannot tell them apart.
+
+`ComptimeValue.get` is written in Yo over `ComptimeList` rather than as a
+builtin: a prelude binding that names a builtin the SEED lacks fails the
+bootstrap (the AGENTS.md pitfall), and the walk needs no evaluator support that
+`ComptimeList` does not already have.
+
+Gate: `tests/comptime.test.yo` — both documents describing one configuration,
+~12 module-level `comptime_assert`s over `get`/`at`/`len`/`as_str`/`as_int`/
+`as_bool`/`is_null` including a missing key and an out-of-range index, a
+cross-check that the JSON and TOML trees agree, runtime asserts, and
+`comptime_expect_error` on a malformed document of each format (both verified
+directly to be real compile errors, not swallowed).
 
 The dogfooding milestone below — un-vendoring `vendor/markdown_yo` — is now
 unblocked: every piece it named (the manifest, the resolver, the store,
 `--imports` in every command) is on develop.
+
+**§5.4 — `build.env`** (landed). A build file may read environment variables;
+nothing else may. `build.env(name, fallback)` gives the value or the fallback,
+and `build.env_is_set(name)` answers whether it is set at all.
+
+Two departures from the design as drafted:
+
+- **Two functions, not one returning `Option(comptime_str)`.** The evaluator has
+  no helper to instantiate `Option(comptime_str)` from a builtin, and building
+  that machinery for one call site is disproportionate. The pair is strictly as
+  expressive — `env_is_set` is exactly the distinction an `Option` carries — and
+  it reads better at the call site than unwrapping.
+- **The `std/build.yo` wrapper landed in the SAME release as the builtin**,
+  which the generation-A/B rule says is impossible. Measured: it is impossible
+  only for a module-level `::` VALUE binding, which its own `export(...)`
+  forces. A FUNCTION wrapper's body is deferred, so the seed evaluates
+  `std/build.yo` cleanly and only a build file that CALLS it fails. The
+  repository's own `build.yo` therefore must not use `build.env` until
+  `SEED_VERSION` carries the builtin — `fixpoint-arm64.yml` bootstraps gen-1
+  with the seed — but every other project can use it today. `AGENTS.md`'s
+  pitfall is corrected to say which shape breaks.
+
+Both guarantees the section asks for hold. Outside a build file the builtin is a
+compile error naming `-D` as the alternative, so an ordinary module cannot make
+its meaning depend on the invoking shell. And every read — including an
+`env_is_set` probe, since existence is what the build branched on — is folded
+into the artifact stamp.
+
+Gate: cli-case `build-env-read` reads a variable the case sets and one it does
+not, in both forms, reporting all four through step descriptions. The stamp half
+cannot be a cli-case (the harness cannot vary `env=` between steps) and was
+verified directly: build, rebuild with the same environment → `(cached: inputs
+unchanged, skipping compile)`, rebuild with the variable CHANGED → recompiles.
+
+**§4.6 — workspaces** (landed). A repository-root `yo.toml` declares
+`[workspace] members = [...]`; each member is an ordinary package with its own
+manifest and build file. `yo build -p <name>` builds one member — resolving it
+to that member's build file is the whole implementation, since `project_dir` is
+that file's parent and everything downstream derives from it — and `yo test
+--workspace` runs every member's tests in ONE run with a single summary.
+
+A member is named by its `[package] name`, not its directory: that is what a
+member is called everywhere else (`import("name")`, `build.dependency("name")`).
+A name no member declares lists the ones that do, rather than failing with
+"build file not found".
+
+Member patterns are relative paths with `*` allowed in the LAST segment only —
+a member is a path INTO the workspace, not a tree search, and `packages/*/x/*`
+would make "which directory owns the lock" ambiguous. An absolute pattern or one
+containing `..` is rejected for the same reason. A literal member without a
+`yo.toml` is an error naming the pattern (a typo should not silently build a
+smaller workspace); a glob match without one is skipped, because a glob is a
+filter by construction. Members are visited in sorted order, so output is stable
+across platforms — raw `read_dir` order is not.
+
+Not included, and not needed by anything today: `{ workspace = true }`
+dependency inheritance and a single root `yo.lock`. Members refer to each other
+as ordinary path dependencies, which has worked since P1.3, and each carries its
+own lock. Both are additive when a second version of one dependency across two
+members actually becomes a problem.
+
+Gates: cli-cases `build-workspace-member` (a fixture exercising BOTH pattern
+forms — `packages/*` and `examples/demo` — whose root build file deliberately
+builds nothing, so an ignored `-p` fails the case) and `test-workspace`. The
+error paths were verified directly: `-p` with an unknown name lists the members,
+and both `-p` and `--workspace` inside a plain package say so rather than
+degrading silently.
+
+One codegen defect surfaced and is filed, not fixed:
+`issues/async-body-local-read-by-two-matches-is-emitted-twice.md` — a local
+bound in an `io.async` `while` body and read by two separate `match`es is
+DECLARED twice in the emitted C. `check` and `compile --skip-c-compiler` both
+pass; only a full build shows it. §4.6 avoids the shape by lifting the split
+into a plain `fn`, which is better code anyway, but the defect is still there
+for the next person who writes the natural form.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

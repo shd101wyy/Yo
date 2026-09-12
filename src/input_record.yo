@@ -1,0 +1,105 @@
+//! The compile's INPUT RECORD
+//! (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9, §5.1).
+//!
+//! Every file this process read while evaluating, in first-open order and
+//! without duplicates. `yo compile --emit-deps <file>` writes the list, and the
+//! build runner's artifact stamp hashes exactly it — instead of walking every
+//! `.yo` under the project plus the whole std tree, per artifact.
+//!
+//! Two kinds of input land here:
+//!
+//!   - `.yo` MODULES, recorded by `module_manager.yo` at the two places a
+//!     source file is actually read (the entry module in `mm_load_file`, every
+//!     demand-loaded module in `_load_module_at_abs`), so a module that is a
+//!     cache hit on a later pass is still listed from its first open;
+//!   - DATA files read by `comptime_read_file` (§5.1). Without this edge a
+//!     build would cache over an edited data file forever.
+//!
+//! It lives in a module of its own rather than in `module_manager.yo` because
+//! the evaluator builtin that records the second kind cannot import the module
+//! manager — the module manager imports the evaluator.
+//!
+//! Paths are ABSOLUTE, always. The two spellings of a module path meet in this
+//! list: a demand-loaded module arrives as the `file://<abs>` cache key, while
+//! the ENTRY arrives exactly as typed on the command line (`src/main.yo`, so
+//! diagnostics stay relative). A depfile mixing the two only works while its
+//! reader shares the writer's cwd, and the build runner reads it from wherever
+//! `yo build` was invoked.
+{ String } :: import("std/string");
+{ Path } :: import("std/path");
+{ ArrayList } :: import("std/collections/array_list");
+{ cwd } :: import("std/env");
+(g_input_files : ArrayList(String)) = ArrayList(String).new();
+/// Absolutize against the cwd (when relative) and fold `.`/`..` LEXICALLY —
+/// the same treatment the std path gets. Lexical only: this runs inside the
+/// module loader, which is synchronous, and symlink resolution is not.
+_canonicalize :: (fn(p : String) -> String)({
+  path := Path.new(p.clone());
+  if(!path.is_absolute(), {
+    match(
+      cwd(),
+      .Ok(base) => {
+        path = base.join(path);
+      },
+      .Err(_) => ()
+    );
+  });
+  path.normalize().to_string()
+});
+/// Record `path` as an input of this compile. A repeat is ignored, so the list
+/// is the SET of inputs in first-open order.
+record_input_file :: (fn(path : String) -> unit)({
+  fs := _canonicalize(path.replace(String.from("file://"), String.new()));
+  if(fs.len() == usize(0), {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < g_input_files.len(), {
+    match(
+      g_input_files.get(i),
+      .Some(seen) => if(seen == fs, {
+        return(());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_input_files.push(fs);
+});
+/// Start a fresh record. `yo compile` calls this before evaluating, so a
+/// long-lived process (the LSP, `check --watch`) does not accumulate.
+reset_input_files :: (fn() -> unit)({
+  g_input_files = ArrayList(String).new();
+});
+/// The files read so far, in first-open order.
+input_files :: (fn() -> ArrayList(String))(g_input_files);
+// ── Environment reads (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §5.4)
+//
+// `build.env` lets a build file branch on the invoking shell, which makes the
+// shell an INPUT. Each read is recorded as `name=value` (or `name=<unset>`) and
+// folded into the artifact stamp, so changing a variable the build file reads
+// rebuilds rather than serving a stale artifact.
+//
+// Recorded in first-read order, deduplicated by NAME AND VALUE: one name read
+// twice is one entry, and a name whose value somehow differed between reads
+// keeps both, because both influenced the build.
+(g_env_reads : ArrayList(String)) = ArrayList(String).new();
+/// Record that the build read `name`, seeing `rendered` (`<unset>` when absent).
+record_env_read :: (fn(name : String, rendered : String) -> unit)({
+  entry := `${name}=${rendered}`;
+  (i : usize) = usize(0);
+  while(i < g_env_reads.len(), {
+    match(
+      g_env_reads.get(i),
+      .Some(seen) => if(seen == entry, {
+        return(());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_env_reads.push(entry);
+});
+/// The environment reads so far, as `name=value` lines in first-read order.
+env_reads :: (fn() -> ArrayList(String))(g_env_reads);
+export(record_input_file, reset_input_files, input_files, record_env_read, env_reads);

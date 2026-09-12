@@ -173,7 +173,12 @@ Manifest :: ref(
     /// `[package] yo = "0.2.30"` — minimum compiler version ("" = unset).
     yo_version : String,
     modules : ArrayList(ManifestModule),
-    dependencies : ArrayList(ManifestDependency)
+    dependencies : ArrayList(ManifestDependency),
+    /// `[workspace] members = [...]` — the member PATTERNS exactly as written,
+    /// each relative to `dir`. Empty when this manifest declares no workspace.
+    /// `workspace_members` (the function) expands them; the raw patterns are
+    /// kept so a diagnostic can name what the author wrote.
+    workspace_members : ArrayList(String)
   )
 );
 impl(
@@ -477,6 +482,54 @@ parse_manifest :: (fn(text : String, path : String) -> Result(Manifest, String))
       return(Result(Manifest, String).Err(m));
     }
   );
+  // `[workspace] members = [...]` (§4.6). A workspace root may also be an
+  // ordinary package — `[package]` is still required — so this is additive: a
+  // manifest without the table is simply a package with no members.
+  workspace_members := ArrayList(String).new();
+  match(
+    root.get(String.from("workspace")),
+    .None => (),
+    .Some(ws) => {
+      if(!ws.is_table(), {
+        return(Result(Manifest, String).Err(`${where_}: [workspace] must be a table`));
+      });
+      match(
+        ws.get(String.from("members")),
+        .None => (),
+        .Some(members_v) => {
+          if(!members_v.is_array(), {
+            return(Result(Manifest, String).Err(`${where_}: [workspace] members must be an array of path patterns`));
+          });
+          items := members_v.as_array().unwrap_or(ArrayList(TomlValue).new());
+          (mi : usize) = usize(0);
+          while(mi < items.len(), {
+            match(
+              items.get(mi),
+              .Some(item) => {
+                if(!item.is_string(), {
+                  return(Result(Manifest, String).Err(`${where_}: [workspace] members entries must be strings`));
+                });
+                pattern := item.as_string().unwrap_or(String.new());
+                if(pattern.len() == usize(0), {
+                  return(Result(Manifest, String).Err(`${where_}: [workspace] members may not contain an empty pattern`));
+                });
+                if(pattern.starts_with("/") || pattern.contains(".."), {
+                  return(
+                    Result(Manifest, String).Err(
+                      `${where_}: [workspace] member "${pattern}" must be a relative path inside the workspace — an absolute path or one containing ".." would place a member outside the root that owns the lock file`
+                    )
+                  );
+                });
+                workspace_members.push(pattern);
+              },
+              .None => ()
+            );
+            mi = (mi + usize(1));
+          });
+        }
+      );
+    }
+  );
   Result(Manifest, String).Ok(
     Manifest(
       path : path,
@@ -487,7 +540,8 @@ parse_manifest :: (fn(text : String, path : String) -> Result(Manifest, String))
       license : license,
       yo_version : yo_version,
       modules : modules,
-      dependencies : dependencies
+      dependencies : dependencies,
+      workspace_members : workspace_members
     )
   )
 });

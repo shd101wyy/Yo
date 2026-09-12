@@ -7454,6 +7454,106 @@ impl(
     )
   )
 );
+/// ComptimeValue — a data document read at COMPILE time
+/// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §5.2).
+///
+/// `comptime_json_parse` and `comptime_toml_parse` return one of these. No
+/// runtime container can exist at compile time, so the tree is built from
+/// `ComptimeList` and comptime scalars only.
+///
+/// A table keeps PARALLEL key and value lists, the shape `std/encoding/json`'s
+/// `JsonValue.Object` and `std/encoding/toml`'s `TomlValue.Table` already use.
+/// The plan sketched a separate `ComptimeEntry` struct instead; that shape is
+/// not expressible, because `ComptimeEntry.value : ComptimeValue` and
+/// `ComptimeValue.Table(… ComptimeEntry)` are mutually recursive TYPE
+/// definitions and the evaluator rejects those ("cyclic definition"). Parallel
+/// lists need only `Self`, which is fine. Keys are in document order.
+ComptimeValue :: enum(
+  /// JSON `null`. TOML has no null, so a TOML document never yields it.
+  Null,
+  /// `true` / `false`.
+  Bool(v : bool),
+  /// An integer. JSON numbers that are whole become `Int`.
+  Int(v : comptime_int),
+  /// A non-integral number.
+  Float(v : comptime_float),
+  /// A string.
+  Str(v : comptime_str),
+  /// An array, in document order.
+  List(items : ComptimeList(Self)),
+  /// A table/object: `keys(i)` names `values(i)`, in document order.
+  Table(keys : ComptimeList(comptime_str), values : ComptimeList(Self))
+);
+impl(ComptimeValue, Comptime());
+impl(ComptimeValue, Acyclic());
+/// Walk a table's parallel lists for `key`. Written in Yo rather than as a
+/// builtin on purpose: a prelude binding that names a builtin the SEED lacks
+/// fails the bootstrap, and this needs no evaluator support beyond what
+/// `ComptimeList` already has. Self-recursive, which a `(fn(...) -> R)(body)`
+/// definition may be — its signature binds before its body evaluates.
+_comptime_table_lookup :: (
+  fn(
+    comptime(ks) : ComptimeList(comptime_str),
+    comptime(vs) : ComptimeList(ComptimeValue),
+    comptime(key) : comptime_str,
+    comptime(i) : usize
+  ) -> comptime(ComptimeValue)
+)(
+  if(
+    i >= ks.len(),
+    ComptimeValue.Null,
+    if(ks.get(i) == key, vs.get(i), _comptime_table_lookup(ks, vs, key, i + usize(1)))
+  )
+);
+impl(
+  ComptimeValue,
+  /// The value under `key`, or `.Null` when this is not a table or has no such
+  /// key. `.Null` rather than an `Option` because an Option of a comptime value
+  /// is itself awkward to match at compile time, and a missing key and a JSON
+  /// `null` behave the same way for every use this exists for.
+  get : (fn(comptime(self) : Self, comptime(key) : comptime_str) -> comptime(Self))(
+    match(
+      self,
+      .Table(ks, vs) => _comptime_table_lookup(ks, vs, key, usize(0)),
+      _ => ComptimeValue.Null
+    )
+  ),
+  /// The element at `i`, or `.Null` when this is not a list or `i` is past its
+  /// end.
+  at : (fn(comptime(self) : Self, comptime(i) : usize) -> comptime(Self))(
+    match(
+      self,
+      .List(items) => if(i < items.len(), items.get(i), ComptimeValue.Null),
+      _ => ComptimeValue.Null
+    )
+  ),
+  /// The number of elements of a list, or entries of a table; 0 otherwise.
+  len : (fn(comptime(self) : Self) -> comptime(usize))(
+    match(
+      self,
+      .List(items) => items.len(),
+      .Table(ks, _vs) => ks.len(),
+      _ => usize(0)
+    )
+  ),
+  /// The string this holds, or `fallback` when it holds anything else.
+  as_str : (fn(comptime(self) : Self, comptime(fallback) : comptime_str) -> comptime(comptime_str))(
+    match(self, .Str(v) => v, _ => fallback)
+  ),
+  /// The integer this holds, or `fallback` when it holds anything else.
+  as_int : (fn(comptime(self) : Self, comptime(fallback) : comptime_int) -> comptime(comptime_int))(
+    match(self, .Int(v) => v, _ => fallback)
+  ),
+  /// The boolean this holds, or `fallback` when it holds anything else.
+  as_bool : (fn(comptime(self) : Self, comptime(fallback) : bool) -> comptime(bool))(
+    match(self, .Bool(v) => v, _ => fallback)
+  ),
+  /// True when this is `.Null` — a missing key or an explicit JSON `null`.
+  is_null : (fn(comptime(self) : Self) -> comptime(bool))(
+    match(self, .Null => true, _ => false)
+  )
+);
+export(ComptimeValue);
 /// ExprList
 ExprList :: ComptimeList(Expr);
 export(ExprList);

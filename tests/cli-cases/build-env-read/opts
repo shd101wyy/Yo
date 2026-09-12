@@ -1,0 +1,22 @@
+# plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §5.4: a build file may read the
+# environment, and nothing else may.
+#
+# The fixture reads a variable this case SETS and one it does not, in both the
+# value form (`__yo_build_env(name, default)`) and the presence form
+# (`__yo_build_env_is_set(name)`), and reports all four as step descriptions —
+# `--list-steps` prints those, so the values are visible without building
+# anything.
+#
+# Each description is a comptime value passed straight through, never an
+# interpolation: `${flavor}` inside a template yields a runtime `String` and
+# `build.step` needs `comptime_str`, which is
+# issues/build-option-value-cannot-feed-an-artifact-field.md. The `if(...)`
+# picking between two literals for the booleans is the same constraint.
+#
+# What this pins: the set variable's value arrives, the unset one falls back to
+# the default rather than to "", and `is_set` distinguishes the two — which is
+# the reason there are two builtins instead of the plan's single `Option`
+# returning one.
+env=YO_CASE_FLAVOR=vanilla
+timeout=300
+stdout_keep=^\s*(flavor|absent|has-flavor|has-absent|install)

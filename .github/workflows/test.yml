@@ -47,6 +47,16 @@ on:
 # per-sha group would instead run every intermediate commit in parallel — and
 # would break PR cancellation, since `github.sha` on a `pull_request` event is
 # the per-push merge commit and therefore differs run to run.
+#
+# What this does NOT buy, measured 2026-09-12 right after it landed: a develop
+# run that has not STARTED yet is still superseded. `cancel-in-progress`
+# governs runs that are in progress; GitHub keeps only ONE pending run per
+# group, so a merge storm cancels the queued ones regardless. That is the
+# behaviour we want (the survivor is the newest tip) but it means "develop runs
+# are never cancelled" is too strong a reading — what holds is that a develop
+# battery, ONCE RUNNING, finishes. If nothing on develop is finishing at all,
+# suspect runner starvation first (a backlog of runs on already-merged PR
+# branches will sit in front of it — cancel those) rather than this block.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -1650,6 +1660,29 @@ jobs:
           # macro/reflection files (each compiles the whole evaluator,
           # ~6.5 GB peak) go one per shard; the rest stripe round-robin over
           # the sorted glob order.
+          #
+          # A shard number alone does not say WHICH file failed, and the job
+          # log is unavailable until the whole run completes — so when four
+          # shards went red at once on 2026-09-13 the map had to be
+          # reconstructed by hand before any of it could be read. Print it
+          # instead (`shard N files:` below already does, once the job runs);
+          # to get it WITHOUT waiting for CI, run the same selection locally:
+          #
+          #   heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
+          #   for shard in 0 1 2 3; do
+          #     echo "== shard $shard =="
+          #     echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p"
+          #     i=0
+          #     for f in tests/internal/*.test.yo; do
+          #       case " $heavies " in *" $f "*) continue ;; esac
+          #       [ $((i % 4)) -eq "$shard" ] && echo "$f"
+          #       i=$((i + 1))
+          #     done
+          #   done
+          #
+          # Do NOT hardcode the resulting map: it is round-robin over the
+          # sorted glob, so adding ONE file to tests/internal/ reshuffles
+          # every shard after it.
           heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
           shard=${{ matrix.shard }}
           files=$(echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p")

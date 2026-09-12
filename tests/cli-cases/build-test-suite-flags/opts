@@ -24,4 +24,14 @@ timeout=300
 # Only the runner's own lines are compared: the child compile emits the host's
 # ASan probe verdict, openssl paths and clang warnings with generated-C line
 # numbers, none of which are this case's subject.
-stdout_keep_match=(✓|✗) [a-z ]+|Test failed with exit code [0-9]+|deliberate failure — the suite bails here|Bailing out early due to test failure|[0-9]+ (passed|failed|total)
+#
+# The exit CODE is matched but not captured, deliberately. A failing `assert`
+# aborts, and the number the runner prints for an abort is platform-specific:
+# macOS reports the raw signal (6, SIGABRT) and Linux the shell encoding
+# (128 + 6 = 134). Recording either one pins the case to the host that recorded
+# it — this golden was recorded on macOS and could never pass on Linux, which
+# is how it reached develop red. `stdout_keep_match` keeps only the matched
+# SUBSTRING, so dropping `[0-9]+` from the pattern keeps the line and drops the
+# number. The subject of this case is `bail` and `verbose`, not how an abort is
+# encoded.
+stdout_keep_match=(✓|✗) [a-z ]+|Test failed with exit code|deliberate failure — the suite bails here|Bailing out early due to test failure|[0-9]+ (passed|failed|total)

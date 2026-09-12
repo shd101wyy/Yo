@@ -1,0 +1,197 @@
+//! evaluator/builtins/comptime_read_file — implements `comptime_read_file`
+//! (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §5.1).
+//!
+//! `comptime_read_file(path : comptime_str) -> comptime_str` reads a file at
+//! COMPILE time and yields its bytes as a compile-time string. Zig's
+//! `@embedFile`, with Zig's boundary rule.
+//!
+//! Two rules make it safe to have at all:
+//!
+//!   1. The path is relative to the IMPORTING FILE, not to the process cwd. A
+//!      cwd-relative read would give one module two different answers depending
+//!      on where `yo build` was invoked from.
+//!   2. It must resolve INSIDE that file's package root — the directory of the
+//!      nearest `yo.toml` above it, or the std root for a std module. Reading
+//!      `../../../etc/passwd` from a dependency is a compile error, not a
+//!      surprise. The check is on the LEXICALLY normalized path, so `..` cannot
+//!      climb out and back in.
+//!
+//! The read is also an INPUT EDGE: the path is recorded with
+//! `mm_record_opened_file`, so `yo compile --emit-deps` lists it and the build
+//! runner's stamp (§4.9) invalidates the artifact when the data file changes.
+//! Without that, a build could cache over an edited data file forever.
+{ String } :: import("std/string");
+{ Path } :: import("std/path");
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, BF_COMPTIME_READ_FILE } :: import("../../expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
+{ Environment } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../../value.yo");
+{ t_comptime_string } :: import("../../types/creators.yo");
+{ format_error_message } :: import("../../error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ file_exists_sync, read_file_sync, find_manifest } :: import("../../manifest.yo");
+{ record_input_file } :: import("../../input_record.yo");
+{ Exception } :: import("std/error");
+/// Absolutize against `base` (when relative) and fold `.`/`..` LEXICALLY.
+/// Lexical on purpose: the boundary check below compares prefixes, and a
+/// symlink resolved after the check could still point outside.
+_abs_norm :: (fn(base : String, p : String) -> String)({
+  path := Path.new(p.clone());
+  if(!path.is_absolute(), {
+    path = Path.new(base.clone()).join(path);
+  });
+  path.normalize().to_string()
+});
+/// The package root that bounds a read from `file_dir`: the directory of the
+/// nearest `yo.toml` at or above it, else the nearest directory holding a
+/// `build.yo`, else the file's own directory (a loose `.yo` file is its own
+/// package — it can read its siblings and nothing above them).
+_package_root_for :: (fn(file_dir : String) -> String)(
+  match(
+    find_manifest(file_dir.clone()),
+    .Some(manifest_path) => match(
+      Path.new(manifest_path).parent(),
+      .Some(d) => d.to_string(),
+      .None => file_dir.clone()
+    ),
+    .None => {
+      (dir_opt : Option(Path)) = Option(Path).Some(Path.new(file_dir.clone()));
+      while(dir_opt.is_some(), {
+        dir := dir_opt.unwrap();
+        if(file_exists_sync(dir.join(Path.new(String.from("build.yo"))).to_string()), {
+          return(dir.to_string());
+        });
+        dir_opt = match(
+          dir.parent(),
+          .None => Option(Path).None,
+          .Some(p) => if(p.to_string() == dir.to_string(), Option(Path).None, Option(Path).Some(p))
+        );
+      });
+      file_dir.clone()
+    }
+  )
+);
+/// True when `child` is `root` itself or lives under it. Compares normalized
+/// strings with a trailing separator, so `/a/bc` is NOT inside `/a/b`.
+///
+/// BOTH separators are accepted. `Path.to_string` renders `/` for every path
+/// except a UNC one — whose root IS `\\server\share` and which renders `\`
+/// throughout — so a `/`-only check would reject every legitimate read under a
+/// UNC root, on Windows only.
+_is_inside :: (fn(root : String, child : String) -> bool)({
+  if(child == root, {
+    return(true);
+  });
+  if(root.ends_with("/") || root.ends_with("\\"), {
+    return(child.starts_with(root));
+  });
+  child.starts_with(`${root}/`) || child.starts_with(`${root}\\`)
+});
+evaluate_comptime_read_file :: (
+  fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr
+)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  if(args.len() != usize(1), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected exactly 1 argument for "${BF_COMPTIME_READ_FILE}", got ${args.len().to_string()}`
+        )
+      )
+    );
+  });
+  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
+  evaluated := evaluate_expression(arg, env, ctx);
+  arg_value := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(info) => info.value,
+    .None => Option(EvalValue).None
+  );
+  // The path must be KNOWN at compile time. A runtime string cannot name a file
+  // the compiler is able to read.
+  rel := match(
+    arg_value,
+    .Some(v) => match(
+      v,
+      .StrLit(raw) => {
+        n := raw.as_bytes().len();
+        if((n >= usize(2)) && raw.starts_with("\"") && raw.ends_with("\""), raw.substring(usize(1), n - usize(1)), raw.clone())
+      },
+      _ => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `"${BF_COMPTIME_READ_FILE}" needs a compile-time string path, got a value of another kind`
+            )
+          )
+        );
+        String.new()
+      }
+    ),
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `"${BF_COMPTIME_READ_FILE}" needs a compile-time string path; this one is only known at run time`
+          )
+        )
+      );
+      String.new()
+    }
+  );
+  // Resolve against the IMPORTING FILE's directory (never the process cwd).
+  module_file := env.module_path.replace(String.from("file://"), String.new());
+  module_dir := match(Path.new(module_file.clone()).parent(), .Some(d) => d.to_string(), .None => String.from("."));
+  resolved := _abs_norm(module_dir.clone(), rel.clone());
+  root := _package_root_for(module_dir.clone());
+  if(!_is_inside(root.clone(), resolved.clone()), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `"${BF_COMPTIME_READ_FILE}" may only read inside its own package: "${rel}" resolves to "${resolved}", which is outside "${root}"`
+        )
+      )
+    );
+  });
+  // A definition-time trial and a CTFE capability probe must not touch the
+  // disk: they run with placeholder arguments, so the path they compute is not
+  // the one a real call will use. They still need a TYPE, which the annotation
+  // below supplies with an unknown value.
+  is_trial := (ctx.is_validating_function_definition || !ctx.is_executing);
+  (content : String) = String.new();
+  if(!is_trial, {
+    if(!file_exists_sync(resolved.clone()), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `"${BF_COMPTIME_READ_FILE}" cannot read "${rel}": no such file (resolved to "${resolved}")`
+          )
+        )
+      );
+    });
+    content = String.from_bytes(read_file_sync(resolved.clone(), exn));
+    // The read is an INPUT EDGE (§4.9): `--emit-deps` lists this path, so the
+    // build runner's stamp invalidates the artifact when the data file changes.
+    // Recorded only on a REAL read — a trial's path is computed from
+    // placeholder arguments and would poison the list.
+    record_input_file(resolved.clone());
+  });
+  info := new_expr_info(env, t_comptime_string());
+  info.value = if(
+    is_trial,
+    Option(EvalValue).Some(EvalValue.UnknownVal(t_comptime_string(), false)),
+    // `StrLit` keeps its delimiters (codegen strips them positionally and
+    // re-escapes), so the content travels verbatim — quotes, newlines and all.
+    Option(EvalValue).Some(EvalValue.StrLit(`"${content}"`))
+  );
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+export(evaluate_comptime_read_file);
