@@ -146,14 +146,25 @@ impl(
   _Transport,
   read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
+      // DIAGNOSTIC (issues/a-bodyless-http-response-is-not-read-until-the-
+      // deadline.md): `[wire RSP] issuing read` is printed BEFORE this future
+      // is even created, so it proves nothing about whether the socket read was
+      // ever REGISTERED. This block is cold until its await runs it. If `entered`
+      // never prints, the transport future was never started and no kevent/SQE
+      // exists — which would explain a completion that never arrives on BOTH
+      // backends. If `entered` prints and `arm done` does not, the socket read
+      // really is registered and unwoken.
+      eprintln(`  [tr] read entered`);
       (n : usize) = usize(0);
       match(
         self,
         .Plain(stream) => {
           n = e.io.await(stream.read(buf, size, e.io), e);
+          eprintln(`  [tr] plain arm done n=${n.to_string()}`);
         },
         .Secure(stream) => {
           n = e.io.await(stream.read(buf, size, e.io), e);
+          eprintln(`  [tr] secure arm done n=${n.to_string()}`);
         }
       );
       n
