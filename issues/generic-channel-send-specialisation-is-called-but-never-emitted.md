@@ -180,6 +180,81 @@ it was registered AFTER both the declaration loop and the body loop had passed
 it. Dumping `function_order` for `yo_id_14943` at the end of collection settles
 which.
 
+## The full chain, end to end (2026-09-12)
+
+Four probe builds, and the mechanism is now known from the call site back to
+its cause. Each step below was measured, not inferred.
+
+**1. The emission loop SKIPS the callee, and the call site does not.** A probe
+printing every verdict in `generate_function_declarations`' loop:
+
+```
+[DECL-LOOP] SKIPPED __yo_fs_14736942439289292961
+```
+
+— and that is exactly the symbol the C calls with no declaration. So the
+function IS in `function_order`; `should_skip_function_codegen` returned TRUE
+there and FALSE at `other_fn_call.yo:2053` (we get a real call, not the
+degraded `// Failed to transpile` comment). Two callers, same func_id, opposite
+answers.
+
+(Note for anyone re-running this: since #603 symbol names are content hashes,
+so the old `yo_id_..._rtparam1_...` spellings in this file no longer appear in
+the C. Grep the undeclared name out of the clang error and match it against the
+probe output.)
+
+**2. Why it is skipped is correct.** The first gate is
+
+```rust
+fn_has_specializations(func_id) && func_params_have_raw_some_type(function_type)
+```
+
+whose comment says why: "the def-era ORIGINAL of a function the evaluator
+specialized, whose signature still carries a SomeT param — every call
+dispatches through a specialization, and the original renders that param as
+whichever capture struct the SomeT cell last held — dead". That is right. The
+gate's PREMISE is what is false here: this call does not dispatch through a
+specialization, it dispatches to the original.
+
+**3. Why there is no specialization to dispatch to.** The specialisation key is
+built from the argument types, and the second argument is `cb(io)`, whose type
+is `_spawn_zst`'s own generic binder — unresolved in all three channels (the
+probe in the section above). So the mint produces the abstract shape, which IS
+the def-era original, and the call site names it.
+
+**4. Why the binder is unresolved.** `cb(io)` reaches the NO-CALLEE-VALUE arm
+of `evaluate_function_call` (`src/evaluator/calls/function.yo`): `cb` is a
+runtime parameter bound VALUELESS, so there is no FuncVal to read a concrete
+result off. `T` would still resolve if the env had it — and
+`_resolve_some_types_deep` is already called there with the call's env — but
+the env in question is the CLOSURE's body env. The closure
+`(io : Io) => { sink.send(cb(io)); () }` is defined inside `_spawn_zst`'s body
+and carries its DEFINITION env; when `_spawn_zst` is specialised at
+`T = unit`, the binding lands in the specialisation's env, which the closure's
+body env does not chain to. Its sibling `chan := Channel(T).new(...)` is
+evaluated directly in the spec env and resolves fine — which is why `rtparam0`
+of the very same call already reads `..._unit_...` while `rtparam1` does not.
+
+The specialisation binder does handle closure params
+(`is_closure_param` in `src/evaluator/calls/helper.yo`), but it binds the
+param's TYPE — a per-spec rebuild of the declared SomeT seeded with this spec's
+capture struct — and never its VALUE. The spec key already folds the closure's
+own fid in (`_cl0_closure_…` in the mangled name), so binding the value would
+be consistent with the cache rather than a new source of splitting.
+
+**So the fix is one of two, and both are evaluator work:**
+
+- bind an `Impl(Fn(...))` parameter's compile-time FuncVal into the
+  specialisation env, so the body's `cb(x)` can read its concrete result; or
+- make a closure defined in a generic body evaluate against the
+  SPECIALISATION's env rather than its definition env, so the enclosing
+  binder resolves.
+
+**What must NOT be done**: making the call site's degrade check read
+`get_function_entry(fid).value`, so the two verdicts agree by construction.
+That turns the link error into an honest hollow marker and is tempting — but it
+masks D18b rather than fixing it, and the program still would not work.
+
 ## Why this is NOT a one-line fix
 
 Resolving `ptype` through its SomeT chain before the unit test makes the two
