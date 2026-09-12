@@ -229,17 +229,27 @@ The build system models the project as a **directed acyclic graph (DAG)** of ste
 
 1. Builds a DAG from step dependencies and linked artifacts
 2. Detects cycles and reports errors
-3. Executes independent steps concurrently at each level
+3. Executes the nodes of each level, in level order
 
-For example, if `install` depends on both `exe` and `lib` (and they are independent), they compile at the same DAG level. If `exe` links `lib`, then `lib` compiles first.
+For example, if `install` depends on both `exe` and `lib` (and they are independent), they sit at the same DAG level. If `exe` links `lib`, then `lib` compiles first.
 
 ```
-Level 0: lib-a, lib-b, tests   (independent — compile concurrently)
+Level 0: lib-a, lib-b, tests   (independent)
 Level 1: app                    (depends on lib-a, lib-b)
 Level 2: install                (depends on app, tests)
 ```
 
-> **Note**: Artifact compilations are currently serialized (the Yo evaluator uses global state). Tests and run steps execute concurrently.
+A node whose dependency **failed is not executed**: it is reported as `FAILED` with no timing and the build exits non-zero, so one compile error does not become a second error from running a program that was never built.
+
+**Names are one namespace.** A step, artifact, test suite, run step or documentation step all answer to a bare name, and `depend_on` resolves by trying each registry in turn — so reusing a name would make one of the two unreachable. A duplicate is rejected where it is registered, naming the kind that already holds it.
+
+Everything after `--` on the command line is handed to the program a `run` step executes, after any arguments the build file itself gave it:
+
+```bash
+yo build run -- --port 8080 --verbose
+```
+
+> **Note**: the nodes of a level currently run one after another; the levels are what the DAG buys you today. Parallel execution within a level is `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` §4.8.
 
 ### `Step`
 

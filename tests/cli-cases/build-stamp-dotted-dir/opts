@@ -1,0 +1,10 @@
+# plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.7 (B10): the artifact input
+# stamp walked a directory only when its name had NO dot — a heuristic meaning
+# "this is probably a file". Every source under a directory with a dot in its
+# name (`my.pkg/`, `v1.2/`) was therefore invisible to the stamp, so editing
+# those sources left the artifact "cached" and the build silently did nothing.
+# Here `yo init` ADDS a .yo file under the dotted directory between two builds:
+# the second build must recompile, not report a cache hit. The compiler's own
+# chatter carries machine-specific paths, so only the runner's lines are kept.
+timeout=900
+stdout_keep=^(Building |  \(cached|Created|Error|error:)

@@ -79,6 +79,8 @@ BuildOptions :: ref(
     /// default, description) and build nothing. The docs promised `yo build
     /// --help` would list them, and nothing ever did (the plan's B4).
     list_options : bool,
+    /// Everything after `--`, handed to whatever a `run` step executes.
+    run_args : ArrayList(String),
     steps : ArrayList(String),
     defines : HashMap(String, String),
     c_compiler : Option(String),
@@ -122,7 +124,11 @@ ExecutionContext :: ref(
     sysroot : Option(String),
     verbose : bool,
     dry_run : bool,
-    summary : bool
+    summary : bool,
+    /// Everything after `--` on the `yo build` command line: the arguments a
+    /// `run` step hands to the program it runs. `BuildRunStep.args` was always
+    /// empty and there was no way to pass any (the plan's B9).
+    run_args : ArrayList(String)
   )
 );
 /// `git describe --tags --always` in the project dir, or `.None` when that fails
@@ -1097,6 +1103,20 @@ _read_dir_task :: (fn(dir : String, io : Io) -> Impl(Future(ArrayList(DirEntry),
 /// directory's read_dir runs as a spawned task polled with is_finished +
 /// yield (a blocking await from inside a task nests the event loop, C37);
 /// breadth-first over a worklist, which visits exactly the recursion's set.
+/// Is `name` a directory among `entries`? A symlink is not followed: a link
+/// loop would hang the walk, and a linked source tree is stamped where it
+/// really lives.
+_entry_is_dir :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    en := entries(i);
+    if(en.name == name, {
+      return(match(en.file_type, .Directory => true, _ => false));
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 _cache_collect_yo_files :: (
   fn(dir : String, out : ArrayList(String), io : Io) -> Impl(Future(unit, IoExn))
 )(
@@ -1139,9 +1159,12 @@ _cache_collect_yo_files :: (
               out.push(full);
             },
             true => {
-              // Directories are queued; the next round's read_dir on a FILE
-              // unwinds its task (skipped above), so no stat is needed here.
-              if(!(name.contains(String.from("."))), {
+              // Queue it when the DIRECTORY ENTRY says it is one. The old test
+              // was "the name has no dot", a heuristic that silently excluded
+              // every real source directory with a dot in its name (`my.pkg/`,
+              // `v1.2/`): nothing under it was stamped, so editing those
+              // sources left the artifact "cached" (the plan's B10).
+              if(_entry_is_dir(entries, name.clone()), {
                 work.push(full);
               });
             }
@@ -1191,11 +1214,19 @@ _stamp_push_str :: (fn(dst : ArrayList(u8), s2 : String) -> unit)({
   });
   dst.push(u8(10));
 });
-/// The artifact's input stamp, or "" when stamping failed (cache disabled).
+/// The artifact's input stamp, or "" when stamping failed or the cache is off.
 _artifact_input_stamp :: (
-  fn(argv : ArrayList(String), project_dir : String, io : Io) -> Impl(Future(String, IoExn))
+  fn(
+    argv : ArrayList(String),
+    project_dir : String,
+    cache_enabled : bool,
+    io : Io
+  ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
+    if(!cache_enabled, {
+      return(String.new());
+    });
     acc := ArrayList(u8).new();
     _stamp_push_str(acc, `yo-version ${CURRENT_YO_VERSION}`);
     sep := String.from(" ");
@@ -1635,7 +1666,12 @@ compile_artifact :: (
       stamp_inputs.push(import_lines(si).clone());
       si = (si + usize(1));
     });
-    stamp_raw := e.io.await(_artifact_input_stamp(stamp_inputs, ctx.project_dir.clone(), e.io), e);
+    // `YO_BUILD_NO_CACHE=1` means "do not consult the cache", and the walk is
+    // the expensive part — it read and hashed every `.yo` under the project
+    // AND the whole std tree for an answer nothing would look at (the plan's
+    // B10). The flag rides INTO the stamp function so the await here stays a
+    // top-level statement.
+    stamp_raw := e.io.await(_artifact_input_stamp(stamp_inputs, ctx.project_dir.clone(), cache_enabled, e.io), e);
     stamp := cond(
       cache_enabled => stamp_raw,
       true => String.new()
@@ -1911,7 +1947,20 @@ execute_node :: (
               ctx.registry.find_artifact(run_step.artifact_name.clone()),
               .None => (),
               .Some(artifact) => {
-                result := e.io.await(run_executable(artifact, run_step.args, ctx, e.io, e.exn), e);
+                // The build file's own args first, then the command line's
+                // (`yo build run -- --flag value`).
+                run_argv := ArrayList(String).new();
+                (ra_i : usize) = usize(0);
+                while(ra_i < run_step.args.len(), {
+                  run_argv.push(run_step.args(ra_i).clone());
+                  ra_i = (ra_i + usize(1));
+                });
+                ra_i = usize(0);
+                while(ra_i < ctx.run_args.len(), {
+                  run_argv.push(ctx.run_args(ra_i).clone());
+                  ra_i = (ra_i + usize(1));
+                });
+                result := e.io.await(run_executable(artifact, run_argv, ctx, e.io, e.exn), e);
                 match(
                   result,
                   .Ok(_) => (),
@@ -2685,7 +2734,8 @@ run_build :: (
       sysroot : options.sysroot,
       verbose : options.verbose,
       dry_run : options.dry_run,
-      summary : options.summary
+      summary : options.summary,
+      run_args : options.run_args
     );
     requested := if(options.steps.len() == usize(0), {
       defaults := ArrayList(String).new();
