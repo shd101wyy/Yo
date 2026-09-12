@@ -167,6 +167,14 @@ extern(
   __yo_waker_wake : (fn(waker : *u8) -> unit),
   __yo_waker_is_woken : (fn(waker : *u8) -> bool),
   __yo_waker_release : (fn(waker : *u8) -> unit),
+  // spawn_blocking brackets. Between them the loop keeps waiting with no I/O
+  // outstanding and never reports a wake deadlock: the wake is coming from a
+  // worker thread, which is outside everything the loop can see.
+  // `__yo_async_loop_self_ptr` identifies the loop to end the bracket on,
+  // because `end` runs on the WORKER thread.
+  __yo_async_loop_self_ptr : (fn() -> *u8),
+  __yo_async_blocking_begin : (fn() -> unit),
+  __yo_async_blocking_end : (fn(loop : *u8) -> unit),
   // ========================================================================
   // File Extra Operations (async only: sleep remains async)
   // ========================================================================
@@ -380,6 +388,9 @@ export(
   __yo_waker_wake,
   __yo_waker_is_woken,
   __yo_waker_release,
+  __yo_async_loop_self_ptr,
+  __yo_async_blocking_begin,
+  __yo_async_blocking_end,
   // File extra operations (statfs accessors only - statfs itself is now sync)
   __yo_statfs_buf_size,
   __yo_statfs_type,
