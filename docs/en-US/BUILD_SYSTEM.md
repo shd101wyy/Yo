@@ -249,7 +249,13 @@ Everything after `--` on the command line is handed to the program a `run` step 
 yo build run -- --port 8080 --verbose
 ```
 
-> **Note**: the nodes of a level currently run one after another; the levels are what the DAG buys you today. Parallel execution within a level is `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` §4.8.
+By default the nodes of a level run **one after another**, so their output reaches your terminal in DAG order. `-j N` (`--jobs N`) runs up to N of them at once:
+
+```bash
+yo build -j 4
+```
+
+Concurrent nodes interleave their output, the way `make -j` does — the `--summary` tree afterwards is still printed in DAG order, with each node's own duration.
 
 ### `Step`
 
@@ -668,6 +674,7 @@ Options:
   --dry-run              Resolve the build graph and print it; build nothing
   --list-steps           List available build steps
   --list-options         List the options this build file declares
+  -j, --jobs <N>         Run up to N nodes of a DAG level at once (default 1)
   --locked               Fail if fetching dependencies would change yo.lock
   --offline              Fail if fetching dependencies would need the network
   --frozen               --locked and --offline

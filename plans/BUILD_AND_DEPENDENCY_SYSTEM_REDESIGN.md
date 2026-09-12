@@ -110,7 +110,7 @@ keeping. The runner is where the port is incomplete. Reproduced on 0.2.30:
 | B2 | `build.shared_library` compiles its root as an **executable** (no `--shared` mode exists in `yo compile`), fails on `_main`, output has no `lib` prefix or extension | reproduced | `issues/fixed/shared-library-artifact-is-compiled-as-an-executable.md` |
 | B3 | a parse or evaluation error in `build.yo` is **swallowed**: `evaluate_build_file` binds `mm_load_yo_file`'s outcome to `_outcome` and never calls `_take_load_error` (`build_runner.yo:1491-1510`). The user sees `Unknown step "install". Available: (none)`. The duplicate-artifact-name diagnostic that exists (`builtins/build.yo:652-670`) is therefore never shown; `yo fetch` has the same swallow (`fetch_command.yo:97-103`) | reproduced | `issues/fixed/build-yo-evaluation-errors-are-swallowed.md` |
 | B4 | `-D` options are **unvalidated**: undeclared names accepted silently (`declared_options` has no reader outside the builtins file), values are untyped strings, `yo build --help` does not list the project's options although `docs/en-US/BUILD_SYSTEM.md` says it does | reproduced | this plan (§4.7) **FIXED P1.4f** (undeclared names error; `yo build --list-options`; the `comptime_str` blocker is `issues/build-option-value-cannot-feed-an-artifact-field.md`) |
-| B5 | the DAG scheduler computes Kahn levels and then runs each level **sequentially** (`execute_dag`, `build_runner.yo:1260-1266`); the docs' rationale ("the Yo evaluator uses global state") is obsolete since artifacts compile in child processes | code | this plan (§4.8) |
+| B5 | the DAG scheduler computes Kahn levels and then runs each level **sequentially** (`execute_dag`, `build_runner.yo:1260-1266`); the docs' rationale ("the Yo evaluator uses global state") is obsolete since artifacts compile in child processes | code | this plan (§4.8) **FIXED P1.4h** (`-j N`; the default stays 1 so output keeps its DAG order) |
 | B6 | failures do not stop dependents — a `run` node runs after its artifact failed; `Tests failed (exit n)` / `Executable exited with code n` are computed and never printed (`:1124-1126`, `:1142-1144`); a dependency name that resolves to nothing is silently dropped from the DAG (`:250-252`), so `install.depend_on(<typo>)` is a no-op | code | this plan (§4.7) **FIXED P1.4f** |
 | B7 | `--dry-run` prints `[dry-run] Would execute step: X` without building the DAG, validating the step, or detecting cycles (`:1701-1705`); help text says "Resolve the build graph without running it" | reproduced | this plan (§4.7) **FIXED P1.4f** |
 | B8 | `ReleaseSmall` ≡ `ReleaseSafe` (`--optimize 2` both); no level passes `-g` although `std/build.yo:19-33` documents `-O0 -g` / `-O2 -g` | code | `issues/build-release-small-is-identical-to-release-safe.md` (pre-existing) |
@@ -875,10 +875,33 @@ Gates: cli-cases `build-run-args`, `build-stamp-dotted-dir` (a `.yo` file is
 added under `my.pkg/` BETWEEN two builds — a cache hit on the second is the
 bug) and `build-name-collision`.
 
-Not in P1.4g (next): B5/§4.8 (the nodes of a level run one after another), the
-rest of B13 (`BuildDocConfig.include_deps/logo/favicon` and the test suite's
-`target/verbose/bail/parallel` are accepted and never forwarded), §4.9's
-depfile-scoped stamps, then §4.6 workspaces and the P2/P3 phases.
+**P1.4h — §4.8, a level's nodes can overlap** (`p1/parallel-levels`, stacked on
+P1.4g). B5: the scheduler computed Kahn levels and then ran every node of a
+level one after another, and the docs described concurrency that never
+happened. A level's ready nodes now run in batches of `-j N` — each node is an
+`io.spawn`ed task, `join_all` collects them, and the results are recorded in
+the batch's own order so the DAG bookkeeping is unchanged. The children those
+tasks spawn (`yo compile`, a test binary, the program a `run` step runs) are
+what actually overlap.
+
+The default is **1**, deliberately: at 1 the nodes' output streams in DAG
+order, which every recorded cli-case golden depends on, and a single-artifact
+project — the common case, including this compiler's own build — has one node
+per level anyway. `-j N` opts into overlap and then output interleaves, the way
+`make -j` does; `--summary` is still printed in DAG order afterwards, with each
+node's own duration (P1.4f's timing is taken INSIDE the node's task, so it
+measures the node and not the batch). A `-j 0`/`-j x` is an error rather than a
+silent 1.
+
+Gate: cli-case `build-parallel-jobs` — two libraries with no edge between them
+and `-j 2`, comparing only `Build Summary: N/N steps succeeded`, because the
+`Building …` lines and the C compiler's chatter interleave by design.
+
+Not in P1.4h (next): the rest of B13 (`BuildDocConfig.include_deps/logo/favicon`
+and the test suite's `target/verbose/bail/parallel` are accepted and never
+forwarded), §4.9's depfile-scoped stamps, §4.6 workspaces, then the plan's P2
+(compile-time inputs: `comptime_read_file`, `comptime_json_parse` /
+`comptime_toml_parse`, `build.env`) and the rest of P3.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path
