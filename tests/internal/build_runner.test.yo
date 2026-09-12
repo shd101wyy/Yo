@@ -12,7 +12,7 @@ import("std/fmt");
 { HashMap } :: import("std/collections/hash_map");
 { assert, panic } :: import("std/assert");
 { DAGNode, DAGNodeKind, build_dag, detect_cycle } :: import("../../src/build_runner.yo");
-{ BuildRegistry, BuildArtifact, ArtifactKind, ImportedModule } :: import("../../src/evaluator/builtins/build.yo");
+{ BuildRegistry, BuildArtifact, ArtifactKind } :: import("../../src/evaluator/builtins/build.yo");
 _mk_artifact :: (fn(kind : ArtifactKind, name : String, root : String) -> BuildArtifact)(
   BuildArtifact(
     kind : kind,
@@ -35,8 +35,7 @@ _mk_artifact :: (fn(kind : ArtifactKind, name : String, root : String) -> BuildA
     static_link : false,
     runtime_files : ArrayList(String).new(),
     linked_artifacts : ArrayList(String).new(),
-    linked_system_libs : ArrayList(String).new(),
-    imported_modules : ArrayList(ImportedModule).new()
+    linked_system_libs : ArrayList(String).new()
   )
 );
 _dag_find :: (fn(dag : ArrayList(DAGNode), name : String) -> Option(DAGNode))({

@@ -8,7 +8,7 @@
 //! (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.1). TS resolved them
 //! through an in-process registry + `yo.lock` lookup, which a child-process
 //! compile cannot see — the port had dropped the rule entirely
-//! (issues/dependency-imports-never-resolve-in-the-self-hosted-compiler.md).
+//! (issues/fixed/dependency-imports-never-resolve-in-the-self-hosted-compiler.md).
 //!
 //! * The `safeRelativePath` Windows cross-drive helper is omitted; absolute
 //!   paths returned by `Path.join` are used directly.
@@ -59,23 +59,56 @@ _file_exists_sync :: (fn(absolute_path : String) -> bool)({
 // Import roots — bare names the build runner resolved for this compile
 // ---------------------------------------------------------------------------
 /// `import("mylib")` / `import("mylib/sub")` resolve through this table: the
-/// build runner maps each artifact's dependency and module imports to a root
-/// file and hands the mapping to the child compile as `--imports <file>`
-/// (module_manager.yo loads it). Empty for a plain `yo compile`, where only
-/// `std/`, relative and CWD-relative imports exist. Rule 0 of
-/// `resolve_module_path`. Parallel arrays — the table is a handful of entries.
+/// project's `yo.toml` closure — its own `[modules]`, every dependency's
+/// modules under the dependency's name, transitively — as computed by
+/// `manifest.resolve_import_roots`. module_manager.yo registers it from the
+/// manifest it discovers above the entry file, or from the build runner's
+/// explicit `--imports <file>` mapping (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+/// §4.5.1). Empty for a file outside any project, where only `std/`,
+/// relative and CWD-relative imports exist. Rule 0 of `resolve_module_path`.
+/// Parallel arrays — the table is a handful of entries.
 (g_import_root_names : ArrayList(String)) = ArrayList(String).new();
 (g_import_root_paths : ArrayList(String)) = ArrayList(String).new();
-/// Map a bare import name to its module root file (absolute path). A name
-/// mapped twice resolves to the FIRST mapping — the runner rejects duplicate
-/// import names before this point.
+/// Declared-but-unavailable names (a git dependency `yo install` has not
+/// fetched, a dependency without a module root) and why — so importing one
+/// reports the cause instead of "module not found".
+(g_import_unavailable_names : ArrayList(String)) = ArrayList(String).new();
+(g_import_unavailable_reasons : ArrayList(String)) = ArrayList(String).new();
+/// Map an import name (`dep`, or `dep/sub` for a named module) to its module
+/// root file (absolute path). A name mapped twice resolves to the FIRST
+/// mapping — the resolver rejects duplicate import names before this point.
 set_import_root :: (fn(name : String, root_file : String) -> unit)({
   g_import_root_names.push(name);
   g_import_root_paths.push(root_file);
 });
+/// Record that `name` is declared by the manifest but cannot be imported,
+/// with the reason the diagnostic will carry.
+set_import_unavailable :: (fn(name : String, reason : String) -> unit)({
+  g_import_unavailable_names.push(name);
+  g_import_unavailable_reasons.push(reason);
+});
 clear_import_roots :: (fn() -> unit)({
   g_import_root_names = ArrayList(String).new();
   g_import_root_paths = ArrayList(String).new();
+  g_import_unavailable_names = ArrayList(String).new();
+  g_import_unavailable_reasons = ArrayList(String).new();
+});
+lookup_import_unavailable :: (fn(name : String) -> Option(String))({
+  (i : usize) = usize(0);
+  while(i < g_import_unavailable_names.len(), {
+    matches := match(g_import_unavailable_names.get(i), .Some(n) => (n == name), .None => false);
+    if(matches, {
+      match(
+        g_import_unavailable_reasons.get(i),
+        .Some(r) => {
+          return(Option(String).Some(r));
+        },
+        .None => ()
+      );
+    });
+    i = (i + usize(1));
+  });
+  Option(String).None
 });
 lookup_import_root :: (fn(name : String) -> Option(String))({
   (i : usize) = usize(0);
@@ -104,7 +137,10 @@ lookup_import_root :: (fn(name : String) -> Option(String))({
 ModuleResolveResult :: enum(
   Found(abs_path : String),
   NotFound(base : String),
-  Ambiguous(base : String)
+  Ambiguous(base : String),
+  /// A name the project's manifest declares whose sources are not available
+  /// (not fetched, no module root); `reason` says what to do.
+  Unavailable(name : String, reason : String)
 );
 /// Resolve an import path string (already stripped of surrounding quotes,
 /// and known not to be the prelude) to a concrete `file://` module path.
@@ -117,7 +153,8 @@ ModuleResolveResult :: enum(
 ///
 /// Mirrors the resolution order in `src/evaluator/exprs/import.ts`:
 ///   0. `<name>` / `<name>/<sub>` where `<name>` is a mapped import root
-///                  → the root file / `<sub>` under the root's directory
+///                  → the root file / the mapped `<name>/<sub>` module /
+///                    `<sub>` under the root's directory
 ///   1. `std/…`     → relative to `std_path`
 ///   2. `std`       → `std_path/index.yo`
 ///   3. `.`/`..`    → relative to `current_dir`
@@ -127,18 +164,33 @@ resolve_module_path :: (
   fn(import_path : String, current_dir : String, std_path : String) -> ModuleResolveResult
 )({
   (module_path_to_import : String) = import_path.clone();
-  // 0. A bare name the build runner mapped to a module root: `import("dep")`
-  //    is the root file itself; `import("dep/sub")` is `sub` under the root's
-  //    directory (then the usual extension resolution). Only the FIRST path
-  //    segment is looked up, and `std` / relative heads are never consulted,
-  //    so rules 1–3 cannot be shadowed. The mapped root is absolute, so the
-  //    rewritten path falls through rules 1–4 untouched.
+  // 0. A name the manifest mapped to a module root: `import("dep")` is the
+  //    root file itself; `import("dep/sub")` is the dependency's `[modules]
+  //    sub` when it declares one, else `sub` under the root's directory (then
+  //    the usual extension resolution). Only the FIRST path segment is looked
+  //    up for the directory form, and `std` / relative heads are never
+  //    consulted, so rules 1–3 cannot be shadowed. The mapped root is
+  //    absolute, so the rewritten path falls through rules 1–4 untouched.
   head := match(
     module_path_to_import.index_of("/"),
     .Some(k) => module_path_to_import.substring(usize(0), k),
     .None => module_path_to_import.clone()
   );
   if(!(head.starts_with(String.from(".")) || (head == "std")), {
+    match(
+      lookup_import_root(module_path_to_import.clone()),
+      .Some(exact) => {
+        return(ModuleResolveResult.Found(`file://${exact}`));
+      },
+      .None => ()
+    );
+    match(
+      lookup_import_unavailable(head.clone()),
+      .Some(reason) => {
+        return(ModuleResolveResult.Unavailable(head.clone(), reason));
+      },
+      .None => ()
+    );
     match(
       lookup_import_root(head.clone()),
       .Some(root) => {
@@ -198,70 +250,6 @@ resolve_module_path :: (
     yo_exists => ModuleResolveResult.Found(`file://${yo_file_path}`),
     index_exists => ModuleResolveResult.Found(`file://${index_yo_path}`),
     true => ModuleResolveResult.NotFound(module_path_to_import)
-  )
-});
-// ---------------------------------------------------------------------------
-// _find_project_root
-// ---------------------------------------------------------------------------
-/// Walk up the directory tree to find the nearest project root.
-/// A directory is a project root if it contains `yo.lock` or `build.yo`.
-/// Returns `.None` if no project root is found.
-_find_project_root :: (fn(file_path : String) -> Option(String))({
-  dir_path_opt := Path.new(file_path).parent();
-  (result : Option(String)) = .None;
-  (found : bool) = false;
-  while(!found, {
-    match(
-      dir_path_opt,
-      .None => {
-        found = true;
-      },
-      .Some(dir_p) => {
-        dir_str := dir_p.to_string();
-        yo_lock := dir_p.join(Path.new(String.from("yo.lock"))).to_string();
-        build_yo := dir_p.join(Path.new(String.from("build.yo"))).to_string();
-        if(_file_exists_sync(yo_lock) || _file_exists_sync(build_yo), {
-          result = .Some(dir_str);
-          found = true;
-        }, {
-          // Move up one level.
-          next_opt := dir_p.parent();
-          match(
-            next_opt,
-            .None => {
-              found = true;
-            },
-            .Some(next) => {
-              // Stop if we've reached the root (no more parent).
-              if(next.to_string() == dir_str, {
-                found = true;
-              }, {
-                dir_path_opt = .Some(next);
-              });
-            }
-          );
-        });
-      }
-    );
-  });
-  result
-});
-// ---------------------------------------------------------------------------
-// _resolve_dependency_entry_point
-// ---------------------------------------------------------------------------
-/// Resolve the entry point file for a named dependency under `dep_root`.
-/// Tries `index.yo` then `<dep_name>.yo`, falls back to `dep_root`.
-_resolve_dependency_entry_point :: (fn(dep_root : String, dep_name : String) -> String)({
-  index_yo := Path.new(dep_root).join(Path.new(String.from("index.yo"))).to_string();
-  named_yo := Path.new(dep_root).join(Path.new(dep_name.concat(String.from(".yo")))).to_string();
-  if(
-    _file_exists_sync(index_yo),
-    index_yo,
-    if(
-      _file_exists_sync(named_yo),
-      named_yo,
-      dep_root
-    )
   )
 });
 // ---------------------------------------------------------------------------
@@ -475,6 +463,17 @@ evaluate_import :: (
         )
       );
       String.from("")
+    },
+    .Unavailable(name, reason) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(module_arg),
+            `import("${name}"): ${reason}`
+          )
+        )
+      );
+      String.from("")
     }
   );
   // ---------------------------------------------------------------------------
@@ -555,4 +554,4 @@ evaluate_import :: (
   expr
 });
 export(evaluate_import, resolve_module_path, ModuleResolveResult, _build_module_val_from_env);
-export(set_import_root, clear_import_roots, lookup_import_root);
+export(set_import_root, set_import_unavailable, clear_import_roots, lookup_import_root, lookup_import_unavailable);

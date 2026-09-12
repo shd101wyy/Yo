@@ -5249,6 +5249,87 @@ test("nested cond arms mixing a named and an anonymous future await through thei
   assert(io.await(_nested_named_mix_bound(usize(1), io), io) == i32(110), "anonymous nested arm, then the arm's statement");
   assert(io.await(_nested_named_mix_bound(usize(2), io), io) == i32(120), "named nested arm, then the arm's statement");
 });
+// Two `match`es on the SAME local in one async body. Each match on an atom
+// subject used to copy its state-machine slot into a C local named after the
+// variable (`__yo_tN parsed = sm->var_N;`), so the second match in the same
+// block was a C redefinition
+// (issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
+_MmParsed :: enum(Git(name : String, url : String), Path(name : String, rel : String));
+_mm_probe :: (fn(what : String, io : Io) -> Impl(Future(bool, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    what.len() > usize(1)
+  })
+);
+_mm_latest :: (fn(url : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    `^1.0.0(${url})`
+  })
+);
+_match_same_local_twice :: (fn(spec : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    parsed := match(
+      spec.starts_with("./"),
+      true => _MmParsed.Path(String.from("mylib"), spec.clone()),
+      false => _MmParsed.Git(String.from("repo"), spec.clone())
+    );
+    (name : String) = String.new();
+    (url : String) = String.new();
+    (needs_latest : bool) = false;
+    match(
+      parsed,
+      .Path(n, rel) => {
+        name = n;
+        url = rel;
+      },
+      .Git(n, u) => {
+        name = n;
+        url = u;
+        needs_latest = true;
+      }
+    );
+    is_path := match(parsed, .Path(_, _) => true, .Git(_, _) => false);
+    (version : String) = String.new();
+    (present : bool) = false;
+    if(is_path, {
+      p := e.io.await(_mm_probe(url.clone(), e.io), e);
+      present = p;
+    });
+    if(needs_latest, {
+      v := e.io.await(_mm_latest(url.clone(), e.io), e);
+      version = v;
+    });
+    kind := match(parsed, .Path(_, _) => "path", .Git(_, _) => "git");
+    `${kind} ${name} ${url} ${version} ${present.to_string()}`
+  })
+);
+_MmSrc :: enum(Git(url : String, tag : String), Path(p : String));
+_mm_tags_of :: (fn(url : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    `tags(${url})`
+  })
+);
+_match_loop_local_twice :: (fn(srcs : ArrayList(_MmSrc), io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := String.new();
+    (i : usize) = usize(0);
+    while(i < srcs.len(), {
+      src := srcs(i);
+      i = (i + usize(1));
+      requirement := match(src, .Git(_, t) => t, .Path(p) => p);
+      url := match(src, .Git(u, _) => u, .Path(_) => String.from("local"));
+      (chosen : String) = requirement.clone();
+      if(requirement.len() == usize(0), {
+        listed := e.io.await(_mm_tags_of(url.clone(), e.io), e);
+        chosen = listed;
+      });
+      out.push_string(`${url}:${chosen};`);
+    });
+    out
+  })
+);
 test("a nested arm that loops with an await runs its post-loop code for that arm only", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -5294,4 +5375,23 @@ test("a local named like a struct field read in the same async body keeps its ow
   exn := Exception(throw : (_err -> unwind(())));
   got := io.await(_field_named_local(io), IoExn(io : io, exn : exn));
   assert(got == "/dep;/dep;", `the local root is a String, not the field's Option (got ${got})`);
+});
+test("two matches on the same match-bound local in one async body", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  path := io.await(_match_same_local_twice(String.from("./mylib"), io), bundle);
+  assert(path == "path mylib ./mylib  true", `the path arm, the probe await, the third match (got ${path})`);
+  git := io.await(_match_same_local_twice(String.from("user/repo"), io), bundle);
+  assert(git == "git repo user/repo ^1.0.0(user/repo) false", `the git arm, the latest await, the third match (got ${git})`);
+});
+test("two matches on a loop local in an async while body", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  srcs := ArrayList(_MmSrc).new();
+  srcs.push(_MmSrc.Git(String.from("u1"), String.new()));
+  srcs.push(_MmSrc.Git(String.from("u2"), String.from("v2")));
+  srcs.push(_MmSrc.Path(String.from("p")));
+  got := io.await(_match_loop_local_twice(srcs, io), IoExn(io : io, exn : exn));
+  assert(got == "u1:tags(u1);u2:v2;local:p;", `every iteration matched its local twice and awaited when needed (got ${got})`);
 });

@@ -25,8 +25,8 @@ yo build
 
 ```
 my-project/
+├── yo.toml               ← 包清单：名称、模块、依赖（由 yo add 编辑）
 ├── build.yo              ← 构建配置
-├── deps.yo               ← 依赖声明（由 yo install 管理）
 ├── src/
 │   ├── main.yo           ← 可执行文件入口
 │   └── lib.yo            ← 库代码
@@ -64,9 +64,6 @@ yo-out/
 
 ```rust
 build :: import "std/build";
-
-// 模块元数据
-mod :: build.module({ name: "my-project", root: "./src/lib.yo" });
 
 // 定义产物——每个都返回一个 Step 用于依赖连接
 exe :: build.executable({
@@ -254,8 +251,6 @@ Level 2: install                （依赖 app, tests）
 | ------------------------------- | --------------------------------------------------- |
 | `step.depend_on(other)`         | 添加依赖——`other` 会在 `step` 之前构建              |
 | `step.link(library)`            | 将库链接到产物（静态库、共享库或系统库）            |
-| `step.add_import(entry)`        | 添加单个模块导入到此步骤（用于依赖模块）            |
-| `step.add_import_list(entries)` | 从 `ComptimeList(ImportEntry)` 批量添加多个模块导入 |
 | `step.add_c_flags(flags)`       | 添加自定义 C 编译器/链接器标志（空格分隔的字符串）  |
 
 ### `StepKind`
@@ -303,9 +298,18 @@ install success
 
 ## 模块
 
-模块是 Yo 依赖间复用的基本单元。模块声明其源码根目录和系统库依赖。当其他项目导入某个模块时，其系统库会自动传播给使用者的构建——无需手动调用 `system_library` 或 `link`。
+模块是其他代码按名称导入的根文件。模块在 `yo.toml` 的 `[modules]` 表中声明——`default` 就是 `import("<包名>")` 的含义，其余每一项可通过 `import("<包名>/<模块>")` 导入，在包内和每个依赖它的包中都一样：
 
-### 定义模块
+```toml
+[package]
+name = "raylib_yo"
+
+[modules]
+default = "src/lib.yo"
+shapes  = "src/shapes.yo"
+```
+
+`build.yo` 在需要给模块附加系统库时才引用它。当另一个包导入该模块时，其系统库会传播到使用方的构建：
 
 ```rust
 build :: import "std/build";
@@ -315,10 +319,8 @@ raylib :: build.system_library({
   defines: "NOMINMAX NOGDI NOUSER"
 });
 
-// 声明模块及其根源文件
-mod :: build.module({ name: "raylib_yo", root: "./src/lib.yo" });
-
-// 链接模块依赖的系统库
+// 指名 yo.toml [modules] 中的一项，并链接它需要的系统库
+mod :: build.module({ name: "default" });
 mod.link(raylib);
 
 exe :: build.executable({ name: "raylib_yo", root: "./src/main.yo" });
@@ -330,75 +332,28 @@ install.depend_on(exe);
 
 ### `BuildModule`
 
-由 `build.module()` 返回。有一个方法：
+由 `build.module()` 和 `dep.module()` 返回。有一个方法：
 
-| 方法            | 描述                     |
-| --------------- | ------------------------ |
-| `mod.link(lib)` | 声明此模块依赖某个系统库 |
+| 方法            | 说明                       |
+| --------------- | -------------------------- |
+| `mod.link(lib)` | 声明此模块依赖某个系统库   |
 
 ### `ModuleConfig`
 
-| 字段   | 类型           | 默认值     | 描述         |
-| ------ | -------------- | ---------- | ------------ |
-| `name` | `comptime_str` | _（必填）_ | 模块名称     |
-| `root` | `comptime_str` | _（必填）_ | 根源文件路径 |
+| 字段   | 类型           | 默认值     | 说明                                                  |
+| ------ | -------------- | ---------- | ----------------------------------------------------- |
+| `name` | `comptime_str` | _（必填）_ | `yo.toml` `[modules]` 中的一项（根模块为 `"default"`） |
 
-### 从依赖导入模块
+### 导入依赖的模块
 
-使用 `dep.module()` 和 `exe.add_import()` 从依赖中导入模块：
-
-```rust
-build :: import "std/build";
-
-// Git 依赖
-raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
-
-// 或者本地路径依赖：
-// raylib_yo :: build.path_dependency({ name: "raylib_yo", path: "../raylib_yo" });
-
-exe :: build.executable({ name: "tetris_yo", root: "./src/main.yo" });
-
-// 导入模块——系统库（raylib）会被传递性地传播
-exe.add_import({ name: "raylib_yo", module: raylib_yo.module() });
-
-install :: build.step("install", "Build all artifacts");
-install.depend_on(exe);
-```
-
-- `dep.module()` — 获取依赖中唯一的模块（空名称默认为唯一模块）
-- `dep.module("name")` — 如果依赖定义了多个模块，按名称获取特定模块
-- `exe.add_import({ name, module })` — 在产物上注册单个模块导入
-- `exe.add_import_list(list)` — 从 `ComptimeList(ImportEntry)` 批量注册多个模块导入
-
-### 使用 `add_import_list` 批量导入
-
-当依赖导出多个模块时，使用 `add_import_list` 一次性注册所有模块：
+`build.yo` 中无需任何接线：在 `yo.toml` 中声明的依赖可按其名称导入，其命名模块按 `name/module` 导入：
 
 ```rust
-import_list :: ComptimeList(build.ImportEntry)(
-  { name: "mod_a", module: dep.module("a") },
-  { name: "mod_b", module: dep.module("b") }
-);
-exe.add_import_list(import_list);
+raylib_yo :: import "raylib_yo";          // 依赖的 [modules] default
+{ Circle } :: import "raylib_yo/shapes";  // 它的 [modules] shapes
 ```
 
-### `ImportEntry`
-
-| 字段     | 类型           | 描述                                |
-| -------- | -------------- | ----------------------------------- |
-| `name`   | `comptime_str` | 导入名称（用于 `import "name"`）    |
-| `module` | `BuildModule`  | 要导入的模块（来自 `dep.module()`） |
-
-### 工作原理
-
-当你运行 `yo build` 时，构建系统会：
-
-1. **求值依赖的 `build.yo`** 以发现其模块和链接的系统库
-2. **解析系统库** 通过 `pkg-config`（或回退标志）为每个模块查找库
-3. **传播标志** — 来自模块系统库的头文件路径、库路径、链接标志和宏定义会合并到使用方产物的编译命令中
-4. **设置导入解析** — 使用方源码中的 `import "raylib_yo"` 会解析到该模块的根文件
-
-这意味着使用方不需要声明 `build.system_library({ name: "raylib" })` —— 系统库会从依赖的模块定义中自动传播。
+这在每个命令中都成立——`yo build`、`yo compile`、`yo check`、`yo test`、`yo doc` 和语言服务器——因为编译器会在被编译文件之上找到最近的 `yo.toml`，并解析清单的依赖闭包（见[导入依赖](#导入依赖)）。
 
 ## 链接库
 
@@ -703,8 +658,8 @@ Options:
 
 创建以下文件：
 
-- `build.yo` — 构建配置（导入 `deps.yo`）
-- `deps.yo` — 依赖声明（空模板）
+- `yo.toml` — 包清单：`[package]` 的名称与版本、`[modules] default = "src/lib.yo"`、一个空的 `[dependencies]` 表
+- `build.yo` — 构建配置
 - `src/main.yo` — 可执行文件入口
 - `src/lib.yo` — 库代码
 - `tests/main.test.yo` — 测试文件
@@ -725,7 +680,6 @@ Options:
 build :: import "std/build";
 
 // 模块定义
-mod :: build.module({ name: "my-app", root: "./src/lib.yo" });
 
 // 原生构建
 native :: build.executable({
@@ -758,202 +712,144 @@ run_step.depend_on(run_native);
 
 ## 依赖管理
 
-### Git 依赖
+依赖在包清单 `yo.toml` 中声明——它是数据而不是代码：任何工具都能在不运行任何东西的情况下读取它，`yo add` / `yo remove` 原地编辑它并保留你的注释和格式。
 
-在 `build.yo` 中声明 Git 托管的依赖：
+```toml
+[package]
+name = "tetris_yo"
+version = "0.3.0"
+description = "Tetris in Yo"
+license = "MIT"
 
-```rust
-build :: import "std/build";
+[modules]                     # 导入方可写 `import("tetris_yo")` / `import("tetris_yo/board")`
+default = "src/lib.yo"
+board   = "src/board.yo"
 
-// 添加 Git 依赖——返回一个 Dependency 句柄
-dep :: build.dependency({
-  name: "json-parser",
-  url: "https://github.com/user/json-parser.git",
-  ref: "v1.0.0"
-});
+[dependencies]
+raylib_yo = { git = "https://github.com/shd101wyy/raylib_yo", version = "^0.0.6" }
+json-yo   = { git = "https://github.com/user/json-yo", tag = "v1.2.0" }
+utils     = { git = "https://github.com/user/mono", version = "~2.1", path = "packages/utils" }
+mylib     = { path = "../mylib" }
 
-// 从仓库子目录获取依赖
-build.dependency({
-  name: "utils",
-  url: "https://github.com/user/mono-repo.git",
-  ref: "main",
-  path: "packages/utils"
-});
-
-exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
-
-install :: build.step("install", "Build all artifacts");
-install.depend_on(exe);
+[dev-dependencies]            # 只供本包自己的测试使用；不会传播给依赖方
+snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
 ```
 
-使用以下命令拉取依赖：
+### `[package]`
+
+| 键            | 说明                                                             |
+| ------------- | ---------------------------------------------------------------- |
+| `name`        | 包名——导入方在 `import("name")` 中写的名字。必填。                |
+| `version`     | 本包的语义化版本（发布标签 `vX.Y.Z` 所携带的版本）                 |
+| `description` | 自由文本                                                         |
+| `license`     | SPDX 标识符                                                      |
+| `yo`          | 最低编译器版本（与 `.yo-version` 对应）                           |
+
+### 依赖条目
+
+一个依赖是一个表键（它的导入名）加一个内联表：
+
+| 键        | 含义                                                                                     |
+| --------- | ---------------------------------------------------------------------------------------- |
+| `git`     | 仓库 URL——`https://…`、`git@host:path`、`ssh://…`，或 git 接受的本地路径                  |
+| `version` | 覆盖仓库 `vX.Y.Z` 标签的 semver 范围；`yo install` 选取满足范围的最高标签                  |
+| `tag`     | 一个精确标签                                                                             |
+| `branch`  | 一个分支，在 `yo.lock` 中锁定到某个提交，只由 `yo update` 移动                             |
+| `rev`     | 一个精确提交                                                                             |
+| `path`    | 与 `git` 同用：包在仓库内的目录。单独使用：本地路径依赖（相对于 `yo.toml`）                 |
+
+git 条目最多锁定 `version` / `tag` / `branch` / `rev` 之一；只有 `git` 时跟随远端默认分支。其他任何键都是错误——拼写错误永远不会悄悄变成"默认分支"。
+
+### 版本范围
+
+范围语法与 Cargo 相同：
+
+| 范围              | 接受                                                                       |
+| ----------------- | -------------------------------------------------------------------------- |
+| `^1.2.3`、`1.2.3` | `>=1.2.3, <2.0.0`（`0.x`：`^0.2.3` 是 `<0.3.0`，`^0.0.3` 恰好是 `0.0.3`） |
+| `~1.2.3`          | `>=1.2.3, <1.3.0`                                                          |
+| `=1.2.3`          | 恰好 `1.2.3`                                                               |
+| `>=1.2, <2`       | 用 `,` 连接的比较器（必须全部成立）                                        |
+| `1.*`、`1.2.*`、`*` | 该主版本 / 次版本系列，任意版本                                            |
+
+预发布标签（`v1.0.0-rc.1`）也是版本，但只有当范围指名了同一 `major.minor.patch` 的预发布版本时才接受（`^1.0.0-rc.1` 接受 `v1.0.0-rc.2` 和 `v1.0.0`；`^1.0.0` 永远不接受 `v1.5.0-beta.1`）。
+
+### 添加依赖：`yo add`
 
 ```bash
-yo fetch              # 从 build.yo 中拉取所有依赖
-yo fetch --verbose    # 显示详细进度
-yo fetch --update     # 重新解析 Git 引用到最新提交
+yo add shd101wyy/raylib_yo        # 最新发布标签，写成 version = "^X.Y.Z"
+yo add user/json-yo@^1.2          # 一个范围
+yo add user/json-yo@v1.2.0        # 一个精确标签
+yo add github.com/user/repo       # 显式主机；https://… 与 git@host:path 也可以
+yo add user/mono --path packages/utils --name utils   # 仓库内的一个包
+yo add user/tool --branch main    # 跟随分支
+yo add user/tool --rev 0123abcd   # 锁定提交
+yo add ./libs/mylib               # 本地路径依赖
+yo add user/snapshot-yo --dev     # 写入 [dev-dependencies]
 ```
 
-也可以直接从 GitHub 安装：
+`yo add` 原地编辑 `yo.toml`（保留注释与格式），然后解析并抓取全部 git 依赖并写入 `yo.lock`。不带 `@…` 时用 `git ls-remote --tags` 查找最新发布标签并写成 caret 范围；没有发布标签的仓库按名字锁定到默认分支。导入名默认是仓库（或目录）名——用 `--name` 覆盖。
+
+`yo remove <name>` 删除条目并剪除 `yo.lock`。
+
+### 安装与更新：`yo install`、`yo update`
 
 ```bash
-yo install github.com/user/repo          # 最新语义化版本标签
-yo install github.com/user/repo@v1.0.0   # 固定版本
-yo install user/repo                     # GitHub 简写
-yo install ./path/to/local/dep           # 本地路径依赖
+yo install            # 抓取 yo.toml 声明的依赖，写入 yo.lock
+yo update             # 在范围内 / 到分支最新提交重新解析所有依赖
+yo update raylib_yo   # 只更新一个
 ```
 
-`yo install` 会从仓库解析最新的语义化版本标签（如果没有则回退到默认分支），在 `build.yo` 中追加 `build.dependency(...)` 调用，并将依赖拉取到全局缓存中。对于本地路径（`./`、`../` 或绝对路径），则追加 `build.path_dependency(...)` 调用——无需拉取。
+`yo install` 决定每个 git 依赖的 ref（范围 → 满足范围的最高标签，`tag`/`rev` → 本身，`branch` 或只有 `git` → 最新提交），克隆缓存缺少的内容，并把结果记录到 `yo.lock`。仍满足需求的锁条目直接复用而不访问网络，因此新克隆的项目运行 `yo install` 就能得到记录的提交；`yo update` 才会移动它们。`yo build` 对缓存缺失的依赖自动执行同一步骤。
 
-依赖存储在全局缓存中，并由 `yo.lock` 追踪（请将此文件提交到版本控制）。`yo build` 会在依赖尚未缓存时自动拉取。
-
-**更新依赖**：使用分支引用（如 `"main"`）时，锁文件会固定拉取时的确切提交 SHA。运行 `yo fetch --update`（或 `yo fetch -u`）可重新解析所有引用到最新提交并更新 `yo.lock`。
-
-### 链接依赖产物
-
-如果某个依赖有自己的 `build.yo` 且定义了产物（如静态库），可以使用 `dep.artifact()` 来链接：
-
-```rust
-build :: import "std/build";
-
-// 注册依赖（Git 或路径）
-dep :: build.path_dependency({ name: "dep_lib", path: "../dep_lib" });
-
-// 访问 dep_lib 的 build.yo 中定义的 "add" 静态库
-add_lib :: dep.artifact("add");
-
-// 链接到我们的可执行文件
-exe :: build.executable({ name: "demo", root: "./src/main.yo" });
-exe.link(add_lib);
-
-install :: build.step("install", "Build demo");
-install.depend_on(exe);
-```
-
-依赖的 `build.yo` 定义了静态库：
-
-```rust
-build :: import "std/build";
-
-lib :: build.static_library({ name: "add", root: "./src/lib.yo" });
-
-install :: build.step("install", "Build the static library");
-install.depend_on(lib);
-```
-
-当你运行 `yo build` 时，构建系统会：
-
-1. 求值依赖的 `build.yo` 以发现其产物
-2. 编译依赖的静态库（`libadd.a`）
-3. 将其链接到使用方的可执行文件
-
-使用方的源码通过 `extern "Yo"` 声明依赖的函数：
-
-```rust
-extern "Yo",
-  add : (fn(a: i32, b: i32) -> i32);
-```
+`yo.lock` 为每个 git 依赖记录 URL、解析出的 ref、提交和抓取树的内容哈希——请提交到版本控制。不再出现在 `yo.toml` 中的依赖条目会在下一次 `yo install` 时剪除。
 
 ### 路径依赖（本地）
 
-使用 `path_dependency` 通过文件系统路径依赖本地包。与 `dependency` 一样，它返回一个 `Dependency` 句柄：
+```toml
+[dependencies]
+mylib = { path = "../mylib" }
+```
+
+路径相对于 `yo.toml`。不抓取也不锁定：源码直接从原处读取，`../mylib` 中的修改在下次构建时生效。`yo add ./relative/path` 无论你如何输入，都以相对于 `yo.toml` 的形式写入条目。
+
+### 导入依赖
+
+```rust
+mylib :: import "mylib";             // 依赖的默认模块
+{ triple } :: import "mylib/extra";  // 命名模块，或默认根文件旁的同级文件
+```
+
+对依赖 `name`，`import("name")` 解析为：
+
+1. 它的 `yo.toml` `[modules] default`（如果依赖有清单并声明了它）；
+2. 否则依次为其目录中的 `src/lib.yo`、`index.yo`、`<name>.yo`。
+
+`import("name/sub")` 是依赖声明的 `[modules] sub`，否则是默认根旁的 `sub.yo`。没有 `yo.toml` 的依赖也可以——按惯例根文件解析，且它没有自己的依赖。
+
+解析在**每个**命令中都由清单驱动：编译器在被编译文件所在目录及以上找到最近的 `yo.toml`，读取闭包——项目自己的 `[modules]`、每个依赖以其名称暴露的模块，以及传递地每个依赖以**它们的**名称暴露的依赖——并在任何 `import` 求值之前完成名称映射。因此 `yo check src/main.yo`、`yo test ./tests`、`yo doc` 和 LSP 看到的导入与 `yo build` 相同。每个项目一个扁平命名空间：同一导入名指向两个不同文件是错误，并会报出两者。已声明但尚未抓取的依赖以 `import("x"): git dependency "x" is not installed — run \`yo install\`` 失败，而不是"module not found"。
+
+在 `yo build` 下，运行器把同一映射写到 `yo-out/<target>/<kind>/<artifact>.imports`，并以 `--imports <file>` 传给子编译（该标志也可手工使用：每行一个 `name=/abs/root.yo`）。
+
+### 传递依赖
+
+每个依赖自己的 `yo.toml` 也会被读取，因此它的依赖可由它的模块按名称导入，整个闭包作为一组抓取；依赖的 git 依赖记录在根项目的 `yo.lock` 中。依赖的 `[dev-dependencies]` 是它自己的事，不会被解析。两个包以相同路径或提交指名同一依赖时共享一个条目；同一名称指向两个不同根文件是错误（`import name "x" reaches two different modules: … and …`）。跨图的版本统一（Cargo 的"每个兼容范围一个版本"规则）是计划的下一步；今天每个声明的范围由声明它的包各自解析。
+
+### 依赖产物与 `build.dependency`
+
+`build.dependency("name")` 返回 `yo.toml` 中已声明依赖的句柄——名称必须是清单声明的，否则构建失败。其 `.module("x")` 指名依赖的某个模块（以传播它链接的系统库），`.artifact("lib")` 指名依赖 `build.yo` 定义的静态库：
 
 ```rust
 build :: import "std/build";
 
-// 依赖同级项目——返回一个 Dependency 句柄
-dep :: build.path_dependency({
-  name: "mylib",
-  path: "../mylib"
-});
+dep :: build.dependency("dep_lib");
+add_lib :: dep.artifact("add");   // dep_lib 的 build.yo 中的一个 build.static_library
 
-exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
-
-install :: build.step("install", "Build all artifacts");
-install.depend_on(exe);
+exe :: build.executable({ name: "demo", root: "./src/main.yo" });
+exe.link(add_lib);
 ```
 
-在源码中按名称导入依赖：
-
-```rust
-mylib :: import "mylib";
-
-main :: (fn() -> unit) {
-  result := mylib.multiply(i32(3), i32(4));
-};
-export main;
-```
-
-路径依赖的**入口文件解析顺序**：
-
-1. 来自 `add_import()` 的模块根文件（如果使用方调用了 `exe.add_import()`）
-2. 依赖的 `build.yo` 中唯一的模块根文件（如果恰好定义了一个模块）
-3. `index.yo`
-4. `<name>.yo`
-
-路径依赖不需要拉取或锁文件条目——直接从本地文件系统解析。
-
-### `deps.yo` — 依赖声明文件
-
-`yo init` 会在 `build.yo` 旁生成一个 `deps.yo` 文件。该文件是声明所有项目依赖的集中位置，让 `build.yo` 专注于构建逻辑。
-
-**生成的 `deps.yo`（空模板）：**
-
-```rust
-// Dependencies for this project.
-// Managed by `yo install`. Manual edits are preserved.
-//
-// Usage in build.yo:
-//   { imports } :: import "./deps.yo";
-//   exe.add_import_list(imports);
-//
-// Add a dependency:
-//   yo install user/repo
-//   yo install user/repo@v1.0.0
-//   yo install ./local-path
-
-build :: import "std/build";
-
-// --- Dependencies ---
-
-// --- Import list ---
-imports :: ComptimeList(build.ImportEntry)();
-export imports;
-```
-
-**包含依赖的 `deps.yo`：**
-
-```rust
-build :: import "std/build";
-
-// --- Dependencies ---
-raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
-json :: build.path_dependency({ name: "json", path: "../json-yo" });
-
-// --- Import list ---
-imports :: ComptimeList(build.ImportEntry)(
-  { name: "raylib_yo", module: raylib_yo.module() },
-  { name: "json", module: json.module() }
-);
-export imports;
-```
-
-**在 `build.yo` 中使用 `deps.yo`：**
-
-```rust
-build :: import "std/build";
-{ imports } :: import "./deps.yo";
-
-exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
-exe.add_import_list(imports);
-
-install :: build.step("install", "Build all artifacts");
-install.depend_on(exe);
-```
-
-运行 `yo install` 时，依赖会自动添加到 `deps.yo` 中，并重新生成 `imports` 列表。如果 `deps.yo` 不存在，会从模板创建。
-
-> **注意：** 在 `build.yo` 中直接使用 `build.dependency()` 仍然有效。`deps.yo` 模式是新项目的推荐做法。
+编译依赖的产物并链接进使用方（plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2–§4.5.3）尚未实现：今天 `dep.artifact` 只记录引用，`Step.link` 链接的是本项目 `build.yo` 的库。请改为按名称导入依赖的 Yo 代码。
 
 ### 全局缓存
 
@@ -976,67 +872,22 @@ yo cache clean
 
 ### 缓存完整性
 
-每个缓存的依赖在 `yo.lock` 中都有一个**内容哈希**：
+每个抓取的依赖都在 `yo.lock` 中记录一个**内容哈希**：
 
 ```toml
 [[dependencies]]
-name = "json-parser"
-url = "https://github.com/user/json-parser.git"
-ref = "v1.0.0"
+name   = "json-parser"
+url    = "https://github.com/user/json-parser.git"
+ref    = "v1.0.0"
 commit = "abc123..."
-hash = "sha256-7c19c1..."
+hash   = "sha256-7c19c1..."
 ```
 
-**工作原理：**
+1. **抓取时** — `yo install` 在解析出的提交处克隆依赖，遍历提取的文件树，计算所有文件名和内容的 SHA-256 哈希。哈希写入 `yo.lock` 以及缓存目录内的 `.yo-content-hash` 旁车文件。
 
-1. **拉取时** — `yo fetch` 克隆依赖，遍历提取的文件树，计算所有文件名和内容的 SHA-256 哈希。哈希写入 `yo.lock` 以及缓存目录内的 `.yo-content-hash` 辅助文件。
+2. **安装时** — 锁条目仍满足需求的依赖会与旁车文件核对（O(1)）；匹配则不抓取任何东西。旁车文件缺失会触发完整重算；不匹配（文件被篡改或损坏）会删除缓存条目并重新克隆。
 
-2. **构建时** — `yo build` 读取辅助文件（O(1)），与 `yo.lock` 中的哈希进行比较。如果匹配，则信任缓存。如果辅助文件缺失（例如旧版缓存），会执行完整的重新哈希并写入辅助文件供后续构建使用。
-
-3. **不匹配时** — 如果哈希不匹配（例如文件被篡改或损坏），`yo build` 会报告错误，显示预期和实际的哈希值，并建议运行 `yo fetch`。运行 `yo fetch` 会自动删除损坏的缓存并重新克隆。
-
-**跨平台稳定性：**
-
-内容哈希在计算时会将 `\r\n` 规范化为 `\n`，因此同一个依赖在 Windows（可能检出 CRLF）和 Linux（LF）上产生相同的哈希值。文件名使用与区域设置无关的 Unicode 排序（大小写不敏感的主排序，码点作为辅助排序），而非依赖区域设置的排序方式，确保哈希值在任何系统区域设置下都是确定的。
-
-这种方式遵循了 Zig 的模型——对提取的内容进行哈希，而非像 npm/Go 那样对归档字节进行哈希。它不需要存储归档文件，且能验证编译器实际读取的源文件。
-
-### 共享依赖
-
-当多个包依赖同一个依赖（相同的 URL+ref 或相同的路径）时，构建系统使用**内容寻址缓存**，确保该依赖只编译一次：
-
-```
-   root project
-   ├── dep_A → dep_C (path: ../shared_lib)
-   └── dep_B → dep_C (path: ../shared_lib)
-```
-
-依赖标识通过哈希计算（基于解析后的路径或 Git URL+ref）。相同的哈希共享单个编译产物，避免冗余构建。
-
-如果两个依赖需要**不同版本**的同一个包（不同的 URL 或 ref），每个版本会使用唯一的内容哈希分别编译。
-
-### 传递依赖
-
-依赖可以有自己的依赖。构建系统会自动解析完整的传递闭包：
-
-```
-root project
-├── dep_a（链接 dep_b）
-│   └── dep_b
-└──（dep_b 被传递性地拉取和编译）
-```
-
-**工作原理：**
-
-1. **递归拉取** — 当 `yo build`（或 `yo fetch`）运行时，每个依赖的 `build.yo` 都会被求值以发现其自身的依赖。子依赖以广度优先的方式递归拉取，并记录在根项目的 `yo.lock` 中。
-
-2. **递归编译** — 子依赖在其父依赖之前编译。在上面的例子中，`dep_b` 的静态库先编译，然后 `dep_a` 链接它。
-
-3. **链接传播** — 当 `dep_a` 链接 `dep_b` 的 `.a` 文件时，该传递性 `.a` 文件会自动传播到根项目的链接器命令中。最终根可执行文件会同时链接 `libadd3.a`（来自 dep_a）和 `libadd.a`（来自 dep_b）。
-
-4. **导入解析** — 当 `dep_a` 的源码执行 `import "dep_b"` 时，构建系统会回退到根项目的 `yo.lock` 来解析导入路径。
-
-无需特殊配置——传递依赖会从依赖图中被自动发现和链接。
+**跨平台稳定性：**哈希把 `\r\n` 规范化为 `\n`，因此同一依赖在 Windows 与 Linux 上的哈希相同；文件名以与区域设置无关的顺序排序。这遵循 Zig 对提取内容而非归档字节做哈希的模型。
 
 ### 系统库（pkg-config）
 
@@ -1065,64 +916,52 @@ raylib :: build.system_library({
 });
 ```
 
-## `yo fetch` 参考
+## `yo add` 参考
 
 ```
-yo fetch [options]
+yo add <spec> [options]
 
-Options:
-  --build-file <path>    构建文件路径（默认：./build.yo）
-  --verbose, -v          详细输出
-  --update, -u           重新解析 Git 引用到最新提交并更新 yo.lock
+规格：
+  user/repo                  GitHub 简写
+  user/repo@^1.2             semver 范围（^、~、=、>=、<、*，或裸版本号）
+  user/repo@v1.2.0           精确标签
+  github.com/user/repo、https://…、git@host:path
+  ./path/to/dep              本地路径依赖
+
+选项：
+  --dev                      写入 [dev-dependencies]
+  --path <subdir>            包在仓库内的子目录
+  --name <name>              导入名（默认：仓库名）
+  --branch <branch>          跟随分支（yo.lock 锁定提交）
+  --rev <sha>                锁定某个提交
+  -v, --verbose              显示详细进度
 ```
 
-`yo fetch` 求值 `build.yo` 以发现依赖，通过 `git ls-remote` 将 Git 引用解析为确切的提交 SHA，克隆到全局缓存，计算内容哈希，并将所有信息记录在 `yo.lock` 中。
+原地编辑 `yo.toml`，然后运行 `yo install`。需要当前目录或其上级存在 `yo.toml`（`yo init` 会创建）。
 
-不使用 `--update` 时，已缓存的依赖会通过辅助文件与 `yo.lock` 中的哈希进行比对验证。如果哈希匹配，则完全跳过拉取（无需网络访问）。如果哈希不匹配，损坏的缓存条目会被删除并自动重新克隆。使用 `--update` 时，即使已缓存，所有引用也会被重新解析和重新拉取——适用于追踪分支 HEAD 的变化。
+## `yo remove` 参考
 
-**自动清理**：如果某个依赖已从 `build.yo` 中移除，`yo fetch` 会自动从 `yo.lock` 中移除该过时条目。全局缓存中的文件不会被删除（使用 `yo cache clean` 可清除缓存）。
+```
+yo remove <name> [--verbose]
+```
+
+从 `yo.toml`（`[dependencies]` 或 `[dev-dependencies]`）删除依赖并剪除其 `yo.lock` 条目。
 
 ## `yo install` 参考
 
 ```
-yo install <package> [options]
-
-Arguments:
-  package                包标识符（格式见下方）
-
-Options:
-  --build-file <path>    构建文件路径（默认：./build.yo）
-  --verbose, -v          详细输出
-
-包标识符格式：
-  github.com/user/repo          GitHub 最新语义化版本标签
-  github.com/user/repo@v1.0.0   固定版本/标签
-  user/repo                     GitHub 简写
-  user/repo@v2.0.0              简写加版本固定
-  https://example.com/repo.git  完整 URL
-  ./path/to/dep                 本地路径依赖
-  ../sibling-dep                本地路径依赖
+yo install [--verbose]
 ```
 
-`yo install` 执行以下步骤：
+把 `yo.toml` 声明的每个 git 依赖解析到一个提交（复用仍满足需求的 `yo.lock` 条目），抓取全局缓存缺少的内容，校验内容哈希，剪除过期条目并写入 `yo.lock`。锁完整且缓存完好时不需要网络。
 
-**对于 Git 依赖：**
+## `yo update` 参考
 
-1. 解析包标识符并从仓库名推断依赖名称
-2. 通过 `git ls-remote --tags` 解析最新的语义化版本标签（或使用固定版本）
-3. 如果没有语义化版本标签，回退到默认分支
-4. 在 `deps.yo` 中追加 `build.dependency(...)`（如果文件不存在则创建）
-5. 重新生成 `deps.yo` 中的 `imports` ComptimeList
-6. 拉取依赖并更新 `yo.lock`
+```
+yo update [name...] [--verbose]
+```
 
-**对于本地路径依赖：**
-
-1. 从目录名推断名称
-2. 验证路径是否存在
-3. 在 `deps.yo` 中追加 `build.path_dependency(...)`
-4. 重新生成 `deps.yo` 中的 `imports` ComptimeList
-
-如果 `build.yo` 已经导入了 `deps.yo`，则无需额外修改。
+重新解析指名的依赖（不给名字则全部）：`version` 范围允许的最高标签、`branch` 的最新提交、只有 `git` 的条目的远端默认分支。重写 `yo.lock`。
 
 ## `yo cache` 参考
 

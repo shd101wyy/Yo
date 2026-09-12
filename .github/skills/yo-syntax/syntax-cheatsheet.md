@@ -665,6 +665,24 @@ This only affects `&&`/`||` where the **right-hand side contains a `match`,
 `String`, `ArrayList`, `Option(HeapType)`). Pure boolean expressions on both
 sides are fine.
 
+### `:=` / `=` count as operators for E0003 — parenthesize a binary right-hand side
+
+`x := a + b;`, `n := i < len;`, `ok := p && q;` and a struct-literal field
+`_Range(start : i, end : j + usize(1))` are all _"Adjacent different operators
+need parentheses to clarify grouping"_ (E0003): the declaration/assignment (or
+the `:` of a field) and the binary operator are two different operators side
+by side. Write `x := (a + b);`, `ok := (p && q);`, `end : (j + usize(1))`. A
+call argument is fine (`f(a + b)`) because the parentheses of the call group
+it. `yo fmt` never adds these for you, and `yo check` reports one per run —
+so wrap every binary RHS as you write it.
+
+### `dyn(...)` needs a value that implements `Error` — a `str` literal does not
+
+`exn.throw(dyn("message"))` and `Result(T, String).Err("message")` fail with
+`Type mismatch … Expected: String, Got: str` / `str does not implement Error`.
+Write `dyn(String.from("message"))`, `.Err(String.from("…"))`, or a template
+literal (`` dyn(`… ${x}`) `` is a `String`).
+
 ### `impl(...)` requires a trailing semicolon
 
 ```rust
@@ -908,6 +926,15 @@ One limit: from INSIDE an `impl(T, …)` block, a method defined in a LATER `imp
 What stays ORDERED (still "define before use"): imports (`{ a } :: import(...)`, `{ ... } :: import(...)`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, and the bindings inside an `impl({ ... })` block. A forced definition sees only what precedes the REFERENCE that forced it — keep imports at the top. Cycles between constants/types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while forced reports its own error plus a `note: ... was evaluated here because it is referenced before its definition`.
 
 **SEED GATE — do NOT rely on this in `std/` or `src/` yet.** `yo build` compiles `std/` and `src/` with the SEED compiler (`SEED_VERSION`), which predates the feature and still fails with `Variable "X" not found` on a forward reference (and needs `recur` for self-recursion). Keep the callee-before-caller / impl-before-caller order in `std/` and `src/` until a release carrying the feature becomes the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md` is the scheduling point). `tests/` are compiled by the stage-1 built from the tree and may use the new order.
+
+**`extern("Yo", …)` / `extern("c", …)` blocks are order-independent too
+(fixed 2026-09-12, `issues/fixed/extern-declarations-are-not-forward-referenceable.md`),
+but SEED-GATED: the released seed compiles `src/` and `std/` and still lacks
+that fix, so in those two trees declare the `extern(...)` block ABOVE its first
+use until `SEED_VERSION` carries it. The same fix made `dyn(<unknown name>)`
+report its E0401 instead of silently hollowing the function — if `yo check`
+passes a body you expected to fail, an older compiler's `dyn(...)` swallow is
+the first suspect.
 
 ### Named tuple fields in type syntax are not allowed
 

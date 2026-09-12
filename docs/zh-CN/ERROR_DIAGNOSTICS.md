@@ -64,7 +64,7 @@ Example — this fails:
 
 ## 诊断出现的位置
 
-- `yo check`、`yo compile`、`yo build`、`yo test`、`yo fetch` —— 每个 CLI 出口都按所选格式、且只打印一次每条诊断。
+- `yo check`、`yo compile`、`yo build`、`yo test`、`yo install` —— 每个 CLI 出口都按所选格式、且只打印一次每条诊断。
 - `yo lsp` —— 语言服务器通过结构化通道接收诊断（精确区间，无需重新解析文本），即使错误源于被导入的文件，编辑器也能得到精确的波浪线。
 - 运行时 panic 携带调用点位置后缀：`panic: <message> (at file://…/app.yo:3:17)`。
 

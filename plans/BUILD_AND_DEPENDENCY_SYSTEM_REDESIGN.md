@@ -125,7 +125,7 @@ keeping. The runner is where the port is incomplete. Reproduced on 0.2.30:
 
 | # | finding | evidence | issue |
 | --- | --- | --- | --- |
-| D1 | `yo install user/repo[@tag]` writes `ref: ""` to `deps.yo`, prints none of the `.Git` arm's progress lines, creates no `yo.lock`, exits 0; the next `yo fetch` fails `git checkout failed for commit ` — every CLI-added git dependency is broken. A minimal `io.async` reproduction of the same statement shape works, so the trigger is specific to `run_install`; bisect by body substitution | reproduced (0.2.30; source identical on develop) | `issues/yo-install-git-dependency-writes-an-empty-ref.md` |
+| D1 | `yo install user/repo[@tag]` writes `ref: ""` to `deps.yo`, prints none of the `.Git` arm's progress lines, creates no `yo.lock`, exits 0; the next `yo fetch` fails `git checkout failed for commit ` — every CLI-added git dependency is broken. A minimal `io.async` reproduction of the same statement shape works, so the trigger is specific to `run_install`; bisect by body substitution | reproduced (0.2.30; source identical on develop) | `issues/fixed/yo-install-git-dependency-writes-an-empty-ref.md` |
 | D2 | `resolve_git_ref` treats an empty `git ls-remote` result as "already a commit SHA" and never checks the exit status (`src/fetch.yo:449-459`): a typo'd tag or a network failure becomes a bogus commit and fails later with a worse message | code | fix in P0 |
 | D3 | `yo install` runs `fetch_all_deps` with a one-element list, and the post-fetch prune (`fetch.yo:750-778`) then **deletes every other dependency's lock entry** | code | fix in P0 |
 | D4 | integrity is sidecar-trusting: `inspect_cached_dep` recomputes the tree hash only when `.yo-content-hash` is missing (`fetch.yo:407-411`); a modified cache dir is never detected | code | §4.4 |
@@ -645,18 +645,33 @@ pointer here, and `AGENTS.md`'s command table refreshed.
 | **P3 — speed and scale** | §4.8 parallel levels + `-j`, §4.9 depfile-based stamps, §4.6 workspaces | `build-parallel-levels` (two independent artifacts overlap in `--summary` timestamps), `build-cache-per-artifact` (editing artifact A's private module does not recompile B), `workspace-members`; the self-build's `yo build` time is unchanged or better (one artifact) |
 | **P4 — ecosystem** | §4.10 static index, `yo publish` | designed then, not now |
 
-**Status (2026-09-11).** P0 landed (#577, #578). P1's first two cuts landed:
-§4.5.1 `--imports` for direct path dependencies (#581) and transitive
-resolution through dependency `build.yo` registries (#583). Six `io.async`
-lowering bugs that the install flow tripped over are fixed in #592 and its
-stacked follow-up (nested cond/match dispatch, chained-layer targets and
-bindings, post-while guards, while-body re-assignment, nested while loops,
-field-named locals) — `yo install user/repo@tag` works end to end at gen-2.
-Next cut: **P1.3 — the manifest**: `yo.toml` read by `std/encoding/toml`
-(landed in std), manifest-driven import roots in EVERY command (compile,
-check, test, lsp — rule 0 today only fires under `yo build`'s `--imports`),
-`yo add` via `toml_edit.yo`, `deps.yo`/struct-form `build.dependency`/`yo
-install <spec>` removed; then P1.4 the resolver + lock v2 + store.
+**Status (2026-09-12).** P0 landed (#577, #578). P1 cuts landed: §4.5.1
+`--imports` for direct path dependencies (#581), transitive resolution
+(#583), the six `io.async` lowering bugs the install flow tripped over (#592
+and its stacked follow-up), and **P1.3 — the manifest** (`p1/yo-toml-manifest`):
+`yo.toml` read by `src/manifest.yo` over `std/encoding/toml`; the
+`import("name")` closure (own `[modules]`, each dependency's modules under its
+name, transitively the dependencies' dependencies) resolved in EVERY command —
+`module_manager.yo` discovers the nearest manifest above the entry file and
+registers it with rule 0, so `check`/`test`/`doc`/LSP need no build, and the
+runner passes the same closure as `--imports`; `yo add`/`yo remove` edit the
+manifest in place through `src/toml_edit.yo` (comments kept); `yo install` /
+`yo update` decide refs — semver ranges (Cargo grammar, pre-release rule)
+matched against `git ls-remote --tags`, exact `tag`/`rev`, `branch` and bare
+`git` pinned to commits in the v1 `yo.lock`; `deps.yo`, the struct-form
+`build.dependency`/`build.path_dependency`, `add_import`/`ImportEntry`,
+`build.module`'s `root`, `yo fetch` and `yo install <spec>` are removed;
+`build.dependency("name")` references a manifest entry the runner validates.
+Gates: cli-cases `add-path-dep-import`, `install-git-dep-semver` (offline bare
+repository, `^1` picks v1.2.0), `install-no-deps`, the rewritten
+`build-*-dep-*` cases; `tests/internal/{manifest,toml_edit,install_command}`.
+Not in P1.3 (next, **P1.4**): version unification across the graph (one
+version per compatible range — today each declared range resolves for its
+declarer, and the same name at two roots is an error), `yo.lock` v2 with the
+graph and `integrity`, the content-addressed store, `--locked`/`--frozen`/
+`--offline`, `yo update --latest`, `build.manifest` in `build.yo`; then §4.5.2
+dependency `build.yo` evaluation + system-library propagation, §4.5.3 linking,
+§4.5.4 shared libraries.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

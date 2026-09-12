@@ -32,14 +32,14 @@ hex :: import("std/encoding/hex");
 } :: import("./lock_file.yo");
 {
   get_global_deps_cache_dir,
+  get_cached_dep_dir,
   ensure_global_deps_cache_dir
 } :: import("./cache.yo");
-// `BuildGitDependency` is DECLARED BY THE BUILD REGISTRY, not here — `yo fetch`
-// reads the very list `build.yo` evaluation populated. `src/fetch.ts` imports
-// the type from `./evaluator/builtins/build` for exactly that reason; this file
-// used to re-declare a structurally similar one, which made
-// `fetch_all_deps(registry.dependencies)` fail to unify two same-named types.
-{ BuildGitDependency } :: import("./evaluator/builtins/build.yo");
+// The fetch input is a MANIFEST dependency with its ref decided
+// (`install_command.yo` resolves a `version` range to the tag it selects);
+// `build.yo` no longer declares dependencies
+// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1).
+{ ResolvedGitDependency } :: import("./manifest.yo");
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -368,16 +368,6 @@ read_sidecar_hash :: (
     })
   })
 );
-/// Build the local path for a cached dependency.
-get_cached_dep_dir :: (fn(cache_dir : String, dep_name : String, commit : String) -> String)({
-  short_commit := commit.substring(usize(0), usize(12));
-  result := cache_dir.clone();
-  result.push_str("/");
-  result.push_string(dep_name);
-  result.push_str("-");
-  result.push_string(short_commit);
-  result
-});
 /// Check whether a cached dependency is present and valid.
 inspect_cached_dep :: (
   fn(
@@ -572,15 +562,16 @@ clone_repo :: (
 fetch_dep :: (
   fn(
     cache_dir : String,
-    dep : BuildGitDependency,
+    dep : ResolvedGitDependency,
     lock_file : LockFile,
     verbose : bool,
-    update : bool,
     io : Io,
     exn : Exception
   ) -> Impl(Future(FetchDepResult, IoExn))
 )(
   io.async((e : IoExn) => {
+    // `yo update` asks for this dependency's ref to be re-resolved.
+    update := dep.refresh;
     existing_entry := find_lock_entry(lock_file, dep.name);
     ref_changed := match(
       existing_entry,
@@ -623,8 +614,8 @@ fetch_dep :: (
         .Some(s) => s.cached_path
       );
       sub_path := cond(
-        dep.path.is_empty() => cached_path,
-        true => Path.new(cached_path).join(Path.new(dep.path)).to_string()
+        dep.subdir.is_empty() => cached_path,
+        true => Path.new(cached_path).join(Path.new(dep.subdir)).to_string()
       );
       return(FetchDepResult(lock_file : lock_file, dep_path : sub_path));
     });
@@ -668,8 +659,8 @@ fetch_dep :: (
           lock_file
         );
         sub_path := cond(
-          dep.path.is_empty() => state.cached_path,
-          true => Path.new(state.cached_path).join(Path.new(dep.path)).to_string()
+          dep.subdir.is_empty() => state.cached_path,
+          true => Path.new(state.cached_path).join(Path.new(dep.subdir)).to_string()
         );
         return(FetchDepResult(lock_file : updated_lock, dep_path : sub_path));
       });
@@ -694,8 +685,8 @@ fetch_dep :: (
     );
     updated_lock := upsert_lock_entry(lock_file, new_entry);
     sub_path := cond(
-      dep.path.is_empty() => cloned_path,
-      true => Path.new(cloned_path).join(Path.new(dep.path)).to_string()
+      dep.subdir.is_empty() => cloned_path,
+      true => Path.new(cloned_path).join(Path.new(dep.subdir)).to_string()
     );
     FetchDepResult(lock_file : updated_lock, dep_path : sub_path)
   })
@@ -704,9 +695,8 @@ fetch_dep :: (
 fetch_all_deps :: (
   fn(
     project_dir : String,
-    deps : ArrayList(BuildGitDependency),
+    deps : ArrayList(ResolvedGitDependency),
     verbose : bool,
-    update : bool,
     io : Io,
     exn : Exception
   ) -> Impl(Future(FetchResult, IoExn))
@@ -739,7 +729,7 @@ fetch_all_deps :: (
         deps.get(i),
         .None => (),
         .Some(dep) => {
-          result := e.io.await(fetch_dep(cache_dir, dep, current_lock, verbose, update, e.io, e.exn), e);
+          result := e.io.await(fetch_dep(cache_dir, dep, current_lock, verbose, e.io, e.exn), e);
           current_lock = result.lock_file;
           resolved_paths.push(result.dep_path);
           resolved_names.push(dep.name);
@@ -747,7 +737,7 @@ fetch_all_deps :: (
       );
       i = (i + usize(1));
     });
-    // Prune stale lock entries (deps no longer in build.yo)
+    // Prune stale lock entries (deps no longer in yo.toml)
     pruned_deps := ArrayList(LockEntry).new();
     k := usize(0);
     while(k < current_lock.dependencies.len(), {
@@ -787,7 +777,7 @@ fetch_all_deps :: (
 are_deps_cached :: (
   fn(
     project_dir : String,
-    deps : ArrayList(BuildGitDependency),
+    deps : ArrayList(ResolvedGitDependency),
     io : Io,
     exn : Exception
   ) -> Impl(Future(bool, IoExn))
@@ -825,62 +815,10 @@ are_deps_cached :: (
     all_cached
   })
 );
-/// Resolve a dependency name to its cached path using the lock file.
-/// Returns None if not cached.
-resolve_dep_path :: (
-  fn(
-    project_dir : String,
-    dep_name : String,
-    dep_sub : Option(String),
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(Option(String), IoExn))
-)(
-  io.async((e : IoExn) => {
-    lock_file := e.io.await(read_lock_file(Path.new(project_dir), e.io, e.exn), e);
-    entry_opt := find_lock_entry(lock_file, dep_name);
-    match(
-      entry_opt,
-      .None => .None,
-      .Some(entry) =>
-        if(entry.commit.len() == usize(0), Option(String).None, {
-          cache_dir := get_global_deps_cache_dir();
-          state := e.io.await(inspect_cached_dep(cache_dir, dep_name, entry.commit, entry.hash, e.io, e.exn), e);
-          match(
-            state.status,
-            .MissingPath => Option(String).None,
-            .MissingHash => {
-              missing_hash_msg := String.from("Dependency ");
-              missing_hash_msg.push_string(dep_name);
-              missing_hash_msg.push_str(" is cached but missing a content hash. Run 'yo fetch' to refresh.");
-              e.exn.throw(dyn(missing_hash_msg));
-              Option(String).None
-            },
-            .HashMismatch => {
-              mismatch_msg := String.from("Dependency ");
-              mismatch_msg.push_string(dep_name);
-              mismatch_msg.push_str(" failed integrity check. Run 'yo fetch' to refetch.");
-              e.exn.throw(dyn(mismatch_msg));
-              Option(String).None
-            },
-            .Ok =>
-              .Some(
-                match(
-                  dep_sub,
-                  .None => state.cached_path,
-                  .Some(sub) => Path.new(state.cached_path).join(Path.new(sub)).to_string()
-                )
-              )
-          )
-        })
-    )
-  })
-);
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 export(
-  BuildGitDependency,
   remove_dir_all,
   CachedDepStatus,
   CachedDepState,
@@ -897,6 +835,5 @@ export(
   clone_repo,
   fetch_dep,
   fetch_all_deps,
-  are_deps_cached,
-  resolve_dep_path
+  are_deps_cached
 );

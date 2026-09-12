@@ -25,8 +25,8 @@ yo build
 
 ```
 my-project/
+├── yo.toml               ← Package manifest: name, modules, dependencies (edited by yo add)
 ├── build.yo              ← Build configuration
-├── deps.yo               ← Dependency declarations (managed by yo install)
 ├── src/
 │   ├── main.yo           ← Executable entry point
 │   └── lib.yo            ← Library code
@@ -61,13 +61,10 @@ yo-out/
 
 ## `build.yo`
 
-The build file is a regular Yo source file that imports the `std/build` module. All build functions run at compile time and register artifacts and steps.
+The build file is a regular Yo source file that imports the `std/build` module. All build functions run at compile time and register artifacts and steps. What the package IS — its name, the modules other packages may import, and its dependencies — lives in the data file `yo.toml` next to it (see [Dependencies](#dependencies)); `build.yo` only says how to build it.
 
 ```rust
 build :: import "std/build";
-
-// Module metadata
-mod :: build.module({ name: "my-project", root: "./src/lib.yo" });
 
 // Define artifacts — each returns a Step for dependency wiring
 exe :: build.executable({
@@ -257,8 +254,6 @@ Level 2: install                (depends on app, tests)
 | ------------------------------- | ---------------------------------------------------------------------- |
 | `step.depend_on(other)`         | Add a dependency — `other` is built before `step`                      |
 | `step.link(library)`            | Link a library to an artifact (static, shared, or system lib)          |
-| `step.add_import(entry)`        | Add a single module import to this step (for dependency modules)       |
-| `step.add_import_list(entries)` | Add multiple module imports at once from a `ComptimeList(ImportEntry)` |
 | `step.add_c_flags(flags)`       | Add custom C compiler/linker flags (space-separated string)            |
 
 ### `StepKind`
@@ -306,9 +301,18 @@ Each node shows: step description, success/failure status, duration, and peak me
 
 ## Modules
 
-Modules are the unit of reuse across Yo dependencies. A module declares its source root and system library requirements. When another project imports a module, its system libraries are automatically propagated to the consumer's build — no manual `system_library` or `link` calls needed.
+A module is a root file that other code imports by name. Modules are declared in `yo.toml`'s `[modules]` table — `default` is what `import("<package name>")` means, and every other entry is importable as `import("<package name>/<module>")`, from inside the package and from every package that depends on it:
 
-### Defining a Module
+```toml
+[package]
+name = "raylib_yo"
+
+[modules]
+default = "src/lib.yo"
+shapes  = "src/shapes.yo"
+```
+
+`build.yo` refers to a module when it needs to attach system libraries to it. When another package imports the module, its system libraries are propagated to the consumer's build:
 
 ```rust
 build :: import "std/build";
@@ -318,10 +322,8 @@ raylib :: build.system_library({
   defines: "NOMINMAX NOGDI NOUSER"
 });
 
-// Declare a module with its root source file
-mod :: build.module({ name: "raylib_yo", root: "./src/lib.yo" });
-
-// Link system libraries the module depends on
+// Name a [modules] entry of yo.toml and link the system libraries it needs
+mod :: build.module({ name: "default" });
 mod.link(raylib);
 
 exe :: build.executable({ name: "raylib_yo", root: "./src/main.yo" });
@@ -333,7 +335,7 @@ install.depend_on(exe);
 
 ### `BuildModule`
 
-Returned by `build.module()`. Has one method:
+Returned by `build.module()` and `dep.module()`. Has one method:
 
 | Method          | Description                                          |
 | --------------- | ---------------------------------------------------- |
@@ -341,67 +343,20 @@ Returned by `build.module()`. Has one method:
 
 ### `ModuleConfig`
 
-| Field  | Type           | Default      | Description           |
-| ------ | -------------- | ------------ | --------------------- |
-| `name` | `comptime_str` | _(required)_ | Module name           |
-| `root` | `comptime_str` | _(required)_ | Root source file path |
+| Field  | Type           | Default      | Description                                          |
+| ------ | -------------- | ------------ | ---------------------------------------------------- |
+| `name` | `comptime_str` | _(required)_ | A `[modules]` entry of `yo.toml` (`"default"` for the root) |
 
-### Importing a Module from a Dependency
+### Importing a Dependency's Module
 
-Use `dep.module()` and `exe.add_import()` to import a module from a dependency:
-
-```rust
-build :: import "std/build";
-
-// Git dependency
-raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
-
-// Or local path dependency:
-// raylib_yo :: build.path_dependency({ name: "raylib_yo", path: "../raylib_yo" });
-
-exe :: build.executable({ name: "tetris_yo", root: "./src/main.yo" });
-
-// Import the module — system libraries (raylib) are transitively propagated
-exe.add_import({ name: "raylib_yo", module: raylib_yo.module() });
-
-install :: build.step("install", "Build all artifacts");
-install.depend_on(exe);
-```
-
-- `dep.module()` — get the sole module from a dependency (empty name defaults to the only module)
-- `dep.module("name")` — get a specific module by name if the dependency defines multiple modules
-- `exe.add_import({ name, module })` — register a single module import on an artifact
-- `exe.add_import_list(list)` — register multiple module imports at once from a `ComptimeList(ImportEntry)`
-
-### Bulk Import with `add_import_list`
-
-When a dependency exposes multiple modules, use `add_import_list` to register them all at once:
+Nothing to wire in `build.yo`: a dependency declared in `yo.toml` is importable by its name, and its named modules as `name/module`:
 
 ```rust
-import_list :: ComptimeList(build.ImportEntry)(
-  { name: "mod_a", module: dep.module("a") },
-  { name: "mod_b", module: dep.module("b") }
-);
-exe.add_import_list(import_list);
+raylib_yo :: import "raylib_yo";          // the dependency's [modules] default
+{ Circle } :: import "raylib_yo/shapes";  // its [modules] shapes
 ```
 
-### `ImportEntry`
-
-| Field    | Type           | Description                            |
-| -------- | -------------- | -------------------------------------- |
-| `name`   | `comptime_str` | Import name (used in `import "name"`)  |
-| `module` | `BuildModule`  | Module to import (from `dep.module()`) |
-
-### How It Works
-
-When you run `yo build`, the build system:
-
-1. **Evaluates the dependency's `build.yo`** to discover its modules and linked system libraries
-2. **Resolves system libraries** via `pkg-config` (or fallback flags) for each module
-3. **Propagates flags** — include paths, library paths, link flags, and defines from the module's system libraries are merged into the consumer artifact's compile command
-4. **Sets up import resolution** — `import "raylib_yo"` in the consumer's source resolves to the module's root file
-
-This means the consumer doesn't need to declare `build.system_library({ name: "raylib" })` — it's automatically propagated from the dependency's module definition.
+This works in every command — `yo build`, `yo compile`, `yo check`, `yo test`, `yo doc` and the language server — because the compiler finds the nearest `yo.toml` above the file it is compiling and resolves the manifest's dependency closure (see [Importing a dependency](#importing-a-dependency)).
 
 ## Linking Libraries
 
@@ -708,8 +663,8 @@ Options:
 
 Creates the following files:
 
-- `build.yo` — Build configuration (imports `deps.yo`)
-- `deps.yo` — Dependency declarations (empty template)
+- `yo.toml` — Package manifest: `[package]` name and version, `[modules] default = "src/lib.yo"`, an empty `[dependencies]` table
+- `build.yo` — Build configuration
 - `src/main.yo` — Executable entry point
 - `src/lib.yo` — Library code
 - `tests/main.test.yo` — Test file
@@ -731,7 +686,6 @@ Define multiple artifacts with different targets in a single `build.yo`:
 build :: import "std/build";
 
 // Module definition
-mod :: build.module({ name: "my-app", root: "./src/lib.yo" });
 
 // Native build
 native :: build.executable({
@@ -764,202 +718,144 @@ run_step.depend_on(run_native);
 
 ## Dependencies
 
-### Git Dependencies
+Dependencies are declared in the package manifest, `yo.toml` — data, not code: every tool reads it without running anything, and `yo add` / `yo remove` edit it in place, keeping your comments and formatting.
 
-Declare git-hosted dependencies in `build.yo`:
+```toml
+[package]
+name = "tetris_yo"
+version = "0.3.0"
+description = "Tetris in Yo"
+license = "MIT"
 
-```rust
-build :: import "std/build";
+[modules]                     # what importers may `import("tetris_yo")` / `import("tetris_yo/board")`
+default = "src/lib.yo"
+board   = "src/board.yo"
 
-// Add a git dependency — returns a Dependency handle
-dep :: build.dependency({
-  name: "json-parser",
-  url: "https://github.com/user/json-parser.git",
-  ref: "v1.0.0"
-});
+[dependencies]
+raylib_yo = { git = "https://github.com/shd101wyy/raylib_yo", version = "^0.0.6" }
+json-yo   = { git = "https://github.com/user/json-yo", tag = "v1.2.0" }
+utils     = { git = "https://github.com/user/mono", version = "~2.1", path = "packages/utils" }
+mylib     = { path = "../mylib" }
 
-// Dependency from a subdirectory of a repo
-build.dependency({
-  name: "utils",
-  url: "https://github.com/user/mono-repo.git",
-  ref: "main",
-  path: "packages/utils"
-});
-
-exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
-
-install :: build.step("install", "Build all artifacts");
-install.depend_on(exe);
+[dev-dependencies]            # for this package's own tests; never propagated to dependents
+snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
 ```
 
-Fetch dependencies with:
+### `[package]`
+
+| Key           | Description                                                                        |
+| ------------- | ---------------------------------------------------------------------------------- |
+| `name`        | The package name — what importers write in `import("name")`. Required.             |
+| `version`     | Semver version of this package (the version a release tag `vX.Y.Z` carries)        |
+| `description` | Free text                                                                          |
+| `license`     | SPDX identifier                                                                    |
+| `yo`          | Minimum compiler version (mirrors `.yo-version`)                                   |
+
+### Dependency entries
+
+A dependency is a table key (its import name) with an inline table:
+
+| Key       | Meaning                                                                                                    |
+| --------- | ---------------------------------------------------------------------------------------------------------- |
+| `git`     | Repository URL — `https://…`, `git@host:path`, `ssh://…`, or a local path git accepts                      |
+| `version` | A semver range over the repository's `vX.Y.Z` tags; `yo install` picks the highest satisfying tag           |
+| `tag`     | One exact tag                                                                                              |
+| `branch`  | A branch, pinned to a commit in `yo.lock` and moved only by `yo update`                                    |
+| `rev`     | One exact commit                                                                                           |
+| `path`    | With `git`: the package's directory inside the repository. Alone: a local path dependency (relative to `yo.toml`) |
+
+A git entry pins at most one of `version` / `tag` / `branch` / `rev`; `git` alone follows the remote's default branch. Any other key is an error — a typo never silently means "default branch".
+
+### Version ranges
+
+The range grammar is Cargo's:
+
+| Range          | Accepts                                              |
+| -------------- | ---------------------------------------------------- |
+| `^1.2.3`, `1.2.3` | `>=1.2.3, <2.0.0` (for `0.x`: `^0.2.3` is `<0.3.0`, `^0.0.3` is exactly `0.0.3`) |
+| `~1.2.3`       | `>=1.2.3, <1.3.0`                                    |
+| `=1.2.3`       | exactly `1.2.3`                                      |
+| `>=1.2, <2`    | comparators joined by `,` (all must hold)            |
+| `1.*`, `1.2.*`, `*` | the major / minor series, anything                 |
+
+Pre-release tags (`v1.0.0-rc.1`) are versions, but a range only accepts a pre-release when it names one of the same `major.minor.patch` (`^1.0.0-rc.1` accepts `v1.0.0-rc.2` and `v1.0.0`; `^1.0.0` never accepts `v1.5.0-beta.1`).
+
+### Adding a dependency: `yo add`
 
 ```bash
-yo fetch              # Fetch all dependencies from build.yo
-yo fetch --verbose    # Show detailed progress
-yo fetch --update     # Re-resolve git refs to latest commits
+yo add shd101wyy/raylib_yo        # latest release tag, written as version = "^X.Y.Z"
+yo add user/json-yo@^1.2          # a range
+yo add user/json-yo@v1.2.0        # an exact tag
+yo add github.com/user/repo       # explicit host; https://… and git@host:path work too
+yo add user/mono --path packages/utils --name utils   # a package inside a repository
+yo add user/tool --branch main    # follow a branch
+yo add user/tool --rev 0123abcd   # pin a commit
+yo add ./libs/mylib               # a local path dependency
+yo add user/snapshot-yo --dev     # into [dev-dependencies]
 ```
 
-Or install directly from GitHub:
+`yo add` edits `yo.toml` in place (comments and formatting are preserved), then resolves and fetches every git dependency and writes `yo.lock`. Without an `@…` the latest release tag is looked up with `git ls-remote --tags` and written as a caret range; a repository without release tags is pinned to its default branch by name. The import name defaults to the repository (or directory) name — override it with `--name`.
+
+`yo remove <name>` deletes the entry and prunes `yo.lock`.
+
+### Installing and updating: `yo install`, `yo update`
 
 ```bash
-yo install github.com/user/repo          # Latest semver tag
-yo install github.com/user/repo@v1.0.0   # Pinned version
-yo install user/repo                     # Shorthand for GitHub
-yo install ./path/to/local/dep           # Local path dependency
+yo install            # fetch what yo.toml declares, write yo.lock
+yo update             # re-resolve every dependency within its range / to its branch tip
+yo update raylib_yo   # just one
 ```
 
-`yo install` resolves the latest semver tag from the repository (or falls back to the default branch), appends a `build.dependency(...)` call to `build.yo`, and fetches the dependency into the global cache. For local paths (`./`, `../`, or absolute), it appends a `build.path_dependency(...)` call instead — no fetching needed.
+`yo install` decides each git dependency's ref (a range → the highest satisfying tag, a `tag`/`rev` → itself, a `branch` or bare `git` → the tip commit), clones what the cache lacks, and records the result in `yo.lock`. A lock entry that still satisfies its requirement is reused without touching the network, so `yo install` is what a fresh checkout runs to get exactly the recorded commits; `yo update` is what moves them. `yo build` runs the same step automatically for dependencies the cache lacks.
 
-Dependencies are stored in a global cache and tracked by `yo.lock` (commit this file to version control). `yo build` auto-fetches if dependencies are not yet cached.
-
-**Updating dependencies**: When using branch refs like `"main"`, the lock file pins the exact commit SHA at fetch time. Run `yo fetch --update` (or `yo fetch -u`) to re-resolve all refs to their latest commits and update `yo.lock`.
-
-### Linking Dependency Artifacts
-
-If a dependency has its own `build.yo` that defines artifacts (e.g., a static library), you can link them using `dep.artifact()`:
-
-```rust
-build :: import "std/build";
-
-// Register a dependency (git or path)
-dep :: build.path_dependency({ name: "dep_lib", path: "../dep_lib" });
-
-// Access the "add" static library from dep_lib's build.yo
-add_lib :: dep.artifact("add");
-
-// Link it to our executable
-exe :: build.executable({ name: "demo", root: "./src/main.yo" });
-exe.link(add_lib);
-
-install :: build.step("install", "Build demo");
-install.depend_on(exe);
-```
-
-The dependency's `build.yo` defines the static library:
-
-```rust
-build :: import "std/build";
-
-lib :: build.static_library({ name: "add", root: "./src/lib.yo" });
-
-install :: build.step("install", "Build the static library");
-install.depend_on(lib);
-```
-
-When you run `yo build`, the build system:
-
-1. Evaluates the dependency's `build.yo` to discover its artifacts
-2. Compiles the dependency's static library (`libadd.a`)
-3. Links it into the consumer executable
-
-The consumer's source code declares the dependency functions using `extern "Yo"`:
-
-```rust
-extern "Yo",
-  add : (fn(a: i32, b: i32) -> i32);
-```
+`yo.lock` records, per git dependency, the URL, the resolved ref, the commit and a content hash of the fetched tree — commit it to version control. Entries for dependencies no longer in `yo.toml` are pruned on the next `yo install`.
 
 ### Path Dependencies (Local)
 
-Use `path_dependency` to depend on a local package by filesystem path. Like `dependency`, it returns a `Dependency` handle:
+```toml
+[dependencies]
+mylib = { path = "../mylib" }
+```
+
+The path is relative to `yo.toml`. Nothing is fetched and nothing is locked: the sources are read from where they are, so edits in `../mylib` are picked up by the next build. `yo add ./relative/path` writes the entry relative to `yo.toml` however you typed it.
+
+### Importing a dependency
+
+```rust
+mylib :: import "mylib";             // the dependency's default module
+{ triple } :: import "mylib/extra";  // a named module, or a sibling file of the default root
+```
+
+What `import("name")` resolves to, for a dependency `name`:
+
+1. its `yo.toml` `[modules] default`, if the dependency has a manifest that declares one;
+2. otherwise `src/lib.yo`, then `index.yo`, then `<name>.yo` in its directory.
+
+`import("name/sub")` is the dependency's `[modules] sub` when declared, else `sub.yo` beside the default root. A dependency without a `yo.toml` is fine — the conventional roots apply and it has no dependencies of its own.
+
+The resolution is manifest-driven in **every** command: the compiler finds the nearest `yo.toml` at or above the file it is compiling, reads the closure — the project's own `[modules]`, each dependency's modules under its name, and transitively each dependency's own dependencies under **their** names — and maps the names before any `import` is evaluated. So `yo check src/main.yo`, `yo test ./tests`, `yo doc` and the LSP all see the same imports `yo build` does. One flat namespace per project: the same import name reaching two different files is an error naming both. A dependency that is declared but not fetched yet fails with `import("x"): git dependency "x" is not installed — run \`yo install\``, not with "module not found".
+
+Under `yo build` the runner writes the same mapping to `yo-out/<target>/<kind>/<artifact>.imports` and passes it to the child compile as `--imports <file>` (the flag is usable by hand: one `name=/abs/root.yo` per line).
+
+### Transitive Dependencies
+
+Each dependency's own `yo.toml` is read in turn, so its dependencies are importable — under their names — by its modules, and the closure is fetched as one set; a dependency's git dependencies are recorded in the root project's `yo.lock`. A dependency's `[dev-dependencies]` are its own business and are not resolved. Two packages naming the same dependency at the same path or commit share one entry; the same name at two different roots is an error (`import name "x" reaches two different modules: … and …`). Version unification across the graph (Cargo's one-version-per-compatible-range rule) is the next cut of the plan; today each declared range is resolved for the package that declares it.
+
+### Dependency artifacts and `build.dependency`
+
+`build.dependency("name")` returns the handle of a dependency declared in `yo.toml` — the name must be one the manifest declares, or the build fails. Its `.module("x")` names one of the dependency's modules (to propagate the system libraries it links) and `.artifact("lib")` names a static library the dependency's `build.yo` defines:
 
 ```rust
 build :: import "std/build";
 
-// Depend on a sibling project — returns a Dependency handle
-dep :: build.path_dependency({
-  name: "mylib",
-  path: "../mylib"
-});
+dep :: build.dependency("dep_lib");
+add_lib :: dep.artifact("add");   // a build.static_library of dep_lib's build.yo
 
-exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
-
-install :: build.step("install", "Build all artifacts");
-install.depend_on(exe);
+exe :: build.executable({ name: "demo", root: "./src/main.yo" });
+exe.link(add_lib);
 ```
 
-In your source code, import the dependency by name:
-
-```rust
-mylib :: import "mylib";
-
-main :: (fn() -> unit) {
-  result := mylib.multiply(i32(3), i32(4));
-};
-export main;
-```
-
-**Entry point resolution order** for path dependencies:
-
-1. Module root from `add_import()` (if the consumer uses `exe.add_import()`)
-2. Sole module root from the dependency's `build.yo` (if exactly one module is defined)
-3. `index.yo`
-4. `<name>.yo`
-
-Path dependencies need no fetching or lock file entries — they are resolved directly from the local filesystem.
-
-### `deps.yo` — Dependency Declaration File
-
-`yo init` generates a `deps.yo` file alongside `build.yo`. This file is the central place to declare all project dependencies, keeping `build.yo` focused on build logic.
-
-**Generated `deps.yo` (empty):**
-
-```rust
-// Dependencies for this project.
-// Managed by `yo install`. Manual edits are preserved.
-//
-// Usage in build.yo:
-//   { imports } :: import "./deps.yo";
-//   exe.add_import_list(imports);
-//
-// Add a dependency:
-//   yo install user/repo
-//   yo install user/repo@v1.0.0
-//   yo install ./local-path
-
-build :: import "std/build";
-
-// --- Dependencies ---
-
-// --- Import list ---
-imports :: ComptimeList(build.ImportEntry)();
-export imports;
-```
-
-**`deps.yo` with dependencies:**
-
-```rust
-build :: import "std/build";
-
-// --- Dependencies ---
-raylib_yo :: build.dependency({ name: "raylib_yo", url: "https://github.com/shd101wyy/raylib_yo.git", ref: "v0.0.4" });
-json :: build.path_dependency({ name: "json", path: "../json-yo" });
-
-// --- Import list ---
-imports :: ComptimeList(build.ImportEntry)(
-  { name: "raylib_yo", module: raylib_yo.module() },
-  { name: "json", module: json.module() }
-);
-export imports;
-```
-
-**Using `deps.yo` in `build.yo`:**
-
-```rust
-build :: import "std/build";
-{ imports } :: import "./deps.yo";
-
-exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
-exe.add_import_list(imports);
-
-install :: build.step("install", "Build all artifacts");
-install.depend_on(exe);
-```
-
-When you run `yo install`, the dependency is automatically added to `deps.yo` and the `imports` list is regenerated. If `deps.yo` doesn't exist yet, it is created from the template.
-
-> **Note:** Inline `build.dependency()` calls in `build.yo` still work. The `deps.yo` pattern is the recommended approach for new projects.
+Compiling a dependency's artifacts and linking them into the consumer (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2–§4.5.3) is not implemented yet: today `dep.artifact` records the reference and `Step.link` links the libraries of the project's own `build.yo`. Import a dependency's Yo code by name instead.
 
 ### Global Cache
 
@@ -982,67 +878,22 @@ yo cache clean
 
 ### Cache Integrity
 
-Every cached dependency has a **content hash** stored in `yo.lock`:
+Every fetched dependency has a **content hash** recorded in `yo.lock`:
 
 ```toml
 [[dependencies]]
-name = "json-parser"
-url = "https://github.com/user/json-parser.git"
-ref = "v1.0.0"
+name   = "json-parser"
+url    = "https://github.com/user/json-parser.git"
+ref    = "v1.0.0"
 commit = "abc123..."
-hash = "sha256-7c19c1..."
+hash   = "sha256-7c19c1..."
 ```
 
-**How it works:**
+1. **At fetch time** — `yo install` clones the dependency at the resolved commit, walks the extracted file tree, and computes a SHA-256 hash of all file names and contents. The hash is written to `yo.lock` and to a `.yo-content-hash` sidecar file inside the cached directory.
 
-1. **At fetch time** — `yo fetch` clones the dependency, walks the extracted file tree, and computes a SHA-256 hash of all file names and contents. The hash is written to `yo.lock` and to a `.yo-content-hash` sidecar file inside the cached directory.
+2. **At install time** — a dependency whose lock entry still satisfies its requirement is verified against the sidecar (O(1)); on a match nothing is fetched. A missing sidecar triggers a full re-hash; a mismatch (tampered or corrupted files) deletes the cache entry and re-clones it.
 
-2. **At build time** — `yo build` reads the sidecar file (O(1)) and compares it against the `yo.lock` hash. If they match, the cache is trusted. If the sidecar is missing (e.g. older caches), a full re-hash is performed and the sidecar is written for future builds.
-
-3. **On mismatch** — If the hash doesn't match (e.g. files were tampered with or corrupted), `yo build` reports an error with the expected vs actual hash and suggests running `yo fetch`. Running `yo fetch` automatically deletes the corrupted cache and reclones.
-
-**Cross-platform stability:**
-
-The content hash normalizes `\r\n` → `\n` during hashing, so the same dependency produces the same hash on Windows (which may check out CRLF) and Linux (LF). File names are sorted using locale-independent Unicode ordering (case-insensitive primary, codepoint tiebreaker) rather than locale-sensitive collation, ensuring hashes are deterministic regardless of the system locale.
-
-This approach follows Zig's model of hashing extracted content rather than npm/Go's approach of hashing archive bytes. It requires no archive storage and verifies the actual source files that the compiler reads.
-
-### Shared Dependencies
-
-When multiple packages depend on the same dependency (same URL+ref or same path), the build system uses **content-addressed caching** to compile the dependency only once:
-
-```
-   root project
-   ├── dep_A → dep_C (path: ../shared_lib)
-   └── dep_B → dep_C (path: ../shared_lib)
-```
-
-The dependency identity is hashed (based on resolved path or git URL+ref). Identical hashes share a single compiled artifact, avoiding redundant builds.
-
-If two dependencies require **different versions** of the same package (different URLs or refs), each version is compiled separately with a unique content hash.
-
-### Transitive Dependencies
-
-Dependencies can have their own dependencies. The build system resolves the full transitive closure automatically:
-
-```
-root project
-├── dep_a (links dep_b)
-│   └── dep_b
-└── (dep_b is fetched and compiled transitively)
-```
-
-**How it works:**
-
-1. **Recursive fetching** — When `yo build` (or `yo fetch`) runs, each dependency's `build.yo` is evaluated to discover its own dependencies. Sub-dependencies are fetched recursively (BFS) and recorded in the root project's `yo.lock`.
-
-2. **Recursive compilation** — Sub-dependencies are compiled before their parents. In the example above, `dep_b`'s static library is compiled first, then `dep_a` links against it.
-
-3. **Link propagation** — When `dep_a` links `dep_b`'s `.a` file, that transitive `.a` file is automatically propagated to the root project's linker command. The root executable ends up linking both `libadd3.a` (from dep_a) and `libadd.a` (from dep_b).
-
-4. **Import resolution** — When `dep_a`'s source code does `import "dep_b"`, the build system falls back to the root project's `yo.lock` to resolve the import path.
-
-No special configuration is needed — transitive dependencies are discovered and linked automatically from the dependency graph.
+**Cross-platform stability:** the hash normalizes `\r\n` → `\n`, so the same dependency hashes identically on Windows and Linux, and file names are sorted with locale-independent ordering. This follows Zig's model of hashing the extracted content rather than archive bytes.
 
 ### System Libraries (pkg-config)
 
@@ -1071,64 +922,52 @@ raylib :: build.system_library({
 });
 ```
 
-## `yo fetch` Reference
+## `yo add` Reference
 
 ```
-yo fetch [options]
+yo add <spec> [options]
+
+Specs:
+  user/repo                  GitHub shorthand
+  user/repo@^1.2             Semver range (^, ~, =, >=, <, *, or a bare version)
+  user/repo@v1.2.0           Exact tag
+  github.com/user/repo, https://…, git@host:path
+  ./path/to/dep              Local path dependency
 
 Options:
-  --build-file <path>    Path to build file (default: ./build.yo)
-  --verbose, -v          Verbose output
-  --update, -u           Re-resolve git refs to latest commits and update yo.lock
+  --dev                      Add to [dev-dependencies]
+  --path <subdir>            The package's directory inside the repository
+  --name <name>              Import name (default: the repository name)
+  --branch <branch>          Follow a branch (pinned to a commit in yo.lock)
+  --rev <sha>                Pin a commit
+  -v, --verbose              Show detailed progress
 ```
 
-`yo fetch` evaluates `build.yo` to discover dependencies, resolves git refs to exact commit SHAs via `git ls-remote`, clones them to the global cache, computes a content hash, and records everything in `yo.lock`.
+Edits `yo.toml` in place, then runs `yo install`. Requires a `yo.toml` in the current directory or above it (`yo init` creates one).
 
-Without `--update`, cached dependencies are verified against their `yo.lock` hash using a sidecar file. If the hash matches, fetching is skipped entirely (no network access required). If the hash mismatches, the corrupted cache entry is deleted and the dependency is recloned automatically. With `--update`, all refs are re-resolved and re-fetched even if already cached — useful for tracking branch HEAD changes.
+## `yo remove` Reference
 
-**Auto-pruning**: If a dependency is removed from `build.yo`, `yo fetch` automatically removes the stale entry from `yo.lock`. The cached files in the global cache are not deleted (use `yo cache clean` to purge the cache).
+```
+yo remove <name> [--verbose]
+```
+
+Deletes the dependency from `yo.toml` (from `[dependencies]` or `[dev-dependencies]`) and prunes its `yo.lock` entry.
 
 ## `yo install` Reference
 
 ```
-yo install <package> [options]
-
-Arguments:
-  package                Package specifier (see formats below)
-
-Options:
-  --build-file <path>    Path to build file (default: ./build.yo)
-  --verbose, -v          Verbose output
-
-Package specifier formats:
-  github.com/user/repo          Latest semver tag from GitHub
-  github.com/user/repo@v1.0.0  Pinned version/tag
-  user/repo                     Shorthand for GitHub
-  user/repo@v2.0.0              Shorthand with version pin
-  https://example.com/repo.git  Full URL
-  ./path/to/dep                 Local path dependency
-  ../sibling-dep                Local path dependency
+yo install [--verbose]
 ```
 
-`yo install` performs the following steps:
+Resolves every git dependency `yo.toml` declares to a commit (reusing `yo.lock` entries that still satisfy their requirement), fetches what the global cache lacks, verifies content hashes, prunes stale entries and writes `yo.lock`. No network access is needed when the lock is complete and the cache is intact.
 
-**For git dependencies:**
+## `yo update` Reference
 
-1. Parses the package specifier and infers the dependency name from the repo name
-2. Resolves the latest semver tag via `git ls-remote --tags` (or uses the pinned version)
-3. Falls back to the default branch if no semver tags are found
-4. Appends `build.dependency(...)` to `deps.yo` (creates the file if it doesn't exist)
-5. Regenerates the `imports` ComptimeList in `deps.yo`
-6. Fetches the dependency and updates `yo.lock`
+```
+yo update [name...] [--verbose]
+```
 
-**For local path dependencies:**
-
-1. Infers the name from the directory basename
-2. Validates that the path exists
-3. Appends `build.path_dependency(...)` to `deps.yo`
-4. Regenerates the `imports` ComptimeList in `deps.yo`
-
-If `build.yo` already imports `deps.yo`, no further manual changes are needed.
+Re-resolves the named dependencies (all when none are given): the highest tag a `version` range allows, the tip of a `branch`, the remote's default branch for a bare `git` entry. Rewrites `yo.lock`.
 
 ## `yo cache` Reference
 
