@@ -318,6 +318,23 @@ yo version clean      # Remove all cached versions
 - After fixing a bug, verify uncommitted changes for leftover or unused code.
 - Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
 - **Always squash-merge a PR AND delete its branch**: `gh pr merge <n> --squash --delete-branch`. A squash merge replays the work as ONE new commit on `develop`, so the source branch is dead the moment it lands — leaving it behind accumulates stale refs that later `git worktree`/branch work trips over, and makes `git ls-remote` unreadable. If `--delete-branch` reports `cannot delete branch '<name>' used by worktree at ...`, the REMOTE branch was still deleted; only the local one survived, so remove the worktree (`git worktree remove <path>`) and then `git branch -d <name>`.
+- **Then CANCEL the runs that merge made pointless.** A merged PR's branch runs keep going — and a squash-merged branch's run can never gate anything again, because the commit it is testing no longer exists on any branch. The same applies to a superseded `develop` push run once a newer tip has queued. Cancelling is not tidiness: this repo's battery is ~28 jobs across six platforms, and on 2026-09-13 a backlog of runs on already-merged branches held every runner long enough that `develop`'s battery could not start for hours — the first full battery to finish in that window was the one that finally caught four red gates. Leaving them running actively delays the run whose verdict you are waiting for.
+
+  ```bash
+  # Everything still moving, with its branch:
+  gh run list --limit 30 --json databaseId,headBranch,status \
+    --jq '.[]|select(.status=="queued" or .status=="in_progress" or .status=="pending")|"\(.databaseId) \(.status) \(.headBranch)"'
+  # The branches that still MATTER — every open PR's head:
+  gh pr list --state open --limit 50 --json headRefName --jq '[.[].headRefName]|join(" ")'
+  gh run cancel <id>   # for each run whose branch is not in that list
+  ```
+
+  **KEEP**: every open PR's runs, and the NEWEST `develop` run. **CANCEL**: runs
+  on branches with no open PR (i.e. merged or abandoned), and older `develop`
+  runs once a newer tip has queued. When in doubt about someone else's branch,
+  leave it — the cost of one extra run is small next to cancelling work a
+  teammate is waiting on. Cancellation is asynchronous, so a job may still read
+  `in_progress` for a minute afterwards; re-list rather than cancelling twice.
 - **Always run `yo fmt <file.yo>` on every `.yo` file you create or modify, before committing.** Use `yo fmt --check` to verify. Do not commit unformatted `.yo` files. (There is no pre-commit hook any more — `.husky/` went with the node toolchain, so this is on you.)
 - Always check if there is need to create/update existing instructions & rules & skill files, design/plan docs after implementing a change.
 - **Whenever you learn something new about Yo syntax, semantics, or common pitfalls — especially from trial and error — immediately update the relevant skill files** (`.github/skills/yo-syntax/syntax-cheatsheet.md`, `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`, etc.) **and instruction files** (`.github/instructions/yo-syntax.instructions.md`, `.github/instructions/yo-design.instructions.md`). This keeps the institutional knowledge accurate for future sessions.
