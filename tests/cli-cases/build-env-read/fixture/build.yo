@@ -1,0 +1,12 @@
+build :: import("std/build");
+flavor :: build.env("YO_CASE_FLAVOR", "unset-fallback");
+absent :: build.env("YO_CASE_ABSENT", "fellback");
+has_flavor :: build.env_is_set("YO_CASE_FLAVOR");
+has_absent :: build.env_is_set("YO_CASE_ABSENT");
+exe :: build.executable({ name : "app", root : "./src/main.yo" });
+s1 :: build.step("flavor", flavor);
+s2 :: build.step("absent", absent);
+s3 :: build.step("has-flavor", if(has_flavor, "yes", "no"));
+s4 :: build.step("has-absent", if(has_absent, "yes", "no"));
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);

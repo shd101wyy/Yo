@@ -699,6 +699,35 @@ Options:
 
 `YO_BUILD_NO_CACHE=1` 会跳过整套机制：不做任何哈希，每个产物都重新编译。
 
+### 读取环境变量：`build.env`
+
+构建文件可以读取环境变量，其他任何地方都不行：
+
+```rust
+build :: import("std/build");
+
+ci      :: build.env_is_set("CI");
+pkgpath :: build.env("PKG_CONFIG_PATH", "");
+```
+
+| | |
+| --- | --- |
+| `build.env(name, fallback)` | 变量的值；未设置时为 `fallback` |
+| `build.env_is_set(name)` | 变量是否存在——否则「值恰好等于 fallback」与「未设置」无法区分 |
+
+**优先使用 `build.option` 与 `-Dname=value`。** option 是显式声明的，会被
+`yo build --list-options` 列出，也会体现在产生该次构建的命令里。只有在确实属于
+环境的场景才用 `env`：CI 检测、`PKG_CONFIG_PATH`、依赖具体机器的默认值。
+
+两条保证使它足够安全：
+
+- **只有构建文件能读。** 普通模块若读取环境，在 `yo build`、`yo check`、
+  `yo test` 和编辑器下会表示不同的程序，因此该 builtin 在其他任何位置都是编译
+  错误——错误信息会指出改用 `-D`。
+- **每次读取都是输入。** 变量名与取值会并入产物的输入指纹，因此构建文件所依赖的
+  变量一旦变化就会重新构建，而不是沿用过期产物。`env_is_set` 探测同样计入：
+  变量是否存在正是该次构建所依据的条件。
+
 ## `yo init` 参考
 
 ```

@@ -22,6 +22,8 @@
 //! `src/build/build_registry.yo` file with no TS counterpart.
 //! That file was folded in here so the structural mapping is 1-to-1.)
 { String } :: import("std/string");
+_(env : proc_env) :: import("std/env");
+{ record_env_read } :: import("../../input_record.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { AnyError, Exception } :: import("std/error");
@@ -33,6 +35,8 @@
   BF_YO_BUILD_TARGET_HOST,
   BF_YO_BUILD_TARGET_PARSE,
   BF_YO_BUILD_OPTION,
+  BF_YO_BUILD_ENV,
+  BF_YO_BUILD_ENV_IS_SET,
   BF_YO_BUILD_DEP_MODULE,
   BF_YO_BUILD_EXECUTABLE,
   BF_YO_BUILD_STATIC_LIBRARY,
@@ -56,7 +60,7 @@
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
-{ t_unit, t_comptime_string } :: import("../../types/creators.yo");
+{ t_unit, t_bool, t_comptime_string } :: import("../../types/creators.yo");
 { host_target, parse_target, TargetInfo } :: import("../../target.yo");
 { format_error_message } :: import("../../error.yo");
 // ---------------------------------------------------------------------------
@@ -762,6 +766,22 @@ _build_unit_result :: (
 /// Set the expr's result to a `comptime_str` carrying `value`.
 /// Mirrors `makeComptimeStringResult`. `StrLit` stores the quoted source
 /// form (see `builtins/process.yo`), so `value` is wrapped in quotes.
+/// A comptime BOOL result, the `_build_string_result` counterpart.
+_build_bool_result :: (
+  fn(expr : AstExpr, env : Environment, ctx : EvalContext, value : bool) -> AstExpr
+)({
+  // `bool` IS the comptime bool type — there is no separate `comptime_bool`
+  // (`creators.yo` has `t_bool` and no comptime variant), and a `BoolVal` in
+  // `ExprInfo.value` is what makes it compile-time known.
+  info := new_expr_info(env, t_bool());
+  info.value = Option(EvalValue).Some(EvalValue.BoolVal(value));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+/// True when a build file is being evaluated — `g_build_registry` is `.Some`
+/// only between `run_build`'s `swap_build_registry` calls. `get_build_registry`
+/// CREATES one on demand, so it cannot answer this; the raw slot can.
+_under_build :: (fn() -> bool)(match(g_build_registry, .Some(_r) => true, .None => false));
 _build_string_result :: (
   fn(expr : AstExpr, env : Environment, ctx : EvalContext, value : String) -> AstExpr
 )({
@@ -1097,6 +1117,54 @@ evaluate_yo_build_functions :: (
         match(reg_opt.cli_options.get(opt_name), .Some(v) => v, .None => default_value)
       )
     );
+  });
+  // ── build.env (§5.4) ────────────────────────────────────────────────────
+  //
+  // Reading the environment makes evaluation depend on the invoking shell.
+  // That is wrong for an ordinary module — the LSP, `check` and `yo test` would
+  // each see a different program — so these answer ONLY while a build file is
+  // being evaluated, and are a compile error naming `-D` anywhere else.
+  //
+  // Every read is recorded and folded into the artifact stamp, so changing a
+  // variable the build file reads rebuilds instead of serving a stale artifact.
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ENV, Option(usize).None), {
+    _build_require_args(args, usize(2), String.from("__yo_build_env expects 2 arguments (name, default)"), expr, exn);
+    env_name := _build_extract_string(args, usize(0), "name", expr, ctx, exn);
+    env_default := _build_extract_string(args, usize(1), "default", expr, ctx, exn);
+    if(!_under_build(), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `"build.env" may only be read while a build file is being evaluated — an ordinary module that read the environment would mean something different under \`yo build\`, \`yo check\`, \`yo test\` and the editor. Declare a \`build.option\` and pass \`-D${env_name}=…\` instead.`
+          )
+        )
+      );
+    });
+    looked_up := proc_env.get(env_name.clone());
+    record_env_read(env_name.clone(), match(looked_up, .Some(v) => v.clone(), .None => String.from("<unset>")));
+    return(
+      _build_string_result(expr, env, ctx, match(looked_up, .Some(v) => v, .None => env_default))
+    );
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ENV_IS_SET, Option(usize).None), {
+    _build_require_args(args, usize(1), String.from("__yo_build_env_is_set expects 1 argument (name)"), expr, exn);
+    is_set_name := _build_extract_string(args, usize(0), "name", expr, ctx, exn);
+    if(!_under_build(), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `"build.env_is_set" may only be read while a build file is being evaluated. Declare a \`build.option\` and pass \`-D${is_set_name}=…\` instead.`
+          )
+        )
+      );
+    });
+    is_set_val := proc_env.get(is_set_name.clone());
+    // Recorded exactly like a value read: whether the variable EXISTS is what
+    // this call branched on, so a build must not be reused across a change.
+    record_env_read(is_set_name.clone(), match(is_set_val, .Some(v) => v.clone(), .None => String.from("<unset>")));
+    return(_build_bool_result(expr, env, ctx, is_set_val.is_some()));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, Option(usize).None), {
     if(args.len() < usize(2), {

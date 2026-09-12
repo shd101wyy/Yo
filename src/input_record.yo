@@ -73,4 +73,33 @@ reset_input_files :: (fn() -> unit)({
 });
 /// The files read so far, in first-open order.
 input_files :: (fn() -> ArrayList(String))(g_input_files);
-export(record_input_file, reset_input_files, input_files);
+// ── Environment reads (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §5.4)
+//
+// `build.env` lets a build file branch on the invoking shell, which makes the
+// shell an INPUT. Each read is recorded as `name=value` (or `name=<unset>`) and
+// folded into the artifact stamp, so changing a variable the build file reads
+// rebuilds rather than serving a stale artifact.
+//
+// Recorded in first-read order, deduplicated by NAME AND VALUE: one name read
+// twice is one entry, and a name whose value somehow differed between reads
+// keeps both, because both influenced the build.
+(g_env_reads : ArrayList(String)) = ArrayList(String).new();
+/// Record that the build read `name`, seeing `rendered` (`<unset>` when absent).
+record_env_read :: (fn(name : String, rendered : String) -> unit)({
+  entry := `${name}=${rendered}`;
+  (i : usize) = usize(0);
+  while(i < g_env_reads.len(), {
+    match(
+      g_env_reads.get(i),
+      .Some(seen) => if(seen == entry, {
+        return(());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_env_reads.push(entry);
+});
+/// The environment reads so far, as `name=value` lines in first-read order.
+env_reads :: (fn() -> ArrayList(String))(g_env_reads);
+export(record_input_file, reset_input_files, input_files, record_env_read, env_reads);

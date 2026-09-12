@@ -25,6 +25,7 @@ _(args : proc_args) :: import("std/env");
 { sha256_hex } :: import("std/crypto/sha256");
 { CURRENT_YO_VERSION } :: import("./version.yo");
 _(env : proc_env) :: import("std/env");
+{ env_reads } :: import("./input_record.yo");
 { create_dir_all } :: import("std/fs/dir");
 { Command, Output, ExitStatus } :: import("std/process/command");
 { error_format, emit_rendered_text } :: import("./diagnostics.yo");
@@ -1236,6 +1237,16 @@ _artifact_input_stamp :: (
     _stamp_push_str(acc, `yo-version ${CURRENT_YO_VERSION}`);
     sep := String.from(" ");
     _stamp_push_str(acc, `argv ${sep.join(argv)}`);
+    // §5.4: every `build.env` read the build file made. The invoking shell is
+    // an INPUT once a build file branches on it, so a changed variable must
+    // rebuild rather than serve a stale artifact. Recorded as `name=value`
+    // lines (or `name=<unset>`), in first-read order.
+    reads := env_reads();
+    (ei : usize) = usize(0);
+    while(ei < reads.len(), {
+      match(reads.get(ei), .Some(r) => _stamp_push_str(acc, `env ${r}`), .None => ());
+      ei = (ei + usize(1));
+    });
     files := ArrayList(String).new();
     // §4.9: the PREVIOUS build's `--emit-deps` list is exactly what the
     // evaluation opened — every `.yo` module it reached, and nothing else. The
