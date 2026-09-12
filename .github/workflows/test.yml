@@ -32,9 +32,24 @@ on:
   # once combined with develop.
   merge_group:
 
+# A superseded PR run is wasted CI and is cancelled. A `develop` run is NOT:
+# it is the only battery that scores what actually LANDED (a PR is scored on a
+# merge commit that no longer exists after a squash, and `strict` only proves
+# the branch was up to date at merge time). Cancelling those made develop
+# unverifiable — in one merge storm five consecutive develop runs were
+# cancelled by the next merge, so no tip carrying the merged work ever finished
+# a full battery. `merge_group` runs must not be cancelled either: the queue
+# waits on their checks.
+#
+# The GROUP stays per-ref (NOT per-sha): with `cancel-in-progress: false` a
+# burst of merges leaves the running battery alone and collapses the rest into
+# ONE pending run at the newest tip, which is exactly what wants scoring. A
+# per-sha group would instead run every intermediate commit in parallel — and
+# would break PR cancellation, since `github.sha` on a `pull_request` event is
+# the per-push merge commit and therefore differs run to run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): the previous release (the
