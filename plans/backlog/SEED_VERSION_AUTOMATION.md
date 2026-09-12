@@ -110,6 +110,30 @@ references); it is verified locally with a stage-1 built by a feature-carrying
 compiler + `fixpoint_only.sh`, and merges after the bump. **Verify the gate the
 usual way before merging**: `yo build` the tree with the actual seed bundle.
 
+## Seed-gated follow-up (2026-09-12): `build.manifest` in `std/build.yo`
+
+**Generation A DONE 2026-09-12** (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+§4.1): the compiler carries `__yo_build_manifest_field(field)`, a comptime
+string builtin answering from the build registry's `manifest_fields`, which
+`src/build_runner.yo` fills from the project's `yo.toml` `[package]` table
+before it evaluates `build.yo` (`name`, `version`; an absent field and every
+field outside a build read as `""`). A build file calls the builtin directly
+today — cli-case `build-manifest`.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying it):** `std/build.yo`
+exposes the friendly spelling — a `Manifest` struct and a `manifest ::
+Manifest(name : __yo_build_manifest_field("name"), …)` binding, so a build file
+writes `build.manifest.name`. It CANNOT land earlier: a module-level `::`
+binding is forced by its own `export(...)`, so an older seed fails
+`std/build.yo` with `error[E0401]: Variable "__yo_build_manifest_field" not
+found` — and `fixpoint-arm64.yml` bootstraps gen-1 with `yo build`, which
+evaluates `std/build.yo` on every run. (The v0.2.30 seed does not even report
+it: it still swallows build-file evaluation errors and prints `No build steps
+defined.`) Verify the gate the usual way before merging: `yo build` the tree
+with the actual seed bundle. The cli-case fixture then moves to
+`build.manifest.<field>`, and the user docs (`docs/*/BUILD_SYSTEM.md`) document
+it as the public surface.
+
 ## Seed-gated follow-up (2026-08-27): `Command.current_dir`
 
 **Generation A DONE 2026-08-28:** the runtime emits

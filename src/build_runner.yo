@@ -1817,6 +1817,20 @@ print_steps :: (fn(registry : BuildRegistry) -> unit)({
 // ---------------------------------------------------------------------------
 // Build file evaluation
 // ---------------------------------------------------------------------------
+/// The `[package]` table `build.manifest` reads, keyed by field name. A
+/// project without a `yo.toml` contributes nothing, so every field is "".
+_manifest_fields :: (fn(manifest_opt : Option(Manifest)) -> HashMap(String, String))({
+  fields := HashMap(String, String).new();
+  match(
+    manifest_opt,
+    .Some(m) => {
+      fields.insert(String.from("name"), m.name.clone());
+      fields.insert(String.from("version"), m.version.clone());
+    },
+    .None => ()
+  );
+  fields
+});
 /// Evaluate a `build.yo` file and return the `BuildRegistry` its
 /// `build.executable(...)` / `build.step(...)` / … calls populated.
 ///
@@ -1841,6 +1855,7 @@ evaluate_build_file :: (
   fn(
     build_file : String,
     defines : HashMap(String, String),
+    manifest_opt : Option(Manifest),
     io : Io,
     exn : Exception
   ) -> Impl(Future(BuildRegistry, IoExn))
@@ -1849,9 +1864,11 @@ evaluate_build_file :: (
     clear_build_registry();
     // Seed `-Dname=value` overrides BEFORE evaluating: `build.option(...)`
     // reads `cli_options` at evaluation time and returns the override in place
-    // of its declared default.
+    // of its declared default. The manifest's `[package]` table goes in the
+    // same way — `build.manifest.name` reads it during evaluation.
     reg := get_build_registry();
     reg.cli_options = defines;
+    reg.manifest_fields = _manifest_fields(manifest_opt);
     outcome := mm_load_yo_file(build_file, e.io, e.exn);
     load_error := _take_load_error();
     // No `mm_reset()` here: the caller resets once, after the manifest's
@@ -1904,11 +1921,18 @@ run_build :: (
       .Some(cc) => cc,
       .None => String.from("clang")
     );
+    // The project's manifest (yo.toml): its `[package]` table is what
+    // `build.manifest` reads during the evaluation below, its dependency
+    // closure is what every artifact's `import("name")` resolves through, and
+    // its git dependencies are fetched further down. Reading it needs no
+    // evaluator — `load_manifest` parses TOML.
+    manifest_opt := project_manifest(project_dir.clone(), e.exn);
     // Evaluate build.yo to populate the registry.
     registry := e.io.await(
       evaluate_build_file(
         build_file_path.to_string(),
         options.defines,
+        manifest_opt,
         e.io,
         e.exn
       ),
@@ -1918,11 +1942,8 @@ run_build :: (
       print_steps(registry);
       return(());
     });
-    // The project's manifest (yo.toml): its dependency closure is what every
-    // artifact's `import("name")` resolves through, and its git dependencies
-    // are fetched here when the cache lacks them. Runs before the single
-    // evaluator reset that follows (see evaluate_build_file).
-    manifest_opt := project_manifest(project_dir.clone(), e.exn);
+    // Fetching the git dependencies the manifest declares runs before the
+    // single evaluator reset that follows (see evaluate_build_file).
     e.io.await(resolve_build_import_roots(manifest_opt, registry, options.locked, options.offline, options.verbose, e.io, e.exn), e);
     project_name := match(manifest_opt, .Some(m) => m.name.clone(), .None => String.new());
     mm_reset();
