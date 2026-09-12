@@ -1,0 +1,56 @@
+// Reproducer for issues/fixed/nested-while-loops-in-an-async-body-redefine-c-labels.md
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ Exception, IoExn } :: import("std/error");
+{ yield } :: import("std/async");
+
+Artifact :: ref(struct(name : String, mods : ArrayList(String)));
+resolve_one :: (fn(m : String, io : Io) -> Impl(Future(Option(String), IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    if(m.len() > usize(1), Option(String).Some(m.clone()), Option(String).None)
+  })
+);
+// The resolve_import_roots shape: an await BEFORE the loops, an outer while
+// over a list with an index binding, an inner while with an index binding, an
+// await inside the inner body followed by a cond, and statements after the
+// inner loop in the outer body.
+resolve_all :: (fn(arts : ArrayList(Artifact), io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    pre := e.io.await(resolve_one(String.from("pre"), e.io), e);
+    match(pre, .Some(p) => log.push_string(`${p};`), .None => ());
+    (ai : usize) = usize(0);
+    while(runtime(ai < arts.len()), {
+      artifact := arts(ai);
+      head := e.io.await(resolve_one(artifact.name.clone(), e.io), e);
+      match(head, .Some(h) => log.push_string(`head-${h};`), .None => ());
+      (i : usize) = usize(0);
+      while(runtime(i < artifact.mods.len()), {
+        imp := artifact.mods(i);
+        r := e.io.await(resolve_one(imp.clone(), e.io), e);
+        cond(
+          r.is_some() => log.push_string(`${artifact.name}:${imp};`),
+          true => log.push_string(`${artifact.name}:skip;`)
+        );
+        i = (i + usize(1));
+      });
+      log.push_string(`end-${artifact.name};`);
+      ai = (ai + usize(1));
+    });
+    log
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  arts := ArrayList(Artifact).new();
+  m1 := ArrayList(String).new();
+  m1.push(String.from("aa"));
+  m1.push(String.from("b"));
+  m2 := ArrayList(String).new();
+  m2.push(String.from("cc"));
+  arts.push(Artifact(name : String.from("AA"), mods : m1));
+  arts.push(Artifact(name : String.from("BB"), mods : m2));
+  println(io.await(resolve_all(arts, io), IoExn(io : io, exn : exn)));
+});
+export(main);

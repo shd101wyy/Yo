@@ -645,6 +645,32 @@ pointer here, and `AGENTS.md`'s command table refreshed.
 | **P3 — speed and scale** | §4.8 parallel levels + `-j`, §4.9 depfile-based stamps, §4.6 workspaces | `build-parallel-levels` (two independent artifacts overlap in `--summary` timestamps), `build-cache-per-artifact` (editing artifact A's private module does not recompile B), `workspace-members`; the self-build's `yo build` time is unchanged or better (one artifact) |
 | **P4 — ecosystem** | §4.10 static index, `yo publish` | designed then, not now |
 
+**Status (2026-09-11).** P0 landed (#577, #578). P1's first two cuts landed:
+§4.5.1 `--imports` for direct path dependencies (#581) and transitive
+resolution through dependency `build.yo` registries (#583). Six `io.async`
+lowering bugs that the install flow tripped over are fixed in #592 and its
+stacked follow-up (nested cond/match dispatch, chained-layer targets and
+bindings, post-while guards, while-body re-assignment, nested while loops,
+field-named locals) — `yo install user/repo@tag` works end to end at gen-2.
+Next cut: **P1.3 — the manifest**: `yo.toml` read by `std/encoding/toml`
+(landed in std), manifest-driven import roots in EVERY command (compile,
+check, test, lsp — rule 0 today only fires under `yo build`'s `--imports`),
+`yo add` via `toml_edit.yo`, `deps.yo`/struct-form `build.dependency`/`yo
+install <spec>` removed; then P1.4 the resolver + lock v2 + store.
+
+**Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
+The compiler itself imports the Markdown renderer by submodule path
+(`src/doc/render_html.yo` → `import("../../vendor/markdown_yo/src/lib.yo")`);
+the target is `import("markdown_yo")` resolved through the repo-root
+`yo.toml` and the store, with the submodule deleted. This is the end-to-end
+proof for P1.3/P1.4 on the compiler's own build. It is SEED-GATED twice over:
+the seed that compiles `src/main.yo` must resolve the manifest import (or be
+handed `--imports markdown_yo=<store path>` by the bootstrap scripts — the
+seed gains `--imports` with v0.2.31), and CI must fetch the dependency before
+the seed compile. So: land P1.3 first, then un-vendor in a PR that also
+teaches `scripts/bootstrap/*` and the workflows to fetch/`--imports` it, once
+a seed with `--imports` is published.
+
 Sequencing: P0 is independent and small — land it first, it makes P1's
 failures visible. P1 is the campaign; §4.5.1 (`--imports`) is its first cut
 because it alone fixes §1.1 for path dependencies and is what every later

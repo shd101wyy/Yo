@@ -395,6 +395,28 @@ walk_expr_ :: (
           .None => ()
         );
       });
+      // `obj.member`: the MEMBER atom names a struct field, not a variable.
+      // The Atom case below resolves it BY NAME, so a same-named LOCAL in
+      // the body (`root := …` after `resolution.root`) was captured through
+      // it with the atom's ExprInfo type — the FIELD's type — and the local's
+      // state-machine slot was declared with that type
+      // (issues/fixed/async-body-local-shares-its-state-machine-slot-type-with-a-same-named-struct-field.md).
+      // Walk the object only; the member is not a suspension-crossing value.
+      if(ast_expr_is_fn_call_of(expr_cloned.clone(), ".", Option(usize).Some(usize(2))), {
+        member_is_name := match(
+          args.get(usize(1)),
+          .Some(me) => match(me, .Atom(_, mt) => (mt.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false),
+          .None => false
+        );
+        if(member_is_name, {
+          match(
+            args.get(usize(0)),
+            .Some(obj) => recur(obj, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone())),
+            .None => ()
+          );
+          return(());
+        });
+      });
       // `if` is a macro over `cond`. Its branch structure only exists in the
       // expansion, so walk that instead — otherwise its suspension points never
       // get the merged indices and `cond_branch` fields that codegen (which

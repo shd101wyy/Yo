@@ -5123,6 +5123,68 @@ _sibling_second_awaits :: (fn(k : _SibKind, io : Io) -> Impl(Future(String, IoEx
     log
   })
 );
+/// Shape K — nested while loops in ONE async body: an outer loop over a list
+/// (index binding), an inner loop that awaits, an await in the outer body
+/// BEFORE the inner loop and another AFTER it
+/// (issues/fixed/nested-while-loops-in-an-async-body-redefine-c-labels.md).
+_NwArtifact :: ref(struct(name : String, mods : ArrayList(String)));
+_nw_resolve :: (fn(m : String, io : Io) -> Impl(Future(Option(String), IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    if(m.len() > usize(1), Option(String).Some(m.clone()), Option(String).None)
+  })
+);
+_nested_whiles :: (fn(arts : ArrayList(_NwArtifact), io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    pre := e.io.await(_nw_resolve(String.from("pre"), e.io), e);
+    match(pre, .Some(p) => log.push_string(`${p};`), .None => ());
+    (ai : usize) = usize(0);
+    while(runtime(ai < arts.len()), {
+      artifact := arts(ai);
+      head := e.io.await(_nw_resolve(artifact.name.clone(), e.io), e);
+      match(head, .Some(h) => log.push_string(`head-${h};`), .None => ());
+      (i : usize) = usize(0);
+      while(runtime(i < artifact.mods.len()), {
+        imp := artifact.mods(i);
+        r := e.io.await(_nw_resolve(imp.clone(), e.io), e);
+        cond(
+          r.is_some() => log.push_string(`${artifact.name}:${imp};`),
+          true => log.push_string(`${artifact.name}:skip;`)
+        );
+        i = (i + usize(1));
+      });
+      tail := e.io.await(_nw_resolve(artifact.name.clone(), e.io), e);
+      match(tail, .Some(t) => log.push_string(`end-${t};`), .None => ());
+      ai = (ai + usize(1));
+    });
+    log
+  })
+);
+/// Shape L — a local named like a struct FIELD read in the same async body,
+/// of a different type, both used after an await
+/// (issues/fixed/async-body-local-shares-its-state-machine-slot-type-with-a-same-named-struct-field.md).
+_FieldRes :: ref(struct(root : Option(String), n : usize));
+_field_resolve :: (fn(io : Io) -> Impl(Future(_FieldRes, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    _FieldRes(root : Option(String).Some(String.from("/dep")), n : usize(1))
+  })
+);
+_field_named_local :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    (k : usize) = usize(0);
+    while(runtime(k < usize(2)), {
+      resolution := e.io.await(_field_resolve(e.io), e);
+      dep_root_opt := resolution.root;
+      root := match(dep_root_opt, .Some(r) => r, .None => String.from("none"));
+      log.push_string(`${root};`);
+      k = (k + usize(1));
+    });
+    log
+  })
+);
 test("an awaiting inner match inside a match arm keeps the arm's trailing statements", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -5212,4 +5274,24 @@ test("a sibling arm's second-await binding is assigned when its continuation is 
   assert(a == "A:present=true;A:added;", `the first arm binds both awaits (got ${a})`);
   b := io.await(_sibling_second_awaits(_SibKind.B, io), bundle);
   assert(b == "B:nm=nm;B:added;", `the second arm's second-await binding is assigned (got ${b})`);
+});
+test("nested while loops in one async body with awaits before, inside and after the inner loop", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  arts := ArrayList(_NwArtifact).new();
+  m1 := ArrayList(String).new();
+  m1.push(String.from("aa"));
+  m1.push(String.from("b"));
+  m2 := ArrayList(String).new();
+  m2.push(String.from("cc"));
+  arts.push(_NwArtifact(name : String.from("AA"), mods : m1));
+  arts.push(_NwArtifact(name : String.from("BB"), mods : m2));
+  got := io.await(_nested_whiles(arts, io), IoExn(io : io, exn : exn));
+  assert(got == "pre;head-AA;AA:aa;AA:skip;end-AA;head-BB;BB:cc;end-BB;", `every iteration of both loops ran in order (got ${got})`);
+});
+test("a local named like a struct field read in the same async body keeps its own type", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  got := io.await(_field_named_local(io), IoExn(io : io, exn : exn));
+  assert(got == "/dep;/dep;", `the local root is a String, not the field's Option (got ${got})`);
 });
