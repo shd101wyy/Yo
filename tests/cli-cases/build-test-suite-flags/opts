@@ -1,0 +1,27 @@
+# plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md B13: `TestSuite`'s verbose /
+# bail / parallel fields were carried by the evaluator's `BuildTestSuite` and
+# forwarded by the runner, but `std/build.yo` never surfaced them — the builtin
+# hard-coded `verbose : false, bail : false, parallel : 1`, so a build file
+# could not ask for them at all.
+#
+# The fixture asks for all three, and two of them are observable here.
+#
+# `bail` stops the run at the second test, so the THIRD test's name must be
+# ABSENT from the kept output and the total must be 2, not 3.
+#
+# `verbose` is NOT about naming the tests — `yo test` prints `✓ <name>` either
+# way. It decides how much of a FAILING test's diagnostic is printed: the whole
+# thing with `-v`, only its first line without (`src/main.yo`). So the assert's
+# own message, `deliberate failure — the suite bails here`, is the line that
+# disappears when `verbose` does not reach the builtin. `stdout_keep_match`
+# keeps only the matched SUBSTRING, which drops the `(at file://…:NN:CC)` suffix
+# that would otherwise move whenever std/assert.yo does.
+#
+# `parallel` cannot be observed here and is set anyway: it reaches the child as
+# `--parallel 2`, which `yo test` v1 accepts and ignores (it runs files
+# sequentially). Its presence at least keeps the extraction on a live path.
+timeout=300
+# Only the runner's own lines are compared: the child compile emits the host's
+# ASan probe verdict, openssl paths and clang warnings with generated-C line
+# numbers, none of which are this case's subject.
+stdout_keep_match=(✓|✗) [a-z ]+|Test failed with exit code [0-9]+|deliberate failure — the suite bails here|Bailing out early due to test failure|[0-9]+ (passed|failed|total)

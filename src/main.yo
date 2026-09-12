@@ -4917,7 +4917,7 @@ run_build_cmd :: (
 /// surface mirrors the yargs definition in `src/yo-cli.ts` ("doc [path]"):
 /// positional path (default "."), -o/--output (default "yo-out/doc"),
 /// --title, --document-private, -v/--verbose, -f/--format
-/// (html|markdown|json, default html), --version.
+/// (html|markdown|json, default html), --version, --logo, --favicon.
 /// `yo unsafe-report [path] [--json]` — the unsafe-surface audit (port of
 /// the TS subcommand; scanning lives in unsafe_report.yo). A nonexistent
 /// path reports on stderr and exits 1, like TS.
@@ -5008,6 +5008,10 @@ run_doc_cmd :: (
   (verbose : bool) = false;
   (format : String) = String.from("html");
   (version : String) = String.new();
+  // `--logo` / `--favicon`: `build.documentation` has carried these since it
+  // was written and nothing read them (the plan's B13); they render now.
+  (logo : String) = String.new();
+  (favicon : String) = String.new();
   (saw_input : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
@@ -5059,8 +5063,28 @@ run_doc_cmd :: (
       arg.starts_with(String.from("--version=")) => {
         version = arg.substring(usize(10), arg.len());
       },
+      (arg == "--logo") => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("doc: --logo requires a value")));
+        });
+        logo = argv(ai + usize(1));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--logo=")) => {
+        logo = arg.substring(usize(7), arg.len());
+      },
+      (arg == "--favicon") => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("doc: --favicon requires a value")));
+        });
+        favicon = argv(ai + usize(1));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--favicon=")) => {
+        favicon = arg.substring(usize(10), arg.len());
+      },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`doc: unknown option '${arg}'. Usage: yo doc [path] [-o <dir>] [--title <t>] [--document-private] [-v] [-f html|markdown|json] [--version <v>]`));
+        exn.throw(dyn(`doc: unknown option '${arg}'. Usage: yo doc [path] [-o <dir>] [--title <t>] [--document-private] [-v] [-f html|markdown|json] [--version <v>] [--logo <path>] [--favicon <path>]`));
       },
       true => {
         if(saw_input, {
@@ -5083,7 +5107,9 @@ run_doc_cmd :: (
       verbose : verbose,
       title : title,
       format : format,
-      version : version
+      version : version,
+      logo : logo,
+      favicon : favicon
     ),
     io,
     exn
@@ -5889,6 +5915,8 @@ Options:
   -o, --output <dir>        Output directory (default: ./yo-out/doc)
   -f, --format <fmt>        Output format (html|json, default html)
   --title <s>               Documentation site title
+  --logo <path>             Image shown in the sidebar header
+  --favicon <path>          Site icon
   --document-private        Include underscore-private items
   -v, --verbose             Verbose output
   --std-path <dir>          Override the std library directory
@@ -5904,6 +5932,8 @@ Examples:
   -o, --output <dir>        输出目录（默认 ./yo-out/doc）
   -f, --format <fmt>        输出格式（html|json，默认 html）
   --title <s>               文档站标题
+  --logo <path>             侧边栏顶部显示的图片
+  --favicon <path>          站点图标
   --document-private        包含下划线私有的条目
   -v, --verbose             详细输出
   --std-path <dir>          覆盖标准库目录

@@ -147,6 +147,21 @@ passing NULL. Proven by tests/process/command.test.yo under the fresh binary.
 take `cwd : ?(*(u8))`, add `Command.current_dir(path)` + a test through the
 public API; then delete the 6-argument wrapper in a later generation.
 
+- **`__yo_build_doc`'s dead `include_deps` slot (B13, 2026-09-12):**
+  `DocConfig.include_deps` was write-only and is gone from `std/build.yo`, but
+  the call still passes a literal `false` in argument slot 5 because the seed's
+  `__yo_build_doc` requires ten arguments. Once `SEED_VERSION` carries the
+  nine-argument builtin, drop the literal from `std/build.yo` and the slot from
+  `evaluate_yo_build_functions`. Failure mode if early: LOUD (`build.doc`
+  reports too few arguments while the seed evaluates the build file).
+
+- **`TestSuite.verbose/bail/parallel` (B13, 2026-09-12):** `std/build.yo` passes
+  seven arguments to `__yo_build_test`; `_build_require_args` is a MINIMUM
+  check, so the seed's four-argument builtin ignores the extra three and the
+  suite simply runs with the old hard-coded defaults under a seed build.
+  Nothing to schedule — recorded so the silent degradation is not mistaken for
+  a regression when a seed-built binary runs `build test`.
+
 - **Hasher defaults (D3.9, 2026-08-28):** `std/hash.yo`'s `SipHasher13` spells
   out every `write_*` because the v0.2.19 seed miscompiles `inout(self)` trait
   defaults (C43, issues/fixed/trait-default-inout-self-bound-by-value.md) and

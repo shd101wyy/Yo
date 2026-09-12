@@ -525,12 +525,46 @@ _search_index_json :: (fn(entries : ArrayList(SearchEntry)) -> String)({
   s
 });
 // ── Page layout ──────────────────────────────────────────────────────
+/// Rewrite a relative asset path for a page one directory deeper
+/// (`module/<name>.html` — the same `../` the sidebar's own hrefs get in
+/// `_fix_sidebar_for_module_page`). An absolute path, a scheme-qualified or
+/// protocol-relative URL and a `data:` URI already name the same resource from
+/// every page, so they travel unchanged.
+_asset_for_module_page :: (fn(asset : Option(String)) -> Option(String))(
+  match(
+    asset,
+    .Some(a) => if(
+      a.starts_with("/") || (a.starts_with("http://") || (a.starts_with("https://") || a.starts_with("data:"))),
+      Option(String).Some(a.clone()),
+      // `./x` prefixed blindly reads `.././x`; strip the redundant leading
+      // `./` so the emitted href is the one a human would have written.
+      Option(String).Some(`../${if(a.starts_with("./"), a.substring(usize(2), a.len()), a.clone())}`)
+    ),
+    .None => Option(String).None
+  )
+);
 _wrap_page :: (
-  fn(title : String, content : String, sidebar : String, search_index_json : String, css_text : String, js_text : String) -> String
+  fn(
+    title : String,
+    content : String,
+    sidebar : String,
+    search_index_json : String,
+    css_text : String,
+    js_text : String,
+    favicon : Option(String)
+  ) -> String
 )({
   s := String.from("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>");
   s.push_string(_escape_html(title));
-  s.push_str("</title>\n<style>");
+  s.push_str("</title>");
+  match(
+    favicon,
+    .Some(f) => {
+      s.push_string(`\n<link rel="icon" href="${_escape_html(f)}">`);
+    },
+    .None => ()
+  );
+  s.push_str("\n<style>");
   s.push_string(css_text.clone());
   s.push_str("</style>\n</head>\n<body>\n<button class=\"sidebar-toggle\" id=\"sidebar-toggle\" aria-label=\"Toggle sidebar\">☰</button>\n<div class=\"sidebar-overlay\" id=\"sidebar-overlay\"></div>\n");
   s.push_string(sidebar.clone());
@@ -553,7 +587,16 @@ _render_sidebar :: (fn(model : DocModel, active_module : Option(String)) -> Stri
     .None => String.new()
   );
   overview_active := match(active_module, .Some(_) => String.new(), .None => String.from(" class=\"active\""));
-  html := `<nav class="sidebar">\n<div class="sidebar-header">\n  <h2>${_escape_html(model.name)}</h2>${version_html}\n</div>\n<div class="search-box">\n  <input type="text" id="doc-search" placeholder="Search..." autocomplete="off">\n</div>\n<div id="search-results" class="search-results"></div>\n<div class="sidebar-section">\n  <h3>Project Modules</h3>\n  <a href="index.html"${overview_active}>Overview</a>`;
+  // A module page sits one directory deeper, so its relative asset paths need
+  // the same `../` the sidebar's hrefs get below — and `active_module` is
+  // `.Some` on exactly those pages.
+  logo_src := match(active_module, .Some(_) => _asset_for_module_page(model.logo.clone()), .None => model.logo.clone());
+  logo_html := match(
+    logo_src,
+    .Some(l) => `\n  <img class="logo" src="${_escape_html(l)}" alt="${_escape_html(model.name)}">`,
+    .None => String.new()
+  );
+  html := `<nav class="sidebar">\n<div class="sidebar-header">${logo_html}\n  <h2>${_escape_html(model.name)}</h2>${version_html}\n</div>\n<div class="search-box">\n  <input type="text" id="doc-search" placeholder="Search..." autocomplete="off">\n</div>\n<div id="search-results" class="search-results"></div>\n<div class="sidebar-section">\n  <h3>Project Modules</h3>\n  <a href="index.html"${overview_active}>Overview</a>`;
   // Group modules by directory (insertion-ordered keys).
   group_keys := ArrayList(String).new();
   groups := HashMap(String, ArrayList(DocModule)).new();
@@ -1664,7 +1707,7 @@ render_doc_site :: (
   io.await(create_dir_all(Path.new(module_dir.clone()), io), ioexn);
   index_content := _render_index_content(model);
   index_sidebar := _render_sidebar(model, Option(String).None);
-  index_page := _wrap_page(`${model.name} — Documentation`, index_content, index_sidebar, _search_index_json(search_idx), css_text, js_text);
+  index_page := _wrap_page(`${model.name} — Documentation`, index_content, index_sidebar, _search_index_json(search_idx), css_text, js_text, model.favicon.clone());
   io.await(write_string(Path.new(`${output_dir}/index.html`), index_page, io), ioexn);
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
@@ -1679,7 +1722,7 @@ render_doc_site :: (
     mod_sidebar := _fix_sidebar_for_module_page(_render_sidebar(model, Option(String).Some(m.name.clone())));
     mod_content := render_module_content_html(m, symbol_links);
     mod_search := _fix_search_index_for_module_page(search_idx);
-    mod_page := _wrap_page(`${m.name} — ${model.name}`, mod_content, mod_sidebar, _search_index_json(mod_search), css_text, js_text);
+    mod_page := _wrap_page(`${m.name} — ${model.name}`, mod_content, mod_sidebar, _search_index_json(mod_search), css_text, js_text, _asset_for_module_page(model.favicon.clone()));
     io.await(write_string(Path.new(`${module_dir}/${fname}.html`), mod_page, io), ioexn);
     mi = (mi + usize(1));
   });

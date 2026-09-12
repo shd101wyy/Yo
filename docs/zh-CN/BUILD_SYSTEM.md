@@ -138,11 +138,15 @@ test_step.depend_on(tests);
 
 ### `TestSuite`
 
-| 字段     | 类型           | 默认值        | 描述               |
-| -------- | -------------- | ------------- | ------------------ |
-| `name`   | `comptime_str` | _（必填）_    | 测试套件名称       |
-| `root`   | `comptime_str` | _（必填）_    | 测试文件或目录路径 |
-| `target` | `comptime_str` | `target_host` | 目标三元组         |
+| 字段       | 类型           | 默认值        | 描述                                                           |
+| ---------- | -------------- | ------------- | -------------------------------------------------------------- |
+| `name`     | `comptime_str` | _（必填）_    | 测试套件名称                                                   |
+| `root`     | `comptime_str` | _（必填）_    | 测试文件或目录路径                                             |
+| `target`   | `comptime_str` | `target_host` | 目标三元组                                                     |
+| `exclude`  | `comptime_str` | `""`          | 以逗号分隔、相对项目根的路径，遍历时跳过                       |
+| `verbose`  | `bool`         | `false`       | 逐个打印测试名（`yo test --verbose`）；`yo build --verbose` 会强制开启 |
+| `bail`     | `bool`         | `false`       | 遇到第一个失败的测试即停止（`yo test --bail`）                 |
+| `parallel` | `usize`        | `1`           | 一次编译的测试文件数（`yo test --parallel N`）——会传给子进程，但 v1 的 `yo test` 仍按顺序运行 |
 
 ### 优化级别
 
@@ -1190,12 +1194,15 @@ DocConfig :: struct(
   (output : comptime_str) ?= "yo-out/doc",       // 输出目录
   (format : DocFormat) ?= DocFormat.Html,             // 输出格式
   (include_private : bool) ?= false,                 // 文档化非导出项
-  (include_deps : bool) ?= false,                    // 文档化依赖项
   (title : comptime_str) ?= "",                   // 自定义站点标题
-  (logo : comptime_str) ?= "",                    // Logo 图片路径
-  (favicon : comptime_str) ?= ""                  // Favicon 路径
+  (logo : comptime_str) ?= "",                    // 侧边栏顶部图片
+  (favicon : comptime_str) ?= ""                  // 站点图标
 );
 ```
+
+`logo` 渲染为侧边栏顶部的 `<img class="logo">`，`favicon` 渲染为页面的
+`<link rel="icon">`；两者都原样写入 HTML，因此路径由浏览器相对生成的页面解析。
+命令行上对应 `yo doc --logo <path>` 与 `yo doc --favicon <path>`。
 
 ### 输出格式
 
