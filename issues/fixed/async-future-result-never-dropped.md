@@ -65,9 +65,17 @@ inline generator side-emits multi-line code (enum switches, array loops)
 into `context.base.emitter`, so that site captures the side lines through a
 temp `Emitter` and re-emits them into the declaration stream.
 
-## Deliberately NOT changed (tracked here)
+## Deliberately NOT changed at the time — LANDED 2026-09-12
 
-The **capture struct** halves of both dispose emitters have the same
+The capture half below is now fixed as
+`issues/fixed/io-async-closure-captures-never-released.md`: the dup side WAS already
+emitted (the closure emitter's capture temp carries the deferred dups), so the leak was
+exactly one reference per capture, and only the drop side was missing. The sync future
+now installs the closure's dup'd capture temp and drops it; the state machine's inline
+fallback drops Option/String-shaped fields too. The cross-boundary-local half stays as
+described.
+
+The **capture struct** halves of both dispose emitters had the same
 `.None` gap — but their CONSTRUCTION sides copy captures without an inline
 dup fallback too (`capture_dup_fn` `.None` → plain copy), so captures are
 currently borrow-modeled and adding only the drop would over-release. The

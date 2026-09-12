@@ -1,0 +1,18 @@
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+// The unknown name sits INSIDE an `io.async` closure body — a body that is
+// evaluated exactly once, at definition time, and never again at a call.
+fetch_thing :: (fn(flag : bool, io : Io, exn : Exception) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    if(flag, {
+      totally_unknown_fn(`resolving`);
+    });
+    String.from("v")
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  got := io.await(fetch_thing(true, io, exn), IoExn(io : io, exn : exn));
+  println(got);
+});
+export(main);

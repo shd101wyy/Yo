@@ -63,7 +63,8 @@ happened); translate the old path when reading older `issues/` and
    `types_*` (tags, guards, utils, compound, string-compat, value),
    expr*info / expr_traversal, naming_checker, target, logger, error,
    doc pipeline (`doc*\*`), and the CLI modules (cache, fetch, init,
-   install_command, lock_file, pkg_config, version).
+   install_command, lock_file, manifest, pkg_config, resolver, toml_edit,
+   version).
 2. **Evaluator seam + registry tests** (1–10 min each — every file that
    imports evaluator internals pays a large Yo-compile cost): assignment,
    binding, initialization_assignment, open, runtime, typeof, unwind,

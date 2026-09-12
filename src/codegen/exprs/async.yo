@@ -1244,9 +1244,19 @@ _emit_inline_capture_field_drops :: (fn(capture_type : TypeValue, context : Func
       .Some(field) => if(!(field.is_effect_param), {
         field_ref := `sm->__capture.${field.label.clone()}`;
         match(
-          _rc_field_drop_line(field_ref, field.ty, String.from("  "), context),
+          _rc_field_drop_line(field_ref.clone(), field.ty, String.from("  "), context),
           .Some(line) => em.emit_string_line(line),
-          .None => ()
+          // No `___drop` function and not a plain pointer (an Option/String/
+          // struct-shaped capture): the general inline generator — the same
+          // one the result field uses. Returning nothing here is what left
+          // every state machine's captured values unreleased
+          // (issues/fixed/io-async-closure-captures-never-released.md).
+          .None => {
+            drop_code := generate_drop_code_for_value(field_ref.clone(), field.ty, context);
+            if(drop_code.len() > usize(0), {
+              em.emit_string_line(`  ${drop_code};`);
+            });
+          }
         );
       }),
       .None => ()
@@ -1270,7 +1280,14 @@ generate_async_block_state_dispose_function :: (
   em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
   em.emit_string_line(`  ASYNC_DEBUG("${dispose_function_name.clone()}: Disposing state machine\\n");`);
   em.emit_line("");
-  // Drop capture struct (like closures do).
+  // Drop the capture struct. The constructor receives it DUP'd (the closure
+  // arg's deferred capture dups are applied at the call site — see
+  // `fsm_capture_dups` in generate_async_block), so the state machine owns
+  // one reference to every captured value for its whole life, whatever
+  // state it dies in. Nothing else releases them: until 2026-09-12 the
+  // inline fallback below emitted nothing for Option/String-shaped fields and
+  // every io.async closure leaked its captures
+  // (issues/fixed/io-async-closure-captures-never-released.md).
   match(
     capture_type,
     .Some(cap_ty) => if(type_contains_rc_type(cap_ty), {
@@ -1305,7 +1322,7 @@ generate_async_block_state_dispose_function :: (
       // never dropped its owned result reference: the awaiter's copy is a
       // DUP, so the future's own count leaked the value (Dispose of an
       // async-produced object never ran —
-      // issues/async-future-result-never-dropped.md).
+      // issues/fixed/async-future-result-never-dropped.md).
       .None => {
         drop_code := generate_drop_code_for_value(String.from("sm->result"), result_type, context);
         if(drop_code.len() > usize(0), {
@@ -2767,7 +2784,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // the dispose used to come out EMPTY and the future's owned result
   // reference leaked (awaiters only ever DUP it out): Dispose of an object
   // produced inside io.async never ran
-  // (issues/async-future-result-never-dropped.md). The inline generator
+  // (issues/fixed/async-future-result-never-dropped.md). The inline generator
   // side-emits multi-line code (enum switches, array loops) into
   // `context.base.emitter`, but this dispose goes into the DECLARATIONS
   // buffer — capture the side lines through a temp emitter and re-emit them.
@@ -2782,8 +2799,52 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     result_inline_side = temp_em.print();
   });
   has_result_inline := ((result_inline_stmt.len() > usize(0)) || (result_inline_side.trim().len() > usize(0)));
+  // Inline capture drops (no `___drop` fn is ever synthesized for a capture
+  // struct): one statement per RC-bearing field, through the same inline
+  // generator, side lines captured the same way. The future OWNS its capture
+  // (the closure's dup'd capture temp is installed below), so this runs in
+  // every state (issues/fixed/io-async-closure-captures-never-released.md).
+  (capture_inline_lines : ArrayList(String)) = ArrayList(String).new();
+  if(match(capture_drop_fn, .Some(_) => false, .None => true), {
+    match(
+      eff_capture_type,
+      .Some(cap_ty) => if(type_contains_rc_type(cap_ty), {
+        cap_struct_id := match(cap_ty, .Struct({ id : sid }) => sid, _ => String.from(""));
+        cap_fields := match(get_struct_fields(cap_struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+        (cfi : usize) = usize(0);
+        while(cfi < cap_fields.len(), {
+          match(
+            cap_fields.get(cfi),
+            .Some(cf) => if(!(cf.is_effect_param) && type_contains_rc_type(cf.ty), {
+              cap_em := Emitter.new();
+              cap_saved := context.base.emitter;
+              context.base.emitter = cap_em;
+              cap_stmt := generate_drop_code_for_value(`sm->__capture.${cf.label.clone()}`, cf.ty, context);
+              context.base.emitter = cap_saved;
+              cap_side := cap_em.print().split("\n");
+              (csi : usize) = usize(0);
+              while(csi < cap_side.len(), {
+                cs_line := match(cap_side.get(csi), .Some(l) => l.trim(), .None => String.from(""));
+                if(cs_line.len() > usize(0), {
+                  capture_inline_lines.push(cs_line);
+                });
+                csi = (csi + usize(1));
+              });
+              if(cap_stmt.len() > usize(0), {
+                capture_inline_lines.push(`${cap_stmt};`);
+              });
+            }),
+            .None => ()
+          );
+          cfi = (cfi + usize(1));
+        });
+      }),
+      .None => ()
+    );
+  });
+  has_capture_inline := (capture_inline_lines.len() > usize(0));
   em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* ptr) {`);
-  has_drop := ((match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false)) || has_result_inline);
+  has_drop := (((match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false)) || has_result_inline) || has_capture_inline);
   if(has_drop, {
     em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
     match(
@@ -2792,12 +2853,14 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         em.emit_declaration_line("  // Drop captured variables (future owns its references)");
         em.emit_declaration_string_line(`  ${drop_fn}(sm->__capture);`);
       },
-      // NO inline fallback for the capture, deliberately: the sync-future
-      // constructor copies capture fields WITHOUT a dup when capture_dup_fn
-      // is `.None` (see the `__capture = ${lit}` emission below), so the
-      // capture is borrowed, and dropping it here would over-release. The
-      // dup/drop pair for captures is tracked in the same issue doc.
-      .None => ()
+      .None => if(has_capture_inline, {
+        em.emit_declaration_line("  // Drop captured variables (future owns its references)");
+        (cli2 : usize) = usize(0);
+        while(cli2 < capture_inline_lines.len(), {
+          match(capture_inline_lines.get(cli2), .Some(l) => em.emit_declaration_string_line(`  ${l}`), .None => ());
+          cli2 = (cli2 + usize(1));
+        });
+      })
     );
     match(
       result_drop_fn,
@@ -2908,12 +2971,26 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       cli = (cli + usize(1));
     });
     lit.push_str(" }");
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${lit};`);
-    match(
-      capture_dup_fn,
-      .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${dup_fn}(${result_var.clone()}->__capture);`),
-      .None => ()
-    );
+    // `closure_code` — when the closure arg has captures — is the stack temp
+    // the closure emitter built for its capture struct (`__capture_<fid>_N`,
+    // exprs/closures.yo), with the closure's deferred dups already applied
+    // to every field. Install THAT: it is the +1 the future owns and the
+    // dispose releases. Re-copying the fields from their names (the
+    // label literal) left that dup'd temp orphaned — one leaked reference
+    // per captured value per io.async call
+    // (issues/fixed/io-async-closure-captures-never-released.md). The literal
+    // stays as the fallback for a closure value that is not a capture temp.
+    uses_closure_capture := closure_code.starts_with(String.from("__capture_"));
+    if(uses_closure_capture, {
+      em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${closure_code};`);
+    }, {
+      em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${lit};`);
+      match(
+        capture_dup_fn,
+        .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${result_var.clone()}->__capture = ${dup_fn}(${result_var.clone()}->__capture);`),
+        .None => ()
+      );
+    });
   });
   // State 0 = not started (lazy); resume executes the closure.
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);

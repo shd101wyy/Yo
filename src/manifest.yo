@@ -176,20 +176,6 @@ Manifest :: ref(
     dependencies : ArrayList(ManifestDependency)
   )
 );
-/// A git dependency with its ref decided: what `fetch.yo` clones. `ref` is a
-/// tag, a branch or a commit — the resolver (`install_command.yo`) turns a
-/// `GitRequirement.Version` range into the tag it selected.
-ResolvedGitDependency :: ref(
-  struct(
-    name : String,
-    url : String,
-    ref : String,
-    subdir : String,
-    /// `yo update`: re-resolve `ref` to a commit even when `yo.lock` already
-    /// records one for it (a branch moves; a range may have a newer tag).
-    refresh : bool
-  )
-);
 impl(
   Manifest,
   /// The dependency named `name`, if the manifest declares one.
@@ -589,7 +575,13 @@ _dependency_dir :: (
     .Git(_, _, subdir) => {
       lock := match(
         root_lock_text,
-        .Some(t) => parse_lock_file(t),
+        .Some(t) => match(
+          parse_lock_file(t),
+          .Ok(l) => l,
+          .Err(msg) => {
+            return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}": ${msg} — run \`yo install\``, true)));
+          }
+        ),
         .None => {
           return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" is not installed (no yo.lock) — run \`yo install\``, true)));
         }
@@ -808,7 +800,6 @@ export(
   DependencySource,
   ManifestDependency,
   Manifest,
-  ResolvedGitDependency,
   find_manifest,
   parse_manifest,
   load_manifest,

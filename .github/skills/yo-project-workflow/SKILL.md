@@ -39,7 +39,7 @@ Use this skill when you need to:
 - `yo build run` and `yo build test` are the standard project entry points.
 - `yo test ./tests/some.test.yo --parallel 1` is the focused single-file test pattern.
 - `yo fmt` applies the fixed Yo style with 2-space indentation; there are no formatter options.
-- Dependencies are declared in `yo.toml` `[dependencies]` — `yo add user/repo[@range]` / `yo add ./path` writes the entry and fetches; `yo install` fetches what the manifest declares; `import("name")` then works in every command.
+- Dependencies are declared in `yo.toml` `[dependencies]` — `yo add user/repo[@range]` / `yo add ./path` writes the entry and fetches; `yo install` resolves the whole graph — each dependency's own `yo.toml` too, ONE version per name across every requirer, conflicts are errors naming both — fetches it and writes `yo.lock` v2 (`--locked`/`--offline`/`--frozen` for CI); `import("name")` then works in every command.
 - Use `yo version pin` to create a `.yo-version` file for reproducible builds.
 - Prefer symbolic build APIs and target constants in `build.yo` instead of ad-hoc shell logic.
 

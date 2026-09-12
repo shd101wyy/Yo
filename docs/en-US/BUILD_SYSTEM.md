@@ -646,6 +646,9 @@ Options:
   --verbose, -v          Verbose build output
   --dry-run              Show what would be built
   --list-steps           List available build steps
+  --locked               Fail if fetching dependencies would change yo.lock
+  --offline              Fail if fetching dependencies would need the network
+  --frozen               --locked and --offline
 ```
 
 ## `yo init` Reference
@@ -801,14 +804,34 @@ yo add user/snapshot-yo --dev     # into [dev-dependencies]
 ### Installing and updating: `yo install`, `yo update`
 
 ```bash
-yo install            # fetch what yo.toml declares, write yo.lock
+yo install            # resolve the graph, fetch what yo.toml declares, write yo.lock
+yo install --locked   # CI: fail instead of changing yo.lock
+yo install --frozen   # --locked and --offline: nothing may change, nothing may be downloaded
 yo update             # re-resolve every dependency within its range / to its branch tip
 yo update raylib_yo   # just one
+yo update --latest    # also raise each version range in yo.toml to the newest release
 ```
 
-`yo install` decides each git dependency's ref (a range → the highest satisfying tag, a `tag`/`rev` → itself, a `branch` or bare `git` → the tip commit), clones what the cache lacks, and records the result in `yo.lock`. A lock entry that still satisfies its requirement is reused without touching the network, so `yo install` is what a fresh checkout runs to get exactly the recorded commits; `yo update` is what moves them. `yo build` runs the same step automatically for dependencies the cache lacks.
+`yo install` runs the **resolver**: starting from `yo.toml` it walks the dependency graph — every fetched package's own `yo.toml` is read, so a dependency's dependencies join the graph under their names — and decides **one ref per package** that satisfies every requirement on it. A `version` range picks the highest tag inside every range that names the package; a `tag`/`rev`/`branch` is itself, and every requirer must pin it the same way (a `tag` that is a version also has to fit the ranges). Two requirers that cannot share a ref are an error naming both:
 
-`yo.lock` records, per git dependency, the URL, the resolved ref, the commit and a content hash of the fetched tree — commit it to version control. Entries for dependencies no longer in `yo.toml` are pruned on the next `yo install`.
+```
+Error: no tag of https://github.com/user/utils satisfies every requirement on "utils":
+  - <root> requires version "^2"
+  - json-yo requires version "^1"
+```
+
+One flat import namespace per project means one version per dependency name, so pin one of them (`tag = "…"`) or raise the other's range. The chosen trees are fetched into the global cache and recorded in `yo.lock`. A lock entry that still satisfies every requirement on it is reused **without touching the network**, so `yo install` is what a fresh checkout runs to get exactly the recorded commits; `yo update` is what moves them. `yo build` runs the same step automatically for dependencies the cache lacks.
+
+| flag | meaning |
+| --- | --- |
+| `--locked` | Fail (rc 1, printing the differences) if resolution would change `yo.lock` — for CI, where a lock drift should be a review, not a silent update |
+| `--offline` | Fail if resolution would need the network (a tag list, a commit, a clone the cache lacks) |
+| `--frozen` | Both |
+| `yo update --latest` | Before resolving, look up each named dependency's newest release and, when it is outside the current `version` range, rewrite the range in `yo.toml` to `^X.Y.Z` |
+
+`yo build` accepts `--locked`, `--offline` and `--frozen` too, for the fetch it runs on a fresh checkout.
+
+`yo.lock` records the resolved graph — commit it to version control. Entries for packages nothing depends on any more are pruned on the next `yo install`.
 
 ### Path Dependencies (Local)
 
@@ -839,7 +862,7 @@ Under `yo build` the runner writes the same mapping to `yo-out/<target>/<kind>/<
 
 ### Transitive Dependencies
 
-Each dependency's own `yo.toml` is read in turn, so its dependencies are importable — under their names — by its modules, and the closure is fetched as one set; a dependency's git dependencies are recorded in the root project's `yo.lock`. A dependency's `[dev-dependencies]` are its own business and are not resolved. Two packages naming the same dependency at the same path or commit share one entry; the same name at two different roots is an error (`import name "x" reaches two different modules: … and …`). Version unification across the graph (Cargo's one-version-per-compatible-range rule) is the next cut of the plan; today each declared range is resolved for the package that declares it.
+Each dependency's own `yo.toml` is read in turn, so its dependencies are importable — under their names — by its modules, and the closure is fetched as one set; a dependency's git dependencies are recorded in the root project's `yo.lock`. A dependency's `[dev-dependencies]` are its own business and are not resolved. Every requirement on a package — the root's and each dependency's — is unified into one ref by the resolver (see [Installing and updating](#installing-and-updating-yo-install-yo-update)): the highest tag inside all the ranges, or the one pin they agree on; a name that two packages use for two **different** repositories is an error naming both requirers (`dependency name "x" refers to two different packages: …`).
 
 ### Dependency artifacts and `build.dependency`
 
@@ -878,20 +901,37 @@ yo cache clean
 
 ### Cache Integrity
 
-Every fetched dependency has a **content hash** recorded in `yo.lock`:
+`yo.lock` (format version 2) records the resolved graph — one `[[package]]` per dependency, direct or transitive, with the tree's **integrity hash**:
 
 ```toml
-[[dependencies]]
-name   = "json-parser"
-url    = "https://github.com/user/json-parser.git"
-ref    = "v1.0.0"
+# yo.lock — generated by `yo add` / `yo install` / `yo update`; commit this file.
+version = 2
+
+[[package]]
+name = "json-yo"
+version = "1.2.0"
+source = "git+https://github.com/user/json-yo#v1.2.0"
 commit = "abc123..."
-hash   = "sha256-7c19c1..."
+integrity = "sha256-7c19c1..."
+dependencies = ["utils"]
+
+[[package]]
+name = "mylib"
+source = "path+../mylib"
+
+[[package]]
+name = "utils"
+version = "2.1.3"
+source = "git+https://github.com/user/mono#v2.1.3"
+commit = "def456..."
+integrity = "sha256-9a0b2e..."
 ```
 
-1. **At fetch time** — `yo install` clones the dependency at the resolved commit, walks the extracted file tree, and computes a SHA-256 hash of all file names and contents. The hash is written to `yo.lock` and to a `.yo-content-hash` sidecar file inside the cached directory.
+`source` is `git+<url>#<ref>` or `path+<path relative to yo.toml>`; `version` is the semver of a chosen tag (absent for a branch, a commit or a path); `dependencies` lists the package's own dependency names. A path package has no commit or hash — it is live.
 
-2. **At install time** — a dependency whose lock entry still satisfies its requirement is verified against the sidecar (O(1)); on a match nothing is fetched. A missing sidecar triggers a full re-hash; a mismatch (tampered or corrupted files) deletes the cache entry and re-clones it.
+1. **At fetch time** — `yo install` clones the package at the resolved commit, walks the extracted file tree, and computes a SHA-256 hash of all file names and contents. The hash is written to `yo.lock` and to a `.yo-content-hash` sidecar file inside the cached directory.
+
+2. **At install time** — a package whose lock entry is reused is verified against the sidecar (O(1)); on a match nothing is fetched. A missing sidecar triggers a full re-hash; a cached tree whose hash disagrees with the lock (tampered or corrupted files) is deleted and re-cloned, and a re-fetched tree that **still** disagrees is an integrity error — the dependency's history was rewritten, and `yo update <name>` is the way to accept the new tree.
 
 **Cross-platform stability:** the hash normalizes `\r\n` → `\n`, so the same dependency hashes identically on Windows and Linux, and file names are sorted with locale-independent ordering. This follows Zig's model of hashing the extracted content rather than archive bytes.
 
@@ -956,18 +996,29 @@ Deletes the dependency from `yo.toml` (from `[dependencies]` or `[dev-dependenci
 ## `yo install` Reference
 
 ```
-yo install [--verbose]
+yo install [options]
+
+Options:
+  --locked                   Fail if yo.lock would change (CI)
+  --offline                  Fail if the network would be needed
+  --frozen                   --locked and --offline
+  -v, --verbose              Show detailed progress
 ```
 
-Resolves every git dependency `yo.toml` declares to a commit (reusing `yo.lock` entries that still satisfy their requirement), fetches what the global cache lacks, verifies content hashes, prunes stale entries and writes `yo.lock`. No network access is needed when the lock is complete and the cache is intact.
+Resolves the dependency graph `yo.toml` declares — every package's own `yo.toml` included — to one ref per package that satisfies every requirement on it (reusing `yo.lock` entries that still do), fetches what the global cache lacks, verifies integrity hashes, prunes stale entries and writes `yo.lock`. No network access is needed when the lock is complete and the cache is intact.
 
 ## `yo update` Reference
 
 ```
-yo update [name...] [--verbose]
+yo update [name...] [options]
+
+Options:
+  --latest                   Raise each version range in yo.toml to the newest release
+  --offline                  Fail if the network would be needed
+  -v, --verbose              Show detailed progress
 ```
 
-Re-resolves the named dependencies (all when none are given): the highest tag a `version` range allows, the tip of a `branch`, the remote's default branch for a bare `git` entry. Rewrites `yo.lock`.
+Re-resolves the named dependencies (all when none are given): the highest tag a `version` range allows, the tip of a `branch`, the remote's default branch for a bare `git` entry. Rewrites `yo.lock`. With `--latest`, a dependency whose newest release lies outside its range gets the range rewritten to `^X.Y.Z` in `yo.toml` first.
 
 ## `yo cache` Reference
 

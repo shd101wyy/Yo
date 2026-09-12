@@ -936,6 +936,29 @@ report its E0401 instead of silently hollowing the function — if `yo check`
 passes a body you expected to fail, an older compiler's `dyn(...)` swallow is
 the first suspect.
 
+**Two more 2026-09-12 codegen fixes are SEED-GATED the same way** (fixed in
+the tree's emitter and pinned by tests, which the tree's own compiler builds;
+`src/` and `std/` are still emitted by the seed, so keep the safe spelling
+there until `SEED_VERSION` carries them):
+
+- In an `io.async` body, a match/cond whose OTHER arm awaits must not hand a
+  BORROWED value out of its non-awaiting arm: `actual := match(opt, .Some(h) =>
+  h, .None => { … e.io.await(…) … })` released the payload twice (the seed
+  emits no dup for the arm value). Write `.Some(h) => h.clone()` in `src/`/`std/`
+  (issues/fixed/async-match-arm-borrowed-payload-released-twice.md).
+- A short-circuit operand inside a BARE (non-`{ }`) match/cond arm, a
+  single-expression fn body or a bare loop body that creates an rc temp —
+  `.Ok(c) => assert(c && (f() == "x"), …)` — dropped the temp outside its C
+  block under the seed (`use of undeclared identifier`). In `src/`/`std/` give
+  such an arm a `{ }` block until the seed carries the fix
+  (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
+
+Unknown identifiers inside a closure / `io.async` body now FAIL `yo check`
+(E0401) instead of hollowing the body into codegen's "body was never fully
+evaluated" internal error; `YO_DEBUG_SWALLOW=1 yo check <file>` prints the
+other swallowed definition-time errors when that ICE still appears
+(issues/fixed/async-closure-body-unknown-identifier-passes-check.md).
+
 ### Named tuple fields in type syntax are not allowed
 
 Yo does not support named tuple field types in the syntax `(name : Type, ...)`. Use a named struct instead:
