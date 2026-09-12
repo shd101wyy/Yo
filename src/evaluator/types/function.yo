@@ -13,6 +13,8 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
+{ eprintln } :: import("std/fmt");
+_(env : rsdenv_dbg) :: import("std/env");
 {
   AstExpr,
   ast_expr_token,
@@ -4664,6 +4666,9 @@ _resolve_some_types_deep :: (
             // Skip registering IoExn — it's a compound effect that
             // would overwrite single-effect Io and poison subsequent
             // io.async calls that only need Io.
+            if(rsdenv_dbg.get(`YO_DEBUG_ENVRES`).is_some(), {
+              eprintln(`[envres] name=${match(nst, .SomeT(_, _en, _, _, _, _, _, _, _, _, _) => _en, _ => String.from("?"))} id=${match(nst, .SomeT(_eid, _, _, _, _, _, _, _, _, _, _) => _eid, _ => String.from("?"))} -> ${type_to_string(nres)} from_env=${nres_from_env.to_string()} env_mod=${env.module_path} frames=${env.frames.len().to_string()}`);
+            });
             if(nres_from_env, {
               _is_ioexn := match(
                 nres,

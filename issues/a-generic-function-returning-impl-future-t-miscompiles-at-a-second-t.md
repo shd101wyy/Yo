@@ -196,6 +196,38 @@ expected with a SIBLING call's resolution") and works around with
 such guard. `io.async` is declared in the PRELUDE, whose env is cached for the
 whole program, which is why the binding outlives the call.
 
+### MEASURED 2026-09-13: there are TWO `T`s, and the freshened one is correct
+
+Candidate 0 below (probe the env the resolution reads) was run. It does not
+implicate the caller-vs-callee env at all — every resolution reads the same
+module env (`frames=2`). What it shows instead is that **two distinct SomeTs
+named `T` are live**, and only one of them tracks the call:
+
+```
+call 1 (i32)                            call 2 (Pair)
+[envres] T id=1712 -> i32  from_env=1   [envres] T id=1712 -> Pair from_env=1   <- freshened: CORRECT
+[envres] T id=1708 -> i32  from_env=0   [envres] T id=1708 -> i32  from_env=1   <- declared:  STALE
+                                        [envres] R id=2027 -> Pair from_env=0   <- correct, via the registry
+[fid-src] closure_…000000               [fid-src] closure_…000001
+```
+
+`1712` is the per-call binder `_freshen_io_builtin_callee` mints; it resolves
+i32 then Pair, exactly right. `1708` is io.async's DECLARED `T`; it resolves
+i32 both times, and at the second call it comes back `from_env=true` — a stale
+concrete binding the env still carries, confirmed for an id that never owned it.
+
+So the freshening machinery WORKS and the defect is that something still
+resolves the DECLARATION's `T` instead of this call's freshened one. That
+reframes the fix and shrinks it: rather than teaching the resolver to reject a
+stale binding (candidate 1, which needs a new `VariableRare` channel), find the
+path that still reaches for `1708` after `_freshen_io_builtin_callee` produced
+`1712`, and have it use the freshened binder. Both are still worth listing, but
+this ordering is now evidence-backed rather than a guess.
+
+Note also what is NOT wrong: `R` (the enclosing generic's binder, id 2027)
+resolves correctly at both calls — i32 then Pair — via the registry, not the
+env. Earlier drafts of this document suspected `R`; it is fine.
+
 ### What to try next, and the obstacle each candidate hits
 
 Not another name-based special case — that is what the first cut of the
@@ -210,7 +242,8 @@ mints a fresh id) is still looked up by the name `T` — and finds whatever the
 previous call bound under that name. Every candidate below is a different answer
 to "how does a name-keyed env carry per-call identity".
 
-0. **Check WHICH env the read uses first — it may be the wrong one.**
+0. **DONE — and it refuted itself; see the measurement above.** The original
+   text is kept because the refutation is the useful part:
    `_resolve_some_types_deep` is called at the three stamp sites with
    `call_result_*.caller_env` ("Resolve through the CALL's env, where the
    enclosing specialization binds the binder concretely"). That is the right
