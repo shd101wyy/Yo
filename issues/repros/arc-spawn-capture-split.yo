@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 main :: (fn(io : Io) -> unit)({
   {
     shared := arc(i32(42));
-    t := Thread.spawn((io) => {
+    t := Thread(unit).spawn(io => {
       assert(shared.* == 42);
     });
     t.join();
@@ -28,7 +28,7 @@ main :: (fn(io : Io) -> unit)({
   };
   {
     shared := arc(i32(7));
-    t := Thread.spawn((io) => {
+    t := Thread(unit).spawn(io => {
       assert(shared.* == 7);
     });
     t.join();

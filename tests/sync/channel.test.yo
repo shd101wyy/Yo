@@ -195,7 +195,7 @@ test("Channel with usize type", {
 test("Channel single producer single consumer with Thread", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(10));
-  producer := Thread.spawn(io => {
+  producer := Thread(unit).spawn(io => {
     i := i32(0);
     while(runtime(i < i32(5)), {
       ch.send(i);
@@ -222,7 +222,7 @@ test("Channel single producer single consumer with Thread", {
 test("Channel thread producer sends many values", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(20));
-  t := Thread.spawn(io => {
+  t := Thread(unit).spawn(io => {
     i := i32(0);
     while(runtime(i < i32(10)), {
       ch.send(i);
@@ -249,7 +249,7 @@ test("Channel thread producer sends many values", {
 test("Channel consumer thread blocks until producer sends", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(1));
-  consumer := Thread.spawn(io => {
+  consumer := Thread(unit).spawn(io => {
     val := ch.recv();
     assert(val.is_some(), "consumer should receive a value");
     assert(val.unwrap() == i32(999), "value should be 999");
@@ -262,7 +262,7 @@ test("Channel consumer thread blocks until producer sends", {
 test("Channel close wakes blocked consumer Thread", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(5));
-  consumer := Thread.spawn(io => {
+  consumer := Thread(unit).spawn(io => {
     val := ch.recv();
     assert(val.is_none(), "recv should return None after close");
   });
@@ -282,7 +282,7 @@ test("Channel bounded capacity blocks producer", {
   ch.send(i32(2));
   // Channel is now full
   // Producer thread will block because channel is full
-  producer := Thread.spawn(io => {
+  producer := Thread(unit).spawn(io => {
     ch.send(i32(3)); // Blocks until consumer drains
   });
   // Sleep briefly to let producer block
@@ -302,7 +302,7 @@ test("Channel bounded capacity blocks producer", {
 test("Channel capacity 1 works as rendezvous", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(1));
-  t := Thread.spawn(io => {
+  t := Thread(unit).spawn(io => {
     ch.send(i32(100));
     ch.send(i32(200));
   });
@@ -505,7 +505,7 @@ test("dropping the last Sender wakes a Receiver already blocked in recv", {
   if(arch == Arch.Wasm32, return(()));
   rx := Channel(i32).receiver(usize(4));
   verdict := Channel(i32).new(usize(2));
-  consumer := Thread.spawn(io => {
+  consumer := Thread(unit).spawn(io => {
     // Parks here: the channel is empty and open. Only the auto-close can
     // wake it, and it must wake with Disconnected rather than a value.
     match(
@@ -536,7 +536,7 @@ test("buffered values reach a blocked Receiver before the disconnect", {
   if(arch == Arch.Wasm32, return(()));
   rx := Channel(i32).receiver(usize(4));
   verdict := Channel(i32).new(usize(4));
-  consumer := Thread.spawn(io => {
+  consumer := Thread(unit).spawn(io => {
     (going : bool) = true;
     while(going, {
       match(
@@ -571,15 +571,15 @@ test("cloned Senders in several threads all fan in to one Receiver", {
   tx1 := rx.sender();
   tx2 := tx1.clone();
   tx3 := tx1.clone();
-  t1 := Thread.spawn(io => {
+  t1 := Thread(unit).spawn(io => {
     _a := tx1.send(i32(1));
     _b := tx1.send(i32(2));
   });
-  t2 := Thread.spawn(io => {
+  t2 := Thread(unit).spawn(io => {
     _a := tx2.send(i32(10));
     _b := tx2.send(i32(20));
   });
-  t3 := Thread.spawn(io => {
+  t3 := Thread(unit).spawn(io => {
     _a := tx3.send(i32(100));
     _b := tx3.send(i32(200));
   });
@@ -618,12 +618,12 @@ test("a sender per thread: the last one to finish closes the channel", {
   wg.add(i32(2));
   {
     keeper := rx.sender();
-    w1 := Thread.spawn(io => {
+    w1 := Thread(unit).spawn(io => {
       tx := rx.sender();
       _a := tx.send(i32(4));
       wg.done();
     });
-    w2 := Thread.spawn(io => {
+    w2 := Thread(unit).spawn(io => {
       tx := rx.sender();
       _a := tx.send(i32(5));
       wg.done();

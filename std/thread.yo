@@ -8,40 +8,28 @@
 //!     handed to; tasks are distributed round-robin with thread affinity
 //!     (no work stealing).
 //!
-//! Neither `Thread.join` nor `ThreadPool.join_all` carries a value out of a
-//! thread. To return a result, hand the value back over a `Channel`:
+//! `Thread(T).spawn` carries a value out of the thread: the body returns `T`
+//! and `join()` returns it.
 //!
 //! ```rust
-//! { Channel } :: import "std/sync/channel";
 //! { Thread } :: import "std/thread";
 //!
-//! out := Channel(i32).new(usize(1));
-//! t := Thread.spawn((io) => {
-//!   out.send(i32(42));
-//!   ()
-//! });
-//! t.join();
-//! result := out.recv().unwrap();
+//! t := Thread(i32).spawn((io : Io) => i32(42));
+//! result := t.join();
 //! ```
+//!
+//! `Thread(unit)` is the value-less thread, and `join()` then returns `()`.
+//! `ThreadPool.join_all` still carries nothing — hand a pool task's value back
+//! over a `Channel`.
 //!
 //! ## Stability
 //!
-//! unstable — `Thread.spawn`/`join`, `ThreadPool` and `join_all` have the
-//! shapes they will keep, and `Thread(T).spawn` + `join() -> T` (D18) landed.
-//! One thing keeps this from freezing, and it is a safety property rather
-//! than a name: **`Send` is declared but not enforced at the spawn boundary.**
-//! `spawn` takes `Impl(Fn(io : Io) -> unit, Send)`, but the capture check
-//! behind it (`validate_capture_trait_requirements`) is a no-op stub, so a
-//! closure that captures a non-atomic `ref` struct, an `Io`, or a
-//! `JoinHandle` compiles — and then races a non-atomic refcount across
-//! threads. `tests/thread_safety.test.yo` asserts `Type.impls`, which is not
-//! the same question.
-//!
-//! Freezing a threading API whose one static guarantee is unchecked would
-//! freeze the guarantee as decoration. The fix is a compiler change (marker
-//! traits over captures, with `comptime_expect_error` negatives and an
-//! over-rejection canary per exempt shape); the API itself is not expected to
-//! move when it lands.
+//! unstable — `Thread(T).spawn`/`join`, `ThreadPool` and `join_all` have the
+//! shapes they will keep, `Send` IS enforced at the spawn boundary
+//! (issues/fixed/send-was-not-enforced-at-spawn-boundaries.md), and D18's
+//! `join() -> T` has landed. What keeps this from freezing is `ThreadPool`,
+//! whose task type is still value-less and whose shutdown story is a separate
+//! decision.
 pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("./sync/mutex");
 { AtomicBool, AtomicUsize, MemoryOrder } :: import("./sync/atomic");
@@ -77,27 +65,57 @@ extern(
 /// finishes). Reference-counted so that detach-on-drop runs exactly once
 /// however many copies of the handle exist
 /// (issues/fixed/thread-join-was-re-callable-and-handles-leaked.md).
-Thread :: ref(
-  struct(
-    handle : __yo_thread_t,
-    _joined : bool
+Thread :: (
+  fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type)
+)(
+  ref(
+    struct(
+      handle : __yo_thread_t,
+      _joined : bool,
+      /// The body's result, in transit. Capacity 1: a thread produces exactly
+      /// one value, and `join` is the only reader.
+      _result : Channel(T)
+    )
   )
 );
 impl(
-  Thread,
+  generic(T : Type),
+  Thread(T),
+  where(T <: (Send, Acyclic)),
   /// Spawn a new OS thread running the given closure.
   /// The closure receives its own per-thread Io event loop.
-  spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self)({
-    raw := __yo_thread_spawn(cb);
-    Self(handle : raw, _joined : false)
+  /// `own(cb)`: the callback's capture struct is MOVED in. The relaying
+  /// closure below takes its own reference to it, so the one the caller handed
+  /// over has to be released here — without `own` it is orphaned and every
+  /// RC'd capture of every spawned callback leaks.
+  spawn : (fn(own(cb) : Impl(Fn(io : Io) -> T, Send)) -> Self)({
+    chan := Channel(T).new(usize(1));
+    sink := chan;
+    raw := __yo_thread_spawn((io : Io) => {
+      sink.send(cb(io));
+      ()
+    });
+    Self(handle : raw, _joined : false, _result : chan)
   }),
-  /// Block the current thread until this thread completes. Panics on a second
-  /// call: joining a thread twice is undefined behaviour in every threading
-  /// API underneath (`pthread_join` on a joined thread; a closed `HANDLE`).
-  join : (fn(self : Self) -> unit)({
+  /// Block the current thread until this thread completes, and return what its
+  /// body produced. Panics on a second call: joining a thread twice is
+  /// undefined behaviour in every threading API underneath (`pthread_join` on
+  /// a joined thread; a closed `HANDLE`).
+  ///
+  /// At `T = unit` this reads as the old value-less `join()`.
+  join : (fn(self : Self) -> T)({
     assert(!self._joined, "Thread.join: this thread was already joined");
     self._joined = true;
-    __yo_thread_join(self.handle)
+    __yo_thread_join(self.handle);
+    // The body ran to completion, so its value is in the channel. A miss means
+    // the body UNWOUND past the send, which is not a case `join` can answer
+    // for: there is no value, and inventing one would hand the caller a
+    // fabricated result.
+    match(
+      self._result.try_recv(),
+      .Ok(v) => v,
+      .Err(_) => __yo_panic("Thread.join: the thread body produced no value (it unwound)")
+    )
   }),
   /// True once `join` has returned.
   is_joined : (fn(self : Self) -> bool)(
@@ -105,7 +123,9 @@ impl(
   )
 );
 impl(
-  Thread,
+  generic(T : Type),
+  Thread(T),
+  where(T <: (Send, Acyclic)),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       cond(

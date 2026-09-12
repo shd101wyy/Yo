@@ -1,0 +1,35 @@
+{ println } :: import("std/fmt");
+{ AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
+_dc := AtomicUsize.new(usize(0));
+_Tracked :: atomic(ref(struct(tag : i32)));
+impl(
+  _Tracked,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      _p := _dc.fetch_add(usize(1), MemoryOrder.AcqRel);
+      ()
+    })
+  )
+);
+run_it :: (fn(f : Impl(Fn() -> unit)) -> unit)(f());
+main :: (fn(io : Io) -> unit)({
+  _dc.store(usize(0), MemoryOrder.Release);
+  {
+    tracked := _Tracked(tag : i32(7));
+    (inner : Impl(Fn() -> unit)) = (
+      () => {
+        _x := tracked.tag;
+        ()
+      }
+    );
+    (outer : Impl(Fn() -> unit)) = (
+      () => {
+        inner();
+        ()
+      }
+    );
+    run_it(outer);
+  };
+  println(`disposes=${_dc.load(MemoryOrder.Acquire)}`);
+});
+export(main);
