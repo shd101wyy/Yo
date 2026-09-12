@@ -684,6 +684,32 @@ Options:
   --frozen               --locked and --offline
 ```
 
+### Incremental builds
+
+An artifact is recompiled only when one of its **inputs** changed. The inputs
+are the files the previous compile actually opened — every `.yo` module it
+reached, and nothing else — plus the compile's own argument list, the compiler
+version, and the project's `yo.toml` and `yo.lock`.
+
+The child compile records that list with `yo compile --emit-deps <file>`, which
+writes one path per line beside the artifact (`<output>.deps`). The next build
+hashes exactly those files; if the hash matches the recorded
+`<output>.inputs-sha256` and the output still exists, it prints
+
+```
+  (cached: inputs unchanged, skipping compile)
+```
+
+A new input cannot appear without an existing one changing — something has to
+import it, and that importer is already on the list — so the previous build's
+list is enough to decide the next one. The first build of an artifact has no
+list yet and falls back to hashing every `.yo` under the project and the whole
+standard library; so does a build whose recorded inputs include a file that has
+since been deleted.
+
+`YO_BUILD_NO_CACHE=1` skips the whole mechanism: nothing is hashed and every
+artifact is recompiled.
+
 ## `yo init` Reference
 
 ```

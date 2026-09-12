@@ -115,7 +115,7 @@ keeping. The runner is where the port is incomplete. Reproduced on 0.2.30:
 | B7 | `--dry-run` prints `[dry-run] Would execute step: X` without building the DAG, validating the step, or detecting cycles (`:1701-1705`); help text says "Resolve the build graph without running it" | reproduced | this plan (§4.7) **FIXED P1.4f** |
 | B8 | `ReleaseSmall` ≡ `ReleaseSafe` (`--optimize 2` both); no level passes `-g` although `std/build.yo:19-33` documents `-O0 -g` / `-O2 -g` | code | `issues/build-release-small-is-identical-to-release-safe.md` (pre-existing) |
 | B9 | `build.run(exe)` steps cannot receive arguments: `BuildRunStep.args` is always empty, there is no `--` on the CLI (`main.yo:4572-4577`) | code | this plan (§4.7) **FIXED P1.4g** |
-| B10 | the Phase-A artifact stamp (`_artifact_input_stamp`, `:404-609`) hashes **every** `.yo` under the project (including `tests/`) and the whole std tree per artifact: any edit anywhere invalidates every artifact; directories whose name contains a `.` are never walked (`:477`) — sources under `my.pkg/` are silently excluded (stale-cache risk); the walk runs even when `YO_BUILD_NO_CACHE=1` | code | this plan (§4.9) **FIXED P1.4g** (the dotted-directory blind spot and the disabled-cache walk; the over-hashing is §4.9) |
+| B10 | the Phase-A artifact stamp (`_artifact_input_stamp`, `:404-609`) hashes **every** `.yo` under the project (including `tests/`) and the whole std tree per artifact: any edit anywhere invalidates every artifact; directories whose name contains a `.` are never walked (`:477`) — sources under `my.pkg/` are silently excluded (stale-cache risk); the walk runs even when `YO_BUILD_NO_CACHE=1` | code | this plan (§4.9) — **FIXED P1.4g** (the dotted-directory blind spot and the disabled-cache walk) and **FIXED §4.9** (the over-hashing: `--emit-deps` + a depfile-scoped stamp) |
 | B11 | registries are keyed by bare name with first-match resolution artifact → test → run → doc → step (`builtins/build.yo:600-637`); steps/tests/docs/runs have no duplicate check; `Step.link(sys)` before `build.system_library({name: sys})` is misread as an artifact link and dropped (`:1168-1177`) | code | this plan (§4.7) **FIXED P1.4g** |
 | B12 | `_dfs_cycle` skips the dependency after a not-in-map one (`:348-350`, missing `continue`); harmless today only because `_walk_dag` never emits such edges | code | fix with B6 **FIXED P1.4f** |
 | B13 | write-only state throughout: `BuildDocConfig.include_deps/logo/favicon` accepted and never forwarded (`:1177-1185`), `BuildTestSuite.target/verbose/bail/parallel` hard-coded, `runtime_files`, `ExecutionContext.dry_run`, `StepResult.duration_ms` always 0 — **FIXED P1.4f/B13** | code | clean up with each phase |
@@ -957,9 +957,53 @@ handled earlier, in P1.4f.
 Gates: cli-cases `build-test-suite-flags` (the suite asks for verbose + bail, so
 the third test's name must be ABSENT from the output) and `doc-logo-favicon`.
 
-Not in B13 (next): §4.9's depfile-scoped stamps, §4.6 workspaces, then the
-plan's P2 (compile-time inputs: `comptime_read_file`, `comptime_json_parse` /
-`comptime_toml_parse`, `build.env`) and the rest of P3.
+**§4.9 — the stamp hashes what the compile actually read** (`p1/depfile-stamps`,
+stacked on B13). This is audit B10's remaining half: the artifact input stamp
+hashed **every** `.yo` under the project plus the whole std tree, per artifact,
+so an edit anywhere invalidated everything and a two-artifact project paid the
+walk twice.
+
+`yo compile --emit-deps <file>` writes the evaluation's real input list — one
+path per line, first-open order, no duplicates. The record is kept in
+`module_manager.yo` at the two places a source file is actually read: the entry
+module in `mm_load_file` and every demand-loaded module in
+`_load_module_at_abs`. (`run_compile` reads the ENTRY itself rather than through
+`mm_load_file`, so it reports its own open — otherwise the depfile would omit
+the one file the artifact is named after.) The list is reset per compile, since
+`run_compile` is reached repeatedly in a long-lived process.
+
+`_artifact_input_stamp` then hashes the PREVIOUS build's list instead of walking
+anything. Using last build's list is sound because a new input cannot appear
+without an old input changing — something has to import it, and that importer is
+on the list; a file that LEFT the closure over-invalidates exactly once, and the
+next depfile no longer names it. The first build has no depfile and falls back
+to the whole-tree walk, which is also what a deleted input falls back to (an
+unreadable listed path disables the cache).
+
+`yo.toml` and `yo.lock` are hashed explicitly on both paths. They are inputs to
+RESOLUTION, not to evaluation, so no depfile names them — but either one changes
+what `import("dep")` means. Both are optional, so an absent one is not an error.
+
+Not addressed: `comptime_read_file` inputs, which do not exist yet — when §5.1
+lands, recording them through the same list is what makes
+`build-cache-data-input` (P2's gate) possible.
+
+Gate: cli-case `build-depfile-scoped-stamp` — build, `yo init src/added
+--no-skills` adds a subtree of `.yo` files nothing imports, build again. The
+second build must report `(cached: inputs unchanged, skipping compile)`; before
+this slice it recompiled, because the new files were inside the walked tree.
+
+`build-stamp-dotted-dir`'s expectation INVERTS here, and its `opts` say so: the
+case was P1.4g's proof that the walk descends a dotted directory, and it asserted
+a recompile. The file it adds is not an input, so a cache hit is now the right
+answer. The dotted-directory fix stays load-bearing — `_cache_collect_yo_files`
+is the first-build fallback — but it can no longer produce a STALE cache, because
+the walk's stamp is only ever COMPARED, never recorded; the recorded stamp comes
+from the depfile the child just wrote.
+
+Not in §4.9 (next): §4.6 workspaces, then the plan's P2 (compile-time inputs:
+`comptime_read_file`, `comptime_json_parse` / `comptime_toml_parse`,
+`build.env`) and the rest of P3.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

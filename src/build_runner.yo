@@ -1223,6 +1223,7 @@ _artifact_input_stamp :: (
   fn(
     argv : ArrayList(String),
     project_dir : String,
+    depfile_path : String,
     cache_enabled : bool,
     io : Io
   ) -> Impl(Future(String, IoExn))
@@ -1236,14 +1237,35 @@ _artifact_input_stamp :: (
     sep := String.from(" ");
     _stamp_push_str(acc, `argv ${sep.join(argv)}`);
     files := ArrayList(String).new();
-    e.io.await(_cache_collect_yo_files(project_dir.clone(), files, e.io), e);
+    // §4.9: the PREVIOUS build's `--emit-deps` list is exactly what the
+    // evaluation opened — every `.yo` module it reached, and nothing else. The
+    // whole-tree walk below is the first-build fallback only.
+    //
+    // Using last build's list is sound because a new input cannot appear
+    // without an OLD input changing: something has to import it, and that
+    // importer is on the list. Conversely a file that left the closure only
+    // over-invalidates once, and the next build's depfile no longer names it.
+    listed := e.io.await(_read_depfile(depfile_path.clone(), e.io), e);
+    have_depfile := (listed.len() > usize(0));
+    _push_all_strings(files, listed);
+    // No depfile yet — hash every `.yo` under the project and the whole std
+    // tree, which is what every build used to do, per artifact (audit B10).
+    if(!have_depfile, {
+      e.io.await(_cache_collect_yo_files(project_dir.clone(), files, e.io), e);
+    });
     std_root := resolve_std_path();
-    if(std_root.len() > usize(0), {
+    if((!have_depfile) && (std_root.len() > usize(0)), {
       e.io.await(
         _cache_collect_yo_files(std_root.replace(String.from("file://"), String.new()), files, e.io),
         e
       );
     });
+    // The manifest and the lock are inputs to RESOLUTION, not to evaluation, so
+    // no depfile names them — but changing either changes what `import("dep")`
+    // means. Both are optional; `_cache_read_file` treats an absent one as the
+    // exception below allows.
+    manifest_path := Path.new(project_dir.clone()).join(Path.new(String.from("yo.toml"))).to_string();
+    files.push(manifest_path);
     lock_path := Path.new(project_dir.clone()).join(Path.new(String.from("yo.lock"))).to_string();
     files.push(lock_path);
     (fi : usize) = usize(0);
@@ -1256,9 +1278,11 @@ _artifact_input_stamp :: (
           _stamp_push_str(acc, `${fpath} ${sha256_hex(bytes)}`);
         },
         .None => {
-          // yo.lock legitimately may not exist; any OTHER unreadable input
-          // disables the cache.
-          if(!(fpath.ends_with(String.from("yo.lock"))), {
+          // `yo.lock` and `yo.toml` legitimately may not exist; any OTHER
+          // unreadable input disables the cache. A path the depfile names that
+          // has since been DELETED lands here too, and disabling the cache is
+          // the right answer — the closure changed.
+          if(!(fpath.ends_with(String.from("yo.lock")) || fpath.ends_with(String.from("yo.toml"))), {
             return(String.new());
           });
         }
@@ -1266,6 +1290,33 @@ _artifact_input_stamp :: (
       fi = (fi + usize(1));
     });
     sha256_hex(acc)
+  })
+);
+/// Read a `--emit-deps` depfile: one input path per line, blank lines ignored.
+/// An absent or empty file yields an EMPTY list, which is the caller's signal
+/// to fall back to the whole-tree walk
+/// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9).
+_read_depfile :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(String), IoExn)))(
+  io.async((e : IoExn) => {
+    out := ArrayList(String).new();
+    bytes_opt := e.io.await(_cache_read_file(path.clone(), e.io), e);
+    text := match(bytes_opt, .Some(bytes) => String.from_bytes(bytes), .None => String.new());
+    lines := text.split("\n");
+    (i : usize) = usize(0);
+    while(i < lines.len(), {
+      match(
+        lines.get(i),
+        .Some(l) => {
+          trimmed := l.trim();
+          if(trimmed.len() > usize(0), {
+            out.push(trimmed);
+          });
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    out
   })
 );
 /// Read the recorded stamp next to an output, `.None` when absent.
@@ -1393,6 +1444,13 @@ compile_artifact :: (
       cmd.arg(String.from("--imports"));
       cmd.arg(imports_path.clone());
     });
+    // §4.9: record what this compile actually reads, for the next build's
+    // stamp. The flag rides in `stamp_inputs` with the rest of argv, which is
+    // harmless: the path is a pure function of `output_path`, already part of
+    // the artifact's identity, so it never changes between two builds of the
+    // same artifact.
+    cmd.arg(String.from("--emit-deps"));
+    cmd.arg(`${output_path.to_string()}.deps`);
     // Forward the parent's `--std-path` override to the child compile. TS
     // needs no equivalent: its build runner compiles artifacts in-process,
     // where the override already applies.
@@ -1675,7 +1733,11 @@ compile_artifact :: (
     // AND the whole std tree for an answer nothing would look at (the plan's
     // B10). The flag rides INTO the stamp function so the await here stays a
     // top-level statement.
-    stamp_raw := e.io.await(_artifact_input_stamp(stamp_inputs, ctx.project_dir.clone(), cache_enabled, e.io), e);
+    // §4.9: the child writes its input list here, and the NEXT build's stamp
+    // reads it. Sits beside `.imports` and `.inputs-sha256` in the output dir,
+    // so `yo build --clean` takes it with the rest.
+    depfile_path := `${output_path.to_string()}.deps`;
+    stamp_raw := e.io.await(_artifact_input_stamp(stamp_inputs, ctx.project_dir.clone(), depfile_path.clone(), cache_enabled, e.io), e);
     stamp := cond(
       cache_enabled => stamp_raw,
       true => String.new()
@@ -1693,10 +1755,21 @@ compile_artifact :: (
       return(Result(unit, String).Ok(()));
     });
     st := e.io.await(cmd.status(e.io), e);
+    // §4.9: RE-stamp from the depfile the child just wrote, rather than
+    // recording the stamp computed before it ran.
+    //
+    // Those two are not the same basis. A first build has no depfile and stamps
+    // the whole-tree walk; the NEXT build finds a depfile and stamps that much
+    // smaller set — so a stamp recorded from the walk can never match, and
+    // every artifact paid one guaranteed extra compile after its first. Taken
+    // here, the recorded stamp always describes the inputs the compile actually
+    // read, which is what the next build will hash. Cost is re-hashing the
+    // depfile's entries, ~20 files for a small program.
+    post_stamp := e.io.await(_artifact_input_stamp(stamp_inputs, ctx.project_dir.clone(), depfile_path.clone(), cache_enabled, e.io), e);
     // The write decision is DATA, not a branch: an empty stamp (cache off or
     // stamping failed) is written as-is and truncates — see _write_stamp.
     stamp_to_write := cond(
-      ((st.success() && cache_enabled) && (stamp.len() > usize(0))) => stamp.clone(),
+      ((st.success() && cache_enabled) && (post_stamp.len() > usize(0))) => post_stamp.clone(),
       true => String.new()
     );
     e.io.await(_write_stamp(stamp_path.clone(), stamp_to_write, e.io), e);

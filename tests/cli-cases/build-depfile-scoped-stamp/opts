@@ -1,0 +1,19 @@
+# plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9 (audit B10's over-hashing
+# half): the artifact input stamp hashed EVERY `.yo` under the project plus the
+# whole std tree, per artifact — so any edit anywhere invalidated everything.
+#
+# `yo compile --emit-deps <file>` now records what the evaluation actually
+# opened, and the next build's stamp hashes exactly that list. Here the first
+# build writes the depfile, `yo init src/added` then adds a subtree of `.yo`
+# files that NOTHING imports, and the second build must still report
+# `(cached: inputs unchanged, skipping compile)`. Before this slice the second
+# build recompiled, because those new files were inside the walked tree.
+#
+# `--no-skills` keeps the scaffolded tree small and, more importantly, keeps
+# this golden independent of `.github/skills` — editing a skill file otherwise
+# re-records it (see build-stamp-dotted-dir, which deliberately does hash them).
+#
+# Only the runner's own lines are kept: the child compile's chatter carries
+# machine-specific paths.
+timeout=900
+stdout_keep=^(Building |  \(cached|Created|Error|error:)

@@ -107,6 +107,9 @@ json :: import("std/encoding/json");
   mm_eval_entry_exprs,
   mm_load_file,
   mm_preload_prelude,
+  mm_reset_opened_files,
+  mm_opened_files,
+  mm_record_opened_file,
   _take_load_error
 } :: import("./module_manager.yo");
 { YoError, render_any_error } :: import("./error.yo");
@@ -2175,6 +2178,31 @@ _print_compile_profile :: (
     io.await(write_string(Path.new(json_path.clone()), js, io), IoExn(io : io, exn : exn));
   });
 });
+/// Write the evaluation's input list for `--emit-deps`
+/// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9): one absolute path per
+/// line, in first-open order, newline-terminated. Deliberately NOT make's
+/// `target: dep dep` syntax — nothing here feeds `make`, and a bare list needs
+/// no escaping for the spaces and colons a real path contains.
+_write_depfile :: (
+  fn(path : String, files : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    body := String.new();
+    (i : usize) = usize(0);
+    while(i < files.len(), {
+      match(
+        files.get(i),
+        .Some(f) => {
+          body.push_string(f.clone());
+          body.push_str("\n");
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    e.io.await(write_string(Path.new(path.clone()), body, e.io), e)
+  })
+);
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -2221,6 +2249,11 @@ run_compile :: (
   // `--emit-c-to <path>`: write the single generated C file to exactly this
   // path instead of the `<output>.c` sidecar. "" = unset.
   (emit_c_to : String) = String.new();
+  // `--emit-deps <path>`: write one line per file the EVALUATION opened — the
+  // `-MD` idea (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9). The build
+  // runner hashes exactly that list on the next build instead of walking the
+  // whole project and the whole std tree per artifact. "" = unset.
+  (emit_deps_to : String) = String.new();
   // `--emcc-environment <web|node>`: mirrors the TS-internal `emccEnvironment`
   // codegen option (codegen/index.ts:187). TS has no CLI flag for it because
   // its build-runner calls codegen in-process; ours SHELLS OUT to `compile`,
@@ -2416,6 +2449,14 @@ run_compile :: (
       (a_name == "--emit-c") => {
         emit_c = true;
         ai = (ai + usize(1));
+      },
+      // `--emit-deps <path>`: the evaluation's input list, one path per line.
+      // Written once the module evaluates; a compile that dies earlier leaves
+      // no depfile, and the next build then falls back to the whole-tree walk
+      // — conservative, which is the safe direction for a cache.
+      (a_name == "--emit-deps") => {
+        emit_deps_to = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
       },
       // `--emit-c-to <path>` REDIRECTS the sidecar (it does not add a second
       // copy), so the C compiler consumes this same path. Distinct from
@@ -2754,6 +2795,10 @@ run_compile :: (
   {
     clear_module_cache();
     mm_clear_prelude_env();
+    // §4.9: this compile's input record starts empty. `run_compile` can be
+    // reached more than once in a process (the LSP, `check --watch`), and a
+    // depfile naming a previous compile's inputs would over-invalidate.
+    mm_reset_opened_files();
     shared_info_table := expr_info_table_new();
     mm_set_shared_expr_info_table(shared_info_table);
     // Ensure the prelude env is cached (provides std types to the evaluator).
@@ -2773,6 +2818,10 @@ run_compile :: (
     // Read + parse the input module.
     prof_parse_t0 := Instant.now();
     src_bytes := io.await(read(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+    // The entry is read HERE, not through `mm_load_file`, so it reports its own
+    // open — otherwise the depfile would omit the one file the artifact is
+    // named after.
+    mm_record_opened_file(input_path.clone());
     src := String.from_bytes(src_bytes);
     exprs := parse(src, input_path.clone(), exn);
     profile_record_phase(String.from("read+parse entry"), prof_parse_t0.elapsed().as_nanos());
@@ -2824,6 +2873,12 @@ run_compile :: (
     module_value := outcome.module_value;
     env := outcome.env;
     ctx := outcome.ctx;
+    // §4.9: the evaluation is what opens files, so the record is complete now.
+    // Written before codegen so `--skip-codegen` and `--skip-c-compiler`
+    // callers get a depfile too.
+    if(emit_deps_to.len() > usize(0), {
+      io.await(_write_depfile(emit_deps_to.clone(), mm_opened_files(), io, exn), IoExn(io : io, exn : exn));
+    });
     // V3: contract verification runs BEFORE codegen (the verify+ strip
     // rewrites function bodies in place); a failure exits 1 — the
     // per-function lines are already printed by the helper.
@@ -5613,6 +5668,7 @@ Options:
   --debug-heap              Print heap stats + live-at-exit leak oracle at exit (fixed only)
   --emit-c                  Print the generated C to stdout and stop
   --emit-c-to <path>        Write the generated C to a file and stop
+  --emit-deps <path>        Write the files this compile read, one per line
   --skip-c-compiler         Generate C but skip the C compile
   --skip-codegen            Evaluate only (no C generation)
   --emit-chunks <n|auto>    Split emitted C into n translation units (implies -flto=thin);
@@ -5660,6 +5716,7 @@ Examples:
   --debug-heap              退出时打印堆统计与存活块泄漏检查（仅 fixed）
   --emit-c                  把生成的 C 打印到 stdout 然后停止
   --emit-c-to <path>        把生成的 C 写入文件然后停止
+  --emit-deps <path>        把本次编译读取的文件逐行写入该文件
   --skip-c-compiler         只生成 C，跳过 C 编译
   --skip-codegen            只做求值（不生成 C）
   --emit-chunks <n|auto>    把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）；
