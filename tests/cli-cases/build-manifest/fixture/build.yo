@@ -1,0 +1,20 @@
+build :: import("std/build");
+
+// `build.manifest.<field>` (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1)
+// is the friendly spelling of this builtin. std/build.yo cannot wrap it until
+// SEED_VERSION carries a compiler that knows it: a module-level binding there
+// is forced by its own `export`, and the seed evaluates std/build.yo on every
+// bootstrap `yo build`. Until then a build file reads the fields directly.
+_name :: __yo_build_manifest_field("name");
+_version :: __yo_build_manifest_field("version");
+_absent :: __yo_build_manifest_field("license");
+
+// The artifact is named by the manifest, not by this file.
+exe :: build.executable({ name : _name, root : "./src/main.yo" });
+
+install :: build.step("install", _version);
+install.depend_on(exe);
+
+name_step :: build.step("package-name", _name);
+
+absent_step :: build.step("absent-field", _absent);

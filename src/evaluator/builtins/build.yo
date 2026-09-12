@@ -49,7 +49,8 @@
   BF_YO_BUILD_MODULE,
   BF_YO_BUILD_MODULE_LINK,
   BF_YO_BUILD_ADD_CFLAGS,
-  BF_YO_BUILD_DOC
+  BF_YO_BUILD_DOC,
+  BF_YO_BUILD_MANIFEST_FIELD
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
@@ -197,7 +198,12 @@ BuildRegistry :: ref(
     modules : ArrayList(BuildModuleEntry),
     doc_configs : ArrayList(BuildDocConfig),
     cli_options : HashMap(String, String),
-    declared_options : HashMap(String, BuildDeclaredOption)
+    declared_options : HashMap(String, BuildDeclaredOption),
+    /// The project's `yo.toml` `[package]` table, keyed by field name — what
+    /// `build.manifest.<field>` reads (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+    /// §4.1). The runner fills it before evaluating `build.yo`; outside a
+    /// build it is empty and every field reads as "".
+    manifest_fields : HashMap(String, String)
   )
 );
 impl(
@@ -214,7 +220,8 @@ impl(
       modules : ArrayList(BuildModuleEntry).new(),
       doc_configs : ArrayList(BuildDocConfig).new(),
       cli_options : HashMap(String, String).new(),
-      declared_options : HashMap(String, BuildDeclaredOption).new()
+      declared_options : HashMap(String, BuildDeclaredOption).new(),
+      manifest_fields : HashMap(String, String).new()
     )
   ),
   register_executable : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
@@ -969,6 +976,9 @@ evaluate_yo_build_functions :: (
     if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
       return(_build_string_result(expr, env, ctx, String.new()));
     });
+    if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MANIFEST_FIELD, Option(usize).None), {
+      return(_build_string_result(expr, env, ctx, String.new()));
+    });
     return(_build_unit_result(expr, env, ctx));
   });
   // ── Real evaluation (concrete comptime args) ────────────────────────
@@ -994,6 +1004,22 @@ evaluate_yo_build_functions :: (
       .Err(_) => triple
     );
     return(_build_string_result(expr, env, ctx, parsed));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MANIFEST_FIELD, Option(usize).None), {
+    _build_require_args(args, usize(1), String.from("__yo_build_manifest_field expects 1 argument (field)"), expr, exn);
+    field := _build_extract_string(args, usize(0), "field", expr, ctx, exn);
+    // A field the manifest does not carry — and every field outside a build,
+    // where the registry is empty — reads as the empty string, the same
+    // answer `load_manifest` gives for an absent `[package]` key.
+    reg_manifest := get_build_registry();
+    return(
+      _build_string_result(
+        expr,
+        env,
+        ctx,
+        match(reg_manifest.manifest_fields.get(field), .Some(v) => v, .None => String.new())
+      )
+    );
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
     _build_require_args(args, usize(3), String.from("__yo_build_option expects 3 arguments (name, description, default)"), expr, exn);

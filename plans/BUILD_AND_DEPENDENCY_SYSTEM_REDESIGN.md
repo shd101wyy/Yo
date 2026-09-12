@@ -746,9 +746,24 @@ by the async lowering (the content hasher's file arm vanished and every store
 tree hashed alike); the body is now flattened before analysis
 (issues/fixed/async-nested-bare-block-in-loop-arm-dropped.md), and the
 hasher keeps the flat shape as a seed gate.
-Not in P1.4b (next): `build.manifest` in `build.yo`; then §4.5.2 dependency
-`build.yo` evaluation + system-library propagation, §4.5.3 linking, §4.5.4
-shared libraries.
+**P1.4c — `build.manifest`, generation A** (`p1/build-manifest`, stacked on
+P1.4b): the runner injects the `[package]` table into the build registry
+(`manifest_fields`) before it evaluates `build.yo`, and the comptime builtin
+`__yo_build_manifest_field(field)` reads it — `name` and `version` today, an
+absent field and every field outside a build answering `""`. Reading the
+manifest needs no evaluator, so `run_build` now loads it BEFORE the build file
+rather than after. The friendly `build.manifest.name` spelling in
+`std/build.yo` is **seed-gated** and deferred: a module-level binding there is
+forced by its own `export(...)`, and `fixpoint-arm64.yml` bootstraps gen-1 by
+running `yo build` with the SEED, which would then fail `std/build.yo` with
+`Variable "__yo_build_manifest_field" not found` (the v0.2.30 seed does not
+even say so — it still swallows build-file errors and prints `No build steps
+defined.`). Generation B is queued in
+plans/backlog/SEED_VERSION_AUTOMATION.md; until then a build file calls the
+builtin directly, as cli-case `build-manifest` does.
+
+Not in P1.4c (next): §4.5.2 dependency `build.yo` evaluation +
+system-library propagation, §4.5.3 linking, §4.5.4 shared libraries.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path
