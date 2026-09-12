@@ -1017,10 +1017,9 @@ the walk's stamp is only ever COMPARED, never recorded; the recorded stamp comes
 from the depfile the child just wrote.
 
 **P1 is complete as of 2026-09-12**, along with P3's §4.8 and §4.9, and
-**§5.1 landed 2026-09-13**. What remains: the rest of **P2** (§5.2
-`ComptimeValue` + the JSON/TOML parsers, §5.4 `build.env`; §5.5's `--emit-deps`
-half landed early because §4.9 needed it), then **§4.6 workspaces**. P4 stays
-designed and unscheduled.
+**§5.1 + §5.2 landed 2026-09-13**. What remains: **§5.4 `build.env`** (§5.5's
+`--emit-deps` half landed early because §4.9 needed it), then **§4.6
+workspaces**. P4 stays designed and unscheduled.
 
 **§5.1 — `comptime_read_file`** (landed). `comptime_read_file(path)` reads a
 file during evaluation and yields its bytes as a `comptime_str`, bounded the way
@@ -1050,9 +1049,51 @@ the content and byte length, a `..` path that stays inside the root, and three
 climbs out, and a missing file. Verified RED first (`E0401: Variable
 "comptime_read_file" not found`).
 
-Note for §5.2: `comptime_str.len()` does not fold at compile time — not for a
-`comptime_read_file` result and not for a plain literal either — so the length
-assert is a runtime one. `ComptimeValue`'s helpers will hit the same wall.
+Note carried into §5.2: `comptime_str.len()` does not fold at compile time —
+not for a `comptime_read_file` result and not for a plain literal either — so
+the length assert is a runtime one.
+
+**§5.2 — `comptime_json_parse` / `comptime_toml_parse`** (landed). Both take a
+compile-time string and return a `ComptimeValue`, the prelude enum modelling a
+document with comptime scalars and `ComptimeList`. Composed with §5.1 —
+`comptime_json_parse(comptime_read_file("./config.json"))` — a configuration
+file becomes constants, and a wrong parse fails to COMPILE rather than at run
+time.
+
+Two departures from the design as drafted, both forced by the language and both
+verified by probe before any code was written:
+
+- **`ComptimeEntry` is not expressible.** The plan sketched
+  `Table(ComptimeList(ComptimeEntry))` with `ComptimeEntry.value :
+  ComptimeValue`. Those are mutually recursive TYPE definitions and the
+  evaluator rejects them ("cyclic definition: CE → CV → CE"). The landed shape
+  is PARALLEL `keys` and `values` lists — exactly what `std/encoding/json`'s
+  `JsonValue.Object` and `std/encoding/toml`'s `TomlValue.Table` already use,
+  and it needs only `Self`.
+- **A recursive enum must say `Self`, not its own name.** `CV ::
+  enum(… ComptimeList(CV))` is the same cyclic-definition error.
+
+The parsers are NOT reimplemented: `std/encoding/json` and `std/encoding/toml`
+run at the COMPILER's runtime and their `JsonValue` / `TomlValue` results are
+lifted into `EvalValue`. One parser, one set of bugs, and the std code never has
+to be comptime-evaluable. A parse error is a compile error at the call site
+carrying the parser's own position.
+
+JSON has one number type, so a whole-valued number lifts to `.Int` — `{"port":
+8080}` reads back as an integer, not `8080.0`. The cut is on the value, not the
+spelling, because the document cannot tell them apart.
+
+`ComptimeValue.get` is written in Yo over `ComptimeList` rather than as a
+builtin: a prelude binding that names a builtin the SEED lacks fails the
+bootstrap (the AGENTS.md pitfall), and the walk needs no evaluator support that
+`ComptimeList` does not already have.
+
+Gate: `tests/comptime.test.yo` — both documents describing one configuration,
+~12 module-level `comptime_assert`s over `get`/`at`/`len`/`as_str`/`as_int`/
+`as_bool`/`is_null` including a missing key and an out-of-range index, a
+cross-check that the JSON and TOML trees agree, runtime asserts, and
+`comptime_expect_error` on a malformed document of each format (both verified
+directly to be real compile errors, not swallowed).
 
 The dogfooding milestone below — un-vendoring `vendor/markdown_yo` — is now
 unblocked: every piece it named (the manifest, the resolver, the store,

@@ -75,12 +75,19 @@ _package_root_for :: (fn(file_dir : String) -> String)(
 );
 /// True when `child` is `root` itself or lives under it. Compares normalized
 /// strings with a trailing separator, so `/a/bc` is NOT inside `/a/b`.
+///
+/// BOTH separators are accepted. `Path.to_string` renders `/` for every path
+/// except a UNC one — whose root IS `\\server\share` and which renders `\`
+/// throughout — so a `/`-only check would reject every legitimate read under a
+/// UNC root, on Windows only.
 _is_inside :: (fn(root : String, child : String) -> bool)({
   if(child == root, {
     return(true);
   });
-  prefix := if(root.ends_with("/"), root.clone(), `${root}/`);
-  child.starts_with(prefix)
+  if(root.ends_with("/") || root.ends_with("\\"), {
+    return(child.starts_with(root));
+  });
+  child.starts_with(`${root}/`) || child.starts_with(`${root}\\`)
 });
 evaluate_comptime_read_file :: (
   fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr
