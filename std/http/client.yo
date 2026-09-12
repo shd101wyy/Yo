@@ -1,5 +1,6 @@
-//! Async HTTP client — `fetch` and `fetch_with`, shaped like JavaScript's
-//! `fetch` and configured like `reqwest`.
+//! Async HTTP client — the one-shot `fetch`/`fetch_with`, shaped like
+//! JavaScript's `fetch`, and the connection-pooling `HttpClient`, shaped like
+//! `reqwest::Client`.
 //!
 //! `fetch(url, io)` is a GET with defaults; `fetch_with(url, opts, io)` takes
 //! a `FetchOptions` carrying the method, headers, body, redirect cap,
@@ -9,32 +10,34 @@
 //! why `max_response_bytes` exists and defaults to 64 MiB rather than being
 //! unlimited.
 //!
-//! Each call is a fresh connection, and a `Connection: close` request header
-//! says so on the wire: there is no pool yet (see `## Stability`). Failures
-//! throw `IoExn` carrying an `HttpError` (D1); a deadline that wins the race
-//! throws `HttpError.Timeout` and aborts the in-flight task, so a hung server
-//! cannot pin a caller forever.
+//! The free functions stay ONE-SHOT: each call is a fresh connection and says
+//! so on the wire with a `Connection: close` request header. `HttpClient`
+//! OWNS its idle connections and reuses them, keyed by scheme+host+port, and
+//! its `Dispose` closes the idle set. Failures throw `IoExn` carrying an
+//! `HttpError` (D1); a deadline that wins the race throws `HttpError.Timeout`
+//! and aborts the in-flight task, so a hung server cannot pin a caller
+//! forever.
 //!
 //! ```rust
-//! { fetch } :: import("std/http");
+//! { fetch, HttpClient } :: import("std/http");
 //! { IoExn } :: import("std/error");
 //!
-//! resp := io.await(fetch(`http://example.com/api/data`, io), IoExn(io : io, exn : exn));
+//! e := IoExn(io : io, exn : exn);
+//! resp := io.await(fetch(`http://example.com/api/data`, io), e);
 //! println(resp.body);
+//!
+//! client := HttpClient.new();                    // reuses connections
+//! a := io.await(client.fetch(`http://example.com/one`, io), e);
+//! b := io.await(client.fetch(`http://example.com/two`, io), e);
 //! ```
 //!
 //! ## Stability
 //!
-//! unstable — the connection model is going to change. Every request sets
-//! `Connection: close` and reads through `read_http_message`, the framing
-//! form that DISCARDS whatever the peer sent past the message, so nothing
-//! here can reuse a connection today; the reusable framing landed in
-//! `./wire.yo` on 2026-09-10 and the pool is the remaining piece. Its
-//! intended shape is decided — an `HttpClient` object that OWNS its idle
-//! connections (Rust's `reqwest::Client`), with an explicit lifetime and a
-//! `Dispose` that closes the idle set, rather than a module-global — and the
-//! free `fetch`/`fetch_with` are meant to keep their one-shot behaviour when
-//! it arrives, so this file grows a type rather than changing these two.
+//! unstable — the pool is new (2026-09-11) and is what this release is asking
+//! for use on before freezing. `HttpClient`'s knobs (idle cap, idle timeout)
+//! and the exact retry-on-a-stale-pooled-connection rule are the parts most
+//! likely to move; `fetch`/`fetch_with` are expected to keep their one-shot
+//! behaviour and their signatures.
 //!
 //! A second, smaller shape is open: a plaintext request connects to the
 //! FIRST address `lookup_host` returns and does not fall back to the next on
@@ -44,7 +47,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
-import("../fmt");
+{ eprintln } :: import("../fmt");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { TcpStream } :: import("../net/tcp");
 { TlsStream } :: import("../crypto/tls");
@@ -52,10 +55,12 @@ import("../fmt");
 { lookup_host } :: import("../net/dns");
 { Url, UrlError } :: import("../url");
 { Duration } :: import("../time/duration");
+{ Instant } :: import("../time/instant");
 { yield } :: import("../async");
 { sleep } :: import("../time/sleep");
+{ Reader } :: import("../io");
 { HttpMethod, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, HttpError, parse_response } :: import("./http.yo");
-{ read_http_message } :: import("./wire.yo");
+{ read_http_message_buffered, MessageKind } :: import("./wire.yo");
 // ============================================================================
 // FetchOptions
 // ============================================================================
@@ -130,136 +135,684 @@ impl(
 );
 export(FetchOptions, DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES);
 // ============================================================================
-// Internal: one request/response exchange — no redirects, no deadline
+// Internal: the transport a request runs over
 // ============================================================================
-_fetch_once :: (
-  fn(url_str : String, opts : FetchOptions, io : Io) ->
-    Impl(Future(HttpResponse, IoExn))
-)(
-  io.async(e => {
-    // Parse URL
-    // D13: Url.parse returns a Result; this caller is already inside an
-    // effect scope, so it uses the _exn wrapper.
-    url := Url.parse_exn(url_str, e.exn);
-    // Validate scheme
-    scheme := url.scheme();
-    is_http := (scheme == `http`);
-    is_https := (scheme == `https`);
-    // Only http/https. https now speaks real TLS (std/crypto/tls, D6); other
-    // schemes are refused before any DNS or socket work.
-    cond(
-      (is_http || is_https) => (),
-      true => {
-        e.exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
-      }
-    );
-    // Extract host
-    host := match(
-      url.host(),
-      .Some(h) => h,
-      .None => {
-        e.exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
-        `_` // unreachable
-      }
-    );
-    // Determine port (default: 80 for http, 443 for https)
-    default_port := cond(is_https => u16(443), true => u16(80));
-    port := match(url.port(), .Some(p) => p, .None => default_port);
-    // Build the request path (include query string if present)
-    req_path := url.path();
-    cond(
-      req_path.is_empty() => {
-        req_path = `/`;
-      },
-      true => ()
-    );
+// `http` and `https` are different types (`TcpStream`, `TlsStream`), and a
+// pool has to hold either. They share the D5 `Reader`/`Writer` shape, so the
+// only thing this enum adds is one place where the two-arm dispatch lives —
+// everything above it (the exchange, the pool, the retry) is written once.
+_Transport :: enum(Plain(stream : TcpStream), Secure(stream : TlsStream));
+impl(
+  _Transport,
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async(e => {
+      // DIAGNOSTIC (issues/a-bodyless-http-response-is-not-read-until-the-
+      // deadline.md): `[wire RSP] issuing read` is printed BEFORE this future
+      // is even created, so it proves nothing about whether the socket read was
+      // ever REGISTERED. This block is cold until its await runs it. If `entered`
+      // never prints, the transport future was never started and no kevent/SQE
+      // exists — which would explain a completion that never arrives on BOTH
+      // backends. If `entered` prints and `arm done` does not, the socket read
+      // really is registered and unwoken.
+      eprintln(`  [tr] read entered`);
+      (n : usize) = usize(0);
+      match(
+        self,
+        .Plain(stream) => {
+          n = e.io.await(stream.read(buf, size, e.io), e);
+          eprintln(`  [tr] plain arm done n=${n.to_string()}`);
+        },
+        .Secure(stream) => {
+          n = e.io.await(stream.read(buf, size, e.io), e);
+          eprintln(`  [tr] secure arm done n=${n.to_string()}`);
+        }
+      );
+      n
+    })
+  ),
+  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async(e => {
+      (n : usize) = usize(0);
+      match(
+        self,
+        .Plain(stream) => {
+          n = e.io.await(stream.write_string(data, e.io), e);
+        },
+        .Secure(stream) => {
+          n = e.io.await(stream.write_string(data, e.io), e);
+        }
+      );
+      n
+    })
+  ),
+  /// Graceful close: a TLS transport also gets its `close_notify` flushed.
+  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async(e => {
+      match(
+        self,
+        .Plain(stream) => {
+          e.io.await(stream.close(e.io), e);
+        },
+        .Secure(stream) => {
+          e.io.await(stream.close(e.io), e);
+        }
+      );
+      ()
+    })
+  ),
+  /// Close without the event loop, by delegating to the stream's own
+  /// `Dispose`. This is what the pool uses: eviction, expiry and
+  /// `HttpClient`'s `dispose` all run in plain (non-async) code, and the
+  /// connection being closed there is either dead or unwanted — there is
+  /// nobody left to send a TLS `close_notify` to.
+  close_sync : (fn(self : Self) -> unit)(
     match(
-      url.query(),
-      .Some(q) => {
-        req_path = `${req_path}?${q}`;
-      },
-      .None => ()
-    );
-    // Build HTTP request
-    req := HttpRequest.new(opts.method, req_path);
-    req.set_host(host);
-    // Add user-provided headers. APPEND, not set: a caller who added the same
-    // name twice (two Accept-Encoding values, say) meant both, and `set_header`
-    // now replaces rather than accumulates.
-    user_headers := opts.headers.entries();
-    hi := usize(0);
-    while(runtime(hi < user_headers.len()), {
-      h := user_headers(hi);
-      req.headers.append(h.name, h.value);
-      hi = (hi + usize(1));
+      self,
+      .Plain(stream) => (TcpStream <: Dispose).dispose(stream),
+      .Secure(stream) => (TlsStream <: Dispose).dispose(stream)
+    )
+  )
+);
+impl(
+  _Transport,
+  Reader(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+// One idle connection. `carry` is the connection's leftover-byte buffer —
+// `read_http_message_buffered` needs the SAME list across every message on a
+// connection, because one `read` can deliver the end of this message and the
+// start of the next.
+_Idle :: ref(
+  struct(
+    key : String,
+    transport : _Transport,
+    carry : ArrayList(u8),
+    since : Instant
+  )
+);
+// ============================================================================
+// HttpClient
+// ============================================================================
+/// Default idle-connection cap: 16.
+///
+/// It is a TOTAL cap, not a per-target one, because the resource it protects
+/// is the process's descriptor table: a client that fans out over a thousand
+/// hosts would otherwise hold a thousand sockets open with a per-host cap of
+/// 1. 16 is enough for several concurrent tasks against a handful of targets,
+/// which is what a single-threaded event loop can actually keep busy.
+DEFAULT_MAX_IDLE_CONNECTIONS :: usize(16);
+/// Default idle age limit: 30 seconds.
+///
+/// A pooled connection can only be reused until the SERVER's own idle timeout
+/// closes it, and that number is not knowable from here — nginx defaults to
+/// 75 s, Apache to 5 s. Expiring at 30 s throws away connections a
+/// short-timeout server has probably already dropped, which is the half of
+/// the race a client can win on its own; the retry below covers the rest.
+DEFAULT_IDLE_TIMEOUT_SECS :: i64(30);
+/// An HTTP client that OWNS a pool of idle keep-alive connections
+/// (`reqwest::Client`'s model, not a process-global one — a `std` with global
+/// mutable state has no way to say when those sockets close).
+///
+/// Requests made through a client reuse an idle connection to the same target
+/// when there is one, and put it back afterwards unless the exchange said
+/// otherwise (RFC 9112 §9.3 — see `_response_keeps_alive`). The free `fetch`
+/// and `fetch_with` do NOT use a client: they open a connection, announce
+/// `Connection: close` and close it, exactly as before.
+///
+/// A connection is only ever reused for the same **scheme, host and port** —
+/// the pool key. Handing an `https://a` connection to a request for
+/// `https://b` would speak to the wrong peer under the first peer's
+/// certificate, so the key is checked, never inferred.
+///
+/// `dispose` closes every idle connection, and `close_idle()` is the same
+/// operation under a name a caller can invoke (Go's
+/// `Transport.CloseIdleConnections`). **Call `close_idle()`** when you are
+/// done with a client: a client that has made a request does not currently
+/// reach reference count zero, because a `ref` value passed as a parameter to
+/// an `io.async` future is never released
+/// (`issues/a-ref-value-passed-to-an-async-future-is-never-released.md`), so
+/// the `dispose` on a scope exit does not yet fire. It is correct and will
+/// start firing when that defect is fixed.
+///
+/// ## Example
+///
+/// ```rust
+/// client := HttpClient.new();
+/// a := io.await(client.fetch(`http://127.0.0.1:8080/one`, io), e);
+/// b := io.await(client.fetch(`http://127.0.0.1:8080/two`, io), e); // same socket
+/// client.close_idle();                                             // both closed
+/// ```
+///
+/// ## Stability
+///
+/// unstable — `new`, `fetch`, `fetch_with`, `with_max_idle`,
+/// `with_idle_timeout`, `idle_count` and `close_idle` are intended to keep
+/// their names and meanings; the pool's policies (a TOTAL idle cap, expiry
+/// on the next request rather than on a timer, closing the connection in hand
+/// rather than evicting one already pooled, and retrying only idempotent
+/// methods) are implementation choices that may change.
+HttpClient :: ref(
+  struct(
+    _idle : ArrayList(_Idle),
+    /// Maximum idle connections held at once. When the pool is full a
+    /// finished connection is closed instead of stored; `0` disables reuse
+    /// altogether.
+    max_idle : usize,
+    /// How long a connection may sit idle before it is closed rather than
+    /// reused. `Duration.from_secs(0)` lifts the limit.
+    idle_timeout : Duration
+  )
+);
+impl(
+  HttpClient,
+  /// A client with an empty pool, `DEFAULT_MAX_IDLE_CONNECTIONS` idle slots
+  /// and a `DEFAULT_IDLE_TIMEOUT_SECS` age limit.
+  new : (fn() -> Self)(
+    Self(
+      _idle : ArrayList(_Idle).new(),
+      max_idle : DEFAULT_MAX_IDLE_CONNECTIONS,
+      idle_timeout : Duration.from_secs(DEFAULT_IDLE_TIMEOUT_SECS)
+    )
+  ),
+  /// Cap the idle connections held at once (`0` disables reuse).
+  with_max_idle : (fn(self : Self, n : usize) -> Self)({
+    self.max_idle = n;
+    self
+  }),
+  /// Set the idle age limit (`Duration.from_secs(0)` lifts it).
+  with_idle_timeout : (fn(self : Self, limit : Duration) -> Self)({
+    self.idle_timeout = limit;
+    self
+  }),
+  /// How many connections are currently idle in the pool.
+  idle_count : (fn(self : Self) -> usize)(
+    self._idle.len()
+  ),
+  /// Close every idle connection — Go's `Transport.CloseIdleConnections`.
+  /// Connections currently carrying a request are unaffected; they are owned
+  /// by their exchange and are closed or pooled when it finishes.
+  close_idle : (fn(self : Self) -> unit)({
+    i := usize(0);
+    while(runtime(i < self._idle.len()), {
+      entry := self._idle(i);
+      entry.transport.close_sync();
+      i = (i + usize(1));
     });
-    // Set Content-Length if body is provided
+    self._idle.clear();
+  }),
+  // Take an idle connection for `key`, purging every connection that sat
+  // idle past the age limit on the way past. Purging here rather than on a
+  // timer is what keeps the pool free of a background task: the only moment
+  // a `std` client is guaranteed to be running is a request.
+  _take : (fn(self : Self, key : String) -> Option(_Idle))({
+    limit := self.idle_timeout;
+    limit_ms := limit.as_millis();
+    (found : Option(_Idle)) = Option(_Idle).None;
+    i := usize(0);
+    while(runtime(i < self._idle.len()), {
+      entry := self._idle(i);
+      since := entry.since;
+      age := since.elapsed();
+      age_ms := age.as_millis();
+      expired := ((limit_ms > i64(0)) && (age_ms >= limit_ms));
+      cond(
+        expired => {
+          entry.transport.close_sync();
+          _dropped := self._idle.remove(i);
+        },
+        (found.is_none() && (entry.key == key)) => {
+          found = Option(_Idle).Some(entry);
+          _picked := self._idle.remove(i);
+        },
+        true => {
+          i = (i + usize(1));
+        }
+      );
+    });
+    found
+  }),
+  // Store a finished connection. `false` means the pool is full (or reuse is
+  // off) and the caller must close it — Go's answer too: the connection in
+  // hand is closed rather than evicting one already in the pool, so a burst
+  // of parallel requests cannot churn the whole pool.
+  _put : (fn(self : Self, key : String, transport : _Transport, carry : ArrayList(u8)) -> bool)(
     cond(
-      !opts.body.is_empty() => {
-        req.set_body(opts.body);
-        req.set_header(`Content-Length`, `${opts.body.len()}`);
+      (self._idle.len() >= self.max_idle) => false,
+      true => {
+        self._idle.push(_Idle(key : key, transport : transport, carry : carry, since : Instant.now()));
+        true
+      }
+    )
+  )
+);
+impl(
+  HttpClient,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(
+      self.close_idle()
+    )
+  )
+);
+export(HttpClient, DEFAULT_MAX_IDLE_CONNECTIONS, DEFAULT_IDLE_TIMEOUT_SECS);
+// ============================================================================
+// Internal: one request/response exchange
+// ============================================================================
+// Whether a comma-separated field value lists `token` (RFC 9110 §5.6.1.2 —
+// `Connection` is a `#token` list, so `keep-alive, Upgrade` lists both).
+_value_has_token :: (fn(value : String, token : String) -> bool)({
+  parts := value.split(",");
+  i := usize(0);
+  (found : bool) = false;
+  while(runtime(i < parts.len()), {
+    part := parts(i);
+    trimmed := part.trim();
+    cond(
+      (trimmed.to_lowercase() == token) => {
+        found = true;
       },
       true => ()
     );
-    // Set Connection: close to ensure the server closes after response
-    req.set_header(`Connection`, `close`);
-    req_str := req.to_string();
-    // Transport: plaintext TCP for http, TLS for https. Both streams
-    // implement the D5 Reader trait, so the response reader is shared.
-    (raw_response : String) = ``;
+    i = (i + usize(1));
+  });
+  found
+});
+// Whether the response's `Connection` field (all of its field lines) lists
+// `token`.
+_response_has_conn_token :: (fn(resp : HttpResponse, token : String) -> bool)({
+  values := resp.headers.get_all(`Connection`);
+  i := usize(0);
+  (found : bool) = false;
+  while(runtime(i < values.len()), {
     cond(
-      is_https => {
-        tls := e.io.await(TlsStream.connect(host.clone(), port, e.io), e);
-        _wn := e.io.await(tls.write_string(req_str, e.io), e);
-        // The await is HOISTED out of the match: an await inside a match
-        // scrutinee is a shape the async state machine mis-lowers (the value
-        // came back empty — "Invalid status line" on every fetch).
-        framed_tls := e.io.await(read_http_message(tls, opts.max_response_bytes, false, e.io), e);
-        raw_response = match(
-          framed_tls,
-          .Ok(raw) => raw,
-          .Err(err) => {
-            e.exn.throw(dyn(err));
-            String.new()
-          }
-        );
-        e.io.await(tls.close(e.io), e);
+      _value_has_token(values(i), token) => {
+        found = true;
+      },
+      true => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+// Whether the response's body is delimited by its own framing rather than by
+// the connection close (RFC 9112 §6.3). A close-delimited response CANNOT be
+// followed by another one — the close IS the end of the body — so it always
+// retires its connection, no matter what `Connection` says.
+_body_is_delimited :: (fn(resp : HttpResponse, kind : MessageKind) -> bool)({
+  code := resp.status.as_u16();
+  is_head := match(kind, .HeadResponse => true, _ => false);
+  cond(
+    (is_head || ((code < u16(200)) || ((code == u16(204)) || (code == u16(304))))) => {
+      return(true);
+    },
+    true => ()
+  );
+  chunked := match(
+    resp.get_header(`Transfer-Encoding`),
+    .Some(v) => v.to_lowercase().ends_with(`chunked`),
+    .None => false
+  );
+  cond(
+    chunked => {
+      return(true);
+    },
+    true => ()
+  );
+  resp.get_header(`Content-Length`).is_some()
+});
+// RFC 9112 §9.3, in the order the RFC states it: whether this connection may
+// carry another request after this response.
+_response_keeps_alive :: (fn(resp : HttpResponse, kind : MessageKind) -> bool)({
+  // A 1xx is an INTERIM response: the FINAL response to this request is still
+  // coming, so the connection is not at a message boundary for us even though
+  // the 1xx itself is framed. Pooling it would hand the next request a
+  // connection whose first message is the previous request's real answer.
+  // This client never sends `Expect: 100-continue`, so a well-behaved server
+  // has no reason to send one; a 101 is the same situation with the protocol
+  // changed underneath as well.
+  cond(
+    (resp.status.as_u16() < u16(200)) => {
+      return(false);
+    },
+    true => ()
+  );
+  // A `Connection: close` from the server ends it, whatever the version.
+  cond(
+    _response_has_conn_token(resp, `close`) => {
+      return(false);
+    },
+    true => ()
+  );
+  // HTTP/1.1 is persistent by default; HTTP/1.0 (and any version this client
+  // does not know) is not, and only an explicit `Connection: keep-alive`
+  // opts in.
+  cond(
+    (resp.version != `HTTP/1.1`) => {
+      cond(
+        !_response_has_conn_token(resp, `keep-alive`) => {
+          return(false);
+        },
+        true => ()
+      );
+    },
+    true => ()
+  );
+  _body_is_delimited(resp, kind)
+});
+// RFC 9110 §9.2.2: replaying one of these cannot change the server's state
+// beyond what the first attempt already did. `POST` and `PATCH` are the two
+// that can.
+_is_idempotent :: (fn(method : HttpMethod) -> bool)(
+  match(method, .POST => false, .PATCH => false, _ => true)
+);
+// Everything derived from the URL and the options before any socket work: the
+// pool key, where to connect, the bytes to write, and how the response is to
+// be framed.
+_Prepared :: struct(
+  key : String,
+  host : String,
+  port : u16,
+  is_tls : bool,
+  request : String,
+  // The request itself announced `Connection: close`, so this connection
+  // cannot be reused however the server answers.
+  sent_close : bool,
+  kind : MessageKind
+);
+// `keep_alive` false is the one-shot path: it adds the `Connection: close`
+// that makes a close-delimited response terminate. A pooled request says
+// nothing — HTTP/1.1 is persistent by default, and saying `keep-alive`
+// explicitly is what an HTTP/1.0 client does.
+_prepare :: (fn(url_str : String, opts : FetchOptions, keep_alive : bool, exn : Exception) -> _Prepared)({
+  // D13: Url.parse returns a Result; this caller is already inside an effect
+  // scope, so it uses the _exn wrapper.
+  url := Url.parse_exn(url_str, exn);
+  scheme := url.scheme();
+  is_http := (scheme == `http`);
+  is_https := (scheme == `https`);
+  // Only http/https. https speaks real TLS (std/crypto/tls, D6); other
+  // schemes are refused before any DNS or socket work.
+  cond(
+    (is_http || is_https) => (),
+    true => {
+      exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
+    }
+  );
+  host := match(
+    url.host(),
+    .Some(h) => h,
+    .None => {
+      exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
+      `_` // unreachable
+    }
+  );
+  // Determine port (default: 80 for http, 443 for https)
+  default_port := cond(is_https => u16(443), true => u16(80));
+  port := match(url.port(), .Some(p) => p, .None => default_port);
+  // Build the request path (include query string if present)
+  req_path := url.path();
+  cond(
+    req_path.is_empty() => {
+      req_path = `/`;
+    },
+    true => ()
+  );
+  match(
+    url.query(),
+    .Some(q) => {
+      req_path = `${req_path}?${q}`;
+    },
+    .None => ()
+  );
+  req := HttpRequest.new(opts.method, req_path);
+  req.set_host(host);
+  // Add user-provided headers. APPEND, not set: a caller who added the same
+  // name twice (two Accept-Encoding values, say) meant both, and `set_header`
+  // now replaces rather than accumulates. A caller who wrote
+  // `Connection: close` by hand gets what they asked for, and the pool has to
+  // know about it.
+  user_headers := opts.headers.entries();
+  hi := usize(0);
+  (user_close : bool) = false;
+  while(runtime(hi < user_headers.len()), {
+    h := user_headers(hi);
+    req.headers.append(h.name, h.value);
+    cond(
+      ((h.name.to_lowercase() == `connection`) && _value_has_token(h.value, `close`)) => {
+        user_close = true;
+      },
+      true => ()
+    );
+    hi = (hi + usize(1));
+  });
+  // Set Content-Length if body is provided
+  cond(
+    !opts.body.is_empty() => {
+      req.set_body(opts.body);
+      req.set_header(`Content-Length`, `${opts.body.len()}`);
+    },
+    true => ()
+  );
+  cond(
+    !keep_alive => {
+      req.set_header(`Connection`, `close`);
+    },
+    true => ()
+  );
+  is_head := match(opts.method, .HEAD => true, _ => false);
+  host_key := host.to_lowercase();
+  _Prepared(
+    key : `${scheme}://${host_key}:${port.to_string()}`,
+    host : host,
+    port : port,
+    is_tls : is_https,
+    request : req.to_string(),
+    sent_close : (!keep_alive || user_close),
+    kind : cond(is_head => MessageKind.HeadResponse, true => MessageKind.Response)
+  )
+});
+// Open a new connection to the prepared target.
+_connect :: (fn(prep : _Prepared, io : Io) -> Impl(Future(_Transport, IoExn)))(
+  io.async(e => {
+    (out : Option(_Transport)) = Option(_Transport).None;
+    cond(
+      prep.is_tls => {
+        tls := e.io.await(TlsStream.connect(prep.host.clone(), prep.port, e.io), e);
+        out = Option(_Transport).Some(_Transport.Secure(tls));
       },
       true => {
-        addrs := e.io.await(lookup_host(host, e.io), e);
+        addrs := e.io.await(lookup_host(prep.host, e.io), e);
         cond(
           (addrs.len() == usize(0)) => {
-            e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${host}`)));
+            e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${prep.host}`)));
           },
           true => ()
         );
-        addr := SocketAddr.new(addrs(usize(0)), port);
+        addr := SocketAddr.new(addrs(usize(0)), prep.port);
         stream := e.io.await(TcpStream.connect(addr, e.io), e);
-        e.io.await(stream.write_string(req_str, e.io), e);
-        // The await is HOISTED out of the match: an await inside a match
-        // scrutinee is a shape the async state machine mis-lowers (the value
-        // came back empty — "Invalid status line" on every fetch).
-        framed_stream := e.io.await(read_http_message(stream, opts.max_response_bytes, false, e.io), e);
-        raw_response = match(
-          framed_stream,
-          .Ok(raw) => raw,
-          .Err(err) => {
-            e.exn.throw(dyn(err));
-            String.new()
-          }
-        );
-        e.io.await(stream.close(e.io), e);
+        out = Option(_Transport).Some(_Transport.Plain(stream));
       }
     );
-    // Parse response
-    match(
-      parse_response(raw_response),
-      .Ok(resp) => resp,
-      .Err(err) => {
-        e.exn.throw(dyn(HttpError.Other(err.to_string())));
-        HttpResponse.new(StatusCode.OK(), ``) // unreachable
-      }
-    )
+    out.unwrap()
+  })
+);
+/// One request, one response — no redirects and no deadline.
+///
+/// `pool` is what separates the two clients: with `.None` this is the
+/// historical one-shot exchange (connect, `Connection: close`, read, close),
+/// and with `.Some(client)` it takes an idle connection for the target if
+/// there is one and hands the connection back afterwards. Sharing ONE body
+/// rather than writing the pooled path beside the one-shot path is deliberate
+/// — the framing, the redirect handling and the deadline are identical, and a
+/// second copy is where they would drift apart.
+///
+/// ## Retrying a connection the server had already closed
+///
+/// This is the behaviour a keep-alive client lives or dies by. A server may
+/// close an idle connection at any moment, and the close usually reaches us
+/// only when we try to use it: the write lands in the kernel's buffer, and
+/// the read that follows returns EOF without a single response byte. The
+/// request was never answered, so it is sent again on a fresh connection —
+/// once.
+///
+/// The retry is limited to methods RFC 9110 §9.2.2 calls idempotent. A `POST`
+/// or `PATCH` that reached the server and was processed before the close would
+/// be executed twice by a silent replay, and "the request was never
+/// processed" is not something this side can prove — only "no response
+/// arrived". Go replays those too (its bodies are rewindable, as ours always
+/// are, being a `String` in memory); this client does not, and reports
+/// `ConnectionFailed` instead, so a non-idempotent replay is the caller's
+/// decision to make.
+_fetch_once :: (
+  fn(url_str : String, opts : FetchOptions, pool : Option(HttpClient), io : Io) ->
+    Impl(Future(HttpResponse, IoExn))
+)(
+  io.async(e => {
+    prep := _prepare(url_str, opts, pool.is_some(), e.exn);
+    idempotent := _is_idempotent(opts.method);
+    (out : Option(HttpResponse)) = Option(HttpResponse).None;
+    // A `done`/`attempt` pair rather than break/continue: an awaiting loop is
+    // a state machine (C24), and every await below sits at most ONE branch
+    // under the `while` — deeper nesting is a shape the async lowering does
+    // not support.
+    (attempt : usize) = usize(0);
+    (again : bool) = true;
+    while(runtime(again), {
+      again = false;
+      // The pool is consulted on the first attempt only: a retry exists
+      // BECAUSE the pooled connection was dead.
+      (taken : Option(_Idle)) = Option(_Idle).None;
+      cond(
+        (attempt == usize(0)) => {
+          match(
+            pool,
+            .Some(client) => {
+              taken = client._take(prep.key);
+            },
+            .None => ()
+          );
+        },
+        true => ()
+      );
+      reused := taken.is_some();
+      // One leftover-byte buffer per CONNECTION: a pooled connection brings
+      // its own, a fresh one starts empty.
+      carry := ArrayList(u8).new();
+      (conn_opt : Option(_Transport)) = Option(_Transport).None;
+      match(
+        taken,
+        .Some(entry) => {
+          conn_opt = Option(_Transport).Some(entry.transport);
+          carry = entry.carry;
+        },
+        .None => ()
+      );
+      cond(
+        conn_opt.is_none() => {
+          fresh := e.io.await(_connect(prep, e.io), e);
+          conn_opt = Option(_Transport).Some(fresh);
+        },
+        true => ()
+      );
+      conn := conn_opt.unwrap();
+      _wn := e.io.await(conn.write_string(prep.request, e.io), e);
+      // DIAGNOSTIC (issues/a-bodyless-http-response-is-not-read-until-the-
+      // deadline.md): the two prints bracket the ONE await the 204 hang stops
+      // inside. The wire-level checkpoints say the read itself returned the
+      // whole response, so what these settle is whether this parent await
+      // ever resumes once the inner future completes.
+      eprintln(`  [clt] awaiting the framed response (reused=${reused.to_string()})`);
+      framed := e.io.await(
+        read_http_message_buffered(conn, opts.max_response_bytes, prep.kind, carry, e.io),
+        e
+      );
+      eprintln(`  [clt] parent await resumed`);
+      (raw : String) = String.new();
+      (framing_err : Option(HttpError)) = Option(HttpError).None;
+      match(
+        framed,
+        .Ok(x) => {
+          raw = x;
+        },
+        .Err(err) => {
+          framing_err = Option(HttpError).Some(err);
+        }
+      );
+      // A framing defect is unrecoverable for the connection as well as for
+      // the request: the byte stream is no longer at a message boundary.
+      cond(
+        framing_err.is_some() => {
+          conn.close_sync();
+          e.exn.throw(dyn(framing_err.unwrap()));
+        },
+        true => ()
+      );
+      // Not one byte: either the server closed an idle connection under us
+      // (retryable, see above) or it hung up without answering.
+      dead := raw.is_empty();
+      retry_now := (dead && (reused && idempotent));
+      cond(
+        retry_now => {
+          conn.close_sync();
+          again = true;
+        },
+        true => ()
+      );
+      cond(
+        (dead && !retry_now) => {
+          conn.close_sync();
+          e.exn.throw(
+            dyn(
+              HttpError.ConnectionFailed(`the server closed the connection without sending a response`)
+            )
+          );
+        },
+        true => ()
+      );
+      (retire : bool) = false;
+      cond(
+        !dead => {
+          resp := match(
+            parse_response(raw),
+            .Ok(r) => r,
+            .Err(err) => {
+              conn.close_sync();
+              e.exn.throw(dyn(HttpError.Other(err.to_string())));
+              HttpResponse.new(StatusCode.OK(), ``) // unreachable
+            }
+          );
+          keep := (!prep.sent_close && _response_keeps_alive(resp, prep.kind));
+          (stored : bool) = false;
+          cond(
+            keep => {
+              match(
+                pool,
+                .Some(client) => {
+                  stored = client._put(prep.key, conn, carry);
+                },
+                .None => ()
+              );
+            },
+            true => ()
+          );
+          retire = !stored;
+          out = Option(HttpResponse).Some(resp);
+        },
+        true => ()
+      );
+      // The graceful close is the last await in the loop body, and it sits
+      // one branch under the `while` for that reason.
+      cond(
+        retire => {
+          e.io.await(conn.close(e.io), e);
+        },
+        true => ()
+      );
+      attempt = (attempt + usize(1));
+    });
+    match(out, .Some(r) => r, .None => HttpResponse.new(StatusCode.OK(), ``))
   })
 );
 // ============================================================================
@@ -306,8 +859,12 @@ _redirect_options :: (fn(opts : FetchOptions, status : StatusCode) -> FetchOptio
 });
 /// Follow 3xx `Location` hops up to `opts.max_redirects`, then throw
 /// `TooManyRedirects`. A 3xx without a `Location` is returned as is.
+///
+/// Each hop re-derives its own connection target, so a redirect to another
+/// host takes a connection to THAT host out of the pool (or opens one) — a
+/// pooled connection is never handed to a different target.
 _fetch_follow :: (
-  fn(url_str : String, opts : FetchOptions, io : Io) ->
+  fn(url_str : String, opts : FetchOptions, pool : Option(HttpClient), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async(e => {
@@ -319,7 +876,7 @@ _fetch_follow :: (
     // state machine (C24).
     done := false;
     while(runtime(!done), {
-      resp := e.io.await(_fetch_once(current.clone(), hop_opts, e.io), e);
+      resp := e.io.await(_fetch_once(current.clone(), hop_opts, pool, e.io), e);
       location := match(resp.get_header(`Location`), .Some(l) => l, .None => ``);
       // `max_redirects == 0` means "do not follow": the first 3xx comes back
       // verbatim (reqwest's `Policy::none`). Otherwise the cap counts hops
@@ -349,22 +906,11 @@ _fetch_follow :: (
 // ============================================================================
 // Internal: the deadline race
 // ============================================================================
-// ============================================================================
-// fetch — High-level async HTTP request (like JavaScript's fetch)
-// ============================================================================
-/// Perform an HTTP request with custom options: follows redirects up to
-/// `opts.max_redirects`, refuses responses past `opts.max_response_bytes`,
-/// and — when `opts.timeout` is set — races the whole exchange against the
-/// deadline, throwing `HttpError.Timeout` if the deadline wins.
-///
-/// ## Example
-///
-/// ```rust
-/// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`).with_timeout(Duration.from_secs(i64(10)));
-/// resp := io.await(fetch_with(`http://example.com/api`, opts, io), { io, exn });
-/// ```
-fetch_with :: (
-  fn(url_str : String, opts : FetchOptions, io : Io) ->
+// The whole exchange — redirects included — against `opts.timeout`. Shared by
+// the free `fetch_with` and by `HttpClient.fetch_with`; the only difference
+// between them is `pool`.
+_fetch_deadline :: (
+  fn(url_str : String, opts : FetchOptions, pool : Option(HttpClient), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async(e => {
@@ -372,7 +918,7 @@ fetch_with :: (
     match(
       opts.timeout,
       .None => {
-        result = e.io.await(_fetch_follow(url_str, opts, e.io), e);
+        result = e.io.await(_fetch_follow(url_str, opts, pool, e.io), e);
       },
       .Some(limit) => {
         // Run the whole exchange as a spawned TASK raced against a spawned
@@ -389,7 +935,10 @@ fetch_with :: (
         // awaits once was mis-emitted until C38
         // (issues/fixed/while-await-inside-match-arm-missing-loop-field.md);
         // this arm is that shape and doubles as its production pin.
-        h := e.io.spawn(_fetch_follow(url_str, opts, e.io), e);
+        //
+        // A connection cut off here is owned by the aborted state machine, so
+        // its `Dispose` closes it — it never reaches the pool.
+        h := e.io.spawn(_fetch_follow(url_str, opts, pool, e.io), e);
         dh := e.io.spawn(sleep(limit, e.io), e.io);
         while(runtime(!h.is_finished() && !dh.is_finished()), {
           e.io.await(yield(e.io), e.io);
@@ -419,8 +968,38 @@ fetch_with :: (
     result
   })
 );
+// ============================================================================
+// fetch — High-level async HTTP request (like JavaScript's fetch)
+// ============================================================================
+/// Perform a ONE-SHOT HTTP request with custom options: follows redirects up
+/// to `opts.max_redirects`, refuses responses past `opts.max_response_bytes`,
+/// and — when `opts.timeout` is set — races the whole exchange against the
+/// deadline, throwing `HttpError.Timeout` if the deadline wins.
+///
+/// Every hop opens its own connection, announces `Connection: close` and
+/// closes it. For connection reuse, make the request through an `HttpClient`
+/// instead — there is deliberately no hidden global pool behind this
+/// function, because nothing here could say when those sockets close.
+///
+/// ## Example
+///
+/// ```rust
+/// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`).with_timeout(Duration.from_secs(i64(10)));
+/// resp := io.await(fetch_with(`http://example.com/api`, opts, io), { io, exn });
+/// ```
+fetch_with :: (
+  fn(url_str : String, opts : FetchOptions, io : Io) ->
+    Impl(Future(HttpResponse, IoExn))
+)(
+  io.async(e => {
+    // Hoisted: `io.await` directly inside `return(...)` is rejected by the
+    // async state-machine codegen (a restriction `yo check` cannot see).
+    resp := e.io.await(_fetch_deadline(url_str, opts, Option(HttpClient).None, e.io), e);
+    return(resp);
+  })
+);
 export(fetch_with);
-/// Perform an HTTP GET request to the given URL string.
+/// Perform a one-shot HTTP GET request to the given URL string.
 /// Returns the `HttpResponse` on success.
 ///
 /// ## Example
@@ -441,3 +1020,31 @@ fetch :: (
   })
 );
 export(fetch);
+// The pooling entry points live in their own `impl` block, registered after
+// `_fetch_deadline` exists as a binding: an `io.async` body is evaluated
+// where it is DEFINED, and a method body that cannot resolve its callee there
+// is emitted hollow rather than rejected.
+impl(
+  HttpClient,
+  /// GET `url_str`, reusing an idle connection to the same scheme/host/port
+  /// when the pool has one and returning it to the pool afterwards.
+  fetch : (fn(self : Self, url_str : String, io : Io) -> Impl(Future(HttpResponse, IoExn)))(
+    io.async(e => {
+      resp := e.io.await(
+        _fetch_deadline(url_str, FetchOptions.new(), Option(HttpClient).Some(self), e.io),
+        e
+      );
+      return(resp);
+    })
+  ),
+  /// `fetch_with`'s options, over this client's connection pool.
+  fetch_with : (
+    fn(self : Self, url_str : String, opts : FetchOptions, io : Io) ->
+      Impl(Future(HttpResponse, IoExn))
+  )(
+    io.async(e => {
+      resp := e.io.await(_fetch_deadline(url_str, opts, Option(HttpClient).Some(self), e.io), e);
+      return(resp);
+    })
+  )
+);
