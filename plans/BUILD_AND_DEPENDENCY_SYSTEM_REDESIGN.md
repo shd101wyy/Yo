@@ -897,6 +897,19 @@ Gate: cli-case `build-parallel-jobs` — two libraries with no edge between them
 and `-j 2`, comparing only `Build Summary: N/N steps succeeded`, because the
 `Building …` lines and the C compiler's chatter interleave by design.
 
+That fixture surfaced the seventh compiler bug of this campaign:
+`issues/fixed/two-externs-of-one-signature-emit-one-prototype.md`. Its program
+links two static libraries and so declares two `extern("Yo", … : (fn(n : i32)
+-> i32))` symbols — the SAME type — and codegen registered extern callees in a
+map keyed by `type_key`, so the second overwrote the first and only one
+prototype was emitted. Nothing ever looked an entry up by that key (both
+consumers iterate `.values()`), so the collision had one pure effect: a call
+with no declaration. It is keyed by the C symbol name now. `-O2` had been
+hiding the class: `run_compile` passed `-Wno-everything` and then a bare
+`-Wimplicit-function-declaration`, which DOWNGRADES clang's default error to a
+warning — it is `-Werror=implicit-function-declaration` now, matching what the
+`-O0` arm already gets from clang's defaults.
+
 Not in P1.4h (next): the rest of B13 (`BuildDocConfig.include_deps/logo/favicon`
 and the test suite's `target/verbose/bail/parallel` are accepted and never
 forwarded), §4.9's depfile-scoped stamps, §4.6 workspaces, then the plan's P2
