@@ -10,9 +10,22 @@
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/time/sleep");
 { yield } :: import("std/async");
+// 200 ms, not the 5 ms this was written with. The deadline case below asserts
+// that a 1 ms deadline BEATS the work, and a 4 ms margin is not an ordering any
+// platform guarantees: Windows' default timer resolution is 15.6 ms, so a 1 ms
+// and a 5 ms sleep come due in the SAME tick and `__yo_win_timer_process_due`
+// fires both — the loop then sees the work finished and reports 100 where the
+// test wants 200. It passed for as long as the 1 ms timer under `yield` kept
+// waking the loop often enough to catch the deadline alone; #608 removed that
+// timer and the latent assumption surfaced, on both Windows legs at once
+// (issues/fixed/a-4ms-timer-margin-is-not-an-ordering-on-windows.md).
+//
+// Every margin here is now at least 25x the coarsest resolution we run on, so
+// the ORDER these two complete in is a property of the runtime rather than of
+// the host's clock — which is what the test is actually about.
 work :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    e.io.await(sleep(Duration.from_millis(i64(5)), e.io), e.io);
+    e.io.await(sleep(Duration.from_millis(i64(200)), e.io), e.io);
     i32(7)
   })
 );
@@ -77,10 +90,10 @@ test("plain arm awaits once, looping arm polls to completion", {
   e := IoExn(io : io, exn : exn);
   a := io.await(race(Option(Duration).None, io), e);
   assert(a == i32(7), "plain arm returns the awaited value");
-  b := io.await(race(Option(Duration).Some(Duration.from_millis(i64(500))), io), e);
-  assert(b == i32(101), "work (5ms) finishes before the 500ms deadline, after at least one yield");
+  b := io.await(race(Option(Duration).Some(Duration.from_millis(i64(5000))), io), e);
+  assert(b == i32(101), "work (200ms) finishes before the 5s deadline, after at least one yield");
   c := io.await(race(Option(Duration).Some(Duration.from_millis(i64(1))), io), e);
-  assert(c == i32(200), "a 1ms deadline beats the 5ms work");
+  assert(c == i32(200), "a 1ms deadline beats the 200ms work");
 });
 test("looping arm listed first", {
   exn := Exception(
@@ -94,6 +107,6 @@ test("looping arm listed first", {
   e := IoExn(io : io, exn : exn);
   a := io.await(race_rev(Option(Duration).None, io), e);
   assert(a == i32(7), "plain arm (second) returns the awaited value");
-  b := io.await(race_rev(Option(Duration).Some(Duration.from_millis(i64(500))), io), e);
+  b := io.await(race_rev(Option(Duration).Some(Duration.from_millis(i64(5000))), io), e);
   assert(b == i32(100), "looping arm (first) completes");
 });
