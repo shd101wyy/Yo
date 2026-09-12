@@ -1,6 +1,6 @@
 # A generic impl method's closure is emitted twice — once with `T` unresolved
 
-**Status:** open (fix in flight on `fix/zst-closure-fn-result`)
+**Status:** FIXED 2026-09-12 (`fix/zst-closure-fn-result`, the D18b branch).
 **Found:** 2026-09-12, while making `Thread(T).spawn` generic for D18b
 (`plans/STD_API_STABILIZATION.md` §2 D18).
 

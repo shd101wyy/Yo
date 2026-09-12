@@ -1,6 +1,6 @@
 # A spawned closure literal's capture struct is built twice
 
-**Status:** open (fix in flight on `fix/zst-closure-fn-result`)
+**Status:** FIXED 2026-09-12 (`fix/zst-closure-fn-result`, the D18b branch).
 **Found:** 2026-09-12, while making `Thread(T).spawn` generic for D18b.
 
 ## Symptom

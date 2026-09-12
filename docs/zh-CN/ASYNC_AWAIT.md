@@ -573,7 +573,7 @@ int main(int argc, char** argv) {
 
 **I/O 初始化是惰性的**：`__yo_io_init()` 在首次实际 I/O 操作（文件打开、socket 连接等）时才被调用，而非程序启动时。这意味着仅使用 `yield()` 和纯计算的程序不会产生任何 I/O 初始化开销。
 
-类似地，**并行运行时**（线程池、Worker 创建、硬件检测）仅在程序使用 `Thread.spawn` 或 `std/thread` 的 `spawn(pool, cb)` 时才生成。非并行程序可节省约 450 行生成的 C 代码。
+类似地，**并行运行时**（线程池、Worker 创建、硬件检测）仅在程序使用 `Thread(T).spawn` 或 `std/thread` 的 `spawn(pool, cb)` 时才生成。非并行程序可节省约 450 行生成的 C 代码。
 
 **同步系统辅助函数**（stat/dirent 访问器、sendfile/copyfile、同步文件操作、mmap/madvise、fcntl、flock、socket 地址辅助函数、信号处理器、TTY）始终通过 `generateSysRuntime()` 生成，其中包括跨平台辅助函数和平台特定的同步辅助函数（`generatePlatformSysRuntime{MacOS,Linux,Windows}`）。这些**不依赖 IoFuture**。所有函数均为 `static`，因此未使用的函数会被 C 编译器的死代码消除机制剥离。这确保了使用信号、stat、mmap、TTY 等功能的非异步程序在编译时不会引入完整的异步运行时。
 
@@ -604,7 +604,7 @@ WASM 上不可用的功能：
 
 - DNS、TCP、UDP — Emscripten 中无网络栈
 - 进程创建、信号、文件系统事件 — 无操作系统级 API
-- 并行（`Thread.spawn`）— 需要 pthread 支持（实验性）
+- 并行（`Thread(T).spawn`）— 需要 pthread 支持（实验性）
 
 并发辅助函数返回合理的默认值：`__yo_thread_get_hardware_threads()` 返回 1，`__yo_get_thread_id()` 返回 0，`__yo_thread_yield()` 为空操作。
 
