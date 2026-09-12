@@ -52,6 +52,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { EvalValue } :: import("../../value.yo");
 {
+  register_sns_module,
   EvalContext,
   set_module_walk,
   set_module_walk_index,
@@ -835,6 +836,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // fields; the TypeValue layer cannot reference EvalValue). See
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
   sns_id := stable_module_id(String.from("source_namespace_"), env.module_path);
+  register_sns_module(sns_id.clone(), env.module_path.clone());
   module_type := TypeValue.Struct(
     sns_id.clone(),
     String.from(""),
