@@ -74,34 +74,146 @@ filter exactly once, where the names are unambiguously the callee's.
 
 The CLOSURE-PARAM shape —
 `fn(generic(R), f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io))` — still
-miscompiles, and it is a different defect. Measured in the emitted C, sharpened
-once the return stamping above stopped being the problem:
+miscompiles. It is a different defect, and as of 2026-09-12 it is measured
+rather than hypothesised.
 
-* BOTH async-block generations exist (`closure_…000000`, `closure_…000001`),
-  and so do both `_sync_fut_t` structs. Nothing is missing.
-* The two forward declarations DISAGREE with each other correctly:
-  `…000000` is declared returning the struct, `…000001` returning `int32_t`.
-* **Both DEFINITIONS return `int32_t`.** So `…000000`'s definition contradicts
-  its own forward declaration, which is the `conflicting types for
-  closure_yo_id_…` the C compiler reports, and the struct specialization's
-  state machine calls a body that computes the wrong type.
+### The sharp A/B
 
-That is a prototype-vs-definition split for ONE fid, and the interesting part
-is that `generate_function` and `generate_function_declaration`
-(`src/codegen/functions/`) build both strings from the SAME helper —
-`generate_function_prototype(get_func_type(fid), …, async_override, …)`. So
-something those two passes read differs between them. `async_override` is the
-suspect: `_async_override_return_type` consults the BODY node's ExprInfo, and
-the two generations share one body AST node, so anything recorded there is
-last-writer. That is a hypothesis, not a measurement — what is measured is the
-three bullets above.
+One variable, four programs, all against develop's compiler
+(`issues/repros/generic-future-return-two-t-closure-param.yo` and three
+variants of it):
 
-The lead from the working side stands: an IMPL METHOD with a closure param
-compiles at two `R`s (`std/async/mutex.yo`'s `with_lock`, and a stripped
-20-line copy of it). A FREE FUNCTION with the same closure param does not. That
-pair is the A/B to bisect next.
+| the call | result |
+| --- | --- |
+| `b.run(() => …, io)` — METHOD-CALL syntax on an impl method | **compiles, runs, `a=7 b=8`** |
+| `Box3.run(b, () => …, io)` — the same method, explicit receiver | fails |
+| an impl entry with no `self` | fails |
+| a free function, with or without a leading parameter | fails |
 
-`std/thread.yo`'s `spawn_blocking` has exactly that shape, which is why waker
+So it is the METHOD-CALL path that is special — not `self`, not
+free-vs-impl, which is what the earlier note in this document guessed. The
+method arm of `evaluate_function_call`
+(`src/evaluator/calls/function.yo`, the `_with_resolved_concrete` bridge) reads
+the SPECIALIZATION's body ExprInfo and pins the result with it; no other call
+arm does, so every other shape falls through to the shared channel below.
+
+### What the emitted C shows
+
+Both async-block generations exist (`closure_…000000`, `closure_…000001`) and
+so do both `_sync_fut_t` structs. What disagrees is the closure's own C return
+type: the PROTOTYPE loop and the BODY loop render the same fid differently, and
+across the two generations the renderings are crossed.
+
+### What the evaluator shows
+
+Three probes, on a compiler built for the purpose (`YO_DEBUG_CAPTURE` already
+existed; `[fidty]` traces `register_func_type`, `[proto]` traces
+`generate_function_prototype`, `[aclos]` traces the closure body/return
+unification):
+
+```
+[fidty] closure_…16430952469372288712000000 := fn(io : Io) -> T
+[fidty] closure_…16430952469372288712000001 := fn(io : Io) -> i32
+
+[aclos] fid=…000000 ioasync=true ret=T   body=R   bodyconc=false
+[aclos] fid=…000001 ioasync=true ret=i32 body=i32 bodyconc=true
+
+[proto] …000000 ret_str=<Pair struct> result=T   some=true    <- DECLARATION pass
+[proto] …000001 ret_str=int32_t       result=i32 some=false   <- DECLARATION pass
+[proto] …000000 ret_str=int32_t       result=T   some=true    <- BODY pass
+[proto] …000001 ret_str=int32_t       result=i32 some=false   <- BODY pass
+```
+
+Read it in order:
+
+* **Generation 0** (the `i32` call) registers its result as the BARE SomeT `T`
+  — io.async's own forall. Its body `f()` types as `R`, the enclosing generic's
+  forall, also unresolved. A bare SomeT is rendered by
+  `resolve_some_type_to_concrete`, which reads the per-object cell first and
+  then the GLOBAL id→concrete table. That table is one entry per DECLARATION,
+  shared by every call, so generation 0's return renders as whatever was
+  written last: the `Pair` struct when the prototypes are emitted, `int32_t` by
+  the time the bodies are — the prototype/definition split, from one type that
+  changed under two readers.
+* **Generation 1** (the `Pair` call) is worse: its result is already the
+  CONCRETE `i32` — the FIRST call's binding, baked in before the closure was
+  even typed. Swapping the two calls swaps the answer exactly
+  (`Pair` first ⇒ generation 1 registers `-> Pair`), which is the signature of
+  a stale global, not of a mis-ordered emission.
+
+### The first suspect, and why it is NOT the writer
+
+`src/evaluator/calls/helper.yo`'s closure-param binder does
+`register_some_resolved_concrete(fn_res_id, cl_res3)` against the id of the
+DECLARED bound's result — `R` itself, one object for the whole program — which
+looks like exactly the shared write this needs. It is not: the trace shows that
+registration happening with the RIGHT value at each call (`2027 := i32`, then
+`2027 := Pair`). Correct, per call, and not the leak. The next section names the
+writer that is.
+
+Worth keeping in view anyway, because the same file carries the ANTIDOTE
+pattern with the rationale already written out ("This call now OWNS `flabel`:
+drop any resolution a PREVIOUS call left … TS mints a fresh SomeType per call
+for every forall binder") — the mechanism a real fix should copy, applied to the
+channel that actually carries the stale value.
+
+### The writer, named
+
+Two fixes were tried against the two channels above and BOTH were measured to
+be no-ops for this shape — recorded so nobody spends the builds again:
+
+* draining the SomeT's per-lineage `resolved_concrete` cell at the point where
+  a call takes ownership of its forall binder. The trace says
+  `[own] flabel=T id=1708 cell=0` — by then the cell on the object the clear
+  can reach is already EMPTY, so there is nothing to drain. The stale value is
+  not there.
+* snapshotting the io.async action closure's result into a per-generation cell
+  at the call. It returns "nothing to pin": at generation 0 the result does not
+  resolve at all yet.
+
+Tagging all fifteen `register_some_resolved_concrete` call sites named the real
+writer, and it is none of them — the line is emitted by the ONE untagged site,
+`_resolve_some_types_deep` (`src/evaluator/types/function.yo`, the nested
+wrapper loop). It resolves a nested SomeT **by NAME** out of the env chain
+(`get_value_of_some_type_from_env`) and registers what it finds whenever the
+resolution came from the env:
+
+```
+[own] flabel=T id=1708 cell=0     <- this call takes ownership of T
+[src-] 1708                        <- registry entry dropped
+[src+] 1709 := Io
+[src+] 1708 := i32                 <- re-registered from the ENV, i32 = call 1's R
+[fid-src] closure_...000001        <- and only THEN is generation 1 minted
+```
+
+So the stale datum is a `T := i32` VARIABLE BINDING left in the env chain by the
+previous call, in a frame the per-call ownership rebind does not shadow. That is
+the same poison path `calls/helper.yo` already documents for
+`evaluate_function_parameter_type_again` ("the re-evaluation reads `T`/`E` BY
+NAME from the shared mutable env chain, concretizing the action closure's
+expected with a SIBLING call's resolution") and works around with
+`use_param_type_directly`; `_resolve_some_types_deep` has the same read and no
+such guard. `io.async` is declared in the PRELUDE, whose env is cached for the
+whole program, which is why the binding outlives the call.
+
+### What to try next
+
+Not another name-based special case — that is what the first cut of the
+value-param fix got wrong (see the ID-vs-name table above). The candidates, in
+the order they look most likely to be right:
+
+1. make the binding call-scoped: find which env frame the synthesizer's
+   `_bind_some_type` writes `T` into for a prelude-declared callee, and give
+   io.async's per-call freshened binders a per-call frame to bind in, so the
+   next call's by-name read cannot see the previous one;
+2. make the READ identity-aware: `_resolve_some_types_deep` should not adopt an
+   env binding for a nested SomeT when the binding was not made for THIS SomeT's
+   id — the value-space equivalent of TS's per-call SomeType identity.
+
+The A/B for either is the four-program table above: the method-call form must
+keep working and the other three must start.
+
+`std/thread.yo`'s `spawn_blocking` has exactly this shape, which is why waker
 step 5 (`plans/WAKER_BASED_SCHEDULING.md`) is not landed with it.
 
 ## What is NOT the trigger
