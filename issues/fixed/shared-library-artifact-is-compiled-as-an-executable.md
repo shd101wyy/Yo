@@ -1,6 +1,14 @@
 # `build.shared_library` compiles its root as an executable and fails on the missing `main`
 
-**Status:** OPEN — P0 mitigation landed on `p0/build-yo-errors-surfaced`: `compile_artifact` rejects a `SharedLibrary` artifact with a message naming the artifact and `static_library` (cli-case `build-shared-library-unsupported`). The real shared-library mode is plan §4.5.4.
+**Status:** FIXED (2026-09-12, plan §4.5.4). `yo compile --shared-library`
+reuses the library emission (plain exported names, no `main` wrapper) and links
+`-shared -fPIC` into `lib<name>.{dylib,so,dll}`; the runner passes the flag for
+a `SharedLibrary` artifact and names the output `lib<name>`, and a consumer
+that links one gets `-L <dir> -l<name>` plus `-Wl,-rpath,<dir>` so the loader
+finds it at run time (§4.5.3's other half). The P0 mitigation — a clear
+rejection, cli-case `build-shared-library-unsupported` — is replaced by
+cli-case `build-shared-library`, which builds the library, links it into a
+program and asserts the program's own output.
 **Found:** 2026-09-11, auditing the build system
 (`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with `yo 0.2.30`.
 **Severity:** medium — the artifact kind is advertised in `std/build.yo`,

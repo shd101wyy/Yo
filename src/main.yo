@@ -2251,6 +2251,10 @@ run_compile :: (
   (strip_syms : bool) = false; // -s
   (static_link : bool) = false; // --static
   (static_library : bool) = false; // --static-library
+  // --shared-library: the same library EMISSION as --static-library (plain
+  // exported names, no `main` wrapper), linked with `-shared -fPIC` into
+  // lib<name>.{dylib,so,dll} (plan §4.5.4).
+  (shared_library : bool) = false;
   defines := ArrayList(String).new(); // -D
   include_paths := ArrayList(String).new(); // -I
   library_paths := ArrayList(String).new(); // -L
@@ -2483,6 +2487,10 @@ run_compile :: (
         static_library = true;
         ai = (ai + usize(1));
       },
+      (a == "--shared-library") => {
+        shared_library = true;
+        ai = (ai + usize(1));
+      },
       // Accepted for parity; `compile` has no default sanitizer in either
       // compiler (the TEST runner's default is where --disable-sanitize bites).
       (a == "--disable-sanitize") => {
@@ -2541,6 +2549,9 @@ run_compile :: (
   // line; the static-library path compiles ONE input to ONE `.o`.
   if(((emit_chunks >= usize(1)) || emit_chunks_auto) && static_library, {
     exn.throw(dyn(String.from("compile: --emit-chunks is not supported with --static-library")));
+  });
+  if(static_library && shared_library, {
+    exn.throw(dyn(String.from("compile: --static-library and --shared-library are mutually exclusive")));
   });
   // Both flags decide what C files get WRITTEN, so the combination is
   // ambiguous rather than merely redundant: `--emit-c-to` names ONE file, and
@@ -2653,8 +2664,19 @@ run_compile :: (
   if((cc == "emcc") && !(_path_has_extension(output)), {
     output = if(is_target_standalone_wasi(target), `${output}.wasm`, `${output}.html`);
   });
-  if(is_target_windows(target) && !(_path_has_extension(output)), {
+  if((is_target_windows(target) && !(shared_library)) && !(_path_has_extension(output)), {
     output = `${output}.exe`;
+  });
+  // A shared library carries the platform's extension, the way the static
+  // path appends `.a` (plan §4.5.4). The runner names the file `lib<name>`;
+  // a hand-written `-o libfoo.dylib` is left alone.
+  if(shared_library, {
+    so_ext := cond(
+      is_target_windows(target) => ".dll",
+      is_target_macos(target) => ".dylib",
+      true => ".so"
+    );
+    output = if(output.ends_with(so_ext), output.clone(), `${output}${so_ext}`);
   });
   // mimalloc isn't available on wasm (codegen/index.ts:193-199) — downgrade
   // BEFORE codegen so the emitted runtime matches the link line.
@@ -2815,11 +2837,14 @@ run_compile :: (
       _print_compile_profile(profile_json.clone(), io, exn);
       return(());
     });
-    // Generate C11 from the evaluated module. A static library has no main()
-    // wrapper (is_library = true). Allocator + debug-logging flags are threaded
-    // through to the code generator (mirrors CodeGeneratorC.compileModule).
+    // Generate C11 from the evaluated module. A LIBRARY — static or shared —
+    // has no main() wrapper and gives its top-level exports plain, externally
+    // linked C names (is_library = true). Allocator + debug-logging flags are
+    // threaded through to the code generator (mirrors
+    // CodeGeneratorC.compileModule).
+    is_library_build := (static_library || shared_library);
     chunk_parts := ArrayList(String).new();
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap);
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap);
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
     // chunk writer, the ThinLTO gate, the driver report — sees the real N.
@@ -3191,6 +3216,32 @@ run_compile :: (
       cmd.arg(String.from("-pthread"));
       cmd.arg(String.from("-sPTHREAD_POOL_SIZE=4"));
       cmd.arg(String.from("-sEXIT_RUNTIME=1"));
+    });
+  });
+  // --shared-library: the executable link line with `-shared -fPIC` and no
+  // `main` — the emission already left the wrapper out (plan §4.5.4). Every
+  // system library the runtime needs (-lm/-pthread/-luring/OpenSSL, below) is
+  // linked into the library itself, so a consumer needs only -l<name>.
+  if(shared_library, {
+    cmd.arg(String.from("-shared"));
+    if(!(is_target_windows(target)), {
+      cmd.arg(String.from("-fPIC"));
+    });
+    // The name a CONSUMER records for this library. Without it macOS records
+    // the `-o` path verbatim — `yo-out/<triple>/lib/libx.dylib`, relative —
+    // and the program only runs from the directory it was built in; with
+    // `@rpath` the consumer's `-Wl,-rpath` (an absolute directory, added by
+    // the build runner) is what resolves it. Linux's equivalent is the soname.
+    so_base := match(
+      Path.new(output.clone()).file_name(),
+      .Some(b) => b,
+      .None => output.clone()
+    );
+    if(is_target_macos(target), {
+      cmd.arg(`-Wl,-install_name,@rpath/${so_base}`);
+    });
+    if(is_target_linux(target), {
+      cmd.arg(`-Wl,-soname,${so_base}`);
     });
   });
   // --static-library: compile to a .o (-c -fPIC) then archive into a .a.
@@ -5479,6 +5530,7 @@ Options:
   --extern <spec>           Extern library spec (pkg-config integration)
   --static                  Static link
   --static-library          Build a static library instead of an executable
+  --shared-library          Build a shared library (lib<name>.dylib/.so/.dll)
   --sanitize <kind>         Sanitizer (address|thread|undefined)
   --disable-sanitize        Drop sanitizer flags added by defaults
   --allocator <name>        Allocator (system|mimalloc|fixed)
@@ -5525,6 +5577,7 @@ Examples:
   --extern <spec>           外部库规格（pkg-config 集成）
   --static                  静态链接
   --static-library          构建静态库而非可执行文件
+  --shared-library          构建动态库（lib<name>.dylib/.so/.dll）
   --sanitize <kind>         清理器（address|thread|undefined）
   --disable-sanitize        去掉默认追加的清理器标志
   --allocator <name>        分配器（system|mimalloc|fixed）
