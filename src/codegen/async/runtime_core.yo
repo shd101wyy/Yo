@@ -528,12 +528,31 @@ static __yo_io_future_t* __yo_async_yield_start(void) {
   return f;
 }
 
-// Complete every parked yield. Takes the whole list first, so a yield created
-// by a continuation this call resumes lands on the NEXT list rather than
-// looping here forever.
+// Complete every parked yield, IN THE ORDER THEY YIELDED. Takes the whole list
+// first, so a yield created by a continuation this call resumes lands on the
+// NEXT list rather than looping here forever.
+//
+// The pending list is built by head insertion in __yo_async_yield_start, so it
+// arrives in REVERSE yield order and has to be reversed before waking. A yield
+// is a FAIRNESS primitive: waking LIFO resumes the most recent yielder first,
+// which starves the earliest one and reverses the round-robin that two tasks
+// alternating on a yield are entitled to. tests/async_await.test.yo's "basic
+// spawn of two futures" is the oracle — it pins
+// task1 state0, task2 state0, task1 state1, task2 state1 — and it read
+// counter == 11 where it expected 12 the moment std's yield stopped being
+// a 1 ms timer, because the timer had been supplying the ordering that this
+// list was not.
 static void __yo_async_drain_yields(void) {
   __yo_yield_node_t* n = __yo_yield_pending;
   __yo_yield_pending = NULL;
+  __yo_yield_node_t* fifo = NULL;
+  while (n) {
+    __yo_yield_node_t* next = n->next;
+    n->next = fifo;
+    fifo = n;
+    n = next;
+  }
+  n = fifo;
   while (n) {
     __yo_yield_node_t* next = n->next;
     __yo_waker_wake((void*)n->future);

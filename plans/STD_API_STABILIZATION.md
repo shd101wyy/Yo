@@ -1104,10 +1104,11 @@ say to take an own `Rng.from_entropy()` in a hot loop instead.
 `try_recv -> TryRecvError{Empty, Disconnected}` (#506);
 `Sender`/`Receiver` with auto-close on the last sender (#553, 2026-09-11,
 below); the `Waker`/`Park` PRIMITIVE plus `yield_now` (2026-09-11, below) —
-which is what the rest of this group was waiting on. STILL OPEN: waker-based
-`async channel`/`async mutex` written OVER that primitive, and
-`std/async/index.yo`'s own `yield`, which is still on its 1 ms timer because
-pointing it at the new extern cannot bootstrap under the v0.2.30 seed;
+which is what the rest of this group was waiting on. `std/async/index.yo`'s own `yield` is
+the same primitive as of v0.2.32 — it was on a 1 ms timer only because
+pointing it at `__yo_async_yield_start` could not bootstrap until a PUBLISHED
+seed carried that symbol, and v0.2.31 is the first that does. STILL OPEN:
+waker-based `async channel`/`async mutex` written OVER that primitive;
 `async/mutex.with_lock` either taking an `io` (so its doc claim becomes true)
 or dropping the claim; `Once.call` rewritten over `Mutex.with_lock`;
 `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface;
