@@ -197,7 +197,7 @@ missing. That is Phase V1.
 
 Six primitives exist today (`requires`, `ensures`, `invariant`, `ghost`,
 `ghost_fn`, `old`); the verifier adds three (`decreases`,
-`forall_val`/`exists_val`, `==>`) and one real type constructor
+`forall`/`exists`, `==>`) and one real type constructor
 (`Refine(T, predicate)`), plus the three verification pragmas that already
 parse.
 
@@ -379,7 +379,7 @@ factorial :: (fn(
   Measures may be integer expressions or lexicographic tuples
   (`decreases((a, b))`).
 
-### 6. Quantifier builtins — `forall_val`, `exists_val`, `==>` (new, Phase V5)
+### 6. Quantifier builtins — `forall`, `exists`, `==>` (new, Phase V5; NAMING, maintainer decisions 2026-09-11: `forall` takes the word RESERVED for it since FORALL_TO_GENERIC (the lex-time hold-back is released — it existed for exactly this), and `exists` is TAKEN AS A KEYWORD: std/fs's path check is defined `_exists` and re-exported under its historical name via `export(exists : _exists)`, while the evaluator's `_evaluate_exists_or_call` dispatches the quantifier in ghost context and the ordinary call path everywhere else — every existing `exists(path, io)` import keeps working)
 
 Well-formed **only inside ghost context** (contract clauses, `ghost(...)`
 bindings, `ghost_fn` bodies) — enforced by an `is_ghost_context` flag on
@@ -389,7 +389,7 @@ is only well-formed inside `ctl(...) -> R`:
 
 ```rust
 sorted_quantified :: ghost_fn((fn(s : Slice(i32)) -> bool)(
-  forall_val((i : usize), (j : usize),
+  forall((i : usize), (j : usize),
     (((i < j) && (j < s.len())) ==> ((s(i)) <= (s(j))))
   )
 ));
@@ -695,7 +695,7 @@ tools emit).
 | `&& \|\| !` | `and or not` (short-circuit preserved via path-condition structure) |
 | widening cast `i64(x)` | sign/zero extension (`(_ sign_extend 32)` / `(_ zero_extend …)`) |
 | narrowing cast `i32(x)` | `(_ extract 31 0)` |
-| `forall_val` / `exists_val` | `forall`/`exists` with auto E-matching triggers (V5) |
+| `forall` / `exists` | quantifiers with auto E-matching triggers (V5) |
 | `==>` | `=>` |
 
 ### Statements → symbolic execution
@@ -1150,9 +1150,31 @@ a broken invariant is a compile error naming the failing iteration.
 > verify-target body whose def-time trial throws (E0902 param
 > reassignment — illegal Yo; E0401 unimported `assert`) reaches the
 > verifier hollow — the pipeline now records and reports the swallowed
-> CAUSE. Remaining V5: the `inout` half of task 4, quantifier builtins
-> (tasks 1–2), ghost erasure (task 3), std/spec collections (task 5),
-> the insertion-sort exit (task 6).
+> CAUSE. SECOND ROW LANDED on feat/fv5-quantifiers (2026-09-11, tasks
+> 1 + 4's inout half): the quantifier builtins `forall` /
+> `exists` / `==>` (§6) are real (`forall` is the PLAIN word the
+> lexer reserved for it since FORALL_TO_GENERIC — the hold-back is
+> released; `exists` is a KEYWORD per the second maintainer decision:
+> std/fs defines `_exists` + `export(exists : _exists)`, and the
+> evaluator delegates bare `exists(...)` calls to the ordinary path
+> OUTSIDE ghost context, so every fs importer keeps working) — `==>` is a new THREE-CHAR
+> operator (the only one; `_is_three_char_operator` ahead of the greedy
+> two-char split; reserved-list + GRAMMAR en+zh updated) and the word
+> builtins dispatch through new BF constants; all three are gated by
+> the `is_ghost_context` EvalContext flag (set at the contract-marker
+> bracket, `ghost_fn` bodies, and `evaluated_for_verify` — a compile
+> error anywhere else, and the ghost-gate error reaches the report
+> through the #557 def-eval chain). The walk lowers them to
+> `VcTerm.Quant` (annotated binders, shadowing saved/restored; the
+> collect/rename walkers are binder-aware so bound names stay
+> raw-spelled) and `ImpOp`; instantiation relies on z3 MBQI — explicit
+> `:pattern` triggers DEFERRED until a benchmark needs them (recorded
+> here as the honest scope cut). The INOUT half of task 4 needed NO new
+> machinery: `param_types` records the declared T, `=` rebinds the
+> current, and #557's entry snapshot already backs `old(v)` — pinned by
+> the inout_bump proves / inout_nochange REFUTES twins. Remaining V5:
+> ghost erasure (task 3), std/spec collections (task 5), the
+> insertion-sort exit (task 6).
 
 **Scope:** specification-only computation — the vocabulary real
 functional correctness specs need.
@@ -1160,7 +1182,7 @@ functional correctness specs need.
 Tasks:
 
 1. `is_ghost_context` evaluation flag; ghost-context gating for
-   `forall_val`/`exists_val`/`==>` (new builtins in `src/expr.yo`,
+   `forall`/`exists`/`==>` (new builtins in `src/expr.yo`,
    handlers in `src/evaluator/builtins/contracts.yo`).
 2. Quantifier encoding with auto E-matching triggers; trigger-stability
    guidance in diagnostics ("quantifier-heavy predicate could not be
@@ -1308,7 +1330,7 @@ verifier design choices (kept from the 2026-05 draft, now normative):
 
 - No second dialect: contracts are builtin calls, predicates are
   ordinary `bool` expressions, quantifiers are calls, ghost values are
-  bindings. The new vocabulary (`decreases`, `forall_val`, `exists_val`,
+  bindings. The new vocabulary (`decreases`, `forall`, `exists`,
   `==>`) is tiny and gated to ghost context so it adds no ambient noise.
 - Named returns strengthen this: the post-condition's variable is
   declared in the signature by normal syntax, not keyword magic an LLM

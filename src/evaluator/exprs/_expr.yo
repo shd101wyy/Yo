@@ -74,6 +74,9 @@ import("std/fmt");
   BF_GHOST,
   BF_GHOST_FN,
   BF_OLD,
+  BF_FORALL,
+  BF_EXISTS,
+  BF_IMPLIES,
   BF_ALIGNOF,
   BF_TYPEID,
   BF_RUNTIME,
@@ -326,7 +329,10 @@ import("std/fmt");
   evaluate_decreases,
   evaluate_ghost,
   evaluate_ghost_fn,
-  evaluate_old
+  evaluate_old,
+  evaluate_forall,
+  evaluate_exists,
+  evaluate_implies
 } :: import("../builtins/contracts.yo");
 { evaluate_the } :: import("../builtins/the.yo");
 {
@@ -481,6 +487,27 @@ _check_evaluator_deadline :: (fn(exn : Exception) -> unit)(
       _throw_deadline_error(exn);
     });
   })
+);
+/// `exists` is BOTH the ghost-only verification quantifier (V5,
+/// plans/backlog/FORMAL_VERIFICATION.md §6) and — historically — the name
+/// std/fs's path-existence check is exported under
+/// (`export(exists : _exists)` in std/fs/file.yo; imported bare across the
+/// corpus). In ghost context the quantifier wins; everywhere else a bare
+/// `exists(...)` call goes through the ORDINARY call path, so every existing
+/// import keeps resolving and calling exactly as before. (Inside a contract,
+/// name a path check differently — `try_exists` is the propagating twin.)
+_evaluate_exists_or_call :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)(
+  cond(
+    ctx.is_ghost_context => evaluate_exists(expr, env, ctx, exn),
+    true => evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn)
+  )
 );
 _evaluate_expression :: (
   fn(
@@ -846,6 +873,12 @@ _evaluate_expression :: (
           evaluate_ghost_fn(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_OLD, .None)) =>
           evaluate_old(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_FORALL, .None)) =>
+          evaluate_forall(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_EXISTS, .None)) =>
+          _evaluate_exists_or_call(expr, env, ctx, exn),
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_IMPLIES, .None)) =>
+          evaluate_implies(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ALIGNOF, .None)) =>
           evaluate_align_of(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEID, .None)) =>

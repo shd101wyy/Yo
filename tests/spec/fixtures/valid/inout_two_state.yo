@@ -1,0 +1,14 @@
+// The inout two-state row (V5 task 4's inout half): an `inout` param is
+// the one REASSIGNABLE binding in the subset — the body's `=` rebinds
+// the current value while `old(v)` reads the entry snapshot.
+pragma(Pragma.Verify);
+
+inout_bump :: (
+  fn(
+    inout(v) : i32,
+    requires(v >= i32(0), v <= i32(1000)),
+    ensures(v == (old(v) + i32(1)))
+  ) -> unit
+)({
+  v = (v + i32(1));
+});

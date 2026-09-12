@@ -489,7 +489,13 @@ extern(
 );
 /// Check if a path exists. Returns `false` for any error including file not found.
 /// Does not use the `Exception` effect.
-exists :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
+///
+/// The definition is `_exists` because `exists` is now the verification
+/// quantifier keyword (plans/backlog/FORMAL_VERIFICATION.md §6): a bare
+/// `exists(...)` call inside a CONTRACT is the quantifier, and outside ghost
+/// context the evaluator delegates to the ordinary call path — so the
+/// exported `exists` (the alias below) still resolves and works everywhere.
+_exists :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
   io.async(io => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -502,11 +508,11 @@ exists :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
 );
 /// Check if a path exists (`str` path variant).
 exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
-  exists(Path.new(String.from(path)), io)
+  _exists(Path.new(String.from(path)), io)
 );
 /// Check if a path exists (C string path variant).
 exists_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(bool, Io)))(
-  exists(Path.from_cstr(path), io)
+  _exists(Path.from_cstr(path), io)
 );
 /// Check if a path exists, PROPAGATING errors (`std::fs::try_exists`):
 /// `.false` only for a definitive not-there answer (ENOENT/ENOTDIR); a
@@ -670,7 +676,6 @@ export(
   write,
   append_file,
   append_file_str,
-  exists,
   exists_str,
   exists_cstr,
   is_file,
@@ -689,3 +694,4 @@ export(
   copy,
   copy_str
 );
+export(exists : _exists);

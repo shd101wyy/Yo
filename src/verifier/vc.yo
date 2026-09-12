@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
-{ VcSort, VcOp, VcTerm, VcQuery, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
+{ VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort } :: import("./encode.yo");
 {
   get_func_requires_exprs,
@@ -448,7 +448,46 @@ _collect_declared :: (fn(t : VcTerm, out : HashMap(String, VcSort)) -> unit)(
     // v0.2.29 seed still miscompiles.
     .Test(_, child) => _collect_declared(child, out),
     .Proj(_, _, child) => _collect_declared(child, out),
-    .Quant(_, _, _, body) => _collect_declared(body, out)
+    // A quantifier's BINDERS are not top-level declarations: collect the
+    // body's free vars into a fresh map, drop the bound names, then merge
+    // (an outer occurrence of the same name elsewhere in the goal still
+    // declares it — the merge is insert-if-absent).
+    .Quant(_, names, _, body) => {
+      inner := HashMap(String, VcSort).new();
+      _collect_declared(body, inner);
+      (qi : usize) = usize(0);
+      while(qi < names.len(), {
+        match(
+          names.get(qi),
+          .Some(bn) => {
+            _ := inner.remove(bn.clone());
+          },
+          .None => ()
+        );
+        qi = (qi + usize(1));
+      });
+      kit := inner.keys();
+      (kgo : bool) = true;
+      while(kgo, {
+        match(
+          kit.next(),
+          .Some(kn) => {
+            match(
+              inner.get(kn.clone()),
+              .Some(ks) => {
+                if(!out.contains_key(kn.clone()), {
+                  out.insert(kn.clone(), ks);
+                });
+              },
+              .None => ()
+            );
+          },
+          .None => {
+            kgo = false;
+          }
+        );
+      });
+    }
   )
 );
 /// Rewrite Var names per `map` (leaves unmapped names alone).
@@ -494,7 +533,47 @@ _rename_vars :: (fn(t : VcTerm, map : HashMap(String, String)) -> VcTerm)(
     },
     .Test(ctor, child) => VcTerm.Test(ctor : ctor.clone(), t : _rename_vars(child, map)),
     .Proj(ctor, idx, child) => VcTerm.Proj(ctor : ctor.clone(), idx : idx, t : _rename_vars(child, map)),
-    .Quant(kind, names, sorts, body) => VcTerm.Quant(kind, names, sorts, _rename_vars(body, map))
+    // Bound names are NOT renamed (the binder keeps its raw spelling; a
+    // coinciding outer name stays outer everywhere else).
+    .Quant(kind, names, sorts, body) => {
+      inner_map := HashMap(String, String).new();
+      mit := map.keys();
+      (mgo : bool) = true;
+      while(mgo, {
+        match(
+          mit.next(),
+          .Some(mk) => {
+            is_bound := false;
+            (qi2 : usize) = usize(0);
+            while(qi2 < names.len(), {
+              match(
+                names.get(qi2),
+                .Some(bn2) => {
+                  if(mk == bn2, {
+                    is_bound = true;
+                  });
+                },
+                .None => ()
+              );
+              qi2 = (qi2 + usize(1));
+            });
+            if(!is_bound, {
+              match(
+                map.get(mk.clone()),
+                .Some(mv) => {
+                  inner_map.insert(mk.clone(), mv);
+                },
+                .None => ()
+              );
+            });
+          },
+          .None => {
+            mgo = false;
+          }
+        );
+      });
+      VcTerm.Quant(kind, names, sorts, _rename_vars(body, inner_map))
+    }
   )
 );
 // ============================================================================
@@ -1645,6 +1724,122 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
   ctx.path.push(_or_terms(disj));
   Option(VcTerm).Some(VcTerm.BoolLit(true))
 });
+/// forall/exists (V5 §6): N binder args `(name : Type)` then the
+/// predicate body. Each binder shadows any outer binding for the body
+/// walk (saved/restored like the cond-arm pre-state); the SMT binder
+/// handles scoping at the solver level. Instantiation relies on z3's
+/// MBQI for now — explicit `:pattern` triggers are deferred until a
+/// real benchmark needs them (recorded in the plan's V5 banner).
+_quant_term :: (
+  fn(inout(ctx) : VcCtx, at : AstExpr, head : String, args : ArrayList(AstExpr)) -> Option(VcTerm)
+)({
+  kind := cond(
+    (head == "forall") => VcQuantKind.Forall,
+    true => VcQuantKind.Exists
+  );
+  qnames := ArrayList(String).new();
+  qsorts := ArrayList(VcSort).new();
+  saved_names := ArrayList(String).new();
+  saved_vals := ArrayList(Option(VcTerm)).new();
+  (bi : usize) = usize(0);
+  while(bi < (args.len() - usize(1)), {
+    b := match(
+      args.get(bi),
+      .Some(bb) => bb,
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
+    if(!ast_expr_is_fn_call_of(b, ":", Option(usize).Some(usize(2))), {
+      _fail_subset(ctx, String.from("quantifier binder must be (name : Type)"), b);
+      return(Option(VcTerm).None);
+    });
+    ba := match(
+      b,
+      .FnCall(_, _, a2, _, _) => a2,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    );
+    nm_arg := match(
+      ba.get(usize(0)),
+      .Some(n0) => n0,
+      .None => make_err_expr()
+    );
+    if(!ast_expr_is_atom(nm_arg), {
+      _fail_subset(ctx, String.from("quantifier binder name must be a plain name"), b);
+      return(Option(VcTerm).None);
+    });
+    bn := ast_expr_token(nm_arg).value;
+    // The binder's sort: the `:`-call's SECOND argument (the type
+    // expression) evaluates to a TypeVal; the annotation call itself
+    // does not carry one.
+    ty_arg := match(
+      ba.get(usize(1)),
+      .Some(t0) => t0,
+      .None => make_err_expr()
+    );
+    srt := match(
+      expr_info_table_get(ctx.table, ast_expr_id(ty_arg)),
+      .Some(bi2) => match(
+        bi2.value,
+        .Some(vb) => match(
+          vb,
+          .TypeVal(tv) => _type_sort(tv),
+          _ => _type_sort(bi2.ty)
+        ),
+        .None => _type_sort(bi2.ty)
+      ),
+      .None => Option(VcSort).None
+    );
+    match(
+      srt,
+      .Some(s) => {
+        qnames.push(bn.clone());
+        qsorts.push(s);
+        saved_names.push(bn.clone());
+        saved_vals.push(ctx.vars.get(bn.clone()));
+        ctx.vars.insert(bn.clone(), VcTerm.Var(name : bn.clone(), sort : s));
+      },
+      .None => {
+        _fail_subset(ctx, `quantifier binder '${bn.clone()}' has a type outside the integer/bool subset`, b);
+        return(Option(VcTerm).None);
+      }
+    );
+    bi = (bi + usize(1));
+  });
+  body := _expr_term(ctx, args.get(args.len() - usize(1)).unwrap());
+  // Restore the shadowed bindings (a missing binding goes back to missing).
+  (si : usize) = saved_names.len();
+  while(si > usize(0), {
+    si = (si - usize(1));
+    match(
+      saved_names.get(si),
+      .Some(sn) => {
+        match(
+          saved_vals.get(si),
+          .Some(sv) => {
+            match(
+              sv,
+              .Some(old) => {
+                ctx.vars.insert(sn.clone(), old);
+              },
+              .None => {
+                _ := ctx.vars.remove(sn.clone());
+                ()
+              }
+            );
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
+  match(
+    body,
+    .Some(bt) => Option(VcTerm).Some(VcTerm.Quant(kind : kind, names : qnames, sorts : qsorts, body : bt)),
+    .None => Option(VcTerm).None
+  )
+});
 /// The operator/cast/call dispatch.
 _call_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, head : String, args : ArrayList(AstExpr), info : ExprInfo)
@@ -1864,6 +2059,25 @@ _call_term :: (
   // { invariant(...); ...; if(done, { break; }) })` walkable.
   if((head == "runtime") && (n == usize(1)), {
     return(_expr_term(ctx, args.get(usize(0)).unwrap()));
+  });
+  // --- ghost quantifiers/implication (V5 §6) ----------------------------------
+  // `a ==> b` lowers to the boolean implication; forall/exists
+  // build a Quant term over the annotated binders. Both are ghost-only
+  // at the evaluator level (no runtime semantics) — the walk sees them
+  // only inside contract predicates.
+  if((head == "==>") && (n == usize(2)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(a.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    b := _expr_term(ctx, args.get(usize(1)).unwrap());
+    if(b.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    return(Option(VcTerm).Some(_app2(VcOp.ImpOp, a.unwrap(), b.unwrap())));
+  });
+  if(((head == "forall") || (head == "exists")) && (n >= usize(2)), {
+    return(_quant_term(ctx, e, head, args));
   });
   // --- calls to contracted callees ----------------------------------------
   return(_callee_call_term(ctx, e, args, info));

@@ -35,11 +35,11 @@
 } :: import("../../expr.yo");
 { ExprInfo, ExprInfoTable, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_bool } :: import("../../types/creators.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -73,11 +73,16 @@ _evaluate_contract_marker :: (
     // parameters and the return label are not bound in this env (they get
     // their real bindings in the splice lowering and the verifier's
     // registration env), so unbound identifiers soft-fall-back to unknowns
-    // instead of the hard `Variable not found` error (Phase V3).
+    // instead of the hard `Variable not found` error (Phase V3). The same
+    // bracket sets ghost context (V5): contract clauses are where the
+    // ghost-only builtins (forall/exists/==>) are legal.
     prev_pred_flag := ctx.is_evaluating_contract_predicate;
+    prev_ghost_flag := ctx.is_ghost_context;
     ctx.is_evaluating_contract_predicate = true;
+    ctx.is_ghost_context = true;
     evaluated := evaluate_expression_raw(arg, cur_env, ctx, exn);
     ctx.is_evaluating_contract_predicate = prev_pred_flag;
+    ctx.is_ghost_context = prev_ghost_flag;
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
       .Some(info) => {
@@ -209,7 +214,244 @@ evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
       )
     );
   });
-  _evaluate_transparent_unary(expr, env, ctx, exn)
+  // A ghost_fn's body IS ghost context (V5): quantifier builtins are
+  // well-formed there.
+  prev_ghost := ctx.is_ghost_context;
+  ctx.is_ghost_context = true;
+  out := _evaluate_transparent_unary(expr, env, ctx, exn);
+  ctx.is_ghost_context = prev_ghost;
+  out
+});
+/// Ghost-only constructs (V5 §6: forall/exists/==>) have NO
+/// runtime semantics — outside ghost context they are a compile error,
+/// the same stance as `unwind(...)` outside `ctl(...) -> R`.
+_reject_not_ghost_context :: (fn(expr : AstExpr, ctx : EvalContext, exn : Exception) -> unit)({
+  if(!ctx.is_ghost_context, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("ghost-only builtin (legal only inside contract clauses, ghost(...) bindings, and ghost_fn bodies — it has no runtime semantics; plans/backlog/FORMAL_VERIFICATION.md §6)")
+        )
+      )
+    );
+  });
+});
+/// forall/exists — V5 quantifier builtins, ghost-only. N binder
+/// args `(name : Type)` then the predicate body. The binders are bound
+/// to UNKNOWN values of their annotated types in a scoped frame for the
+/// body's evaluation (the verifier walks the real AST into a Quant
+/// term; runtime-mode files are rejected: the gate above fires in the
+/// splice lowering's evaluation).
+_evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  _reject_not_ghost_context(expr, ctx, exn);
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  if(args.len() < usize(2), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("a quantifier needs at least one binder (name : Type) and a predicate body")
+        )
+      )
+    );
+  });
+  // Pass 1: evaluate the BINDER annotations (each `(name : Type)` — a
+  // 2-arg `:` call evaluating to a TypeVal) and collect the pairs.
+  (cur_env : Environment) = env;
+  binder_names := ArrayList(String).new();
+  binder_types := ArrayList(TypeValue).new();
+  (bi : usize) = usize(0);
+  while(bi < (args.len() - usize(1)), {
+    barg := match(
+      args.get(bi),
+      .Some(bb) => bb,
+      .None => make_err_expr()
+    );
+    if(!ast_expr_is_fn_call_of(barg, ":", Option(usize).Some(usize(2))), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(barg),
+            String.from("quantifier binder must be (name : Type)")
+          )
+        )
+      );
+    });
+    // The binder's TYPE is the `:`-call's SECOND argument (the type
+    // expression evaluates to a TypeVal). The annotation call itself is
+    // a binding FORM — never evaluated as an expression.
+    ba := match(
+      barg,
+      .FnCall(_, _, a2, _, _) => a2,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    );
+    ty_expr := match(
+      ba.get(usize(1)),
+      .Some(t0) => t0,
+      .None => make_err_expr()
+    );
+    prev_pred_flag := ctx.is_evaluating_contract_predicate;
+    ctx.is_evaluating_contract_predicate = true;
+    ty_evaluated := evaluate_expression_raw(ty_expr, cur_env, ctx, exn);
+    ctx.is_evaluating_contract_predicate = prev_pred_flag;
+    ty_info := match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(ty_evaluated)),
+      .Some(x) => x,
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(barg),
+              String.from("quantifier binder must be (name : Type)")
+            )
+          )
+        );
+        new_expr_info(cur_env, t_unit())
+      }
+    );
+    cur_env = ty_info.env;
+    bt := match(
+      ty_info.value,
+      .Some(biv) => match(
+        biv,
+        .TypeVal(tv) => tv,
+        _ => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(barg),
+                String.from("quantifier binder must be (name : Type)")
+              )
+            )
+          );
+          t_unit()
+        }
+      ),
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(barg),
+              String.from("quantifier binder must be (name : Type)")
+            )
+          )
+        );
+        t_unit()
+      }
+    );
+    bn := match(
+      ba.get(usize(0)),
+      .Some(n0) => ast_expr_token(n0).value,
+      .None => String.from("_")
+    );
+    binder_names.push(bn.clone());
+    binder_types.push(bt);
+    bi = (bi + usize(1));
+  });
+  // Pass 2: bind the names to unknowns in a scoped frame and evaluate
+  // the body (nested quantifiers stay legal — the flag stays set).
+  _ := cur_env.push_frame(true);
+  (vi : usize) = usize(0);
+  while(vi < binder_names.len(), {
+    vname := binder_names.get(vi).unwrap();
+    vty := binder_types.get(vi).unwrap();
+    _ := add_variable_to_env(
+      cur_env,
+      vname.clone(),
+      vty.clone(),
+      Option(EvalValue).Some(create_unknown_val(vty.clone())),
+      false,
+      false,
+      false,
+      false,
+      ast_expr_token(expr)
+    );
+    vi = (vi + usize(1));
+  });
+  body := match(
+    args.get(args.len() - usize(1)),
+    .Some(bb) => bb,
+    .None => make_err_expr()
+  );
+  prev_pred_flag2 := ctx.is_evaluating_contract_predicate;
+  ctx.is_evaluating_contract_predicate = true;
+  evaluated_body := evaluate_expression_raw(body, cur_env, ctx, exn);
+  ctx.is_evaluating_contract_predicate = prev_pred_flag2;
+  cur_env.pop_frame();
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body)),
+    .Some(info2) => {
+      cur_env = info2.env;
+    },
+    .None => ()
+  );
+  out_info := new_expr_info(cur_env, t_bool());
+  out_info.value = Option(EvalValue).Some(create_unknown_val(t_bool()));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+/// forall(...) — ghost-only universal quantifier (V5).
+evaluate_forall :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_quantifier(expr, env, ctx, exn)
+);
+/// exists(...) — ghost-only existential quantifier (V5).
+evaluate_exists :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_quantifier(expr, env, ctx, exn)
+);
+/// `a ==> b` — ghost-only implication (V5). Exactly two args; evaluates
+/// to an unknown bool like the quantifiers.
+evaluate_implies :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  _reject_not_ghost_context(expr, ctx, exn);
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  if(args.len() != usize(2), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("'==>' takes exactly two arguments")
+        )
+      )
+    );
+  });
+  (cur_env : Environment) = env;
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    prev_pred_flag := ctx.is_evaluating_contract_predicate;
+    ctx.is_evaluating_contract_predicate = true;
+    evaluated := evaluate_expression_raw(arg, cur_env, ctx, exn);
+    ctx.is_evaluating_contract_predicate = prev_pred_flag;
+    match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+      .Some(info) => {
+        cur_env = info.env;
+      },
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg),
+              String.from("Failed to evaluate '==>' argument.")
+            )
+          )
+        );
+      }
+    );
+    i = (i + usize(1));
+  });
+  out_info := new_expr_info(cur_env, t_bool());
+  out_info.value = Option(EvalValue).Some(create_unknown_val(t_bool()));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
 });
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
 /// by the wrapper; transparent pass-through elsewhere). Mirrors `evaluateOld`.
@@ -616,9 +858,15 @@ register_verify_task :: (fn(t : VerifyTask) -> unit)({
 /// VarRef exactly as at signature time.
 evaluated_for_verify :: (
   fn(p : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr
-)(
-  evaluate_expression_raw(p, env, ctx, exn)
-);
+)({
+  // The verifier's diagnostic predicate pass IS ghost context (V5):
+  // quantifier builtins inside requires/ensures/decreases evaluate here.
+  prev_ghost_flag := ctx.is_ghost_context;
+  ctx.is_ghost_context = true;
+  out := evaluate_expression_raw(p, env, ctx, exn);
+  ctx.is_ghost_context = prev_ghost_flag;
+  out
+});
 /// Drain the registry (move the tasks out and reset it) for the verifier
 /// pass. `yo verify` drains once after evaluating the target set.
 take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
@@ -979,7 +1227,7 @@ wrap_function_body_with_contracts :: (
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
 });
 export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_ghost);
-export(evaluate_ghost_fn, evaluate_old);
+export(evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
 export(wrap_function_body_with_contracts);
 export(
   VerifyTask,

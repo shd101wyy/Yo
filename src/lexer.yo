@@ -43,6 +43,10 @@ intern_token_str :: (fn(s : String) -> String)(
 _is_two_char_operator :: (fn(s : String) -> bool)(
   (s == "!=") || ((s == "&&") || ((s == "->") || ((s == "::") || ((s == ":=") || ((s == "<:") || ((s == "<<") || ((s == "<=") || ((s == "==") || ((s == "=>") || ((s == ">=") || ((s == ">>") || ((s == "?=") || (s == "||")))))))))))))
 );
+/// `==>` — ghost implication (V5, plans/backlog/FORMAL_VERIFICATION.md §6)
+/// — is the ONLY three-char operator, matched before the greedy two-char
+/// split so `a ==> b` is one token, not `==` + `>`.
+_is_three_char_operator :: (fn(s : String) -> bool)(s == "==>");
 _is_one_char_operator :: (fn(s : String) -> bool)(
   (s == "!") || ((s == "#") || ((s == "%") || ((s == "&") || ((s == "*") || ((s == "+") || ((s == "-") || ((s == "/") || ((s == ":") || ((s == "<") || ((s == "=") || ((s == ">") || ((s == "?") || ((s == "^") || ((s == "|") || (s == "~")))))))))))))))
 );
@@ -170,7 +174,12 @@ tokenize :: (
         run_len := op_str.len();
         while(k < run_len, {
           (tok_len : usize) = usize(0);
-          if((k + usize(2)) <= run_len, {
+          if((k + usize(3)) <= run_len, {
+            if(_is_three_char_operator(op_str.slice_copy(k .. (k + usize(3)))), {
+              tok_len = usize(3);
+            });
+          });
+          if((tok_len == usize(0)) && ((k + usize(2)) <= run_len), {
             if(_is_two_char_operator(op_str.slice_copy(k .. (k + usize(2)))), {
               tok_len = usize(2);
             });
@@ -784,16 +793,19 @@ tokenize :: (
           j = (j + usize(1));
         });
         id_str := id_sb.to_string();
-        // RESERVED for Dafny-style verification quantifiers
-        // (plans/archive/FORALL_TO_GENERIC.md). The type-parameter binder was renamed
-        // `forall` -> `generic`; the word is held back so `requires` /
-        // `ensures` can bind VALUES with a predicate later. Rejected at lex
-        // time — mirrors src/lexer.ts, and parser parity across the two
-        // frontends is a STRICT_FIXPOINT prerequisite.
-        //
-        // `exists` / `∃` are deliberately NOT reserved — `exists` is a live
-        // public API (`std/fs/file.yo:324`, used in 72 files).
-        if((id_str == `forall`) || (id_str == `∀`), {
+        // `forall` was RESERVED for Dafny-style verification quantifiers
+        // (plans/archive/FORALL_TO_GENERIC.md) while the type-parameter
+        // binder was `forall` -> `generic`. V5 of
+        // plans/backlog/FORMAL_VERIFICATION.md §6 ACTIVATES it: `forall(...)`
+        // is the ghost-only universal quantifier builtin (dispatched like the
+        // other contract builtins). `exists` is the existential twin: in ghost
+        // context it dispatches to the quantifier, and everywhere else a bare
+        // `exists(...)` call goes through the ordinary call path
+        // (_evaluate_exists_or_call) — so std/fs's exported
+        // `exists(path, io)` (defined `_exists`, exported as
+        // `export(exists : _exists)`) keeps working for every importer. The
+        // non-ASCII `∀`/`∃` remain rejected (the plan's ASCII-only stance).
+        if((id_str == `∀`) || (id_str == `∃`), {
           exn.throw(
             dyn(
               format_lexer_error(
@@ -801,7 +813,7 @@ tokenize :: (
                 input,
                 line,
                 col,
-                `\`${id_str}\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`
+                `\`${id_str}\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists(...)\` (plans/backlog/FORMAL_VERIFICATION.md §6)`
               )
             )
           );
