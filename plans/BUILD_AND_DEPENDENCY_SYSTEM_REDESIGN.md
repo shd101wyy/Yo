@@ -762,8 +762,41 @@ defined.`). Generation B is queued in
 plans/backlog/SEED_VERSION_AUTOMATION.md; until then a build file calls the
 builtin directly, as cli-case `build-manifest` does.
 
-Not in P1.4c (next): §4.5.2 dependency `build.yo` evaluation +
-system-library propagation, §4.5.3 linking, §4.5.4 shared libraries.
+**P1.4d — §4.5.2, a dependency's `build.yo` is evaluated** (`p1/dep-build`,
+stacked on P1.4c). `build.dependency("d").artifact("lib")` was decorative: the
+reference was registered and nothing read it, so the archive was never built
+and the consumer's link failed with an undefined symbol. Now the dependency's
+own `build.yo` is evaluated in an ISOLATED registry (`swap_build_registry`,
+which existed for exactly this) with its own `[package]` table injected and its
+own `-D` namespace (`-D<dep>.<opt>=v` reaches it as `<opt>`; the parent's
+options do not), and the named static library is merged into this project's
+registry stamped with the package it came from. `compile_artifact` then reads
+that stamp: the root resolves against the DEPENDENCY's directory, the
+`--imports` closure is the dependency's own manifest closure, the output lands
+in `yo-out/<triple>/deps/<package>/lib/`, and the "Building …" line names the
+package. The existing `--extern` path links it. Only a static library can be
+consumed; a missing `build.yo`, a missing artifact and a non-library artifact
+each fail with a message naming the dependency.
+
+Two compiler bugs surfaced, both fixed rather than worked around:
+`issues/fixed/entry-path-shadowed-by-an-import-root-name.md` — an entry file
+whose path's first segment matches a mapped import name (`mathlib/src/lib.yo`
+with `mathlib` mapped, which is exactly what this feature generates) had its
+module identity rewritten by resolver rule 0, so codegen's entry-module test
+matched nothing and `--static-library` exported NO symbols; rule 0 is now
+switched off for the entry path (`resolve_module_path_ex`). And
+`issues/build-option-value-cannot-feed-an-artifact-field.md` (OPEN, belongs to
+§4.7/B4): `build.option` returns `comptime(str)` while every artifact field is
+`comptime_str`, and a `fn` returning `comptime_str` does not produce a
+compile-time value at its call site — so `-Dname=value` can configure NOTHING
+today, and the `-D<dep>.<opt>` plumbing has no end-to-end gate until it is
+fixed. Gate: cli-case `build-dep-artifact` (a path dependency whose `build.yo`
+defines the library the program calls through `extern("Yo", …)`), verified red
+first with `Undefined symbols: "_square"`.
+
+Not in P1.4d (next): §4.5.3's remaining half (shared-library link lines and
+rpath), §4.5.4 shared libraries, then §4.7's runner-correctness list — where
+the `build.option` bug above belongs.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

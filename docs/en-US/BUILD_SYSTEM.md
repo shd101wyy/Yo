@@ -878,7 +878,16 @@ exe :: build.executable({ name: "demo", root: "./src/main.yo" });
 exe.link(add_lib);
 ```
 
-Compiling a dependency's artifacts and linking them into the consumer (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2–§4.5.3) is not implemented yet: today `dep.artifact` records the reference and `Step.link` links the libraries of the project's own `build.yo`. Import a dependency's Yo code by name instead.
+The dependency's `build.yo` is evaluated for this — in a registry of its own, so its artifacts never become yours — and the named static library is built like any other artifact, before whatever links it:
+
+```
+Building dep_lib → yo-out/<target>/deps/dep_lib/lib/libadd.a
+Building demo    → yo-out/<target>/bin/demo
+```
+
+A dependency's artifact is built from the DEPENDENCY's directory: its `root` is relative to that package, it compiles against that package's own `yo.toml` closure (its modules and its dependencies, not yours), and its output lands under `deps/<package>/` so two packages may define a library of the same name. `-D<dep>.<name>=<value>` on your command line reaches that dependency's `build.option("<name>")` with the prefix stripped; your own `-D` options are not visible to it. A dependency that has no `build.yo`, or whose build file defines no artifact of that name, fails the build saying so; `.artifact()` accepts a static library only.
+
+`.module("x").link(sys)` propagates the system libraries the dependency declares into the link line of whatever links it.
 
 ### Global Cache
 

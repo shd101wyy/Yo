@@ -872,7 +872,16 @@ exe :: build.executable({ name: "demo", root: "./src/main.yo" });
 exe.link(add_lib);
 ```
 
-编译依赖的产物并链接进使用方（plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2–§4.5.3）尚未实现：今天 `dep.artifact` 只记录引用，`Step.link` 链接的是本项目 `build.yo` 的库。请改为按名称导入依赖的 Yo 代码。
+为此，依赖自己的 `build.yo` 会被求值——在独立的注册表中求值，因此它的产物不会变成你的产物——被命名的静态库像其他产物一样构建，且排在链接它的产物之前：
+
+```
+Building dep_lib → yo-out/<target>/deps/dep_lib/lib/libadd.a
+Building demo    → yo-out/<target>/bin/demo
+```
+
+依赖的产物是从**依赖所在目录**构建的：它的 `root` 相对于该包，编译时用的是该包自己 `yo.toml` 的闭包（它的模块与它的依赖，而不是你的），输出落在 `deps/<包名>/` 下，因此两个包可以定义同名的库。命令行上的 `-D<依赖名>.<选项>=<值>` 会去掉前缀后传给该依赖的 `build.option("<选项>")`；你自己的 `-D` 选项对它不可见。若依赖没有 `build.yo`，或它的构建文件没有定义同名产物，构建会直接报错说明；`.artifact()` 只接受静态库。
+
+`.module("x").link(sys)` 会把依赖声明的系统库传播到链接它的那一方的链接命令中。
 
 ### 全局缓存
 

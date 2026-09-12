@@ -43,7 +43,8 @@ _(env : proc_env) :: import("std/env");
   ResolvedDep,
   BuildSystemLibrary,
   get_build_registry,
-  clear_build_registry
+  clear_build_registry,
+  swap_build_registry
 } :: import("./evaluator/builtins/build.yo");
 {
   Manifest,
@@ -54,7 +55,9 @@ _(env : proc_env) :: import("std/env");
   find_manifest,
   load_manifest,
   resolve_import_roots,
-  read_lock_text
+  read_lock_text,
+  dependency_dir,
+  file_exists_sync
 } :: import("./manifest.yo");
 { install_dependencies } :: import("./install_command.yo");
 { ResolveMode } :: import("./resolver.yo");
@@ -259,6 +262,23 @@ _get_target_output_dir :: (
 )(
   `${project_dir}/yo-out/${target_triple}/${kind}`
 );
+/// Where ONE artifact's output goes. A dependency's artifact (§4.5.2) is not
+/// this project's output: it lands under `deps/<package>/`, so two packages
+/// may define a `lib` of the same name and neither shadows ours.
+_artifact_output_dir :: (
+  fn(
+    artifact : BuildArtifact,
+    project_dir : String,
+    target_triple : String,
+    kind : str
+  ) -> String
+)(
+  if(
+    artifact.package_name.len() == usize(0),
+    _get_target_output_dir(project_dir.clone(), target_triple.clone(), kind),
+    `${project_dir}/yo-out/${target_triple}/deps/${artifact.package_name}/${kind}`
+  )
+);
 // ---------------------------------------------------------------------------
 // Import roots — the manifest's closure → the child compile's `--imports` file
 // ---------------------------------------------------------------------------
@@ -454,6 +474,255 @@ _names_a_symlink :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
   });
   false
 });
+/// The import closure of a DEPENDENCY package, keyed by its directory: the
+/// artifacts a dependency's own `build.yo` defines compile against ITS
+/// `yo.toml`, not ours (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2).
+/// Filled by `_evaluate_dependency_builds`, read by `compile_artifact` through
+/// `_package_import_lines`.
+(g_dep_import_dirs : ArrayList(String)) = ArrayList(String).new();
+(g_dep_import_texts : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
+/// The `--imports` lines for an artifact of `package_dir` — this project's
+/// closure when the artifact is ours (`package_dir` empty), the package's own
+/// when it came from a dependency's build file.
+_package_import_lines :: (fn(package_dir : String) -> ArrayList(String))({
+  if(package_dir.len() == usize(0), {
+    return(_import_lines());
+  });
+  (i : usize) = usize(0);
+  while(i < g_dep_import_dirs.len(), {
+    if(g_dep_import_dirs(i) == package_dir, {
+      out := ArrayList(String).new();
+      lines := g_dep_import_texts(i);
+      (j : usize) = usize(0);
+      while(j < lines.len(), {
+        out.push(lines(j));
+        j = (j + usize(1));
+      });
+      return(out);
+    });
+    i = (i + usize(1));
+  });
+  ArrayList(String).new()
+});
+/// Record a package's import closure (see `g_dep_import_dirs`).
+_record_package_import_lines :: (fn(package_dir : String, lines : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < g_dep_import_dirs.len(), {
+    if(g_dep_import_dirs(i) == package_dir, {
+      return(());
+    });
+    i = (i + usize(1));
+  });
+  g_dep_import_dirs.push(package_dir);
+  g_dep_import_texts.push(lines);
+});
+/// The `-D` options a dependency sees: the consumer's `-D<dep>.<name>=<value>`
+/// with the prefix stripped. A dependency never reads the parent's own
+/// options — its build file declared its own names.
+_namespaced_defines :: (fn(dep_name : String, defines : HashMap(String, String)) -> HashMap(String, String))({
+  out := HashMap(String, String).new();
+  prefix := dep_name.concat(String.from("."));
+  iter := defines.keys();
+  more := true;
+  while(more, {
+    match(
+      iter.next(),
+      .None => {
+        more = false;
+      },
+      .Some(k) => {
+        if(k.starts_with(prefix.clone()), {
+          match(
+            defines.get(k.clone()),
+            .Some(v) => {
+              out.insert(k.substring(prefix.len(), k.len()), v);
+            },
+            .None => ()
+          );
+        });
+      }
+    );
+  });
+  out
+});
+/// Evaluate ONE dependency's `build.yo` in a scratch registry and return it.
+/// `swap_build_registry` keeps the project's registry untouched — the
+/// dependency's `build.executable(...)` calls must not become our artifacts.
+/// An evaluation failure is reported with the dependency's name and file and
+/// then fails the build; it is never swallowed (the B3 rule).
+_evaluate_dependency_build_file :: (
+  fn(
+    dep_name : String,
+    dep_dir : String,
+    build_file : String,
+    defines : HashMap(String, String),
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(BuildRegistry, IoExn))
+)(
+  io.async((e : IoExn) => {
+    scratch := BuildRegistry.new();
+    scratch.cli_options = _namespaced_defines(dep_name.clone(), defines);
+    dep_manifest_opt := project_manifest(dep_dir.clone(), e.exn);
+    scratch.manifest_fields = _manifest_fields(dep_manifest_opt);
+    prev := swap_build_registry(Option(BuildRegistry).Some(scratch));
+    outcome := mm_load_yo_file(build_file.clone(), e.io, e.exn);
+    load_error := _take_load_error();
+    evaluated := get_build_registry();
+    swap_build_registry(prev);
+    if(!(outcome.ok), {
+      match(
+        load_error,
+        .Some(rendered) => emit_rendered_text(rendered),
+        .None => eprintln(`build: error in: ${build_file} (no diagnostic recorded)`)
+      );
+      e.exn.throw(dyn(`Error: dependency "${dep_name}": failed to evaluate ${build_file}`));
+    });
+    evaluated
+  })
+);
+/// §4.5.2: every `dep.artifact("name")` this build file named becomes a REAL
+/// artifact. The dependency's own `build.yo` is evaluated in isolation and the
+/// named artifact is merged into this registry, stamped with the package it
+/// came from — `compile_artifact` then reads its root and its `--imports`
+/// against the DEPENDENCY's directory, and the DAG builds it before whatever
+/// links it. Without this the reference was decorative: nothing built the
+/// archive and the link failed with an undefined symbol.
+_evaluate_dependency_builds :: (
+  fn(
+    manifest : Manifest,
+    registry : BuildRegistry,
+    defines : HashMap(String, String),
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    refs := registry.dependency_artifacts;
+    if(refs.len() == usize(0), {
+      return(());
+    });
+    lock_text := read_lock_text(manifest, e.exn);
+    (i : usize) = usize(0);
+    while(i < refs.len(), {
+      r := refs(i);
+      i = (i + usize(1));
+      dep := match(
+        manifest.find_dependency(r.dependency_name.clone()),
+        .Some(d) => d,
+        .None => {
+          e.exn.throw(dyn(`Error: build.dependency("${r.dependency_name}") is not declared in ${manifest.path}. Add it with 'yo add'.`));
+          return(());
+        }
+      );
+      dir := match(
+        dependency_dir(dep, manifest.dir.clone(), lock_text.clone()),
+        .Ok(d) => d,
+        .Err(u) => {
+          e.exn.throw(dyn(`Error: dependency "${r.dependency_name}": ${u.reason}`));
+          String.new()
+        }
+      );
+      build_file := `${dir}/build.yo`;
+      if(!file_exists_sync(build_file.clone()), {
+        e.exn.throw(
+          dyn(
+            `Error: dependency "${r.dependency_name}" has no build.yo, so .artifact("${r.artifact_name}") has nothing to build (looked for ${build_file}).`
+          )
+        );
+      });
+      // Already merged by an earlier reference to the same artifact.
+      merged := match(
+        registry.find_artifact(r.artifact_name.clone()),
+        .Some(existing) => (existing.package_dir == dir),
+        .None => false
+      );
+      if(!merged, {
+        dep_reg := e.io.await(
+          _evaluate_dependency_build_file(r.dependency_name.clone(), dir.clone(), build_file.clone(), defines, e.io, e.exn),
+          e
+        );
+        art := match(
+          dep_reg.find_artifact(r.artifact_name.clone()),
+          .Some(a) => a,
+          .None => {
+            e.exn.throw(dyn(`Error: dependency "${r.dependency_name}" defines no artifact "${r.artifact_name}" in ${build_file}.`));
+            return(());
+          }
+        );
+        is_lib := match(art.kind, .StaticLibrary => true, _ => false);
+        if(!is_lib, {
+          e.exn.throw(
+            dyn(
+              `Error: dependency "${r.dependency_name}": "${r.artifact_name}" is not a static library, and only a static library can be linked into this project.`
+            )
+          );
+        });
+        _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), e.exn));
+        registry.register_static_library(
+          BuildArtifact(
+            kind : ArtifactKind.StaticLibrary,
+            name : art.name.clone(),
+            root : art.root.clone(),
+            target : art.target.clone(),
+            optimize : art.optimize.clone(),
+            allocator : art.allocator.clone(),
+            heap_size : art.heap_size,
+            sanitize : art.sanitize.clone(),
+            emit_c_to : art.emit_c_to.clone(),
+            emit_chunks : art.emit_chunks,
+            link_libraries : art.link_libraries,
+            include_paths : art.include_paths,
+            library_paths : art.library_paths,
+            c_sources : art.c_sources,
+            c_flags : art.c_flags,
+            defines : art.defines,
+            strip : art.strip,
+            static_link : art.static_link,
+            runtime_files : art.runtime_files,
+            linked_artifacts : ArrayList(String).new(),
+            linked_system_libs : art.linked_system_libs,
+            package_dir : dir.clone(),
+            package_name : r.dependency_name.clone()
+          ),
+          e.exn
+        );
+        // The system libraries the dependency's build file declared, so the
+        // consumer's link line can resolve what its archive needs.
+        (si : usize) = usize(0);
+        while(si < dep_reg.system_libraries.len(), {
+          registry.system_libraries.push(dep_reg.system_libraries(si));
+          si = (si + usize(1));
+        });
+      });
+    });
+    ()
+  })
+);
+/// A dependency package's own import closure, as `name=<root file>` lines. Its
+/// manifest names its modules and its dependencies; the LOCK is the root
+/// project's — dependencies' git dependencies are recorded there.
+_dependency_import_lines :: (
+  fn(dep_dir : String, root_lock_text : Option(String), exn : Exception) -> ArrayList(String)
+)({
+  lines := ArrayList(String).new();
+  dep_manifest := match(project_manifest(dep_dir.clone(), exn), .Some(m) => m, .None => return(lines));
+  roots := match(
+    resolve_import_roots(dep_manifest, root_lock_text, exn),
+    .Ok(r) => r,
+    .Err(msg) => {
+      exn.throw(dyn(`Error: ${dep_dir}/${MANIFEST_FILENAME}: ${msg}`));
+      return(lines)
+    }
+  );
+  (i : usize) = usize(0);
+  while(i < roots.roots.len(), {
+    r := roots.roots(i);
+    lines.push(`${r.name}=${r.root}`);
+    i = (i + usize(1));
+  });
+  lines
+});
 // ---------------------------------------------------------------------------
 // Linked static libraries
 // ---------------------------------------------------------------------------
@@ -484,7 +753,8 @@ _collect_linked_static_libs :: (
     pending.push(artifact.linked_artifacts(i).clone());
     i = (i + usize(1));
   });
-  lib_dir := _get_target_output_dir(project_dir, effective_target, "lib");
+  // Each linked library's directory is its own: ours in `lib/`, a dependency's
+  // in `deps/<package>/lib/` (§4.5.2) — see `_artifact_output_dir` below.
   while(pending.len() > usize(0), {
     name := pending.pop().unwrap();
     already := false;
@@ -510,7 +780,9 @@ _collect_linked_static_libs :: (
                 lib.c_flags,
                 target_triple_opt
               );
-              out.push(`${lib_dir}/${file_name}.a`);
+              out.push(
+                `${_artifact_output_dir(lib, project_dir.clone(), effective_target.clone(), "lib")}/${file_name}.a`
+              );
               k := usize(0);
               while(k < lib.linked_artifacts.len(), {
                 pending.push(lib.linked_artifacts(k).clone());
@@ -935,7 +1207,7 @@ compile_artifact :: (
       .Executable => false
     );
     kind_dir := if(is_lib, "lib", "bin");
-    output_dir := _get_target_output_dir(ctx.project_dir.clone(), effective_target.clone(), kind_dir);
+    output_dir := _artifact_output_dir(artifact, ctx.project_dir.clone(), effective_target.clone(), kind_dir);
     // Create the output directory before compiling into it (src/build-runner.ts:937-939).
     // Without this the compiler is handed `-o <missing dir>/<name>` and dies with
     // a bare ENOENT — "file or directory not found" — with nothing to say which
@@ -949,7 +1221,10 @@ compile_artifact :: (
       ctx.target_triple
     );
     output_path := Path.new(output_dir).join(Path.new(output_name));
-    source_path := Path.new(ctx.project_dir).join(Path.new(artifact.root));
+    // A dependency's artifact (§4.5.2) has its own package root: its `root` is
+    // relative to the DEPENDENCY's directory, not to this project's.
+    package_dir := if(artifact.package_dir.len() > usize(0), artifact.package_dir.clone(), ctx.project_dir.clone());
+    source_path := Path.new(package_dir.clone()).join(Path.new(artifact.root));
     // Byte-for-byte `src/build-runner.ts:948-956`: UNCONDITIONAL (not behind
     // --verbose), the PROJECT name (the manifest's, else the first registered
     // module's) rather than the
@@ -957,12 +1232,15 @@ compile_artifact :: (
     // U+2192 arrow, the output path RELATIVE to the project dir, and a `.a`
     // suffix for static libraries. `tests/cli-cases/build-run` compares this
     // line.
+    // A dependency's artifact announces ITS package, not ours (§4.5.2), and
+    // its version line describes the dependency's checkout.
     project_name := cond(
+      (artifact.package_name.len() > usize(0)) => artifact.package_name.clone(),
       (ctx.project_name.len() > usize(0)) => ctx.project_name.clone(),
       (ctx.registry.modules.len() > usize(0)) => ctx.registry.modules(usize(0)).name,
       true => artifact.name.clone()
     );
-    git_v := e.io.await(_git_version(ctx.project_dir.clone(), e.io, e.exn), e);
+    git_v := e.io.await(_git_version(package_dir.clone(), e.io, e.exn), e);
     version_suffix := match(
       git_v,
       .Some(v) => ` ${v}`,
@@ -973,7 +1251,7 @@ compile_artifact :: (
     println(`Building ${project_name}${version_suffix} → ${rel_output}${lib_suffix}`);
     // The manifest's import roots → the child's `--imports` mapping file,
     // written beside the output. Top-level awaits (see the cache block below).
-    import_lines := _import_lines();
+    import_lines := _package_import_lines(artifact.package_dir.clone());
     imports_path := `${output_path.to_string()}.imports`;
     nl := String.from("\n");
     imports_text := if(import_lines.len() > usize(0), `${nl.join(import_lines)}\n`, String.new());
@@ -1945,6 +2223,14 @@ run_build :: (
     // Fetching the git dependencies the manifest declares runs before the
     // single evaluator reset that follows (see evaluate_build_file).
     e.io.await(resolve_build_import_roots(manifest_opt, registry, options.locked, options.offline, options.verbose, e.io, e.exn), e);
+    // Every `dep.artifact(...)` this build file named becomes a real artifact
+    // of ours, built from the dependency's own build.yo (§4.5.2). Runs after
+    // the fetch above, so a git dependency's sources are on disk.
+    match(
+      manifest_opt,
+      .Some(m) => e.io.await(_evaluate_dependency_builds(m, registry, options.defines, e.io, e.exn), e),
+      .None => ()
+    );
     project_name := match(manifest_opt, .Some(m) => m.name.clone(), .None => String.new());
     mm_reset();
     // Resolve system libraries per-artifact via pkg-config

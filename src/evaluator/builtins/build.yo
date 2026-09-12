@@ -95,7 +95,15 @@ BuildArtifact :: ref(
     static_link : bool,
     runtime_files : ArrayList(String),
     linked_artifacts : ArrayList(String),
-    linked_system_libs : ArrayList(String)
+    linked_system_libs : ArrayList(String),
+    /// The package this artifact belongs to: "" for the project being built,
+    /// otherwise the DEPENDENCY's directory (its `root` and its `import`
+    /// closure resolve against it) and the name the manifest gives it
+    /// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2). A build file
+    /// cannot set these — the runner stamps them when it merges a
+    /// dependency's `build.yo` artifacts into this registry.
+    package_dir : String,
+    package_name : String
   )
 );
 BuildTestSuite :: ref(
@@ -248,7 +256,9 @@ impl(
         static_link : artifact.static_link,
         runtime_files : artifact.runtime_files,
         linked_artifacts : artifact.linked_artifacts,
-        linked_system_libs : artifact.linked_system_libs
+        linked_system_libs : artifact.linked_system_libs,
+        package_dir : artifact.package_dir,
+        package_name : artifact.package_name
       )
     );
   }),
@@ -276,7 +286,9 @@ impl(
         static_link : artifact.static_link,
         runtime_files : artifact.runtime_files,
         linked_artifacts : artifact.linked_artifacts,
-        linked_system_libs : artifact.linked_system_libs
+        linked_system_libs : artifact.linked_system_libs,
+        package_dir : artifact.package_dir,
+        package_name : artifact.package_name
       )
     );
   }),
@@ -304,7 +316,9 @@ impl(
         static_link : artifact.static_link,
         runtime_files : artifact.runtime_files,
         linked_artifacts : artifact.linked_artifacts,
-        linked_system_libs : artifact.linked_system_libs
+        linked_system_libs : artifact.linked_system_libs,
+        package_dir : artifact.package_dir,
+        package_name : artifact.package_name
       )
     );
   }),
@@ -916,7 +930,9 @@ _build_new_artifact :: (
     static_link : false,
     runtime_files : ArrayList(String).new(),
     linked_artifacts : ArrayList(String).new(),
-    linked_system_libs : ArrayList(String).new()
+    linked_system_libs : ArrayList(String).new(),
+    package_dir : String.new(),
+    package_name : String.new()
   )
 );
 /// Attach `library_name` to `artifact_name`'s system-library list, if the
