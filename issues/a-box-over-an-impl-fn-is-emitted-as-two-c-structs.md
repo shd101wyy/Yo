@@ -65,14 +65,40 @@ Measured, same test file, same machine:
 | develop's tip | **2** |
 
 The file's pre-#598 revision produces 2 under develop's compiler as well, so the
-tests #598 ADDED are not the trigger — the compiler is. The suspect is #598
-itself (`codegen: a static-dispatch call takes its C return type from the
-CALLEE`), which introduced `resolve_some_type_to_concrete` into
-`declarations.yo` and changed which channel three emitters read. Resolving the
-SomeT on ONE side and not the other is precisely how two C names for one type
-appear. **That is a strong hypothesis, not yet a measurement**: the deciding A/B
-is a compiler built from `15e21b752^` against the same file, which was started
-and killed for memory (a 9 GB peer compile held the machine).
+tests #598 ADDED are not the trigger — the compiler is.
+
+**CONFIRMED 2026-09-13: the regression is #598** (`codegen: a static-dispatch
+call takes its C return type from the CALLEE`). A compiler built from
+`15e21b752^` was measured against the SAME file in the SAME tree:
+
+| compiler | `incompatible pointer` warnings | `Box` structs emitted |
+| --- | --- | --- |
+| published v0.2.31 seed | 0 | — |
+| built from `15e21b752^` (pre-#598) | **0** | **3**, every one `Box(<capture>)` |
+| develop's tip | **2** | **5** — the same 3 PLUS two `Box( : (Fn(i32) -> i32))` |
+
+So #598 causes an UNRESOLVED spelling of the box to reach C-type emission
+alongside the resolved one, and a function then takes its signature from one and
+its body's constructor from the other.
+
+Note what the pre-#598 binary does on that same file: it fails with
+`initializing 'void *' with an expression of incompatible type 'void'` — which
+is the bug #598 EXISTS to fix. Both mismatches are real; #598 traded one for the
+other. Any fix must keep #598's `T = unit` test passing, and that test is the
+guard against trading back.
+
+## Hypotheses already disproven (do not re-spend these)
+
+* **"`emitted_return_type_string` mints the struct by calling `get_type_string`
+  on an unresolved result."** Resolving it there with
+  `resolve_some_type_to_concrete` changes NOTHING — measured, still 2 warnings.
+  Two reasons: `resolve_some_type_to_concrete` unwraps only a TOP-LEVEL SomeT
+  and this is a `Box(...)` CONTAINING one; and `get_type_string` does not mint
+  at all — `_lookup_named_c_type` PANICS on an unregistered type, so by the time
+  it is called the struct already exists.
+* Therefore the extra structs are created by the type-COLLECTION pass, not by
+  any emission-time reader. That is where the next probe belongs: find what
+  makes collection see `Box(Impl(Fn))` after #598 and not before.
 
 ## Why every local gate missed it
 
@@ -88,11 +114,20 @@ next instance is invisible again until someone reads a windows-11-arm log.
 
 ## Next step
 
-1. Finish the A/B: build `15e21b752^` and count the warnings on the same file.
-   If 0, the fix belongs in whichever of #598's three emitters started
-   resolving; if 2, the regression is older and the bisect continues backwards.
-2. Whichever side is found to have changed, the FIX is to make both agree —
-   one type must have one `type_key`. Resolving the SomeT before keying is the
-   direction the rest of codegen already takes
-   (`resolve_some_type_to_concrete` reads the per-object cell then the global
-   registry).
+The A/B is done and #598 is named. What is NOT yet known is which of its three
+changed emitters puts `Box(Impl(Fn))` in front of the type-collection pass,
+and the two obvious emission-time candidates are disproven above.
+
+1. Probe the type-collection pass, not the emitters: log every type registered
+   under a key whose rendering starts `Box( : (Fn`, and compare the pre-#598
+   and develop runs of the same file. Collection runs once, so this is a small
+   log and it names the caller directly.
+2. The FIX is then to make both spellings agree — one Yo type must have one
+   `type_key`. Note that the needed resolution is DEEP (through a struct's type
+   arguments); `resolve_some_type_to_concrete` is top-level only and codegen
+   has no deep equivalent today, so one may have to be written.
+3. Keep #598's `T = unit` arm in `tests/closure_param_forwarding.test.yo` green
+   throughout — it is the guard against reintroducing `void* t = <void call>`.
+
+Until it is fixed, `test (windows-11-arm)` stays red on every PR, because that
+leg is the only one that treats this as an error.
