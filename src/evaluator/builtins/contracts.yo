@@ -44,6 +44,7 @@
 { file_has_pragma } :: import("../memory_safety.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -201,8 +202,22 @@ _evaluate_transparent_unary :: (
   );
   expr
 });
-/// `ghost_fn(f)` — marks a function value ghost-only. Phase 0: transparent
-/// pass-through. Mirrors `evaluateGhostFn`.
+/// V5 task 3: the ghost-fn registry. `ghost_fn(...)` registers the wrapped
+/// function's func_id here; function.yo's call arm rejects calls to these
+/// from non-ghost context (a ghost_fn has no runtime semantics).
+(g_ghost_fn_ids : HashSet(String)) = HashSet(String).new();
+register_ghost_fn :: (fn(func_id : String) -> unit)({
+  g_ghost_fn_ids.insert(func_id);
+  ()
+});
+is_ghost_fn :: (fn(func_id : String) -> bool)(
+  g_ghost_fn_ids.contains(func_id)
+);
+/// `ghost_fn(f)` — marks a function value ghost-only. V5 task 3: the
+/// wrapped function is REGISTERED as ghost (calls from non-ghost context
+/// are a compile error — function.yo's FuncVal arm checks the registry);
+/// the marker itself stays a transparent pass-through. Mirrors
+/// `evaluateGhostFn`.
 evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .Some(usize(1))), {
     exn.throw(
@@ -220,6 +235,38 @@ evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
   ctx.is_ghost_context = true;
   out := _evaluate_transparent_unary(expr, env, ctx, exn);
   ctx.is_ghost_context = prev_ghost;
+  // Register the wrapped function as ghost: its func_id goes into the
+  // ghost-fn registry so every later CALL from non-ghost context errors.
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  match(
+    args.get(usize(0)),
+    .Some(inner) => {
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner)),
+        .Some(ii) => {
+          match(
+            ii.value,
+            .Some(gv) => {
+              match(
+                gv,
+                .FuncVal(gfvd, _) => {
+                  register_ghost_fn(gfvd.*.func_id.clone());
+                },
+                _ => ()
+              );
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
   out
 });
 /// Ghost-only constructs (V5 §6: forall/exists/==>) have NO
@@ -1240,5 +1287,7 @@ export(
   take_verify_tasks,
   record_verify_task_def_eval_failure,
   verify_task_def_eval_failure,
+  register_ghost_fn,
+  is_ghost_fn,
   strip_proved_ensures_asserts
 );

@@ -138,6 +138,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn } :: import("../../function_value.yo");
+{ is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val, value_to_string } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
@@ -4028,6 +4029,19 @@ Fix: wrap the call:
         cap_tys := __fvm7.*.cap_tys;
         func_id_fv := __fvm7.*.func_id;
         fv_env_key := __fvm7.*.env_key;
+        // V5 task 3: a `ghost_fn(...)` definition is callable ONLY from
+        // ghost context (contract clauses, ghost bindings, ghost_fn bodies,
+        // and the verifier's predicate pass) — it has no runtime semantics.
+        if(is_ghost_fn(func_id_fv.clone()) && !ctx.is_ghost_context, {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                String.from("a ghost_fn is callable only from ghost context (contract clauses, ghost(...) bindings, ghost_fn bodies) — it has no runtime semantics")
+              )
+            )
+          );
+        });
         n_p := param_names.len();
         n_ev := evidence_names.len();
         (n_a : usize) = args.len();
