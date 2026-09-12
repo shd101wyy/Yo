@@ -28,7 +28,7 @@ _(env : proc_env) :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
 { Command, Output, ExitStatus } :: import("std/process/command");
 { error_format, emit_rendered_text } :: import("./diagnostics.yo");
-{ yield, join_all } :: import("std/async");
+{ yield } :: import("std/async");
 { mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path, _take_load_error } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
 { Instant } :: import("std/time/instant");
@@ -2076,6 +2076,19 @@ _execute_node_unless_blocked :: (
     r
   })
 );
+/// True while any handle in `handles` is still running. The poll predicate of
+/// `_execute_batch` below — a plain `fn` so the `while` condition carries no
+/// suspension point.
+_any_task_pending :: (fn(handles : ArrayList(JoinHandle(StepResult))) -> bool)({
+  (i : usize) = usize(0);
+  while(i < handles.len(), {
+    if(!(handles(i).is_finished()), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 /// Run a batch of ready nodes CONCURRENTLY and collect their results in the
 /// batch's own order (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.8). Each
 /// node is a task; the compile/test/run children they spawn are what actually
@@ -2099,7 +2112,28 @@ _execute_batch :: (
       handles.push(e.io.spawn(_execute_node_unless_blocked(node, blocked, ctx, e.io, e.exn), e));
       i = (i + usize(1));
     });
-    outs := join_all(handles, e.io);
+    // NOT `join_all`. Its body awaits each handle in turn, and
+    // `JoinHandle.await` on a handle that has NOT finished is a blocking
+    // `__yo_async_poll_step` loop — while `_execute_batch` itself runs inside
+    // `run_build`'s RESUMED continuation, so that loop nests the event loop.
+    // C37's guard aborts on exactly this under `YO_ASYNC_STRICT=1`
+    // (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md), and
+    // outside strict mode it silently serialises the scheduler it was added to
+    // parallelise.
+    //
+    // The shape the guard's own message prescribes instead: poll
+    // `is_finished()` and await `yield`. Once every handle is terminal,
+    // `h.await` reads the result without polling at all — the emitted loop's
+    // condition is false on entry.
+    while(runtime(_any_task_pending(handles)), {
+      e.io.await(yield(e.io), e.io);
+    });
+    outs := ArrayList(Option(StepResult)).new();
+    (oi : usize) = usize(0);
+    while(oi < handles.len(), {
+      outs.push(handles(oi).await(e.io));
+      oi = (oi + usize(1));
+    });
     i = usize(0);
     while(i < batch.len(), {
       node := batch(i);

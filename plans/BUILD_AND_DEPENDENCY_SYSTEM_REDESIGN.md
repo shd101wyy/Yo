@@ -897,6 +897,19 @@ Gate: cli-case `build-parallel-jobs` — two libraries with no edge between them
 and `-j 2`, comparing only `Build Summary: N/N steps succeeded`, because the
 `Building …` lines and the C compiler's chatter interleave by design.
 
+The slice's own first draft collected the batch with `std/async`'s `join_all`,
+and that was wrong in a way only one cli-case could see: `join_all` awaits each
+handle in turn, and `JoinHandle.await` on an unfinished handle is a blocking
+`__yo_async_poll_step` loop — nested inside `run_build`'s resumed continuation.
+`async-blocking-await-inside-task` runs under `YO_ASYNC_STRICT=1` and reported
+`rc(golden=1,run=134)`: C37's guard aborting every `yo build`. Outside strict
+mode it would not have aborted; it would just have serialised the scheduler
+this slice exists to parallelise. The batch polls `is_finished()` and awaits
+`yield` now — the shape the guard's own message prescribes and the one the
+file's stamp helpers already used — and `build-parallel-jobs` carries
+`env=YO_ASYNC_STRICT=1` so the case that owns the feature owns its guard
+(`issues/fixed/build-scheduler-join-all-nests-the-event-loop.md`).
+
 That fixture surfaced the seventh compiler bug of this campaign:
 `issues/fixed/two-externs-of-one-signature-emit-one-prototype.md`. Its program
 links two static libraries and so declares two `extern("Yo", … : (fn(n : i32)
