@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
 test("Test comptime f32", {
   // Basic f32 values
   a :: f32(100.5);
@@ -3474,3 +3475,64 @@ test("comptime SIGNED integers stay signed", {
   assert(_S_MIN_DIV2 == i64(-4611686018427387904), `i64.MIN / 2 folded to ${_S_MIN_DIV2}`);
   assert(_S_MIN_LT0, "i64.MIN < 0");
 });
+// ── comptime_read_file (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §5.1).
+//    Module level on purpose: a `::` binding is forced here, so the read really
+//    happens at compile time. The runtime asserts below are what make it a
+//    gate — `comptime_assert` inside a `test` body is inert.
+EMBEDDED :: comptime_read_file("./fixtures/comptime_embed.txt");
+// Folded at COMPILE time — if the read produced anything but the file's bytes,
+// this file does not compile. (`comptime_str.len()` does not fold today, for a
+// plain literal either, so the length is checked at run time below.)
+comptime_assert(EMBEDDED == "embedded at compile time\nline two\n");
+test("comptime_read_file embeds a sibling file's bytes", {
+  assert(EMBEDDED == "embedded at compile time\nline two\n", `the file's bytes travel verbatim (got "${EMBEDDED}")`);
+  assert(String.from(EMBEDDED).len() == usize(34), "byte length, newlines included");
+});
+// The path is relative to THIS FILE, not to the process cwd — `yo test` runs
+// from the repository root, so a cwd-relative read would need "tests/…".
+SAME_VIA_DOTDOT :: comptime_read_file("../tests/fixtures/comptime_embed.txt");
+test("comptime_read_file resolves relative to the importing file", {
+  assert(SAME_VIA_DOTDOT == EMBEDDED, "`..` inside the package root is fine and lands on the same file");
+});
+// Outside the package root is a compile error, not a surprise. The root here is
+// the repository (its `build.yo`), so `/etc` is out.
+comptime_expect_error(OUTSIDE :: comptime_read_file("/etc/hosts"));
+comptime_expect_error(CLIMBED :: comptime_read_file("../../../../../../etc/hosts"));
+// A missing file is a compile error too, named at the call site.
+comptime_expect_error(ABSENT :: comptime_read_file("./fixtures/does-not-exist.txt"));
+// ── comptime_json_parse / comptime_toml_parse (§5.2). Composed with §5.1: the
+//    document is READ at compile time and PARSED at compile time, which is the
+//    whole point of the pair.
+CFG_JSON :: comptime_json_parse(comptime_read_file("./fixtures/comptime_data.json"));
+// Folded at COMPILE time — a wrong parse fails to compile, it does not fail a
+// runtime assert.
+comptime_assert(CFG_JSON.get("name").as_str("?") == "yo");
+comptime_assert(CFG_JSON.get("port").as_int(0) == 8080);
+comptime_assert(CFG_JSON.get("debug").as_bool(false));
+comptime_assert(CFG_JSON.get("missing").is_null());
+comptime_assert(CFG_JSON.get("absent-key").is_null());
+comptime_assert(CFG_JSON.get("tags").at(usize(1)).as_str("?") == "small");
+comptime_assert(CFG_JSON.get("nested").get("depth").as_int(0) == 2);
+test("comptime_json_parse reads a document at compile time", {
+  assert(CFG_JSON.get("name").as_str("?") == "yo", "a string field");
+  assert(CFG_JSON.get("port").as_int(0) == 8080, "a whole JSON number is an Int, not 8080.0");
+  assert(CFG_JSON.get("tags").len() == usize(2), "an array's length");
+  assert(CFG_JSON.get("nested").get("depth").as_int(0) == 2, "a nested object");
+});
+CFG_TOML :: comptime_toml_parse(comptime_read_file("./fixtures/comptime_data.toml"));
+comptime_assert(CFG_TOML.get("name").as_str("?") == "yo");
+comptime_assert(CFG_TOML.get("port").as_int(0) == 8080);
+comptime_assert(CFG_TOML.get("nested").get("depth").as_int(0) == 2);
+test("comptime_toml_parse reads a document at compile time", {
+  assert(CFG_TOML.get("name").as_str("?") == "yo", "a string field");
+  assert(CFG_TOML.get("port").as_int(0) == 8080, "an integer field");
+  assert(CFG_TOML.get("tags").at(usize(0)).as_str("?") == "fast", "an array element");
+  assert(CFG_TOML.get("nested").get("depth").as_int(0) == 2, "a table");
+});
+// The two documents describe the same configuration, so the parsed trees agree
+// on every field the formats share.
+comptime_assert(CFG_JSON.get("name").as_str("?") == CFG_TOML.get("name").as_str("!"));
+comptime_assert(CFG_JSON.get("port").as_int(0) == CFG_TOML.get("port").as_int(-1));
+// A malformed document is a compile error at the call site, not a runtime one.
+comptime_expect_error(BAD_JSON :: comptime_json_parse("{ not json"));
+comptime_expect_error(BAD_TOML :: comptime_toml_parse("= no key"));

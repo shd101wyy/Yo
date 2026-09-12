@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
 { Exception } :: import("std/error");
@@ -525,10 +525,18 @@ evaluate_dyn_value :: (
     .None => ()
   );
   // Non-executing path: still type-check the inner expression, then return early.
+  // The inner evaluates through the RAW evaluator so its errors reach this
+  // caller's `exn`: the exception-free `evaluate_expression` SWALLOWS a throw
+  // (`_evaluate_expression_wrapper`), and a swallowed E0401 inside
+  // `dyn(unknown_fn())` left the dyn — and the enclosing fn body — evaluating
+  // "cleanly" with no ExprInfo for the payload: `yo check` passed a hollow body,
+  // or the trait check below ran against a stand-in type and reported an
+  // unrelated "does not implement Error"
+  // (issues/fixed/extern-declarations-are-not-forward-referenceable.md, face 2).
   if(ctx.is_validating_function_definition || !ctx.is_executing, {
     saved_et_ne := ctx.expected_type;
     ctx.expected_type = inner_expected;
-    inner_ne := evaluate_expression(value_arg, env, ctx);
+    inner_ne := evaluate_expression_raw(value_arg, env, ctx, exn);
     ctx.expected_type = saved_et_ne;
     (ret_type : TypeValue) = match(
       ctx.expected_type,
@@ -624,7 +632,7 @@ evaluate_dyn_value :: (
           ne_box_call := AstExpr.FnCall(alloc_global_expr_id(), ne_box_atom, ne_box_args, false, expr_tok);
           saved_bet := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : env));
-          ne_boxed := evaluate_expression(ne_box_call, env, ctx);
+          ne_boxed := evaluate_expression_raw(ne_box_call, env, ctx, exn);
           ctx.expected_type = saved_bet;
           match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(ne_boxed)),
@@ -664,7 +672,7 @@ evaluate_dyn_value :: (
   // Evaluate the inner expression (with the inner-expected computed above).
   saved_et_ex := ctx.expected_type;
   ctx.expected_type = inner_expected;
-  eval_inner := evaluate_expression(value_arg, env, ctx);
+  eval_inner := evaluate_expression_raw(value_arg, env, ctx, exn);
   ctx.expected_type = saved_et_ex;
   inner_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_inner));
   inner_info := match(
@@ -695,7 +703,7 @@ evaluate_dyn_value :: (
     box_args := ArrayList(AstExpr).new();
     box_args.push(eval_inner);
     box_call := AstExpr.FnCall(usize(0), box_atom, box_args, false, expr_tok);
-    boxed_expr := evaluate_expression(box_call, cur_env, ctx);
+    boxed_expr := evaluate_expression_raw(box_call, cur_env, ctx, exn);
     boxed_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(boxed_expr));
     match(
       boxed_info_opt,

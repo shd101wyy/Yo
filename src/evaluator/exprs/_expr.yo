@@ -98,6 +98,9 @@ import("std/fmt");
   BF_COMPTIME_ASSERT,
   BF_COMPTIME_FN,
   BF_COMPTIME_PRINT,
+  BF_COMPTIME_READ_FILE,
+  BF_COMPTIME_JSON_PARSE,
+  BF_COMPTIME_TOML_PARSE,
   BF_COMPTIME_EXPECT_ERROR,
   BF_COMPTIME_EVAL,
   BF_PANIC,
@@ -173,7 +176,6 @@ import("std/fmt");
   BF_YO_BUILD_TARGET_HOST,
   BF_YO_BUILD_TARGET_PARSE,
   BF_YO_BUILD_DEPENDENCY,
-  BF_YO_BUILD_PATH_DEPENDENCY,
   BF_YO_BUILD_SYSTEM_LIBRARY,
   BF_YO_BUILD_LINK,
   BF_YO_BUILD_LINK_SYSTEM_LIBRARY,
@@ -181,10 +183,10 @@ import("std/fmt");
   BF_YO_BUILD_DEP_ARTIFACT,
   BF_YO_BUILD_MODULE,
   BF_YO_BUILD_MODULE_LINK,
-  BF_YO_BUILD_ADD_IMPORT,
   BF_YO_BUILD_ADD_CFLAGS,
   BF_YO_BUILD_DEP_MODULE,
   BF_YO_BUILD_DOC,
+  BF_YO_BUILD_MANIFEST_FIELD,
   BF_COMPTIME_BOOL_AND,
   BF_COMPTIME_BOOL_OR,
   BF_COMPTIME_BOOL_EQ,
@@ -289,6 +291,8 @@ import("std/fmt");
 } :: import("../builtins/comptime_list_fns.yo");
 { evaluate_yo_comptime_numeric_functions } :: import("../builtins/comptime_numeric_fns.yo");
 { evaluate_comptime_print } :: import("../builtins/comptime_print.yo");
+{ evaluate_comptime_read_file } :: import("../builtins/comptime_read_file.yo");
+{ evaluate_comptime_json_parse, evaluate_comptime_toml_parse } :: import("../builtins/comptime_data.yo");
 { evaluate_yo_comptime_string_functions } :: import("../builtins/comptime_string_fns.yo");
 { evaluate_consume } :: import("../builtins/consume.yo");
 { evaluate_derive } :: import("../builtins/derive.yo");
@@ -995,6 +999,12 @@ _evaluate_expression :: (
           evaluate_comptime_fn(expr, env, ctx, exn),
         ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_PRINT, .None)) =>
           evaluate_comptime_print(expr, env, ctx, exn),
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_READ_FILE, .None)) =>
+          evaluate_comptime_read_file(expr, env, ctx, exn),
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_JSON_PARSE, .None)) =>
+          evaluate_comptime_json_parse(expr, env, ctx, exn),
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_TOML_PARSE, .None)) =>
+          evaluate_comptime_toml_parse(expr, env, ctx, exn),
         ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_PANIC, .None)) =>
           evaluate_panic(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_ASM, .None)) =>
@@ -1162,18 +1172,17 @@ _evaluate_expression :: (
                         ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_HOST, .None)) ||
                           ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_PARSE, .None)) ||
                             ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEPENDENCY, .None)) ||
-                              ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_PATH_DEPENDENCY, .None)) ||
-                                ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY, .None)) ||
-                                  ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK, .None)) ||
-                                    ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK_SYSTEM_LIBRARY, .None)) ||
-                                      ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, .None)) ||
-                                        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_ARTIFACT, .None)) ||
-                                          ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE, .None)) ||
-                                            ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE_LINK, .None)) ||
-                                              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_IMPORT, .None)) ||
-                                                ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS, .None)) ||
-                                                  ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, .None)) ||
-                                                    ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, .None))
+                              ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY, .None)) ||
+                                ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK, .None)) ||
+                                  ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK_SYSTEM_LIBRARY, .None)) ||
+                                    ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, .None)) ||
+                                      ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_ARTIFACT, .None)) ||
+                                        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE, .None)) ||
+                                          ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE_LINK, .None)) ||
+                                            ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS, .None)) ||
+                                              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, .None)) ||
+                                                ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, .None)) ||
+                                                  ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MANIFEST_FIELD, .None))
         ) => {
           // Pre-evaluate args before dispatching — the build builtins read
           // each arg's resolved comptime value from the expr-info table.

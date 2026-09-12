@@ -281,9 +281,9 @@ sudocmd() {
 # program by the C compiler), so there is no cmake/ninja/vcpkg step.
 #
 #   * a C compiler (clang or gcc) — REQUIRED; `yo compile` invokes it.
-#   * git — REQUIRED for `yo fetch` / `yo install`, which resolve and download
-#     dependencies by shelling out to `git ls-remote`, `git clone`,
-#     `git fetch` and `git checkout` (src/fetch.yo, install_command.yo).
+#   * git — REQUIRED for `yo add` / `yo install` / `yo update`, which resolve
+#     and download dependencies by shelling out to `git ls-remote`, `git clone`,
+#     `git fetch` and `git checkout` (src/resolver.yo, src/fetch.yo).
 #     Compiling works without it; dependency management does not.
 #   * liburing + pkg-config on Linux — for async I/O (io_uring). pkg-config is
 #     also how a project's declared system libraries are resolved.
@@ -447,14 +447,14 @@ install_dependencies() {
   fi
 }
 
-# git is not needed to compile, but `yo fetch` / `yo install` shell out to it.
+# git is not needed to compile, but `yo add` / `yo install` shell out to it.
 check_git() {
   if has_cmd git; then
     return 0
   fi
   warn ""
   warn "WARNING: git was not found on PATH."
-  warn "'yo compile' works without it, but 'yo fetch' and 'yo install' resolve"
+  warn "'yo compile' works without it, but 'yo add' and 'yo install' resolve"
   warn "dependencies with 'git ls-remote' and 'git clone' and will fail."
   if [ "$OSNAME" = "macos" ]; then
     warn "    xcode-select --install"

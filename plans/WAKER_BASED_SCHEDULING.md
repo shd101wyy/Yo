@@ -13,7 +13,79 @@ them.
 | 3a. `Mutex` over a waiter queue | **LANDED** (#576) — `std/async/mutex.yo` holds an `ArrayList(Waker)`, `unlock` wakes the FRONT waiter, and `waiter_count()` is the oracle the FIFO test reads |
 | 3b. `Channel` over the same queue | **LANDED** (#586) — `send`/`recv` park on a waiter queue instead of re-checking on a 1 ms timer tick. It was blocked for a day by a compiler defect that the rewrite surfaced: the trace collector tried to monomorphize a GENERIC `ArrayList(T)` instance that only this shape put in the codegen type registry, and failed inside `array_list.yo`'s `Trace` body — a file the rewrite never touched (`issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md`) |
 | 4. The combinators (`race`/`any`/`timeout`) | **PARTLY LANDED.** `timeout`'s retention is CLOSED: `abort()` now cancels the operation the task is suspended in, so the deadline timer is deregistered the moment the task wins instead of staying armed for the rest of the limit (`issues/fixed/timeout-deadline-timer-future-leak.md`). What remains is the polling SHAPE — `race`/`any` still re-check `is_finished()` around `__yo_async_poll_step()`; parking them on a wake needs a completion-notification list on `JoinHandle`, which is step 5's machinery |
-| 5. Cross-thread wake + `spawn_blocking` | **OPEN — the only one.** `__yo_waker_wake` is already atomic on the future's own fields, but `__yo_async_enqueue_continuation` writes a THREAD-LOCAL ready queue, so a wake from a worker thread has nowhere safe to put the continuation and no way to rouse a loop parked in `__yo_io_wait`. Needs a cross-thread wake queue plus a loop wakeup channel (eventfd / pipe / kqueue `EVFILT_USER`) |
+| 5. Cross-thread wake + `spawn_blocking` | **RUNTIME WRITTEN AND WORKING; `spawn_blocking` BLOCKED on a compiler defect.** Details below |
+
+## Step 5, as it stands 2026-09-12
+
+**The runtime is written and measured working.** Each event loop owns one
+explicitly locked inbox plus a wakeup channel into its own I/O backend; a wake
+raised on a foreign thread pushes the waker TOKEN onto the owner's inbox and
+nudges that channel, and the owner drains it on its own thread at the top of
+every tick. So exactly one new piece of shared state exists, it is locked, and
+every runtime variable stays single-threaded — which is the resolution this
+document proposed, implemented as proposed.
+
+* `src/codegen/async/runtime_core.yo` — `__yo_loop_t`, the inbox, the drain,
+  `blocking_inflight` brackets, and a waker TOKEN (rather than the park future)
+  as the thing that travels, so **no reference count ever crosses a thread**.
+* wakeup channels: `EVFILT_USER` on the loop's own kqueue (macOS), an eventfd
+  with a re-armed `POLL_ADD` (Linux io_uring), `PostQueuedCompletionStatus`
+  (Windows IOCP), a no-op on wasm.
+* `std/async/waker.yo` — `Waker` is `atomic(ref(...))` and therefore `Send`,
+  which is what lets a token be handed to a worker thread at all.
+* `std/thread.yo` — `spawn_blocking`, eager (Rust's semantics: the work starts
+  at the call, not on first poll).
+
+End to end, `io.await(spawn_blocking(() => 20 + 22, io), io)` returns 42 with
+the wake crossing the thread boundary, and `tests/cross_thread_wake.test.yo`
+gates the machinery on its own, without generics.
+
+**That test's oracle is the THREAD IDENTITY, not the value**, and it took an
+emitted-C A/B to find out why it has to be. Disable the cross-thread post,
+re-clang, re-run: the value arrives either way — the old path enqueued the
+continuation on the WAKER's thread-local queue, and that thread's own loop ran
+it at exit, producing the right answer on the wrong thread. Only
+`resumed_on == main_tid` flips. A test that checked the value would have passed
+over the bug the whole step exists for.
+
+It also has to await the park from inside a SPAWNED task. A blocking
+`io.await` in `main` is a poll loop over the future's state word, which a
+foreign CAS satisfies directly: no continuation is ever registered, so there is
+nothing for the inbox to carry and the test is vacuous. That is this document's
+own first recorded risk, met in practice. **The blocker is a second instantiation:**
+`spawn_blocking` is
+`fn(generic(T), own(cb) : Impl(Fn() -> T, Send), io) -> Impl(Future(T, Io))`,
+and the closure-param form of that shape miscompiles at a second `T`. The
+value-param half is FIXED (2026-09-12, the RRE adoption gate comparing binder
+IDs rather than names); the closure-param half is STILL OPEN, and
+`issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
+now carries its measured root cause, a four-program A/B, the two fixes that were
+tried and measured to be no-ops, and two ranked candidates for the next attempt.
+
+The earlier note here — "the async block is emitted ONCE for both" — was wrong,
+and is worth leaving on the record as a guess a measurement replaced. BOTH
+generations are emitted; what they share is the RESOLUTION of the binder. The
+stale value turned out not to be in either of the two channels a per-call clear
+already covers (the global id registry, the SomeT's per-lineage cell) but in a
+`T := i32` VARIABLE BINDING left in the cached PRELUDE env chain, which
+`_resolve_some_types_deep` reads back BY NAME and re-registers. Shipping
+`spawn_blocking` before that is fixed would ship an API that silently
+miscompiles the second time a program uses it.
+
+Two traps recorded from doing it, both of which cost a full build-and-bisect
+cycle:
+
+* `__yo_async_drain_yields` called `__yo_waker_wake(n->future)`. Once that
+  primitive took a TOKEN, the `void*` signature meant C said nothing and every
+  `yield` hung on a garbage `owner` pointer. Emitted-C A/B (patch the `.c`,
+  re-clang, re-run) isolated it in seconds where a rebuild took twelve minutes.
+* A closure captured BY another closure — which the relaying wrapper creates —
+  was never released, because the drop walk is blind to a bare `Impl(Fn)` SomeT.
+  Fixing that in the SHARED drop generator double-released every closure slot
+  whose captures a synthesized capture-dispose already frees: a
+  heap-use-after-free that macOS ran green and Linux ASan caught. It belongs in
+  the spawn wrapper alone
+  (`issues/a-closure-typed-slot-never-releases-its-captures.md`).
 
 **Two codegen bugs fell out of this campaign, both fixed.**
 

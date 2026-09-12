@@ -604,6 +604,10 @@ generate_async_runtime_io_macos :: (fn(emitter : Emitter) -> unit)({
 #include <errno.h>
 
 // kqueue file descriptor for async I/O (per-thread — each thread has its own event loop)
+// Identifier of this loop's EVFILT_USER wakeup channel. Any value works as
+// long as no real fd/ident collides with it under EVFILT_USER, which has its
+// own ident namespace.
+#define __YO_KQ_NOTIFY_IDENT ((uintptr_t)1)
 static _Thread_local int __yo_io_kq = -1;
 // __yo_io_initialized is defined in runtime-core
 static _Thread_local size_t __yo_pending_io_count = 0;  // per-thread event loop counter
@@ -694,12 +698,45 @@ static void __yo_io_init(void) {
     abort();
   }
   __yo_io_initialized = true;
+  // Cross-thread wakeup channel (plans/WAKER_BASED_SCHEDULING.md step 5): a
+  // user event on this loop's own kqueue. kevent() is the documented way to
+  // interrupt a kevent() wait from another thread, and unlike a self-pipe it
+  // costs no file descriptor and no read() on the wake path.
+  {
+    __yo_loop_t* loop = __yo_loop_self();
+    struct kevent uev;
+    EV_SET(&uev, __YO_KQ_NOTIFY_IDENT, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, NULL);
+    if (kevent(__yo_io_kq, &uev, 1, NULL, 0, NULL) == 0) {
+      loop->notify_handle = (void*)(intptr_t)__yo_io_kq;
+      loop->notify_ready = 1;
+    }
+  }
   ASYNC_DEBUG("[Io] kqueue initialized: kq=%d\\n", __yo_io_kq);
+}
+
+// Nudge a loop out of its kevent() wait. Safe from any thread: the kqueue
+// descriptor is the only thing touched, and kevent() is thread-safe.
+static void __yo_io_notify(__yo_loop_t* loop) {
+  if (!loop || !loop->notify_ready) {
+    return;
+  }
+  int kq = (int)(intptr_t)loop->notify_handle;
+  struct kevent uev;
+  EV_SET(&uev, __YO_KQ_NOTIFY_IDENT, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+  kevent(kq, &uev, 1, NULL, 0, NULL);
 }
 
 // Cleanup kqueue
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
+  // The wakeup channel goes with the kqueue it lives on. Clear the loop's
+  // pointer FIRST so a foreign wake racing the shutdown does not call
+  // kevent() on a descriptor this function is about to close.
+  {
+    __yo_loop_t* loop = __yo_loop_self();
+    loop->notify_ready = 0;
+    loop->notify_handle = NULL;
+  }
   // If async main returns while registrations are still only queued in the
   // deferred changelist, cancel them explicitly instead of dropping them on
   // close(kqueue).
@@ -742,6 +779,11 @@ static void __yo_io_wake_continuation(__yo_io_future_t* future) {
 
 // Process a single completed kqueue event
 static void __yo_io_process_event(struct kevent* ev) {
+  // The cross-thread wakeup channel. It carries no operation — its only job
+  // is to end the kevent() wait so the loop reaches __yo_async_drain_xwakes.
+  if (ev->filter == EVFILT_USER) {
+    return;
+  }
   // Timer events use a different context struct
   if (ev->filter == EVFILT_TIMER) {
     typedef struct { __yo_io_future_t* future; } __yo_timer_ctx_t;
@@ -905,13 +947,17 @@ static int __yo_io_wait(void) {
     nanosleep(&ts, NULL);
     return __yo_poll_and_fs_event_tick();
   }
-  if (__yo_pending_io_count == 0) {
+  if (__yo_pending_io_count == 0 && !__yo_async_has_blocking_inflight()
+      && !__yo_async_foreign_wake_possible()) {
     // Defensive: if we have deferred changes but nothing pending, flush
     // them so they do not sit indefinitely (rare -- registration bumps
     // __yo_pending_io_count, so this should normally be a no-op).
     if (__yo_kq_n_changes > 0) __yo_kq_flush_changes();
     return 0;
   }
+  // With no I/O outstanding but a blocking call running on another thread, the
+  // kevent() below is a wait on the EVFILT_USER wakeup channel alone — which
+  // is exactly what the loop should be doing rather than spinning.
 
   struct kevent events[64];
   struct timespec timeout = {0, 100 * 1000 * 1000};  // 100ms timeout

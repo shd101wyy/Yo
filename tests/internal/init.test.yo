@@ -8,7 +8,7 @@ import("std/fmt");
   generate_main_source,
   generate_lib_source,
   generate_test_file,
-  generate_deps_yo,
+  generate_yo_toml,
   generate_gitignore,
   generate_readme,
   generate_agents_md,
@@ -71,9 +71,13 @@ test("generate_test_file: non-empty", {
   s := String.from(generate_test_file());
   assert(s.len() > usize(0), "test file is non-empty");
 });
-test("generate_deps_yo: contains export(imports)", {
-  s := String.from(generate_deps_yo());
-  assert(s.contains(String.from("export(imports)")), "deps.yo exports imports");
+test("generate_yo_toml: declares the package, its default module and an empty dependency table", {
+  toml := generate_yo_toml(String.from("demo"));
+  assert(toml.contains("[package]"), "package table");
+  assert(toml.contains("name = \"demo\""), "package name");
+  assert(toml.contains("[modules]"), "modules table");
+  assert(toml.contains("default = \"src/lib.yo\""), "default module");
+  assert(toml.contains("[dependencies]"), "dependencies table");
 });
 test("generate_gitignore: contains yo-out/", {
   s := String.from(generate_gitignore());

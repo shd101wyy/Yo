@@ -1,0 +1,26 @@
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+Pair :: struct(lo : i32, hi : i32);
+Box3 :: (fn(comptime(U) : Type) -> comptime(Type))(ref(struct(n : U)));
+impl(
+  generic(U : Type),
+  Box3(U),
+  new : (fn(v : U) -> Self)(Self(n : v)),
+  wrap : (
+    fn(generic(T : Type), self : Self, f : Impl(Fn(x : U) -> T), io : Io) -> Impl(Future(T))
+  )(
+    io.async((io : Io) => {
+      io.await(yield(io), io);
+      r := f(self.n);
+      return(r);
+    })
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  b3 := Box3(i32).new(i32(1));
+  a := io.await(b3.wrap((x : i32) => (x + i32(6)), io), io);
+  println(`a=${a + i32(0)}`);
+  b := io.await(b3.wrap((x : i32) => Pair(lo : x, hi : i32(4)), io), io);
+  println(`b=${b.lo + b.hi}`);
+});
+export(main);

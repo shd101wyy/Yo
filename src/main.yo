@@ -61,9 +61,8 @@ _(env : proc_env) :: import("std/env");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
-{ get_global_cache_dir } :: import("./cache.yo");
-{ FetchOptions, run_fetch } :: import("./fetch_command.yo");
-{ InstallOptions, run_install } :: import("./install_command.yo");
+{ get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
+{ AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build } :: import("./build_runner.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -71,7 +70,7 @@ _(env : proc_env) :: import("std/env");
 { generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe_report.yo");
 { generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public_safe_report.yo");
 { HashMap } :: import("std/collections/hash_map");
-{ remove_dir_all } :: import("./fetch.yo");
+{ remove_dir_all, gc_store } :: import("./fetch.yo");
 {
   verify_mode_of_string,
   default_verify_run_config,
@@ -110,6 +109,7 @@ json :: import("std/encoding/json");
   mm_preload_prelude,
   _take_load_error
 } :: import("./module_manager.yo");
+{ record_input_file, reset_input_files, input_files } :: import("./input_record.yo");
 { YoError, render_any_error } :: import("./error.yo");
 {
   render_diagnostics_for_mode,
@@ -2176,6 +2176,31 @@ _print_compile_profile :: (
     io.await(write_string(Path.new(json_path.clone()), js, io), IoExn(io : io, exn : exn));
   });
 });
+/// Write the evaluation's input list for `--emit-deps`
+/// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9): one absolute path per
+/// line, in first-open order, newline-terminated. Deliberately NOT make's
+/// `target: dep dep` syntax — nothing here feeds `make`, and a bare list needs
+/// no escaping for the spaces and colons a real path contains.
+_write_depfile :: (
+  fn(path : String, files : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    body := String.new();
+    (i : usize) = usize(0);
+    while(i < files.len(), {
+      match(
+        files.get(i),
+        .Some(f) => {
+          body.push_string(f.clone());
+          body.push_str("\n");
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    e.io.await(write_string(Path.new(path.clone()), body, e.io), e)
+  })
+);
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -2222,6 +2247,11 @@ run_compile :: (
   // `--emit-c-to <path>`: write the single generated C file to exactly this
   // path instead of the `<output>.c` sidecar. "" = unset.
   (emit_c_to : String) = String.new();
+  // `--emit-deps <path>`: write one line per file the EVALUATION opened — the
+  // `-MD` idea (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9). The build
+  // runner hashes exactly that list on the next build instead of walking the
+  // whole project and the whole std tree per artifact. "" = unset.
+  (emit_deps_to : String) = String.new();
   // `--emcc-environment <web|node>`: mirrors the TS-internal `emccEnvironment`
   // codegen option (codegen/index.ts:187). TS has no CLI flag for it because
   // its build-runner calls codegen in-process; ours SHELLS OUT to `compile`,
@@ -2252,6 +2282,10 @@ run_compile :: (
   (strip_syms : bool) = false; // -s
   (static_link : bool) = false; // --static
   (static_library : bool) = false; // --static-library
+  // --shared-library: the same library EMISSION as --static-library (plain
+  // exported names, no `main` wrapper), linked with `-shared -fPIC` into
+  // lib<name>.{dylib,so,dll} (plan §4.5.4).
+  (shared_library : bool) = false;
   defines := ArrayList(String).new(); // -D
   include_paths := ArrayList(String).new(); // -I
   library_paths := ArrayList(String).new(); // -L
@@ -2414,6 +2448,14 @@ run_compile :: (
         emit_c = true;
         ai = (ai + usize(1));
       },
+      // `--emit-deps <path>`: the evaluation's input list, one path per line.
+      // Written once the module evaluates; a compile that dies earlier leaves
+      // no depfile, and the next build then falls back to the whole-tree walk
+      // — conservative, which is the safe direction for a cache.
+      (a_name == "--emit-deps") => {
+        emit_deps_to = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
+      },
       // `--emit-c-to <path>` REDIRECTS the sidecar (it does not add a second
       // copy), so the C compiler consumes this same path. Distinct from
       // `--emit-c`, which only prints to stdout.
@@ -2484,6 +2526,10 @@ run_compile :: (
         static_library = true;
         ai = (ai + usize(1));
       },
+      (a == "--shared-library") => {
+        shared_library = true;
+        ai = (ai + usize(1));
+      },
       // Accepted for parity; `compile` has no default sanitizer in either
       // compiler (the TEST runner's default is where --disable-sanitize bites).
       (a == "--disable-sanitize") => {
@@ -2542,6 +2588,9 @@ run_compile :: (
   // line; the static-library path compiles ONE input to ONE `.o`.
   if(((emit_chunks >= usize(1)) || emit_chunks_auto) && static_library, {
     exn.throw(dyn(String.from("compile: --emit-chunks is not supported with --static-library")));
+  });
+  if(static_library && shared_library, {
+    exn.throw(dyn(String.from("compile: --static-library and --shared-library are mutually exclusive")));
   });
   // Both flags decide what C files get WRITTEN, so the combination is
   // ambiguous rather than merely redundant: `--emit-c-to` names ONE file, and
@@ -2654,8 +2703,19 @@ run_compile :: (
   if((cc == "emcc") && !(_path_has_extension(output)), {
     output = if(is_target_standalone_wasi(target), `${output}.wasm`, `${output}.html`);
   });
-  if(is_target_windows(target) && !(_path_has_extension(output)), {
+  if((is_target_windows(target) && !(shared_library)) && !(_path_has_extension(output)), {
     output = `${output}.exe`;
+  });
+  // A shared library carries the platform's extension, the way the static
+  // path appends `.a` (plan §4.5.4). The runner names the file `lib<name>`;
+  // a hand-written `-o libfoo.dylib` is left alone.
+  if(shared_library, {
+    so_ext := cond(
+      is_target_windows(target) => ".dll",
+      is_target_macos(target) => ".dylib",
+      true => ".so"
+    );
+    output = if(output.ends_with(so_ext), output.clone(), `${output}${so_ext}`);
   });
   // mimalloc isn't available on wasm (codegen/index.ts:193-199) — downgrade
   // BEFORE codegen so the emitted runtime matches the link line.
@@ -2733,6 +2793,10 @@ run_compile :: (
   {
     clear_module_cache();
     mm_clear_prelude_env();
+    // §4.9: this compile's input record starts empty. `run_compile` can be
+    // reached more than once in a process (the LSP, `check --watch`), and a
+    // depfile naming a previous compile's inputs would over-invalidate.
+    reset_input_files();
     shared_info_table := expr_info_table_new();
     mm_set_shared_expr_info_table(shared_info_table);
     // Ensure the prelude env is cached (provides std types to the evaluator).
@@ -2752,6 +2816,10 @@ run_compile :: (
     // Read + parse the input module.
     prof_parse_t0 := Instant.now();
     src_bytes := io.await(read(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+    // The entry is read HERE, not through `mm_load_file`, so it reports its own
+    // open — otherwise the depfile would omit the one file the artifact is
+    // named after.
+    record_input_file(input_path.clone());
     src := String.from_bytes(src_bytes);
     exprs := parse(src, input_path.clone(), exn);
     profile_record_phase(String.from("read+parse entry"), prof_parse_t0.elapsed().as_nanos());
@@ -2803,6 +2871,12 @@ run_compile :: (
     module_value := outcome.module_value;
     env := outcome.env;
     ctx := outcome.ctx;
+    // §4.9: the evaluation is what opens files, so the record is complete now.
+    // Written before codegen so `--skip-codegen` and `--skip-c-compiler`
+    // callers get a depfile too.
+    if(emit_deps_to.len() > usize(0), {
+      io.await(_write_depfile(emit_deps_to.clone(), input_files(), io, exn), IoExn(io : io, exn : exn));
+    });
     // V3: contract verification runs BEFORE codegen (the verify+ strip
     // rewrites function bodies in place); a failure exits 1 — the
     // per-function lines are already printed by the helper.
@@ -2816,11 +2890,14 @@ run_compile :: (
       _print_compile_profile(profile_json.clone(), io, exn);
       return(());
     });
-    // Generate C11 from the evaluated module. A static library has no main()
-    // wrapper (is_library = true). Allocator + debug-logging flags are threaded
-    // through to the code generator (mirrors CodeGeneratorC.compileModule).
+    // Generate C11 from the evaluated module. A LIBRARY — static or shared —
+    // has no main() wrapper and gives its top-level exports plain, externally
+    // linked C names (is_library = true). Allocator + debug-logging flags are
+    // threaded through to the code generator (mirrors
+    // CodeGeneratorC.compileModule).
+    is_library_build := (static_library || shared_library);
     chunk_parts := ArrayList(String).new();
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap);
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap);
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
     // chunk writer, the ThinLTO gate, the driver report — sees the real N.
@@ -2980,6 +3057,13 @@ run_compile :: (
   // silently return an empty list with `check`, `build` and the whole suite
   // green. See issues/ftt-stub-in-live-closure-falls-off-non-void-function.md.
   //
+  // A call with NO prototype is in the same family and is never benign: the
+  // return value is truncated to `int` and the arguments go through default
+  // promotion, so it is an ERROR here rather than the warning `-Wno-everything`
+  // would otherwise leave behind. That warning is what hid a dropped extern
+  // prototype at -O2 while -O0 rejected it outright
+  // (issues/fixed/two-externs-of-one-signature-emit-one-prototype.md).
+  //
   // The -O0 arm below needs no such re-enabling — `-Wall` and clang's
   // defaults already include all three.
   cond(
@@ -2987,7 +3071,7 @@ run_compile :: (
       cmd.arg(String.from("-Wno-everything"));
       cmd.arg(String.from("-Wincompatible-pointer-types"));
       cmd.arg(String.from("-Wint-conversion"));
-      cmd.arg(String.from("-Wimplicit-function-declaration"));
+      cmd.arg(String.from("-Werror=implicit-function-declaration"));
       cmd.arg(String.from("-Werror=return-type"));
       cmd.arg(`-O${optimize}`);
     },
@@ -3185,6 +3269,32 @@ run_compile :: (
       cmd.arg(String.from("-pthread"));
       cmd.arg(String.from("-sPTHREAD_POOL_SIZE=4"));
       cmd.arg(String.from("-sEXIT_RUNTIME=1"));
+    });
+  });
+  // --shared-library: the executable link line with `-shared -fPIC` and no
+  // `main` — the emission already left the wrapper out (plan §4.5.4). Every
+  // system library the runtime needs (-lm/-pthread/-luring/OpenSSL, below) is
+  // linked into the library itself, so a consumer needs only -l<name>.
+  if(shared_library, {
+    cmd.arg(String.from("-shared"));
+    if(!(is_target_windows(target)), {
+      cmd.arg(String.from("-fPIC"));
+    });
+    // The name a CONSUMER records for this library. Without it macOS records
+    // the `-o` path verbatim — `yo-out/<triple>/lib/libx.dylib`, relative —
+    // and the program only runs from the directory it was built in; with
+    // `@rpath` the consumer's `-Wl,-rpath` (an absolute directory, added by
+    // the build runner) is what resolves it. Linux's equivalent is the soname.
+    so_base := match(
+      Path.new(output.clone()).file_name(),
+      .Some(b) => b,
+      .None => output.clone()
+    );
+    if(is_target_macos(target), {
+      cmd.arg(`-Wl,-install_name,@rpath/${so_base}`);
+    });
+    if(is_target_linux(target), {
+      cmd.arg(`-Wl,-soname,${so_base}`);
     });
   });
   // --static-library: compile to a .o (-c -fPIC) then archive into a .a.
@@ -4346,113 +4456,142 @@ run_cache :: (
     exn : Exception
   ) -> unit
 )({
+  usage := "Usage: yo cache <path|clean|gc>";
   if(argv.len() < usize(3), {
-    exn.throw(dyn(String.from("cache: missing action. Usage: yo cache <path|clean>")));
+    exn.throw(dyn(`cache: missing action. ${usage}`));
   });
   action := argv(usize(2));
   if(argv.len() > usize(3), {
-    exn.throw(dyn(`cache: unexpected extra argument '${argv(usize(3))}'. Usage: yo cache <path|clean>`));
+    exn.throw(dyn(`cache: unexpected extra argument '${argv(usize(3))}'. ${usage}`));
   });
   cache_dir := get_global_cache_dir();
   cond(
     (action == "path") => println(cache_dir),
-    (action == "clean") => {
-      present := io.await(exists(Path.new(cache_dir.clone()), io), io);
-      cond(
-        present => {
-          io.await(remove_dir_all(Path.new(cache_dir.clone()), io), IoExn(io : io, exn : exn));
-          println(`Removed cache directory: ${cache_dir}`);
-        },
-        true => println(`Cache directory does not exist: ${cache_dir}`)
-      );
-    },
+    (action == "clean") => _cache_clean(cache_dir, io, exn),
+    (action == "gc") => _cache_gc(cache_dir, io, exn),
     true => {
-      exn.throw(dyn(`cache: unknown action '${action}'. Usage: yo cache <path|clean>`));
+      exn.throw(dyn(`cache: unknown action '${action}'. ${usage}`));
     }
   );
 });
-/// Run the `fetch` subcommand — fetch git dependencies into the global cache.
-///
-/// Flag contract mirrors `src/yo-cli.ts:861-893`:
-///   yo fetch [--build-file <path>] [--verbose|-v] [--update|-u]
-run_fetch_cmd :: (
+/// `yo cache clean`: remove the dependency store — `store/`, `git/`, `index/`,
+/// the store lock and the projects registry — and nothing else; `versions/`
+/// belongs to `yo version clean`.
+_cache_clean :: (
   fn(
-    argv : ArrayList(String),
+    cache_dir : String,
     io : Io,
     exn : Exception
   ) -> unit
 )({
-  (build_file : String) = String.from("./build.yo");
-  (verbose : bool) = false;
-  (update : bool) = false;
-  (ai : usize) = usize(2);
-  while(ai < argv.len(), {
-    arg := argv(ai);
-    cond(
-      (arg == "--build-file") => {
-        if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("fetch: --build-file requires a value")));
-        });
-        build_file = argv(ai + usize(1));
-        ai = (ai + usize(1));
-      },
-      arg.starts_with(String.from("--build-file=")) => {
-        build_file = arg.substring(usize(13), arg.len());
-      },
-      ((arg == "--verbose") || (arg == "-v")) => {
-        verbose = true;
-      },
-      ((arg == "--update") || (arg == "-u")) => {
-        update = true;
-      },
-      true => {
-        exn.throw(dyn(`fetch: unknown option '${arg}'. Usage: yo fetch [--build-file <path>] [--verbose] [--update]`));
-      }
-    );
-    ai = (ai + usize(1));
+  present := io.await(exists(Path.new(cache_dir.clone()), io), io);
+  if(!present, {
+    println(`Cache directory does not exist: ${cache_dir}`);
+    return(());
   });
-  io.await(
-    run_fetch(FetchOptions(build_file : build_file, verbose : verbose, update : update), io, exn),
-    IoExn(io : io, exn : exn)
-  );
+  e := IoExn(io : io, exn : exn);
+  // `store/` (the parent of `store/sha256`), the mirrors and the tag index.
+  dirs := ArrayList(String).new();
+  dirs.push(cache_dir.concat(String.from("/store")));
+  dirs.push(get_git_mirrors_dir(cache_dir.clone()));
+  dirs.push(get_index_dir(cache_dir.clone()));
+  (i : usize) = usize(0);
+  while(i < dirs.len(), {
+    d := dirs(i);
+    i = (i + usize(1));
+    d_present := io.await(exists(Path.new(d.clone()), io), io);
+    if(d_present, {
+      io.await(remove_dir_all(Path.new(d), io), e);
+    });
+  });
+  files := ArrayList(String).new();
+  files.push(store_lock_path(cache_dir.clone()));
+  files.push(projects_registry_path(cache_dir.clone()));
+  (j : usize) = usize(0);
+  while(j < files.len(), {
+    f := files(j);
+    j = (j + usize(1));
+    f_present := io.await(exists(Path.new(f.clone()), io), io);
+    if(f_present, {
+      io.await(remove_file(Path.new(f), io), e);
+    });
+  });
+  println(`Removed the dependency store under ${cache_dir} (store/, git/, index/). versions/ is kept — 'yo version clean' removes it.`);
 });
-/// Run the `install` subcommand — add a dependency to `deps.yo` and fetch it.
+/// `yo cache gc`: drop every store tree, mirror and tag list no recorded
+/// project's `yo.lock` references.
+_cache_gc :: (
+  fn(
+    cache_dir : String,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  present := io.await(exists(Path.new(cache_dir.clone()), io), io);
+  if(!present, {
+    println(`Cache directory does not exist: ${cache_dir}`);
+    return(());
+  });
+  report := io.await(gc_store(cache_dir.clone(), io, exn), IoExn(io : io, exn : exn));
+  println(`Kept ${report.trees_kept.to_string()} tree(s) referenced by ${report.projects_kept.to_string()} project(s); removed ${report.trees_removed.to_string()} tree(s), ${report.mirrors_removed.to_string()} mirror(s), ${report.indexes_removed.to_string()} tag list(s); forgot ${report.projects_forgotten.to_string()} project(s) whose yo.lock is gone.`);
+});
+/// Run the `add` subcommand — declare a dependency in `yo.toml`, resolve and
+/// fetch it, write `yo.lock`.
 ///
-/// Flag contract mirrors `src/yo-cli.ts:894-926`:
-///   yo install <package> [--build-file <path>] [--verbose|-v]
-run_install_cmd :: (
+///   yo add <spec> [--dev] [--path <subdir>] [--name <name>] [--branch <b>] [--rev <sha>] [--verbose|-v]
+run_add_cmd :: (
   fn(
     argv : ArrayList(String),
     io : Io,
     exn : Exception
   ) -> unit
 )({
+  usage := "Usage: yo add <spec> [--dev] [--path <subdir>] [--name <name>] [--branch <branch>] [--rev <sha>] [--verbose]";
   (package_spec : String) = String.new();
   (package_seen : bool) = false;
-  (build_file : String) = String.from("./build.yo");
+  (dev : bool) = false;
+  (subdir : Option(String)) = Option(String).None;
+  (name : Option(String)) = Option(String).None;
+  (branch : Option(String)) = Option(String).None;
+  (rev : Option(String)) = Option(String).None;
   (verbose : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     arg := argv(ai);
+    needs_value := ((arg == "--path") || ((arg == "--name") || ((arg == "--branch") || (arg == "--rev"))));
     cond(
-      (arg == "--build-file") => {
+      needs_value => {
         if((ai + usize(1)) >= argv.len(), {
-          exn.throw(dyn(String.from("install: --build-file requires a value")));
+          exn.throw(dyn(`add: ${arg} requires a value. ${usage}`));
         });
-        build_file = argv(ai + usize(1));
+        value := argv(ai + usize(1));
+        cond(
+          (arg == "--path") => {
+            subdir = Option(String).Some(value);
+          },
+          (arg == "--name") => {
+            name = Option(String).Some(value);
+          },
+          (arg == "--branch") => {
+            branch = Option(String).Some(value);
+          },
+          true => {
+            rev = Option(String).Some(value);
+          }
+        );
         ai = (ai + usize(1));
       },
-      arg.starts_with(String.from("--build-file=")) => {
-        build_file = arg.substring(usize(13), arg.len());
+      (arg == "--dev") => {
+        dev = true;
       },
       ((arg == "--verbose") || (arg == "-v")) => {
         verbose = true;
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`install: unknown option '${arg}'. Usage: yo install <package> [--build-file <path>] [--verbose]`));
+        exn.throw(dyn(`add: unknown option '${arg}'. ${usage}`));
       },
       package_seen => {
-        exn.throw(dyn(`install: unexpected extra argument '${arg}'. Usage: yo install <package> [--build-file <path>] [--verbose]`));
+        exn.throw(dyn(`add: unexpected extra argument '${arg}'. ${usage}`));
       },
       true => {
         package_spec = arg;
@@ -4462,14 +4601,153 @@ run_install_cmd :: (
     ai = (ai + usize(1));
   });
   if(!(package_seen), {
-    exn.throw(dyn(String.from("install: missing package. Usage: yo install <package> [--build-file <path>] [--verbose]")));
+    exn.throw(dyn(`add: missing package. ${usage}`));
   });
   io.await(
-    run_install(
-      InstallOptions(package_spec : package_spec, build_file : build_file, verbose : verbose),
+    run_add(
+      AddOptions(
+        package_spec : package_spec,
+        dev : dev,
+        subdir : subdir,
+        name : name,
+        branch : branch,
+        rev : rev,
+        verbose : verbose
+      ),
       io,
       exn
     ),
+    IoExn(io : io, exn : exn)
+  );
+});
+/// Run the `remove` subcommand — delete a dependency from `yo.toml` and prune
+/// it from `yo.lock`.
+///
+///   yo remove <name> [--verbose|-v]
+run_remove_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  usage := "Usage: yo remove <name> [--verbose]";
+  (name : String) = String.new();
+  (name_seen : bool) = false;
+  (verbose : bool) = false;
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    arg := argv(ai);
+    cond(
+      ((arg == "--verbose") || (arg == "-v")) => {
+        verbose = true;
+      },
+      arg.starts_with(String.from("-")) => {
+        exn.throw(dyn(`remove: unknown option '${arg}'. ${usage}`));
+      },
+      name_seen => {
+        exn.throw(dyn(`remove: unexpected extra argument '${arg}'. ${usage}`));
+      },
+      true => {
+        name = arg;
+        name_seen = true;
+      }
+    );
+    ai = (ai + usize(1));
+  });
+  if(!(name_seen), {
+    exn.throw(dyn(`remove: missing dependency name. ${usage}`));
+  });
+  io.await(run_remove(name, verbose, io, exn), IoExn(io : io, exn : exn));
+});
+/// Run the `install` subcommand — fetch every git dependency `yo.toml` names
+/// into the global cache and write `yo.lock`.
+///
+///   yo install [--locked] [--offline] [--verbose|-v]
+run_install_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  usage := "Usage: yo install [--locked] [--offline] [--verbose]";
+  (verbose : bool) = false;
+  (locked : bool) = false;
+  (offline : bool) = false;
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    arg := argv(ai);
+    cond(
+      ((arg == "--verbose") || (arg == "-v")) => {
+        verbose = true;
+      },
+      (arg == "--locked") => {
+        locked = true;
+      },
+      (arg == "--offline") => {
+        offline = true;
+      },
+      (arg == "--frozen") => {
+        locked = true;
+        offline = true;
+      },
+      arg.starts_with(String.from("-")) => {
+        exn.throw(dyn(`install: unknown option '${arg}'. ${usage}`));
+      },
+      true => {
+        exn.throw(dyn(`install: unexpected argument '${arg}'. \`yo install\` fetches what yo.toml declares; add a dependency with \`yo add ${arg}\`.`));
+      }
+    );
+    ai = (ai + usize(1));
+  });
+  io.await(
+    run_install(
+      InstallOptions(update : false, names : ArrayList(String).new(), latest : false, locked : locked, offline : offline, verbose : verbose),
+      io,
+      exn
+    ),
+    IoExn(io : io, exn : exn)
+  );
+});
+/// Run the `update` subcommand — re-resolve dependencies within their
+/// requirements (all, or the named ones) and rewrite `yo.lock`.
+///
+///   yo update [name…] [--latest] [--offline] [--verbose|-v]
+run_update_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  usage := "Usage: yo update [name...] [--latest] [--offline] [--verbose]";
+  names := ArrayList(String).new();
+  (verbose : bool) = false;
+  (latest : bool) = false;
+  (offline : bool) = false;
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    arg := argv(ai);
+    cond(
+      ((arg == "--verbose") || (arg == "-v")) => {
+        verbose = true;
+      },
+      (arg == "--latest") => {
+        latest = true;
+      },
+      (arg == "--offline") => {
+        offline = true;
+      },
+      arg.starts_with(String.from("-")) => {
+        exn.throw(dyn(`update: unknown option '${arg}'. ${usage}`));
+      },
+      true => names.push(arg)
+    );
+    ai = (ai + usize(1));
+  });
+  io.await(
+    run_install(InstallOptions(update : true, names : names, latest : latest, locked : false, offline : offline, verbose : verbose), io, exn),
     IoExn(io : io, exn : exn)
   );
 });
@@ -4478,7 +4756,7 @@ run_install_cmd :: (
 ///
 /// Flag contract mirrors `src/yo-cli.ts:927-…`:
 ///   yo build [steps..] [--cc <c>] [-t|--target <triple>] [--sysroot <dir>]
-///            [--build-file <path>] [--list-steps] [--dry-run] [--verbose|-v]
+///            [--build-file <path>] [--list-steps] [--list-options] [--dry-run] [--verbose|-v]
 /// One watch-mode build round: a full `run_build` whose failure is reported
 /// but never exits the loop (`unwind` returns `false` from THIS fn).
 _build_round_watch :: (fn(opts : BuildOptions, io : Io) -> bool)({
@@ -4493,6 +4771,22 @@ _build_round_watch :: (fn(opts : BuildOptions, io : Io) -> bool)({
   io.await(run_build(opts, io, swallow), IoExn(io : io, exn : swallow));
   true
 });
+/// `-j N` — nodes per DAG level (§4.8). Zero, a non-number or a negative
+/// value is an error rather than a silent 1: a mistyped `-j` should not look
+/// like a sequential build.
+_parse_jobs :: (fn(value : String, exn : Exception) -> usize)(
+  match(
+    value.parse_u64(),
+    .Some(n) => if(n > u64(0), usize(n), {
+      exn.throw(dyn(`build: -j needs a positive number of jobs, got "${value}"`));
+      usize(1)
+    }),
+    .None => {
+      exn.throw(dyn(`build: -j needs a positive number of jobs, got "${value}"`));
+      usize(1)
+    }
+  )
+);
 ///            [--summary] [-D<name>=<value>]
 run_build_cmd :: (
   fn(
@@ -4508,9 +4802,19 @@ run_build_cmd :: (
   (sysroot : Option(String)) = Option(String).None;
   (build_file : String) = String.from("./build.yo");
   (list_steps : bool) = false;
+  (list_options : bool) = false;
+  // Everything after `--` goes to whatever a `run` step executes (the plan's
+  // B9): `yo build run -- --port 8080`.
+  run_args := ArrayList(String).new();
+  (after_dashdash : bool) = false;
+  // `-j N` / `--jobs N`: how many nodes of one DAG level run at once (§4.8).
+  // The default is 1 — concurrent nodes interleave their output.
+  (jobs : usize) = usize(1);
   (dry_run : bool) = false;
   (verbose : bool) = false;
   (summary : bool) = false;
+  (locked : bool) = false;
+  (offline : bool) = false;
   (watch : bool) = false;
   (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
@@ -4548,6 +4852,28 @@ run_build_cmd :: (
       arg.starts_with(String.from("--build-file=")) => {
         build_file = arg.substring(usize(13), arg.len());
       },
+      // NB: the loop advances `ai` itself; only an arm that consumes an EXTRA
+      // argument (a flag's value) bumps it. Bumping it here too swallowed
+      // every other token: `-- one two three` arrived as `two`.
+      after_dashdash => {
+        run_args.push(arg.clone());
+      },
+      (arg == "--") => {
+        after_dashdash = true;
+      },
+      (arg == "--list-options") => {
+        list_options = true;
+      },
+      ((arg == "-j") || (arg == "--jobs")) => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("build: -j requires a value")));
+        });
+        jobs = _parse_jobs(argv(ai + usize(1)), exn);
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--jobs=")) => {
+        jobs = _parse_jobs(arg.substring(usize(7), arg.len()), exn);
+      },
       (arg == "--list-steps") => {
         list_steps = true;
       },
@@ -4559,6 +4885,16 @@ run_build_cmd :: (
       },
       (arg == "--summary") => {
         summary = true;
+      },
+      (arg == "--locked") => {
+        locked = true;
+      },
+      (arg == "--offline") => {
+        offline = true;
+      },
+      (arg == "--frozen") => {
+        locked = true;
+        offline = true;
       },
       (arg == "--watch") => {
         watch = true;
@@ -4582,7 +4918,7 @@ run_build_cmd :: (
         );
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--dry-run] [--verbose] [--summary]`));
+        exn.throw(dyn(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--list-options] [-j N] [--dry-run] [--locked] [--offline] [--verbose] [--summary] [-- <run args>]`));
       },
       true => {
         steps.push(arg);
@@ -4597,10 +4933,15 @@ run_build_cmd :: (
     sysroot : sysroot,
     build_file : build_file,
     list_steps : list_steps,
+    list_options : list_options,
+    run_args : run_args,
+    jobs : jobs,
     dry_run : dry_run,
     verbose : verbose,
     summary : summary,
-    defines : defines
+    defines : defines,
+    locked : locked,
+    offline : offline
   );
   if(!(watch), {
     io.await(run_build(opts, io, exn), IoExn(io : io, exn : exn));
@@ -4629,7 +4970,7 @@ run_build_cmd :: (
 /// surface mirrors the yargs definition in `src/yo-cli.ts` ("doc [path]"):
 /// positional path (default "."), -o/--output (default "yo-out/doc"),
 /// --title, --document-private, -v/--verbose, -f/--format
-/// (html|markdown|json, default html), --version.
+/// (html|markdown|json, default html), --version, --logo, --favicon.
 /// `yo unsafe-report [path] [--json]` — the unsafe-surface audit (port of
 /// the TS subcommand; scanning lives in unsafe_report.yo). A nonexistent
 /// path reports on stderr and exits 1, like TS.
@@ -4720,6 +5061,10 @@ run_doc_cmd :: (
   (verbose : bool) = false;
   (format : String) = String.from("html");
   (version : String) = String.new();
+  // `--logo` / `--favicon`: `build.documentation` has carried these since it
+  // was written and nothing read them (the plan's B13); they render now.
+  (logo : String) = String.new();
+  (favicon : String) = String.new();
   (saw_input : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
@@ -4771,8 +5116,28 @@ run_doc_cmd :: (
       arg.starts_with(String.from("--version=")) => {
         version = arg.substring(usize(10), arg.len());
       },
+      (arg == "--logo") => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("doc: --logo requires a value")));
+        });
+        logo = argv(ai + usize(1));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--logo=")) => {
+        logo = arg.substring(usize(7), arg.len());
+      },
+      (arg == "--favicon") => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("doc: --favicon requires a value")));
+        });
+        favicon = argv(ai + usize(1));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--favicon=")) => {
+        favicon = arg.substring(usize(10), arg.len());
+      },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`doc: unknown option '${arg}'. Usage: yo doc [path] [-o <dir>] [--title <t>] [--document-private] [-v] [-f html|markdown|json] [--version <v>]`));
+        exn.throw(dyn(`doc: unknown option '${arg}'. Usage: yo doc [path] [-o <dir>] [--title <t>] [--document-private] [-v] [-f html|markdown|json] [--version <v>] [--logo <path>] [--favicon <path>]`));
       },
       true => {
         if(saw_input, {
@@ -4795,7 +5160,9 @@ run_doc_cmd :: (
       verbose : verbose,
       title : title,
       format : format,
-      version : version
+      version : version,
+      logo : logo,
+      favicon : favicon
     ),
     io,
     exn
@@ -4993,17 +5360,15 @@ Examples:
   $ yo init                      Initialize in current directory
   $ yo init my-project           Initialize in ./my-project
 
-yo fetch [options]               Fetch git dependencies into .yo-cache
+yo add <spec>                    Declare a dependency in yo.toml and fetch it
 Examples:
-  $ yo fetch                     Fetch all dependencies from build.yo
-  $ yo fetch --verbose           Show detailed fetch progress
-  $ yo fetch --update            Re-resolve refs to latest commits
+  $ yo add user/repo             Latest release tag, as version = "^X.Y.Z"
+  $ yo add user/repo@^1.2        Semver range
+  $ yo add ./path/to/dep         Local path dependency
 
-yo install <package>             Install a dependency from GitHub
-Examples:
-  $ yo install github.com/user/repo          Latest semver tag
-  $ yo install github.com/user/repo@v1.0.0   Pinned version
-  $ yo install user/repo                     Shorthand for GitHub
+yo remove <name>                 Delete a dependency from yo.toml
+yo install                       Fetch what yo.toml declares, write yo.lock
+yo update [name...]              Re-resolve dependencies (--latest bumps ranges)
 
 yo test [path] [options]         Run tests
 Example:
@@ -5079,17 +5444,15 @@ yo init [dir] [options]          初始化一个新的 Yo 项目
   $ yo init                      在当前目录初始化
   $ yo init my-project           初始化到 ./my-project
 
-yo fetch [options]               把 git 依赖抓取到 .yo-cache
+yo add <spec>                    把依赖写入 yo.toml 并抓取
 示例：
-  $ yo fetch                     抓取 build.yo 的全部依赖
-  $ yo fetch --verbose           显示详细的抓取进度
-  $ yo fetch --update            把 ref 重新解析到最新提交
+  $ yo add user/repo             最新发布标签，写成 version = "^X.Y.Z"
+  $ yo add user/repo@^1.2        semver 范围
+  $ yo add ./path/to/dep         本地路径依赖
 
-yo install <package>             从 GitHub 安装依赖
-示例：
-  $ yo install github.com/user/repo          最新 semver 标签
-  $ yo install github.com/user/repo@v1.0.0   锁定版本
-  $ yo install user/repo                     GitHub 简写
+yo remove <name>                 从 yo.toml 删除依赖
+yo install                       抓取 yo.toml 声明的依赖并写入 yo.lock
+yo update [name...]              在范围内重新解析依赖
 
 yo test [path] [options]         运行测试
 示例：
@@ -5295,6 +5658,7 @@ Options:
   --extern <spec>           Extern library spec (pkg-config integration)
   --static                  Static link
   --static-library          Build a static library instead of an executable
+  --shared-library          Build a shared library (lib<name>.dylib/.so/.dll)
   --sanitize <kind>         Sanitizer (address|thread|undefined)
   --disable-sanitize        Drop sanitizer flags added by defaults
   --allocator <name>        Allocator (system|mimalloc|fixed)
@@ -5302,6 +5666,7 @@ Options:
   --debug-heap              Print heap stats + live-at-exit leak oracle at exit (fixed only)
   --emit-c                  Print the generated C to stdout and stop
   --emit-c-to <path>        Write the generated C to a file and stop
+  --emit-deps <path>        Write the files this compile read, one per line
   --skip-c-compiler         Generate C but skip the C compile
   --skip-codegen            Evaluate only (no C generation)
   --emit-chunks <n|auto>    Split emitted C into n translation units (implies -flto=thin);
@@ -5341,6 +5706,7 @@ Examples:
   --extern <spec>           外部库规格（pkg-config 集成）
   --static                  静态链接
   --static-library          构建静态库而非可执行文件
+  --shared-library          构建动态库（lib<name>.dylib/.so/.dll）
   --sanitize <kind>         清理器（address|thread|undefined）
   --disable-sanitize        去掉默认追加的清理器标志
   --allocator <name>        分配器（system|mimalloc|fixed）
@@ -5348,6 +5714,7 @@ Examples:
   --debug-heap              退出时打印堆统计与存活块泄漏检查（仅 fixed）
   --emit-c                  把生成的 C 打印到 stdout 然后停止
   --emit-c-to <path>        把生成的 C 写入文件然后停止
+  --emit-deps <path>        把本次编译读取的文件逐行写入该文件
   --skip-c-compiler         只生成 C，跳过 C 编译
   --skip-codegen            只做求值（不生成 C）
   --emit-chunks <n|auto>    把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）；
@@ -5376,6 +5743,8 @@ Build the project described by build.yo (default step: install).
 
 Options:
   --list-steps              Show the available build steps
+  --list-options            Show the options this build file declares (-Dname=value)
+  -j, --jobs <N>            Run up to N nodes of a DAG level at once (default 1)
   --summary                 Print the build summary tree
   --dry-run                 Resolve the build graph without running it
   --build-file <path>       Use an alternate build.yo
@@ -5383,6 +5752,9 @@ Options:
   -t, --target <triple>     Cross-compile target
   --sysroot <dir>           Sysroot for cross-compilation
   -D<name>=<value>          Pass an option to build.yo
+  --locked                  Fail if fetching dependencies would change yo.lock
+  --offline                 Fail if fetching dependencies would need the network
+  --frozen                  --locked and --offline
   --watch                   Rebuild on source changes
   --poll-ms <ms>            Watch poll interval
   -v, --verbose             Verbose output
@@ -5399,6 +5771,8 @@ Examples:
 
 选项：
   --list-steps              列出可用的构建步骤
+  --list-options            列出此构建文件声明的选项（-Dname=value）
+  -j, --jobs <N>            同一 DAG 层级最多同时运行 N 个节点（默认 1）
   --summary                 打印构建摘要树
   --dry-run                 只解析构建图，不实际执行
   --build-file <path>       使用其他 build.yo
@@ -5406,6 +5780,9 @@ Examples:
   -t, --target <triple>     交叉编译目标
   --sysroot <dir>           交叉编译的 sysroot
   -D<name>=<value>          给 build.yo 传递选项
+  --locked                  若抓取依赖会改动 yo.lock 则失败
+  --offline                 若抓取依赖需要联网则失败
+  --frozen                  同时 --locked 与 --offline
   --watch                   源码变化时重新构建
   --poll-ms <ms>            监听轮询间隔
   -v, --verbose             详细输出
@@ -5593,6 +5970,8 @@ Options:
   -o, --output <dir>        Output directory (default: ./yo-out/doc)
   -f, --format <fmt>        Output format (html|json, default html)
   --title <s>               Documentation site title
+  --logo <path>             Image shown in the sidebar header
+  --favicon <path>          Site icon
   --document-private        Include underscore-private items
   -v, --verbose             Verbose output
   --std-path <dir>          Override the std library directory
@@ -5608,6 +5987,8 @@ Examples:
   -o, --output <dir>        输出目录（默认 ./yo-out/doc）
   -f, --format <fmt>        输出格式（html|json，默认 html）
   --title <s>               文档站标题
+  --logo <path>             侧边栏顶部显示的图片
+  --favicon <path>          站点图标
   --document-private        包含下划线私有的条目
   -v, --verbose             详细输出
   --std-path <dir>          覆盖标准库目录
@@ -5645,91 +6026,186 @@ Examples:
   $ yo init my-project --name my-project`
       )
     ),
-    (subcmd == "fetch") => Option(String).Some(
+    (subcmd == "add") => Option(String).Some(
       tr(
-        `Usage: yo fetch [options]
+        `Usage: yo add <spec> [options]
 
-Fetch the git dependencies declared in build.yo into the global cache and
-write yo.lock (stale lock entries are pruned automatically).
+Declare a dependency in yo.toml (edited in place, comments kept), resolve
+it, fetch every git dependency into the global cache and write yo.lock.
+Without an @version the latest release tag is chosen and written as a
+caret range (version = "^X.Y.Z"); a repository without release tags is
+pinned to its default branch.
+
+Specs:
+  user/repo                  GitHub shorthand
+  user/repo@^1.2             Semver range (^, ~, =, >=, <, *, or a bare version)
+  user/repo@v1.2.0           Exact tag
+  github.com/user/repo, https://…, git@host:path
+  ./path/to/dep              Local path dependency
 
 Options:
-  -u, --update              Re-resolve refs to the latest commits
-  -v, --verbose             Show detailed fetch progress
-  --build-file <path>       Use an alternate build.yo
+  --dev                      Add to [dev-dependencies]
+  --path <subdir>            The package's directory inside the repository
+  --name <name>              Import name (default: the repository name)
+  --branch <branch>          Follow a branch (pinned to a commit in yo.lock)
+  --rev <sha>                Pin a commit
+  -v, --verbose              Show detailed progress
 
 Examples:
-  $ yo fetch
-  $ yo fetch --update`,
-        `用法：yo fetch [options]
+  $ yo add shd101wyy/raylib_yo
+  $ yo add user/json-yo@^1.2
+  $ yo add ./libs/mylib
+  $ yo add user/snapshot --dev`,
+        `用法：yo add <spec> [options]
 
-把 build.yo 声明的 git 依赖抓取到全局缓存并写入 yo.lock
-（过期的锁条目会自动剪除）。
+把依赖写入 yo.toml（原地编辑，保留注释），解析并抓取全部 git 依赖到
+全局缓存，写入 yo.lock。不带 @version 时选择最新的发布标签，写成
+caret 范围（version = "^X.Y.Z"）；没有发布标签的仓库锁定到默认分支。
+
+规格：
+  user/repo                  GitHub 简写
+  user/repo@^1.2             semver 范围（^、~、=、>=、<、*，或裸版本号）
+  user/repo@v1.2.0           精确标签
+  github.com/user/repo、https://…、git@host:path
+  ./path/to/dep              本地路径依赖
 
 选项：
-  -u, --update              重新把 ref 解析到最新提交
-  -v, --verbose             显示详细的抓取进度
-  --build-file <path>       使用其他 build.yo
+  --dev                      写入 [dev-dependencies]
+  --path <subdir>            包在仓库内的子目录
+  --name <name>              导入名（默认：仓库名）
+  --branch <branch>          跟随分支（yo.lock 锁定提交）
+  --rev <sha>                锁定某个提交
+  -v, --verbose              显示详细进度
 
 示例：
-  $ yo fetch
-  $ yo fetch --update`
+  $ yo add shd101wyy/raylib_yo
+  $ yo add user/json-yo@^1.2
+  $ yo add ./libs/mylib
+  $ yo add user/snapshot --dev`
+      )
+    ),
+    (subcmd == "remove") => Option(String).Some(
+      tr(
+        `Usage: yo remove <name> [options]
+
+Delete a dependency from yo.toml and prune it from yo.lock.
+
+Options:
+  -v, --verbose              Show detailed progress
+
+Example:
+  $ yo remove raylib_yo`,
+        `用法：yo remove <name> [options]
+
+从 yo.toml 删除依赖并从 yo.lock 剪除。
+
+选项：
+  -v, --verbose              显示详细进度
+
+示例：
+  $ yo remove raylib_yo`
       )
     ),
     (subcmd == "install") => Option(String).Some(
       tr(
-        `Usage: yo install <package> [options]
+        `Usage: yo install [options]
 
-Add a dependency to build.yo and fetch it. Accepts GitHub shorthands,
-pinned versions, and local paths.
+Resolve the dependency graph yo.toml declares — every package's own
+yo.toml is read too, and one ref per package must satisfy every
+requirement on it — fetch the trees into the global cache and write
+yo.lock. A lock entry that still satisfies its requirements is kept;
+stale entries are pruned. \`yo build\` runs the same step for
+dependencies the cache lacks.
 
 Options:
-  -v, --verbose             Show detailed progress
-  --build-file <path>       Use an alternate build.yo
+  --locked                   Fail if yo.lock would change (CI)
+  --offline                  Fail if the network would be needed
+  --frozen                   --locked and --offline
+  -v, --verbose              Show detailed fetch progress
 
-Examples:
-  $ yo install user/repo               Latest semver tag from GitHub
-  $ yo install user/repo@v1.0.0        Pinned version
-  $ yo install github.com/user/repo    Full form
-  $ yo install ./path/to/dep           Local path dependency`,
-        `用法：yo install <package> [options]
+Example:
+  $ yo install`,
+        `用法：yo install [options]
 
-把依赖加入 build.yo 并抓取。支持 GitHub 简写、锁定版本和本地路径。
+解析 yo.toml 声明的依赖图——每个包自己的 yo.toml 也会读取，每个包只选
+一个同时满足所有需求的 ref——把源码树抓取到全局缓存并写入 yo.lock。
+仍满足需求的锁条目保留；过期条目剪除。\`yo build\` 对缓存缺失的依赖执行同一步骤。
 
 选项：
-  -v, --verbose             显示详细进度
-  --build-file <path>       使用其他 build.yo
+  --locked                   若 yo.lock 会改动则失败（CI）
+  --offline                  若需要联网则失败
+  --frozen                   同时 --locked 与 --offline
+  -v, --verbose              显示详细的抓取进度
 
 示例：
-  $ yo install user/repo               GitHub 上的最新 semver 标签
-  $ yo install user/repo@v1.0.0        锁定版本
-  $ yo install github.com/user/repo    完整形式
-  $ yo install ./path/to/dep           本地路径依赖`
+  $ yo install`
+      )
+    ),
+    (subcmd == "update") => Option(String).Some(
+      tr(
+        `Usage: yo update [name...] [options]
+
+Re-resolve dependencies within their requirements — the highest tag a
+version range allows, the tip of a branch — and rewrite yo.lock. Names
+limit the update to those dependencies. --latest also raises each
+version range in yo.toml to the newest release (^X.Y.Z).
+
+Options:
+  --latest                   Bump version ranges to the newest release
+  --offline                  Fail if the network would be needed
+  -v, --verbose              Show detailed progress
+
+Examples:
+  $ yo update
+  $ yo update raylib_yo
+  $ yo update --latest`,
+        `用法：yo update [name...] [options]
+
+在需求范围内重新解析依赖——版本范围允许的最高标签、分支的最新提交——
+并重写 yo.lock。给出名字则只更新这些依赖。--latest 还会把 yo.toml 中的
+版本范围提升到最新发布版（^X.Y.Z）。
+
+选项：
+  --latest                   把版本范围提升到最新发布版
+  --offline                  若需要联网则失败
+  -v, --verbose              显示详细进度
+
+示例：
+  $ yo update
+  $ yo update raylib_yo
+  $ yo update --latest`
       )
     ),
     (subcmd == "cache") => Option(String).Some(
       tr(
         `Usage: yo cache <action>
 
-Manage the global dependency cache (~/.cache/yo/deps).
+Manage the global dependency store (~/.cache/yo: store/, git/, index/).
 
 Actions:
   path                      Print the global cache directory
-  clean                     Remove all cached dependencies
+  clean                     Remove the dependency store (every package tree,
+                            mirror and tag list); cached Yo versions are kept
+  gc                        Remove the trees, mirrors and tag lists no recorded
+                            project's yo.lock references
 
 Examples:
   $ yo cache path
-  $ yo cache clean`,
+  $ yo cache clean
+  $ yo cache gc`,
         `用法：yo cache <action>
 
-管理全局依赖缓存（~/.cache/yo/deps）。
+管理全局依赖存储（~/.cache/yo：store/、git/、index/）。
 
 动作：
   path                      打印全局缓存目录
-  clean                     删除所有缓存的依赖
+  clean                     删除依赖存储（所有包树、镜像和标签列表）；已缓存的 Yo 版本保留
+  gc                        删除没有任何已记录项目的 yo.lock 引用的包树、镜像和标签列表
 
 示例：
   $ yo cache path
-  $ yo cache clean`
+  $ yo cache clean
+  $ yo cache gc`
       )
     ),
     (subcmd == "version") => Option(String).Some(
@@ -6129,10 +6605,14 @@ main :: (fn(io : Io) -> unit)({
     run_init(argv, io, exn);
   }, if(subcmd == "build", {
     run_build_cmd(argv, io, exn);
-  }, if(subcmd == "fetch", {
-    run_fetch_cmd(argv, io, exn);
+  }, if(subcmd == "add", {
+    run_add_cmd(argv, io, exn);
+  }, if(subcmd == "remove", {
+    run_remove_cmd(argv, io, exn);
   }, if(subcmd == "install", {
     run_install_cmd(argv, io, exn);
+  }, if(subcmd == "update", {
+    run_update_cmd(argv, io, exn);
   }, if(subcmd == "cache", {
     run_cache(argv, io, exn);
   }, if(subcmd == "doc", {

@@ -33,7 +33,7 @@ Yo 提供两种并行执行机制：
 - **Linux**：每线程独立的 `io_uring` 实例
 - **macOS**：每线程独立的 `kqueue` 描述符
 - **Windows**：每线程独立的 IOCP 句柄
-- **WASM**：不适用——WASM 是单线程的；不支持并行（`Thread.spawn`、线程池）。请改用 `io.async`/`io.await` 进行协作式并发。
+- **WASM**：不适用——WASM 是单线程的；不支持并行（`Thread(T).spawn`、线程池）。请改用 `io.async`/`io.await` 进行协作式并发。
 
 这意味着派生的线程和线程池任务可以通过 `io.async`/`io.await` 执行异步 I/O，且无需竞争——每个线程的事件循环完全独立。
 
@@ -46,18 +46,39 @@ Yo 提供两种并行执行机制：
 ### API
 
 ```rust
-Thread :: struct(
-  handle : __yo_thread_t
-);
-impl(Thread,
+// `T` 是线程体产出的类型。`Thread(unit)` 即无返回值的线程；
+// 任何满足 `Send + Acyclic` 的类型都可以被带出线程。
+Thread :: (
+  fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type)
+)(ref(struct(handle : __yo_thread_t, _joined : bool, _result : Channel(T))));
+impl(
+  generic(T : Type),
+  Thread(T),
+  where(T <: (Send, Acyclic)),
   // 派生一个新的操作系统线程，运行给定的闭包。
   // 该闭包会获得自己的每线程 Io 事件循环。
-  spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self),
+  spawn : (fn(own(cb) : Impl(Fn(io : Io) -> T, Send)) -> Self),
 
-  // 等待线程完成（阻塞）
-  join : (fn(inout(self) : Self) -> unit)
+  // 等待线程完成（阻塞），并取回它的结果。第二次调用会 panic。
+  join : (fn(self : Self) -> T),
+
+  is_joined : (fn(self : Self) -> bool)
 );
 ```
+
+### 把值带出线程
+
+`join()` 返回线程体的返回值，途径是句柄自己持有的容量为 1 的 `Channel(T)`：
+
+```rust
+{ Thread } :: import "std/thread";
+
+t := Thread(i32).spawn((io : Io) => i32(42));
+answer := t.join();   // 42
+```
+
+`Thread(unit)` 就是下文示例使用的无返回值线程，它的 `join()` 返回 `()`。
+`ThreadPool` 的任务仍然不携带返回值——请用 `Channel` 把值传回。
 
 ### 用法
 
@@ -66,13 +87,13 @@ impl(Thread,
 { yield } :: import "std/async";
 
 // 派生一个专用线程（不使用异步）
-thread := Thread.spawn((io) => {
+thread := Thread(unit).spawn((io) => {
   printf("Hello from thread\n");
 });
 thread.join();
 
 // 派生一个支持异步 I/O 的线程
-thread := Thread.spawn((io : Io) => {
+thread := Thread(unit).spawn((io : Io) => {
   task := io.async((io : Io) => {
     io.await(yield());
     return i32(42);
@@ -191,12 +212,12 @@ Channel（`std/sync/channel.yo`）提供有界的多生产者多消费者线程�
 ch := Channel(i32).new(usize(10));
 
 // 生产者线程
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   ch.send(i32(42));
 });
 
 // 消费者线程
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   val := ch.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
@@ -248,7 +269,7 @@ rx.recv();                             // .Err(TryRecvError.Disconnected)
 rx := Channel(i32).receiver(usize(16));
 {
   keeper := rx.sender();               // 保证计数不会归零
-  w := Thread.spawn((io) => {
+  w := Thread(unit).spawn((io) => {
     tx := rx.sender();                 // 本线程的生产者
     tx.send(i32(7));
   });                                  // 线程体结束时 tx 被丢弃
@@ -256,10 +277,12 @@ rx := Channel(i32).receiver(usize(16));
 };                                     // keeper 被丢弃 -> Channel 关闭
 ```
 
-目前把 `Sender` **移入** `Thread.spawn` 闭包并不会关闭 Channel：spawn 闭包捕获的引用从不释放，
-因此该 sender 的丢弃逻辑永远不会执行。值依然可以正常传递，只是失去了自动关闭。异步任务
-（`std/async/channel`，在单个事件循环上提供同样的 `receiver()`/`sender()`/`pair()` API）会正确
-释放捕获。
+把 `Sender` **移入** `Thread(T).spawn` 闭包会正常关闭 Channel：线程体返回时，spawn 包装函数会
+释放该线程的捕获结构体，因此该 sender 的丢弃逻辑会执行
+（issues/fixed/spawn-closure-captures-never-dropped-leak.md；捕获本身又是闭包的情况见
+issues/a-closure-typed-slot-never-releases-its-captures.md）。异步任务
+（`std/async/channel`，在单个事件循环上提供同样的 `receiver()`/`sender()`/`pair()` API）以同样的
+方式释放捕获。
 
 ## 可发送类型
 
@@ -271,14 +294,14 @@ rx := Channel(i32).receiver(usize(16));
 ```rust
 // ✅ 可发送
 Point :: struct(x: i32, y: i32);
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   p := Point(1, 2);  // OK：在线程内部创建
 });
 
 // ❌ 不可发送
 Node :: ref(struct(value: i32));
 node := Node(42);
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   // 错误：无法捕获 `node`（ref(struct(...)) 不是 Send）
   // node.value;
 });
@@ -330,7 +353,7 @@ Thread.spawn((io) => {
 { Channel } :: import "std/sync/channel";
 
 // 带异步 I/O 的专用线程
-thread := Thread.spawn((io : Io) => {
+thread := Thread(unit).spawn((io : Io) => {
   // 此线程拥有自己的事件循环
   task := io.async((io : Io) => { io.await(yield()); });
   io.await(task);

@@ -73,13 +73,136 @@ static int __yo_io_wait(void);
 // declared, not merely declared: a static object has no forward-declaration
 // spelling in C.
 // See plans/WAKER_BASED_SCHEDULING.md.
-static ${thread_local} size_t __yo_async_live_wakers = 0;
+// ---------------------------------------------------------------------------
+// The per-loop control block — the ONE piece of shared state in this runtime
+// ---------------------------------------------------------------------------
+// Everything else here is thread-local and touched only by the loop that owns
+// it, which is the whole model: no mutexes, no atomics, no shared scheduler
+// state. A cross-thread wake cannot join that model directly —
+// __yo_async_enqueue_continuation writes an unsynchronized queue, and a thread
+// parked in __yo_io_wait has no way to notice a foreign push at all.
+//
+// The resolution keeps the invariant rather than weakening it. Each loop owns
+// ONE explicitly locked inbox plus a wakeup channel into its own I/O backend.
+// A wake raised on a foreign thread pushes the TOKEN onto the owner's inbox
+// and nudges that channel; the owner drains the inbox ON ITS OWN THREAD at the
+// top of every tick and does the state change and the enqueue there. So
+// exactly one new piece of shared state exists, it is locked, and every
+// runtime variable stays single-threaded.
+// See plans/WAKER_BASED_SCHEDULING.md step 5.
+//
+// Nothing that crosses a thread boundary touches a REFERENCE COUNT. The park
+// future's refcount is non-atomic like every other runtime object's, so the
+// token — not the future — is what travels, the owner allocates and frees it,
+// and a release raised on a foreign thread is deferred through the same inbox.
+typedef struct __yo_waker_token_t {
+  __yo_io_future_t* future;
+  struct __yo_loop_t* owner;
+  // Inbox link. Written only under the owner's lock.
+  struct __yo_waker_token_t* xnext;
+  // 0 idle, 1 queued on the owner's inbox. The CAS is what makes a repeated
+  // foreign wake idempotent without holding the lock to find out.
+  _Atomic int queued;
+  // Set by a foreign __yo_waker_release: the owner drops the token's reference
+  // and frees the token when it drains the inbox.
+  _Atomic int release_pending;
+} __yo_waker_token_t;
+
+typedef struct __yo_loop_t {
+  __YO_THREAD_SYNC_TYPE lock;
+  __yo_waker_token_t* xwake_head;
+  __yo_waker_token_t* xwake_tail;
+  // A lock-free "is the inbox worth locking for" read, for the hot predicate
+  // the loop drivers call on every tick.
+  _Atomic size_t xwake_count;
+  // Waker tokens alive for tasks parked on THIS loop. Atomic because a token
+  // is released wherever its last holder happens to be.
+  _Atomic size_t live_wakers;
+  // Blocking calls this loop is waiting on, running on other threads. While
+  // this is non-zero the loop keeps waiting with no I/O outstanding and never
+  // reports a wake deadlock: the wake is coming from outside its world.
+  _Atomic size_t blocking_inflight;
+  // Backend wakeup channel, filled in by __yo_io_init.
+  int notify_ready;
+  int notify_fd;
+  void* notify_handle;
+} __yo_loop_t;
+
+static ${thread_local} __yo_loop_t __yo_this_loop;
+static ${thread_local} bool __yo_this_loop_ready = false;
+
+// Nudge a loop out of a blocking backend wait. Defined by the platform I/O
+// runtime, which owns the channel; a no-op where the target cannot have a
+// second thread at all (wasm).
+static void __yo_io_notify(__yo_loop_t* loop);
+
+static __yo_loop_t* __yo_loop_self(void) {
+  if (!__yo_this_loop_ready) {
+    __yo_this_loop_ready = true;
+    __yo_mutex_init(&__yo_this_loop.lock);
+    __yo_this_loop.xwake_head = NULL;
+    __yo_this_loop.xwake_tail = NULL;
+    atomic_init(&__yo_this_loop.xwake_count, 0);
+    atomic_init(&__yo_this_loop.live_wakers, 0);
+    atomic_init(&__yo_this_loop.blocking_inflight, 0);
+    __yo_this_loop.notify_ready = 0;
+    __yo_this_loop.notify_fd = -1;
+    __yo_this_loop.notify_handle = NULL;
+  }
+  return &__yo_this_loop;
+}
+
+// How many waker tokens are alive for THIS loop.
+static size_t __yo_async_live_wakers(void) {
+  return atomic_load(&__yo_loop_self()->live_wakers);
+}
+
+// Is a foreign wake waiting to be drained?
+static bool __yo_async_has_xwake(void) {
+  return atomic_load(&__yo_loop_self()->xwake_count) > 0;
+}
+
+// Is this loop waiting on a blocking call running on another thread?
+static bool __yo_async_has_blocking_inflight(void) {
+  return atomic_load(&__yo_loop_self()->blocking_inflight) > 0;
+}
+
+// Could a wake still arrive from OUTSIDE this loop?
+//
+// The wake-deadlock report below reasons "in a single-threaded loop nothing
+// can fire it", which is exactly right and stops being right the moment the
+// process spawns a thread: that thread may be holding a waker token for a task
+// parked here. So with any thread in the process, a live waker is a reason to
+// WAIT rather than to conclude. A wake that never comes then hangs, which is
+// honest — the runtime cannot tell that apart from one that is merely slow,
+// and the same is true of every blocking join.
+static bool __yo_async_foreign_wake_possible(void) {
+  return (atomic_load(&__yo_threads_ever_spawned) > 0) && (__yo_async_live_wakers() > 0);
+}
+
+// spawn_blocking brackets: the loop must not conclude "nothing can happen"
+// while a worker thread is still going to wake it.
+static void __yo_async_blocking_begin(void) {
+  atomic_fetch_add(&__yo_loop_self()->blocking_inflight, 1);
+}
+static void __yo_async_blocking_end(void* loop_p) {
+  __yo_loop_t* loop = (__yo_loop_t*)loop_p;
+  if (!loop) {
+    return;
+  }
+  atomic_fetch_sub(&loop->blocking_inflight, 1);
+  __yo_io_notify(loop);
+}
+static void* __yo_async_loop_self_ptr(void) {
+  return (void*)__yo_loop_self();
+}
 typedef struct __yo_yield_node_t {
   __yo_io_future_t* future;
   struct __yo_yield_node_t* next;
 } __yo_yield_node_t;
 static ${thread_local} __yo_yield_node_t* __yo_yield_pending = NULL;
 static void __yo_async_drain_yields(void);
+static void __yo_async_drain_xwakes(void);
 static bool __yo_async_has_pending_yield(void);
 static bool __yo_async_has_pending_work(void);
 static void __yo_async_report_wake_deadlock(void);
@@ -153,6 +276,10 @@ static int __yo_async_strict_nesting(void) {
 // Returns the number of tasks resumed, so the caller knows whether anything a
 // blocking waiter watches may have changed in this step.
 static int __yo_async_run_ready_tasks(void) {
+  // BEFORE the budget snapshot: a foreign wake has already paid for a thread
+  // hop, so it runs in THIS step rather than the next one. (A yield is the
+  // opposite case and is drained after — see below.)
+  __yo_async_drain_xwakes();
   int budget = (int)__yo_thread_async_queue.count;
   // AFTER the snapshot, deliberately: a completed yield enqueues its
   // continuation past the budget, so it resumes in the NEXT step — with one
@@ -215,7 +342,9 @@ static void __yo_async_poll_step(void) {
     // (issues/fixed/event-loop-blocks-after-completing-the-awaited-future.md).
     // Same rule as __yo_async_wait_all's !tasks_processed.
     if (ran == 0 && !__yo_thread_async_queue.head && !__yo_async_has_pending_yield()
-        && __yo_has_pending_io()) {
+        && !__yo_async_has_xwake()
+        && ((__yo_has_pending_io() || __yo_async_has_blocking_inflight())
+            || __yo_async_foreign_wake_possible())) {
       __yo_io_wait();
     }
   }
@@ -232,10 +361,14 @@ static bool __yo_async_poll_step_live(void) {
   if (__yo_async_has_pending_yield()) {
     return true;
   }
+  if (__yo_async_has_xwake() || __yo_async_has_blocking_inflight()
+      || __yo_async_foreign_wake_possible()) {
+    return true;
+  }
   if (__yo_has_pending_io()) {
     return true;
   }
-  if (__yo_async_live_wakers > 0) {
+  if (__yo_async_live_wakers() > 0) {
     __yo_async_report_wake_deadlock();
   }
   return false;
@@ -253,6 +386,7 @@ static void __yo_async_run_until_complete(void* future_ptr) {
   int __future_state = future->state;
   while (__future_state != -1 && __future_state != -2) {
     int tasks_run = 0;
+    __yo_async_drain_xwakes();
     __yo_async_drain_yields();
     while (tasks_run < 100) {
       __yo_continuation_t* cont = __yo_thread_async_queue.head;
@@ -278,7 +412,9 @@ static void __yo_async_run_until_complete(void* future_ptr) {
       break;
     }
     if (tasks_run == 0 && !__yo_thread_async_queue.head
-        && !__yo_async_has_pending_yield() && __yo_has_pending_io()) {
+        && !__yo_async_has_pending_yield() && !__yo_async_has_xwake()
+        && ((__yo_has_pending_io() || __yo_async_has_blocking_inflight())
+            || __yo_async_foreign_wake_possible())) {
       __yo_io_wait();
       __future_state = future->state;
       continue;
@@ -317,6 +453,7 @@ static void __yo_async_wait_all(void) {
   __yo_io_init();
   while (true) {
     bool tasks_processed = false;
+    __yo_async_drain_xwakes();
     __yo_async_drain_yields();
     while (__yo_thread_async_queue.head) {
       __yo_continuation_t* cont = __yo_thread_async_queue.head;
@@ -331,13 +468,16 @@ static void __yo_async_wait_all(void) {
     }
     __yo_io_poll();
     if (!tasks_processed && !__yo_thread_async_queue.head
-        && !__yo_async_has_pending_yield() && __yo_has_pending_io()) {
+        && !__yo_async_has_pending_yield() && !__yo_async_has_xwake()
+        && ((__yo_has_pending_io() || __yo_async_has_blocking_inflight())
+            || __yo_async_foreign_wake_possible())) {
       __yo_io_wait();
       continue;
     }
     if (!__yo_thread_async_queue.head && !__yo_async_has_pending_yield()
-        && !__yo_has_pending_io()) {
-      if (__yo_async_live_wakers > 0) {
+        && !__yo_async_has_xwake() && !__yo_async_has_blocking_inflight()
+        && !__yo_async_foreign_wake_possible() && !__yo_has_pending_io()) {
+      if (__yo_async_live_wakers() > 0) {
         __yo_async_report_wake_deadlock();
       }
       break;
@@ -452,19 +592,21 @@ static void* __yo_waker_new(void* f) {
   if (!f) {
     return NULL;
   }
+  __yo_waker_token_t* t = (__yo_waker_token_t*)__yo_rc_alloc(sizeof(__yo_waker_token_t));
   __yo_incr_rc(f);
-  __yo_async_live_wakers++;
-  return f;
+  t->future = (__yo_io_future_t*)f;
+  t->owner = __yo_loop_self();
+  t->xnext = NULL;
+  atomic_init(&t->queued, 0);
+  atomic_init(&t->release_pending, 0);
+  atomic_fetch_add(&t->owner->live_wakers, 1);
+  return (void*)t;
 }
 
-// Make the parked task runnable. Idempotent: a second wake, or a wake of a
-// future that reached a terminal state some other way, is a no-op — which is
-// what lets a waiter list wake everyone without tracking who already ran.
-static void __yo_waker_wake(void* p) {
-  if (!p) {
-    return;
-  }
-  __yo_io_future_t* f = (__yo_io_future_t*)p;
+// Complete a park future and enqueue whoever is suspended on it. ONLY ever
+// called on the loop that owns the future, so every field it touches — the
+// ready queue included — is single-threaded exactly as before.
+static void __yo_waker_wake_local(__yo_io_future_t* f) {
   int expected = 0;
   if (!atomic_compare_exchange_strong(&f->state, &expected, -1)) {
     return;
@@ -477,12 +619,87 @@ static void __yo_waker_wake(void* p) {
   }
 }
 
+// Hand a token to its owner loop and nudge that loop awake. The push is the
+// only shared write, and the CAS above it makes a repeated wake free.
+static void __yo_waker_post(__yo_waker_token_t* t) {
+  __yo_loop_t* owner = t->owner;
+  int expected = 0;
+  if (!atomic_compare_exchange_strong(&t->queued, &expected, 1)) {
+    // Already on the inbox: the owner will see the state this wake just set.
+    __yo_io_notify(owner);
+    return;
+  }
+  __yo_mutex_lock(&owner->lock);
+  t->xnext = NULL;
+  if (owner->xwake_tail) {
+    owner->xwake_tail->xnext = t;
+  } else {
+    owner->xwake_head = t;
+  }
+  owner->xwake_tail = t;
+  atomic_fetch_add(&owner->xwake_count, 1);
+  __yo_mutex_unlock(&owner->lock);
+  __yo_io_notify(owner);
+}
+
+// Drain the inbox onto this loop's own ready queue. Takes the whole list under
+// the lock and then works outside it, so a wake raised while this runs lands
+// on the next list instead of blocking the waker.
+static void __yo_async_drain_xwakes(void) {
+  __yo_loop_t* loop = __yo_loop_self();
+  if (atomic_load(&loop->xwake_count) == 0) {
+    return;
+  }
+  __yo_mutex_lock(&loop->lock);
+  __yo_waker_token_t* t = loop->xwake_head;
+  loop->xwake_head = NULL;
+  loop->xwake_tail = NULL;
+  atomic_store(&loop->xwake_count, 0);
+  __yo_mutex_unlock(&loop->lock);
+  while (t) {
+    __yo_waker_token_t* next = t->xnext;
+    t->xnext = NULL;
+    atomic_store(&t->queued, 0);
+    if (t->future) {
+      __yo_waker_wake_local(t->future);
+    }
+    // A release raised on a foreign thread is deferred to here so the park
+    // future's non-atomic refcount is only ever touched by its own loop.
+    if (atomic_load(&t->release_pending)) {
+      if (t->future) {
+        __yo_decr_rc((void*)t->future);
+        t->future = NULL;
+      }
+      __yo_free(t);
+    }
+    t = next;
+  }
+}
+
+// Make the parked task runnable. Idempotent: a second wake, or a wake of a
+// future that reached a terminal state some other way, is a no-op — which is
+// what lets a waiter list wake everyone without tracking who already ran.
+static void __yo_waker_wake(void* p) {
+  if (!p) {
+    return;
+  }
+  __yo_waker_token_t* t = (__yo_waker_token_t*)p;
+  if (t->owner != __yo_loop_self()) {
+    __yo_waker_post(t);
+    return;
+  }
+  if (t->future) {
+    __yo_waker_wake_local(t->future);
+  }
+}
+
 // Non-blocking read: has this park future been woken?
 static bool __yo_waker_is_woken(void* p) {
   if (!p) {
     return true;
   }
-  return atomic_load(&((__yo_io_future_t*)p)->state) != 0;
+  __yo_io_future_t* f = ((__yo_waker_token_t*)p)->future;
+  return !f || atomic_load(&f->state) != 0;
 }
 
 // Drop a waker token.
@@ -490,10 +707,30 @@ static void __yo_waker_release(void* p) {
   if (!p) {
     return;
   }
-  if (__yo_async_live_wakers > 0) {
-    __yo_async_live_wakers--;
+  __yo_waker_token_t* t = (__yo_waker_token_t*)p;
+  __yo_loop_t* owner = t->owner;
+  size_t lw = atomic_load(&owner->live_wakers);
+  if (lw > 0) {
+    atomic_fetch_sub(&owner->live_wakers, 1);
   }
-  __yo_decr_rc(p);
+  if (owner != __yo_loop_self()) {
+    // The park future's refcount belongs to the owner loop, so the drop is
+    // deferred to it rather than taken here. The owner frees the token too.
+    atomic_store(&t->release_pending, 1);
+    __yo_waker_post(t);
+    return;
+  }
+  if (atomic_load(&t->queued)) {
+    // Still on this loop's own inbox (a foreign wake landed before the local
+    // release): mark it and let the drain do both.
+    atomic_store(&t->release_pending, 1);
+    return;
+  }
+  if (t->future) {
+    __yo_decr_rc((void*)t->future);
+    t->future = NULL;
+  }
+  __yo_free(t);
 }
 
 // ============================================================================
@@ -555,7 +792,10 @@ static void __yo_async_drain_yields(void) {
   n = fifo;
   while (n) {
     __yo_yield_node_t* next = n->next;
-    __yo_waker_wake((void*)n->future);
+    // The FUTURE-level completion, not __yo_waker_wake: that one takes a
+    // waker TOKEN now (it has to know which loop owns the park), and a yield
+    // has no token — it is its own loop's business by construction.
+    __yo_waker_wake_local(n->future);
     __yo_decr_rc((void*)n->future);
     __yo_free(n);
     n = next;
@@ -573,8 +813,9 @@ static bool __yo_async_has_pending_yield(void) {
 // decide there is nothing left to wait for and return with the parked task's
 // future unresolved.
 static bool __yo_async_has_pending_work(void) {
-  return __yo_has_pending_io() || __yo_async_live_wakers > 0
-    || __yo_async_has_pending_yield();
+  return __yo_has_pending_io() || __yo_async_live_wakers() > 0
+    || __yo_async_has_pending_yield() || __yo_async_has_xwake()
+    || __yo_async_has_blocking_inflight();
 }
 
 // Nothing runnable, no I/O outstanding, and yet a waker is alive: in a
@@ -583,11 +824,18 @@ static bool __yo_async_has_pending_work(void) {
 // with the future unresolved or spinning at 100% CPU. A lost wake is
 // otherwise invisible — it shows up as a hang, and on one platform only.
 static void __yo_async_report_wake_deadlock(void) {
+  // A blocking call running on another thread WILL wake this loop, so the
+  // premise of the report ("nothing can fire it") does not hold while one is
+  // outstanding.
+  if (__yo_async_has_blocking_inflight() || __yo_async_has_xwake()
+      || __yo_async_foreign_wake_possible()) {
+    return;
+  }
   fprintf(stderr,
     "panic: every async task is parked on a waker that nothing can fire "
     "(%zu waker token(s) alive, no runnable task, no pending I/O). A wake was "
     "lost, or two tasks are each waiting for the other.\\n",
-    __yo_async_live_wakers);
+    __yo_async_live_wakers());
   fflush(stderr);
 }
 

@@ -473,3 +473,25 @@ time as before the campaign; no latency issue observed, none pinned.
 - **Not done, deliberately.** `recur` stays: it is a language feature with its
   own tests, not an ordering workaround, and the 545 uses in `src/` read fine.
 
+### P6 as landed (2026-09-12) — `extern(...)` blocks are pending definitions
+
+- An `extern("Yo"/"c", label : type, …)` statement is classified as a
+  pending definition of the walk (`classify_pending_def`, `BK_EXTERN`), with
+  `PendingDef.members` = every declared label. A lookup miss on ANY member
+  forces the block (`_find_def_by_name` matches members), the resolution
+  returns the module frame's binding of the REQUESTED member
+  (`_def_variable_for`), and the walk skips the forced block at its own
+  position exactly like a forced `::` definition. `c_include(...)` is not a
+  pending definition: its declarations are C-header driven and stay ordered.
+- Found while writing `src/manifest.yo`: a body above the block that called
+  `__yo_errno()` was `E0401 Variable "__yo_errno" not found`
+  (`issues/fixed/extern-declarations-are-not-forward-referenceable.md`). The
+  same investigation found that `dyn(...)` evaluated its payload through the
+  exception-free evaluator, whose wrapper swallows a throw — an E0401 inside
+  `dyn(...)` hollowed the body silently; `values/dyn.yo` now uses
+  `evaluate_expression_raw(…, exn)`.
+- Seed gate, as for P5: the released seed lacks this, so `src/` and `std/`
+  keep declaring an `extern(...)` block above its first use until
+  `SEED_VERSION` carries a release with it.
+- Byte identity holds: the compiler's own emission is identical before and
+  after (an order-correct program forces nothing early).

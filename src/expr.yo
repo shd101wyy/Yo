@@ -34,6 +34,13 @@ BF_COMPTIME_FN :: "comptime_fn";
 BF_COMPTIME_PRINT :: "comptime_print";
 BF_COMPTIME_EXPECT_ERROR :: "comptime_expect_error";
 BF_COMPTIME_EVAL :: "comptime_eval";
+/// `comptime_read_file(path)` — read a file at compile time, bounded to the
+/// importing file's package root (§5.1).
+BF_COMPTIME_READ_FILE :: "comptime_read_file";
+/// `comptime_json_parse(text)` / `comptime_toml_parse(text)` — a data document
+/// as a `ComptimeValue` (§5.2).
+BF_COMPTIME_JSON_PARSE :: "comptime_json_parse";
+BF_COMPTIME_TOML_PARSE :: "comptime_toml_parse";
 BF_PANIC :: "__yo_panic";
 BF_ASM :: "asm";
 BF_GLOBAL_ASM :: "global_asm";
@@ -216,7 +223,6 @@ BF_YO_BUILD_STEP_DEPEND_ON :: "__yo_build_step_depend_on";
 BF_YO_BUILD_TARGET_HOST :: "__yo_build_target_host";
 BF_YO_BUILD_TARGET_PARSE :: "__yo_build_target_parse";
 BF_YO_BUILD_DEPENDENCY :: "__yo_build_dependency";
-BF_YO_BUILD_PATH_DEPENDENCY :: "__yo_build_path_dependency";
 BF_YO_BUILD_SYSTEM_LIBRARY :: "__yo_build_system_library";
 BF_YO_BUILD_LINK :: "__yo_build_link";
 BF_YO_BUILD_LINK_SYSTEM_LIBRARY :: "__yo_build_link_system_library";
@@ -224,10 +230,12 @@ BF_YO_BUILD_OPTION :: "__yo_build_option";
 BF_YO_BUILD_DEP_ARTIFACT :: "__yo_build_dep_artifact";
 BF_YO_BUILD_MODULE :: "__yo_build_module";
 BF_YO_BUILD_MODULE_LINK :: "__yo_build_module_link";
-BF_YO_BUILD_ADD_IMPORT :: "__yo_build_add_import";
 BF_YO_BUILD_ADD_CFLAGS :: "__yo_build_add_cflags";
 BF_YO_BUILD_DEP_MODULE :: "__yo_build_dep_module";
 BF_YO_BUILD_DOC :: "__yo_build_doc";
+/// `build.manifest.<field>` — one `[package]` value of the project's
+/// `yo.toml`, injected into the registry by the runner before `build.yo` runs.
+BF_YO_BUILD_MANIFEST_FIELD :: "__yo_build_manifest_field";
 // Comptime bool builtins
 BF_COMPTIME_BOOL_AND :: "__yo_comptime_bool_and";
 BF_COMPTIME_BOOL_OR :: "__yo_comptime_bool_or";
@@ -737,7 +745,7 @@ export(BK_FN, BK_UNSAFE_FN, BK_CTL, BK_FN_TRAIT, BK_ATOMIC, BK_STRUCT, BK_NEWTYP
 export(BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO);
 export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
 export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF, BK_INOUT);
-export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL);
+export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL, BF_COMPTIME_READ_FILE, BF_COMPTIME_JSON_PARSE, BF_COMPTIME_TOML_PARSE);
 export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START);
 export(BF_REQUIRES, BF_ENSURES, BF_INVARIANT, BF_DECREASES, BF_GHOST, BF_GHOST_FN, BF_OLD, BF_FORALL, BF_EXISTS, BF_IMPLIES, BF_SEQ_UNIT, BF_SEQ_APPEND, BF_SEQ_LEN, BF_SEQ_NTH, BF_STR_BYTES, BF_MS_SINGLE, BF_MS_ADD, BF_MS_COUNT, BF_SET_SINGLE, BF_SET_ADD, BF_SET_CONTAINS);
 export(BF_UNSAFE, BF_PRAGMA);
@@ -773,10 +781,11 @@ export(BF_YO_PROCESS_PLATFORM, BF_YO_PROCESS_ARCH, BF_YO_POINTER_SIZE_BITS);
 export(BF_YO_BUILD_EXECUTABLE, BF_YO_BUILD_STATIC_LIBRARY, BF_YO_BUILD_SHARED_LIBRARY);
 export(BF_YO_BUILD_TEST, BF_YO_BUILD_RUN, BF_YO_BUILD_STEP, BF_YO_BUILD_STEP_DEPEND_ON);
 export(BF_YO_BUILD_TARGET_HOST, BF_YO_BUILD_TARGET_PARSE, BF_YO_BUILD_DEPENDENCY);
-export(BF_YO_BUILD_PATH_DEPENDENCY, BF_YO_BUILD_SYSTEM_LIBRARY, BF_YO_BUILD_LINK);
+export(BF_YO_BUILD_SYSTEM_LIBRARY, BF_YO_BUILD_LINK);
 export(BF_YO_BUILD_LINK_SYSTEM_LIBRARY, BF_YO_BUILD_OPTION, BF_YO_BUILD_DEP_ARTIFACT);
-export(BF_YO_BUILD_MODULE, BF_YO_BUILD_MODULE_LINK, BF_YO_BUILD_ADD_IMPORT);
+export(BF_YO_BUILD_MODULE, BF_YO_BUILD_MODULE_LINK);
 export(BF_YO_BUILD_ADD_CFLAGS, BF_YO_BUILD_DEP_MODULE, BF_YO_BUILD_DOC);
+export(BF_YO_BUILD_MANIFEST_FIELD);
 export(BF_COMPTIME_BOOL_AND, BF_COMPTIME_BOOL_OR, BF_COMPTIME_BOOL_EQ, BF_COMPTIME_BOOL_NEQ);
 export(BF_COMPTIME_BOOL_NOT, BF_COMPTIME_BOOL_TO_COMPTIME_STRING);
 export(BF_COMPTIME_STRING_CONCAT, BF_COMPTIME_STRING_EQ, BF_COMPTIME_STRING_NEQ);

@@ -1,0 +1,249 @@
+//! evaluator/builtins/comptime_data — `comptime_json_parse` and
+//! `comptime_toml_parse` (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §5.2).
+//!
+//! Both take a compile-time string and yield a `ComptimeValue` — the prelude
+//! enum that models a data document with comptime scalars and `ComptimeList`,
+//! because no runtime container can exist at compile time.
+//!
+//! The parsers are NOT reimplemented here. `std/encoding/json` and
+//! `std/encoding/toml` run at the COMPILER's runtime, and their `JsonValue` /
+//! `TomlValue` results are lifted into `EvalValue`. One parser, one set of
+//! bugs, and no CTFE-promotion problem: the std code never has to be
+//! comptime-evaluable.
+//!
+//! A parse error is a compile error at the call site.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ast_expr_token, ast_expr_id, BF_COMPTIME_JSON_PARSE, BF_COMPTIME_TOML_PARSE } :: import("../../expr.yo");
+{ ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
+{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ EvalContext } :: import("../context.yo");
+{ EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ format_error_message } :: import("../../error.yo");
+{ evaluate_expression } :: import("../exprs/expr.yo");
+{ JsonValue, json_parse_string } :: import("std/encoding/json");
+{ TomlValue, toml_parse } :: import("std/encoding/toml");
+{ Exception } :: import("std/error");
+/// `StrLit` keeps its `"` delimiters; strip them positionally, the way codegen
+/// and `comptime_print` do.
+_unquote :: (fn(raw : String) -> String)({
+  n := raw.as_bytes().len();
+  if((n >= usize(2)) && raw.starts_with("\"") && raw.ends_with("\""), raw.substring(usize(1), n - usize(1)), raw.clone())
+});
+/// A `ComptimeValue` variant value. `fields` are the constructor arguments in
+/// declaration order; the variant name is dot-prefixed, which is how yo-self
+/// stores every enum value.
+_cv :: (fn(variant : String, fields : ArrayList(EvalValue)) -> EvalValue)(
+  EvalValue.EnumVal(`.${variant}`, fields)
+);
+_cv0 :: (fn(variant : String) -> EvalValue)(_cv(variant, ArrayList(EvalValue).new()));
+_cv1 :: (fn(variant : String, field : EvalValue) -> EvalValue)({
+  fs := ArrayList(EvalValue).new();
+  fs.push(field);
+  _cv(variant, fs)
+});
+/// Lift a parsed JSON value into the `ComptimeValue` shape.
+///
+/// JSON has ONE number type. A whole-valued number becomes `.Int`, everything
+/// else `.Float`, so `{"port": 8080}` reads back as an integer rather than as
+/// `8080.0` — which is what every use of this wants and what a reader would
+/// expect. The cut is on the value, not on the spelling: `8080.0` is also
+/// `.Int`, because the document cannot tell them apart.
+_lift_json :: (fn(v : JsonValue) -> EvalValue)(
+  match(
+    v,
+    .Null => _cv0(String.from("Null")),
+    .Bool(b) => _cv1(String.from("Bool"), EvalValue.BoolVal(b)),
+    .Number(n) => if(
+      n == f64(i64(n)),
+      _cv1(String.from("Int"), EvalValue.IntLit(i64(n).to_string())),
+      _cv1(String.from("Float"), EvalValue.FloatLit(n.to_string()))
+    ),
+    .Str(s) => _cv1(String.from("Str"), EvalValue.StrLit(`"${s}"`)),
+    .Array(items) => {
+      out := ArrayList(EvalValue).new();
+      (i : usize) = usize(0);
+      while(i < items.len(), {
+        match(items.get(i), .Some(it) => out.push(_lift_json(it)), .None => ());
+        i = (i + usize(1));
+      });
+      _cv1(String.from("List"), EvalValue.ComptimeListVal(out))
+    },
+    .Object(keys, values) => {
+      ks := ArrayList(EvalValue).new();
+      vs := ArrayList(EvalValue).new();
+      (i : usize) = usize(0);
+      while(i < keys.len(), {
+        match(keys.get(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
+        match(values.get(i), .Some(val) => vs.push(_lift_json(val)), .None => ());
+        i = (i + usize(1));
+      });
+      fs := ArrayList(EvalValue).new();
+      fs.push(EvalValue.ComptimeListVal(ks));
+      fs.push(EvalValue.ComptimeListVal(vs));
+      _cv(String.from("Table"), fs)
+    }
+  )
+);
+/// Lift a parsed TOML value into the `ComptimeValue` shape. TOML has no null,
+/// and its integers and floats are already distinct, so the mapping is direct.
+/// A datetime has no `ComptimeValue` variant and arrives as its TOML spelling
+/// in a `.Str` — the alternative is a variant no caller can do anything with.
+_lift_toml :: (fn(v : TomlValue) -> EvalValue)(
+  match(
+    v,
+    .Str(s) => _cv1(String.from("Str"), EvalValue.StrLit(`"${s}"`)),
+    .Int(n) => _cv1(String.from("Int"), EvalValue.IntLit(n.to_string())),
+    .Float(f) => _cv1(String.from("Float"), EvalValue.FloatLit(f.to_string())),
+    .Bool(b) => _cv1(String.from("Bool"), EvalValue.BoolVal(b)),
+    .Datetime(dt) => _cv1(String.from("Str"), EvalValue.StrLit(`"${dt.to_string()}"`)),
+    .Array(items) => {
+      out := ArrayList(EvalValue).new();
+      (i : usize) = usize(0);
+      while(i < items.len(), {
+        match(items.get(i), .Some(it) => out.push(_lift_toml(it)), .None => ());
+        i = (i + usize(1));
+      });
+      _cv1(String.from("List"), EvalValue.ComptimeListVal(out))
+    },
+    .Table(keys, values) => {
+      ks := ArrayList(EvalValue).new();
+      vs := ArrayList(EvalValue).new();
+      (i : usize) = usize(0);
+      while(i < keys.len(), {
+        match(keys.get(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
+        match(values.get(i), .Some(val) => vs.push(_lift_toml(val)), .None => ());
+        i = (i + usize(1));
+      });
+      fs := ArrayList(EvalValue).new();
+      fs.push(EvalValue.ComptimeListVal(ks));
+      fs.push(EvalValue.ComptimeListVal(vs));
+      _cv(String.from("Table"), fs)
+    }
+  )
+);
+/// The prelude's `ComptimeValue` type, so the result annotation carries the
+/// type a `match` will check against. Looked up by NAME in the environment —
+/// the same route `_resolve_prelude_range_type` takes for `Range`.
+_comptime_value_type :: (fn(env : Environment) -> Option(TypeValue))({
+  vars := get_variables_from_env(env, String.from("ComptimeValue"));
+  (i : usize) = usize(0);
+  while(i < vars.len(), {
+    match(
+      vars.get(i),
+      .Some(v) => match(
+        v.value.get(usize(0)),
+        .Some(val) => match(val, .TypeVal(t) => return(Option(TypeValue).Some(t)), _ => ()),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(TypeValue).None
+});
+/// The single compile-time string argument of `name`, or a thrown compile
+/// error. `.None` means "this is a trial run" — the argument has no value yet,
+/// so there is nothing to parse.
+_string_argument :: (
+  fn(name : String, expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> Option(String)
+)({
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  if(args.len() != usize(1), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected exactly 1 argument for "${name}", got ${args.len().to_string()}`
+        )
+      )
+    );
+  });
+  arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
+  evaluated := evaluate_expression(arg, env, ctx);
+  match(
+    match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+      .Some(info) => info.value,
+      .None => Option(EvalValue).None
+    ),
+    .Some(v) => match(
+      v,
+      .StrLit(raw) => Option(String).Some(_unquote(raw)),
+      .UnknownVal(_t, _r) => Option(String).None,
+      _ => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              `"${name}" needs a compile-time string, got a value of another kind`
+            )
+          )
+        );
+        Option(String).None
+      }
+    ),
+    .None => Option(String).None
+  )
+});
+/// Annotate `expr` with the `ComptimeValue` type and `value`.
+_annotate :: (fn(expr : AstExpr, value : Option(EvalValue), env : Environment, ctx : EvalContext) -> AstExpr)({
+  ty := match(_comptime_value_type(env), .Some(t) => t, .None => t_unit());
+  info := new_expr_info(env, ty);
+  info.value = value;
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr
+});
+evaluate_comptime_json_parse :: (
+  fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr
+)({
+  src := _string_argument(String.from(BF_COMPTIME_JSON_PARSE), expr, env, ctx, exn);
+  if(src.is_none(), {
+    return(_annotate(expr, Option(EvalValue).Some(EvalValue.UnknownVal(t_unit(), false)), env, ctx));
+  });
+  text := src.unwrap_or(String.new());
+  lifted := match(
+    json_parse_string(text.clone()),
+    .Ok(v) => _lift_json(v),
+    .Err(e) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `"${BF_COMPTIME_JSON_PARSE}" could not parse the input: ${e.to_string()}`
+          )
+        )
+      );
+      _cv0(String.from("Null"))
+    }
+  );
+  _annotate(expr, Option(EvalValue).Some(lifted), env, ctx)
+});
+evaluate_comptime_toml_parse :: (
+  fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr
+)({
+  src := _string_argument(String.from(BF_COMPTIME_TOML_PARSE), expr, env, ctx, exn);
+  if(src.is_none(), {
+    return(_annotate(expr, Option(EvalValue).Some(EvalValue.UnknownVal(t_unit(), false)), env, ctx));
+  });
+  text := src.unwrap_or(String.new());
+  lifted := match(
+    toml_parse(text.clone()),
+    .Ok(v) => _lift_toml(v),
+    .Err(e) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `"${BF_COMPTIME_TOML_PARSE}" could not parse the input: ${e.to_string()}`
+          )
+        )
+      );
+      _cv0(String.from("Null"))
+    }
+  );
+  _annotate(expr, Option(EvalValue).Some(lifted), env, ctx)
+});
+export(evaluate_comptime_json_parse, evaluate_comptime_toml_parse);

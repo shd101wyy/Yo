@@ -241,6 +241,29 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   `for_await` macro
   (`issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
   `plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
+- **`join_all` / `race` / `any` / `timeout` are TOP-LEVEL combinators — never
+  call one from inside an `io.async` body.** They wait by looping
+  `__yo_async_poll_step()`, and an `io.async` body always runs as a RESUMED
+  continuation, so the loop re-enters the event loop from inside a task: C37's
+  guard aborts under `YO_ASYNC_STRICT=1`, and without it the "concurrent" code
+  silently runs serially. To collect spawned work from inside an async body,
+  poll and yield, then read the results:
+
+  ```rust
+  // ✗ inside io.async — nests the event loop
+  outs := join_all(handles, io);
+
+  // ✓ every handle terminal first; then `await` reads without polling
+  while(runtime(_any_pending(handles)), { io.await(yield(io), io); });
+  (i : usize) = usize(0);
+  while(i < handles.len(), { outs.push(handles(i).await(io)); i = (i + usize(1)); });
+  ```
+
+  Keep the `while` CONDITION a plain `fn` — an `io.await` nested inside a
+  larger condition expression is one of the rejected shapes above. Gate any
+  `src/` code that spawns with a cli-case carrying `env=YO_ASYNC_STRICT=1`;
+  nothing else makes the nesting visible
+  (`issues/fixed/build-scheduler-join-all-nests-the-event-loop.md`).
 - **Build a combinator chain OUTSIDE the `io.async` body that awaits it.** An
   `=>` closure passed to a generic callback parameter INSIDE an async body
   leaves the enclosing future's result type unresolved, and the error lands on

@@ -1,0 +1,91 @@
+//! NOT a live test file — `spawn_blocking` is written but not exported yet
+//! (std/thread.yo says why). This is the test file to move back to
+//! `tests/spawn_blocking.test.yo` the day the closure-param half of
+//! issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md
+//! is fixed. It is kept here rather than deleted because it is the acceptance
+//! criterion `plans/WAKER_BASED_SCHEDULING.md` asks for, written and argued:
+//! the third test asserts by ORDERING, not by timing, and its blocking callee
+//! is bounded so a stalled loop fails with a zero reading instead of hanging.
+//! `std/thread`'s `spawn_blocking` — run a BLOCKING call on its own OS thread
+//! and await its result without stalling the event loop.
+//!
+//! This is the adopter of the cross-thread wake
+//! (`plans/WAKER_BASED_SCHEDULING.md` step 5): the worker finishes on a thread
+//! that does not own the awaiting task, so it posts the resumption to that
+//! task's loop and nudges it out of its I/O wait. Before the wake queue there
+//! was nowhere safe to put the continuation and no way to rouse the loop.
+//!
+//! The oracle is ORDERING, not timing: the blocking callee reports how much a
+//! sibling async task managed to do while it was blocked. A stalled loop makes
+//! that number zero, which fails — it does not hang, because the callee is
+//! bounded.
+{ assert } :: import("std/assert");
+{ spawn_blocking } :: import("std/thread");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ Duration } :: import("std/time/duration");
+{ sleep_blocking } :: import("std/time/sleep");
+{ yield } :: import("std/async");
+test("spawn_blocking returns the worker's value", {
+  n := io.await(spawn_blocking(() => (i32(20) + i32(22)), io), io);
+  assert(n == i32(42), "the blocking callee's value came back");
+});
+_Pair :: struct(lo : i32, hi : i32);
+test("spawn_blocking carries a non-scalar result", {
+  // A VALUE struct of Send fields. `String` is a non-atomic `ref` struct and
+  // so is deliberately not Send — it may not cross a thread, and the bound on
+  // `spawn_blocking` rejects it at compile time.
+  pr := io.await(spawn_blocking(() => _Pair(lo : i32(3), hi : i32(4)), io), io);
+  assert((pr.lo + pr.hi) == i32(7), "a value struct crossed back from the worker thread");
+});
+test("a sibling task keeps running while spawn_blocking blocks", {
+  progress := AtomicI32(i32(0));
+  // The sibling: an ordinary async task doing 40 turns of the loop.
+  sib := io.spawn(
+    io.async((io : Io) => {
+      (i : i32) = i32(0);
+      while(runtime(i < i32(40)), {
+        io.await(yield(io), io);
+        progress.fetch_add(i32(1), MemoryOrder.AcqRel);
+        i = (i + i32(1));
+      });
+      i32(0)
+    }),
+    io
+  );
+  // The blocking callee: a genuinely blocking sleep on its own thread, waiting
+  // for the sibling to make progress. BOUNDED, so a stalled loop fails with a
+  // zero reading instead of hanging the suite.
+  observed := io.await(
+    spawn_blocking(() => {
+      (spins : i32) = i32(0);
+      while(runtime((progress.load(MemoryOrder.Acquire) < i32(5)) && (spins < i32(200))), {
+        sleep_blocking(Duration.from_millis(i64(5)));
+        spins = (spins + i32(1));
+      });
+      progress.load(MemoryOrder.Acquire)
+    }, io),
+    io
+  );
+  assert(observed >= i32(5), "the event loop kept turning while the worker thread blocked");
+  _r := io.await(sib, io);
+  assert(progress.load(MemoryOrder.Acquire) == i32(40), "the sibling ran to completion");
+});
+test("two spawn_blocking calls in flight at once", {
+  a := io.spawn(
+    spawn_blocking(() => {
+      sleep_blocking(Duration.from_millis(i64(20)));
+      i32(1)
+    }, io),
+    io
+  );
+  b := io.spawn(
+    spawn_blocking(() => {
+      sleep_blocking(Duration.from_millis(i64(20)));
+      i32(2)
+    }, io),
+    io
+  );
+  ra := io.await(a, io);
+  rb := io.await(b, io);
+  assert((ra + rb) == i32(3), "both workers delivered");
+});

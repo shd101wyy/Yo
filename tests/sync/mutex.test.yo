@@ -85,12 +85,12 @@ test("Mutex serializes concurrent read-modify-write, losing no update", {
   // assertion: an off-by-any is a lost update.
   counter := Mutex(i64).new(i64(0));
   wg := WaitGroup.new();
-  handles := ArrayList(Thread).new();
+  handles := ArrayList(Thread(unit)).new();
   (t : i64) = i64(0);
   while(runtime(t < _THREADS), {
     wg.add(i32(1));
     handles.push(
-      Thread.spawn(io => {
+      Thread(unit).spawn(io => {
         (i : i64) = i64(0);
         while(runtime(i < _INCREMENTS_PER_THREAD), {
           counter.with_lock(v => {
@@ -131,12 +131,12 @@ test("A Mutex survives being locked and released repeatedly by many threads", {
   // thread must finish.
   m := Mutex(i64).new(i64(0));
   wg := WaitGroup.new();
-  handles := ArrayList(Thread).new();
+  handles := ArrayList(Thread(unit)).new();
   (t : i64) = i64(0);
   while(runtime(t < _THREADS), {
     wg.add(i32(1));
     handles.push(
-      Thread.spawn(io => {
+      Thread(unit).spawn(io => {
         (i : i64) = i64(0);
         while(runtime(i < i64(500)), {
           // Two separate critical sections per iteration: acquire, release,
@@ -186,7 +186,7 @@ test("try_with_lock returns None while ANOTHER thread holds the mutex", {
   m := Mutex(i64).new(i64(0));
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
-  holder := Thread.spawn(io => {
+  holder := Thread(unit).spawn(io => {
     m.with_lock(v => {
       held.send(i32(1));
       release.recv();
@@ -210,7 +210,7 @@ test("try_with_lock does not run the body when it fails", {
   ran := AtomicI32.new(i32(0));
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
-  holder := Thread.spawn(io => {
+  holder := Thread(unit).spawn(io => {
     m.with_lock(v => {
       held.send(i32(1));
       release.recv();
@@ -232,7 +232,7 @@ test("is_unlocked answers about the past, and says so", {
   assert(m.try_with_lock(v => v).is_some(), "is_unlocked released what it took");
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
-  holder := Thread.spawn(io => {
+  holder := Thread(unit).spawn(io => {
     m.with_lock(v => {
       held.send(i32(1));
       release.recv();

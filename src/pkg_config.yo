@@ -18,8 +18,7 @@ PkgConfigResult :: ref(
     include_paths : ArrayList(String),
     library_paths : ArrayList(String),
     link_libraries : ArrayList(String),
-    defines : ArrayList(String),
-    runtime_files : ArrayList(String)
+    defines : ArrayList(String)
   )
 );
 // The system-library entry type is the CANONICAL one from the build builtins
@@ -74,8 +73,7 @@ _empty_result :: (fn() -> PkgConfigResult)(
     include_paths : ArrayList(String).new(),
     library_paths : ArrayList(String).new(),
     link_libraries : ArrayList(String).new(),
-    defines : ArrayList(String).new(),
-    runtime_files : ArrayList(String).new()
+    defines : ArrayList(String).new()
   )
 );
 /// Parse pkg-config `--cflags` output into include_paths and c_flags.
@@ -178,34 +176,6 @@ _append_all :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> unit)({
     k = (k + usize(1));
   });
 });
-/// Append elements from `src` into `dst`, skipping duplicates.
-_append_all_unique :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> unit)({
-  s_k := usize(0);
-  s_n := src.len();
-  while(s_k < s_n, {
-    elem_opt := src.get(s_k);
-    elem := match(elem_opt, .None => String.new(), .Some(p) => p);
-    if(!elem.is_empty(), {
-      // Check if already present
-      d_k := usize(0);
-      d_n := dst.len();
-      found := false;
-      while(d_k < d_n, {
-        d_opt := dst.get(d_k);
-        d := match(d_opt, .None => String.new(), .Some(p) => p);
-        if(d == elem, {
-          found = true;
-          break;
-        });
-        d_k = (d_k + usize(1));
-      });
-      if(!found, {
-        dst.push(elem);
-      });
-    });
-    s_k = (s_k + usize(1));
-  });
-});
 /// Merge all fields of `src` into `dst` in-place.
 _merge_into :: (fn(dst : PkgConfigResult, src : PkgConfigResult) -> unit)({
   _append_all(dst.c_flags, src.c_flags);
@@ -214,7 +184,6 @@ _merge_into :: (fn(dst : PkgConfigResult, src : PkgConfigResult) -> unit)({
   _append_all(dst.library_paths, src.library_paths);
   _append_all(dst.link_libraries, src.link_libraries);
   _append_all(dst.defines, src.defines);
-  _append_all_unique(dst.runtime_files, src.runtime_files);
 });
 /// Check if `pkg-config` is available on this system.
 is_pkg_config_available :: (

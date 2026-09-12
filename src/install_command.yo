@@ -1,596 +1,615 @@
-//! Install command — `yo install` implementation.
+//! The dependency CLI over `yo.toml`
+//! (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.11):
 //!
-//! Parses a package specifier, resolves the latest semver tag via
-//! `git ls-remote`, appends the dependency to `deps.yo`, and fetches
-//! it into the global cache.
+//!   yo add <spec> [--dev] [--path <subdir>] [--name <n>] [--branch <b>] [--rev <sha>]
+//!   yo remove <name>
+//!   yo install
+//!   yo update [name…]
 //!
-//! This mirrors `src/install-command.ts`.
-pragma(Pragma.AllowUnsafe);
-{ rune, String } :: import("std/string");
+//! `add` edits the manifest in place through `toml_edit.yo` (comments kept),
+//! then resolves and fetches like `install`. `install` and `update` run the
+//! resolver (`src/resolver.yo`): every git package's ref is decided against
+//! EVERY requirement on it across the dependency graph, the trees are
+//! fetched into the global cache, and `yo.lock` v2 is written. `--locked`
+//! fails instead of changing the lock; `--offline` fails instead of touching
+//! the network; `yo update --latest` also bumps each `version` range in
+//! `yo.toml` to the newest release.
+{ String } :: import("std/string");
 { println } :: import("std/fmt");
 { env } :: import("std/env");
 { cwd } :: import("std/env");
 { Path } :: import("std/path");
-{ AnyError, Exception, IoExn } :: import("std/error");
+{ Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
-{ Command } :: import("std/process/command");
-{ exists, read, write_string } :: import("std/fs/file");
-{ BuildGitDependency, fetch_all_deps } :: import("./fetch.yo");
-{ generate_deps_yo } :: import("./init.yo");
-{ exit } :: import("std/libc/stdlib");
+{ exists, read_to_string, write_string } :: import("std/fs/file");
+{ LockFile } :: import("./lock_file.yo");
+{
+  Manifest,
+  DependencySource,
+  GitRequirement,
+  MANIFEST_FILENAME,
+  find_manifest,
+  load_manifest
+} :: import("./manifest.yo");
+{
+  parse_semver,
+  parse_version_req,
+  version_req_matches,
+  latest_release,
+  semver_tags_from_ls_remote,
+  ls_remote_tags,
+  resolve_default_branch,
+  resolve_latest_tag,
+  ResolveMode,
+  ResolveOptions,
+  resolve_and_fetch
+} :: import("./resolver.yo");
+{ set_entry, remove_entry, toml_string } :: import("./toml_edit.yo");
 // ---------------------------------------------------------------------------
-// Data types
+// Package specifiers (`yo add <spec>`)
 // ---------------------------------------------------------------------------
-/// Discriminated union of parsed package kinds.
-/// Git variant: (name, url, pinned_ref)
-/// Path variant: (name, rel_path)
+/// What `yo add` was given. `Git.requirement` is `.None` when the spec had no
+/// `@…` — the latest release tag is looked up.
 ParsedPackage :: enum(
-  Git(name : String, url : String, pinned_ref : Option(String)),
+  Git(name : String, url : String, requirement : Option(GitRequirement)),
   Path(name : String, rel_path : String)
 );
-/// A parsed semantic version tag.
-SemVer :: ref(
-  struct(
-    tag : String,
-    major : i32,
-    minor : i32,
-    patch : i32
-  )
-);
-/// Options for the `run_install` entry point.
-InstallOptions :: ref(
-  struct(
-    package_spec : String,
-    build_file : String,
-    verbose : bool
-  )
-);
-// ---------------------------------------------------------------------------
-// Pure string helpers
-// ---------------------------------------------------------------------------
 /// Return `true` if `spec` looks like a local file-system path.
 is_local_path :: (fn(spec : String) -> bool)(
   (spec == ".") || ((spec == "..") || (spec.starts_with(String.from("./")) || (spec.starts_with(String.from("../")) || spec.starts_with(String.from("/")))))
 );
-/// Extract the last path component from a URL or path, stripping `.git`.
+/// The last path component of a URL or path, stripped of `.git` and of a
+/// trailing `/`.
 _url_to_dep_name :: (fn(url : String) -> String)({
   s := url.clone();
-  s2 := if(
-    s.ends_with(String.from(".git")),
-    s.substring(usize(0), s.len() - usize(4)),
-    s
-  );
-  match(
+  if(s.ends_with("/"), {
+    s = s.substring(usize(0), s.len() - usize(1));
+  });
+  s2 := if(s.ends_with(String.from(".git")), s.substring(usize(0), s.len() - usize(4)), s);
+  after_slash := match(
     s2.last_index_of(String.from("/")),
     .None => s2,
     .Some(idx) => s2.substring(idx + usize(1), s2.len())
+  );
+  // `git@host:user/repo` — the name is after the last `/`, or after `:`.
+  match(
+    after_slash.last_index_of(String.from(":")),
+    .None => after_slash,
+    .Some(idx) => after_slash.substring(idx + usize(1), after_slash.len())
   )
 });
-/// Return `true` if every character in `s` is an ASCII digit.
-_is_all_digits :: (fn(s : String) -> bool)({
-  n := s.len();
-  if(n == usize(0), return(false));
-  i := usize(0);
-  ok := true;
-  while((i < n) && ok, {
-    match(
-      s.at(i),
-      .None => {
-        ok = false;
-      },
-      .Some(c) => if((c < rune(u32('0'))) || (c > rune(u32('9'))), {
-        ok = false;
-      })
-    );
-    i = (i + usize(1));
+/// `@…` suffix → requirement. A `v`-prefixed full version is an exact tag;
+/// anything else must parse as a range (`^1.2`, `~1`, `1.2.3`, `>=1, <2`,
+/// `*`). Branches and commits are flags (`--branch`, `--rev`), not `@`.
+_requirement_from_suffix :: (fn(suffix : String) -> Result(GitRequirement, String))({
+  if((suffix.starts_with("v") || suffix.starts_with("V")) && parse_semver(suffix.clone()).is_some(), {
+    return(Result(GitRequirement, String).Ok(GitRequirement.Tag(suffix)));
   });
-  ok
-});
-/// Parse a semver tag like "v1.2.3" or "1.2.3".
-/// Returns `.None` if the string is not a valid semver.
-_parse_semver_tag :: (fn(tag : String) -> Option(SemVer))({
-  n := tag.len();
-  if(n == usize(0), return(Option(SemVer).None));
-  first_char := match(
-    tag.at(usize(0)),
-    .None => {
-      return(Option(SemVer).None);
-    },
-    .Some(c) => c
-  );
-  stripped := if(
-    (first_char == rune(u32('v'))) || (first_char == rune(u32('V'))),
-    tag.substring(usize(1), n),
-    tag
-  );
-  parts := stripped.split(String.from("."));
-  if(!(parts.len() == usize(3)), return(Option(SemVer).None));
-  major_str := match(
-    parts.get(usize(0)),
-    .None => {
-      return(Option(SemVer).None);
-    },
-    .Some(s) => s
-  );
-  minor_str := match(
-    parts.get(usize(1)),
-    .None => {
-      return(Option(SemVer).None);
-    },
-    .Some(s) => s
-  );
-  patch_str := match(
-    parts.get(usize(2)),
-    .None => {
-      return(Option(SemVer).None);
-    },
-    .Some(s) => s
-  );
-  if(
-    !(_is_all_digits(major_str) && (_is_all_digits(minor_str) && _is_all_digits(patch_str))),
-    return(Option(SemVer).None)
-  );
-  major := match(
-    major_str.parse_i32(),
-    .None => {
-      return(Option(SemVer).None);
-    },
-    .Some(x) => x
-  );
-  minor := match(
-    minor_str.parse_i32(),
-    .None => {
-      return(Option(SemVer).None);
-    },
-    .Some(x) => x
-  );
-  patch := match(
-    patch_str.parse_i32(),
-    .None => {
-      return(Option(SemVer).None);
-    },
-    .Some(x) => x
-  );
-  Option(SemVer).Some(SemVer(tag : tag, major : major, minor : minor, patch : patch))
-});
-/// Compare two `SemVer` values. Returns positive if `a > b`, negative if `a < b`, 0 if equal.
-_compare_semver :: (fn(a : SemVer, b : SemVer) -> i32)(
-  if(
-    a.major != b.major,
-    if(a.major > b.major, i32(1), i32(-1)),
-    if(
-      a.minor != b.minor,
-      if(a.minor > b.minor, i32(1), i32(-1)),
-      if(
-        a.patch != b.patch,
-        if(a.patch > b.patch, i32(1), i32(-1)),
-        i32(0)
-      )
-    )
+  match(
+    parse_version_req(suffix.clone()),
+    .Ok(_) => Result(GitRequirement, String).Ok(GitRequirement.Version(suffix)),
+    .Err(msg) => Result(GitRequirement, String).Err(`"${suffix}" is neither a tag (v1.2.3) nor a version requirement (^1.2, ~1, >=1, <2, *): ${msg}. Use --branch or --rev for other refs.`)
   )
-);
-/// Scan `git ls-remote --tags` output and return the latest semver tag string.
-/// Returns `.None` if no valid semver tags are found.
-_parse_tags_for_latest_semver :: (fn(text : String) -> Option(String))({
-  lines := text.split(String.from("\n"));
-  tags := ArrayList(SemVer).new();
-  n := lines.len();
-  i := usize(0);
-  while(i < n, {
-    match(
-      lines.get(i),
-      .None => (),
-      .Some(line) => {
-        trimmed := line.trim();
-        // Skip empty lines and ^{} dereferenced tag objects
-        if((trimmed.len() > usize(0)) && !trimmed.ends_with(String.from("^{}")), {
-          parts := trimmed.split(String.from("\t"));
-          match(
-            parts.get(usize(1)),
-            .None => (),
-            .Some(ref_path) => {
-              prefix := String.from("refs/tags/");
-              if(ref_path.starts_with(prefix), {
-                tag_name := ref_path.substring(prefix.len(), ref_path.len());
-                match(
-                  _parse_semver_tag(tag_name),
-                  .None => (),
-                  .Some(sv) => {
-                    tags.push(sv);
-                  }
-                );
-              });
-            }
-          );
-        });
-      }
-    );
-    i = (i + usize(1));
-  });
-  // Find the maximum-version SemVer (linear scan — list is typically small)
-  if(tags.len() == usize(0), return(Option(String).None));
-  best := match(
-    tags.get(usize(0)),
-    .None => {
-      return(Option(String).None);
-    },
-    .Some(t) => t
-  );
-  j := usize(1);
-  while(j < tags.len(), {
-    match(
-      tags.get(j),
-      .None => (),
-      .Some(t) => if(_compare_semver(t, best) > i32(0), {
-        best = t;
-      })
-    );
-    j = (j + usize(1));
-  });
-  Option(String).Some(best.tag)
 });
-/// Parse a package specifier into a `ParsedPackage`.
+/// Parse a package specifier.
 ///
 /// Accepted forms:
-/// - `./path` / `../path` / `/abs/path` → `ParsedPackage.Path`
-/// - `user/repo`                         → GitHub shorthand
-/// - `github.com/user/repo`              → GitHub with explicit host
-/// - `github.com/user/repo@v1.0.0`       → GitHub with pinned version
-/// - `https://host/path.git@ref`         → full URL with optional ref
+/// - `./path` / `../path` / `/abs/path`   → `ParsedPackage.Path`
+/// - `user/repo`                          → GitHub shorthand
+/// - `github.com/user/repo`               → GitHub with explicit host
+/// - `https://host/path[.git]`            → any https/http remote
+/// - `git@host:path[.git]`, `ssh://…`     → ssh remotes, as written
+/// each optionally followed by `@<tag or range>`.
 parse_package_specifier :: (fn(spec : String) -> Result(ParsedPackage, String))({
   spec_str := spec.clone();
-  // Local path case
   if(is_local_path(spec_str), {
     name := _url_to_dep_name(spec_str);
-    return(
-      Result(ParsedPackage, String).Ok(
-        ParsedPackage.Path(name, spec)
-      )
-    );
+    return(Result(ParsedPackage, String).Ok(ParsedPackage.Path(name, spec)));
   });
-  // Split off optional @ref suffix (use last '@' so URLs with '@' in credentials are handled)
-  at_idx := spec.last_index_of(String.from("@"));
-  url_part := match(
-    at_idx,
-    .None => spec,
-    .Some(idx) => if(idx > usize(0), spec.substring(usize(0), idx), spec)
+  // The requirement is after the LAST `@` — but only when what follows it
+  // is not part of the remote (`git@github.com:user/repo` has no suffix).
+  (url_part : String) = spec.clone();
+  (suffix : Option(String)) = Option(String).None;
+  match(
+    spec.last_index_of(String.from("@")),
+    .None => (),
+    .Some(idx) => {
+      after := spec.substring(idx + usize(1), spec.len());
+      if((idx > usize(0)) && !(after.contains("/") || (after.contains(":") || (after.len() == usize(0)))), {
+        url_part = spec.substring(usize(0), idx);
+        suffix = Option(String).Some(after);
+      });
+    }
   );
-  pinned_ref := match(
-    at_idx,
-    .None => Option(String).None,
-    .Some(idx) => if(
-      idx > usize(0),
-      Option(String).Some(spec.substring(idx + usize(1), spec.len())),
-      Option(String).None
-    )
-  );
-  // Build canonical https URL
   url := cond(
-    (url_part.starts_with(String.from("https://")) || url_part.starts_with(String.from("http://"))) =>
-      if(
-        url_part.ends_with(String.from(".git")),
-        url_part,
-        url_part.concat(String.from(".git"))
-      ),
-    url_part.starts_with(String.from("github.com/")) => {
-      s := String.from("https://").concat(url_part);
-      if(s.ends_with(String.from(".git")), s, s.concat(String.from(".git")))
-    },
+    (url_part.starts_with(String.from("https://")) || (url_part.starts_with(String.from("http://")) || (url_part.starts_with(String.from("ssh://")) || (url_part.starts_with(String.from("git@")) || url_part.starts_with(String.from("file://")))))) => url_part.clone(),
+    url_part.starts_with(String.from("github.com/")) => String.from("https://").concat(url_part.clone()),
     true => {
       // Exactly two parts ("user/repo") → GitHub shorthand
       slash_parts := url_part.split(String.from("/"));
-      if(slash_parts.len() == usize(2), {
-        s := String.from("https://github.com/").concat(url_part);
-        if(s.ends_with(String.from(".git")), s, s.concat(String.from(".git")))
-      }, {
+      if((slash_parts.len() == usize(2)) && ((slash_parts(usize(0)).len() > usize(0)) && (slash_parts(usize(1)).len() > usize(0))), String.from("https://github.com/").concat(url_part.clone()), {
         return(
           Result(ParsedPackage, String).Err(
-            String.from("Invalid package specifier: \"").concat(spec).concat(
-              String.from("\". Use 'user/repo', 'github.com/user/repo', or a full URL.")
-            )
+            `Invalid package specifier: "${spec}". Use 'user/repo', 'github.com/user/repo', a full URL, or a local path.`
           )
         );
       })
     }
   );
-  name := _url_to_dep_name(url.clone());
-  Result(ParsedPackage, String).Ok(
-    ParsedPackage.Git(name, url, pinned_ref)
-  )
-});
-// ---------------------------------------------------------------------------
-// deps.yo text manipulation helpers
-// ---------------------------------------------------------------------------
-/// Return `true` if a dependency named `name` already appears in `content`.
-dependency_exists_in_deps_file :: (fn(content : String, name : String) -> bool)({
-  git_pat := name.concat(String.from(" :: build.dependency("));
-  path_pat := name.concat(String.from(" :: build.path_dependency("));
-  content.contains(git_pat) || content.contains(path_pat)
-});
-/// Scan `content` for dependency binding lines and return the binding names.
-///
-/// Looks for lines containing `:: build.dependency(` or
-/// `:: build.path_dependency(` and extracts the identifier before ` ::`.
-parse_dependency_names :: (fn(content : String) -> ArrayList(String))({
-  names := ArrayList(String).new();
-  all_lines := content.split(String.from("\n"));
-  n := all_lines.len();
-  i := usize(0);
-  while(i < n, {
-    match(
-      all_lines.get(i),
-      .None => (),
-      .Some(line) => {
-        trimmed := line.trim();
-        has_git := trimmed.contains(String.from(":: build.dependency("));
-        has_path := trimmed.contains(String.from(":: build.path_dependency("));
-        if(has_git || has_path, {
-          sep := String.from(" ::");
-          match(
-            trimmed.index_of(sep, usize(0)),
-            .None => (),
-            .Some(sep_idx) => {
-              name := trimmed.substring(usize(0), sep_idx).trim();
-              if(name.len() > usize(0), {
-                names.push(name);
-              });
-            }
-          );
-        });
+  requirement := match(
+    suffix,
+    .None => Option(GitRequirement).None,
+    .Some(s) => match(
+      _requirement_from_suffix(s),
+      .Ok(r) => Option(GitRequirement).Some(r),
+      .Err(msg) => {
+        return(Result(ParsedPackage, String).Err(msg));
       }
-    );
-    i = (i + usize(1));
-  });
-  names
+    )
+  );
+  name := _url_to_dep_name(url.clone());
+  Result(ParsedPackage, String).Ok(ParsedPackage.Git(name, url, requirement))
 });
-/// Build the `imports :: ComptimeList(...)` block for the given dep names.
-_build_imports_block :: (fn(dep_names : ArrayList(String)) -> String)({
-  n := dep_names.len();
-  if(n == usize(0), String.from("imports :: ComptimeList(build.ImportEntry)();\nexport(imports);\n"), {
-    block := String.from("imports :: ComptimeList(build.ImportEntry)(\n");
-    i := usize(0);
-    while(i < n, {
-      match(
-        dep_names.get(i),
-        .None => (),
-        .Some(dep_name) => {
-          entry := String.from("  { name: \"").concat(dep_name).concat(
-            String.from("\", module: ")
-          ).concat(dep_name).concat(String.from(".module() }"));
-          block = block.concat(entry);
-          if((i + usize(1)) < n, {
-            block = block.concat(String.from(",\n"));
-          }, {
-            block = block.concat(String.from("\n"));
-          });
-        }
-      );
-      i = (i + usize(1));
-    });
-    block.concat(String.from(");\nexport(imports);\n"))
-  })
-});
-/// Regenerate the `// --- Import list ---` … `export(imports);` section in
-/// `content` to match the dependency declarations found in the same content.
-regenerate_imports_list :: (fn(content : String) -> String)({
-  dep_names := parse_dependency_names(content);
-  marker := String.from("// --- Import list ---");
-  export_line := String.from("export(imports);");
-  imports_blk := _build_imports_block(dep_names);
-  marker_idx := content.index_of(marker, usize(0));
+// ---------------------------------------------------------------------------
+// The project
+// ---------------------------------------------------------------------------
+/// The user's working directory. `yo-cli` records it in `YO_ORIGINAL_CWD`
+/// before it changes directory, so that is the authority when present.
+_user_cwd :: (fn() -> String)(
   match(
-    marker_idx,
+    env.get(String.from("YO_ORIGINAL_CWD")),
+    .Some(d) => d,
+    .None => match(cwd(), .Ok(p) => p.to_string(), .Err(_) => String.from("."))
+  )
+);
+/// The manifest governing the user's cwd (the nearest `yo.toml` at or above
+/// it), loaded. An error when there is none or it does not parse.
+load_project_manifest :: (fn(exn : Exception) -> Manifest)({
+  start := _user_cwd();
+  path := match(
+    find_manifest(start.clone()),
+    .Some(p) => p,
     .None => {
-      // No marker — append at end
-      suffix := if(content.ends_with(String.from("\n")), String.new(), String.from("\n"));
-      content.concat(suffix).concat(String.from("\n")).concat(marker).concat(
-        String.from("\n")
-      ).concat(imports_blk)
-    },
-    .Some(m_idx) => {
-      export_idx := content.index_of(export_line, m_idx);
-      match(
-        export_idx,
-        .None =>
-          // Marker found but no `export(imports);` — replace to end
-          content.substring(usize(0), m_idx).concat(marker).concat(
-            String.from("\n")
-          ).concat(imports_blk),
-        .Some(e_idx) => {
-          // Replace from marker to end of "export(imports);\n"
-          end_idx := (e_idx + export_line.len() + usize(1));
-          prefix := content.substring(usize(0), m_idx);
-          tail := content.substring(end_idx, content.len());
-          prefix.concat(marker).concat(String.from("\n")).concat(imports_blk).concat(tail)
-        }
-      )
+      exn.throw(dyn(`Error: no ${MANIFEST_FILENAME} found in ${start} or any directory above it. Run 'yo init' to create a project.`));
+      String.new()
+    }
+  );
+  match(
+    load_manifest(path, exn),
+    .Ok(m) => m,
+    .Err(msg) => {
+      exn.throw(dyn(`Error: ${msg}`));
+      // unreachable — the throw unwinds
+      load_manifest(String.new(), exn).unwrap()
     }
   )
 });
-/// Insert `dep_line` after the `// --- Dependencies ---` marker (or append to
-/// the file) and return the updated content with the imports list regenerated.
-_append_dep_to_content :: (fn(content : String, dep_line : String) -> String)({
-  dep_marker := String.from("// --- Dependencies ---");
-  import_marker := String.from("// --- Import list ---");
-  dep_marker_idx := content.index_of(dep_marker, usize(0));
-  content2 := match(
-    dep_marker_idx,
-    .Some(d_idx) => {
-      // Insert after the marker line (skip past the marker and its newline)
-      insert_pos := (d_idx + dep_marker.len() + usize(1));
-      content.substring(usize(0), insert_pos).concat(dep_line).concat(
-        content.substring(insert_pos, content.len())
-      )
-    },
-    .None =>
-      // No dep marker — insert before the import list marker if present
-      match(
-        content.index_of(import_marker, usize(0)),
-        .Some(i_idx) => content.substring(usize(0), i_idx).concat(dep_line).concat(
-          String.from("\n")
-        ).concat(content.substring(i_idx, content.len())),
-        .None => {
-          suffix := if(content.ends_with(String.from("\n")), String.new(), String.from("\n"));
-          content.concat(suffix).concat(String.from("\n")).concat(dep_line)
-        }
-      )
-  );
-  // Regenerate the import list from the new content
-  regenerate_imports_list(content2)
-});
-// ---------------------------------------------------------------------------
-// File I/O helpers
-// ---------------------------------------------------------------------------
-/// Read `deps_path`, check for duplicate, insert `dep_line`, regenerate
-/// the imports list, and write the file back.
-/// Returns `true` if the dependency was added, `false` if it already existed.
-append_dep_to_deps_file :: (
-  fn(
-    deps_path : Path,
-    dep_line : String,
-    dep_name : String,
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(bool, IoExn))
-)(
-  io.async((e : IoExn) => {
-    // Create deps.yo from template if it does not exist yet
-    file_exists := e.io.await(exists(deps_path, e.io), e.io);
-    if(!file_exists, {
-      e.io.await(write_string(deps_path, String.from(generate_deps_yo()), e.io), e);
-    });
-    bytes := e.io.await(read(deps_path, e.io), e);
-    content := String.from_bytes(bytes);
-    if(dependency_exists_in_deps_file(content, dep_name), {
-      println(`Dependency "${dep_name}" already exists in deps.yo. Update it manually if needed.`);
-      return(false);
-    });
-    updated := _append_dep_to_content(content, dep_line);
-    e.io.await(write_string(deps_path, updated, e.io), e);
-    true
-  })
-);
-// ---------------------------------------------------------------------------
-// Git subprocess helpers
-// ---------------------------------------------------------------------------
-/// Resolve the default branch of a git repository (usually "main" or "master").
-/// Falls back to `"main"` on any error.
-resolve_default_branch :: (
-  fn(
-    url : String,
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(String, IoExn))
-)(
-  io.async((e : IoExn) => {
-    cmd := Command.new(String.from("git"));
-    cmd.arg(String.from("ls-remote"));
-    cmd.arg(String.from("--symref"));
-    cmd.arg(url);
-    cmd.arg(String.from("HEAD"));
-    // Nonzero exit (unreachable repo / no HEAD symref) falls back to "main";
-    // spawn failure (git missing) propagates through the ambient handler.
-    out := e.io.await(cmd.output(e.io), e);
-    if(!out.status.success(), return(String.from("main")));
-    text := String.from_bytes(out.stdout).trim();
-    lines := text.split(String.from("\n"));
-    prefix := String.from("ref: refs/heads/");
-    result := String.from("main");
-    n := lines.len();
-    i := usize(0);
-    while(i < n, {
-      match(
-        lines.get(i),
-        .None => (),
-        .Some(line) => {
-          if(line.starts_with(prefix), {
-            rest := line.substring(prefix.len(), line.len());
-            tab_opt := rest.index_of(String.from("\t"), usize(0));
-            branch := match(
-              tab_opt,
-              .None => rest,
-              .Some(ti) => rest.substring(usize(0), ti)
-            );
-            result = branch;
-          });
-        }
+/// The `{ git = …, version = … }` / `{ path = … }` text `yo add` writes.
+dependency_value_text :: (fn(source : DependencySource) -> String)(
+  match(
+    source,
+    .Path(p) => `{ path = ${toml_string(p)} }`,
+    .Git(url, req, subdir) => {
+      pin := match(
+        req,
+        .DefaultBranch => String.new(),
+        .Version(v) => `, version = ${toml_string(v)}`,
+        .Tag(t) => `, tag = ${toml_string(t)}`,
+        .Branch(b) => `, branch = ${toml_string(b)}`,
+        .Rev(r) => `, rev = ${toml_string(r)}`
       );
-      i = (i + usize(1));
-    });
-    result
-  })
+      sub := if(subdir.len() > usize(0), `, path = ${toml_string(subdir)}`, String.new());
+      `{ git = ${toml_string(url)}${pin}${sub} }`
+    }
+  )
 );
-/// Resolve the latest semver tag from a git repository via `git ls-remote`.
-/// Falls back to the default branch if no semver tags are found.
-/// Returns `Err(msg)` if the repository cannot be reached.
-resolve_latest_ref :: (
+// ---------------------------------------------------------------------------
+// Resolution + fetch
+// ---------------------------------------------------------------------------
+/// Resolve the manifest's dependency graph and fetch it (the resolver's
+/// `resolve_and_fetch`), then print where each package lives. `mode` is what
+/// `yo update` asked for (`Install` keeps every satisfying lock entry).
+install_dependencies :: (
   fn(
-    url : String,
+    manifest : Manifest,
+    mode : ResolveMode,
+    locked : bool,
+    offline : bool,
     verbose : bool,
     io : Io,
     exn : Exception
-  ) -> Impl(Future(Result(String, String), IoExn))
+  ) -> Impl(Future(LockFile, IoExn))
 )(
   io.async((e : IoExn) => {
-    // Disable interactive credential prompts
-    env.set(String.from("GIT_TERMINAL_PROMPT"), String.from("0"));
-    cmd := Command.new(String.from("git"));
-    cmd.arg(String.from("ls-remote"));
-    cmd.arg(String.from("--tags"));
-    cmd.arg(url);
-    // Nonzero exit (repository not found / not accessible) yields Err below;
-    // spawn failure (git missing) propagates through the ambient handler.
-    out := e.io.await(cmd.output(e.io), e);
-    if(
-      !out.status.success(),
-      return(
-        Result(String, String).Err(
-          String.from("Repository not found or not accessible: ").concat(url)
-        )
-      )
-    );
-    text := String.from_bytes(out.stdout).trim();
-    semver_opt := _parse_tags_for_latest_semver(text);
-    match(
-      semver_opt,
-      .Some(latest_tag) => {
-        if(verbose, {
-          println(`  Found semver tags, latest: ${latest_tag}`);
-        });
-        Result(String, String).Ok(latest_tag)
+    options := ResolveOptions(mode : mode, locked : locked, offline : offline, verbose : verbose);
+    lock := e.io.await(resolve_and_fetch(manifest, options, e.io, e.exn), e);
+    (i : usize) = usize(0);
+    while(i < lock.packages.len(), {
+      p := lock.packages(i);
+      where_ := cond(
+        p.is_git() => `${p.ref()} (${p.commit.substring(usize(0), usize(12))})`,
+        true => p.path()
+      );
+      println(`  ${p.name} → ${where_}`);
+      i = (i + usize(1));
+    });
+    lock
+  })
+);
+// ---------------------------------------------------------------------------
+// yo add
+// ---------------------------------------------------------------------------
+/// Options for `run_add`.
+AddOptions :: ref(
+  struct(
+    package_spec : String,
+    /// Write to `[dev-dependencies]`.
+    dev : bool,
+    /// The package's directory inside the repository (`{ path = … }` on a git
+    /// dependency).
+    subdir : Option(String),
+    /// Import name override (default: the repository / directory name).
+    name : Option(String),
+    branch : Option(String),
+    rev : Option(String),
+    verbose : bool
+  )
+);
+/// `yo add <spec>`: add one dependency to `yo.toml` (in place), then resolve
+/// and fetch every git dependency and write `yo.lock`.
+run_add :: (
+  fn(
+    options : AddOptions,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    manifest := load_project_manifest(e.exn);
+    parsed := match(
+      parse_package_specifier(options.package_spec.clone()),
+      .Err(msg) => {
+        e.exn.throw(dyn(`Error: ${msg}`));
+        ParsedPackage.Path(String.new(), String.new())
       },
-      .None => {
-        if(verbose, {
-          println("  No semver tags found, resolving default branch...");
+      .Ok(p) => p
+    );
+    if(options.branch.is_some() && options.rev.is_some(), {
+      e.exn.throw(dyn(String.from("Error: --branch and --rev cannot be combined")));
+    });
+    // Plain locals for the async body's awaits (each await is a top-level
+    // statement below).
+    (dep_name : String) = String.new();
+    (source : Option(DependencySource)) = Option(DependencySource).None;
+    (needs_latest : bool) = false;
+    (is_path : bool) = false;
+    (git_url : String) = String.new();
+    (git_subdir : String) = String.new();
+    // One match on `parsed` (see install_dependencies).
+    match(
+      parsed,
+      .Path(p_name, p_rel_path) => {
+        is_path = true;
+        if(options.branch.is_some() || (options.rev.is_some() || options.subdir.is_some()), {
+          e.exn.throw(dyn(String.from("Error: --branch, --rev and --path apply to git dependencies only")));
         });
-        branch := e.io.await(resolve_default_branch(url, e.io, e.exn), e);
-        Result(String, String).Ok(branch)
+        dep_name = match(options.name, .Some(n) => n, .None => p_name);
+        // Stored relative to the manifest's directory, however it was typed.
+        abs := if(
+          Path.new(p_rel_path.clone()).is_absolute(),
+          Path.new(p_rel_path.clone()).normalize(),
+          Path.new(_user_cwd()).join(Path.new(p_rel_path.clone())).normalize()
+        );
+        rel := abs.relative_to(Path.new(manifest.dir.clone())).to_string();
+        stored := if(rel.len() == usize(0), String.from("."), rel);
+        source = Option(DependencySource).Some(DependencySource.Path(stored));
+        git_url = abs.to_string();
+      },
+      .Git(g_name, g_url, g_requirement) => {
+        dep_name = match(options.name, .Some(n) => n, .None => g_name);
+        git_url = g_url.clone();
+        git_subdir = match(options.subdir, .Some(s) => s, .None => String.new());
+        requirement := match(
+          options.rev,
+          .Some(r) => {
+            if(g_requirement.is_some(), {
+              e.exn.throw(dyn(String.from("Error: --rev cannot be combined with an @version")));
+            });
+            Option(GitRequirement).Some(GitRequirement.Rev(r))
+          },
+          .None => match(
+            options.branch,
+            .Some(b) => {
+              if(g_requirement.is_some(), {
+                e.exn.throw(dyn(String.from("Error: --branch cannot be combined with an @version")));
+              });
+              Option(GitRequirement).Some(GitRequirement.Branch(b))
+            },
+            .None => g_requirement
+          )
+        );
+        match(
+          requirement,
+          .Some(r) => {
+            source = Option(DependencySource).Some(DependencySource.Git(g_url, r, git_subdir.clone()));
+          },
+          .None => {
+            needs_latest = true;
+          }
+        );
+      }
+    );
+    if(dep_name.len() == usize(0), {
+      e.exn.throw(dyn(String.from("Error: cannot derive a dependency name from the specifier; pass --name <name>")));
+    });
+    if(dep_name.contains("/"), {
+      e.exn.throw(dyn(`Error: dependency name "${dep_name}" may not contain "/"`));
+    });
+    if(is_path, {
+      present := e.io.await(exists(Path.new(git_url.clone()), e.io), e.io);
+      if(!present, {
+        e.exn.throw(dyn(`Error: Path does not exist: ${git_url}`));
+      });
+    });
+    if(needs_latest, {
+      println(`Resolving latest version for ${dep_name}...`);
+      latest := e.io.await(resolve_latest_tag(git_url.clone(), options.verbose, e.io, e.exn), e);
+      source = match(
+        latest,
+        .Err(msg) => {
+          e.exn.throw(dyn(`Error: ${msg}\nEnsure the repository exists and is accessible: ${git_url}`));
+          Option(DependencySource).None
+        },
+        .Ok(tag_opt) => match(
+          tag_opt,
+          .Some(tag) => {
+            // `v1.2.3` → `^1.2.3`: the range that follows compatible releases.
+            sv := parse_semver(tag.clone()).unwrap();
+            range := `^${sv.major.to_string()}.${sv.minor.to_string()}.${sv.patch.to_string()}`;
+            Option(DependencySource).Some(DependencySource.Git(git_url.clone(), GitRequirement.Version(range), git_subdir.clone()))
+          },
+          .None => Option(DependencySource).None
+        )
+      );
+    });
+    if(needs_latest && source.is_none(), {
+      // No release tags: pin the default branch by name; the lock pins the
+      // commit.
+      branch := e.io.await(resolve_default_branch(git_url.clone(), e.io, e.exn), e);
+      source = Option(DependencySource).Some(DependencySource.Git(git_url.clone(), GitRequirement.Branch(branch), git_subdir.clone()));
+    });
+    value := dependency_value_text(source.unwrap());
+    table := if(options.dev, String.from("dev-dependencies"), String.from("dependencies"));
+    other_table := if(options.dev, String.from("dependencies"), String.from("dev-dependencies"));
+    match(
+      manifest.find_dependency(dep_name.clone()),
+      .Some(existing) => if(existing.dev != options.dev, {
+        e.exn.throw(dyn(`Error: "${dep_name}" is already declared in [${other_table}]; run 'yo remove ${dep_name}' first`));
+      }),
+      .None => ()
+    );
+    text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
+    edited := match(
+      set_entry(text, table.clone(), dep_name.clone(), value.clone()),
+      .Ok(t) => t,
+      .Err(msg) => {
+        e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
+        String.new()
+      }
+    );
+    e.io.await(write_string(Path.new(manifest.path.clone()), edited, e.io), e);
+    println(`Added ${dep_name} = ${value} to [${table}] in ${MANIFEST_FILENAME}`);
+    // Re-read: the edit is the source of truth for what gets fetched.
+    updated := match(
+      load_manifest(manifest.path.clone(), e.exn),
+      .Ok(m) => m,
+      .Err(msg) => {
+        e.exn.throw(dyn(`Error: ${msg}`));
+        manifest
+      }
+    );
+    _ := e.io.await(install_dependencies(updated, ResolveMode.Install, false, false, options.verbose, e.io, e.exn), e);
+    println(`Done. Import it with import("${dep_name}").`);
+    ()
+  })
+);
+// ---------------------------------------------------------------------------
+// yo remove
+// ---------------------------------------------------------------------------
+/// `yo remove <name>`: delete the dependency from `yo.toml` and prune it from
+/// `yo.lock`.
+run_remove :: (
+  fn(
+    name : String,
+    verbose : bool,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    manifest := load_project_manifest(e.exn);
+    if(manifest.find_dependency(name.clone()).is_none(), {
+      e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${name}"`));
+    });
+    text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
+    (edited : String) = text.clone();
+    (removed_from : String) = String.new();
+    match(
+      remove_entry(text.clone(), String.from("dependencies"), name.clone()),
+      .Ok(r) => match(
+        r,
+        .Some(t) => {
+          edited = t;
+          removed_from = String.from("dependencies");
+        },
+        .None => ()
+      ),
+      .Err(msg) => {
+        e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
+      }
+    );
+    if(removed_from.len() == usize(0), {
+      match(
+        remove_entry(text.clone(), String.from("dev-dependencies"), name.clone()),
+        .Ok(r) => match(
+          r,
+          .Some(t) => {
+            edited = t;
+            removed_from = String.from("dev-dependencies");
+          },
+          .None => ()
+        ),
+        .Err(msg) => {
+          e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
+        }
+      );
+    });
+    if(removed_from.len() == usize(0), {
+      e.exn.throw(dyn(`Error: ${manifest.path}: could not locate the entry for "${name}"`));
+    });
+    e.io.await(write_string(Path.new(manifest.path.clone()), edited, e.io), e);
+    println(`Removed ${name} from [${removed_from}] in ${MANIFEST_FILENAME}`);
+    updated := match(
+      load_manifest(manifest.path.clone(), e.exn),
+      .Ok(m) => m,
+      .Err(msg) => {
+        e.exn.throw(dyn(`Error: ${msg}`));
+        manifest
+      }
+    );
+    // Prunes the lock entry; nothing is fetched that is already cached.
+    _ := e.io.await(install_dependencies(updated, ResolveMode.Install, false, false, verbose, e.io, e.exn), e);
+    println("Done.");
+    ()
+  })
+);
+// ---------------------------------------------------------------------------
+// yo install / yo update
+// ---------------------------------------------------------------------------
+/// What `yo install` / `yo update` were asked to do.
+InstallOptions :: ref(
+  struct(
+    /// `yo update`: re-resolve (the named packages, or all).
+    update : bool,
+    names : ArrayList(String),
+    /// `yo update --latest`: also raise each named `version` range in
+    /// `yo.toml` to the newest release (`^X.Y.Z`).
+    latest : bool,
+    /// Fail if `yo.lock` would change.
+    locked : bool,
+    /// Fail if the network would be needed.
+    offline : bool,
+    verbose : bool
+  )
+);
+/// `yo update --latest`: for each git dependency with a `version`
+/// requirement (the named ones, or all), look up the newest release tag and,
+/// when it is outside the current range, rewrite the range to `^X.Y.Z` in
+/// place. Returns the manifest re-read after the edits. One loop with awaits,
+/// every await a top-level statement.
+_bump_ranges_to_latest :: (
+  fn(
+    manifest : Manifest,
+    names : ArrayList(String),
+    verbose : bool,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Manifest, IoExn))
+)(
+  io.async((e : IoExn) => {
+    text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
+    (edited : String) = text;
+    (changed : bool) = false;
+    deps := manifest.git_dependencies();
+    (i : usize) = usize(0);
+    while(i < deps.len(), {
+      dep := deps(i);
+      i = (i + usize(1));
+      // Decide everything about this dependency in ONE match on its source
+      // (seed: two matches on one async local redeclare its C copy).
+      (url : String) = String.new();
+      (range_text : String) = String.new();
+      (subdir : String) = String.new();
+      match(
+        dep.source,
+        .Git(u, r, sd) => {
+          url = u;
+          subdir = sd;
+          range_text = match(r, .Version(v) => v, _ => String.new());
+        },
+        .Path(_) => ()
+      );
+      (named : bool) = (names.len() == usize(0));
+      (ni : usize) = usize(0);
+      while(ni < names.len(), {
+        if(names(ni) == dep.name, {
+          named = true;
+        });
+        ni = (ni + usize(1));
+      });
+      wanted := (named && (range_text.len() > usize(0)));
+      if(wanted, {
+        listed := e.io.await(ls_remote_tags(url.clone(), e.io, e.exn), e);
+        tags_text := match(
+          listed,
+          .Ok(t) => t,
+          .Err(msg) => {
+            e.exn.throw(dyn(`Error: ${msg}`));
+            String.new()
+          }
+        );
+        newest := latest_release(semver_tags_from_ls_remote(tags_text));
+        req := match(
+          parse_version_req(range_text.clone()),
+          .Ok(r) => r,
+          .Err(msg) => {
+            e.exn.throw(dyn(`Error: ${manifest.path}: dependency "${dep.name}": version requirement "${range_text}": ${msg}`));
+            parse_version_req(String.from("*")).unwrap()
+          }
+        );
+        match(
+          newest,
+          .None => println(`  ${dep.name}: ${url} has no release tags; "${range_text}" kept`),
+          .Some(sv) => if(version_req_matches(req, sv), {
+            if(verbose, {
+              println(`  ${dep.name}: the newest release ${sv.tag} is within "${range_text}"`);
+            });
+          }, {
+            new_range := `^${sv.version_text()}`;
+            value := dependency_value_text(DependencySource.Git(url.clone(), GitRequirement.Version(new_range.clone()), subdir.clone()));
+            table := if(dep.dev, String.from("dev-dependencies"), String.from("dependencies"));
+            edited = match(
+              set_entry(edited.clone(), table, dep.name.clone(), value),
+              .Ok(t) => t,
+              .Err(msg) => {
+                e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
+                String.new()
+              }
+            );
+            changed = true;
+            println(`  ${dep.name}: "${range_text}" → "${new_range}" (${sv.tag})`);
+          })
+        );
+      });
+    });
+    if(!changed, {
+      return(manifest);
+    });
+    e.io.await(write_string(Path.new(manifest.path.clone()), edited, e.io), e);
+    match(
+      load_manifest(manifest.path.clone(), e.exn),
+      .Ok(m) => m,
+      .Err(msg) => {
+        e.exn.throw(dyn(`Error: ${msg}`));
+        manifest
       }
     )
   })
 );
-/// Print guidance for adding `deps.yo` to `build.yo` if not already done.
-_print_add_import_guidance :: (fn(build_path : Path, project_dir : Path) -> unit)({
-  build_exists_sync := true; // build_path was verified above
-  if(build_exists_sync, {
-    // Read build.yo synchronously would require Io — skip check and always print guidance.
-    // (In practice the user already has deps.yo wired if they ran install before.)
-    println("If you haven't already, add the following to your build.yo:");
-    println("  { imports } :: import(\"./deps.yo\");");
-    println("  exe.add_import_list(imports);");
-  });
-  ()
-});
-// ---------------------------------------------------------------------------
-// Main install entry point
-// ---------------------------------------------------------------------------
-/// Run `yo install <package_spec>`.
-///
-/// 1. Parse `options.package_spec`.
-/// 2. Locate `build.yo` (ensures we are inside a project).
-/// 3. Resolve the latest semver ref if none was pinned.
-/// 4. Append a declaration to `deps.yo` (create it if absent).
-/// 5. Fetch the new dependency into the global cache and update `yo.lock`.
+/// `yo install`: resolve and fetch the dependency graph and write `yo.lock`
+/// (a lock entry that still satisfies every requirement on it is kept).
+/// `yo update [name…]`: re-resolve the named dependencies (all when `names`
+/// is empty); `--latest` first raises their ranges to the newest release.
 run_install :: (
   fn(
     options : InstallOptions,
@@ -599,127 +618,65 @@ run_install :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    // 1. Parse package specifier
-    parsed_result := parse_package_specifier(options.package_spec);
-    parsed := match(
-      parsed_result,
-      .Err(msg) => {
-        println(`Error: ${msg}`);
-        unsafe(exit(int(1)));
-        ParsedPackage.Git(String.new(), String.new(), Option(String).None) // unreachable — satisfies type checker
-      },
-      .Ok(p) => p
-    );
-    // 2. Locate build.yo (determines project root)
-    user_cwd_str := match(
-      cwd(),
-      .Err(_) => String.from("."),
-      .Ok(p) => p.to_string()
-    );
-    yo_original_cwd := match(
-      env.get(String.from("YO_ORIGINAL_CWD")),
-      .None => user_cwd_str,
-      .Some(s) => s
-    );
-    build_path := Path.new(yo_original_cwd).join(Path.new(options.build_file));
-    build_exists := e.io.await(exists(build_path, e.io), e.io);
-    if(!build_exists, {
-      println(`Error: Build file not found: ${build_path.to_string()}`);
-      println("Run 'yo init' to create a project with a build.yo file.");
-      unsafe(exit(int(1)));
+    manifest := load_project_manifest(e.exn);
+    (ni : usize) = usize(0);
+    while(ni < options.names.len(), {
+      if(manifest.find_dependency(options.names(ni)).is_none(), {
+        e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${options.names(ni)}"`));
+      });
+      ni = (ni + usize(1));
     });
-    project_dir := match(
-      build_path.parent(),
-      .None => Path.new(String.from(".")),
-      .Some(p) => p
-    );
-    deps_path := project_dir.join(Path.new(String.from("deps.yo")));
-    // 3. Handle path vs. git dependency
-    match(
-      parsed,
-      .Path(p_name, p_rel_path) => {
-        // Local path dependency — just append, no git needed
-        rel_path := p_rel_path.clone();
-        path_exists := e.io.await(exists(Path.new(p_rel_path), e.io), e.io);
-        if(!path_exists, {
-          println(`Error: Path does not exist: ${rel_path}`);
-          unsafe(exit(int(1)));
-        });
-        dep_line := p_name.concat(
-          String.from(" :: build.path_dependency({ name: \"")
-        ).concat(p_name).concat(
-          String.from("\", path: \"")
-        ).concat(p_rel_path).concat(String.from("\" });\n"));
-        added := e.io.await(append_dep_to_deps_file(deps_path, dep_line, p_name.clone(), e.io, e.exn), e);
-        if(added, {
-          println(
-            String.from("Added path dependency \"").concat(p_name).concat(
-              String.from("\" from ")
-            ).concat(p_rel_path).concat(String.from(" to deps.yo"))
+    if(options.latest && !options.update, {
+      e.exn.throw(dyn(String.from("Error: --latest belongs to `yo update`")));
+    });
+    if(options.latest && options.locked, {
+      e.exn.throw(dyn(String.from("Error: --latest edits yo.toml and yo.lock; it cannot be combined with --locked")));
+    });
+    if(options.latest && options.offline, {
+      e.exn.throw(dyn(String.from("Error: --latest needs the network; it cannot be combined with --offline")));
+    });
+    if(manifest.dependencies.len() == usize(0), {
+      println(`No dependencies declared in ${manifest.path}.`);
+    }, {
+      println(`Found ${manifest.dependencies.len().to_string()} dependency(ies) in ${manifest.path}:`);
+    });
+    (i : usize) = usize(0);
+    while(i < manifest.dependencies.len(), {
+      d := manifest.dependencies(i);
+      match(
+        d.source,
+        .Git(url, req, _) => {
+          pin := match(
+            req,
+            .DefaultBranch => String.from("default branch"),
+            .Version(v) => `version ${v}`,
+            .Tag(t) => `tag ${t}`,
+            .Branch(b) => `branch ${b}`,
+            .Rev(r) => `rev ${r}`
           );
-        });
-        println("");
-        _print_add_import_guidance(build_path, project_dir);
-        println("Done.");
-      },
-      .Git(g_name, g_url, g_pinned_ref) => {
-        if(options.verbose, {
-          println(`Package: ${g_name}`);
-          println(`URL: ${g_url}`);
-        });
-        // Resolve the git ref
-        ref_str := match(
-          g_pinned_ref,
-          .Some(r) => {
-            println(`Installing ${g_name} @ ${r} ...`);
-            r
-          },
-          .None => {
-            println(`Resolving latest version for ${g_name}...`);
-            ref_result := e.io.await(resolve_latest_ref(g_url, options.verbose, e.io, e.exn), e);
-            match(
-              ref_result,
-              .Err(msg) => {
-                println(`Error: ${msg}`);
-                println(`Ensure the repository exists and is accessible: ${g_url}`);
-                unsafe(exit(int(1)));
-                String.new() // unreachable
-              },
-              .Ok(r) => {
-                println(`Installing ${g_name} @ ${r} ...`);
-                r
-              }
-            )
-          }
-        );
-        // Build the dependency declaration line
-        dep_line := g_name.concat(
-          String.from(" :: build.dependency({ name: \"")
-        ).concat(g_name).concat(
-          String.from("\", url: \"")
-        ).concat(g_url).concat(
-          String.from("\", ref: \"")
-        ).concat(ref_str).concat(String.from("\" });\n"));
-        added := e.io.await(append_dep_to_deps_file(deps_path, dep_line, g_name, e.io, e.exn), e);
-        if(added, {
-          // Fetch the single new dependency
-          println("\nFetching dependency...");
-          new_dep := BuildGitDependency(
-            name : g_name,
-            url : g_url,
-            ref : ref_str,
-            // "" = no subpath within the repo (TS treats `dep.path` as falsy).
-            path : String.new()
-          );
-          dep_list := ArrayList(BuildGitDependency).new();
-          dep_list.push(new_dep);
-          e.io.await(fetch_all_deps(project_dir.to_string(), dep_list, options.verbose, false, e.io, e.exn), e);
-          println("Done. Lock file updated: yo.lock");
-        });
-        println("");
-        _print_add_import_guidance(build_path, project_dir);
-      }
+          println(`  - ${d.name} (${url} @ ${pin})`);
+        },
+        .Path(p) => println(`  - ${d.name} (path ${p})`)
+      );
+      i = (i + usize(1));
+    });
+    (current : Manifest) = manifest;
+    if(options.latest, {
+      println("Checking for newer releases...");
+      bumped := e.io.await(_bump_ranges_to_latest(manifest, options.names, options.verbose, e.io, e.exn), e);
+      current = bumped;
+    });
+    mode := cond(
+      !options.update => ResolveMode.Install,
+      (options.names.len() == usize(0)) => ResolveMode.UpdateAll,
+      true => ResolveMode.Update(options.names)
     );
+    if(options.update, {
+      println("Updating: re-resolving refs to the latest satisfying commits...");
+    });
+    println("Resolving dependencies...");
+    _ := e.io.await(install_dependencies(current, mode, options.locked, options.offline, options.verbose, e.io, e.exn), e);
+    println("Done.");
     ()
   })
 );
@@ -729,21 +686,14 @@ run_install :: (
 export(
   is_local_path,
   _url_to_dep_name,
-  _is_all_digits,
-  _parse_semver_tag,
-  _compare_semver,
-  _parse_tags_for_latest_semver,
-  _build_imports_block,
-  _append_dep_to_content,
   parse_package_specifier,
-  dependency_exists_in_deps_file,
-  parse_dependency_names,
-  regenerate_imports_list,
-  resolve_default_branch,
-  resolve_latest_ref,
-  append_dep_to_deps_file,
+  dependency_value_text,
+  load_project_manifest,
+  install_dependencies,
+  AddOptions,
+  run_add,
+  run_remove,
+  InstallOptions,
   run_install,
-  ParsedPackage,
-  SemVer,
-  InstallOptions
+  ParsedPackage
 );

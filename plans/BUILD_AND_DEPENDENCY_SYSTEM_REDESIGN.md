@@ -1,15 +1,30 @@
 # Build system & dependency system — audit and redesign plan
 
-_Status: PROPOSED 2026-09-11, revised the same day after maintainer review —
-the manifest is **declarative data read without the evaluator**; after weighing
+_Status: **P0, P1 and §4.8/§4.9 of P3 LANDED (2026-09-12)**; P2 (compile-time
+inputs) and §4.6 (workspaces) remain, P4 (registry, `yo publish`) is designed
+and deliberately not scheduled._
+
+_Proposed 2026-09-11, revised the same day after maintainer review — the
+manifest is **declarative data read without the evaluator**; after weighing
 a Yo data literal against TOML (§4.1 records both) the maintainer chose TOML
 (`yo.toml`). The plan carries no backward-compatibility scaffolding (Yo has
-one user today; breaking changes land outright — §6). Audit complete (§1–§3), design
-decisions drafted for review (§4–§6), nothing implemented. The five bugs the
-audit reproduced are filed under `issues/` and listed in §1.3. Successor of
+one user today; breaking changes land outright — §6). Successor of
 `plans/reference/BUILD_SYSTEM.md` and `plans/reference/DEPENDENCY_MANAGEMENT.md`
 for everything those two documents describe as landed but the self-hosted
 compiler does not do (§1.2 explains why the gap exists)._
+
+_What landed, in merge order: **P1.3** the `yo.toml` manifest (#596) · **P1.4a**
+resolver + `yo.lock` v2 (#601) · **P1.4b** the content-addressed store (#602) ·
+**P1.4c** `build.manifest` (#605) · **P1.4d** dependency `build.yo` evaluation
+and real `dep.artifact()` linking (#611) · **P1.4e** shared libraries with rpath
+(#615) · **P1.4f** the runner stops failing silently (#616) · **P1.4g** run
+arguments, a stamp that sees dotted directories, one name namespace (#618) ·
+**P1.4h / §4.8** parallel DAG levels and `-j N` (#620) · **B13** the last of the
+write-only state (#626) · **§4.9** depfile-scoped stamps (#631). The five bugs the audit reproduced are filed
+under `issues/` and are all fixed. The campaign surfaced further compiler bugs
+of its own along the way; the two that landed with this stack are the extern
+prototype collision and the `-O2` flag that hid it (#624), and the build
+scheduler's nested event loop (in #620)._
 
 The question that prompted this plan, from the maintainer, in three parts:
 
@@ -107,25 +122,25 @@ keeping. The runner is where the port is incomplete. Reproduced on 0.2.30:
 | # | finding | evidence | issue |
 | --- | --- | --- | --- |
 | B1 | `exe.link(lib)` for a `static_library` orders the build and **does not link** — the docs' "Cross-Module Linking with `extern "Yo"`" example fails with `Undefined symbols: "_add"`. `linked_artifacts` is read only by `_walk_dag` (`build_runner.yo:257-266`); `compile_artifact` never emits `--extern lib<name>.a` | reproduced | `issues/fixed/step-link-does-not-link-the-static-library.md` |
-| B2 | `build.shared_library` compiles its root as an **executable** (no `--shared` mode exists in `yo compile`), fails on `_main`, output has no `lib` prefix or extension | reproduced | `issues/shared-library-artifact-is-compiled-as-an-executable.md` |
+| B2 | `build.shared_library` compiles its root as an **executable** (no `--shared` mode exists in `yo compile`), fails on `_main`, output has no `lib` prefix or extension | reproduced | `issues/fixed/shared-library-artifact-is-compiled-as-an-executable.md` |
 | B3 | a parse or evaluation error in `build.yo` is **swallowed**: `evaluate_build_file` binds `mm_load_yo_file`'s outcome to `_outcome` and never calls `_take_load_error` (`build_runner.yo:1491-1510`). The user sees `Unknown step "install". Available: (none)`. The duplicate-artifact-name diagnostic that exists (`builtins/build.yo:652-670`) is therefore never shown; `yo fetch` has the same swallow (`fetch_command.yo:97-103`) | reproduced | `issues/fixed/build-yo-evaluation-errors-are-swallowed.md` |
-| B4 | `-D` options are **unvalidated**: undeclared names accepted silently (`declared_options` has no reader outside the builtins file), values are untyped strings, `yo build --help` does not list the project's options although `docs/en-US/BUILD_SYSTEM.md` says it does | reproduced | this plan (§4.7) |
-| B5 | the DAG scheduler computes Kahn levels and then runs each level **sequentially** (`execute_dag`, `build_runner.yo:1260-1266`); the docs' rationale ("the Yo evaluator uses global state") is obsolete since artifacts compile in child processes | code | this plan (§4.8) |
-| B6 | failures do not stop dependents — a `run` node runs after its artifact failed; `Tests failed (exit n)` / `Executable exited with code n` are computed and never printed (`:1124-1126`, `:1142-1144`); a dependency name that resolves to nothing is silently dropped from the DAG (`:250-252`), so `install.depend_on(<typo>)` is a no-op | code | this plan (§4.7) |
-| B7 | `--dry-run` prints `[dry-run] Would execute step: X` without building the DAG, validating the step, or detecting cycles (`:1701-1705`); help text says "Resolve the build graph without running it" | reproduced | this plan (§4.7) |
+| B4 | `-D` options are **unvalidated**: undeclared names accepted silently (`declared_options` has no reader outside the builtins file), values are untyped strings, `yo build --help` does not list the project's options although `docs/en-US/BUILD_SYSTEM.md` says it does | reproduced | this plan (§4.7) **FIXED P1.4f** (undeclared names error; `yo build --list-options`; the `comptime_str` blocker is `issues/build-option-value-cannot-feed-an-artifact-field.md`) |
+| B5 | the DAG scheduler computes Kahn levels and then runs each level **sequentially** (`execute_dag`, `build_runner.yo:1260-1266`); the docs' rationale ("the Yo evaluator uses global state") is obsolete since artifacts compile in child processes | code | this plan (§4.8) **FIXED P1.4h** (`-j N`; the default stays 1 so output keeps its DAG order) |
+| B6 | failures do not stop dependents — a `run` node runs after its artifact failed; `Tests failed (exit n)` / `Executable exited with code n` are computed and never printed (`:1124-1126`, `:1142-1144`); a dependency name that resolves to nothing is silently dropped from the DAG (`:250-252`), so `install.depend_on(<typo>)` is a no-op | code | this plan (§4.7) **FIXED P1.4f** |
+| B7 | `--dry-run` prints `[dry-run] Would execute step: X` without building the DAG, validating the step, or detecting cycles (`:1701-1705`); help text says "Resolve the build graph without running it" | reproduced | this plan (§4.7) **FIXED P1.4f** |
 | B8 | `ReleaseSmall` ≡ `ReleaseSafe` (`--optimize 2` both); no level passes `-g` although `std/build.yo:19-33` documents `-O0 -g` / `-O2 -g` | code | `issues/build-release-small-is-identical-to-release-safe.md` (pre-existing) |
-| B9 | `build.run(exe)` steps cannot receive arguments: `BuildRunStep.args` is always empty, there is no `--` on the CLI (`main.yo:4572-4577`) | code | this plan (§4.7) |
-| B10 | the Phase-A artifact stamp (`_artifact_input_stamp`, `:404-609`) hashes **every** `.yo` under the project (including `tests/`) and the whole std tree per artifact: any edit anywhere invalidates every artifact; directories whose name contains a `.` are never walked (`:477`) — sources under `my.pkg/` are silently excluded (stale-cache risk); the walk runs even when `YO_BUILD_NO_CACHE=1` | code | this plan (§4.9) |
-| B11 | registries are keyed by bare name with first-match resolution artifact → test → run → doc → step (`builtins/build.yo:600-637`); steps/tests/docs/runs have no duplicate check; `Step.link(sys)` before `build.system_library({name: sys})` is misread as an artifact link and dropped (`:1168-1177`) | code | this plan (§4.7) |
-| B12 | `_dfs_cycle` skips the dependency after a not-in-map one (`:348-350`, missing `continue`); harmless today only because `_walk_dag` never emits such edges | code | fix with B6 |
-| B13 | write-only state throughout: `BuildDocConfig.include_deps/logo/favicon` accepted and never forwarded (`:1177-1185`), `BuildTestSuite.target/verbose/bail/parallel` hard-coded, `runtime_files`, `ExecutionContext.dry_run`, `StepResult.duration_ms` always 0 | code | clean up with each phase |
+| B9 | `build.run(exe)` steps cannot receive arguments: `BuildRunStep.args` is always empty, there is no `--` on the CLI (`main.yo:4572-4577`) | code | this plan (§4.7) **FIXED P1.4g** |
+| B10 | the Phase-A artifact stamp (`_artifact_input_stamp`, `:404-609`) hashes **every** `.yo` under the project (including `tests/`) and the whole std tree per artifact: any edit anywhere invalidates every artifact; directories whose name contains a `.` are never walked (`:477`) — sources under `my.pkg/` are silently excluded (stale-cache risk); the walk runs even when `YO_BUILD_NO_CACHE=1` | code | this plan (§4.9) — **FIXED P1.4g** (the dotted-directory blind spot and the disabled-cache walk) and **FIXED §4.9** (the over-hashing: `--emit-deps` + a depfile-scoped stamp) |
+| B11 | registries are keyed by bare name with first-match resolution artifact → test → run → doc → step (`builtins/build.yo:600-637`); steps/tests/docs/runs have no duplicate check; `Step.link(sys)` before `build.system_library({name: sys})` is misread as an artifact link and dropped (`:1168-1177`) | code | this plan (§4.7) **FIXED P1.4g** |
+| B12 | `_dfs_cycle` skips the dependency after a not-in-map one (`:348-350`, missing `continue`); harmless today only because `_walk_dag` never emits such edges | code | fix with B6 **FIXED P1.4f** |
+| B13 | write-only state throughout: `BuildDocConfig.include_deps/logo/favicon` accepted and never forwarded (`:1177-1185`), `BuildTestSuite.target/verbose/bail/parallel` hard-coded, `runtime_files`, `ExecutionContext.dry_run`, `StepResult.duration_ms` always 0 — **FIXED P1.4f/B13** | code | clean up with each phase |
 | B14 | `yo init`'s `build.yo` imports `{ assert, panic } :: import("std/assert")` and uses neither (`src/init.yo:75-106`) | reproduced | nit, fix in P0 |
 
 ### 1.3 Dependency CLI — the half that exists
 
 | # | finding | evidence | issue |
 | --- | --- | --- | --- |
-| D1 | `yo install user/repo[@tag]` writes `ref: ""` to `deps.yo`, prints none of the `.Git` arm's progress lines, creates no `yo.lock`, exits 0; the next `yo fetch` fails `git checkout failed for commit ` — every CLI-added git dependency is broken. A minimal `io.async` reproduction of the same statement shape works, so the trigger is specific to `run_install`; bisect by body substitution | reproduced (0.2.30; source identical on develop) | `issues/yo-install-git-dependency-writes-an-empty-ref.md` |
+| D1 | `yo install user/repo[@tag]` writes `ref: ""` to `deps.yo`, prints none of the `.Git` arm's progress lines, creates no `yo.lock`, exits 0; the next `yo fetch` fails `git checkout failed for commit ` — every CLI-added git dependency is broken. A minimal `io.async` reproduction of the same statement shape works, so the trigger is specific to `run_install`; bisect by body substitution | reproduced (0.2.30; source identical on develop) | `issues/fixed/yo-install-git-dependency-writes-an-empty-ref.md` |
 | D2 | `resolve_git_ref` treats an empty `git ls-remote` result as "already a commit SHA" and never checks the exit status (`src/fetch.yo:449-459`): a typo'd tag or a network failure becomes a bogus commit and fails later with a worse message | code | fix in P0 |
 | D3 | `yo install` runs `fetch_all_deps` with a one-element list, and the post-fetch prune (`fetch.yo:750-778`) then **deletes every other dependency's lock entry** | code | fix in P0 |
 | D4 | integrity is sidecar-trusting: `inspect_cached_dep` recomputes the tree hash only when `.yo-content-hash` is missing (`fetch.yo:407-411`); a modified cache dir is never detected | code | §4.4 |
@@ -490,7 +505,7 @@ gone. `execute_dag` spawns all ready nodes of a level up to `-j N` (default:
 logical cores, but each `yo compile` child evaluates prelude + std and peaks
 at 1–2 GB for a small program and 11–20 GB for the self-build, so the runner
 also caps by a `YO_BUILD_JOBS_MEM_GB` heuristic and documents it). `--summary`
-shows real per-node durations (`duration_ms` is 0 today, B13).
+shows real per-node durations (`duration_ms` was 0 until P1.4f, B13).
 
 ### 4.9 D-9 — stamp granularity and inputs
 
@@ -645,18 +660,444 @@ pointer here, and `AGENTS.md`'s command table refreshed.
 | **P3 — speed and scale** | §4.8 parallel levels + `-j`, §4.9 depfile-based stamps, §4.6 workspaces | `build-parallel-levels` (two independent artifacts overlap in `--summary` timestamps), `build-cache-per-artifact` (editing artifact A's private module does not recompile B), `workspace-members`; the self-build's `yo build` time is unchanged or better (one artifact) |
 | **P4 — ecosystem** | §4.10 static index, `yo publish` | designed then, not now |
 
-**Status (2026-09-11).** P0 landed (#577, #578). P1's first two cuts landed:
-§4.5.1 `--imports` for direct path dependencies (#581) and transitive
-resolution through dependency `build.yo` registries (#583). Six `io.async`
-lowering bugs that the install flow tripped over are fixed in #592 and its
-stacked follow-up (nested cond/match dispatch, chained-layer targets and
-bindings, post-while guards, while-body re-assignment, nested while loops,
-field-named locals) — `yo install user/repo@tag` works end to end at gen-2.
-Next cut: **P1.3 — the manifest**: `yo.toml` read by `std/encoding/toml`
-(landed in std), manifest-driven import roots in EVERY command (compile,
-check, test, lsp — rule 0 today only fires under `yo build`'s `--imports`),
-`yo add` via `toml_edit.yo`, `deps.yo`/struct-form `build.dependency`/`yo
-install <spec>` removed; then P1.4 the resolver + lock v2 + store.
+**Status (2026-09-12).** P0 landed (#577, #578). P1 cuts landed: §4.5.1
+`--imports` for direct path dependencies (#581), transitive resolution
+(#583), the six `io.async` lowering bugs the install flow tripped over (#592
+and its stacked follow-up), and **P1.3 — the manifest** (`p1/yo-toml-manifest`):
+`yo.toml` read by `src/manifest.yo` over `std/encoding/toml`; the
+`import("name")` closure (own `[modules]`, each dependency's modules under its
+name, transitively the dependencies' dependencies) resolved in EVERY command —
+`module_manager.yo` discovers the nearest manifest above the entry file and
+registers it with rule 0, so `check`/`test`/`doc`/LSP need no build, and the
+runner passes the same closure as `--imports`; `yo add`/`yo remove` edit the
+manifest in place through `src/toml_edit.yo` (comments kept); `yo install` /
+`yo update` decide refs — semver ranges (Cargo grammar, pre-release rule)
+matched against `git ls-remote --tags`, exact `tag`/`rev`, `branch` and bare
+`git` pinned to commits in the v1 `yo.lock`; `deps.yo`, the struct-form
+`build.dependency`/`build.path_dependency`, `add_import`/`ImportEntry`,
+`build.module`'s `root`, `yo fetch` and `yo install <spec>` are removed;
+`build.dependency("name")` references a manifest entry the runner validates.
+Gates: cli-cases `add-path-dep-import`, `install-git-dep-semver` (offline bare
+repository, `^1` picks v1.2.0), `install-no-deps`, the rewritten
+`build-*-dep-*` cases; `tests/internal/{manifest,toml_edit,install_command}`.
+**P1.4a — the resolver and `yo.lock` v2** (`p1/resolver-lock-v2`, stacked
+on P1.3): `src/resolver.yo` walks the graph from the root manifest — every
+fetched package's `yo.toml` is read, its non-dev dependencies join under
+their names — and unifies EVERY requirement on a package into one ref
+(`choose_ref`: the highest tag inside all ranges; exact `tag`/`rev`/`branch`
+pins must agree, and a version tag pin must fit the ranges; otherwise an
+error naming each requirer). One version per dependency NAME (the §4.2
+two-majors relaxation is deferred — one flat import namespace). A lock entry
+that still satisfies its requirements is reused without the network. Rounds
+run to a fixpoint (a later requirer can move an earlier choice, which
+re-expands that package). `yo.lock` v2 (`src/lock_file.yo`): `version = 2`,
+`[[package]]` with `source = "git+url#ref"` / `"path+rel"`, `commit`,
+`integrity`, `dependencies`; sorted, atomic write, v1 rejected and
+regenerated. `src/fetch.yo` reduced to `fetch_package` (commit decision,
+sidecar/lock integrity check with evict-and-refetch, a still-mismatching
+refetch is an error) over the existing `deps/<name>-<commit12>` cache
+layout. `--locked` / `--offline` / `--frozen` on `yo install` and `yo build`;
+`yo update --latest` rewrites out-of-range `version` ranges to `^X.Y.Z`
+through `toml_edit`. Gates: `tests/internal/{resolver,lock_file}.test.yo`
+(unification + lock-reuse tables), cli-cases `install-transitive-git`,
+`install-unifies-versions`, `install-conflicting-requirements`,
+`lock-locked-fails-when-stale`, `install-frozen-offline`,
+`update-latest-bumps-range`. Four compiler bugs surfaced and were fixed en
+route, each with a red-first gate: a short-circuit operand inside a BARE arm/fn/
+loop body dropped its temp after its C block closed
+(issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md);
+an unbound name inside an `io.async` body passed `yo check` (now a hard swallow
+class, issues/fixed/async-closure-body-unknown-identifier-passes-check.md);
+the async lowering of a match/cond with an awaiting arm handed the other arm's
+borrowed value out without a dup — released twice
+(issues/fixed/async-match-arm-borrowed-payload-released-twice.md); and
+every `io.async` closure leaked its captured values — neither dispose path
+released the capture struct the call site had dup'd
+(issues/fixed/io-async-closure-captures-never-released.md). The bare-arm fix
+itself needed a second round: the pending list it feeds is also what a
+may-unwind call's `if (__yo_effect_escaped)` block drains, so the early-exit
+path now honours the emitted-once set and both scope-end flushes record a
+drop even when its code was written inline (the fast suite's "unwind argument
+built by a may-unwind call" caught the double release; a keeper-based test in
+`tests/algebraic_effects.test.yo` pins it). Closing that hole exposed a fifth,
+PRE-EXISTING bug: develop's compiler already released an enum/Option-shaped
+argument temp of a may-unwind call twice on the unwind path (`if(x.to_lowercase()
+== "latest", …)` in `src/version.yo` — eleven functions of the compiler's own
+emission), because the scope-end flushes never recorded an inline-written
+multi-line drop (issues/fixed/escape-path-releases-option-temp-twice.md). **Seed floor: v0.2.31.** A
+compiler built by the v0.2.30 seed mislowers `inspect_cached_dep` (a nested
+match arm in an `io.async` body — the dead-arm family #592 fixed on develop
+after v0.2.30), so its second `yo install` dereferences a null result; built
+by develop's tip it passes. The branch therefore merges after the v0.2.31
+seed bump, not before. cli-case fixture bare repositories carry a tracked
+`refs/.keep` — git does not check out empty directories, and a bare repo
+without `refs/` "does not appear to be a git repository".
+**P1.4b — the store** (`p1/store`, stacked on P1.4a): §4.4 as designed.
+`src/cache.yo` names the layout — `store/sha256/<hash>` trees with a
+`.verified` sibling, `git/<sha256(url)>.git` bare mirrors,
+`index/<sha256(url)>.tags`, `store.lock`, `projects` — and `src/fetch.yo`'s
+`fetch_package` reuses a stored tree the lock names (no network, no hash when
+the marker is present; a full hash when it is not, eviction when it fails),
+otherwise brings the commit into the mirror (`clone --mirror` once, `fetch`
+after, a direct commit fetch as the last resort), extracts through a
+throwaway index (`GIT_INDEX_FILE`, so the mirror stays bare), hashes, and
+renames the tree to its hash under the store `flock`. `manifest.yo` resolves
+`import("dep")` from the lock's `integrity` alone; the runner links
+`yo-out/deps/<name>` to the store trees for editors (not on Windows). The tag
+index is what `--offline` reads. `yo cache clean` removes `store/`, `git/`,
+`index/` and nothing else; `yo cache gc` reads every recorded project's lock
+and removes the trees, mirrors and tag lists none references. Every git child
+runs `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS=echo`; a manifest `git =
+"./x.git"` path is made absolute against the manifest's directory before git
+(which resolves relative remotes against the child's cwd) sees it. Gates:
+`tests/internal/cache.test.yo` (layout table, the integrity value validated
+before it becomes a path), `fetch.test.yo` (`git_remote_url`), cli-case
+`cache-gc` (install → gc keeps the tree; `yo remove` → gc drops the tree, the
+mirror and the tag list), the nine git-backed cases re-recorded on the store
+layout (their `ignore` files drop `git/`, `index/` and `projects`, whose names
+are keyed by the sandbox path). One compiler bug surfaced: a nested bare block
+`{ …await…; }` as a STATEMENT of an async cond/match arm was silently dropped
+by the async lowering (the content hasher's file arm vanished and every store
+tree hashed alike); the body is now flattened before analysis
+(issues/fixed/async-nested-bare-block-in-loop-arm-dropped.md), and the
+hasher keeps the flat shape as a seed gate.
+**P1.4c — `build.manifest`, generation A** (`p1/build-manifest`, stacked on
+P1.4b): the runner injects the `[package]` table into the build registry
+(`manifest_fields`) before it evaluates `build.yo`, and the comptime builtin
+`__yo_build_manifest_field(field)` reads it — `name` and `version` today, an
+absent field and every field outside a build answering `""`. Reading the
+manifest needs no evaluator, so `run_build` now loads it BEFORE the build file
+rather than after. The friendly `build.manifest.name` spelling in
+`std/build.yo` is **seed-gated** and deferred: a module-level binding there is
+forced by its own `export(...)`, and `fixpoint-arm64.yml` bootstraps gen-1 by
+running `yo build` with the SEED, which would then fail `std/build.yo` with
+`Variable "__yo_build_manifest_field" not found` (the v0.2.30 seed does not
+even say so — it still swallows build-file errors and prints `No build steps
+defined.`). Generation B is queued in
+plans/backlog/SEED_VERSION_AUTOMATION.md; until then a build file calls the
+builtin directly, as cli-case `build-manifest` does.
+
+**P1.4d — §4.5.2, a dependency's `build.yo` is evaluated** (`p1/dep-build`,
+stacked on P1.4c). `build.dependency("d").artifact("lib")` was decorative: the
+reference was registered and nothing read it, so the archive was never built
+and the consumer's link failed with an undefined symbol. Now the dependency's
+own `build.yo` is evaluated in an ISOLATED registry (`swap_build_registry`,
+which existed for exactly this) with its own `[package]` table injected and its
+own `-D` namespace (`-D<dep>.<opt>=v` reaches it as `<opt>`; the parent's
+options do not), and the named static library is merged into this project's
+registry stamped with the package it came from. `compile_artifact` then reads
+that stamp: the root resolves against the DEPENDENCY's directory, the
+`--imports` closure is the dependency's own manifest closure, the output lands
+in `yo-out/<triple>/deps/<package>/lib/`, and the "Building …" line names the
+package. The existing `--extern` path links it. Only a static library can be
+consumed; a missing `build.yo`, a missing artifact and a non-library artifact
+each fail with a message naming the dependency.
+
+Two compiler bugs surfaced, both fixed rather than worked around:
+`issues/fixed/entry-path-shadowed-by-an-import-root-name.md` — an entry file
+whose path's first segment matches a mapped import name (`mathlib/src/lib.yo`
+with `mathlib` mapped, which is exactly what this feature generates) had its
+module identity rewritten by resolver rule 0, so codegen's entry-module test
+matched nothing and `--static-library` exported NO symbols; rule 0 is now
+switched off for the entry path (`resolve_module_path_ex`). And
+`issues/build-option-value-cannot-feed-an-artifact-field.md` (OPEN, belongs to
+§4.7/B4): `build.option` returns `comptime(str)` while every artifact field is
+`comptime_str`, and a `fn` returning `comptime_str` does not produce a
+compile-time value at its call site — so `-Dname=value` can configure NOTHING
+today, and the `-D<dep>.<opt>` plumbing has no end-to-end gate until it is
+fixed. Gate: cli-case `build-dep-artifact` (a path dependency whose `build.yo`
+defines the library the program calls through `extern("Yo", …)`), verified red
+first with `Undefined symbols: "_square"`.
+
+**P1.4e — §4.5.4 shared libraries, and §4.5.3's other half** (`p1/shared-lib`,
+stacked on P1.4d). `yo compile --shared-library` reuses the library emission
+(plain exported names, no `main` wrapper — the same `is_library` path the
+static mode takes) and links `-shared -fPIC` into
+`lib<name>.{dylib,so,dll}`, appending the platform extension the way the static
+mode appends `.a`. The runner passes the flag for a `SharedLibrary` artifact,
+names the output `lib<name>`, and teaches the Building line and the cache's
+existence probe the same suffix. A consumer that links one is compiled with
+`-L <dir> -l<name>` plus `-Wl,-rpath,<dir>` on macOS and Linux — a shared
+library is found by the LOADER at run time, so without the rpath the program
+links and then dies with "image not found". The P0 mitigation (a clear
+rejection, cli-case `build-shared-library-unsupported`) is replaced by cli-case
+`build-shared-library`: it builds the library, links it into a program through
+`extern("Yo", …)` and asserts the program's own output.
+B2 is closed — `issues/fixed/shared-library-artifact-is-compiled-as-an-executable.md`.
+
+**P1.4f — §4.7, the runner tells the truth** (`p1/runner-correctness`, stacked
+on P1.4e). Four of the audit's findings, each one a case where the runner did
+something silently:
+
+- **B12** `_dfs_cycle` skipped a dependency that is not a node by bumping its
+  loop counter and FALLING THROUGH — bumping it twice, so the dependency AFTER
+  a dangling one was never examined. A cycle hiding behind a dangling name went
+  undetected. Red-first test in `tests/internal/build_runner.test.yo`.
+- **B6** a dependency name that resolves to nothing was dropped from the DAG
+  without a word (`install.depend_on(<typo>)` was a no-op and the build exited
+  0); a node whose dependency FAILED ran anyway, so a `run` step executed a
+  program that had just failed to compile; and the `Tests failed (exit n)` /
+  `Executable exited with code n` messages were computed and thrown away.
+  `build_dag_checked` reports unresolvable names, `_plan_step` fails the build
+  naming them, `_dependency_failed` skips dependents, and the messages print.
+- **B7** `--dry-run` printed one line per REQUESTED step without building a
+  DAG, validating the step or detecting a cycle, while the help text promised
+  "resolve the build graph without running it". It now runs exactly the
+  validation a real build runs and prints the resolved graph.
+- **B4** a `-D<name>=<value>` no `build.option` declares was accepted in
+  silence — a typo looked like a build that ignored you. Undeclared names are
+  an error now, in the project and in a dependency's own `-D<dep>.<opt>`
+  namespace, and `yo build --list-options` prints what a build file declares
+  with each default and the value in force (the docs had promised `yo build
+  --help` would, and nothing ever did).
+- **B13** (partly) `StepResult.duration_ms` was always 0 while the docs
+  described a summary showing durations; each node is timed now. The docs'
+  MaxRSS column, which nothing ever measured, is marked as not measured rather
+  than left as a promise.
+
+One more compiler bug surfaced and is fixed:
+`issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md` — a
+template nested inside an interpolation (`` `x${`y`}z` ``, or the natural
+`` ` <- ${`, `.join(names)}` ``) lowered to
+`import("std/fmt/to_string").to_string()`, because the interpolation's
+sub-parse took `get_program`'s prepended auto-import as its expression. The
+sub-parse uses `get_expression_program` now and propagates `has_template_spec`
+upward. It bites the BOOTSTRAP too — the seed parses `src/` — so `src/` keeps
+the separator bound to a variable until a seed carries the fix.
+
+**P1.4g — §4.7 continued** (`p1/runner-part2`, stacked on P1.4f):
+
+- **B9** a `run` step could not be given arguments (`BuildRunStep.args` was
+  always empty and the CLI had no `--`). Everything after `--` now reaches the
+  program, after any arguments the build file declared: `yo build run -- --port
+  8080`.
+- **B10**, the correctness half: the artifact input stamp walked a directory
+  only when its name had NO DOT — a heuristic standing in for "is this a
+  file?". Every source under `my.pkg/` or `v1.2/` was therefore invisible to
+  the stamp, so editing it left the artifact "cached" and the build silently
+  did nothing. The walk now asks the directory ENTRY (`file_type`), and does
+  not run at all under `YO_BUILD_NO_CACHE=1`, where its answer is discarded.
+  (The over-hashing half — every `.yo` under the project plus the whole std
+  tree, per artifact — is §4.9's depfile work and is not addressed here.)
+- **B11** build names are ONE namespace, because `resolve_dependency` answers
+  artifact → test → run → doc → step and takes the first match. Only artifacts
+  were checked, and only against artifacts, so a step/test/doc could take a
+  name already in use and silently become unreachable. Every registration
+  checks now, naming the kind that holds it; `build.run(exe)` twice names one
+  node (its name is derived from the artifact) rather than duplicating it.
+
+Gates: cli-cases `build-run-args`, `build-stamp-dotted-dir` (a `.yo` file is
+added under `my.pkg/` BETWEEN two builds — a cache hit on the second is the
+bug) and `build-name-collision`.
+
+**P1.4h — §4.8, a level's nodes can overlap** (`p1/parallel-levels`, stacked on
+P1.4g). B5: the scheduler computed Kahn levels and then ran every node of a
+level one after another, and the docs described concurrency that never
+happened. A level's ready nodes now run in batches of `-j N` — each node is an
+`io.spawn`ed task, `join_all` collects them, and the results are recorded in
+the batch's own order so the DAG bookkeeping is unchanged. The children those
+tasks spawn (`yo compile`, a test binary, the program a `run` step runs) are
+what actually overlap.
+
+The default is **1**, deliberately: at 1 the nodes' output streams in DAG
+order, which every recorded cli-case golden depends on, and a single-artifact
+project — the common case, including this compiler's own build — has one node
+per level anyway. `-j N` opts into overlap and then output interleaves, the way
+`make -j` does; `--summary` is still printed in DAG order afterwards, with each
+node's own duration (P1.4f's timing is taken INSIDE the node's task, so it
+measures the node and not the batch). A `-j 0`/`-j x` is an error rather than a
+silent 1.
+
+Gate: cli-case `build-parallel-jobs` — two libraries with no edge between them
+and `-j 2`, comparing only `Build Summary: N/N steps succeeded`, because the
+`Building …` lines and the C compiler's chatter interleave by design.
+
+The slice's own first draft collected the batch with `std/async`'s `join_all`,
+and that was wrong in a way only one cli-case could see: `join_all` awaits each
+handle in turn, and `JoinHandle.await` on an unfinished handle is a blocking
+`__yo_async_poll_step` loop — nested inside `run_build`'s resumed continuation.
+`async-blocking-await-inside-task` runs under `YO_ASYNC_STRICT=1` and reported
+`rc(golden=1,run=134)`: C37's guard aborting every `yo build`. Outside strict
+mode it would not have aborted; it would just have serialised the scheduler
+this slice exists to parallelise. The batch polls `is_finished()` and awaits
+`yield` now — the shape the guard's own message prescribes and the one the
+file's stamp helpers already used — and `build-parallel-jobs` carries
+`env=YO_ASYNC_STRICT=1` so the case that owns the feature owns its guard
+(`issues/fixed/build-scheduler-join-all-nests-the-event-loop.md`).
+
+That fixture surfaced the seventh compiler bug of this campaign:
+`issues/fixed/two-externs-of-one-signature-emit-one-prototype.md`. Its program
+links two static libraries and so declares two `extern("Yo", … : (fn(n : i32)
+-> i32))` symbols — the SAME type — and codegen registered extern callees in a
+map keyed by `type_key`, so the second overwrote the first and only one
+prototype was emitted. Nothing ever looked an entry up by that key (both
+consumers iterate `.values()`), so the collision had one pure effect: a call
+with no declaration. It is keyed by the C symbol name now. `-O2` had been
+hiding the class: `run_compile` passed `-Wno-everything` and then a bare
+`-Wimplicit-function-declaration`, which DOWNGRADES clang's default error to a
+warning — it is `-Werror=implicit-function-declaration` now, matching what the
+`-O0` arm already gets from clang's defaults.
+
+**B13 — the rest of the write-only state** (`p1/writeonly-state`, stacked on
+P1.4h). Every field the audit listed is now either read or gone:
+
+- `TestSuite` grew `verbose`, `bail` and `parallel`. The evaluator's
+  `BuildTestSuite` had carried them and the runner had forwarded them to the
+  child `yo test` all along — `std/build.yo` simply never surfaced them, so the
+  builtin hard-coded `verbose : false, bail : false, parallel : 1` and a build
+  file could not ask. (`target` was already read; the audit row was stale.)
+  `parallel` is forwarded and still inert at the far end — `yo test` v1 takes
+  the flag for CLI compatibility and runs sequentially — so the cli-case can
+  only gate `verbose` and `bail`; the field is surfaced so the BUILD FILE is
+  not the thing that loses it.
+- `DocConfig.logo` and `.favicon` travelled to `BuildDocConfig` and stopped
+  there. They reach `DocModel` now: the sidebar gets an `<img class="logo">`
+  and the page head a `<link rel="icon">`. `yo doc` grew the matching `--logo`
+  and `--favicon` flags, so the two surfaces agree.
+- `DocConfig.include_deps` is DELETED. It promised documentation of the
+  dependency closure and nothing ever read it; there is no design behind it to
+  preserve. The builtin keeps the argument SLOT, passed a literal `false`,
+  because the seed's `__yo_build_doc` still requires ten arguments — scheduled
+  for removal in `plans/backlog/SEED_VERSION_AUTOMATION.md`.
+- `runtime_files` is DELETED, all the way down. `PkgConfigResult` declared it,
+  `_merge_into` deduplicated it, `BuildArtifact` carried it and `run_build` ran
+  a 25-line dedup loop over it — and NOTHING ever pushed a value into it, at
+  any layer. Copying a linked DLL next to the executable is a real feature for
+  Windows, and it will be designed when it is built rather than left standing
+  as a field that cannot be non-empty.
+
+`ExecutionContext.dry_run` and `StepResult.duration_ms` were the two rows
+handled earlier, in P1.4f.
+
+Gates: cli-cases `build-test-suite-flags` (the suite asks for verbose + bail, so
+the third test's name must be ABSENT from the output) and `doc-logo-favicon`.
+
+**§4.9 — the stamp hashes what the compile actually read** (`p1/depfile-stamps`,
+stacked on B13). This is audit B10's remaining half: the artifact input stamp
+hashed **every** `.yo` under the project plus the whole std tree, per artifact,
+so an edit anywhere invalidated everything and a two-artifact project paid the
+walk twice.
+
+`yo compile --emit-deps <file>` writes the evaluation's real input list — one
+path per line, first-open order, no duplicates. The record is kept in
+`module_manager.yo` at the two places a source file is actually read: the entry
+module in `mm_load_file` and every demand-loaded module in
+`_load_module_at_abs`. (`run_compile` reads the ENTRY itself rather than through
+`mm_load_file`, so it reports its own open — otherwise the depfile would omit
+the one file the artifact is named after.) The list is reset per compile, since
+`run_compile` is reached repeatedly in a long-lived process.
+
+`_artifact_input_stamp` then hashes the PREVIOUS build's list instead of walking
+anything. Using last build's list is sound because a new input cannot appear
+without an old input changing — something has to import it, and that importer is
+on the list; a file that LEFT the closure over-invalidates exactly once, and the
+next depfile no longer names it. The first build has no depfile and falls back
+to the whole-tree walk, which is also what a deleted input falls back to (an
+unreadable listed path disables the cache).
+
+`yo.toml` and `yo.lock` are hashed explicitly on both paths. They are inputs to
+RESOLUTION, not to evaluation, so no depfile names them — but either one changes
+what `import("dep")` means. Both are optional, so an absent one is not an error.
+
+Not addressed: `comptime_read_file` inputs, which do not exist yet — when §5.1
+lands, recording them through the same list is what makes
+`build-cache-data-input` (P2's gate) possible.
+
+Gate: cli-case `build-depfile-scoped-stamp` — build, `yo init src/added
+--no-skills` adds a subtree of `.yo` files nothing imports, build again. The
+second build must report `(cached: inputs unchanged, skipping compile)`; before
+this slice it recompiled, because the new files were inside the walked tree.
+
+`build-stamp-dotted-dir`'s expectation INVERTS here, and its `opts` say so: the
+case was P1.4g's proof that the walk descends a dotted directory, and it asserted
+a recompile. The file it adds is not an input, so a cache hit is now the right
+answer. The dotted-directory fix stays load-bearing — `_cache_collect_yo_files`
+is the first-build fallback — but it can no longer produce a STALE cache, because
+the walk's stamp is only ever COMPARED, never recorded; the recorded stamp comes
+from the depfile the child just wrote.
+
+**P1 is complete as of 2026-09-12**, along with P3's §4.8 and §4.9, and
+**§5.1 + §5.2 landed 2026-09-13**. What remains: **§5.4 `build.env`** (§5.5's
+`--emit-deps` half landed early because §4.9 needed it), then **§4.6
+workspaces**. P4 stays designed and unscheduled.
+
+**§5.1 — `comptime_read_file`** (landed). `comptime_read_file(path)` reads a
+file during evaluation and yields its bytes as a `comptime_str`, bounded the way
+Zig bounds `@embedFile`: the path resolves against the IMPORTING FILE (never the
+process cwd, which would give one module different answers depending on where
+`yo build` ran), and it must land inside that file's package root — the nearest
+`yo.toml` above it, else the nearest `build.yo`, else its own directory. The
+check runs on the lexically folded path, so `..` cannot climb out and back in.
+Outside the root, and a missing file, are compile errors at the call site.
+
+The read is an INPUT EDGE, which is what makes it safe to cache: it records into
+the §4.9 list, so `--emit-deps` names the data file and the artifact stamp
+invalidates when it changes. Without that a build would cache over an edited
+data file forever.
+
+That edge needed the input record reachable from both the module loader and an
+evaluator builtin, which is an import cycle (the module manager imports the
+evaluator), so the registry moved out of `module_manager.yo` into
+`src/input_record.yo`. A definition-time trial or CTFE probe does not touch the
+disk — it computes its path from placeholder arguments — and gets the type with
+an unknown value instead.
+
+Gate: `tests/comptime.test.yo` — a module-level `::` binding (so the read really
+happens at compile time), a `comptime_assert` on the bytes, runtime asserts on
+the content and byte length, a `..` path that stays inside the root, and three
+`comptime_expect_error` cases: an absolute path outside the root, a `..` that
+climbs out, and a missing file. Verified RED first (`E0401: Variable
+"comptime_read_file" not found`).
+
+Note carried into §5.2: `comptime_str.len()` does not fold at compile time —
+not for a `comptime_read_file` result and not for a plain literal either — so
+the length assert is a runtime one.
+
+**§5.2 — `comptime_json_parse` / `comptime_toml_parse`** (landed). Both take a
+compile-time string and return a `ComptimeValue`, the prelude enum modelling a
+document with comptime scalars and `ComptimeList`. Composed with §5.1 —
+`comptime_json_parse(comptime_read_file("./config.json"))` — a configuration
+file becomes constants, and a wrong parse fails to COMPILE rather than at run
+time.
+
+Two departures from the design as drafted, both forced by the language and both
+verified by probe before any code was written:
+
+- **`ComptimeEntry` is not expressible.** The plan sketched
+  `Table(ComptimeList(ComptimeEntry))` with `ComptimeEntry.value :
+  ComptimeValue`. Those are mutually recursive TYPE definitions and the
+  evaluator rejects them ("cyclic definition: CE → CV → CE"). The landed shape
+  is PARALLEL `keys` and `values` lists — exactly what `std/encoding/json`'s
+  `JsonValue.Object` and `std/encoding/toml`'s `TomlValue.Table` already use,
+  and it needs only `Self`.
+- **A recursive enum must say `Self`, not its own name.** `CV ::
+  enum(… ComptimeList(CV))` is the same cyclic-definition error.
+
+The parsers are NOT reimplemented: `std/encoding/json` and `std/encoding/toml`
+run at the COMPILER's runtime and their `JsonValue` / `TomlValue` results are
+lifted into `EvalValue`. One parser, one set of bugs, and the std code never has
+to be comptime-evaluable. A parse error is a compile error at the call site
+carrying the parser's own position.
+
+JSON has one number type, so a whole-valued number lifts to `.Int` — `{"port":
+8080}` reads back as an integer, not `8080.0`. The cut is on the value, not the
+spelling, because the document cannot tell them apart.
+
+`ComptimeValue.get` is written in Yo over `ComptimeList` rather than as a
+builtin: a prelude binding that names a builtin the SEED lacks fails the
+bootstrap (the AGENTS.md pitfall), and the walk needs no evaluator support that
+`ComptimeList` does not already have.
+
+Gate: `tests/comptime.test.yo` — both documents describing one configuration,
+~12 module-level `comptime_assert`s over `get`/`at`/`len`/`as_str`/`as_int`/
+`as_bool`/`is_null` including a missing key and an out-of-range index, a
+cross-check that the JSON and TOML trees agree, runtime asserts, and
+`comptime_expect_error` on a malformed document of each format (both verified
+directly to be real compile errors, not swallowed).
+
+The dogfooding milestone below — un-vendoring `vendor/markdown_yo` — is now
+unblocked: every piece it named (the manifest, the resolver, the store,
+`--imports` in every command) is on develop.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

@@ -3,9 +3,11 @@
 //!
 //! 1-to-1 port of `src/evaluator/builtins/build.ts`, which holds:
 //!
-//!   1. The interface / class shapes for build artifacts, dependencies,
-//!      and steps (`BuildArtifact`, `BuildTestSuite`, `BuildRunStep`,
-//!      `BuildStep`, `BuildGitDependency`, …).
+//!   1. The interface / class shapes for build artifacts and steps
+//!      (`BuildArtifact`, `BuildTestSuite`, `BuildRunStep`, `BuildStep`, …).
+//!      Dependencies are NOT declared here any more: `yo.toml` is the
+//!      manifest (src/manifest.yo) and `build.dependency("name")` only
+//!      REFERENCES an entry of it (`referenced_dependencies`).
 //!   2. The `BuildRegistry` class with all registration / lookup
 //!      methods that populate it during `build.yo` evaluation.
 //!   3. The `evaluateYoBuildFunctions` evaluator entry point that
@@ -40,16 +42,15 @@
   BF_YO_BUILD_STEP,
   BF_YO_BUILD_STEP_DEPEND_ON,
   BF_YO_BUILD_DEPENDENCY,
-  BF_YO_BUILD_PATH_DEPENDENCY,
   BF_YO_BUILD_SYSTEM_LIBRARY,
   BF_YO_BUILD_LINK,
   BF_YO_BUILD_LINK_SYSTEM_LIBRARY,
   BF_YO_BUILD_DEP_ARTIFACT,
   BF_YO_BUILD_MODULE,
   BF_YO_BUILD_MODULE_LINK,
-  BF_YO_BUILD_ADD_IMPORT,
   BF_YO_BUILD_ADD_CFLAGS,
-  BF_YO_BUILD_DOC
+  BF_YO_BUILD_DOC,
+  BF_YO_BUILD_MANIFEST_FIELD
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
@@ -62,15 +63,6 @@
 // Data types  (mirrors TypeScript interfaces in build.ts)
 // ---------------------------------------------------------------------------
 ArtifactKind :: enum(Executable, StaticLibrary, SharedLibrary);
-ImportedModule :: ref(
-  struct(
-    import_name : String,
-    module_name : String,
-    dependency_name : String,
-    resolved_root : Option(String),
-    propagated_system_libs : ArrayList(String)
-  )
-);
 BuildArtifact :: ref(
   struct(
     kind : ArtifactKind,
@@ -101,10 +93,16 @@ BuildArtifact :: ref(
     defines : ArrayList(String),
     strip : bool,
     static_link : bool,
-    runtime_files : ArrayList(String),
     linked_artifacts : ArrayList(String),
     linked_system_libs : ArrayList(String),
-    imported_modules : ArrayList(ImportedModule)
+    /// The package this artifact belongs to: "" for the project being built,
+    /// otherwise the DEPENDENCY's directory (its `root` and its `import`
+    /// closure resolve against it) and the name the manifest gives it
+    /// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2). A build file
+    /// cannot set these — the runner stamps them when it merges a
+    /// dependency's `build.yo` artifacts into this registry.
+    package_dir : String,
+    package_name : String
   )
 );
 BuildTestSuite :: ref(
@@ -133,20 +131,6 @@ BuildStep :: ref(
     dependency_names : ArrayList(String)
   )
 );
-BuildGitDependency :: ref(
-  struct(
-    name : String,
-    url : String,
-    ref : String,
-    path : String
-  )
-);
-BuildPathDependency :: ref(
-  struct(
-    name : String,
-    path : String
-  )
-);
 BuildSystemLibrary :: ref(
   struct(
     name : String,
@@ -162,10 +146,12 @@ DependencyArtifactRef :: ref(
     artifact_name : String
   )
 );
+/// A `build.module({ name })` declaration: the module's ROOT comes from the
+/// manifest's `[modules]` table; the entry exists to carry the system
+/// libraries the module links (`mod.link(sys)`).
 BuildModuleEntry :: ref(
   struct(
     name : String,
-    root : String,
     linked_system_libraries : ArrayList(String)
   )
 );
@@ -176,7 +162,6 @@ BuildDocConfig :: ref(
     output_dir : String,
     format : String,
     include_private : bool,
-    include_deps : bool,
     title : String,
     logo : String,
     favicon : String,
@@ -211,14 +196,20 @@ BuildRegistry :: ref(
     test_suites : ArrayList(BuildTestSuite),
     run_steps : ArrayList(BuildRunStep),
     steps : ArrayList(BuildStep),
-    dependencies : ArrayList(BuildGitDependency),
-    path_dependencies : ArrayList(BuildPathDependency),
+    /// Names passed to `build.dependency("name")`, checked against the
+    /// manifest by the runner.
+    referenced_dependencies : ArrayList(String),
     system_libraries : ArrayList(BuildSystemLibrary),
     dependency_artifacts : ArrayList(DependencyArtifactRef),
     modules : ArrayList(BuildModuleEntry),
     doc_configs : ArrayList(BuildDocConfig),
     cli_options : HashMap(String, String),
-    declared_options : HashMap(String, BuildDeclaredOption)
+    declared_options : HashMap(String, BuildDeclaredOption),
+    /// The project's `yo.toml` `[package]` table, keyed by field name — what
+    /// `build.manifest.<field>` reads (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+    /// §4.1). The runner fills it before evaluating `build.yo`; outside a
+    /// build it is empty and every field reads as "".
+    manifest_fields : HashMap(String, String)
   )
 );
 impl(
@@ -229,18 +220,19 @@ impl(
       test_suites : ArrayList(BuildTestSuite).new(),
       run_steps : ArrayList(BuildRunStep).new(),
       steps : ArrayList(BuildStep).new(),
-      dependencies : ArrayList(BuildGitDependency).new(),
-      path_dependencies : ArrayList(BuildPathDependency).new(),
+      referenced_dependencies : ArrayList(String).new(),
       system_libraries : ArrayList(BuildSystemLibrary).new(),
       dependency_artifacts : ArrayList(DependencyArtifactRef).new(),
       modules : ArrayList(BuildModuleEntry).new(),
       doc_configs : ArrayList(BuildDocConfig).new(),
       cli_options : HashMap(String, String).new(),
-      declared_options : HashMap(String, BuildDeclaredOption).new()
+      declared_options : HashMap(String, BuildDeclaredOption).new(),
+      manifest_fields : HashMap(String, String).new()
     )
   ),
   register_executable : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
+    Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.Executable,
@@ -261,15 +253,16 @@ impl(
         defines : artifact.defines,
         strip : artifact.strip,
         static_link : artifact.static_link,
-        runtime_files : artifact.runtime_files,
         linked_artifacts : artifact.linked_artifacts,
         linked_system_libs : artifact.linked_system_libs,
-        imported_modules : artifact.imported_modules
+        package_dir : artifact.package_dir,
+        package_name : artifact.package_name
       )
     );
   }),
   register_static_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
+    Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.StaticLibrary,
@@ -290,15 +283,16 @@ impl(
         defines : artifact.defines,
         strip : artifact.strip,
         static_link : artifact.static_link,
-        runtime_files : artifact.runtime_files,
         linked_artifacts : artifact.linked_artifacts,
         linked_system_libs : artifact.linked_system_libs,
-        imported_modules : artifact.imported_modules
+        package_dir : artifact.package_dir,
+        package_name : artifact.package_name
       )
     );
   }),
   register_shared_library : (fn(inout(self) : Self, artifact : BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
+    Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
       BuildArtifact(
         kind : ArtifactKind.SharedLibrary,
@@ -319,18 +313,24 @@ impl(
         defines : artifact.defines,
         strip : artifact.strip,
         static_link : artifact.static_link,
-        runtime_files : artifact.runtime_files,
         linked_artifacts : artifact.linked_artifacts,
         linked_system_libs : artifact.linked_system_libs,
-        imported_modules : artifact.imported_modules
+        package_dir : artifact.package_dir,
+        package_name : artifact.package_name
       )
     );
   }),
-  register_test : (fn(inout(self) : Self, suite : BuildTestSuite) -> unit)({
+  register_test : (fn(inout(self) : Self, suite : BuildTestSuite, exn : Exception) -> unit)({
+    Self._check_name_taken(self, suite.name.clone(), "a test suite", exn);
     self.test_suites.push(suite);
   }),
   register_run : (fn(inout(self) : Self, artifact_name : String, args : ArrayList(String)) -> unit)({
     synth_name := `run:${artifact_name}`;
+    // The name is derived from the artifact, so `build.run(exe)` twice names
+    // ONE node; the later call's arguments win.
+    if(self.find_run_step(synth_name.clone()).is_some(), {
+      self.remove_run_step(synth_name.clone());
+    });
     self.run_steps.push(
       BuildRunStep(
         name : synth_name,
@@ -339,7 +339,22 @@ impl(
       )
     );
   }),
-  register_step : (fn(inout(self) : Self, name : String, description : String) -> unit)({
+  /// Drop the run step named `name`, if any. `register_run` replaces rather
+  /// than duplicating: the name is derived from the artifact.
+  remove_run_step : (fn(inout(self) : Self, name : String) -> unit)({
+    kept := ArrayList(BuildRunStep).new();
+    (i : usize) = usize(0);
+    while(i < self.run_steps.len(), {
+      step := self.run_steps(i);
+      if(step.name != name, {
+        kept.push(step);
+      });
+      i = (i + usize(1));
+    });
+    self.run_steps = kept;
+  }),
+  register_step : (fn(inout(self) : Self, name : String, description : String, exn : Exception) -> unit)({
+    Self._check_name_taken(self, name.clone(), "a step", exn);
     self.steps.push(
       BuildStep(
         name : name,
@@ -376,11 +391,15 @@ impl(
     });
     self.steps = new_steps;
   }),
-  register_dependency : (fn(inout(self) : Self, dep : BuildGitDependency) -> unit)({
-    self.dependencies.push(dep);
-  }),
-  register_path_dependency : (fn(inout(self) : Self, dep : BuildPathDependency) -> unit)({
-    self.path_dependencies.push(dep);
+  reference_dependency : (fn(inout(self) : Self, name : String) -> unit)({
+    i := usize(0);
+    n := self.referenced_dependencies.len();
+    while(i < n, {
+      if(self.referenced_dependencies(i) == name, return(()));
+      i = (i + usize(1));
+    });
+    self.referenced_dependencies.push(name);
+    ()
   }),
   register_system_library : (fn(inout(self) : Self, lib : BuildSystemLibrary) -> unit)({
     self.system_libraries.push(lib);
@@ -441,7 +460,8 @@ impl(
     });
     self.artifacts = new_artifacts;
   }),
-  register_doc : (fn(inout(self) : Self, config : BuildDocConfig) -> unit)({
+  register_doc : (fn(inout(self) : Self, config : BuildDocConfig, exn : Exception) -> unit)({
+    Self._check_name_taken(self, config.name.clone(), "a documentation step", exn);
     self.doc_configs.push(config);
   }),
   /// Attach a system library to a registered module. No-op when the module is
@@ -467,30 +487,6 @@ impl(
             m.linked_system_libraries.push(system_library_name.clone());
           }
         );
-        return(());
-      });
-      i = (i + usize(1));
-    });
-    ()
-  }),
-  /// Attach an imported module to a registered artifact. Silently ignores a
-  /// duplicate `import_name` (the caller diagnoses that) and an unknown
-  /// artifact. Mirrors `registerImportedModule`.
-  register_imported_module : (fn(inout(self) : Self, artifact_name : String, imported : ImportedModule) -> unit)({
-    i := usize(0);
-    n := self.artifacts.len();
-    while(i < n, {
-      a := self.artifacts(i);
-      if(a.name == artifact_name, {
-        j := usize(0);
-        m := a.imported_modules.len();
-        while(j < m, {
-          if(a.imported_modules(j).import_name == imported.import_name, {
-            return(());
-          });
-          j = (j + usize(1));
-        });
-        a.imported_modules.push(imported);
         return(());
       });
       i = (i + usize(1));
@@ -557,26 +553,6 @@ impl(
     });
     Option(BuildModuleEntry).None
   }),
-  find_dependency : (fn(inout(self) : Self, name : String) -> Option(BuildGitDependency))({
-    i := usize(0);
-    n := self.dependencies.len();
-    while(i < n, {
-      d := self.dependencies(i);
-      if(d.name == name, return(Option(BuildGitDependency).Some(d)));
-      i = (i + usize(1));
-    });
-    Option(BuildGitDependency).None
-  }),
-  find_path_dependency : (fn(inout(self) : Self, name : String) -> Option(BuildPathDependency))({
-    i := usize(0);
-    n := self.path_dependencies.len();
-    while(i < n, {
-      d := self.path_dependencies(i);
-      if(d.name == name, return(Option(BuildPathDependency).Some(d)));
-      i = (i + usize(1));
-    });
-    Option(BuildPathDependency).None
-  }),
   find_system_library : (fn(inout(self) : Self, name : String) -> Option(BuildSystemLibrary))({
     i := usize(0);
     n := self.system_libraries.len();
@@ -640,14 +616,35 @@ impl(
     self.test_suites = ArrayList(BuildTestSuite).new();
     self.run_steps = ArrayList(BuildRunStep).new();
     self.steps = ArrayList(BuildStep).new();
-    self.dependencies = ArrayList(BuildGitDependency).new();
-    self.path_dependencies = ArrayList(BuildPathDependency).new();
+    self.referenced_dependencies = ArrayList(String).new();
     self.system_libraries = ArrayList(BuildSystemLibrary).new();
     self.dependency_artifacts = ArrayList(DependencyArtifactRef).new();
     self.modules = ArrayList(BuildModuleEntry).new();
     self.doc_configs = ArrayList(BuildDocConfig).new();
     self.cli_options = HashMap(String, String).new();
     self.declared_options = HashMap(String, BuildDeclaredOption).new();
+  }),
+  /// The name every registry is keyed by is ONE namespace: `resolve_dependency`
+  /// answers artifact → test → run → doc → step and takes the first match, so
+  /// two entities sharing a name make one of them unreachable — `depend_on`
+  /// silently built the wrong thing (the plan's B11). Only artifacts were
+  /// checked, and only against other artifacts.
+  _check_name_taken : (fn(inout(self) : Self, name : String, registering : str, exn : Exception) -> unit)({
+    taken := cond(
+      self.find_artifact(name.clone()).is_some() => "an artifact",
+      self.find_test(name.clone()).is_some() => "a test suite",
+      self.find_run_step(name.clone()).is_some() => "a run step",
+      self.find_documentation(name.clone()).is_some() => "a documentation step",
+      self.find_step(name.clone()).is_some() => "a step",
+      true => ""
+    );
+    if(taken.len() > usize(0), {
+      exn.throw(
+        dyn(
+          `Build error: the name "${name}" is already registered as ${taken}; ${registering} cannot reuse it. Build names share one namespace — steps, artifacts, tests, run and doc steps.`
+        )
+      );
+    });
   }),
   _check_duplicate_artifact_name : (fn(inout(self) : Self, name : String, exn : Exception) -> unit)({
     i := usize(0);
@@ -671,7 +668,7 @@ impl(
 // The global registry
 // ---------------------------------------------------------------------------
 // `build.yo` evaluation populates ONE registry, which the caller then reads —
-// `yo build` for the DAG, `yo fetch`/`yo install` for the dependency list. TS
+// `yo build` for the DAG and the referenced dependency names. TS
 // keeps it in a module-level `globalRegistry` with lazy construction; this is
 // the same thing.
 (g_build_registry : Option(BuildRegistry)) = Option(BuildRegistry).None;
@@ -973,10 +970,10 @@ _build_new_artifact :: (
     defines : ArrayList(String).new(),
     strip : false,
     static_link : false,
-    runtime_files : ArrayList(String).new(),
     linked_artifacts : ArrayList(String).new(),
     linked_system_libs : ArrayList(String).new(),
-    imported_modules : ArrayList(ImportedModule).new()
+    package_dir : String.new(),
+    package_name : String.new()
   )
 );
 /// Attach `library_name` to `artifact_name`'s system-library list, if the
@@ -1011,7 +1008,7 @@ _build_attach_system_library :: (
 ///
 /// On the REAL path (concrete comptime args — i.e. a top-level `build.yo` being
 /// evaluated) every builtin mutates `get_build_registry()`, exactly as TS does.
-/// That is what `yo build`, `yo fetch` and `yo install` read: without it the
+/// That is what `yo build` reads: without it the
 /// registry stays empty and `yo build` builds an empty DAG and exits 0.
 evaluate_yo_build_functions :: (
   fn(
@@ -1034,6 +1031,9 @@ evaluate_yo_build_functions :: (
       return(_build_string_result(expr, env, ctx, host_target().triple));
     });
     if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
+      return(_build_string_result(expr, env, ctx, String.new()));
+    });
+    if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MANIFEST_FIELD, Option(usize).None), {
       return(_build_string_result(expr, env, ctx, String.new()));
     });
     return(_build_unit_result(expr, env, ctx));
@@ -1061,6 +1061,22 @@ evaluate_yo_build_functions :: (
       .Err(_) => triple
     );
     return(_build_string_result(expr, env, ctx, parsed));
+  });
+  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MANIFEST_FIELD, Option(usize).None), {
+    _build_require_args(args, usize(1), String.from("__yo_build_manifest_field expects 1 argument (field)"), expr, exn);
+    field := _build_extract_string(args, usize(0), "field", expr, ctx, exn);
+    // A field the manifest does not carry — and every field outside a build,
+    // where the registry is empty — reads as the empty string, the same
+    // answer `load_manifest` gives for an absent `[package]` key.
+    reg_manifest := get_build_registry();
+    return(
+      _build_string_result(
+        expr,
+        env,
+        ctx,
+        match(reg_manifest.manifest_fields.get(field), .Some(v) => v, .None => String.new())
+      )
+    );
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
     _build_require_args(args, usize(3), String.from("__yo_build_option expects 3 arguments (name, description, default)"), expr, exn);
@@ -1095,8 +1111,8 @@ evaluate_yo_build_functions :: (
     });
     dep_name := _build_extract_string(args, usize(0), "dependency_name", expr, ctx, exn);
     mod_name := _build_extract_string(args, usize(1), "module_name", expr, ctx, exn);
-    // Encode as "dep_name<NUL>module_name" (decoded by the build
-    // runner's add_import handling). Mirrors build.ts. The NUL byte is
+    // Encode as "dep_name<NUL>module_name" (the handle `dep.module(...)`
+    // carries; system-library propagation reads it — plans §4.5.2). The NUL byte is
     // built at runtime via push_byte rather than as a string literal: a
     // literal NUL lowers to a C universal-character-name the C compiler
     // rejects ("refers to a control character").
@@ -1209,11 +1225,16 @@ evaluate_yo_build_functions :: (
         name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
         root : _build_extract_string(args, usize(1), "root", expr, ctx, exn),
         target : _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
-        verbose : false,
-        bail : false,
-        parallel : i32(1),
+        // `yo build --verbose` turns verbose on for every suite as well; this
+        // is the build FILE's own setting, which used to be hard-coded here
+        // while `BuildTestSuite` carried the fields and `run_test_suite`
+        // forwarded them (the plan's B13).
+        verbose : _build_extract_bool(args, usize(4), ctx),
+        bail : _build_extract_bool(args, usize(5), ctx),
+        parallel : i32(_build_extract_usize_or(args, usize(6), usize(1), ctx)),
         exclude : exclude_list
-      )
+      ),
+      exn
     );
     return(_build_unit_result(expr, env, ctx));
   });
@@ -1229,7 +1250,8 @@ evaluate_yo_build_functions :: (
     _build_require_args(args, usize(2), String.from("__yo_build_step expects 2 arguments (name, description)"), expr, exn);
     reg.register_step(
       _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-      _build_extract_string(args, usize(1), "description", expr, ctx, exn)
+      _build_extract_string(args, usize(1), "description", expr, ctx, exn),
+      exn
     );
     return(_build_unit_result(expr, env, ctx));
   });
@@ -1242,12 +1264,12 @@ evaluate_yo_build_functions :: (
         output_dir : _build_extract_string(args, usize(2), "output", expr, ctx, exn),
         format : _build_extract_string(args, usize(3), "format", expr, ctx, exn),
         include_private : _build_extract_bool(args, usize(4), ctx),
-        include_deps : _build_extract_bool(args, usize(5), ctx),
         title : _build_extract_string(args, usize(6), "title", expr, ctx, exn),
         logo : _build_extract_string(args, usize(7), "logo", expr, ctx, exn),
         favicon : _build_extract_string(args, usize(8), "favicon", expr, ctx, exn),
         version : _build_extract_string(args, usize(9), "version", expr, ctx, exn)
-      )
+      ),
+      exn
     );
     return(_build_unit_result(expr, env, ctx));
   });
@@ -1266,25 +1288,8 @@ evaluate_yo_build_functions :: (
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEPENDENCY, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_dependency expects at least 2 arguments (name, url)"), expr, exn);
-    reg.register_dependency(
-      BuildGitDependency(
-        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        url : _build_extract_string(args, usize(1), "url", expr, ctx, exn),
-        ref : _build_extract_string_or(args, usize(2), "ref", String.from("HEAD"), expr, ctx, exn),
-        path : _build_extract_string_or(args, usize(3), "path", String.new(), expr, ctx, exn)
-      )
-    );
-    return(_build_unit_result(expr, env, ctx));
-  });
-  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_PATH_DEPENDENCY, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_path_dependency expects 2 arguments (name, path)"), expr, exn);
-    reg.register_path_dependency(
-      BuildPathDependency(
-        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        path : _build_extract_string(args, usize(1), "path", expr, ctx, exn)
-      )
-    );
+    _build_require_args(args, usize(1), String.from("__yo_build_dependency expects 1 argument (name)"), expr, exn);
+    reg.reference_dependency(_build_extract_string(args, usize(0), "name", expr, ctx, exn));
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY, Option(usize).None), {
@@ -1311,11 +1316,10 @@ evaluate_yo_build_functions :: (
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_module expects 2 arguments (name, root)"), expr, exn);
+    _build_require_args(args, usize(1), String.from("__yo_build_module expects 1 argument (name)"), expr, exn);
     reg.register_module(
       BuildModuleEntry(
         name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        root : _build_extract_string(args, usize(1), "root", expr, ctx, exn),
         linked_system_libraries : ArrayList(String).new()
       )
     );
@@ -1326,47 +1330,6 @@ evaluate_yo_build_functions :: (
     reg.register_module_link(
       _build_extract_string(args, usize(0), "module_name", expr, ctx, exn),
       _build_extract_string(args, usize(1), "system_library_name", expr, ctx, exn)
-    );
-    return(_build_unit_result(expr, env, ctx));
-  });
-  if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_IMPORT, Option(usize).None), {
-    _build_require_args(args, usize(4), String.from("__yo_build_add_import expects 4 arguments (artifact_name, import_name, module_name, dependency_name)"), expr, exn);
-    imp_artifact := _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn);
-    imp_name := _build_extract_string(args, usize(1), "import_name", expr, ctx, exn);
-    imp_module := _build_extract_string(args, usize(2), "module_name", expr, ctx, exn);
-    imp_dep := _build_extract_string(args, usize(3), "dependency_name", expr, ctx, exn);
-    // Diagnose a duplicate import name BEFORE registering — `register_imported_module`
-    // silently ignores one, which would otherwise hide the user's mistake.
-    match(
-      reg.find_artifact(imp_artifact.clone()),
-      .Some(art) => {
-        (di : usize) = usize(0);
-        while(di < art.imported_modules.len(), {
-          existing := art.imported_modules(di);
-          if(existing.import_name == imp_name, {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(expr),
-                  `Duplicate import name "${imp_name}" on artifact "${imp_artifact}". Already imported from module "${existing.module_name}".`
-                )
-              )
-            );
-          });
-          di = (di + usize(1));
-        });
-      },
-      .None => ()
-    );
-    reg.register_imported_module(
-      imp_artifact,
-      ImportedModule(
-        import_name : imp_name,
-        module_name : imp_module,
-        dependency_name : imp_dep,
-        resolved_root : Option(String).None,
-        propagated_system_libs : ArrayList(String).new()
-      )
     );
     return(_build_unit_result(expr, env, ctx));
   });
@@ -1409,12 +1372,9 @@ evaluate_yo_build_functions :: (
 export(
   ArtifactKind,
   BuildArtifact,
-  ImportedModule,
   BuildTestSuite,
   BuildRunStep,
   BuildStep,
-  BuildGitDependency,
-  BuildPathDependency,
   BuildSystemLibrary,
   DependencyArtifactRef,
   BuildModuleEntry,

@@ -1,0 +1,62 @@
+//! A generic function returning `Impl(Future(T))`, instantiated at two
+//! different `T`s in one program.
+//!
+//! Either instantiation alone always compiled; the pair did not — the caller's
+//! await site kept the DECLARED, unresolved return, rendered it `void*`, and
+//! the second instantiation's C disagreed with the first's
+//! (issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md).
+//!
+//! The second test is not a duplicate: the forall is named `T`, which is the
+//! name the PRELUDE's own `Future(T, E)` declaration uses. The first cut of the
+//! fix compared binders by NAME and so accepted `R` and rejected `T` — the same
+//! program compiling or not according to what its type variable was called.
+//!
+//! The CLOSURE-PARAM form of the same shape is a SECOND defect, still OPEN —
+//! `issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`,
+//! reproducers in `issues/repros/`. It is not gated here because it does not
+//! compile; adding it would make the suite red rather than catch a regression.
+//!
+//! The method-call arm below IS gated, as the CANARY: that is the one call
+//! shape the defect does not reach (the method arm of evaluate_function_call
+//! bridges the call result through the SPECIALIZATION's body), so it is also
+//! the shape whose breakage would say the surviving path had regressed.
+{ assert } :: import("std/assert");
+_Pair :: struct(lo : i32, hi : i32);
+_wrap_r :: (fn(generic(R : Type), v : R, io : Io) -> Impl(Future(R, Io)))(
+  io.async((io : Io) => v)
+);
+_wrap_t :: (fn(generic(T : Type), v : T, io : Io) -> Impl(Future(T, Io)))(
+  io.async((io : Io) => v)
+);
+test("a generic Impl(Future(R)) at two different R in one program", {
+  a := io.await(_wrap_r(i32(7), io), io);
+  assert(a == i32(7), "the i32 instantiation returned its own value");
+  b := io.await(_wrap_r(_Pair(lo : i32(3), hi : i32(4)), io), io);
+  assert((b.lo + b.hi) == i32(7), "the struct instantiation returned its own value");
+});
+test("the same, with the forall named T — the prelude's own binder name", {
+  a := io.await(_wrap_t(i64(11), io), io);
+  assert(a == i64(11), "the i64 instantiation returned its own value");
+  b := io.await(_wrap_t(_Pair(lo : i32(5), hi : i32(6)), io), io);
+  assert((b.lo + b.hi) == i32(11), "the struct instantiation returned its own value");
+});
+test("a third instantiation does not disturb the first two", {
+  a := io.await(_wrap_r(true, io), io);
+  assert(a, "the bool instantiation returned its own value");
+  c := io.await(_wrap_r(i32(9), io), io);
+  assert(c == i32(9), "the i32 instantiation still returns its own value");
+});
+_Holder :: struct(n : i32);
+impl(
+  _Holder,
+  run : (fn(generic(R : Type), self : Self, f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+    io.async((io : Io) => f())
+  )
+);
+test("the method-call form of the same shape — the canary", {
+  h := _Holder(n : i32(1));
+  a := io.await(h.run(() => i32(7), io), io);
+  assert(a == i32(7), "the i32 instantiation ran its own closure");
+  b := io.await(h.run(() => _Pair(lo : i32(3), hi : i32(5)), io), io);
+  assert((b.lo + b.hi) == i32(8), "the struct instantiation ran its own closure");
+});
