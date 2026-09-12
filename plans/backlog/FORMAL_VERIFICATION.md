@@ -1187,8 +1187,27 @@ a broken invariant is a compile error naming the failing iteration.
 > specification context" error, which also closes a PRE-EXISTING hole: a
 > runtime-mode assert reading a ghost binding used to emit an UNDECLARED
 > C identifier — the evaluator resolved the name while codegen erased
-> the binding); the binding never reaches codegen. Remaining V5: std/spec
-> collections (task 5), the insertion-sort exit (task 6).
+> the binding); the binding never reaches codegen. TASK 5 LANDED on
+> feat/fv5-spec-collections (2026-09-13): the ghost collections are REAL
+> end to end — Seq(T) over z3's built-in (Seq S) sort (seq_unit/
+> seq_append/seq_len/seq_nth; seq.len's Int result converts via
+> ((_ int2bv 64)), indices via bv2nat), Multiset(T) as elem→count
+> (Array T (_ BitVec 64)) with ((as const ...)) empties (the plain
+> (const S v) form is NOT SMT-LIB — z3 rejects it), ms_single/ms_add/
+> ms_count, Set(T) as membership (Array T Bool), and str content as
+> Seq(u8) (str_bytes folds seq.unit over the literal's CONTENT —
+> StrLit.raw carries the surrounding quotes). All are ghost-only
+> builtins (same gate as forall/exists) that chain inside ONE predicate
+> expression; the evaluator only type-checks them (per-head result
+> types: counts i64, contains bool, nth u8, carriers take arg1's type).
+> Pinned by prove/refute twins: seq/multiset/set prove,
+> spec_multiset_false REFUTES at count 2≠3, str_bytes proves
+> length+element. LESSONS: the __dk_len dispatch prefilter gates on the
+> CALLEE NAME LENGTH — seq_append is 10 and set_contains 12 (two arms
+> were silently DEAD and the callees fell to name resolution); VcSort is
+> now a REF enum (SeqS/FunS carry Self payloads — plain enums cannot
+> self-reference). Remaining V5: the insertion-sort exit (task 6),
+> which task 5's Multiset now makes reachable.
 
 **Scope:** specification-only computation — the vocabulary real
 functional correctness specs need.

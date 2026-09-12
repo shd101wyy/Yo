@@ -56,7 +56,9 @@ encode_sort :: (fn(s : VcSort) -> String)(
     s,
     .BoolS => String.from("Bool"),
     .BvS(w) => `(_ BitVec ${w.to_string()})`,
-    .DataS(name) => name.clone()
+    .DataS(name) => name.clone(),
+    .SeqS(elem) => `(Seq ${encode_sort(elem)})`,
+    .FunS(domain, range) => `(Array ${encode_sort(domain)} ${encode_sort(range)})`
   )
 );
 // ============================================================================
@@ -99,7 +101,15 @@ _op_name :: (fn(op : VcOp) -> String)(
     // Indexed operators are handled structurally in encode_term.
     .SignExtendOp(_) => String.from("sign_extend"),
     .ZeroExtendOp(_) => String.from("zero_extend"),
-    .ExtractOp(_, _) => String.from("extract")
+    .ExtractOp(_, _) => String.from("extract"),
+    .IntToBvOp(w) => `(_ int2bv ${w.to_string()})`,
+    .Bv2NatOp => String.from("bv2nat"),
+    .SeqUnit => String.from("seq.unit"),
+    .SeqConcat => String.from("seq.++"),
+    .SeqLen => String.from("seq.len"),
+    .SeqNth => String.from("seq.nth"),
+    .StoreOp => String.from("store"),
+    .SelectOp => String.from("select")
   )
 );
 // ============================================================================
@@ -112,12 +122,21 @@ encode_term :: (fn(t : VcTerm) -> String)(
     .Var(name, _) => name.clone(),
     .BvLit(value, width) => `(_ bv${value.to_string()} ${width.to_string()})`,
     .BoolLit(value) => cond(value => String.from("true"), true => String.from("false")),
+    .ArrConst(sort, lit) => `((as const ${encode_sort(sort)}) ${encode_term(lit)})`,
     .App(op, args) => {
       head := match(
         op,
         .SignExtendOp(k) => `(_ sign_extend ${k.to_string()})`,
         .ZeroExtendOp(k) => `(_ zero_extend ${k.to_string()})`,
         .ExtractOp(hi, lo) => `(_ extract ${hi.to_string()} ${lo.to_string()})`,
+        .IntToBvOp(w) => `(_ int2bv ${w.to_string()})`,
+        .Bv2NatOp => String.from("bv2nat"),
+        .SeqUnit => String.from("seq.unit"),
+        .SeqConcat => String.from("seq.++"),
+        .SeqLen => String.from("seq.len"),
+        .SeqNth => String.from("seq.nth"),
+        .StoreOp => String.from("store"),
+        .SelectOp => String.from("select"),
         _ => _op_name(op)
       );
       sb := StringBuilder.new();

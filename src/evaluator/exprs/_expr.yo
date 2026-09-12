@@ -77,6 +77,17 @@ import("std/fmt");
   BF_FORALL,
   BF_EXISTS,
   BF_IMPLIES,
+  BF_SEQ_UNIT,
+  BF_SEQ_APPEND,
+  BF_SEQ_LEN,
+  BF_SEQ_NTH,
+  BF_STR_BYTES,
+  BF_MS_SINGLE,
+  BF_MS_ADD,
+  BF_MS_COUNT,
+  BF_SET_SINGLE,
+  BF_SET_ADD,
+  BF_SET_CONTAINS,
   BF_ALIGNOF,
   BF_TYPEID,
   BF_RUNTIME,
@@ -333,6 +344,17 @@ import("std/fmt");
   evaluate_forall,
   evaluate_exists,
   evaluate_implies,
+  evaluate_seq_unit,
+  evaluate_seq_append,
+  evaluate_seq_len,
+  evaluate_seq_nth,
+  evaluate_str_bytes,
+  evaluate_ms_single,
+  evaluate_ms_add,
+  evaluate_ms_count,
+  evaluate_set_single,
+  evaluate_set_add,
+  evaluate_set_contains,
   _is_verify_target
 } :: import("../builtins/contracts.yo");
 { evaluate_the } :: import("../builtins/the.yo");
@@ -909,6 +931,28 @@ _evaluate_expression :: (
           _evaluate_exists_or_call(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_IMPLIES, .None)) =>
           evaluate_implies(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_SEQ_UNIT, .None)) =>
+          evaluate_seq_unit(expr, env, ctx, exn),
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_SEQ_APPEND, .None)) =>
+          evaluate_seq_append(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SEQ_LEN, .None)) =>
+          evaluate_seq_len(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SEQ_NTH, .None)) =>
+          evaluate_seq_nth(expr, env, ctx, exn),
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_STR_BYTES, .None)) =>
+          evaluate_str_bytes(expr, env, ctx, exn),
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_MS_SINGLE, .None)) =>
+          evaluate_ms_single(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_MS_ADD, .None)) =>
+          evaluate_ms_add(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_MS_COUNT, .None)) =>
+          evaluate_ms_count(expr, env, ctx, exn),
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_SET_SINGLE, .None)) =>
+          evaluate_set_single(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SET_ADD, .None)) =>
+          evaluate_set_add(expr, env, ctx, exn),
+        ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_SET_CONTAINS, .None)) =>
+          evaluate_set_contains(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ALIGNOF, .None)) =>
           evaluate_align_of(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEID, .None)) =>

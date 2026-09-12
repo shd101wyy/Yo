@@ -423,6 +423,7 @@ _collect_declared :: (fn(t : VcTerm, out : HashMap(String, VcSort)) -> unit)(
     },
     .BvLit(_, _) => (),
     .BoolLit(_) => (),
+    .ArrConst(_, lit) => _collect_declared(lit, out),
     .App(_, args) => {
       (i : usize) = usize(0);
       while(i < args.len(), {
@@ -507,6 +508,7 @@ _rename_vars :: (fn(t : VcTerm, map : HashMap(String, String)) -> VcTerm)(
     ),
     .BvLit(_, _) => t,
     .BoolLit(_) => t,
+    .ArrConst(sort, lit) => VcTerm.ArrConst(sort : sort, lit : _rename_vars(lit, map)),
     .App(op, args) => {
       out := ArrayList(VcTerm).new();
       (i : usize) = usize(0);
@@ -623,6 +625,64 @@ _app2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> VcTerm)({
   args.push(a);
   args.push(b);
   VcTerm.App(op, args)
+});
+/// `((_ int2bv 64) (seq.len a))` — the length as a 64-bit vector.
+_seq_len_bv :: (fn(a : VcTerm) -> VcTerm)({
+  inner := ArrayList(VcTerm).new();
+  inner.push(a);
+  outer := ArrayList(VcTerm).new();
+  outer.push(VcTerm.App(VcOp.SeqLen, inner));
+  VcTerm.App(VcOp.IntToBvOp(width : usize(64)), outer)
+});
+_app3 :: (fn(op : VcOp, a : VcTerm, b : VcTerm, c : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  args.push(a);
+  args.push(b);
+  args.push(c);
+  VcTerm.App(op, args)
+});
+/// The best-effort sort of a term (for Array domains when the operand is
+/// a derived expression rather than a Var).
+_term_sort_of :: (fn(t : VcTerm) -> VcSort)(
+  cond(
+    (_term_width(t) > usize(1)) => VcSort.BvS(width : _term_width(t)),
+    true => VcSort.BoolS
+  )
+);
+/// A comptime str literal's bytes as a right-nested seq.++ of seq.unit.
+_str_bytes_term :: (fn(info : ExprInfo) -> Option(VcTerm))({
+  quoted := match(
+    info.value,
+    .Some(v) => match(
+      v,
+      .StrLit(r) => r.clone(),
+      _ => String.new()
+    ),
+    .None => String.new()
+  );
+  // StrLit.raw carries the surrounding quotes (exprs/import.yo) — strip
+  // them; what folds into seq.units is the CONTENT.
+  raw := quoted.slice_copy(usize(1) .. (quoted.len() - usize(1)));
+  if(raw.len() == usize(0), {
+    // The empty string is still a legitimate Seq(u8) — but there is no
+    // (seq.empty) term variant; represent it as unit(fold) of nothing via
+    // a distinguishing failure instead (specs on the empty string wait for
+    // a SeqEmpty term; honest subset error).
+    return(Option(VcTerm).None);
+  });
+  out := Option(VcTerm).None;
+  (i : usize) = usize(0);
+  while(i < raw.len(), {
+    b := VcTerm.BvLit(value : u64(raw.byte_at(i)), width : usize(8));
+    u := _app1(VcOp.SeqUnit, b);
+    out = match(
+      out,
+      .Some(acc) => Option(VcTerm).Some(_app2(VcOp.SeqConcat, acc, u)),
+      .None => Option(VcTerm).Some(u)
+    );
+    i = (i + usize(1));
+  });
+  out
 });
 _zero_of :: (fn(w : usize) -> VcTerm)(VcTerm.BvLit(value : u64(0), width : w));
 /// Build the term for `e`. `.None` = outside the subset (already recorded).
@@ -2114,6 +2174,149 @@ _call_term :: (
   if(((head == "forall") || (head == "exists")) && (n >= usize(2)), {
     return(_quant_term(ctx, e, head, args));
   });
+  // --- std/spec ghost collections (V5 task 5) -----------------------------
+  // seq_unit / seq_append / seq_len / seq_nth over the SMT Seq sort;
+  // ms_single / ms_add / ms_count and set_single / set_add / set_contains
+  // over Array sorts (Multiset: elem→count, Set: elem→membership). Ghost
+  // only (same gate as the quantifiers at the evaluator level); the sorts
+  // come from the walked operands' own sorts.
+  if((head == "seq_unit") && (n == usize(1)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    return(
+      match(
+        a,
+        .Some(at) => Option(VcTerm).Some(_app1(VcOp.SeqUnit, at)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "seq_append") && (n == usize(2)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(a.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    b := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        b,
+        .Some(bt) => Option(VcTerm).Some(_app2(VcOp.SeqConcat, a.unwrap(), bt)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "seq_len") && (n == usize(1)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    return(
+      match(
+        a,
+        // seq.len is an SMT Int; the subset is bitvectors — int2bv 64 so
+        // comparisons against integer literals work.
+        .Some(at) => Option(VcTerm).Some(_seq_len_bv(at)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "seq_nth") && (n == usize(2)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(a.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    b := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        b,
+        // seq.nth's index is an SMT Int — bv2nat the (non-negative) index.
+        .Some(bt) => Option(VcTerm).Some(_app2(VcOp.SeqNth, a.unwrap(), _app1(VcOp.Bv2NatOp, bt))),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "str_bytes") && (n == usize(1)), {
+    // A str LITERAL's content as Seq(u8): fold seq.unit over the bytes,
+    // right-nested seq.++. The operand must be comptime (a str param is
+    // outside the verify subset) — read it straight from the ExprInfo,
+    // never through the name walk.
+    lit := args.get(usize(0)).unwrap();
+    return(
+      match(
+        expr_info_table_get(ctx.table, ast_expr_id(lit)),
+        .Some(si) => _str_bytes_term(si),
+        .None => {
+          _fail_subset(ctx, String.from("str_bytes(...) needs a comptime string (str params are outside the subset)"), e);
+          Option(VcTerm).None
+        }
+      )
+    );
+  });
+  if(((head == "ms_single") || (head == "set_single")) && (n == usize(1)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    return(
+      match(
+        a,
+        .Some(at) => {
+          es := match(at, .Var(_, s) => s, _ => _term_sort_of(at));
+          empty := cond(
+            (head == "ms_single") => VcTerm.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BvS(width : usize(64))), lit : VcTerm.BvLit(value : u64(0), width : usize(64))),
+            true => VcTerm.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BoolS), lit : VcTerm.BoolLit(false))
+          );
+          one := cond(
+            (head == "ms_single") => VcTerm.BvLit(value : u64(1), width : usize(64)),
+            true => VcTerm.BoolLit(true)
+          );
+          Option(VcTerm).Some(_app3(VcOp.StoreOp, empty, at, one))
+        },
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "ms_add") && (n == usize(2)), {
+    m := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(m.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    x := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        x,
+        .Some(xt) => {
+          mv := m.unwrap();
+          cur := _app2(VcOp.SelectOp, mv, xt);
+          one := VcTerm.BvLit(value : u64(1), width : usize(64));
+          bumped := _app2(VcOp.BvAdd, cur, one);
+          Option(VcTerm).Some(_app3(VcOp.StoreOp, mv, xt, bumped))
+        },
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "set_add") && (n == usize(2)), {
+    m := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(m.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    x := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        x,
+        .Some(xt) => Option(VcTerm).Some(_app3(VcOp.StoreOp, m.unwrap(), xt, VcTerm.BoolLit(true))),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if(((head == "ms_count") || (head == "set_contains")) && (n == usize(2)), {
+    m := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(m.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    x := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        x,
+        .Some(xt) => Option(VcTerm).Some(_app2(VcOp.SelectOp, m.unwrap(), xt)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
   // --- calls to contracted callees ----------------------------------------
   return(_callee_call_term(ctx, e, args, info));
 });
@@ -2947,7 +3150,8 @@ _term_width :: (fn(t : VcTerm) -> usize)(
     .Ctor(_, _) => usize(1),
     .Test(_, _) => usize(1),
     .Proj(_, _, _) => usize(1),
-    .Quant(_, _, _, _) => usize(1)
+    .Quant(_, _, _, _) => usize(1),
+    .ArrConst(_, _) => usize(1)
   )
 );
 // ============================================================================

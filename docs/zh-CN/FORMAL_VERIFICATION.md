@@ -96,7 +96,8 @@ refuted  fn@/abs/path.yo:8 [verify]
 | `for` 循环（需要迭代器/集合模型） | 后续阶段 |
 | 契约中的 `forall`/`exists`/`==>`（仅限幽灵上下文；SMT 量词，MBQI 实例化） | ✅ 已支持（V5） |
 | `inout` 参数 —— 可重赋值的双态绑定（`old(v)` 读入口快照） | ✅ 已支持（V5） |
-| Ghost 代码（`ghost`/`ghost_fn` 擦除）、`std/spec` 集合 | V5（剩余） |
+| `std/spec` 幽灵集合 —— Seq（`seq_unit`/`seq_append`/`seq_len`/`seq_nth`，SMT `Seq`）、Multiset（`ms_single`/`ms_add`/`ms_count`，元素→计数 `Array`）、Set（`set_single`/`set_add`/`set_contains`，成员 `Array`）、`str_bytes`（字符串内容即 `Seq(u8)`） | ✅ 已支持（V5） |
+| Ghost 代码（`ghost`/`ghost_fn` 擦除） | ✅ 已支持（V5 任务 3） |
 | 跨抽象边界的 trait/泛型、`Refine` | V6 |
 | `object`/堆、字符串内容、浮点、效应、`unsafe`、FFI | 子集之外 |
 
