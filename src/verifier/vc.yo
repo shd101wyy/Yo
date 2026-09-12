@@ -38,6 +38,12 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val } :: import("../value.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort } :: import("./encode.yo");
+{ is_ghost_fn } :: import("../evaluator/builtins/contracts.yo");
+
+/// V5 task 3 slice 2: the ghost_fn inlining stack (see
+/// `_ghost_fn_inline_term`). Declared at module top so it is initialized
+/// before any lazy `::` definition can be forced by an importer.
+(g_ghost_inline_stack : ArrayList(String)) = ArrayList(String).new();
 {
   get_func_requires_exprs,
   get_func_ensures_exprs,
@@ -1979,6 +1985,35 @@ _call_term :: (
     );
     return(Option(VcTerm).None);
   });
+  // --- ghost(x := e) (V5 task 3 slice 2): a SPEC rebind ---------------------
+  // The binding is erased from codegen but the WALK tracks it — later spec
+  // code (assert predicates, ghost_fn calls) reads it through ctx.vars.
+  if((head == "ghost") && (n == usize(1)) && ast_expr_is_fn_call_of(args.get(usize(0)).unwrap(), ":=", Option(usize).Some(usize(2))), {
+    ga := match(
+      args.get(usize(0)).unwrap(),
+      .FnCall(_, _, a2, _, _) => a2,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    );
+    gv := _expr_term(ctx, ga.get(usize(1)).unwrap());
+    return(
+      match(
+        gv,
+        .Some(gvt) => {
+          gn := ga.get(usize(0));
+          is_plain_name := match(
+            gn,
+            .Some(gnx) => ast_expr_is_atom(gnx),
+            .None => false
+          );
+          if(is_plain_name, {
+            ctx.vars.insert(ast_expr_token(ga.get(usize(0)).unwrap()).value.clone(), gvt);
+          });
+          Option(VcTerm).Some(VcTerm.BoolLit(true))
+        },
+        .None => Option(VcTerm).None
+      )
+    );
+  });
   // --- begin blocks --------------------------------------------------------
   if(head == "begin", {
     return(_begin_term(ctx, args));
@@ -2559,6 +2594,122 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
   });
   result
 });
+/// V5 task 3 slice 2: inline a ghost_fn call — the spec function's BODY
+/// walks with the actuals bound to its parameters (Dafny's spec-function
+/// semantics; a ghost_fn has no contracts to assume, so its meaning IS its
+/// body). Guarded against recursion by an inlining stack: a spec function
+/// that reaches itself — directly or through another ghost_fn — has no
+/// finite expansion and is rejected.
+_ghost_fn_inline_term :: (
+  fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
+)({
+  (si : usize) = usize(0);
+  while(si < g_ghost_inline_stack.len(), {
+    if(g_ghost_inline_stack.get(si).unwrap() == fid, {
+      _fail_subset(ctx, String.from("recursive ghost_fn inlining (a spec function must not reach itself)"), at);
+      return(Option(VcTerm).None);
+    });
+    si = (si + usize(1));
+  });
+  callee_atom := match(
+    at,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => at
+  );
+  params := ArrayList(String).new();
+  (body : AstExpr) = make_err_expr();
+  (found : bool) = false;
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
+    .Some(ci) => {
+      match(
+        ci.value,
+        .Some(v) => {
+          match(
+            v,
+            .FuncVal(gfvd, _) => {
+              params = gfvd.*.params;
+              body = gfvd.*.body;
+              found = true;
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  if(!found, {
+    _fail_subset(ctx, String.from("ghost_fn callee without a resolvable body"), at);
+    return(Option(VcTerm).None);
+  });
+  if(args.len() != params.len(), {
+    _fail_subset(ctx, `ghost_fn call arity mismatch (${args.len().to_string()} args, ${params.len().to_string()} params)`, at);
+    return(Option(VcTerm).None);
+  });
+  // Walk the actuals, bind the spec params, walk the body, restore.
+  saved_names := ArrayList(String).new();
+  saved_vals := ArrayList(Option(VcTerm)).new();
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    match(
+      args.get(i),
+      .Some(a) => {
+        v := _expr_term(ctx, a);
+        match(
+          v,
+          .Some(vt) => {
+            match(
+              params.get(i),
+              .Some(cp) => {
+                saved_names.push(cp.clone());
+                saved_vals.push(ctx.vars.get(cp.clone()));
+                ctx.vars.insert(cp.clone(), vt);
+              },
+              .None => ()
+            );
+          },
+          .None => {
+            return(Option(VcTerm).None);
+          }
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_ghost_inline_stack.push(fid.clone());
+  out := _expr_term(ctx, body);
+  _ := g_ghost_inline_stack.pop();
+  (ri : usize) = saved_names.len();
+  while(ri > usize(0), {
+    ri = (ri - usize(1));
+    match(
+      saved_names.get(ri),
+      .Some(sn) => {
+        match(
+          saved_vals.get(ri),
+          .Some(sv) => {
+            match(
+              sv,
+              .Some(old) => {
+                ctx.vars.insert(sn.clone(), old);
+              },
+              .None => {
+                _ := ctx.vars.remove(sn.clone());
+                ()
+              }
+            );
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
+  out
+});
 /// Calls to a contracted callee: prove requires under the caller path,
 /// then assume ensures with a fresh result var bound.
 _callee_call_term :: (
@@ -2589,6 +2740,12 @@ _callee_call_term :: (
     return(Option(VcTerm).None);
   });
   fid := callee_id.unwrap();
+  // V5 task 3 slice 2: a ghost_fn callee is INLINED — its body walks with
+  // the actuals bound to its parameters (spec functions carry no contracts;
+  // their meaning IS the body).
+  if(is_ghost_fn(fid.clone()), {
+    return(_ghost_fn_inline_term(ctx, e, args, fid.clone()));
+  });
   // Recursion (V4): a self-call needs `decreases(M)`. The measure of the
   // CURRENT state is captured BEFORE the param rebinding; after the
   // rebinding (callee params = actual terms) the measure evaluates as the
