@@ -82,20 +82,23 @@ Nothing is waiting on anyone here. Re-checked against the code 2026-09-12:
 ### The two engineering items that are genuinely open
 
 **1. D18b — `Thread(T).spawn` carrying its result, `join() -> T`.** Three
-walls, all now separately diagnosed, and **none of them is the spawn lowering**
+walls; TWO ARE NOW FIXED and the third is the only thing left. None of them was
+the spawn lowering
 that `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
 blamed:
 
 - *fixed* — a static-dispatch call read the CALL EXPRESSION's type instead of
   the callee's prototype, so a `void`-returning closure call was bound to a
   `void*` temp (#598).
-- *open* —
-  `issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
-  One specialisation, two mangled names. Measured: the argument's type is the
-  enclosing generic's own binder, unresolved in the per-object cell, the global
-  registry AND the caller's env — so the resolution does not exist yet rather
-  than being looked up in the wrong place. Three candidate fixes were built and
-  are recorded there as dead ends.
+- *fixed* —
+  `issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
+  The specialisation binder bound an `Impl(Fn(...))` parameter VALUELESS, so the
+  body's `cb(x)` kept the enclosing generic's binder as its result type and the
+  `send` it feeds keyed on that abstract type — naming the def-era ORIGINAL,
+  which the emission loop deliberately skips. It now registers the argument
+  closure's own concrete result against the declared Fn bound's result `SomeT`.
+  TYPE only: binding the FuncVal itself makes the evaluator CALL the closure at
+  compile time and takes `check ./src` to 245/270.
 - *open* — `_capture_judgement_type` resolves a captured closure to its capture
   STRUCT and then rejects it as not `Send`. A security-relevant checker; needs
   an over-rejection canary per exempt shape before it is touched.

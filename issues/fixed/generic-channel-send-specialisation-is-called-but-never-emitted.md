@@ -3,7 +3,9 @@
 **Found**: 2026-09-12, working D18b (`Thread(T).spawn` carrying its result,
 `plans/STD_API_STABILIZATION.md` §2 D18). **Class**: a specialization that the
 call site emits a call to and the collector never registers, so the C has a
-call with no declaration. **Status**: OPEN.
+call with no declaration. **Status**: **FIXED 2026-09-12.** Red-first regression tests in
+`tests/thread.test.yo` ("Thread spawn relaying a generic callback's result at
+T = unit", and its `T = i32` sibling).
 
 ## The error
 
@@ -281,3 +283,54 @@ need the resolution too, not only its name.
 `rtparam` loop), `type_key`'s `SomeT` arm and `_tk_resolve_arg_slot`
 (`src/types/type_key.yo`), and `should_skip_function_codegen` /
 `func_params_have_raw_some_type` (`src/codegen/functions/declarations.yo`).
+
+## Resolution
+
+`src/evaluator/calls/helper.yo`'s `is_closure_param` binder now registers the
+ARGUMENT closure's own concrete result against the declared Fn bound's result
+`SomeT`, beside the capture-struct registration already there and in the same
+shared-id last-write shape. `cb(x)` in the body then has a concrete type, the
+`send` it feeds keys its specialisation on a concrete argument type, and the key
+names a real specialisation instead of the def-era original.
+
+**TYPE ONLY, and that is the whole point.** Binding the argument's FuncVal
+itself was tried first, and it is wrong: the evaluator can then CALL the closure
+at compile time, and `yo check ./src` drops to 245/270 with twenty sites failing
+`Expected enum type or primitive type for match expression, got unit`, with the
+bootstrap fixpoint broken and a hollow stage 2. It fixes the reproducer and
+breaks the compiler. Do not retry it.
+
+| gate | result |
+| --- | --- |
+| the reproducer | compiles and RUNS — `unit value delivered` |
+| `yo check ./src` | 270/270 |
+| `yo check ./std` | 175/175 |
+| bootstrap fixpoint | **FIXPOINT_HOLDS**, stage2 hollow=0 |
+| fast suite | **4153 passed, 0 failed** |
+| over-merge canary | **17749 = 17749** |
+
+The last row is the one a passing suite cannot give you. A change that makes two
+specialisations key alike shows up as a function-count DROP and as nothing else:
+`src/main.yo` was emitted by a baseline compiler and by the fixed one **from the
+same tree**, and both define 17749 static functions. With symbol names
+normalised the remaining delta is 2441 lines, all type declarations — reordering
+plus newly concrete instances such as `ArrayList(ArrayList(Delimiter))`, which
+is exactly what a `T` that now resolves is supposed to produce.
+
+### Known-unverified route
+
+There are THREE parameter binders and two of them are call-time. This change is
+in the `is_closure_param` branch of `check_if_function_parameter_matches_argument`
+(`helper.yo`). No reproducer routes an `Impl(Fn)` argument through
+`_evaluate_funcval_runtime_call` (`calls/function.yo`), so that path is NOT
+covered and the change was deliberately not mirrored there blind: registering
+against a shared `SomeT` id from two places without a reproducer for the second
+is how the capture-split bug happened
+(`issues/repros/arc-spawn-capture-split.yo`).
+
+### Follow-up worth doing separately
+
+`should_skip_function_codegen` is a SILENT skip, and this bug existed because a
+call site named a symbol the emission loop had dropped. Having the emission loop
+record what it skipped and assert that nothing calls a skipped symbol would turn
+the next instance of this class from a link error into a compiler diagnostic.

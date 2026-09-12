@@ -259,3 +259,44 @@ test("Thread spawn releases captures on every iteration of a loop", {
     `all sixteen captured objects disposed; ${_spawn_dispose_count.load(MemoryOrder.Acquire).to_string()} did`
   );
 });
+// A generic helper that hands its `Impl(Fn(...) -> T)` callback to a SPAWN
+// closure and sends the result down a `Channel(T)` — the D18b shape, at the
+// instantiation that broke it.
+//
+// At `T = unit` the closure's body was evaluated with `T` still abstract,
+// because the specialisation binder bound `cb` VALUELESS and nothing else
+// resolved the declared `Impl(Fn(n : i32) -> T)`'s result. So `cb(io)` kept the
+// binder as its type, the `Channel(T).send` it feeds keyed its specialisation
+// on that abstract type, and the key named the def-era ORIGINAL — which the
+// emission loop deliberately skips. The C then called a symbol nothing
+// declared, on top of binding a `void`-returning call to a `void*` temp.
+// See issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md
+// and issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
+_spawn_zst_relay :: (
+  fn(generic(T : Type), cb : Impl(Fn(io : Io) -> T), where(T <: (Send, Acyclic))) -> Channel(T)
+)({
+  chan := Channel(T).new(usize(1));
+  sink := chan;
+  t := Thread.spawn((io : Io) => {
+    sink.send(cb(io));
+    ()
+  });
+  t.join();
+  chan
+});
+test("Thread spawn relaying a generic callback's result at T = unit", {
+  c := _spawn_zst_relay((io : Io) => ());
+  assert(
+    match(c.try_recv(), .Ok(_) => true, .Err(_) => false),
+    "the unit result reached the channel"
+  );
+});
+test("Thread spawn relaying a generic callback's result at T = i32", {
+  // The instantiation that always worked, kept beside it: a fix that made the
+  // ZST case compile by erasing the result type would break this one.
+  c := _spawn_zst_relay((io : Io) => i32(1234));
+  assert(
+    match(c.try_recv(), .Ok(v) => (v == i32(1234)), .Err(_) => false),
+    "the i32 result reached the channel intact"
+  );
+});
