@@ -161,6 +161,51 @@ cache exactly like editing a `.yo` source.
 Byte content is fine: the value is a byte string, so a file with quotes,
 newlines or non-UTF-8 bytes travels verbatim.
 
+### Parsing data at compile time: `comptime_json_parse` / `comptime_toml_parse`
+
+Both take a compile-time string and return a `ComptimeValue` — a document tree
+made of compile-time scalars and `ComptimeList`, since no runtime container can
+exist at compile time. Composed with `comptime_read_file`, a configuration file
+becomes constants:
+
+```rust
+CFG :: comptime_json_parse(comptime_read_file("./config.json"));
+
+PORT :: CFG.get("port").as_int(8080);
+NAME :: CFG.get("name").as_str("unnamed");
+
+comptime_assert(PORT == 8080);        // a wrong parse fails to COMPILE
+```
+
+`ComptimeValue` is an enum — `Null`, `Bool`, `Int`, `Float`, `Str`, `List`, and
+`Table` — so it can be matched directly, and it carries helpers for the common
+reads:
+
+| | |
+| --- | --- |
+| `get(key)` | the value under `key` of a table; `.Null` if absent or not a table |
+| `at(i)` | the element at `i` of a list; `.Null` if out of range or not a list |
+| `len()` | elements of a list, or entries of a table; `0` otherwise |
+| `as_str(fallback)` / `as_int(fallback)` / `as_bool(fallback)` | the scalar, or the fallback if it holds something else |
+| `is_null()` | true for a missing key and for an explicit JSON `null` alike |
+
+A table keeps parallel `keys` and `values` lists in document order, the same
+shape `std/encoding/json`'s `JsonValue.Object` uses.
+
+Two details worth knowing:
+
+- **JSON has one number type.** A whole-valued number becomes `Int`, so
+  `{"port": 8080}` reads back as an integer rather than as `8080.0`. The cut is
+  on the value, not the spelling.
+- **A malformed document is a compile error** at the call site, carrying the
+  parser's own position — not a runtime failure.
+
+The parsers are the ones in `std/encoding/json` and `std/encoding/toml`, run at
+the compiler's own runtime; there is no second implementation to keep in step.
+
+Yo data needs no parser at all: `import("./data.yo")` of a file holding one `::`
+binding already yields the value at compile time.
+
 ## Comparison with Rust
 
 Yo's CTFE is more flexible than Rust's `const fn` in several ways:

@@ -88,6 +88,8 @@ import("std/fmt");
   BF_COMPTIME_FN,
   BF_COMPTIME_PRINT,
   BF_COMPTIME_READ_FILE,
+  BF_COMPTIME_JSON_PARSE,
+  BF_COMPTIME_TOML_PARSE,
   BF_COMPTIME_EXPECT_ERROR,
   BF_COMPTIME_EVAL,
   BF_PANIC,
@@ -279,6 +281,7 @@ import("std/fmt");
 { evaluate_yo_comptime_numeric_functions } :: import("../builtins/comptime_numeric_fns.yo");
 { evaluate_comptime_print } :: import("../builtins/comptime_print.yo");
 { evaluate_comptime_read_file } :: import("../builtins/comptime_read_file.yo");
+{ evaluate_comptime_json_parse, evaluate_comptime_toml_parse } :: import("../builtins/comptime_data.yo");
 { evaluate_yo_comptime_string_functions } :: import("../builtins/comptime_string_fns.yo");
 { evaluate_consume } :: import("../builtins/consume.yo");
 { evaluate_derive } :: import("../builtins/derive.yo");
@@ -954,6 +957,10 @@ _evaluate_expression :: (
           evaluate_comptime_print(expr, env, ctx, exn),
         ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_READ_FILE, .None)) =>
           evaluate_comptime_read_file(expr, env, ctx, exn),
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_JSON_PARSE, .None)) =>
+          evaluate_comptime_json_parse(expr, env, ctx, exn),
+        ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_COMPTIME_TOML_PARSE, .None)) =>
+          evaluate_comptime_toml_parse(expr, env, ctx, exn),
         ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_PANIC, .None)) =>
           evaluate_panic(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_ASM, .None)) =>
