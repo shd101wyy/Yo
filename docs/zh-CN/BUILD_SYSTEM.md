@@ -289,12 +289,12 @@ yo build --summary
 ```
 Build Summary: 3/3 steps succeeded
 install success
-├── compile exe my-app Debug native success 1.3s MaxRSS:706M
-│   └── compile lib math Debug native success 295ms MaxRSS:650M
-└── compile lib my-app-lib Debug native success 310ms MaxRSS:680M
+├── compile exe my-app ok (1289 ms)
+│   └── compile lib math ok (295 ms)
+└── compile lib my-app-lib ok (310 ms)
 ```
 
-每个节点显示：步骤描述、成功/失败状态、耗时以及峰值内存使用量（MaxRSS）。树形结构反映了 DAG 的依赖边。
+每个节点显示：步骤描述、`ok`/`FAILED` 以及该节点耗费的实际时间。树形结构反映了 DAG 的依赖边。依赖失败的节点根本不会执行——它会被标记为 `FAILED` 且没有耗时，并且整个构建以非零码退出。（尚未统计每个节点的峰值内存。）
 
 ## 模块
 
@@ -502,7 +502,18 @@ yo build run -Dstrip=true
 yo build -Dstrip       # 等同于 -Dstrip=true
 ```
 
-运行 `yo build --help` 可以查看所有可用的项目专属选项以及标准标志。
+运行 `yo build --list-options` 可以查看此构建文件声明了哪些选项，包括每个选项的描述、默认值以及当前生效的值：
+
+```
+$ yo build --list-options
+Available options:
+  -Dopt=<value>     Optimization level (default: "debug", now: "release-fast")
+  -Dstrip=<value>   Strip debug symbols (default: "false", now: "false")
+```
+
+构建文件没有声明的 `-D` 名称会**报错**，而不是被默默忽略——否则 `-Dstrip=true` 里的一个拼写错误看起来就只是构建无视了你。依赖的选项有自己的命名空间：`-D<依赖名>.<选项>=<值>` 会传给该依赖的 `build.option("<选项>")`，该依赖未声明的名称同样报错。
+
+**已知限制：** 选项的值还不能用在构建 API 要求编译期字符串的位置（产物的 `name`、`root`、`target`、步骤描述等）——`build.option` 返回 `comptime(str)`，而这些字段要求 `comptime_str`。参见 `issues/build-option-value-cannot-feed-an-artifact-field.md`。
 
 ### `BuildOption`
 
@@ -639,7 +650,8 @@ Options:
   --sysroot <path>       交叉编译的 sysroot 目录
   --cc <compiler>        C 编译器：clang, gcc, zig, cc, emcc
   --verbose, -v          详细构建输出
-  --dry-run              显示将要构建的内容
+  --dry-run              解析构建图并打印，不执行任何构建
+  --list-options         列出此构建文件声明的选项
   --list-steps           列出可用的构建步骤
   --locked               若抓取依赖会改动 yo.lock 则失败
   --offline              若抓取依赖需要联网则失败

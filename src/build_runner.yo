@@ -31,6 +31,7 @@ _(env : proc_env) :: import("std/env");
 { yield } :: import("std/async");
 { mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path, _take_load_error } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
+{ Instant } :: import("std/time/instant");
 {
   ArtifactKind,
   BuildArtifact,
@@ -74,6 +75,10 @@ BuildOptions :: ref(
     verbose : bool,
     dry_run : bool,
     list_steps : bool,
+    /// `--list-options`: print the options this build file DECLARES (name,
+    /// default, description) and build nothing. The docs promised `yo build
+    /// --help` would list them, and nothing ever did (the plan's B4).
+    list_options : bool,
     steps : ArrayList(String),
     defines : HashMap(String, String),
     c_compiler : Option(String),
@@ -689,6 +694,16 @@ _evaluate_dependency_builds :: (
           ),
           e.exn
         );
+        // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
+        dep_unknown := undeclared_options(dep_reg);
+        if(dep_unknown.len() > usize(0), {
+          dep_joined := `", "`.join(dep_unknown);
+          e.exn.throw(
+            dyn(
+              `Error: -D${r.dependency_name}."${dep_joined}" is not an option of dependency "${r.dependency_name}" (${build_file}).`
+            )
+          );
+        });
         // The system libraries the dependency's build file declared, so the
         // consumer's link line can resolve what its archive needs.
         (si : usize) = usize(0);
@@ -873,7 +888,8 @@ _walk_dag :: (
     registry : BuildRegistry,
     nodes : HashMap(String, DAGNode),
     visited : HashMap(String, bool),
-    name : String
+    name : String,
+    missing : ArrayList(String)
   ) -> unit
 )({
   if(visited.contains_key(name), return(()));
@@ -881,6 +897,11 @@ _walk_dag :: (
   match(
     registry.resolve_dependency(name.clone()),
     .None => {
+      // A name nothing defines: `install.depend_on(<typo>)` used to be a
+      // silent no-op, so the artifact it meant to build was never built and
+      // the build reported success (the plan's B6). The caller turns this
+      // into an error naming the step.
+      missing.push(name.clone());
       return(());
     },
     .Some(resolved) => match(
@@ -892,7 +913,7 @@ _walk_dag :: (
         while(i < n, {
           linked := artifact.linked_artifacts(i);
           deps.push(linked);
-          recur(registry, nodes, visited, linked);
+          recur(registry, nodes, visited, linked, missing);
           i = (i + usize(1));
         });
         nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps));
@@ -903,7 +924,7 @@ _walk_dag :: (
       .Run(run_step) => {
         deps := ArrayList(String).new();
         deps.push(run_step.artifact_name);
-        recur(registry, nodes, visited, run_step.artifact_name);
+        recur(registry, nodes, visited, run_step.artifact_name, missing);
         nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
       },
       .Doc(_d) => {
@@ -916,7 +937,7 @@ _walk_dag :: (
         while(i < n, {
           dep_name := step.dependency_names(i);
           deps.push(dep_name);
-          recur(registry, nodes, visited, dep_name);
+          recur(registry, nodes, visited, dep_name, missing);
           i = (i + usize(1));
         });
         nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Step, depends_on : deps));
@@ -930,10 +951,22 @@ build_dag :: (
     registry : BuildRegistry,
     root_step_name : String
   ) -> ArrayList(DAGNode)
+)(
+  build_dag_checked(registry, root_step_name, ArrayList(String).new())
+);
+/// `build_dag`, also reporting every dependency name that resolved to NOTHING
+/// in `missing` (the plan's B6). `execute_step` fails the build on those
+/// rather than building a DAG with a silent hole in it.
+build_dag_checked :: (
+  fn(
+    registry : BuildRegistry,
+    root_step_name : String,
+    missing : ArrayList(String)
+  ) -> ArrayList(DAGNode)
 )({
   nodes := HashMap(String, DAGNode).new();
   visited := HashMap(String, bool).new();
-  _walk_dag(registry, nodes, visited, root_step_name.clone());
+  _walk_dag(registry, nodes, visited, root_step_name.clone(), missing);
   result := ArrayList(DAGNode).new();
   iter := nodes.values();
   more := true;
@@ -973,8 +1006,13 @@ _dfs_cycle :: (
       nd := node.depends_on.len();
       while(i < nd, {
         dep := node.depends_on(i);
+        // A dependency that is not a node (it resolved to nothing) is not a
+        // cycle candidate — and the skip has to CONTINUE: bumping `i` and
+        // falling through incremented it twice, so the next dependency was
+        // never examined at all (the plan's B12).
         if(!(node_map.contains_key(dep)), {
           i = (i + usize(1));
+          continue;
         });
         dep_color := color.get(dep).unwrap_or(_COLOR_WHITE);
         if(dep_color == _COLOR_GRAY, return(Option(String).Some(dep)));
@@ -1853,7 +1891,10 @@ execute_node :: (
             match(
               result,
               .Ok(_) => (),
-              .Err(_) => {
+              .Err(msg) => {
+                // The message was computed and thrown away, so a failed suite
+                // showed up only as a red row in the summary (the plan's B6).
+                eprintln(`Error: ${msg}`);
                 success = false;
               }
             );
@@ -1874,7 +1915,8 @@ execute_node :: (
                 match(
                   result,
                   .Ok(_) => (),
-                  .Err(_) => {
+                  .Err(msg) => {
+                    eprintln(`Error: ${msg}`);
                     success = false;
                   }
                 );
@@ -1930,6 +1972,54 @@ execute_node :: (
 // DAG executor (Kahn's algorithm)
 // ---------------------------------------------------------------------------
 /// Execute nodes in dependency order (Kahn's algorithm).
+/// Did a dependency of `node` already fail? A dependent must NOT run: the
+/// runner used to execute a `run` step whose executable had just failed to
+/// compile, turning one clear compile error into a second, confusing one
+/// (the plan's B6).
+_dependency_failed :: (fn(node : DAGNode, results : HashMap(String, StepResult)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < node.depends_on.len(), {
+    match(
+      results.get(node.depends_on(i)),
+      .Some(r) => if(!(r.success), {
+        return(true);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
+/// `execute_node`, unless a dependency failed — then the node is reported as
+/// skipped without running. The branch lives in its own async fn so the
+/// caller's `await` stays a top-level statement (an await nested in an
+/// if-branch loses its continuation — issues/async-await-in-nested-if-drops-continuation.md).
+_execute_node_unless_blocked :: (
+  fn(
+    node : DAGNode,
+    blocked : bool,
+    ctx : ExecutionContext,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(StepResult, IoExn))
+)(
+  io.async((e : IoExn) => {
+    if(blocked, {
+      println(`Skipping ${node.name}: a step it depends on failed`);
+      return(
+        StepResult(
+          name : node.name.clone(),
+          kind : node.kind,
+          success : false,
+          duration_ms : i64(0),
+          description : `skipped ${node.name}`
+        )
+      );
+    });
+    r := e.io.await(execute_node(node, ctx, e.io, e.exn), e);
+    r
+  })
+);
 execute_dag :: (
   fn(
     dag : ArrayList(DAGNode),
@@ -1991,7 +2081,12 @@ execute_dag :: (
       k := usize(0);
       while(k < rn, {
         node := ready(k);
-        result := e.io.await(execute_node(node, ctx, e.io, e.exn), e);
+        blocked := _dependency_failed(node, results);
+        // `StepResult.duration_ms` was always 0 while the docs described a
+        // summary showing each node's duration (the plan's B13).
+        node_t0 := Instant.now();
+        result := e.io.await(_execute_node_unless_blocked(node, blocked, ctx, e.io, e.exn), e);
+        result.duration_ms = node_t0.elapsed().as_millis();
         results.insert(node.name, result);
         k = (k + usize(1));
       });
@@ -2047,10 +2142,17 @@ _print_summary_node :: (
     .None => node.name,
     .Some(r) => r.description
   );
+  // The duration is part of what the summary promises; a node that never ran
+  // (skipped) has none to show.
+  timing := match(
+    results.get(node.name),
+    .None => String.new(),
+    .Some(r) => ` (${r.duration_ms.to_string()} ms)`
+  );
   if(
     is_root,
-    println(`${desc} ${status_str}`),
-    println(`${line_prefix}${desc} ${status_str}`)
+    println(`${desc} ${status_str}${timing}`),
+    println(`${line_prefix}${desc} ${status_str}${timing}`)
   );
   nd := node.depends_on.len();
   i := usize(0);
@@ -2120,40 +2222,95 @@ print_build_summary :: (
 // ---------------------------------------------------------------------------
 // Step execution
 // ---------------------------------------------------------------------------
+/// The DAG for `step_name`, with every check a build owes the user before it
+/// runs anything: the step exists, no dependency name resolves to nothing, and
+/// the graph has no cycle. `--dry-run` runs exactly this and stops (the plan's
+/// B7: it used to print a line per requested step without building a DAG,
+/// validating the step or detecting a cycle).
+_plan_step :: (
+  fn(step_name : String, ctx : ExecutionContext, exn : Exception) -> ArrayList(DAGNode)
+)({
+  match(
+    ctx.registry.find_step(step_name.clone()),
+    .None => {
+      available := ctx.registry.get_step_names();
+      names_str := String.new();
+      (i : usize) = usize(0);
+      while(i < available.len(), {
+        if(i > usize(0), names_str.push_str(", "));
+        names_str.push_string(available(i).clone());
+        i = (i + usize(1));
+      });
+      if(names_str.len() == usize(0), names_str.push_str("(none)"));
+      exn.throw(dyn(`Error: Unknown step "${step_name}". Available: ${names_str}`));
+    },
+    .Some(_) => ()
+  );
+  missing := ArrayList(String).new();
+  dag := build_dag_checked(ctx.registry, step_name.clone(), missing);
+  if(missing.len() > usize(0), {
+    joined := `", "`.join(missing);
+    exn.throw(
+      dyn(
+        `Error: step "${step_name}" depends on "${joined}", which no artifact, test, run, doc or step defines.`
+      )
+    );
+  });
+  match(
+    detect_cycle(dag),
+    .Some(cycle_node) => {
+      exn.throw(dyn(`Error: Cycle in build DAG involving "${cycle_node}"`));
+    },
+    .None => ()
+  );
+  dag
+});
+/// Print a resolved graph, one node per line in dependency order — what
+/// `--dry-run` shows instead of building.
+_print_plan :: (fn(step_name : String, dag : ArrayList(DAGNode)) -> unit)({
+  println(`[dry-run] step "${step_name}" resolves to ${dag.len().to_string()} node(s):`);
+  (i : usize) = usize(0);
+  while(i < dag.len(), {
+    node := dag(i);
+    kind_label := match(
+      node.kind,
+      .Artifact => "artifact",
+      .Test => "test",
+      .Run => "run",
+      .Doc => "doc",
+      .Step => "step"
+    );
+    // The separator is bound first ON PURPOSE: a template nested inside an
+    // interpolation is only parsed correctly by a compiler carrying
+    // issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md,
+    // and the SEED builds this file.
+    sep := String.from(", ");
+    deps := if(node.depends_on.len() == usize(0), String.new(), ` <- ${sep.join(node.depends_on)}`);
+    println(`[dry-run]   ${kind_label} ${node.name}${deps}`);
+    i = (i + usize(1));
+  });
+});
 execute_step :: (
   fn(
     step_name : String,
     ctx : ExecutionContext,
+    dry_run : bool,
     io : Io,
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    match(
-      ctx.registry.find_step(step_name),
-      .None => {
-        available := ctx.registry.get_step_names();
-        names_str := String.new();
-        i := usize(0);
-        n := available.len();
-        while(i < n, {
-          if(i > usize(0), names_str.push_str(", "));
-          names_str.push_string(available(i).clone());
-          i = (i + usize(1));
-        });
-        if(names_str.len() == usize(0), names_str.push_str("(none)"));
-        e.exn.throw(dyn(`Error: Unknown step "${step_name}". Available: ${names_str}`));
-      },
-      .Some(_) => ()
-    );
-    dag := build_dag(ctx.registry, step_name);
-    match(
-      detect_cycle(dag),
-      .Some(cycle_node) => {
-        e.exn.throw(dyn(`Error: Cycle in build DAG involving "${cycle_node}"`));
-      },
-      .None => ()
-    );
+    // Planning is the same work either way — the step must exist, every
+    // dependency name must resolve and the graph must be acyclic — so
+    // `--dry-run` is a REAL resolution that stops here (the plan's B7).
+    // The early return keeps the await below a top-level statement: an await
+    // nested in an if-branch loses its continuation
+    // (issues/async-await-in-nested-if-drops-continuation.md).
+    dag := _plan_step(step_name.clone(), ctx, e.exn);
+    if(dry_run, {
+      _print_plan(step_name.clone(), dag);
+      return(());
+    });
     results := e.io.await(execute_dag(dag, ctx, e.io, e.exn), e);
     if(ctx.summary, print_build_summary(results, dag, step_name));
     // A failed step must fail the build. execute_node folds per-step errors
@@ -2183,6 +2340,66 @@ execute_step :: (
 /// the empty-registry line, and the TAB between name and description are all
 /// load-bearing — `tests/cli-cases/build-list-steps` diffs this stdout against
 /// the reference compiler's.
+/// `yo build --list-options`: every `build.option(...)` the build file
+/// declared, with its default and description, plus the value in force.
+print_options :: (fn(registry : BuildRegistry) -> unit)({
+  names := ArrayList(String).new();
+  iter := registry.declared_options.keys();
+  more := true;
+  while(more, {
+    match(
+      iter.next(),
+      .None => {
+        more = false;
+      },
+      .Some(k) => names.push(k)
+    );
+  });
+  if(names.len() == usize(0), {
+    println("No build options declared.");
+    return(());
+  });
+  names.sort();
+  println("Available options:");
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    name := names(i);
+    i = (i + usize(1));
+    match(
+      registry.declared_options.get(name.clone()),
+      .Some(opt) => {
+        value := match(registry.cli_options.get(name.clone()), .Some(v) => v, .None => opt.default_value.clone());
+        println(`  -D${name}=<value>\t${opt.description} (default: "${opt.default_value}", now: "${value}")`);
+      },
+      .None => ()
+    );
+  });
+});
+/// Every `-D<name>=<value>` the command line carried that no `build.option`
+/// declares. A namespaced `-D<dep>.<opt>` belongs to a DEPENDENCY's build file
+/// and is checked there (`_evaluate_dependency_builds`), so it is not reported
+/// here. Undeclared names used to be accepted in silence, which makes a typo
+/// in `-Dstrip=true` look like a build that ignored you (the plan's B4).
+undeclared_options :: (fn(registry : BuildRegistry) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  iter := registry.cli_options.keys();
+  more := true;
+  while(more, {
+    match(
+      iter.next(),
+      .None => {
+        more = false;
+      },
+      .Some(k) => {
+        if(!(k.contains(String.from(".")) || registry.declared_options.contains_key(k.clone())), {
+          out.push(k);
+        });
+      }
+    );
+  });
+  out.sort();
+  out
+});
 print_steps :: (fn(registry : BuildRegistry) -> unit)({
   steps := registry.steps;
   n := steps.len();
@@ -2327,6 +2544,19 @@ run_build :: (
       print_steps(registry);
       return(());
     });
+    if(options.list_options, {
+      print_options(registry);
+      return(());
+    });
+    unknown_opts := undeclared_options(registry);
+    if(unknown_opts.len() > usize(0), {
+      joined := `", "`.join(unknown_opts);
+      e.exn.throw(
+        dyn(
+          `Error: -D"${joined}" is not an option of this build file. Run 'yo build --list-options' to see the ones it declares.`
+        )
+      );
+    });
     // Fetching the git dependencies the manifest declares runs before the
     // single evaluator reset that follows (see evaluate_build_file).
     e.io.await(resolve_build_import_roots(manifest_opt, registry, options.locked, options.offline, options.verbose, e.io, e.exn), e);
@@ -2466,13 +2696,13 @@ run_build :: (
     n := requested.len();
     while(i < n, {
       step_name := requested(i).clone();
-      // `--dry-run` names the steps and executes NOTHING (src/build-runner.ts:293-297).
-      // It was accepted and ignored here, so `yo build --dry-run` did a full build.
-      if(options.dry_run, {
-        println(`[dry-run] Would execute step: ${step_name}`);
-      }, {
-        e.io.await(execute_step(step_name, ctx, e.io, e.exn), e);
-      });
+      // `--dry-run` resolves the graph and executes NOTHING. It is a REAL
+      // resolution: the step must exist, every dependency name must resolve,
+      // and a cycle is an error — the help text promises "resolve the build
+      // graph without running it", and printing one line per requested step
+      // promised nothing (the plan's B7). `execute_step` itself branches,
+      // after planning and before its only await.
+      e.io.await(execute_step(step_name, ctx, options.dry_run, e.io, e.exn), e);
       i = (i + usize(1));
     });
   })
@@ -2495,4 +2725,6 @@ export(run_test_suite);
 export(run_build);
 export(evaluate_build_file);
 export(print_steps);
+export(print_options);
+export(undeclared_options);
 export(print_build_summary);
