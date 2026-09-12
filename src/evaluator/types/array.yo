@@ -27,7 +27,7 @@ import("std/fmt");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_array, t_array_var, t_usize } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_module_id } :: import("../../utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -128,7 +128,7 @@ evaluate_array_type :: (
   // compiler" throw, which emptied every batch main whose test file used
   // `Array(T, _)` (the array-family hollow).
   if(ast_expr_is_atom_of(length_expr, "_"), {
-    lp_name := `_array_length_${random_id(env_after_elem.module_path)}`;
+    lp_name := stable_module_id(`_array_length_`, env_after_elem.module_path);
     _lp := add_variable_to_env(
       env_after_elem,
       lp_name.clone(),

@@ -10,11 +10,10 @@
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
-{ random_id } :: import("../../utils.yo");
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, fresh_local_name } :: import("../utils/index.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 /// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
 /// when the array has a result variable name. Returns `.None` when the node is
@@ -130,14 +129,12 @@ generate_yo_array_fill :: (fn(expr : AstExpr, indent : String, context : Functio
   temp_var_name := match(
     ei.variable_name,
     .Some(v) => v,
-    .None => {
-      out := String.from("temp_array_");
-      out.push_string(random_id(String.from("")));
-      out
-    }
+    .None => fresh_local_name(
+      String.from("temp_array_"),
+      context.base.current_function_name
+    )
   );
-  index_var_name := String.from("i_");
-  index_var_name.push_string(random_id(String.from("")));
+  index_var_name := fresh_local_name(String.from("i_"), context.base.current_function_name);
   em := context.base.emitter;
   // Array declaration.
   decl := indent.clone();

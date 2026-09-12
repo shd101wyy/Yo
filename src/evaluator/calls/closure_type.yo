@@ -58,7 +58,7 @@ _(env : cap_dbg_env_closure_call) :: import("std/env");
 { format_error_message }
 :: import("../../error.yo");
 { Exception } :: import("std/error");
-{ random_id } :: import("../../utils.yo");
+{ stable_func_id } :: import("../../utils.yo");
 { mark_as_closure_fn, register_func_type, register_closure_capture_info, ClosureCaptureInfo } :: import("../../function_value.yo");
 {
   create_function_body_evaluation_context
@@ -217,7 +217,7 @@ try_to_implement_closure_by_fn_module_type :: (
     ArrayList(TypeValue).new()
   );
   // Build a preliminary FuncVal for the evaluation context.
-  closure_id := `closure_${random_id(env.module_path)}`;
+  closure_id := stable_func_id(String.from("closure_"), tok.module_path, tok.row, tok.column);
   func_val_pre := EvalValue.FuncVal(
     box(
       FuncValData(

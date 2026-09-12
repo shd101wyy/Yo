@@ -24,9 +24,8 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { get_func_type } :: import("../../function_value.yo");
-{ random_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, get_variable_name_for_codegen, type_key } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, type_key, fresh_local_name } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { expr_info_closure_function_value } :: import("../../expr_info.yo");
 { get_dup_function_for_type, get_drop_function_for_type, generate_drop_code_for_value } :: import("./drop_dup.yo");
@@ -191,9 +190,15 @@ _emit_capture_drop_lines :: (
 });
 /// Emit a spawn-wrapper function (RC cleanup for the heap-copied capture struct)
 /// to the declaration section and return its C name. Mirrors `generateSpawnWrapper`.
-_generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name : String, capture_type : TypeValue, runtime_args : String, prefix : String, context : FunctionGenerationContext) -> String)({
-  wrapper_name := String.from("__yo_spawn_wrapper_");
-  wrapper_name.push_string(random_id(prefix));
+_generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name : String, capture_type : TypeValue, runtime_args : String, context : FunctionGenerationContext) -> String)({
+  // Phase 2: the wrapper is a file-scope fn — its name embeds the CLOSURE's
+  // C name (unique per closure) plus a per-closure occurrence digit, so the
+  // same closure spawned twice still gets distinct wrappers without the
+  // global counter.
+  wrapper_name := fresh_local_name(
+    `__yo_spawn_wrapper_${closure_fn_c_name}_`,
+    String.new()
+  );
   em := context.base.emitter;
   em.emit_declaration_string_line(String.from(""));
   em.emit_declaration_string_line(String.from("// Spawn wrapper: handles RC cleanup for thread-spawned closures"));
@@ -279,14 +284,15 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
     match(mapped_opt, .Some(m) => m.closure_fid, .None => String.from(""))
   );
   runtime_args := _closure_runtime_arg_zeroinits(closure_fid, context);
-  module_path := String.from("");
-  wrapper := _generate_spawn_wrapper(closure_fn, capture_c_name.clone(), capture_type, runtime_args, module_path, context);
+  wrapper := _generate_spawn_wrapper(closure_fn, capture_c_name.clone(), capture_type, runtime_args, context);
   // The capture-struct VALUE (the cb arg's variable, or its generated code).
   cb_code := _call_generate_expr(cb, indent.clone(), context);
   cb_var := match(cei.variable_name, .Some(vn) => get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env)), .None => cb_code);
   em := context.base.emitter;
-  heap_var := String.from(if(is_worker, "_worker_closure_data_", "_thread_closure_data_"));
-  heap_var.push_string(random_id(module_path.clone()));
+  heap_var := fresh_local_name(
+    String.from(if(is_worker, "_worker_closure_data_", "_thread_closure_data_")),
+    context.base.current_function_name
+  );
   // <capCName>* <heapVar> = (<capCName>*)__yo_malloc(sizeof(<capCName>));
   alloc_line := indent.clone();
   alloc_line.push_string(capture_c_name.clone());
@@ -331,7 +337,11 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
     Option(String).Some(String.from(""))
   }, {
     // __yo_thread_t <tv> = __yo_thread_spawn(<wrapper>, <heapVar>);
-    tv := match(ei.variable_name, .Some(v) => v, .None => `_thr_${random_id(module_path)}`);
+    tv := match(
+      ei.variable_name,
+      .Some(v) => v,
+      .None => fresh_local_name(String.from("_thr_"), context.base.current_function_name)
+    );
     ts := indent.clone();
     ts.push_str("__yo_thread_t ");
     ts.push_string(tv.clone());

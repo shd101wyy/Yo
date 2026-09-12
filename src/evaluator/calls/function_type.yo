@@ -94,7 +94,7 @@ _(env : cap_dbg_env_fnty_rp) :: import("std/env");
   forcing_depths,
   truncate_forcing_depths
 } :: import("../context.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_func_id } :: import("../../utils.yo");
 { register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
 { get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound } :: import("../../types/utils.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -792,6 +792,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
           pd.function_type,
           pd.strip_outer
         );
+        rp_tok := ast_expr_token(pd.body);
         rp_fv := EvalValue.FuncVal(
           box(
             FuncValData(
@@ -802,7 +803,7 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
               body : make_err_expr(),
               cap_names : ArrayList(String).new(),
               cap_tys : ArrayList(TypeValue).new(),
-              func_id : random_id(caller_env.module_path)
+              func_id : stable_func_id(String.from(""), rp_tok.module_path, rp_tok.row, rp_tok.column)
             )
           ),
           ArrayList(EvalValue).new()
@@ -1043,7 +1044,7 @@ Result type: ${type_to_string(result_box)}`
     });
     ft_env_key := mint_funcval_env_key();
     register_funcval_cap_vars(ft_env_key, cap_vars);
-    fn_val_id := random_id(caller_env.module_path);
+    fn_val_id := stable_func_id(String.from(""), tok.module_path, tok.row, tok.column);
     // Faithful port of `shouldDeferBodyEvaluation` (function-type.ts:445-451):
     // defer body evaluation ONLY for functions that depend on generic type
     // variables — `generic` parameters, any parameter whose type contains a
@@ -1384,7 +1385,7 @@ Result type: ${type_to_string(result_box)}`
               body : make_err_expr(),
               cap_names : ArrayList(String).new(),
               cap_tys : ArrayList(TypeValue).new(),
-              func_id : random_id(caller_env.module_path)
+              func_id : stable_func_id(String.from(""), tok.module_path, tok.row, tok.column)
             )
           ),
           ArrayList(EvalValue).new()
@@ -1700,7 +1701,7 @@ Result type: ${type_to_string(result_box)}`
                 body : make_err_expr(),
                 cap_names : ArrayList(String).new(),
                 cap_tys : ArrayList(TypeValue).new(),
-                func_id : random_id(caller_env.module_path)
+                func_id : stable_func_id(String.from(""), tok.module_path, tok.row, tok.column)
               )
             ),
             ArrayList(EvalValue).new()

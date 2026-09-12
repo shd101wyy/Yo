@@ -26,6 +26,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
+{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
@@ -364,9 +365,9 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
                 .Some(al) => match(
                   al.get(sm_bind_id.clone()),
                   .Some(af) => af,
-                  .None => `var_${sm_bind_id.clone()}`
+                  .None => sm_local_field_name(sm_bind_id.clone())
                 ),
-                .None => `var_${sm_bind_id.clone()}`
+                .None => sm_local_field_name(sm_bind_id.clone())
               );
               // The RHS must go through the deferred-dup chain before it lands
               // in the slot. TS has no early return here: it computes ONE

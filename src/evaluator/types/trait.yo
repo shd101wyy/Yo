@@ -57,7 +57,7 @@ import("std/fmt");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { _add_where_clause_constraint, _trait_has_receiver } :: import("./function.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ random_id } :: import("../../utils.yo");
+{ stable_label_id } :: import("../../utils.yo");
 { register_trait_default } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Local data structures
@@ -1055,7 +1055,11 @@ evaluate_trait_type :: (
   // (yo-self: trait name is set externally via variable binding, not embedded in the trait expr)
   trait_name_str := String.from("");
   // Build the shared ArrayLists that will form the TraitT value
-  trait_id := `trait_${random_id(env_mut.module_path)}`;
+  // Phase 2: occurrence-indexed from the declaration's source position —
+  // unique per mint like the `random_id` it replaces, but an edit in another
+  // module cannot renumber it.
+  decl_tok := ast_expr_token(expr);
+  trait_id := stable_label_id(String.from("trait_"), decl_tok.module_path, decl_tok.row, decl_tok.column);
   assoc_type_names := ArrayList(String).new();
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();

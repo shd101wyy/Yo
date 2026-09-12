@@ -74,7 +74,7 @@ _(env : fncall_dbg_env) :: import("std/env");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_module_id, stable_func_id } :: import("../../utils.yo");
 { attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, parse_raw_int } :: import("../utils.yo");
 {
   EvalContext,
@@ -160,8 +160,7 @@ MACRO_DISPATCH_ENABLED :: true;
 /// `recur` — recur.ts:90-107 and
 /// issues/fixed/recur-runtime-result-not-marked-runtime-only.md.
 _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
-  nm := String.from("call_result_");
-  nm.push_string(random_id(env.module_path));
+  nm := stable_module_id(String.from("call_result_"), env.module_path);
   create_runtime_unknown_val_with_name(ty, nm)
 });
 { format_error_message } :: import("../../error.yo");
@@ -5131,7 +5130,10 @@ Fix: wrap the call:
           cap_vals,
           env.module_path
         );
-        // Push a frame and bind `__recur_fn`.
+        // Push a frame and bind `__recur_fn`. The recur FuncVal's id is
+        // minted from the CALL's source position (Phase 2): unique per mint
+        // via the occurrence ordinal, stable across unrelated edits.
+        recur_tok := ast_expr_token(expr);
         _fr := fresh_env.push_frame(false);
         fv_for_recur := EvalValue.FuncVal(
           box(
@@ -5143,7 +5145,7 @@ Fix: wrap the call:
               body : body_box,
               cap_names : cap_names,
               cap_tys : cap_tys,
-              func_id : random_id(env.module_path),
+              func_id : stable_func_id(String.from(""), recur_tok.module_path, recur_tok.row, recur_tok.column),
               env_key : fv_env_key
             )
           ),

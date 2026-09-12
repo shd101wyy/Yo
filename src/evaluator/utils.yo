@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../error.yo");
 { suggest_name } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
-{ generate_new_temp_variable_name, is_temp_variable_name, random_id }
+{ generate_new_temp_variable_name, is_temp_variable_name }
 :: import("../utils.yo");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
@@ -210,8 +210,14 @@ attach_temp_variable_to_expr :: (
           });
         },
         .None => {
-          // Create a new temp variable.
-          temp_name := generate_new_temp_variable_name(info.env.module_path);
+          // Create a new temp variable. Phase 2: occurrence-keyed by this
+          // binding's source position, not the global mint order.
+          temp_tok := ast_expr_token(expr);
+          temp_name := generate_new_temp_variable_name(
+            info.env.module_path,
+            temp_tok.row,
+            temp_tok.column
+          );
           add_variable_to_begin_block_frame(
             info.env,
             temp_name,
@@ -876,7 +882,14 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
           // mechanism divergence from TS (which evaluates the dup): the
           // nested eval is unsound in yo-self's def-time contexts.
           dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
-          dup_temp := generate_new_temp_variable_name(ei.env.module_path);
+          // Phase 2: no source position exists for the synthesized dup — key
+          // the occurrence by module + the variable being duped.
+          dup_temp := generate_new_temp_variable_name(
+            ei.env.module_path,
+            usize(0),
+            usize(0),
+            `dup:${variable_name}`
+          );
           reg_var := add_variable_to_begin_block_frame(
             ei.env,
             dup_temp.clone(),

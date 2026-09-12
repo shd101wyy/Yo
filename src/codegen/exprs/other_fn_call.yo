@@ -27,6 +27,7 @@
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
+{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
@@ -293,7 +294,7 @@ _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : St
       // logic (await_future_X fields); storing here would double-free.
       if(type_implements_future(cv.base.ty), return(()));
       em := context.base.emitter;
-      em.emit_string_line(`${indent}sm->var_${cv.base.id} = ${sanitize_for_c_identifier(temp_var.clone(), false)};`);
+      em.emit_string_line(`${indent}sm->${sm_local_field_name(cv.base.id.to_string())} = ${sanitize_for_c_identifier(temp_var.clone(), false)};`);
     }
   );
 });

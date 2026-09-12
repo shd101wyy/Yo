@@ -18,9 +18,11 @@
 //!     is deferred — yo-self types carry no field values; those functions are
 //!     reached from the module StructVal via the expr walker instead.
 { String } :: import("std/string");
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
+{ profile_enabled, fnv1a64 } :: import("../../utils.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of, make_err_expr, BK_TEST } :: import("../../expr.yo");
 { ExprInfoTable, expr_info_table_get, lookup_macro_expansion, get_module_level_init_exprs, expr_info_runtime_destructurings } :: import("../../expr_info.yo");
@@ -49,7 +51,8 @@
   type_key,
   get_type_string,
   get_runtime_struct_fields,
-  sanitize_for_c_identifier
+  sanitize_for_c_identifier,
+  function_c_name
 } :: import("../utils/index.yo");
 // Cross-file cycle: functions/collection imports collect_type from here; we
 // import its find-fn through the indirection call-through (which reads a
@@ -70,15 +73,43 @@
 /// distinct names — enum tags / variant names derive from the registered c_name
 /// (get_enum_variant_c_name), so they shrink consistently too.
 (_g_type_c_name_intern : HashMap(String, String)) = HashMap(String, String).new();
+/// Reverse map (id → key) for the hash-collision check: a 64-bit FNV over
+/// ~10k keys is safe, but the check costs nothing and a silent collision
+/// would merge two types in the emitted C.
+(_g_type_c_name_intern_r : HashMap(String, String)) = HashMap(String, String).new();
+/// Mint the short name for a not-yet-interned key (Phase 2): the hash of the
+/// type's CONTENT with an ordinal fallback on collision.
+_intern_type_c_name_fresh :: (fn(key : String) -> String)({
+  base := `__yo_t_${fnv1a64(key).to_string()}`;
+  id := base.clone();
+  (ord : usize) = usize(0);
+  (collided : bool) = true;
+  while(collided, {
+    collided = false;
+    match(
+      _g_type_c_name_intern_r.get(id),
+      .Some(owner) => {
+        if(!(owner == key), {
+          ord = (ord + usize(1));
+          id = `${base}_${ord.to_string()}`;
+          collided = true;
+        });
+      },
+      .None => ()
+    );
+  });
+  _g_type_c_name_intern.insert(key.clone(), id.clone());
+  _g_type_c_name_intern_r.insert(id.clone(), key.clone());
+  if((ord > usize(0)) && profile_enabled(), {
+    eprintln(`profile: type-name hash collision: ${key} -> ${id}`);
+  });
+  id
+});
 _intern_type_c_name :: (fn(key : String) -> String)(
   match(
     _g_type_c_name_intern.get(key),
     .Some(existing) => existing,
-    .None => {
-      id := `__yo_t${_g_type_c_name_intern.len().to_string()}`;
-      _g_type_c_name_intern.insert(key.clone(), id.clone());
-      id
-    }
+    .None => _intern_type_c_name_fresh(key)
   )
 );
 /// A struct whose only SomeType content lives inside function-typed fields is
@@ -550,7 +581,7 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
               _call_find_function_calls_in_expr(_fv_body(v), context, info);
             },
             (!(context.has_function(fid.clone()))) => {
-              context.register_function(fid.clone(), v, sanitize_for_c_identifier(fid.clone(), false));
+              context.register_function(fid.clone(), v, function_c_name(fid));
               _call_find_function_calls_in_expr(_fv_body(v), context, info);
             },
             true => ()

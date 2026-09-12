@@ -358,6 +358,14 @@ cleanly.
 
 ## 5. Phase 2 — content-stable symbol names (Zig lesson 1c: stable identity)
 
+> **LANDED 2026-09-12** (measured numbers below, "Results"). The landed
+> scheme differs from the sketch in one respect worth knowing up front:
+> fids are position-derived and **unique per mint** (occurrence-indexed),
+> not merged per position — merging two derive(Eq) expansions from one
+> macro site once shared a fid and emitted Os's body under VcOp's
+> signature, so per-mint uniqueness is a correctness requirement, exactly
+> like the counter it replaces.
+
 Zig's InternPool gives every declaration an identity that survives an
 edit. Yo's `fn_yo_id_<N>` / `__yo_t<N>` names are the opposite: an
 identity that depends on how many ids were consumed before it. This one
@@ -417,6 +425,65 @@ percent, and it compresses); debuggability improves rather than regresses
 (`lldb` backtraces name the Yo function). Windows COFF has a symbol-name
 limit that is generous but not infinite — check `dumpbin`'s constraints
 against the longest generated name in the self-build before merging.
+
+### Results (2026-09-12)
+
+What actually landed, module by module:
+
+- **Type C names** — `__yo_t_<fnv1a64(type_key)>` with a `_x<k>`
+  collision backstop at intern time (logged under `--profile`), as
+  designed. The type keys themselves were made position-stable first:
+  module-level `struct`/`enum` declaration ids are
+  `stable_position_id` (source-position, merged across re-evaluation
+  generations — previously `struct_decl_<ast_expr_id>`, which renumbered
+  on any edit earlier in ANY file); CTFE instantiation ids are
+  `stable_label_id` (same position, occurrence-indexed per mint).
+- **Fids** — `stable_func_id(prefix, module, row, col)`:
+  `<prefix>yo_id_<fnv1a64(position)><zero-padded occurrence>`. Every
+  former `random_id` fid mint went through it (anonymous functions and
+  closures, the function-type forward shells, the recur FuncVal, the
+  derive fresh-id clone). The global `random_id` counter is RETIRED —
+  zero call sites remain; positionless evaluator-side labels use
+  `stable_module_id` (per-(prefix, module) occurrence).
+- **Specialization C names** — `function_c_name`: plain fids pass
+  sanitized; a spec id (fid + full compile-time signature, kilobytes of
+  raw type key) is hashed to `__yo_fs_<fnv1a64(id)>`. The spec id itself
+  stays raw (it is the evaluator's cache key and must stay injective);
+  only the C name is compressed. Self-build binary 11.2 MB → 9.6 MB.
+- **Capture structs** — `capture_<fnv1a64(cap_key)>` (the cap_key
+  registry already merges; the hash replaces the counter) with the same
+  `_x<k>` collision backstop.
+- **Eval temps** — `generate_new_temp_variable_name` keys its hash and
+  occurrence counter by the CANONICAL module path (not the 12-byte
+  sanitized prefix, which every `file:///home/**` module shares).
+- **Async SM fields** — local captures are `var_<name>_<fnv1a64(decl_site)>`
+  (`decl_site` = the binding's `module:row:col`), registered centrally at
+  SM build; the raw `var_<allocation-counter>` renamed every SM struct in
+  the program on any binding change anywhere.
+- **`CodegenFunctionEntry.def_module`** and the sanitizer collision
+  backstop in `register_function`, as designed.
+
+Gates:
+
+- **Edit stability (the objective):** leaf edit (one function + one new
+  exported function in `src/lsp/folding.yo`), N=8: **2 of 8 chunks + 1
+  shared-header line** — and every differing line is the edit's own code
+  (the new function's body in one chunk, its call site in the edited
+  function in another, its forward declaration in `prog_shared.h`; by-name
+  hashing legitimately splits one module's code across chunks). Before:
+  8 of 8, ~2.3 M differing lines. **Hub edit** (`src/token.yo`):
+  **1 of 8 chunks + 1 shared-header line** (165 lines — the edited
+  definitions' own re-emissions and specializations; smaller in chunk
+  count than the leaf edit because the by-name hash concentrates them).
+- **Determinism:** the reverted tree re-emits byte-identical chunks.
+- **Self-compile:** the renamed compiler compiles the tree with zero
+  clang errors, and the resulting binary works (`--optimize 2`).
+- **Language suite:** fast suite identical to clean `origin/develop` —
+  3524 passed / 615 failed with BOTH binaries and byte-identical failure
+  sets (the 615 are WSL2-local LeakSanitizer artifacts; develop's CI runs
+  the same suite with the same sanitizer default and is green — see
+  `issues/retired/closure-using-effect-resume-leaks-box.md`).
+- `PORTABLE_C_DISTRIBUTION.md`'s canonicalization advice retired below.
 
 ## 6. Phase 3 — per-definition dependency tracking (Zig lesson 1c: Dependees)
 

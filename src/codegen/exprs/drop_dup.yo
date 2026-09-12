@@ -25,12 +25,12 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { expr_info_converted_runtime_type, expr_info_closure_function_value } :: import("../../expr_info.yo");
-{ random_id, is_temp_variable_name } :: import("../../utils.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
@@ -458,10 +458,8 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
         if(length_var.len() > usize(0), {
           return(String.from("/* Error: array has non-constant length */"));
         });
-        temp_var := String.from("temp_dup_");
-        temp_var.push_string(random_id(String.from("")));
-        loop_var := String.from("i_");
-        loop_var.push_string(random_id(String.from("")));
+        temp_var := fresh_local_name(String.from("temp_dup_"), context.base.current_function_name);
+        loop_var := fresh_local_name(String.from("i_"), context.base.current_function_name);
         array_c_name := get_type_string(concrete_type, context.base);
         decl := array_c_name;
         decl.push_str(" ");
@@ -499,8 +497,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
     is_tuple_type(concrete_type) => match(
       concrete_type,
       .Tuple({ field_types : fts }) => {
-        temp_var := String.from("temp_dup_tuple_");
-        temp_var.push_string(random_id(String.from("")));
+        temp_var := fresh_local_name(String.from("temp_dup_tuple_"), context.base.current_function_name);
         tuple_c_name := get_type_string(concrete_type, context.base);
         decl := tuple_c_name;
         decl.push_str(" ");
@@ -635,8 +632,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
       cond(
         !has_rc => value_code.clone(),
         true => {
-          temp_var := String.from("temp_dup_struct_");
-          temp_var.push_string(random_id(String.from("")));
+          temp_var := fresh_local_name(String.from("temp_dup_struct_"), context.base.current_function_name);
           struct_c_name := get_type_string(concrete_type, context.base);
           decl := struct_c_name;
           decl.push_str(" ");
@@ -704,8 +700,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
         .None => match(
           concrete_type,
           .EnumT({ variant_names : ed_vns, variant_fields : ed_vfs, variant_field_labels : ed_vls }) => {
-            ed_temp := String.from("temp_dup_enum_");
-            ed_temp.push_string(random_id(String.from("")));
+            ed_temp := fresh_local_name(String.from("temp_dup_enum_"), context.base.current_function_name);
             ed_decl := get_type_string(concrete_type, context.base);
             ed_decl.push_str(" ");
             ed_decl.push_string(ed_temp.clone());

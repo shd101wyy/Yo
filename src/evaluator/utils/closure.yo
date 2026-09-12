@@ -42,6 +42,9 @@ _(env : clo_dbg_env) :: import("std/env");
 // (Thread.spawn). The key is unique per closure source AND per capture-type
 // instantiation, so distinct closures never collide.
 (g_capture_struct_ids : HashMap(String, String)) = HashMap(String, String).new();
+/// Reverse map (id → cap_key) for the hash-collision backstop below — a
+/// silent 64-bit collision would merge two capture structs in the emitted C.
+(g_capture_struct_ids_r : HashMap(String, String)) = HashMap(String, String).new();
 {
   EvalValue
 } :: import("../../value.yo");
@@ -56,7 +59,7 @@ _(env : clo_dbg_env) :: import("std/env");
 {
   register_struct_fields
 } :: import("../types/field.yo");
-{ random_id } :: import("../../utils.yo");
+{ fnv1a64 } :: import("../../utils.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -477,8 +480,31 @@ create_capture_type_and_value :: (
         g_capture_struct_ids.get(cap_key.clone()),
         .Some(existing) => existing,
         .None => {
-          fresh := `capture_${random_id(env.module_path)}`;
+          // Phase 2: content-addressed (hash of the cap_key, which is itself
+          // position/type-stable) instead of the global counter, with the
+          // same `_x<k>` collision fallback the type-name interner uses.
+          base := `capture_${fnv1a64(cap_key.clone()).to_string()}`;
+          fresh := base.clone();
+          (ord : usize) = usize(1);
+          loop_ok := runtime(true);
+          while(loop_ok, {
+            match(
+              g_capture_struct_ids_r.get(fresh.clone()),
+              .Some(owner) => {
+                if(owner == cap_key, {
+                  loop_ok = false;
+                }, {
+                  fresh = `${base}_x${ord.to_string()}`;
+                  ord = (ord + usize(1));
+                });
+              },
+              .None => {
+                loop_ok = false;
+              }
+            );
+          });
           g_capture_struct_ids.insert(cap_key.clone(), fresh.clone());
+          g_capture_struct_ids_r.insert(fresh.clone(), cap_key.clone());
           fresh
         }
       );
