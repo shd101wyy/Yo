@@ -1,0 +1,704 @@
+//! Comment-preserving edits of ONE `key = value` in a named table of a TOML
+//! document (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1 — Cargo's
+//! `toml_edit` shape, for exactly what `yo add` / `yo remove` need).
+//!
+//! `std/encoding/toml.stringify` rebuilds a document from its parsed value
+//! and drops every comment and every formatting choice the author made. A
+//! manifest is hand-written, so its edits must leave every other byte alone:
+//! `set_entry` replaces or inserts the one entry and `remove_entry` deletes
+//! it, and nothing else in the text moves.
+//!
+//! The editor is a LINE scanner that knows exactly as much TOML as it needs to
+//! find table boundaries and entry extents correctly: comments, basic and
+//! literal strings (single- and multi-line, so a `[dependencies]` inside a
+//! `"""…"""` value is text, not a header), bracket depth (so a multi-line
+//! array value is one entry), dotted keys (`dep.git = "…"` lines belong to
+//! `dep`) and sub-table headers (`[dependencies.dep]` sections belong to
+//! `dep`). Every edit is re-parsed with `std/encoding/toml` before it is
+//! returned; an edit that would produce an invalid document is an error, not a
+//! corrupted file.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ ToString } :: import("std/fmt");
+{ parse } :: import("std/encoding/toml");
+_QUOTE :: u8(34);
+_APOS :: u8(39);
+_HASH :: u8(35);
+_BACKSLASH :: u8(92);
+_LBRACKET :: u8(91);
+_RBRACKET :: u8(93);
+_LBRACE :: u8(123);
+_RBRACE :: u8(125);
+_EQUALS :: u8(61);
+_DOT :: u8(46);
+_SPACE :: u8(32);
+_TAB :: u8(9);
+_CR :: u8(13);
+// ---------------------------------------------------------------------------
+// Rendering values
+// ---------------------------------------------------------------------------
+_is_bare_key_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(48)) && (b <= u8(57))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || ((b == u8(95)) || (b == u8(45)))))
+);
+_hex_digit_char :: (fn(v : u8) -> u8)(
+  if(v < u8(10), u8(48) + v, u8(55) + v)
+);
+/// `s` as a TOML basic string: `"…"` with `\"`, `\\`, `\n`, `\t`, `\r` and
+/// `\uXXXX` for the other control characters. Non-ASCII bytes pass through
+/// (TOML is UTF-8).
+toml_string :: (fn(s : String) -> String)({
+  out := String.from("\"");
+  (i : usize) = usize(0);
+  n := s.len();
+  while(i < n, {
+    b := s.byte_at(i);
+    cond(
+      (b == _QUOTE) => out.push_str("\\\""),
+      (b == _BACKSLASH) => out.push_str("\\\\"),
+      (b == u8(10)) => out.push_str("\\n"),
+      (b == _TAB) => out.push_str("\\t"),
+      (b == _CR) => out.push_str("\\r"),
+      ((b < _SPACE) || (b == u8(127))) => {
+        out.push_str("\\u00");
+        out.push_byte(_hex_digit_char(b / u8(16)));
+        out.push_byte(_hex_digit_char(b % u8(16)));
+      },
+      true => out.push_byte(b)
+    );
+    i = (i + usize(1));
+  });
+  out.push_str("\"");
+  out
+});
+/// `k` as a TOML key: bare when every byte is `A-Za-z0-9_-`, quoted otherwise.
+toml_key :: (fn(k : String) -> String)({
+  if(k.len() == usize(0), {
+    return(toml_string(k));
+  });
+  (i : usize) = usize(0);
+  while(i < k.len(), {
+    if(!_is_bare_key_byte(k.byte_at(i)), {
+      return(toml_string(k));
+    });
+    i = (i + usize(1));
+  });
+  k
+});
+// ---------------------------------------------------------------------------
+// Scanning
+// ---------------------------------------------------------------------------
+/// Scanner state carried from one line to the next: which multi-line string
+/// delimiter is open (`0` = none, `"` or `'`), and the bracket depth of the
+/// value being read.
+_Scan :: ref(
+  struct(
+    ml : u8,
+    depth : i32
+  )
+);
+/// Scan `line` from byte `from` to its end, updating `st`. Returns the byte
+/// offset of the first `=` met at depth 0 outside strings and comments (or
+/// the line length when none), which is what an entry line's key/value split
+/// needs; the same pass drives the multi-line-string and bracket tracking for
+/// every other line.
+_scan_line :: (fn(line : String, from : usize, st : _Scan) -> usize)({
+  n := line.len();
+  (i : usize) = from;
+  (eq_at : usize) = n;
+  while(i < n, {
+    b := line.byte_at(i);
+    cond(
+      (st.ml != u8(0)) => {
+        // Inside `"""` / `'''`: look for the closing triple; `\` escapes in
+        // the basic form.
+        cond(
+          ((st.ml == _QUOTE) && (b == _BACKSLASH)) => {
+            i = (i + usize(2));
+          },
+          ((b == st.ml) && (((i + usize(2)) < n) && ((line.byte_at(i + usize(1)) == st.ml) && (line.byte_at(i + usize(2)) == st.ml)))) => {
+            st.ml = u8(0);
+            i = (i + usize(3));
+          },
+          true => {
+            i = (i + usize(1));
+          }
+        );
+      },
+      (b == _HASH) => {
+        // A comment runs to the end of the line.
+        i = n;
+      },
+      ((b == _QUOTE) || (b == _APOS)) => {
+        triple := (((i + usize(2)) < n) && ((line.byte_at(i + usize(1)) == b) && (line.byte_at(i + usize(2)) == b)));
+        cond(
+          triple => {
+            st.ml = b;
+            i = (i + usize(3));
+          },
+          true => {
+            // A single-line string: consume to the matching delimiter.
+            i = (i + usize(1));
+            (closed : bool) = false;
+            while((i < n) && !closed, {
+              c := line.byte_at(i);
+              cond(
+                ((b == _QUOTE) && (c == _BACKSLASH)) => {
+                  i = (i + usize(2));
+                },
+                (c == b) => {
+                  closed = true;
+                  i = (i + usize(1));
+                },
+                true => {
+                  i = (i + usize(1));
+                }
+              );
+            });
+          }
+        );
+      },
+      ((b == _LBRACKET) || (b == _LBRACE)) => {
+        st.depth = (st.depth + i32(1));
+        i = (i + usize(1));
+      },
+      ((b == _RBRACKET) || (b == _RBRACE)) => {
+        st.depth = (st.depth - i32(1));
+        i = (i + usize(1));
+      },
+      ((b == _EQUALS) && ((st.depth == i32(0)) && (eq_at == n))) => {
+        eq_at = i;
+        i = (i + usize(1));
+      },
+      true => {
+        i = (i + usize(1));
+      }
+    );
+  });
+  eq_at
+});
+/// The first non-blank byte offset of `line` at or after `from`.
+_skip_ws :: (fn(line : String, from : usize) -> usize)({
+  (i : usize) = from;
+  while((i < line.len()) && ((line.byte_at(i) == _SPACE) || (line.byte_at(i) == _TAB)), {
+    i = (i + usize(1));
+  });
+  i
+});
+/// A parsed key path (`a.b."c d"`) and where it ends.
+_KeyPath :: ref(
+  struct(
+    keys : ArrayList(String),
+    end : usize
+  )
+);
+/// Decode the escapes of a basic-string key. Keys are names, so the common
+/// escapes suffice; an unknown escape keeps its character.
+_unescape_basic :: (fn(raw : String) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  n := raw.len();
+  while(i < n, {
+    b := raw.byte_at(i);
+    cond(
+      ((b == _BACKSLASH) && ((i + usize(1)) < n)) => {
+        c := raw.byte_at(i + usize(1));
+        cond(
+          (c == u8(110)) => out.push_byte(u8(10)),
+          (c == u8(116)) => out.push_byte(_TAB),
+          (c == u8(114)) => out.push_byte(_CR),
+          true => out.push_byte(c)
+        );
+        i = (i + usize(2));
+      },
+      true => {
+        out.push_byte(b);
+        i = (i + usize(1));
+      }
+    );
+  });
+  out
+});
+/// Parse a key path starting at `from` (whitespace allowed). `.None` when the
+/// text there is not a key.
+_parse_key_path :: (fn(line : String, from : usize) -> Option(_KeyPath))({
+  keys := ArrayList(String).new();
+  n := line.len();
+  (i : usize) = _skip_ws(line, from);
+  (more : bool) = true;
+  while(more, {
+    if(i >= n, {
+      return(Option(_KeyPath).None);
+    });
+    b := line.byte_at(i);
+    cond(
+      ((b == _QUOTE) || (b == _APOS)) => {
+        start := (i + usize(1));
+        (j : usize) = start;
+        (closed : bool) = false;
+        while((j < n) && !closed, {
+          c := line.byte_at(j);
+          cond(
+            ((b == _QUOTE) && (c == _BACKSLASH)) => {
+              j = (j + usize(2));
+            },
+            (c == b) => {
+              closed = true;
+            },
+            true => {
+              j = (j + usize(1));
+            }
+          );
+        });
+        if(!closed, {
+          return(Option(_KeyPath).None);
+        });
+        raw := line.substring(start, j);
+        keys.push(if(b == _QUOTE, _unescape_basic(raw), raw));
+        i = (j + usize(1));
+      },
+      _is_bare_key_byte(b) => {
+        start := i;
+        while((i < n) && _is_bare_key_byte(line.byte_at(i)), {
+          i = (i + usize(1));
+        });
+        keys.push(line.substring(start, i));
+      },
+      true => {
+        return(Option(_KeyPath).None);
+      }
+    );
+    i = _skip_ws(line, i);
+    cond(
+      ((i < n) && (line.byte_at(i) == _DOT)) => {
+        i = _skip_ws(line, i + usize(1));
+      },
+      true => {
+        more = false;
+      }
+    );
+  });
+  Option(_KeyPath).Some(_KeyPath(keys : keys, end : i))
+});
+/// What a line is, once the scanner has classified it.
+_LineKind :: enum(
+  /// `[a.b]` or `[[a.b]]`; `path` is the parsed key path.
+  Header(path : ArrayList(String), array : bool),
+  /// `a.b = …`; the entry's value may continue on following lines.
+  Entry(path : ArrayList(String)),
+  /// Blank, comment, or the continuation of a multi-line value.
+  Other
+);
+_Line :: ref(
+  struct(
+    kind : _LineKind,
+    /// For an `Entry`: the index of the last line of its value.
+    end : usize
+  )
+);
+/// Classify every line of `lines`.
+_classify :: (fn(lines : ArrayList(String)) -> Result(ArrayList(_Line), String))({
+  out := ArrayList(_Line).new();
+  st := _Scan(ml : u8(0), depth : i32(0));
+  (li : usize) = usize(0);
+  while(li < lines.len(), {
+    line := lines(li);
+    if((st.ml != u8(0)) || (st.depth != i32(0)), {
+      // Continuation of the previous entry's value.
+      _ := _scan_line(line, usize(0), st);
+      out.push(_Line(kind : _LineKind.Other, end : li));
+      li = (li + usize(1));
+      continue;
+    });
+    start := _skip_ws(line, usize(0));
+    cond(
+      ((start >= line.len()) || ((line.byte_at(start) == _HASH) || (line.byte_at(start) == _CR))) => {
+        out.push(_Line(kind : _LineKind.Other, end : li));
+      },
+      (line.byte_at(start) == _LBRACKET) => {
+        is_array := (((start + usize(1)) < line.len()) && (line.byte_at(start + usize(1)) == _LBRACKET));
+        path_from := if(is_array, start + usize(2), start + usize(1));
+        path := match(
+          _parse_key_path(line, path_from),
+          .Some(kp) => kp,
+          .None => {
+            return(Result(ArrayList(_Line), String).Err(`line ${(li + usize(1)).to_string()}: malformed table header`));
+          }
+        );
+        out.push(_Line(kind : _LineKind.Header(path.keys, is_array), end : li));
+      },
+      true => {
+        path := match(
+          _parse_key_path(line, start),
+          .Some(kp) => kp,
+          .None => {
+            return(Result(ArrayList(_Line), String).Err(`line ${(li + usize(1)).to_string()}: expected a key`));
+          }
+        );
+        eq_at := _scan_line(line, path.end, st);
+        if(eq_at >= line.len(), {
+          return(Result(ArrayList(_Line), String).Err(`line ${(li + usize(1)).to_string()}: expected "=" after the key`));
+        });
+        // The value: the rest of this line, and following lines while a
+        // multi-line string or a bracket is open.
+        (end : usize) = li;
+        (lj : usize) = (li + usize(1));
+        while(((st.ml != u8(0)) || (st.depth != i32(0))) && (lj < lines.len()), {
+          _ := _scan_line(lines(lj), usize(0), st);
+          end = lj;
+          lj = (lj + usize(1));
+        });
+        if((st.ml != u8(0)) || (st.depth != i32(0)), {
+          return(Result(ArrayList(_Line), String).Err(`line ${(li + usize(1)).to_string()}: unterminated value`));
+        });
+        out.push(_Line(kind : _LineKind.Entry(path.keys), end : end));
+        // The continuation lines are classified as Other by the loop head
+        // (state is clean again, so mark them here).
+        (k : usize) = (li + usize(1));
+        while(k <= end, {
+          out.push(_Line(kind : _LineKind.Other, end : k));
+          k = (k + usize(1));
+        });
+        li = end;
+      }
+    );
+    li = (li + usize(1));
+  });
+  Result(ArrayList(_Line), String).Ok(out)
+});
+// ---------------------------------------------------------------------------
+// Locating a table and an entry
+// ---------------------------------------------------------------------------
+/// `[table]` — the index of its header line, or `.None`.
+_find_table_header :: (fn(kinds : ArrayList(_Line), table : String) -> Option(usize))({
+  (i : usize) = usize(0);
+  while(i < kinds.len(), {
+    match(
+      kinds(i).kind,
+      .Header(path, array) => {
+        if(!array && ((path.len() == usize(1)) && (path(usize(0)) == table)), {
+          return(Option(usize).Some(i));
+        });
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+/// The index of the first header line after `from`, or the line count.
+_section_end :: (fn(kinds : ArrayList(_Line), from : usize) -> usize)({
+  (i : usize) = from;
+  while(i < kinds.len(), {
+    match(
+      kinds(i).kind,
+      .Header(_, _) => {
+        return(i);
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  kinds.len()
+});
+/// A half-open line range `[start, end)` to delete or replace.
+_Range :: ref(
+  struct(
+    start : usize,
+    end : usize
+  )
+);
+/// Every line range that defines `table.key`: entries `key = …` and
+/// `key.sub = …` inside `[table]`, and whole `[table.key]` / `[table.key.…]`
+/// / `[[table.key]]` sections. Sorted by position.
+_entry_ranges :: (
+  fn(
+    kinds : ArrayList(_Line),
+    table : String,
+    key : String
+  ) -> ArrayList(_Range)
+)({
+  ranges := ArrayList(_Range).new();
+  match(
+    _find_table_header(kinds, table.clone()),
+    .None => (),
+    .Some(h) => {
+      end := _section_end(kinds, h + usize(1));
+      (i : usize) = (h + usize(1));
+      while(i < end, {
+        match(
+          kinds(i).kind,
+          .Entry(path) => {
+            if((path.len() >= usize(1)) && (path(usize(0)) == key), {
+              ranges.push(_Range(start : i, end : (kinds(i).end + usize(1))));
+            });
+          },
+          _ => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+  (j : usize) = usize(0);
+  while(j < kinds.len(), {
+    match(
+      kinds(j).kind,
+      .Header(path, _) => {
+        if((path.len() >= usize(2)) && ((path(usize(0)) == table) && (path(usize(1)) == key)), {
+          ranges.push(_Range(start : j, end : _section_end(kinds, j + usize(1))));
+        });
+      },
+      _ => ()
+    );
+    j = (j + usize(1));
+  });
+  // Insertion sort by start (a handful of ranges at most).
+  (a : usize) = usize(1);
+  while(a < ranges.len(), {
+    (b : usize) = a;
+    while((b > usize(0)) && (ranges(b - usize(1)).start > ranges(b).start), {
+      ranges.swap(b - usize(1), b);
+      b = (b - usize(1));
+    });
+    a = (a + usize(1));
+  });
+  ranges
+});
+/// `lines` with every range in `ranges` (sorted, disjoint) removed. A
+/// sub-table section is followed by its blank separator line; that line goes
+/// with it so the document does not accumulate blank runs.
+_delete_ranges :: (fn(lines : ArrayList(String), ranges : ArrayList(_Range)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  (r : usize) = usize(0);
+  while(i < lines.len(), {
+    cond(
+      ((r < ranges.len()) && (i == ranges(r).start)) => {
+        i = ranges(r).end;
+        r = (r + usize(1));
+      },
+      true => {
+        out.push(lines(i));
+        i = (i + usize(1));
+      }
+    );
+  });
+  out
+});
+_is_blank :: (fn(line : String) -> bool)(
+  _skip_ws(line, usize(0)) >= line.len()
+);
+_join_lines :: (fn(lines : ArrayList(String)) -> String)(
+  String.from("\n").join(lines)
+);
+// ---------------------------------------------------------------------------
+// Edits
+// ---------------------------------------------------------------------------
+/// Set `table.key` to `value_text` (already-rendered TOML: `"…"`, `{ … }`,
+/// `[ … ]`, …) in `text`, preserving everything else. An existing entry —
+/// inline, dotted, or as a `[table.key]` section — is replaced in place by
+/// one `key = value` line (a sub-table section moves into the `[table]`
+/// table); a new entry goes after the table's last entry; a missing table is
+/// appended at the end of the document.
+set_entry :: (
+  fn(
+    text : String,
+    table : String,
+    key : String,
+    value_text : String
+  ) -> Result(String, String)
+)({
+  // The value must be valid TOML on its own before it goes anywhere near the
+  // document.
+  probe := `${toml_key(key.clone())} = ${value_text}\n`;
+  match(
+    parse(probe),
+    .Ok(_) => (),
+    .Err(err) => {
+      return(Result(String, String).Err(`invalid value for "${key}": ${err.to_string()}`));
+    }
+  );
+  lines := text.split("\n");
+  kinds := match(
+    _classify(lines),
+    .Ok(k) => k,
+    .Err(msg) => {
+      return(Result(String, String).Err(msg));
+    }
+  );
+  entry_line := `${toml_key(key.clone())} = ${value_text}`;
+  ranges := _entry_ranges(kinds, table.clone(), key.clone());
+  // Replace in place when an inline/dotted entry exists inside [table]: the
+  // first such range keeps its position, the rest are deleted.
+  (inline_at : Option(usize)) = Option(usize).None;
+  match(
+    _find_table_header(kinds, table.clone()),
+    .None => (),
+    .Some(h) => {
+      end := _section_end(kinds, h + usize(1));
+      (ri : usize) = usize(0);
+      while(ri < ranges.len(), {
+        rg := ranges(ri);
+        if((rg.start > h) && (rg.start < end) && inline_at.is_none(), {
+          inline_at = Option(usize).Some(ri);
+        });
+        ri = (ri + usize(1));
+      });
+    }
+  );
+  result_lines := match(
+    inline_at,
+    .Some(ri) => {
+      keep := ranges(ri);
+      others := ArrayList(_Range).new();
+      (k : usize) = usize(0);
+      while(k < ranges.len(), {
+        if(k != ri, {
+          others.push(ranges(k));
+        });
+        k = (k + usize(1));
+      });
+      // Delete the other ranges, then rewrite the kept one — deleting first
+      // shifts the kept range only by lines BEFORE it.
+      (shift : usize) = usize(0);
+      (oi : usize) = usize(0);
+      while(oi < others.len(), {
+        if(others(oi).end <= keep.start, {
+          shift = (shift + (others(oi).end - others(oi).start));
+        });
+        oi = (oi + usize(1));
+      });
+      pruned := _delete_ranges(lines, others);
+      out := ArrayList(String).new();
+      (i : usize) = usize(0);
+      while(i < pruned.len(), {
+        cond(
+          (i == (keep.start - shift)) => {
+            out.push(entry_line.clone());
+            i = (keep.end - shift);
+          },
+          true => {
+            out.push(pruned(i));
+            i = (i + usize(1));
+          }
+        );
+      });
+      out
+    },
+    .None => {
+      // No inline entry: drop any `[table.key]` sections, then insert.
+      pruned := _delete_ranges(lines, ranges);
+      pruned_kinds := match(
+        _classify(pruned),
+        .Ok(k) => k,
+        .Err(msg) => {
+          return(Result(String, String).Err(msg));
+        }
+      );
+      match(
+        _find_table_header(pruned_kinds, table.clone()),
+        .Some(h) => {
+          end := _section_end(pruned_kinds, h + usize(1));
+          // After the last entry of the section (or the header when the
+          // section has none), so trailing blank lines stay trailing.
+          (insert_at : usize) = (h + usize(1));
+          (i : usize) = (h + usize(1));
+          while(i < end, {
+            match(
+              pruned_kinds(i).kind,
+              .Entry(_) => {
+                insert_at = (pruned_kinds(i).end + usize(1));
+              },
+              _ => ()
+            );
+            i = (i + usize(1));
+          });
+          out := ArrayList(String).new();
+          (j : usize) = usize(0);
+          while(j < pruned.len(), {
+            if(j == insert_at, {
+              out.push(entry_line.clone());
+            });
+            out.push(pruned(j));
+            j = (j + usize(1));
+          });
+          if(insert_at >= pruned.len(), {
+            out.push(entry_line.clone());
+          });
+          out
+        },
+        .None => {
+          // Append `[table]` + the entry at the end, separated by one blank
+          // line. `split("\n")` leaves "" as the last element of a text that
+          // ends in a newline; the join below restores that newline.
+          out := ArrayList(String).new();
+          (j : usize) = usize(0);
+          while(j < pruned.len(), {
+            out.push(pruned(j));
+            j = (j + usize(1));
+          });
+          // Trim trailing blank elements, then rebuild the ending.
+          while((out.len() > usize(0)) && _is_blank(out(out.len() - usize(1))), {
+            _ := out.pop();
+          });
+          if(out.len() > usize(0), {
+            out.push(String.new());
+          });
+          out.push(`[${toml_key(table.clone())}]`);
+          out.push(entry_line.clone());
+          out.push(String.new());
+          out
+        }
+      )
+    }
+  );
+  result := _join_lines(result_lines);
+  // The edited document must parse, and the entry must be where we put it.
+  parsed := match(
+    parse(result.clone()),
+    .Ok(v) => v,
+    .Err(err) => {
+      return(Result(String, String).Err(`edit would produce invalid TOML (${err.to_string()}); the document was left unchanged`));
+    }
+  );
+  placed := match(
+    parsed.get(table.clone()),
+    .Some(t) => t.has_key(key.clone()),
+    .None => false
+  );
+  if(!placed, {
+    return(Result(String, String).Err(`internal: "${key}" is not under [${table}] after the edit; the document was left unchanged`));
+  });
+  Result(String, String).Ok(result)
+});
+/// Remove `table.key` from `text`: every inline/dotted entry in `[table]` and
+/// every `[table.key…]` section. `.Ok(.None)` when there is no such entry.
+remove_entry :: (
+  fn(
+    text : String,
+    table : String,
+    key : String
+  ) -> Result(Option(String), String)
+)({
+  lines := text.split("\n");
+  kinds := match(
+    _classify(lines),
+    .Ok(k) => k,
+    .Err(msg) => {
+      return(Result(Option(String), String).Err(msg));
+    }
+  );
+  ranges := _entry_ranges(kinds, table.clone(), key.clone());
+  if(ranges.len() == usize(0), {
+    return(Result(Option(String), String).Ok(Option(String).None));
+  });
+  result := _join_lines(_delete_ranges(lines, ranges));
+  match(
+    parse(result.clone()),
+    .Ok(_) => (),
+    .Err(err) => {
+      return(Result(Option(String), String).Err(`edit would produce invalid TOML (${err.to_string()}); the document was left unchanged`));
+    }
+  );
+  Result(Option(String), String).Ok(Option(String).Some(result))
+});
+export(toml_string, toml_key, set_entry, remove_entry);

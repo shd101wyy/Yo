@@ -81,12 +81,15 @@ test("ghost binding evaluates as a no-op", {
   assert((a + b) == i32(5), "a + b == 5 regardless of ghost");
 });
 
-test("ghost_fn declaration is parseable and callable in Phase 0", {
+test("ghost_fn is parseable, and V5 gates calls from non-ghost code", {
   is_positive :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
-  // Phase 0 is transparent — the ghost function is still callable.
-  // Later phases will forbid calls from non-ghost code.
-  assert(is_positive(i32(5)), "5 is positive");
-  assert(!is_positive(i32(-5)), "-5 is not positive");
+  // V5 task 3: a ghost_fn is callable ONLY from ghost context (contract
+  // clauses, ghost bindings, ghost_fn bodies) — Phase 0's transparency is
+  // retired; ordinary calls are a compile error.
+  comptime_expect_error({
+    probe := is_positive(i32(5));
+    probe;
+  }, "ghost_fn is callable only from ghost context");
 });
 
 test("old() is a transparent pass-through in Phase 0", {

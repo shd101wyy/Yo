@@ -1,0 +1,820 @@
+//! `yo.toml` — the package manifest
+//! (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1).
+//!
+//! The manifest is DATA, not a computation: `std/encoding/toml` parses it and
+//! this module turns the table into a `Manifest`. No evaluator, no
+//! `std/build`, no code from any package runs to read it, so the same reader
+//! serves `yo add`/`yo install`, `yo build`, and — through
+//! `resolve_import_roots` — every command that resolves an `import("name")`
+//! (compile, check, test, doc, lsp): `module_manager.yo` discovers the
+//! manifest above the entry file and registers the closure with the module
+//! resolver's rule 0.
+//!
+//! ```toml
+//! [package]
+//! name = "tetris_yo"
+//! version = "0.3.0"
+//!
+//! [modules]                    # importable as `tetris_yo` / `tetris_yo/board`
+//! default = "src/lib.yo"
+//! board   = "src/board.yo"
+//!
+//! [dependencies]
+//! raylib_yo = { git = "https://github.com/shd101wyy/raylib_yo", version = "^0.0.6" }
+//! json-yo   = { git = "https://github.com/user/json-yo", tag = "v1.2.0" }
+//! utils     = { git = "https://github.com/user/mono", version = "~2.1", path = "packages/utils" }
+//! mylib     = { path = "../mylib" }
+//!
+//! [dev-dependencies]
+//! snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
+//! ```
+//!
+//! Everything here is SYNCHRONOUS: the module resolver runs before any Io
+//! context exists, so the reads are libc calls (`read_file_sync`,
+//! `file_exists_sync` — `module_manager.yo` uses the same two).
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ Path } :: import("std/path");
+{ Exception } :: import("std/error");
+{ ToString } :: import("std/fmt");
+{ parse, TomlValue } :: import("std/encoding/toml");
+{ parse_lock_file, find_lock_entry } :: import("./lock_file.yo");
+{ get_global_cache_dir, store_tree_dir } :: import("./cache.yo");
+/// The manifest's file name, looked up in the entry file's directory and every
+/// directory above it.
+MANIFEST_FILENAME :: "yo.toml";
+/// The lock file written beside the manifest by `yo add` / `yo install`.
+LOCK_FILENAME :: "yo.lock";
+// ---------------------------------------------------------------------------
+// Synchronous file helpers
+// ---------------------------------------------------------------------------
+/// True when `path` exists on disk. libc `stat` (portable to Windows — MSVC
+/// has it in <sys/stat.h>; POSIX `access`/`F_OK` broke the v0.2.0 windows
+/// seed leg).
+file_exists_sync :: (fn(path : String) -> bool)({
+  { stat } :: import("std/libc/sys/stat");
+  { GlobalAllocator } :: import("std/allocator");
+  { malloc, free } :: GlobalAllocator;
+  cstr := path.to_cstr().ptr().unwrap();
+  // 512 bytes comfortably exceeds `struct stat` on every supported target;
+  // only the return code is read.
+  buf := malloc(usize(512)).unwrap();
+  rc := unsafe(stat((*char)(cstr), buf));
+  free(.Some(buf));
+  rc == int(0)
+});
+extern(
+  "Yo",
+  // errno as a CALL — the C macro is an int LVALUE, not a pointer (same
+  // shape as module_manager.yo's).
+  __yo_errno : (fn() -> i32)
+);
+/// Read a whole file synchronously. Errors (a missing file, a permission
+/// failure) are thrown as the libc `IoError`.
+read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
+  // Module-qualified so the name says which `open` this is: libc's, not
+  // `std/fs`'s `File.open`.
+  fcntl :: import("std/libc/fcntl");
+  unistd :: import("std/libc/unistd");
+  { IoError } :: import("std/sys/errors");
+  { GlobalAllocator } :: import("std/allocator");
+  { malloc, free } :: GlobalAllocator;
+  cstr := path.to_cstr().ptr().unwrap();
+  fd := unsafe(fcntl.open((*char)(cstr), int(fcntl.O_RDONLY)));
+  if(fd < int(0), {
+    exn.throw(dyn(IoError.from_errno(__yo_errno())));
+  });
+  result := ArrayList(u8).new();
+  buf := (*u8)(malloc(usize(4096)).unwrap());
+  while(runtime(true), {
+    // i64 immediately: the c_include `ssize_t` type has no constructor a
+    // body can name (`ssize_t(0)` fails def-eval, silently hollowing this
+    // fn — the C22-adjacent swallow), but casting its RESULT is fine.
+    n := i64(unsafe(unistd.read(fd, (*void)(buf), usize(4096))));
+    cond(
+      (n < i64(0)) => {
+        free(.Some((*void)(buf)));
+        unsafe(unistd.close(fd));
+        exn.throw(dyn(IoError.from_errno(__yo_errno())));
+      },
+      (n == i64(0)) => break,
+      true => {
+        (i : usize) = usize(0);
+        count := usize(n);
+        while(i < count, {
+          result.push((buf.add(i)).*);
+          i = (i + usize(1));
+        });
+      }
+    );
+  });
+  free(.Some((*void)(buf)));
+  unsafe(unistd.close(fd));
+  result
+});
+// ---------------------------------------------------------------------------
+// Data types
+// ---------------------------------------------------------------------------
+/// One `[modules]` entry: an importable root file, relative to the manifest's
+/// directory. The entry named `default` is what `import("<package>")` means;
+/// any other is `import("<package>/<name>")`.
+ManifestModule :: ref(
+  struct(
+    name : String,
+    root : String
+  )
+);
+/// What a git dependency's entry pins (plans §4.2). Exactly one is written;
+/// `git` alone means the remote's default branch, resolved to a commit when
+/// the lock is written and moved only by `yo update`.
+GitRequirement :: enum(
+  /// `{ git = "…" }` — HEAD of the default branch.
+  DefaultBranch,
+  /// `{ git = "…", version = "^1.2" }` — a semver range over the repository's
+  /// `vX.Y.Z` tags; `yo install` picks the highest satisfying tag.
+  Version(req : String),
+  /// `{ git = "…", tag = "v1.2.0" }` — one exact tag.
+  Tag(tag : String),
+  /// `{ git = "…", branch = "main" }` — a branch, pinned to a commit in the lock.
+  Branch(branch : String),
+  /// `{ git = "…", rev = "<sha>" }` — one exact commit.
+  Rev(rev : String)
+);
+/// Where a dependency's sources come from.
+DependencySource :: enum(
+  /// A git repository; `subdir` is the package's directory inside it ("" =
+  /// the repository root).
+  Git(url : String, requirement : GitRequirement, subdir : String),
+  /// A directory on disk, relative to the manifest's directory unless absolute.
+  Path(path : String)
+);
+/// One `[dependencies]` / `[dev-dependencies]` entry.
+ManifestDependency :: ref(
+  struct(
+    name : String,
+    source : DependencySource,
+    /// From `[dev-dependencies]`: visible to this package's own build, never
+    /// propagated to a package that depends on it.
+    dev : bool
+  )
+);
+/// A parsed `yo.toml`.
+Manifest :: ref(
+  struct(
+    /// Absolute path of the manifest file.
+    path : String,
+    /// Its directory — every relative path in the manifest is relative to it.
+    dir : String,
+    name : String,
+    version : String,
+    description : String,
+    license : String,
+    /// `[package] yo = "0.2.30"` — minimum compiler version ("" = unset).
+    yo_version : String,
+    modules : ArrayList(ManifestModule),
+    dependencies : ArrayList(ManifestDependency)
+  )
+);
+impl(
+  Manifest,
+  /// The dependency named `name`, if the manifest declares one.
+  find_dependency : (fn(self : Self, name : String) -> Option(ManifestDependency))({
+    (i : usize) = usize(0);
+    while(i < self.dependencies.len(), {
+      d := self.dependencies(i);
+      if(d.name == name, {
+        return(Option(ManifestDependency).Some(d));
+      });
+      i = (i + usize(1));
+    });
+    Option(ManifestDependency).None
+  }),
+  /// The `[modules]` entry named `name` (`"default"` for the package root).
+  find_module : (fn(self : Self, name : String) -> Option(ManifestModule))({
+    (i : usize) = usize(0);
+    while(i < self.modules.len(), {
+      m := self.modules(i);
+      if(m.name == name, {
+        return(Option(ManifestModule).Some(m));
+      });
+      i = (i + usize(1));
+    });
+    Option(ManifestModule).None
+  }),
+  /// The git dependencies (dev ones included), in declaration order.
+  git_dependencies : (fn(self : Self) -> ArrayList(ManifestDependency))({
+    out := ArrayList(ManifestDependency).new();
+    (i : usize) = usize(0);
+    while(i < self.dependencies.len(), {
+      d := self.dependencies(i);
+      match(d.source, .Git(_, _, _) => out.push(d), .Path(_) => ());
+      i = (i + usize(1));
+    });
+    out
+  })
+);
+// ---------------------------------------------------------------------------
+// Discovery
+// ---------------------------------------------------------------------------
+/// `<dir>/yo.toml` for the nearest directory at or above `start_dir` that has
+/// one, or `.None`. `start_dir` may be relative (resolved against the cwd by
+/// the caller's `Path`).
+find_manifest :: (fn(start_dir : String) -> Option(String))({
+  (dir_opt : Option(Path)) = Option(Path).Some(Path.new(start_dir));
+  while(dir_opt.is_some(), {
+    dir := dir_opt.unwrap();
+    candidate := dir.join(Path.new(String.from(MANIFEST_FILENAME))).to_string();
+    if(file_exists_sync(candidate.clone()), {
+      return(Option(String).Some(candidate));
+    });
+    dir_opt = match(
+      dir.parent(),
+      .None => Option(Path).None,
+      // `Path.parent` of a root returns the root itself.
+      .Some(p) => if(p.to_string() == dir.to_string(), Option(Path).None, Option(Path).Some(p))
+    );
+  });
+  Option(String).None
+});
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+/// A string-valued key of `table`, or "" when absent. A present key with a
+/// non-string value is an error naming it.
+_string_field :: (
+  fn(
+    table : TomlValue,
+    key : String,
+    where_ : String
+  ) -> Result(String, String)
+)(
+  match(
+    table.get(key.clone()),
+    .None => Result(String, String).Ok(String.new()),
+    .Some(v) => match(
+      v.as_string(),
+      .Some(s) => Result(String, String).Ok(s),
+      .None => Result(String, String).Err(`${where_}: "${key}" must be a string`)
+    )
+  )
+);
+/// One dependency entry. Accepted shapes:
+///   `{ git = "url" }` (+ exactly one of `version`/`tag`/`branch`/`rev`, + `path` = subdir)
+///   `{ path = "../dir" }`
+_parse_dependency :: (
+  fn(
+    name : String,
+    value : TomlValue,
+    dev : bool,
+    where_ : String
+  ) -> Result(ManifestDependency, String)
+)({
+  if(!value.is_table(), {
+    return(
+      Result(ManifestDependency, String).Err(
+        `${where_}: dependency "${name}" must be an inline table: { git = "…", version = "…" } or { path = "…" }`
+      )
+    );
+  });
+  git := match(_string_field(value, String.from("git"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
+  path := match(_string_field(value, String.from("path"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
+  version := match(_string_field(value, String.from("version"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
+  tag := match(_string_field(value, String.from("tag"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
+  branch := match(_string_field(value, String.from("branch"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
+  rev := match(_string_field(value, String.from("rev"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
+  // Unknown keys are errors: a typo (`verison`) must not silently mean
+  // "default branch".
+  match(
+    value,
+    .Table(keys, _) => {
+      (ki : usize) = usize(0);
+      while(ki < keys.len(), {
+        k := keys(ki);
+        known := ((k == "git") || ((k == "path") || ((k == "version") || ((k == "tag") || ((k == "branch") || (k == "rev"))))));
+        if(!known, {
+          return(Result(ManifestDependency, String).Err(`${where_}: dependency "${name}" has an unknown key "${k}" (expected git, path, version, tag, branch, rev)`));
+        });
+        ki = (ki + usize(1));
+      });
+    },
+    _ => ()
+  );
+  if(git.len() == usize(0), {
+    if(path.len() == usize(0), {
+      return(Result(ManifestDependency, String).Err(`${where_}: dependency "${name}" needs a source: git = "…" or path = "…"`));
+    });
+    if((version.len() + (tag.len() + (branch.len() + rev.len()))) > usize(0), {
+      return(Result(ManifestDependency, String).Err(`${where_}: path dependency "${name}" cannot have version, tag, branch or rev`));
+    });
+    return(
+      Result(ManifestDependency, String).Ok(
+        ManifestDependency(name : name, source : DependencySource.Path(path), dev : dev)
+      )
+    );
+  });
+  pins := usize(0);
+  if(version.len() > usize(0), {
+    pins = (pins + usize(1));
+  });
+  if(tag.len() > usize(0), {
+    pins = (pins + usize(1));
+  });
+  if(branch.len() > usize(0), {
+    pins = (pins + usize(1));
+  });
+  if(rev.len() > usize(0), {
+    pins = (pins + usize(1));
+  });
+  if(pins > usize(1), {
+    return(Result(ManifestDependency, String).Err(`${where_}: git dependency "${name}" may pin only one of version, tag, branch, rev`));
+  });
+  requirement := cond(
+    (version.len() > usize(0)) => GitRequirement.Version(version),
+    (tag.len() > usize(0)) => GitRequirement.Tag(tag),
+    (branch.len() > usize(0)) => GitRequirement.Branch(branch),
+    (rev.len() > usize(0)) => GitRequirement.Rev(rev),
+    true => GitRequirement.DefaultBranch
+  );
+  Result(ManifestDependency, String).Ok(
+    ManifestDependency(
+      name : name,
+      source : DependencySource.Git(git, requirement, path),
+      dev : dev
+    )
+  )
+});
+/// Every entry of the `[<table_name>]` table of `root`, appended to `out`.
+_parse_dependency_table :: (
+  fn(
+    root : TomlValue,
+    table_name : String,
+    dev : bool,
+    where_ : String,
+    out : ArrayList(ManifestDependency)
+  ) -> Result(unit, String)
+)({
+  match(
+    root.get(table_name.clone()),
+    .None => (),
+    .Some(table) => {
+      if(!table.is_table(), {
+        return(Result(unit, String).Err(`${where_}: [${table_name}] must be a table`));
+      });
+      match(
+        table,
+        .Table(keys, values) => {
+          (i : usize) = usize(0);
+          while(i < keys.len(), {
+            name := keys(i);
+            (dup : usize) = usize(0);
+            while(dup < out.len(), {
+              if(out(dup).name == name, {
+                return(Result(unit, String).Err(`${where_}: dependency "${name}" is declared in both [dependencies] and [dev-dependencies]`));
+              });
+              dup = (dup + usize(1));
+            });
+            match(
+              _parse_dependency(name, values(i), dev, where_.clone()),
+              .Ok(d) => out.push(d),
+              .Err(m) => {
+                return(Result(unit, String).Err(m));
+              }
+            );
+            i = (i + usize(1));
+          });
+        },
+        _ => ()
+      );
+    }
+  );
+  Result(unit, String).Ok(())
+});
+/// Parse the text of a manifest at `path` (absolute; its directory anchors
+/// the relative paths inside). Errors are messages prefixed with the path.
+parse_manifest :: (fn(text : String, path : String) -> Result(Manifest, String))({
+  where_ := path.clone();
+  root := match(
+    parse(text),
+    .Ok(v) => v,
+    .Err(err) => {
+      return(Result(Manifest, String).Err(`${where_}: ${err.to_string()}`));
+    }
+  );
+  dir := match(
+    Path.new(path.clone()).parent(),
+    .Some(p) => p.to_string(),
+    .None => String.from(".")
+  );
+  package := match(
+    root.get(String.from("package")),
+    .None => {
+      return(Result(Manifest, String).Err(`${where_}: missing [package] table`));
+    },
+    .Some(p) => p
+  );
+  if(!package.is_table(), {
+    return(Result(Manifest, String).Err(`${where_}: [package] must be a table`));
+  });
+  name := match(_string_field(package, String.from("name"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  if(name.len() == usize(0), {
+    return(Result(Manifest, String).Err(`${where_}: [package] name is required`));
+  });
+  if(name.contains("/") || name.contains("\\"), {
+    return(Result(Manifest, String).Err(`${where_}: [package] name "${name}" may not contain a path separator (it is what importers write in import("${name}"))`));
+  });
+  version := match(_string_field(package, String.from("version"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  description := match(_string_field(package, String.from("description"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  license := match(_string_field(package, String.from("license"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  yo_version := match(_string_field(package, String.from("yo"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  modules := ArrayList(ManifestModule).new();
+  match(
+    root.get(String.from("modules")),
+    .None => (),
+    .Some(table) => {
+      if(!table.is_table(), {
+        return(Result(Manifest, String).Err(`${where_}: [modules] must be a table of name = "path/to/root.yo"`));
+      });
+      match(
+        table,
+        .Table(keys, values) => {
+          (i : usize) = usize(0);
+          while(i < keys.len(), {
+            mname := keys(i);
+            mroot := match(
+              values(i).as_string(),
+              .Some(s) => s,
+              .None => {
+                return(Result(Manifest, String).Err(`${where_}: [modules] ${mname} must be a string path`));
+              }
+            );
+            if(mroot.len() == usize(0), {
+              return(Result(Manifest, String).Err(`${where_}: [modules] ${mname} is empty`));
+            });
+            if(mname.contains("/"), {
+              return(Result(Manifest, String).Err(`${where_}: [modules] name "${mname}" may not contain "/"`));
+            });
+            modules.push(ManifestModule(name : mname, root : mroot));
+            i = (i + usize(1));
+          });
+        },
+        _ => ()
+      );
+    }
+  );
+  dependencies := ArrayList(ManifestDependency).new();
+  match(
+    _parse_dependency_table(root, String.from("dependencies"), false, where_.clone(), dependencies),
+    .Ok(_) => (),
+    .Err(m) => {
+      return(Result(Manifest, String).Err(m));
+    }
+  );
+  match(
+    _parse_dependency_table(root, String.from("dev-dependencies"), true, where_.clone(), dependencies),
+    .Ok(_) => (),
+    .Err(m) => {
+      return(Result(Manifest, String).Err(m));
+    }
+  );
+  Result(Manifest, String).Ok(
+    Manifest(
+      path : path,
+      dir : dir,
+      name : name,
+      version : version,
+      description : description,
+      license : license,
+      yo_version : yo_version,
+      modules : modules,
+      dependencies : dependencies
+    )
+  )
+});
+/// Read and parse the manifest at `path` (absolute).
+load_manifest :: (fn(path : String, exn : Exception) -> Result(Manifest, String))(
+  parse_manifest(String.from_bytes(read_file_sync(path.clone(), exn)), path)
+);
+// ---------------------------------------------------------------------------
+// Module roots
+// ---------------------------------------------------------------------------
+/// `<base>/<rel>` absolute and normalized (`rel` may already be absolute).
+abs_under :: (fn(base : String, rel : String) -> String)({
+  joined := if(
+    Path.new(rel.clone()).is_absolute(),
+    Path.new(rel),
+    Path.new(base).join(Path.new(rel))
+  );
+  joined.normalize().to_string()
+});
+/// The root file a package without a `default` module resolves to: the
+/// conventional `src/lib.yo` → `index.yo` → `<name>.yo` under `dir`.
+default_module_root :: (fn(dir : String, name : String) -> Option(String))({
+  lib_default := abs_under(dir.clone(), String.from("src/lib.yo"));
+  index_default := abs_under(dir.clone(), String.from("index.yo"));
+  named_default := abs_under(dir, `${name}.yo`);
+  cond(
+    file_exists_sync(lib_default.clone()) => Option(String).Some(lib_default),
+    file_exists_sync(index_default.clone()) => Option(String).Some(index_default),
+    file_exists_sync(named_default.clone()) => Option(String).Some(named_default),
+    true => Option(String).None
+  )
+});
+/// One `import("name")` → absolute root file mapping.
+ImportRoot :: ref(
+  struct(
+    name : String,
+    root : String
+  )
+);
+/// A declared dependency whose sources are not on disk (a git dependency that
+/// `yo install` has not fetched, or one whose root file cannot be found). The
+/// resolver reports `reason` when a program imports `name` instead of the
+/// generic "module not found".
+UnavailableImport :: ref(
+  struct(
+    name : String,
+    reason : String,
+    /// True when `yo install` would make it available (a git dependency that
+    /// is not fetched); false for a missing path or a package without a
+    /// module root, which no fetch repairs.
+    fetchable : bool
+  )
+);
+/// What `resolve_import_roots` computes for one project.
+ImportRoots :: ref(
+  struct(
+    roots : ArrayList(ImportRoot),
+    unavailable : ArrayList(UnavailableImport)
+  )
+);
+/// The directory a dependency's sources live in, or the reason it is not
+/// available. A path dependency is `<manifest dir>/<path>`; a git dependency
+/// is its entry in the ROOT project's `yo.lock` mapped into the store by its
+/// integrity hash (`<cache>/store/sha256/<hash>/<subdir>`) — dependencies'
+/// own git dependencies are recorded in the root lock too.
+_unavailable :: (fn(name : String, reason : String, fetchable : bool) -> UnavailableImport)(
+  UnavailableImport(name : name, reason : reason, fetchable : fetchable)
+);
+dependency_dir :: (
+  fn(
+    dep : ManifestDependency,
+    declaring_dir : String,
+    root_lock_text : Option(String)
+  ) -> Result(String, UnavailableImport)
+)(
+  match(
+    dep.source,
+    .Path(p) => {
+      dir := abs_under(declaring_dir, p.clone());
+      if(!file_exists_sync(dir.clone()), {
+        return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `path dependency "${dep.name}" points at ${dir}, which does not exist`, false)));
+      });
+      Result(String, UnavailableImport).Ok(dir)
+    },
+    .Git(_, _, subdir) => {
+      lock := match(
+        root_lock_text,
+        .Some(t) => match(
+          parse_lock_file(t),
+          .Ok(l) => l,
+          .Err(msg) => {
+            return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}": ${msg} — run \`yo install\``, true)));
+          }
+        ),
+        .None => {
+          return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" is not installed (no yo.lock) — run \`yo install\``, true)));
+        }
+      );
+      entry := match(
+        find_lock_entry(lock, dep.name.clone()),
+        .Some(e) => e,
+        .None => {
+          return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" is not installed (no yo.lock entry) — run \`yo install\``, true)));
+        }
+      );
+      if(entry.integrity.len() == usize(0), {
+        return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" has no integrity hash in yo.lock — run \`yo install\``, true)));
+      });
+      stored := match(
+        store_tree_dir(get_global_cache_dir(), entry.integrity.clone()),
+        .Ok(d) => d,
+        .Err(msg) => {
+          return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}": yo.lock ${msg} — run \`yo install\``, true)));
+        }
+      );
+      dir := if(subdir.len() == usize(0), stored, abs_under(stored, subdir.clone()));
+      if(!file_exists_sync(dir.clone()), {
+        return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" is not in the store (${dir}) — run \`yo install\``, true)));
+      });
+      Result(String, UnavailableImport).Ok(dir)
+    }
+  )
+);
+/// A package reached by the closure walk: where it lives and, when it has a
+/// manifest, what it declares.
+_ClosureEntry :: ref(
+  struct(
+    name : String,
+    dir : String,
+    manifest : Option(Manifest)
+  )
+);
+/// Register `name` → `root`, rejecting one name at two different roots.
+_add_root :: (
+  fn(
+    roots : ArrayList(ImportRoot),
+    name : String,
+    root : String,
+    via : String
+  ) -> Result(unit, String)
+)({
+  (i : usize) = usize(0);
+  while(i < roots.len(), {
+    existing := roots(i);
+    if(existing.name == name, {
+      if(existing.root == root, {
+        return(Result(unit, String).Ok(()));
+      });
+      return(Result(unit, String).Err(`import name "${name}" reaches two different modules: ${existing.root} and ${root} (via ${via}). Rename one dependency.`));
+    });
+    i = (i + usize(1));
+  });
+  roots.push(ImportRoot(name : name, root : root));
+  Result(unit, String).Ok(())
+});
+/// The import roots of ONE package: its default module under `entry.name`
+/// and each named `[modules]` entry under `entry.name/<module>`. A package
+/// without a manifest, or without a `default` module, gets the conventional
+/// root (`default_module_root`). A DEPENDENCY with neither is recorded as
+/// unavailable with the reason; the ROOT project with neither simply has no
+/// `import("<its name>")` — an executable-only project needs no library root.
+_register_package_roots :: (
+  fn(
+    entry : _ClosureEntry,
+    is_root : bool,
+    out : ImportRoots,
+    via : String
+  ) -> Result(unit, String)
+)({
+  (default_root : Option(String)) = Option(String).None;
+  match(
+    entry.manifest,
+    .Some(m) => {
+      (i : usize) = usize(0);
+      while(i < m.modules.len(), {
+        m_entry := m.modules(i);
+        root := abs_under(entry.dir.clone(), m_entry.root.clone());
+        if(m_entry.name == "default", {
+          default_root = Option(String).Some(root);
+        }, {
+          match(
+            _add_root(out.roots, `${entry.name}/${m_entry.name}`, root, via.clone()),
+            .Ok(_) => (),
+            .Err(msg) => {
+              return(Result(unit, String).Err(msg));
+            }
+          );
+        });
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  if(default_root.is_none(), {
+    default_root = default_module_root(entry.dir.clone(), entry.name.clone());
+  });
+  match(
+    default_root,
+    .Some(root) => _add_root(out.roots, entry.name.clone(), root, via),
+    .None => {
+      if(is_root, {
+        return(Result(unit, String).Ok(()));
+      });
+      out.unavailable.push(_unavailable(entry.name.clone(), `"${entry.name}" (${entry.dir}) declares no default module: add [modules] default = "src/lib.yo" to its yo.toml, or provide src/lib.yo, index.yo or ${entry.name}.yo`, false));
+      Result(unit, String).Ok(())
+    }
+  )
+});
+/// The `import("name")` closure of `manifest`'s project: its own modules
+/// (`name`, `name/sub`), every dependency's modules under the dependency's
+/// name, and — transitively — every dependency's non-dev dependencies under
+/// THEIR names (plans §4.5.1). One flat mapping: a dependency's modules
+/// import their dependencies by name too, and they are compiled as part of
+/// this project. The same name reaching two roots is an error; a dependency
+/// that is declared but not fetched is reported in `unavailable`, not an
+/// error — `yo check` of a file that never imports it must still work.
+///
+/// `root_lock_text` is the ROOT project's `yo.lock` (`.None` when there is
+/// none); git dependencies of dependencies are looked up there. `exn`
+/// carries the I/O failure of a dependency manifest that exists but cannot
+/// be read.
+resolve_import_roots :: (
+  fn(
+    manifest : Manifest,
+    root_lock_text : Option(String),
+    exn : Exception
+  ) -> Result(ImportRoots, String)
+)({
+  out := ImportRoots(roots : ArrayList(ImportRoot).new(), unavailable : ArrayList(UnavailableImport).new());
+  root_entry := _ClosureEntry(name : manifest.name.clone(), dir : manifest.dir.clone(), manifest : Option(Manifest).Some(manifest));
+  match(
+    _register_package_roots(root_entry, true, out, manifest.path.clone()),
+    .Ok(_) => (),
+    .Err(msg) => {
+      return(Result(ImportRoots, String).Err(msg));
+    }
+  );
+  pending := ArrayList(_ClosureEntry).new();
+  pending.push(root_entry);
+  expanded_dirs := ArrayList(String).new();
+  expanded_dirs.push(manifest.dir.clone());
+  while(pending.len() > usize(0), {
+    current := pending.pop().unwrap();
+    current_manifest := match(
+      current.manifest,
+      .Some(m) => m,
+      .None => {
+        continue;
+      }
+    );
+    is_root := (current.dir == manifest.dir);
+    (di : usize) = usize(0);
+    while(di < current_manifest.dependencies.len(), {
+      dep := current_manifest.dependencies(di);
+      di = (di + usize(1));
+      // A dependency's dev-dependencies are its own business.
+      if(dep.dev && !is_root, {
+        continue;
+      });
+      dep_dir := match(
+        dependency_dir(dep, current.dir.clone(), root_lock_text.clone()),
+        .Ok(d) => d,
+        .Err(unavailable) => {
+          out.unavailable.push(unavailable);
+          continue;
+        }
+      );
+      dep_manifest_path := abs_under(dep_dir.clone(), String.from(MANIFEST_FILENAME));
+      (dep_manifest : Option(Manifest)) = Option(Manifest).None;
+      if(file_exists_sync(dep_manifest_path.clone()), {
+        dep_manifest = match(
+          parse_manifest(String.from_bytes(read_file_sync(dep_manifest_path.clone(), exn)), dep_manifest_path.clone()),
+          .Ok(m) => Option(Manifest).Some(m),
+          .Err(msg) => {
+            return(Result(ImportRoots, String).Err(`dependency "${dep.name}": ${msg}`));
+          }
+        );
+      });
+      entry := _ClosureEntry(name : dep.name.clone(), dir : dep_dir.clone(), manifest : dep_manifest);
+      match(
+        _register_package_roots(entry, false, out, `${current_manifest.path} → ${dep.name}`),
+        .Ok(_) => (),
+        .Err(msg) => {
+          return(Result(ImportRoots, String).Err(msg));
+        }
+      );
+      // Expand each package once, whichever path reached it.
+      (already : bool) = false;
+      (ei : usize) = usize(0);
+      while(ei < expanded_dirs.len(), {
+        if(expanded_dirs(ei) == dep_dir, {
+          already = true;
+        });
+        ei = (ei + usize(1));
+      });
+      if(!already, {
+        expanded_dirs.push(dep_dir.clone());
+        pending.push(entry);
+      });
+    });
+  });
+  Result(ImportRoots, String).Ok(out)
+});
+/// The text of `<manifest dir>/yo.lock`, or `.None` when there is no lock.
+read_lock_text :: (fn(manifest : Manifest, exn : Exception) -> Option(String))({
+  lock_path := abs_under(manifest.dir.clone(), String.from(LOCK_FILENAME));
+  if(file_exists_sync(lock_path.clone()), Option(String).Some(String.from_bytes(read_file_sync(lock_path, exn))), Option(String).None)
+});
+export(
+  MANIFEST_FILENAME,
+  LOCK_FILENAME,
+  file_exists_sync,
+  read_file_sync,
+  ManifestModule,
+  GitRequirement,
+  DependencySource,
+  ManifestDependency,
+  Manifest,
+  find_manifest,
+  parse_manifest,
+  load_manifest,
+  abs_under,
+  default_module_root,
+  ImportRoot,
+  UnavailableImport,
+  ImportRoots,
+  resolve_import_roots,
+  read_lock_text,
+  dependency_dir
+);

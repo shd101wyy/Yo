@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - develop
-  # No base filter: EVERY pull request gets CI, whatever branch it targets —
+  # No base filter: EVERY pull request gets a run, whatever branch it targets —
   # stacked PRs included, so integration problems surface while the stack is
   # open instead of at the end of the merge train (base-merge → retarget →
-  # rebase → force-push). A base-branch glob here is how a stacked PR
-  # silently skips CI the day the naming convention changes. Branch pushes
-  # alone still run nothing (the push trigger stays develop-only); a PR's
-  # synchronize event covers its branch pushes.
+  # rebase → force-push). A base-branch glob HERE is how a stacked PR silently
+  # skips CI the day the naming convention changes, which is why the scope
+  # decision lives in the `changes` job instead: a stacked PR runs a REDUCED
+  # battery (see its `full` output) rather than none, so it still has signal
+  # and the choice is visible in a job log rather than in an event filter.
+  # Branch pushes alone still run nothing (the push trigger stays
+  # develop-only); a PR's synchronize event covers its branch pushes.
   pull_request:
   # Merge queue support, currently INERT and deliberately kept.
   #
@@ -29,9 +32,24 @@ on:
   # once combined with develop.
   merge_group:
 
+# A superseded PR run is wasted CI and is cancelled. A `develop` run is NOT:
+# it is the only battery that scores what actually LANDED (a PR is scored on a
+# merge commit that no longer exists after a squash, and `strict` only proves
+# the branch was up to date at merge time). Cancelling those made develop
+# unverifiable — in one merge storm five consecutive develop runs were
+# cancelled by the next merge, so no tip carrying the merged work ever finished
+# a full battery. `merge_group` runs must not be cancelled either: the queue
+# waits on their checks.
+#
+# The GROUP stays per-ref (NOT per-sha): with `cancel-in-progress: false` a
+# burst of merges leaves the running battery alone and collapses the rest into
+# ONE pending run at the newest tip, which is exactly what wants scoring. A
+# per-sha group would instead run every intermediate commit in parallel — and
+# would break PR cancellation, since `github.sha` on a `pull_request` event is
+# the per-push merge commit and therefore differs run to run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): the previous release (the
@@ -145,6 +163,23 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      # Whether to run the FULL battery. A pull request whose base is not
+      # `develop` is a STACKED PR: its diff is only meaningful against its base,
+      # the base's own run has already covered everything below it, and the
+      # retarget-to-develop that must happen before it can merge fires a full
+      # run of its own. Running ~28 jobs on every push to every level of a stack
+      # was measured costing hours of runner time and delaying the runs that do
+      # decide a merge (2026-09-12: a stacked run sat QUEUED for 40 minutes
+      # while develop-targeted work waited behind it).
+      #
+      # Stacked PRs keep the two jobs that have actually caught things —
+      # `test (ubuntu-latest)`, which is the ASan leg, and the self-hosted
+      # tier-1 gates — and skip the rest. Both bugs stacked CI caught on
+      # 2026-09-12 (a heap-use-after-free from an over-eager drop, and a
+      # reproducer left behind by an API sweep) came from exactly those two.
+      full: ${{ steps.scope.outputs.full }}
+      # The `test` matrix, narrowed to the ASan leg on a stacked PR.
+      test_os: ${{ steps.scope.outputs.test_os }}
     steps:
       # SEED_VERSION consistency guard (plans/backlog/SEED_VERSION_AUTOMATION.md):
       # the pin is hand-duplicated in THREE workflows, and divergence silently
@@ -154,6 +189,23 @@ jobs:
       # always-running gate, so the guard lives here as a STEP — deliberately
       # not a new job, because the branch-protection required-checks list is
       # maintained by hand and a new job would need a manual edit there.
+      - name: Decide the battery scope (stacked PRs run a reduced one)
+        id: scope
+        run: |
+          # Anything that is not a pull request — a push to develop, a merge
+          # queue entry — always gets the full battery.
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ github.base_ref }}" = "develop" ]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            echo 'test_os=["ubuntu-latest","ubuntu-24.04-arm"]' >> "$GITHUB_OUTPUT"
+            echo "battery: FULL (base=${{ github.base_ref || github.ref_name }})"
+          else
+            echo "full=false" >> "$GITHUB_OUTPUT"
+            echo 'test_os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            echo "battery: REDUCED — stacked PR, base=${{ github.base_ref }}."
+            echo "Retarget to develop (or merge the base) for the full battery;"
+            echo "branch protection still requires every check before develop."
+          fi
+
       - name: Checkout workflows (SEED_VERSION guard)
         uses: actions/checkout@v4
         with:
@@ -223,6 +275,8 @@ jobs:
 
   vscode-extension:
     name: VS Code extension (package + Marketplace dry-run)
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -284,6 +338,8 @@ jobs:
   # release.yml, gated on the release actually publishing.
   docs-site:
     name: Documentation website (build only, no deploy)
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -355,7 +411,7 @@ jobs:
   verify:
     name: Formal verification (pinned Z3)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -474,9 +530,9 @@ jobs:
       # suite in the `test-native` job below, under a tree-built compiler
       # delivered by cross-emit (suite-candidate -> suite-cross-emit).
       matrix:
-        os:
-          - ubuntu-latest
-          - ubuntu-24.04-arm
+        # Both legs on a develop-targeted PR; the ASan leg alone on a stacked
+        # one (see the `changes` job's `full` output).
+        os: ${{ fromJSON(needs.changes.outputs.test_os) }}
 
     steps:
       - name: Checkout repository
@@ -797,7 +853,7 @@ jobs:
   suite-candidate:
     name: Build the suite candidate (Linux, shared by the cross-emits)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -881,7 +937,7 @@ jobs:
   chunked-gate:
     name: Chunked-emission behavioural fixpoint (chunked vs single)
     needs: [changes, suite-candidate]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -927,7 +983,7 @@ jobs:
   suite-cross-emit:
     name: Cross-emit suite compiler (${{ matrix.target }})
     needs: [changes, suite-candidate]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -1025,7 +1081,7 @@ jobs:
   test-native:
     name: test (${{ matrix.os }})
     needs: [changes, suite-cross-emit]
-    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
     runs-on: ${{ matrix.os }}
     # Windows legs finish in ~26 min when healthy. A per-leg budget well under
     # the 4-hour default turns a hang into a FAILED job with a downloadable
@@ -1154,7 +1210,7 @@ jobs:
   bootstrap-fixpoint:
     name: Bootstrap fixpoint (yo-self self-compile)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -1292,9 +1348,10 @@ jobs:
   # NOW GATES PRs (continue-on-error dropped 2026-08-06).
   bootstrap-fixpoint-stage3:
     name: Bootstrap fixpoint stage-3 (byte-identity)
+    needs: [changes, bootstrap-fixpoint]
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    needs: bootstrap-fixpoint
 
     steps:
       - name: Checkout repository
@@ -1508,7 +1565,7 @@ jobs:
   compiler-internal-tests-selfhosted:
     name: Compiler internal tests (tests/internal, self-hosted differential shard ${{ matrix.shard }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # Sharded 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md,
     # closed by this change) with the SAME selection the retired TS arm used:
@@ -1636,7 +1693,7 @@ jobs:
   build-linux-musl-static:
     name: Static musl Linux bundle (build + run, no publish)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # Also seed-driven, so the same v0.2.9 slowdown applies (see the TSan job).
     timeout-minutes: 120
@@ -1777,7 +1834,7 @@ jobs:
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # 60 was enough while this job's stage-1 fitted in RAM (16 min on the
     # v0.2.4 seed). The SEED_VERSION bump below pushes it over 16 GB, so it now
@@ -1855,7 +1912,7 @@ jobs:
 
   test-wasm32_emscripten:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # 32 min is this leg's real cost; 360 was inherited headroom that let a
     # DEADLOCKED test burn 3.4 h unnoticed on the sibling WASI leg
@@ -1953,7 +2010,7 @@ jobs:
 
   test-wasm32_wasi:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # See the emscripten leg: 360 let a deadlocked test spin for 3.4 h here
     # (issues/wasi-thread-pool-submit-deadlock.md) before anyone looked.
@@ -2036,7 +2093,7 @@ jobs:
   hollow-sweep:
     name: Full-corpus hollow sweep (all 188 language files, self-hosted)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
 

@@ -45,7 +45,23 @@ env_mod :: import("std/env");
 { EvalContext, eval_context_new, LoadModuleResult, stored_def_hash, stored_stmt_hash, stored_def_count, classify_pending_def } :: import("./evaluator/context.yo");
 { register_evaluate_expression, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
-{ resolve_module_path, ModuleResolveResult, _build_module_val_from_env, set_import_root, clear_import_roots } :: import("./evaluator/exprs/import.yo");
+{
+  resolve_module_path,
+  resolve_module_path_ex,
+  ModuleResolveResult,
+  _build_module_val_from_env,
+  set_import_root,
+  set_import_unavailable,
+  clear_import_roots
+} :: import("./evaluator/exprs/import.yo");
+{
+  find_manifest,
+  load_manifest,
+  resolve_import_roots,
+  read_lock_text,
+  read_file_sync,
+  file_exists_sync
+} :: import("./manifest.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module } :: import("./evaluator/module_loader.yo");
 { purge_type_trait_methods_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
 { purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
@@ -75,6 +91,58 @@ env_mod :: import("std/env");
 // (alloc_global_expr_id), so a shared table has no cross-module key collisions.
 // `.None` during `check`/`test` (each file keeps its own table).
 (g_shared_expr_info_table : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
+// ── Opened-input record (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9)
+//
+// Every `.yo` file this process READ while evaluating, in first-open order and
+// without duplicates. `yo compile --emit-deps <file>` writes it, and the build
+// runner hashes exactly that list instead of walking the whole project and the
+// whole std tree per artifact (audit B10's over-hashing half).
+//
+// Recorded at the two places a source file is actually read — the entry module
+// in `mm_load_file` and every demand-loaded module in `_load_module_at_abs` —
+// so a module that is a CACHE HIT on a later pass is still listed from its
+// first open. Paths are plain filesystem paths: `file://` is stripped, because
+// the consumer stats them.
+(g_opened_files : ArrayList(String)) = ArrayList(String).new();
+/// Record `path` as an evaluation input. A repeat is ignored, so the list is
+/// the SET of inputs in first-open order.
+///
+/// The path is ABSOLUTE, always. The two spellings of a module path meet here:
+/// a demand-loaded module arrives as the `file://<abs>` cache key, while the
+/// ENTRY arrives exactly as it was typed on the command line (`src/main.yo`, so
+/// diagnostics stay relative). A depfile mixing the two only works while its
+/// reader happens to share the writer's cwd — and the build runner reads it
+/// from wherever `yo build` was invoked. `_std_canonicalize` is the same
+/// lexical absolutize-and-fold the std path already gets.
+_record_opened_file :: (fn(path : String) -> unit)({
+  fs := _std_canonicalize(path.replace(String.from("file://"), String.new()));
+  if(fs.len() == usize(0), {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < g_opened_files.len(), {
+    match(
+      g_opened_files.get(i),
+      .Some(seen) => if(seen == fs, {
+        return(());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_opened_files.push(fs);
+});
+/// Start a fresh input record. `yo compile` calls this before evaluating so a
+/// long-lived process (the LSP, `check --watch`) does not accumulate.
+mm_reset_opened_files :: (fn() -> unit)({
+  g_opened_files = ArrayList(String).new();
+});
+/// The files read so far, in first-open order.
+mm_opened_files :: (fn() -> ArrayList(String))(g_opened_files);
+/// Record an input the loader itself did not open — `run_compile` reads the
+/// ENTRY module directly rather than through `mm_load_file`, so it reports its
+/// own read here.
+mm_record_opened_file :: (fn(path : String) -> unit)(_record_opened_file(path));
 /// Message slot for a module-eval error captured inside
 /// `_eval_module_exprs_capturing_error`'s handler. Handlers cannot reference
 /// outer runtime variables, but they CAN call module-level FUNCTIONS — so the
@@ -130,77 +198,6 @@ set_std_path_override :: (fn(path : String) -> unit)({
 /// applies.
 get_std_path_override :: (fn() -> Option(String))({
   return(g_std_path_override.clone());
-});
-/// True when `path` exists on disk. Sync libc `stat` (mirroring TS
-/// `existsSync`) — the resolver runs before any Io/event-loop context
-/// exists, so the async `std/fs` `exists` is not usable here.
-_path_exists_sync :: (fn(path : String) -> bool)({
-  { stat } :: import("std/libc/sys/stat");
-  { GlobalAllocator } :: import("std/allocator");
-  { malloc, free } :: GlobalAllocator;
-  cstr := path.to_cstr().ptr().unwrap();
-  // 512 bytes comfortably exceeds `struct stat` on every supported target;
-  // only the return code is read.
-  buf := malloc(usize(512)).unwrap();
-  rc := unsafe(stat((*char)(cstr), buf));
-  free(.Some(buf));
-  return(rc == int(0));
-});
-extern(
-  "Yo",
-  // errno as a CALL — the C macro is an int LVALUE, not a pointer (same
-  // pattern as std/fs/file.yo).
-  __yo_errno : (fn() -> i32)
-);
-/// Read a whole file synchronously via libc open/read/close. Module loading is
-/// COMPTIME work: it runs inside the evaluator and, under `yo build`, inside
-/// run_build's async task — where the async `std/fs` `read` compiles to a
-/// blocking poll loop that drives the event loop from inside a task
-/// (C37/C42, issues/retired/compiler-build-runner-nests-event-loop.md; the
-/// runtime guard aborts under YO_ASYNC_STRICT=1, so the strict-cleanliness CLI
-/// golden could never pass). The demand loader cannot become a future — the
-/// evaluator calls it synchronously at comptime — so comptime file reads must
-/// not touch the event loop at all. Errors mirror std/fs exactly: an
-/// `IoError.from_errno(errno)` thrown through `exn`.
-_read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
-  // Module-qualified so the name says which `open` this is: libc's, not
-  // `std/fs`'s `File.open`.
-  fcntl :: import("std/libc/fcntl");
-  unistd :: import("std/libc/unistd");
-  { IoError } :: import("std/sys/errors");
-  { GlobalAllocator } :: import("std/allocator");
-  { malloc, free } :: GlobalAllocator;
-  cstr := path.to_cstr().ptr().unwrap();
-  fd := unsafe(fcntl.open((*char)(cstr), int(fcntl.O_RDONLY)));
-  if(fd < int(0), {
-    exn.throw(dyn(IoError.from_errno(__yo_errno())));
-  });
-  result := ArrayList(u8).new();
-  buf := (*u8)(malloc(usize(4096)).unwrap());
-  while(runtime(true), {
-    // i64 immediately: the c_include `ssize_t` type has no constructor a
-    // body can name (`ssize_t(0)` fails def-eval, silently hollowing this
-    // fn — the C22-adjacent swallow), but casting its RESULT is fine.
-    n := i64(unsafe(unistd.read(fd, (*void)(buf), usize(4096))));
-    cond(
-      (n < i64(0)) => {
-        free(.Some((*void)(buf)));
-        unsafe(unistd.close(fd));
-        exn.throw(dyn(IoError.from_errno(__yo_errno())));
-      },
-      (n == i64(0)) => break,
-      true => {
-        (i : usize) = usize(0);
-        while(i < usize(n), {
-          result.push((buf.add(i)).*);
-          i = (i + usize(1));
-        });
-      }
-    );
-  });
-  free(.Some((*void)(buf)));
-  unsafe(unistd.close(fd));
-  result
 });
 /// Resolve the standard-library root. The proper evaluator needs this so
 /// `import("std/...")` can be satisfied — without it, the prelude cannot be
@@ -269,7 +266,7 @@ resolve_std_path :: (fn() -> String)({
       while(dir.is_some(), {
         d := dir.unwrap();
         candidate := d.join(Path.new(String.from("std")));
-        if(_path_exists_sync(candidate.to_string()), {
+        if(file_exists_sync(candidate.to_string()), {
           return(_std_canonicalize(candidate.to_string()));
         });
         dir = d.parent();
@@ -318,10 +315,13 @@ mm_fresh_module_env :: (fn(module_path : String) -> Environment)({
 /// keys agree.
 mm_resolve_entry_abs :: (fn(input_path : String, std_path : String) -> String)(
   match(
-    resolve_module_path(input_path.clone(), String.from("."), std_path),
+    // `false`: the entry is a FILE PATH, so the manifest's import-root names
+    // must not rewrite it (issues/fixed/entry-path-shadowed-by-an-import-root-name.md).
+    resolve_module_path_ex(input_path.clone(), String.from("."), std_path, false),
     .Found(p) => p,
     .NotFound(_) => input_path.clone(),
-    .Ambiguous(_) => input_path
+    .Ambiguous(_) => input_path.clone(),
+    .Unavailable(_, _) => input_path
   )
 );
 // Open-document text overlay (Phase B1): the LSP holds newer text for open
@@ -394,7 +394,7 @@ mm_module_source :: (fn(fs_path : String) -> Option(String))({
       _err -> unwind(Option(String).None)
     )
   );
-  Option(String).Some(String.from_bytes(_read_file_sync(fs_path, read_exn)))
+  Option(String).Some(String.from_bytes(read_file_sync(fs_path, read_exn)))
 });
 /// LSP invalidation entry (Phase B1, plans/reference/INCREMENTAL_COMPILATION.md):
 /// drop the module cached for this FILESYSTEM path and every transitive
@@ -422,7 +422,7 @@ mm_definitions_changed :: (fn(fs_path : String) -> Option(bool))({
     .Some(e) => e,
     .None => return(Option(bool).None)
   );
-  src_bytes := _read_file_sync(fs_path.clone(), exn);
+  src_bytes := read_file_sync(fs_path.clone(), exn);
   (src : String) = String.from_bytes(src_bytes);
   match(
     _open_doc_text(fs_path.clone()),
@@ -571,7 +571,7 @@ _load_imports_file :: (fn(exn : Exception) -> unit)({
     g_imports_file_override,
     .None => (),
     .Some(p) => {
-      text := String.from_bytes(_read_file_sync(p.clone(), exn));
+      text := String.from_bytes(read_file_sync(p.clone(), exn));
       clear_import_roots();
       cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
       lines := text.split("\n");
@@ -600,6 +600,78 @@ _load_imports_file :: (fn(exn : Exception) -> unit)({
           );
         });
         i = (i + usize(1));
+      });
+    }
+  );
+});
+/// The manifest whose import-root closure is registered: its path, or "" when
+/// the last entry had none above it. One process serves many entries (`check
+/// ./src`, the test runner's batches, an LSP session) that share a manifest,
+/// so the closure is computed once per manifest.
+(g_manifest_roots_for : Option(String)) = Option(String).None;
+/// Register the `import("name")` roots of the project the entry file `fs_path`
+/// belongs to (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.1): the
+/// nearest `yo.toml` at or above its directory, resolved by
+/// `manifest.resolve_import_roots` — so `compile`, `check`, `test`, `doc` and
+/// the LSP resolve dependency imports without a build. The build runner's
+/// `--imports` file is the explicit, complete mapping for an artifact; when
+/// it is set, discovery is skipped. A malformed manifest is an error here —
+/// it is a compile error of the entry, reported once by the owning edge.
+_register_manifest_import_roots :: (fn(fs_path : String, exn : Exception) -> unit)({
+  if(g_imports_file_override.is_some(), {
+    return(());
+  });
+  entry_dir := match(
+    Path.new(fs_path.clone()).parent(),
+    .Some(p) => {
+      ps := p.to_string();
+      if(ps.len() == usize(0), String.from("."), ps)
+    },
+    .None => String.from(".")
+  );
+  found := find_manifest(entry_dir);
+  key := match(found, .Some(p) => p, .None => String.new());
+  match(
+    g_manifest_roots_for,
+    .Some(k) => if(k == key, {
+      return(());
+    }),
+    .None => ()
+  );
+  g_manifest_roots_for = Option(String).Some(key.clone());
+  clear_import_roots();
+  match(
+    found,
+    .None => (),
+    .Some(manifest_path) => {
+      manifest := match(
+        load_manifest(manifest_path.clone(), exn),
+        .Ok(m) => m,
+        .Err(msg) => {
+          // Forget the failed registration so a corrected manifest is re-read.
+          g_manifest_roots_for = Option(String).None;
+          exn.throw(dyn(msg));
+          load_manifest(manifest_path, exn).unwrap()
+        }
+      );
+      roots := match(
+        resolve_import_roots(manifest, read_lock_text(manifest, exn), exn),
+        .Ok(r) => r,
+        .Err(msg) => {
+          g_manifest_roots_for = Option(String).None;
+          exn.throw(dyn(`${manifest.path}: ${msg}`));
+          resolve_import_roots(manifest, Option(String).None, exn).unwrap()
+        }
+      );
+      (i : usize) = usize(0);
+      while(i < roots.roots.len(), {
+        set_import_root(roots.roots(i).name.clone(), roots.roots(i).root.clone());
+        i = (i + usize(1));
+      });
+      (u : usize) = usize(0);
+      while(u < roots.unavailable.len(), {
+        set_import_unavailable(roots.unavailable(u).name.clone(), roots.unavailable(u).reason.clone());
+        u = (u + usize(1));
       });
     }
   );
@@ -676,10 +748,11 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   // Phase 0: this load's read+parse / evaluation walls. `prof_t0` spans the
   // WHOLE load so the parent window subtracts the load's true total.
   prof_t0 := Instant.now();
-  // COMPTIME read — synchronous on purpose (see _read_file_sync): the demand
+  // COMPTIME read — synchronous on purpose (see manifest.yo `read_file_sync`): the demand
   // loader runs inside the evaluator's comptime import resolution, where the
   // async read's blocking poll loop would nest the event loop (C37/C42).
-  src_bytes := _read_file_sync(fs_path.clone(), exn);
+  _record_opened_file(fs_path.clone());
+  src_bytes := read_file_sync(fs_path.clone(), exn);
   (src : String) = String.from_bytes(src_bytes);
   // Open-buffer overlay (Phase B1): the editor's text wins over the disk
   // read above. The read still ALWAYS runs — it is a plain synchronous
@@ -873,6 +946,7 @@ mm_eval_entry_exprs :: (
 )({
   mm_set_loader_context(std_path.clone(), exn);
   _load_imports_file(exn);
+  _register_manifest_import_roots(entry_abs.replace(String.from("file://"), String.new()), exn);
   env := mm_fresh_module_env(entry_abs.clone());
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
   ctx.is_executing = true;
@@ -988,6 +1062,7 @@ mm_load_file :: (
     )
   );
   _load_imports_file(exn);
+  _register_manifest_import_roots(mm_resolve_entry_abs(input_path.clone(), std_path.clone()).replace(String.from("file://"), String.new()), exn);
   // A prelude that is already cached is a HIT — never re-evaluate it (TS
   // parity: a checked prelude is a module-cache hit in `loadModule`). The env
   // cache below is populate-once, but before this guard the prelude BODY was
@@ -1030,11 +1105,12 @@ mm_load_file :: (
   if(verbose, {
     emit_chatter(`check: parsing ${input_path}`);
   });
-  // COMPTIME read — synchronous on purpose (see _read_file_sync): evaluating
+  // COMPTIME read — synchronous on purpose (see manifest.yo `read_file_sync`): evaluating
   // a module runs inside the evaluator, and under `yo build` inside
   // run_build's async task, where the async read's blocking poll loop would
   // nest the event loop (C37/C42).
-  src_bytes := _read_file_sync(input_path.clone(), exn);
+  _record_opened_file(input_path.clone());
+  src_bytes := read_file_sync(input_path.clone(), exn);
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path.clone(), local_exn);
   if(verbose, {
@@ -1165,5 +1241,8 @@ export(
   mm_eval_entry_exprs,
   mm_load_file,
   mm_preload_prelude,
-  mm_load_yo_file
+  mm_load_yo_file,
+  mm_reset_opened_files,
+  mm_opened_files,
+  mm_record_opened_file
 );

@@ -23,9 +23,12 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Check Yo formatting       | `yo fmt --check`                                          |
 | Generate docs for project | `yo doc ./src`                                            |
 | Generate docs (custom)    | `yo doc ./src -o docs --title "My Project"`               |
-| Install dependency        | `yo install user/repo`                                    |
-| Install pinned dependency | `yo install user/repo@v1.2.3`                             |
-| Fetch dependency graph    | `yo fetch`                                                |
+| Add a dependency          | `yo add user/repo` (latest release as `version = "^X.Y.Z"`) |
+| Add a pinned dependency   | `yo add user/repo@v1.2.3` (tag) / `yo add user/repo@^1.2` |
+| Add a local dependency    | `yo add ./path/to/dep`                                    |
+| Remove a dependency       | `yo remove name`                                          |
+| Fetch what yo.toml names  | `yo install` (`--locked` in CI, `--offline`, `--frozen`)  |
+| Re-resolve within ranges  | `yo update [name...]` (`--latest` also bumps the ranges)  |
 
 ## Project layout
 
@@ -33,8 +36,8 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 
 ```text
 my-project/
+├── yo.toml
 ├── build.yo
-├── deps.yo
 ├── src/
 │   ├── main.yo
 │   └── lib.yo
@@ -42,8 +45,8 @@ my-project/
     └── main.test.yo
 ```
 
+- `yo.toml` is the package manifest: `[package]` name, `[modules]` (what `import("<name>")` resolves to), `[dependencies]`
 - `build.yo` defines artifacts, named steps, and doc generation
-- `deps.yo` tracks installed dependencies
 - `src/main.yo` is the executable entry point
 - `src/lib.yo` is the library module root
 
@@ -92,7 +95,7 @@ doc_step.depend_on(docs);
 | One standalone file             | `yo compile ...`                           |
 | One test file or test directory | `yo test ...`                              |
 | Formatting Yo source            | `yo fmt ...`                               |
-| Dependency changes              | `yo install ...` then `yo fetch` if needed |
+| Dependency changes              | `yo add ...` / `yo remove ...`; `yo install` after a fresh clone |
 
 ## Testing patterns
 
@@ -190,7 +193,6 @@ Key API:
 
 - `build.executable({...})` — `Executable` struct fields: `name`, `root`, `target`, `optimize`, `allocator`, `sanitize`
 - `step.add_c_flags("...")` — append compiler/linker flags (Emscripten `-s` options go here)
-- `step.add_import_list(imports)` — add module dependencies
 - `build.CompilationTarget.Wasm32_Unknown_Emscripten` — Emscripten target
 - `build.CompilationTarget.Wasm32_Wasip1` — WASI target
 
@@ -260,13 +262,17 @@ yo version clean 0.1.12         # Remove specific cached version
 ## Dependency management
 
 ```bash
-yo install user/repo
-yo install user/repo@v1.0.0
-yo install ./relative/path
-yo fetch
-yo fetch --update
+yo add user/repo              # latest release tag → version = "^X.Y.Z" in yo.toml
+yo add user/repo@^1.2         # a range; @v1.0.0 pins a tag; --branch / --rev / --path <subdir> / --name / --dev
+yo add ./relative/path        # local path dependency
+yo remove name
+yo install                    # resolve the graph (every package's yo.toml), fetch, write yo.lock v2
+yo install --locked           # CI: fail if yo.lock would change; --offline: fail if the network is needed; --frozen = both
+yo update [name...]           # re-resolve within ranges / to branch tips
+yo update --latest            # also rewrite each version range in yo.toml to ^<newest release>
 ```
 
-- Use `yo install` to add dependencies from GitHub or a local path
-- Use `yo fetch` to populate or refresh fetched dependencies
+- Dependencies are DATA in `yo.toml` (`[dependencies]` / `[dev-dependencies]`); `yo add`/`yo remove` edit it in place, comments kept
+- `import("name")` / `import("name/module")` resolve through the nearest `yo.toml` above the file in every command (`build`, `compile`, `check`, `test`, `doc`, LSP) — no `build.yo` wiring
+- A dependency's `[modules] default` (else `src/lib.yo` → `index.yo` → `<name>.yo`) is what `import("name")` means; `build.dependency("name")` in `build.yo` only references a manifest entry
 - Keep dependency management in Yo tooling instead of hand-editing generated cache state

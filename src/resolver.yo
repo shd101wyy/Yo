@@ -1,0 +1,1455 @@
+//! The dependency resolver (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.2,
+//! §4.3): from the root `yo.toml`, walk the dependency graph — reading each
+//! fetched package's own manifest — decide one ref per package that satisfies
+//! EVERY requirement on it, fetch the trees into the global cache, and
+//! produce the `yo.lock` v2 the compiler resolves imports through.
+//!
+//! Versions are git tags `vX.Y.Z`; a `version` requirement is a Cargo range
+//! (`^1.2.3` = bare `1.2.3`, `~1.2`, `=1.2.3`, `>=1, <2`, `*`, `1.*`), and a
+//! pre-release tag matches only a range that names a pre-release of the same
+//! `major.minor.patch`. Every requirer of a package must be satisfied by ONE
+//! ref: the highest tag inside every range, or the one exact `tag`/`rev`/
+//! `branch` they agree on. Two requirers that cannot share a ref are an
+//! error naming both — one flat import namespace per project means one
+//! version per dependency name (the plan's two-majors relaxation is a later
+//! cut). A lock entry that still satisfies its requirements is reused without
+//! the network; `yo update [name…]` re-resolves the named packages (or all).
+//!
+//! Seed-gated shapes: every async body here has ONE loop with awaits, its
+//! awaits at statement level, and no local matched twice
+//! (issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
+{ rune, String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ Path } :: import("std/path");
+{ Exception, IoExn } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ ensure_cache_layout } :: import("./cache.yo");
+{ fetch_package, git_command, git_remote_url, read_tags_index, write_tags_index, record_project } :: import("./fetch.yo");
+{
+  LockEntry,
+  LockFile,
+  git_source,
+  path_source,
+  read_lock_file,
+  save_lock_file,
+  find_lock_entry,
+  lock_files_equal
+} :: import("./lock_file.yo");
+{
+  Manifest,
+  ManifestDependency,
+  GitRequirement,
+  MANIFEST_FILENAME,
+  parse_manifest,
+  abs_under,
+  file_exists_sync,
+  read_file_sync
+} :: import("./manifest.yo");
+// ---------------------------------------------------------------------------
+// Semantic versions
+// ---------------------------------------------------------------------------
+/// A parsed semantic version tag (`v1.2.3`, `1.2.3-rc.1`; a `+build` suffix
+/// is accepted and ignored, as semver orders it last and Cargo drops it).
+SemVer :: ref(
+  struct(
+    /// The tag exactly as written (`v1.2.3`) — what goes into `yo.lock`.
+    tag : String,
+    major : i32,
+    minor : i32,
+    patch : i32,
+    /// The pre-release identifiers after `-` ("" for a release).
+    pre : String
+  )
+);
+impl(
+  SemVer,
+  /// `1.2.3` / `1.2.3-rc.1` — the version without a `v` prefix or build metadata.
+  version_text : (fn(self : Self) -> String)({
+    core := `${self.major.to_string()}.${self.minor.to_string()}.${self.patch.to_string()}`;
+    if(self.pre.len() > usize(0), `${core}-${self.pre}`, core)
+  })
+);
+/// Return `true` if every character in `s` is an ASCII digit.
+is_all_digits :: (fn(s : String) -> bool)({
+  n := s.len();
+  if(n == usize(0), return(false));
+  i := usize(0);
+  ok := true;
+  while((i < n) && ok, {
+    match(
+      s.at(i),
+      .None => {
+        ok = false;
+      },
+      .Some(c) => if((c < rune(u32('0'))) || (c > rune(u32('9'))), {
+        ok = false;
+      })
+    );
+    i = (i + usize(1));
+  });
+  ok
+});
+/// A pre-release identifier is `[0-9A-Za-z-]+`.
+_is_identifier :: (fn(s : String) -> bool)({
+  n := s.len();
+  if(n == usize(0), return(false));
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := s.byte_at(i);
+    digit := ((b >= u8(48)) && (b <= u8(57)));
+    upper := ((b >= u8(65)) && (b <= u8(90)));
+    lower := ((b >= u8(97)) && (b <= u8(122)));
+    if(!(digit || (upper || (lower || (b == u8(45))))), return(false));
+    i = (i + usize(1));
+  });
+  true
+});
+/// Parse `X.Y.Z[-pre][+build]` with an optional leading `v`/`V`. `.None` when
+/// the string is not a version.
+parse_semver :: (fn(tag : String) -> Option(SemVer))({
+  n := tag.len();
+  if(n == usize(0), return(Option(SemVer).None));
+  first_char := match(
+    tag.at(usize(0)),
+    .None => {
+      return(Option(SemVer).None);
+    },
+    .Some(c) => c
+  );
+  stripped := if(
+    (first_char == rune(u32('v'))) || (first_char == rune(u32('V'))),
+    tag.substring(usize(1), n),
+    tag
+  );
+  // Drop build metadata, split off the pre-release.
+  without_build := match(
+    stripped.index_of("+"),
+    .Some(k) => stripped.substring(usize(0), k),
+    .None => stripped
+  );
+  core := match(
+    without_build.index_of("-"),
+    .Some(k) => without_build.substring(usize(0), k),
+    .None => without_build.clone()
+  );
+  pre := match(
+    without_build.index_of("-"),
+    .Some(k) => without_build.substring(k + usize(1), without_build.len()),
+    .None => String.new()
+  );
+  if(pre.len() > usize(0), {
+    ids := pre.split(".");
+    (pi : usize) = usize(0);
+    while(pi < ids.len(), {
+      if(!_is_identifier(ids(pi)), return(Option(SemVer).None));
+      pi = (pi + usize(1));
+    });
+  });
+  if((without_build.len() > usize(0)) && without_build.ends_with("-"), return(Option(SemVer).None));
+  parts := core.split(".");
+  if(!(parts.len() == usize(3)), return(Option(SemVer).None));
+  major_str := parts(usize(0));
+  minor_str := parts(usize(1));
+  patch_str := parts(usize(2));
+  if(
+    !(is_all_digits(major_str) && (is_all_digits(minor_str) && is_all_digits(patch_str))),
+    return(Option(SemVer).None)
+  );
+  major := match(major_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
+  minor := match(minor_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
+  patch := match(patch_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
+  Option(SemVer).Some(SemVer(tag : tag, major : major, minor : minor, patch : patch, pre : pre))
+});
+/// semver §11: identifiers of digits compare numerically, others
+/// lexically; numeric < alphanumeric; a shorter list is smaller when the
+/// shared prefix is equal.
+_compare_pre :: (fn(a : String, b : String) -> i32)({
+  if((a.len() == usize(0)) && (b.len() == usize(0)), return(i32(0)));
+  // A release is HIGHER than any pre-release of the same version.
+  if(a.len() == usize(0), return(i32(1)));
+  if(b.len() == usize(0), return(i32(-1)));
+  ia := a.split(".");
+  ib := b.split(".");
+  (i : usize) = usize(0);
+  while((i < ia.len()) && (i < ib.len()), {
+    x := ia(i);
+    y := ib(i);
+    xn := is_all_digits(x);
+    yn := is_all_digits(y);
+    cond(
+      (xn && yn) => {
+        xv := match(x.parse_i64(), .Some(v) => v, .None => i64(0));
+        yv := match(y.parse_i64(), .Some(v) => v, .None => i64(0));
+        if(xv != yv, return(if(xv > yv, i32(1), i32(-1))));
+      },
+      xn => return(i32(-1)),
+      yn => return(i32(1)),
+      true => {
+        if(x != y, return(if(x > y, i32(1), i32(-1))));
+      }
+    );
+    i = (i + usize(1));
+  });
+  cond(
+    (ia.len() == ib.len()) => i32(0),
+    (ia.len() < ib.len()) => i32(-1),
+    true => i32(1)
+  )
+});
+/// Compare two versions. Positive if `a > b`, negative if `a < b`, 0 if equal.
+compare_semver :: (fn(a : SemVer, b : SemVer) -> i32)(
+  cond(
+    (a.major != b.major) => if(a.major > b.major, i32(1), i32(-1)),
+    (a.minor != b.minor) => if(a.minor > b.minor, i32(1), i32(-1)),
+    (a.patch != b.patch) => if(a.patch > b.patch, i32(1), i32(-1)),
+    true => _compare_pre(a.pre, b.pre)
+  )
+);
+/// Every semver tag in `git ls-remote --tags` output (`<sha>\trefs/tags/<tag>`
+/// lines; `^{}` peeled entries and non-semver tags are skipped).
+semver_tags_from_ls_remote :: (fn(text : String) -> ArrayList(SemVer))({
+  lines := text.split("\n");
+  tags := ArrayList(SemVer).new();
+  n := lines.len();
+  i := usize(0);
+  while(i < n, {
+    trimmed := lines(i).trim();
+    if((trimmed.len() > usize(0)) && !trimmed.ends_with("^{}"), {
+      parts := trimmed.split("\t");
+      match(
+        parts.get(usize(1)),
+        .None => (),
+        .Some(ref_path) => {
+          prefix := String.from("refs/tags/");
+          if(ref_path.starts_with(prefix.clone()), {
+            tag_name := ref_path.substring(prefix.len(), ref_path.len());
+            match(
+              parse_semver(tag_name),
+              .None => (),
+              .Some(sv) => tags.push(sv)
+            );
+          });
+        }
+      );
+    });
+    i = (i + usize(1));
+  });
+  tags
+});
+/// The highest RELEASE among `tags` (pre-releases are never chosen as a
+/// default), or `.None`.
+latest_release :: (fn(tags : ArrayList(SemVer)) -> Option(SemVer))({
+  (best : Option(SemVer)) = Option(SemVer).None;
+  (j : usize) = usize(0);
+  while(j < tags.len(), {
+    t := tags(j);
+    if(t.pre.len() == usize(0), {
+      best = match(
+        best,
+        .None => Option(SemVer).Some(t),
+        .Some(b) => if(compare_semver(t, b) > i32(0), Option(SemVer).Some(t), Option(SemVer).Some(b))
+      );
+    });
+    j = (j + usize(1));
+  });
+  best
+});
+// ---------------------------------------------------------------------------
+// Version requirements
+// ---------------------------------------------------------------------------
+_CmpOp :: enum(Caret, Tilde, Exact, Greater, GreaterEq, Less, LessEq, Wildcard);
+/// One comparator of a requirement: an operator and a possibly partial
+/// version (`1`, `1.2`, `1.2.3`, `1.2.3-rc.1`, `1.*`).
+_Comparator :: ref(
+  struct(
+    op : _CmpOp,
+    /// -1 marks a bare `*`.
+    major : i32,
+    minor : Option(i32),
+    patch : Option(i32),
+    pre : String
+  )
+);
+/// A parsed requirement: comparators joined by `,` (all must hold).
+VersionReq :: ref(
+  struct(
+    text : String,
+    comparators : ArrayList(_Comparator)
+  )
+);
+_wildcard_all :: (fn() -> _Comparator)(
+  _Comparator(op : _CmpOp.Wildcard, major : i32(-1), minor : Option(i32).None, patch : Option(i32).None, pre : String.new())
+);
+_parse_comparator :: (fn(raw : String) -> Result(_Comparator, String))({
+  s := raw.trim();
+  if(s.len() == usize(0), {
+    return(Result(_Comparator, String).Err(`empty comparator in "${raw}"`));
+  });
+  (op : _CmpOp) = _CmpOp.Caret;
+  (rest : String) = s.clone();
+  cond(
+    s.starts_with(">=") => {
+      op = _CmpOp.GreaterEq;
+      rest = s.substring(usize(2), s.len());
+    },
+    s.starts_with("<=") => {
+      op = _CmpOp.LessEq;
+      rest = s.substring(usize(2), s.len());
+    },
+    s.starts_with(">") => {
+      op = _CmpOp.Greater;
+      rest = s.substring(usize(1), s.len());
+    },
+    s.starts_with("<") => {
+      op = _CmpOp.Less;
+      rest = s.substring(usize(1), s.len());
+    },
+    s.starts_with("=") => {
+      op = _CmpOp.Exact;
+      rest = s.substring(usize(1), s.len());
+    },
+    s.starts_with("^") => {
+      op = _CmpOp.Caret;
+      rest = s.substring(usize(1), s.len());
+    },
+    s.starts_with("~") => {
+      op = _CmpOp.Tilde;
+      rest = s.substring(usize(1), s.len());
+    },
+    true => ()
+  );
+  rest = rest.trim();
+  if(rest.starts_with("v") || rest.starts_with("V"), {
+    rest = rest.substring(usize(1), rest.len());
+  });
+  // A bare `*` accepts every version (major -1 marks it).
+  if(rest == "*", {
+    return(Result(_Comparator, String).Ok(_wildcard_all()));
+  });
+  core := match(rest.index_of("-"), .Some(k) => rest.substring(usize(0), k), .None => rest.clone());
+  pre := match(rest.index_of("-"), .Some(k) => rest.substring(k + usize(1), rest.len()), .None => String.new());
+  parts := core.split(".");
+  if((parts.len() == usize(0)) || (parts.len() > usize(3)), {
+    return(Result(_Comparator, String).Err(`"${s}" is not a version requirement`));
+  });
+  (wildcard_at : Option(usize)) = Option(usize).None;
+  (pi : usize) = usize(0);
+  while(pi < parts.len(), {
+    part := parts(pi);
+    cond(
+      ((part == "*") || (part == "x")) => {
+        if(wildcard_at.is_none(), {
+          wildcard_at = Option(usize).Some(pi);
+        });
+      },
+      !is_all_digits(part) => {
+        return(Result(_Comparator, String).Err(`"${s}" is not a version requirement`));
+      },
+      wildcard_at.is_some() => {
+        return(Result(_Comparator, String).Err(`"${s}": a wildcard must be the last component`));
+      },
+      true => ()
+    );
+    pi = (pi + usize(1));
+  });
+  match(
+    wildcard_at,
+    .Some(k) => {
+      // `1.*` / `1.2.*`: only legal without an operator.
+      if(!match(op, .Caret => true, _ => false) || s.starts_with("^"), {
+        return(Result(_Comparator, String).Err(`"${s}": a wildcard cannot follow an operator`));
+      });
+      if(k == usize(0), {
+        return(Result(_Comparator, String).Ok(_wildcard_all()));
+      });
+      major := parts(usize(0)).parse_i32().unwrap();
+      minor := if(k >= usize(2), Option(i32).Some(parts(usize(1)).parse_i32().unwrap()), Option(i32).None);
+      return(Result(_Comparator, String).Ok(_Comparator(op : _CmpOp.Wildcard, major : major, minor : minor, patch : Option(i32).None, pre : String.new())));
+    },
+    .None => ()
+  );
+  if(pre.len() > usize(0), {
+    if(parts.len() != usize(3), {
+      return(Result(_Comparator, String).Err(`"${s}": a pre-release needs a full major.minor.patch`));
+    });
+    ids := pre.split(".");
+    (ii : usize) = usize(0);
+    while(ii < ids.len(), {
+      if(!_is_identifier(ids(ii)), {
+        return(Result(_Comparator, String).Err(`"${s}": invalid pre-release "${pre}"`));
+      });
+      ii = (ii + usize(1));
+    });
+  });
+  major := parts(usize(0)).parse_i32().unwrap();
+  minor := if(parts.len() >= usize(2), Option(i32).Some(parts(usize(1)).parse_i32().unwrap()), Option(i32).None);
+  patch := if(parts.len() == usize(3), Option(i32).Some(parts(usize(2)).parse_i32().unwrap()), Option(i32).None);
+  Result(_Comparator, String).Ok(_Comparator(op : op, major : major, minor : minor, patch : patch, pre : pre))
+});
+/// Parse a requirement string. Errors describe the offending comparator.
+parse_version_req :: (fn(text : String) -> Result(VersionReq, String))({
+  trimmed := text.trim();
+  if(trimmed.len() == usize(0), {
+    return(Result(VersionReq, String).Err(String.from("empty version requirement")));
+  });
+  parts := trimmed.split(",");
+  comparators := ArrayList(_Comparator).new();
+  (i : usize) = usize(0);
+  while(i < parts.len(), {
+    match(
+      _parse_comparator(parts(i)),
+      .Ok(c) => comparators.push(c),
+      .Err(msg) => {
+        return(Result(VersionReq, String).Err(msg));
+      }
+    );
+    i = (i + usize(1));
+  });
+  Result(VersionReq, String).Ok(VersionReq(text : trimmed, comparators : comparators))
+});
+_ver :: (fn(major : i32, minor : i32, patch : i32, pre : String) -> SemVer)(
+  SemVer(tag : String.new(), major : major, minor : minor, patch : patch, pre : pre)
+);
+/// The comparator's version with missing components as 0.
+_comparator_base :: (fn(c : _Comparator) -> SemVer)(
+  _ver(c.major, match(c.minor, .Some(m) => m, .None => i32(0)), match(c.patch, .Some(p) => p, .None => i32(0)), c.pre.clone())
+);
+/// The first version ABOVE the range a partial comparator names: `1.2` →
+/// `1.3.0`, `1` → `2.0.0`, `1.2.3` → `1.2.4`.
+_next_after_partial :: (fn(c : _Comparator) -> SemVer)(
+  match(
+    c.patch,
+    .Some(p) => _ver(c.major, c.minor.unwrap(), p + i32(1), String.new()),
+    .None => match(
+      c.minor,
+      .Some(m) => _ver(c.major, m + i32(1), i32(0), String.new()),
+      .None => _ver(c.major + i32(1), i32(0), i32(0), String.new())
+    )
+  )
+);
+_ge :: (fn(v : SemVer, b : SemVer) -> bool)(compare_semver(v, b) >= i32(0));
+_gt :: (fn(v : SemVer, b : SemVer) -> bool)(compare_semver(v, b) > i32(0));
+_lt :: (fn(v : SemVer, b : SemVer) -> bool)(compare_semver(v, b) < i32(0));
+_le :: (fn(v : SemVer, b : SemVer) -> bool)(compare_semver(v, b) <= i32(0));
+_comparator_matches :: (fn(c : _Comparator, v : SemVer) -> bool)({
+  base := _comparator_base(c);
+  match(
+    c.op,
+    .Wildcard => cond(
+      // `1.2.*`: the minor's patch series.
+      c.minor.is_some() => (_ge(v, base) && _lt(v, _ver(c.major, c.minor.unwrap() + i32(1), i32(0), String.new()))),
+      // `*`: everything.
+      (c.major < i32(0)) => true,
+      // `1.*`: the major series.
+      true => (_ge(v, _ver(c.major, i32(0), i32(0), String.new())) && _lt(v, _ver(c.major + i32(1), i32(0), i32(0), String.new())))
+    ),
+    .Exact => cond(
+      c.patch.is_some() => (compare_semver(v, base) == i32(0)),
+      true => (_ge(v, base) && _lt(v, _next_after_partial(c)))
+    ),
+    .Caret => {
+      upper := cond(
+        (c.major > i32(0)) => _ver(c.major + i32(1), i32(0), i32(0), String.new()),
+        c.minor.is_none() => _ver(i32(1), i32(0), i32(0), String.new()),
+        (c.minor.unwrap() > i32(0)) => _ver(i32(0), c.minor.unwrap() + i32(1), i32(0), String.new()),
+        c.patch.is_none() => _ver(i32(0), i32(1), i32(0), String.new()),
+        true => _ver(i32(0), i32(0), c.patch.unwrap() + i32(1), String.new())
+      );
+      _ge(v, base) && _lt(v, upper)
+    },
+    .Tilde => {
+      upper := match(
+        c.minor,
+        .Some(m) => _ver(c.major, m + i32(1), i32(0), String.new()),
+        .None => _ver(c.major + i32(1), i32(0), i32(0), String.new())
+      );
+      _ge(v, base) && _lt(v, upper)
+    },
+    .GreaterEq => _ge(v, base),
+    .Greater => cond(
+      c.patch.is_some() => _gt(v, base),
+      true => _ge(v, _next_after_partial(c))
+    ),
+    .Less => _lt(v, base),
+    .LessEq => cond(
+      c.patch.is_some() => _le(v, base),
+      true => _lt(v, _next_after_partial(c))
+    )
+  )
+});
+/// Does `v` satisfy `req`? Every comparator must hold, and a pre-release
+/// version matches only when some comparator names a pre-release of the same
+/// `major.minor.patch` (Cargo's rule).
+version_req_matches :: (fn(req : VersionReq, v : SemVer) -> bool)({
+  if(v.pre.len() > usize(0), {
+    (allowed : bool) = false;
+    (i : usize) = usize(0);
+    while(i < req.comparators.len(), {
+      c := req.comparators(i);
+      same := ((c.pre.len() > usize(0)) && ((c.major == v.major) && (match(c.minor, .Some(m) => (m == v.minor), .None => false) && match(c.patch, .Some(p) => (p == v.patch), .None => false))));
+      if(same, {
+        allowed = true;
+      });
+      i = (i + usize(1));
+    });
+    if(!allowed, return(false));
+  });
+  (j : usize) = usize(0);
+  while(j < req.comparators.len(), {
+    if(!_comparator_matches(req.comparators(j), v), return(false));
+    j = (j + usize(1));
+  });
+  true
+});
+/// The highest tag in `tags` that satisfies `req`, or `.None`.
+select_version :: (fn(tags : ArrayList(SemVer), req : VersionReq) -> Option(SemVer))({
+  (best : Option(SemVer)) = Option(SemVer).None;
+  (i : usize) = usize(0);
+  while(i < tags.len(), {
+    t := tags(i);
+    if(version_req_matches(req, t), {
+      best = match(
+        best,
+        .None => Option(SemVer).Some(t),
+        .Some(b) => if(compare_semver(t, b) > i32(0), Option(SemVer).Some(t), Option(SemVer).Some(b))
+      );
+    });
+    i = (i + usize(1));
+  });
+  best
+});
+// ---------------------------------------------------------------------------
+// git queries
+// ---------------------------------------------------------------------------
+/// `git ls-remote --tags <url>` output, or `.Err` when the remote cannot be
+/// reached.
+ls_remote_tags :: (
+  fn(
+    url : String,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Result(String, String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    cmd := git_command();
+    cmd.arg(String.from("ls-remote"));
+    cmd.arg(String.from("--tags"));
+    cmd.arg(String.from("--"));
+    cmd.arg(url.clone());
+    // Nonzero exit (repository not found / not accessible) yields Err below;
+    // spawn failure (git missing) propagates through the ambient handler.
+    out := e.io.await(cmd.output(e.io), e);
+    if(!out.status.success(), {
+      return(Result(String, String).Err(`Repository not found or not accessible: ${url}`));
+    });
+    Result(String, String).Ok(String.from_bytes(out.stdout))
+  })
+);
+/// The remote's default branch (`git ls-remote --symref <url> HEAD`), or
+/// "main" when the remote does not say.
+resolve_default_branch :: (
+  fn(
+    url : String,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(String, IoExn))
+)(
+  io.async((e : IoExn) => {
+    cmd := git_command();
+    cmd.arg(String.from("ls-remote"));
+    cmd.arg(String.from("--symref"));
+    cmd.arg(String.from("--"));
+    cmd.arg(url);
+    cmd.arg(String.from("HEAD"));
+    // Nonzero exit (unreachable repo / no HEAD symref) falls back to "main";
+    // spawn failure (git missing) propagates through the ambient handler.
+    out := e.io.await(cmd.output(e.io), e);
+    if(!out.status.success(), return(String.from("main")));
+    text := String.from_bytes(out.stdout).trim();
+    lines := text.split(String.from("\n"));
+    prefix := String.from("ref: refs/heads/");
+    result := String.from("main");
+    n := lines.len();
+    i := usize(0);
+    while(i < n, {
+      line := lines(i);
+      if(line.starts_with(prefix.clone()), {
+        rest := line.substring(prefix.len(), line.len());
+        tab_opt := rest.index_of(String.from("\t"), usize(0));
+        branch := match(
+          tab_opt,
+          .None => rest,
+          .Some(ti) => rest.substring(usize(0), ti)
+        );
+        result = branch;
+      });
+      i = (i + usize(1));
+    });
+    result
+  })
+);
+/// The latest release tag of `url` (`.Ok(.None)` when it has no semver tags),
+/// or `.Err` when the remote cannot be reached.
+resolve_latest_tag :: (
+  fn(
+    url : String,
+    verbose : bool,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Result(Option(String), String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    listed := e.io.await(ls_remote_tags(url.clone(), e.io, e.exn), e);
+    text := match(
+      listed,
+      .Err(msg) => {
+        return(Result(Option(String), String).Err(msg));
+      },
+      .Ok(t) => t
+    );
+    latest := latest_release(semver_tags_from_ls_remote(text));
+    if(verbose, {
+      match(
+        latest,
+        .Some(t) => println(`  Found semver tags, latest: ${t.tag}`),
+        .None => println("  No semver tags found")
+      );
+    });
+    Result(Option(String), String).Ok(match(latest, .Some(t) => Option(String).Some(t.tag), .None => Option(String).None))
+  })
+);
+// ---------------------------------------------------------------------------
+// Requirements and the ref decision (pure)
+// ---------------------------------------------------------------------------
+/// One requirer's demand on a package.
+Requirement :: ref(
+  struct(
+    /// The package (or `<root>`) whose manifest declares it.
+    requirer : String,
+    requirement : GitRequirement
+  )
+);
+/// The ref chosen for a git package.
+ChosenRef :: enum(
+  /// A semver tag (from a `version` range or an exact `tag` that parses).
+  Tag(sv : SemVer),
+  /// An exact tag that is not a semver, or a commit (`rev`).
+  Exact(ref : String),
+  /// A branch by name.
+  Branch(branch : String),
+  /// The remote's default branch (resolved to a name by the driver).
+  DefaultBranch
+);
+impl(
+  ChosenRef,
+  /// The ref text `git` is asked for.
+  ref_text : (fn(self : Self) -> String)(
+    match(
+      self,
+      .Tag(sv) => sv.tag.clone(),
+      .Exact(r) => r,
+      .Branch(b) => b,
+      .DefaultBranch => String.new()
+    )
+  ),
+  /// The version recorded in the lock ("" unless a semver tag).
+  version_text : (fn(self : Self) -> String)(
+    match(self, .Tag(sv) => sv.version_text(), _ => String.new())
+  ),
+  /// True when the ref names a branch (its commit moves; `yo update`
+  /// re-resolves it).
+  is_branch : (fn(self : Self) -> bool)(
+    match(self, .Branch(_) => true, .DefaultBranch => true, _ => false)
+  )
+);
+_requirement_text :: (fn(r : GitRequirement) -> String)(
+  match(
+    r,
+    .DefaultBranch => String.from("the default branch"),
+    .Version(v) => `version "${v}"`,
+    .Tag(t) => `tag "${t}"`,
+    .Branch(b) => `branch "${b}"`,
+    .Rev(sha) => `rev "${sha}"`
+  )
+);
+_requirements_text :: (fn(reqs : ArrayList(Requirement)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < reqs.len(), {
+    r := reqs(i);
+    out.push_string(`\n  - ${r.requirer} requires ${_requirement_text(r.requirement)}`);
+    i = (i + usize(1));
+  });
+  out
+});
+/// True when `sv` satisfies every `version` requirement in `reqs` (the
+/// non-version ones are ignored here).
+_satisfies_all_ranges :: (fn(sv : SemVer, reqs : ArrayList(Requirement)) -> Result(bool, String))({
+  (i : usize) = usize(0);
+  while(i < reqs.len(), {
+    match(
+      reqs(i).requirement,
+      .Version(text) => match(
+        parse_version_req(text.clone()),
+        .Ok(req) => if(!version_req_matches(req, sv), {
+          return(Result(bool, String).Ok(false));
+        }),
+        .Err(msg) => {
+          return(Result(bool, String).Err(`${reqs(i).requirer}: version requirement "${text}": ${msg}`));
+        }
+      ),
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  Result(bool, String).Ok(true)
+});
+/// Decide the ref for a package at `url` from the repository's semver `tags`
+/// and every requirement on it. Exact requirements (`tag`, `rev`, `branch`,
+/// bare `git`) must all agree; a `version` range then must accept the exact
+/// tag. With ranges only, the highest tag inside every range wins. A conflict
+/// is an error naming each requirer and what it asked for.
+choose_ref :: (
+  fn(
+    name : String,
+    url : String,
+    tags : ArrayList(SemVer),
+    reqs : ArrayList(Requirement)
+  ) -> Result(ChosenRef, String)
+)({
+  if(reqs.len() == usize(0), {
+    return(Result(ChosenRef, String).Err(`internal: no requirements for "${name}"`));
+  });
+  (exact : Option(GitRequirement)) = Option(GitRequirement).None;
+  (has_range : bool) = false;
+  (i : usize) = usize(0);
+  while(i < reqs.len(), {
+    r := reqs(i).requirement;
+    is_range := match(r, .Version(_) => true, _ => false);
+    if(is_range, {
+      has_range = true;
+    }, {
+      match(
+        exact,
+        .None => {
+          exact = Option(GitRequirement).Some(r);
+        },
+        .Some(prev) => {
+          same := match(
+            prev,
+            .Tag(a) => match(r, .Tag(b) => (a == b), _ => false),
+            .Rev(a) => match(r, .Rev(b) => (a == b), _ => false),
+            .Branch(a) => match(r, .Branch(b) => (a == b), _ => false),
+            .DefaultBranch => match(r, .DefaultBranch => true, _ => false),
+            .Version(_) => false
+          );
+          if(!same, {
+            return(Result(ChosenRef, String).Err(`dependency "${name}" (${url}) is pinned two different ways:${_requirements_text(reqs)}`));
+          });
+        }
+      );
+    });
+    i = (i + usize(1));
+  });
+  match(
+    exact,
+    .Some(pin) => {
+      chosen := match(
+        pin,
+        .Tag(t) => match(parse_semver(t.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(t)),
+        .Rev(sha) => ChosenRef.Exact(sha),
+        .Branch(b) => ChosenRef.Branch(b),
+        .DefaultBranch => ChosenRef.DefaultBranch,
+        .Version(_) => ChosenRef.DefaultBranch
+      );
+      if(has_range, {
+        // A range can only be reconciled with an exact TAG that is a version.
+        ok := match(
+          chosen,
+          .Tag(sv) => match(_satisfies_all_ranges(sv, reqs), .Ok(b) => b, .Err(msg) => return(Result(ChosenRef, String).Err(msg))),
+          _ => false
+        );
+        if(!ok, {
+          return(Result(ChosenRef, String).Err(`dependency "${name}" (${url}) is pinned AND ranged, and the pin does not satisfy the range:${_requirements_text(reqs)}`));
+        });
+      });
+      Result(ChosenRef, String).Ok(chosen)
+    },
+    .None => {
+      // Ranges only: the highest tag inside every range.
+      (best : Option(SemVer)) = Option(SemVer).None;
+      (ti : usize) = usize(0);
+      while(ti < tags.len(), {
+        t := tags(ti);
+        fits := match(_satisfies_all_ranges(t, reqs), .Ok(b) => b, .Err(msg) => return(Result(ChosenRef, String).Err(msg)));
+        if(fits, {
+          best = match(
+            best,
+            .None => Option(SemVer).Some(t),
+            .Some(b) => if(compare_semver(t, b) > i32(0), Option(SemVer).Some(t), Option(SemVer).Some(b))
+          );
+        });
+        ti = (ti + usize(1));
+      });
+      match(
+        best,
+        .Some(sv) => Result(ChosenRef, String).Ok(ChosenRef.Tag(sv)),
+        .None => Result(ChosenRef, String).Err(`no tag of ${url} satisfies every requirement on "${name}":${_requirements_text(reqs)}`)
+      )
+    }
+  )
+});
+/// Does the lock's `entry` (a `git+url#ref` record) still satisfy `reqs`? A
+/// version tag must fit every range; an exact pin must be the recorded ref.
+locked_entry_satisfies :: (fn(entry : LockEntry, url : String, reqs : ArrayList(Requirement)) -> bool)({
+  if(!entry.is_git() || (entry.url() != url), return(false));
+  ref := entry.ref();
+  (i : usize) = usize(0);
+  while(i < reqs.len(), {
+    fits := match(
+      reqs(i).requirement,
+      .Version(text) => match(
+        parse_version_req(text.clone()),
+        .Ok(req) => match(parse_semver(ref.clone()), .Some(sv) => version_req_matches(req, sv), .None => false),
+        .Err(_) => false
+      ),
+      .Tag(t) => (t == ref),
+      .Rev(sha) => (sha == ref),
+      .Branch(b) => (b == ref),
+      // A bare `git` follows whatever branch the lock recorded.
+      .DefaultBranch => (ref.len() > usize(0))
+    );
+    if(!fits, return(false));
+    i = (i + usize(1));
+  });
+  true
+});
+// ---------------------------------------------------------------------------
+// The graph
+// ---------------------------------------------------------------------------
+/// What `yo install` / `yo update` asks the resolver for.
+ResolveMode :: enum(
+  /// Keep every lock entry that still satisfies its requirements.
+  Install,
+  /// Re-resolve the named packages.
+  Update(names : ArrayList(String)),
+  /// Re-resolve every package.
+  UpdateAll
+);
+ResolveOptions :: ref(
+  struct(
+    mode : ResolveMode,
+    /// Fail instead of changing `yo.lock` (CI).
+    locked : bool,
+    /// Fail instead of touching the network.
+    offline : bool,
+    verbose : bool
+  )
+);
+/// One package of the graph while it is being resolved.
+_Package :: ref(
+  struct(
+    name : String,
+    is_path : bool,
+    /// Git: the repository URL. Path: unused.
+    url : String,
+    /// Git: the package's directory inside the repository ("" = root).
+    subdir : String,
+    /// Path: the absolute directory; git: the cache directory once fetched.
+    dir : String,
+    /// Path: the path as recorded in the lock (relative to the root manifest).
+    lock_path : String,
+    requirements : ArrayList(Requirement),
+    /// The requirer names whose requirements are currently recorded — so a
+    /// re-expanded package can replace exactly its own contributions.
+    chosen : Option(ChosenRef),
+    /// The ref text the tree was fetched at (a resolved default branch name
+    /// for `DefaultBranch`).
+    ref_text : String,
+    commit : String,
+    integrity : String,
+    /// The names of the package's own (non-dev) dependencies, once expanded.
+    dependencies : ArrayList(String),
+    /// The `dir` whose manifest was last expanded ("" = never).
+    expanded_dir : String
+  )
+);
+/// The whole run's state — one record so the async bodies below share it
+/// without capturing many locals.
+_State :: ref(
+  struct(
+    manifest : Manifest,
+    options : ResolveOptions,
+    /// The cache root (`cache.get_global_cache_dir`): the store, the mirrors
+    /// and the tag index live under it.
+    cache_root : String,
+    old_lock : LockFile,
+    packages : ArrayList(_Package),
+    /// `ls-remote --tags` output per URL, fetched once per run.
+    tag_urls : ArrayList(String),
+    tag_texts : ArrayList(String),
+    /// Default-branch names per URL, resolved once per run.
+    branch_urls : ArrayList(String),
+    branch_names : ArrayList(String)
+  )
+);
+_find_package :: (fn(state : _State, name : String) -> Option(_Package))({
+  (i : usize) = usize(0);
+  while(i < state.packages.len(), {
+    p := state.packages(i);
+    if(p.name == name, {
+      return(Option(_Package).Some(p));
+    });
+    i = (i + usize(1));
+  });
+  Option(_Package).None
+});
+_source_text :: (fn(dep : ManifestDependency) -> String)(
+  match(
+    dep.source,
+    .Git(url, _, subdir) => if(subdir.len() > usize(0), `${url} (path ${subdir})`, url),
+    .Path(p) => `path ${p}`
+  )
+);
+/// Record `requirer`'s dependency `dep`: find or create its package, check
+/// that the name still means the same package, and add the requirement.
+/// `declaring_dir` anchors a path dependency; `root_dir` is what the lock's
+/// path is made relative to.
+_add_requirement :: (
+  fn(
+    state : _State,
+    requirer : String,
+    dep : ManifestDependency,
+    declaring_dir : String,
+    root_dir : String,
+    exn : Exception
+  ) -> unit
+)({
+  (is_path : bool) = false;
+  (url : String) = String.new();
+  (subdir : String) = String.new();
+  (dir : String) = String.new();
+  (lock_path : String) = String.new();
+  (requirement : GitRequirement) = GitRequirement.DefaultBranch;
+  match(
+    dep.source,
+    .Path(p) => {
+      is_path = true;
+      dir = abs_under(declaring_dir.clone(), p.clone());
+      rel := Path.new(dir.clone()).relative_to(Path.new(root_dir.clone())).to_string();
+      lock_path = if(rel.len() == usize(0), String.from("."), rel);
+    },
+    .Git(u, r, s) => {
+      url = u;
+      requirement = r;
+      subdir = s;
+    }
+  );
+  match(
+    _find_package(state, dep.name.clone()),
+    .Some(existing) => {
+      same := cond(
+        (existing.is_path != is_path) => false,
+        is_path => (existing.dir == dir),
+        true => ((existing.url == url) && (existing.subdir == subdir))
+      );
+      if(!same, {
+        first_via := match(existing.requirements.get(usize(0)), .Some(r) => r.requirer.clone(), .None => String.from("<root>"));
+        existing_text := if(existing.is_path, `path ${existing.dir}`, if(existing.subdir.len() > usize(0), `${existing.url} (path ${existing.subdir})`, existing.url.clone()));
+        exn.throw(dyn(`Error: dependency name "${dep.name}" refers to two different packages: ${existing_text} (via ${first_via}) and ${_source_text(dep)} (via ${requirer}). One import name means one package.`));
+      });
+      // Replace this requirer's earlier requirement (a re-expansion).
+      kept := ArrayList(Requirement).new();
+      (i : usize) = usize(0);
+      while(i < existing.requirements.len(), {
+        if(existing.requirements(i).requirer != requirer, {
+          kept.push(existing.requirements(i));
+        });
+        i = (i + usize(1));
+      });
+      kept.push(Requirement(requirer : requirer, requirement : requirement));
+      existing.requirements = kept;
+    },
+    .None => {
+      reqs := ArrayList(Requirement).new();
+      reqs.push(Requirement(requirer : requirer, requirement : requirement));
+      state.packages.push(
+        _Package(
+          name : dep.name.clone(),
+          is_path : is_path,
+          url : url,
+          subdir : subdir,
+          dir : dir,
+          lock_path : lock_path,
+          requirements : reqs,
+          chosen : Option(ChosenRef).None,
+          ref_text : String.new(),
+          commit : String.new(),
+          integrity : String.new(),
+          dependencies : ArrayList(String).new(),
+          expanded_dir : String.new()
+        )
+      );
+    }
+  );
+});
+/// Drop every requirement `requirer` contributed (before it is re-expanded).
+_drop_requirements_of :: (fn(state : _State, requirer : String) -> unit)({
+  (pi : usize) = usize(0);
+  while(pi < state.packages.len(), {
+    p := state.packages(pi);
+    kept := ArrayList(Requirement).new();
+    (i : usize) = usize(0);
+    while(i < p.requirements.len(), {
+      if(p.requirements(i).requirer != requirer, {
+        kept.push(p.requirements(i));
+      });
+      i = (i + usize(1));
+    });
+    p.requirements = kept;
+    pi = (pi + usize(1));
+  });
+});
+/// Read `<dir>/yo.toml` if the package has one. Its dependencies (non-dev;
+/// dev ones only for the root) become requirements; the package's dependency
+/// names are recorded for the lock.
+_expand_package :: (
+  fn(
+    state : _State,
+    pkg : _Package,
+    exn : Exception
+  ) -> unit
+)({
+  _drop_requirements_of(state, pkg.name.clone());
+  pkg.dependencies = ArrayList(String).new();
+  manifest_path := abs_under(pkg.dir.clone(), String.from(MANIFEST_FILENAME));
+  if(file_exists_sync(manifest_path.clone()), {
+    dep_manifest := match(
+      parse_manifest(String.from_bytes(read_file_sync(manifest_path.clone(), exn)), manifest_path.clone()),
+      .Ok(m) => m,
+      .Err(msg) => {
+        exn.throw(dyn(`Error: dependency "${pkg.name}": ${msg}`));
+        state.manifest
+      }
+    );
+    (i : usize) = usize(0);
+    while(i < dep_manifest.dependencies.len(), {
+      d := dep_manifest.dependencies(i);
+      if(!d.dev, {
+        pkg.dependencies.push(d.name.clone());
+        _add_requirement(state, pkg.name.clone(), d, dep_manifest.dir.clone(), state.manifest.dir.clone(), exn);
+      });
+      i = (i + usize(1));
+    });
+  });
+  pkg.expanded_dir = pkg.dir.clone();
+});
+/// The choice a reused lock entry stands for: its ref, as a version when
+/// it parses as one (so the lock keeps its `version`), else as an exact ref
+/// (a tag that is not a version, a commit, or a branch name whose commit the
+/// lock pins).
+_locked_choice :: (fn(ref : String) -> ChosenRef)(
+  match(parse_semver(ref.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(ref))
+);
+/// Is `name` one `yo update` re-resolves?
+_refresh_requested :: (fn(state : _State, name : String) -> bool)(
+  match(
+    state.options.mode,
+    .Install => false,
+    .UpdateAll => true,
+    .Update(names) => {
+      (i : usize) = usize(0);
+      (found : bool) = false;
+      while(i < names.len(), {
+        if(names(i) == name, {
+          found = true;
+        });
+        i = (i + usize(1));
+      });
+      found
+    }
+  )
+);
+_cached_text :: (fn(keys : ArrayList(String), values : ArrayList(String), key : String) -> Option(String))({
+  (i : usize) = usize(0);
+  while(i < keys.len(), {
+    if(keys(i) == key, {
+      return(Option(String).Some(values(i)));
+    });
+    i = (i + usize(1));
+  });
+  Option(String).None
+});
+/// Resolve and fetch ONE package for this round. Returns true when the
+/// package's state changed (a new ref, a fetch, an expansion) — the driver
+/// loops until a round changes nothing. Every await is a top-level
+/// statement.
+_resolve_package :: (
+  fn(
+    state : _State,
+    pkg : _Package,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(bool, IoExn))
+)(
+  io.async((e : IoExn) => {
+    verbose := state.options.verbose;
+    // A path package: its directory is fixed; expand once (or again if the
+    // requirements changed nothing about it — the manifest is live, so it is
+    // read every run anyway).
+    if(pkg.is_path, {
+      if(!file_exists_sync(pkg.dir.clone()), {
+        e.exn.throw(dyn(`Error: path dependency "${pkg.name}" points at ${pkg.dir}, which does not exist`));
+      });
+      if(pkg.expanded_dir == pkg.dir, {
+        return(false);
+      });
+      _expand_package(state, pkg, e.exn);
+      return(true);
+    });
+    refresh := _refresh_requested(state, pkg.name.clone());
+    // Lock reuse: an entry that still satisfies every requirement is the
+    // choice, without the network — unless this package is being updated.
+    // ONE match on the entry decides everything the awaits below need (the
+    // seed compiler redeclares a matched local's C copy per match —
+    // issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
+    old_entry := find_lock_entry(state.old_lock, pkg.name.clone());
+    (reuse : bool) = false;
+    (old_ref : String) = String.new();
+    (old_commit : String) = String.new();
+    (old_integrity : String) = String.new();
+    match(
+      old_entry,
+      .Some(entry) => {
+        old_ref = entry.ref();
+        old_commit = entry.commit.clone();
+        old_integrity = entry.integrity.clone();
+        if(!refresh && locked_entry_satisfies(entry, pkg.url.clone(), pkg.requirements), {
+          reuse = true;
+        });
+      },
+      .None => ()
+    );
+    // Do the requirements need the repository's tag list? (Ranges only, no
+    // reusable lock entry.)
+    (needs_tags : bool) = false;
+    (needs_default_branch : bool) = false;
+    (ri : usize) = usize(0);
+    while(ri < pkg.requirements.len(), {
+      match(
+        pkg.requirements(ri).requirement,
+        .Version(_) => {
+          needs_tags = true;
+        },
+        .DefaultBranch => {
+          needs_default_branch = true;
+        },
+        _ => ()
+      );
+      ri = (ri + usize(1));
+    });
+    tags_needed := (needs_tags && !reuse);
+    cached_tags := _cached_text(state.tag_urls, state.tag_texts, pkg.url.clone());
+    fetch_tags := (tags_needed && cached_tags.is_none());
+    // What git is given: a local path made absolute against the root
+    // manifest's directory (git resolves paths against the child's cwd).
+    remote := git_remote_url(state.manifest.dir.clone(), pkg.url.clone());
+    // Under --offline the tag list is the index's last answer for this
+    // remote, or nothing; online it is fetched once per run and recorded.
+    (indexed : Option(String)) = Option(String).None;
+    if(fetch_tags && state.options.offline, {
+      from_index := e.io.await(read_tags_index(state.cache_root.clone(), remote.clone(), e.io, e.exn), e);
+      indexed = from_index;
+    });
+    if(fetch_tags && (state.options.offline && indexed.is_none()), {
+      e.exn.throw(dyn(`Error: --offline: resolving "${pkg.name}" needs the tags of ${pkg.url}, and the cache has no tag list for it`));
+    });
+    if(fetch_tags && state.options.offline, {
+      state.tag_urls.push(pkg.url.clone());
+      state.tag_texts.push(match(indexed, .Some(t) => t.clone(), .None => String.new()));
+    });
+    if(fetch_tags && !state.options.offline, {
+      if(verbose, {
+        println(`  ${pkg.name}: listing the tags of ${pkg.url}...`);
+      });
+      listed := e.io.await(ls_remote_tags(remote.clone(), e.io, e.exn), e);
+      text := match(
+        listed,
+        .Ok(t) => t.clone(),
+        .Err(msg) => {
+          e.exn.throw(dyn(`Error: ${msg}`));
+          String.new()
+        }
+      );
+      e.io.await(write_tags_index(state.cache_root.clone(), remote.clone(), text.clone(), e.io, e.exn), e);
+      state.tag_urls.push(pkg.url.clone());
+      state.tag_texts.push(text);
+    });
+    tags_text := match(_cached_text(state.tag_urls, state.tag_texts, pkg.url.clone()), .Some(t) => t, .None => String.new());
+    tags := semver_tags_from_ls_remote(tags_text);
+    // A reused lock entry IS the choice (its ref already satisfies every
+    // requirement — no tag list was fetched for it); otherwise decide from
+    // the tags and the requirements.
+    chosen := if(
+      reuse,
+      _locked_choice(old_ref.clone()),
+      match(
+        choose_ref(pkg.name.clone(), pkg.url.clone(), tags, pkg.requirements),
+        .Ok(c) => c,
+        .Err(msg) => {
+          e.exn.throw(dyn(`Error: ${msg}`));
+          ChosenRef.DefaultBranch
+        }
+      )
+    );
+    // The default branch's NAME, once per URL (network) — or the lock's.
+    (ref_text : String) = chosen.ref_text();
+    is_default := match(chosen, .DefaultBranch => true, _ => false);
+    if(is_default && reuse, {
+      ref_text = old_ref.clone();
+    });
+    cached_branch := _cached_text(state.branch_urls, state.branch_names, pkg.url.clone());
+    resolve_branch := (is_default && ((ref_text.len() == usize(0)) && cached_branch.is_none()));
+    if(resolve_branch && state.options.offline, {
+      e.exn.throw(dyn(`Error: --offline: resolving the default branch of ${pkg.url} ("${pkg.name}") needs the network`));
+    });
+    if(resolve_branch, {
+      branch := e.io.await(resolve_default_branch(remote.clone(), e.io, e.exn), e);
+      state.branch_urls.push(pkg.url.clone());
+      state.branch_names.push(branch);
+    });
+    if(is_default && (ref_text.len() == usize(0)), {
+      ref_text = match(_cached_text(state.branch_urls, state.branch_names, pkg.url.clone()), .Some(b) => b, .None => String.from("main"));
+    });
+    // Already fetched at this ref in this run? Nothing to do.
+    if((pkg.ref_text == ref_text) && ((pkg.commit.len() > usize(0)) && (pkg.expanded_dir == pkg.dir)), {
+      return(false);
+    });
+    if(verbose, {
+      how := if(reuse, String.from("from yo.lock"), String.from("resolved"));
+      println(`  ${pkg.name} → ${ref_text} (${how})`);
+    });
+    from_lock := (reuse && (old_ref == ref_text));
+    locked_commit := if(from_lock, Option(String).Some(old_commit.clone()), Option(String).None);
+    expected_integrity := if(from_lock, Option(String).Some(old_integrity.clone()), Option(String).None);
+    fetched := e.io.await(
+      fetch_package(
+        state.cache_root.clone(),
+        pkg.name.clone(),
+        remote.clone(),
+        ref_text.clone(),
+        locked_commit,
+        expected_integrity,
+        refresh && chosen.is_branch(),
+        state.options.offline,
+        verbose,
+        e.io,
+        e.exn
+      ),
+      e
+    );
+    pkg.chosen = Option(ChosenRef).Some(chosen);
+    pkg.ref_text = ref_text;
+    pkg.commit = fetched.commit;
+    pkg.integrity = fetched.integrity;
+    pkg.dir = if(pkg.subdir.len() > usize(0), abs_under(fetched.dir.clone(), pkg.subdir.clone()), fetched.dir.clone());
+    if(!file_exists_sync(pkg.dir.clone()), {
+      e.exn.throw(dyn(`Error: dependency "${pkg.name}": ${pkg.url} @ ${ref_text} has no directory "${pkg.subdir}"`));
+    });
+    _expand_package(state, pkg, e.exn);
+    true
+  })
+);
+/// One round over every package (its own async body: one loop with awaits).
+_resolve_round :: (
+  fn(
+    state : _State,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(bool, IoExn))
+)(
+  io.async((e : IoExn) => {
+    (changed : bool) = false;
+    (i : usize) = usize(0);
+    // `packages` may grow during the round (expansion adds packages); the
+    // loop re-reads the length so new entries are visited this round.
+    while(i < state.packages.len(), {
+      pkg := state.packages(i);
+      i = (i + usize(1));
+      step := e.io.await(_resolve_package(state, pkg, e.io, e.exn), e);
+      if(step, {
+        changed = true;
+      });
+    });
+    changed
+  })
+);
+/// The lock the resolved graph corresponds to: one entry per package that
+/// still has a requirer, sorted by the writer.
+_build_lock :: (fn(state : _State) -> LockFile)({
+  entries := ArrayList(LockEntry).new();
+  (i : usize) = usize(0);
+  while(i < state.packages.len(), {
+    p := state.packages(i);
+    if(p.requirements.len() > usize(0), {
+      deps := ArrayList(String).new();
+      (d : usize) = usize(0);
+      while(d < p.dependencies.len(), {
+        deps.push(p.dependencies(d).clone());
+        d = (d + usize(1));
+      });
+      version := match(p.chosen, .Some(c) => c.version_text(), .None => String.new());
+      entries.push(
+        LockEntry(
+          name : p.name.clone(),
+          version : version,
+          source : if(p.is_path, path_source(p.lock_path.clone()), git_source(p.url.clone(), p.ref_text.clone())),
+          commit : p.commit.clone(),
+          integrity : p.integrity.clone(),
+          dependencies : deps
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  LockFile(packages : entries)
+});
+/// Does the lock name at least one store tree (a git package with an
+/// integrity hash)?
+_lock_uses_store :: (fn(lock : LockFile) -> bool)({
+  (i : usize) = usize(0);
+  while(i < lock.packages.len(), {
+    if(lock.packages(i).integrity.len() > usize(0), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Names whose entries differ between `old` and `new` — the `--locked` report.
+_lock_diff :: (fn(old : LockFile, new : LockFile) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < new.packages.len(), {
+    n := new.packages(i);
+    match(
+      find_lock_entry(old, n.name.clone()),
+      .None => out.push_string(`\n  + ${n.name} ${n.source}`),
+      .Some(o) => if((o.source != n.source) || ((o.commit != n.commit) || (o.integrity != n.integrity)), {
+        out.push_string(`\n  ~ ${n.name}: ${o.source} @ ${o.commit} → ${n.source} @ ${n.commit}`);
+      })
+    );
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < old.packages.len(), {
+    o := old.packages(j);
+    if(find_lock_entry(new, o.name.clone()).is_none(), {
+      out.push_string(`\n  - ${o.name} ${o.source}`);
+    });
+    j = (j + usize(1));
+  });
+  out
+});
+/// Resolve `manifest`'s dependency graph, fetch every git package the cache
+/// lacks, and write `yo.lock` (unless it is unchanged, or `--locked` forbids
+/// the change). Returns the lock. Prints one line per package.
+resolve_and_fetch :: (
+  fn(
+    manifest : Manifest,
+    options : ResolveOptions,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(LockFile, IoExn))
+)(
+  io.async((e : IoExn) => {
+    root_dir := manifest.dir.clone();
+    cache_root := e.io.await(ensure_cache_layout(e.io, e.exn), e);
+    read := e.io.await(read_lock_file(Path.new(root_dir.clone()), e.io, e.exn), e);
+    match(
+      read.problem,
+      .Some(msg) => {
+        if(options.locked, {
+          e.exn.throw(dyn(`Error: --locked: ${msg}`));
+        });
+        println(`Note: ${msg} — regenerating it.`);
+      },
+      .None => ()
+    );
+    if(options.locked && read.absent, {
+      e.exn.throw(dyn(String.from("Error: --locked: there is no yo.lock to obey. Run 'yo install' once without --locked.")));
+    });
+    state := _State(
+      manifest : manifest,
+      options : options,
+      cache_root : cache_root,
+      old_lock : read.lock,
+      packages : ArrayList(_Package).new(),
+      tag_urls : ArrayList(String).new(),
+      tag_texts : ArrayList(String).new(),
+      branch_urls : ArrayList(String).new(),
+      branch_names : ArrayList(String).new()
+    );
+    // The root's requirements (its dev-dependencies included).
+    (di : usize) = usize(0);
+    while(di < manifest.dependencies.len(), {
+      _add_requirement(state, String.from("<root>"), manifest.dependencies(di), root_dir.clone(), root_dir.clone(), e.exn);
+      di = (di + usize(1));
+    });
+    // Rounds until a fixpoint: a later requirer may move an earlier choice,
+    // which re-expands that package and may add or drop requirements.
+    (round : usize) = usize(0);
+    (changed : bool) = true;
+    while(changed && (round < usize(64)), {
+      round = (round + usize(1));
+      progressed := e.io.await(_resolve_round(state, e.io, e.exn), e);
+      changed = progressed;
+    });
+    if(changed, {
+      e.exn.throw(dyn(String.from("Error: dependency resolution did not converge after 64 rounds — two dependencies keep moving each other's version; pin one with tag = \"…\".")));
+    });
+    new_lock := _build_lock(state);
+    unchanged := lock_files_equal(read.lock, new_lock);
+    if(options.locked && !unchanged, {
+      e.exn.throw(dyn(`Error: --locked: yo.lock is out of date:${_lock_diff(read.lock, new_lock)}\nRun 'yo install' without --locked to update it.`));
+    });
+    write_lock := (!unchanged || read.absent);
+    if(write_lock, {
+      e.io.await(save_lock_file(Path.new(root_dir.clone()), new_lock, e.io, e.exn), e);
+    });
+    if(write_lock, {
+      println(`Wrote yo.lock (${new_lock.packages.len().to_string()} package(s)).`);
+    }, {
+      println("yo.lock is up to date.");
+    });
+    // For `yo cache gc`: a project whose lock names store trees is recorded,
+    // so gc keeps them; a project of path packages alone references nothing.
+    uses_store := _lock_uses_store(new_lock);
+    if(uses_store, {
+      e.io.await(record_project(cache_root.clone(), root_dir.clone(), e.io, e.exn), e);
+    });
+    new_lock
+  })
+);
+export(
+  SemVer,
+  VersionReq,
+  is_all_digits,
+  parse_semver,
+  compare_semver,
+  semver_tags_from_ls_remote,
+  latest_release,
+  parse_version_req,
+  version_req_matches,
+  select_version,
+  ls_remote_tags,
+  resolve_default_branch,
+  resolve_latest_tag,
+  Requirement,
+  ChosenRef,
+  choose_ref,
+  locked_entry_satisfies,
+  ResolveMode,
+  ResolveOptions,
+  resolve_and_fetch
+);

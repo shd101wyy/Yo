@@ -1,7 +1,7 @@
 //! Codegen for Thread/Worker spawn calls — 1-to-1 port of
 //! `src/codegen/exprs/parallelism.ts`.
 //!
-//! `Thread.spawn(cb)` / `std/thread`'s `spawn(pool, cb)` lower (via the `__yo_thread_spawn` /
+//! `Thread(unit).spawn(cb)` / `std/thread`'s `spawn(pool, cb)` lower (via the `__yo_thread_spawn` /
 //! `__yo_worker_spawn` extern "yo" symbols) to: heap-copy the closure's capture
 //! struct (so the thread owns it after the spawner returns), dup it (independent
 //! RC refs), and call the raw spawn primitive with a generated WRAPPER that runs
@@ -23,9 +23,10 @@
 { EvalValue, is_func_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type } :: import("../../types/guards.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 { get_func_type } :: import("../../function_value.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, get_variable_name_for_codegen, type_key, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { expr_info_closure_function_value } :: import("../../expr_info.yo");
 { get_dup_function_for_type, get_drop_function_for_type, generate_drop_code_for_value } :: import("./drop_dup.yo");
@@ -156,7 +157,48 @@ _emit_capture_drop_lines :: (
   prev_scope := em.scope_ref;
   em.declared_ref = Option(HashSet(String)).None;
   em.scope_ref = Option(ArrayList(String)).None;
-  tail := generate_drop_code_for_value(target, capture_type, context);
+  // Field by field, rather than one call on the whole struct — for ONE field
+  // type the two differ, and it is the one `Thread(T).spawn` has: a captured
+  // CLOSURE arrives as its bare `Impl(Fn(...))` SomeT, for which
+  // `type_contains_rc_type` is false, so the struct walk inside
+  // `generate_drop_code_for_value` skips the field and everything the inner
+  // closure captured is never released. `Thread(T).spawn` wraps the user's
+  // callback in a result-relaying closure, so `cb` becomes exactly such a
+  // field, and `tests/thread.test.yo`'s dispose counters read 0 against a
+  // required 1.
+  //
+  // Resolving is done HERE and not in `generate_drop_code_for_value`, which
+  // would look like the more general fix: doing it there releases a
+  // closure-typed slot at EVERY drop site, including ones whose captures are
+  // already released by a synthesized capture-dispose — a heap-use-after-free
+  // in `__yo_decr_rc`, caught by the Linux ASan leg on
+  // `tests/closure.test.yo`'s "closure with Impl that captures Rc object".
+  // The spawn wrapper is the one place that owns a heap COPY of the capture
+  // struct and is the only thing that will ever release it.
+  (tail : String) = String.new();
+  cd_fields := get_runtime_struct_fields(capture_type);
+  (cd_i : usize) = usize(0);
+  while(cd_i < cd_fields.len(), {
+    match(
+      cd_fields.get(cd_i),
+      .Some(cd_f) => {
+        cd_ty := resolve_some_type_to_concrete(cd_f.ty);
+        if(type_contains_rc_type(cd_ty), {
+          cd_ref := String.from("(");
+          cd_ref.push_string(target.clone());
+          cd_ref.push_str(").");
+          cd_ref.push_string(sanitize_for_c_identifier(cd_f.label.clone(), false));
+          cd_line := generate_drop_code_for_value(cd_ref, cd_ty, context);
+          if(cd_line.len() > usize(0), {
+            cd_line.push_str(";");
+            em.emit_string_line(cd_line);
+          });
+        });
+      },
+      .None => ()
+    );
+    cd_i = (cd_i + usize(1));
+  });
   em.declared_ref = prev_declared;
   em.scope_ref = prev_scope;
   produced := em.code.substring(before, em.code.len());

@@ -37,6 +37,7 @@ _(env : ctx_dbg_env) :: import("std/env");
   ast_expr_is_atom_and_operator,
   ast_expr_to_string,
   BK_CONST,
+  BK_EXTERN,
   BK_COLON,
   BK_ASSIGN,
   BK_IMPL_LOWER,
@@ -1024,25 +1025,39 @@ forward_ref_diagnostic :: (fn(msg : String) -> Option(String))({
 });
 /// The swallow classes that must surface at check time even from the SILENT
 /// trial sites (the deferred-generic trials, TS ts:112 catch parity):
-/// forward references get the enriched diagnostic above, and an ARITY
-/// mismatch against the resolved callee is knowable at def time — the hole
-/// that shipped broken `yo version install` in v0.2.19/v0.2.20: check stayed
+/// forward references get the enriched diagnostic above; an ARITY mismatch
+/// against the resolved callee is knowable at def time — the hole that
+/// shipped broken `yo version install` in v0.2.19/v0.2.20: check stayed
 /// green, the swallow ate "Argument count mismatch", and the async state
 /// machine emitted a too-few-arguments C call (UB — garbage values, not an
-/// error). issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md.
+/// error), issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md;
+/// and an UNBOUND NAME that is bound nowhere — Yo scopes lexically, a
+/// module-level name is forced on the miss (lazy top-level bindings) and a
+/// later runtime binding is the forward-reference class above, so a
+/// `Variable "x" not found.` that survives to the swallow is a typo or a
+/// missing import, and no later call can bind it. Swallowing it hollowed an
+/// `io.async` body (a closure body is trialled ONCE — nothing re-evaluates it
+/// at a call) while `check` stayed green; the missing `println` import only
+/// surfaced as codegen's "body was never fully evaluated" ICE
+/// (issues/fixed/async-closure-body-unknown-identifier-passes-check.md).
 hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
   match(
     forward_ref_diagnostic(msg),
     .Some(fwd) => Option(String).Some(fwd),
     .None =>
       cond(
-        msg.contains(String.from("Argument count mismatch")) => {
-          // The swallowed dyn-message often already carries an "Error: "
-          // prefix; format_error_message adds its own — strip one to avoid
-          // "Error: Error:".
+        (msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found.")))) => {
+          // The swallowed dyn-message often already carries an "Error: " or
+          // "error[E0401]: " prefix; format_error_message adds its own —
+          // strip one to avoid "Error: Error:" / "error[E0401]: error[E0401]:".
           err_prefix := String.from("Error: ");
           cond(
             msg.starts_with(err_prefix) => Option(String).Some(msg.substring(err_prefix.len(), msg.len())),
+            msg.starts_with(String.from("error[")) => match(
+              msg.index_of(String.from("]: ")),
+              .Some(k) => Option(String).Some(msg.substring(k + usize(3), msg.len())),
+              .None => Option(String).Some(msg)
+            ),
             true => Option(String).Some(msg)
           )
         },
@@ -1076,7 +1091,13 @@ PendingDef :: ref(
     /// The bound name (`name :: …`), or the receiver head atom of an `impl`
     /// (`File` in `impl(File, …)`, `ArrayList` in `impl(generic(T), ArrayList(T), …)`;
     /// empty when the head is not nameable — such impls force at any miss).
+    /// For an `extern(...)` block: its first member (display only).
     name : String,
+    /// The names an `extern(...)` block declares — one statement binds them
+    /// all, so a miss on ANY of them forces the block; empty for every other
+    /// statement. Their Variables are read from the module frame by name
+    /// (`variable` below records only `name`'s).
+    members : ArrayList(String),
     /// The whole statement — evaluated verbatim when forced.
     expr : AstExpr,
     /// Position in the walk's begin_exprs (the walker skips a Done entry there).
@@ -1345,6 +1366,7 @@ _make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bo
   Option(PendingDef).Some(
     PendingDef(
       name : name,
+      members : ArrayList(String).new(),
       expr : e,
       index : index,
       row : ast_expr_token(e).row,
@@ -1358,6 +1380,41 @@ _make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bo
     )
   )
 );
+/// The member names an `extern(...)` statement declares: the label of each
+/// `label : type` argument (the optional leading language atom is skipped).
+/// Empty when no argument has that shape — the statement is then ordered and
+/// `evaluate_extern` reports its malformation at its own position.
+_extern_member_names :: (fn(e : AstExpr) -> ArrayList(String))({
+  names := ArrayList(String).new();
+  match(
+    e,
+    .FnCall(_, _, xargs, _, _) => {
+      (i : usize) = usize(0);
+      while(i < xargs.len(), {
+        match(
+          xargs.get(i),
+          .Some(arg) => if(ast_expr_is_fn_call_of(arg, BK_COLON, .Some(usize(2))), {
+            match(
+              arg,
+              .FnCall(_, _, pair, _, _) => match(
+                pair.get(usize(0)),
+                .Some(label) => if(ast_expr_is_atom(label), {
+                  names.push(ast_expr_token(label).value.clone());
+                }),
+                .None => ()
+              ),
+              .Atom(_, _) => ()
+            );
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  names
+});
 /// Classify one module-level statement. `.Some(def)` for a deferrable
 /// statement, `.None` for an ordered one (imports, pragmas, runtime
 /// globals, destructurings, bare expressions, exports).
@@ -1365,10 +1422,26 @@ _make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bo
 /// Deferrable: `name :: rhs` with an atom LHS whose rhs is not a bare
 /// `import(...)` (an import binding is an ordered statement: its effects —
 /// loading the module, registering its impls — are the module's observable
-/// evaluation), and `impl(<receiver>, ...)` other than the anonymous
-/// `impl({ ... })` block form.
+/// evaluation), `impl(<receiver>, ...)` other than the anonymous
+/// `impl({ ... })` block form, and an `extern(...)` block (a body above it
+/// that calls one of its members forces the whole block —
+/// issues/fixed/extern-declarations-are-not-forward-referenceable.md).
 classify_pending_def :: (fn(e : AstExpr, index : usize) -> Option(PendingDef))(
   cond(
+    ast_expr_is_fn_call_of(e, BK_EXTERN, .None) => {
+      members := _extern_member_names(e);
+      cond(
+        (members.len() == usize(0)) => Option(PendingDef).None,
+        true => match(
+          _make_pending_def(members(usize(0)).clone(), e, index, false),
+          .Some(def) => {
+            def.members = members;
+            Option(PendingDef).Some(def)
+          },
+          .None => Option(PendingDef).None
+        )
+      )
+    },
     ast_expr_is_fn_call_of(e, BK_CONST, .Some(usize(2))) => match(
       e,
       .FnCall(_, _, cargs, _, _) => {
@@ -1501,13 +1574,24 @@ end_module_walk :: (fn(walk : ModuleWalk) -> unit)({
 walk_pending_def_at :: (fn(walk : ModuleWalk, index : usize) -> Option(PendingDef))(
   walk.by_index.get(index)
 );
+/// True when `def` declares `name`: its own name, or one of an extern
+/// block's members.
+_def_declares :: (fn(d : PendingDef, name : String) -> bool)({
+  if(d.name == name, return(true));
+  (m : usize) = usize(0);
+  while(m < d.members.len(), {
+    if(d.members(m) == name, return(true));
+    m = (m + usize(1));
+  });
+  false
+});
 _find_def_by_name :: (fn(defs : ArrayList(PendingDef), name : String, is_impl : bool) -> Option(PendingDef))({
   (found : Option(PendingDef)) = Option(PendingDef).None;
   (i : usize) = usize(0);
   while((i < defs.len()) && found.is_none(), {
     match(
       defs.get(i),
-      .Some(d) => if((d.is_impl == is_impl) && (d.name == name), {
+      .Some(d) => if((d.is_impl == is_impl) && _def_declares(d, name.clone()), {
         found = Option(PendingDef).Some(d);
       }),
       .None => ()
@@ -1516,6 +1600,15 @@ _find_def_by_name :: (fn(defs : ArrayList(PendingDef), name : String, is_impl : 
   });
   found
 });
+/// The Variable a resolved definition binds for `name`: the recorded one for
+/// a `::` definition, the module frame's binding of `name` for an extern
+/// block member (the block binds several names; `variable` holds the first).
+_def_variable_for :: (fn(walk : ModuleWalk, def : PendingDef, name : String) -> Option(Variable))(
+  cond(
+    (def.members.len() > usize(0)) => module_frame_variable(walk, name),
+    true => def.variable
+  )
+);
 /// The innermost active walk for `module_path`.
 _active_walk_for :: (fn(module_path : String) -> Option(ModuleWalk))({
   (found : Option(ModuleWalk)) = Option(ModuleWalk).None;
@@ -1821,7 +1914,7 @@ resolve_pending_definition :: (fn(name : String, module_path : String) -> Pendin
       .Some(def) => match(
         def.state,
         .Done => match(
-          def.variable,
+          _def_variable_for(walk, def, name.clone()),
           .Some(v) => {
             // Phase 3 (§6): a served Done definition is a dependency of
             // whoever asked — the miss only fires once, so the edge is
@@ -1833,7 +1926,7 @@ resolve_pending_definition :: (fn(name : String, module_path : String) -> Pendin
         ),
         .Failed => PendingResolution.Error(match(def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))),
         .Forcing => match(
-          def.variable,
+          _def_variable_for(walk, def, name.clone()),
           .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
           .None => match(
             def.phase_a_value,
@@ -1862,7 +1955,7 @@ resolve_pending_definition :: (fn(name : String, module_path : String) -> Pendin
           force_pending_def(walk, def),
           .Some(msg) => PendingResolution.Error(msg),
           .None => match(
-            def.variable,
+            _def_variable_for(walk, def, name.clone()),
             .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
             .None => PendingResolution.Error(`definition "${name}" did not bind a variable`)
           )
@@ -1872,9 +1965,9 @@ resolve_pending_definition :: (fn(name : String, module_path : String) -> Pendin
     .None => match(
       g_finished_walks.get(module_path),
       .Some(fwalk) => match(
-        _find_def_by_name(fwalk.defs, name, false),
+        _find_def_by_name(fwalk.defs, name.clone(), false),
         .Some(def) => match(
-          def.variable,
+          _def_variable_for(fwalk, def, name.clone()),
           .Some(v) => {
             // Phase 3 (§6): cross-module serve — same edge recording.
             record_def_dependency(def_key(fwalk.module_path, def.index, def.name));
@@ -2097,6 +2190,7 @@ make_impl_pending_field :: (fn(label : String, colon_expr : AstExpr, top_index :
     failure : Option(String).None,
     def : PendingDef(
       name : label,
+      members : ArrayList(String).new(),
       expr : colon_expr,
       index : top_index,
       row : ast_expr_token(colon_expr).row,

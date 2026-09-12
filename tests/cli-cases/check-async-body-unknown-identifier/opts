@@ -1,0 +1,10 @@
+# An `io.async` closure body is trial-evaluated ONCE, at definition time, and
+# the trial SWALLOWS what it throws (closure bodies may legitimately fail
+# before their parameter types are known). An unknown identifier inside the
+# body therefore left the body with no ExprInfo, `yo check` passed the file,
+# and the typo only surfaced as codegen's "body was never fully evaluated"
+# internal error (issues/fixed/async-closure-body-unknown-identifier-passes-check.md).
+# An unbound name that is bound nowhere is now a hard swallow class: rc=1 and
+# the E0401. `comptime_expect_error` cannot pin a swallow (its propagate mode
+# observes the swallowed throw), so the gate is `yo check` itself.
+stdout_keep_match=error\[E0401\]: Variable "totally_unknown_fn" not found\.

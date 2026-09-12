@@ -1,0 +1,38 @@
+//! A generic function returning `Impl(Future(T))`, instantiated at two
+//! different `T`s in one program.
+//!
+//! Either instantiation alone always compiled; the pair did not — the caller's
+//! await site kept the DECLARED, unresolved return, rendered it `void*`, and
+//! the second instantiation's C disagreed with the first's
+//! (issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md).
+//!
+//! The second test is not a duplicate: the forall is named `T`, which is the
+//! name the PRELUDE's own `Future(T, E)` declaration uses. The first cut of the
+//! fix compared binders by NAME and so accepted `R` and rejected `T` — the same
+//! program compiling or not according to what its type variable was called.
+{ assert } :: import("std/assert");
+_Pair :: struct(lo : i32, hi : i32);
+_wrap_r :: (fn(generic(R : Type), v : R, io : Io) -> Impl(Future(R, Io)))(
+  io.async((io : Io) => v)
+);
+_wrap_t :: (fn(generic(T : Type), v : T, io : Io) -> Impl(Future(T, Io)))(
+  io.async((io : Io) => v)
+);
+test("a generic Impl(Future(R)) at two different R in one program", {
+  a := io.await(_wrap_r(i32(7), io), io);
+  assert(a == i32(7), "the i32 instantiation returned its own value");
+  b := io.await(_wrap_r(_Pair(lo : i32(3), hi : i32(4)), io), io);
+  assert((b.lo + b.hi) == i32(7), "the struct instantiation returned its own value");
+});
+test("the same, with the forall named T — the prelude's own binder name", {
+  a := io.await(_wrap_t(i64(11), io), io);
+  assert(a == i64(11), "the i64 instantiation returned its own value");
+  b := io.await(_wrap_t(_Pair(lo : i32(5), hi : i32(6)), io), io);
+  assert((b.lo + b.hi) == i32(11), "the struct instantiation returned its own value");
+});
+test("a third instantiation does not disturb the first two", {
+  a := io.await(_wrap_r(true, io), io);
+  assert(a, "the bool instantiation returned its own value");
+  c := io.await(_wrap_r(i32(9), io), io);
+  assert(c == i32(9), "the i32 instantiation still returns its own value");
+});

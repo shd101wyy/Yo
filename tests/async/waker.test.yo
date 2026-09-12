@@ -51,6 +51,44 @@ test("Test yield_now runs every turn it is asked for", {
     `400 yield_now turns took ${elapsed_ms} ms — that is a blocked or deadlocked hand-off, not slowness`
   );
 });
+test("Test std/async yield is the timer-free mechanism", {
+  // `yield` and `yield_now` are the SAME mechanism as of v0.2.32 — `yield`
+  // stopped being a 1 ms timer once a published seed carried
+  // `__yo_async_yield_start` (v0.2.31 is the first).
+  //
+  // CORRECTNESS only, for the reason the test above spells out: inside this
+  // harness a timer-free turn still measures like a timed one
+  // (issues/yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md), so
+  // a time bound here would pin the harness rather than the feature.
+  //
+  // What this DOES pin is the regression that the doc on `yield` names: a body
+  // that completes its future synchronously — `return(())`, or any
+  // already-complete future — makes `io.await(yield(io), io)` take the await
+  // point's inline fast path, so the task never leaves the C stack and the
+  // event loop is never reached. The `while` below would then spin 400 times
+  // without a single `__yo_io_poll()`, which is exactly the build-smoke hang
+  // (issues/build-smoke-hangs-registry-perturbation.md). The spawned task's
+  // counter reaching 400 with the spawner making progress is the oracle.
+  n := Box(i32)(i32(400));
+  started := Instant.now();
+  h := io.spawn(
+    io.async((io : Io) => {
+      (i : i32) = i32(0);
+      while(i < n.*, i = (i + i32(1)), {
+        io.await(yield(io), io);
+      });
+      return(i);
+    }),
+    io
+  );
+  r := h.await(io);
+  elapsed_ms := started.elapsed().as_millis();
+  assert(match(r, .Some(v) => (v == i32(400)), .None => false), "all 400 yield turns ran");
+  assert(
+    elapsed_ms < i64(20000),
+    `400 yield turns took ${elapsed_ms} ms — that is a blocked or deadlocked hand-off, not slowness`
+  );
+});
 // ---------------------------------------------------------------------------
 // 1. A wake that arrives BEFORE the task suspends is not lost.
 //

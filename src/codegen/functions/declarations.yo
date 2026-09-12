@@ -14,7 +14,7 @@
 { AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
 { lookup_some_resolved_concrete, expr_info_effect_analysis, expr_info_async_state_machine_struct_name, lookup_method_callee_value } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
-{ get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable, fn_has_specializations } :: import("../../function_value.yo");
+{ get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable, fn_has_specializations, get_closure_capture_info } :: import("../../function_value.yo");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { CodeGenContext, get_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
@@ -572,6 +572,37 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // (no per-func_id comptime flag distinguishes them), but the per-call resolved
   // RETURN type does. See issues/fixed/yo-self-return-temp-void-someT.md.
   skip_comptime_result := (!is_user_main && !is_erm && (is_comptime_int_type(ret) || is_comptime_float_type(ret) || is_comptime_string_type(ret)));
+  // A closure GENERATION left over from a GENERIC evaluation: its capture
+  // struct still mentions an unresolved type variable.
+  //
+  // One source closure is evaluated several times (the header on
+  // `mark_closure_for_codegen` in evaluator/values/anonymous_function.yo spells
+  // this out), each evaluation minting its own fid. When the enclosing function
+  // is a generic impl method, one of those generations runs with the impl's `T`
+  // still a bare SomeT, so its capture struct is `{ ..., sink : Channel(T) }`
+  // and every method call in its body keys the callee's specialization on the
+  // UNRESOLVED `T` — `..._rtparam1_2193_...`, a name nothing ever declares.
+  // That generation is dead: only the substituted generation is referenced by
+  // the call site and by any spawn wrapper. Emitting it anyway is a hard C
+  // error ("call to undeclared function") on a program that is otherwise
+  // correct — `Thread(T).spawn` is exactly this shape
+  // (issues/fixed/a-generic-impl-methods-closure-is-emitted-twice.md).
+  //
+  // The test is the SAME predicate the hard-generic param skip uses, applied to
+  // the capture struct — which for a closure IS part of its signature: it
+  // arrives as `void* closure_context` and every field read casts through it.
+  // `type_contains_some_type_for_codegen_param` already excludes `Impl(Fn)` /
+  // `Impl(Future)` and extern-opaque SomeTs, so the ordinary closure-over-a-
+  // closure capture is untouched.
+  if(!is_user_main && is_closure_fn(func_id.clone()), {
+    match(
+      get_closure_capture_info(func_id.clone()),
+      .Some(cci) => if(type_contains_some_type_for_codegen_param(cci.capture_type, ArrayList(String).new()), {
+        return(true);
+      }),
+      .None => ()
+    );
+  });
   // A closure marked for codegen (io.async closure) must be EMITTED even when its
   // synthesized type still has SomeT params (its body + result are concrete; the
   // io.async sync-future resume calls it directly). Without this it is dropped as

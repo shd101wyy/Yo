@@ -2105,12 +2105,37 @@ static void __yo_io_init(void) {
     ASYNC_DEBUG("[Io] WSAStartup failed: %d\\n", wsa_result);
   }
 
+  // Cross-thread wakeup channel (plans/WAKER_BASED_SCHEDULING.md step 5): a
+  // posted completion packet with a NULL OVERLAPPED. The wait loop already
+  // skips those, so it costs nothing but the wake it delivers.
+  if (__yo_io_iocp) {
+    __yo_loop_t* loop = __yo_loop_self();
+    loop->notify_handle = (void*)__yo_io_iocp;
+    loop->notify_ready = 1;
+  }
   __yo_io_initialized = true;
   ASYNC_DEBUG("[Io] Windows async runtime initialized\\n");
 }
 
+// Nudge a loop out of GetQueuedCompletionStatusEx. Safe from any thread — an
+// IOCP handle is explicitly shareable and PostQueuedCompletionStatus is its
+// documented cross-thread signal.
+static void __yo_io_notify(__yo_loop_t* loop) {
+  if (!loop || !loop->notify_ready) {
+    return;
+  }
+  PostQueuedCompletionStatus((HANDLE)loop->notify_handle, 0, 0, NULL);
+}
+
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
+  // Clear the loop's pointer BEFORE closing the port, so a foreign wake racing
+  // the shutdown cannot post to a handle this function is about to close.
+  {
+    __yo_loop_t* loop = __yo_loop_self();
+    loop->notify_ready = 0;
+    loop->notify_handle = NULL;
+  }
   if (__yo_io_iocp) {
     CloseHandle(__yo_io_iocp);
     __yo_io_iocp = NULL;
@@ -2159,8 +2184,25 @@ static void __yo_io_wake_continuation(__yo_io_future_t* future) {
   __yo_pending_io_count--;
 }
 
+// Deadline clock, from QPC rather than GetTickCount64: the tick counter
+// advances in ~15.6 ms steps, so two dues 1 ms and 5 ms ahead are both
+// "due" at the same tick reading — one process_due batch fires them
+// together and the poll-until-finished race resolves to whichever task the
+// caller checks first, not to the shorter deadline
+// (issues/windows-1ms-deadline-race-loses-since-cancellation-landing.md).
+// QPC is boot-relative and sub-microsecond; the multiply keeps ~290 years
+// of headroom in u64 at the usual 10 MHz frequency.
 static uint64_t __yo_win_now_ms(void) {
-  return (uint64_t)GetTickCount64();
+  static LARGE_INTEGER qpc_freq = {0};
+  static BOOL freq_ok = FALSE;
+  if (!qpc_freq.QuadPart) {
+    freq_ok = QueryPerformanceFrequency(&qpc_freq);
+    if (!qpc_freq.QuadPart) return (uint64_t)GetTickCount64();
+  }
+  (void)freq_ok;
+  LARGE_INTEGER now;
+  QueryPerformanceCounter(&now);
+  return (uint64_t)((now.QuadPart * 1000) / qpc_freq.QuadPart);
 }
 
 static void __yo_win_timer_add(__yo_io_future_t* future, uint64_t milliseconds) {
@@ -2344,7 +2386,11 @@ static int __yo_io_wait(void) {
     Sleep(10);
     return __yo_poll_and_fs_event_tick();
   }
-  if (__yo_pending_io_count == 0) return 0;
+  // With no I/O outstanding but a blocking call running on another thread, the
+  // wait below is a wait on the wakeup channel alone — which is what the loop
+  // should be doing rather than spinning.
+  if (__yo_pending_io_count == 0 && !__yo_async_has_blocking_inflight()
+      && !__yo_async_foreign_wake_possible()) return 0;
 
   DWORD timeout_ms = __yo_win_timer_next_timeout(__yo_win_now_ms());
   if (__yo_active_watch_count > 0 && (timeout_ms == INFINITE || timeout_ms > 50)) {

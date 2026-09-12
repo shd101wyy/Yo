@@ -191,6 +191,25 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 /// Emit a non-begin arm value: control-flow statements emit directly, unit
 /// values emit nothing, otherwise assign to the cond temp.
 _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> unit)({
+  // The bare arm's scope-end drops ride the value node's list; feed them
+  // into the pending path for the arm's generation, as `_emit_begin_arm`
+  // does for a block arm, so a short-circuit operand inside the value
+  // (`c => assert(c && (f() == "x"), …)`) drops its branch-scoped temps
+  // IN the branch (`_emit_drops_for_conditional_branch` scans pending)
+  // instead of after the C block closed
+  // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
+  vei_pending := context.base.get_expr_info(value);
+  cur_drops := match(vei_pending, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+  cur_consumed := match(vei_pending, .Some(vei) => expr_info_consumed_variable_drop_expressions(vei), .None => Option(ArrayList(AstExpr)).None);
+  prev_pending := context.pending_deferred_drops;
+  prev_consumed := context.consumed_var_pending_drops;
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_drops, prev_pending));
+  context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_consumed, prev_consumed));
+  _emit_value_arm_body(value, value_indent, temp_var_opt, is_unit, cond_outer_is_ptr, context);
+  context.pending_deferred_drops = prev_pending;
+  context.consumed_var_pending_drops = prev_consumed;
+});
+_emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Arm value carrying deferred `___dup`s (returning a borrowed/shared local
   // out of the arm — e.g. `true => methods`): port of cond.ts:409-470. Declare

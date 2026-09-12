@@ -1,0 +1,8 @@
+# plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2: a dependency's own
+# build.yo is evaluated, and `dep.artifact("name")` yields a REAL static-library
+# node the consumer links. Before that, `__yo_build_dep_artifact` registered a
+# `DependencyArtifactRef` that nothing in src/ ever read, so the archive was
+# never built and the link failed with an undefined `_square`. The program's own
+# output (36) is the assertion; clang chatter carries machine-specific paths.
+timeout=600
+stdout_keep=^(Building|36$|Error|error:)

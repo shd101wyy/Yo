@@ -1,7 +1,7 @@
 # Waker-based scheduling
 
-**Status:** IN PROGRESS — steps 1, 3a and 3b landed 2026-09-11, step 2 is
-seed-gated, steps 4-5 are open. Written 2026-09-10. This is the largest
+**Status:** IN PROGRESS — steps 1, 2, 3a and 3b are LANDED, step 4 is landed
+except for a shape note, step 5 is the only one genuinely open. Written 2026-09-10. This is the largest
 remaining item in `plans/STD_API_STABILIZATION.md`'s concurrency group, and four
 std modules' `## Stability` markers name it as the thing that will change under
 them.
@@ -9,11 +9,75 @@ them.
 | step | state |
 | --- | --- |
 | 1. `Waker` + `park` in the runtime | **LANDED** (#561) — `std/async/waker.yo`, `__yo_async_park_start` / `__yo_waker_new` / `__yo_waker_wake` / `__yo_waker_release` in `codegen/async/runtime_core.yo`, plus the live-waker count the loop needs to know a parked task is still wakeable |
-| 2. `yield` over `park` | **SEED-GATED.** `yield_now` is the fast form and is landed; `yield` itself cannot point at it until the seed ships `__yo_async_yield_start`, because `yield` is on the compiler's own import path (through `std/fs/watch`) and the seed emits a runtime without that symbol, so the compiler fails to LINK. Moves in the release after the one that ships this runtime |
+| 2. `yield` over `park` | **LANDED 2026-09-12**, once v0.2.31 became the seed — that is the first published seed emitting `__yo_async_yield_start`, and `yield` could not point at it before, being on the compiler's own import path (through `std/fs/watch`). 400 turns: 603 ms before, 0 ms after. Doing it surfaced a defect in the shared yield list, fixed in the same PR: `__yo_async_drain_yields` walked a head-inserted list head-first, so the LAST task to yield woke FIRST. A fairness yield must be FIFO; the 1 ms timer had been supplying the ordering the list was not, which is why `yield_now` shipped LIFO unnoticed |
 | 3a. `Mutex` over a waiter queue | **LANDED** (#576) — `std/async/mutex.yo` holds an `ArrayList(Waker)`, `unlock` wakes the FRONT waiter, and `waiter_count()` is the oracle the FIFO test reads |
 | 3b. `Channel` over the same queue | **LANDED** (#586) — `send`/`recv` park on a waiter queue instead of re-checking on a 1 ms timer tick. It was blocked for a day by a compiler defect that the rewrite surfaced: the trace collector tried to monomorphize a GENERIC `ArrayList(T)` instance that only this shape put in the codegen type registry, and failed inside `array_list.yo`'s `Trace` body — a file the rewrite never touched (`issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md`) |
 | 4. The combinators (`race`/`any`/`timeout`) | **PARTLY LANDED.** `timeout`'s retention is CLOSED: `abort()` now cancels the operation the task is suspended in, so the deadline timer is deregistered the moment the task wins instead of staying armed for the rest of the limit (`issues/fixed/timeout-deadline-timer-future-leak.md`). What remains is the polling SHAPE — `race`/`any` still re-check `is_finished()` around `__yo_async_poll_step()`; parking them on a wake needs a completion-notification list on `JoinHandle`, which is step 5's machinery |
-| 5. Cross-thread wake + `spawn_blocking` | open |
+| 5. Cross-thread wake + `spawn_blocking` | **RUNTIME WRITTEN AND WORKING; `spawn_blocking` BLOCKED on a compiler defect.** Details below |
+
+## Step 5, as it stands 2026-09-12
+
+**The runtime is written and measured working.** Each event loop owns one
+explicitly locked inbox plus a wakeup channel into its own I/O backend; a wake
+raised on a foreign thread pushes the waker TOKEN onto the owner's inbox and
+nudges that channel, and the owner drains it on its own thread at the top of
+every tick. So exactly one new piece of shared state exists, it is locked, and
+every runtime variable stays single-threaded — which is the resolution this
+document proposed, implemented as proposed.
+
+* `src/codegen/async/runtime_core.yo` — `__yo_loop_t`, the inbox, the drain,
+  `blocking_inflight` brackets, and a waker TOKEN (rather than the park future)
+  as the thing that travels, so **no reference count ever crosses a thread**.
+* wakeup channels: `EVFILT_USER` on the loop's own kqueue (macOS), an eventfd
+  with a re-armed `POLL_ADD` (Linux io_uring), `PostQueuedCompletionStatus`
+  (Windows IOCP), a no-op on wasm.
+* `std/async/waker.yo` — `Waker` is `atomic(ref(...))` and therefore `Send`,
+  which is what lets a token be handed to a worker thread at all.
+* `std/thread.yo` — `spawn_blocking`, eager (Rust's semantics: the work starts
+  at the call, not on first poll).
+
+End to end, `io.await(spawn_blocking(() => 20 + 22, io), io)` returns 42 with
+the wake crossing the thread boundary, and `tests/cross_thread_wake.test.yo`
+gates the machinery on its own, without generics.
+
+**That test's oracle is the THREAD IDENTITY, not the value**, and it took an
+emitted-C A/B to find out why it has to be. Disable the cross-thread post,
+re-clang, re-run: the value arrives either way — the old path enqueued the
+continuation on the WAKER's thread-local queue, and that thread's own loop ran
+it at exit, producing the right answer on the wrong thread. Only
+`resumed_on == main_tid` flips. A test that checked the value would have passed
+over the bug the whole step exists for.
+
+It also has to await the park from inside a SPAWNED task. A blocking
+`io.await` in `main` is a poll loop over the future's state word, which a
+foreign CAS satisfies directly: no continuation is ever registered, so there is
+nothing for the inbox to carry and the test is vacuous. That is this document's
+own first recorded risk, met in practice. **The blocker is a second instantiation:**
+`spawn_blocking` is
+`fn(generic(T), own(cb) : Impl(Fn() -> T, Send), io) -> Impl(Future(T, Io))`,
+and the closure-param form of that shape miscompiles at a second `T` — the async
+block inside the generic function is emitted ONCE for both. The value-param form
+of the same family is fixed
+(`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`);
+the closure-param form is still open in that same document, with three
+reproducers and a table of nine variables that are NOT the trigger. Shipping
+`spawn_blocking` before it is fixed would ship an API that silently miscompiles
+the second time a program uses it.
+
+Two traps recorded from doing it, both of which cost a full build-and-bisect
+cycle:
+
+* `__yo_async_drain_yields` called `__yo_waker_wake(n->future)`. Once that
+  primitive took a TOKEN, the `void*` signature meant C said nothing and every
+  `yield` hung on a garbage `owner` pointer. Emitted-C A/B (patch the `.c`,
+  re-clang, re-run) isolated it in seconds where a rebuild took twelve minutes.
+* A closure captured BY another closure — which the relaying wrapper creates —
+  was never released, because the drop walk is blind to a bare `Impl(Fn)` SomeT.
+  Fixing that in the SHARED drop generator double-released every closure slot
+  whose captures a synthesized capture-dispose already frees: a
+  heap-use-after-free that macOS ran green and Linux ASan caught. It belongs in
+  the spawn wrapper alone
+  (`issues/a-closure-typed-slot-never-releases-its-captures.md`).
 
 **Two codegen bugs fell out of this campaign, both fixed.**
 
@@ -40,7 +104,7 @@ peer polls a clock:
 
 | site | what it does |
 | --- | --- |
-| `std/async/index.yo:62` (`yield`) | `io.await(IO_timer.sleep(u64(1)), io)` |
+| ~~`std/async/index.yo:62` (`yield`)~~ | ~~`io.await(IO_timer.sleep(u64(1)), io)`~~ — FIXED, step 2 |
 | `std/async/mutex.yo:62` (contended `lock`) | same 1 ms park, re-check |
 | `std/async/channel.yo` (blocked `send`/`recv`) | same |
 | `std/async/index.yo:97,129,192` (`race`, `any`, `timeout`) | `__yo_async_poll_step()` in a spin, re-checking each pass |

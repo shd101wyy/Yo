@@ -1,0 +1,153 @@
+//! The ghost-semantics tests — V5 task 3 (FORMAL_VERIFICATION.md):
+//! ghost_fn calls INLINE in the VC walk (a spec function's meaning is its
+//! body — `requires(within(x, 0))` assumes the inlined predicate), and
+//! `ghost(name := e)` binds a spec-only name (the walk tracks it for
+//! assert predicates; ordinary reads are the escape error).
+//!
+//! In-process model (verifier_quantifiers's shape); proofs and refutations
+//! need the real solver (YO_TEST_Z3=1), the escape gate runs solver-free.
+{ String, StringBuilder } :: import("std/string");
+{ Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_and_strip_tasks,
+  VerifyFnReport
+} :: import("../../src/verifier/driver.yo");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+_load_reports :: (
+  fn(rel_path : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_ghost: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(
+        outcome.ok == expect_ok,
+        `fixture ${rel_path} load ok=${outcome.ok.to_string()} (expected ${expect_ok.to_string()}): ${rendered}`
+      );
+    },
+    .None => {
+      assert(outcome.ok == expect_ok, `fixture ${rel_path} load ok=${outcome.ok.to_string()}`);
+    }
+  );
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    _ => String.new()
+  );
+  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+});
+_reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
+  ids := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb := StringBuilder.new();
+  (j : usize) = usize(0);
+  while(j < ids.len(), {
+    if(j > usize(0), {
+      sb.write_string(String.from(", "));
+    });
+    sb.write_string(ids.get(j).unwrap().clone());
+    j = (j + usize(1));
+  });
+  sb.to_string()
+});
+/// The fn-under-test is the SECOND task (lazy forcing registers the
+/// ghost_fn first when the contract references it).
+_second :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifyFnReport)(
+  reports.get(usize(1)).unwrap()
+);
+_first :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifyFnReport)(
+  reports.get(usize(0)).unwrap()
+);
+
+test("ghost_fn predicates INLINE (bounded proves through within)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/ghost_fn_inline.yo"), io, true);
+  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _second(reports);
+  assert(rp.outcome == "ok", `bounded proves through the inlined requires, got: [${_reports_dump(reports)}]`);
+});
+
+test("the inlining is REAL — a false post-condition REFUTES (x = 0 model)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/ghost_fn_inline_false.yo"), io, true);
+  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _second(reports);
+  assert(rp.outcome == "refuted", `strictly_bounded refutes (an assumed-instead-of-inlined predicate would prove anything), got: [${_reports_dump(reports)}]`);
+});
+
+test("ghost bindings track through the walk (ghost_bump proves)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/ghost_binding.yo"), io, true);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "ok", `ghost_bump proves (the assert reads the ghost binding), got: [${_reports_dump(reports)}]`);
+});
+
+test("reading a ghost binding from ordinary code is a LOUD gate (solver-free)", {
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/ghost_escape.yo"), io, false);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "subset-error", `leaky is gated, got: [${_reports_dump(reports)}]`);
+  assert(
+    rp.subset_construct.contains(String.from("ghost")),
+    `the report names the ghost escape, got: ${rp.subset_construct}`
+  );
+});

@@ -887,12 +887,22 @@ generate_deferred_drop_expressions :: (
                   );
                   if(!sc_skip, {
                     code := _call_generate_expr(drop_expr, indent.clone(), context);
+                    // Record unconditionally, emit conditionally: an
+                    // enum/Option-typed target lowers to a multi-line `switch`
+                    // the drop generator writes to the emitter itself and
+                    // hands back "" — the drop is on the page either way, and
+                    // bookkeeping hung off `len() > 0` left exactly those
+                    // drops unrecorded, so the early-exit path
+                    // (return.yo's generate_pending_deferred_drops) released
+                    // a bare arm's String temps a second time (the
+                    // "unwind argument built by a may-unwind call" test).
+                    // Same contract as and_or.yo's two emission points.
+                    context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
                     if(code.len() > usize(0), {
                       line := indent.clone();
                       line.push_string(code);
                       line.push_str(";");
                       em.emit_string_line(line);
-                      context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
                     });
                   });
                 });
@@ -1127,4 +1137,117 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
     .None => fallback_code
   )
 );
-export(get_drop_function_for_type, get_dup_function_for_type, get_dispose_function_for_type, get_trace_function_for_type, resolve_some_type_param_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions, generate_deferred_dup_expressions, emit_deferred_dup_or_code);
+/// Arm-value deferred-dup rewrite (mirror of match.ts:105-150): when `e`
+/// carries deferred `___dup`s (a borrowed value leaving the arm), declare the
+/// eval temp, emit the balancing dup, and return `.Some(<result C name>)`.
+/// `.None` when `e` has no dups (caller emits it plainly). Used for BOTH the
+/// non-begin arm value and a begin arm's FINAL expression — the begin path
+/// originally emitted the final expr bare, dropping the borrowed +1
+/// (`_resolve_effect_arg`'s `.Some(info) => { ...; info.env }` /
+/// `.None => { throw; env }` arms returned the Environment at net -1 — the
+/// round-5 stage-2 `s2 compile parser.yo` ExprInfo-env UAF).
+///
+/// Shared by the sync match emitter (`exprs/match.yo`) and the async
+/// state-machine lowering of a cond/match whose OTHER arm awaits
+/// (`async/state_code_gen.yo`): that lowering assigned the non-awaiting
+/// arm's value bare — `sm->var_got = sm->var_h;` for `.Some(h) => h` on an
+/// awaited `Option(String)` local — so the payload was owned twice and
+/// released twice at completion; the string came back empty (or freed) to
+/// the caller (issues/fixed/async-match-arm-borrowed-payload-released-twice.md).
+arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+  bei := match(context.base.get_expr_info(body_expr), .Some(b) => b, .None => return(Option(String).None));
+  bdups := match(bei.deferred_dup_expressions, .Some(d) => d, .None => return(Option(String).None));
+  if(bdups.len() == usize(0), {
+    return(Option(String).None);
+  });
+  // Clear `variable_name` around the RAW generation (TS match.ts:133-136):
+  // with it set, the atom generator returns the info's temp alias — a
+  // NOT-YET-DECLARED name — and the `btv != raw_code` declaration below is
+  // skipped. Same phantom-temp class as the stage-2 fixpoint blocker in
+  // cond.yo; see issues/fixed/stage2-match-if-else-value-phantom-temp.md.
+  saved_arm_vn := bei.variable_name;
+  bei.variable_name = Option(String).None;
+  raw_code := _call_generate_expr(body_expr, indent.clone(), context);
+  bei.variable_name = saved_arm_vn;
+  (final_code : String) = raw_code.clone();
+  match(
+    bei.variable_name,
+    .Some(bvn) => {
+      btv := get_variable_name_for_codegen(bvn.clone(), Option(Environment).Some(bei.env));
+      if(!(btv == raw_code), {
+        bem := context.base.emitter;
+        bline := indent.clone();
+        bline.push_string(get_type_string(bei.ty, context.base));
+        bline.push_str(" ");
+        bline.push_string(btv.clone());
+        bline.push_str(" = ");
+        bline.push_string(raw_code.clone());
+        bline.push_str(";");
+        bem.emit_string_line(bline);
+        context.base.declared_c_var_names.insert(btv.clone());
+      });
+      final_code = btv;
+    },
+    .None => ()
+  );
+  // Emit the dup ONCE: named dup temp when available (match.ts:143-150),
+  // else the drift-safe escape hatch (dup the generated value directly).
+  (dup_named : bool) = false;
+  match(
+    bdups.get(usize(0)),
+    .Some(bdup0) => match(
+      context.base.get_expr_info(bdup0),
+      .Some(bdup_info) => match(
+        bdup_info.variable_name,
+        .Some(dvn) => {
+          dtv := get_variable_name_for_codegen(dvn.clone(), Option(Environment).Some(bdup_info.env));
+          dem := context.base.emitter;
+          dline := indent.clone();
+          dline.push_string(get_type_string(bei.ty, context.base));
+          dline.push_str(" ");
+          dline.push_string(dtv.clone());
+          dline.push_str(" = ");
+          dline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
+          dline.push_str(";");
+          dem.emit_string_line(dline);
+          context.base.declared_c_var_names.insert(dtv.clone());
+          final_code = dtv;
+          dup_named = true;
+        },
+        .None => ()
+      ),
+      .None => ()
+    ),
+    .None => ()
+  );
+  if(!dup_named, {
+    match(
+      bei.variable_name,
+      .Some(_) => {
+        fdem := context.base.emitter;
+        fdline := indent.clone();
+        fdline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
+        fdline.push_str(";");
+        fdem.emit_string_line(fdline);
+      },
+      .None => {
+        generate_deferred_dup_expressions(body_expr, indent.clone(), context);
+      }
+    );
+  });
+  Option(String).Some(final_code)
+});
+
+export(
+  get_drop_function_for_type,
+  get_dup_function_for_type,
+  get_dispose_function_for_type,
+  get_trace_function_for_type,
+  resolve_some_type_param_type,
+  generate_drop_code_for_value,
+  generate_dup_code_for_value,
+  generate_deferred_drop_expressions,
+  generate_deferred_dup_expressions,
+  emit_deferred_dup_or_code,
+  arm_value_with_dups
+);

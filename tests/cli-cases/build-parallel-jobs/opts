@@ -1,0 +1,17 @@
+# plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.8: the nodes of ONE DAG level
+# run `-j N` at a time. `alpha` and `beta` have no edge between them, so with
+# `-j 2` both compile concurrently — and then their `Building …` lines and the
+# C compiler's chatter INTERLEAVE, which is why only the summary line is
+# compared. That line is what the case is about: every node ran and succeeded
+# under concurrency.
+# YO_ASYNC_STRICT=1 arms C37's nested-event-loop guard for the RUNNER itself:
+# a level's nodes are spawned tasks now, so any blocking wait the scheduler uses
+# to collect them (`join_all`, `race`, a plain awaiting helper) re-enters the
+# event loop from inside a task and aborts here. That is how this slice's own
+# first draft was caught
+# (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md) — by a
+# different case, which is why the guard now rides the case that owns the
+# feature.
+env=YO_ASYNC_STRICT=1
+timeout=900
+stdout_keep_match=Build Summary: [0-9]+/[0-9]+ steps succeeded

@@ -63,10 +63,18 @@ pragma(Pragma.AllowUnsafe);
 /// the token cannot outlive its target — a non-owning pointer here would be
 /// the use-after-free `Watcher`'s event-loop callback once had
 /// (`issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md`).
-Waker :: ref(
-  struct(
-    /// The park future, with one reference held on this token's behalf.
-    _p : *u8
+/// ATOMIC, and therefore `Send`: a waker exists to be handed to whoever will
+/// signal, and since step 5 of the waker campaign that includes a worker
+/// thread (`spawn_blocking`). A cross-thread `wake()` does not touch the park
+/// future — it hands this token to the future's own loop and nudges it — so
+/// the only refcount that crosses a thread boundary is this token's own, which
+/// is what `atomic` makes safe.
+Waker :: atomic(
+  ref(
+    struct(
+      /// The waker token, holding one reference to the park it resumes.
+      _p : *u8
+    )
   )
 );
 impl(
@@ -140,13 +148,13 @@ park :: (fn(register : Impl(Fn(w : Waker) -> unit), io : Io) -> Impl(Future(unit
 /// Give the event loop ONE turn, including an I/O poll, and come back — a
 /// fairness yield with no timer under it.
 ///
-/// This is what `std/async`'s `yield` will become. It cannot be that today for
-/// a bootstrap reason, not a design one: `yield` is on the compiler's own
-/// import path (through `std/fs/watch`), and the SEED compiler that builds this
-/// tree emits an async runtime without `__yo_async_yield_start` in it — so
-/// pointing `yield` here fails to LINK the compiler. It moves in the release
-/// after the one that ships this runtime. Until then this is the fast form and
-/// `yield` is the 1 ms-timer form, and they are otherwise interchangeable.
+/// `std/async`'s `yield` is this, as of v0.2.32 — the two are the same
+/// mechanism and either name is fine. It could not be until then for a
+/// bootstrap reason, not a design one: `yield` is on the compiler's own import
+/// path (through `std/fs/watch`), and the SEED compiler that builds this tree
+/// emits the async runtime IT was built with — so pointing `yield` here failed
+/// to LINK the compiler until a published seed carried
+/// `__yo_async_yield_start`. v0.2.31 is the first that does.
 ///
 /// The mechanism: the future is created PENDING and completed at the top of
 /// the next ready-task drain, after that drain has measured its budget, so the

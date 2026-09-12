@@ -110,6 +110,30 @@ references); it is verified locally with a stage-1 built by a feature-carrying
 compiler + `fixpoint_only.sh`, and merges after the bump. **Verify the gate the
 usual way before merging**: `yo build` the tree with the actual seed bundle.
 
+## Seed-gated follow-up (2026-09-12): `build.manifest` in `std/build.yo`
+
+**Generation A DONE 2026-09-12** (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+§4.1): the compiler carries `__yo_build_manifest_field(field)`, a comptime
+string builtin answering from the build registry's `manifest_fields`, which
+`src/build_runner.yo` fills from the project's `yo.toml` `[package]` table
+before it evaluates `build.yo` (`name`, `version`; an absent field and every
+field outside a build read as `""`). A build file calls the builtin directly
+today — cli-case `build-manifest`.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying it):** `std/build.yo`
+exposes the friendly spelling — a `Manifest` struct and a `manifest ::
+Manifest(name : __yo_build_manifest_field("name"), …)` binding, so a build file
+writes `build.manifest.name`. It CANNOT land earlier: a module-level `::`
+binding is forced by its own `export(...)`, so an older seed fails
+`std/build.yo` with `error[E0401]: Variable "__yo_build_manifest_field" not
+found` — and `fixpoint-arm64.yml` bootstraps gen-1 with `yo build`, which
+evaluates `std/build.yo` on every run. (The v0.2.30 seed does not even report
+it: it still swallows build-file evaluation errors and prints `No build steps
+defined.`) Verify the gate the usual way before merging: `yo build` the tree
+with the actual seed bundle. The cli-case fixture then moves to
+`build.manifest.<field>`, and the user docs (`docs/*/BUILD_SYSTEM.md`) document
+it as the public surface.
+
 ## Seed-gated follow-up (2026-08-27): `Command.current_dir`
 
 **Generation A DONE 2026-08-28:** the runtime emits
@@ -122,6 +146,21 @@ passing NULL. Proven by tests/process/command.test.yo under the fresh binary.
 `__yo_async_spawn_start_cwd` in std/sys/externs.yo, make `std/sys/process.spawn`
 take `cwd : ?(*(u8))`, add `Command.current_dir(path)` + a test through the
 public API; then delete the 6-argument wrapper in a later generation.
+
+- **`__yo_build_doc`'s dead `include_deps` slot (B13, 2026-09-12):**
+  `DocConfig.include_deps` was write-only and is gone from `std/build.yo`, but
+  the call still passes a literal `false` in argument slot 5 because the seed's
+  `__yo_build_doc` requires ten arguments. Once `SEED_VERSION` carries the
+  nine-argument builtin, drop the literal from `std/build.yo` and the slot from
+  `evaluate_yo_build_functions`. Failure mode if early: LOUD (`build.doc`
+  reports too few arguments while the seed evaluates the build file).
+
+- **`TestSuite.verbose/bail/parallel` (B13, 2026-09-12):** `std/build.yo` passes
+  seven arguments to `__yo_build_test`; `_build_require_args` is a MINIMUM
+  check, so the seed's four-argument builtin ignores the extra three and the
+  suite simply runs with the old hard-coded defaults under a seed build.
+  Nothing to schedule — recorded so the silent degradation is not mistaken for
+  a regression when a seed-built binary runs `build test`.
 
 - **Hasher defaults (D3.9, 2026-08-28):** `std/hash.yo`'s `SipHasher13` spells
   out every `write_*` because the v0.2.19 seed miscompiles `inout(self)` trait

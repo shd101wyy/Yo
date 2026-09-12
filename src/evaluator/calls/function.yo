@@ -138,6 +138,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn } :: import("../../function_value.yo");
+{ is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val, value_to_string } :: import("../../value.yo");
 /// Named call-result unknown: promotes a Type-universe result to
@@ -1763,6 +1764,176 @@ _funcval_bind_foralls :: (
 /// from that function's frame, shrinking the per-level frame on the deep CTFE
 /// recursion path (Phase-6 stage-2 self-compile overflow). Pure code motion — same
 /// behavior. Returns the call expr.
+/// The SomeT **ids** of this callee's own forall binders, read off the DECLARED
+/// return type: every SomeT in it whose name is one of `forall_names`.
+///
+/// Reading them from the return rather than from `Func.forall_types` is what
+/// makes them the SAME objects the re-evaluated type would have to carry, and
+/// the name filter is applied ONCE, here, where the names are unambiguously
+/// this callee's — not against the prelude's `Future(T, E)` binders, which ride
+/// along inside the re-evaluated type and share those names.
+_rre_binder_ids :: (
+  fn(ret : TypeValue, forall_names : ArrayList(String)) -> ArrayList(String)
+)({
+  out := ArrayList(String).new();
+  if(forall_names.len() == usize(0), {
+    return(out);
+  });
+  work := ArrayList(TypeValue).new();
+  work.push(ret);
+  (steps : usize) = usize(0);
+  while((work.len() > usize(0)) && (steps < usize(4096)), {
+    steps = (steps + usize(1));
+    cur := match(work.pop(), .Some(c) => c, .None => TypeValue.Unit);
+    somes := get_all_some_types(cur);
+    match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
+    (si : usize) = usize(0);
+    while(si < somes.len(), {
+      match(
+        somes.get(si),
+        .Some(sv) => match(
+          sv,
+          .SomeT({ id : sid, name : snm, required_trait_types : srt }) => {
+            (ni : usize) = usize(0);
+            while(ni < forall_names.len(), {
+              match(
+                forall_names.get(ni),
+                .Some(fn_nm) => if(fn_nm == snm, {
+                  out.push(sid.clone());
+                }),
+                .None => ()
+              );
+              ni = (ni + usize(1));
+            });
+            (ri : usize) = usize(0);
+            while(ri < srt.len(), {
+              match(srt.get(ri), .Some(rt) => work.push(rt), .None => ());
+              ri = (ri + usize(1));
+            });
+          },
+          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
+            (fi : usize) = usize(0);
+            while(fi < fcp.len(), {
+              match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
+              fi = (fi + usize(1));
+            });
+            work.push(fcr);
+            (gi : usize) = usize(0);
+            while(gi < fit.len(), {
+              match(fit.get(gi), .Some(it) => work.push(it), .None => ());
+              gi = (gi + usize(1));
+            });
+          },
+          .FutureTraitT(_, fo, _, fet, _) => {
+            work.push(fo);
+            (ei : usize) = usize(0);
+            while(ei < fet.len(), {
+              match(fet.get(ei), .Some(et) => work.push(et), .None => ());
+              ei = (ei + usize(1));
+            });
+          },
+          _ => ()
+        ),
+        .None => ()
+      );
+      si = (si + usize(1));
+    });
+  });
+  out
+});
+/// Does `t` still mention one of `ids` — this callee's own forall binders?
+///
+/// `get_all_some_types` stops AT a `SomeT` — it pushes the wrapper and does not
+/// look inside its `required_trait_types` — so it reports "one SomeT" for
+/// `Impl(Future(R) Io)` and never sees the `R`. That is the exact shape of an
+/// async return, so the RRE adoption gate below needs a walk that goes one
+/// level further: into an `Impl`'s traits, and through the `Fn` / `Future`
+/// trait members that carry the binder.
+///
+/// By SomeT **id**, never by name. The prelude's own `Future(T, E)` declaration
+/// carries binders named `T` and `E`, and those names ride along inside the
+/// re-evaluated `Impl(Future(i32) Io)` — so a name comparison reports "still
+/// mentions T" for a callee whose forall merely happens to be called `T`, which
+/// is the most natural name there is. Measured: the identical program compiled
+/// with the forall named `R` and did not with `T`.
+///
+/// Written flat (a worklist, not nested helpers) because a regular `fn` in Yo
+/// captures nothing from its enclosing scope.
+_rre_mentions_binder :: (fn(t : TypeValue, ids : ArrayList(String)) -> bool)({
+  if(ids.len() == usize(0), {
+    // No binder ids to check against: say YES, which leaves the gate exactly
+    // as conservative as it was.
+    return(true);
+  });
+  work := ArrayList(TypeValue).new();
+  work.push(t);
+  (steps : usize) = usize(0);
+  (found : bool) = false;
+  while((work.len() > usize(0)) && !found && (steps < usize(4096)), {
+    steps = (steps + usize(1));
+    cur := match(work.pop(), .Some(c) => c, .None => TypeValue.Unit);
+    // The structural walk first: a binder reached through a struct field, an
+    // array element or a pointee is collected here, and each collected SomeT
+    // is re-examined below.
+    somes := get_all_some_types(cur);
+    match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
+    (si : usize) = usize(0);
+    while((si < somes.len()) && !found, {
+      match(
+        somes.get(si),
+        .Some(sv) => match(
+          sv,
+          .SomeT({ name : sn, required_trait_types : srt }) => {
+            (ni : usize) = usize(0);
+            while((ni < ids.len()) && !found, {
+              match(
+                ids.get(ni),
+                .Some(nm) => if(nm == sn, {
+                  found = true;
+                }),
+                .None => ()
+              );
+              ni = (ni + usize(1));
+            });
+            (ri : usize) = usize(0);
+            while(ri < srt.len(), {
+              match(srt.get(ri), .Some(rt) => work.push(rt), .None => ());
+              ri = (ri + usize(1));
+            });
+          },
+          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
+            (fi : usize) = usize(0);
+            while(fi < fcp.len(), {
+              match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
+              fi = (fi + usize(1));
+            });
+            work.push(fcr);
+            (gi : usize) = usize(0);
+            while(gi < fit.len(), {
+              match(fit.get(gi), .Some(it) => work.push(it), .None => ());
+              gi = (gi + usize(1));
+            });
+          },
+          .FutureTraitT(_, fo, _, fet, _) => {
+            work.push(fo);
+            (ei : usize) = usize(0);
+            while(ei < fet.len(), {
+              match(fet.get(ei), .Some(et) => work.push(et), .None => ());
+              ei = (ei + usize(1));
+            });
+          },
+          _ => ()
+        ),
+        .None => ()
+      );
+      si = (si + usize(1));
+    });
+  });
+  // A walk that ran out of steps is treated as "still mentions one": the gate
+  // this feeds only ever WIDENS adoption, so the conservative answer is the
+  // one that leaves the previous behaviour in place.
+  found || (steps >= usize(4096))
+});
 _evaluate_funcval_runtime_call :: (
   fn(
     expr : AstExpr,
@@ -2022,6 +2193,8 @@ _evaluate_funcval_runtime_call :: (
   // and the per-call closure-F family (`IterFilter(Self, F)`) keeps SomeTs
   // after substitution (nsomes > 0 → the substituted result is not adopted-
   // over; it still enters via the pre-existing !all_resolve_concrete arm).
+  // This callee's own forall binders, by SomeT id — see _rre_mentions_binder.
+  rre_binder_ids := _rre_binder_ids(ret_type, forall_names);
   rre_decl_tyarg_somes := ArrayList(TypeValue).new();
   _collect_type_arg_somes(ret_type, rre_decl_tyarg_somes, ArrayList(String).new());
   rre_era_suspect := ((rre_decl_tyarg_somes.len() > usize(0)) && (get_all_some_types(resolved_ret).len() == usize(0)));
@@ -2072,7 +2245,24 @@ _evaluate_funcval_runtime_call :: (
           // into dyn wrapper C names (`__yo_wrap_unknown_R#gs_…`, the
           // fn/closure gate C-compile break). Era repair only ever needs the
           // fully-concrete canonical, so it takes the strict arm.
-          .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || (rre_old_wanted && type_somes_all_resolve_concrete(hkt_ty))) && !(is_unit_type(hkt_ty)), {
+          // Third arm: the re-evaluated return no longer mentions ANY of this
+          // callee's own generic binders, so substitution is COMPLETE for this
+          // call and whatever SomeTs remain are existential wrappers rather
+          // than type variables. That is exactly what an async return IS —
+          // `Impl(Future(i32) Io)` is one SomeT, with an empty resolution
+          // cell, so both arms above reject it and `resolved_ret` stayed
+          // `Impl(Future(R) Io)`: EVERY caller of a generic
+          // `-> Impl(Future(R))` function then shared one unresolved return,
+          // the await site rendered it `void*`, and a second instantiation
+          // miscompiled against the first
+          // (issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md).
+          //
+          // Gated on `rre_old_wanted`, which is what keeps the recorded
+          // adoption hazard out: the per-call closure-`F` family
+          // (`IterFilter(Self, F)`) leaves a substituted return whose SomeTs
+          // ALL resolve concretely, so `rre_old_wanted` is false there and the
+          // re-eval is never even wanted.
+          .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || (rre_old_wanted && (type_somes_all_resolve_concrete(hkt_ty) || !(_rre_mentions_binder(hkt_ty, rre_binder_ids))))) && !(is_unit_type(hkt_ty)), {
             resolved_ret = hkt_ty;
           }),
           .None => ()
@@ -4027,6 +4217,19 @@ Fix: wrap the call:
         cap_tys := __fvm7.*.cap_tys;
         func_id_fv := __fvm7.*.func_id;
         fv_env_key := __fvm7.*.env_key;
+        // V5 task 3: a `ghost_fn(...)` definition is callable ONLY from
+        // ghost context (contract clauses, ghost bindings, ghost_fn bodies,
+        // and the verifier's predicate pass) — it has no runtime semantics.
+        if(is_ghost_fn(func_id_fv.clone()) && !ctx.is_ghost_context, {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                String.from("a ghost_fn is callable only from ghost context (contract clauses, ghost(...) bindings, ghost_fn bodies) — it has no runtime semantics")
+              )
+            )
+          );
+        });
         n_p := param_names.len();
         n_ev := evidence_names.len();
         (n_a : usize) = args.len();

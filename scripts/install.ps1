@@ -123,7 +123,7 @@ function Test-AssetExists {
 #
 #   * clang — REQUIRED. `yo compile` invokes `clang` by default (a different
 #     compiler can be selected with --cc).
-#   * git — REQUIRED for `yo fetch` / `yo install`, which resolve dependencies
+#   * git — REQUIRED for `yo add` / `yo install`, which resolve dependencies
 #     by shelling out to git. Compiling works without it.
 #   * the Windows SDK — REQUIRED, and NOT installable from here. See
 #     Test-CToolchain below for why this cannot be a package in the list above.
@@ -168,7 +168,7 @@ Install LLVM (winget install LLVM.LLVM) and reopen your terminal.
   }
   if (-not (Has-Cmd 'git')) {
     Warn @'
-git was not found on PATH. 'yo compile' works without it, but 'yo fetch' and
+git was not found on PATH. 'yo compile' works without it, but 'yo add' and
 'yo install' resolve dependencies with git and will fail.
 Install it with: winget install Git.Git
 '@

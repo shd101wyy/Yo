@@ -1173,9 +1173,22 @@ a broken invariant is a compile error naming the failing iteration.
 > here as the honest scope cut). The INOUT half of task 4 needed NO new
 > machinery: `param_types` records the declared T, `=` rebinds the
 > current, and #557's entry snapshot already backs `old(v)` — pinned by
-> the inout_bump proves / inout_nochange REFUTES twins. Remaining V5:
-> ghost erasure (task 3), std/spec collections (task 5), the
-> insertion-sort exit (task 6).
+> the inout_bump proves / inout_nochange REFUTES twins. SLICE 2 LANDED
+> via #613 (develop 80ae3dbd2, 2026-09-12 — all 28 checks green after a
+> windows-ARM timing flake reran clean): ghost_fn calls INLINE in the VC walk
+> (a spec function's meaning IS its body — params bound to the walked
+> actuals, recursion-guarded by an inlining stack;
+> `requires(within(x, 0))` now ASSUMES the inlined predicate, pinned by
+> the bounded proves / strictly_bounded REFUTES-at-x=0 twins — the refute
+> is what proves the inlining is real); `ghost(name := e)` binds a
+> spec-only name in EVERY mode (the walk REBINDS it so assert predicates
+> read it — in verify targets the assert's predicate evaluates under
+> ghost context; ordinary reads get the "ghost value escapes
+> specification context" error, which also closes a PRE-EXISTING hole: a
+> runtime-mode assert reading a ghost binding used to emit an UNDECLARED
+> C identifier — the evaluator resolved the name while codegen erased
+> the binding); the binding never reaches codegen. Remaining V5: std/spec
+> collections (task 5), the insertion-sort exit (task 6).
 
 **Scope:** specification-only computation — the vocabulary real
 functional correctness specs need.

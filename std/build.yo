@@ -8,7 +8,7 @@
 //! ```rust
 //! build :: import "std/build";
 //!
-//! mod  :: build.module({ name: "my-lib", root: "./src/lib.yo" });
+//! mod  :: build.module({ name: "default" });  // a [modules] entry of yo.toml
 //! exe  :: build.executable({ name: "my-app", root: "./src/main.yo" });
 //! install :: build.step("install", "Build all artifacts");
 //! install.depend_on(exe);
@@ -169,29 +169,31 @@ TestSuite :: struct(
   /// Comma-separated paths (files or directories, relative to the project
   /// root) excluded from the test walk — a path is excluded if it equals an
   /// entry or lives under one, e.g. "tests/internal,tests/cli-cases".
-  (exclude : comptime_str) ?= ""
+  (exclude : comptime_str) ?= "",
+  /// Print each test as it runs (`yo test --verbose`). `yo build --verbose`
+  /// turns it on for every suite regardless.
+  (verbose : bool) ?= false,
+  /// Stop at the first failing test (`yo test --bail`).
+  (bail : bool) ?= false,
+  /// Test files to compile at once (`yo test --parallel N`). Forwarded to the
+  /// child run, which ACCEPTS it and runs sequentially anyway — `yo test`'s v1
+  /// takes the flag for CLI compatibility only (`src/main.yo`). Surfaced so the
+  /// build file is not the thing that loses it.
+  (parallel : usize) ?= usize(1)
 );
 export(TestSuite);
 // ── Build module type ────────────────────────────────────────────────
-/// Represents a named source module that declares system library requirements.
-/// Modules are the unit of reuse across Yo dependencies.
+/// A named module of this package or of a dependency, as a handle for
+/// linking system libraries (`mod.link(sys)`). Which FILE the module is —
+/// and what `import("name")` resolves to — is the manifest's business
+/// (`yo.toml` `[modules]`, plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1).
 BuildModule :: struct(
-  /// Module name.
+  /// Module name (`""` = the dependency's default module).
   name : comptime_str,
-  /// Root source file.
-  root : comptime_str,
+  /// The dependency the module belongs to (`""` = this package).
   _dep : comptime_str
 );
 export(BuildModule);
-// ── Import entry type ────────────────────────────────────────────────
-/// Pairs an import name with a module for use with `add_import`/`add_import_list`.
-ImportEntry :: struct(
-  /// Import alias used in source code.
-  name : comptime_str,
-  /// The module to import.
-  module : BuildModule
-);
-export(ImportEntry);
 // ── Step type ────────────────────────────────────────────────────────
 /// A build step returned by all registration functions.
 /// Use `step.depend_on(dep)` to wire dependencies between steps.
@@ -213,20 +215,6 @@ impl(
   link : (fn(comptime(self) : Self, comptime(library) : Step) -> comptime(unit))({
     __yo_build_link(self.name, library.name);
   }),
-  /// Add a single module import to this step.
-  add_import : (fn(comptime(self) : Self, comptime(entry) : ImportEntry) -> comptime(unit))({
-    __yo_build_add_import(self.name, entry.name, entry.module.name, entry.module._dep);
-  }),
-  /// Add a list of module imports to this step.
-  add_import_list : (fn(comptime(self) : Self, comptime(entries) : ComptimeList(ImportEntry)) -> comptime(unit))(
-    cond(
-      (entries.len() == usize(0)) => (),
-      true => {
-        self.add_import(entries.car());
-        recur(self, entries.cdr())
-      }
-    )
-  ),
   /// Add extra C compiler flags to this step.
   add_c_flags : (fn(comptime(self) : Self, comptime(flags) : comptime_str) -> comptime(unit))({
     __yo_build_add_cflags(self.name, flags);
@@ -253,27 +241,6 @@ BuildOption :: struct(
   (default : comptime_str) ?= ""
 );
 export(BuildOption);
-// ── Dependency config types ──────────────────────────────────────────
-/// Git-hosted dependency configuration.
-GitDependency :: struct(
-  /// Dependency name.
-  name : comptime_str,
-  /// Git repository URL.
-  url : comptime_str,
-  /// Git ref (tag, branch, or commit SHA). Defaults to `"HEAD"`.
-  (ref : comptime_str) ?= "HEAD",
-  /// Subdirectory within the repository.
-  (path : comptime_str) ?= ""
-);
-export(GitDependency);
-/// Local path dependency configuration.
-PathDependency :: struct(
-  /// Dependency name.
-  name : comptime_str,
-  /// Filesystem path to the dependency root.
-  path : comptime_str
-);
-export(PathDependency);
 /// System C library discovered via `pkg-config`.
 SystemLibrary :: struct(
   /// Library name (passed to `pkg-config`).
@@ -289,9 +256,10 @@ SystemLibrary :: struct(
 );
 export(SystemLibrary);
 // ── Dependency handle ────────────────────────────────────────────────
-// Returned by build.dependency() and build.path_dependency().
-// Provides access to artifacts defined in the dependency's build.yo.
-/// Handle to a registered dependency. Use `.artifact()` or `.module()` to access its exports.
+// Returned by build.dependency("name") for an entry of yo.toml's
+// [dependencies]. Provides access to artifacts defined in the dependency's
+// build.yo.
+/// Handle to a manifest dependency. Use `.artifact()` or `.module()` to access its exports.
 Dependency :: struct(
   name : comptime_str
 );
@@ -308,7 +276,7 @@ impl(
   /// Empty `module_name` defaults to the sole module if exactly one exists.
   module : (fn(comptime(self) : Self, (comptime(module_name) : comptime_str) ?= "") -> comptime(BuildModule))({
     _encoded :: __yo_build_dep_module(self.name, module_name);
-    BuildModule(name : module_name, root : "", _dep : self.name)
+    BuildModule(name : module_name, _dep : self.name)
   })
 );
 // ── Build functions ──────────────────────────────────────────────────
@@ -374,7 +342,7 @@ shared_library :: (fn(comptime(config) : SharedLibrary) -> comptime(Step))({
 export(shared_library);
 /// Register a test-suite artifact. Returns a `Step` for dependency wiring.
 test :: (fn(comptime(config) : TestSuite) -> comptime(Step))({
-  __yo_build_test(config.name, config.root, config.target, config.exclude);
+  __yo_build_test(config.name, config.root, config.target, config.exclude, config.verbose, config.bail, config.parallel);
   Step(name : config.name, kind : StepKind.TestSuite)
 });
 export(test);
@@ -395,37 +363,34 @@ step :: (
   Step(name : name, kind : StepKind.Custom)
 });
 export(step);
-/// Register a git-hosted dependency. Returns a `Dependency` handle for accessing artifacts.
-dependency :: (fn(comptime(config) : GitDependency) -> comptime(Dependency))({
-  __yo_build_dependency(config.name, config.url, config.ref, config.path);
-  Dependency(name : config.name)
+/// The handle of a dependency declared in `yo.toml`'s `[dependencies]` (or
+/// `[dev-dependencies]`) — Zig's `b.dependency(name, .{})`. Where the
+/// dependency comes from (git, version, path) is the manifest's; the build
+/// file only names it. The runner rejects a name the manifest lacks.
+dependency :: (fn(comptime(name) : comptime_str) -> comptime(Dependency))({
+  __yo_build_dependency(name);
+  Dependency(name : name)
 });
 export(dependency);
-/// Register a local path dependency. Returns a `Dependency` handle for accessing artifacts.
-path_dependency :: (fn(comptime(config) : PathDependency) -> comptime(Dependency))({
-  __yo_build_path_dependency(config.name, config.path);
-  Dependency(name : config.name)
-});
-export(path_dependency);
 /// Register a system C library discovered via `pkg-config`. Returns a `Step` for linking.
 system_library :: (fn(comptime(config) : SystemLibrary) -> comptime(Step))({
   __yo_build_system_library(config.name, config.fallback_include, config.fallback_lib, config.fallback_link, config.defines);
   Step(name : config.name, kind : StepKind.SystemLibrary)
 });
 export(system_library);
-/// Module configuration for shared compilation units.
+/// Module configuration. The module's root file is declared in `yo.toml`'s
+/// `[modules]` table (`default = "src/lib.yo"`, `board = "src/board.yo"`);
+/// `build.module` names one of those to attach system libraries to it.
 ModuleConfig :: struct(
-  /// Module name.
-  name : comptime_str,
-  /// Root source file for the module.
-  root : comptime_str
+  /// Module name (`"default"` for the package's root module).
+  name : comptime_str
 );
 export(ModuleConfig);
-/// Register a named module. Returns a `BuildModule` for linking system libraries
-/// and importing into executables/libraries.
+/// Name a module of this package (see `yo.toml` `[modules]`). Returns a
+/// `BuildModule` for linking system libraries.
 _module :: (fn(comptime(config) : ModuleConfig) -> comptime(BuildModule))({
-  __yo_build_module(config.name, config.root);
-  BuildModule(name : config.name, root : config.root, _dep : "")
+  __yo_build_module(config.name);
+  BuildModule(name : config.name, _dep : "")
 });
 export(module : _module);
 /// Declare a user-configurable build option.
@@ -463,8 +428,6 @@ DocConfig :: struct(
   (format : DocFormat) ?= DocFormat.Html,
   /// Document non-exported (private) items.
   (include_private : bool) ?= false,
-  /// Document dependencies too.
-  (include_deps : bool) ?= false,
   /// Custom site title (default: project name).
   (title : comptime_str) ?= "",
   /// Release version to display (e.g., "v1.0.0").
@@ -512,7 +475,11 @@ doc :: (fn(comptime(config) : DocConfig) -> comptime(Step))({
     config.output,
     fmt_str,
     config.include_private,
-    config.include_deps,
+    // Slot kept, value fixed: `include_deps` promised documentation of the
+    // dependency closure and nothing ever read it (the plan's B13). The
+    // argument stays so an older SEED, whose builtin requires ten arguments,
+    // still evaluates this file.
+    false,
     config.title,
     config.logo,
     config.favicon,

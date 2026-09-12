@@ -1,0 +1,62 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ yield } :: import("std/async");
+Src :: enum(Git(url : String, tag : String), Path(p : String));
+tags_of :: (fn(url : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    `tags(${url})`
+  })
+);
+branch_of :: (fn(url : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    `branch(${url})`
+  })
+);
+// Two SEQUENTIAL awaiting `if` statements in one while body, both after a
+// local bound to a match value that is read again after them.
+resolve_all :: (fn(srcs : ArrayList(Src), io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := String.new();
+    (i : usize) = usize(0);
+    while(i < srcs.len(), {
+      src := srcs(i);
+      i = (i + usize(1));
+      requirement := match(src, .Git(_, t) => t, .Path(p) => p);
+      url := match(src, .Git(u, _) => u, .Path(_) => String.from("local"));
+      (want_tags : bool) = false;
+      (chosen : String) = String.new();
+      match(
+        requirement.len() == usize(0),
+        true => {
+          want_tags = true;
+        },
+        false => {
+          chosen = requirement.clone();
+        }
+      );
+      is_default := (requirement == "default");
+      if(want_tags, {
+        listed := e.io.await(tags_of(url.clone(), e.io), e);
+        chosen = listed;
+      });
+      if(is_default && (chosen.len() > usize(0)), {
+        b := e.io.await(branch_of(url.clone(), e.io), e);
+        chosen = b;
+      });
+      out.push_string(`${requirement}:${chosen};`);
+    });
+    out
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  srcs := ArrayList(Src).new();
+  srcs.push(Src.Git(String.from("u1"), String.new()));
+  srcs.push(Src.Git(String.from("u2"), String.from("default")));
+  srcs.push(Src.Path(String.from("p")));
+  println(io.await(resolve_all(srcs, io), IoExn(io : io, exn : exn)));
+});
+export(main);

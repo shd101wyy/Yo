@@ -95,7 +95,7 @@ test("AtomicI32 cross-thread counter", {
   if(arch == Arch.Wasm32, return(()));
   counter := AtomicI32(i32(0));
   iterations := i32(1000);
-  t := Thread.spawn(io => {
+  t := Thread(unit).spawn(io => {
     (i : i32) = i32(0);
     while(runtime(i < iterations), {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
@@ -631,9 +631,9 @@ test("AtomicI64 fetch_add under four-thread contention", {
       i = (i + i64(1));
     });
   });
-  t1 := Thread.spawn(io => spin(counter, iterations));
-  t2 := Thread.spawn(io => spin(counter, iterations));
-  t3 := Thread.spawn(io => spin(counter, iterations));
+  t1 := Thread(unit).spawn(io => spin(counter, iterations));
+  t2 := Thread(unit).spawn(io => spin(counter, iterations));
+  t3 := Thread(unit).spawn(io => spin(counter, iterations));
   spin(counter, iterations);
   t1.join();
   t2.join();
@@ -651,9 +651,9 @@ test("AtomicU64 fetch_sub under four-thread contention", {
       i = (i + u64(1));
     });
   });
-  t1 := Thread.spawn(io => drain(counter, iterations));
-  t2 := Thread.spawn(io => drain(counter, iterations));
-  t3 := Thread.spawn(io => drain(counter, iterations));
+  t1 := Thread(unit).spawn(io => drain(counter, iterations));
+  t2 := Thread(unit).spawn(io => drain(counter, iterations));
+  t3 := Thread(unit).spawn(io => drain(counter, iterations));
   drain(counter, iterations);
   t1.join();
   t2.join();
@@ -671,9 +671,9 @@ test("AtomicUsize fetch_add under four-thread contention", {
       i = (i + usize(1));
     });
   });
-  t1 := Thread.spawn(io => spin(counter, iterations));
-  t2 := Thread.spawn(io => spin(counter, iterations));
-  t3 := Thread.spawn(io => spin(counter, iterations));
+  t1 := Thread(unit).spawn(io => spin(counter, iterations));
+  t2 := Thread(unit).spawn(io => spin(counter, iterations));
+  t3 := Thread(unit).spawn(io => spin(counter, iterations));
   spin(counter, iterations);
   t1.join();
   t2.join();
@@ -713,9 +713,9 @@ test("AtomicU32 fetch_or / fetch_and under four-thread contention", {
       i = (i + u32(1));
     });
   });
-  t1 := Thread.spawn(io => toggle(bits, v1, u32(2), u32(4294967293), iterations));
-  t2 := Thread.spawn(io => toggle(bits, v2, u32(4), u32(4294967291), iterations));
-  t3 := Thread.spawn(io => toggle(bits, v3, u32(8), u32(4294967287), iterations));
+  t1 := Thread(unit).spawn(io => toggle(bits, v1, u32(2), u32(4294967293), iterations));
+  t2 := Thread(unit).spawn(io => toggle(bits, v2, u32(4), u32(4294967291), iterations));
+  t3 := Thread(unit).spawn(io => toggle(bits, v3, u32(8), u32(4294967287), iterations));
   toggle(bits, v0, u32(1), u32(4294967294), iterations);
   t1.join();
   t2.join();
@@ -740,9 +740,9 @@ test("AtomicU16 fetch_xor under four-thread contention", {
       i = (i + u16(1));
     });
   });
-  t1 := Thread.spawn(io => flip(flags, u16(43981), iterations));
-  t2 := Thread.spawn(io => flip(flags, u16(43981), iterations));
-  t3 := Thread.spawn(io => flip(flags, u16(4660), iterations));
+  t1 := Thread(unit).spawn(io => flip(flags, u16(43981), iterations));
+  t2 := Thread(unit).spawn(io => flip(flags, u16(43981), iterations));
+  t3 := Thread(unit).spawn(io => flip(flags, u16(4660), iterations));
   flip(flags, u16(4660), iterations);
   t1.join();
   t2.join();
@@ -783,9 +783,9 @@ test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
       i = (i + i32(1));
     });
   });
-  t1 := Thread.spawn(io => push(lowest, highest, v1, i32(1000), i32(1000)));
-  t2 := Thread.spawn(io => push(lowest, highest, v2, i32(2000), i32(1000)));
-  t3 := Thread.spawn(io => push(lowest, highest, v3, i32(3000), i32(1000)));
+  t1 := Thread(unit).spawn(io => push(lowest, highest, v1, i32(1000), i32(1000)));
+  t2 := Thread(unit).spawn(io => push(lowest, highest, v2, i32(2000), i32(1000)));
+  t3 := Thread(unit).spawn(io => push(lowest, highest, v3, i32(3000), i32(1000)));
   push(lowest, highest, v0, i32(0), i32(1000));
   t1.join();
   t2.join();
@@ -818,7 +818,7 @@ test("fence publishes a relaxed store across threads", {
   data := AtomicI64(i64(0));
   ready := AtomicBool(false);
   observed := AtomicI64(i64(-1));
-  writer := Thread.spawn(io => {
+  writer := Thread(unit).spawn(io => {
     data.store(i64(424242), MemoryOrder.Relaxed);
     fence(MemoryOrder.Release);
     ready.store(true, MemoryOrder.Relaxed);

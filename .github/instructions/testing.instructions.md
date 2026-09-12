@@ -315,7 +315,7 @@ compiler will not name those sites for you.
 
 ## Build system tests
 
-- The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
+- The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `resolver.test.yo`, `manifest.test.yo`, `toml_edit.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
 - Tests cover: build registry, artifacts, steps, DAG, dependencies, lock file, target parsing, path deps, transitive deps.
 - Run them like any other internal test: `yo test ./tests/internal/build_runner.test.yo --parallel 1`.
 - End-to-end CLI subcommand behaviour is covered separately by the `tests/cli-cases/` corpus.
@@ -339,6 +339,26 @@ locally built one, since that is what CI runs:
 ```bash
 yo fmt --check ./src ./std ./tests
 ```
+
+## A bare-repository fixture needs a tracked file under `refs/`
+
+Several `install`/`update`/`lock` cases ship a bare git repository inside the
+fixture (`fixture/remote.git`, `fixture/util.git`) and point `yo.toml` at it
+(`git = "./remote.git"`). After `git gc`/`pack-refs` the repository's `refs/`
+directory is EMPTY (every ref lives in `packed-refs`), and git does not track
+empty directories — so a fresh checkout (CI, a new worktree) has no `refs/`
+and git refuses the repository outright:
+
+```
+fatal: './remote.git' does not appear to be a git repository
+```
+
+Locally the case keeps passing, because the directory exists where the
+fixture was generated. Put a `refs/.keep` file in every fixture bare
+repository (loose-ref iteration skips dotfiles, so it is inert), then
+re-record: the file is part of the project tree the `expected_tree` golden
+hashes. Verify from a clean worktree, never only from the tree you generated
+the fixture in.
 
 ## A cli-case `cmd` needs a trailing newline, or NOTHING runs
 

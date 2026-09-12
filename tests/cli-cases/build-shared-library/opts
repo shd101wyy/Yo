@@ -1,0 +1,14 @@
+# plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.4: `build.shared_library`
+# produces a real `lib<name>.{dylib,so,dll}` (the library emission — plain
+# exported names, no `main` — linked with `-shared -fPIC`), and §4.5.3's other
+# half links it into the consumer by name out of its directory, with an rpath
+# so the loader finds it at RUN time. Before this the artifact was compiled as
+# an EXECUTABLE and failed on a missing `main`
+# (issues/fixed/shared-library-artifact-is-compiled-as-an-executable.md).
+# The program's own output (7) is the assertion — it can only print that if the
+# library was built as a real shared object, exported the symbol plainly, and
+# was FOUND by the loader at run time. The `Building …` lines are deliberately
+# not kept: the library's file name carries the platform's extension
+# (libadd.dylib / .so / .dll), so they are not comparable across the runners.
+timeout=600
+stdout_keep=^(7$|Error|error:)

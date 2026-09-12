@@ -162,7 +162,6 @@ import("std/fmt");
   BF_YO_BUILD_TARGET_HOST,
   BF_YO_BUILD_TARGET_PARSE,
   BF_YO_BUILD_DEPENDENCY,
-  BF_YO_BUILD_PATH_DEPENDENCY,
   BF_YO_BUILD_SYSTEM_LIBRARY,
   BF_YO_BUILD_LINK,
   BF_YO_BUILD_LINK_SYSTEM_LIBRARY,
@@ -170,10 +169,10 @@ import("std/fmt");
   BF_YO_BUILD_DEP_ARTIFACT,
   BF_YO_BUILD_MODULE,
   BF_YO_BUILD_MODULE_LINK,
-  BF_YO_BUILD_ADD_IMPORT,
   BF_YO_BUILD_ADD_CFLAGS,
   BF_YO_BUILD_DEP_MODULE,
   BF_YO_BUILD_DOC,
+  BF_YO_BUILD_MANIFEST_FIELD,
   BF_COMPTIME_BOOL_AND,
   BF_COMPTIME_BOOL_OR,
   BF_COMPTIME_BOOL_EQ,
@@ -332,7 +331,8 @@ import("std/fmt");
   evaluate_old,
   evaluate_forall,
   evaluate_exists,
-  evaluate_implies
+  evaluate_implies,
+  _is_verify_target
 } :: import("../builtins/contracts.yo");
 { evaluate_the } :: import("../builtins/the.yo");
 {
@@ -488,6 +488,33 @@ _check_evaluator_deadline :: (fn(exn : Exception) -> unit)(
     });
   })
 );
+/// An `assert(P, ...)` call's PREDICATE is specification (V5): ghost
+/// bindings and the ghost-only quantifier builtins are legal inside it.
+/// Bracket the arguments with the ghost flag, then run the ORDINARY call
+/// path (std/assert's assert is an ordinary function).
+_evaluate_assert_ghost_args :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  // The ghost bracket applies ONLY in verification targets: there the
+  // assert is a PROOF site (its runtime emission is suppressed). In a
+  // runtime-mode file the assert EXECUTES, so ghost bindings must stay
+  // unreadable there — the escape error fires instead (otherwise codegen
+  // would emit a runtime assert reading a name no C declaration carries).
+  tok0 := ast_expr_token(expr);
+  if(!_is_verify_target(tok0.module_path.clone()), {
+    return(evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn));
+  });
+  prev_ghost := ctx.is_ghost_context;
+  ctx.is_ghost_context = true;
+  out := evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn);
+  ctx.is_ghost_context = prev_ghost;
+  out
+});
 /// `exists` is BOTH the ghost-only verification quantifier (V5,
 /// plans/backlog/FORMAL_VERIFICATION.md §6) and — historically — the name
 /// std/fs's path-existence check is exported under
@@ -873,6 +900,8 @@ _evaluate_expression :: (
           evaluate_ghost_fn(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_OLD, .None)) =>
           evaluate_old(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, "assert", Option(usize).None)) =>
+          _evaluate_assert_ghost_args(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_FORALL, .None)) =>
           evaluate_forall(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_EXISTS, .None)) =>
@@ -1088,18 +1117,17 @@ _evaluate_expression :: (
                         ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_HOST, .None)) ||
                           ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_PARSE, .None)) ||
                             ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEPENDENCY, .None)) ||
-                              ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_PATH_DEPENDENCY, .None)) ||
-                                ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY, .None)) ||
-                                  ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK, .None)) ||
-                                    ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK_SYSTEM_LIBRARY, .None)) ||
-                                      ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, .None)) ||
-                                        ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_ARTIFACT, .None)) ||
-                                          ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE, .None)) ||
-                                            ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE_LINK, .None)) ||
-                                              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_IMPORT, .None)) ||
-                                                ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS, .None)) ||
-                                                  ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, .None)) ||
-                                                    ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, .None))
+                              ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY, .None)) ||
+                                ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK, .None)) ||
+                                  ((__dk_len == usize(30)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK_SYSTEM_LIBRARY, .None)) ||
+                                    ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, .None)) ||
+                                      ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_ARTIFACT, .None)) ||
+                                        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE, .None)) ||
+                                          ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE_LINK, .None)) ||
+                                            ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS, .None)) ||
+                                              ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_MODULE, .None)) ||
+                                                ((__dk_len == usize(14)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, .None)) ||
+                                                  ((__dk_len == usize(25)) && ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MANIFEST_FIELD, .None))
         ) => {
           // Pre-evaluate args before dispatching — the build builtins read
           // each arg's resolved comptime value from the expr-info table.
