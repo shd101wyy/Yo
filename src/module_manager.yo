@@ -34,6 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { getenv } :: import("std/libc/stdlib");
 { current_exe, cwd } :: import("std/env");
+{ record_input_file } :: import("./input_record.yo");
 { Instant } :: import("std/time/instant");
 { profile_record_module } :: import("./utils.yo");
 { AstExpr } :: import("./expr.yo");
@@ -89,58 +90,6 @@ pragma(Pragma.AllowUnsafe);
 // (alloc_global_expr_id), so a shared table has no cross-module key collisions.
 // `.None` during `check`/`test` (each file keeps its own table).
 (g_shared_expr_info_table : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
-// ── Opened-input record (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9)
-//
-// Every `.yo` file this process READ while evaluating, in first-open order and
-// without duplicates. `yo compile --emit-deps <file>` writes it, and the build
-// runner hashes exactly that list instead of walking the whole project and the
-// whole std tree per artifact (audit B10's over-hashing half).
-//
-// Recorded at the two places a source file is actually read — the entry module
-// in `mm_load_file` and every demand-loaded module in `_load_module_at_abs` —
-// so a module that is a CACHE HIT on a later pass is still listed from its
-// first open. Paths are plain filesystem paths: `file://` is stripped, because
-// the consumer stats them.
-(g_opened_files : ArrayList(String)) = ArrayList(String).new();
-/// Record `path` as an evaluation input. A repeat is ignored, so the list is
-/// the SET of inputs in first-open order.
-///
-/// The path is ABSOLUTE, always. The two spellings of a module path meet here:
-/// a demand-loaded module arrives as the `file://<abs>` cache key, while the
-/// ENTRY arrives exactly as it was typed on the command line (`src/main.yo`, so
-/// diagnostics stay relative). A depfile mixing the two only works while its
-/// reader happens to share the writer's cwd — and the build runner reads it
-/// from wherever `yo build` was invoked. `_std_canonicalize` is the same
-/// lexical absolutize-and-fold the std path already gets.
-_record_opened_file :: (fn(path : String) -> unit)({
-  fs := _std_canonicalize(path.replace(String.from("file://"), String.new()));
-  if(fs.len() == usize(0), {
-    return(());
-  });
-  (i : usize) = usize(0);
-  while(i < g_opened_files.len(), {
-    match(
-      g_opened_files.get(i),
-      .Some(seen) => if(seen == fs, {
-        return(());
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  g_opened_files.push(fs);
-});
-/// Start a fresh input record. `yo compile` calls this before evaluating so a
-/// long-lived process (the LSP, `check --watch`) does not accumulate.
-mm_reset_opened_files :: (fn() -> unit)({
-  g_opened_files = ArrayList(String).new();
-});
-/// The files read so far, in first-open order.
-mm_opened_files :: (fn() -> ArrayList(String))(g_opened_files);
-/// Record an input the loader itself did not open — `run_compile` reads the
-/// ENTRY module directly rather than through `mm_load_file`, so it reports its
-/// own read here.
-mm_record_opened_file :: (fn(path : String) -> unit)(_record_opened_file(path));
 /// Message slot for a module-eval error captured inside
 /// `_eval_module_exprs_capturing_error`'s handler. Handlers cannot reference
 /// outer runtime variables, but they CAN call module-level FUNCTIONS — so the
@@ -638,7 +587,7 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   // COMPTIME read — synchronous on purpose (see manifest.yo `read_file_sync`): the demand
   // loader runs inside the evaluator's comptime import resolution, where the
   // async read's blocking poll loop would nest the event loop (C37/C42).
-  _record_opened_file(fs_path.clone());
+  record_input_file(fs_path.clone());
   src_bytes := read_file_sync(fs_path.clone(), exn);
   (src : String) = String.from_bytes(src_bytes);
   // Open-buffer overlay (Phase B1): the editor's text wins over the disk
@@ -996,7 +945,7 @@ mm_load_file :: (
   // a module runs inside the evaluator, and under `yo build` inside
   // run_build's async task, where the async read's blocking poll loop would
   // nest the event loop (C37/C42).
-  _record_opened_file(input_path.clone());
+  record_input_file(input_path.clone());
   src_bytes := read_file_sync(input_path.clone(), exn);
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path.clone(), local_exn);
@@ -1127,8 +1076,5 @@ export(
   mm_eval_entry_exprs,
   mm_load_file,
   mm_preload_prelude,
-  mm_load_yo_file,
-  mm_reset_opened_files,
-  mm_opened_files,
-  mm_record_opened_file
+  mm_load_yo_file
 );

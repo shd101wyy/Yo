@@ -129,6 +129,34 @@ Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))
 IntArray5 :: Array(i32, 5);
 ```
 
+### 编译期读取文件：`comptime_read_file`
+
+`comptime_read_file(path)` 在编译期读取文件，并把其字节作为 `comptime_str` 返回
+——相当于 Zig 的 `@embedFile`：
+
+```rust
+VERSION :: comptime_read_file("./VERSION");
+SHADER  :: comptime_read_file("./shaders/blit.wgsl");
+
+comptime_assert(VERSION == "0.4.1\n");   // 在编译期检查
+```
+
+两条规则保证它的行为可预测：
+
+1. **路径相对于发起 import 的文件**，而不是进程的工作目录。无论从哪里执行
+   `yo build`，同一个模块读到的字节都相同。
+2. **必须落在该文件所属的包根目录内**——即其上方最近的 `yo.toml` 所在目录，
+   否则是最近包含 `build.yo` 的目录，再否则是该文件自身所在目录。越界读取是编译
+   错误；检查基于词法折叠后的路径，因此 `..` 无法先爬出去再绕回来。
+
+文件不存在同样是编译错误，并在调用处报告。
+
+该文件是本次编译的**输入**：`yo compile --emit-deps` 会列出它，`yo build` 在它
+变化时重新构建对应产物（参见构建系统文档的"增量构建"一节）。编辑被嵌入的数据文件
+会让缓存失效，与编辑 `.yo` 源文件完全一致。
+
+二进制内容也没有问题：该值是字节串，含引号、换行或非 UTF-8 字节的文件都会原样保留。
+
 ## 与 Rust 的对比
 
 Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：

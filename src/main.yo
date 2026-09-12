@@ -107,11 +107,9 @@ json :: import("std/encoding/json");
   mm_eval_entry_exprs,
   mm_load_file,
   mm_preload_prelude,
-  mm_reset_opened_files,
-  mm_opened_files,
-  mm_record_opened_file,
   _take_load_error
 } :: import("./module_manager.yo");
+{ record_input_file, reset_input_files, input_files } :: import("./input_record.yo");
 { YoError, render_any_error } :: import("./error.yo");
 {
   render_diagnostics_for_mode,
@@ -2798,7 +2796,7 @@ run_compile :: (
     // §4.9: this compile's input record starts empty. `run_compile` can be
     // reached more than once in a process (the LSP, `check --watch`), and a
     // depfile naming a previous compile's inputs would over-invalidate.
-    mm_reset_opened_files();
+    reset_input_files();
     shared_info_table := expr_info_table_new();
     mm_set_shared_expr_info_table(shared_info_table);
     // Ensure the prelude env is cached (provides std types to the evaluator).
@@ -2821,7 +2819,7 @@ run_compile :: (
     // The entry is read HERE, not through `mm_load_file`, so it reports its own
     // open — otherwise the depfile would omit the one file the artifact is
     // named after.
-    mm_record_opened_file(input_path.clone());
+    record_input_file(input_path.clone());
     src := String.from_bytes(src_bytes);
     exprs := parse(src, input_path.clone(), exn);
     profile_record_phase(String.from("read+parse entry"), prof_parse_t0.elapsed().as_nanos());
@@ -2877,7 +2875,7 @@ run_compile :: (
     // Written before codegen so `--skip-codegen` and `--skip-c-compiler`
     // callers get a depfile too.
     if(emit_deps_to.len() > usize(0), {
-      io.await(_write_depfile(emit_deps_to.clone(), mm_opened_files(), io, exn), IoExn(io : io, exn : exn));
+      io.await(_write_depfile(emit_deps_to.clone(), input_files(), io, exn), IoExn(io : io, exn : exn));
     });
     // V3: contract verification runs BEFORE codegen (the verify+ strip
     // rewrites function bodies in place); a failure exits 1 — the
