@@ -24,7 +24,9 @@ every file:line, are in the per-group notes this plan was distilled from (see
 Written after the v0.2.31 release, by walking every row of this document
 against the code rather than against the previous status note. **Every item
 below is either DONE, blocked on a named language feature with its own plan
-doc, or one of two remaining engineering items.** §5's three maintainer
+doc, or one of two engineering items that are now BOTH substantially landed —
+what is left of either is a named compiler defect with a reproducer, not
+unwritten work.** §5's three maintainer
 decisions are all made and implemented — nothing is waiting on anyone.
 
 ### Done, and no longer to be re-read as open
@@ -39,7 +41,9 @@ decisions are all made and implemented — nothing is waiting on anyone.
   documentation sweep. `yo doc ./std --format json` went 1554 → 1161
   undocumented of 3368.
 - **The waker campaign** (`plans/WAKER_BASED_SCHEDULING.md`) is complete
-  through step 4 except for the shape note there. Steps 1, 3a and 3b landed in
+  through step 4 except for the shape note there, and step 5's RUNTIME landed
+  2026-09-12 (#628) — only `spawn_blocking` is held back, on a compiler defect
+  rather than on the runtime. Steps 1, 3a and 3b landed in
   v0.2.31; **step 2 landed once v0.2.31 became the seed** — `yield` has no
   timer under it any more, and a LIFO defect in the shared yield list fell out
   of doing it. This document's concurrency row said "STILL OPEN: waker-based
@@ -80,7 +84,7 @@ Nothing is waiting on anyone here. Re-checked against the code 2026-09-12:
 | `ErrorChain`/`root_cause` | a compiler DEFECT, not a missing feature — #521, `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md` |
 | `JsonValue` integer arms | deliberately deferred to a breaking window (§4, encoding) |
 
-### The two engineering items that are genuinely open
+### The two engineering items — both landed 2026-09-12, both with a named residue
 
 **1. D18b — `Thread(T).spawn` carrying its result, `join() -> T`.** **LANDED
 2026-09-12.** `Thread(T)` is generic, `spawn` takes
@@ -125,14 +129,32 @@ blamed:
   primitives dispatched after the argument-materialization loop had already
   generated the callback once.
 
-**2. Waker step 5 — cross-thread wake and `spawn_blocking`.**
-`__yo_waker_wake` is already atomic on the future's own fields, but
-`__yo_async_enqueue_continuation` writes a THREAD-LOCAL ready queue, so a wake
-from a worker thread has nowhere safe to put the continuation and no way to
-rouse a loop parked in `__yo_io_wait`. That needs a cross-thread wake queue plus
-a loop wakeup channel (eventfd / pipe / kqueue `EVFILT_USER`), and
-`spawn_blocking` needs it before it is expressible at all
-(`std/net/dns.yo` names it as the reason `lookup_host` blocks).
+**2. Waker step 5 — cross-thread wake and `spawn_blocking`.** **The RUNTIME
+LANDED 2026-09-12 (#628); `spawn_blocking` is written but held back.**
+
+Each event loop owns one explicitly locked inbox plus a wakeup channel into its
+own I/O backend (`EVFILT_USER` on kqueue, an eventfd with a re-armed `POLL_ADD`
+on io_uring, `PostQueuedCompletionStatus` on IOCP, a no-op on wasm); a foreign
+wake pushes the waker TOKEN onto the owner's inbox and nudges that channel, and
+the owner drains it on its own thread. So exactly one new piece of shared state
+exists, it is locked, every runtime variable stays single-threaded, and NO
+reference count ever crosses a thread — the token travels, not the future.
+`Waker` is `atomic(ref(...))` and therefore `Send`.
+`tests/cross_thread_wake.test.yo` gates it, asserting the THREAD the task
+resumes on rather than the value it gets: measured by emitted-C A/B, the value
+arrives either way and only the thread identity flips.
+
+What is left is `spawn_blocking` itself, and it is not blocked on the runtime
+any more — it is blocked on a compiler defect. It is
+`fn(generic(T), own(cb) : Impl(Fn() -> T, Send), io) -> Impl(Future(T, Io))`,
+and the closure-param form of that shape emits its async block ONCE for every
+instantiation, so it works for one `T` per program and silently miscompiles the
+second (`issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
+— the value-param form of the same family is fixed, in #619). The function is
+written, eager, measured working end to end, and left unexported with the reason
+in its doc comment; its tests are parked at
+`issues/repros/spawn-blocking-tests.yo`. `std/net/dns.yo` still names
+`spawn_blocking` as the reason `lookup_host` blocks.
 
 ### One more, outside this document's scope but tracked with it
 
