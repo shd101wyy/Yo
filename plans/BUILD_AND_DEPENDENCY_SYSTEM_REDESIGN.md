@@ -1,8 +1,8 @@
 # Build system & dependency system — audit and redesign plan
 
-_Status: **P0, P1 and §4.8/§4.9 of P3 LANDED (2026-09-12)**; P2 (compile-time
-inputs) and §4.6 (workspaces) remain, P4 (registry, `yo publish`) is designed
-and deliberately not scheduled._
+_Status: **COMPLETE (2026-09-13)** — P0, P1, P2 (§5.1, §5.2, §5.4) and P3
+(§4.6, §4.8, §4.9) have all landed. P4 (registry, `yo publish`) is designed
+and deliberately not scheduled; §4.10 records its shape._
 
 _Proposed 2026-09-11, revised the same day after maintainer review — the
 manifest is **declarative data read without the evaluator**; after weighing
@@ -20,11 +20,17 @@ and real `dep.artifact()` linking (#611) · **P1.4e** shared libraries with rpat
 (#615) · **P1.4f** the runner stops failing silently (#616) · **P1.4g** run
 arguments, a stamp that sees dotted directories, one name namespace (#618) ·
 **P1.4h / §4.8** parallel DAG levels and `-j N` (#620) · **B13** the last of the
-write-only state (#626) · **§4.9** depfile-scoped stamps (#631). The five bugs the audit reproduced are filed
+write-only state (#626) · **§4.9** depfile-scoped stamps (#631) · **§5.1**
+`comptime_read_file` (#632) · **§5.2** `comptime_json_parse` /
+`comptime_toml_parse` (#633) · **§5.4** `build.env` (#642) · **§4.6**
+workspaces (#646). The five bugs the audit reproduced are filed
 under `issues/` and are all fixed. The campaign surfaced further compiler bugs
-of its own along the way; the two that landed with this stack are the extern
-prototype collision and the `-O2` flag that hid it (#624), and the build
-scheduler's nested event loop (in #620)._
+of its own along the way. Two were FIXED with this stack: the extern prototype
+collision and the `-O2` flag that hid it (#624), and the build scheduler's
+nested event loop (in #620). Two are filed OPEN, each worked around
+structurally rather than by weakening a feature:
+`issues/yo-doc-infers-the-project-name-from-package-json.md` and
+`issues/async-body-local-read-by-two-matches-is-emitted-twice.md`._
 
 The question that prompted this plan, from the maintainer, in three parts:
 
