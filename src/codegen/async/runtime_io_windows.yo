@@ -904,6 +904,58 @@ static void __yo_wsa_init(void) {
   __yo_wsa_initialized = true;
 }
 
+// Socket-fd registry. A SOCKET HANDLE VALUE travels through this runtime as
+// an i32 "fd" (the result of __yo_async_socket_start / accept /
+// __yo_sync_socketpair), and by VALUE it is indistinguishable from a CRT
+// file descriptor. The old close paths probed Winsock first (closesocket,
+// fall back to _close on WSAENOTSOCK), which had two failure modes: a CRT fd
+// whose number collides with a live socket handle closed the WRONG object,
+// and — the reproduced one — a close in a program that never ran WSAStartup
+// got WSANOTINITIALISED (not WSAENOTSOCK), skipped _close entirely, and
+// leaked the fd on every close until the CRT table hit EMFILE
+// (issues/fixed/windows-file-close-leaks-fd-until-wsa-is-started.md).
+// Every socket this runtime creates is registered here; close consults the
+// registry instead of probing Winsock. The list is process-global: sockets
+// are created and closed on the event-loop thread, and __yo_sync_socketpair
+// callers run wherever std runs them — a missed unregister leaks one node,
+// never a mis-close.
+typedef struct __yo_win_sock_fd_s {
+  int32_t fd;
+  struct __yo_win_sock_fd_s* next;
+} __yo_win_sock_fd_t;
+
+static __yo_win_sock_fd_t* __yo_win_sock_fds = NULL;
+
+static void __yo_win_fd_mark_socket(int32_t fd) {
+  __yo_win_sock_fd_t* node = (__yo_win_sock_fd_t*)__yo_malloc(sizeof(__yo_win_sock_fd_t));
+  if (!node) return; // OOM: the fd stays untracked and _close reports EBADF at worst
+  node->fd = fd;
+  node->next = __yo_win_sock_fds;
+  __yo_win_sock_fds = node;
+}
+
+static bool __yo_win_fd_is_socket(int32_t fd) {
+  __yo_win_sock_fd_t* cur = __yo_win_sock_fds;
+  while (cur) {
+    if (cur->fd == fd) return true;
+    cur = cur->next;
+  }
+  return false;
+}
+
+static void __yo_win_fd_unmark_socket(int32_t fd) {
+  __yo_win_sock_fd_t** link = &__yo_win_sock_fds;
+  while (*link) {
+    if ((*link)->fd == fd) {
+      __yo_win_sock_fd_t* node = *link;
+      *link = node->next;
+      __yo_free(node);
+      return;
+    }
+    link = &(*link)->next;
+  }
+}
+
 static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
   __yo_wsa_init();
 
@@ -1031,6 +1083,8 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
 
   sv[0] = (int32_t)(uintptr_t)client;
   sv[1] = (int32_t)(uintptr_t)server;
+  __yo_win_fd_mark_socket(sv[0]);
+  __yo_win_fd_mark_socket(sv[1]);
   return 0;
 }
 
@@ -1199,14 +1253,14 @@ static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
 }
 
 static void __yo_file_close(int32_t fd) {
-  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)fd;
-  int cs = closesocket(s);
-  if (cs != 0) {
-    DWORD wsa_err = WSAGetLastError();
-    if (wsa_err == WSAENOTSOCK) {
-      _close(fd);
-    }
+  // Registry-driven, not closesocket-probed: see __yo_win_sock_fds above.
+  if (__yo_win_fd_is_socket(fd)) {
+    __yo_wsa_init();
+    closesocket((SOCKET)(uintptr_t)(uint32_t)fd);
+    __yo_win_fd_unmark_socket(fd);
+    return;
   }
+  _close(fd);
 }
 
 static int64_t __yo_file_size(int32_t fd) {
@@ -2019,6 +2073,16 @@ typedef struct {
   char accept_buf[2 * (sizeof(SOCKADDR_STORAGE) + 16)];
   void* out_addr;
   uint32_t* out_addrlen;
+  // ConnectEx bookkeeping (is_connect): nothing beyond the socket itself —
+  // the completion result is just "0 bytes transferred" and success needs
+  // SO_UPDATE_CONNECT_CONTEXT.
+  bool is_connect;
+  // WSARecvFrom bookkeeping: the kernel writes the source-address LENGTH at
+  // completion time, so it cannot point at a caller stack local that dies
+  // with the start call. The int lives here; the completion path copies it
+  // back through out_fromlen.
+  uint32_t* out_fromlen;
+  int from_len;
 } __yo_win_overlapped_t;
 
 // AcceptEx / GetAcceptExSockaddrs are Microsoft extensions fetched through
@@ -2026,6 +2090,7 @@ typedef struct {
 // the rest of the loop state.
 static __declspec(thread) LPFN_ACCEPTEX __yo_win_acceptex = NULL;
 static __declspec(thread) LPFN_GETACCEPTEXSOCKADDRS __yo_win_getacceptexsockaddrs = NULL;
+static __declspec(thread) LPFN_CONNECTEX __yo_win_connectex = NULL;
 
 static void __yo_win_load_acceptex(SOCKET s) {
   if (__yo_win_acceptex && __yo_win_getacceptexsockaddrs) return;
@@ -2043,6 +2108,16 @@ static void __yo_win_load_acceptex(SOCKET s) {
                  &__yo_win_getacceptexsockaddrs, sizeof(__yo_win_getacceptexsockaddrs), &bytes, NULL, NULL) != 0) {
       __yo_win_getacceptexsockaddrs = NULL;
     }
+  }
+}
+
+static void __yo_win_load_connectex(SOCKET s) {
+  if (__yo_win_connectex) return;
+  GUID g_connect = WSAID_CONNECTEX;
+  DWORD bytes = 0;
+  if (WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER, &g_connect, sizeof(g_connect),
+               &__yo_win_connectex, sizeof(__yo_win_connectex), &bytes, NULL, NULL) != 0) {
+    __yo_win_connectex = NULL;
   }
 }
 
@@ -2081,6 +2156,7 @@ static void __yo_win_finish_accept(__yo_win_overlapped_t* ov, bool ok) {
     CreateIoCompletionPort((HANDLE)ov->accept_sock, __yo_io_iocp, 0, 0);
     SetFileCompletionNotificationModes((HANDLE)ov->accept_sock, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
   }
+  __yo_win_fd_mark_socket((int32_t)(uintptr_t)ov->accept_sock);
   ov->future->result = (int32_t)(uintptr_t)ov->accept_sock;
 }
 
@@ -2318,6 +2394,14 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
   // fields directly to save a per-completion syscall.
   NTSTATUS status = (NTSTATUS)ov->overlapped.Internal;
   if (status == 0) {
+    if (ov->is_connect) {
+      // ConnectEx requires the context update before the socket behaves
+      // like a connect() result (getpeername, shutdown, reconnect).
+      setsockopt(ov->sock, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
+    }
+    if (ov->out_fromlen) {
+      *ov->out_fromlen = (uint32_t)ov->from_len;
+    }
     ov->future->result = (int32_t)bytes;
   } else if (ov->is_socket) {
     // RtlNtStatusToDosError lives in ntdll; rather than dynamically loading
@@ -2329,6 +2413,9 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
     if (!ok) {
       ov->future->result = -(int32_t)WSAGetLastError();
     } else {
+      if (ov->out_fromlen) {
+        *ov->out_fromlen = (uint32_t)ov->from_len;
+      }
       ov->future->result = (int32_t)transferred;
     }
   } else {
@@ -2756,18 +2843,16 @@ static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)fd;
-  int cs = closesocket(s);
-  if (cs == 0) {
+  // Registry-driven close (see __yo_win_sock_fds): a socket fd goes to
+  // closesocket, everything else to _close. __yo_io_init above guarantees
+  // Winsock is started for the closesocket arm.
+  if (__yo_win_fd_is_socket(fd)) {
+    closesocket((SOCKET)(uintptr_t)(uint32_t)fd);
+    __yo_win_fd_unmark_socket(fd);
     future->result = 0;
   } else {
-    DWORD wsa_err = WSAGetLastError();
-    if (wsa_err == WSAENOTSOCK) {
-      int result = _close(fd);
-      future->result = (result < 0) ? -errno : 0;
-    } else {
-      future->result = -(int32_t)wsa_err;
-    }
+    int result = _close(fd);
+    future->result = (result < 0) ? -errno : 0;
   }
   atomic_init(&future->state, -1);
   return future;
@@ -3285,6 +3370,7 @@ static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, i
       CreateIoCompletionPort((HANDLE)s, __yo_io_iocp, 0, 0);
       SetFileCompletionNotificationModes((HANDLE)s, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
     }
+    __yo_win_fd_mark_socket((int32_t)(uintptr_t)s);
     future->result = (int32_t)(uintptr_t)s;
   }
   atomic_init(&future->state, -1);
@@ -3412,6 +3498,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
       CreateIoCompletionPort((HANDLE)result, __yo_io_iocp, 0, 0);
       SetFileCompletionNotificationModes((HANDLE)result, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
     }
+    __yo_win_fd_mark_socket((int32_t)(uintptr_t)result);
     future->result = (int32_t)(uintptr_t)result;
   }
   atomic_init(&future->state, -1);
@@ -3427,7 +3514,79 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  int result = connect((SOCKET)(uintptr_t)(uint32_t)sockfd, (const struct sockaddr*)addr, (int)addrlen);
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)sockfd;
+  // Overlapped connect. The plain connect() below runs on a BLOCKING socket
+  // and parks the whole event loop inside the kernel for the TCP
+  // SYN-retransmit window — ~21 s against a black-holed address — with every
+  // concurrent task frozen behind it (the D6 accept hang's sibling;
+  // issues/fixed/windows-blocking-connect-parks-the-event-loop.md). ConnectEx
+  // is the overlapped form, completed through this port exactly like
+  // send/recv. It is an AF_INET/AF_INET6 extension for STREAM sockets only:
+  // gate on the SOCKET'S OWN family and type BEFORE consulting the cached
+  // pointer (the accept-family comment applies here too — the extension
+  // pointers are thread-locals shared by every socket on this loop). UDP
+  // connect() is a local, immediate filter install that never blocks, so it
+  // keeps the plain call.
+  struct sockaddr_storage local_name;
+  int local_name_len = (int)sizeof(local_name);
+  int family = AF_INET;
+  if (getsockname(s, (struct sockaddr*)&local_name, &local_name_len) == 0) {
+    family = local_name.ss_family;
+  }
+  int sock_type = 0;
+  int sock_type_len = (int)sizeof(sock_type);
+  bool stream_socket = (getsockopt(s, SOL_SOCKET, SO_TYPE, (char*)&sock_type, &sock_type_len) == 0
+                        && sock_type == SOCK_STREAM);
+  bool connectex_family = (family == AF_INET || family == AF_INET6) && stream_socket;
+  if (connectex_family) {
+    __yo_win_load_connectex(s);
+  }
+  if (connectex_family && __yo_win_connectex) {
+    // ConnectEx requires the socket to be bound first. A client socket from
+    // __yo_async_socket_start is not; bind to the family's wildcard. An
+    // already-bound socket fails WSAEINVAL here, which is equally fine.
+    struct sockaddr_storage bind_addr;
+    memset(&bind_addr, 0, sizeof(bind_addr));
+    if (family == AF_INET6) {
+      ((struct sockaddr_in6*)&bind_addr)->sin6_family = AF_INET6;
+      bind(s, (struct sockaddr*)&bind_addr, (socklen_t)sizeof(struct sockaddr_in6));
+    } else {
+      ((struct sockaddr_in*)&bind_addr)->sin_family = AF_INET;
+      bind(s, (struct sockaddr*)&bind_addr, (socklen_t)sizeof(struct sockaddr_in));
+    }
+
+    __yo_win_associate_handle((HANDLE)s);
+    __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_rc_alloc(sizeof(__yo_win_overlapped_t));
+    memset(ov, 0, sizeof(__yo_win_overlapped_t));
+    ov->future = future;
+    ov->is_socket = true;
+    ov->is_connect = true;
+    ov->sock = s;
+
+    BOOL ok = __yo_win_connectex(s, (const struct sockaddr*)addr, (int)addrlen, NULL, 0, NULL, &ov->overlapped);
+    if (ok) {
+      // Synchronous completion (loopback): with FILE_SKIP_COMPLETION_PORT_ON_SUCCESS
+      // on the socket no packet is posted, so finish inline.
+      setsockopt(s, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
+      future->result = 0;
+      atomic_init(&future->state, -1);
+      __yo_win_free_overlapped(ov);
+      return future;
+    }
+    int err = WSAGetLastError();
+    if (err == ERROR_IO_PENDING || err == WSA_IO_PENDING) {
+      atomic_init(&future->state, 0);
+      __yo_pending_io_count++;
+      return future;
+    }
+    future->result = -(int32_t)err;
+    atomic_init(&future->state, -1);
+    __yo_win_free_overlapped(ov);
+    return future;
+  }
+
+  // AF_UNIX (no ConnectEx) or a datagram socket: the historical plain call.
+  int result = connect(s, (const struct sockaddr*)addr, (int)addrlen);
   future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
   atomic_init(&future->state, -1);
   return future;
@@ -3542,12 +3701,44 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
 
   if (len > INT_MAX) {
     future->result = -EINVAL;
-  } else {
-    int result = sendto((SOCKET)(uintptr_t)(uint32_t)sockfd, (const char*)buf, (int)len, flags,
-                        (const struct sockaddr*)dest_addr, (int)addrlen);
-    future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : result;
+    atomic_init(&future->state, -1);
+    return future;
   }
+
+  // Overlapped, like send/recv above: the plain sendto() on a blocking
+  // socket parked the event loop whenever the datagram path could not take
+  // the packet immediately.
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)sockfd;
+  __yo_win_associate_handle((HANDLE)s);
+  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_rc_alloc(sizeof(__yo_win_overlapped_t));
+  memset(ov, 0, sizeof(__yo_win_overlapped_t));
+  ov->future = future;
+  ov->is_socket = true;
+  ov->sock = s;
+  ov->wsabuf.buf = (char*)buf;
+  ov->wsabuf.len = (ULONG)len;
+
+  DWORD sent = 0;
+  int result = WSASendTo(s, &ov->wsabuf, 1, &sent, (DWORD)flags,
+                         (const struct sockaddr*)dest_addr, (int)addrlen, &ov->overlapped, NULL);
+
+  if (result == 0) {
+    // Synchronous completion -- FILE_SKIP_COMPLETION_PORT_ON_SUCCESS means
+    // no IOCP packet will be posted, so complete the future immediately.
+    future->result = (int32_t)sent;
+    atomic_init(&future->state, -1);
+    __yo_win_free_overlapped(ov);
+    return future;
+  }
+  if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
+    atomic_init(&future->state, 0);
+    __yo_pending_io_count++;
+    return future;
+  }
+
+  future->result = -(int32_t)WSAGetLastError();
   atomic_init(&future->state, -1);
+  __yo_win_free_overlapped(ov);
   return future;
 }
 
@@ -3563,18 +3754,51 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
 
   if (len > INT_MAX) {
     future->result = -EINVAL;
-  } else {
-    int alen = (int)(*addrlen);
-    int result = recvfrom((SOCKET)(uintptr_t)(uint32_t)sockfd, (char*)buf, (int)len, flags,
-                          (struct sockaddr*)src_addr, &alen);
-    if (result == SOCKET_ERROR) {
-      future->result = -(int32_t)WSAGetLastError();
-    } else {
-      *addrlen = (uint32_t)alen;
-      future->result = result;
-    }
+    atomic_init(&future->state, -1);
+    return future;
   }
+
+  // Overlapped, like recv above: a blocking recvfrom() on a quiet socket
+  // parked the WHOLE loop until a datagram arrived, freezing every other
+  // task — the accept/connect bug class.
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)sockfd;
+  __yo_win_associate_handle((HANDLE)s);
+  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_rc_alloc(sizeof(__yo_win_overlapped_t));
+  memset(ov, 0, sizeof(__yo_win_overlapped_t));
+  ov->future = future;
+  ov->is_socket = true;
+  ov->sock = s;
+  ov->wsabuf.buf = (char*)buf;
+  ov->wsabuf.len = (ULONG)len;
+  ov->sock_flags = (DWORD)flags;
+  // WSARecvFrom writes the source length at COMPLETION time, so it must
+  // point at storage that outlives this call: the int rides in the
+  // overlapped struct and the completion path copies it back to the caller.
+  ov->from_len = (int)(*addrlen);
+  ov->out_fromlen = addrlen;
+
+  DWORD received = 0;
+  int result = WSARecvFrom(s, &ov->wsabuf, 1, &received, &ov->sock_flags,
+                           (struct sockaddr*)src_addr, &ov->from_len, &ov->overlapped, NULL);
+
+  if (result == 0) {
+    // Synchronous completion -- FILE_SKIP_COMPLETION_PORT_ON_SUCCESS means
+    // no IOCP packet will be posted, so complete the future immediately.
+    *addrlen = (uint32_t)ov->from_len;
+    future->result = (int32_t)received;
+    atomic_init(&future->state, -1);
+    __yo_win_free_overlapped(ov);
+    return future;
+  }
+  if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
+    atomic_init(&future->state, 0);
+    __yo_pending_io_count++;
+    return future;
+  }
+
+  future->result = -(int32_t)WSAGetLastError();
   atomic_init(&future->state, -1);
+  __yo_win_free_overlapped(ov);
   return future;
 }
 
@@ -4238,6 +4462,12 @@ typedef struct __yo_fs_event_s {
   OVERLAPPED overlapped;
   char notify_buf[4096];
   int use_rdcw;
+  // The caller's recursive choice, replayed on every ReadDirectoryChangesW
+  // rearm in __yo_poll_and_fs_event_tick. Hard-coding FALSE there armed the
+  // re-watch for the top directory only, silently narrowing a recursive
+  // watch after its first delivered batch
+  // (issues/fixed/windows-fs-watch-rearm-drops-recursive-flag.md).
+  int watch_subtree;
   struct __yo_fs_event_s* next;
 } __yo_fs_event_t;
 
@@ -4298,7 +4528,8 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
     memset(&handle->overlapped, 0, sizeof(OVERLAPPED));
     handle->overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
-    BOOL watch_subtree = (flags & 4) ? TRUE : FALSE;
+    handle->watch_subtree = (flags & 4) ? 1 : 0;
+    BOOL watch_subtree = handle->watch_subtree ? TRUE : FALSE;
     DWORD filter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
                    FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
                    FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION;
@@ -4318,8 +4549,11 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
       return -err;
     }
   } else {
+    // Bounded copy: wpath is caller-supplied and can exceed MAX_PATH, and an
+    // unbounded wcscpy here smashed the stack.
     wchar_t dir_part[MAX_PATH];
-    wcscpy(dir_part, wpath);
+    wcsncpy(dir_part, wpath, MAX_PATH - 1);
+    dir_part[MAX_PATH - 1] = L'\\0';
     wchar_t* last_sep = wcsrchr(dir_part, L'\\\\');
     if (!last_sep) last_sep = wcsrchr(dir_part, L'/');
     if (last_sep) {
@@ -4542,7 +4776,7 @@ static int __yo_poll_and_fs_event_tick(void) {
             }
             ReadDirectoryChangesW(fse->dir_handle,
               fse->notify_buf, sizeof(fse->notify_buf),
-              FALSE,
+              fse->watch_subtree ? TRUE : FALSE,
               FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
               FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
               FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION,

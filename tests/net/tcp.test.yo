@@ -15,6 +15,8 @@ pragma(Pragma.AllowUnsafe);
 { Stream } :: import("std/async/stream");
 { timeout } :: import("std/async");
 { Duration } :: import("std/time/duration");
+{ sleep } :: import("std/sys/timer");
+{ Instant } :: import("std/time/instant");
 // ============================================================================
 // TcpListener tests
 // ============================================================================
@@ -638,4 +640,52 @@ test("a consumer loop over incoming serves each connection in turn", {
   io.await(client1.close(io), IoExn(io : io, exn : exn));
   io.await(client2.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+
+test("connecting to a non-routable address does not park the event loop", {
+  // 192.0.2.1 is TEST-NET-1 (RFC 5737) — never deliverable, so the connect
+  // stays pending for the TCP SYN-retransmit window. The Windows backend
+  // used to issue the BLOCKING connect() on the loop thread: the 300 ms
+  // sleep below — a SEPARATE task, started after the connect was underway —
+  // could not run until that window expired, and measured ~21 s
+  // (issues/fixed/windows-blocking-connect-parks-the-event-loop.md; the
+  // accept() sibling of this hang was D6). ConnectEx is overlapped now,
+  // like send/recv; io_uring platforms were never parked, so this pins the
+  // shared shape. On a network that refuses TEST-NET immediately the
+  // connect resolves fast and the assert still passes, just less
+  // discriminatingly. The connect task is left un-awaited on purpose: the
+  // harness does not drain still-pending tasks at exit (a 30 s sleep task
+  // left un-awaited does not hold the binary), and awaiting it would bill
+  // this test the full retry window.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.new(IpAddr.V4(u8(192), u8(0), u8(2), u8(1)), u16(81));
+  h := io.spawn(
+    io.async((io : Io) => {
+      task_exn := Exception(
+        throw : (
+          err -> {
+            unwind(());
+          }
+        )
+      );
+      stream := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : task_exn));
+      io.await(stream.close(io), IoExn(io : io, exn : task_exn));
+      return(());
+    }),
+    io
+  );
+  started := Instant.now();
+  io.await(sleep(u64(300)), io);
+  (sleep_ms : i64) = started.elapsed().as_millis();
+  assert(
+    sleep_ms < i64(900),
+    `the 300 ms sleep took ${sleep_ms} ms — the loop was parked inside connect()`
+  );
 });

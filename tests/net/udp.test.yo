@@ -13,6 +13,8 @@ import("std/fmt");
 { NetError } :: import("std/net/errors");
 { Error, AnyError, Exception, IoExn } :: import("std/error");
 IO_tcp :: import("std/sys/tcp");
+{ sleep } :: import("std/sys/timer");
+{ Instant } :: import("std/time/instant");
 // ============================================================================
 // UdpSocket tests
 // ============================================================================
@@ -253,6 +255,67 @@ test("UdpSocket.connect makes send and recv usable", {
   got2 := io.await(client.recv(buf, usize(16), io), IoExn(io : io, exn : exn));
   assert((got2 == usize(1)) && ((buf.add(usize(0))).* == u8(33)), "the reply comes back over the connected pair");
   free(.Some((*void)(buf)));
+  io.await(client.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), IoExn(io : io, exn : exn));
+});
+
+test("a quiet recv_from parks the task, not the event loop", {
+  // The Windows backend used to run a BLOCKING recvfrom() on the loop
+  // thread: with no datagram arriving the whole runtime froze inside the
+  // call until one did, so the 200 ms sleep below — issued AFTER the
+  // recv_from was pending — measured however long the datagram took.
+  // WSARecvFrom is overlapped now, like recv/send
+  // (issues/fixed/windows-udp-recvfrom-blocks-the-event-loop.md); io_uring
+  // platforms were already task-parked, so this pins the shared shape.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  server := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+  client := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+
+  recv_task := io.spawn(
+    io.async((io : Io) => {
+      task_exn := Exception(
+        throw : (
+          err -> {
+            unwind(());
+          }
+        )
+      );
+      recv_buf := (*u8)(malloc(usize(64)).unwrap());
+      got := io.await(server.recv_from(recv_buf, usize(64), io), IoExn(io : io, exn : task_exn));
+      (n, from) := got;
+      assert(n == usize(5), "the datagram arrived whole");
+      assert(from.ip.is_loopback(), "the sender address was decoded");
+      free(.Some((*void)(recv_buf)));
+      return(());
+    }),
+    io
+  );
+
+  started := Instant.now();
+  io.await(sleep(u64(200)), io);
+  (sleep_ms : i64) = started.elapsed().as_millis();
+  assert(
+    sleep_ms < i64(500),
+    `the 200 ms sleep took ${sleep_ms} ms — the loop was parked inside a pending recv_from`
+  );
+
+  data := ArrayList(u8).new();
+  data.push(u8(112)); // p
+  data.push(u8(105)); // i
+  data.push(u8(110)); // n
+  data.push(u8(103)); // g
+  data.push(u8(33)); // !
+  sent := io.await(client.send_to(data, server.local_addr(), io), IoExn(io : io, exn : exn));
+  assert(sent == usize(5), "send_to delivered 5 bytes");
+
+  recv_task.await(io);
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
