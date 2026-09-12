@@ -1017,8 +1017,7 @@ the walk's stamp is only ever COMPARED, never recorded; the recorded stamp comes
 from the depfile the child just wrote.
 
 **P1 is complete as of 2026-09-12**, along with P3's §4.8 and §4.9, and
-**§5.1 + §5.2 landed 2026-09-13**. What remains: **§5.4 `build.env`** (§5.5's
-`--emit-deps` half landed early because §4.9 needed it), then **§4.6
+**P2 (§5.1, §5.2, §5.4) landed 2026-09-13**. What remains is **§4.6
 workspaces**. P4 stays designed and unscheduled.
 
 **§5.1 — `comptime_read_file`** (landed). `comptime_read_file(path)` reads a
@@ -1098,6 +1097,39 @@ directly to be real compile errors, not swallowed).
 The dogfooding milestone below — un-vendoring `vendor/markdown_yo` — is now
 unblocked: every piece it named (the manifest, the resolver, the store,
 `--imports` in every command) is on develop.
+
+**§5.4 — `build.env`** (landed). A build file may read environment variables;
+nothing else may. `build.env(name, fallback)` gives the value or the fallback,
+and `build.env_is_set(name)` answers whether it is set at all.
+
+Two departures from the design as drafted:
+
+- **Two functions, not one returning `Option(comptime_str)`.** The evaluator has
+  no helper to instantiate `Option(comptime_str)` from a builtin, and building
+  that machinery for one call site is disproportionate. The pair is strictly as
+  expressive — `env_is_set` is exactly the distinction an `Option` carries — and
+  it reads better at the call site than unwrapping.
+- **The `std/build.yo` wrapper landed in the SAME release as the builtin**,
+  which the generation-A/B rule says is impossible. Measured: it is impossible
+  only for a module-level `::` VALUE binding, which its own `export(...)`
+  forces. A FUNCTION wrapper's body is deferred, so the seed evaluates
+  `std/build.yo` cleanly and only a build file that CALLS it fails. The
+  repository's own `build.yo` therefore must not use `build.env` until
+  `SEED_VERSION` carries the builtin — `fixpoint-arm64.yml` bootstraps gen-1
+  with the seed — but every other project can use it today. `AGENTS.md`'s
+  pitfall is corrected to say which shape breaks.
+
+Both guarantees the section asks for hold. Outside a build file the builtin is a
+compile error naming `-D` as the alternative, so an ordinary module cannot make
+its meaning depend on the invoking shell. And every read — including an
+`env_is_set` probe, since existence is what the build branched on — is folded
+into the artifact stamp.
+
+Gate: cli-case `build-env-read` reads a variable the case sets and one it does
+not, in both forms, reporting all four through step descriptions. The stamp half
+cannot be a cli-case (the harness cannot vary `env=` between steps) and was
+verified directly: build, rebuild with the same environment → `(cached: inputs
+unchanged, skipping compile)`, rebuild with the variable CHANGED → recompiles.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

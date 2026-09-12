@@ -710,6 +710,38 @@ since been deleted.
 `YO_BUILD_NO_CACHE=1` skips the whole mechanism: nothing is hashed and every
 artifact is recompiled.
 
+### Reading the environment: `build.env`
+
+A build file may read environment variables. Nothing else may:
+
+```rust
+build :: import("std/build");
+
+ci      :: build.env_is_set("CI");
+pkgpath :: build.env("PKG_CONFIG_PATH", "");
+```
+
+| | |
+| --- | --- |
+| `build.env(name, fallback)` | the variable's value, or `fallback` when unset |
+| `build.env_is_set(name)` | whether it is set at all — a variable set to the same text as the fallback is otherwise indistinguishable from an unset one |
+
+**Prefer `build.option` and `-Dname=value`.** An option is declared, listed by
+`yo build --list-options`, and visible in the command that produced a build.
+Reach for `env` only for what genuinely belongs to the environment: CI
+detection, `PKG_CONFIG_PATH`, a default that depends on the machine.
+
+Two guarantees make it safe:
+
+- **Only a build file can read it.** An ordinary module that read the
+  environment would mean something different under `yo build`, `yo check`,
+  `yo test` and the editor, so the builtin is a compile error everywhere else —
+  and the error names `-D` as the alternative.
+- **Every read is an input.** The name and value are folded into the artifact
+  stamp, so changing a variable the build file branches on rebuilds rather than
+  serving a stale artifact. An `env_is_set` probe counts too: whether the
+  variable exists is what the build branched on.
+
 ## `yo init` Reference
 
 ```
