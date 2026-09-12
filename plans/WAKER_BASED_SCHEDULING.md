@@ -55,14 +55,22 @@ nothing for the inbox to carry and the test is vacuous. That is this document's
 own first recorded risk, met in practice. **The blocker is a second instantiation:**
 `spawn_blocking` is
 `fn(generic(T), own(cb) : Impl(Fn() -> T, Send), io) -> Impl(Future(T, Io))`,
-and the closure-param form of that shape miscompiles at a second `T` — the async
-block inside the generic function is emitted ONCE for both. The value-param form
-of the same family is fixed
-(`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`);
-the closure-param form is still open in that same document, with three
-reproducers and a table of nine variables that are NOT the trigger. Shipping
-`spawn_blocking` before it is fixed would ship an API that silently miscompiles
-the second time a program uses it.
+and the closure-param form of that shape miscompiles at a second `T`. The
+value-param half is FIXED (2026-09-12, the RRE adoption gate comparing binder
+IDs rather than names); the closure-param half is STILL OPEN, and
+`issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
+now carries its measured root cause, a four-program A/B, the two fixes that were
+tried and measured to be no-ops, and two ranked candidates for the next attempt.
+
+The earlier note here — "the async block is emitted ONCE for both" — was wrong,
+and is worth leaving on the record as a guess a measurement replaced. BOTH
+generations are emitted; what they share is the RESOLUTION of the binder. The
+stale value turned out not to be in either of the two channels a per-call clear
+already covers (the global id registry, the SomeT's per-lineage cell) but in a
+`T := i32` VARIABLE BINDING left in the cached PRELUDE env chain, which
+`_resolve_some_types_deep` reads back BY NAME and re-registers. Shipping
+`spawn_blocking` before that is fixed would ship an API that silently
+miscompiles the second time a program uses it.
 
 Two traps recorded from doing it, both of which cost a full build-and-bisect
 cycle:
