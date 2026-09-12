@@ -1,6 +1,6 @@
 # A closure-typed slot never releases its captures
 
-**Status:** PARTIALLY FIXED 2026-09-12. The drop/dup walk half landed on
+**Status:** PARTIALLY FIXED 2026-09-12. The spawn-wrapper half landed on
 `fix/zst-closure-fn-result`; the capture-struct TEMP half is still open — see
 "What is left" below.
 **Found:** 2026-09-12, measured on the published **v0.2.31** compiler and std —
@@ -39,7 +39,7 @@ Measured on v0.2.31 (`issues/repros/closure-slot-never-releases-captures.yo`):
 | `tracked` captured by a closure LOCAL | 0 | 1 | **0 — see "what is left"** |
 | a closure LITERAL passed as an argument | 0 | 1 | **0 — see "what is left"** |
 | that closure captured by a second closure | 0 | 1 | **0 — see "what is left"** |
-| a closure captured by a `Thread(T).spawn` wrapper | 0 | 1 | **1** |
+| a closure captured by a `Thread(T).spawn` wrapper | 0 | 1 | **1** (this fix) |
 
 ## Root cause
 
@@ -66,37 +66,26 @@ callback in a result-relaying closure, `(io) => { sink.send(cb(io)); () }`, so
 dispose-counter tests went from 1 to 0. The counter was right and the wrapper
 was wrong.
 
-## Fix
+## Fix — and the one that was WRONG first
 
-One resolution point, used by both walks:
+`_emit_capture_drop_lines` (`src/codegen/exprs/parallelism.yo`) walks the spawn
+wrapper's capture struct field by field and resolves each field type through
+`resolve_some_type_to_concrete` before asking whether it carries RC. A captured
+closure's `Impl(Fn)` field then releases what the inner closure captured.
 
-```rust
-_resolve_closure_impl_type :: (fn(ty : TypeValue) -> TypeValue)(
-  cond(
-    (is_some_type(ty) && type_implements_fn(ty)) => resolve_some_type_to_concrete(ty),
-    true => ty
-  )
-);
-_contains_rc :: (fn(ty : TypeValue) -> bool)(
-  type_contains_rc_type(_resolve_closure_impl_type(ty))
-);
-```
+**The first attempt did this in `generate_drop_code_for_value` itself**, which
+looks like the more general fix and is not: it releases a closure-typed slot at
+EVERY drop site, including the many whose captures are already released by a
+synthesized capture-dispose. That is a double release — a
+**heap-use-after-free in `__yo_decr_rc`**, which macOS ran green and the Linux
+ASan leg caught on this very file's "Test closure with Impl that captures Rc
+object" and "Test closure captured Rc survives nested early return".
 
-`_contains_rc` replaces every `type_contains_rc_type` call in the module (12
-sites), and both generators resolve at entry. Drop and dup therefore change
-together by construction, which is the invariant this class of bug breaks: a
-field that is dup'd must be dropped.
-
-Narrow by construction — only an `Impl(Fn)` SomeT resolves. An `Impl(Future)`
-keeps its existing arm (an RC decrement on the state-machine handle, not a
-field walk) and every other SomeT is untouched.
-
-## Why this direction is the safe one
-
-The change only ADDS releases, so the failure mode it could introduce is a
-double free, not a use-after-free — and a double free is loud. The oracle is a
-dispose counter asserting **exactly one**, so both directions are caught:
-`0` is the leak this fixes, `2` would be the over-release it must not cause.
+The spawn wrapper is the one place that owns a heap COPY of a capture struct
+and is the only thing that will ever release it, so it is the one place the
+resolution belongs. (memory `leak-gates-need-a-dispose-counter`: a leak is
+invisible without a counter, and an over-release is invisible without ASan —
+this change needed BOTH oracles, and only had the first.)
 
 ## What is left — a SECOND defect in the same measurement
 
