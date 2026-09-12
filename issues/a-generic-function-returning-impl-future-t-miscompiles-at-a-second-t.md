@@ -74,11 +74,32 @@ filter exactly once, where the names are unambiguously the callee's.
 
 The CLOSURE-PARAM shape —
 `fn(generic(R), f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io))` — still
-miscompiles, and it is a different defect: the async block inside the generic
-function is emitted ONCE for both instantiations
-(`conflicting types for closure_yo_id_…`, a forward declaration returning the
-struct and a definition returning `int32_t`). The return stamping is no longer
-the problem there; the async block itself is not specialized per `T`.
+miscompiles, and it is a different defect. Measured in the emitted C, sharpened
+once the return stamping above stopped being the problem:
+
+* BOTH async-block generations exist (`closure_…000000`, `closure_…000001`),
+  and so do both `_sync_fut_t` structs. Nothing is missing.
+* The two forward declarations DISAGREE with each other correctly:
+  `…000000` is declared returning the struct, `…000001` returning `int32_t`.
+* **Both DEFINITIONS return `int32_t`.** So `…000000`'s definition contradicts
+  its own forward declaration, which is the `conflicting types for
+  closure_yo_id_…` the C compiler reports, and the struct specialization's
+  state machine calls a body that computes the wrong type.
+
+That is a prototype-vs-definition split for ONE fid, and the interesting part
+is that `generate_function` and `generate_function_declaration`
+(`src/codegen/functions/`) build both strings from the SAME helper —
+`generate_function_prototype(get_func_type(fid), …, async_override, …)`. So
+something those two passes read differs between them. `async_override` is the
+suspect: `_async_override_return_type` consults the BODY node's ExprInfo, and
+the two generations share one body AST node, so anything recorded there is
+last-writer. That is a hypothesis, not a measurement — what is measured is the
+three bullets above.
+
+The lead from the working side stands: an IMPL METHOD with a closure param
+compiles at two `R`s (`std/async/mutex.yo`'s `with_lock`, and a stripped
+20-line copy of it). A FREE FUNCTION with the same closure param does not. That
+pair is the A/B to bisect next.
 
 `std/thread.yo`'s `spawn_blocking` has exactly that shape, which is why waker
 step 5 (`plans/WAKER_BASED_SCHEDULING.md`) is not landed with it.
