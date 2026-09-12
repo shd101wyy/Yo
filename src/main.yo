@@ -2980,6 +2980,13 @@ run_compile :: (
   // silently return an empty list with `check`, `build` and the whole suite
   // green. See issues/ftt-stub-in-live-closure-falls-off-non-void-function.md.
   //
+  // A call with NO prototype is in the same family and is never benign: the
+  // return value is truncated to `int` and the arguments go through default
+  // promotion, so it is an ERROR here rather than the warning `-Wno-everything`
+  // would otherwise leave behind. That warning is what hid a dropped extern
+  // prototype at -O2 while -O0 rejected it outright
+  // (issues/fixed/two-externs-of-one-signature-emit-one-prototype.md).
+  //
   // The -O0 arm below needs no such re-enabling — `-Wall` and clang's
   // defaults already include all three.
   cond(
@@ -2987,7 +2994,7 @@ run_compile :: (
       cmd.arg(String.from("-Wno-everything"));
       cmd.arg(String.from("-Wincompatible-pointer-types"));
       cmd.arg(String.from("-Wint-conversion"));
-      cmd.arg(String.from("-Wimplicit-function-declaration"));
+      cmd.arg(String.from("-Werror=implicit-function-declaration"));
       cmd.arg(String.from("-Werror=return-type"));
       cmd.arg(`-O${optimize}`);
     },
