@@ -19,6 +19,105 @@ every file:line, are in the per-group notes this plan was distilled from (see
 
 ---
 
+## 0. Where this stands — 2026-09-12
+
+Written after the v0.2.31 release, by walking every row of this document
+against the code rather than against the previous status note. **Every item
+below is either DONE, blocked on a named language feature with its own plan
+doc, or one of two remaining engineering items.** §5's three maintainer
+decisions are all made and implemented — nothing is waiting on anyone.
+
+### Done, and no longer to be re-read as open
+
+- **Phases 1 and 2** (§3's seventeen P0 rows) — every row carries a
+  FIXED/LANDED marker.
+- **The breaking window** (§2's D9–D18) — shipped in v0.2.28. The one
+  exception, **D18b** (`Thread(T).join() -> T`), is below.
+- **Phase 4** (§4's additive work), module group by module group:
+  collections, `imm`, encoding, I/O, net, the `## Stability` markers, and the
+  documentation sweep. `yo doc ./std --format json` went 1554 → 1161
+  undocumented of 3368.
+- **The waker campaign** (`plans/WAKER_BASED_SCHEDULING.md`) is complete
+  through step 4 except for the shape note there. Steps 1, 3a and 3b landed in
+  v0.2.31; **step 2 landed once v0.2.31 became the seed** — `yield` has no
+  timer under it any more, and a LIFO defect in the shared yield list fell out
+  of doing it. This document's concurrency row said "STILL OPEN: waker-based
+  async channel/async mutex" until 2026-09-12; that was stale — #576 and #586
+  had already rewritten both over `Waker`/`Park`.
+
+### §5's three maintainer decisions — ALL DECIDED AND IMPLEMENTED
+
+Nothing is waiting on anyone here. Re-checked against the code 2026-09-12:
+
+1. **`imm/Vec`: flat COW, documented as such — no RRB.** The header now carries
+   the complexity table and says why the trade was kept; `imm.List` is the
+   answer for cheap prepend on a shared value, `ArrayList` for mutation. An RRB
+   implementation would fit behind the same API if a workload ever needs shared
+   mutation to be sublinear.
+2. **`MemoryOrder.Consume`: REMOVED.** No production compiler implements it
+   (clang and gcc strengthen it to `acquire`; C++ discouraged it in P0371R1),
+   so a variant that costs `acquire` while promising dependency ordering is a
+   correctness trap. Zero uses in `std/` or `src/` before removal. Doing it
+   surfaced a real bug in the same file: `load` accepted a STORE-only order and
+   `store` a LOAD-only one, passed straight through to C11 — both forbidden by
+   §7.17.7.1–2, and invisible because the order arrives as a RUNTIME value.
+   All 33 sites panic now, as Rust does.
+3. **`HashMap.with_random_keys()`: NOT shipped; `with_keys` documents the
+   recipe.** Probed rather than assumed: importing `std/crypto/random` into
+   `std/collections/hash_map.yo` takes `yo check ./std` from 173/173 to 166/173,
+   because a core collection cannot carry that import closure. `new()` stays
+   deterministically keyed — the bootstrap fixpoint gate needs byte-identical
+   emitted C.
+
+### Blocked on a language feature, each with a plan doc
+
+| blocked row | doc |
+| --- | --- |
+| private `ctrl`/`data`/`size` fields; `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `imm/*` internals | `plans/backlog/MEMBER_VISIBILITY.md` |
+| `rand.thread_rng` | `plans/backlog/THREAD_LOCAL_STORAGE.md` |
+| the ten byte conversions; `usize`/`isize` byte conversions; `Array(T,N)` `Default` | `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` |
+| `ErrorChain`/`root_cause` | a compiler DEFECT, not a missing feature — #521, `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md` |
+| `JsonValue` integer arms | deliberately deferred to a breaking window (§4, encoding) |
+
+### The two engineering items that are genuinely open
+
+**1. D18b — `Thread(T).spawn` carrying its result, `join() -> T`.** Three
+walls, all now separately diagnosed, and **none of them is the spawn lowering**
+that `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
+blamed:
+
+- *fixed* — a static-dispatch call read the CALL EXPRESSION's type instead of
+  the callee's prototype, so a `void`-returning closure call was bound to a
+  `void*` temp (#598).
+- *open* —
+  `issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
+  One specialisation, two mangled names. Measured: the argument's type is the
+  enclosing generic's own binder, unresolved in the per-object cell, the global
+  registry AND the caller's env — so the resolution does not exist yet rather
+  than being looked up in the wrong place. Three candidate fixes were built and
+  are recorded there as dead ends.
+- *open* — `_capture_judgement_type` resolves a captured closure to its capture
+  STRUCT and then rejects it as not `Send`. A security-relevant checker; needs
+  an over-rejection canary per exempt shape before it is touched.
+
+**2. Waker step 5 — cross-thread wake and `spawn_blocking`.**
+`__yo_waker_wake` is already atomic on the future's own fields, but
+`__yo_async_enqueue_continuation` writes a THREAD-LOCAL ready queue, so a wake
+from a worker thread has nowhere safe to put the continuation and no way to
+rouse a loop parked in `__yo_io_wait`. That needs a cross-thread wake queue plus
+a loop wakeup channel (eventfd / pipe / kqueue `EVFILT_USER`), and
+`spawn_blocking` needs it before it is expressible at all
+(`std/net/dns.yo` names it as the reason `lookup_host` blocks).
+
+### One more, outside this document's scope but tracked with it
+
+`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md` — a lost
+read wake-up that now reproduces identically on kqueue and io_uring, which is
+what makes it interesting: a defect in neither backend. Its checkpoints are on
+the `std-http-client-pool` branch (#556).
+
+---
+
 ## 1. Headline
 
 The library is broad — Option/Result are Rust-complete, hashing is real
