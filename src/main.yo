@@ -63,7 +63,8 @@ _(env : proc_env) :: import("std/env");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
-{ BuildOptions, run_build } :: import("./build_runner.yo");
+{ BuildOptions, run_build, expand_workspace_members } :: import("./build_runner.yo");
+{ MANIFEST_FILENAME, find_manifest, load_manifest } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
 { set_cli_lang_override, cli_lang, tr } :: import("./cli_lang.yo");
@@ -3491,6 +3492,49 @@ run_compile :: (
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
 /// for a file). Mirrors `findTestFiles` in src/test-runner.ts (reuses the
 /// check walker, then filters to `.test.yo`).
+/// Every member's test files, for `yo test --workspace` (§4.6). The workspace
+/// root is the nearest manifest above the cwd that declares `[workspace]`;
+/// anything else is an error rather than a silent single-package run, because
+/// `--workspace` in a non-workspace is always a mistake.
+_collect_workspace_test_files :: (
+  fn(excludes : ArrayList(String), io : Io, exn : Exception) -> ArrayList(String)
+)({
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  root_path := match(
+    find_manifest(cwd_str.clone()),
+    .Some(p) => p,
+    .None => {
+      exn.throw(dyn(`test --workspace: no ${MANIFEST_FILENAME} here or above, so there is no workspace to test`));
+      String.new()
+    }
+  );
+  root := match(
+    load_manifest(root_path.clone(), exn),
+    .Ok(m) => m,
+    .Err(msg) => {
+      exn.throw(dyn(msg));
+      return(ArrayList(String).new())
+    }
+  );
+  if(root.workspace_members.len() == usize(0), {
+    exn.throw(
+      dyn(`test --workspace: ${root_path} declares no [workspace] members, so it is a single package — run \`yo test\` without --workspace`)
+    );
+  });
+  members := io.await(expand_workspace_members(root, io), IoExn(io : io, exn : exn));
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < members.len(), {
+    found := _collect_test_files(members(i), excludes, io, exn);
+    (j : usize) = usize(0);
+    while(j < found.len(), {
+      out.push(found(j));
+      j = (j + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  out
+});
 _collect_test_files :: (
   fn(
     path_str : String,
@@ -3564,6 +3608,8 @@ run_test :: (
   (test_heap_size_raw : String) = String.new();
   (test_debug_heap : bool) = false;
   (json_summary : bool) = false;
+  // §4.6: `--workspace` tests every member of the workspace above the cwd.
+  (workspace : bool) = false;
   (batch_size : usize) = TEST_BATCH_SIZE;
   // `--exclude <path>` (repeatable), same semantics as `check --exclude`.
   excludes := ArrayList(String).new();
@@ -3573,6 +3619,10 @@ run_test :: (
     cond(
       ((a == "--bail") || (a == "-b")) => {
         bail = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--workspace") => {
+        workspace = true;
         ai = (ai + usize(1));
       },
       (a == "--test-name-pattern") => {
@@ -3647,7 +3697,7 @@ run_test :: (
       a.starts_with(String.from("-")) => {
         // TS's yargs is .strict(): an unknown option is an error, never a
         // path (yo-cli.ts:1348).
-        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH]`));
+        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH] [--workspace]`));
       },
       true => {
         target_path = a.clone();
@@ -3698,7 +3748,15 @@ run_test :: (
   if(test_debug_heap && (test_allocator != "fixed"), {
     exn.throw(dyn(String.from("test: --debug-heap requires --allocator fixed")));
   });
-  files := _collect_test_files(target_path, excludes, io, exn);
+  // §4.6: `--workspace` runs every member's tests in ONE run, rather than one
+  // summary per member. The members are resolved from the nearest `[workspace]`
+  // manifest above the cwd and their directories replace the positional path;
+  // ordering is the sorted member order, so the report is stable.
+  files := if(
+    workspace,
+    _collect_workspace_test_files(excludes, io, exn),
+    _collect_test_files(target_path, excludes, io, exn)
+  );
   // `Pragma.SkipWasm` pre-scan for wasm targets (hasSkipDirectiveForTarget,
   // src/test-runner.ts:152-170 + its filter loop at :1425-1453): a file whose
   // first 50 lines carry `pragma(Pragma.SkipWasm)` — or the targeted
@@ -4813,6 +4871,7 @@ run_build_cmd :: (
   (dry_run : bool) = false;
   (verbose : bool) = false;
   (summary : bool) = false;
+  (package : Option(String)) = Option(String).None;
   (locked : bool) = false;
   (offline : bool) = false;
   (watch : bool) = false;
@@ -4886,6 +4945,20 @@ run_build_cmd :: (
       (arg == "--summary") => {
         summary = true;
       },
+      // §4.6: `-p <name>` builds a workspace MEMBER rather than the project
+      // here. The name is the member's `[package] name`, not its directory —
+      // that is what a member is called everywhere else (`import("name")`,
+      // `build.dependency("name")`).
+      ((arg == "-p") || (arg == "--package")) => {
+        if((ai + usize(1)) >= argv.len(), {
+          exn.throw(dyn(String.from("build: -p requires a workspace member name")));
+        });
+        package = Option(String).Some(argv(ai + usize(1)));
+        ai = (ai + usize(1));
+      },
+      arg.starts_with(String.from("--package=")) => {
+        package = Option(String).Some(arg.substring(usize(10), arg.len()));
+      },
       (arg == "--locked") => {
         locked = true;
       },
@@ -4918,7 +4991,7 @@ run_build_cmd :: (
         );
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--list-options] [-j N] [--dry-run] [--locked] [--offline] [--verbose] [--summary] [-- <run args>]`));
+        exn.throw(dyn(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--list-options] [-p <member>] [-j N] [--dry-run] [--locked] [--offline] [--verbose] [--summary] [-- <run args>]`));
       },
       true => {
         steps.push(arg);
@@ -4941,7 +5014,8 @@ run_build_cmd :: (
     summary : summary,
     defines : defines,
     locked : locked,
-    offline : offline
+    offline : offline,
+    package : package
   );
   if(!(watch), {
     io.await(run_build(opts, io, exn), IoExn(io : io, exn : exn));
@@ -5744,6 +5818,7 @@ Build the project described by build.yo (default step: install).
 Options:
   --list-steps              Show the available build steps
   --list-options            Show the options this build file declares (-Dname=value)
+  -p, --package <name>      Build this workspace member instead of the project here
   -j, --jobs <N>            Run up to N nodes of a DAG level at once (default 1)
   --summary                 Print the build summary tree
   --dry-run                 Resolve the build graph without running it
@@ -5772,6 +5847,7 @@ Examples:
 选项：
   --list-steps              列出可用的构建步骤
   --list-options            列出此构建文件声明的选项（-Dname=value）
+  -p, --package <name>      构建工作区中的该成员，而不是当前目录的项目
   -j, --jobs <N>            同一 DAG 层级最多同时运行 N 个节点（默认 1）
   --summary                 打印构建摘要树
   --dry-run                 只解析构建图，不实际执行
@@ -5806,6 +5882,7 @@ Options:
   -v, --verbose             Show detailed output and errors
   --test-name-pattern <s>   Run only tests whose name contains <s>
   --exclude <path>          Exclude a directory/file (repeatable)
+  --workspace               Run every workspace member's tests in one run
   -p, --parallel <n>        Accepted for compatibility (v1 runs sequentially)
   --test-batch-size <n>     Tests per generated C batch (default 100)
   --cc, --c-compiler <cc>   C compiler for test binaries
@@ -5828,6 +5905,7 @@ Examples:
   -v, --verbose             显示详细输出与错误
   --test-name-pattern <s>   只运行名字包含 <s> 的测试
   --exclude <path>          排除目录/文件（可重复）
+  --workspace               在一次运行中运行工作区每个成员的测试
   -p, --parallel <n>        仅为兼容保留（v1 顺序执行）
   --test-batch-size <n>     每批生成的 C 批次包含的测试数（默认 100）
   --cc, --c-compiler <cc>   测试二进制使用的 C 编译器

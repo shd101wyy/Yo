@@ -710,6 +710,38 @@ since been deleted.
 `YO_BUILD_NO_CACHE=1` skips the whole mechanism: nothing is hashed and every
 artifact is recompiled.
 
+### Reading the environment: `build.env`
+
+A build file may read environment variables. Nothing else may:
+
+```rust
+build :: import("std/build");
+
+ci      :: build.env_is_set("CI");
+pkgpath :: build.env("PKG_CONFIG_PATH", "");
+```
+
+| | |
+| --- | --- |
+| `build.env(name, fallback)` | the variable's value, or `fallback` when unset |
+| `build.env_is_set(name)` | whether it is set at all — a variable set to the same text as the fallback is otherwise indistinguishable from an unset one |
+
+**Prefer `build.option` and `-Dname=value`.** An option is declared, listed by
+`yo build --list-options`, and visible in the command that produced a build.
+Reach for `env` only for what genuinely belongs to the environment: CI
+detection, `PKG_CONFIG_PATH`, a default that depends on the machine.
+
+Two guarantees make it safe:
+
+- **Only a build file can read it.** An ordinary module that read the
+  environment would mean something different under `yo build`, `yo check`,
+  `yo test` and the editor, so the builtin is a compile error everywhere else —
+  and the error names `-D` as the alternative.
+- **Every read is an input.** The name and value are folded into the artifact
+  stamp, so changing a variable the build file branches on rebuilds rather than
+  serving a stale artifact. An `env_is_set` probe counts too: whether the
+  variable exists is what the build branched on.
+
 ## `yo init` Reference
 
 ```
@@ -777,6 +809,49 @@ install.depend_on(wasm);
 run_step :: build.step("run", "Run native build");
 run_step.depend_on(run_native);
 ```
+
+## Workspaces
+
+Several packages in one repository, sharing a checkout:
+
+```toml
+# yo.toml at the repository root
+[package]
+name = "my-project"
+version = "0.1.0"
+
+[workspace]
+members = ["packages/*", "examples/demo"]
+```
+
+Each member is an ordinary package with its own `yo.toml` and `build.yo`;
+members refer to each other as path dependencies (`core = { path = "../core" }`).
+
+| | |
+| --- | --- |
+| `yo build -p <name>` | build one member, exactly as if you had `cd`'d into it |
+| `yo test --workspace` | run every member's tests in one run, with one summary |
+
+A member is named by its `[package] name`, not its directory — that is what a
+member is called everywhere else (`import("name")`, `build.dependency("name")`).
+Naming one that does not exist lists the members that do.
+
+**Member patterns** are relative paths, optionally with `*` in the LAST segment:
+
+- `examples/demo` — a literal path. It must exist and have a `yo.toml`;
+  otherwise the build stops and names the pattern, because a typo in a member
+  list should not silently build a smaller workspace.
+- `packages/*` — every directory under `packages/` that has a `yo.toml`. A glob
+  matching nothing is fine (an empty `packages/` is a legitimate state), and a
+  match without a manifest is skipped rather than reported — a glob is a filter
+  by construction.
+
+Only the last segment may glob, and a pattern may not be absolute or contain
+`..`: a member is a path *into* the workspace, and either would place one
+outside the root.
+
+Members are visited in sorted order, so build and test output is stable across
+platforms (raw directory order is not).
 
 ## Dependencies
 

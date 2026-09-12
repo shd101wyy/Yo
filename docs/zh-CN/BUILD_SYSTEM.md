@@ -699,6 +699,35 @@ Options:
 
 `YO_BUILD_NO_CACHE=1` 会跳过整套机制：不做任何哈希，每个产物都重新编译。
 
+### 读取环境变量：`build.env`
+
+构建文件可以读取环境变量，其他任何地方都不行：
+
+```rust
+build :: import("std/build");
+
+ci      :: build.env_is_set("CI");
+pkgpath :: build.env("PKG_CONFIG_PATH", "");
+```
+
+| | |
+| --- | --- |
+| `build.env(name, fallback)` | 变量的值；未设置时为 `fallback` |
+| `build.env_is_set(name)` | 变量是否存在——否则「值恰好等于 fallback」与「未设置」无法区分 |
+
+**优先使用 `build.option` 与 `-Dname=value`。** option 是显式声明的，会被
+`yo build --list-options` 列出，也会体现在产生该次构建的命令里。只有在确实属于
+环境的场景才用 `env`：CI 检测、`PKG_CONFIG_PATH`、依赖具体机器的默认值。
+
+两条保证使它足够安全：
+
+- **只有构建文件能读。** 普通模块若读取环境，在 `yo build`、`yo check`、
+  `yo test` 和编辑器下会表示不同的程序，因此该 builtin 在其他任何位置都是编译
+  错误——错误信息会指出改用 `-D`。
+- **每次读取都是输入。** 变量名与取值会并入产物的输入指纹，因此构建文件所依赖的
+  变量一旦变化就会重新构建，而不是沿用过期产物。`env_is_set` 探测同样计入：
+  变量是否存在正是该次构建所依据的条件。
+
 ## `yo init` 参考
 
 ```
@@ -765,6 +794,46 @@ install.depend_on(wasm);
 run_step :: build.step("run", "Run native build");
 run_step.depend_on(run_native);
 ```
+
+## 工作空间（workspace）
+
+同一个仓库中的多个包，共享一次检出：
+
+```toml
+# 仓库根目录的 yo.toml
+[package]
+name = "my-project"
+version = "0.1.0"
+
+[workspace]
+members = ["packages/*", "examples/demo"]
+```
+
+每个成员都是普通的包，拥有自己的 `yo.toml` 与 `build.yo`；成员之间通过路径依赖
+互相引用（`core = { path = "../core" }`）。
+
+| | |
+| --- | --- |
+| `yo build -p <name>` | 构建某一个成员，效果等同于先 `cd` 进去再构建 |
+| `yo test --workspace` | 一次运行所有成员的测试，只输出一份汇总 |
+
+成员用其 `[package] name` 指定，而不是目录名——其他地方（`import("name")`、
+`build.dependency("name")`）称呼一个成员时用的也是这个名字。指定不存在的名字时，
+错误信息会列出实际存在的成员。
+
+**成员模式**是相对路径，且只允许在**最后一段**使用 `*`：
+
+- `examples/demo`——字面路径。它必须存在且含有 `yo.toml`，否则构建报错并指出该
+  模式；成员列表里的拼写错误不应该悄悄地构建出一个更小的工作空间。
+- `packages/*`——`packages/` 下所有含 `yo.toml` 的目录。glob 匹配不到任何内容不是
+  错误（空的 `packages/` 是合法状态），匹配到但没有清单的目录会被跳过而不报错——
+  glob 本身就是一个过滤器。
+
+只有最后一段可以使用 glob，并且模式不能是绝对路径、也不能包含 `..`：成员是指向
+工作空间**内部**的路径，这两种写法都会把成员放到根目录之外。
+
+成员按排序后的顺序访问，因此构建与测试的输出在各平台间保持稳定（原始目录顺序并
+不稳定）。
 
 ## 依赖管理
 

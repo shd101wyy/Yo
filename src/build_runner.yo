@@ -19,12 +19,14 @@ pragma(Pragma.AllowUnsafe);
 _(args : proc_args) :: import("std/env");
 { exists, read, write_string } :: import("std/fs/file");
 { read_dir, DirEntry, symlink, remove_file } :: import("std/fs/dir");
+{ glob_match } :: import("std/glob");
 { platform, Platform } :: import("std/process");
 { get_global_cache_dir, store_tree_dir } :: import("./cache.yo");
 { parse_lock_file } :: import("./lock_file.yo");
 { sha256_hex } :: import("std/crypto/sha256");
 { CURRENT_YO_VERSION } :: import("./version.yo");
 _(env : proc_env) :: import("std/env");
+{ env_reads } :: import("./input_record.yo");
 { create_dir_all } :: import("std/fs/dir");
 { Command, Output, ExitStatus } :: import("std/process/command");
 { error_format, emit_rendered_text } :: import("./diagnostics.yo");
@@ -91,7 +93,10 @@ BuildOptions :: ref(
     /// `--locked`: fail if fetching dependencies would change `yo.lock`.
     locked : bool,
     /// `--offline`: fail if fetching dependencies would need the network.
-    offline : bool
+    offline : bool,
+    /// `-p <name>` / `--package <name>`: build this workspace MEMBER instead of
+    /// the project in the current directory (§4.6). `.None` = build here.
+    package : Option(String)
   )
 );
 // ---------------------------------------------------------------------------
@@ -1121,6 +1126,176 @@ _entry_is_dir :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
   });
   false
 });
+// ── Workspaces (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.6) ────────
+/// Expand a workspace manifest's `members` patterns into member DIRECTORIES,
+/// sorted, deduplicated, each holding its own `yo.toml`.
+///
+/// A pattern is either a literal relative path (`examples/tetris`) or one
+/// containing `*`, matched against the entries of its parent directory
+/// (`packages/*`). Only the LAST segment may glob: a pattern is a path into the
+/// workspace, not a tree search, and `packages/*/deep/*` would make "which
+/// directory owns the lock" ambiguous.
+///
+/// A literal member that does not exist, or exists without a `yo.toml`, is an
+/// ERROR naming the pattern — a typo in a member list should not silently build
+/// a smaller workspace. A GLOB that matches nothing is not an error (an empty
+/// `packages/` is a legitimate state), but a glob match without a `yo.toml` is
+/// skipped rather than reported, because the glob is a filter by construction.
+/// A member pattern split at its last `/`: `packages/*` → parent `packages`,
+/// leaf `*`. A plain `fn`, not inline in the async body below — a local bound
+/// there and then read by two separate `match`es is emitted TWICE by the async
+/// state machine ("error: redefinition of 'last_sep'",
+/// issues/async-body-local-read-by-two-matches-is-emitted-twice.md).
+_MemberSplit :: struct(parent : String, leaf : String);
+_split_member_pattern :: (fn(pattern : String) -> _MemberSplit)(
+  match(
+    pattern.last_index_of(String.from("/")),
+    .Some(ix) => _MemberSplit(parent : pattern.substring(usize(0), ix), leaf : pattern.substring(ix + usize(1), pattern.len())),
+    .None => _MemberSplit(parent : String.new(), leaf : pattern.clone())
+  )
+);
+expand_workspace_members :: (
+  fn(manifest : Manifest, io : Io) -> Impl(Future(ArrayList(String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    out := ArrayList(String).new();
+    patterns := manifest.workspace_members;
+    (pi : usize) = usize(0);
+    while(pi < patterns.len(), {
+      pattern := patterns(pi);
+      split := _split_member_pattern(pattern.clone());
+      parent_rel := split.parent;
+      leaf := split.leaf;
+      if(parent_rel.contains("*"), {
+        e.exn.throw(
+          dyn(
+            `workspace member "${pattern}": only the last path segment may contain "*" — a member is a path into the workspace, not a tree search`
+          )
+        );
+      });
+      parent_abs := if(
+        parent_rel.len() == usize(0),
+        manifest.dir.clone(),
+        Path.new(manifest.dir.clone()).join(Path.new(parent_rel.clone())).normalize().to_string()
+      );
+      if(leaf.contains("*"), {
+        entries := e.io.await(_read_dir_task(parent_abs.clone(), e.io), e);
+        names := ArrayList(String).new();
+        (ei : usize) = usize(0);
+        while(ei < entries.len(), {
+          en := entries(ei);
+          if(match(en.file_type, .Directory => true, _ => false) && glob_match(leaf.clone(), en.name.clone()), {
+            names.push(en.name.clone());
+          });
+          ei = (ei + usize(1));
+        });
+        // read_dir order is platform-dependent (the readdir-order lesson), and
+        // member order decides build order for `--workspace`, so sort.
+        names.sort();
+        (ni : usize) = usize(0);
+        while(ni < names.len(), {
+          cand := Path.new(parent_abs.clone()).join(Path.new(names(ni))).to_string();
+          if(file_exists_sync(Path.new(cand.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string()), {
+            _push_unique_string(out, cand);
+          });
+          ni = (ni + usize(1));
+        });
+      }, {
+        cand := Path.new(manifest.dir.clone()).join(Path.new(pattern.clone())).normalize().to_string();
+        if(!file_exists_sync(Path.new(cand.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string()), {
+          e.exn.throw(
+            dyn(
+              `workspace member "${pattern}" has no ${MANIFEST_FILENAME} (looked in ${cand}). Every member is a package; remove the entry or add a manifest.`
+            )
+          );
+        });
+        _push_unique_string(out, cand);
+      });
+      pi = (pi + usize(1));
+    });
+    out
+  })
+);
+/// Resolve `-p <name>` to that member's build file (§4.6), or `.None` when no
+/// `-p` was given.
+///
+/// The workspace root is the nearest manifest above the CWD that declares
+/// `[workspace]`. A `-p` outside a workspace, or naming something no member
+/// declares, is an error that LISTS what is available — a mistyped member name
+/// should say what the choices were, not "build file not found".
+_resolve_workspace_member :: (
+  fn(package : Option(String), io : Io, exn : Exception) -> Impl(Future(Option(String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    name := match(package, .Some(n) => n, .None => return(Option(String).None));
+    cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+    root_manifest_path := match(
+      find_manifest(cwd_str.clone()),
+      .Some(p) => p,
+      .None => {
+        e.exn.throw(dyn(`-p ${name}: no ${MANIFEST_FILENAME} here or above, so there is no workspace to take a member from`));
+        String.new()
+      }
+    );
+    root := match(
+      load_manifest(root_manifest_path.clone(), e.exn),
+      .Ok(m) => m,
+      .Err(msg) => {
+        e.exn.throw(dyn(msg));
+        return(Option(String).None)
+      }
+    );
+    if(root.workspace_members.len() == usize(0), {
+      e.exn.throw(
+        dyn(
+          `-p ${name}: ${root_manifest_path} declares no [workspace] members, so it is a single package rather than a workspace`
+        )
+      );
+    });
+    members := e.io.await(expand_workspace_members(root, e.io), e);
+    available := ArrayList(String).new();
+    (mi : usize) = usize(0);
+    while(mi < members.len(), {
+      dir := members(mi);
+      mpath := Path.new(dir.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string();
+      match(
+        load_manifest(mpath.clone(), e.exn),
+        .Ok(mm) => {
+          available.push(mm.name.clone());
+          if(mm.name == name, {
+            return(Option(String).Some(Path.new(dir.clone()).join(Path.new(String.from("build.yo"))).to_string()));
+          });
+        },
+        .Err(msg) => {
+          e.exn.throw(dyn(msg));
+        }
+      );
+      mi = (mi + usize(1));
+    });
+    sep := String.from(", ");
+    e.exn.throw(
+      dyn(
+        `-p ${name}: no workspace member is named that. Members of ${root_manifest_path}: ${sep.join(available)}`
+      )
+    );
+    Option(String).None
+  })
+);
+/// Append `v` to `out` unless it is already there.
+_push_unique_string :: (fn(out : ArrayList(String), v : String) -> unit)({
+  (i : usize) = usize(0);
+  while(i < out.len(), {
+    match(
+      out.get(i),
+      .Some(seen) => if(seen == v, {
+        return(());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out.push(v);
+});
 _cache_collect_yo_files :: (
   fn(dir : String, out : ArrayList(String), io : Io) -> Impl(Future(unit, IoExn))
 )(
@@ -1236,6 +1411,16 @@ _artifact_input_stamp :: (
     _stamp_push_str(acc, `yo-version ${CURRENT_YO_VERSION}`);
     sep := String.from(" ");
     _stamp_push_str(acc, `argv ${sep.join(argv)}`);
+    // §5.4: every `build.env` read the build file made. The invoking shell is
+    // an INPUT once a build file branches on it, so a changed variable must
+    // rebuild rather than serve a stale artifact. Recorded as `name=value`
+    // lines (or `name=<unset>`), in first-read order.
+    reads := env_reads();
+    (ei : usize) = usize(0);
+    while(ei < reads.len(), {
+      match(reads.get(ei), .Some(r) => _stamp_push_str(acc, `env ${r}`), .None => ());
+      ei = (ei + usize(1));
+    });
     files := ArrayList(String).new();
     // §4.9: the PREVIOUS build's `--emit-deps` list is exactly what the
     // evaluation opened — every `.yo` module it reached, and nothing else. The
@@ -2721,7 +2906,13 @@ run_build :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    build_file_path := Path.new(options.build_file);
+    // §4.6: `-p <name>` names a WORKSPACE MEMBER. Resolving it to that member's
+    // build file is the whole implementation — `project_dir` is this file's
+    // parent, and every path downstream derives from it, so the member builds
+    // exactly as it would if you had cd'd into it.
+    member_build_file := e.io.await(_resolve_workspace_member(options.package.clone(), e.io, e.exn), e);
+    effective_build_file := match(member_build_file, .Some(bf) => bf, .None => options.build_file.clone());
+    build_file_path := Path.new(effective_build_file.clone());
     build_file_exists := e.io.await(exists(build_file_path, e.io), e.io);
     if(!(build_file_exists), {
       e.exn.throw(dyn(`Error: Build file not found: ${build_file_path.to_string()}`));
@@ -2922,6 +3113,7 @@ export(compile_artifact);
 export(run_executable);
 export(run_test_suite);
 export(run_build);
+export(expand_workspace_members);
 export(evaluate_build_file);
 export(print_steps);
 export(print_options);

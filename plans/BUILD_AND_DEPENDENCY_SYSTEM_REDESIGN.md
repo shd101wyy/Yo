@@ -1,8 +1,8 @@
 # Build system & dependency system — audit and redesign plan
 
-_Status: **P0, P1 and §4.8/§4.9 of P3 LANDED (2026-09-12)**; P2 (compile-time
-inputs) and §4.6 (workspaces) remain, P4 (registry, `yo publish`) is designed
-and deliberately not scheduled._
+_Status: **COMPLETE (2026-09-13)** — P0, P1, P2 (§5.1, §5.2, §5.4) and P3
+(§4.6, §4.8, §4.9) have all landed. P4 (registry, `yo publish`) is designed
+and deliberately not scheduled; §4.10 records its shape._
 
 _Proposed 2026-09-11, revised the same day after maintainer review — the
 manifest is **declarative data read without the evaluator**; after weighing
@@ -20,11 +20,17 @@ and real `dep.artifact()` linking (#611) · **P1.4e** shared libraries with rpat
 (#615) · **P1.4f** the runner stops failing silently (#616) · **P1.4g** run
 arguments, a stamp that sees dotted directories, one name namespace (#618) ·
 **P1.4h / §4.8** parallel DAG levels and `-j N` (#620) · **B13** the last of the
-write-only state (#626) · **§4.9** depfile-scoped stamps (#631). The five bugs the audit reproduced are filed
+write-only state (#626) · **§4.9** depfile-scoped stamps (#631) · **§5.1**
+`comptime_read_file` (#632) · **§5.2** `comptime_json_parse` /
+`comptime_toml_parse` (#633) · **§5.4** `build.env` (#642) · **§4.6**
+workspaces (#646). The five bugs the audit reproduced are filed
 under `issues/` and are all fixed. The campaign surfaced further compiler bugs
-of its own along the way; the two that landed with this stack are the extern
-prototype collision and the `-O2` flag that hid it (#624), and the build
-scheduler's nested event loop (in #620)._
+of its own along the way. Two were FIXED with this stack: the extern prototype
+collision and the `-O2` flag that hid it (#624), and the build scheduler's
+nested event loop (in #620). Two are filed OPEN, each worked around
+structurally rather than by weakening a feature:
+`issues/yo-doc-infers-the-project-name-from-package-json.md` and
+`issues/async-body-local-read-by-two-matches-is-emitted-twice.md`._
 
 The question that prompted this plan, from the maintainer, in three parts:
 
@@ -1016,10 +1022,10 @@ is the first-build fallback — but it can no longer produce a STALE cache, beca
 the walk's stamp is only ever COMPARED, never recorded; the recorded stamp comes
 from the depfile the child just wrote.
 
-**P1 is complete as of 2026-09-12**, along with P3's §4.8 and §4.9, and
-**§5.1 + §5.2 landed 2026-09-13**. What remains: **§5.4 `build.env`** (§5.5's
-`--emit-deps` half landed early because §4.9 needed it), then **§4.6
-workspaces**. P4 stays designed and unscheduled.
+**The plan is COMPLETE as of 2026-09-13**: P0, P1, P2 (§5.1, §5.2, §5.4) and
+P3 (§4.6, §4.8, §4.9) have all landed. P4 (registry, `yo publish`) stays
+designed and deliberately unscheduled — §4.10 records its shape so nothing here
+precludes it.
 
 **§5.1 — `comptime_read_file`** (landed). `comptime_read_file(path)` reads a
 file during evaluation and yields its bytes as a `comptime_str`, bounded the way
@@ -1098,6 +1104,81 @@ directly to be real compile errors, not swallowed).
 The dogfooding milestone below — un-vendoring `vendor/markdown_yo` — is now
 unblocked: every piece it named (the manifest, the resolver, the store,
 `--imports` in every command) is on develop.
+
+**§5.4 — `build.env`** (landed). A build file may read environment variables;
+nothing else may. `build.env(name, fallback)` gives the value or the fallback,
+and `build.env_is_set(name)` answers whether it is set at all.
+
+Two departures from the design as drafted:
+
+- **Two functions, not one returning `Option(comptime_str)`.** The evaluator has
+  no helper to instantiate `Option(comptime_str)` from a builtin, and building
+  that machinery for one call site is disproportionate. The pair is strictly as
+  expressive — `env_is_set` is exactly the distinction an `Option` carries — and
+  it reads better at the call site than unwrapping.
+- **The `std/build.yo` wrapper landed in the SAME release as the builtin**,
+  which the generation-A/B rule says is impossible. Measured: it is impossible
+  only for a module-level `::` VALUE binding, which its own `export(...)`
+  forces. A FUNCTION wrapper's body is deferred, so the seed evaluates
+  `std/build.yo` cleanly and only a build file that CALLS it fails. The
+  repository's own `build.yo` therefore must not use `build.env` until
+  `SEED_VERSION` carries the builtin — `fixpoint-arm64.yml` bootstraps gen-1
+  with the seed — but every other project can use it today. `AGENTS.md`'s
+  pitfall is corrected to say which shape breaks.
+
+Both guarantees the section asks for hold. Outside a build file the builtin is a
+compile error naming `-D` as the alternative, so an ordinary module cannot make
+its meaning depend on the invoking shell. And every read — including an
+`env_is_set` probe, since existence is what the build branched on — is folded
+into the artifact stamp.
+
+Gate: cli-case `build-env-read` reads a variable the case sets and one it does
+not, in both forms, reporting all four through step descriptions. The stamp half
+cannot be a cli-case (the harness cannot vary `env=` between steps) and was
+verified directly: build, rebuild with the same environment → `(cached: inputs
+unchanged, skipping compile)`, rebuild with the variable CHANGED → recompiles.
+
+**§4.6 — workspaces** (landed). A repository-root `yo.toml` declares
+`[workspace] members = [...]`; each member is an ordinary package with its own
+manifest and build file. `yo build -p <name>` builds one member — resolving it
+to that member's build file is the whole implementation, since `project_dir` is
+that file's parent and everything downstream derives from it — and `yo test
+--workspace` runs every member's tests in ONE run with a single summary.
+
+A member is named by its `[package] name`, not its directory: that is what a
+member is called everywhere else (`import("name")`, `build.dependency("name")`).
+A name no member declares lists the ones that do, rather than failing with
+"build file not found".
+
+Member patterns are relative paths with `*` allowed in the LAST segment only —
+a member is a path INTO the workspace, not a tree search, and `packages/*/x/*`
+would make "which directory owns the lock" ambiguous. An absolute pattern or one
+containing `..` is rejected for the same reason. A literal member without a
+`yo.toml` is an error naming the pattern (a typo should not silently build a
+smaller workspace); a glob match without one is skipped, because a glob is a
+filter by construction. Members are visited in sorted order, so output is stable
+across platforms — raw `read_dir` order is not.
+
+Not included, and not needed by anything today: `{ workspace = true }`
+dependency inheritance and a single root `yo.lock`. Members refer to each other
+as ordinary path dependencies, which has worked since P1.3, and each carries its
+own lock. Both are additive when a second version of one dependency across two
+members actually becomes a problem.
+
+Gates: cli-cases `build-workspace-member` (a fixture exercising BOTH pattern
+forms — `packages/*` and `examples/demo` — whose root build file deliberately
+builds nothing, so an ignored `-p` fails the case) and `test-workspace`. The
+error paths were verified directly: `-p` with an unknown name lists the members,
+and both `-p` and `--workspace` inside a plain package say so rather than
+degrading silently.
+
+One codegen defect surfaced and is filed, not fixed:
+`issues/async-body-local-read-by-two-matches-is-emitted-twice.md` — a local
+bound in an `io.async` `while` body and read by two separate `match`es is
+DECLARED twice in the emitted C. `check` and `compile --skip-c-compiler` both
+pass; only a full build shows it. §4.6 avoids the shape by lifting the split
+into a plain `fn`, which is better code anyway, but the defect is still there
+for the next person who writes the natural form.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

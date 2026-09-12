@@ -408,6 +408,30 @@ option :: (fn(comptime(config) : BuildOption) -> comptime(str))(
   __yo_build_option(config.name, config.description, config.default)
 );
 export(option);
+// ── Environment (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §5.4) ──
+/// The environment variable `name`, or `fallback` when it is unset.
+///
+/// Readable ONLY from a build file. An ordinary module that read the
+/// environment would mean something different under `yo build`, `yo check`,
+/// `yo test` and the editor, so the builtin is a compile error everywhere else.
+///
+/// Every read is folded into the artifact input stamp, so changing a variable
+/// the build file branches on rebuilds rather than serving a stale artifact.
+///
+/// PREFER `build.option` and `-Dname=value`: an option is declared, listed by
+/// `yo build --list-options`, and visible in the command that produced a build.
+/// Reach for `env` for what genuinely belongs to the environment — CI
+/// detection, `PKG_CONFIG_PATH`, a default that depends on the machine.
+env :: (fn(comptime(name) : comptime_str, comptime(fallback) : comptime_str) -> comptime(str))(
+  __yo_build_env(name, fallback)
+);
+export(env);
+/// Whether `name` is set at all, which `env` alone cannot tell you: a variable
+/// set to the same text as the fallback is indistinguishable from an unset one.
+env_is_set :: (fn(comptime(name) : comptime_str) -> comptime(bool))(
+  __yo_build_env_is_set(name)
+);
+export(env_is_set);
 // ── Documentation generation ─────────────────────────────────────────
 /// Output format for documentation generation.
 DocFormat :: enum(

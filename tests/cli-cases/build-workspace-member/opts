@@ -1,0 +1,14 @@
+# plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.6: a workspace root declares
+# its members and `yo build -p <name>` builds one of them.
+#
+# The fixture exercises both member-pattern forms at once: `packages/*` is a
+# glob (matching `core` and `app`) and `examples/demo` is a literal. `-p app`
+# names the member by its `[package] name`, not its directory — that is what a
+# member is called everywhere else (`import("name")`, `build.dependency("name")`).
+#
+# What this pins: the member's build file is what runs. The root's own build.yo
+# defines only a do-nothing `install`, so if `-p` were ignored the summary would
+# come from the root and no artifact would be built. Only the summary line is
+# compared — the child compile's chatter carries machine-specific paths.
+timeout=900
+stdout_keep_match=Build Summary: [0-9]+/[0-9]+ steps succeeded
