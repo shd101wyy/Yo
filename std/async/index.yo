@@ -43,6 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("../fmt");
 import("../string");
 IO_timer :: import("../sys/timer");
+{ __yo_async_yield_start } :: import("../sys/externs.yo");
 extern(
   "Yo",
   /// One event-loop step: drain ready tasks, then poll (and, when idle with
@@ -52,16 +53,33 @@ extern(
 );
 /// Suspend the current async task until the next event-loop turn: drain the
 /// ready queue, then poll (and, when idle with pending I/O, block in) I/O.
-/// Implemented by awaiting a 1 ms timer — the same park `Mutex.lock`'s
-/// contended loop uses. The previous body (`return(())`) completed the
-/// future SYNCHRONOUSLY, so `io.await(yield(io), io)` never reached
-/// `__yo_async_poll_step`: a poll-until-finished loop built on it
-/// (`is_finished()` + `await yield()`) spun without ever polling I/O, and
-/// the polled task never progressed (the build smoke hang's spin component,
-/// issues/build-smoke-hangs-registry-perturbation.md).
+///
+/// There is NO TIMER under this. The future is created pending and completed
+/// at the top of the next ready-task drain, after that drain has measured its
+/// budget, so the resumed continuation lands beyond the budget and runs in the
+/// following step — with exactly one `__yo_io_poll()` in between. That is the
+/// same mechanism `std/async/waker`'s `yield_now` documents, and the two are
+/// now the same thing.
+///
+/// It was a 1 ms timer until v0.2.32, for a bootstrap reason and not a design
+/// one: `yield` is on the compiler's OWN import path (through
+/// `std/fs/watch`), and a seed compiler emits the async runtime it was built
+/// with — so pointing this at `__yo_async_yield_start` could not link until a
+/// published seed carried that symbol. v0.2.31 is the first that does.
+///
+/// Two earlier shapes are ruled out and neither should come back. A body of
+/// `return(())` completes the future SYNCHRONOUSLY, so `io.await(yield(io), io)`
+/// never reaches `__yo_async_poll_step` at all: a poll-until-finished loop
+/// built on it (`is_finished()` + `await yield()`) spins without ever polling
+/// I/O and the polled task never progresses (the build smoke hang's spin
+/// component, issues/build-smoke-hangs-registry-perturbation.md). An
+/// ALREADY-COMPLETE future is the same failure by a different route — the
+/// await point takes an inline fast path for one of those and the task never
+/// leaves the C stack.
 yield :: (fn(io : Io) -> Impl(Future(unit)))(
   io.async((io : Io) => {
-    io.await(IO_timer.sleep(u64(1)), io);
+    _r := io.await(unsafe(__yo_async_yield_start()), io);
+    ()
   })
 );
 /// Await every handle, in order, returning each task's result (`.None` for a
