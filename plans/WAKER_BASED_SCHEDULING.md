@@ -1,7 +1,7 @@
 # Waker-based scheduling
 
-**Status:** IN PROGRESS — steps 1, 3a and 3b landed 2026-09-11, step 2 is
-seed-gated, steps 4-5 are open. Written 2026-09-10. This is the largest
+**Status:** IN PROGRESS — steps 1, 2, 3a and 3b are LANDED, step 4 is landed
+except for a shape note, step 5 is the only one genuinely open. Written 2026-09-10. This is the largest
 remaining item in `plans/STD_API_STABILIZATION.md`'s concurrency group, and four
 std modules' `## Stability` markers name it as the thing that will change under
 them.
@@ -9,11 +9,11 @@ them.
 | step | state |
 | --- | --- |
 | 1. `Waker` + `park` in the runtime | **LANDED** (#561) — `std/async/waker.yo`, `__yo_async_park_start` / `__yo_waker_new` / `__yo_waker_wake` / `__yo_waker_release` in `codegen/async/runtime_core.yo`, plus the live-waker count the loop needs to know a parked task is still wakeable |
-| 2. `yield` over `park` | **SEED-GATED.** `yield_now` is the fast form and is landed; `yield` itself cannot point at it until the seed ships `__yo_async_yield_start`, because `yield` is on the compiler's own import path (through `std/fs/watch`) and the seed emits a runtime without that symbol, so the compiler fails to LINK. Moves in the release after the one that ships this runtime |
+| 2. `yield` over `park` | **LANDED 2026-09-12**, once v0.2.31 became the seed — that is the first published seed emitting `__yo_async_yield_start`, and `yield` could not point at it before, being on the compiler's own import path (through `std/fs/watch`). 400 turns: 603 ms before, 0 ms after. Doing it surfaced a defect in the shared yield list, fixed in the same PR: `__yo_async_drain_yields` walked a head-inserted list head-first, so the LAST task to yield woke FIRST. A fairness yield must be FIFO; the 1 ms timer had been supplying the ordering the list was not, which is why `yield_now` shipped LIFO unnoticed |
 | 3a. `Mutex` over a waiter queue | **LANDED** (#576) — `std/async/mutex.yo` holds an `ArrayList(Waker)`, `unlock` wakes the FRONT waiter, and `waiter_count()` is the oracle the FIFO test reads |
 | 3b. `Channel` over the same queue | **LANDED** (#586) — `send`/`recv` park on a waiter queue instead of re-checking on a 1 ms timer tick. It was blocked for a day by a compiler defect that the rewrite surfaced: the trace collector tried to monomorphize a GENERIC `ArrayList(T)` instance that only this shape put in the codegen type registry, and failed inside `array_list.yo`'s `Trace` body — a file the rewrite never touched (`issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md`) |
 | 4. The combinators (`race`/`any`/`timeout`) | **PARTLY LANDED.** `timeout`'s retention is CLOSED: `abort()` now cancels the operation the task is suspended in, so the deadline timer is deregistered the moment the task wins instead of staying armed for the rest of the limit (`issues/fixed/timeout-deadline-timer-future-leak.md`). What remains is the polling SHAPE — `race`/`any` still re-check `is_finished()` around `__yo_async_poll_step()`; parking them on a wake needs a completion-notification list on `JoinHandle`, which is step 5's machinery |
-| 5. Cross-thread wake + `spawn_blocking` | open |
+| 5. Cross-thread wake + `spawn_blocking` | **OPEN — the only one.** `__yo_waker_wake` is already atomic on the future's own fields, but `__yo_async_enqueue_continuation` writes a THREAD-LOCAL ready queue, so a wake from a worker thread has nowhere safe to put the continuation and no way to rouse a loop parked in `__yo_io_wait`. Needs a cross-thread wake queue plus a loop wakeup channel (eventfd / pipe / kqueue `EVFILT_USER`) |
 
 **Two codegen bugs fell out of this campaign, both fixed.**
 
@@ -40,7 +40,7 @@ peer polls a clock:
 
 | site | what it does |
 | --- | --- |
-| `std/async/index.yo:62` (`yield`) | `io.await(IO_timer.sleep(u64(1)), io)` |
+| ~~`std/async/index.yo:62` (`yield`)~~ | ~~`io.await(IO_timer.sleep(u64(1)), io)`~~ — FIXED, step 2 |
 | `std/async/mutex.yo:62` (contended `lock`) | same 1 ms park, re-check |
 | `std/async/channel.yo` (blocked `send`/`recv`) | same |
 | `std/async/index.yo:97,129,192` (`race`, `any`, `timeout`) | `__yo_async_poll_step()` in a spin, re-checking each pass |
