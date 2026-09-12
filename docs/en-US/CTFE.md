@@ -129,6 +129,38 @@ Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))
 IntArray5 :: Array(i32, 5);
 ```
 
+### Reading a file at compile time: `comptime_read_file`
+
+`comptime_read_file(path)` reads a file while the program is being compiled and
+yields its bytes as a `comptime_str` — Zig's `@embedFile`:
+
+```rust
+VERSION :: comptime_read_file("./VERSION");
+SHADER  :: comptime_read_file("./shaders/blit.wgsl");
+
+comptime_assert(VERSION == "0.4.1\n");   // checked at compile time
+```
+
+Two rules keep it predictable:
+
+1. **The path is relative to the importing file**, never to the process working
+   directory. A module reads the same bytes no matter where `yo build` was run
+   from.
+2. **It must resolve inside that file's package root** — the directory of the
+   nearest `yo.toml` above it, else the nearest directory holding a `build.yo`,
+   else the file's own directory. Reading outside is a compile error, and the
+   check is on the lexically folded path, so `..` cannot climb out and back in.
+
+A missing file is a compile error too, reported at the call site.
+
+The file is an **input** of the compile: `yo compile --emit-deps` lists it, and
+`yo build` re-runs the artifact when it changes (see "Incremental builds" in the
+build system documentation). Editing an embedded data file invalidates the
+cache exactly like editing a `.yo` source.
+
+Byte content is fine: the value is a byte string, so a file with quotes,
+newlines or non-UTF-8 bytes travels verbatim.
+
 ## Comparison with Rust
 
 Yo's CTFE is more flexible than Rust's `const fn` in several ways:

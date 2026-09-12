@@ -1016,12 +1016,43 @@ is the first-build fallback — but it can no longer produce a STALE cache, beca
 the walk's stamp is only ever COMPARED, never recorded; the recorded stamp comes
 from the depfile the child just wrote.
 
-**P1 is complete as of 2026-09-12**, along with P3's §4.8 and §4.9. What
-remains, in the order the plan proposes: the rest of **P2** (compile-time
-inputs — §5.1 `comptime_read_file`, §5.2 `ComptimeValue` + the JSON/TOML
-parsers, §5.4 `build.env`, §5.5 plumbing, of which §5.5's `--emit-deps` half
-landed early here because §4.9 needed it), then **§4.6 workspaces**. P4 stays
+**P1 is complete as of 2026-09-12**, along with P3's §4.8 and §4.9, and
+**§5.1 landed 2026-09-13**. What remains: the rest of **P2** (§5.2
+`ComptimeValue` + the JSON/TOML parsers, §5.4 `build.env`; §5.5's `--emit-deps`
+half landed early because §4.9 needed it), then **§4.6 workspaces**. P4 stays
 designed and unscheduled.
+
+**§5.1 — `comptime_read_file`** (landed). `comptime_read_file(path)` reads a
+file during evaluation and yields its bytes as a `comptime_str`, bounded the way
+Zig bounds `@embedFile`: the path resolves against the IMPORTING FILE (never the
+process cwd, which would give one module different answers depending on where
+`yo build` ran), and it must land inside that file's package root — the nearest
+`yo.toml` above it, else the nearest `build.yo`, else its own directory. The
+check runs on the lexically folded path, so `..` cannot climb out and back in.
+Outside the root, and a missing file, are compile errors at the call site.
+
+The read is an INPUT EDGE, which is what makes it safe to cache: it records into
+the §4.9 list, so `--emit-deps` names the data file and the artifact stamp
+invalidates when it changes. Without that a build would cache over an edited
+data file forever.
+
+That edge needed the input record reachable from both the module loader and an
+evaluator builtin, which is an import cycle (the module manager imports the
+evaluator), so the registry moved out of `module_manager.yo` into
+`src/input_record.yo`. A definition-time trial or CTFE probe does not touch the
+disk — it computes its path from placeholder arguments — and gets the type with
+an unknown value instead.
+
+Gate: `tests/comptime.test.yo` — a module-level `::` binding (so the read really
+happens at compile time), a `comptime_assert` on the bytes, runtime asserts on
+the content and byte length, a `..` path that stays inside the root, and three
+`comptime_expect_error` cases: an absolute path outside the root, a `..` that
+climbs out, and a missing file. Verified RED first (`E0401: Variable
+"comptime_read_file" not found`).
+
+Note for §5.2: `comptime_str.len()` does not fold at compile time — not for a
+`comptime_read_file` result and not for a plain literal either — so the length
+assert is a runtime one. `ComptimeValue`'s helpers will hit the same wall.
 
 The dogfooding milestone below — un-vendoring `vendor/markdown_yo` — is now
 unblocked: every piece it named (the manifest, the resolver, the store,
