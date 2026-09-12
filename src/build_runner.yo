@@ -697,7 +697,6 @@ _evaluate_dependency_builds :: (
             defines : art.defines,
             strip : art.strip,
             static_link : art.static_link,
-            runtime_files : art.runtime_files,
             linked_artifacts : ArrayList(String).new(),
             linked_system_libs : art.linked_system_libs,
             package_dir : dir.clone(),
@@ -2002,7 +2001,9 @@ execute_node :: (
                 verbose : ctx.verbose,
                 title : doc_cfg.title.clone(),
                 format : doc_fmt,
-                version : doc_cfg.version.clone()
+                version : doc_cfg.version.clone(),
+                logo : doc_cfg.logo.clone(),
+                favicon : doc_cfg.favicon.clone()
               ),
               io
             );
@@ -2792,31 +2793,6 @@ run_build :: (
                 _push_all_strings(art.link_libraries, sys_flags.link_libraries);
                 _push_all_strings(art.defines, sys_flags.defines);
                 _push_all_strings(art.c_flags, sys_flags.c_flags);
-                (rf_i : usize) = usize(0);
-                while(rf_i < sys_flags.runtime_files.len(), {
-                  match(
-                    sys_flags.runtime_files.get(rf_i),
-                    .Some(rf) => {
-                      (rf_seen : bool) = false;
-                      (rfe_i : usize) = usize(0);
-                      while((rfe_i < art.runtime_files.len()) && !(rf_seen), {
-                        match(
-                          art.runtime_files.get(rfe_i),
-                          .Some(rfe) => if(rfe == rf, {
-                            rf_seen = true;
-                          }),
-                          .None => ()
-                        );
-                        rfe_i = (rfe_i + usize(1));
-                      });
-                      if(!(rf_seen), {
-                        art.runtime_files.push(rf.clone());
-                      });
-                    },
-                    .None => ()
-                  );
-                  rf_i = (rf_i + usize(1));
-                });
               });
             });
           }),

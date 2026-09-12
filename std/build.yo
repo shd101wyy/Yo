@@ -169,7 +169,17 @@ TestSuite :: struct(
   /// Comma-separated paths (files or directories, relative to the project
   /// root) excluded from the test walk — a path is excluded if it equals an
   /// entry or lives under one, e.g. "tests/internal,tests/cli-cases".
-  (exclude : comptime_str) ?= ""
+  (exclude : comptime_str) ?= "",
+  /// Print each test as it runs (`yo test --verbose`). `yo build --verbose`
+  /// turns it on for every suite regardless.
+  (verbose : bool) ?= false,
+  /// Stop at the first failing test (`yo test --bail`).
+  (bail : bool) ?= false,
+  /// Test files to compile at once (`yo test --parallel N`). Forwarded to the
+  /// child run, which ACCEPTS it and runs sequentially anyway — `yo test`'s v1
+  /// takes the flag for CLI compatibility only (`src/main.yo`). Surfaced so the
+  /// build file is not the thing that loses it.
+  (parallel : usize) ?= usize(1)
 );
 export(TestSuite);
 // ── Build module type ────────────────────────────────────────────────
@@ -332,7 +342,7 @@ shared_library :: (fn(comptime(config) : SharedLibrary) -> comptime(Step))({
 export(shared_library);
 /// Register a test-suite artifact. Returns a `Step` for dependency wiring.
 test :: (fn(comptime(config) : TestSuite) -> comptime(Step))({
-  __yo_build_test(config.name, config.root, config.target, config.exclude);
+  __yo_build_test(config.name, config.root, config.target, config.exclude, config.verbose, config.bail, config.parallel);
   Step(name : config.name, kind : StepKind.TestSuite)
 });
 export(test);
@@ -418,8 +428,6 @@ DocConfig :: struct(
   (format : DocFormat) ?= DocFormat.Html,
   /// Document non-exported (private) items.
   (include_private : bool) ?= false,
-  /// Document dependencies too.
-  (include_deps : bool) ?= false,
   /// Custom site title (default: project name).
   (title : comptime_str) ?= "",
   /// Release version to display (e.g., "v1.0.0").
@@ -467,7 +475,11 @@ doc :: (fn(comptime(config) : DocConfig) -> comptime(Step))({
     config.output,
     fmt_str,
     config.include_private,
-    config.include_deps,
+    // Slot kept, value fixed: `include_deps` promised documentation of the
+    // dependency closure and nothing ever read it (the plan's B13). The
+    // argument stays so an older SEED, whose builtin requires ten arguments,
+    // still evaluates this file.
+    false,
     config.title,
     config.logo,
     config.favicon,

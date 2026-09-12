@@ -139,11 +139,15 @@ Shared libraries compile with `-shared -fPIC` and produce `lib<name>.so` (Linux)
 
 ### `TestSuite`
 
-| Field    | Type           | Default       | Description                    |
-| -------- | -------------- | ------------- | ------------------------------ |
-| `name`   | `comptime_str` | _(required)_  | Test suite name                |
-| `root`   | `comptime_str` | _(required)_  | Path to test file or directory |
-| `target` | `comptime_str` | `target_host` | Target triple                  |
+| Field      | Type           | Default       | Description                                                                  |
+| ---------- | -------------- | ------------- | ---------------------------------------------------------------------------- |
+| `name`     | `comptime_str` | _(required)_  | Test suite name                                                              |
+| `root`     | `comptime_str` | _(required)_  | Path to test file or directory                                               |
+| `target`   | `comptime_str` | `target_host` | Target triple                                                                |
+| `exclude`  | `comptime_str` | `""`          | Comma-separated project-relative paths skipped by the walk                   |
+| `verbose`  | `bool`         | `false`       | Name each test as it runs (`yo test --verbose`); `yo build --verbose` forces it on |
+| `bail`     | `bool`         | `false`       | Stop at the first failing test (`yo test --bail`)                            |
+| `parallel` | `usize`        | `1`           | Test files compiled at once (`yo test --parallel N`) — forwarded to the child, which accepts it and still runs sequentially in v1 |
 
 ### Optimization Levels
 
@@ -1196,12 +1200,17 @@ DocConfig :: struct(
   (output : comptime_str) ?= "yo-out/doc",       // Output directory
   (format : DocFormat) ?= DocFormat.Html,             // Output format
   (include_private : bool) ?= false,                 // Document non-exported items
-  (include_deps : bool) ?= false,                    // Document dependencies too
   (title : comptime_str) ?= "",                   // Custom site title
-  (logo : comptime_str) ?= "",                    // Logo image path
-  (favicon : comptime_str) ?= ""                  // Favicon path
+  (logo : comptime_str) ?= "",                    // Sidebar header image
+  (favicon : comptime_str) ?= ""                  // Site icon
 );
 ```
+
+`logo` renders as an `<img class="logo">` at the top of the sidebar and
+`favicon` as the page's `<link rel="icon">`; both are emitted verbatim into the
+HTML, so a path is resolved by the browser relative to the generated page. The
+same two values are available on the command line as `yo doc --logo <path>`
+and `yo doc --favicon <path>`.
 
 ### Output Formats
 

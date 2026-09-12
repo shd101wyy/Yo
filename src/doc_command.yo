@@ -42,7 +42,11 @@ DocCommandOptions :: struct(
   verbose : bool,
   title : String,
   format : String,
-  version : String
+  version : String,
+  /// `--logo <path>`: an image for the sidebar header ("" = none).
+  logo : String,
+  /// `--favicon <path>`: the site's icon ("" = none).
+  favicon : String
 );
 /// `path.resolve(p)`: absolute paths are folded lexically; relative paths are
 /// joined onto the current working directory and then folded. Mirrors node's
@@ -454,7 +458,9 @@ run_doc :: (
   model := DocModel(
     name : project_name,
     modules : modules,
-    version : resolved_version
+    version : resolved_version,
+    logo : if(options.logo.len() == usize(0), Option(String).None, Option(String).Some(options.logo.clone())),
+    favicon : if(options.favicon.len() == usize(0), Option(String).None, Option(String).Some(options.favicon.clone()))
   );
   abs_output_dir := _resolve_path(options.output_dir.clone(), exn);
   (output_file : String) = String.from("index.html");

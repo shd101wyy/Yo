@@ -388,7 +388,6 @@ DocConfig :: struct(
   (output : comptime_string) ?= "yo-out/doc",    // Output directory
   (format : DocFormat) ?= DocFormat.Html,         // Output format
   (include_private : bool) ?= false,             // Document non-exported items
-  (include_deps : bool) ?= false,                // Document dependencies too
   (title : comptime_string) ?= "",                // Custom site title (default: project name)
   (version : comptime_string) ?= "",              // Release version (auto-detects from git if empty)
   (logo : comptime_string) ?= "",                 // Path to logo image
@@ -405,7 +404,7 @@ doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
   );
   __yo_build_doc(
     config.name, config.root, config.output, fmt_str,
-    config.include_private, config.include_deps,
+    config.include_private, false,
     config.title, config.logo, config.favicon,
     config.version
   );
@@ -413,6 +412,16 @@ doc :: (fn(comptime(config) : DocConfig) -> comptime(Step)) {
 };
 export doc;
 ```
+
+> **`include_deps` was removed 2026-09-12.** The field promised documentation of
+> the dependency closure and nothing ever read it — write-only state, the
+> `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` audit's B13. The literal
+> `false` above is the argument SLOT, kept so a seed whose `__yo_build_doc`
+> still requires ten arguments can evaluate `std/build.yo`; it goes away with
+> the slot on the next seed bump
+> (`plans/backlog/SEED_VERSION_AUTOMATION.md`). `logo` and `favicon` were
+> write-only for the same reason and now render — see
+> `docs/en-US/BUILD_SYSTEM.md`.
 
 **Usage in `build.yo`:**
 
@@ -428,7 +437,6 @@ doc_step :: build.doc({
   root: "./src/lib.yo",
   output: "docs/api",
   format: build.DocFormat.Markdown,
-  include_deps: true,
   title: "My Library API",
   version: "v1.0.0",
   logo: "./assets/logo.png"

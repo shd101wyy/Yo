@@ -118,7 +118,7 @@ keeping. The runner is where the port is incomplete. Reproduced on 0.2.30:
 | B10 | the Phase-A artifact stamp (`_artifact_input_stamp`, `:404-609`) hashes **every** `.yo` under the project (including `tests/`) and the whole std tree per artifact: any edit anywhere invalidates every artifact; directories whose name contains a `.` are never walked (`:477`) — sources under `my.pkg/` are silently excluded (stale-cache risk); the walk runs even when `YO_BUILD_NO_CACHE=1` | code | this plan (§4.9) **FIXED P1.4g** (the dotted-directory blind spot and the disabled-cache walk; the over-hashing is §4.9) |
 | B11 | registries are keyed by bare name with first-match resolution artifact → test → run → doc → step (`builtins/build.yo:600-637`); steps/tests/docs/runs have no duplicate check; `Step.link(sys)` before `build.system_library({name: sys})` is misread as an artifact link and dropped (`:1168-1177`) | code | this plan (§4.7) **FIXED P1.4g** |
 | B12 | `_dfs_cycle` skips the dependency after a not-in-map one (`:348-350`, missing `continue`); harmless today only because `_walk_dag` never emits such edges | code | fix with B6 **FIXED P1.4f** |
-| B13 | write-only state throughout: `BuildDocConfig.include_deps/logo/favicon` accepted and never forwarded (`:1177-1185`), `BuildTestSuite.target/verbose/bail/parallel` hard-coded, `runtime_files`, `ExecutionContext.dry_run`, `StepResult.duration_ms` always 0 | code | clean up with each phase |
+| B13 | write-only state throughout: `BuildDocConfig.include_deps/logo/favicon` accepted and never forwarded (`:1177-1185`), `BuildTestSuite.target/verbose/bail/parallel` hard-coded, `runtime_files`, `ExecutionContext.dry_run`, `StepResult.duration_ms` always 0 — **FIXED P1.4f/B13** | code | clean up with each phase |
 | B14 | `yo init`'s `build.yo` imports `{ assert, panic } :: import("std/assert")` and uses neither (`src/init.yo:75-106`) | reproduced | nit, fix in P0 |
 
 ### 1.3 Dependency CLI — the half that exists
@@ -490,7 +490,7 @@ gone. `execute_dag` spawns all ready nodes of a level up to `-j N` (default:
 logical cores, but each `yo compile` child evaluates prelude + std and peaks
 at 1–2 GB for a small program and 11–20 GB for the self-build, so the runner
 also caps by a `YO_BUILD_JOBS_MEM_GB` heuristic and documents it). `--summary`
-shows real per-node durations (`duration_ms` is 0 today, B13).
+shows real per-node durations (`duration_ms` was 0 until P1.4f, B13).
 
 ### 4.9 D-9 — stamp granularity and inputs
 
@@ -923,10 +923,42 @@ hiding the class: `run_compile` passed `-Wno-everything` and then a bare
 warning — it is `-Werror=implicit-function-declaration` now, matching what the
 `-O0` arm already gets from clang's defaults.
 
-Not in P1.4h (next): the rest of B13 (`BuildDocConfig.include_deps/logo/favicon`
-and the test suite's `target/verbose/bail/parallel` are accepted and never
-forwarded), §4.9's depfile-scoped stamps, §4.6 workspaces, then the plan's P2
-(compile-time inputs: `comptime_read_file`, `comptime_json_parse` /
+**B13 — the rest of the write-only state** (`p1/writeonly-state`, stacked on
+P1.4h). Every field the audit listed is now either read or gone:
+
+- `TestSuite` grew `verbose`, `bail` and `parallel`. The evaluator's
+  `BuildTestSuite` had carried them and the runner had forwarded them to the
+  child `yo test` all along — `std/build.yo` simply never surfaced them, so the
+  builtin hard-coded `verbose : false, bail : false, parallel : 1` and a build
+  file could not ask. (`target` was already read; the audit row was stale.)
+  `parallel` is forwarded and still inert at the far end — `yo test` v1 takes
+  the flag for CLI compatibility and runs sequentially — so the cli-case can
+  only gate `verbose` and `bail`; the field is surfaced so the BUILD FILE is
+  not the thing that loses it.
+- `DocConfig.logo` and `.favicon` travelled to `BuildDocConfig` and stopped
+  there. They reach `DocModel` now: the sidebar gets an `<img class="logo">`
+  and the page head a `<link rel="icon">`. `yo doc` grew the matching `--logo`
+  and `--favicon` flags, so the two surfaces agree.
+- `DocConfig.include_deps` is DELETED. It promised documentation of the
+  dependency closure and nothing ever read it; there is no design behind it to
+  preserve. The builtin keeps the argument SLOT, passed a literal `false`,
+  because the seed's `__yo_build_doc` still requires ten arguments — scheduled
+  for removal in `plans/backlog/SEED_VERSION_AUTOMATION.md`.
+- `runtime_files` is DELETED, all the way down. `PkgConfigResult` declared it,
+  `_merge_into` deduplicated it, `BuildArtifact` carried it and `run_build` ran
+  a 25-line dedup loop over it — and NOTHING ever pushed a value into it, at
+  any layer. Copying a linked DLL next to the executable is a real feature for
+  Windows, and it will be designed when it is built rather than left standing
+  as a field that cannot be non-empty.
+
+`ExecutionContext.dry_run` and `StepResult.duration_ms` were the two rows
+handled earlier, in P1.4f.
+
+Gates: cli-cases `build-test-suite-flags` (the suite asks for verbose + bail, so
+the third test's name must be ABSENT from the output) and `doc-logo-favicon`.
+
+Not in B13 (next): §4.9's depfile-scoped stamps, §4.6 workspaces, then the
+plan's P2 (compile-time inputs: `comptime_read_file`, `comptime_json_parse` /
 `comptime_toml_parse`, `build.env`) and the rest of P3.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
