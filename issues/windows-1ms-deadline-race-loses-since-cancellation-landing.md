@@ -31,11 +31,37 @@ legs pass it.
 - Draft PR #621 (a no-op commit on develop's tip) re-runs the matrix to
   confirm pre-existence independently of #614.
 
-## Hypothesis (unverified)
+## Root cause (confirmed by code reading, 2026-09-12)
 
-The cancellation path (#608, "std/async: yield has no timer under it any
-more") changed how a 1 ms race deadline is armed/observed relative to
-5 ms of queued work on Windows's coarser timers — the deadline now fires
-after the work completes (or the work's completion is observed first), so
-the race resolves to the work arm (`c == 101` instead of `200`). The
-assertion encodes Linux-tuned timing assumptions.
+#608 removed the 1 ms timer under `yield` (it is now the timer-free
+fairness handoff `__yo_async_yield_start`). The race test's poll loop
+(`while(!h.fin && !dh.fin) { await yield(); }`) previously advanced ~1 ms
+per turn because of that timer; now it spins in microseconds. On Linux the
+io_uring timers still expire at distinct real times (1 ms < 5 ms), so the
+deadline task strictly finishes first. On Windows the runtime's clock is
+`GetTickCount64()` (~15.6 ms granularity): the 1 ms and 5 ms dues are both
+satisfied by the same tick reading, the first real pump fires BOTH timer
+entries in one `__yo_win_timer_process_due` batch, both tasks complete
+together, and the loop's `cond(h.is_finished() => 101, ...)` tie-break
+awards the work task (spawned first). Result 101, expected 200 —
+deterministically, because the granularity gap (1 ms vs 15.6 ms) is
+structural.
+
+The pre-existence proof: draft PR #622 (a comment-only source change on
+develop's tip) fails `test (windows-latest)` at exactly this assertion —
+while #608's and #610's own merge pushes were classified docs-only and
+SKIPPED the matrix, so this combination had never run on Windows before
+PR #614.
+
+## Fix direction
+
+Give the Windows runtime deadline precision: derive `__yo_win_now_ms` from
+QPC (`QueryPerformanceCounter`, sub-microsecond) instead of
+`GetTickCount64`, and arm the `__yo_io_wait` timeout from the QPC-scaled
+next-due so a 1 ms deadline is actually waited for (the GQCSEx timeout
+itself is millisecond-DWORD, which suffices once `now` is fine-grained:
+due_1ms and due_5ms then land in different polls, the deadline fires
+first, and the test passes for the reason it does on Linux). Alternative
+rejected: widening the test's margins would pin the OS, but the property
+under test — a shorter deadline wins — is real and the runtime should
+honor it.
