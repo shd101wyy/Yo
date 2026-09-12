@@ -25,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_module_id } :: import("../../utils.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_usize, t_type } :: import("../../types/creators.yo");
 { is_comptime_list_type } :: import("../../types/guards.yo");
@@ -106,7 +106,7 @@ evaluate_yo_comptime_list_car :: (
   // variadic list yielded a bare UnknownVal that
   // `__yo_are_types_compatible` rejects (tests/variadic_comptime).
   car_unk_name := String.from("__comptime_list_car_");
-  car_unk_name.push_string(random_id(env.module_path));
+  car_unk_name.push_string(stable_module_id(String.from("car_unk_"), env.module_path));
   out_info.value = .Some(create_unknown_val_with_name(child_ty, car_unk_name));
   match(
     list_val,
@@ -754,7 +754,7 @@ evaluate_yo_comptime_list_get :: (
   // Same named promotion as the car builtin above (TS
   // comptime-list-fns.ts:606).
   get_unk_name := String.from("__comptime_list_get_");
-  get_unk_name.push_string(random_id(env.module_path));
+  get_unk_name.push_string(stable_module_id(String.from("get_unk_"), env.module_path));
   (out_val : Option(EvalValue)) = .Some(create_unknown_val_with_name(child_ty, get_unk_name));
   match(
     list_info.value,

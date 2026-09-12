@@ -26,6 +26,7 @@
 // drop. The eval marks the RHS via set_expr_as_needs_to_call_dup (assignment.yo
 // eval :388); this emits it. Mirrors src/codegen/exprs/assignment.ts.
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
+{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The last binding for `name` is a module-level global.
@@ -151,7 +152,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
                   cv2.kind,
                   .Outer => (),
                   .Local => {
-                    sm_field = Option(String).Some(`var_${cv2.base.id}`);
+                    sm_field = Option(String).Some(sm_local_field_name(cv2.base.id.to_string()));
                   }
                 ),
                 .None => ()

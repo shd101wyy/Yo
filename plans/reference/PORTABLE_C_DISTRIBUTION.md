@@ -168,17 +168,24 @@ bootstrap fixpoint gate independently proves byte-identity between emissions
 from two different binaries.
 
 So determinism is **not** a blocker for the shipping compiler. Two smaller
-real issues remain in this area:
+real issues remained in this area:
 
-- **Counter ids make diffs fragile.** `yo_id_N` is assigned in traversal
-  order, so the first divergence that consumes a different number of ids
-  renumbers every identifier after it. A genuine 20-line difference presents
-  as a near-total file diff. **Any comparison job must canonicalize
-  `yo_id_\d+` / `__yo_t\d+` before classifying hunks**, or every failure looks
-  identical and tells you nothing.
+- **Counter ids make diffs fragile.** `yo_id_N` was assigned in traversal
+  order, so the first divergence that consumed a different number of ids
+  renumbered every identifier after it. A genuine 20-line difference
+  presented as a near-total file diff, and comparison jobs had to
+  canonicalize `yo_id_\d+` / `__yo_t\d+` before classifying hunks.
+  **RETIRED 2026-09-12 (Phase 2,
+  `plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` §5):** every id mint is
+  now position- or content-derived (and the global counter is gone), so a
+  stage-2/stage-3 diff points at a real divergence — diff the emissions
+  as-is.
 - **Neither compiler resets its codegen counters between compilations in one
   process**, so emitted C depends on how many files were compiled before it in
-  batch mode. Determinism work must add a per-compilation reset.
+  batch mode. Determinism work must add a per-compilation reset. (With the
+  Phase 2 id scheme the remaining per-process state is the per-position
+  occurrence counters — still per-process, but an edit in one module no
+  longer renumbers another module's ids.)
 
 ### Correction 2 — `std/` _does_ branch on the platform at comptime
 
@@ -424,8 +431,10 @@ Assert `linux-x64 == linux-arm64` and `macos-x64 == macos-arm64`. Notes:
   builds stage-1 from PR sources on every platform — but note
   `test (macos-26-intel)` and `test (ubuntu-24.04-arm)` are **not** required
   checks, so the arch legs would upload without gating.
-- Report failures with canonicalized ids + hunk bucketing + `cmp`'s
+- Report failures with hunk bucketing + `cmp`'s
   first-differing offset. A raw `diff -u` of two 2.26 M-line files is useless.
+  (Pre-Phase-2 this also needed `yo_id_\d+` canonicalization; since the
+  2026-09-12 stable-id work, plain hunks are meaningful.)
 - **Adding a job carries no branch-protection hazard** — an unlisted job runs
   and simply does not gate. _Renaming or deleting_ a listed job is what blocks
   every PR forever (ruleset 13548862, 15 hand-listed contexts). So a new job

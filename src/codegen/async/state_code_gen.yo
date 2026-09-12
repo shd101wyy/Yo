@@ -28,7 +28,7 @@
 { is_unit_type, is_enum_type, is_some_type, is_concrete_trait_type, is_extern_type_name } :: import("../../types/guards.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
 { get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, type_key } :: import("../utils/index.yo");
-{ get_state_machine_field_name } :: import("./state_machine_naming.yo");
+{ get_state_machine_field_name, sm_local_field_name } :: import("./state_machine_naming.yo");
 { generate_comptime_value } :: import("../exprs/comptime_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
@@ -2828,7 +2828,7 @@ _emit_match_case_value :: (
   match(
     target_variable_id,
     .Some(tvid) => {
-      fname := sanitize_for_c_identifier(`var_${tvid}`, false);
+      fname := sm_local_field_name(tvid.clone());
       if(code.len() > usize(0), {
         em.emit_string_line(`${indent}sm->${fname} = ${code};`);
       });

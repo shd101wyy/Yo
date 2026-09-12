@@ -32,6 +32,7 @@
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
+{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -810,9 +811,9 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
                   .Some(al) => match(
                     al.get(smb_id.clone()),
                     .Some(af) => af,
-                    .None => `var_${smb_id.clone()}`
+                    .None => sm_local_field_name(smb_id.clone())
                   ),
-                  .None => `var_${smb_id.clone()}`
+                  .None => sm_local_field_name(smb_id.clone())
                 );
                 smb_store := body_indent.clone();
                 smb_store.push_str("sm->");

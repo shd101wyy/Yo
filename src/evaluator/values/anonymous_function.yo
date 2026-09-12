@@ -85,7 +85,7 @@ _(env : anonfn_dbg_env) :: import("std/env");
   CapturedVarInfo,
   ExpectedTypeCtx
 } :: import("../context.yo");
-{ random_id, stable_position_id } :: import("../../utils.yo");
+{ stable_func_id } :: import("../../utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 {
@@ -1245,16 +1245,17 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // Phase 2 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the id is a
   // function of WHAT the function is — its defining module and source
-  // position — not of how many ids were minted before it. OCCURRENCE-indexed
-  // (not merged): each EVALUATION of this literal mints a distinct FuncVal
-  // (generic instantiation, inlining trials and call-time re-evaluation give
-  // the same source site different captures and parameter types — merging
-  // their ids corrupts the func-type registries, which surfaced as trait
-  // resolution failures in deep import chains). The occurrence counter is
-  // per-position, so ids still do not shift on unrelated edits.
+  // position — not of how many ids were minted before it. UNIQUE PER MINT
+  // (occurrence-indexed, not merged): each EVALUATION of this literal mints a
+  // distinct FuncVal (generic instantiation, inlining trials and call-time
+  // re-evaluation give the same source site different captures and parameter
+  // types — merging their ids corrupts the fid-keyed registries: two
+  // derive(Eq) expansions from one macro site once shared a fid and emitted
+  // Os's body under VcOp's signature). The occurrence counter is per-position,
+  // so ids still do not shift on unrelated edits.
   func_id := cond(
-    is_creating_closure => stable_position_id(String.from("closure_"), tok.module_path, tok.row, tok.column),
-    true => stable_position_id(String.from("fn_"), tok.module_path, tok.row, tok.column)
+    is_creating_closure => stable_func_id(String.from("closure_"), tok.module_path, tok.row, tok.column),
+    true => stable_func_id(String.from("fn_"), tok.module_path, tok.row, tok.column)
   );
   // Source-position identity: every re-eval generation of this source
   // closure registers under the same key so capture info can merge across
@@ -1833,7 +1834,9 @@ Result type: ${type_to_string(decl_result_ty)}`
             cap_tys : ArrayList(TypeValue).new(),
             // THROWAWAY id: reusing the real func_id let trial registrations
             // shadow the real definition's (codegen emitted the trial clone).
-            func_id : random_id(env.module_path)
+            // Phase 2: positional-occurrence like every fid — the throwaway
+            // takes this position's next ordinal, distinct from the real one.
+            func_id : stable_func_id(String.from("fn_"), tok.module_path, tok.row, tok.column)
           )
         ),
         ArrayList(EvalValue).new()

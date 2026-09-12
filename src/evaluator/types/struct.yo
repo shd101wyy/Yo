@@ -40,7 +40,7 @@ import("std/fmt");
   evaluate_type_field,
   register_struct_fields
 } :: import("./field.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_position_id, stable_label_id } :: import("../../utils.yo");
 { register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
@@ -76,10 +76,16 @@ evaluate_struct_type :: (
   // module-level struct declaration share one identity; CTFE instantiations
   // (generic constructors) keep eval-fresh ids so distinct instantiations
   // never share (the recorded tk2/MapEntry hazard of the unconditional swap).
+  // Phase 2: the identity is the declaration's SOURCE POSITION, not the
+  // parse-order `ast_expr_id` — an edit earlier in ANY file renumbers
+  // ast ids and used to rename every downstream type. CTFE ids mint per
+  // instantiation from the same position (occurrence-indexed), so an edit
+  // in another module cannot renumber them either.
+  decl_tok := ast_expr_token(expr);
   struct_id := if(
     ctx.ctfe_depth == usize(0),
-    `struct_decl_${ast_expr_id(expr).to_string()}_${env.module_path.replace(String.from("/"), String.from("_")).replace(String.from("."), String.from("_")).replace(String.from(":"), String.from("_"))}`,
-    `struct_${random_id(env.module_path)}`
+    stable_position_id(String.from("struct_decl_"), decl_tok.module_path, decl_tok.row, decl_tok.column),
+    stable_label_id(String.from("struct_"), decl_tok.module_path, decl_tok.row, decl_tok.column)
   );
   // Preliminary struct type (empty fields) used as SelfType during field evaluation.
   // This allows self-referential types like `struct(val: Option(Self))`.

@@ -11,7 +11,6 @@
 //!     identifier. Mirrors `generateNewTempVariableName` in `src/utils.ts`.
 //!   * `is_temp_variable_name` — predicate matching names produced by
 //!     `generate_new_temp_variable_name`. Mirrors `isTempVariableName`.
-//!   * `random_id` — module-scoped fresh ID counter. Mirrors `randomId`.
 //!
 //! Phase A.4.1: split out of src/evaluator/utils.yo so that the file
 //! mirrors `src/utils.ts` (top-level utility helpers) instead of being
@@ -297,7 +296,63 @@ stable_position_id :: (
   });
   candidate
 });
-export(stable_position_id, stable_occurrence_key, stable_label_id, fnv1a64, _stable_id_module_stem);
+/// A function identity mint (Phase 2): `<prefix>yo_id_<h><occ>` where `h` is
+/// the FNV-1a 64 of the mint's source position and `occ` is that position's
+/// occurrence ordinal zero-padded to 6 digits. Two properties the evaluator's
+/// fid-keyed tables (specializations, capture info, param-default copies)
+/// demand at once:
+///
+///   * UNIQUE PER MINT — a trial and a real evaluation of one function, and
+///     two functions the derive/macro machinery generates from the same
+///     expansion site, must never share a fid: sharing merges their
+///     specializations and emits one body under another function's signature.
+///     The occurrence ordinal provides this exactly like the global counter
+///     `random_id` it replaces did.
+///   * POSITION-DERIVED — an edit elsewhere in the tree changes neither `h`
+///     nor the mint count at this position, so the fid (and every C name
+///     derived from it) is byte-identical across unrelated edits.
+///
+/// The fixed 6-digit width keeps the digit string injective in practice:
+/// `h1·10^6 + o1 == h2·10^6 + o2` forces `h1 == h2, o1 == o2` while ordinals
+/// stay below one million (a single source position minting a million
+/// functions does not happen; if it ever did, the unpadded tail merely risks
+/// a collision, which register_function's backstop would catch and `_x`-suffixed).
+///
+/// Callers pass the HEAD-era prefixes so shape-sensitive consumers keep
+/// matching: `""` → `yo_id_<digits>`, `"fn_"` → `fn_yo_id_<digits>`,
+/// `"closure_"` → `closure_yo_id_<digits>`.
+stable_func_id :: (
+  fn(prefix : String, module_path : String, row : usize, column : usize) -> String
+)({
+  src_key := `fid:${module_path}:${row.to_string()}:${column.to_string()}`;
+  k := stable_occurrence_key(src_key);
+  h := fnv1a64(`${prefix}:${module_path}:${row.to_string()}:${column.to_string()}`);
+  occ := k.to_string();
+  while(occ.len() < usize(6), {
+    occ = `0${occ}`;
+  });
+  `${prefix}yo_id_${h.to_string()}${occ}`
+});
+/// A positionless mint (Phase 2): `<prefix><occurrence>` where the occurrence
+/// counter is scoped to (prefix, module). For evaluator-side names that have
+/// no source position — unknown-value display names, comptime instance
+/// labels. Unique per mint exactly like the `random_id` it replaces; stable
+/// across unrelated edits because a module's mints are counted against its
+/// own counter only, so an edit that changes ANOTHER module's mint count
+/// cannot renumber this one.
+stable_module_id :: (fn(prefix : String, module_path : String) -> String)({
+  k := stable_occurrence_key(`${prefix}:${module_path}`);
+  `${prefix}${k.to_string()}`
+});
+export(
+  stable_position_id,
+  stable_occurrence_key,
+  stable_label_id,
+  stable_func_id,
+  stable_module_id,
+  fnv1a64,
+  _stable_id_module_stem
+);
 /// Byte-exact StrLit unquote: drop the first and last BYTE (the ASCII `"`
 /// delimiters yo-self's StrLit convention keeps). It was written because the
 /// historical pattern `raw.substring(1, raw.len()-1)` mixed a BYTE length with
@@ -509,7 +564,17 @@ generate_new_temp_variable_name :: (
   // COEXISTING temps from one site — a trial and a real evaluation of the
   // same binding mint into the same frame with different types, which the
   // old global counter kept apart by construction.
-  key := `${prefix}:${row.to_string()}:${column.to_string()}:${slot}`;
+  // The key uses the CANONICAL module path, not the truncated prefix: the
+  // 12-byte prefix is shared by every `file:///home/**` module, so keying by
+  // it merged the occurrence counters of unrelated modules — a new binding
+  // anywhere renumbered same-position temps elsewhere. `file://` stripped,
+  // the two spellings of one module hash equal; different modules never
+  // share a key.
+  mp := module_path.clone();
+  if(mp.starts_with(String.from("file://")), {
+    mp = mp.substring(usize(7), mp.len());
+  });
+  key := `${mp}:${row.to_string()}:${column.to_string()}:${slot}`;
   k := fnv1a64(key);
   n := stable_occurrence_key(key);
   `${prefix}${k.to_string()}${n.to_string()}`
@@ -581,23 +646,6 @@ is_any_temp_variable_name :: (fn(var_name : String) -> bool)({
   false
 });
 // ---------------------------------------------------------------------------
-// random_id
-// ---------------------------------------------------------------------------
-/// Global counter for generating module-scoped unique IDs.
-/// Mirrors the `moduleIdCounters` map in `src/utils.ts`.
-///
-/// Note: We use a single global counter (not per-module) for simplicity.
-/// The resulting IDs are globally unique and will not satisfy
-/// `is_temp_variable_name` (they start with `yo_id_`, not `_…_temp_`).
-(g_random_id_counter : usize) = usize(0);
-/// Generate a unique ID for a module-scoped value (e.g. recur result names).
-///
-/// Mirrors `randomId` in `src/utils.ts`.
-random_id :: (fn(_module_path : String) -> String)({
-  count := g_random_id_counter;
-  g_random_id_counter = (g_random_id_counter + usize(1));
-  `yo_id_${count.to_string()}`
-});
 export(str_lit_unquote_bytes);
 export(hex_digit_value, UnicodeEscape, scan_unicode_escape);
 export(
@@ -605,7 +653,6 @@ export(
   generate_new_temp_variable_name,
   is_temp_variable_name,
   is_any_temp_variable_name,
-  random_id,
   profile_set_enabled,
   profile_enabled,
   profile_record_phase,

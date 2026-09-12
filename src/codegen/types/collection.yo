@@ -51,7 +51,8 @@
   type_key,
   get_type_string,
   get_runtime_struct_fields,
-  sanitize_for_c_identifier
+  sanitize_for_c_identifier,
+  function_c_name
 } :: import("../utils/index.yo");
 // Cross-file cycle: functions/collection imports collect_type from here; we
 // import its find-fn through the indirection call-through (which reads a
@@ -580,7 +581,7 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
               _call_find_function_calls_in_expr(_fv_body(v), context, info);
             },
             (!(context.has_function(fid.clone()))) => {
-              context.register_function(fid.clone(), v, sanitize_for_c_identifier(fid.clone(), false));
+              context.register_function(fid.clone(), v, function_c_name(fid));
               _call_find_function_calls_in_expr(_fv_body(v), context, info);
             },
             true => ()

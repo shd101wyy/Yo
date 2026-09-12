@@ -33,6 +33,7 @@ _(env : cgu_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
+{ fnv1a64 } :: import("../../utils.yo");
 { TypeValue, get_struct_field_comptime_flags } :: import("../../types/definitions.yo");
 {
   is_reference_struct_type,
@@ -738,6 +739,23 @@ fresh_local_name :: (fn(prefix : String, current_function_name : String) -> Stri
   g_fresh_local_counts.insert(key, k + usize(1));
   `${prefix}${k.to_string()}`
 });
+/// Phase 2 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the default C
+/// name for a func_id. Plain fids (`yo_id_<digits>`, `fn_yo_id_<digits>`,
+/// `closure_yo_id_<digits>`, and short specializations) pass through
+/// sanitized — short, readable, and already content-stable. A specialization
+/// id carries its full compile-time signature (evaluator/calls/helper.yo),
+/// which embeds the raw structural type keys of the concrete arguments:
+/// correct as an evaluator CACHE KEY, but as a C identifier it is kilobytes
+/// long and repeats at every declaration and call site — hash it instead.
+/// Collisions between two hashed signatures fall back to register_function's
+/// `_x<k>` backstop; a hashed name can never equal a sanitized fid (those
+/// never start with `__yo_fs_`).
+function_c_name :: (fn(func_id : String) -> String)(
+  cond(
+    (func_id.len() > usize(160)) => `__yo_fs_${fnv1a64(func_id.clone()).to_string()}`,
+    true => sanitize_for_c_identifier(func_id.clone(), false)
+  )
+);
 /// Sanitize a string to be a valid C identifier. Replaces any byte that is
 /// not `[a-zA-Z0-9_]` with `_u<byte>_` (ASCII byte value — operators in
 /// identifiers are ASCII, so this matches TS `charCodeAt` for the cases that
@@ -1756,6 +1774,7 @@ export(
   mark_uses_tls,
   get_uses_tls,
   fresh_local_name,
+  function_c_name,
   CodeGenContext,
   ChunkRange,
   CodegenTypeEntry,

@@ -98,7 +98,7 @@
   compute_overlapping_slots,
   generate_async_block_resume_function
 } :: import("../async/state_machine.yo");
-{ get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
+{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
 { codegen_fatal } :: import("../constants.yo");
 { panic, assert } :: import("std/assert");
@@ -279,9 +279,7 @@ _find_bundle_var_field :: (
             },
             .None => {
               if(best_plain.is_none() || _numeric_id_less(vid, best_plain_id), {
-                f := String.from("var_");
-                f.push_string(vid.clone());
-                best_plain = Option(String).Some(f);
+                best_plain = Option(String).Some(sm_local_field_name(vid.clone()));
                 best_plain_id = vid.clone();
               });
             }
@@ -649,6 +647,10 @@ emit_async_block_struct_definition :: (
   // Segment-local variables become C locals in their case block. Also exclude temp
   // vars aliased to await_future_N fields (Phase 1b) and vars sharing overlapping
   // storage slots (Phase 2).
+  // Phase 2: this emitter also serves ASYNC BLOCKS, whose captured set never
+  // passes through _build_combined_sm_variables — register the stable field
+  // names here too (idempotent: same list, same names).
+  register_sm_captured_names(info.analysis.captured_variables);
   local_variables := ArrayList(CapturedVariable).new();
   cvs := info.analysis.captured_variables;
   (ci : usize) = usize(0);

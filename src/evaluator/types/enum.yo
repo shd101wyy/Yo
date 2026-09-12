@@ -50,7 +50,7 @@ import("std/fmt");
 { Exception } :: import("std/error");
 { TypeField, EvalTypeFieldResult, evaluate_type_field } :: import("./field.yo");
 { parse_raw_int } :: import("../utils.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_position_id, stable_label_id } :: import("../../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -318,10 +318,11 @@ evaluate_enum_type :: (
   // instantiation), ids stay eval-fresh: Option(i32) vs Option(String)
   // evaluate the same enum body and must NOT share identity (the recorded
   // tk2/MapEntry failure of the unconditional ast-id swap).
+  decl_tok := ast_expr_token(expr);
   enum_id := if(
     ctx.ctfe_depth == usize(0),
-    `enum_decl_${ast_expr_id(expr).to_string()}_${env.module_path.replace(String.from("/"), String.from("_")).replace(String.from("."), String.from("_")).replace(String.from(":"), String.from("_"))}`,
-    `enum_${random_id(env.module_path)}`
+    stable_position_id(String.from("enum_decl_"), decl_tok.module_path, decl_tok.row, decl_tok.column),
+    stable_label_id(String.from("enum_"), decl_tok.module_path, decl_tok.row, decl_tok.column)
   );
   // Preliminary EnumT (empty variants) used as SelfType during field evaluation
   // so self-referential variants like `Some(Self)` work. The shell carries a

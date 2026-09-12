@@ -36,7 +36,7 @@ import("std/fmt");
   EvalTypeFieldResult,
   evaluate_type_field
 } :: import("./field.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_label_id } :: import("../../utils.yo");
 { type_implements_runtime, type_is_comptime_only } :: import("../../types/utils.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -60,7 +60,11 @@ evaluate_union_type :: (
       )
     );
   });
-  union_id := `union_${random_id(env_mut.module_path)}`;
+  // Phase 2: occurrence-indexed from the declaration's source position —
+  // unique per mint like the `random_id` it replaces, but an edit in another
+  // module cannot renumber it.
+  decl_tok := ast_expr_token(expr);
+  union_id := stable_label_id(String.from("union_"), decl_tok.module_path, decl_tok.row, decl_tok.column);
   // Temporarily set SelfType so fields can reference Self.
   old_self_type := ctx.self_type;
   prelim_ty := TypeValue.Union(

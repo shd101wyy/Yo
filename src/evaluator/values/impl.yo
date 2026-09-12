@@ -81,7 +81,7 @@ _(env : impl_dbg_env) :: import("std/env");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_key } :: import("../../types/type_key.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_func_id } :: import("../../utils.yo");
 { parse_raw_int } :: import("../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
@@ -4404,7 +4404,8 @@ evaluate_module_value :: (
                       d_reg_val := match(
                         d_val,
                         .FuncVal(d_fvd, d_cvs) => {
-                          d_fresh_id := (String.from("fn_") + random_id(env.module_path));
+                          d_tok := ast_expr_token(expr);
+                          d_fresh_id := stable_func_id(String.from("fn_"), d_tok.module_path, d_tok.row, d_tok.column);
                           d_body_clone := clone_expr_fresh_ids(d_fvd.*.body);
                           d_fresh := EvalValue.FuncVal(
                             box(

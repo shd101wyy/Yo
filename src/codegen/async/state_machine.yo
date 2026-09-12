@@ -27,10 +27,10 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter, WhileLoopInfo, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, InAsyncStateMachine, CondBranchPostWhileExprs, OuterWhileLoop, SmWhileBreakInfo, SmWhileContinueInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ is_temp_variable_name, random_id } :: import("../../utils.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
 { codegen_fatal } :: import("../constants.yo");
-{ get_type_string, fresh_local_name } :: import("../utils/index.yo");
-{ get_state_machine_field_name } :: import("./state_machine_naming.yo");
+{ get_type_string, fresh_local_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
@@ -88,9 +88,7 @@ get_future_field_name :: (
           cv.kind,
           .Outer => return(cv.base.name.clone()),
           .Local => {
-            s := String.from("var_");
-            s.push_string(cv.base.id.to_string());
-            return(s);
+            return(sm_local_field_name(cv.base.id.to_string()));
           }
         ),
         .None => ()
@@ -1058,6 +1056,9 @@ _build_combined_sm_variables :: (
   fn(analysis : AwaitAnalysisResult, capture_type : Option(TypeValue)) -> HashMap(String, CapturedVariable)
 )({
   combined := HashMap(String, CapturedVariable).new();
+  // Phase 2: assign each LOCAL capture its stable C field name (name-derived,
+  // deduped within this SM) — see state_machine_naming.yo.
+  register_sm_captured_names(analysis.captured_variables);
   cvs := analysis.captured_variables;
   (i : usize) = usize(0);
   while(i < cvs.len(), {
@@ -1146,9 +1147,7 @@ find_bundle_field_name :: (
                     aliased,
                     .Some(a) => return(Option(String).Some(a)),
                     .None => if(fallback.is_none(), {
-                      f := String.from("var_");
-                      f.push_string(smvar.base.id.to_string());
-                      fallback = Option(String).Some(f);
+                      fallback = Option(String).Some(sm_local_field_name(smvar.base.id.to_string()));
                     })
                   );
                 });

@@ -22,6 +22,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of,
   BK_IMPORT
 } :: import("../../expr.yo");
+{ stable_module_id } :: import("../../utils.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, LoadModuleResult } :: import("../context.yo");
@@ -36,7 +37,6 @@ pragma(Pragma.AllowUnsafe);
 { stat } :: import("std/libc/sys/stat");
 { GlobalAllocator } :: import("std/allocator");
 { evaluate_expression } :: import("./expr.yo");
-{ random_id } :: import("../../utils.yo");
 // ---------------------------------------------------------------------------
 // _file_exists_sync
 // ---------------------------------------------------------------------------
@@ -313,7 +313,7 @@ _build_module_val_from_env :: (fn(env : Environment) -> EvalValue)({
     );
     fi = (fi + usize(1));
   });
-  EvalValue.StructVal(`source_namespace_${random_id(env.module_path)}`, names, values)
+  EvalValue.StructVal(stable_module_id(String.from("source_namespace_"), env.module_path), names, values)
 });
 // ---------------------------------------------------------------------------
 // evaluate_import

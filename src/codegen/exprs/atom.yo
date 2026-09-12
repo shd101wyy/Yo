@@ -26,6 +26,7 @@
   get_type_string,
   sanitize_for_c_identifier
 } :: import("../utils/index.yo");
+{ sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type } :: import("../../expr_info.yo");
@@ -151,7 +152,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                 field_name := match(
                   cv.kind,
                   .Outer => `__capture.${var_name.clone()}`,
-                  _ => `var_${cv.base.id.to_string()}`
+                  _ => sm_local_field_name(cv.base.id.to_string())
                 );
                 return(Option(String).Some(`sm->${field_name.clone()}`));
               },
@@ -232,7 +233,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
           field_name2 := match(
             cv2.kind,
             .Outer => `__capture.${var_name.clone()}`,
-            _ => `var_${fallback_key.clone()}`
+            _ => sm_local_field_name(fallback_key.clone())
           );
           return(Option(String).Some(`sm->${field_name2.clone()}`));
         },
@@ -263,7 +264,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
                       field_name3 := match(
                         e3.value.kind,
                         .Outer => `__capture.${owner_name.clone()}`,
-                        _ => `var_${e3.key.clone()}`
+                        _ => sm_local_field_name(e3.key.clone())
                       );
                       return(Option(String).Some(`sm->${field_name3.clone()}`));
                     });

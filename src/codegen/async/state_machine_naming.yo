@@ -7,11 +7,77 @@
 //! structural necessity as `_fsm.yo` for the emitter mutual recursion). Mirrors
 //! `getStateMachineFieldName` (state-machine.ts:549).
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ fnv1a64 } :: import("../../utils.yo");
+/// Phase 2 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the C field
+/// name for a LOCAL state-machine capture is derived from the variable's
+/// NAME and declaration site, not its evaluator id. The id comes from a
+/// global allocation counter, so naming fields `var_<id>` renamed every SM
+/// struct in the program whenever any binding was added anywhere; the name
+/// only moves when THIS function's captured binding set moves. Keyed by the
+/// id string (the join key the whole SM machinery already uses), filled by
+/// `register_sm_captured_names` from the function-SM builder and from the
+/// async-block struct emitter.
+(g_sm_local_field_names : HashMap(String, String)) = HashMap(String, String).new();
+/// Record the stable field name for a local capture (idempotent — a
+/// re-registered SM re-derives the same name).
+register_sm_local_field_name :: (fn(variable_id : String, field : String) -> unit)({
+  _ := g_sm_local_field_names.insert(variable_id, field);
+});
+/// Assign every LOCAL capture its stable field name — `var_<name>_<hash of
+/// the binding's declaration site>` — and record the assignments. The suffix
+/// is the variable's OWN decl_site (`module:row:col` of its token), so the
+/// name is a function of the binding alone: no dependence on registration
+/// order or on the dedup context of whichever captured list is at hand (the
+/// struct emitter's filtered list vs the full analysis list vs the combined
+/// map all derive the SAME name for one variable). The `var_` prefix keeps
+/// locals clear of the SM's fixed fields (`state`, `result`, ...) and the
+/// `__capture.`/`await_future_<n>` spellings.
+register_sm_captured_names :: (
+  fn(cvs : ArrayList(CapturedVariable)) -> unit
+)({
+  (i : usize) = usize(0);
+  while(i < cvs.len(), {
+    match(
+      cvs.get(i),
+      .Some(v) => match(
+        v.kind,
+        .Local => if(v.base.decl_site.len() > usize(0), {
+          field := sanitize_for_c_identifier(
+            `var_${v.base.name}_${fnv1a64(v.base.decl_site.clone()).to_string()}`,
+            false
+          );
+          register_sm_local_field_name(v.base.id.to_string(), field);
+        }),
+        .Outer => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// The stable field name for a local capture, with the historical
+/// `var_<id>` as the unregistered fallback (reached only for captures whose
+/// list never passed through `register_sm_captured_names` — e.g. a decl_site
+/// was empty).
+sm_local_field_name :: (fn(variable_id : String) -> String)(
+  match(
+    g_sm_local_field_names.get(variable_id.clone()),
+    .Some(stable) => stable,
+    .None => {
+      pre := String.from("var_");
+      pre.push_string(variable_id);
+      sanitize_for_c_identifier(pre, false)
+    }
+  )
+);
 /// The C field name for a captured variable in a state-machine struct (consistent
 /// across struct definition and use): `outer` → `__capture.<id>`; an alias wins;
-/// otherwise `var_<id>`.
+/// otherwise the registered stable name (Phase 2) with the historical `var_<id>`
+/// as the unregistered fallback.
 get_state_machine_field_name :: (
   fn(variable_id : String, kind : Option(String), aliases : Option(HashMap(String, String))) -> String
 )({
@@ -29,8 +95,11 @@ get_state_machine_field_name :: (
     .Some(a) => match(a.get(variable_id.clone()), .Some(al) => return(al), .None => ()),
     .None => ()
   );
-  pre := String.from("var_");
-  pre.push_string(variable_id);
-  sanitize_for_c_identifier(pre, false)
+  sm_local_field_name(variable_id)
 });
-export(get_state_machine_field_name);
+export(
+  get_state_machine_field_name,
+  sm_local_field_name,
+  register_sm_local_field_name,
+  register_sm_captured_names
+);
