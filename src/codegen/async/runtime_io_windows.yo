@@ -2159,8 +2159,25 @@ static void __yo_io_wake_continuation(__yo_io_future_t* future) {
   __yo_pending_io_count--;
 }
 
+// Deadline clock, from QPC rather than GetTickCount64: the tick counter
+// advances in ~15.6 ms steps, so two dues 1 ms and 5 ms ahead are both
+// "due" at the same tick reading — one process_due batch fires them
+// together and the poll-until-finished race resolves to whichever task the
+// caller checks first, not to the shorter deadline
+// (issues/windows-1ms-deadline-race-loses-since-cancellation-landing.md).
+// QPC is boot-relative and sub-microsecond; the multiply keeps ~290 years
+// of headroom in u64 at the usual 10 MHz frequency.
 static uint64_t __yo_win_now_ms(void) {
-  return (uint64_t)GetTickCount64();
+  static LARGE_INTEGER qpc_freq = {0};
+  static BOOL freq_ok = FALSE;
+  if (!qpc_freq.QuadPart) {
+    freq_ok = QueryPerformanceFrequency(&qpc_freq);
+    if (!qpc_freq.QuadPart) return (uint64_t)GetTickCount64();
+  }
+  (void)freq_ok;
+  LARGE_INTEGER now;
+  QueryPerformanceCounter(&now);
+  return (uint64_t)((now.QuadPart * 1000) / qpc_freq.QuadPart);
 }
 
 static void __yo_win_timer_add(__yo_io_future_t* future, uint64_t milliseconds) {
