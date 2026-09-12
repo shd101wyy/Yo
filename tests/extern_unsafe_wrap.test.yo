@@ -27,3 +27,18 @@ test("call-site wrap: direct extern call works inside unsafe(...)", {
   n := unsafe(strlen(cstr));
   assert(n == usize(6), "wrapped strlen returns the expected length");
 });
+// ── Two externs, one signature. The codegen registry that collects extern
+//    symbols for prototype emission was keyed by the TYPE KEY, so `toupper`
+//    and `tolower` — identical `(fn(i32) -> i32)` types — collided and only
+//    the second one's prototype was emitted. The first was then called with
+//    no declaration at all, which clang rejects at -O0
+//    ("call to undeclared library function 'toupper'") and silently accepted
+//    at -O2 (issues/fixed/two-externs-of-one-signature-emit-one-prototype.md).
+extern("c", toupper : (fn(c : i32) -> i32));
+extern("c", tolower : (fn(c : i32) -> i32));
+test("two externs with the same signature both get a prototype", {
+  upper := unsafe(toupper(i32(97)));
+  lower := unsafe(tolower(i32(66)));
+  assert(upper == i32(65), "toupper('a') is 'A'");
+  assert(lower == i32(98), "tolower('B') is 'b'");
+});
