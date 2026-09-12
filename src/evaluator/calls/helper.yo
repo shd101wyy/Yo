@@ -2998,6 +2998,59 @@ create_specialized_function_inline :: (
                   );
                   register_some_resolved_concrete(fresh_some_id.clone(), cap_ty);
                   register_some_resolved_concrete(closure_some_id.clone(), cap_ty);
+                  // The declared Fn bound's RESULT is the enclosing function's
+                  // own generic (`cb : Impl(Fn(io : Io) -> T)`), and nothing
+                  // else here resolves it: `cb` is bound VALUELESS, so the
+                  // body's `cb(x)` reaches `evaluate_function_call`'s
+                  // no-callee-value arm and its result type can only come from
+                  // that declared `T`. At `T = unit` the call's type stays the
+                  // binder, the specialisation it feeds keys on that abstract
+                  // type, and the key names the def-era ORIGINAL — which the
+                  // emission loop deliberately skips, so the C calls a symbol
+                  // nothing declares
+                  // (issues/generic-channel-send-specialisation-is-called-but-never-emitted.md).
+                  //
+                  // Register the argument closure's own concrete result
+                  // against it. TYPE ONLY — binding the FuncVal itself was
+                  // measured and is wrong: the evaluator then CALLS the
+                  // closure at compile time and 20 `check ./src` sites fail
+                  // with "Expected enum type ... got unit". Same shared-id
+                  // last-write shape as the capture registration above.
+                  match(
+                    extract_fn_trait_from_type(decl_pt),
+                    .Some(fn_tr) => match(
+                      fn_tr,
+                      .FnTraitT(_, _, _, fn_res, _, _, _, _) => if(is_some_type(fn_res), {
+                        match(
+                          arg_values.args.get(rbp_i),
+                          .Some(cl_ae3) => match(
+                            cl_ae3.value,
+                            .Some(cl_v3) => match(
+                              cl_v3,
+                              .FuncVal(cl_fvd3, _) => match(
+                                get_func_type(cl_fvd3.*.func_id.clone()),
+                                .Func({ result : cl_res3 }) => if(!(is_some_type(cl_res3)), {
+                                  match(
+                                    fn_res,
+                                    .SomeT({ id : fn_res_id }) => {
+                                      register_some_resolved_concrete(fn_res_id.clone(), cl_res3.clone());
+                                    },
+                                    _ => ()
+                                  );
+                                }),
+                                _ => ()
+                              ),
+                              _ => ()
+                            ),
+                            .None => ()
+                          ),
+                          .None => ()
+                        );
+                      }),
+                      _ => ()
+                    ),
+                    .None => ()
+                  );
                 }),
                 .None => ()
               );
