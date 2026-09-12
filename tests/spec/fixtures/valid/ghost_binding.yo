@@ -1,0 +1,20 @@
+// ghost(x := e) binding (V5 task 3 slice 2): the name is spec-only —
+// readable from ghost code (here: a ghost_fn's body) and the verifier's
+// walk; ordinary code reading it is the escape error (see the negative
+// twin). Erased from codegen: the marker emits nothing.
+pragma(Pragma.Verify);
+{ assert } :: import("std/assert");
+
+ghost_bump :: (
+  fn(
+    x : i32,
+    requires(x >= i32(0), x <= i32(1000)),
+    ensures(result == (x + i32(1)))
+  ) -> (result : i32)
+)({
+  ghost(prev := x);
+  y := x;
+  y = (y + i32(1));
+  assert(y == (prev + i32(1)));
+  y
+});

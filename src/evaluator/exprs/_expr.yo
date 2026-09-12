@@ -332,7 +332,8 @@ import("std/fmt");
   evaluate_old,
   evaluate_forall,
   evaluate_exists,
-  evaluate_implies
+  evaluate_implies,
+  _is_verify_target
 } :: import("../builtins/contracts.yo");
 { evaluate_the } :: import("../builtins/the.yo");
 {
@@ -488,6 +489,33 @@ _check_evaluator_deadline :: (fn(exn : Exception) -> unit)(
     });
   })
 );
+/// An `assert(P, ...)` call's PREDICATE is specification (V5): ghost
+/// bindings and the ghost-only quantifier builtins are legal inside it.
+/// Bracket the arguments with the ghost flag, then run the ORDINARY call
+/// path (std/assert's assert is an ordinary function).
+_evaluate_assert_ghost_args :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  // The ghost bracket applies ONLY in verification targets: there the
+  // assert is a PROOF site (its runtime emission is suppressed). In a
+  // runtime-mode file the assert EXECUTES, so ghost bindings must stay
+  // unreadable there — the escape error fires instead (otherwise codegen
+  // would emit a runtime assert reading a name no C declaration carries).
+  tok0 := ast_expr_token(expr);
+  if(!_is_verify_target(tok0.module_path.clone()), {
+    return(evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn));
+  });
+  prev_ghost := ctx.is_ghost_context;
+  ctx.is_ghost_context = true;
+  out := evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn);
+  ctx.is_ghost_context = prev_ghost;
+  out
+});
 /// `exists` is BOTH the ghost-only verification quantifier (V5,
 /// plans/backlog/FORMAL_VERIFICATION.md §6) and — historically — the name
 /// std/fs's path-existence check is exported under
@@ -873,6 +901,8 @@ _evaluate_expression :: (
           evaluate_ghost_fn(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_OLD, .None)) =>
           evaluate_old(expr, env, ctx, exn),
+        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, "assert", Option(usize).None)) =>
+          _evaluate_assert_ghost_args(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_FORALL, .None)) =>
           evaluate_forall(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_EXISTS, .None)) =>

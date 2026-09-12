@@ -1,0 +1,18 @@
+// The refuting twin of ghost_fn_inline: the inlined requires admits x = 0,
+// so `result > 0` is FALSE there — z3 must REFUTE with x = 0 (this is what
+// proves the inlining is real: an assumed-instead-of-inlined predicate
+// would make anything provable).
+pragma(Pragma.Verify);
+
+strictly_bounded :: (
+  fn(
+    x : i32,
+    requires(within(x, i32(0))),
+    ensures(result > i32(0))
+  ) -> (result : i32)
+)({
+  y := x;
+  y
+});
+
+within :: ghost_fn((fn(x : i32, lo : i32) -> bool)((x >= lo) && (x <= (lo + i32(100)))));
