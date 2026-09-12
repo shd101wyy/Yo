@@ -1174,7 +1174,8 @@ a broken invariant is a compile error naming the failing iteration.
 > machinery: `param_types` records the declared T, `=` rebinds the
 > current, and #557's entry snapshot already backs `old(v)` — pinned by
 > the inout_bump proves / inout_nochange REFUTES twins. SLICE 2 LANDED
-> on feat/fv5-ghost2 (2026-09-12): ghost_fn calls INLINE in the VC walk
+> via #613 (develop 80ae3dbd2, 2026-09-12 — all 28 checks green after a
+> windows-ARM timing flake reran clean): ghost_fn calls INLINE in the VC walk
 > (a spec function's meaning IS its body — params bound to the walked
 > actuals, recursion-guarded by an inlining stack;
 > `requires(within(x, 0))` now ASSUMES the inlined predicate, pinned by
