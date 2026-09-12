@@ -1,15 +1,30 @@
 # Build system & dependency system — audit and redesign plan
 
-_Status: PROPOSED 2026-09-11, revised the same day after maintainer review —
-the manifest is **declarative data read without the evaluator**; after weighing
+_Status: **P0, P1 and §4.8/§4.9 of P3 LANDED (2026-09-12)**; P2 (compile-time
+inputs) and §4.6 (workspaces) remain, P4 (registry, `yo publish`) is designed
+and deliberately not scheduled._
+
+_Proposed 2026-09-11, revised the same day after maintainer review — the
+manifest is **declarative data read without the evaluator**; after weighing
 a Yo data literal against TOML (§4.1 records both) the maintainer chose TOML
 (`yo.toml`). The plan carries no backward-compatibility scaffolding (Yo has
-one user today; breaking changes land outright — §6). Audit complete (§1–§3), design
-decisions drafted for review (§4–§6), nothing implemented. The five bugs the
-audit reproduced are filed under `issues/` and listed in §1.3. Successor of
+one user today; breaking changes land outright — §6). Successor of
 `plans/reference/BUILD_SYSTEM.md` and `plans/reference/DEPENDENCY_MANAGEMENT.md`
 for everything those two documents describe as landed but the self-hosted
 compiler does not do (§1.2 explains why the gap exists)._
+
+_What landed, in merge order: **P1.3** the `yo.toml` manifest (#596) · **P1.4a**
+resolver + `yo.lock` v2 (#601) · **P1.4b** the content-addressed store (#602) ·
+**P1.4c** `build.manifest` (#605) · **P1.4d** dependency `build.yo` evaluation
+and real `dep.artifact()` linking (#611) · **P1.4e** shared libraries with rpath
+(#615) · **P1.4f** the runner stops failing silently (#616) · **P1.4g** run
+arguments, a stamp that sees dotted directories, one name namespace (#618) ·
+**P1.4h / §4.8** parallel DAG levels and `-j N` (#620) · **B13** the last of the
+write-only state (#626) · **§4.9** depfile-scoped stamps (#631). The five bugs the audit reproduced are filed
+under `issues/` and are all fixed. The campaign surfaced further compiler bugs
+of its own along the way; the two that landed with this stack are the extern
+prototype collision and the `-O2` flag that hid it (#624), and the build
+scheduler's nested event loop (in #620)._
 
 The question that prompted this plan, from the maintainer, in three parts:
 
@@ -1001,9 +1016,16 @@ is the first-build fallback — but it can no longer produce a STALE cache, beca
 the walk's stamp is only ever COMPARED, never recorded; the recorded stamp comes
 from the depfile the child just wrote.
 
-Not in §4.9 (next): §4.6 workspaces, then the plan's P2 (compile-time inputs:
-`comptime_read_file`, `comptime_json_parse` / `comptime_toml_parse`,
-`build.env`) and the rest of P3.
+**P1 is complete as of 2026-09-12**, along with P3's §4.8 and §4.9. What
+remains, in the order the plan proposes: the rest of **P2** (compile-time
+inputs — §5.1 `comptime_read_file`, §5.2 `ComptimeValue` + the JSON/TOML
+parsers, §5.4 `build.env`, §5.5 plumbing, of which §5.5's `--emit-deps` half
+landed early here because §4.9 needed it), then **§4.6 workspaces**. P4 stays
+designed and unscheduled.
+
+The dogfooding milestone below — un-vendoring `vendor/markdown_yo` — is now
+unblocked: every piece it named (the manifest, the resolver, the store,
+`--imports` in every command) is on develop.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path
