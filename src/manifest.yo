@@ -556,7 +556,7 @@ ImportRoots :: ref(
 _unavailable :: (fn(name : String, reason : String, fetchable : bool) -> UnavailableImport)(
   UnavailableImport(name : name, reason : reason, fetchable : fetchable)
 );
-_dependency_dir :: (
+dependency_dir :: (
   fn(
     dep : ManifestDependency,
     declaring_dir : String,
@@ -748,7 +748,7 @@ resolve_import_roots :: (
         continue;
       });
       dep_dir := match(
-        _dependency_dir(dep, current.dir.clone(), root_lock_text.clone()),
+        dependency_dir(dep, current.dir.clone(), root_lock_text.clone()),
         .Ok(d) => d,
         .Err(unavailable) => {
           out.unavailable.push(unavailable);
@@ -815,5 +815,6 @@ export(
   UnavailableImport,
   ImportRoots,
   resolve_import_roots,
-  read_lock_text
+  read_lock_text,
+  dependency_dir
 );

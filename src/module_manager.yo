@@ -45,6 +45,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 {
   resolve_module_path,
+  resolve_module_path_ex,
   ModuleResolveResult,
   _build_module_val_from_env,
   set_import_root,
@@ -260,7 +261,9 @@ mm_fresh_module_env :: (fn(module_path : String) -> Environment)({
 /// keys agree.
 mm_resolve_entry_abs :: (fn(input_path : String, std_path : String) -> String)(
   match(
-    resolve_module_path(input_path.clone(), String.from("."), std_path),
+    // `false`: the entry is a FILE PATH, so the manifest's import-root names
+    // must not rewrite it (issues/fixed/entry-path-shadowed-by-an-import-root-name.md).
+    resolve_module_path_ex(input_path.clone(), String.from("."), std_path, false),
     .Found(p) => p,
     .NotFound(_) => input_path.clone(),
     .Ambiguous(_) => input_path.clone(),

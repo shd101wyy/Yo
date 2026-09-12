@@ -162,6 +162,27 @@ ModuleResolveResult :: enum(
 /// then extension resolution: `<path>.yo` xor `<path>/index.yo`.
 resolve_module_path :: (
   fn(import_path : String, current_dir : String, std_path : String) -> ModuleResolveResult
+)(
+  resolve_module_path_ex(import_path, current_dir, std_path, true)
+);
+/// `resolve_module_path`, with rule 0 (the manifest's import-root mapping)
+/// switchable. It is OFF for an ENTRY FILE named on the command line
+/// (`mm_resolve_entry_abs`): that argument is a filesystem path, never an
+/// import specifier, and a path whose first segment happens to match a mapped
+/// name — `yo compile mathlib/src/lib.yo` in a project whose `yo.toml`
+/// declares a `mathlib` dependency — was rewritten into the root's directory
+/// (`mathlib/src/src/lib.yo`). The file still parsed, through the NotFound
+/// fallback, but its module identity was that bogus path: codegen's
+/// "defined in the entry module?" test then matched nothing, so a
+/// `--static-library` build of it exported NO symbols
+/// (issues/fixed/entry-path-shadowed-by-an-import-root-name.md).
+resolve_module_path_ex :: (
+  fn(
+    import_path : String,
+    current_dir : String,
+    std_path : String,
+    consult_import_roots : bool
+  ) -> ModuleResolveResult
 )({
   (module_path_to_import : String) = import_path.clone();
   // 0. A name the manifest mapped to a module root: `import("dep")` is the
@@ -176,7 +197,7 @@ resolve_module_path :: (
     .Some(k) => module_path_to_import.substring(usize(0), k),
     .None => module_path_to_import.clone()
   );
-  if(!(head.starts_with(String.from(".")) || (head == "std")), {
+  if(consult_import_roots && !(head.starts_with(String.from(".")) || (head == "std")), {
     match(
       lookup_import_root(module_path_to_import.clone()),
       .Some(exact) => {
@@ -555,3 +576,4 @@ evaluate_import :: (
 });
 export(evaluate_import, resolve_module_path, ModuleResolveResult, _build_module_val_from_env);
 export(set_import_root, set_import_unavailable, clear_import_roots, lookup_import_root, lookup_import_unavailable);
+export(resolve_module_path_ex);
