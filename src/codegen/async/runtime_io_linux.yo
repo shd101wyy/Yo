@@ -534,9 +534,20 @@ generate_async_runtime_io_linux :: (fn(emitter : Emitter) -> unit)({
 #include <arpa/inet.h>
 #include <sys/un.h>
 
+#include <sys/eventfd.h>
+#include <poll.h>
+
 static _Thread_local struct io_uring __yo_io_ring;
 // __yo_io_initialized is defined in runtime-core
 static _Thread_local size_t __yo_pending_io_count = 0;
+// Cross-thread wakeup channel (plans/WAKER_BASED_SCHEDULING.md step 5): an
+// eventfd this loop keeps a POLL_ADD armed on, so a foreign thread can end an
+// io_uring_wait_cqe that would otherwise block forever. Its SQE carries a
+// SENTINEL user_data rather than a future, and takes no pending-I/O slot: it
+// is not work the loop is waiting for, it is how the loop is reachable.
+#define __YO_IO_NOTIFY_UD ((void*)(uintptr_t)1)
+static _Thread_local int __yo_notify_efd = -1;
+static inline void __yo_io_arm_notify(void);
 // Ring size matches the fixed io_uring queue depth we initialize below.
 #define __YO_IO_RING_ENTRIES 1024
 // Number of SQEs queued in userspace but not yet submitted to the kernel.
@@ -583,12 +594,27 @@ static void __yo_io_init(void) {
     exit(1);
   }
   __yo_io_initialized = true;
+  __yo_notify_efd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  if (__yo_notify_efd >= 0) {
+    __yo_loop_t* loop = __yo_loop_self();
+    loop->notify_fd = __yo_notify_efd;
+    loop->notify_ready = 1;
+    __yo_io_arm_notify();
+  }
   ASYNC_DEBUG("[Io] io_uring initialized with %d entries (flags=0x%x)\\n", __YO_IO_RING_ENTRIES, params.flags);
 }
 
 // Cleanup io_uring
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
+  // Clear the loop's pointer BEFORE closing the eventfd, so a foreign wake
+  // racing the shutdown cannot write to a descriptor this function is about to
+  // close (and which the kernel may have handed to something else by then).
+  {
+    __yo_loop_t* loop = __yo_loop_self();
+    loop->notify_ready = 0;
+    loop->notify_fd = -1;
+  }
   // If async main returns while some SQEs are still only queued in userspace,
   // cancel them here instead of silently dropping the event-loop ref we took in
   // __yo_io_ring_submit.
@@ -603,6 +629,10 @@ static void __yo_io_cleanup(void) {
     __yo_decr_rc((void*)future);
   }
   io_uring_queue_exit(&__yo_io_ring);
+  if (__yo_notify_efd >= 0) {
+    close(__yo_notify_efd);
+    __yo_notify_efd = -1;
+  }
   __yo_io_initialized = false;
   ASYNC_DEBUG("[Io] io_uring cleaned up\\n");
 }
@@ -642,6 +672,33 @@ static inline bool __yo_io_ring_submit_cancel(__yo_io_future_t* target) {
   return true;
 }
 
+// Re-arm the wakeup channel's POLL_ADD. One-shot per completion, so every
+// drain of the eventfd arms the next one.
+static inline void __yo_io_arm_notify(void) {
+  if (__yo_notify_efd < 0) return;
+  if (__yo_sq_unsubmitted >= __YO_IO_RING_ENTRIES) return;
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) return;
+  io_uring_prep_poll_add(sqe, __yo_notify_efd, POLLIN);
+  io_uring_sqe_set_data(sqe, __YO_IO_NOTIFY_UD);
+  __yo_sq_deferred_futures[(__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES] = NULL;
+  __yo_sq_unsubmitted++;
+}
+
+// Nudge a loop out of io_uring_wait_cqe. Safe from any thread: an eventfd
+// write is atomic and the descriptor is the only thing touched.
+static void __yo_io_notify(__yo_loop_t* loop) {
+  if (!loop || !loop->notify_ready || loop->notify_fd < 0) {
+    return;
+  }
+  uint64_t one = 1;
+  ssize_t w;
+  do {
+    w = write(loop->notify_fd, &one, sizeof(one));
+  } while (w < 0 && errno == EINTR);
+  (void)w;
+}
+
 // Flush any queued SQEs to the kernel if non-empty. Returns the liburing result.
 // On failure (ret < 0), the SQEs remain in the SQ ring so __yo_sq_unsubmitted
 // is left unchanged -- the next submit attempt (via poll/wait) will retry them.
@@ -667,6 +724,17 @@ static inline int __yo_io_flush_sq(void) {
 // The future pointer is stored directly in the SQE user data
 static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
   __yo_io_future_t* future = (__yo_io_future_t*)io_uring_cqe_get_data(cqe);
+  if ((void*)future == __YO_IO_NOTIFY_UD) {
+    // The wakeup channel fired. It carries no operation — draining the
+    // eventfd and re-arming is all there is to do; the foreign wake itself is
+    // picked up by __yo_async_drain_xwakes at the top of the next tick.
+    uint64_t v;
+    while (__yo_notify_efd >= 0 && read(__yo_notify_efd, &v, sizeof(v)) == (ssize_t)sizeof(v)) {
+    }
+    io_uring_cqe_seen(&__yo_io_ring, cqe);
+    __yo_io_arm_notify();
+    return;
+  }
   if (!future) {
     // Completion of a cancellation SQE (__yo_io_ring_submit_cancel): it owns
     // no future and no pending-I/O slot. The cancelled operation reports
@@ -753,6 +821,9 @@ static int __yo_io_wait(void) {
     return __yo_poll_and_fs_event_tick();
   }
 
+  // With no I/O outstanding but a blocking call running on another thread, the
+  // wait below is a wait on the wakeup channel alone — which is what the loop
+  // should be doing rather than spinning.
   struct io_uring_cqe* cqe;
   // Combined submit + wait in a single syscall -- this is the main batching win:
   // all deferred SQEs are submitted alongside the blocking wait for a CQE.
@@ -1522,6 +1593,12 @@ static inline void __yo_io_init(void) {
 }
 
 static inline void __yo_io_cleanup(void) {}
+
+// No ring to interrupt: without liburing this target has no blocking I/O wait
+// to be woken out of.
+static void __yo_io_notify(__yo_loop_t* loop) {
+  (void)loop;
+}
 
 static inline bool __yo_has_pending_io(void) {
   return __yo_active_watch_count > 0;

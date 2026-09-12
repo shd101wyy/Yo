@@ -35,6 +35,12 @@ pragma(Pragma.AllowUnsafe);
 { AtomicBool, AtomicUsize, MemoryOrder } :: import("./sync/atomic");
 { Channel } :: import("./sync/channel");
 { assert } :: import("./assert");
+{ Park } :: import("./async/waker.yo");
+{
+  __yo_async_loop_self_ptr,
+  __yo_async_blocking_begin,
+  __yo_async_blocking_end
+} :: import("./sys/externs.yo");
 extern(
   "Yo",
   __yo_thread_get_hardware_threads : (fn() -> usize),
@@ -333,6 +339,97 @@ spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
   pool._used.store(true, MemoryOrder.Release);
   __yo_worker_spawn(cb);
   _unlock_after_submission(pool, took);
+});
+/// Run a BLOCKING call on its own OS thread and await the result, without
+/// stalling the event loop.
+///
+/// This is Rust's `tokio::task::spawn_blocking`, and it is the reason the
+/// runtime has a cross-thread wake at all
+/// (`plans/WAKER_BASED_SCHEDULING.md` step 5): the worker finishes on a
+/// thread that does not own the awaiting task, so it cannot touch that task's
+/// ready queue. It hands a `Waker` back instead, which posts the resumption to
+/// the owning loop's inbox and nudges that loop out of its I/O wait.
+///
+/// ```rust
+/// { spawn_blocking } :: import "std/thread";
+///
+/// // A synchronous, blocking call — a C library, a getaddrinfo, a big read.
+/// n := io.await(spawn_blocking(() => expensive_sync_work(), io), io);
+/// ```
+///
+/// A sibling task keeps running the whole time: the loop is free between the
+/// suspension and the wake, which is the property `tests/spawn_blocking.test.yo`
+/// asserts by ORDERING rather than by timing.
+///
+/// The thread is not joined. It has already delivered its value and its wake
+/// by the time the awaiting task resumes, so joining would only block the loop
+/// on the thread's own teardown; the handle is dropped, which detaches it.
+///
+/// A blocking call that never returns keeps the process alive — the same
+/// contract a detached `Thread` has, and the same one Rust's blocking pool
+/// has.
+/// The worker's value, off the hand-off channel. A plain generic function
+/// rather than a `match` written inline in the async block below: the block is
+/// specialized per `T`, and an inline match there recorded ONE result type for
+/// every specialization — the first `T` won and every other one miscompiled
+/// (issues/an-async-blocks-tail-match-records-one-result-type-for-every-specialization.md).
+_take_blocking_result :: (
+  fn(generic(T : Type), chan : Channel(T), where(T <: (Send, Acyclic))) -> T
+)(
+  match(
+    chan.try_recv(),
+    .Ok(v) => v,
+    .Err(_) => __yo_panic("spawn_blocking: the worker thread produced no value (it unwound)")
+  )
+);
+/// NOT EXPORTED YET. It works — end to end, with the wake crossing the thread
+/// boundary — but only for ONE `T` per program: the closure-param form of
+/// `fn(generic(T), … Impl(Fn() -> T) …) -> Impl(Future(T))` emits its async
+/// block ONCE for every instantiation
+/// (issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md).
+/// Exporting it before that is fixed would ship an API that silently
+/// miscompiles the second time a program uses it.
+spawn_blocking :: (
+  fn(
+    generic(T : Type),
+    own(cb) : Impl(Fn() -> T, Send),
+    io : Io,
+    where(T <: (Send, Acyclic))
+  ) -> Impl(Future(T, Io))
+)({
+  // EAGER: the worker starts here, in the function body, and the returned
+  // future only waits for it. That is Rust's semantics — `spawn_blocking`
+  // begins the work immediately rather than on first poll — and it keeps the
+  // callback out of the async block, which matters for a second reason:
+  // an `Impl(Fn)` PARAMETER captured by an `io.async` block is missing from
+  // that block's capture struct and emits a bare identifier into the state
+  // machine (issues/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md).
+  p := Park.new();
+  w := p.waker();
+  chan := Channel(T).new(usize(1));
+  sink := chan;
+  // The loop to un-bracket. `blocking_end` runs on the WORKER thread, where
+  // "this loop" is a different loop entirely.
+  owner := unsafe(__yo_async_loop_self_ptr());
+  unsafe(__yo_async_blocking_begin());
+  worker := Thread(unit).spawn((tio : Io) => {
+    sink.send(cb());
+    // Wake BEFORE ending the bracket. The wake is what keeps the loop alive
+    // across the hand-off; ending the bracket first leaves a window in which
+    // the loop sees no runnable task, no I/O and no inbox entry, and is
+    // entitled to conclude it has nothing left to do.
+    w.wake();
+    unsafe(__yo_async_blocking_end(owner));
+    ()
+  });
+  // Not joined: by the time the awaiting task resumes the worker has already
+  // delivered its value and its wake, so joining would only block the loop on
+  // the thread's own teardown. Dropping the handle detaches it.
+  _detached := worker;
+  io.async((io : Io) => {
+    io.await(p.wait(io), io);
+    _take_blocking_result(chan)
+  })
 });
 /// Get the number of hardware threads (CPU cores) available.
 get_hardware_threads :: __yo_thread_get_hardware_threads;

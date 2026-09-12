@@ -63,10 +63,18 @@ pragma(Pragma.AllowUnsafe);
 /// the token cannot outlive its target — a non-owning pointer here would be
 /// the use-after-free `Watcher`'s event-loop callback once had
 /// (`issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md`).
-Waker :: ref(
-  struct(
-    /// The park future, with one reference held on this token's behalf.
-    _p : *u8
+/// ATOMIC, and therefore `Send`: a waker exists to be handed to whoever will
+/// signal, and since step 5 of the waker campaign that includes a worker
+/// thread (`spawn_blocking`). A cross-thread `wake()` does not touch the park
+/// future — it hands this token to the future's own loop and nudges it — so
+/// the only refcount that crosses a thread boundary is this token's own, which
+/// is what `atomic` makes safe.
+Waker :: atomic(
+  ref(
+    struct(
+      /// The waker token, holding one reference to the park it resumes.
+      _p : *u8
+    )
   )
 );
 impl(

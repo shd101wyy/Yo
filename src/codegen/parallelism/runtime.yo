@@ -140,6 +140,9 @@ typedef struct __yo_thread_entry_args_t {
 // The codegen will handle extracting the closure function pointer and data
 static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
   PARALLELISM_DEBUG("[THREAD] Spawning new thread\\n");
+  // Tell every event loop in the process that a wake can now come from
+  // outside it (see __yo_threads_ever_spawned).
+  atomic_fetch_add(&__yo_threads_ever_spawned, 1);
 
   __yo_thread_t thread;
 
@@ -443,7 +446,10 @@ static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {`
   );
   emitter.emit_string_line(init_mutex_call);
   emitter.emit_string_line(
-    `  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
+    `  // A pool worker can wake a loop on another thread just as a dedicated
+  // thread can (see __yo_threads_ever_spawned).
+  atomic_fetch_add(&__yo_threads_ever_spawned, 1);
+  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
 
   // Initialize pool on first spawn if not already done
   if (!__yo_worker_pool_initialized) {

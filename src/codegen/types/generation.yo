@@ -709,6 +709,16 @@ static __YO_THREAD_SYNC_TYPE __yo_mutex_create(void);
 static __YO_COND_TYPE __yo_cond_create(void);
 
 #include <stdatomic.h>
+// How many OS threads this process has EVER spawned.
+//
+// The async loop reads it to decide whether a live waker could be fired from
+// outside its own world. The wake-deadlock report's premise is "in a
+// single-threaded loop nothing can fire it" — true, and the moment a second
+// thread exists it stops being true, so the loop must wait rather than report.
+// Defined here, beside the threading primitives, because the async core and
+// the parallelism runtime are emitted independently and either can be present
+// without the other.
+static _Atomic size_t __yo_threads_ever_spawned = 0;
 static inline int __yo_atomic_load_int(_Atomic int* obj, memory_order order) {
   return atomic_load_explicit(obj, order);
 }

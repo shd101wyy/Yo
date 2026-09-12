@@ -1,0 +1,134 @@
+//! A `Waker` fired from ANOTHER OS thread resumes the parked task ON ITS OWN
+//! LOOP.
+//!
+//! Step 5 of `plans/WAKER_BASED_SCHEDULING.md`. Before it, a wake raised off
+//! the loop's own thread had nowhere safe to put the continuation —
+//! `__yo_async_enqueue_continuation` writes a THREAD-LOCAL queue — so it went
+//! onto the WAKER's queue and the suspended task was resumed by the worker
+//! thread, running the loop's state on a thread that does not own it. Each
+//! loop now owns one explicitly locked inbox plus a wakeup channel into its
+//! own I/O backend; the token — never the future, and never a reference count
+//! — is what crosses.
+//!
+//! **The oracle is the thread identity, not the value.** Measured with an
+//! emitted-C A/B (disable the cross-thread post, re-clang, re-run): the value
+//! arrives either way, and `same_thread` flips from true to false. A test that
+//! only checked the value would have passed over the bug it exists for.
+//!
+//! **And the park must be awaited from inside a SPAWNED task.** A blocking
+//! `io.await` in `main` is a poll loop over the future's state word, which a
+//! foreign CAS satisfies directly — no continuation, nothing for the inbox to
+//! carry. That is the risk this document's §"Risks" names first.
+//!
+//! `Waker` is `atomic(ref(...))` and therefore `Send`, which is what lets it be
+//! captured by a `Thread(unit).spawn` closure at all. `Park` is not, and should
+//! not be: it belongs to the loop that created it.
+{ assert } :: import("std/assert");
+{ Park } :: import("std/async/waker");
+{ Thread, get_thread_id } :: import("std/thread");
+{ AtomicI32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
+{ Duration } :: import("std/time/duration");
+{ sleep_blocking } :: import("std/time/sleep");
+test("a waker fired from another OS thread resumes its task on the owning loop", {
+  p := Park.new();
+  w := p.waker();
+  stamped := AtomicI32(i32(0));
+  resumed_on := AtomicUsize.new(usize(0));
+  main_tid := get_thread_id();
+  h := io.spawn(
+    io.async((io : Io) => {
+      io.await(p.wait(io), io);
+      resumed_on.store(get_thread_id(), MemoryOrder.Release);
+      _a := stamped.fetch_add(i32(100), MemoryOrder.AcqRel);
+      i32(0)
+    }),
+    io
+  );
+  t := Thread(unit).spawn((tio : Io) => {
+    // Genuinely blocking, on its own thread: the loop has no I/O and no
+    // runnable task for these 50 ms, so it must wait rather than conclude
+    // it has nothing left to do.
+    sleep_blocking(Duration.from_millis(i64(50)));
+    _b := stamped.fetch_add(i32(7), MemoryOrder.AcqRel);
+    w.wake();
+    ()
+  });
+  _r := h.await(io);
+  assert(stamped.load(MemoryOrder.Acquire) == i32(107), "the worker ran and the task resumed");
+  assert(
+    resumed_on.load(MemoryOrder.Acquire) == main_tid,
+    "the task resumed on the loop that owns it, not on the thread that woke it"
+  );
+  t.join();
+});
+test("two parks woken from two different threads", {
+  p1 := Park.new();
+  p2 := Park.new();
+  w1 := p1.waker();
+  w2 := p2.waker();
+  order := AtomicI32(i32(0));
+  main_tid := get_thread_id();
+  both_on_main := AtomicI32(i32(0));
+  h1 := io.spawn(
+    io.async((io : Io) => {
+      io.await(p1.wait(io), io);
+      if(get_thread_id() == main_tid, {
+        _x := both_on_main.fetch_add(i32(1), MemoryOrder.AcqRel);
+      });
+      _a := order.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i32(0)
+    }),
+    io
+  );
+  h2 := io.spawn(
+    io.async((io : Io) => {
+      io.await(p2.wait(io), io);
+      if(get_thread_id() == main_tid, {
+        _y := both_on_main.fetch_add(i32(1), MemoryOrder.AcqRel);
+      });
+      _b := order.fetch_add(i32(10), MemoryOrder.AcqRel);
+      i32(0)
+    }),
+    io
+  );
+  t1 := Thread(unit).spawn((tio : Io) => {
+    sleep_blocking(Duration.from_millis(i64(20)));
+    w1.wake();
+    ()
+  });
+  t2 := Thread(unit).spawn((tio : Io) => {
+    sleep_blocking(Duration.from_millis(i64(40)));
+    w2.wake();
+    ()
+  });
+  _r1 := h1.await(io);
+  _r2 := h2.await(io);
+  assert(order.load(MemoryOrder.Acquire) == i32(11), "both wakes arrived");
+  assert(both_on_main.load(MemoryOrder.Acquire) == i32(2), "both tasks resumed on the owning loop");
+  t1.join();
+  t2.join();
+});
+test("a wake that arrives BEFORE the task suspends is not lost", {
+  // The classic ordering trap from the other side. `wake` completes the park
+  // future, and an await point reads the future's state before registering a
+  // continuation, so an already-woken park resumes inline instead of
+  // suspending forever.
+  p := Park.new();
+  w := p.waker();
+  t := Thread(unit).spawn((tio : Io) => {
+    w.wake();
+    ()
+  });
+  t.join();
+  ran := AtomicI32(i32(0));
+  h := io.spawn(
+    io.async((io : Io) => {
+      io.await(p.wait(io), io);
+      _a := ran.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i32(0)
+    }),
+    io
+  );
+  _r := h.await(io);
+  assert(ran.load(MemoryOrder.Acquire) == i32(1), "the early wake was observed rather than lost");
+});
