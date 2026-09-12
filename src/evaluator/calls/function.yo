@@ -2262,7 +2262,21 @@ _evaluate_funcval_runtime_call :: (
           // (`IterFilter(Self, F)`) leaves a substituted return whose SomeTs
           // ALL resolve concretely, so `rre_old_wanted` is false there and the
           // re-eval is never even wanted.
-          .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || (rre_old_wanted && (type_somes_all_resolve_concrete(hkt_ty) || !(_rre_mentions_binder(hkt_ty, rre_binder_ids))))) && !(is_unit_type(hkt_ty)), {
+          // ...and the arm is restricted to a hkt_ty that IS a SomeT, which is
+          // what the justification above actually describes: an async return
+          // `Impl(Future(i32) Io)` is ONE SomeT, an existential wrapper. A type
+          // that merely CONTAINS one — `Box( : (Fn(i32) -> i32))` — is the
+          // hazard the era_suspect note two paragraphs up already records
+          // ("adopting that Box(wrapper) clobbered the per-call capture
+          // identity"), and it reaches C as a second struct for a type that
+          // already has one: the function then takes its signature from
+          // `Box( : (Fn…))` and its body's constructor from
+          // `Box(<capture struct>)`, which is "incompatible pointer types
+          // returning ..." — a warning on every platform and a hard ERROR on
+          // the one CI leg running clang 22. Bisected to THIS line (#619; its
+          // parent #611 emits 3 Box structs and no warning, it emits 5 and 2).
+          // issues/a-box-over-an-impl-fn-is-emitted-as-two-c-structs.md
+          .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || (rre_old_wanted && (type_somes_all_resolve_concrete(hkt_ty) || (is_some_type(hkt_ty) && !(_rre_mentions_binder(hkt_ty, rre_binder_ids)))))) && !(is_unit_type(hkt_ty)), {
             resolved_ret = hkt_ty;
           }),
           .None => ()
