@@ -686,7 +686,7 @@ read_http_message_buffered :: (
     // DIAGNOSTIC: the read loop is OVER. If this prints and the caller never
     // resumes, the inner future completed and the parent await lost its wake.
     eprintln(`  [wire ${_role}] loop done, ${result.len()} byte(s), header_end=${header_end.to_string()}`);
-    cond(
+    _framed_out := cond(
       (failed == i32(1)) => Result(String, HttpError).Err(HttpError.ResponseTooLarge),
       (failed == i32(2)) => Result(String, HttpError).Err(HttpError.MalformedContentLength(failed_msg)),
       // A message with no body ends at its header section, and its framing
@@ -753,7 +753,15 @@ read_http_message_buffered :: (
         )
       },
       true => Result(String, HttpError).Ok(String.from_bytes(result))
-    )
+    );
+    // DIAGNOSTIC: the block's TAIL. `loop done` above prints and
+    // `[clt] parent await resumed` does not, so the missing wake is somewhere
+    // between them. Everything between is synchronous, so if this prints too
+    // then the async BLOCK produced its value and the parent's continuation was
+    // never invoked — the defect is in the block-completion path, not in std.
+    // If it does NOT print, the tail cond is where the task goes missing.
+    eprintln(`  [wire ${_role}] framed, returning`);
+    _framed_out
   })
 );
 /// Read exactly one HTTP message off `stream`. For a connection used once:

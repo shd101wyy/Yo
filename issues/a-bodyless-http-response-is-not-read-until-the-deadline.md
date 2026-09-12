@@ -3,8 +3,10 @@
 **Found**: 2026-09-11, by the server-side checkpoints added to
 `tests/http/http.test.yo` for #556. **Class**: a lost wake-up in the async
 runtime, visible as a ten-second `HttpError.Timeout` on an exchange that
-completes in ~1 ms. **Status**: OPEN — a lost READ
-wake-up, confirmed 2026-09-12 by the ROLE-TAGGED trace below. (An intermediate
+completes in ~1 ms. **Status**: OPEN — an inner
+`io.async` BLOCK completes and the awaiting parent never resumes. Settled
+2026-09-12 by the transport-level checkpoints; earlier readings of this issue
+are superseded and marked as such below. (An intermediate
 reading that put the loss one level up came from pairing two peers' untagged
 prints by guesswork; that section is kept, marked, because the two candidates
 it names are the ones the tags had to rule out.)
@@ -214,6 +216,56 @@ Already checked and NOT it:
   `__yo_io_poll` performs a zero-timeout `io_uring_wait_cqe_timeout` as its
   non-blocking kernel entry
   (`issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md`).
+
+## SETTLED (2026-09-12): the read completes and the PARENT AWAIT never resumes
+
+Run **34670975269**, `test (ubuntu-24.04-arm)`, with checkpoints inside
+`_Transport.read` — the `io.async` block that `[wire RSP] issuing read` is
+printed BEFORE, and which is cold until its await runs it:
+
+```
+[wire RSP] issuing read (have=0)
+[tr] read entered                                  ← the transport future DID start
+[wire REQ] read returned 38
+[srv] framed 38 request byte(s)
+[srv] wrote 46 of 46 answer byte(s)
+[srv] awaiting a framed request (carry=0)
+[wire REQ] issuing read (have=0)
+[tr] plain arm done n=46                           ← the socket read COMPLETED, 46 bytes
+[wire RSP] read returned 46
+[wire RSP] loop done, 46 byte(s), header_end=42    ← FRAMED, correctly
+<ten seconds>
+unexpected exception: HTTP request timed out
+```
+
+So the whole chain works: the read is issued, woken, returns all 46 bytes, and
+`read_http_message_buffered` frames them at the header section exactly as the
+204 rule requires. **`[clt] parent await resumed` never prints.**
+
+That is not a lost READ wake-up and it is not in either I/O backend. An inner
+`io.async` block runs to its tail and the parent suspended on
+`e.io.await(read_http_message_buffered(...), e)` is never resumed — which is
+why it looks identical on kqueue and on io_uring, and why nothing in
+`runtime_io_*.yo` was ever going to explain it.
+
+Everything between `loop done` and the parent's resume is SYNCHRONOUS — a
+`free`, a `find_header_end`, and one `cond`. So the next checkpoint is the
+block's own tail (`[wire RSP] framed, returning`, now on this branch): if it
+prints, the block produced its value and the block-COMPLETION path failed to
+invoke the registered continuation; if it does not, the tail `cond` is where
+the task goes missing.
+
+Two facts that constrain the search:
+
+- The task did not ABORT either. An abort would make `h.is_finished()` true,
+  `_fetch_deadline`'s spin would exit, and `h.await(e.io)` would return `.None`
+  and throw `HttpError.Other("request task was aborted")`. The error is
+  `Timeout`, so the spin ran the full ten seconds: the task is neither
+  completed nor aborted.
+- **It does not reproduce locally.** 27 runs of `tests/http/http.test.yo` on
+  aarch64-apple-darwin against a v0.2.31-seeded build of this branch — 12
+  ordinary, 15 with eight CPU hogs saturating the machine — zero failures. CI
+  is the only oracle; do not spend another afternoon on a local loop.
 
 ## After the rebase onto develop (2026-09-12): both Linux legs PASS
 
