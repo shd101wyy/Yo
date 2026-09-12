@@ -67,7 +67,23 @@ Measured, same test file, same machine:
 The file's pre-#598 revision produces 2 under develop's compiler as well, so the
 tests #598 ADDED are not the trigger — the compiler is.
 
-**CONFIRMED 2026-09-13: the regression is #598** (`codegen: a static-dispatch
+**CORRECTION 2026-09-13 — the "#598 is confirmed" claim below was WRONG, and
+is left standing with its refutation because the mistake is the instructive
+part.** The A/B compared a build at `15e21b752^` against develop's tip, and
+those are **48 commits apart**, not one. The tell was in the emitted C the whole
+time and went unread: the two files use different type-NAMING schemes
+(`__yo_t21` vs `__yo_t_5151165989142611580`), which is `#603`
+(`codegen/evaluator: content-stable symbol names (Phase 2)`) — a commit in the
+same range that touches `src/types/type_key.yo`, the file that decides whether
+two spellings of one type get one C name or two. A keying change is a far better
+candidate for "one Yo type, two C structs" than a return-type-spelling change.
+
+So what is actually established is: **the regression is somewhere in
+`15e21b752^..develop`**, and `#603` is now the prime suspect, `#598` a
+secondary one. What follows is the measurement, which stands; only the
+attribution was over-claimed.
+
+**MEASURED 2026-09-13: a regression in the 48-commit range** (`codegen: a static-dispatch
 call takes its C return type from the CALLEE`). A compiler built from
 `15e21b752^` was measured against the SAME file in the SAME tree:
 
@@ -118,15 +134,20 @@ The A/B is done and #598 is named. What is NOT yet known is which of its three
 changed emitters puts `Box(Impl(Fn))` in front of the type-collection pass,
 and the two obvious emission-time candidates are disproven above.
 
-1. Probe the type-collection pass, not the emitters: log every type registered
-   under a key whose rendering starts `Box( : (Fn`, and compare the pre-#598
-   and develop runs of the same file. Collection runs once, so this is a small
-   log and it names the caller directly.
-2. The FIX is then to make both spellings agree — one Yo type must have one
+1. NARROW THE RANGE FIRST — it is 48 commits, not one. Build at `577d555ad`
+   (#603 itself) and count: 2 warnings puts the cause at or before #603, 0 puts
+   it after. That is one build and it halves the range with the suspect on the
+   boundary. Do NOT repeat the mistake above of reading a 48-commit A/B as a
+   one-commit one; check the emitted C for unrelated wholesale changes (the
+   type-naming scheme was the giveaway) before attributing.
+2. Only then probe the type-collection pass: log every type registered under a
+   key whose rendering starts `Box( : (Fn`, and compare the two runs of the same
+   file. Collection runs once, so this is a small log and names the caller.
+3. The FIX is then to make both spellings agree — one Yo type must have one
    `type_key`. Note that the needed resolution is DEEP (through a struct's type
    arguments); `resolve_some_type_to_concrete` is top-level only and codegen
    has no deep equivalent today, so one may have to be written.
-3. Keep #598's `T = unit` arm in `tests/closure_param_forwarding.test.yo` green
+4. Keep #598's `T = unit` arm in `tests/closure_param_forwarding.test.yo` green
    throughout — it is the guard against reintroducing `void* t = <void call>`.
 
 Until it is fixed, `test (windows-11-arm)` stays red on every PR, because that
