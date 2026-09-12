@@ -109,15 +109,15 @@ keeping. The runner is where the port is incomplete. Reproduced on 0.2.30:
 | B1 | `exe.link(lib)` for a `static_library` orders the build and **does not link** — the docs' "Cross-Module Linking with `extern "Yo"`" example fails with `Undefined symbols: "_add"`. `linked_artifacts` is read only by `_walk_dag` (`build_runner.yo:257-266`); `compile_artifact` never emits `--extern lib<name>.a` | reproduced | `issues/fixed/step-link-does-not-link-the-static-library.md` |
 | B2 | `build.shared_library` compiles its root as an **executable** (no `--shared` mode exists in `yo compile`), fails on `_main`, output has no `lib` prefix or extension | reproduced | `issues/fixed/shared-library-artifact-is-compiled-as-an-executable.md` |
 | B3 | a parse or evaluation error in `build.yo` is **swallowed**: `evaluate_build_file` binds `mm_load_yo_file`'s outcome to `_outcome` and never calls `_take_load_error` (`build_runner.yo:1491-1510`). The user sees `Unknown step "install". Available: (none)`. The duplicate-artifact-name diagnostic that exists (`builtins/build.yo:652-670`) is therefore never shown; `yo fetch` has the same swallow (`fetch_command.yo:97-103`) | reproduced | `issues/fixed/build-yo-evaluation-errors-are-swallowed.md` |
-| B4 | `-D` options are **unvalidated**: undeclared names accepted silently (`declared_options` has no reader outside the builtins file), values are untyped strings, `yo build --help` does not list the project's options although `docs/en-US/BUILD_SYSTEM.md` says it does | reproduced | this plan (§4.7) |
+| B4 | `-D` options are **unvalidated**: undeclared names accepted silently (`declared_options` has no reader outside the builtins file), values are untyped strings, `yo build --help` does not list the project's options although `docs/en-US/BUILD_SYSTEM.md` says it does | reproduced | this plan (§4.7) **FIXED P1.4f** (undeclared names error; `yo build --list-options`; the `comptime_str` blocker is `issues/build-option-value-cannot-feed-an-artifact-field.md`) |
 | B5 | the DAG scheduler computes Kahn levels and then runs each level **sequentially** (`execute_dag`, `build_runner.yo:1260-1266`); the docs' rationale ("the Yo evaluator uses global state") is obsolete since artifacts compile in child processes | code | this plan (§4.8) |
-| B6 | failures do not stop dependents — a `run` node runs after its artifact failed; `Tests failed (exit n)` / `Executable exited with code n` are computed and never printed (`:1124-1126`, `:1142-1144`); a dependency name that resolves to nothing is silently dropped from the DAG (`:250-252`), so `install.depend_on(<typo>)` is a no-op | code | this plan (§4.7) |
-| B7 | `--dry-run` prints `[dry-run] Would execute step: X` without building the DAG, validating the step, or detecting cycles (`:1701-1705`); help text says "Resolve the build graph without running it" | reproduced | this plan (§4.7) |
+| B6 | failures do not stop dependents — a `run` node runs after its artifact failed; `Tests failed (exit n)` / `Executable exited with code n` are computed and never printed (`:1124-1126`, `:1142-1144`); a dependency name that resolves to nothing is silently dropped from the DAG (`:250-252`), so `install.depend_on(<typo>)` is a no-op | code | this plan (§4.7) **FIXED P1.4f** |
+| B7 | `--dry-run` prints `[dry-run] Would execute step: X` without building the DAG, validating the step, or detecting cycles (`:1701-1705`); help text says "Resolve the build graph without running it" | reproduced | this plan (§4.7) **FIXED P1.4f** |
 | B8 | `ReleaseSmall` ≡ `ReleaseSafe` (`--optimize 2` both); no level passes `-g` although `std/build.yo:19-33` documents `-O0 -g` / `-O2 -g` | code | `issues/build-release-small-is-identical-to-release-safe.md` (pre-existing) |
 | B9 | `build.run(exe)` steps cannot receive arguments: `BuildRunStep.args` is always empty, there is no `--` on the CLI (`main.yo:4572-4577`) | code | this plan (§4.7) |
 | B10 | the Phase-A artifact stamp (`_artifact_input_stamp`, `:404-609`) hashes **every** `.yo` under the project (including `tests/`) and the whole std tree per artifact: any edit anywhere invalidates every artifact; directories whose name contains a `.` are never walked (`:477`) — sources under `my.pkg/` are silently excluded (stale-cache risk); the walk runs even when `YO_BUILD_NO_CACHE=1` | code | this plan (§4.9) |
 | B11 | registries are keyed by bare name with first-match resolution artifact → test → run → doc → step (`builtins/build.yo:600-637`); steps/tests/docs/runs have no duplicate check; `Step.link(sys)` before `build.system_library({name: sys})` is misread as an artifact link and dropped (`:1168-1177`) | code | this plan (§4.7) |
-| B12 | `_dfs_cycle` skips the dependency after a not-in-map one (`:348-350`, missing `continue`); harmless today only because `_walk_dag` never emits such edges | code | fix with B6 |
+| B12 | `_dfs_cycle` skips the dependency after a not-in-map one (`:348-350`, missing `continue`); harmless today only because `_walk_dag` never emits such edges | code | fix with B6 **FIXED P1.4f** |
 | B13 | write-only state throughout: `BuildDocConfig.include_deps/logo/favicon` accepted and never forwarded (`:1177-1185`), `BuildTestSuite.target/verbose/bail/parallel` hard-coded, `runtime_files`, `ExecutionContext.dry_run`, `StepResult.duration_ms` always 0 | code | clean up with each phase |
 | B14 | `yo init`'s `build.yo` imports `{ assert, panic } :: import("std/assert")` and uses neither (`src/init.yo:75-106`) | reproduced | nit, fix in P0 |
 
@@ -810,13 +810,52 @@ rejection, cli-case `build-shared-library-unsupported`) is replaced by cli-case
 `extern("Yo", …)` and asserts the program's own output.
 B2 is closed — `issues/fixed/shared-library-artifact-is-compiled-as-an-executable.md`.
 
-Not in P1.4e (next): §4.7's runner-correctness list — B4 (`-D` options are
-unvalidated, and the `build.option` type bug filed in P1.4d blocks them
-entirely), B5 (the level scheduler runs sequentially), B6 (failures do not stop
-dependents; a dependency name that resolves to nothing is dropped silently),
-B7 (`--dry-run` builds no DAG), B9 (`build.run` takes no arguments), B10/§4.9
-(stamp granularity), B11 (registry name collisions), B13 (write-only state) —
-then §4.6 workspaces and the P2/P3 phases.
+**P1.4f — §4.7, the runner tells the truth** (`p1/runner-correctness`, stacked
+on P1.4e). Four of the audit's findings, each one a case where the runner did
+something silently:
+
+- **B12** `_dfs_cycle` skipped a dependency that is not a node by bumping its
+  loop counter and FALLING THROUGH — bumping it twice, so the dependency AFTER
+  a dangling one was never examined. A cycle hiding behind a dangling name went
+  undetected. Red-first test in `tests/internal/build_runner.test.yo`.
+- **B6** a dependency name that resolves to nothing was dropped from the DAG
+  without a word (`install.depend_on(<typo>)` was a no-op and the build exited
+  0); a node whose dependency FAILED ran anyway, so a `run` step executed a
+  program that had just failed to compile; and the `Tests failed (exit n)` /
+  `Executable exited with code n` messages were computed and thrown away.
+  `build_dag_checked` reports unresolvable names, `_plan_step` fails the build
+  naming them, `_dependency_failed` skips dependents, and the messages print.
+- **B7** `--dry-run` printed one line per REQUESTED step without building a
+  DAG, validating the step or detecting a cycle, while the help text promised
+  "resolve the build graph without running it". It now runs exactly the
+  validation a real build runs and prints the resolved graph.
+- **B4** a `-D<name>=<value>` no `build.option` declares was accepted in
+  silence — a typo looked like a build that ignored you. Undeclared names are
+  an error now, in the project and in a dependency's own `-D<dep>.<opt>`
+  namespace, and `yo build --list-options` prints what a build file declares
+  with each default and the value in force (the docs had promised `yo build
+  --help` would, and nothing ever did).
+- **B13** (partly) `StepResult.duration_ms` was always 0 while the docs
+  described a summary showing durations; each node is timed now. The docs'
+  MaxRSS column, which nothing ever measured, is marked as not measured rather
+  than left as a promise.
+
+One more compiler bug surfaced and is fixed:
+`issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md` — a
+template nested inside an interpolation (`` `x${`y`}z` ``, or the natural
+`` ` <- ${`, `.join(names)}` ``) lowered to
+`import("std/fmt/to_string").to_string()`, because the interpolation's
+sub-parse took `get_program`'s prepended auto-import as its expression. The
+sub-parse uses `get_expression_program` now and propagates `has_template_spec`
+upward. It bites the BOOTSTRAP too — the seed parses `src/` — so `src/` keeps
+the separator bound to a variable until a seed carries the fix.
+
+Not in P1.4f (next): the rest of §4.7 — B5 (the level scheduler runs
+sequentially, §4.8), B9 (`build.run` takes no arguments), B10/§4.9 (the
+artifact stamp hashes every `.yo` under the project and skips directories whose
+name contains a `.`), B11 (registries keyed by bare name with first-match
+resolution and no duplicate checks for steps/tests/docs/runs) and the rest of
+B13 — then §4.6 workspaces and the P2/P3 phases.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

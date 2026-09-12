@@ -291,13 +291,13 @@ yo build --summary
 
 ```
 Build Summary: 3/3 steps succeeded
-install success
-├── compile exe my-app Debug native success 1.3s MaxRSS:706M
-│   └── compile lib math Debug native success 295ms MaxRSS:650M
-└── compile lib my-app-lib Debug native success 310ms MaxRSS:680M
+install ok (0 ms)
+├── compile exe my-app ok (1289 ms)
+│   └── compile lib math ok (295 ms)
+└── compile lib my-app-lib ok (310 ms)
 ```
 
-Each node shows: step description, success/failure status, duration, and peak memory usage (MaxRSS). The tree structure reflects the DAG dependency edges.
+Each node shows: step description, `ok`/`FAILED`, and the wall-clock time that node took. The tree structure reflects the DAG dependency edges. A node whose dependency failed is not run at all — it is reported as `FAILED` with no timing, and the build exits non-zero. (Peak memory per node is not measured yet.)
 
 ## Modules
 
@@ -505,7 +505,18 @@ If no `-D` flag is provided, the default value is used. Boolean options without 
 yo build -Dstrip       # same as -Dstrip=true
 ```
 
-Run `yo build --help` to see all available project-specific options alongside standard flags.
+Run `yo build --list-options` to see what this build file declares, with each option's description, its default and the value in force:
+
+```
+$ yo build --list-options
+Available options:
+  -Dopt=<value>     Optimization level (default: "debug", now: "release-fast")
+  -Dstrip=<value>   Strip debug symbols (default: "false", now: "false")
+```
+
+A `-D` name the build file does not declare is an **error**, not a silent no-op — a typo in `-Dstrip=true` would otherwise look like a build that ignored you. A dependency's options live in its own namespace: `-D<dep>.<name>=<value>` reaches the dependency's `build.option("<name>")`, and a name that dependency does not declare is an error too.
+
+**Known limitation:** an option's value cannot yet be used where the build API expects a compile-time string (an artifact's `name`, `root`, `target`, a step description, …) — `build.option` returns `comptime(str)` and those fields require `comptime_str`. See `issues/build-option-value-cannot-feed-an-artifact-field.md`.
 
 ### `BuildOption`
 
@@ -644,8 +655,9 @@ Options:
   --sysroot <path>       Sysroot directory for cross-compilation
   --cc <compiler>        C compiler: clang, gcc, zig, cc, emcc
   --verbose, -v          Verbose build output
-  --dry-run              Show what would be built
+  --dry-run              Resolve the build graph and print it; build nothing
   --list-steps           List available build steps
+  --list-options         List the options this build file declares
   --locked               Fail if fetching dependencies would change yo.lock
   --offline              Fail if fetching dependencies would need the network
   --frozen               --locked and --offline

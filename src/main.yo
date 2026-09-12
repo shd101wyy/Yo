@@ -4703,7 +4703,7 @@ run_update_cmd :: (
 ///
 /// Flag contract mirrors `src/yo-cli.ts:927-…`:
 ///   yo build [steps..] [--cc <c>] [-t|--target <triple>] [--sysroot <dir>]
-///            [--build-file <path>] [--list-steps] [--dry-run] [--verbose|-v]
+///            [--build-file <path>] [--list-steps] [--list-options] [--dry-run] [--verbose|-v]
 /// One watch-mode build round: a full `run_build` whose failure is reported
 /// but never exits the loop (`unwind` returns `false` from THIS fn).
 _build_round_watch :: (fn(opts : BuildOptions, io : Io) -> bool)({
@@ -4733,6 +4733,7 @@ run_build_cmd :: (
   (sysroot : Option(String)) = Option(String).None;
   (build_file : String) = String.from("./build.yo");
   (list_steps : bool) = false;
+  (list_options : bool) = false;
   (dry_run : bool) = false;
   (verbose : bool) = false;
   (summary : bool) = false;
@@ -4774,6 +4775,10 @@ run_build_cmd :: (
       },
       arg.starts_with(String.from("--build-file=")) => {
         build_file = arg.substring(usize(13), arg.len());
+      },
+      (arg == "--list-options") => {
+        list_options = true;
+        ai = (ai + usize(1));
       },
       (arg == "--list-steps") => {
         list_steps = true;
@@ -4819,7 +4824,7 @@ run_build_cmd :: (
         );
       },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--dry-run] [--locked] [--offline] [--verbose] [--summary]`));
+        exn.throw(dyn(`build: unknown option '${arg}'. Usage: yo build [steps..] [--build-file <path>] [--list-steps] [--list-options] [--dry-run] [--locked] [--offline] [--verbose] [--summary]`));
       },
       true => {
         steps.push(arg);
@@ -4834,6 +4839,7 @@ run_build_cmd :: (
     sysroot : sysroot,
     build_file : build_file,
     list_steps : list_steps,
+    list_options : list_options,
     dry_run : dry_run,
     verbose : verbose,
     summary : summary,
@@ -5613,6 +5619,7 @@ Build the project described by build.yo (default step: install).
 
 Options:
   --list-steps              Show the available build steps
+  --list-options            Show the options this build file declares (-Dname=value)
   --summary                 Print the build summary tree
   --dry-run                 Resolve the build graph without running it
   --build-file <path>       Use an alternate build.yo
@@ -5639,6 +5646,7 @@ Examples:
 
 选项：
   --list-steps              列出可用的构建步骤
+  --list-options            列出此构建文件声明的选项（-Dname=value）
   --summary                 打印构建摘要树
   --dry-run                 只解析构建图，不实际执行
   --build-file <path>       使用其他 build.yo
