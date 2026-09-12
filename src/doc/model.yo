@@ -210,9 +210,16 @@ DocModel :: struct(
   version : Option(String),
   /// `yo doc --logo <path>` / `build.documentation({ logo })`: an image shown
   /// in the sidebar header. `.None` = no logo.
-  logo : Option(String),
+  ///
+  /// DEFAULTED, and the default is the documented meaning: a model built
+  /// without a logo has none. Four construction sites across the doc tests
+  /// were left behind when these two fields landed without defaults, and the
+  /// PR that added them merged with its CI cancelled, so the break reached
+  /// develop — one default here is the fix for every such site, present and
+  /// future.
+  (logo : Option(String)) ?= Option(String).None,
   /// `--favicon <path>`: the site's `<link rel="icon">`. `.None` = none.
-  favicon : Option(String)
+  (favicon : Option(String)) ?= Option(String).None
 );
 export(
   DocItemKind,
