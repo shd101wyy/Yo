@@ -28,23 +28,49 @@ runs:
         esac
         # Releases after v0.2.18 name their assets by target triple
         # (plans/reference/RELEASE_ASSET_TRIPLES.md); v0.2.18 and earlier carry the short
-        # label. SEED_VERSION crosses that line exactly once, so probe. Drop the
-        # short arm once no SEED_VERSION <= v0.2.18 is in use anywhere.
+        # label. SEED_VERSION crosses that line exactly once, so try both. Drop
+        # the short arm once no SEED_VERSION <= v0.2.18 is in use anywhere.
+        #
+        # DOWNLOAD to choose, never a HEAD probe. A `curl -I` against a GitHub
+        # release asset redirects to objects.githubusercontent.com and can come
+        # back 404 for an asset that is plainly there: on 2026-09-12 that
+        # transient took out develop's RELEASE GATE (run 34635433572), because
+        # the false negative sent the step to the short label, which genuinely
+        # does not exist at v0.2.30, and the job then failed with "the release
+        # genuinely has no bundle for this target" for a bundle that downloads
+        # fine a minute later. The seed is the trust-chain root, so this step is
+        # allowed to cost two requests and a few seconds rather than report a
+        # missing bundle that is not missing.
         BASE="https://github.com/${{ github.repository }}/releases/download/${{ inputs.version }}"
         URL="$BASE/yo-${{ inputs.version }}-${TRIPLE}.tar.gz"
-        if ! curl -fsSL -I -o /dev/null "$URL" 2>/dev/null; then
-          echo "no triple-named seed asset at $URL — falling back to the short label ${T}"
-          URL="$BASE/yo-${{ inputs.version }}-${T}.tar.gz"
-        fi
+        ALT="$BASE/yo-${{ inputs.version }}-${T}.tar.gz"
+        # `--retry` covers network errors and 5xx; it does NOT retry a 404,
+        # which is exactly the transient seen above — hence the outer loop.
+        fetch_seed() {
+          curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused \
+            -o "$RUNNER_TEMP/yo-seed.tar.gz" "$1"
+        }
+        SEED_URL=""
+        for attempt in 1 2 3; do
+          if fetch_seed "$URL"; then SEED_URL="$URL"; break; fi
+          echo "attempt ${attempt}: no seed at $URL"
+          if fetch_seed "$ALT"; then
+            echo "no triple-named seed asset — using the short label ${T}"
+            SEED_URL="$ALT"; break
+          fi
+          echo "attempt ${attempt}: no seed at $ALT"
+          sleep 5
+        done
         # FAIL HARD on a missing bundle. This used to warn and set an
         # `installed=false` output that no caller read, so a retired or
         # never-built target degraded to "no yo on PATH" — or, worse, to an
         # unrelated `yo` — and the job failed somewhere confusing instead of
         # here. The seed IS the trust-chain root: if it is absent, stop.
-        if ! curl -fsSL -o "$RUNNER_TEMP/yo-seed.tar.gz" "$URL"; then
-          echo "::error::No seed bundle for ${T} at ${{ inputs.version }} ($URL). Causes, in order of likelihood: (1) the release is still a DRAFT — releases are created as drafts and published only after every required bundle leg uploads, and a draft's assets 404 on this public download URL; (2) the release genuinely has no bundle for this target; (3) SEED_VERSION points at a tag that predates the leg. Wait for publish-release, or bump SEED_VERSION to a PUBLISHED release whose seed matrix covers this target."
+        if [ -z "$SEED_URL" ]; then
+          echo "::error::No seed bundle for ${T} at ${{ inputs.version }} (tried $URL and $ALT, three times each). Causes, in order of likelihood: (1) the release is still a DRAFT — releases are created as drafts and published only after every required bundle leg uploads, and a draft's assets 404 on this public download URL; (2) the release genuinely has no bundle for this target; (3) SEED_VERSION points at a tag that predates the leg. Wait for publish-release, or bump SEED_VERSION to a PUBLISHED release whose seed matrix covers this target."
           exit 1
         fi
+        URL="$SEED_URL"
         # Record the bundle's digest in the log. Not a pin (that needs a
         # committed checksum per release/target — P3 hardening); this makes a
         # swapped bundle forensically visible after the fact.
