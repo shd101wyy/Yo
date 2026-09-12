@@ -215,6 +215,53 @@ Already checked and NOT it:
   non-blocking kernel entry
   (`issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md`).
 
+## After the rebase onto develop (2026-09-12): both Linux legs PASS
+
+The branch was ~30 commits behind — it predated #590 (`JoinHandle.abort`
+cancels the I/O the task is suspended in, which rewrote the future header and
+`__yo_io_cleanup`), #592 (six async-emitter dispatch fixes) and #598 (a
+static-dispatch call's C return type). Rebased onto `4e541f82a` and re-run as
+**34663406193**:
+
+| leg | before | after |
+| --- | --- | --- |
+| `test (ubuntu-latest)` | FAIL | **success** |
+| `test (ubuntu-24.04-arm)` | FAIL (the tagged trace above) | **success** |
+
+So something in those thirty commits moved it. That is NOT proof it is fixed —
+the whole issue is timing-dependent, and two green legs on one run is exactly
+what "timing-dependent" looks like half the time. It IS enough to say the next
+trace must be taken on the rebased branch, and that the analysis above was
+performed against a compiler three async-fix batches old.
+
+**The full-corpus hollow sweep still fails the same two tests**, but with a
+DIFFERENT signature, and that difference matters:
+
+```
+✗ HttpClient: a 204 ends at its headers, whatever its Content-Length says
+    Test failed with exit code 134
+✗ HttpClient: a HEAD response ends at its headers and the connection is reused
+    Test failed with exit code 134
+```
+
+Exit 134 is SIGABRT, which IS this bug's signature — the deadline throws,
+the test's `exn` handler `assert(false, ...)`s, and that aborts. The two
+children printed no checkpoints, but that is a property of the harness and not
+evidence about the run: the runner captures each test's output and REPLAYS it
+after the verdict line (in the same log, a passing test's `[wire RSP]` lines
+appear *below* its `✓`), and a child that aborts loses the capture. So the
+sweep is the same failure, not a second one, and it still reproduces in that
+binary shape on a leg whose sibling `test (ubuntu-*)` legs passed — which is
+the clearest statement yet of how narrow the timing window is.
+
+Worth ruling out anyway while reading the file: the keep-alive tests bind
+19840–19855, one port each, so the two failures are not colliding with each
+other or with their predecessor.
+
+Making the sweep keep an aborted child's output would pay for itself here; it
+runs each file through `BIN test <file> --parallel 1` with no `--std-path` and
+no `--verbose`.
+
 ## Earlier hypothesis, now refuted: a two-arm match with an await in each arm
 
 `std/http/client.yo`'s `_Transport.read` is an `io.async` body whose only
