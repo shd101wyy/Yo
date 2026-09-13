@@ -19,7 +19,7 @@ writing dates — the banner is the authoritative summary.
 
 ## Current entry points
 
-Active work (root) — **8 docs, and nothing else lives here**:
+Active work (root) — **9 docs, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
 - [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — the live std
@@ -50,6 +50,15 @@ Active work (root) — **8 docs, and nothing else lives here**:
   compile-time-input decisions (`comptime_read_file` and
   `comptime_json_parse`/`comptime_toml_parse` yes, `comptime_fetch` no,
   `build.env` in the build context only).
+- [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) —
+  ACTIVE 2026-09-13: the `match` audit (value matching exists only on the
+  primitive path; three silent wrong answers and three check-green/C-red
+  shapes measured) and the design for real pattern matching: patterns stay
+  expressions, one compiled `Pattern` IR shared by the evaluator and both C
+  emitters, usefulness-based exhaustiveness, `switch` kept where it is
+  switch-shaped plus a test-chain lowering for nested/literal/or/guard/range/
+  string/tuple/struct patterns. P0 absorbs PR #661 and closes the
+  exhaustiveness hole it leaves.
 
 Closed campaigns (`archive/`) — self-hosting is **finished**. The compiler has
 been self-hosting since 2026-08-03, the TypeScript compiler was retired
