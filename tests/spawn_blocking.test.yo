@@ -122,15 +122,29 @@ test("repeated pairs of spawn_blocking do not corrupt the wake inbox", {
   //
   //   12 rounds -> 1/6 runs failed     40 rounds -> 3/8     200 -> 7/10
   //
+  // 200 is therefore the NATIVE count and the real gate.
+  //
   // Each round is two workers whose blocking call is just long enough (2 ms)
   // that the loop actually parks and drains while they are still running.
   // Without that overlap the wake and the release both land before the drain
   // runs and the window never opens — the first version of this test used no
   // sleep at all, passed 6 runs in a row on the BROKEN compiler, and would
   // have shipped as a test of nothing.
+  // Emscripten is the one target that has real threads AND cannot afford 400
+  // of them: its heap is a FIXED, non-growable 16 MB (`INITIAL_MEMORY`, with
+  // `maximum` equal to it), each pthread reserves a stack out of it, and the
+  // full count aborts with `Aborted(OOM)` — marginally, which is worse than
+  // reliably. It failed `test-wasm32_emscripten` on run 34764386998 and passed
+  // the identical command locally, so at 200 rounds this test would be a
+  // coin-flip there forever. The native count is the one that gates the bug;
+  // wasm still exercises the path, just not at a size the platform cannot hold.
+  // (Standalone WASI needs no reduction — it has no threads at all, so
+  // `spawn_blocking` runs inline and costs no stacks.)
+  rounds := if(platform == Platform.Emscripten, i32(24), i32(200));
+  expected := (rounds * i32(3));
   (round : i32) = i32(0);
   (total : i32) = i32(0);
-  while(runtime(round < i32(200)), {
+  while(runtime(round < rounds), {
     a := io.spawn(
       spawn_blocking(() => {
         sleep_blocking(Duration.from_millis(i64(2)));
@@ -151,7 +165,7 @@ test("repeated pairs of spawn_blocking do not corrupt the wake inbox", {
     total = (total + ra.unwrap() + rb.unwrap());
     round = (round + i32(1));
   });
-  assert(total == i32(600), "every round delivered both values");
+  assert(total == expected, "every round delivered both values");
 });
 test("two spawn_blocking calls in flight at once", {
   a := io.spawn(
