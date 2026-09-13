@@ -995,12 +995,22 @@ jobs:
         with:
           name: suite-candidate
 
+      - name: Make the candidate executable
+        run: chmod +x yo-candidate
+
+      # chunked_gate.sh runs `compile src/main.yo` four times, and
+      # src/doc/render_html.yo — in that closure — imports the `markdown_yo`
+      # DEPENDENCY. `compile` resolves import roots but never fetches, so the
+      # store has to be populated first. See install-deps' own comment.
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: ./yo-candidate
+
       - name: Run the chunked behavioural fixpoint gate
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: |
-          chmod +x yo-candidate
-          S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
+        run: S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
 
   suite-cross-emit:
     name: Cross-emit suite compiler (${{ matrix.target }})

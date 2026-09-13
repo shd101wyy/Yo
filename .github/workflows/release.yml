@@ -99,7 +99,7 @@ jobs:
             # src/version.yo and package-lock.json) failed the purity test and
             # the gate demanded a test run for a [skip ci] commit — which can
             # never exist. That blocked the bump=none resume path.
-            NON_PKG=$(git diff --name-only HEAD~1 HEAD | grep -cvE '^(package\.json|vscode-extension/package\.json|vscode-extension/package-lock\.json|src/version\.yo)$' || true)
+            NON_PKG=$(git diff --name-only HEAD~1 HEAD | grep -cvE '^(package\.json|vscode-extension/package\.json|vscode-extension/package-lock\.json|src/version\.yo|yo\.toml)$' || true)
             if [[ "$NON_PKG" == "0" ]]; then
               SHA=$(git rev-parse HEAD~1)
               echo "HEAD is a pure version bump — gating on parent $SHA"
@@ -227,6 +227,24 @@ jobs:
           grep -q "CURRENT_YO_VERSION :: \"$NEW_VERSION\";" src/version.yo
           echo "src/version.yo now pins $NEW_VERSION"
 
+      # The repo-root `yo.toml` (the compiler's own package manifest, added
+      # when `markdown_yo` stopped being a submodule) carries a THIRD version
+      # field. `src/version.yo` stays the source of truth — this SETS the
+      # manifest from the computed version for the same reason the extension's
+      # package.json is set rather than bumped independently: two independent
+      # bumpers is how they drift apart, and this one shipped already wrong
+      # (0.2.31 in a 0.2.32 tree) because nothing wrote it.
+      #
+      # Anchored to the [package] table rather than to `^version = `: `yo.lock`
+      # uses that same key for its FORMAT version, and a future `[dependencies]`
+      # entry could carry a `version` range.
+      - name: Bump version in yo.toml
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+          perl -0pi -e "s/(\\[package\\][^\\[]*?\\nversion = \")[^\"]*(\")/\${1}$NEW_VERSION\${2}/s" yo.toml
+          grep -q "^version = \"$NEW_VERSION\"$" yo.toml
+          echo "yo.toml now pins $NEW_VERSION"
+
       - name: Get last commit message
         id: last_commit
         run: |
@@ -258,7 +276,7 @@ jobs:
           # P2.5 Group F), the guard quietly skips it and the release commits
           # WITHOUT the version bump — no error, after the release is already
           # tagged and the extension published. Fail loudly instead.
-          for f in vscode-extension/package.json vscode-extension/package-lock.json src/version.yo; do
+          for f in vscode-extension/package.json vscode-extension/package-lock.json src/version.yo yo.toml; do
             if [ ! -f "$f" ]; then
               echo "::error::$f is missing, so the version bump would not land. Did a path move? Update this list in the same change."
               exit 1
