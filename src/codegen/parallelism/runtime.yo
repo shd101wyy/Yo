@@ -68,7 +68,23 @@ static void __yo_worker_init_mutex(void) {
     uses_async,
     `
   // Drain per-thread event loop — wait for all async tasks spawned in this thread
-  __yo_async_wait_all();`,
+  __yo_async_wait_all();
+  // ...and RELEASE it. __yo_async_wait_all calls __yo_io_init, so every spawned
+  // thread creates its own io_uring/kqueue/IOCP plus a notify descriptor; the
+  // only other __yo_io_cleanup call is in the async-main driver, which runs on
+  // the main loop thread and never sees these. Without this, each spawned
+  // thread leaked a kernel ring and an fd for the life of the process, and a
+  // program that spawns a few hundred threads died with
+  // 'io_uring_queue_init failed: Cannot allocate memory'
+  // (issues/fixed/every-spawned-thread-leaks-its-event-loop.md).
+  __yo_io_cleanup();`,
+    ``
+  );
+  async_cleanup_worker := if(
+    uses_async,
+    `
+  // Release this worker thread's event loop (see the Thread entry point).
+  __yo_io_cleanup();`,
     ``
   );
   async_wait_worker := if(
@@ -301,6 +317,11 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
   __yo_gc_collect();
 `
   );
+  // Release this worker's event loop. Deliberately at THREAD exit and not
+  // beside the per-task __yo_async_wait_all above: a pool thread runs many
+  // tasks, and tearing the ring down after each one would rebuild it for the
+  // next. The leak is per-THREAD, so the release belongs at thread teardown.
+  emitter.emit_string_line(async_cleanup_worker);
   emitter.emit_string_line(worker_entry_return);
   emitter.emit_string_line(
     `}
