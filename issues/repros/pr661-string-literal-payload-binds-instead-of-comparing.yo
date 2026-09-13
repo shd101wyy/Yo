@@ -1,0 +1,14 @@
+{ println } :: import("std/fmt");
+{ args } :: import("std/env");
+E :: enum(Tag(name : str), Empty);
+pick :: (fn(e : E) -> i32)(
+  match(e, .Tag("a") => 1, .Tag(n) => 2, .Empty => 0)
+);
+main :: (fn() -> i32)({
+  n := i32(args().len());
+  a := pick(if(n > 100, E.Tag("a"), E.Tag("zzz")));
+  b := pick(if(n > 100, E.Tag("zzz"), E.Tag("a")));
+  println(`a=${a} (expect 2)  b=${b} (expect 1)`);
+  i32(0)
+});
+export(main);
