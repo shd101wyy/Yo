@@ -111,7 +111,8 @@ _(env : fncall_dbg_env) :: import("std/env");
   extract_fn_trait_from_type,
   type_is_callable_shaped,
   fn_constrained_param_requires_callable,
-  fn_argument_not_callable_message
+  fn_argument_not_callable_message,
+  type_implements_future
 } :: import("../trait_checking.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
 { try_to_implement_module_with_arguments_by_module_type } :: import("./record_type.yo");
@@ -1629,9 +1630,25 @@ _freshen_generic_closure_callee :: (
       if(gc_fts.len() == usize(0), {
         return(ft);
       });
+      // The result must be a FUTURE-implementing existential. That is not a
+      // convenience narrowing — it IS the id-keyed channel this whole fix is
+      // about: the concrete behind an `Impl(Future(R, ...))` is published under
+      // the binder's id by the io.async stamp and read back by `io.await`
+      // through the same id, which is what a shared binder cannot serve.
+      //
+      // Without this, the gate also catches the iterator/stream combinators —
+      // `map`, `filter` and friends are `fn(generic(B), f : Impl(Fn(A) -> B))
+      // -> Stream(B)`, the same closure-param-plus-binder-in-result shape — and
+      // freshening those breaks them: `ch.filter(...).map(...)` then
+      // `chain.collect(io)` fails with "No matching call found with arguments"
+      // (tests/async/channel.test.yo, measured 2026-09-13). Their binder is
+      // carried by ordinary per-call substitution and needs no id at all.
+      if(!(type_implements_future(gc_res)), {
+        return(ft);
+      });
       // The read-back side: which of this callee's binders survive into the
-      // declared result (including nested inside an existential's required
-      // traits, which is where `Impl(Future(R, Io))` carries `R`).
+      // declared result (nested inside the existential's required traits, which
+      // is where `Impl(Future(R, Io))` carries `R`).
       gc_ret_ids := _rre_binder_ids(gc_res, forall_names);
       if(gc_ret_ids.len() == usize(0), {
         return(ft);
