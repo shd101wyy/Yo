@@ -289,6 +289,15 @@ n = 2 a lag-by-one and a swap and a reversal are the same permutation. The
 third instantiation is what separates them, and it is cheap — this table came
 from one `--emit-c` run, no compiler instrumentation.
 
+**The method, worth reusing.** Several mechanisms predicted the n = 2
+observation equally well — last-writer-wins on a shared registry key, a
+reversed list, a swap — so the evidence could not choose between them, and no
+amount of instrumenting the *suspected* site would have helped: each theory
+points at a different site. Extending the OBSERVATION until the candidates
+disagree is what settled it, and it cost one recompile of a twelve-line
+program. Reach for that before reaching for a probe whenever two or more
+mechanisms fit the data.
+
 It equally explains the `[bridge]` framing being the wrong place to look first:
 a bridge that copies the right value at the wrong TIME produces exactly this,
 and so does a correct bridge reading a registry that is one stamp behind. The
