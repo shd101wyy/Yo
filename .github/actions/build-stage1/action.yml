@@ -70,6 +70,12 @@ runs:
       with:
         version: ${{ inputs.seed-version }}
 
+    # `markdown_yo` is a yo.toml dependency, not a submodule — the store has to
+    # be populated before the seed can resolve `import("markdown_yo")` out of
+    # src/main.yo's closure. See install-deps' own comment.
+    - name: Fetch the project's Yo dependencies
+      uses: ./.github/actions/install-deps
+
     # SPLIT AT THE C BOUNDARY, in two processes.
     #
     # `yo build` cannot be used here. It shells out to `yo compile`, and that

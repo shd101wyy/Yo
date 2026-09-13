@@ -1,0 +1,35 @@
+name: "Fetch the project's Yo dependencies"
+description: >-
+  Populate the content-addressed store from the repo-root `yo.toml` / `yo.lock`
+  so that `import("markdown_yo")` resolves in every later `yo` invocation.
+
+# WHY THIS EXISTS. `markdown_yo` (the Markdown renderer behind `yo doc --format
+# html`, in the closure of BOTH src/main.yo and scripts/build_site.yo) used to
+# be the `vendor/markdown_yo` submodule, materialized by `submodules: recursive`
+# on the checkout. It is now an ordinary dependency declared in the repo-root
+# `yo.toml`, so the thing that materializes it is Yo's own package manager.
+#
+# `yo build` fetches on its own (`install_dependencies` runs before the graph),
+# so a job that only calls `yo build` needs nothing. A job that calls `yo
+# compile` / `check` / `test` directly does: those resolve import roots but do
+# not fetch, and a missing store entry is a compile error naming `yo install`.
+# Rather than reason about which commands a job happens to use, every job that
+# runs `yo` against this tree calls this action once, right after its compiler
+# is available.
+#
+# `--locked` is the CI stance: the committed `yo.lock` is authoritative, and a
+# resolution that would change it is a failure here rather than a silent drift.
+
+inputs:
+  yo:
+    description: >-
+      The yo binary to run. Defaults to the one on PATH (the seed). Jobs whose
+      compiler is a built artifact rather than a PATH entry pass its path.
+    required: false
+    default: "yo"
+
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      run: ${{ inputs.yo }} install --locked --verbose

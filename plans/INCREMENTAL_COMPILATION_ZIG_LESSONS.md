@@ -232,7 +232,10 @@ at `/tmp/prof-selfbuild.json` when re-measuring):
    `evaluator/builtins/comptime_numeric_fns.yo` 15.5 s,
    `vendor/markdown_yo/src/common/entities.yo` 12.8 s — the top five alone
    are ~44% of the eval wall, and vendor/markdown_yo as a whole is 37.1 s
-   (16%). Also: `codegen: emit` is 26% of the eval+emit total here, not the
+   (16%). (Those `vendor/markdown_yo/` paths are how the tree looked when
+   this was measured; since 2026-09-13 the library is a `yo.toml` dependency
+   and the same files live under `~/.cache/yo/store/sha256/<hash>/src/`. The
+   numbers are unaffected — same sources, same closure.) Also: `codegen: emit` is 26% of the eval+emit total here, not the
    "minor share" the M4 suggested — the emission split matters on slower
    machines.
 3. **Function census:** 8186 functions reach emission; 4351 from std, 3835
