@@ -1,0 +1,24 @@
+{ spawn_blocking } :: import("std/thread");
+{ Duration } :: import("std/time/duration");
+{ sleep_blocking } :: import("std/time/sleep");
+{ println } :: import("std/fmt");
+main :: (fn(io : Io) -> unit)({
+  a := io.spawn(
+    spawn_blocking(() => {
+      sleep_blocking(Duration.from_millis(i64(20)));
+      i32(1)
+    }, io),
+    io
+  );
+  b := io.spawn(
+    spawn_blocking(() => {
+      sleep_blocking(Duration.from_millis(i64(20)));
+      i32(2)
+    }, io),
+    io
+  );
+  ra := a.await(io);
+  rb := b.await(io);
+  println(`sum=${(ra.unwrap() + rb.unwrap()).to_string()}`);
+});
+export(main);

@@ -1,10 +1,29 @@
 # Waker-based scheduling
 
-**Status:** IN PROGRESS — steps 1, 2, 3a and 3b are LANDED, step 4 is landed
-except for a shape note, step 5 is the only one genuinely open. Written 2026-09-10. This is the largest
+**Status: COMPLETE 2026-09-13.** Steps 1, 2, 3a and 3b LANDED; step 4 landed
+except for a shape note recorded in its own row; step 5 — cross-thread wake and
+`spawn_blocking` — landed 2026-09-13. Written 2026-09-10. It was the largest
 remaining item in `plans/STD_API_STABILIZATION.md`'s concurrency group, and four
-std modules' `## Stability` markers name it as the thing that will change under
-them.
+std modules' `## Stability` markers name it as the thing that would change under
+them. Still in `plans/` root rather than `archive/` only until its 24 inbound
+references are swept.
+
+> **Step 5's first real adopter found a use-after-free in step 1's own
+> mechanism** (`issues/fixed/a-waker-token-is-freed-while-back-on-the-inbox.md`).
+> `__yo_async_drain_xwakes` cleared `t->queued` before reading
+> `t->release_pending`, so a foreign `__yo_waker_release` could CAS the token
+> back onto the inbox and the drain then freed it — leaving `xwake_head`
+> dangling and crashing one loop turn later. It had been there since step 1
+> landed (#561) and every gate was green, because nothing put TWO concurrent
+> foreign wakers through the path until `spawn_blocking` was exported.
+>
+> That is the durable lesson from this plan, and it is not about wakers: a
+> concurrency mechanism can land fully gated and still have no adopter, so its
+> first real user is its first real test — and the bug it finds is as old as the
+> mechanism. The repo already knew the weaker form (an exported-but-never-called
+> helper is a dead mechanism with green gates); this is the same failure one
+> level up, where a caller exists but the concurrency it was built for never
+> did.
 
 | step | state |
 | --- | --- |
@@ -13,7 +32,7 @@ them.
 | 3a. `Mutex` over a waiter queue | **LANDED** (#576) — `std/async/mutex.yo` holds an `ArrayList(Waker)`, `unlock` wakes the FRONT waiter, and `waiter_count()` is the oracle the FIFO test reads |
 | 3b. `Channel` over the same queue | **LANDED** (#586) — `send`/`recv` park on a waiter queue instead of re-checking on a 1 ms timer tick. It was blocked for a day by a compiler defect that the rewrite surfaced: the trace collector tried to monomorphize a GENERIC `ArrayList(T)` instance that only this shape put in the codegen type registry, and failed inside `array_list.yo`'s `Trace` body — a file the rewrite never touched (`issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md`) |
 | 4. The combinators (`race`/`any`/`timeout`) | **PARTLY LANDED.** `timeout`'s retention is CLOSED: `abort()` now cancels the operation the task is suspended in, so the deadline timer is deregistered the moment the task wins instead of staying armed for the rest of the limit (`issues/fixed/timeout-deadline-timer-future-leak.md`). What remains is the polling SHAPE — `race`/`any` still re-check `is_finished()` around `__yo_async_poll_step()`; parking them on a wake needs a completion-notification list on `JoinHandle`, which is step 5's machinery |
-| 5. Cross-thread wake + `spawn_blocking` | **RUNTIME WRITTEN AND WORKING; `spawn_blocking` BLOCKED on a compiler defect.** Details below |
+| 5. Cross-thread wake + `spawn_blocking` | **COMPLETE.** **`spawn_blocking` LANDED 2026-09-13** — the compiler defect it waited on (`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`) is fixed, it is exported, and `tests/spawn_blocking.test.yo` is live. Details below |
 
 ## Step 5, as it stands 2026-09-12
 
@@ -58,7 +77,7 @@ own first recorded risk, met in practice. **The blocker is a second instantiatio
 and the closure-param form of that shape miscompiles at a second `T`. The
 value-param half is FIXED (2026-09-12, the RRE adoption gate comparing binder
 IDs rather than names); the closure-param half is STILL OPEN, and
-`issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
+`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
 now carries its measured root cause, a four-program A/B, the two fixes that were
 tried and measured to be no-ops, and two ranked candidates for the next attempt.
 

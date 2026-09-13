@@ -361,6 +361,18 @@ spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
 /// suspension and the wake, which is the property `tests/spawn_blocking.test.yo`
 /// asserts by ORDERING rather than by timing.
 ///
+/// **On a target with no OS threads that property does not hold, and there is
+/// no diagnostic.** `__yo_thread_spawn` falls back to running the closure
+/// INLINE when `pthread_create` fails — a deliberate contract, because with no
+/// thread the work would otherwise be silently dropped and its
+/// reference-counted captures never released
+/// (`issues/fixed/wasi-thread-pool-submit-deadlock.md`). The value still comes
+/// back correctly; what is lost is the concurrency, because the blocking call
+/// now runs ON the loop thread. Standalone WASI (`Platform.Wasi`) is the
+/// target where this bites; wasm32-emscripten emulates pthreads and really
+/// runs the thread. See
+/// `issues/spawn-blocking-degrades-to-inline-on-a-threadless-target.md`.
+///
 /// The thread is not joined. It has already delivered its value and its wake
 /// by the time the awaiting task resumes, so joining would only block the loop
 /// on the thread's own teardown; the handle is dropped, which detaches it.
@@ -382,13 +394,13 @@ _take_blocking_result :: (
     .Err(_) => __yo_panic("spawn_blocking: the worker thread produced no value (it unwound)")
   )
 );
-/// NOT EXPORTED YET. It works — end to end, with the wake crossing the thread
-/// boundary — but only for ONE `T` per program: the closure-param form of
-/// `fn(generic(T), … Impl(Fn() -> T) …) -> Impl(Future(T))` emits its async
-/// block ONCE for every instantiation
-/// (issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md).
-/// Exporting it before that is fixed would ship an API that silently
-/// miscompiles the second time a program uses it.
+/// Exported since 2026-09-13. It was written and working long before that but
+/// held back on a compiler defect: the closure-param form of
+/// `fn(generic(T), … Impl(Fn() -> T) …) -> Impl(Future(T))` had no per-call
+/// identity for `T`, so it compiled at ONE `T` per program and silently
+/// miscompiled the second
+/// (issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md).
+/// `tests/spawn_blocking.test.yo` uses two different `T`s for that reason.
 spawn_blocking :: (
   fn(
     generic(T : Type),
@@ -447,5 +459,6 @@ export(
   get_cpu_id,
   Thread,
   ThreadPool,
-  spawn
+  spawn,
+  spawn_blocking
 );

@@ -1,6 +1,76 @@
 # Handover — 2026-09-13, immediately after cutting v0.2.32
 
-**Status: LIVE INSTRUCTIONS.** Written for the agent taking over. Everything
+> **CLOSED 2026-09-13 — every item this file made actionable is done.** Kept as
+> the record of the v0.2.32 release and the campaign's last mile. Two things in
+> §6 are NOT done and were never this document's to finish; they are listed at
+> the bottom of this banner so the closure is not read as wider than it is.
+>
+> - **§3 the release:** published; the notes are archived to
+>   `plans/archive/RELEASE_NOTES_v0.2.32_DRAFT.md`, after diffing the published
+>   body against the draft rather than assuming they matched.
+> - **§3.3 the seed-bump battery** (`34745371233`): **green**, and the three jobs
+>   that actually answer "is v0.2.32 a good seed" — Bootstrap fixpoint, the
+>   static musl bundle, the Linux suite candidate — are all seed-bootstrapped and
+>   all passed.
+> - **§4 the freeze:** lifted. Item 1 landed as #662, item 2 as #666, item 3
+>   (#654) by the peer session.
+> - **§6 the Windows bundle:** fixed in #666 and verified NOT vacuous — the CI
+>   log shows the emitted binary printing its string after driving a spawn and
+>   two timers, not merely linking the runtime.
+> - **§5 `spawn_blocking`:** the compiler defect is FIXED and `spawn_blocking` is
+>   EXPORTED, with `tests/spawn_blocking.test.yo` live. That closes the std API
+>   stabilization campaign. See
+>   `issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`.
+>
+> **The correction worth carrying forward**, because §5.4 states the fix as a
+> single scoped change: per-call binder identity IS the right direction, and it
+> took FOUR layers, each of which passed the gate the previous one failed.
+> `substitute` matches a `SomeT` by (name, frame_level), so (1) freshening off
+> the declaration's `forall_types` misses the occurrence that matters and moves
+> nothing; (2) the prototype/definition return-type asymmetry it unmasks is a
+> second, independent bug; (3) minting the fresh binder **per NAME** collapses
+> the callee's `T` with the prelude `Future(T, E)`'s `T`; and (4) gating the
+> freshening on the SHAPE — a closure param whose `Fn` bound mentions a binder
+> that survives into the result — catches the iterator/stream combinators too
+> (`map`, `filter`: `fn(generic(B), f : Impl(Fn(A) -> B)) -> Stream(B)`) and
+> breaks them. The gate must name the CHANNEL, not the shape: only an
+> `Impl(Future(R, ...))` result has its concrete published under the binder's id
+> by the io.async stamp and read back through that id by `io.await`.
+>
+> Layer 3 is the one a handover cannot skip: every reproducer in §5.5's table
+> that reaches the closure-param path names its binder `R`, so the whole table
+> plus ten async test files plus
+> `check ./src` 275/275 and `check ./std` 175/175 were green while
+> `spawn_blocking` — declared `generic(T)` — still miscompiled. **A test suite
+> that shares a naming convention cannot see a name-sensitivity bug.**
+>
+> Layer 4 is the one about process rather than about the compiler. Every gate
+> named above was green when layer 4 was live and breaking
+> `tests/async/channel.test.yo`. `check ./src` and `check ./std` are
+> evaluator-only — a filter, not a gate — and a hand-picked set of async test
+> files is the same mistake with a bigger number, because it is chosen from
+> where the author thinks the bug lives, which is a subset of the blast radius
+> of a change to dispatch. **For a dispatch or codegen change, the gate is the
+> FULL fast suite** (`yo test ./tests --exclude tests/internal --exclude
+> tests/cli-cases`): 4206 passed, 0 failed, 271 files. It was run here to fill
+> CI wait time, not because the process called for it — which is luck, and the
+> reason the rule is now written down.
+
+> **Still open, and deliberately not closed here:**
+> - **#556** (`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md`
+>   on `std-http-client-pool`) — §6 already scopes it out ("tracked with the std
+>   campaign but outside its scope"). Its own doc records the state to resume
+>   from: after the rebase both Linux legs PASS, which is NOT proof, because the
+>   defect is timing-dependent and does not reproduce locally (27 runs, zero
+>   failures — do not spend another afternoon on a local loop). CI is the only
+>   oracle. The next cheap win it names is making an ABORTED child's captured
+>   output survive: the sweep already redirects per-test output to a log, so the
+>   loss is in `yo test`'s own capture-and-replay, not in
+>   `scripts/bootstrap/hollow_sweep69.sh`.
+> - **`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`** (§6, `build.manifest` and
+>   §4.5.2–§4.5.4) — the peer session's, per §4's split.
+
+**Status was: LIVE INSTRUCTIONS.** Written for the agent taking over. Everything
 below is measured or links to the run/PR it came from; where something is a
 belief rather than a measurement it says so.
 

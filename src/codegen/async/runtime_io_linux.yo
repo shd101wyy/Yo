@@ -697,6 +697,11 @@ static inline void __yo_io_arm_notify(void) {
 // write is atomic, and the check and the write run under the loop's mutex so
 // they cannot race __yo_io_cleanup's clear+close of the descriptor (see the
 // comment there).
+// Takes loop->lock, so NO CALLER MAY ALREADY HOLD IT — the mutex is not
+// recursive. Every caller lives in runtime_core.yo (__yo_async_blocking_end and
+// __yo_waker_post's two paths) and each is deliberately outside the lock;
+// __yo_waker_post's notify sits immediately AFTER its unlock for exactly this
+// reason. See the invariant note there before moving any of them.
 static void __yo_io_notify(__yo_loop_t* loop) {
   if (!loop) {
     return;

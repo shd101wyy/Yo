@@ -621,6 +621,14 @@ static void __yo_waker_wake_local(__yo_io_future_t* f) {
 
 // Hand a token to its owner loop and nudge that loop awake. The push is the
 // only shared write, and the CAS above it makes a repeated wake free.
+//
+// INVARIANT, and it is not obvious from this file: __yo_io_notify MUST NOT be
+// called while holding owner->lock. The Linux backend's notify takes that same
+// mutex to close a TOCTOU against __yo_io_cleanup closing the eventfd, and the
+// mutex is not recursive — so moving the notify below up into the locked
+// section, which reads as an obvious tidy-up, deadlocks every Linux program
+// that uses a cross-thread wake, and nothing else. Both call sites in this
+// function are deliberately outside the lock.
 static void __yo_waker_post(__yo_waker_token_t* t) {
   __yo_loop_t* owner = t->owner;
   int expected = 0;
@@ -659,18 +667,43 @@ static void __yo_async_drain_xwakes(void) {
   while (t) {
     __yo_waker_token_t* next = t->xnext;
     t->xnext = NULL;
-    atomic_store(&t->queued, 0);
     if (t->future) {
       __yo_waker_wake_local(t->future);
     }
+    // ORDER MATTERS: decide this token's fate BEFORE making it re-postable.
+    // Clearing 'queued' first opened a window in which a foreign
+    // __yo_waker_release could set release_pending and CAS the token straight
+    // back onto THIS inbox, after which the free below left loop->xwake_head
+    // dangling and the next drain walked freed memory
+    // (issues/fixed/a-waker-token-is-freed-while-back-on-the-inbox.md).
+    //
     // A release raised on a foreign thread is deferred to here so the park
     // future's non-atomic refcount is only ever touched by its own loop.
     if (atomic_load(&t->release_pending)) {
+      // Leave 'queued' at 1. A concurrent __yo_waker_post then CAS-fails and
+      // only notifies, so nothing can re-enter the node we are about to free.
       if (t->future) {
         __yo_decr_rc((void*)t->future);
         t->future = NULL;
       }
       __yo_free(t);
+    } else {
+      atomic_store(&t->queued, 0);
+      // A release can also land between the load above and this store. It saw
+      // 'queued' still set, so it returned WITHOUT pushing, and this is now
+      // the only place left that can reclaim the token. Claim it with a CAS so
+      // that a wake which has since queued it wins instead and the next drain
+      // frees it — exactly one of the two paths runs.
+      if (atomic_load(&t->release_pending)) {
+        int expected_idle = 0;
+        if (atomic_compare_exchange_strong(&t->queued, &expected_idle, 1)) {
+          if (t->future) {
+            __yo_decr_rc((void*)t->future);
+            t->future = NULL;
+          }
+          __yo_free(t);
+        }
+      }
     }
     t = next;
   }
