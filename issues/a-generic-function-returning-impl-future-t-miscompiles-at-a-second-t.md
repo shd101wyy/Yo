@@ -24,6 +24,10 @@ Either instantiation ALONE compiles and runs. The pair does not.
 * `issues/repros/generic-future-return-two-t-plain-param.yo`
 * `issues/repros/generic-future-return-two-t-closure-param.yo`
 * `issues/repros/generic-future-return-two-t-with-await.yo`
+* `issues/repros/generic-future-return-three-t-closure-param.yo` — **the
+  discriminating one.** At two instantiations a lag, a swap and a reversal are
+  the same permutation; at three they are not. See "MEASURED 2026-09-13: it is
+  a LAG BY ONE" below.
 
 ## Root cause of the value-param shape, and its fix
 
@@ -227,6 +231,69 @@ this ordering is now evidence-backed rather than a guess.
 Note also what is NOT wrong: `R` (the enclosing generic's binder, id 2027)
 resolves correctly at both calls — i32 then Pair — via the registry, not the
 env. Earlier drafts of this document suspected `R`; it is fine.
+
+### MEASURED 2026-09-13: it is a LAG BY ONE, not a clobber
+
+Two Ts was the right observation and the wrong frame. Extending the reproducer
+from two instantiations to **three** turns a symptom that reads like
+"last writer wins" into one that cannot be: with three, the answers are neither
+all-the-same nor reversed, they are **shifted by exactly one**.
+
+`three_t.yo` — the closure-param reproducer with a third instantiation:
+
+```rust
+Pair :: struct(lo : i32, hi : i32);
+Trip :: struct(a : i64, b : i64, c : i64);
+wrap2 :: (fn(generic(R : Type), f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+  io.async((io : Io) => f())
+);
+main :: (fn(io : Io) -> unit)({
+  a := io.await(wrap2(() => i32(7), io), io);                        // T0 = i32
+  b := io.await(wrap2(() => Pair(lo : i32(3), hi : i32(4)), io), io); // T1 = Pair
+  c := io.await(wrap2(() => Trip(a : i64(1), b : i64(2), c : i64(3)), io), io); // T2 = Trip
+});
+```
+
+**What is CORRECT in the emitted C**, and worth stating because it rules out a
+whole family of guesses: the three `wrap2` specializations exist, are named for
+their own `T` (`..._i32_...`, `..._Pair_...`, `..._Trip_...`), and each captures
+the right user closure — the `f` parameter is paired correctly with its
+generation every time. The three async generations exist as
+`closure_…000000/1/2` in source order, and each one's capture holds the matching
+`f`. Nothing is collapsed and nothing is mispaired.
+
+**What is wrong** is only the TYPE each generation is rendered with:
+
+| generation | captures `f` returning | its `T` should be | local temp + prototype say | its sm struct's `result` says |
+| --- | --- | --- | --- | --- |
+| `…000000` | i32 (call 0) | i32 | **Trip** (T2) | int32_t — correct |
+| `…000001` | Pair (call 1) | Pair | **i32** (T0) | **int32_t** (T0) |
+| `…000002` | Trip (call 2) | Trip | **Pair** (T1) | **Pair** (T1) |
+
+Read the last two columns as permutations of `[T0, T1, T2]`:
+
+- local temp + prototype: `[T2, T0, T1]` — gen *k* gets `T(k-1 mod 3)`, a lag of
+  one **with wraparound**.
+- `sm->result`: `[T0, T0, T1]` — gen *k* gets `T(k-1)`, a lag of one **clamped**
+  at the first call (which is therefore right by position, not by luck).
+
+A shared cell with last-writer-wins gives `[T2, T2, T2]`. A first-writer-wins
+memo gives `[T0, T0, T0]`. A reversed list gives `[T2, T1, T0]`. **None of those
+is what is there.** Two independent channels both lag by exactly one call, which
+is the signature of a value being READ before the current call's stamp is
+WRITTEN — each read sees the previous call's stamp — rather than of two
+generations racing for one slot.
+
+That also explains why the two-instantiation reproducer was so misleading: at
+n = 2 a lag-by-one and a swap and a reversal are the same permutation. The
+third instantiation is what separates them, and it is cheap — this table came
+from one `--emit-c` run, no compiler instrumentation.
+
+It equally explains the `[bridge]` framing being the wrong place to look first:
+a bridge that copies the right value at the wrong TIME produces exactly this,
+and so does a correct bridge reading a registry that is one stamp behind. The
+question to answer next is therefore **ordering**, not keying: which of the
+stamp sites runs after the read that consumes it.
 
 ### What to try next, and the obstacle each candidate hits
 
