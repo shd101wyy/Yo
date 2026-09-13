@@ -747,6 +747,28 @@ before stamping. So a correct path EXISTS; the reproducers above take a
 different one. Finding what `with_lock` does that the reproducers do not is the
 whole of the remaining work — the list above is what it is NOT.
 
+## Re-instrumenting this, if it ever comes back
+
+The fix ships ONE trace, behind `YO_DEBUG_FRESHEN`, inside
+`_freshen_generic_closure_callee` — it prints the callee type and the binder ids
+before and after freshening, which is what separates "the freshening ran" from
+"the freshening did anything". The other two probes that cracked this were
+deliberately NOT shipped: both sit on the compiler's hottest path, and neither
+file is otherwise touched by the fix. Re-add them the same way if needed:
+
+* `src/evaluator/calls/helper.yo`, at the Fn-bound registration inside
+  `create_specialized_function_inline` — print `fn_res_id` and the concrete it
+  is about to be registered with. One line per closure-param specialization;
+  this is the ledger that shows whether the id is per-call or shared.
+* `src/evaluator/values/anonymous_function.yo`, just before
+  `register_func_type` — print the func_id and `body_ty`. This is what shows an
+  async generation being re-registered one call stale, and which generations get
+  no registration at all.
+
+If you do, cache the env lookup in a module-level `bool` the way
+`_g_anon_dbg_swallow` already does in that file, rather than calling
+`dbg_env.get(...)` per specialization.
+
 ## Impact — was the last blocker on the std API campaign
 
 `std/thread.yo`'s `spawn_blocking` was correct and worked at one instantiation

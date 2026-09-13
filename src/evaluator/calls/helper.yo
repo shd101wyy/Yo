@@ -2864,9 +2864,6 @@ create_specialized_function_inline :: (
             match(
               arg_values.args.get(rbp_i),
               .Some(rp_ae) => if(match(rp_ae.parameter_type, .SomeT({ id : _ }) => extract_fn_trait_from_type(rp_ae.parameter_type).is_some(), _ => false), {
-                if(helper_dbg_env.get(`YO_DEBUG_FRESHEN`).is_some(), {
-                  eprintln(`[declpt-override] decl=${match(decl_pt, .SomeT({ id : _dpi }) => _dpi, _ => String.from("<not-somet>"))} -> arg=${match(rp_ae.parameter_type, .SomeT({ id : _api }) => _api, _ => String.from("<not-somet>"))}`);
-                });
                 decl_pt = rp_ae.parameter_type;
               }),
               .None => ()
@@ -3036,9 +3033,6 @@ create_specialized_function_inline :: (
                                   match(
                                     fn_res,
                                     .SomeT({ id : fn_res_id }) => {
-                                      if(helper_dbg_env.get(`YO_DEBUG_FRESHEN`).is_some(), {
-                                        eprintln(`[fnres-reg] id=${fn_res_id} <- ${type_to_string(cl_res3)}`);
-                                      });
                                       register_some_resolved_concrete(fn_res_id.clone(), cl_res3.clone());
                                     },
                                     _ => ()
