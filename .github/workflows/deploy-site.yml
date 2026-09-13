@@ -70,7 +70,19 @@ jobs:
         with:
           version: ${{ inputs.builder != '' && inputs.builder || inputs.version }}
 
+      # CONDITIONAL, and it is the only install-deps call site that is.
+      # This workflow checks out an ARBITRARY PUBLISHED TAG (that is its whole
+      # purpose — the salvage lever for a release whose in-run deploy-site was
+      # skipped), and every tag from before `markdown_yo` became a dependency
+      # has no `yo.toml` at all. There `yo install --locked` exits 1 with
+      # "no yo.toml found … Run 'yo init'", which would break redeploying any
+      # older release — while `submodules: recursive` above already
+      # materializes the vendored copy those tags import by path. Every other
+      # job checks out THIS tree (or the release sha), where the manifest
+      # always exists, so they call it unconditionally and a missing manifest
+      # stays a hard failure there.
       - name: Fetch the project's Yo dependencies
+        if: hashFiles('yo.toml') != ''
         uses: ./.github/actions/install-deps
 
       - name: Generate documentation website
