@@ -9,7 +9,8 @@ events :: import("std/sys/events");
 file :: import("std/sys/file");
 dir :: import("std/sys/dir");
 { sleep } :: import("std/sys/timer");
-{ AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC } :: import("std/sys/constants");
+{ AT_FDCWD, AT_REMOVEDIR, O_CREAT, O_WRONLY, O_TRUNC } :: import("std/sys/constants");
+{ platform, Platform } :: import("std/process");
 // Callback that records event type into user_data (pointer to i32)
 on_fs_event_record :: (fn(path : *u8, events_mask : i32, user_data : *u8) -> unit)({
   ptr := (*i32)(user_data);
@@ -170,4 +171,63 @@ test("fs_event detects file deletion", {
   stop_ret := events.fs_event_stop(handle);
   assert(stop_ret == i32(0), "fs_event_stop failed");
   events.fs_event_close(handle);
+});
+
+// Callback that COUNTS events (one tick per callback) for the spam tests.
+on_fs_event_count :: (fn(path : *u8, events_mask : i32, user_data : *u8) -> unit)({
+  ptr := (*i32)(user_data);
+  ptr.* = (ptr.* + 1);
+});
+
+test("a deleted watch directory reports the deletion once, not on every tick", {
+  // The macOS snapshot diff used to re-report the vanished directory on
+  // every tick — a rename event roughly every 10 ms, forever
+  // (issues/fixed/macos-fs-event-deleted-directory-fires-rename-every-tick.md).
+  // inotify reports the deletion once, so Linux shares the no-spam
+  // assertion; the recreate check is macOS-only because an inotify watch
+  // dies with its directory. Windows has its own backend and skips.
+  cond(
+    ((platform == Platform.Macos) || (platform == Platform.Linux)) => {
+      dir_str := temp_dir();
+      watch := path_join(dir_str, `yo_fs_event_deleted_dir`);
+      watch_c := watch.to_cstr();
+      watch_path := watch_c.ptr().unwrap();
+      // Clean up any leftover from a previous run, then create fresh.
+      io.await(dir.unlink(AT_FDCWD, watch_path, AT_REMOVEDIR), io);
+      mk := io.await(dir.mkdir(AT_FDCWD, watch_path, i32(0o755)), io);
+      assert(mk == i32(0));
+      count_buf := MaybeUninit(i32).new();
+      count_ptr := (*i32)(count_buf.as_ptr());
+      count_ptr.* = i32(0);
+      handle := events.fs_event_init();
+      ret := events.fs_event_start(handle, watch_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_count, (*u8)(count_ptr));
+      assert(ret == i32(0));
+      io.await(sleep(u64(150)), io);
+      assert(count_ptr.* == i32(0), "quiet watch must report nothing");
+      rm := io.await(dir.unlink(AT_FDCWD, watch_path, AT_REMOVEDIR), io);
+      assert(rm == i32(0));
+      io.await(sleep(u64(300)), io);
+      after_delete := count_ptr.*;
+      unsafe(printf("  callbacks after delete: %d\n", after_delete));
+      assert(after_delete >= i32(1), "the deletion must be reported");
+      io.await(sleep(u64(300)), io);
+      assert(count_ptr.* == after_delete, "the deletion must not re-report every tick");
+      cond(
+        (platform == Platform.Macos) => {
+          // The snapshot watch survives the delete: a recreated directory
+          // reports the recreation.
+          mk2 := io.await(dir.mkdir(AT_FDCWD, watch_path, i32(0o755)), io);
+          assert(mk2 == i32(0));
+          io.await(sleep(u64(300)), io);
+          unsafe(printf("  callbacks after recreate: %d\n", count_ptr.*));
+          assert(count_ptr.* > after_delete, "the recreation must be reported");
+        },
+        true => ()
+      );
+      events.fs_event_stop(handle);
+      events.fs_event_close(handle);
+      io.await(dir.unlink(AT_FDCWD, watch_path, AT_REMOVEDIR), io);
+    },
+    true => ()
+  );
 });
