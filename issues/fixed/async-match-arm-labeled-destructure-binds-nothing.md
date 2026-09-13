@@ -80,3 +80,6 @@ program as a red-first case; P2 replaces both loops with the shared
 
 - `tests/match_async_arms.test.yo`: curly and labeled arms with an `await`
   in the arm must produce the same values as the positional spelling.
+
+
+**FIXED 2026-09-13 (match P0):** the async state-machine emitter's arm destructuring was rewritten (`_aw_destructure_pattern`) — positional, labeled (`label : var`) and curly (`{a, b : c}`) all bind into their SM slot or a fresh C local, and literal payloads (which compare, via the arm's guard) bind nothing. Covered by tests/match_async_arms.test.yo.

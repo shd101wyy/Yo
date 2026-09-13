@@ -34,6 +34,7 @@ _(env : cgu_env) :: import("std/env");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { fnv1a64 } :: import("../../utils.yo");
+{ TokenKind } :: import("../../token.yo");
 { TypeValue, get_struct_field_comptime_flags } :: import("../../types/definitions.yo");
 {
   is_reference_struct_type,
@@ -738,6 +739,131 @@ fresh_local_name :: (fn(prefix : String, current_function_name : String) -> Stri
   );
   g_fresh_local_counts.insert(key, k + usize(1));
   `${prefix}${k.to_string()}`
+});
+/// Pattern-payload literal classification, shared by the sync match emitter
+/// and the async state-machine emitter (plans/MATCH_PATTERN_MATCHING.md P0).
+/// True for an atom whose token is a compared literal kind (bool, integer,
+/// float) — or `-1`, which parses as `-(1)`, a prefix-minus call over a
+/// numeric atom. String/char literals are deliberately NOT "literals": no
+/// path compares them, and the evaluator rejects them loudly (the evaluator
+/// twin is `_pattern_param_is_literal` in evaluator/exprs/match.yo).
+pattern_param_is_literal :: (fn(e : AstExpr) -> bool)(
+  cond(
+    ast_expr_is_atom(e) => match(
+      ast_expr_token(e).kind,
+      .Bool => true,
+      .Integer => true,
+      .Float => true,
+      _ => false
+    ),
+    (ast_expr_is_fn_call(e) && ast_expr_is_fn_call_of(e, "-", Option(usize).Some(usize(1)))) => match(
+      e,
+      .FnCall(_, _, neg_args, _, _) => match(
+        neg_args.get(usize(0)),
+        .Some(op) => (
+          ast_expr_is_atom(op) && match(
+            ast_expr_token(op).kind,
+            .Integer => true,
+            .Float => true,
+            _ => false
+          )
+        ),
+        .None => false
+      ),
+      .Atom(_, _) => false
+    ),
+    true => false
+  )
+);
+/// Render a compared-literal pattern payload DIRECTLY as C — bools, integer
+/// and float token text, `-` prefix for negated numerics. No
+/// `_call_generate_expr` (this module is imported below the expr emitters;
+/// a call-through would cycle, and these atoms need no evaluation).
+pattern_literal_param_code :: (fn(e : AstExpr) -> String)({
+  neg := match(
+    e,
+    .FnCall(_, _, neg_args, _, _) => match(
+      neg_args.get(usize(0)),
+      .Some(op) => op,
+      .None => e
+    ),
+    .Atom(_, _) => e
+  );
+  txt := ast_expr_token(neg).value.clone();
+  negated := match(
+    e,
+    .FnCall(_, _, _, _, _) => true,
+    .Atom(_, _) => false
+  );
+  cond(
+    negated => `-${txt}`,
+    true => txt
+  )
+});
+/// The C guard conditions for a variant arm's literal payloads: one
+/// `<matched><access>data.<Variant>.<field> == <literal>` per literal
+/// parameter (positional index → field label), joined by `&&`. Empty string
+/// when the arm has none. The access uses the EnumT parallel arrays
+/// directly — no shared state, safe to call from either emitter.
+pattern_literal_arm_guards :: (
+  fn(
+    enum_type : TypeValue,
+    variant_name : String,
+    params : ArrayList(AstExpr),
+    matched_value_code : String,
+    access : str
+  ) -> String
+)({
+  out := String.new();
+  match(
+    enum_type,
+    .EnumT({ variant_names : vns, variant_field_labels : vfls }) => {
+      cvariant := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
+      (vi : usize) = vns.len();
+      (vk : usize) = usize(0);
+      while(vk < vns.len(), {
+        match(
+          vns.get(vk),
+          .Some(vn) => if(vn == cvariant, {
+            vi = vk;
+          }),
+          .None => ()
+        );
+        vk = (vk + usize(1));
+      });
+      if(vi < vns.len(), {
+        labels := match(vfls.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+        (pi2 : usize) = usize(0);
+        while(pi2 < params.len(), {
+          match(
+            params.get(pi2),
+            .Some(pp) => {
+              if(pattern_param_is_literal(pp), {
+                field_label := match(labels.get(pi2), .Some(fl) => fl, .None => String.from(""));
+                if(out.len() > usize(0), {
+                  out.push_str(" && ");
+                });
+                out.push_str("(");
+                out.push_string(matched_value_code.clone());
+                out.push_str(access);
+                out.push_str("data.");
+                out.push_string(cvariant.clone());
+                out.push_str(".");
+                out.push_string(sanitize_for_c_identifier(field_label.clone(), false));
+                out.push_str(" == ");
+                out.push_string(pattern_literal_param_code(pp));
+                out.push_str(")");
+              });
+            },
+            .None => ()
+          );
+          pi2 = (pi2 + usize(1));
+        });
+      });
+    },
+    _ => ()
+  );
+  out
 });
 /// Phase 2 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the default C
 /// name for a func_id. Plain fids (`yo_id_<digits>`, `fn_yo_id_<digits>`,
@@ -1771,6 +1897,9 @@ find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
   )
 );
 export(
+  pattern_param_is_literal,
+  pattern_literal_param_code,
+  pattern_literal_arm_guards,
   mark_uses_tls,
   get_uses_tls,
   fresh_local_name,

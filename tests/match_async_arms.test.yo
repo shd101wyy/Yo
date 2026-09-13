@@ -1,0 +1,95 @@
+//! Match arms INSIDE io.async bodies — the async state-machine emitter's
+//! arm handling (plans/MATCH_PATTERN_MATCHING.md §6 P0): same-variant
+//! literal-payload arms share one case with guards (#661 gap 2), and
+//! labeled/curly patterns bind (issues/async-match-arm-labeled-destructure-
+//! binds-nothing.md, audit A3).
+{ assert } :: import("std/assert");
+{ args } :: import("std/env");
+{ yield } :: import("std/async");
+runtime_int :: (fn() -> i32)(i32(args().len()));
+Shape :: enum(Circle(radius : i32), Rect(width : i32, height : i32));
+Reading2 :: enum(Code(v : i32), Flag2(v : bool));
+Lamp :: enum(On, Off);
+test("literal payload arms with an await in each arm (#661 gap 2)", {
+  n := runtime_int();
+  o := Option(bool).Some(!(n == i32(-1))); // Some(true) at runtime
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      o,
+      .Some(false) => {
+        io.await(yield(io), io);
+        i32(200)
+      },
+      .Some(true) => {
+        io.await(yield(io), io);
+        i32(100)
+      },
+      .Some(_) => i32(-1),
+      .None => i32(0)
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(100), "Some(true) must take the true arm inside async");
+});
+test("int literal payload arms with awaits", {
+  n := runtime_int();
+  r2 := Reading2.Code(i32(0) - n); // -1 at runtime (n = argv length)
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      r2,
+      .Code(-1) => {
+        io.await(yield(io), io);
+        i32(11)
+      },
+      .Code(c) => {
+        io.await(yield(io), io);
+        c
+      },
+      .Flag2(_) => i32(-3)
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(11), "the -1 arm must win inside async");
+});
+test("labeled and curly patterns in await-carrying arms bind (audit A3)", {
+  n := runtime_int();
+  s := if(n > i32(100), Shape.Circle(i32(1)), Shape.Rect(i32(4), i32(5)));
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      s,
+      .Rect({ width, height : h }) => {
+        io.await(yield(io), io);
+        width * h
+      },
+      .Circle(radius : r) => {
+        io.await(yield(io), io);
+        r * r
+      }
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(20), "labeled/curly bindings must be assigned (4 * 5)");
+});
+test("positional twin of the labeled case still works", {
+  n := runtime_int();
+  s := if(n > i32(100), Shape.Circle(i32(1)), Shape.Rect(i32(4), i32(5)));
+  result := Box(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      s,
+      .Rect(w, h) => {
+        io.await(yield(io), io);
+        w * h
+      },
+      .Circle(r) => {
+        io.await(yield(io), io);
+        r * r
+      }
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(20), "positional binds unchanged");
+});

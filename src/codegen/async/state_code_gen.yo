@@ -28,7 +28,7 @@
 { emit_async_future_completion } :: import("../exprs/async_completion.yo");
 { is_unit_type, is_enum_type, is_some_type, is_concrete_trait_type, is_extern_type_name } :: import("../../types/guards.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
-{ get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, type_key } :: import("../utils/index.yo");
+{ get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, type_key, pattern_param_is_literal, pattern_literal_arm_guards } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name } :: import("./state_machine_naming.yo");
 { generate_comptime_value } :: import("../exprs/comptime_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -3217,6 +3217,130 @@ _find_sm_var_id_by_name :: (fn(context : FunctionGenerationContext, name : Strin
 /// variable, the binding is a local and must NOT fall through to the name scan.
 /// Mirrors `resolvePatternBindingStateMachineField` (state-code-gen.ts). See
 /// issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md.
+/// Destructure ONE match-arm pattern inside an async state machine: bind
+/// variant fields into their SM slots (`sm->var_...`) when the binding was
+/// hoisted, else into a fresh C local. Accepts the positional, labeled
+/// (`label : var`) and curly (`{a, b : c}`) forms — the loop this replaces
+/// bound POSITIONAL ATOMS ONLY, so labeled/curly bindings in await-carrying
+/// arms read zeroed SM fields (issues/async-match-arm-labeled-destructure-
+/// binds-nothing.md, audit A3). Literal payloads compare (the guard emitted
+/// by the caller) — they bind nothing.
+_aw_destructure_pattern :: (
+  fn(
+    pattern : AstExpr,
+    variant_name_opt : Option(String),
+    variant_names : ArrayList(String),
+    variant_fields : ArrayList(ArrayList(TypeValue)),
+    variant_field_labels : ArrayList(ArrayList(String)),
+    match_expr : AstExpr,
+    matched_value_code : String,
+    indent : String,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    variant_name_opt,
+    .Some(vn) => match(
+      _find_variant_index(variant_names, vn),
+      .Some(vidx) => {
+        vfields := match(variant_fields.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vlabels := match(variant_field_labels.get(vidx), .Some(l) => l, .None => ArrayList(String).new());
+        // Raw params + curly unwrap (mirrors the sync emitter).
+        raw := match(pattern, .FnCall(_, _, ra, _, _) => ra, _ => ArrayList(AstExpr).new());
+        params := cond(
+          (
+            (raw.len() == usize(1)) && match(
+              raw.get(usize(0)),
+              .Some(fa) => ast_expr_is_fn_call_of(fa, "_", Option(usize).None),
+              .None => false
+            )
+          ) => match(
+            raw.get(usize(0)),
+            .Some(ca) => match(
+              ca,
+              .FnCall(_, _, ia, _, _) => ia,
+              .Atom(_, _) => ArrayList(AstExpr).new()
+            ),
+            .None => ArrayList(AstExpr).new()
+          ),
+          true => raw.clone()
+        );
+        (pi : usize) = usize(0);
+        while(pi < params.len(), {
+          match(
+            params.get(pi),
+            .Some(p) => {
+              // Labeled `label : variable` → field index by label; else
+              // positional → field index = pi.
+              (fld_idx : Option(usize)) = Option(usize).None;
+              var_expr := p;
+              if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), {
+                largs := match(p, .FnCall(_, _, la, _, _) => la, _ => ArrayList(AstExpr).new());
+                lbl := match(
+                  largs.get(usize(0)),
+                  .Some(le) => ast_expr_token(le).value.clone(),
+                  .None => String.new()
+                );
+                (lk : usize) = usize(0);
+                while((lk < vlabels.len()) && fld_idx.is_none(), {
+                  match(
+                    vlabels.get(lk),
+                    .Some(fl) => if(fl == lbl, {
+                      fld_idx = Option(usize).Some(lk);
+                    }),
+                    .None => ()
+                  );
+                  lk = (lk + usize(1));
+                });
+                _ := var_expr;
+              }, {
+                fld_idx = Option(usize).Some(pi);
+              });
+              // Re-derive var_expr (the block above scoping).
+              bind_expr := cond(
+                !ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))) => p,
+                true => match(
+                  p,
+                  .FnCall(_, _, la2, _, _) => match(la2.get(usize(1)), .Some(ve) => ve, .None => p),
+                  .Atom(_, _) => p
+                )
+              );
+              if((ast_expr_is_atom(bind_expr) && !(ast_expr_token(bind_expr).value == "_")) && !(pattern_param_is_literal(bind_expr)), {
+                match(
+                  fld_idx,
+                  .Some(fi) => {
+                    if(fi < vfields.len(), {
+                      raw_name := ast_expr_token(bind_expr).value;
+                      fld_label := match(vlabels.get(fi), .Some(l) => l, .None => String.from(""));
+                      fld_type := match(vfields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+                      access := `${matched_value_code}.data.${vn}.${sanitize_for_c_identifier(fld_label.clone(), false)}`;
+                      match(
+                        _resolve_pattern_binding_sm_field(bind_expr, raw_name.clone(), context),
+                        .Some(vid) => {
+                          fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+                          em.emit_string_line(`${indent}    sm->${fname} = ${access};`);
+                        },
+                        .None => {
+                          em.emit_string_line(`${indent}    ${get_type_string(fld_type, context.base)} ${sanitize_for_c_identifier(raw_name, false)} = ${access};`);
+                        }
+                      );
+                    });
+                  },
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+          pi = (pi + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
 _resolve_pattern_binding_sm_field :: (
   fn(
     binding_expr : AstExpr,
@@ -3532,6 +3656,61 @@ _generate_match_with_await_impl :: (
                 true => `${matched_value_code}.tag`
               );
               em.emit_string_line(`${indent}switch (${scrutinee_code}) {`);
+              // Same-variant arms share ONE case block (a second `case TAG`
+              // is a C duplicate-case error), literal-payload arms guarded by
+              // `if ((scrut).data.V.f == lit)` in source order — the async
+              // twin of the sync emitter's grouping (#661 gap 2).
+              aw_group_variants := ArrayList(String).new();
+              aw_group_arms := ArrayList(ArrayList(usize)).new();
+              (aw_pi : usize) = usize(0);
+              while(aw_pi < cases.len(), {
+                match(
+                  cases.get(aw_pi),
+                  .Some(pce) => if(ast_expr_is_fn_call(pce) && ast_expr_is_fn_call_of(pce, "=>", Option(usize).Some(usize(2))), {
+                    p_pat := match(match(pce, .FnCall(_, _, pa, _, _) => pa, _ => ArrayList(AstExpr).new()).get(usize(0)), .Some(x) => x, .None => match_expr);
+                    if(!(ast_expr_is_atom_of(p_pat, "_")), {
+                      match(
+                        _extract_variant_name(p_pat),
+                        .Some(pvn) => {
+                          (aw_found : Option(usize)) = Option(usize).None;
+                          (aw_si : usize) = usize(0);
+                          while((aw_si < aw_group_variants.len()) && aw_found.is_none(), {
+                            match(
+                              aw_group_variants.get(aw_si),
+                              .Some(gv) => if(gv == pvn, {
+                                aw_found = Option(usize).Some(aw_si);
+                              }),
+                              .None => ()
+                            );
+                            aw_si = (aw_si + usize(1));
+                          });
+                          match(
+                            aw_found,
+                            .Some(gi2) => {
+                              match(
+                                aw_group_arms.get(gi2),
+                                .Some(lst) => {
+                                  lst.push(aw_pi);
+                                },
+                                .None => ()
+                              );
+                            },
+                            .None => {
+                              aw_group_variants.push(pvn.clone());
+                              fl := ArrayList(usize).new();
+                              fl.push(aw_pi);
+                              aw_group_arms.push(fl);
+                            }
+                          );
+                        },
+                        .None => ()
+                      );
+                    });
+                  }),
+                  .None => ()
+                );
+                aw_pi = (aw_pi + usize(1));
+              });
               (has_wildcard : bool) = false;
               (gi : usize) = usize(0);
               while(gi < cases.len(), {
@@ -3543,6 +3722,41 @@ _generate_match_with_await_impl :: (
                     case_body := match(c_args.get(usize(1)), .Some(b) => b, .None => match_expr);
                     is_wildcard := ast_expr_is_atom_of(pattern, "_");
                     variant_name_opt := if(is_wildcard, Option(String).None, _extract_variant_name(pattern));
+                    // Is this the FIRST arm of its variant group? Only that
+                    // arm opens the case; the group's other arms emit inside.
+                    (aw_is_group_first : bool) = false;
+                    match(
+                      variant_name_opt,
+                      .Some(vn) => {
+                        (aw_gidx : Option(usize)) = Option(usize).None;
+                        (aw_si2 : usize) = usize(0);
+                        while((aw_si2 < aw_group_variants.len()) && aw_gidx.is_none(), {
+                          match(
+                            aw_group_variants.get(aw_si2),
+                            .Some(gv) => if(gv == vn, {
+                              aw_gidx = Option(usize).Some(aw_si2);
+                            }),
+                            .None => ()
+                          );
+                          aw_si2 = (aw_si2 + usize(1));
+                        });
+                        match(
+                          aw_gidx,
+                          .Some(g) => {
+                            match(
+                              aw_group_arms.get(g),
+                              .Some(lst) => {
+                                aw_first_val := match(lst.get(usize(0)), .Some(first_i) => (first_i == gi), .None => false);
+                                aw_is_group_first = aw_first_val;
+                              },
+                              .None => ()
+                            );
+                          },
+                          .None => ()
+                        );
+                      },
+                      .None => ()
+                    );
                     emit_case := if(is_wildcard, {
                       has_wildcard = true;
                       em.emit_string_line(`${indent}  default: {`);
@@ -3550,9 +3764,15 @@ _generate_match_with_await_impl :: (
                     }, match(
                       variant_name_opt,
                       .Some(vn) => {
-                        tag := get_enum_variant_c_name(match_value_type, vn, context.base);
-                        em.emit_string_line(`${indent}  case ${tag}: {`);
-                        true
+                        aw_emit_case := cond(
+                          aw_is_group_first => {
+                            tag := get_enum_variant_c_name(match_value_type, vn, context.base);
+                            em.emit_string_line(`${indent}  case ${tag}: {`);
+                            true
+                          },
+                          true => false
+                        );
+                        aw_emit_case
                       },
                       .None => {
                         codegen_fatal(`Could not extract variant name`);
@@ -3560,48 +3780,104 @@ _generate_match_with_await_impl :: (
                       }
                     ));
                     if(emit_case, {
-                      em.emit_string_line(`${indent}    sm->cond_branch_${idx_s} = ${(cond_branch_base + gi).to_string()};`);
-                      // Destructuring: bind variant fields.
-                      if(ast_expr_is_fn_call(pattern), {
-                        pf := match(pattern, .FnCall(_, fb, _, _, _) => fb, _ => pattern);
-                        if(ast_expr_is_fn_call(pf) && ast_expr_is_fn_call_of(pf, ".", Option(usize).None), {
-                          pargs := match(pattern, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                      // The arms this case block must emit: a wildcard emits
+                      // itself; a variant group's FIRST arm emits the WHOLE
+                      // group (same-variant arms share the one `case`), each
+                      // literal-payload arm guarded by its comparisons.
+                      arms_to_emit := ArrayList(usize).new();
+                      cond(
+                        is_wildcard => {
+                          arms_to_emit.push(gi);
+                        },
+                        true => {
                           match(
                             variant_name_opt,
-                            .Some(vn) => match(
-                              _find_variant_index(variant_names, vn),
-                              .Some(vidx) => {
-                                vfields := match(variant_fields.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new());
-                                vlabels := match(variant_field_labels.get(vidx), .Some(l) => l, .None => ArrayList(String).new());
-                                (di : usize) = usize(0);
-                                while((di < pargs.len()) && (di < vfields.len()), {
-                                  dvar := match(pargs.get(di), .Some(d) => d, .None => match_expr);
-                                  if(ast_expr_is_atom(dvar), {
-                                    raw_name := ast_expr_token(dvar).value;
-                                    fld_label := match(vlabels.get(di), .Some(l) => l, .None => String.from(""));
-                                    fld_type := match(vfields.get(di), .Some(t) => t, .None => TypeValue.Unit);
-                                    access := `${matched_value_code}.data.${vn}.${sanitize_for_c_identifier(fld_label.clone(), false)}`;
-                                    match(
-                                      _resolve_pattern_binding_sm_field(dvar, raw_name.clone(), context),
-                                      .Some(vid) => {
-                                        fname := get_state_machine_field_name(vid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
-                                        em.emit_string_line(`${indent}    sm->${fname} = ${access};`);
-                                      },
-                                      .None => {
-                                        em.emit_string_line(`${indent}    ${get_type_string(fld_type, context.base)} ${sanitize_for_c_identifier(raw_name, false)} = ${access};`);
-                                      }
-                                    );
-                                  });
-                                  di = (di + usize(1));
-                                });
-                              },
-                              .None => ()
-                            ),
-                            .None => ()
+                            .Some(vn) => {
+                              (agidx : Option(usize)) = Option(usize).None;
+                              (asi : usize) = usize(0);
+                              while((asi < aw_group_variants.len()) && agidx.is_none(), {
+                                match(
+                                  aw_group_variants.get(asi),
+                                  .Some(gv) => if(gv == vn, {
+                                    agidx = Option(usize).Some(asi);
+                                  }),
+                                  .None => ()
+                                );
+                                asi = (asi + usize(1));
+                              });
+                              match(
+                                agidx,
+                                .Some(g) => {
+                                  match(
+                                    aw_group_arms.get(g),
+                                    .Some(lst) => {
+                                      (li : usize) = usize(0);
+                                      while(li < lst.len(), {
+                                        match(
+                                          lst.get(li),
+                                          .Some(k) => {
+                                            arms_to_emit.push(k);
+                                          },
+                                          .None => ()
+                                        );
+                                        li = (li + usize(1));
+                                      });
+                                    },
+                                    .None => ()
+                                  );
+                                },
+                                .None => {
+                                  arms_to_emit.push(gi);
+                                }
+                              );
+                            },
+                            .None => {
+                              arms_to_emit.push(gi);
+                            }
                           );
-                        });
+                        }
+                      );
+                      (aei : usize) = usize(0);
+                      while(aei < arms_to_emit.len(), {
+                        match(
+                          arms_to_emit.get(aei),
+                          .Some(k) => {
+                            k_args := match(
+                              cases.get(k),
+                              .Some(kce) => match(kce, .FnCall(_, _, ka, _, _) => ka, _ => ArrayList(AstExpr).new()),
+                              .None => ArrayList(AstExpr).new()
+                            );
+                            k_pattern := match(k_args.get(usize(0)), .Some(x) => x, .None => match_expr);
+                            k_body := match(k_args.get(usize(1)), .Some(x) => x, .None => match_expr);
+                            k_vn := _extract_variant_name(k_pattern);
+                            // Literal-payload guard for this arm ("" when none).
+                            k_pargs := match(k_pattern, .FnCall(_, _, kpa, _, _) => kpa, _ => ArrayList(AstExpr).new());
+                            k_guards := match(
+                              k_vn,
+                              .Some(vn2) => pattern_literal_arm_guards(match_value_type, vn2, k_pargs, matched_value_code.clone(), "."),
+                              .None => String.new()
+                            );
+                            if(k_guards.len() > usize(0), {
+                              gline := `${indent}    if (${k_guards}) {`;
+                              em.emit_string_line(gline);
+                            });
+                            em.emit_string_line(`${indent}    sm->cond_branch_${idx_s} = ${(cond_branch_base + k).to_string()};`);
+                            // Destructuring: bind variant fields (positional,
+                            // labeled, and curly; literal payloads compare —
+                            // they bind nothing).
+                            _aw_destructure_pattern(k_pattern, k_vn, variant_names, variant_fields, variant_field_labels, match_expr, matched_value_code, indent, context);
+                            _emit_match_case_await_or_value(match_expr, k_body, cond_branch_base + k, await_point, `${indent}    `, context, target_variable_id, target_assignment_code);
+                            em.emit_string_line(`${indent}    break;`);
+                            if(k_guards.len() > usize(0), {
+                              em.emit_string_line(`${indent}    }`);
+                            });
+                          },
+                          .None => ()
+                        );
+                        aei = (aei + usize(1));
                       });
-                      _emit_match_case_await_or_value(match_expr, case_body, cond_branch_base + gi, await_point, `${indent}    `, context, target_variable_id, target_assignment_code);
+                      // No guarded arm matched: leave the case without
+                      // running anything, never falling into the next one.
                       em.emit_string_line(`${indent}    break;`);
                       em.emit_string_line(`${indent}  }`);
                     });

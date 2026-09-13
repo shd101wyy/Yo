@@ -71,6 +71,9 @@ test("boolean literal payload discriminates", {
       o,
       .Some(false) => i32(200),
       .Some(true) => i32(100),
+      // The same-variant catch-all: until the usefulness algorithm lands
+      // (P1), literal arms alone do not mark a variant covered.
+      .Some(_) => i32(-1),
       .None => i32(0)
     )
   );
@@ -109,7 +112,35 @@ test("literal payload on a comptime-known scrutinee", {
     Option(bool).Some(true),
     .Some(false) => i32(200),
     .Some(true) => i32(100),
+    .Some(_) => i32(-1),
     .None => i32(0)
   );
   assert(v == i32(100), "comptime match must take the true arm");
+});
+// --- P0 (plans/MATCH_PATTERN_MATCHING.md §6): the #661 gaps and audit rows.
+Reading2 :: enum(Code(v : i32), Flag2(v : bool));
+test("negative integer literal payload discriminates (#661 gap 3)", {
+  pick :: (fn(r : Reading2) -> i32)(
+    match(
+      r,
+      .Code(-1) => i32(11),
+      .Code(c) => c,
+      .Flag2(_) => i32(-3)
+    )
+  );
+  assert(pick(Reading2.Code(-1)) == i32(11), "the -1 arm matches");
+  assert(pick(Reading2.Code(7)) == i32(7), "other codes bind");
+});
+test("float literal payload discriminates", {
+  pick :: (fn(o : Option(f64)) -> i32)(
+    match(
+      o,
+      .Some(1.5) => i32(1),
+      .Some(v) => cond((v > 0.0) => i32(2), true => i32(3)),
+      .None => i32(0)
+    )
+  );
+  assert(pick(Option(f64).Some(1.5)) == i32(1), "the 1.5 arm matches");
+  assert(pick(Option(f64).Some(2.5)) == i32(2), "other values take the binder arm");
+  assert(pick(Option(f64).None) == i32(0), "none arm");
 });
