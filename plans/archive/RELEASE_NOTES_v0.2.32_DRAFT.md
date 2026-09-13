@@ -1,9 +1,13 @@
 # v0.2.32
 
-**Draft.** The release workflow fills the GitHub body from the last commit
-message only, so these notes are edited in by hand from this file at publish
-time (same as v0.2.26–v0.2.31). Archive it to `plans/archive/` with a banner
-once the release ships.
+> **ARCHIVED 2026-09-13 — v0.2.32 shipped.** This was the pre-release draft;
+> the published notes are on the GitHub release
+> (https://github.com/shd101wyy/Yo/releases/tag/v0.2.32), edited in from this
+> file because the workflow fills the body from the last commit message only.
+> 13 assets, `SEED_VERSION` auto-bumped to v0.2.32 in all three workflows by
+> `6943c89af` — which is what unblocks #654's un-vendoring of `markdown_yo`.
+> Verified byte-for-byte: the published body is this file minus its title line
+> and this banner.
 
 This release is the **build and dependency system redesign**
 (`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`, P1 complete): `yo.toml` is
