@@ -297,6 +297,37 @@ invisible.
 
 ---
 
+## 6b. One tooling trap, because it nearly produced a wrong rule
+
+**`git diff A..B` and `git diff A...B` answer different questions, and only the
+three-dot form answers "what does my branch change?"**
+
+- `origin/develop..HEAD` (two dots) compares the two TREES. Every commit
+  develop gained since your branch point shows up as a DELETION, because it is
+  absent from your tree. A docs branch parked behind a freeze therefore reads
+  as though it reverts everything that landed while it sat.
+- `origin/develop...HEAD` (three dots) diffs against the MERGE BASE — the
+  changes your branch introduces. **This is what the PR shows and what merges.**
+
+Measured on this very branch, pre-rebase: two-dot said 19 files, +567/-1164,
+apparently reverting #638's 314-line `runtime_io_windows.yo` and the release's
+version bumps. Three-dot said 5 files, +528/-1. The three-dot number was the
+true one — confirmed by simulating the merge with
+`git merge-tree --write-tree origin/develop <branch>` and inspecting the
+result: `runtime_io_windows.yo` came out at 4890 lines, identical to develop,
+and `CURRENT_YO_VERSION` was still `"0.2.32"`.
+
+**A stale base causes CONFLICTS, never silent reverts** — a squash merge applies
+the merge-base-to-head diff through a three-way merge, so commits the branch
+never saw are preserved by construction. If it could revert, every long-lived
+PR in every repository would be a landmine.
+
+Cheapest cross-check when a stat looks alarming: `gh pr view <n> --json files`,
+which is always merge-base relative. If it disagrees with your local stat, the
+two-dot one is the liar.
+
+---
+
 ## 7. Standing constraints from the maintainer
 
 - **No workarounds.** Probe before working around; a genuine language gap goes
