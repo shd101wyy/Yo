@@ -90,6 +90,45 @@ the package manager, not the evaluator.
 - `yield` has no timer under it any more (#608).
 - Windows: the deadline clock is QPC-derived, not `GetTickCount64` (#627).
 
+## Windows async I/O: the IOCP audit (#638)
+
+An audit of `src/codegen/async/runtime_io_windows.yo` against the Linux and
+macOS backends. Four defects, each reproduced before it was fixed:
+
+- **A blocking `connect()` parked the whole event loop** (HIGH). Against a
+  black-holed address every concurrent task froze for the SYN-retransmit
+  window — measured, a concurrent 300 ms sleep took **21.3 s**. Now overlapped
+  **ConnectEx**, the connect-side twin of the landed AcceptEx work. AF_UNIX and
+  UDP `connect` keep the plain call, which is local and immediate.
+- **UDP `sendto`/`recvfrom` were blocking calls on the loop thread** (HIGH) — a
+  quiet `recv_from` froze the runtime until a datagram arrived. Now overlapped
+  `WSASendTo`/`WSARecvFrom`, with the source-address length riding in the
+  overlapped struct because the kernel writes it at completion time.
+- **A sync file close leaked the CRT fd until Winsock was started** (HIGH).
+  Both close paths probed Winsock first, and in a program that never ran
+  `WSAStartup` the probe failed `WSANOTINITIALISED` rather than `WSAENOTSOCK`,
+  so the `_close` fallback never ran: **812 of 9000 open/close rounds failed**,
+  first at `errno=24`. A socket-fd registry now records every socket the
+  runtime creates, and both close paths consult it instead of probing.
+- **`fs.watch`'s re-arm dropped the recursive flag**, and the single-file branch
+  copied an unbounded path into `dir_part[MAX_PATH]`. Both fixed.
+
+Then a fifth, found in the audit's own first cut and worth stating because the
+rule generalises: **the ConnectEx family gate read `getsockname()`**, which
+fails `WSAEINVAL` on an unbound socket — precisely the fresh client socket the
+overlapped path exists for. The `AF_INET` fallback therefore fired every time
+and the gate never gated, routing AF_UNIX connects into ConnectEx (and
+AF_INET6 clients would have died the same way). It now reads
+`getsockopt(SO_PROTOCOL_INFOW)`, which is valid before bind and returns family
+and type together, and it **fails closed**: if that call fails, the plain
+`connect()` runs. The rule: *a probe used to GATE a path must not have a
+failure fallback that satisfies the gate*, or the gate becomes an
+unconditional yes.
+
+New coverage: `tests/net/tcp.test.yo` gains an IPv6 loopback connect
+round-trip. The suite had no IPv6 **client** connect at all — only a `bind`
+test — which is why an AF_INET6 client failing would have gone unnoticed.
+
 ## Verifier: V5 ghost specifications
 
 - `forall_val` / `exists_val` / `==>`, ghost-only, with `inout` two-state
