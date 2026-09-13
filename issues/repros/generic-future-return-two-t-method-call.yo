@@ -1,0 +1,17 @@
+{ println } :: import("std/fmt");
+Pair :: struct(lo : i32, hi : i32);
+Box3 :: struct(tag : i32);
+impl(
+  Box3,
+  run : (fn(generic(R : Type), self : Self, f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+    io.async((io : Io) => f())
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  b3 := Box3(tag : i32(1));
+  a := io.await(b3.run(() => i32(7), io), io);
+  println(`a=${a + i32(0)}`);
+  b := io.await(b3.run(() => Pair(lo : i32(3), hi : i32(5)), io), io);
+  println(`b=${b.lo + b.hi}`);
+});
+export(main);

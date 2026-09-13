@@ -1,0 +1,107 @@
+//! A generic function whose return is `Impl(Future(T))` and whose `T` is
+//! reached only through a CLOSURE parameter —
+//! `fn(generic(R), f : Impl(Fn() -> R), io) -> Impl(Future(R, Io))`.
+//!
+//! Each instantiation ALONE always compiled; a second `R` in the same program
+//! did not. The declaration is evaluated once, so `R` had ONE `SomeT` id for
+//! every call, and the two channels that answer "what is `R`" — the global
+//! resolved-concrete registry and the `SomeT`'s own per-object cell — are
+//! keyed on it. The registry answered "the LAST call's R", the cell "the
+//! PREVIOUS call's", and the emitted C took whichever its reader consulted.
+//! issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md
+//!
+//! **THREE instantiations, deliberately.** At two, a lag-by-one, a swap and a
+//! reversal are the same permutation, so a two-`T` test cannot tell a fix from
+//! a different bug. At three they disagree.
+//!
+//! The payload values are chosen so no two expected answers collide: 7, 8, 6.
+//! With `Pair(lo : 3, hi : 4)` the second sum is 7 as well, and a `Pair` call
+//! miscompiled with the `i32` specialization's type would print the right
+//! number for the wrong reason.
+{ assert } :: import("std/assert");
+
+_Pair :: struct(lo : i32, hi : i32);
+_Trip :: struct(a : i64, b : i64, c : i64);
+
+_wrap :: (fn(generic(R : Type), f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+  io.async((io : Io) => f())
+);
+
+test("a free generic fn returning Impl(Future(R)) at three different R", {
+  a := io.await(_wrap(() => i32(7), io), io);
+  assert(a == i32(7), "i32 instantiation");
+  b := io.await(_wrap(() => _Pair(lo : i32(3), hi : i32(5)), io), io);
+  assert((b.lo + b.hi) == i32(8), "value-struct instantiation");
+  c := io.await(_wrap(() => _Trip(a : i64(1), b : i64(2), c : i64(3)), io), io);
+  assert((c.a + c.b + c.c) == i64(6), "second, wider value-struct instantiation");
+});
+
+// The binder NAME must not matter. `T` and `E` are what the PRELUDE's own
+// `Future(T, E)` declaration calls its binders, and those ride along inside a
+// re-evaluated `Impl(Future(i32) Io)` — so any machinery here that matches a
+// binder by NAME instead of by ID captures the prelude's as if they were the
+// callee's. Measured 2026-09-13: a name-keyed version of the fix left
+// `std/thread.yo`'s `spawn_blocking` (declared `generic(T)`) still
+// miscompiling, and renaming its binder — changing nothing else — made it
+// compile and run. `T` is the most natural name there is.
+_wrap_t :: (fn(generic(T : Type), f : Impl(Fn() -> T), io : Io) -> Impl(Future(T, Io)))(
+  io.async((io : Io) => f())
+);
+_wrap_e :: (fn(generic(E : Type), f : Impl(Fn() -> E), io : Io) -> Impl(Future(E, Io)))(
+  io.async((io : Io) => f())
+);
+
+test("the binder named T — the prelude's own Future binder name", {
+  a := io.await(_wrap_t(() => i32(7), io), io);
+  assert(a == i32(7), "i32 instantiation");
+  b := io.await(_wrap_t(() => _Pair(lo : i32(3), hi : i32(5)), io), io);
+  assert((b.lo + b.hi) == i32(8), "value-struct instantiation");
+  c := io.await(_wrap_t(() => _Trip(a : i64(1), b : i64(2), c : i64(3)), io), io);
+  assert((c.a + c.b + c.c) == i64(6), "third instantiation");
+});
+
+test("the binder named E — the prelude's own effect-row binder name", {
+  a := io.await(_wrap_e(() => i32(7), io), io);
+  assert(a == i32(7), "i32 instantiation");
+  b := io.await(_wrap_e(() => _Pair(lo : i32(3), hi : i32(5)), io), io);
+  assert((b.lo + b.hi) == i32(8), "value-struct instantiation");
+});
+
+_Box3 :: struct(tag : i32);
+impl(
+  _Box3,
+  // An impl entry with NO `self`: called as `_Box3.run(...)`, which takes a
+  // different call arm from the instance-method form below.
+  run : (fn(generic(R : Type), f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+    io.async((io : Io) => f())
+  ),
+  // The instance-method form. This one ALWAYS worked — it is the canary: it
+  // reads the specialization's own freshly-cloned body, so an over-eager fix
+  // that un-fixes it would otherwise land silently.
+  run_self : (fn(generic(R : Type), self : Self, f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+    io.async((io : Io) => f())
+  )
+);
+
+test("an impl entry with no self, at two different R", {
+  a := io.await(_Box3.run(() => i32(7), io), io);
+  assert(a == i32(7), "i32 instantiation");
+  b := io.await(_Box3.run(() => _Pair(lo : i32(3), hi : i32(5)), io), io);
+  assert((b.lo + b.hi) == i32(8), "value-struct instantiation");
+});
+
+test("the method-call form still works, at two different R", {
+  bx := _Box3(tag : i32(1));
+  a := io.await(bx.run_self(() => i32(7), io), io);
+  assert(a == i32(7), "i32 instantiation");
+  b := io.await(bx.run_self(() => _Pair(lo : i32(3), hi : i32(5)), io), io);
+  assert((b.lo + b.hi) == i32(8), "value-struct instantiation");
+});
+
+test("an explicit receiver on the method form, at two different R", {
+  bx := _Box3(tag : i32(1));
+  a := io.await(_Box3.run_self(bx, () => i32(7), io), io);
+  assert(a == i32(7), "i32 instantiation");
+  b := io.await(_Box3.run_self(bx, () => _Pair(lo : i32(3), hi : i32(5)), io), io);
+  assert((b.lo + b.hi) == i32(8), "value-struct instantiation");
+});

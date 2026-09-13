@@ -13,7 +13,7 @@ them.
 | 3a. `Mutex` over a waiter queue | **LANDED** (#576) — `std/async/mutex.yo` holds an `ArrayList(Waker)`, `unlock` wakes the FRONT waiter, and `waiter_count()` is the oracle the FIFO test reads |
 | 3b. `Channel` over the same queue | **LANDED** (#586) — `send`/`recv` park on a waiter queue instead of re-checking on a 1 ms timer tick. It was blocked for a day by a compiler defect that the rewrite surfaced: the trace collector tried to monomorphize a GENERIC `ArrayList(T)` instance that only this shape put in the codegen type registry, and failed inside `array_list.yo`'s `Trace` body — a file the rewrite never touched (`issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md`) |
 | 4. The combinators (`race`/`any`/`timeout`) | **PARTLY LANDED.** `timeout`'s retention is CLOSED: `abort()` now cancels the operation the task is suspended in, so the deadline timer is deregistered the moment the task wins instead of staying armed for the rest of the limit (`issues/fixed/timeout-deadline-timer-future-leak.md`). What remains is the polling SHAPE — `race`/`any` still re-check `is_finished()` around `__yo_async_poll_step()`; parking them on a wake needs a completion-notification list on `JoinHandle`, which is step 5's machinery |
-| 5. Cross-thread wake + `spawn_blocking` | **RUNTIME WRITTEN AND WORKING; `spawn_blocking` BLOCKED on a compiler defect.** Details below |
+| 5. Cross-thread wake + `spawn_blocking` | **COMPLETE.** **`spawn_blocking` LANDED 2026-09-13** — the compiler defect it waited on (`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`) is fixed, it is exported, and `tests/spawn_blocking.test.yo` is live. Details below |
 
 ## Step 5, as it stands 2026-09-12
 
@@ -58,7 +58,7 @@ own first recorded risk, met in practice. **The blocker is a second instantiatio
 and the closure-param form of that shape miscompiles at a second `T`. The
 value-param half is FIXED (2026-09-12, the RRE adoption gate comparing binder
 IDs rather than names); the closure-param half is STILL OPEN, and
-`issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
+`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
 now carries its measured root cause, a four-program A/B, the two fixes that were
 tried and measured to be no-ops, and two ranked candidates for the next attempt.
 

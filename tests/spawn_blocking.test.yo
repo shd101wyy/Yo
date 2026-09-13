@@ -1,9 +1,16 @@
-//! NOT a live test file — `spawn_blocking` is written but not exported yet
-//! (std/thread.yo says why). This is the test file to move back to
-//! `tests/spawn_blocking.test.yo` the day the closure-param half of
-//! issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md
-//! is fixed. It is kept here rather than deleted because it is the acceptance
-//! criterion `plans/WAKER_BASED_SCHEDULING.md` asks for, written and argued:
+//! LIVE since 2026-09-13, when the compiler defect that held `spawn_blocking`
+//! back was fixed (issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md).
+//! It was parked at `issues/repros/spawn-blocking-tests.yo` until then, because
+//! `spawn_blocking` compiled at ONE `T` per program and silently miscompiled
+//! the second. The first two tests use different `T`s for exactly that reason.
+//!
+//! Two of these tests were REPAIRED on the way in: they used
+//! `io.await(handle, io)` on an `io.spawn` result, which does not type-check
+//! (`io.spawn` returns a JOIN HANDLE — `handle.await(io)`, yielding
+//! `Option(T)`). That had gone unnoticed for as long as the file sat outside
+//! every gate. A test that has never been run is a draft.
+//!
+//! It is the acceptance criterion `plans/WAKER_BASED_SCHEDULING.md` asks for:
 //! the third test asserts by ORDERING, not by timing, and its blocking callee
 //! is bounded so a stalled loop fails with a zero reading instead of hanging.
 //! `std/thread`'s `spawn_blocking` — run a BLOCKING call on its own OS thread
@@ -67,7 +74,10 @@ test("a sibling task keeps running while spawn_blocking blocks", {
     io
   );
   assert(observed >= i32(5), "the event loop kept turning while the worker thread blocked");
-  _r := io.await(sib, io);
+  // `io.spawn` hands back a JOIN HANDLE, not a future: it is awaited as
+  // `handle.await(io)` and yields `Option(T)` (`.None` if the task unwound).
+  // `io.await(handle, io)` does not type-check.
+  _r := sib.await(io);
   assert(progress.load(MemoryOrder.Acquire) == i32(40), "the sibling ran to completion");
 });
 test("two spawn_blocking calls in flight at once", {
@@ -85,7 +95,8 @@ test("two spawn_blocking calls in flight at once", {
     }, io),
     io
   );
-  ra := io.await(a, io);
-  rb := io.await(b, io);
-  assert((ra + rb) == i32(3), "both workers delivered");
+  ra := a.await(io);
+  rb := b.await(io);
+  assert(ra.is_some() && rb.is_some(), "neither worker unwound");
+  assert((ra.unwrap() + rb.unwrap()) == i32(3), "both workers delivered");
 });

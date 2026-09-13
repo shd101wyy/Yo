@@ -1349,6 +1349,341 @@ _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
     _ => ft
   )
 );
+/// Per-call identity for a USER generic callee's own forall binders — the
+/// same thing `_freshen_io_builtin_callee` does for io.async's `T`/`E`,
+/// applied to the one other shape that needs it.
+///
+/// A declaration is evaluated ONCE, so `wrap(generic(R), f : Impl(Fn() -> R),
+/// io) -> Impl(Future(R, Io))` has ONE `R` SomeT object for every
+/// instantiation in the program. That is fine as long as every reader gets
+/// `R`'s value by SUBSTITUTING this call's inferred binding into the declared
+/// type — which is what an ordinary generic call does, and why ordinary
+/// generics are unaffected. It stops being fine when the binding is published
+/// under `R`'s ID and read back later, because an id shared by every call
+/// cannot answer "this call's R":
+///
+///   * `check_and_add_argument`'s Fn-bound arm registers the closure's
+///     concrete result against the DECLARED bound's result id
+///     (`register_some_resolved_concrete`) — one key, last write wins;
+///   * the SomeT's own `resolved_concrete` cell, which
+///     `resolve_some_type_to_concrete` consults FIRST, is stamped on a
+///     different schedule and trails the registry by one call.
+///
+/// Measured at three instantiations, both channels reach the emitted C and
+/// both are wrong: the async generations came out `[T2, T0, T1]` and
+/// `[T0, T0, T1]` — one shared-id last-write next to two one-call-stale cells.
+/// See issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md.
+///
+/// The GATE is the id-keyed channel itself, not a name or a builtin: freshen
+/// only when some binder is BOTH reached through a closure parameter's Fn
+/// bound (the registration side) AND present in the callee's result (the
+/// read-back side). That pair is what makes the shared id load-bearing; a
+/// generic whose binder never escapes into an id-keyed channel keeps the
+/// declaration's ids, so the hot path is untouched. Binder NAMES are
+/// preserved — only ids and resolution cells are fresh — so the by-name
+/// forall-label match in `try_to_call_function_with_arguments` and every
+/// by-name env lookup keep working.
+/// Collect every (name, frame_level) SITE in `t` at which a `SomeT` whose ID is
+/// in `want_ids` occurs, walking the way `_rre_binder_ids` does — into an
+/// `Impl`'s required traits and through the `Fn` / `Future` members that carry
+/// a binder.
+///
+/// Why SITES and not just the binder list: `substitute` matches a `SomeT` by
+/// (name, frame_level), and a binder's occurrence inside a parameter's `Fn`
+/// bound does not always carry the same `frame_level` as the entry in the
+/// declaration's own `forall_types`. Substituting the forall entry alone then
+/// silently misses exactly the occurrence that matters — measured on
+/// `wrap(generic(R), f : Impl(Fn() -> R), io) -> Impl(Future(R, Io))`, where
+/// the freshening fired at every call and the emitted C did not move.
+///
+/// Why by **ID** and not by NAME, which is the same trap this file's
+/// `_rre_binder_ids` documents one screen up: the PRELUDE's own
+/// `Future(T, E)` declaration has binders named `T` and `E`, and they ride
+/// along inside a re-evaluated `Impl(Future(i32) Io)`. A name match therefore
+/// collects the prelude's binders as if they were this callee's, and freshening
+/// them makes the program's fate depend on what its type variable is CALLED.
+/// Measured 2026-09-13: with a name-keyed collector, `std/thread.yo`'s
+/// `spawn_blocking` — `generic(T)` — still miscompiled at a second `T`, and
+/// renaming its binder to `RB`, changing nothing else, made it compile and run.
+/// `T` is the most natural name there is, so this is not an edge case.
+_gc_collect_binder_sites :: (
+  fn(
+    t : TypeValue,
+    forall_names : ArrayList(String),
+    out_names : ArrayList(String),
+    out_levels : ArrayList(usize),
+    out_ids : ArrayList(String),
+    out_protos : ArrayList(TypeValue)
+  ) -> unit
+)({
+  if(forall_names.len() == usize(0), {
+    return(());
+  });
+  work := ArrayList(TypeValue).new();
+  work.push(t);
+  (steps : usize) = usize(0);
+  while((work.len() > usize(0)) && (steps < usize(4096)), {
+    steps = (steps + usize(1));
+    cur := match(work.pop(), .Some(c) => c, .None => TypeValue.Unit);
+    somes := get_all_some_types(cur);
+    match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
+    (si : usize) = usize(0);
+    while(si < somes.len(), {
+      match(
+        somes.get(si),
+        .Some(sv) => match(
+          sv,
+          .SomeT({ id : sid, name : snm, frame_level : slvl, required_trait_types : srt }) => {
+            (ni : usize) = usize(0);
+            while(ni < forall_names.len(), {
+              match(
+                forall_names.get(ni),
+                .Some(fn_nm) => if(fn_nm == snm, {
+                  (seen : bool) = false;
+                  (oi : usize) = usize(0);
+                  while((oi < out_names.len()) && !(seen), {
+                    if((
+                      (match(out_names.get(oi), .Some(x) => x, .None => String.new()) == snm)
+                      && (match(out_levels.get(oi), .Some(l) => l, .None => usize(0)) == slvl)
+                    )
+                    && (match(out_ids.get(oi), .Some(d) => d, .None => String.new()) == sid), {
+                      seen = true;
+                    });
+                    oi = (oi + usize(1));
+                  });
+                  if(!(seen), {
+                    out_names.push(snm.clone());
+                    out_levels.push(slvl);
+                    out_ids.push(sid.clone());
+                    out_protos.push(sv.clone());
+                  });
+                }),
+                .None => ()
+              );
+              ni = (ni + usize(1));
+            });
+            (ri : usize) = usize(0);
+            while(ri < srt.len(), {
+              match(srt.get(ri), .Some(rt) => work.push(rt), .None => ());
+              ri = (ri + usize(1));
+            });
+          },
+          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
+            (fi : usize) = usize(0);
+            while(fi < fcp.len(), {
+              match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
+              fi = (fi + usize(1));
+            });
+            work.push(fcr);
+            (gi : usize) = usize(0);
+            while(gi < fit.len(), {
+              match(fit.get(gi), .Some(it) => work.push(it), .None => ());
+              gi = (gi + usize(1));
+            });
+          },
+          .FutureTraitT(_, fo, _, fet, _) => {
+            work.push(fo);
+            (ei : usize) = usize(0);
+            while(ei < fet.len(), {
+              match(fet.get(ei), .Some(et) => work.push(et), .None => ());
+              ei = (ei + usize(1));
+            });
+          },
+          _ => ()
+        ),
+        .None => ()
+      );
+      si = (si + usize(1));
+    });
+  });
+  ()
+});
+/// Freshen every occurrence of this callee's own forall binders, at EVERY
+/// (name, frame_level) site they appear at — one fresh `SomeT` per binder
+/// NAME, so a binder that occurs in both a parameter and the result keeps a
+/// single identity within the call while gaining a new one across calls.
+_gc_freshen_all_sites :: (
+  fn(ft : TypeValue, forall_names : ArrayList(String)) -> TypeValue
+)({
+  site_names := ArrayList(String).new();
+  site_levels := ArrayList(usize).new();
+  site_ids := ArrayList(String).new();
+  site_protos := ArrayList(TypeValue).new();
+  _gc_collect_binder_sites(ft, forall_names, site_names, site_levels, site_ids, site_protos);
+  if(site_names.len() == usize(0), {
+    return(ft);
+  });
+  // One fresh binder per ORIGINAL ID — not per NAME.
+  //
+  // Per NAME is what the first version did, and it is wrong for the most
+  // natural binder name there is. `substitute` keys on (name, frame_level), so
+  // mapping every level of a name to ONE replacement COLLAPSES distinct type
+  // variables that merely share a name: the callee's `T` and the prelude
+  // `Future(T, E)`'s `T`, which rides along inside a re-evaluated
+  // `Impl(Future(i32) Io)`, become the same variable. Measured 2026-09-13:
+  // with per-NAME minting, `std/thread.yo`'s `spawn_blocking` — `generic(T)` —
+  // still miscompiled at a second `T`, and renaming its binder to `RB`,
+  // changing nothing else, made it compile and run.
+  //
+  // Per ID keeps the callee's binder ONE variable across every level it occurs
+  // at (which is the whole point — the parameter's `Fn` bound and the result
+  // must share it) while leaving a same-named foreign binder alone.
+  fresh_ids := ArrayList(String).new();
+  fresh_types := ArrayList(TypeValue).new();
+  (gi : usize) = usize(0);
+  while(gi < site_ids.len(), {
+    g_id := match(site_ids.get(gi), .Some(x) => x, .None => String.new());
+    (g_have : bool) = false;
+    (gf : usize) = usize(0);
+    while((gf < fresh_ids.len()) && !(g_have), {
+      if(match(fresh_ids.get(gf), .Some(x) => x, .None => String.new()) == g_id, {
+        g_have = true;
+      });
+      gf = (gf + usize(1));
+    });
+    if(!(g_have), {
+      // Copy EVERY attribute of the binder but its id and its resolution cell.
+      // Dropping `required_trait_types` would silently discard a
+      // `where(R <: (Send, Acyclic))` bound — the freshened binder must be the
+      // same type variable, only with a per-call identity.
+      g_proto := match(site_protos.get(gi), .Some(pv) => pv, .None => TypeValue.Unit);
+      g_made := match(
+        g_proto,
+        .SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, required_trait_types : g_prtt, required_trait_levels : g_prtl, negative_trait_types : g_pntt, negative_trait_levels : g_pntl, is_effects_row : g_pier, kind_function_type : g_pkft }) => TypeValue.SomeT(
+          generate_some_type_id(),
+          g_pn.clone(),
+          g_pl,
+          g_ppt.clone(),
+          g_prtt.clone(),
+          g_prtl.clone(),
+          g_pntt.clone(),
+          g_pntl.clone(),
+          g_pier,
+          g_pkft.clone(),
+          ArrayList(TypeValue).new()
+        ),
+        _ => g_proto
+      );
+      fresh_ids.push(g_id.clone());
+      fresh_types.push(g_made);
+    });
+    gi = (gi + usize(1));
+  });
+  // A (name, level) that several DIFFERENT ids occupy is ambiguous — the
+  // substitution cannot tell them apart, so rewriting it would collapse them.
+  // Skip it: freshening fewer sites leaves the old behaviour, collapsing two
+  // binders manufactures a miscompile.
+  gs := subst_new();
+  (si : usize) = usize(0);
+  while(si < site_names.len(), {
+    s_nm := match(site_names.get(si), .Some(x) => x, .None => String.new());
+    s_lvl := match(site_levels.get(si), .Some(l) => l, .None => usize(0));
+    s_id := match(site_ids.get(si), .Some(x) => x, .None => String.new());
+    (s_distinct : usize) = usize(0);
+    (sj : usize) = usize(0);
+    while(sj < site_names.len(), {
+      if((match(site_names.get(sj), .Some(x) => x, .None => String.new()) == s_nm)
+      && (match(site_levels.get(sj), .Some(l) => l, .None => usize(0)) == s_lvl), {
+        s_distinct = (s_distinct + usize(1));
+      });
+      sj = (sj + usize(1));
+    });
+    if(s_distinct == usize(1), {
+      (sk : usize) = usize(0);
+      while(sk < fresh_ids.len(), {
+        if(match(fresh_ids.get(sk), .Some(x) => x, .None => String.new()) == s_id, {
+          match(
+            fresh_types.get(sk),
+            .Some(s_rep) => {
+              subst_add(gs, s_nm.clone(), s_lvl, s_rep);
+            },
+            .None => ()
+          );
+        });
+        sk = (sk + usize(1));
+      });
+    });
+    si = (si + usize(1));
+  });
+  substitute(gs, ft.clone())
+});
+_gc_ids_str :: (fn(ids : ArrayList(String)) -> String)({
+  (out : String) = String.new();
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    out = `${out}${match(ids.get(i), .Some(x) => x, .None => String.new())},`;
+    i = (i + usize(1));
+  });
+  out
+});
+_freshen_generic_closure_callee :: (
+  fn(ft : TypeValue, forall_names : ArrayList(String)) -> TypeValue
+)({
+  if(forall_names.len() == usize(0), {
+    return(ft);
+  });
+  match(
+    ft,
+    .Func({ param_types : gc_pts, result : gc_res, forall_types : gc_fts }) => {
+      if(gc_fts.len() == usize(0), {
+        return(ft);
+      });
+      // The read-back side: which of this callee's binders survive into the
+      // declared result (including nested inside an existential's required
+      // traits, which is where `Impl(Future(R, Io))` carries `R`).
+      gc_ret_ids := _rre_binder_ids(gc_res, forall_names);
+      if(gc_ret_ids.len() == usize(0), {
+        return(ft);
+      });
+      // The registration side: a closure-typed parameter whose `Fn` bound
+      // mentions one of those same ids. That pair — published under an id on
+      // one side, read back by id on the other — is what makes a shared binder
+      // load-bearing, and it is the gate. A generic whose binder never escapes
+      // into an id-keyed channel keeps the declaration's ids, so the hot path
+      // is untouched.
+      (gc_hit : bool) = false;
+      (gc_i : usize) = usize(0);
+      while((gc_i < gc_pts.len()) && !(gc_hit), {
+        match(
+          gc_pts.get(gc_i),
+          .Some(gc_pt) => match(
+            extract_fn_trait_from_type(gc_pt),
+            .Some(_) => {
+              gc_p_ids := _rre_binder_ids(gc_pt, forall_names);
+              (gc_pi : usize) = usize(0);
+              while((gc_pi < gc_p_ids.len()) && !(gc_hit), {
+                gc_pid := match(gc_p_ids.get(gc_pi), .Some(x) => x, .None => String.new());
+                (gc_ri : usize) = usize(0);
+                while((gc_ri < gc_ret_ids.len()) && !(gc_hit), {
+                  if(gc_pid == match(gc_ret_ids.get(gc_ri), .Some(y) => y, .None => String.new()), {
+                    gc_hit = true;
+                  });
+                  gc_ri = (gc_ri + usize(1));
+                });
+                gc_pi = (gc_pi + usize(1));
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        gc_i = (gc_i + usize(1));
+      });
+      if(!(gc_hit), {
+        return(ft);
+      });
+      gc_out := _gc_freshen_all_sites(ft, forall_names);
+      if(fncall_dbg_env.get(`YO_DEBUG_FRESHEN`).is_some(), {
+        gc_before := _rre_binder_ids(ft, forall_names);
+        gc_after := _rre_binder_ids(gc_out, forall_names);
+        eprintln(`[freshen-callee] ${type_to_string(ft)}`);
+        eprintln(`  before-ids=${_gc_ids_str(gc_before)} after-ids=${_gc_ids_str(gc_after)}`);
+      });
+      gc_out
+    },
+    _ => ft
+  )
+});
 /// True if this function type has a regular parameter that is a SomeType
 /// wrapping an Fn trait (a closure param, e.g. `cb : Impl(Fn(...), Send)`).
 /// Used to NARROW the non-generic specialization trigger: only closure-param
@@ -4231,6 +4566,16 @@ Fix: wrap the call:
         cap_tys := __fvm7.*.cap_tys;
         func_id_fv := __fvm7.*.func_id;
         fv_env_key := __fvm7.*.env_key;
+        // Per-call identity for this callee's own forall binders, taken
+        // BEFORE the parameter types, the forall list and the declared result
+        // are read below — parameter binding is what publishes a binder's
+        // concrete under its id, so freshening after it is too late. A no-op
+        // for every callee but the closure-param/existential-result shape;
+        // see `_freshen_generic_closure_callee`.
+        fv_callee_ty := _freshen_generic_closure_callee(
+          match(callee_info_opt, .Some(fv_ci0) => fv_ci0.ty, .None => t_unit()),
+          forall_names
+        );
         // V5 task 3: a `ghost_fn(...)` definition is callable ONLY from
         // ghost context (contract clauses, ghost bindings, ghost_fn bodies,
         // and the verifier's predicate pass) — it has no runtime semantics.
@@ -4465,13 +4810,9 @@ Fix: wrap the call:
         // (generic inference, param binding, runtime C args, specialization).
         fv_default_exprs := get_func_param_default_exprs(func_id_fv.clone());
         fv_param_types := match(
-          callee_info_opt,
-          .Some(ci) => match(
-            ci.ty,
-            .Func({ param_types : fpts }) => fpts,
-            _ => ArrayList(TypeValue).new()
-          ),
-          .None => ArrayList(TypeValue).new()
+          fv_callee_ty,
+          .Func({ param_types : fpts }) => fpts,
+          _ => ArrayList(TypeValue).new()
         );
         // Per-parameter `ref` flags, parallel to `fv_param_types`. A
         // `comptime(inout(n))` / `inout(n)` parameter must be bound as
@@ -4616,7 +4957,7 @@ Fix: wrap the call:
         // in the loop below. Without this, `(.Atom(...))` with expected
         // `Box(Tree)` left `.Atom` with no expected enum type → "Failed to
         // infer enum variant type".
-        fv_func_type := match(callee_info_opt, .Some(ci) => ci.ty, .None => t_unit());
+        fv_func_type := fv_callee_ty;
         fv_has_explicit_forall := fv_forall_arg_exprs.is_some();
         (resolved_param_types : ArrayList(TypeValue)) = fv_param_types;
         (rpt_from_expected : bool) = false;
@@ -5413,11 +5754,7 @@ Fix: wrap the call:
           if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new()),
           fv_param_types,
           fv_param_ct,
-          match(
-            callee_info_opt,
-            .Some(fk_ci) => match(fk_ci.ty, .Func({ forall_types : fk_fts }) => fk_fts, _ => ArrayList(TypeValue).new()),
-            .None => ArrayList(TypeValue).new()
-          ),
+          match(fv_callee_ty, .Func({ forall_types : fk_fts }) => fk_fts, _ => ArrayList(TypeValue).new()),
           fv_pre_forall_names,
           fv_pre_forall_vals,
           fv_pre_forall_tys
@@ -5764,17 +6101,13 @@ Fix: wrap the call:
         // Set function body context on ctx.
         // We need the declared return type from the callee's type (if available).
         ret_type := match(
-          callee_info_opt,
-          .Some(ci) => match(
-            ci.ty,
-            .Func({ result : result_b }) => result_b,
-            _ => t_unit()
-          ),
-          .None => t_unit()
+          fv_callee_ty,
+          .Func({ result : result_b }) => result_b,
+          _ => t_unit()
         );
         callee_func_type_opt := match(
           callee_info_opt,
-          .Some(ci) => Option(TypeValue).Some(ci.ty),
+          .Some(_fv_cft) => Option(TypeValue).Some(fv_callee_ty),
           .None => Option(TypeValue).None
         );
         // Comptime type-constructor calls (return type IS a Type, e.g.
@@ -6520,6 +6853,22 @@ Fix: wrap the call:
           // reading `call.func.$.type`; writing it into the `.`/2 callee node's
           // ExprInfo instead is destructive (regressed std 151→15).
           record_method_callee_type(ast_expr_id(expr), method_info.method_ty);
+          // Per-call identity for the METHOD's own forall binders — the same
+          // surgery the FuncVal arm does above, for the same reason. The
+          // method arm already pins its result per call through the
+          // `_with_resolved_concrete` bridge below (which is why the plain
+          // sync-future method shape always worked), but that bridge only
+          // repairs the CALLER's view: the callee's own binder is still one
+          // object shared by every instantiation, so anything that resolves it
+          // by id — an `io.await` inside the async body, which makes the
+          // returned future a state machine rather than a sync future — still
+          // reads whichever call wrote last.
+          // The forall labels come from the Func's meta, which is the method's
+          // own binder list; the gate inside the helper is unchanged.
+          m_callee_ty := _freshen_generic_closure_callee(
+            method_info.method_ty,
+            match(method_info.method_ty, .Func({ meta : __mfm }) => __mfm.*.forall_labels, _ => ArrayList(String).new())
+          );
           all_args := ArrayList(AstExpr).new();
           if(!(method_info.is_static), {
             // When the method's self param is `*(T)` and the receiver is a
@@ -6603,7 +6952,7 @@ Fix: wrap the call:
           });
           call_result_m := try_to_call_function_with_arguments(
             method_info.method_val_opt,
-            method_info.method_ty,
+            m_callee_ty,
             expr,
             evaluated_callee,
             all_args,
@@ -6704,7 +7053,7 @@ Fix: wrap the call:
           // keep the cheap path. `evaluate_comptime_fn_call` itself returns
           // an UnknownVal (without executing) when any arg is unknown, so a
           // runtime receiver is handled safely.
-          m_ret_ty := match(method_info.method_ty, .Func({ result : _mrb }) => _mrb, _ => t_unit());
+          m_ret_ty := match(m_callee_ty, .Func({ result : _mrb }) => _mrb, _ => t_unit());
           m_is_comptime := match(method_info.method_ty, .Func({ meta : __fm9 }) => __fm9.*.result_is_comptime_only, _ => false);
           (m_result_val : Option(EvalValue)) = if(is_type_hierarchy_type(m_ret_ty) || m_is_comptime, {
             m_self_ty_saved := ctx.self_type;

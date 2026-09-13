@@ -1,6 +1,42 @@
 # Handover — 2026-09-13, immediately after cutting v0.2.32
 
-**Status: LIVE INSTRUCTIONS.** Written for the agent taking over. Everything
+> **CLOSED 2026-09-13 — every item in this file is done or reassigned.** Kept as
+> the record of the v0.2.32 release and the campaign's last mile.
+>
+> - **§3 the release:** published; the notes are archived to
+>   `plans/archive/RELEASE_NOTES_v0.2.32_DRAFT.md`, after diffing the published
+>   body against the draft rather than assuming they matched.
+> - **§3.3 the seed-bump battery** (`34745371233`): **green**, and the three jobs
+>   that actually answer "is v0.2.32 a good seed" — Bootstrap fixpoint, the
+>   static musl bundle, the Linux suite candidate — are all seed-bootstrapped and
+>   all passed.
+> - **§4 the freeze:** lifted. Item 1 landed as #662, item 2 as #666, item 3
+>   (#654) by the peer session.
+> - **§6 the Windows bundle:** fixed in #666 and verified NOT vacuous — the CI
+>   log shows the emitted binary printing its string after driving a spawn and
+>   two timers, not merely linking the runtime.
+> - **§5 `spawn_blocking`:** the compiler defect is FIXED and `spawn_blocking` is
+>   EXPORTED, with `tests/spawn_blocking.test.yo` live. That closes the std API
+>   stabilization campaign. See
+>   `issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`.
+>
+> **The correction worth carrying forward**, because §5.4 states the fix as a
+> single scoped change: per-call binder identity IS the right direction, and it
+> took THREE layers, each of which passed the gate the previous one failed.
+> `substitute` matches a `SomeT` by (name, frame_level), so (1) freshening off
+> the declaration's `forall_types` misses the occurrence that matters and moves
+> nothing; (2) the prototype/definition return-type asymmetry it unmasks is a
+> second, independent bug; and (3) minting the fresh binder **per NAME**
+> collapses the callee's `T` with the prelude `Future(T, E)`'s `T`.
+>
+> Layer 3 is the one a handover cannot skip: every reproducer in §5.5's table
+> that reaches the closure-param path names its binder `R`, so the whole table
+> plus ten async test files plus
+> `check ./src` 275/275 and `check ./std` 175/175 were green while
+> `spawn_blocking` — declared `generic(T)` — still miscompiled. **A test suite
+> that shares a naming convention cannot see a name-sensitivity bug.**
+
+**Status was: LIVE INSTRUCTIONS.** Written for the agent taking over. Everything
 below is measured or links to the run/PR it came from; where something is a
 belief rather than a measurement it says so.
 

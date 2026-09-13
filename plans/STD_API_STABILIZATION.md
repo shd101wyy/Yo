@@ -1,6 +1,13 @@
 # std API stabilization — the 2026-09-06 audit against the code and against Rust
 
-**Status: ACTIVE.** Successor to the remaining rows of `plans/archive/STD_API_AUDIT.md`
+**Status: COMPLETE 2026-09-13.** The last open item, `spawn_blocking`, is
+exported and tested; the compiler defect that held it back is fixed
+(`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`).
+The rows still marked "blocked on a language feature" are blocked on their own
+plan docs, not on this one — §0 lists them. Everything below stays as the
+campaign's record.
+
+**Status was: ACTIVE.** Successor to the remaining rows of `plans/archive/STD_API_AUDIT.md`
 (whose §1–§3 decisions D1–D8 stay in force and are NOT re-litigated here). This
 document is the measured state of `std/` on 2026-09-06 — every finding below was
 verified by reading the implementation, not the doc comment — plus the decisions
@@ -23,10 +30,10 @@ every file:line, are in the per-group notes this plan was distilled from (see
 
 Written after the v0.2.31 release, by walking every row of this document
 against the code rather than against the previous status note. **Every item
-below is either DONE, blocked on a named language feature with its own plan
-doc, or one of two engineering items that are now BOTH substantially landed —
-what is left of either is a named compiler defect with a reproducer, not
-unwritten work.** §5's three maintainer
+below is either DONE or blocked on a named language feature with its own plan
+doc.** The two engineering items are both fully landed as of 2026-09-13 — the
+compiler defect that was the last thing standing between `spawn_blocking` and
+its export is fixed. §5's three maintainer
 decisions are all made and implemented — nothing is waiting on anyone.
 
 ### Done, and no longer to be re-read as open
@@ -129,8 +136,26 @@ blamed:
   primitives dispatched after the argument-materialization loop had already
   generated the callback once.
 
-**2. Waker step 5 — cross-thread wake and `spawn_blocking`.** **The RUNTIME
-LANDED 2026-09-12 (#628); `spawn_blocking` is written but held back.**
+**2. Waker step 5 — cross-thread wake and `spawn_blocking`.** **COMPLETE
+2026-09-13.** The runtime landed 2026-09-12 (#628); `spawn_blocking` is now
+exported, with `tests/spawn_blocking.test.yo` live from its parked reproducer.
+
+> **The compiler defect it waited on was THREE layers, not one**
+> (`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`):
+> a forall binder with no per-call identity; a prototype/definition return-type
+> asymmetry the first layer had been hiding; and — the one that actually gated
+> `spawn_blocking` — minting the per-call binder **per NAME**, which collapses
+> the callee's `T` with the prelude `Future(T, E)`'s `T` riding along inside a
+> re-evaluated `Impl(Future(i32) Io)`.
+>
+> That third layer is the one worth remembering. Every reproducer exercising
+> the closure-param path named its binder `R`, so seven shapes, ten async test
+> files,
+> `check ./src` 275/275 and `check ./std` 175/175 were ALL green while
+> `spawn_blocking` — declared `generic(T)` — still miscompiled. Renaming its
+> binder to `RB`, changing nothing else, made it compile and run; that single
+> measurement is what found the layer. **A test suite that shares a naming
+> convention cannot see a name-sensitivity bug.**
 
 Each event loop owns one explicitly locked inbox plus a wakeup channel into its
 own I/O backend (`EVFILT_USER` on kqueue, an eventfd with a re-armed `POLL_ADD`
@@ -144,13 +169,13 @@ reference count ever crosses a thread — the token travels, not the future.
 resumes on rather than the value it gets: measured by emitted-C A/B, the value
 arrives either way and only the thread identity flips.
 
-What is left is `spawn_blocking` itself, and it is not blocked on the runtime
-any more — it is blocked on a compiler defect, which as of 2026-09-13 is
-ROOT-CAUSED rather than merely reproduced (see the note after this paragraph). It is
+What was left was `spawn_blocking` itself, blocked not on the runtime but on a
+compiler defect. **That defect is FIXED as of 2026-09-13 and `spawn_blocking`
+is exported; the rest of this section is the record of what it was.** It is
 `fn(generic(T), own(cb) : Impl(Fn() -> T, Send), io) -> Impl(Future(T, Io))`,
 and the closure-param form of that shape emits its async block ONCE for every
 instantiation, so it works for one `T` per program and silently miscompiles the
-second (`issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
+second (`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
 — the value-param form of the same family is fixed, in #619). The function is
 written, eager, measured working end to end, and left unexported with the reason
 in its doc comment; its tests are parked at

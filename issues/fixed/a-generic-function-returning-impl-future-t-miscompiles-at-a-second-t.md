@@ -1,7 +1,10 @@
 # A generic function returning `Impl(Future(T))` miscompiles at a second `T`
 
-**Status:** the VALUE-PARAM shape is FIXED 2026-09-12; the CLOSURE-PARAM shape
-is still open (see "What is still open").
+**Status: FIXED 2026-09-13.** The value-param shape was fixed 2026-09-12
+(#619); the closure-param shape — the one that blocked `spawn_blocking` — is
+fixed now. See "FIXED 2026-09-13" below for what it actually was; the sections
+before it are the investigation record, kept because four of the attempts in it
+are measured NEGATIVES that are worth not repeating.
 **Found:** 2026-09-12, writing `spawn_blocking` for waker step 5
 (`plans/WAKER_BASED_SCHEDULING.md`).
 **Pre-existing:** reproduces identically on the published **v0.2.31**.
@@ -28,6 +31,24 @@ Either instantiation ALONE compiles and runs. The pair does not.
   discriminating one.** At two instantiations a lag, a swap and a reversal are
   the same permutation; at three they are not. See "MEASURED 2026-09-13: it is
   a LAG BY ONE" below.
+
+The four A/B shapes the fix has to move, added 2026-09-13 so the gate table in
+"The sharp A/B" is runnable rather than described:
+
+* `issues/repros/generic-future-return-two-t-method-call.yo` — the one that
+  ALREADY WORKS. It is the canary, not the target: an over-eager fix un-fixes
+  it silently, and it is the cheapest way to notice.
+* `issues/repros/generic-future-return-two-t-explicit-receiver.yo`
+* `issues/repros/generic-future-return-two-t-impl-no-self.yo`
+
+**All of them now use `Pair(lo : 3, hi : 5)`, deliberately.** They used
+`hi : 4`, which sums to 7 — the same value the `i32` instantiation prints for
+`a`. A miscompile that renders the `Pair` call with the `i32` specialization's
+type would then print the RIGHT number for the wrong reason, and the difference
+between "compiles and prints a=7 b=7" and a genuine pass would be invisible.
+With `hi : 5` the expected output is `a=7 b=8`, and the two cannot collide.
+(Noted as a hazard in the 2026-09-13 handover before it had bitten; changed
+here so it cannot.)
 
 ## Root cause of the value-param shape, and its fix
 
@@ -74,7 +95,136 @@ to be called `T`, which is the most natural name there is. The fix reads the
 binder IDs off the declared return type (`_rre_binder_ids`), applying the name
 filter exactly once, where the names are unambiguously the callee's.
 
-## What is still open
+## FIXED 2026-09-13 — two bugs, and the first was hiding the second
+
+The defect was **two** independent bugs stacked. That is why every partial
+attempt recorded below moved the symptom without removing it: each one fixed
+part of the first bug, and the second was invisible until the first was gone.
+
+### Bug 1 (evaluator) — a freshening that silently freshened nothing
+
+The direction in "the fix direction" was right: give a user generic callee's
+forall binders per-call identity, upstream of parameter binding. Applying
+`_freshen_io_builtin_callee` at the FuncVal arm of `evaluate_function_call` is
+the right PLACE, and it does not work, because that helper builds its
+substitution from the declaration's own `forall_types` entries and
+`substitute` matches a `SomeT` by **(name, frame_level)** (`subst_lookup`,
+`src/types/substitution.yo`).
+
+For a user generic, `R`'s occurrence inside the parameter's `Fn` bound does not
+carry the same `frame_level` as the `forall_types` entry. So the substitution
+missed precisely the occurrence that matters, the call "was freshened", and the
+emitted C did not move by a single byte.
+
+The fix collects every **(name, frame_level) SITE** the binder actually occurs
+at — walking into an `Impl`'s required traits and through the `Fn` / `Future`
+members, the same walk `_rre_binder_ids` does — and substitutes one fresh
+`SomeT` per binder NAME at all of them. Every attribute but the id and the
+resolution cell is copied, so a `where(R <: (Send, Acyclic))` bound survives.
+
+> **The generalisable part: a freshening is only as per-call as its key.** This
+> codebase had already been bitten once by comparing binders by NAME (the
+> ID-vs-name table above). This is the same error one level down — the key was
+> a *pair*, and the second half of it was wrong. "It ran" and "it did anything"
+> are different claims; only a trace of the ids before and after separates them.
+
+With bug 1 alone fixed, all three of the evaluator's channels became correct
+for the first time: the prototypes went `[T2, T0, T1]` → `[T0, T1, T2]`, the
+state-machine structs' `result` fields `[T0, T0, T1]` → `[T0, T1, T2]`, and
+each generation already called its own closure and built its own struct. The
+program still did not compile — 9 C errors became 5, of a different kind.
+
+### The trap inside Bug 1's fix, caught only by a real caller
+
+The first working version of the site collector matched SomeTs **by NAME**
+against the callee's forall names. Everything was green: `check ./src`
+275/275, `check ./std` 175/175, all seven reproducer shapes, ten async test
+files. And `std/thread.yo`'s `spawn_blocking` still miscompiled at a second
+`T`.
+
+Eight reductions were built up toward its shape — `own(cb)`, a
+`where(T <: (Send, Acyclic))` bound, `std/sync`'s `Channel(T)`, a `Park`
+awaited inside the async block, a nested `Thread(unit).spawn` capturing both
+`cb` and the channel, the std-internal `__yo_async_blocking_begin/end`
+brackets. **Every one of them compiles.** Then one variable was changed:
+`spawn_blocking`'s binder renamed from `T` to `RB`, nothing else. It compiled
+and ran.
+
+The prelude's own `Future(T, E)` declaration names its binders `T` and `E`, and
+they ride along inside a re-evaluated `Impl(Future(i32) Io)`. A name-keyed
+collector therefore swept up the prelude's binders for any user generic that
+called its own binder `T` — **so the program's fate depended on what its type
+variable was CALLED**, and `T` is the most natural name there is. The collector
+now keys on the ids taken off the callee's own `forall_types`.
+
+Three things about this are worth more than the fix:
+
+* **It is the SAME mistake, one level down, as the ID-vs-name table above** —
+  which is in this document, one screen up, and which this fix's own doc
+  comment cites. Reading a hazard is not the same as applying it. Both cuts
+  compared binders by name; the first compared them as strings, the second as a
+  (name, level) pair whose second half only narrowed the mistake.
+* **A test suite that shares a naming convention cannot see a name-sensitivity
+  bug.** Every one of the five reproducers that exercises the CLOSURE-PARAM
+  path — the path this fix gates on — names its binder `R`. (Two others use
+  `T`: the plain-param shape and the method-form-with-await, and neither
+  reaches the freshening, so neither could have caught it.) The blindness was
+  by construction, not by bad luck. `tests/async_generic_future_return.test.yo`
+  now carries cases named `T` and `E` deliberately.
+* **The negatives did the work.** Eight bisect steps that each ruled an
+  ingredient OUT left exactly one difference standing, and it was a difference
+  nobody would have thought to vary. The last of them is kept as
+  `issues/repros/spawn-blocking-closest-non-reproducing-shape.yo` — a negative
+  control.
+
+### Bug 2 (codegen) — a prototype and its definition computed from different rules
+
+`generate_function_declaration` derives the C return type with
+`_return_type_override`; `generate_function` derived it with
+`_async_override_return_type`, which is only that helper's Future-returning
+arm. `_return_type_override` has a second arm: when the declared result IS a
+`SomeT` (or contains one) and the BODY's `ExprInfo` knows the concrete, take
+the body's type. The definition never had it, so the prototype said `int32_t`
+and the definition said `void*`, and C rejects the pair:
+`conflicting types for 'closure_yo_id_…'`.
+
+**`generate_function`'s own comment asserts the invariant its code breaks** —
+"MUST match the forward declaration's override (generate_function_declaration
+uses the same helper)". It did not use the same helper. A comment stating an
+invariant is not a test of one, and this one had been false long enough to be
+load-bearing for a reader.
+
+It stayed latent because the shared resolved-concrete registry always held SOME
+entry for the declared binder id, so both passes rendered a real type and merely
+disagreed about WHICH — a miscompile rather than a hard error. **Bug 1 did not
+cause bug 2; it stopped hiding it.** Removing the accidental registry entry
+turned a silent wrong answer into the compile error it always was.
+
+The fix is to call `_return_type_override` in both places. It delegates to
+`_async_override_return_type` verbatim whenever the result implements `Future`,
+so every async signature is spelled exactly as before.
+
+**Same helper was necessary and not sufficient — it needs the same INPUTS too.**
+`declarations.yo` computes `body_for_decl := if(is_erm, None, body)`: it
+suppresses the body for an effect-record member, because a ctl handler's result
+is stashed in `__yo_unwind_value` rather than returned, so the body's ExprInfo
+type is NOT the C return type. Passing the body unconditionally on the
+definition side recreated the very asymmetry being fixed, in the opposite
+direction — `void` definitions under value-typed prototypes, taking out
+`tests/async_await`, `async_generic_param_capture` and
+`generic_impl_async_self`. The invariant to hold is "same helper AND same
+arguments"; half of it is not half a fix.
+
+---
+
+## The investigation record (was: "What is still open")
+
+> **Everything from here down is HISTORY, written while the defect was open.**
+> It is kept, not rewritten, because four of the attempts below are measured
+> negatives — each one cost a compiler build, and the point of keeping them is
+> that nobody pays for them twice. Read the present tense as "as of the date on
+> the heading". The section that supersedes all of it is
+> "FIXED 2026-09-13" above.
 
 The CLOSURE-PARAM shape —
 `fn(generic(R), f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io))` — still
@@ -421,6 +571,68 @@ candidate 3 — names compared as data in `_skip_fallback`, the reserved `"Impl"
 and the `fv_mn == flabel` forall-label match — is what has to be solved to get
 there, and it is now the ONLY thing between this defect and `spawn_blocking`.
 
+### DISPROVEN 2026-09-13: making the two channels AGREE is not the fix
+
+The obvious reading of the root cause is "two channels disagree, so stamp them
+in lockstep". It was built: at the `check_and_add_argument` Fn-bound
+registration, drain the SomeT's per-lineage `resolved_concrete` cell and push
+the same concrete the registry is about to receive, so the cell can no longer
+trail it.
+
+It MOVES the result — the three-T reproducer goes from 9 C errors to 8 — and it
+is still wrong, which is the useful part: agreement is not identity. Both
+channels are keyed on ONE id for every instantiation, so making them agree only
+means both now answer "the LAST call's R" instead of one answering that and the
+other "the previous call's". Any fix that leaves the key shared is choosing
+which wrong answer to get.
+
+### DISPROVEN 2026-09-13: freshening the callee TYPE at the call is not enough
+
+The structural direction below (per-call identity for the callee's own forall
+binders) was implemented at what looked like the right place — the FuncVal arm
+of `evaluate_function_call`, where `callee_info_opt.ty` is first taken, ahead of
+the parameter types, the forall list and the declared result, and therefore
+ahead of parameter binding. The freshened type flows into `fv_param_types`,
+`ret_type`, `callee_func_type_opt` and so into `spec_ct`, the type
+`create_specialized_function_inline` specializes against.
+
+It FIRES, verified rather than assumed — a `YO_DEBUG_FRESHEN` trace prints one
+`[freshen-callee]` line per call, three for the three-T reproducer — and the
+emitted C is **byte-identical** to the baseline apart from the `break;` lines
+#661 added. A probe at the registration site says why:
+
+```
+[freshen-callee] fn(generic(R) f : Impl : (Fn() -> R), io : Io) -> Impl : (Future[Future](R) Io : Io)
+[fnres-reg] id=2027 <- i32
+[freshen-callee] ...
+[fnres-reg] id=2027 <- Pair
+[freshen-callee] ...
+[fnres-reg] id=2027 <- Trip
+```
+
+`2027` is the DECLARED `R`, at all three calls — exactly the baseline ledger.
+So the freshened binder never reaches the site that publishes the concrete.
+
+**Two candidate reasons, and they are separable.** `substitute` matches a
+`SomeT` by **(name, frame_level)** (`subst_lookup`, `src/types/substitution.yo`),
+while `_freshen_io_builtin_callee` builds its substitution from the entries of
+the declaration's own `forall_types`. If `R`'s occurrence inside the parameter's
+`Fn` bound does not carry the same `frame_level` as that entry, the substitution
+silently misses precisely the occurrence that matters, and a type that "was
+freshened" comes back unchanged where it counts. The other candidate is
+`create_specialized_function_inline`'s deliberate override
+(`decl_pt = rp_ae.parameter_type`, `src/evaluator/calls/helper.yo`), which
+replaces the declared parameter with the CALL's recorded one whenever that still
+carries an Fn-trait carrier — if the recorded one descends from the unfreshened
+declaration, per-call identity is dropped there instead.
+
+Note what this does NOT disprove: the direction. It says the surgery is in the
+wrong PLACE or the wrong MECHANISM, not that per-call identity is the wrong
+answer. Whichever candidate holds, the lesson generalises — **a freshening built
+on a name-keyed substitution is only as per-call as its key**, and this codebase
+has already been bitten once by comparing binders by name (the ID-vs-name table
+above).
+
 ### What to try next, and the obstacle each candidate hits
 
 Not another name-based special case — that is what the first cut of the
@@ -535,8 +747,24 @@ before stamping. So a correct path EXISTS; the reproducers above take a
 different one. Finding what `with_lock` does that the reproducers do not is the
 whole of the remaining work — the list above is what it is NOT.
 
-## Impact
+## Impact — was the last blocker on the std API campaign
 
-`std/thread.yo`'s `spawn_blocking` is correct and works at one instantiation
-per program; a second `T` in the same program miscompiles. That is why it is
-not exported yet.
+`std/thread.yo`'s `spawn_blocking` was correct and worked at one instantiation
+per program; a second `T` in the same program miscompiled. That is why it was
+not exported. It is exported now, and `tests/spawn_blocking.test.yo` — live
+from `issues/repros/spawn-blocking-tests.yo` — uses two different `T`s
+precisely because that pair is what used to break.
+
+`spawn_blocking` needed the THIRD layer of this fix to work — see "The trap
+inside Bug 1's fix" above. Every reproducer written for this issue named its
+binder `R`; `spawn_blocking` names it `T`, and that was the difference.
+
+Promoting that parked file surfaced a second, unrelated defect worth naming
+here because parking is what hid it: two of its four tests used
+`io.await(handle, io)` on an `io.spawn` result, which does not type-check —
+`io.spawn` returns a JOIN HANDLE, awaited as `handle.await(io)` and yielding
+`Option(T)`. The compiler reports that as an INTERNAL COMPILER ERROR
+(`issues/io-await-on-a-join-handle-is-reported-as-an-internal-compiler-error.md`).
+Both were invisible for as long as the file sat outside every gate. **A test
+that has never once been run is a draft**, however well argued — parking it
+next to the code is not the same as keeping it honest.
