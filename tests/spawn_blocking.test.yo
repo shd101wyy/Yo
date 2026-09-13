@@ -109,6 +109,50 @@ test("a sibling task keeps running while spawn_blocking blocks", {
   // completion — only its INTERLEAVING with the block is platform-dependent.
   assert(progress.load(MemoryOrder.Acquire) == i32(40), "the sibling ran to completion");
 });
+test("repeated pairs of spawn_blocking do not corrupt the wake inbox", {
+  // REGRESSION (issues/fixed/a-waker-token-is-freed-while-back-on-the-inbox.md).
+  // Two workers releasing their wakers from foreign threads made the drain free
+  // a token that a racing `__yo_waker_release` had just CASed back onto the
+  // inbox, leaving `loop->xwake_head` dangling; the crash then happened one
+  // loop turn later, inside `__yo_async_drain_xwakes`.
+  //
+  // The window is per-PAIR, so this repeats rather than asserting once. The
+  // round count was MEASURED against the unfixed compiler rather than guessed,
+  // because a flaky regression test that usually passes is worse than none:
+  //
+  //   12 rounds -> 1/6 runs failed     40 rounds -> 3/8     200 -> 7/10
+  //
+  // Each round is two workers whose blocking call is just long enough (2 ms)
+  // that the loop actually parks and drains while they are still running.
+  // Without that overlap the wake and the release both land before the drain
+  // runs and the window never opens — the first version of this test used no
+  // sleep at all, passed 6 runs in a row on the BROKEN compiler, and would
+  // have shipped as a test of nothing.
+  (round : i32) = i32(0);
+  (total : i32) = i32(0);
+  while(runtime(round < i32(200)), {
+    a := io.spawn(
+      spawn_blocking(() => {
+        sleep_blocking(Duration.from_millis(i64(2)));
+        i32(1)
+      }, io),
+      io
+    );
+    b := io.spawn(
+      spawn_blocking(() => {
+        sleep_blocking(Duration.from_millis(i64(2)));
+        i32(2)
+      }, io),
+      io
+    );
+    ra := a.await(io);
+    rb := b.await(io);
+    assert(ra.is_some() && rb.is_some(), "neither worker unwound");
+    total = (total + ra.unwrap() + rb.unwrap());
+    round = (round + i32(1));
+  });
+  assert(total == i32(600), "every round delivered both values");
+});
 test("two spawn_blocking calls in flight at once", {
   a := io.spawn(
     spawn_blocking(() => {
