@@ -1,10 +1,29 @@
 # Waker-based scheduling
 
-**Status:** IN PROGRESS — steps 1, 2, 3a and 3b are LANDED, step 4 is landed
-except for a shape note, step 5 is the only one genuinely open. Written 2026-09-10. This is the largest
+**Status: COMPLETE 2026-09-13.** Steps 1, 2, 3a and 3b LANDED; step 4 landed
+except for a shape note recorded in its own row; step 5 — cross-thread wake and
+`spawn_blocking` — landed 2026-09-13. Written 2026-09-10. It was the largest
 remaining item in `plans/STD_API_STABILIZATION.md`'s concurrency group, and four
-std modules' `## Stability` markers name it as the thing that will change under
-them.
+std modules' `## Stability` markers name it as the thing that would change under
+them. Still in `plans/` root rather than `archive/` only until its 24 inbound
+references are swept.
+
+> **Step 5's first real adopter found a use-after-free in step 1's own
+> mechanism** (`issues/fixed/a-waker-token-is-freed-while-back-on-the-inbox.md`).
+> `__yo_async_drain_xwakes` cleared `t->queued` before reading
+> `t->release_pending`, so a foreign `__yo_waker_release` could CAS the token
+> back onto the inbox and the drain then freed it — leaving `xwake_head`
+> dangling and crashing one loop turn later. It had been there since step 1
+> landed (#561) and every gate was green, because nothing put TWO concurrent
+> foreign wakers through the path until `spawn_blocking` was exported.
+>
+> That is the durable lesson from this plan, and it is not about wakers: a
+> concurrency mechanism can land fully gated and still have no adopter, so its
+> first real user is its first real test — and the bug it finds is as old as the
+> mechanism. The repo already knew the weaker form (an exported-but-never-called
+> helper is a dead mechanism with green gates); this is the same failure one
+> level up, where a caller exists but the concurrency it was built for never
+> did.
 
 | step | state |
 | --- | --- |
