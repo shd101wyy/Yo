@@ -197,6 +197,7 @@ BF_STR_BYTES :: "str_bytes";
 BF_MS_SINGLE :: "ms_single";
 BF_MS_ADD :: "ms_add";
 BF_MS_COUNT :: "ms_count";
+BF_MS_OF :: "ms_of";
 BF_SET_SINGLE :: "set_single";
 BF_SET_ADD :: "set_add";
 BF_SET_CONTAINS :: "set_contains";
@@ -476,6 +477,12 @@ evaluate_ms_add :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 evaluate_ms_count :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+/// `ms_of(a)` (V5 task 6): a fixed-length Array(T, N)'s elements as a
+/// ghost Multiset. The evaluator type-checks only (a carrier of the
+/// array's own type); the verifier's walk folds the count array over N.
+evaluate_ms_of :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 evaluate_set_single :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
@@ -1497,6 +1504,7 @@ export(
   evaluate_ms_single,
   evaluate_ms_add,
   evaluate_ms_count,
+  evaluate_ms_of,
   evaluate_set_single,
   evaluate_set_add,
   evaluate_set_contains,

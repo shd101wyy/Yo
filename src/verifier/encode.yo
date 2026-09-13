@@ -58,7 +58,8 @@ encode_sort :: (fn(s : VcSort) -> String)(
     .BvS(w) => `(_ BitVec ${w.to_string()})`,
     .DataS(name) => name.clone(),
     .SeqS(elem) => `(Seq ${encode_sort(elem)})`,
-    .FunS(domain, range) => `(Array ${encode_sort(domain)} ${encode_sort(range)})`
+    .FunS(domain, range) => `(Array ${encode_sort(domain)} ${encode_sort(range)})`,
+    .ArrS(elem, _) => `(Array (_ BitVec 64) ${encode_sort(elem)})`
   )
 );
 // ============================================================================
@@ -110,6 +111,28 @@ _op_name :: (fn(op : VcOp) -> String)(
     .SeqNth => String.from("seq.nth"),
     .StoreOp => String.from("store"),
     .SelectOp => String.from("select")
+  )
+);
+/// One `declare-fun` line for a `__yo_msof_<elem>` function: the multiset
+/// of a `(_ BitVec 64)`-indexed array of `<elem>` as an `<elem> → BV64`
+/// count array. The application itself is a Ctor TERM (the walk names it
+/// `__yo_msof_<key>`; Ctor renders `(<name> <args...>)` — the shape of an
+/// uninterpreted application — so VcOp needs no String-payload variant,
+/// which the plain enum's derived Eq cannot carry).
+encode_fundecl :: (fn(elem : VcSort) -> String)(
+  `(declare-fun __yo_msof_${_msof_key(elem)} ((Array (_ BitVec 64) ${encode_sort(elem)})) (Array ${encode_sort(elem)} (_ BitVec 64)))`
+);
+/// The elem sort key of a `__yo_msof` function — a sanitized rendering
+/// unique per sort (the walk and the encoder must agree on it).
+_msof_key :: (fn(elem : VcSort) -> String)(
+  match(
+    elem,
+    .BoolS => String.from("bool"),
+    .BvS(w) => `bv${w.to_string()}`,
+    .DataS(name) => name.clone(),
+    .SeqS(e) => `seq_${_msof_key(e)}`,
+    .FunS(d, r) => `arr_${_msof_key(d)}_${_msof_key(r)}`,
+    .ArrS(e, _) => `arr_${_msof_key(e)}`
   )
 );
 // ============================================================================
@@ -186,7 +209,7 @@ encode_term :: (fn(t : VcTerm) -> String)(
     // position).
     .Test(ctor, child) => `(is-${ctor} ${encode_term(child)})`,
     .Proj(ctor, _, child) => `(${ctor} ${encode_term(child)})`,
-    .Quant(kind, names, sorts, body) => {
+    .Quant(kind, names, sorts, body, triggers) => {
       kw := match(
         kind,
         .Forall => String.from("forall"),
@@ -216,7 +239,33 @@ encode_term :: (fn(t : VcTerm) -> String)(
       });
       sb.write_byte(u8(0x29));
       sb.write_byte(u8(0x20));
-      sb.write_string(encode_term(body));
+      // Triggered quantifiers annotate the BODY — `(! P :pattern (t) ...)`,
+      // one :pattern attribute per trigger (an OR of independently
+      // sufficient patterns). z3 5.1.0 rejects `:pattern` on a `!`
+      // WRAPPING the quantifier ("invalid attribute, not in the scope of
+      // a quantifier"); body position is the spelling it parses.
+      if(triggers.len() > usize(0), {
+        sb.write_byte(u8(0x28));
+        sb.write_byte(u8(0x21));
+        sb.write_byte(u8(0x20));
+        sb.write_string(encode_term(body));
+        (ti : usize) = usize(0);
+        while(ti < triggers.len(), {
+          match(
+            triggers.get(ti),
+            .Some(tr) => {
+              sb.write_str(" :pattern (");
+              sb.write_string(encode_term(tr));
+              sb.write_byte(u8(0x29));
+            },
+            .None => ()
+          );
+          ti = (ti + usize(1));
+        });
+        sb.write_byte(u8(0x29));
+      }, {
+        sb.write_string(encode_term(body));
+      });
       sb.write_byte(u8(0x29));
       sb.to_string()
     }
@@ -388,6 +437,31 @@ encode_content :: (fn(q : VcQuery) -> String)({
     );
     di = (di + usize(1));
   });
+  // The `__yo_msof_<elem>` functions, then their axioms — both ahead of
+  // the path assumptions (V5 task 6: ms_of's meaning is a per-array
+  // definition axiom with a `:pattern`, never an inlined fold).
+  (fi : usize) = usize(0);
+  while(fi < q.fundecls.len(), {
+    match(
+      q.fundecls.get(fi),
+      .Some(fs) => {
+        sb.write_string(`${encode_fundecl(fs)}\n`);
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  (xi : usize) = usize(0);
+  while(xi < q.axioms.len(), {
+    match(
+      q.axioms.get(xi),
+      .Some(ax) => {
+        sb.write_string(`(assert ${encode_term(ax)})\n`);
+      },
+      .None => ()
+    );
+    xi = (xi + usize(1));
+  });
   (ai : usize) = usize(0);
   while(ai < q.assumptions.len(), {
     match(
@@ -482,6 +556,8 @@ export(
   encode_term,
   encode_content,
   encode_script,
+  encode_fundecl,
+  _msof_key,
   EncodeOptions,
   default_encode_options
 );

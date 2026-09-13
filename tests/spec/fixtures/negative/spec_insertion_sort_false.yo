@@ -1,0 +1,24 @@
+// The deliberately-wrong twin for the V5 task-6 array/multiset surface:
+// a body that does NOT touch `s`, with a "permutation" post-condition
+// that claims the first element's count GREW by one — self-contradictory
+// (both sides read the same unchanged multiset, and counts are ≤ N so
+// the +1 cannot wrap). REFUTES with a concrete counter-example, pinning
+// that `ms_of`/`ms_count` over Array(T, N) are live in post-conditions.
+// (The positive direction — the full insertion sort proving sorted +
+// permutation — is the valid fixture's job; a body-level bug twin was
+// measured and DROPPED: its refute needs a quantified model search z3
+// does not finish at any budget, while proves and ground refutes are
+// fast.)
+pragma(Pragma.Verify);
+
+wrong_perm :: (
+  fn(
+    s : Array(i64, 8),
+    ensures(
+      ms_count(ms_of(s), s(i64(0))) == (ms_count(ms_of(old(s)), s(i64(0))) + i64(1))
+    )
+  ) -> (result : unit)
+)({
+  first := s(i64(0));
+  ()
+});

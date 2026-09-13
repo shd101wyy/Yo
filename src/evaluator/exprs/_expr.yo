@@ -85,6 +85,7 @@ import("std/fmt");
   BF_MS_SINGLE,
   BF_MS_ADD,
   BF_MS_COUNT,
+  BF_MS_OF,
   BF_SET_SINGLE,
   BF_SET_ADD,
   BF_SET_CONTAINS,
@@ -358,6 +359,7 @@ import("std/fmt");
   evaluate_ms_single,
   evaluate_ms_add,
   evaluate_ms_count,
+  evaluate_ms_of,
   evaluate_set_single,
   evaluate_set_add,
   evaluate_set_contains,
@@ -953,6 +955,8 @@ _evaluate_expression :: (
           evaluate_ms_add(expr, env, ctx, exn),
         ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_MS_COUNT, .None)) =>
           evaluate_ms_count(expr, env, ctx, exn),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BF_MS_OF, .None)) =>
+          evaluate_ms_of(expr, env, ctx, exn),
         ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_SET_SINGLE, .None)) =>
           evaluate_set_single(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SET_ADD, .None)) =>

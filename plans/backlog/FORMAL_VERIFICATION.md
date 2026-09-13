@@ -1209,8 +1209,37 @@ a broken invariant is a compile error naming the failing iteration.
 > CALLEE NAME LENGTH — seq_append is 10 and set_contains 12 (two arms
 > were silently DEAD and the callees fell to name resolution); VcSort is
 > now a REF enum (SeqS/FunS carry Self payloads — plain enums cannot
-> self-reference). Remaining V5: the insertion-sort exit (task 6),
-> which task 5's Multiset now makes reachable.
+> self-reference). **TASK 6 LANDED (2026-09-14) — the V5 exit criterion
+> is MET**: fixed-length `Array(T, N)` in the VC walk (`a(i)` reads as
+> `select` with a zero-extended BV64 index, index writes `a(i) = v` as
+> SSA `store`-rebinds, `index-in-bounds` AoRTE from the compile-time N —
+> suppressed inside quantifier bodies, where the spec's own guards carry
+> the bounds); `ms_of(a)` as an UNINTERPRETED function applied through a
+> Ctor term, with per-array definition axioms (`count(x) = Σ_k
+> ite(a(k)==x, 1, 0)`, deduped by the encoded array term, `:pattern`
+> riding the quantifier BODY — z3 5.1.0 rejects pattern-on-`!`); the
+> loop COND walked UNDER the invariant at iterate and exit (its own
+> index reads used to see an unconstrained havoced index); `&&`/`||`
+> short-circuit guards bracketing RHS-walked obligations; a
+> deterministic budget ESCALATION in the runner (Unproven at 5M rlimit
+> retries once at 20× rlimit / 4× backstop — cheap queries stay cheap;
+> the sort's outer iterate needs ~10⁸ rlimit); and the fixture: an
+> in-place insertion sort over `Array(i64, 8)` proving `sorted(s)` AND
+> `permutation(s, old(s))` through the ghost Multiset (its inner
+> shift-loop invariant pins frame [0, j+1] / shifted [j+2, i] / scan /
+> outside-window — the multiset is over ALL N positions, so the
+> outside-window clause is load-bearing), with a ground wrong-count
+> twin refuting instantly. LESSONS: the INLINE store-fold ms_of drowned
+> both MBQI and E-matching (100 KB+ chains per obligation; the ms-free
+> sort proved all obligations in milliseconds — the axiom/function split
+> is what makes the full spec provable); VcOp must not carry String
+> payloads (the plain enum's derive(Eq) synthesizes a HOLLOW equals —
+> issues/derived-eq-ref-enum-self-payload-hollow-at-runtime.md; latent
+> since task 5's ref-enum VcSort, first runtime caller here);
+> `_sorted_strings` unwrapped `ptr()` on empty lists (reached by a
+> literal-only ensures); a body-level bug twin was measured and DROPPED
+> (its quantified sat-search never terminates at any budget — wrong
+> twins over this encoding must be ground). V5 is COMPLETE.
 
 **Scope:** specification-only computation — the vocabulary real
 functional correctness specs need.
