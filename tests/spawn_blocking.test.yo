@@ -26,12 +26,19 @@
 //! sibling async task managed to do while it was blocked. A stalled loop makes
 //! that number zero, which fails — it does not hang, because the callee is
 //! bounded.
+//!
+//! That third test asserts a DIFFERENT contract on standalone WASI, which has
+//! no OS threads at all. See the comment at its assertion: the skip-shaped
+//! alternative would have tested nothing, so the inline fallback is pinned
+//! instead.
 { assert } :: import("std/assert");
 { spawn_blocking } :: import("std/thread");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { Duration } :: import("std/time/duration");
 { sleep_blocking } :: import("std/time/sleep");
 { yield } :: import("std/async");
+{ platform, Platform } :: import("std/process");
+{ println } :: import("std/fmt");
 test("spawn_blocking returns the worker's value", {
   n := io.await(spawn_blocking(() => (i32(20) + i32(22)), io), io);
   assert(n == i32(42), "the blocking callee's value came back");
@@ -73,11 +80,33 @@ test("a sibling task keeps running while spawn_blocking blocks", {
     }, io),
     io
   );
-  assert(observed >= i32(5), "the event loop kept turning while the worker thread blocked");
+  // The oracle differs by platform because the CONTRACT differs by platform,
+  // and asserting the one the target does not have is asserting something
+  // false. Standalone WASI has no threads: `pthread_create` fails, and
+  // `__yo_thread_spawn` then runs the closure INLINE and hands back a zero
+  // handle (`issues/fixed/wasi-thread-pool-submit-deadlock.md`). That is a
+  // deliberate contract — with no OS thread the work would otherwise be
+  // dropped and its reference-counted captures never released — but it puts
+  // the blocking callee ON the loop thread, so nothing else can run while it
+  // blocks. Emscripten is NOT in this branch: its pthread emulation really
+  // runs the thread, so the concurrency property holds there and is asserted.
+  if(platform == Platform.Wasi, {
+    // Pin the degraded contract rather than skipping: the sibling was spawned
+    // but never polled, because `io.spawn` only enqueues and nothing between
+    // that spawn and this call awaits. So the callee observed exactly zero
+    // progress, and it spun its full bound instead of being released early.
+    assert(observed == i32(0), "on standalone wasi the callee runs inline, so no sibling can progress");
+    println(`  wasi: spawn_blocking ran inline (no OS threads) — degraded contract asserted`);
+  }, {
+    assert(observed >= i32(5), "the event loop kept turning while the worker thread blocked");
+  });
   // `io.spawn` hands back a JOIN HANDLE, not a future: it is awaited as
   // `handle.await(io)` and yields `Option(T)` (`.None` if the task unwound).
   // `io.await(handle, io)` does not type-check.
   _r := sib.await(io);
+  // This holds on EVERY target, inline fallback included: the loop is free
+  // again once the blocking call returns, so the sibling still runs to
+  // completion — only its INTERLEAVING with the block is platform-dependent.
   assert(progress.load(MemoryOrder.Acquire) == i32(40), "the sibling ran to completion");
 });
 test("two spawn_blocking calls in flight at once", {
