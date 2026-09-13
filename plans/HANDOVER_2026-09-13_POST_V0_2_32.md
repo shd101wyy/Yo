@@ -145,8 +145,13 @@ copy-pasteable commands plus the measurements behind the seed bump. The merge
 order in §4 is shared between the two documents.
 
 **What actually worked between the two sessions, and is worth repeating:** the
-valuable moments were the ones where one of us checked the other's number
-instead of accepting it. A `Pair(lo:3, hi:4)` baseline whose right and wrong
+valuable moments were the ones where one of us re-derived the other's number
+INDEPENDENTLY instead of reading the conclusion and agreeing. Note the
+asymmetry — **not one of them came from carefully reading the other's
+reasoning.** Reasoning reads as plausible precisely when it is wrong in a way
+you would not have spotted; a second measurement does not care how plausible it
+sounded. That is an argument for the habit, not for any particular pair of
+agents. A `Pair(lo:3, hi:4)` baseline whose right and wrong
 answers both summed to 7; a "skips 15 of 18" figure that looked unverifiable
 against a 28-job battery and turned out to be exactly right once the docs-only
 denominator was found; a claim that cancelling develop runs unblocked a queue,
@@ -309,6 +314,11 @@ three-dot form answers "what does my branch change?"**
 - `origin/develop...HEAD` (three dots) diffs against the MERGE BASE — the
   changes your branch introduces. **This is what the PR shows and what merges.**
 
+One catch from today is worth more than the rest, and this is it: a wrong FACT
+gets corrected by the next measurement, but a wrong RULE gets followed. This one
+would have sat in a handover telling future agents to distrust correct PRs and
+rebase against a phantom.
+
 Measured on this very branch, pre-rebase: two-dot said 19 files, +567/-1164,
 apparently reverting #638's 314-line `runtime_io_windows.yo` and the release's
 version bumps. Three-dot said 5 files, +528/-1. The three-dot number was the
@@ -325,6 +335,22 @@ PR in every repository would be a landmine.
 Cheapest cross-check when a stat looks alarming: `gh pr view <n> --json files`,
 which is always merge-base relative. If it disagrees with your local stat, the
 two-dot one is the liar.
+
+**And a trap inside the verification itself.** Do not read a file out of a bare
+tree with `git cat-file -p "<tree-oid>:<path>"`. It does not reliably resolve
+the path against a bare tree — in one attempt it printed the ROOT TREE LISTING
+regardless of the path asked for, and "29 lines" nearly read as evidence that a
+4890-line file had been gutted. Resolve the blob first and read that:
+
+```bash
+B=$(git ls-tree -r <tree> -- <path> | awk '{print $3}')
+git cat-file -p "$B"
+```
+
+The same syntax returned genuine file content for the other session, so it
+sometimes works — which makes it worse, not better. A check that silently
+ignores your argument and returns plausible output is more dangerous than one
+that errors.
 
 ---
 
