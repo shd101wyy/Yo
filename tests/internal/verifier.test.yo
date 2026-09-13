@@ -11,7 +11,7 @@
 { env } :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { VcSort, VcOp, VcTerm, VcQuantKind, VcQuery, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_imp, vc_distinct } :: import("../../src/verifier/terms.yo");
-{ mangle_vc_name, encode_sort, encode_term, encode_content, encode_script, default_encode_options } :: import("../../src/verifier/encode.yo");
+{ mangle_vc_name, encode_sort, encode_term, encode_content, encode_script, encode_fundecl, default_encode_options } :: import("../../src/verifier/encode.yo");
 { Z3Sexpr, parse_z3_sexprs, z3_sexpr_to_string, z3_check_sat_of, z3_unsat_core_of, z3_value_pairs_of, run_z3_script, ensure_z3 } :: import("../../src/verifier/z3.yo");
 { default_verify_run_config, verify_cache_key, verdict_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test } :: import("../../src/verifier/driver.yo");
 // ---------------------------------------------------------------------------
@@ -76,10 +76,35 @@ test("encode_term: quantifier shape", {
   sorts := ArrayList(VcSort).new();
   sorts.push(VcSort.BvS(width : usize(64)));
   body := vc_eq(VcTerm.Var(name : String.from("i"), sort : VcSort.BvS(width : usize(64))), VcTerm.BvLit(value : u64(0), width : usize(64)));
-  q := VcTerm.Quant(VcQuantKind.Forall, names, sorts, body);
+  q := VcTerm.Quant(VcQuantKind.Forall, names, sorts, body, ArrayList(VcTerm).new());
   assert(
     encode_term(q) == "(forall ((i (_ BitVec 64))) (= i (_ bv0 64)))",
     "forall with typed binder"
+  );
+  // The triggered form: (forall (! body :pattern (t))) — the annotation
+  // rides the BODY (z3 5.1.0 rejects :pattern on a !-wrapped quantifier);
+  // one attribute per trigger (V5 task 6: the ms_of definition axioms).
+  trigs := ArrayList(VcTerm).new();
+  trigs.push(body);
+  qt := VcTerm.Quant(VcQuantKind.Forall, names, sorts, body, trigs);
+  assert(
+    encode_term(qt) == "(forall ((i (_ BitVec 64))) (! (= i (_ bv0 64)) :pattern ((= i (_ bv0 64)))))",
+    "forall with an explicit :pattern trigger"
+  );
+});
+test("encode_term: the ms_of function + its declare-fun (V5 task 6)", {
+  arr := VcTerm.Var(
+    name : String.from("a"),
+    sort : VcSort.ArrS(elem : VcSort.BvS(width : usize(64)), len : usize(8))
+  );
+  msf_args := ArrayList(VcTerm).new();
+  msf_args.push(arr);
+  msf := VcTerm.Ctor(name : String.from("__yo_msof_bv64"), args : msf_args);
+  assert(encode_term(msf) == "(__yo_msof_bv64 a)", "ms_of application head (a Ctor-named uninterpreted application)");
+  assert(
+    encode_fundecl(VcSort.BvS(width : usize(64))) ==
+      "(declare-fun __yo_msof_bv64 ((Array (_ BitVec 64) (_ BitVec 64))) (Array (_ BitVec 64) (_ BitVec 64)))",
+    "ms_of declare-fun line"
   );
 });
 // ---------------------------------------------------------------------------

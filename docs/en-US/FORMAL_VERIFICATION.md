@@ -103,6 +103,7 @@ runtime assert).
 | `forall`/`exists`/`==>` in contracts (ghost-only; SMT quantifiers, MBQI instantiation) | ✅ verified (V5) |
 | `inout` params — the reassignable two-state binding (`old(v)` reads the entry snapshot) | ✅ verified (V5) |
 | `std/spec` ghost collections — Seq (`seq_unit`/`seq_append`/`seq_len`/`seq_nth`, SMT `Seq`), Multiset (`ms_single`/`ms_add`/`ms_count`, elem→count `Array`), Set (`set_single`/`set_add`/`set_contains`, membership `Array`), `str_bytes` (str content as `Seq(u8)`) | ✅ verified (V5) |
+| Fixed-length `Array(T, N)` values — `a(i)` reads (`select`), `a(i) = v` index writes (an SSA rebind through `store`), `index-in-bounds` AoRTE obligations, and `ms_of(a)` (the array's elements as a ghost Multiset — what `permutation` specs are made of) | ✅ verified (V5 task 6) |
 | Ghost code (`ghost`/`ghost_fn` erasure) | ✅ verified (V5 task 3) |
 | Traits/generics across boundaries, `Refine` | V6 |
 | `object`/heap, string content, floats, effects, `unsafe`, FFI | outside the subset |
@@ -150,6 +151,19 @@ current value while `old(v)` keeps reading the entry snapshot.
 The exact-width bitvector model means **wraparound is real**: a spec
 that lets arithmetic overflow will be honestly refuted, so fixtures
 carry the bounds their arithmetic needs.
+A fixed-length `Array(T, N)` value is a **BV64-indexed SMT array**:
+`a(i)` reads `select(a, i)` (the index zero-extended to 64 bits), and an
+index write `a(i) = v` REBINDS the name to `store(a, i, v)` — value
+semantics, the same SSA discipline as every other `=`. Reads and writes
+at runtime positions carry `index-in-bounds` AoRTE obligations
+(`i u< N`, from the compile-time length); reads inside a quantifier body
+do not — there the spec's own guards carry the bounds. `ms_of(a)` folds
+the array's N elements into a ghost Multiset (elem→count), so
+`permutation(s, old(s))` is `forall(x, ms_count(ms_of(s), x) ==
+ms_count(ms_of(old(s)), x))` — plain array congruence once N unrolls.
+The V5 exit fixture — an in-place insertion sort over `Array(i64, 8)`
+proving sortedness AND the permutation through those two quantified
+invariants — is `tests/spec/fixtures/valid/spec_insertion_sort.yo`.
 
 ## The solver
 
