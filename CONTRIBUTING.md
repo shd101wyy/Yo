@@ -20,11 +20,18 @@ $ direnv allow . # Run this command to activate the nix shell.
                  # You only need to run it once.
 ```
 
-There is no package-manager install step. The only vendored dependencies are git
-submodules:
+The only vendored dependency is `vendor/mimalloc`, a git submodule:
 
 ```bash
 $ git submodule update --init --recursive
+```
+
+The compiler's one Yo dependency, `markdown_yo` (the Markdown renderer behind
+`yo doc --format html`), is declared in the repo-root `yo.toml` and fetched by
+Yo's own package manager:
+
+```bash
+$ yo install
 ```
 
 Type-check the compiler sources (evaluator only, no codegen — this is the fast
