@@ -621,6 +621,14 @@ static void __yo_waker_wake_local(__yo_io_future_t* f) {
 
 // Hand a token to its owner loop and nudge that loop awake. The push is the
 // only shared write, and the CAS above it makes a repeated wake free.
+//
+// INVARIANT, and it is not obvious from this file: __yo_io_notify MUST NOT be
+// called while holding owner->lock. The Linux backend's notify takes that same
+// mutex to close a TOCTOU against __yo_io_cleanup closing the eventfd, and the
+// mutex is not recursive — so moving the notify below up into the locked
+// section, which reads as an obvious tidy-up, deadlocks every Linux program
+// that uses a cross-thread wake, and nothing else. Both call sites in this
+// function are deliberately outside the lock.
 static void __yo_waker_post(__yo_waker_token_t* t) {
   __yo_loop_t* owner = t->owner;
   int expected = 0;
