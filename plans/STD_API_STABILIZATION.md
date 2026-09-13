@@ -145,7 +145,8 @@ resumes on rather than the value it gets: measured by emitted-C A/B, the value
 arrives either way and only the thread identity flips.
 
 What is left is `spawn_blocking` itself, and it is not blocked on the runtime
-any more — it is blocked on a compiler defect. It is
+any more — it is blocked on a compiler defect, which as of 2026-09-13 is
+ROOT-CAUSED rather than merely reproduced (see the note after this paragraph). It is
 `fn(generic(T), own(cb) : Impl(Fn() -> T, Send), io) -> Impl(Future(T, Io))`,
 and the closure-param form of that shape emits its async block ONCE for every
 instantiation, so it works for one `T` per program and silently miscompiles the
@@ -155,6 +156,36 @@ written, eager, measured working end to end, and left unexported with the reason
 in its doc comment; its tests are parked at
 `issues/repros/spawn-blocking-tests.yo`. `std/net/dns.yo` still names
 `spawn_blocking` as the reason `lookup_host` blocks.
+
+**Root cause, measured 2026-09-13.** The defect is not a clobber and not a
+race: it is **one forall binder with no per-call identity**, read through two
+channels that disagree. A generic `wrap(generic(R), f : Impl(Fn() -> R), io)
+-> Impl(Future(R))` has ONE `R` SomeT id for every instantiation (the
+declaration is evaluated once), so `register_some_resolved_concrete` against it
+is last-write-wins, while the SomeT's own per-object `resolved_concrete` cell —
+which `resolve_some_type_to_concrete` consults FIRST — trails that registry by
+one call. The emitted C then takes whichever wrong answer its reader happened to
+consult: the first async generation is never re-registered at all (at the first
+call `R` is still abstract and the `has_some == 0` gate rejects it) so it gets
+the registry's LAST write, while later generations get their own cell, one call
+stale.
+
+Two plausible fixes were disproven on the way and are kept in the issue doc:
+the two wrapper bridges in `_evaluate_funcval_runtime_call` DO copy a stale
+value, but guarding them leaves the emitted C byte-identical; and the io.async
+stamp in the `rt` arm is never reached for this shape.
+
+The fix is therefore structural — per-call identity for a user generic callee's
+forall binders, which is what `_freshen_io_builtin_callee` already does for
+io.async's own `T`/`E`, and what the one working shape (the method-call form)
+gets for free by reading the SPECIALIZATION's own freshly-cloned body. The
+surgery has to happen upstream of parameter binding, where the callee type is
+first taken, so it is a scoped follow-up rather than a guard.
+
+The measurement that made this visible is worth reusing: extending the
+reproducer from TWO instantiations to **three**. At n = 2 a lag, a swap and a
+reversal are the same permutation and no probe can separate them; at n = 3 they
+disagree. `issues/repros/generic-future-return-three-t-closure-param.yo`.
 
 ### One more, outside this document's scope but tracked with it
 
