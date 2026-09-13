@@ -304,6 +304,59 @@ and so does a correct bridge reading a registry that is one stamp behind. The
 question to answer next is therefore **ordering**, not keying: which of the
 stamp sites runs after the read that consumes it.
 
+### DISPROVEN 2026-09-13: the two wrapper bridges are a stale WRITE, not the cause
+
+The lag pointed straight at `_evaluate_funcval_runtime_call`'s post-specialization
+re-bridge, and instrumenting it looked damning. At all three calls
+`resolved_ret` is **correct** — `Future(i32)`, `Future(Pair)`, `Future(Trip)` —
+while `rb_binfo.ty`, the stamp on the specialization's own body expr, reads
+`Future(i32)`, `Future(i32)`, `Future(Pair)`: lagged by one, and
+`_with_resolved_concrete` then overwrites the correct value with it. So the
+comment above that bridge ("the spec's body is a fresh-id clone with its own
+stamp") is FALSE for this shape — the clone shares the original's body expr id,
+and the stamp is written after the bridge reads it.
+
+That write is genuinely stale. **It is also inert here**, which is the part that
+matters. Guarding BOTH bridges — skip when the call already resolved a concrete
+future output, so the bridge can only supply what is missing and never contradict
+what is present — produces emitted C that is **identical** for the three-T
+reproducer: prototypes still `[T2, T0, T1]`, definitions still `[T1, T0, T1]`,
+same 9 C errors. `check ./src` 275/275 and `check ./std` 175/175 stay green and
+both known-good shapes still pass, so the guard is harmless; it is simply not a
+fix, and it was reverted rather than landed on the strength of a plausible story.
+
+**What codegen actually reads.** The closure generations are separate FuncVals
+with distinct func_ids (`closure_yo_id_<fid>000000/1/2` — the generation suffix
+is part of the id), so `function_c_name` gives each its own C name, and the
+return type in the PROTOTYPE comes from that fid's REGISTERED `Func` type. The
+io.async stamp reads the same place:
+
+```yo
+.FuncVal(__fvd2, _) => match(
+  get_func_type(__fvd2.*.func_id),
+  .Func({ result : rr }) => if(!(is_some_type(rr)), {
+    register_some_resolved_concrete(oid.clone(), rr.clone());
+  }),
+```
+
+— it takes the closure's registered result and publishes it as the future
+OUTPUT's concrete under the freshened output id `oid`, which is what every
+`io.await` then resolves through. So the prototype, the body's local temp and
+the state machine's `result` field all descend from **one** value, which is why
+all three lag together instead of disagreeing three different ways. Any fix that
+does not correct that registration is patching a downstream copy.
+
+**The question left is two-valued**, and one probe at that stamp site settles it:
+
+1. the REGISTRATION lags — generation *k*'s fid is registered with `T(k-1)`; or
+2. the READ is of the wrong generation — call *k* reaches `get_func_type` with
+   generation *k-1*'s fid.
+
+(2) is not idle: yo-self mints a per-reference FuncVal GENERATION with a fresh
+func_id on re-evaluation, so a call holding the FuncVal it evaluated BEFORE the
+newest mint would produce exactly this. Against it: the emitted C pairs every
+generation with the correct `f` closure, so the argument side is not stale.
+
 ### What to try next, and the obstacle each candidate hits
 
 Not another name-based special case — that is what the first cut of the
