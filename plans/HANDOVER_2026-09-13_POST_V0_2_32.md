@@ -90,7 +90,41 @@ Paste that into the release body. **Hazard, learned the hard way:** a body-only
 Then archive the notes file to `plans/archive/` with a closing banner, per
 `plans/README.md`.
 
-### 3.3 If the release run FAILED
+### 3.3 FIRST THING TO CHECK: the seed-bump battery
+
+**v0.2.32 published successfully (13 assets, `SEED_VERSION` bumped to `v0.2.32`
+in all three workflows by `6943c89af`), and the release notes are pasted into
+the release body. But the run that validates v0.2.32 AS A SEED was still in
+flight when both agents stopped.**
+
+Run **`34745371233`** on **`6943c89af`** — a real battery, 18 jobs, 0 skipped.
+It is the first battery in which every self-building job bootstraps from the
+v0.2.32 bundle instead of v0.2.31. **Check its verdict before anything else.**
+
+Why this one deserves a named check rather than trust: a seed run cannot be
+fixed by fixing the compiler. The seed is the PREVIOUS release's binary, so
+today's fixes and today's flags are absent from it — if the tree now needs
+something only a newer compiler emits, the seed-built stage fails and no change
+to `src/` repairs it. The class also hides from ordinary gates: green codegen
+suites and a holding fixpoint said nothing about the v0.2.30 gen-1 binary
+crashing in `fetch_package`, because that crash was in the compiler's own
+compiled-in runtime on a path no suite drove.
+
+This release is more exposed to that than usual, because **#638 rewrote the
+emitted Windows async I/O runtime** and an emitted-runtime change is carried by
+every binary the new compiler emits immediately — see the rule in §6.
+
+If it is red: read which job, and check WHICH BINARY produced the failure
+before theorising. `plans/backlog/SEED_VERSION_AUTOMATION.md` documents the
+generation A/B split for changes that cannot land in the same release as the
+builtin they depend on.
+
+A second run, `34745479809` on `b22f3f9d7`, was queued behind it — that one is
+the docs-only merge of this handover and takes the fast path, so it proves
+nothing. Do not read its green as the seed's verdict. (develop pushes QUEUE
+rather than cancel, so it did not supersede the real battery.)
+
+### 3.4 If the release run FAILED
 
 Do not re-dispatch with `bump=patch` blindly. `release.yml` takes
 `bump: none`, which **RESUMES** an interrupted release at the version already
