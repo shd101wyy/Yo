@@ -90,7 +90,7 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 **Platform implementations:**
 
 - **Linux**: `io_uring` — per-thread event loop submits SQEs and processes CQEs
-- **macOS**: `kqueue` — per-thread event loop registers interest via `kevent()` and polls for completions. Regular file I/O uses synchronous `pread`/`pwrite` (fast on macOS with unified buffer cache); pipes and sockets use non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications.
+- **macOS**: `kqueue` — per-thread event loop registers interest via `kevent()` and polls for completions. Regular file I/O uses synchronous `pread`/`pwrite` (fast on macOS with unified buffer cache); pipes and sockets use non-blocking I/O with `EVFILT_READ`/`EVFILT_WRITE` readiness notifications. kqueue keeps **one knote per (ident, filter)** — a second `EV_ADD` for the same pair UPDATES the knote (replacing its `udata`) instead of adding one — so the knote's `udata` is a per-(fd, filter) **registration** (`__yo_io_registration_t`) owning a FIFO waiter list of pending ops, never a single operation's context; delivery services waiters until one would-blocks, then re-arms the one-shot knote. Closes must purge an fd's registrations (`__yo_kq_drop_fd`, reached from the async close and from `__yo_file_close` through `__yo_kq_close_hook` — the sys runtime is emitted for every program, so it cannot name kqueue symbols directly) so waiters fail with `-EBADF` and a reused fd number cannot collide with a stale registration (`issues/fixed/macos-kqueue-concurrent-ops-on-one-fd-orphan-the-earlier-pending-op.md`).
 - **Windows**: IOCP — per-thread `GetQueuedCompletionStatus` with `NumberOfConcurrentThreads = 1`
 
 **Implications for runtime code:**

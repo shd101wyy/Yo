@@ -19,4 +19,19 @@ timeout=900
 # (`1 total (<TIME>)`) and the self-hosted one does not. That is a cosmetic
 # formatting divergence, not what this case is about — `N passed` already
 # asserts the scaffolded suite ran and succeeded.
-stdout_keep=^(Test Summary|[0-9]+ passed|[0-9]+ failed|Error|error:)
+#
+# The third command is the same idea one step further: the scaffold must also
+# be FORMATTED the way `yo fmt` formats, not merely compile. It was not —
+# measured 2026-09-13, a fresh `yo init` failed its own `yo fmt --check` on
+# FOUR files (build.yo, src/lib.yo and both test files: `{ name: ...}` wanting
+# spaces around the `:`, a redundant paren pair in each `assert`, parens around
+# `a + b`, and a blank line fmt removes). A new project cannot be handed to
+# someone whose first commit trips the repo's own formatting gate. `fmt
+# --check` prints NOTHING when clean, so rc carries the assertion and
+# `stdout_keep` keeps its complaint header only so a regression names the files
+# instead of showing a bare rc=1.
+# `^\$ yo ` keeps the harness's own command echo, so the golden records WHICH
+# commands ran. Without it the kept stdout is identical whether or not the
+# `fmt --check` line is present, and deleting it would leave the case passing
+# while asserting less — the golden would not notice.
+stdout_keep=^(\$ yo |Test Summary|[0-9]+ passed|[0-9]+ failed|Error|error:|The following Yo files need formatting)

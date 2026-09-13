@@ -1039,7 +1039,7 @@ typedef struct __yo_getdents_stream {
   DIR* dir;
   struct __yo_getdents_stream* next;
 } __yo_getdents_stream_t;
-static __yo_getdents_stream_t* __yo_getdents_streams = NULL;
+static _Thread_local __yo_getdents_stream_t* __yo_getdents_streams = NULL;
 
 static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
@@ -1478,11 +1478,35 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
     int emitted = 0;
     __yo_fs_event_entry_t* next_entries = __yo_fs_event_snapshot_dir(handle->path, &snap_err);
     if (snap_err != 0) {
-      if (snap_err == ENOENT && handle->callback && handle->active) {
+      // The directory vanished. Report the deletion ONCE — keyed on
+      // handle->exists like the file branch below — not on every tick the
+      // opendir keeps failing, which turned a deleted watch into a rename
+      // event every ~10 ms forever. Release the stale snapshot so a
+      // recreated directory starts a clean diff (its entries report as
+      // creations).
+      if (snap_err == ENOENT) {
+        if (handle->exists) {
+          handle->exists = 0;
+          __yo_fs_event_free_entries(handle->entries);
+          handle->entries = NULL;
+          if (handle->callback && handle->active) {
+            handle->callback("", 1, handle->user_data);
+            emitted++;
+          }
+        }
+      }
+      return emitted;
+    }
+    if (!handle->exists) {
+      // The directory came back between ticks: report the recreation (the
+      // rename class, like the file branch's reappear) and re-arm the
+      // snapshot — the entries below diff against a clean slate, so a
+      // recreated non-empty directory also reports its entries as created.
+      handle->exists = 1;
+      if (handle->callback && handle->active) {
         handle->callback("", 1, handle->user_data);
         emitted++;
       }
-      return emitted;
     }
 
     __yo_fs_event_entry_t* ne = next_entries;
