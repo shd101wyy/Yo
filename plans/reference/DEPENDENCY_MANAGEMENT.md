@@ -4,7 +4,7 @@
 > designs — `build.dependency({ url, ref })` / `build.path_dependency({…})`
 > in `build.yo`, `deps.yo`, `add_import`, `yo fetch`, `yo install <spec>`,
 > §1.1, §1.4, §4, §8–§11 — was replaced by the `yo.toml` manifest of
-> `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` §4.1–§4.5 (landed on
+> `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` §4.1–§4.5 (landed on
 > `p1/yo-toml-manifest`: `src/manifest.yo`, `src/toml_edit.yo`,
 > `src/install_command.yo`; user docs in `docs/*/BUILD_SYSTEM.md`
 > "Dependencies"). What remains accurate here is the FETCH half — §1.3 the

@@ -10,7 +10,7 @@
 > and this banner.
 
 This release is the **build and dependency system redesign**
-(`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`, P1 complete): `yo.toml` is
+(`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`, P1 complete): `yo.toml` is
 now the package manifest, dependency resolution is a real semver resolver over
 a content-addressed store, and `import("<dep>")` resolves. Alongside it: four
 evaluator/codegen correctness fixes, the verifier's V5 ghost-specification row,

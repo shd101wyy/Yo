@@ -18,7 +18,7 @@ behind a merge freeze that lifts when the release publishes.
 | `AGENTS.md` § "CI runs: cancelling, freezing, and what a battery actually covers" | three rules that WILL bite you; they landed today and each one fired once |
 | `plans/STD_API_STABILIZATION.md` § 0 | the campaign's state; §0 names the single remaining item |
 | `issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md` | the remaining item's root cause, plus three disproven hypotheses |
-| `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` | the other active plan; P1 landed, §4.5.2–§4.5.4 next |
+| `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` | the other active plan; P1 landed, §4.5.2–§4.5.4 next |
 
 ---
 
@@ -171,8 +171,8 @@ develop's `SEED_VERSION` and the release list, so they will notice the bump
 without a ping — but ping anyway, it is faster.
 
 **They are being handed over at the same time as me**, and they wrote their own
-handover: `plans/HANDOVER_UNVENDOR_MARKDOWN_2026-09-13.md`, parked on
-`plans/handover-unvendor`. **Read both.** The split: this file is authoritative
+handover: `plans/archive/HANDOVER_UNVENDOR_MARKDOWN_2026-09-13.md` (archived
+2026-09-13 once #654 landed and it was discharged). **Read both.** The split: this file is authoritative
 on the release and the std campaign; theirs is authoritative on the build and
 dependency redesign and on #654, and carries the resume procedure as
 copy-pasteable commands plus the measurements behind the seed bump. The merge
@@ -328,7 +328,7 @@ invisible.
   on kqueue and io_uring, so a defect in neither backend. Tracked with the std
   campaign but outside its scope.
 
-- **`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`** — P0 and P1.1–P1.4b
+- **`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`** — P0 and P1.1–P1.4b
   landed; next is `build.manifest` and §4.5.2–§4.5.4. Note the seed-gate
   subtlety already recorded in AGENTS.md: a module-level `::` VALUE binding in
   `std/build.yo` breaks the whole module under an older seed, but a FUNCTION
