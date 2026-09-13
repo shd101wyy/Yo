@@ -1,10 +1,30 @@
 # Build system & dependency system — audit and redesign plan
 
-_Status: **COMPLETE (2026-09-13)** — P0, P1, P2 (§5.1, §5.2, §5.4) and P3
-(§4.6, §4.8, §4.9) have all landed, and the dogfooding milestone with them:
-`vendor/markdown_yo` is un-vendored and the compiler resolves it through its
-own package manager. P4 (registry, `yo publish`) is designed and deliberately
-not scheduled; §4.10 records its shape._
+> **ARCHIVED 2026-09-13 — LANDED, every phase delivered.** P0, P1, P2 (§5.1,
+> §5.2, §5.4) and P3 (§4.6, §4.8, §4.9) all shipped, and the dogfooding
+> milestone closed the campaign: `vendor/markdown_yo` stopped being a
+> submodule and the compiler now resolves the Markdown renderer through Yo's
+> own package manager (PR #654, merged on the v0.2.32 seed — the first seed
+> that understands `yo.toml`). The five audit issues and every compiler bug
+> the campaign surfaced are fixed; none is left open.
+>
+> **Deliberately deferred, and NOT unfinished work** — each is recorded in the
+> body of this document, and none of them blocked archiving: on-demand fetch
+> for `check`/`compile`/`test` (§4.5 — import-root resolution is synchronous
+> and pre-`Io`, and making it fetch would put the LSP on the network, so it
+> needs its own plan); §5.3 `build.fetch({ url, sha256 })` as a fixed-output
+> step ("later, if needed" — `comptime_fetch` stays a hard NO); the §4.6
+> workspace items left out (`{ workspace = true }` inheritance, one shared
+> root lock); the §4.2 two-majors relaxation (needs the import namespace to
+> stop being flat first); `[patch]` / `[replace]`; and P4 / §4.10, the static
+> registry index and `yo publish`, which is designed and explicitly
+> unscheduled. The `markdown_yo` pin is by `rev` rather than a semver range
+> because the commit that compiles against the current language carries no
+> release tag — moving to a range needs a cross-repo publish.
+>
+> Historical numbers below are frozen at their writing dates. The handover
+> that drove the last item is
+> `plans/archive/HANDOVER_UNVENDOR_MARKDOWN_2026-09-13.md`, in this archive.
 
 _Proposed 2026-09-11, revised the same day after maintainer review — the
 manifest is **declarative data read without the evaluator**; after weighing

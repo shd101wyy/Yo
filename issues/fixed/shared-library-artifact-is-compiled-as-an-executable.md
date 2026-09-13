@@ -10,7 +10,7 @@ rejection, cli-case `build-shared-library-unsupported` — is replaced by
 cli-case `build-shared-library`, which builds the library, links it into a
 program and asserts the program's own output.
 **Found:** 2026-09-11, auditing the build system
-(`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with `yo 0.2.30`.
+(`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with `yo 0.2.30`.
 **Severity:** medium — the artifact kind is advertised in `std/build.yo`,
 `docs/*/BUILD_SYSTEM.md` ("compile with `-shared -fPIC` and produce `.so`/
 `.dylib`/`.dll`") and the `yo init` docs, and cannot produce anything.
@@ -49,5 +49,5 @@ Either implement it — a `--shared-library` compile mode that reuses the
 static-library emission (plain exported names, static-ised runtime, no `main`)
 and links with `-shared -fPIC` into `lib<name>.{so,dylib,dll}` — or remove
 `SharedLibrary`/`StepKind.SharedLibrary` from `std/build.yo` and the docs until
-it exists. `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` proposes the former
+it exists. `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` proposes the former
 in Phase B (artifact kinds), gated by a cli-case that `dlopen`s the result.
