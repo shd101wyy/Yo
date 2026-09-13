@@ -329,12 +329,25 @@ yo version clean      # Remove all cached versions
   gh run cancel <id>   # for each run whose branch is not in that list
   ```
 
-  **KEEP**: every open PR's runs, and the NEWEST `develop` run. **CANCEL**: runs
-  on branches with no open PR (i.e. merged or abandoned), and older `develop`
-  runs once a newer tip has queued. When in doubt about someone else's branch,
-  leave it — the cost of one extra run is small next to cancelling work a
-  teammate is waiting on. Cancellation is asynchronous, so a job may still read
-  `in_progress` for a minute afterwards; re-list rather than cancelling twice.
+  **KEEP**: every open PR's runs, and the newest `develop` run that is actually
+  RUNNING THE BATTERY. **CANCEL**: runs on branches with no open PR (i.e. merged
+  or abandoned), and older `develop` runs superseded by a newer tip that runs the
+  battery.
+
+  **The trap, walked into within minutes of writing this rule:** a docs-only tip
+  takes the fast path and SKIPS 15 of 18 jobs, then reports `success`. If you
+  cancel the older `develop` run because a newer tip queued, and that newer tip
+  is docs-only, you have destroyed the only real verification of the code and
+  replaced it with a green tick that compiled nothing. Check before cancelling —
+  `gh run view <newer-id> --json jobs --jq '[.jobs[]|select(.conclusion=="skipped")]|length'`
+  returning 15 means it is the fast path, so KEEP the older run. If it is already
+  cancelled, `gh run rerun <older-id>` gets it back: a docs-only tip is
+  code-identical to its parent, so the parent's battery is the valid verdict.
+
+  When in doubt about someone else's branch, leave it — the cost of one extra
+  run is small next to cancelling work a teammate is waiting on. Cancellation is
+  asynchronous, so a job may still read `in_progress` for a minute afterwards;
+  re-list rather than cancelling twice.
 - **Always run `yo fmt <file.yo>` on every `.yo` file you create or modify, before committing.** Use `yo fmt --check` to verify. Do not commit unformatted `.yo` files. (There is no pre-commit hook any more — `.husky/` went with the node toolchain, so this is on you.)
 - Always check if there is need to create/update existing instructions & rules & skill files, design/plan docs after implementing a change.
 - **Whenever you learn something new about Yo syntax, semantics, or common pitfalls — especially from trial and error — immediately update the relevant skill files** (`.github/skills/yo-syntax/syntax-cheatsheet.md`, `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`, etc.) **and instruction files** (`.github/instructions/yo-syntax.instructions.md`, `.github/instructions/yo-design.instructions.md`). This keeps the institutional knowledge accurate for future sessions.
