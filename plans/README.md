@@ -22,10 +22,14 @@ writing dates — the banner is the authoritative summary.
 Active work (root) — **9 docs, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
-- [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — the live std
-  campaign. **All eleven §2 decisions (D9–D19) are LANDED**; §4 (P1 batteries
-  per module group) and §5 (maintainer decisions: `imm`/`Vec` structure,
-  `MemoryOrder.Consume`, HashMap random keys) remain. Raw per-module findings:
+- [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — **COMPLETE
+  2026-09-13**, kept in the root only until its ~50 inbound references are
+  swept to `archive/`. All eleven §2 decisions (D9–D19) landed, §4's P1
+  batteries are in, and §5's three maintainer decisions are made AND
+  implemented. The last open item was `spawn_blocking`, exported once the
+  four-layer compiler defect behind it was fixed. Rows still reading "blocked"
+  are blocked on their own language-feature plan docs, not on this one. Raw
+  per-module findings:
   [`STD_API_STABILIZATION_FINDINGS.md`](STD_API_STABILIZATION_FINDINGS.md).
 - [`HANDOVER_STD_AUDIT_2026-09-07.md`](HANDOVER_STD_AUDIT_2026-09-07.md) — the
   live handover: the PR stack and its verified merge order, what is still open

@@ -140,22 +140,30 @@ blamed:
 2026-09-13.** The runtime landed 2026-09-12 (#628); `spawn_blocking` is now
 exported, with `tests/spawn_blocking.test.yo` live from its parked reproducer.
 
-> **The compiler defect it waited on was THREE layers, not one**
+> **The compiler defect it waited on was FOUR layers, not one**
 > (`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`):
 > a forall binder with no per-call identity; a prototype/definition return-type
-> asymmetry the first layer had been hiding; and — the one that actually gated
-> `spawn_blocking` — minting the per-call binder **per NAME**, which collapses
-> the callee's `T` with the prelude `Future(T, E)`'s `T` riding along inside a
-> re-evaluated `Impl(Future(i32) Io)`.
+> asymmetry the first layer had been hiding; minting the per-call binder **per
+> NAME**, which collapses the callee's `T` with the prelude `Future(T, E)`'s `T`
+> riding along inside a re-evaluated `Impl(Future(i32) Io)`; and gating the
+> freshening on the callee's SHAPE, which also matches every iterator/stream
+> combinator (`map`, `filter`: `fn(generic(B), f : Impl(Fn(A) -> B)) ->
+> Stream(B)`) and breaks them.
 >
-> That third layer is the one worth remembering. Every reproducer exercising
+> Two of those are worth remembering here. Layer 3: every reproducer exercising
 > the closure-param path named its binder `R`, so seven shapes, ten async test
 > files,
 > `check ./src` 275/275 and `check ./std` 175/175 were ALL green while
 > `spawn_blocking` — declared `generic(T)` — still miscompiled. Renaming its
-> binder to `RB`, changing nothing else, made it compile and run; that single
-> measurement is what found the layer. **A test suite that shares a naming
-> convention cannot see a name-sensitivity bug.**
+> binder to `RB`, changing nothing else, made it compile and run. **A test suite
+> that shares a naming convention cannot see a name-sensitivity bug.**
+>
+> Layer 4: all of the above was green again while `tests/async/channel.test.yo`
+> was broken (18/18 under the v0.2.32 seed, fails to compile with the
+> shape-keyed gate). `check ./src` and `check ./std` are evaluator-only — a
+> filter, not a gate — and a hand-picked set of async test files is the same
+> mistake with a bigger number. **For a dispatch or codegen change the gate is
+> the FULL fast suite**: 4206 passed, 0 failed, 271 files.
 
 Each event loop owns one explicitly locked inbox plus a wakeup channel into its
 own I/O backend (`EVFILT_USER` on kqueue, an eventfd with a re-armed `POLL_ADD`
