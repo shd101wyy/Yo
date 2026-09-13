@@ -13,6 +13,7 @@ import("std/fmt");
 { timeout } :: import("std/async");
 { Duration } :: import("std/time/duration");
 { ArrayList } :: import("std/collections/array_list");
+{ platform, Platform } :: import("std/process");
 { sleep } :: import("std/sys/timer");
 file :: import("std/sys/file");
 dir :: import("std/sys/dir");
@@ -226,4 +227,74 @@ test("a Watcher is a Stream: map + take collects one event name", {
   });
   w.close();
   _unlink(target, io);
+});
+
+test("a recursive watch keeps reporting subdirectory changes after the first batch", {
+  // The Windows backend's re-arm in __yo_poll_and_fs_event_tick hard-coded
+  // WatchSubtree = FALSE, so a recursive watch asked for less than the
+  // caller requested from its SECOND ReadDirectoryChangesW on
+  // (issues/fixed/windows-fs-watch-rearm-drops-recursive-flag.md). Round 1
+  // forces one delivered batch — the re-arm happens exactly there — and
+  // round 2 changes only a SUBDIRECTORY entry. Windows' kernel currently
+  // keeps the first arm's scope on the handle, which masks the narrowed
+  // re-arm; this pins the contract for a kernel that honors per-request
+  // scope. Linux inotify is single-directory and macOS uses a per-directory
+  // snapshot diff, so recursive is documented best-effort there and only the
+  // root round is asserted on those platforms.
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  d := temp_dir();
+  sub := path_join(d, `yo_watch_sub`);
+  io.await(dir.mkdir(AT_FDCWD, sub.to_cstr().ptr().unwrap(), i32(0o755)), io);
+  root_target := path_join(d, `yo_watch_recur_root.txt`);
+  sub_target := path_join(sub, `yo_watch_recur_child.txt`);
+  _unlink(root_target, io);
+  _unlink(sub_target, io);
+
+  w := watch(Path.new(d), WatchOptions(recursive : true), t_exn);
+  assert(w.is_active(), "recursive watch started");
+
+  _touch(root_target, String.from("one"), io);
+  io.await(sleep(u64(250)), io);
+  (saw_root : bool) = false;
+  cur := w.poll();
+  while(cur.is_some(), {
+    e := cur.unwrap();
+    if(e.name == String.from("yo_watch_recur_root.txt"), {
+      saw_root = true;
+    });
+    cur = w.poll();
+  });
+  assert(saw_root, "the root-file event was delivered");
+
+  _touch(sub_target, String.from("two"), io);
+  io.await(sleep(u64(250)), io);
+  (saw_child : bool) = false;
+  cur = w.poll();
+  while(cur.is_some(), {
+    e := cur.unwrap();
+    if(e.name == path_join(String.from("yo_watch_sub"), String.from("yo_watch_recur_child.txt")), {
+      saw_child = true;
+    });
+    cur = w.poll();
+  });
+  cond(
+    (platform == Platform.Windows) => {
+      assert(
+        saw_child,
+        "the subdirectory event was delivered under a recursive watch after a first batch had been re-armed"
+      );
+    },
+    true => ()
+  );
+
+  w.close();
+  _unlink(sub_target, io);
+  _unlink(root_target, io);
 });

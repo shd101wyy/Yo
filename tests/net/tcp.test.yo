@@ -15,6 +15,8 @@ pragma(Pragma.AllowUnsafe);
 { Stream } :: import("std/async/stream");
 { timeout } :: import("std/async");
 { Duration } :: import("std/time/duration");
+{ sleep } :: import("std/sys/timer");
+{ Instant } :: import("std/time/instant");
 // ============================================================================
 // TcpListener tests
 // ============================================================================
@@ -253,6 +255,57 @@ test("TCP read_to_end gets all data", {
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("IPv6 loopback connect round-trip", {
+  // The only IPv6 CLIENT connect in the suite. Windows routes stream connects
+  // through ConnectEx, gated on the socket's own family — and that gate has to
+  // read a property that exists on an UNBOUND socket, which is what a fresh
+  // client is. A probe that falls back to AF_INET (getsockname fails with
+  // WSAEINVAL before bind) wildcard-binds an AF_INET6 client with a sockaddr_in
+  // and then answers WSAEINVAL, breaking every v6 connect with nothing here to
+  // notice: issues/fixed/windows-blocking-connect-parks-the-event-loop.md.
+  // On a host with no IPv6 loopback the bind throws and the test skips.
+  v6_loopback := Array(u16, usize(8)).fill(u16(0));
+  v6_loopback(usize(7)) = u16(1);
+  // ::1
+  skip_exn := Exception(
+    throw : (
+      err -> {
+        unsafe(printf("  no IPv6 loopback on this host — skipped\n"));
+        unwind(());
+      }
+    )
+  );
+  listener := io.await(
+    TcpListener.bind(SocketAddr.new(IpAddr.V6(v6_loopback), u16(0)), io),
+    IoExn(io : io, exn : skip_exn)
+  );
+  // Past the bind the host demonstrably has IPv6: every failure below is real.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  port := listener.local_addr().port;
+  assert(port != u16(0), "v6 ephemeral bind must report a real port");
+  client := io.await(TcpStream.connect(SocketAddr.new(IpAddr.V6(v6_loopback), port), io), e);
+  server_stream := io.await(listener.accept(io), e);
+  n := io.await(client.write_str("v6!", io), e);
+  assert(n == usize(3), "should send 3 bytes over IPv6");
+  recv_buf := (*u8)(malloc(usize(16)).unwrap());
+  nr := io.await(server_stream.read(recv_buf, usize(16), io), e);
+  assert(nr == usize(3), "should receive 3 bytes over IPv6");
+  assert((recv_buf.add(usize(0))).* == u8(118), "v");
+  assert((recv_buf.add(usize(1))).* == u8(54), "6");
+  assert((recv_buf.add(usize(2))).* == u8(33), "!");
+  free(.Some((*void)(recv_buf)));
+  io.await(server_stream.close(io), e);
+  io.await(client.close(io), e);
+  io.await(listener.close(io), e);
 });
 test("bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)", {
   // plans/archive/STD_API_AUDIT.md C2: _make_sockaddr used to map EVERY V6 address to
@@ -638,4 +691,52 @@ test("a consumer loop over incoming serves each connection in turn", {
   io.await(client1.close(io), IoExn(io : io, exn : exn));
   io.await(client2.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+
+test("connecting to a non-routable address does not park the event loop", {
+  // 192.0.2.1 is TEST-NET-1 (RFC 5737) — never deliverable, so the connect
+  // stays pending for the TCP SYN-retransmit window. The Windows backend
+  // used to issue the BLOCKING connect() on the loop thread: the 300 ms
+  // sleep below — a SEPARATE task, started after the connect was underway —
+  // could not run until that window expired, and measured ~21 s
+  // (issues/fixed/windows-blocking-connect-parks-the-event-loop.md; the
+  // accept() sibling of this hang was D6). ConnectEx is overlapped now,
+  // like send/recv; io_uring platforms were never parked, so this pins the
+  // shared shape. On a network that refuses TEST-NET immediately the
+  // connect resolves fast and the assert still passes, just less
+  // discriminatingly. The connect task is left un-awaited on purpose: the
+  // harness does not drain still-pending tasks at exit (a 30 s sleep task
+  // left un-awaited does not hold the binary), and awaiting it would bill
+  // this test the full retry window.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.new(IpAddr.V4(u8(192), u8(0), u8(2), u8(1)), u16(81));
+  h := io.spawn(
+    io.async((io : Io) => {
+      task_exn := Exception(
+        throw : (
+          err -> {
+            unwind(());
+          }
+        )
+      );
+      stream := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : task_exn));
+      io.await(stream.close(io), IoExn(io : io, exn : task_exn));
+      return(());
+    }),
+    io
+  );
+  started := Instant.now();
+  io.await(sleep(u64(300)), io);
+  (sleep_ms : i64) = started.elapsed().as_millis();
+  assert(
+    sleep_ms < i64(900),
+    `the 300 ms sleep took ${sleep_ms} ms — the loop was parked inside connect()`
+  );
 });
