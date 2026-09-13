@@ -1383,10 +1383,12 @@ _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
 /// preserved — only ids and resolution cells are fresh — so the by-name
 /// forall-label match in `try_to_call_function_with_arguments` and every
 /// by-name env lookup keep working.
-/// Collect every (name, frame_level) SITE in `t` at which a `SomeT` whose ID is
-/// in `want_ids` occurs, walking the way `_rre_binder_ids` does — into an
-/// `Impl`'s required traits and through the `Fn` / `Future` members that carry
-/// a binder.
+/// Collect every SITE — `(name, frame_level, id, the SomeT itself)` — at which
+/// one of `forall_names` occurs in `t`, walking the way `_rre_binder_ids` does:
+/// into an `Impl`'s required traits and through the `Fn` / `Future` trait
+/// members that carry a binder. Deduped on the TRIPLE, so two different ids
+/// sharing a (name, level) are both reported — `_gc_freshen_all_sites` needs to
+/// see that collision in order to refuse it.
 ///
 /// Why SITES and not just the binder list: `substitute` matches a `SomeT` by
 /// (name, frame_level), and a binder's occurrence inside a parameter's `Fn`
@@ -1396,16 +1398,15 @@ _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
 /// `wrap(generic(R), f : Impl(Fn() -> R), io) -> Impl(Future(R, Io))`, where
 /// the freshening fired at every call and the emitted C did not move.
 ///
-/// Why by **ID** and not by NAME, which is the same trap this file's
-/// `_rre_binder_ids` documents one screen up: the PRELUDE's own
-/// `Future(T, E)` declaration has binders named `T` and `E`, and they ride
-/// along inside a re-evaluated `Impl(Future(i32) Io)`. A name match therefore
-/// collects the prelude's binders as if they were this callee's, and freshening
-/// them makes the program's fate depend on what its type variable is CALLED.
-/// Measured 2026-09-13: with a name-keyed collector, `std/thread.yo`'s
-/// `spawn_blocking` — `generic(T)` — still miscompiled at a second `T`, and
-/// renaming its binder to `RB`, changing nothing else, made it compile and run.
-/// `T` is the most natural name there is, so this is not an edge case.
+/// Matching here is BY NAME, deliberately, and the id is carried alongside
+/// rather than used to select. Selecting by the ids on the callee's own
+/// `forall_types` was tried and is WRONG: those ids are not the ids of the
+/// binder's occurrences in the parameter and result types, and keying on them
+/// took five of the seven reproducer shapes from passing to failing
+/// (measured 2026-09-13). The name is what identifies the binder; the id is
+/// what keeps two same-named binders apart, and that job belongs to
+/// `_gc_freshen_all_sites`, which mints per id and skips an ambiguous
+/// (name, level).
 _gc_collect_binder_sites :: (
   fn(
     t : TypeValue,
