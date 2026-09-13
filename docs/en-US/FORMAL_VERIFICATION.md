@@ -102,7 +102,8 @@ runtime assert).
 | `for` loops (need the iterator/collection model) | later phases |
 | `forall`/`exists`/`==>` in contracts (ghost-only; SMT quantifiers, MBQI instantiation) | ✅ verified (V5) |
 | `inout` params — the reassignable two-state binding (`old(v)` reads the entry snapshot) | ✅ verified (V5) |
-| Ghost code (`ghost`/`ghost_fn` erasure), `std/spec` collections | V5 (remaining) |
+| `std/spec` ghost collections — Seq (`seq_unit`/`seq_append`/`seq_len`/`seq_nth`, SMT `Seq`), Multiset (`ms_single`/`ms_add`/`ms_count`, elem→count `Array`), Set (`set_single`/`set_add`/`set_contains`, membership `Array`), `str_bytes` (str content as `Seq(u8)`) | ✅ verified (V5) |
+| Ghost code (`ghost`/`ghost_fn` erasure) | ✅ verified (V5 task 3) |
 | Traits/generics across boundaries, `Refine` | V6 |
 | `object`/heap, string content, floats, effects, `unsafe`, FFI | outside the subset |
 

@@ -1,0 +1,16 @@
+// The std/spec ghost collections, Seq flavor (V5 task 5): seq_unit /
+// seq_append / seq_len / seq_nth chain inside ONE predicate expression —
+// the walk gives them the SMT Seq semantics; z3 proves the identities.
+pragma(Pragma.Verify);
+
+seq_len_two :: (
+  fn(
+    x : i32,
+    y : i32,
+    requires(x >= i32(0), y >= i32(0)),
+    ensures(seq_len(seq_append(seq_unit(x), seq_unit(y))) == i64(2))
+  ) -> (result : i32)
+)({
+  z := (x + y);
+  z
+});
