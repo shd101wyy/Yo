@@ -1,5 +1,17 @@
 # Handover — un-vendoring `vendor/markdown_yo` (the last item of the build/dependency redesign)
 
+> **ARCHIVED 2026-09-13 — DISCHARGED.** The one task it hands over, merging
+> #654, is done: `markdown_yo` is no longer a submodule and the compiler
+> resolves it through `yo.toml` / `yo.lock` and the content-addressed store.
+> The plan it completes was archived with it
+> (`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`), and §8's list of
+> deferrals is restated in that document's closing banner. One gap this
+> handover did not know about was found while executing it and fixed in the
+> same PR: `test.yml`'s `chunked-gate` job runs `compile src/main.yo` against
+> the checkout and had no `install-deps` step, so it would have been the one
+> job to hit §2.3's error. Kept as the record of how the milestone was
+> verified; the measurements in §4–§6 are still accurate.
+
 _Written 2026-09-13 by the session that built it, at the point where v0.2.32
 was published. **One task remains: merge #654.** Everything it depends on is
 verified and recorded below so you do not have to re-derive any of it._
@@ -21,7 +33,7 @@ authoritative on the build/dependency redesign and #654.
 
 ## 1. The one-paragraph version
 
-`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` is implemented and merged —
+`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` is implemented and merged —
 P0, P1, P2 (§5.1, §5.2, §5.4) and P3 (§4.6, §4.8, §4.9). **When #654 lands,
 every phase of the plan is delivered** — give it a closing banner and move it to
 `plans/archive/` per `plans/README.md`; §8 lists what it deliberately defers, and
@@ -79,7 +91,7 @@ cd /private/tmp/yo-unvendor          # existing worktree, branch dogfood/unvendo
 git fetch origin && git rebase origin/develop
 ```
 
-**Expect a conflict in `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` only if
+**Expect a conflict in `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` only if
 someone else edited the dogfooding-milestone section.** It has conflicted once
 already (against #659) and was resolved by MERGING both sides, not by taking
 one: #654's landed-state text plus #659's measurement. If it conflicts again,
@@ -292,7 +304,7 @@ machinery.
 
 | Thing | State |
 | --- | --- |
-| `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` | COMPLETE; banner and milestone section corrected by #659 |
+| `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` | COMPLETE; banner and milestone section corrected by #659 |
 | PR #654 `dogfood/unvendor-markdown` | OPEN, **draft**, rebased onto `0d8937636`, full battery green there, applies cleanly to `6907f4ee0` |
 | Branch `docs/only-build-fetches` (`75ea780e5`) | pushed, **no PR** — one AGENTS.md bullet |
 | Worktree `/private/tmp/yo-unvendor` | branch `dogfood/unvendor-markdown`, has a built binary under `yo-out/` |
@@ -307,7 +319,7 @@ Merged this session: #596 #601 #602 #605 #611 #615 #616 #618 #620 #624 #626
 
 ## 8. What remains in the plan after #654 — the complete list
 
-Once #654 merges, **every phase of `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`
+Once #654 merges, **every phase of `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`
 is delivered** and the plan should get a closing banner and move to
 `plans/archive/` per `plans/README.md`. Nothing below blocks that — each is a
 deliberate deferral recorded in the plan, not an unfinished piece of it. They

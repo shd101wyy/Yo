@@ -2,7 +2,7 @@
 
 **Status:** FIXED 2026-09-12. The lowering bugs behind the empty ref and the skipped fetch were fixed in #592 (`issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md`, `issues/fixed/async-chained-sibling-arm-second-await-binding-never-assigned.md`); the data-path hardening this stayed open for is moot on `p1/yo-toml-manifest`: `deps.yo` and `yo install <spec>` are gone, `yo add user/repo@v0.0.6` writes `{ git = "…", tag = "v0.0.6" }` into `yo.toml` through `toml_edit.yo` (the entry is data, re-parsed after the edit), and a git dependency's ref is decided by `install_command.yo`'s resolver from the manifest — there is no string-built `ref:` any more. The reproducer below is the PRE-manifest CLI and is kept as the record.
 **Found:** 2026-09-11, auditing the dependency subsystem
-(`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with the released
+(`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with the released
 `yo 0.2.30` on macOS and with a compiler built from `develop` (`94fae98f8`)
 by the 0.2.30 seed (so the lowering is the seed's — a gen-2 check is still owed).
 **Severity:** high — every git dependency added through the CLI is broken on

@@ -2,7 +2,7 @@
 
 **Status:** FIXED 2026-09-11 — in two halves. Runner half (#577): `compile_artifact` passes every linked static library, transitively, as `--extern <lib>.a`. Library half (`p0/static-library-exports`, stacked): the archive exported no symbols — `issues/fixed/static-library-exports-no-symbols.md`. Gate: cli-case `build-link-static` (the docs example, `yo build run` prints `7`, rc 0).
 **Found:** 2026-09-11, auditing the build system
-(`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with `yo 0.2.30` and
+(`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with `yo 0.2.30` and
 with a compiler built from `develop` (`94fae98f8`).
 **Severity:** high — the "Cross-Module Linking with `extern "Yo"`" section of
 `docs/en-US/BUILD_SYSTEM.md` is the flagship multi-artifact example and it fails

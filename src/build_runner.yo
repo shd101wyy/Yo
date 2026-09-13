@@ -306,7 +306,7 @@ _artifact_output_dir :: (
 // Import roots — the manifest's closure → the child compile's `--imports` file
 // ---------------------------------------------------------------------------
 /// The `name=/abs/root.yo` lines every artifact's compile receives as
-/// `--imports` (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.1): the
+/// `--imports` (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.1): the
 /// project's `[modules]`, each dependency's modules under its name and,
 /// transitively, the dependencies' own dependencies — the closure
 /// `manifest.resolve_import_roots` computes. One flat mapping for the whole
@@ -423,7 +423,7 @@ resolve_build_import_roots :: (
     ()
   })
 );
-/// The editor's view of the store (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+/// The editor's view of the store (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
 /// §4.4): `yo-out/deps/<name>` → the store tree of every git dependency the
 /// lock records, so a dependency's source can be opened by a stable path.
 /// Outputs, not inputs — the compile receives the absolute roots — and not
@@ -499,7 +499,7 @@ _names_a_symlink :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
 });
 /// The import closure of a DEPENDENCY package, keyed by its directory: the
 /// artifacts a dependency's own `build.yo` defines compile against ITS
-/// `yo.toml`, not ours (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2).
+/// `yo.toml`, not ours (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2).
 /// Filled by `_evaluate_dependency_builds`, read by `compile_artifact` through
 /// `_package_import_lines`.
 (g_dep_import_dirs : ArrayList(String)) = ArrayList(String).new();
@@ -831,7 +831,7 @@ _collect_linked_static_libs :: (
   out
 });
 /// The `-L`/`-l`/rpath flags for every SHARED library an artifact links,
-/// transitively (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.3). A
+/// transitively (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.3). A
 /// shared library is found by the loader at RUN time, so its directory travels
 /// with the program as an rpath — otherwise the program builds and then dies
 /// with "image not found". Windows resolves DLLs by directory, so it gets no
@@ -1126,7 +1126,7 @@ _entry_is_dir :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
   });
   false
 });
-// ── Workspaces (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.6) ────────
+// ── Workspaces (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.6) ────────
 /// Expand a workspace manifest's `members` patterns into member DIRECTORIES,
 /// sorted, deduplicated, each holding its own `yo.toml`.
 ///
@@ -1481,7 +1481,7 @@ _artifact_input_stamp :: (
 /// Read a `--emit-deps` depfile: one input path per line, blank lines ignored.
 /// An absent or empty file yields an EMPTY list, which is the caller's signal
 /// to fall back to the whole-tree walk
-/// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9).
+/// (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9).
 _read_depfile :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(String), IoExn)))(
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
@@ -2350,7 +2350,7 @@ _any_task_pending :: (fn(handles : ArrayList(JoinHandle(StepResult))) -> bool)({
   false
 });
 /// Run a batch of ready nodes CONCURRENTLY and collect their results in the
-/// batch's own order (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.8). Each
+/// batch's own order (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.8). Each
 /// node is a task; the compile/test/run children they spawn are what actually
 /// overlap. A task that unwinds is recorded as a failure rather than losing
 /// the node.

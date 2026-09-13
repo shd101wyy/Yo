@@ -2,7 +2,7 @@
 
 **Status:** FIXED 2026-09-12 (`p1/yo-toml-manifest`, plans §4.1/§4.5.1). Dependencies are declared in `yo.toml` (`src/manifest.yo`), and `import("name")` / `import("name/sub")` resolve through the manifest's closure in EVERY command — `module_manager.yo` discovers the nearest `yo.toml` above the entry file and registers the roots with the resolver's rule 0, so `yo check`, `yo test`, `yo doc` and the LSP resolve dependency imports without a build; `yo build` writes the same closure to `<artifact>.imports` and passes `--imports`. Gates: cli-cases `build-path-dep-import` (12, 15), `build-transitive-path-dep` (41), `build-local-module-import` (42), `add-path-dep-import` (`yo add ./mylib` then `build run`), `install-git-dep-semver` (an offline bare repository with three tags; `version = "^1"` picks v1.2.0, the lock and the cache are written, the program imports it). Earlier cuts: #581 (`--imports` plumbing for direct path deps) and #583 (transitive resolution through dependency `build.yo` registries) — superseded by the manifest closure. Still owned by the plan: propagation of a dependency module's `link`ed system libraries (§4.5.2) and version unification across the graph (§4.2).
 **Found:** 2026-09-11, auditing the build and dependency subsystems
-(`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with the released
+(`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with the released
 `yo 0.2.30` and again with a compiler built from `develop` (`94fae98f8`).
 **Severity:** high — the documented dependency workflow (`yo init` → `yo install`
 → `import("name")` → `yo build`) fails at the import, so no Yo project can
@@ -77,7 +77,7 @@ and `docs/*/BUILD_SYSTEM.md` still describe the TS behaviour as landed.
 
 ## Fix direction
 
-Owned by `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` (Phase D1/D2): the
+Owned by `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` (Phase D1/D2): the
 runner resolves every `ImportEntry` to an absolute root file and passes the
 mapping to the child compile explicitly (`--import name=/abs/root.yo`, or a
 generated manifest file), and `resolve_module_path` gains a first rule that

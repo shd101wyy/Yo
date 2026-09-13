@@ -5,7 +5,7 @@
 > `add_import_list` / `ImportEntry`, `build.dependency({ url, ref })` /
 > `build.path_dependency({…})`, `deps.yo`, `yo fetch`, `yo install <spec>`
 > (Phases 8–9 below) — was replaced by the `yo.toml` manifest of
-> `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` §4.1–§4.5: modules and
+> `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` §4.1–§4.5: modules and
 > dependencies are declared in `yo.toml`, `import("dep")` resolves through the
 > manifest in every command, and `build.module({ name })` /
 > `build.dependency("name")` only NAME manifest entries. The runner sections

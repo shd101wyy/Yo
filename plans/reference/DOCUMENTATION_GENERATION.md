@@ -415,7 +415,7 @@ export doc;
 
 > **`include_deps` was removed 2026-09-12.** The field promised documentation of
 > the dependency closure and nothing ever read it — write-only state, the
-> `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` audit's B13. The literal
+> `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` audit's B13. The literal
 > `false` above is the argument SLOT, kept so a seed whose `__yo_build_doc`
 > still requires ten arguments can evaluate `std/build.yo`; it goes away with
 > the slot on the next seed bump

@@ -112,7 +112,7 @@ usual way before merging**: `yo build` the tree with the actual seed bundle.
 
 ## Seed-gated follow-up (2026-09-12): `build.manifest` in `std/build.yo`
 
-**Generation A DONE 2026-09-12** (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+**Generation A DONE 2026-09-12** (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
 §4.1): the compiler carries `__yo_build_manifest_field(field)`, a comptime
 string builtin answering from the build registry's `manifest_fields`, which
 `src/build_runner.yo` fills from the project's `yo.toml` `[package]` table
