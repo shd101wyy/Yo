@@ -76,15 +76,15 @@ generate_build_yo :: (fn(name : String) -> String)(
   `build :: import("std/build");
 { assert, panic } :: import("std/assert");
 
-exe :: build.executable({ name: "${name}", root: "./src/main.yo" });
+exe :: build.executable({ name : "${name}", root : "./src/main.yo" });
 
-lib :: build.static_library({ name: "${name}-lib", root: "./src/lib.yo" });
+lib :: build.static_library({ name : "${name}-lib", root : "./src/lib.yo" });
 
-tests :: build.test({ name: "tests", root: "./tests/" });
+tests :: build.test({ name : "tests", root : "./tests/" });
 
 run_exe :: build.run(exe);
 
-docs :: build.doc({ name: "docs", root: "./src" });
+docs :: build.doc({ name : "docs", root : "./src" });
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);
@@ -122,11 +122,11 @@ generate_main_source :: (fn() -> str)(
 );
 /// Generate the content of `src/lib.yo`.
 generate_lib_source :: (fn() -> str)(
-  "// Library root module\n\nadd :: (fn(a: i32, b: i32) -> i32)(\n  (a + b)\n);\nexport(add);\n"
+  "// Library root module\nadd :: (fn(a : i32, b : i32) -> i32)(\n  a + b\n);\nexport(add);\n"
 );
 /// Generate the content of `tests/main.test.yo`.
 generate_test_file :: (fn() -> str)(
-  "{ assert } :: import(\"std/assert\");\n\ntest(\"it works\", {\n  assert(((1 + 1) == 2), \"math is broken\");\n});\n"
+  "{ assert } :: import(\"std/assert\");\n\ntest(\"it works\", {\n  assert((1 + 1) == 2, \"math is broken\");\n});\n"
 );
 /// Generate the content of `tests/lib.test.yo` — a REAL test of `src/lib.yo`,
 /// as opposed to `main.test.yo`, which only demonstrates the `test(...)` form.
@@ -136,7 +136,7 @@ generate_test_file :: (fn() -> str)(
 /// path.
 generate_lib_test_file :: (fn(name : String) -> String)(
   `{ add } :: import("${name}");
-` + String.from("{ assert } :: import(\"std/assert\");\n\ntest(\"add sums two integers\", {\n  assert((add(2, 3) == 5), \"add(2, 3) should be 5\");\n});\n")
+` + String.from("{ assert } :: import(\"std/assert\");\n\ntest(\"add sums two integers\", {\n  assert(add(2, 3) == 5, \"add(2, 3) should be 5\");\n});\n")
 );
 /// Generate the content of `.gitignore`.
 generate_gitignore :: (fn() -> str)(
