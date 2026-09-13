@@ -25,7 +25,7 @@
   expr_info_primitive_pattern_values,
   expr_info_consumed_variable_drop_expressions
 } :: import("../../expr_info.yo");
-{ is_unit_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type } :: import("../../types/guards.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -34,7 +34,7 @@
 { is_temp_variable_name } :: import("../../utils.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
@@ -381,6 +381,39 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     code
   })
 );
+/// Emit one case body + temp assignment WITHOUT the trailing `break` — for
+/// chain lowerings (the float primitive match) where `break` would escape an
+/// enclosing loop instead of the arm.
+_emit_case_body_no_break :: (fn(case_body : AstExpr, indent : String, body_indent : String, temp_var_opt : Option(String), is_unit : bool, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  body_code := generate_case_body(case_body, body_indent.clone(), context);
+  assigned := match(
+    temp_var_opt,
+    .Some(tv) => if(!is_unit && (body_code.len() > usize(0)) && !_is_control_flow_code(body_code), {
+      line := body_indent.clone();
+      line.push_string(tv.clone());
+      line.push_str(" = ");
+      line.push_string(body_code.clone());
+      line.push_str(";");
+      em.emit_string_line(line);
+      true
+    }, false),
+    .None => false
+  );
+  if(!assigned && (body_code.len() > usize(0)), {
+    fb_bare_temp := match(
+      context.base.get_expr_info(case_body),
+      .Some(cbei) => is_temp_variable_name(cbei.env.module_path.clone(), body_code.clone()),
+      .None => false
+    );
+    if(!fb_bare_temp, {
+      line := body_indent.clone();
+      line.push_string(body_code);
+      line.push_str(";");
+      em.emit_string_line(line);
+    });
+  });
+});
 /// Emit one case body + temp assignment / break. Shared by the primitive
 /// (default + value) arms.
 _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_indent : String, temp_var_opt : Option(String), is_unit : bool, context : FunctionGenerationContext) -> unit)({
@@ -420,9 +453,126 @@ _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_inde
   brk.push_str("break;");
   em.emit_string_line(brk);
 });
+/// Generate a FLOAT primitive match as an ordered `if (x == lit)` chain —
+/// C forbids `switch` on a double, which is what the switch emitter below
+/// used to emit for f32/f64 scrutinees (audit row B1: check green, C red).
+/// `primitive_pattern_values` holds the compared literals; an or-pattern
+/// arm contributes several conjuncts joined by `||`.
+_generate_float_primitive_match :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, temp_var_opt : Option(String), is_unit : bool) -> String)({
+  em := context.base.emitter;
+  saved := context.base.inside_match;
+  context.base.inside_match = true;
+  body_indent := indent.clone();
+  body_indent.push_str("  ");
+  args := _args(expr);
+  n := args.len();
+  (i : usize) = usize(1);
+  (emitted_any : bool) = false;
+  while(i < n, {
+    match(
+      args.get(i),
+      .Some(case_expr) => if(ast_expr_is_fn_call_of(case_expr, "=>", Option(usize).Some(usize(2))), {
+        cargs := _args(case_expr);
+        case_value := match(cargs.get(usize(0)), .Some(cv) => cv, .None => case_expr);
+        case_body := match(cargs.get(usize(1)), .Some(cb) => cb, .None => case_expr);
+        executed := match(
+          context.base.get_expr_info(case_value),
+          .Some(cei) => match(expr_info_case_executed(cei), .Some(b) => b, .None => false),
+          .None => false
+        );
+        if(executed, {
+          is_wildcard := (ast_expr_is_atom(case_value) && (ast_expr_token(case_value).value == "_"));
+          if(is_wildcard, {
+            // The catch-all: a plain else. Arms after it are unreachable —
+            // the evaluator rejects them (A2) — so this is the chain's tail.
+            els := indent.clone();
+            els_else := cond(
+              emitted_any => String.from("else "),
+              true => String.new()
+            );
+            els.push_string(els_else);
+            els.push_str("{");
+            em.emit_string_line(els);
+            _emit_case_body_no_break(case_body, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+            cl := indent.clone();
+            cl.push_str("}");
+            em.emit_string_line(cl);
+            emitted_any = true;
+          }, {
+            // Literal arm: if (x == lit1 || x == lit2) { ... }
+            match(
+              context.base.get_expr_info(case_value),
+              .Some(cei) => match(
+                expr_info_primitive_pattern_values(cei),
+                .Some(pvs) => if(pvs.len() > usize(0), {
+                  cond_code := String.new();
+                  (pi : usize) = usize(0);
+                  while(pi < pvs.len(), {
+                    match(
+                      pvs.get(pi),
+                      .Some(vopt) => match(
+                        vopt,
+                        .Some(v) => {
+                          if(cond_code.len() > usize(0), {
+                            cond_code.push_str(" || ");
+                          });
+                          cond_code.push_str("(");
+                          cond_code.push_string(matched_value_code.clone());
+                          cond_code.push_str(" == ");
+                          lit_txt := match(
+                            _c_literal_from_value(v),
+                            .Some(t) => t,
+                            .None => String.from("0")
+                          );
+                          cond_code.push_string(lit_txt);
+                          cond_code.push_str(")");
+                        },
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                    pi = (pi + usize(1));
+                  });
+                  if(cond_code.len() > usize(0), {
+                    h := indent.clone();
+                    h_cond := cond(
+                      emitted_any => String.from("else if "),
+                      true => String.from("if ")
+                    );
+                    h.push_string(h_cond);
+                    h.push_str("(");
+                    h.push_string(cond_code);
+                    h.push_str(") {");
+                    em.emit_string_line(h);
+                    _emit_case_body_no_break(case_body, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+                    cl := indent.clone();
+                    cl.push_str("}");
+                    em.emit_string_line(cl);
+                    emitted_any = true;
+                  });
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
+          });
+        });
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  context.base.inside_match = saved;
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+});
 /// Generate a primitive (int/bool) match as a C switch. Mirrors
 /// `generatePrimitiveMatchExpression`.
 generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, match_value_type : TypeValue, temp_var_opt : Option(String), is_unit : bool) -> String)({
+  // A float scrutinee cannot lower to a switch (C forbids `switch` on
+  // double) — take the ordered == chain (audit B1).
+  if(is_float_type(match_value_type), {
+    return(_generate_float_primitive_match(expr, indent.clone(), context, matched_value_code.clone(), temp_var_opt, is_unit));
+  });
   saved_inside_match := context.base.inside_match;
   context.base.inside_match = true;
   em := context.base.emitter;
@@ -1054,7 +1204,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
           while(fi < limit, {
             match(
               dparams.get(fi),
-              .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_") && !_cg_pattern_param_is_literal(var_expr), {
+              .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_") && !pattern_param_is_literal(var_expr), {
                 field_label := match(labels.get(fi), .Some(fl) => fl, .None => String.from(""));
                 ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
                 if(!is_unit_type(ftype), {
@@ -1084,85 +1234,6 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
     _ => ()
   )
 );
-/// True for a pattern-payload atom denoting a LITERAL to compare, not a
-/// binding (bool/int/float atoms parse as plain atoms and used to be bound
-/// as variables named "false"/"404" — the evaluator twin lives in
-/// evaluator/exprs/match.yo; issues/enum-pattern-bool-payload-not-compared.md).
-_cg_pattern_param_is_literal :: (fn(e : AstExpr) -> bool)(
-  ast_expr_is_atom(e) && match(
-    ast_expr_token(e).kind,
-    .Bool => true,
-    .Integer => true,
-    .Float => true,
-    _ => false
-  )
-);
-/// The C guard conditions for a variant arm's literal payloads: one
-/// `<matched><access>data.<Variant>.<field> == <literal>` per literal
-/// parameter, joined by &&. Empty string when the arm has none.
-_cg_literal_arm_guards :: (
-  fn(
-    enum_type : TypeValue,
-    variant_name : String,
-    params : ArrayList(AstExpr),
-    matched_value_code : String,
-    access : str,
-    indent : String,
-    context : FunctionGenerationContext
-  ) -> String
-)({
-  out := String.new();
-  match(
-    enum_type,
-    .EnumT({ variant_names : vns, variant_field_labels : vfls }) => {
-      cvariant := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
-      (vi : usize) = vns.len();
-      (vk : usize) = usize(0);
-      while(vk < vns.len(), {
-        match(
-          vns.get(vk),
-          .Some(vn) => if(vn == cvariant, {
-            vi = vk;
-          }),
-          .None => ()
-        );
-        vk = (vk + usize(1));
-      });
-      if(vi < vns.len(), {
-        labels := match(vfls.get(vi), .Some(l) => l, .None => ArrayList(String).new());
-        (pi2 : usize) = usize(0);
-        while(pi2 < params.len(), {
-          match(
-            params.get(pi2),
-            .Some(pp) => {
-              if(_cg_pattern_param_is_literal(pp), {
-                field_label := match(labels.get(pi2), .Some(fl) => fl, .None => String.from(""));
-                lit_code := _call_generate_expr(pp, indent.clone(), context);
-                if(out.len() > usize(0), {
-                  out.push_str(" && ");
-                });
-                out.push_str("(");
-                out.push_string(matched_value_code.clone());
-                out.push_str(access);
-                out.push_str("data.");
-                out.push_string(cvariant.clone());
-                out.push_str(".");
-                out.push_string(sanitize_for_c_identifier(field_label.clone(), false));
-                out.push_str(" == ");
-                out.push_string(lit_code);
-                out.push_str(")");
-              });
-            },
-            .None => ()
-          );
-          pi2 = (pi2 + usize(1));
-        });
-      });
-    },
-    _ => ()
-  );
-  out
-});
 /// The variant name + destructuring params of a tagged-union arm pattern,
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
@@ -1208,7 +1279,6 @@ _emit_variant_arm_body :: (
     variant_name : String,
     guards : String,
     enum_type : TypeValue,
-    match_value_type : TypeValue,
     matched_value_code : String,
     access : str,
     indent : String,
@@ -1240,25 +1310,7 @@ _emit_variant_arm_body :: (
   if(params.len() > usize(0), {
     _emit_destructure_binds(enum_type, variant_name, params, matched_value_code.clone(), access, arm_body_indent.clone(), context);
   });
-  // `=> rename` caseBody form: bind the whole matched value to a name.
-  cb := if(ast_expr_is_fn_call_of(cb0, "=>", Option(usize).Some(usize(2))), {
-    rargs := _args(cb0);
-    match(
-      rargs.get(usize(0)),
-      .Some(rename_expr) => {
-        _emit_pattern_binding_decl(
-          context,
-          arm_body_indent.clone(),
-          sanitize_for_c_identifier(ast_expr_token(rename_expr).value, false),
-          match_value_type,
-          matched_value_code.clone()
-        );
-      },
-      .None => ()
-    );
-    match(rargs.get(usize(1)), .Some(v) => v, .None => cb0)
-  }, cb0);
-  _emit_case_body_and_break(cb, arm_indent.clone(), arm_body_indent.clone(), temp_var_opt, is_unit, context);
+  _emit_case_body_and_break(cb0, arm_indent.clone(), arm_body_indent.clone(), temp_var_opt, is_unit, context);
   _remove_arm_shadows(params, context);
   if(guards.len() > usize(0), {
     gc := body_indent.clone();
@@ -1420,8 +1472,8 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
                                       arm_cv := match(arm_cargs.get(usize(0)), .Some(x) => x, .None => make_err_expr());
                                       arm_cb := match(arm_cargs.get(usize(1)), .Some(x) => x, .None => make_err_expr());
                                       arm_params := _arm_params(arm_cv);
-                                      guards := _cg_literal_arm_guards(enum_type, variant_name, arm_params, matched_value_code.clone(), access, body_indent.clone(), context);
-                                      _emit_variant_arm_body(arm_cb, arm_params, variant_name, guards, enum_type, match_value_type, matched_value_code.clone(), access, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+                                      guards := pattern_literal_arm_guards(enum_type, variant_name, arm_params, matched_value_code.clone(), access);
+                                      _emit_variant_arm_body(arm_cb, arm_params, variant_name, guards, enum_type, matched_value_code.clone(), access, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
                                     }),
                                     .None => ()
                                   );

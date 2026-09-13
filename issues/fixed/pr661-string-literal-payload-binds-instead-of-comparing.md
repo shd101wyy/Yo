@@ -82,3 +82,6 @@ Two neighbouring gaps found in the same pass, tracked in that plan's §3:
 
 - The reproducer above must fail `yo check` with the new message.
 - `tests/match_bind_nothing.test.yo`: a string payload arm is a check error.
+
+
+**FIXED 2026-09-13 (match P0):** string/char literals in payload positions are now rejected loudly (`Pattern <lit> is not supported in a payload position yet`) at both the positional and the labeled slot; the evaluator never lets them through as binders, so the codegen grouping can never run one unguarded.
