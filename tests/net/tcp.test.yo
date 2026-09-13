@@ -256,6 +256,57 @@ test("TCP read_to_end gets all data", {
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
+test("IPv6 loopback connect round-trip", {
+  // The only IPv6 CLIENT connect in the suite. Windows routes stream connects
+  // through ConnectEx, gated on the socket's own family — and that gate has to
+  // read a property that exists on an UNBOUND socket, which is what a fresh
+  // client is. A probe that falls back to AF_INET (getsockname fails with
+  // WSAEINVAL before bind) wildcard-binds an AF_INET6 client with a sockaddr_in
+  // and then answers WSAEINVAL, breaking every v6 connect with nothing here to
+  // notice: issues/fixed/windows-blocking-connect-parks-the-event-loop.md.
+  // On a host with no IPv6 loopback the bind throws and the test skips.
+  v6_loopback := Array(u16, usize(8)).fill(u16(0));
+  v6_loopback(usize(7)) = u16(1);
+  // ::1
+  skip_exn := Exception(
+    throw : (
+      err -> {
+        unsafe(printf("  no IPv6 loopback on this host — skipped\n"));
+        unwind(());
+      }
+    )
+  );
+  listener := io.await(
+    TcpListener.bind(SocketAddr.new(IpAddr.V6(v6_loopback), u16(0)), io),
+    IoExn(io : io, exn : skip_exn)
+  );
+  // Past the bind the host demonstrably has IPv6: every failure below is real.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  port := listener.local_addr().port;
+  assert(port != u16(0), "v6 ephemeral bind must report a real port");
+  client := io.await(TcpStream.connect(SocketAddr.new(IpAddr.V6(v6_loopback), port), io), e);
+  server_stream := io.await(listener.accept(io), e);
+  n := io.await(client.write_str("v6!", io), e);
+  assert(n == usize(3), "should send 3 bytes over IPv6");
+  recv_buf := (*u8)(malloc(usize(16)).unwrap());
+  nr := io.await(server_stream.read(recv_buf, usize(16), io), e);
+  assert(nr == usize(3), "should receive 3 bytes over IPv6");
+  assert((recv_buf.add(usize(0))).* == u8(118), "v");
+  assert((recv_buf.add(usize(1))).* == u8(54), "6");
+  assert((recv_buf.add(usize(2))).* == u8(33), "!");
+  free(.Some((*void)(recv_buf)));
+  io.await(server_stream.close(io), e);
+  io.await(client.close(io), e);
+  io.await(listener.close(io), e);
+});
 test("bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)", {
   // plans/archive/STD_API_AUDIT.md C2: _make_sockaddr used to map EVERY V6 address to
   // ::1, so binding the documentation address 2001:db8::1 SUCCEEDED (it bound

@@ -3527,17 +3527,27 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   // pointers are thread-locals shared by every socket on this loop). UDP
   // connect() is a local, immediate filter install that never blocks, so it
   // keeps the plain call.
-  struct sockaddr_storage local_name;
-  int local_name_len = (int)sizeof(local_name);
-  int family = AF_INET;
-  if (getsockname(s, (struct sockaddr*)&local_name, &local_name_len) == 0) {
-    family = local_name.ss_family;
-  }
+  //
+  // Read the family and type from the PROVIDER (SO_PROTOCOL_INFOW), never from
+  // getsockname(): getsockname() fails with WSAEINVAL on an unbound socket, and
+  // an unbound client socket is precisely what this path exists for. Guessing
+  // AF_INET on that failure sent every fresh client into the ConnectEx arm
+  // regardless of family — an AF_UNIX connect was then wildcard-bound with a
+  // sockaddr_in (rejected), and ConnectEx on the still-unbound socket answered
+  // WSAEINVAL, which is what killed the unix.test.yo round-trip on both Windows
+  // legs; an AF_INET6 client would have died the same way. SO_PROTOCOL_INFOW
+  // answers both questions in one call and is valid before bind. If even that
+  // fails, family stays 0 and the plain connect() below runs: the pre-overlapped
+  // behaviour, never a wrong-family ConnectEx.
+  WSAPROTOCOL_INFOW proto_info;
+  int proto_info_len = (int)sizeof(proto_info);
+  int family = 0;
   int sock_type = 0;
-  int sock_type_len = (int)sizeof(sock_type);
-  bool stream_socket = (getsockopt(s, SOL_SOCKET, SO_TYPE, (char*)&sock_type, &sock_type_len) == 0
-                        && sock_type == SOCK_STREAM);
-  bool connectex_family = (family == AF_INET || family == AF_INET6) && stream_socket;
+  if (getsockopt(s, SOL_SOCKET, SO_PROTOCOL_INFOW, (char*)&proto_info, &proto_info_len) == 0) {
+    family = proto_info.iAddressFamily;
+    sock_type = proto_info.iSocketType;
+  }
+  bool connectex_family = (family == AF_INET || family == AF_INET6) && sock_type == SOCK_STREAM;
   if (connectex_family) {
     __yo_win_load_connectex(s);
   }

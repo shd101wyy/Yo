@@ -84,9 +84,10 @@ extension — the connect-side twin of the landed AcceptEx work:
 - `LPFN_CONNECTEX` fetched via `WSAIoctl(SIO_GET_EXTENSION_FUNCTION_POINTER)`,
   thread-local cached like the AcceptEx pointers.
 - Gated to `AF_INET`/`AF_INET6` **stream** sockets, decided from the
-  socket's own family (`getsockname`) and type (`getsockopt(SO_TYPE)`)
-  BEFORE consulting the cached pointer — the same thread-local-caching
-  trap the accept path documents for AF_UNIX.
+  socket's own family and type BEFORE consulting the cached pointer — the
+  same thread-local-caching trap the accept path documents for AF_UNIX.
+  Both come from one `getsockopt(SOL_SOCKET, SO_PROTOCOL_INFOW)`; see
+  "The family probe cannot be `getsockname`" below for why.
 - The socket is bound to the family wildcard first (ConnectEx requires a
   bound socket; an already-bound one just gets WSAEINVAL here).
 - `is_connect` on the overlapped struct; `__yo_win_process_completion`
@@ -109,3 +110,65 @@ network that refuses TEST-NET immediately the connect resolves fast and
 the assert passes, just less discriminatingly). The loopback connect/echo
 battery in the same file covers ConnectEx's synchronous completion and
 error mapping.
+
+## The family probe cannot be `getsockname` (fixed 2026-09-13)
+
+The first cut of this fix read the family from `getsockname()` and fell
+back to `AF_INET` when that call failed:
+
+```c
+int family = AF_INET;
+if (getsockname(s, (struct sockaddr*)&local_name, &local_name_len) == 0) {
+  family = local_name.ss_family;
+}
+```
+
+`getsockname()` fails with `WSAEINVAL` on a socket that has not been bound,
+and an **unbound client socket is exactly what this code path exists for** —
+the bullet two lines down even says so ("the socket is bound to the family
+wildcard first"). So the probe took its `AF_INET` fallback for every fresh
+client socket, whatever its real family, and the gate it was supposed to
+implement never ran:
+
+- **AF_UNIX** connects were routed into the ConnectEx arm. The socket was
+  then "wildcard-bound" with a `sockaddr_in` (rejected — the return value
+  is deliberately ignored), and `ConnectEx` on the still-unbound socket
+  answered `WSAEINVAL`. Every Unix-domain connect failed.
+- **AF_INET6** clients would have failed identically: bound with a
+  `sockaddr_in`, then `WSAEINVAL`. The suite has no IPv6 *client* connect,
+  so nothing caught it — `tests/net/tcp.test.yo`'s only v6 case is a
+  `bind` test.
+
+Measured: run `34724452396` at `0fc80fd78` failed
+`tests/net/unix.test.yo` -> "bind, connect, accept, echo round-trip" on
+**both** Windows legs (`windows-latest` job 103642084964, `windows-11-arm`
+job 103642084960), while develop's job 103609844499 at `cbbff5208` logged
+the same test passing. Two architectures, deterministic, with
+`std/assert.yo:39` "unexpected exception" — the `io.await` on
+`UnixStream.connect` throwing.
+
+The fix reads the provider's own answer instead, which is valid before
+bind and returns family and type together:
+
+```c
+WSAPROTOCOL_INFOW proto_info;
+int proto_info_len = (int)sizeof(proto_info);
+int family = 0;
+int sock_type = 0;
+if (getsockopt(s, SOL_SOCKET, SO_PROTOCOL_INFOW, (char*)&proto_info, &proto_info_len) == 0) {
+  family = proto_info.iAddressFamily;
+  sock_type = proto_info.iSocketType;
+}
+bool connectex_family = (family == AF_INET || family == AF_INET6) && sock_type == SOCK_STREAM;
+```
+
+If even `SO_PROTOCOL_INFOW` fails, `family` stays `0` and the plain
+`connect()` runs — the pre-overlapped behaviour, never a wrong-family
+ConnectEx.
+
+**The general rule** (it applies to the accept path's identical-looking
+probe, which is safe only because a *listener* is always bound by the time
+`accept` is reachable): a socket-property probe used to GATE a code path
+must not have a failure fallback that silently satisfies the gate. Either
+read a property that is valid in the state the path targets, or fail
+CLOSED — fall back to the conservative arm, as this fix now does.
