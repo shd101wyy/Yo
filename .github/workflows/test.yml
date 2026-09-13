@@ -717,8 +717,14 @@ jobs:
           # 140 MB of it would drown the job log; the sidecar is the artifact we
           # actually want, and stderr is kept so failures still surface.
           set +e
+          # HOME is forwarded ON PURPOSE. `sudo` resets it to /root, so the Yo cache
+          # root moves with it and the memory-capped compile looks for the dependency
+          # store under /root/.cache/yo — while the unprivileged install-deps step
+          # populated /home/runner/.cache/yo. That mismatch fails the compile with
+          # `git dependency "markdown_yo" is not in the store (/root/.cache/…)`,
+          # which reads like a missing install-deps step and is not one.
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
+            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
               --optimize 2 --allocator mimalloc --std-path ./std \
               --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
           EMIT_RC=$?
@@ -1339,8 +1345,9 @@ jobs:
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
           ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
           SAMPLER=$!
+          # HOME forwarded for the dependency store — see the note above.
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/yo-stage1 compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           kill $SAMPLER || true
           markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
@@ -1444,8 +1451,9 @@ jobs:
           chmod +x /tmp/stage2/yo-stage2-bin
           ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
           SAMPLER=$!
+          # HOME forwarded for the dependency store — see the note above.
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/stage2/yo-stage2-bin compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
           kill $SAMPLER || true
           if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
