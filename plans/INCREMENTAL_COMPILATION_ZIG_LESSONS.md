@@ -487,6 +487,20 @@ Gates:
 
 ## 6. Phase 3 — per-definition dependency tracking (Zig lesson 1c: Dependees)
 
+> **Steps 1+2 landed 2026-09-12** (per-definition source hashes, dependency
+> edges at every force/serve/member-read point, and the parse-only
+> no-op fast path in the watch round — a comment-only or whitespace-only
+> edit now costs a ~5 ms diff instead of the full reverse-closure re-check:
+> 222 files / 375 s → 0 files / 5 ms on the `src/token.yo` probe). The
+> per-definition INVALIDATION of step 4 (reset + reverse-edge re-force for
+> body-only edits) is the remaining piece; a real def change currently
+> falls back to today's file-level behavior, which is why the fast path's
+> twin gate — a body edit in `src/token.yo` — still measures 375 s. Also
+> surfaced and filed on the way:
+> `issues/enum-pattern-bool-payload-not-compared.md` (a boolean-literal
+> payload in an enum pattern is bound, not compared — `.Some(false)`
+> matches `.Some(true)`).
+
 `check --watch` invalidates the reverse IMPORT closure of a changed FILE.
 That is the right shape at the wrong granularity: a one-line body edit in
 `src/token.yo` re-checks 220 files because they import the module, even

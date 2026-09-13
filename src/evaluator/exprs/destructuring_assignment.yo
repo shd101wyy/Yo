@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr
 } :: import("../../expr.yo");
 { Environment, Variable, add_variable_to_env } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, record_module_member_read, sns_module_of } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 {
   RuntimeDestructuring,
@@ -90,6 +90,23 @@ _get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))
     _ => Option(EvalValue).None
   )
 );
+/// Phase 3 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6): a destructured
+/// field read off a module value is attributed through the member-read hook —
+/// a def-level edge when the destructure sits inside a definition, an
+/// ordered-read when it is the module's own import statement.
+_record_destructured_read :: (fn(env : Environment, rhs_type : TypeValue, label : String) -> unit)({
+  match(
+    rhs_type,
+    .Struct({ id : dr_sns, is_source_namespace : dr_flag }) => if(dr_flag, {
+      match(
+        sns_module_of(dr_sns.clone()),
+        .Some(dr_target) => record_module_member_read(env.module_path, dr_target, label),
+        .None => ()
+      );
+    }),
+    _ => ()
+  );
+});
 /// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
 /// Returns `.None` when not found.
 _find_field_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({
@@ -237,6 +254,7 @@ handle_member_destructuring :: (
           {
             seen_labels.push(flab.clone());
           };
+          _record_destructured_read(env, rhs_type, flab.clone());
           {
             runtime_destructurings.push(
               RuntimeDestructuring(
@@ -341,6 +359,7 @@ handle_member_destructuring :: (
           .Some(rv) => _get_eval_value_field(rv, field_index),
           .None => Option(EvalValue).None
         );
+        _record_destructured_read(env, rhs_type, rhs_field_label.clone());
         if(ast_expr_is_atom(right_side) && is_valid_variable_name(right_side), {
           rename_expr_opt = Option(AstExpr).Some(right_side);
           variable_name_opt = Option(String).Some(ast_expr_token(right_side).value.clone());
@@ -435,6 +454,7 @@ handle_member_destructuring :: (
           .Some(rv) => _get_eval_value_field(rv, field_index),
           .None => Option(EvalValue).None
         );
+        _record_destructured_read(env, rhs_type, rhs_field_label.clone());
         variable_name_opt = Option(String).Some(pos_var_name);
         variable_token_opt = Option(AstExpr).Some(lhs_field);
       });

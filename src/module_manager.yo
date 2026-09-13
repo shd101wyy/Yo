@@ -34,14 +34,16 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { getenv } :: import("std/libc/stdlib");
 { current_exe, cwd } :: import("std/env");
+env_mod :: import("std/env");
 { record_input_file } :: import("./input_record.yo");
 { Instant } :: import("std/time/instant");
 { profile_record_module } :: import("./utils.yo");
-{ AstExpr } :: import("./expr.yo");
+{ AstExpr, ast_expr_to_string } :: import("./expr.yo");
+{ fnv1a64 } :: import("./utils.yo");
 { ExprInfoTable } :: import("./expr_info.yo");
 { parse } :: import("./parser.yo");
 { Environment, clone_env, build_prelude_var_cache } :: import("./env.yo");
-{ EvalContext, eval_context_new, LoadModuleResult } :: import("./evaluator/context.yo");
+{ EvalContext, eval_context_new, LoadModuleResult, stored_def_hash, stored_stmt_hash, stored_def_count, classify_pending_def } :: import("./evaluator/context.yo");
 { register_evaluate_expression, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 {
@@ -349,6 +351,117 @@ mm_module_source :: (fn(fs_path : String) -> Option(String))({
 /// stale part of its import closure. Returns the removed `file://` paths
 /// (Phase B2's registry purge consumes this). The cached prelude env is NOT
 /// touched — editing std/prelude.yo still needs a server restart.
+/// Phase 3 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6): a parse-only
+/// diff of one changed file against its last walk's records — NO evaluation.
+/// `.Some(false)`: the file's definitions and ordered-statement sequence all
+/// hash the same (a comment-only or whitespace-only edit) — nothing needs
+/// invalidating at any granularity. `.Some(true)`: something moved (the
+/// caller takes the file-level path today; the per-definition path arrives
+/// with the rest of §6). `.None`: the module was never walked here (cold
+/// path) — treat as changed.
+mm_definitions_changed :: (fn(fs_path : String) -> Option(bool))({
+  key := `file://${fs_path}`;
+  exn_opt := match(
+    g_loader_exn,
+    .Some(e) => Option(Exception).Some(e),
+    .None => Option(Exception).None
+  );
+  exn := match(
+    exn_opt,
+    .Some(e) => e,
+    .None => return(Option(bool).None)
+  );
+  src_bytes := read_file_sync(fs_path.clone(), exn);
+  (src : String) = String.from_bytes(src_bytes);
+  match(
+    _open_doc_text(fs_path.clone()),
+    .Some(open_text) => {
+      src = open_text.clone();
+    },
+    .None => ()
+  );
+  mod_exprs := parse(src, key.clone(), exn);
+  // Ordered-statement sequence first — a change there is not attributable
+  // to any definition.
+  stmt_state := String.new();
+  (i : usize) = usize(0);
+  n := mod_exprs.len();
+  while(i < n, {
+    match(
+      mod_exprs.get(i),
+      .Some(e) => match(
+        classify_pending_def(e, i),
+        .None => {
+          stmt_state.push_string(ast_expr_to_string(e));
+          stmt_state.push_str("\n");
+        },
+        .Some(_) => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  match(
+    stored_stmt_hash(key.clone()),
+    .Some(old_h) => if(!(old_h == fnv1a64(stmt_state)), {
+      if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+        eprintln(`[p3diff] ${fs_path}: STMT HASH moved`);
+      });
+      return(Option(bool).Some(true));
+    }),
+    .None => {
+      if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+        eprintln(`[p3diff] ${fs_path}: NO stored stmt hash`);
+      });
+      return(Option(bool).None);
+    }
+  );
+  // Definition shape + per-definition hashes.
+  (changed : bool) = false;
+  (fresh_defs : usize) = usize(0);
+  (j : usize) = usize(0);
+  while(j < n, {
+    match(
+      mod_exprs.get(j),
+      .Some(e) => match(
+        classify_pending_def(e, j),
+        .Some(d) => {
+          fresh_defs = (fresh_defs + usize(1));
+          match(
+            stored_def_hash(key.clone(), d.index, d.name),
+            .Some(old_h) => if(!(old_h == d.src_hash), {
+              changed = true;
+            }),
+            .None => {
+              // A NEW definition (no stored hash): shape changed.
+              changed = true;
+            }
+          );
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+    eprintln(`[p3diff] ${fs_path}: stmt_ok, changed=${changed.to_string()}, fresh=${fresh_defs.to_string()}`);
+  });
+  if(changed, {
+    return(Option(bool).Some(true));
+  });
+  // A REMOVED definition (a stored count the fresh parse no longer meets)
+  // also changes shape — def indices are dense, so count equality plus the
+  // per-key checks above means no removals.
+  match(
+    stored_def_count(key.clone()),
+    .Some(stored_count) => if(!(fresh_defs == stored_count), {
+      return(Option(bool).Some(true));
+    }),
+    .None => return(Option(bool).None)
+  );
+  Option(bool).Some(false)
+});
 mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
   removed := invalidate_module(`file://${fs_path}`);
   // Phase B2: each removed module's registry entries go with it — its
@@ -1052,6 +1165,7 @@ mm_load_yo_file :: (
 });
 export(
   ModuleLoadOutcome,
+  mm_definitions_changed,
   resolve_std_path,
   set_std_path_override,
   get_std_path_override,
