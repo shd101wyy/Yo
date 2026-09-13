@@ -136,10 +136,37 @@ battery, and an already-open PR starts one on every push, draft or not).
 develop's `SEED_VERSION` and the release list, so they will notice the bump
 without a ping — but ping anyway, it is faster.
 
-> **`/Users/yiyiwang/Workspace/Yo` is SHARED with that session.** It can be
-> sitting on their branch with their uncommitted work. Do not `checkout`,
-> `pull` or `stash` there, and **never `git add -A`** — use explicit paths, and
-> do compiler work in your own `git worktree`.
+**They are being handed over at the same time as me**, and they wrote their own
+handover: `plans/HANDOVER_UNVENDOR_MARKDOWN_2026-09-13.md`, parked on
+`plans/handover-unvendor`. **Read both.** The split: this file is authoritative
+on the release and the std campaign; theirs is authoritative on the build and
+dependency redesign and on #654, and carries the resume procedure as
+copy-pasteable commands plus the measurements behind the seed bump. The merge
+order in §4 is shared between the two documents.
+
+**What actually worked between the two sessions, and is worth repeating:** the
+valuable moments were the ones where one of us checked the other's number
+instead of accepting it. A `Pair(lo:3, hi:4)` baseline whose right and wrong
+answers both summed to 7; a "skips 15 of 18" figure that looked unverifiable
+against a 28-job battery and turned out to be exactly right once the docs-only
+denominator was found; a claim that cancelling develop runs unblocked a queue,
+when `cancel-in-progress` is false for pushes so it only freed runners. None of
+those would have surfaced from agreement.
+
+> **`/Users/yiyiwang/Workspace/Yo` is SHARED with other sessions.** It can be
+> sitting on someone else's branch with their uncommitted work. Do not
+> `checkout`, `pull` or `stash` there, and **never `git add -A`** — use explicit
+> paths, and do compiler work in your own `git worktree`.
+>
+> **The hazard is bidirectional, and the second direction is the one that
+> surprises people.** It is not only that a `checkout` can yank a branch out
+> from under someone mid-task. It is that **two sessions writing untracked files
+> into one tree will silently commit each other's work**: a `git add -A` sweeps
+> in whatever the other session happened to leave there, and nothing warns you.
+> Both sessions hit this from opposite sides on 2026-09-13 — one nearly
+> committed the other's scratch files, and the other declined to write a
+> handover into `plans/` for exactly that reason, even though that is where the
+> maintainer had asked for it. Write to a worktree and commit from there.
 
 ---
 
