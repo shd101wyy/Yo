@@ -17,6 +17,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   BK_MATCH
 } :: import("../../expr.yo");
+{ TokenKind } :: import("../../token.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -43,7 +44,7 @@ _(env : match_dbg_env) :: import("std/env");
   is_enum_val,
   is_unknown_val
 } :: import("../../value.yo");
-{ value_to_string } :: import("../../value.yo");
+{ value_to_string, type_of_eval_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, resolve_enum_shell } :: import("../../types/creators.yo");
 {
@@ -112,6 +113,91 @@ find_str_in_list :: (fn(list : ArrayList(String), s : String) -> Option(usize))(
     i = (i + usize(1));
   });
   result
+});
+/// True for a pattern-payload atom that denotes a LITERAL to compare rather
+/// than a binding name: `false`/`true` (TokenKind.Bool), integers, floats.
+/// These parse as plain atoms, so the destructuring loops used to bind them
+/// as variables literally named "false"/"404" — `.Some(false)` then matched
+/// any `.Some(...)` payload (issues/enum-pattern-bool-payload-not-compared.md).
+_pattern_param_is_literal :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_atom(e) && match(
+    ast_expr_token(e).kind,
+    .Bool => true,
+    .Integer => true,
+    .Float => true,
+    _ => false
+  )
+);
+/// True when `params` (a variant pattern's positional destructuring
+/// parameters) contains at least one literal payload.
+_pattern_has_literal_params :: (fn(params : ArrayList(AstExpr)) -> bool)({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < params.len()) && !(found), {
+    match(
+      params.get(i),
+      .Some(p) => {
+        found = _pattern_param_is_literal(p);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Compare the LITERAL payloads of `params` against a concrete enum
+/// scrutinee's field values. `.Some(true)` when every literal parameter
+/// equals its field (binding parameters don't constrain); `.Some(false)` on
+/// any mismatch; `.None` when no comparison applies (no literals, or the
+/// scrutinee is not an enum value) — callers treat `.None` as
+/// "unconstrained".
+_pattern_literals_match_scrutinee :: (
+  fn(params : ArrayList(AstExpr), scrutinee : EvalValue, env : Environment, ctx : EvalContext) -> Option(bool)
+)({
+  if(!(_pattern_has_literal_params(params)), {
+    return(Option(bool).None);
+  });
+  fields := match(
+    scrutinee,
+    .EnumVal(_, fs) => fs,
+    _ => return(Option(bool).None)
+  );
+  (i : usize) = usize(0);
+  (all_ok : bool) = true;
+  while((i < params.len()) && all_ok, {
+    match(
+      params.get(i),
+      .Some(p) => {
+        if(_pattern_param_is_literal(p), {
+          field_val := match(
+            fields.get(i),
+            .Some(fv) => fv,
+            .None => EvalValue.UnitVal
+          );
+          lit_expr := evaluate_expression(p, env, ctx);
+          lit_info := match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(lit_expr)),
+            .Some(li) => li,
+            .None => new_expr_info(env, type_of_eval_value(field_val))
+          );
+          match(
+            lit_info.value,
+            .Some(lv) => {
+              if(!(are_values_equal(field_val, env, lv, lit_info.env)), {
+                all_ok = false;
+              });
+            },
+            .None => {
+              all_ok = false;
+            }
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(bool).Some(all_ok)
 });
 /// True when `expr` is an or-pattern `|(a, b)`.
 is_or_pattern :: (fn(expr : AstExpr) -> bool)(
@@ -2041,29 +2127,38 @@ evaluate_match :: (
                     ),
                     true => Option(EvalValue).None
                   );
-                  param_name := match(
-                    param,
-                    .Atom(_, tok) => tok.value.clone(),
-                    .FnCall(_, _, _, _, tok) => tok.value.clone()
-                  );
-                  if(in_def_time_trial() && match_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
-                    eprintln(`[match-bind] name=${param_name} enum=${type_to_string(matched_type)} field=${type_to_string(field_type_pos)}`);
-                  });
-                  if(!(param_name == "_"), {
-                    _added_pos := add_variable_to_env(
-                      env,
-                      param_name.clone(),
-                      field_type_pos,
-                      field_val_pos,
-                      is_comptime_scr_wf,
-                      false,
-                      false,
-                      false,
-                      ast_expr_token(param)
+                  // A literal payload is a COMPARISON, not a binding —
+                  // bind nothing for it (comptime selection already
+                  // rejected mismatches; codegen emits the payload guard
+                  // for runtime scrutinees).
+                  if(_pattern_param_is_literal(param), {
+                    param_skip_info := new_expr_info(env, field_type_pos);
+                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(param), param_skip_info);
+                  }, {
+                    param_name := match(
+                      param,
+                      .Atom(_, tok) => tok.value.clone(),
+                      .FnCall(_, _, _, _, tok) => tok.value.clone()
                     );
+                    if(in_def_time_trial() && match_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+                      eprintln(`[match-bind] name=${param_name} enum=${type_to_string(matched_type)} field=${type_to_string(field_type_pos)}`);
+                    });
+                    if(!(param_name == "_"), {
+                      _added_pos := add_variable_to_env(
+                        env,
+                        param_name.clone(),
+                        field_type_pos,
+                        field_val_pos,
+                        is_comptime_scr_wf,
+                        false,
+                        false,
+                        false,
+                        ast_expr_token(param)
+                      );
+                    });
+                    param_info := new_expr_info(env, field_type_pos);
+                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(param), param_info);
                   });
-                  param_info := new_expr_info(env, field_type_pos);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(param), param_info);
                 }, {
                   exn.throw(
                     dyn(
@@ -2192,7 +2287,16 @@ evaluate_match :: (
                     sv,
                     .EnumVal(sv_vname, _) => {
                       if(_variant_name_eq(sv_vname.clone(), variant_name_wf.clone()) || (variant_name_wf == "_"), {
-                        matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
+                        // Literal payloads constrain the arm: `.Some(false)`
+                        // must not match a `.Some(true)` scrutinee.
+                        lit_ok := match(
+                          _pattern_literals_match_scrutinee(destr_params, sv, env, ctx),
+                          .Some(ok) => ok,
+                          .None => true
+                        );
+                        if(lit_ok, {
+                          matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
+                        });
                       });
                     },
                     _ => ()

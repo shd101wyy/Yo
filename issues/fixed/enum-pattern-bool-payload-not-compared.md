@@ -1,7 +1,11 @@
 # A boolean literal payload in an enum match pattern is not compared — it matches any payload
 
-Status: OPEN (pre-existing on `origin/develop` @95d582d73; found via the
-Phase 3 watch work 2026-09-12).
+Status: FIXED 2026-09-13 — literal payload atoms (bool/int/float) now COMPARE
+in both the evaluator (arm selection + no phantom binding) and codegen
+(same-variant arms share one `case` with per-arm `if (<payload> == <literal>)`
+guards). Tests: tests/match_bind_nothing.test.yo. String/char literals in
+payloads still fail loudly at the "Expected identifier, `_`, or labeled
+pattern" guard — unsupported, not silently wrong (left as is).
 
 ## Reproducer
 
