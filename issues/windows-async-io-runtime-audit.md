@@ -31,10 +31,10 @@ evidence rather than re-derivation.
   because parked pipe reads only retry from the tick, and the tick is not
   reached while waitpid blocks — worth revisiting TOGETHER with the fix.
 - **Linux `sendto`/`recvfrom` are synchronous** (the io_uring backend
-  comments "no direct sendto"). Modern io_uring has
-  `IORING_OP_SENDTO/RECVFROM`; with Windows now overlapped, Linux is the
-  divergent side. The blocking-recvfrom freeze reproduces there the same
-  way it did on Windows before fix #3.
+  comments "no direct sendto"). **RESOLVED 2026-09-13 by the Linux audit
+  follow-up** — `IORING_OP_SENDMSG`/`RECVMSG` plus nonblocking sockets
+  (`issues/fixed/linux-udp-datagram-ops-are-synchronous-and-park-the-loop.md`);
+  the note here is kept as the audit trail of the divergence.
 - **`__yo_io_cleanup` frees the timer list but not**: parked pipe reads
   (`__yo_win_pipe_reads`), dir states (`__yo_dir_state_head`), the
   overlapped free list, fs-event handles, or the socket-fd registry —

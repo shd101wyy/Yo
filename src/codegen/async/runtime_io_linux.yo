@@ -536,6 +536,7 @@ generate_async_runtime_io_linux :: (fn(emitter : Emitter) -> unit)({
 
 #include <sys/eventfd.h>
 #include <poll.h>
+#include <fcntl.h>
 
 static _Thread_local struct io_uring __yo_io_ring;
 // __yo_io_initialized is defined in runtime-core
@@ -597,8 +598,10 @@ static void __yo_io_init(void) {
   __yo_notify_efd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
   if (__yo_notify_efd >= 0) {
     __yo_loop_t* loop = __yo_loop_self();
+    __yo_mutex_lock(&loop->lock);
     loop->notify_fd = __yo_notify_efd;
     loop->notify_ready = 1;
+    __yo_mutex_unlock(&loop->lock);
     __yo_io_arm_notify();
   }
   ASYNC_DEBUG("[Io] io_uring initialized with %d entries (flags=0x%x)\\n", __YO_IO_RING_ENTRIES, params.flags);
@@ -607,13 +610,18 @@ static void __yo_io_init(void) {
 // Cleanup io_uring
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
-  // Clear the loop's pointer BEFORE closing the eventfd, so a foreign wake
-  // racing the shutdown cannot write to a descriptor this function is about to
-  // close (and which the kernel may have handed to something else by then).
+  // Clear the loop's wakeup channel under the loop's mutex BEFORE closing the
+  // eventfd: a foreign __yo_io_notify loads notify_fd under the same mutex, so
+  // the clear and any in-flight write are serialized. Without the lock a
+  // foreign wake could load a valid fd, then pause while this thread closes
+  // the descriptor and the kernel reuses its number for something else, then
+  // write to the WRONG file.
   {
     __yo_loop_t* loop = __yo_loop_self();
+    __yo_mutex_lock(&loop->lock);
     loop->notify_ready = 0;
     loop->notify_fd = -1;
+    __yo_mutex_unlock(&loop->lock);
   }
   // If async main returns while some SQEs are still only queued in userspace,
   // cancel them here instead of silently dropping the event-loop ref we took in
@@ -686,9 +694,16 @@ static inline void __yo_io_arm_notify(void) {
 }
 
 // Nudge a loop out of io_uring_wait_cqe. Safe from any thread: an eventfd
-// write is atomic and the descriptor is the only thing touched.
+// write is atomic, and the check and the write run under the loop's mutex so
+// they cannot race __yo_io_cleanup's clear+close of the descriptor (see the
+// comment there).
 static void __yo_io_notify(__yo_loop_t* loop) {
-  if (!loop || !loop->notify_ready || loop->notify_fd < 0) {
+  if (!loop) {
+    return;
+  }
+  __yo_mutex_lock(&loop->lock);
+  if (!loop->notify_ready || loop->notify_fd < 0) {
+    __yo_mutex_unlock(&loop->lock);
     return;
   }
   uint64_t one = 1;
@@ -696,6 +711,7 @@ static void __yo_io_notify(__yo_loop_t* loop) {
   do {
     w = write(loop->notify_fd, &one, sizeof(one));
   } while (w < 0 && errno == EINTR);
+  __yo_mutex_unlock(&loop->lock);
   (void)w;
 }
 
@@ -718,6 +734,34 @@ static inline int __yo_io_flush_sq(void) {
     }
   }
   return ret;
+}
+
+// Extended future for the datagram ops (sendto/recvfrom). IORING_OP_SENDMSG/
+// RECVMSG take a struct msghdr that must remain valid until the CQE is reaped
+// (the kernel reads the iovec and the destination address lazily, and RECVMSG
+// WRITES msg_name/msg_namelen at completion time), so the msghdr, the iovec
+// and — for sendto — a copy of the destination address live in the same
+// allocation as the future and are freed with it.
+typedef struct {
+  __yo_io_future_t base;
+  struct msghdr msg;
+  struct iovec iov;
+  struct sockaddr_storage dest;  // sendto: the destination address copy
+  uint32_t* addrlen_out;         // recvfrom: caller's in/out length, written at CQE
+} __yo_dgram_future_t;
+
+// Ring cancellation for a datagram future. Also serves as its TYPE TAG:
+// __yo_io_process_cqe compares cancel_fn against this function to learn that
+// the completion path may read the __yo_dgram_future_t extension — only
+// futures allocated with that shape carry it.
+static bool __yo_dgram_future_cancel(__yo_io_future_t* future) {
+  return __yo_io_ring_submit_cancel(future);
+}
+
+// Ring cancellation for an accept future — same tag idea; process_cqe uses it
+// to fix up the ACCEPTED socket's flags (see __yo_async_accept_start).
+static bool __yo_accept_future_cancel(__yo_io_future_t* future) {
+  return __yo_io_ring_submit_cancel(future);
 }
 
 // Process completions from CQ
@@ -752,7 +796,31 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
   
   // Mark as completed (state -1 = done)
   future->state = -1;
-  
+
+  // Post-completion op hooks, BEFORE the continuation runs so a resumed task
+  // observes them. cancel_fn identity is each op's type tag (see the
+  // __yo_dgram_future_cancel comment) — only futures allocated with the
+  // matching shape reach their case, so the extension reads stay inside their
+  // allocations.
+  if (future->cancel_fn == __yo_dgram_future_cancel) {
+    // RECVMSG wrote the sender's address into the caller's buffer and its
+    // length into our msghdr; hand the length to the caller's in/out pointer,
+    // which is what recvfrom(2) would have done synchronously.
+    __yo_dgram_future_t* df = (__yo_dgram_future_t*)future;
+    if (df->addrlen_out) {
+      *df->addrlen_out = (uint32_t)df->msg.msg_namelen;
+    }
+  }
+  if (future->cancel_fn == __yo_accept_future_cancel && future->result >= 0) {
+    // POSIX accept(2) does not give the accepted socket the listener's
+    // O_NONBLOCK (Linux ignores CLOEXEC/NONBLOCK inheritance for accept),
+    // and every socket this runtime creates is nonblocking — keep the
+    // accepted fd the same so the would-block fast paths below (and any
+    // future one) can never block the loop thread.
+    int fl = fcntl(future->result, F_GETFL, 0);
+    if (fl >= 0) fcntl(future->result, F_SETFL, fl | O_NONBLOCK);
+  }
+
   // Wake continuation if registered
   void (*cont_fn)(void*) = future->continuation_fn;
   void* cont_sm = future->continuation_sm;
@@ -1296,12 +1364,20 @@ static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, i
   future->continuation_sm = NULL;
   
   int result = socket(domain, type, protocol);
+  // Nonblocking, matching the macOS backend and every would-block fast path
+  // below: a blocking socket would park the whole event loop inside a
+  // synchronous retry (the datagram ops try the syscall inline before arming
+  // the ring). io_uring ops themselves are nonblocking either way.
+  if (result >= 0) {
+    int fl = fcntl(result, F_GETFL, 0);
+    if (fl >= 0) fcntl(result, F_SETFL, fl | O_NONBLOCK);
+  }
   future->result = (result < 0) ? -errno : result;
   future->state = -1;
-  
+
   ASYNC_DEBUG("[Io] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
               domain, type, protocol, future->result);
-  
+
   return future;
 }
 
@@ -1371,6 +1447,10 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   
   io_uring_prep_accept(sqe, sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen, 0);
   io_uring_sqe_set_data(sqe, future);
+  // The tag process_cqe reads to set O_NONBLOCK on the accepted fd; it also
+  // gives an aborted accept a prompt cancel path instead of waiting out the
+  // connection that may never arrive.
+  future->cancel_fn = __yo_accept_future_cancel;
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[Io] Started async accept: sockfd=%d (pending=%zu)\\n", sockfd, __yo_pending_io_count);
@@ -1466,50 +1546,125 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
 }
 
 // Async sendto - send data to specific address (UDP)
+//
+// "io_uring doesn't have direct sendto" (the old comment here) has been wrong
+// for years: IORING_OP_SENDMSG is the direct sendto and has been in the kernel
+// since 5.3 — well under this runtime's existing floor (its openat/close ops
+// need 5.6+). The datagram is attempted inline first — sockets are created
+// nonblocking, so a full send buffer reports EAGAIN instead of parking the
+// loop thread — and only a would-block result arms the ring op.
+// issues/fixed/linux-udp-datagram-ops-are-synchronous-and-park-the-loop.md
 static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
                                                 const void* dest_addr, uint32_t addrlen) {
   __yo_io_init();
-  
-  __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
-  memset(future, 0, sizeof(__yo_io_future_t));
-  
+
+  __yo_dgram_future_t* df = (__yo_dgram_future_t*)__yo_rc_alloc(sizeof(__yo_dgram_future_t));
+  memset(df, 0, sizeof(__yo_dgram_future_t));
+
+  __yo_io_future_t* future = &df->base;
   future->header.ref_count = 1;
   future->state = 0;
   future->result = 0;
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
-  
-  // io_uring doesn't have direct sendto, use synchronous
+  df->addrlen_out = NULL;
+
   ssize_t result = sendto(sockfd, buf, len, flags, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
-  future->result = (result < 0) ? -errno : (int32_t)result;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[Io] sendto completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
-  
+  if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+    future->result = (result < 0) ? -errno : (int32_t)result;
+    future->state = -1;
+    ASYNC_DEBUG("[Io] sendto completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
+
+  if (addrlen > sizeof(struct sockaddr_storage)) {
+    future->result = -EINVAL;
+    future->state = -1;
+    return future;
+  }
+
+  // Send buffer full — complete through the ring. The kernel reads the msghdr
+  // (and the destination address it points at) lazily, so the address is
+  // COPIED into the future's own allocation; the msghdr and iovec live there
+  // too, and the ring's reference keeps them alive until the CQE.
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+
+  memcpy(&df->dest, dest_addr, addrlen);
+  df->iov.iov_base = (void*)buf;
+  df->iov.iov_len = len;
+  df->msg.msg_iov = &df->iov;
+  df->msg.msg_iovlen = 1;
+  df->msg.msg_name = &df->dest;
+  df->msg.msg_namelen = addrlen;
+  io_uring_prep_sendmsg(sqe, sockfd, &df->msg, (unsigned)flags);
+  io_uring_sqe_set_data(sqe, future);
+  future->cancel_fn = __yo_dgram_future_cancel;
+  __yo_io_ring_submit(future);
+
+  ASYNC_DEBUG("[Io] sendto waiting via io_uring: sockfd=%d len=%zu\\n", sockfd, len);
+
   return future;
 }
 
 // Async recvfrom - receive data with source address (UDP)
+//
+// Same shape as sendto: inline attempt first (EAGAIN on a quiet socket, never
+// a block), then IORING_OP_RECVMSG. The kernel writes the sender's address
+// into the CALLER's src_addr buffer and the address LENGTH into our msghdr at
+// completion time; __yo_io_process_cqe copies that length to the caller's
+// in/out addrlen. src_addr therefore has the same lifetime contract as every
+// other io_uring buffer: it must stay valid until the future completes.
 static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
                                                   void* src_addr, uint32_t* addrlen) {
   __yo_io_init();
-  
-  __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
-  memset(future, 0, sizeof(__yo_io_future_t));
-  
+
+  __yo_dgram_future_t* df = (__yo_dgram_future_t*)__yo_rc_alloc(sizeof(__yo_dgram_future_t));
+  memset(df, 0, sizeof(__yo_dgram_future_t));
+
+  __yo_io_future_t* future = &df->base;
   future->header.ref_count = 1;
   future->state = 0;
   future->result = 0;
   future->continuation_fn = NULL;
   future->continuation_sm = NULL;
-  
-  // io_uring doesn't have direct recvfrom, use synchronous
+  df->addrlen_out = (src_addr && addrlen) ? addrlen : NULL;
+
+  // The fast path completes with recvfrom(2) semantics: the sender's address
+  // and its length land in the caller's buffers synchronously.
   ssize_t result = recvfrom(sockfd, buf, len, flags, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
-  future->result = (result < 0) ? -errno : (int32_t)result;
-  future->state = -1;
-  
-  ASYNC_DEBUG("[Io] recvfrom completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
-  
+  if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+    future->result = (result < 0) ? -errno : (int32_t)result;
+    future->state = -1;
+    ASYNC_DEBUG("[Io] recvfrom completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
+
+  // Quiet socket — arm RECVMSG and let the task park.
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) {
+    future->result = -EAGAIN;
+    future->state = -1;
+    return future;
+  }
+
+  df->iov.iov_base = buf;
+  df->iov.iov_len = len;
+  df->msg.msg_iov = &df->iov;
+  df->msg.msg_iovlen = 1;
+  df->msg.msg_name = src_addr;
+  df->msg.msg_namelen = (src_addr && addrlen) ? (socklen_t)*addrlen : 0;
+  io_uring_prep_recvmsg(sqe, sockfd, &df->msg, (unsigned)flags);
+  io_uring_sqe_set_data(sqe, future);
+  future->cancel_fn = __yo_dgram_future_cancel;
+  __yo_io_ring_submit(future);
+
+  ASYNC_DEBUG("[Io] recvfrom waiting via io_uring: sockfd=%d len=%zu\\n", sockfd, len);
+
   return future;
 }
 

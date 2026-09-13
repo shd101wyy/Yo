@@ -17,9 +17,10 @@
 //! `shutdown`, `setsockopt` and `getsockopt` are synchronous everywhere and
 //! merely wrapped in an already-completed future, while `accept`, `connect`,
 //! `send` and `recv` are real io_uring submissions on Linux, kqueue
-//! registrations on macOS (which also sets `O_NONBLOCK` on every socket it
-//! creates) and IOCP operations on Windows — except `connect`, which is
-//! still a BLOCKING `connect()` on the event-loop thread there.
+//! registrations on macOS and IOCP operations on Windows — except `connect`,
+//! which is still a BLOCKING `connect()` on the event-loop thread there.
+//! Both POSIX backends set `O_NONBLOCK` on every socket they create
+//! (macOS for kqueue, Linux for the io_uring datagram fast paths).
 //!
 //! ```rust
 //! tcp :: import("std/sys/tcp");
@@ -78,10 +79,11 @@ export(SockAddr);
 /// `SOCK_STREAM`, and `protocol` 0 lets the kernel pick (TCP for
 /// `SOCK_STREAM`).
 ///
-/// Synchronous underneath on every platform. On macOS the runtime also sets
-/// `O_NONBLOCK` on the new descriptor, because its kqueue backend requires
-/// it — so a socket from here behaves differently under a blocking
-/// `std/sys/iov` read on macOS than on Linux.
+/// Synchronous underneath on every platform. The runtime sets `O_NONBLOCK` on
+/// the new descriptor — macOS because its kqueue backend requires it, Linux
+/// so the datagram ops' inline fast path reports `-EAGAIN` instead of
+/// parking the event loop (the io_uring backend completes the would-block
+/// case through `IORING_OP_SENDMSG`/`RECVMSG`).
 socket :: (fn(domain : i32, sock_type : i32, protocol : i32) -> IoFuture)(
   __yo_async_socket_start(domain, sock_type, protocol)
 );
