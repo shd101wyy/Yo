@@ -18,10 +18,17 @@ $ direnv allow . # 运行此命令激活 nix shell。
                   # 只需运行一次。
 ```
 
-没有包管理器的安装步骤。唯一的第三方依赖是 git 子模块：
+唯一以 vendor 形式引入的依赖是 git 子模块 `vendor/mimalloc`：
 
 ```bash
 $ git submodule update --init --recursive
+```
+
+编译器唯一的 Yo 依赖 `markdown_yo`（`yo doc --format html` 背后的 Markdown
+渲染器）声明在仓库根目录的 `yo.toml` 里，由 Yo 自己的包管理器抓取：
+
+```bash
+$ yo install
 ```
 
 对编译器源码做类型检查（只跑求值器，不生成代码 —— 这是最快的迭代循环）：

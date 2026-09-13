@@ -377,6 +377,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       # The same two commands release.yml runs, with the version read from the
       # same source of truth the release computes its bump from.
       - name: Generate documentation website
@@ -385,7 +388,7 @@ jobs:
         run: |
           # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
           # renames — `insert`, `read_to_string` — landed 2026-08-25); the
-          # vendored markdown_yo and build_site.yo speak the TREE std, so both
+          # markdown_yo and build_site.yo speak the TREE std, so both
           # the site-builder compile and the `yo doc` runs the site binary
           # spawns must resolve std from the checkout, exactly like the
           # `yo build` bootstrap does.
@@ -475,6 +478,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: Verifier unit tests (real solver)
         run: yo test ./tests/internal/verifier.test.yo --bail -v
@@ -586,6 +592,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       # --std-path ./std is LOAD-BEARING: without it the seed compiles against
       # its OWN bundled std instead of this checkout's (same note as the
@@ -708,8 +717,14 @@ jobs:
           # 140 MB of it would drown the job log; the sidecar is the artifact we
           # actually want, and stderr is kept so failures still surface.
           set +e
+          # HOME is forwarded ON PURPOSE. `sudo` resets it to /root, so the Yo cache
+          # root moves with it and the memory-capped compile looks for the dependency
+          # store under /root/.cache/yo — while the unprivileged install-deps step
+          # populated /home/runner/.cache/yo. That mismatch fails the compile with
+          # `git dependency "markdown_yo" is not in the store (/root/.cache/…)`,
+          # which reads like a missing install-deps step and is not one.
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
+            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
               --optimize 2 --allocator mimalloc --std-path ./std \
               --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
           EMIT_RC=$?
@@ -899,6 +914,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       - name: Build the candidate compiler (previous seed, native)
         env:
           YO_MAIN_STACK_MB: "4096"
@@ -983,12 +1001,22 @@ jobs:
         with:
           name: suite-candidate
 
+      - name: Make the candidate executable
+        run: chmod +x yo-candidate
+
+      # chunked_gate.sh runs `compile src/main.yo` four times, and
+      # src/doc/render_html.yo — in that closure — imports the `markdown_yo`
+      # DEPENDENCY. `compile` resolves import roots but never fetches, so the
+      # store has to be populated first. See install-deps' own comment.
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: ./yo-candidate
+
       - name: Run the chunked behavioural fixpoint gate
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: |
-          chmod +x yo-candidate
-          S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
+        run: S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
 
   suite-cross-emit:
     name: Cross-emit suite compiler (${{ matrix.target }})
@@ -1056,6 +1084,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: suite-candidate
+
+      - name: Make the candidate executable
+        run: chmod +x yo-candidate
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: ./yo-candidate
 
       # The allocator travels with the matrix row (see the matrix comment):
       # system for macOS, mimalloc for the Windows native legs.
@@ -1259,6 +1295,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       # The whole chain runs on the bundled mimalloc: glibc malloc inflates
       # the emit's RSS ~72% over its live set (15.5 GB observed vs 9.0 GB
       # for the same emit on macOS), which put the libc-allocator runs right
@@ -1306,8 +1345,9 @@ jobs:
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
           ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
           SAMPLER=$!
+          # HOME forwarded for the dependency store — see the note above.
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/yo-stage1 compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           kill $SAMPLER || true
           markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
@@ -1390,6 +1430,14 @@ jobs:
           name: bootstrap-stage2
           path: /tmp/stage2
 
+      - name: Make the stage-2 binary executable
+        run: chmod +x /tmp/stage2/yo-stage2-bin
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: /tmp/stage2/yo-stage2-bin
+
       # Same zswap + THP-off + cgroup-cap + sampler treatment as the
       # stage-2 emit — see that step's comment. Extra context: the
       # SELF-BUILT binary's emit touches ~39 GB (vs stage-1's ~28 GB), which
@@ -1403,8 +1451,9 @@ jobs:
           chmod +x /tmp/stage2/yo-stage2-bin
           ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
           SAMPLER=$!
+          # HOME forwarded for the dependency store — see the note above.
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/stage2/yo-stage2-bin compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
           kill $SAMPLER || true
           if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
@@ -1497,6 +1546,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
@@ -1630,6 +1682,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
@@ -1768,6 +1823,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       # Emit-only: no C compiler runs here, so the host's glibc never enters
       # the artifact. --std-path ./std is load-bearing (the seed would
@@ -1911,6 +1969,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
@@ -2165,6 +2226,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
