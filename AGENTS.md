@@ -348,6 +348,48 @@ yo version clean      # Remove all cached versions
   run is small next to cancelling work a teammate is waiting on. Cancellation is
   asynchronous, so a job may still read `in_progress` for a minute afterwards;
   re-list rather than cancelling twice.
+
+  **This rule is one of three, and applying it alone is how you cancel a battery
+  you needed.** The other two are the merge freeze and the cut-time diff
+  immediately below. Cancelling superseded runs and refusing a docs merge are
+  hygiene; they exist to keep the diff's answer meaningful. The diff is the only
+  one of the three that is checkable at the moment you act.
+- **Never merge a docs-only PR to `develop` while a battery you are waiting on is
+  in flight** — a release gate, or any run whose verdict you intend to act on.
+  A push to `develop` starts a new run, and `test.yml`'s concurrency keeps only
+  ONE pending run per group, so the run you were waiting on is superseded. When
+  the replacement is docs-only it takes the fast path, **skips 15 of 18 jobs and
+  reports `success`** — so a real battery is replaced by a green tick that
+  compiled nothing, and at the check level you see green where you had green.
+  That is strictly worse than superseding with a code merge, where at least the
+  replacement battery is real. There is no error to notice; the only tell is
+  that the tip changed.
+
+  A related edge with the same cause: **back-to-back merges mean the earlier
+  merge's `develop` battery never completes**, so the gate quietly becomes
+  "whatever the LAST merge triggered" rather than "the battery for the commit I
+  watched". Measured 2026-09-13: #614 (a real evaluator change) landed, and a
+  docs+reproducer merge minutes later superseded its pending battery.
+
+  **Parking work under a freeze is free and durable: push the branch, do not
+  open the PR.** `test.yml`'s push trigger is `develop`-only, so a bare branch
+  push runs nothing; it is the PR that starts a battery — and an ALREADY-OPEN
+  PR starts one on every push, draft or not. Holding the work locally instead
+  risks losing it when a session ends.
+- **Before cutting a release, re-run the code-directory diff — do not reason
+  from run ordering.** The question is only ever "does the battery I am about to
+  trust cover the code I am about to tag", and this answers it directly:
+
+  ```bash
+  git diff --stat <battery-head-sha>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo
+  ```
+
+  Empty ⇒ the battery gates the tip; tag it. Non-empty ⇒ wait for a battery on
+  the new tip. Docs commits landing mid-battery never invalidate it, so they
+  cost nothing; a code commit stops the diff being empty and tells you
+  immediately. Measured 2026-09-13: a battery at 18 green / 0 failed looked like
+  a perfect gate right until the diff showed #614's ~490 insertions across
+  `src/evaluator/context.yo` and `src/module_manager.yo` had landed after it.
 - **Always run `yo fmt <file.yo>` on every `.yo` file you create or modify, before committing.** Use `yo fmt --check` to verify. Do not commit unformatted `.yo` files. (There is no pre-commit hook any more — `.husky/` went with the node toolchain, so this is on you.)
 - Always check if there is need to create/update existing instructions & rules & skill files, design/plan docs after implementing a change.
 - **Whenever you learn something new about Yo syntax, semantics, or common pitfalls — especially from trial and error — immediately update the relevant skill files** (`.github/skills/yo-syntax/syntax-cheatsheet.md`, `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`, etc.) **and instruction files** (`.github/instructions/yo-syntax.instructions.md`, `.github/instructions/yo-design.instructions.md`). This keeps the institutional knowledge accurate for future sessions.
