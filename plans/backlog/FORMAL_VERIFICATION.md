@@ -1209,7 +1209,8 @@ a broken invariant is a compile error naming the failing iteration.
 > CALLEE NAME LENGTH — seq_append is 10 and set_contains 12 (two arms
 > were silently DEAD and the callees fell to name resolution); VcSort is
 > now a REF enum (SeqS/FunS carry Self payloads — plain enums cannot
-> self-reference). **TASK 6 LANDED (2026-09-14) — the V5 exit criterion
+> self-reference). **TASK 6 LANDED via #674 (develop d5143f99e,
+> 2026-09-14 — all 28 checks green) — the V5 exit criterion
 > is MET**: fixed-length `Array(T, N)` in the VC walk (`a(i)` reads as
 > `select` with a zero-extended BV64 index, index writes `a(i) = v` as
 > SSA `store`-rebinds, `index-in-bounds` AoRTE from the compile-time N —
