@@ -1,6 +1,15 @@
 # `match` — real pattern matching: audit, design, implementation plan
 
-**Status: ACTIVE (2026-09-13).** Design + execution plan; nothing has landed yet.
+**Status: ACTIVE (2026-09-13).** Design + execution plan. **P0 LANDED
+2026-09-13 (#672, 28/28 CI green):** B1 float chain, B3 duplicate variant
+arm, A2 wildcard-last on primitives, #661 gaps 1/3/4 (exhaustiveness,
+`-1`, loud string-payload rejection), the async emitter's same-variant
+grouping with literal guards (gap 2) and its labeled/curly destructuring
+rewrite (A3), the shared literal helpers in `codegen/utils/index.yo`, and
+the dead `=> rename` branch deleted. Two of the three issues the audit
+filed are closed (`issues/fixed/pr661-string-literal-payload-…`,
+`issues/fixed/async-match-arm-labeled-…`). P1 is next; §8's decision on
+`src/pattern.yo` still blocks it.
 Companion of PR #661 (`match: a literal payload in an enum pattern is COMPARED,
 not bound`), the narrow stop-gap for one row of the audit below. §3 says what it
 fixes, what it leaves open, and how it fits this plan — **including one
