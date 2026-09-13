@@ -1187,8 +1187,11 @@ a broken invariant is a compile error naming the failing iteration.
 > specification context" error, which also closes a PRE-EXISTING hole: a
 > runtime-mode assert reading a ghost binding used to emit an UNDECLARED
 > C identifier — the evaluator resolved the name while codegen erased
-> the binding); the binding never reaches codegen. TASK 5 LANDED on
-> feat/fv5-spec-collections (2026-09-13): the ghost collections are REAL
+> the binding); the binding never reaches codegen. TASK 5 LANDED via
+> #636 (develop e54e137d7, 2026-09-13 — all checks green after two
+> develop merges rode along: #637/#643 were develop-side breakage, and
+> #646's workspace_members field broke manifest.test.yo's fallback
+> construction, fixed in the same PR): the ghost collections are REAL
 > end to end — Seq(T) over z3's built-in (Seq S) sort (seq_unit/
 > seq_append/seq_len/seq_nth; seq.len's Int result converts via
 > ((_ int2bv 64)), indices via bv2nat), Multiset(T) as elem→count
