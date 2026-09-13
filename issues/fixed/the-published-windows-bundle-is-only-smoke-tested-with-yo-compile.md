@@ -1,8 +1,23 @@
 # The published Windows bundle is only smoke-tested with `yo compile`
 
-**Status: OPEN (filed 2026-09-13).** `install-scripts.yml`'s `windows`
+**Status: FIXED 2026-09-13**, the same day it was filed — the `windows`
+job now runs `yo init` + `yo build run` with the installed bundle. See
+"Fix" below for what that covers and why it is hermetic; the reasoning
+above it is the record of why the gap existed.
+
+One thing the fix had to add beyond the prescription written here: `yo
+init`'s OWN scaffolded `main` takes no `io` either, so building it would
+have reproduced the vacuum one level down. The step replaces `src/main.yo`
+with a `main` that takes `io` and awaits a timer and a spawned task.
+
+Scoped to Windows on purpose. Every posix target executes the published
+bundle's `yo` on every battery (the seed-bootstrap jobs do exactly that)
+and runs the emitted runtime natively in the suites, so Windows is the
+only target where both halves were missing.
+
+`install-scripts.yml`'s `windows`
 job is the only place a PUBLISHED Windows bundle is exercised, and the
-whole exercise is:
+whole exercise WAS:
 
 ```powershell
 yo compile hello.yo -o hello.exe

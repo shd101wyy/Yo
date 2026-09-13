@@ -147,7 +147,7 @@ battery, and an already-open PR starts one on every push, draft or not).
 1. **`plans/std-campaign-last-item-root-caused`** (mine, docs-only, 6 commits):
    - the campaign's last item root-caused in `plans/STD_API_STABILIZATION.md`
    - the AGENTS.md three-rule block, grouped under one heading
-   - `issues/the-published-windows-bundle-is-only-smoke-tested-with-yo-compile.md`
+   - `issues/fixed/the-published-windows-bundle-is-only-smoke-tested-with-yo-compile.md`
    - the v0.2.32 notes updated to carry #638
    - **this handover file**
 2. **`docs/only-build-fetches`** (peer `yo-d1`'s, docs-only) — corrects an
@@ -307,7 +307,7 @@ invisible.
 
 ## 6. Other open work
 
-- **`issues/the-published-windows-bundle-is-only-smoke-tested-with-yo-compile.md`**
+- **`issues/fixed/the-published-windows-bundle-is-only-smoke-tested-with-yo-compile.md`**
   (filed today). `install-scripts.yml`'s windows job compiles a `hello.yo`
   whose `main` **takes no `io` at all**, so the async runtime is linked into the
   published artifact and never executed. Fix is one step: `yo init` +
