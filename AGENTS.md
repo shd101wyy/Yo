@@ -318,6 +318,17 @@ yo version clean      # Remove all cached versions
 - After fixing a bug, verify uncommitted changes for leftover or unused code.
 - Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
 - **Always squash-merge a PR AND delete its branch**: `gh pr merge <n> --squash --delete-branch`. A squash merge replays the work as ONE new commit on `develop`, so the source branch is dead the moment it lands — leaving it behind accumulates stale refs that later `git worktree`/branch work trips over, and makes `git ls-remote` unreadable. If `--delete-branch` reports `cannot delete branch '<name>' used by worktree at ...`, the REMOTE branch was still deleted; only the local one survived, so remove the worktree (`git worktree remove <path>`) and then `git branch -d <name>`.
+### CI runs: cancelling, freezing, and what a battery actually covers
+
+**The next three rules are ONE rule seen from three angles, and applying any of
+them alone is how you destroy a battery you needed.** Cancelling superseded runs
+and refusing a docs merge are hygiene; they exist so that the third — the
+cut-time diff — has a meaningful answer. The diff is the only one of the three
+you can check at the moment you act. All three fired in a single session on
+2026-09-13, in different directions: the cancel rule said cancel, the freeze
+said do not, and the diff said wait. Each was right, because each answers a
+different question about the same object.
+
 - **Then CANCEL the runs that merge made pointless.** A merged PR's branch runs keep going — and a squash-merged branch's run can never gate anything again, because the commit it is testing no longer exists on any branch. The same applies to a superseded `develop` push run once a newer tip has queued. Cancelling is not tidiness: this repo's battery is ~28 jobs across six platforms, and on 2026-09-13 a backlog of runs on already-merged branches held every runner long enough that `develop`'s battery could not start for hours — the first full battery to finish in that window was the one that finally caught four red gates. Leaving them running actively delays the run whose verdict you are waiting for.
 
   ```bash
@@ -349,17 +360,13 @@ yo version clean      # Remove all cached versions
   asynchronous, so a job may still read `in_progress` for a minute afterwards;
   re-list rather than cancelling twice.
 
-  **This rule is one of three, and applying it alone is how you cancel a battery
-  you needed.** The other two are the merge freeze and the cut-time diff
-  immediately below. Cancelling superseded runs and refusing a docs merge are
-  hygiene; they exist to keep the diff's answer meaningful. The diff is the only
-  one of the three that is checkable at the moment you act.
 - **Never merge a docs-only PR to `develop` while a battery you are waiting on is
   in flight** — a release gate, or any run whose verdict you intend to act on.
   A push to `develop` starts a new run, and `test.yml`'s concurrency keeps only
   ONE pending run per group, so the run you were waiting on is superseded. When
   the replacement is docs-only it takes the fast path, **skips 15 of 18 jobs and
-  reports `success`** — so a real battery is replaced by a green tick that
+  reports `success`** (18 is the docs-only total — skipped matrix jobs never
+  expand, so a FULL battery reports 28; measured on run `34731551580`) — so a real battery is replaced by a green tick that
   compiled nothing, and at the check level you see green where you had green.
   That is strictly worse than superseding with a code merge, where at least the
   replacement battery is real. There is no error to notice; the only tell is
@@ -390,6 +397,9 @@ yo version clean      # Remove all cached versions
   immediately. Measured 2026-09-13: a battery at 18 green / 0 failed looked like
   a perfect gate right until the diff showed #614's ~490 insertions across
   `src/evaluator/context.yo` and `src/module_manager.yo` had landed after it.
+
+### Everything else
+
 - **Always run `yo fmt <file.yo>` on every `.yo` file you create or modify, before committing.** Use `yo fmt --check` to verify. Do not commit unformatted `.yo` files. (There is no pre-commit hook any more — `.husky/` went with the node toolchain, so this is on you.)
 - Always check if there is need to create/update existing instructions & rules & skill files, design/plan docs after implementing a change.
 - **Whenever you learn something new about Yo syntax, semantics, or common pitfalls — especially from trial and error — immediately update the relevant skill files** (`.github/skills/yo-syntax/syntax-cheatsheet.md`, `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`, etc.) **and instruction files** (`.github/instructions/yo-syntax.instructions.md`, `.github/instructions/yo-design.instructions.md`). This keeps the institutional knowledge accurate for future sessions.
