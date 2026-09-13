@@ -1244,6 +1244,39 @@ a downloaded artifact rather than a PATH entry pass its path to the action.
 `submodules: recursive` stays on every checkout — `vendor/mimalloc` is still a
 submodule.
 
+**Three defects in that plumbing, and only one was a missing step.** Worth
+recording because two of them are invisible to a per-job audit:
+
+1. `chunked-gate` genuinely had no `install-deps`. It compiles `src/main.yo`
+   four times, and nothing about the job says "dependency" — the audit that
+   finds it is "which jobs run a compiler over `src/main.yo`", not "which jobs
+   mention markdown_yo".
+2. **`sudo` moves the cache root.** Four jobs failed at their first self-emit
+   with ``git dependency "markdown_yo" is not in the store
+   (/root/.cache/yo/store/sha256/325f5e11…)`` — while `install-deps` had
+   succeeded in the same job. The memory-capped emits run under
+   `sudo systemd-run --scope`, `sudo` resets `HOME` to `/root`, and
+   `$HOME/.cache/yo` moves with it, so the compile read a different store from
+   the one the install filled. **Read the PATH in that error, not the text**:
+   it names the store the COMPILE looked in, and the message's own advice
+   ("run `yo install`") is wrong in this case. Fixed by forwarding
+   `env HOME="$HOME"` at all six privileged sites.
+3. `deploy-site.yml` took an unconditional `yo install --locked`. That
+   workflow checks out an ARBITRARY PUBLISHED TAG — and **no published tag has
+   a `yo.toml`**, because the manifest arrives with this milestone. So that is
+   every tag that exists, v0.2.32 included (`git cat-file -e <tag>:yo.toml`),
+   and `yo install --locked` exits 1 in all of them. The lever this would have
+   broken is exactly the one a maintainer reaches for when the site is wrong
+   and the fix is "redeploy the last good tag". It is the one conditional call
+   site (`if: hashFiles('yo.toml') != ''`), and the same `if:` is what stops
+   the step resolving `./.github/actions/install-deps`, which those trees also
+   do not contain.
+
+The general shape: un-vendoring moves a dependency from "materialized by
+`actions/checkout`" to "materialized by a step that runs as a particular user,
+in a particular directory, on a particular tree". Each defect is one of those
+three words being different from what the audit assumed.
+
 **Verified against a genuinely cold store**, with `YO_CACHE_DIR` pointed at an
 empty directory (`src/cache.yo:43`) rather than by deleting the real one:
 

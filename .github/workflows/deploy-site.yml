@@ -73,8 +73,10 @@ jobs:
       # CONDITIONAL, and it is the only install-deps call site that is.
       # This workflow checks out an ARBITRARY PUBLISHED TAG (that is its whole
       # purpose — the salvage lever for a release whose in-run deploy-site was
-      # skipped), and every tag from before `markdown_yo` became a dependency
-      # has no `yo.toml` at all. There `yo install --locked` exits 1 with
+      # skipped), and NO PUBLISHED TAG HAS A `yo.toml`: the manifest arrives
+      # with this commit, so that is every tag that exists, v0.2.32 included
+      # (checked with `git cat-file -e <tag>:yo.toml`). There `yo install
+      # --locked` exits 1 with
       # "no yo.toml found … Run 'yo init'", which would break redeploying any
       # older release — while `submodules: recursive` above already
       # materializes the vendored copy those tags import by path. Every other
