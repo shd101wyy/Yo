@@ -27,10 +27,12 @@ workspaces (#646). The five bugs the audit reproduced are filed
 under `issues/` and are all fixed. The campaign surfaced further compiler bugs
 of its own along the way. Two were FIXED with this stack: the extern prototype
 collision and the `-O2` flag that hid it (#624), and the build scheduler's
-nested event loop (in #620). Two are filed OPEN, each worked around
-structurally rather than by weakening a feature:
-`issues/yo-doc-infers-the-project-name-from-package-json.md` and
-`issues/async-body-local-read-by-two-matches-is-emitted-twice.md`._
+nested event loop (in #620). One stays OPEN, worked around structurally rather
+than by weakening a feature:
+`issues/yo-doc-infers-the-project-name-from-package-json.md`. A third was filed
+and then RETRACTED — it could not be reproduced and rested on a misread of a
+two-error build log
+(`issues/retired/async-body-local-read-by-two-matches-is-emitted-twice.md`)._
 
 The question that prompted this plan, from the maintainer, in three parts:
 
@@ -1172,13 +1174,21 @@ error paths were verified directly: `-p` with an unknown name lists the members,
 and both `-p` and `--workspace` inside a plain package say so rather than
 degrading silently.
 
-One codegen defect surfaced and is filed, not fixed:
-`issues/async-body-local-read-by-two-matches-is-emitted-twice.md` — a local
-bound in an `io.async` `while` body and read by two separate `match`es is
-DECLARED twice in the emitted C. `check` and `compile --skip-c-compiler` both
-pass; only a full build shows it. §4.6 avoids the shape by lifting the split
-into a plain `fn`, which is better code anyway, but the defect is still there
-for the next person who writes the natural form.
+A codegen defect was filed here and has since been RETRACTED
+(`issues/retired/async-body-local-read-by-two-matches-is-emitted-twice.md`). The
+claim was that a local bound in an `io.async` `while` body and read by two
+separate `match`es is DECLARED twice in the emitted C. It does not reproduce:
+three reduced variants emit clean C, and so does the real
+`expand_workspace_members` with `_split_member_pattern` inlined back in — 132 MB
+of emitted C through `clang -fsyntax-only`, 0 errors, which is decisive because
+`redefinition` is exactly what that mode reports.
+
+The build that prompted the file had **two** C errors, and the first was an
+`IoExn`-for-`Exception` mismatch at a call site into the same async body. I read
+only the error I recognised. The duplicate declaration was a symptom of that
+malformed state machine, not an independent defect in local spilling. The
+lesson — read the whole error list before attributing one of them — is recorded
+in the retired doc. `_split_member_pattern` stays on readability grounds.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path

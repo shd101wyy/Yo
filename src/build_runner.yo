@@ -1142,10 +1142,11 @@ _entry_is_dir :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
 /// `packages/` is a legitimate state), but a glob match without a `yo.toml` is
 /// skipped rather than reported, because the glob is a filter by construction.
 /// A member pattern split at its last `/`: `packages/*` → parent `packages`,
-/// leaf `*`. A plain `fn`, not inline in the async body below — a local bound
-/// there and then read by two separate `match`es is emitted TWICE by the async
-/// state machine ("error: redefinition of 'last_sep'",
-/// issues/async-body-local-read-by-two-matches-is-emitted-twice.md).
+/// leaf `*`. A named `fn` returning a small struct, rather than two `match`es
+/// over one `Option` inline in the async body below — on readability alone.
+/// (It was first written that way to dodge a suspected codegen defect; that
+/// turned out not to exist — issues/retired/
+/// async-body-local-read-by-two-matches-is-emitted-twice.md.)
 _MemberSplit :: struct(parent : String, leaf : String);
 _split_member_pattern :: (fn(pattern : String) -> _MemberSplit)(
   match(
