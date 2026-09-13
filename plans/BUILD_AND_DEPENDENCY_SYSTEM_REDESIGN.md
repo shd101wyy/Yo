@@ -4,6 +4,14 @@ _Status: **COMPLETE (2026-09-13)** — P0, P1, P2 (§5.1, §5.2, §5.4) and P3
 (§4.6, §4.8, §4.9) have all landed. P4 (registry, `yo publish`) is designed
 and deliberately not scheduled; §4.10 records its shape._
 
+_One item is written but **not yet shipped**: the maintainer's dogfooding
+milestone, un-vendoring `vendor/markdown_yo`. It is implemented, gated and
+merge-ready as **#654**, and blocked on exactly one thing — a published seed
+that understands `yo.toml`. See the milestone section for the measurement that
+establishes that, including why the `--imports` route this plan originally
+prescribed is NOT sufficient. Until #654 merges, the compiler still imports the
+Markdown renderer by submodule path._
+
 _Proposed 2026-09-11, revised the same day after maintainer review — the
 manifest is **declarative data read without the evaluator**; after weighing
 a Yo data literal against TOML (§4.1 records both) the maintainer chose TOML
@@ -1191,17 +1199,74 @@ lesson — read the whole error list before attributing one of them — is recor
 in the retired doc. `_split_member_pattern` stays on readability grounds.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
-The compiler itself imports the Markdown renderer by submodule path
+The compiler imports the Markdown renderer by submodule path
 (`src/doc/render_html.yo` → `import("../../vendor/markdown_yo/src/lib.yo")`);
-the target is `import("markdown_yo")` resolved through the repo-root
-`yo.toml` and the store, with the submodule deleted. This is the end-to-end
-proof for P1.3/P1.4 on the compiler's own build. It is SEED-GATED twice over:
-the seed that compiles `src/main.yo` must resolve the manifest import (or be
-handed `--imports markdown_yo=<store path>` by the bootstrap scripts — the
-seed gains `--imports` with v0.2.31), and CI must fetch the dependency before
-the seed compile. So: land P1.3 first, then un-vendor in a PR that also
-teaches `scripts/bootstrap/*` and the workflows to fetch/`--imports` it, once
-a seed with `--imports` is published.
+the target is `import("markdown_yo")` resolved through the repo-root `yo.toml`
+and the store, with the submodule deleted. This is the end-to-end proof for
+P1.3/P1.4 on the compiler's own build.
+
+**Implemented and verified in #654; NOT merged.** It waits on one thing, and
+the paragraph this replaces named the wrong one, so the correction matters more
+than the status.
+
+**The `--imports` route does not work, measured 2026-09-13.** This plan
+originally said the bootstrap could hand the seed
+`--imports markdown_yo=<store path>`, "the seed gains `--imports` with
+v0.2.31". Half of that is true and the half that is false is the load-bearing
+half:
+
+- The v0.2.31 seed on #654's tree fails — `error: Module not found: tried
+  ".../markdown_yo.yo" and ".../markdown_yo/index.yo"`. It has no manifest
+  discovery (`_register_manifest_import_roots` is absent from
+  `src/module_manager.yo` at that tag) and falls through to path resolution.
+- Hand that same seed an `--imports` file naming the store path and it
+  succeeds, rc=0. So `--imports` genuinely works in that generation.
+- But **nothing in that generation can POPULATE the store.** The store, the
+  resolver and `yo install` all arrived with #602/#601 — after v0.2.31. An
+  `--imports` file can only point at a directory something else already
+  created, and on a fresh CI runner nothing has.
+
+So the `--imports` route reduces to "the bootstrap scripts `git clone` the
+dependency themselves", which is re-vendoring in bash — precisely what the
+milestone removes — and every line of it would be deleted at the next seed
+bump. **The milestone therefore requires a published seed built from this
+stack** (v0.2.32 or later). With such a seed, `yo.toml` discovery resolves and
+`yo install` fetches, and no `--imports` plumbing is needed anywhere.
+
+**What CI needs, verified against a cold store.** `yo build` fetches on its own
+(`install_dependencies` runs before the graph), so a job that only calls
+`yo build` is unchanged. A job calling `yo compile`/`check`/`test` directly does
+need the store populated first: those resolve import roots but never fetch, and
+a missing entry is a compile error naming `yo install`. #654 therefore gives
+every job that runs `yo` against this tree one step —
+`.github/actions/install-deps`, a composite running `yo install --locked`.
+
+Measured with `YO_CACHE_DIR` pointed at an empty directory (`src/cache.yo:43`),
+so the cache really was cold:
+
+- `yo install --locked` resolved **from `yo.lock`** rather than re-resolving
+  the rev, rc=0.
+- `yo.lock` byte-identical afterwards — the CI step cannot drift the lock.
+- The store address equals the lock's `integrity` exactly
+  (`store/sha256/325f5e11…` ↔ `integrity = "sha256-325f5e11…"`): the content
+  addressing round-trips, which is what makes the lock authoritative.
+- A `.verified` sibling is written, so later runs trust the tree without
+  re-hashing.
+- Then, same cold cache, the literal CI invocation:
+  `yo compile src/main.yo --optimize 2 --std-path ./std --emit-c
+  --skip-c-compiler` → rc=0, 132 105 698 bytes, **0 real** transpile failures
+  per `scripts/count-transpile-failures.sh`.
+
+(A raw `grep -c "Failed to transpile"` on that emit returns 16, which is under
+the 17 string-literal floor and means nothing. Use the script.)
+
+**Sequencing, as it actually has to happen:** cut the seed release from a
+develop that still carries the submodule, bump `SEED_VERSION` in `test.yml`,
+`fixpoint-arm64.yml` and `release.yml` (the guard in the `changes` job enforces
+that the three agree), then merge #654. #654 touches `SEED_VERSION` in none of
+them, so the two changes are disjoint. Cutting a release from a tip that
+already carried #654 would fail: the release's own seed-driven legs would try
+to resolve `import("markdown_yo")` with the old seed.
 
 Sequencing: P0 is independent and small — land it first, it makes P1's
 failures visible. P1 is the campaign; §4.5.1 (`--imports`) is its first cut
