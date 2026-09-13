@@ -65,8 +65,23 @@ evidence rather than re-derivation.
   associate the directory handle and consume completions as packets, like
   every other op) is the right follow-up if duplicates are ever reported
   by a real user.
-- **`tests/net/unix.test.yo` "bind, connect, accept, echo round-trip"
+- ~~**`tests/net/unix.test.yo` "bind, connect, accept, echo round-trip"
   fails on THIS host (exit 22) under the unmodified CI-equivalent seed
   binary** — pre-existing, environmental (AF_UNIX), unchanged by this
-  audit's patches; recorded so the next Windows session doesn't chase it
-  as a new regression.
+  audit's patches~~ — **RETRACTED 2026-09-13: it was this audit's own
+  regression.** CI disagrees with the local reading: run `34724452396`
+  at `0fc80fd78` failed that test on BOTH Windows legs
+  (`windows-latest` 103642084964, `windows-11-arm` 103642084960) while
+  develop's job 103609844499 at `cbbff5208` logged it passing. Cause:
+  fix #2's ConnectEx family gate read the family from `getsockname()`,
+  which fails `WSAEINVAL` on the unbound client socket the path is FOR,
+  so the `AF_INET` fallback routed AF_UNIX (and would have routed
+  AF_INET6) into ConnectEx. Fixed by `getsockopt(SO_PROTOCOL_INFOW)`,
+  failing closed; regression test
+  `tests/net/tcp.test.yo` "IPv6 loopback connect round-trip". Detail in
+  `issues/fixed/windows-blocking-connect-parks-the-event-loop.md`.
+
+  The lesson for the next audit: a local "it fails on the seed binary
+  too" reading is not a disposition when the same test passes on
+  develop's CI legs. Check develop's own job log for the test name
+  before calling a failure environmental.
