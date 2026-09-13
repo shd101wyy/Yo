@@ -100,6 +100,9 @@ filter exactly once, where the names are unambiguously the callee's.
 The defect was **two** independent bugs stacked. That is why every partial
 attempt recorded below moved the symptom without removing it: each one fixed
 part of the first bug, and the second was invisible until the first was gone.
+A third mistake — mine, in the shape of the fix itself — is recorded at the end
+of this section, because the way it was caught matters more than the one-line
+change that fixed it.
 
 ### Bug 1 (evaluator) — a freshening that silently freshened nothing
 
@@ -214,6 +217,51 @@ direction — `void` definitions under value-typed prototypes, taking out
 `tests/async_await`, `async_generic_param_capture` and
 `generic_impl_async_self`. The invariant to hold is "same helper AND same
 arguments"; half of it is not half a fix.
+
+### The mistake in the fix's own shape — a gate keyed on shape, not on channel
+
+With both bugs fixed the first version of the gate asked a structural question:
+does this callee take a closure parameter whose `Fn` bound mentions a forall
+binder that also survives into the declared result? Every shape in the
+reproducer table answers yes, and so does `spawn_blocking`.
+
+So does something else entirely. The iterator and stream combinators are
+`fn(generic(B), f : Impl(Fn(A) -> B)) -> Stream(B)` — the same shape, arrived at
+for unrelated reasons. Freshening them mints a `B` for the receiver that the
+next call in the chain does not look up, and
+
+```
+ch.filter(...).map(...)   then   chain.collect(io)
+```
+
+fails with `No matching call found with arguments: (chain.collect)(io)`.
+A/B, measured: `tests/async/channel.test.yo` is **18/18 under the v0.2.32 seed**
+and **fails to compile** under the branch carrying the shape-keyed gate.
+
+The fix is not a combinator exception. It is to key the gate on the CHANNEL the
+whole defect is about: the concrete behind an `Impl(Future(R, ...))` is
+published under the binder's **id** by the io.async stamp and read back through
+that same id by `io.await`, which is precisely what one shared binder cannot
+serve for two instantiations. A combinator's `B` is carried by ordinary
+per-call substitution and never needs an id. `type_implements_future` on the
+declared result is the test, and it is one line:
+
+```yo
+if(!(type_implements_future(gc_res)), {
+  return(ft);
+});
+```
+
+**How it got that far.** `check ./src` (275/275) and `check ./std` (175/175)
+were green — they are evaluator-only, a filter rather than a gate, and they were
+green through every wrong version of this fix. Thirteen hand-picked async and
+thread test files were green too, and that is the more dangerous of the two,
+because a chosen set looks like evidence. It was chosen from where the bug was
+believed to live, which is a subset of the blast radius of a change to dispatch.
+The regression surfaced only under the full fast suite
+(`yo test ./tests --exclude tests/internal --exclude tests/cli-cases`), which
+was run to fill CI wait time rather than because the process called for it.
+Final gate on the landed fix: **4206 passed, 0 failed, 271 files.**
 
 ---
 

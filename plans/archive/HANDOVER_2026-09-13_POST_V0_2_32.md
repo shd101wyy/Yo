@@ -24,12 +24,18 @@
 >
 > **The correction worth carrying forward**, because §5.4 states the fix as a
 > single scoped change: per-call binder identity IS the right direction, and it
-> took THREE layers, each of which passed the gate the previous one failed.
+> took FOUR layers, each of which passed the gate the previous one failed.
 > `substitute` matches a `SomeT` by (name, frame_level), so (1) freshening off
 > the declaration's `forall_types` misses the occurrence that matters and moves
 > nothing; (2) the prototype/definition return-type asymmetry it unmasks is a
-> second, independent bug; and (3) minting the fresh binder **per NAME**
-> collapses the callee's `T` with the prelude `Future(T, E)`'s `T`.
+> second, independent bug; (3) minting the fresh binder **per NAME** collapses
+> the callee's `T` with the prelude `Future(T, E)`'s `T`; and (4) gating the
+> freshening on the SHAPE — a closure param whose `Fn` bound mentions a binder
+> that survives into the result — catches the iterator/stream combinators too
+> (`map`, `filter`: `fn(generic(B), f : Impl(Fn(A) -> B)) -> Stream(B)`) and
+> breaks them. The gate must name the CHANNEL, not the shape: only an
+> `Impl(Future(R, ...))` result has its concrete published under the binder's id
+> by the io.async stamp and read back through that id by `io.await`.
 >
 > Layer 3 is the one a handover cannot skip: every reproducer in §5.5's table
 > that reaches the closure-param path names its binder `R`, so the whole table
@@ -37,6 +43,18 @@
 > `check ./src` 275/275 and `check ./std` 175/175 were green while
 > `spawn_blocking` — declared `generic(T)` — still miscompiled. **A test suite
 > that shares a naming convention cannot see a name-sensitivity bug.**
+>
+> Layer 4 is the one about process rather than about the compiler. Every gate
+> named above was green when layer 4 was live and breaking
+> `tests/async/channel.test.yo`. `check ./src` and `check ./std` are
+> evaluator-only — a filter, not a gate — and a hand-picked set of async test
+> files is the same mistake with a bigger number, because it is chosen from
+> where the author thinks the bug lives, which is a subset of the blast radius
+> of a change to dispatch. **For a dispatch or codegen change, the gate is the
+> FULL fast suite** (`yo test ./tests --exclude tests/internal --exclude
+> tests/cli-cases`): 4206 passed, 0 failed, 271 files. It was run here to fill
+> CI wait time, not because the process called for it — which is luck, and the
+> reason the rule is now written down.
 
 > **Still open, and deliberately not closed here:**
 > - **#556** (`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md`
