@@ -33,11 +33,19 @@ natively, and runs the suite. That gates the emitted C — which is real
 coverage of the runtime's behaviour — but it gates a natively
 recompiled test binary, not the artifact a user downloads.
 
-**There is no one-generation lag protecting this.** A CODEGEN change
-reaches users only after the next seed bump, so a regression has a
-release to be caught in. A change to the emitted async RUNTIME
-(`src/codegen/async/runtime_io_*.yo`) is carried by every binary the
-new compiler emits, immediately — including the bundle's own `yo`.
+**There is no one-generation lag protecting this**, and that is a
+general rule worth applying beyond this issue:
+
+> A CODEGEN change reaches users only after the next seed bump, so a
+> regression has a whole release cycle to be caught in. A change to the
+> emitted RUNTIME — anything under `src/codegen/async/runtime_io_*.yo`,
+> the allocator emitters, the parallelism runtime — is carried by every
+> binary the new compiler emits, the bundle's own `yo` included, from
+> the FIRST release that contains it.
+
+That difference decides how much pre-release verification a change
+needs, and **it is not visible from the diff**: both look like edits
+under `src/`.
 
 ## The failure shape this is the gap for
 
@@ -57,11 +65,33 @@ the fs-watch rearm. Every one of those is in the class described above.
 ## Fix
 
 Add one step to `install-scripts.yml`'s `windows` job, after the existing
-compile check: `yo init` a trivial project and `yo build` it with the
-INSTALLED bundle. That drives the event loop and a subprocess through the
-bundle's own runtime, which is the part currently unexercised. An
-`install` smoke test would additionally cover the network and git paths,
-but needs a fixture repository, so it is the larger follow-up.
+compile check: `yo init` a trivial project and **`yo build run`** it with
+the INSTALLED bundle.
+
+`yo build run` rather than plain `yo build`, because it closes the gap
+twice for one extra word. `yo build` already drives the event loop and
+spawns a child `yo compile`, which is the subprocess path. `run` then
+EXECUTES the produced binary — so the bundle's own runtime spawns a
+process, and the FRESHLY EMITTED runtime starts up inside it. Since the
+gap is precisely "the runtime is linked but never executed", the second
+half is the one that matters. (`yo build test` is a third option and the
+wrong one: it compiles a test batch, which is slower and drags the test
+runner's machinery into a check meant to be about the runtime.)
+
+**It is hermetic** — verified 2026-09-13 by running it with `YO_CACHE_DIR`
+pointed at a scratch directory: rc=0 and that directory was still
+completely EMPTY afterwards, without even the `store/`/`git/`/`index/`
+skeleton. A scaffolded project never touches the dependency machinery, so
+the step needs no network and cannot flake on GitHub being slow. That
+holds after the `yo.toml` work too: `yo init` writes a `[dependencies]`
+table containing only a comment, so there is nothing to resolve.
+
+The Windows runner image already has clang and git (which is why
+`install.ps1 -NoDeps` is safe there) and the bundle is installed to a
+prefix and PATHed, so the step needs nothing new.
+
+An `install` smoke test would additionally cover the network and git
+paths, but needs a fixture repository, so it is the larger follow-up.
 
 Cheap, permanent, and it gates every future release rather than being a
 thing someone remembers to do by hand.
