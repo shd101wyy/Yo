@@ -24,6 +24,10 @@ Either instantiation ALONE compiles and runs. The pair does not.
 * `issues/repros/generic-future-return-two-t-plain-param.yo`
 * `issues/repros/generic-future-return-two-t-closure-param.yo`
 * `issues/repros/generic-future-return-two-t-with-await.yo`
+* `issues/repros/generic-future-return-three-t-closure-param.yo` — **the
+  discriminating one.** At two instantiations a lag, a swap and a reversal are
+  the same permutation; at three they are not. See "MEASURED 2026-09-13: it is
+  a LAG BY ONE" below.
 
 ## Root cause of the value-param shape, and its fix
 
@@ -227,6 +231,195 @@ this ordering is now evidence-backed rather than a guess.
 Note also what is NOT wrong: `R` (the enclosing generic's binder, id 2027)
 resolves correctly at both calls — i32 then Pair — via the registry, not the
 env. Earlier drafts of this document suspected `R`; it is fine.
+
+### MEASURED 2026-09-13: it is a LAG BY ONE, not a clobber
+
+Two Ts was the right observation and the wrong frame. Extending the reproducer
+from two instantiations to **three** turns a symptom that reads like
+"last writer wins" into one that cannot be: with three, the answers are neither
+all-the-same nor reversed, they are **shifted by exactly one**.
+
+`three_t.yo` — the closure-param reproducer with a third instantiation:
+
+```rust
+Pair :: struct(lo : i32, hi : i32);
+Trip :: struct(a : i64, b : i64, c : i64);
+wrap2 :: (fn(generic(R : Type), f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+  io.async((io : Io) => f())
+);
+main :: (fn(io : Io) -> unit)({
+  a := io.await(wrap2(() => i32(7), io), io);                        // T0 = i32
+  b := io.await(wrap2(() => Pair(lo : i32(3), hi : i32(4)), io), io); // T1 = Pair
+  c := io.await(wrap2(() => Trip(a : i64(1), b : i64(2), c : i64(3)), io), io); // T2 = Trip
+});
+```
+
+**What is CORRECT in the emitted C**, and worth stating because it rules out a
+whole family of guesses: the three `wrap2` specializations exist, are named for
+their own `T` (`..._i32_...`, `..._Pair_...`, `..._Trip_...`), and each captures
+the right user closure — the `f` parameter is paired correctly with its
+generation every time. The three async generations exist as
+`closure_…000000/1/2` in source order, and each one's capture holds the matching
+`f`. Nothing is collapsed and nothing is mispaired.
+
+**What is wrong** is only the TYPE each generation is rendered with:
+
+| generation | captures `f` returning | its `T` should be | local temp + prototype say | its sm struct's `result` says |
+| --- | --- | --- | --- | --- |
+| `…000000` | i32 (call 0) | i32 | **Trip** (T2) | int32_t — correct |
+| `…000001` | Pair (call 1) | Pair | **i32** (T0) | **int32_t** (T0) |
+| `…000002` | Trip (call 2) | Trip | **Pair** (T1) | **Pair** (T1) |
+
+Read the last two columns as permutations of `[T0, T1, T2]`:
+
+- local temp + prototype: `[T2, T0, T1]` — gen *k* gets `T(k-1 mod 3)`, a lag of
+  one **with wraparound**.
+- `sm->result`: `[T0, T0, T1]` — gen *k* gets `T(k-1)`, a lag of one **clamped**
+  at the first call (which is therefore right by position, not by luck).
+
+A shared cell with last-writer-wins gives `[T2, T2, T2]`. A first-writer-wins
+memo gives `[T0, T0, T0]`. A reversed list gives `[T2, T1, T0]`. **None of those
+is what is there.** Two independent channels both lag by exactly one call, which
+is the signature of a value being READ before the current call's stamp is
+WRITTEN — each read sees the previous call's stamp — rather than of two
+generations racing for one slot.
+
+That also explains why the two-instantiation reproducer was so misleading: at
+n = 2 a lag-by-one and a swap and a reversal are the same permutation. The
+third instantiation is what separates them, and it is cheap — this table came
+from one `--emit-c` run, no compiler instrumentation.
+
+**The method, worth reusing.** Several mechanisms predicted the n = 2
+observation equally well — last-writer-wins on a shared registry key, a
+reversed list, a swap — so the evidence could not choose between them, and no
+amount of instrumenting the *suspected* site would have helped: each theory
+points at a different site. Extending the OBSERVATION until the candidates
+disagree is what settled it, and it cost one recompile of a twelve-line
+program. Reach for that before reaching for a probe whenever two or more
+mechanisms fit the data.
+
+It equally explains the `[bridge]` framing being the wrong place to look first:
+a bridge that copies the right value at the wrong TIME produces exactly this,
+and so does a correct bridge reading a registry that is one stamp behind. The
+question to answer next is therefore **ordering**, not keying: which of the
+stamp sites runs after the read that consumes it.
+
+### DISPROVEN 2026-09-13: the two wrapper bridges are a stale WRITE, not the cause
+
+The lag pointed straight at `_evaluate_funcval_runtime_call`'s post-specialization
+re-bridge, and instrumenting it looked damning. At all three calls
+`resolved_ret` is **correct** — `Future(i32)`, `Future(Pair)`, `Future(Trip)` —
+while `rb_binfo.ty`, the stamp on the specialization's own body expr, reads
+`Future(i32)`, `Future(i32)`, `Future(Pair)`: lagged by one, and
+`_with_resolved_concrete` then overwrites the correct value with it. So the
+comment above that bridge ("the spec's body is a fresh-id clone with its own
+stamp") is FALSE for this shape — the clone shares the original's body expr id,
+and the stamp is written after the bridge reads it.
+
+That write is genuinely stale. **It is also inert here**, which is the part that
+matters. Guarding BOTH bridges — skip when the call already resolved a concrete
+future output, so the bridge can only supply what is missing and never contradict
+what is present — produces emitted C that is **identical** for the three-T
+reproducer: prototypes still `[T2, T0, T1]`, definitions still `[T1, T0, T1]`,
+same 9 C errors. `check ./src` 275/275 and `check ./std` 175/175 stay green and
+both known-good shapes still pass, so the guard is harmless; it is simply not a
+fix, and it was reverted rather than landed on the strength of a plausible story.
+
+**What codegen actually reads.** The closure generations are separate FuncVals
+with distinct func_ids (`closure_yo_id_<fid>000000/1/2` — the generation suffix
+is part of the id), so `function_c_name` gives each its own C name, and the
+return type in the PROTOTYPE comes from that fid's REGISTERED `Func` type. The
+io.async stamp reads the same place:
+
+```yo
+.FuncVal(__fvd2, _) => match(
+  get_func_type(__fvd2.*.func_id),
+  .Func({ result : rr }) => if(!(is_some_type(rr)), {
+    register_some_resolved_concrete(oid.clone(), rr.clone());
+  }),
+```
+
+— it takes the closure's registered result and publishes it as the future
+OUTPUT's concrete under the freshened output id `oid`, which is what every
+`io.await` then resolves through. So the prototype, the body's local temp and
+the state machine's `result` field all descend from **one** value, which is why
+all three lag together instead of disagreeing three different ways. Any fix that
+does not correct that registration is patching a downstream copy.
+
+**The question left is two-valued**, and one probe at that stamp site settles it:
+
+1. the REGISTRATION lags — generation *k*'s fid is registered with `T(k-1)`; or
+2. the READ is of the wrong generation — call *k* reaches `get_func_type` with
+   generation *k-1*'s fid.
+
+(2) is not idle: yo-self mints a per-reference FuncVal GENERATION with a fresh
+func_id on re-evaluation, so a call holding the FuncVal it evaluated BEFORE the
+newest mint would produce exactly this. Against it: the emitted C pairs every
+generation with the correct `f` closure, so the argument side is not stale.
+
+### ROOT CAUSE, MEASURED 2026-09-13: one shared binder id, and a cell that lags it
+
+A probe on the two registration sites — `register_some_resolved_concrete` at
+`check_and_add_argument`'s Fn-bound result (`src/evaluator/calls/helper.yo`)
+and `register_func_type` at the closure re-registration
+(`src/evaluator/values/anonymous_function.yo`) — produces this ledger for the
+three-T reproducer, in evaluation order:
+
+```
+[closure-rereg] fid=closure_…13068471…000000  body_ty=i32     <- the user closure f0
+[fnres-reg]     fn_res_id=2027 <- i32          closure_fid=f0
+[closure-rereg] fid=closure_…74814973…000000  body_ty=Pair    <- the user closure f1
+[fnres-reg]     fn_res_id=2027 <- Pair         closure_fid=f1
+[closure-rereg] fid=closure_…54161240…000001  body_ty=i32     <- ASYNC GEN 1  (lagged)
+[closure-rereg] fid=closure_…11628041…000000  body_ty=Trip    <- the user closure f2
+[fnres-reg]     fn_res_id=2027 <- Trip         closure_fid=f2
+[closure-rereg] fid=closure_…54161240…000002  body_ty=Pair    <- ASYNC GEN 2  (lagged)
+```
+
+Three facts, each of which the emitted C then follows exactly:
+
+1. **`fn_res_id` is 2027 at all three calls.** That is `R` from `wrap2`'s
+   DECLARED `f : Impl(Fn() -> R)`. The declaration is evaluated once, so every
+   call registers its concrete against the SAME id: `i32`, then `Pair`, then
+   `Trip`, last write winning. There is no per-call identity here at all —
+   `_freshen_io_builtin_callee` freshens io.async's OWN `T`/`E`, and nothing
+   freshens the USER function's forall binder reached through a closure param.
+
+2. **Async generation 0 is never re-registered.** It has no `[closure-rereg]`
+   line — grep count 0. At the first call `R` is still abstract, the site's
+   `has_some == 0` gate rejects the body type, and no per-generation type is
+   recorded. So gen 0 has nothing of its own and resolves `R` through the
+   shared registry, which by emission time holds the LAST write, `Trip`.
+
+3. **Generations 1 and 2 are re-registered one call behind.** Gen 1's body
+   types `i32` even though 2027 already held `Pair` when it ran, and gen 2's
+   types `Pair` after 2027 held `Trip`. So the body evaluation is NOT reading
+   the registry — it reads the SomeT's own per-object `resolved_concrete` cell,
+   which `resolve_some_type_to_concrete` consults FIRST and which is stamped on
+   a different schedule. The cell trails the registry by exactly one call.
+
+That reproduces the observed prototypes `[T2, T0, T1]` term for term: gen 0
+takes the registry's final `Trip`, gen 1 its own recorded `i32`, gen 2 its own
+recorded `Pair`. The apparent "rotation" was never a rotation — it is one
+shared-id last-write (gen 0) sitting next to two one-step-stale cells.
+
+**So the two channels disagree, and which one you read decides which wrong
+answer you get.** Both are wrong for the same underlying reason: the binder has
+no per-call identity. The registry answers "the last call's T" and the cell
+answers "the previous call's T"; neither can answer "this call's T", because
+there is only one `R` object for every instantiation.
+
+**That makes the fix structural, not a guard.** The two bridges and the
+`has_some == 0` gate are all downstream of a binder that cannot distinguish
+calls. The direction this points at is candidate 3 below — per-call identity for
+the callee's forall binders, the thing `_freshen_io_builtin_callee` already does
+for io.async and which the method-call path gets for free (it reads the
+SPECIALIZATION's own body, a genuinely fresh clone, which is why that one shape
+works). Extending freshening from the io.async builtin to any generic callee
+whose return mentions its own binder is the shape of the fix; the obstacle in
+candidate 3 — names compared as data in `_skip_fallback`, the reserved `"Impl"`,
+and the `fv_mn == flabel` forall-label match — is what has to be solved to get
+there, and it is now the ONLY thing between this defect and `spawn_blocking`.
 
 ### What to try next, and the obstacle each candidate hits
 
