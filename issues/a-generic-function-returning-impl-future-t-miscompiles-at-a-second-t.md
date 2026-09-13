@@ -357,6 +357,70 @@ func_id on re-evaluation, so a call holding the FuncVal it evaluated BEFORE the
 newest mint would produce exactly this. Against it: the emitted C pairs every
 generation with the correct `f` closure, so the argument side is not stale.
 
+### ROOT CAUSE, MEASURED 2026-09-13: one shared binder id, and a cell that lags it
+
+A probe on the two registration sites — `register_some_resolved_concrete` at
+`check_and_add_argument`'s Fn-bound result (`src/evaluator/calls/helper.yo`)
+and `register_func_type` at the closure re-registration
+(`src/evaluator/values/anonymous_function.yo`) — produces this ledger for the
+three-T reproducer, in evaluation order:
+
+```
+[closure-rereg] fid=closure_…13068471…000000  body_ty=i32     <- the user closure f0
+[fnres-reg]     fn_res_id=2027 <- i32          closure_fid=f0
+[closure-rereg] fid=closure_…74814973…000000  body_ty=Pair    <- the user closure f1
+[fnres-reg]     fn_res_id=2027 <- Pair         closure_fid=f1
+[closure-rereg] fid=closure_…54161240…000001  body_ty=i32     <- ASYNC GEN 1  (lagged)
+[closure-rereg] fid=closure_…11628041…000000  body_ty=Trip    <- the user closure f2
+[fnres-reg]     fn_res_id=2027 <- Trip         closure_fid=f2
+[closure-rereg] fid=closure_…54161240…000002  body_ty=Pair    <- ASYNC GEN 2  (lagged)
+```
+
+Three facts, each of which the emitted C then follows exactly:
+
+1. **`fn_res_id` is 2027 at all three calls.** That is `R` from `wrap2`'s
+   DECLARED `f : Impl(Fn() -> R)`. The declaration is evaluated once, so every
+   call registers its concrete against the SAME id: `i32`, then `Pair`, then
+   `Trip`, last write winning. There is no per-call identity here at all —
+   `_freshen_io_builtin_callee` freshens io.async's OWN `T`/`E`, and nothing
+   freshens the USER function's forall binder reached through a closure param.
+
+2. **Async generation 0 is never re-registered.** It has no `[closure-rereg]`
+   line — grep count 0. At the first call `R` is still abstract, the site's
+   `has_some == 0` gate rejects the body type, and no per-generation type is
+   recorded. So gen 0 has nothing of its own and resolves `R` through the
+   shared registry, which by emission time holds the LAST write, `Trip`.
+
+3. **Generations 1 and 2 are re-registered one call behind.** Gen 1's body
+   types `i32` even though 2027 already held `Pair` when it ran, and gen 2's
+   types `Pair` after 2027 held `Trip`. So the body evaluation is NOT reading
+   the registry — it reads the SomeT's own per-object `resolved_concrete` cell,
+   which `resolve_some_type_to_concrete` consults FIRST and which is stamped on
+   a different schedule. The cell trails the registry by exactly one call.
+
+That reproduces the observed prototypes `[T2, T0, T1]` term for term: gen 0
+takes the registry's final `Trip`, gen 1 its own recorded `i32`, gen 2 its own
+recorded `Pair`. The apparent "rotation" was never a rotation — it is one
+shared-id last-write (gen 0) sitting next to two one-step-stale cells.
+
+**So the two channels disagree, and which one you read decides which wrong
+answer you get.** Both are wrong for the same underlying reason: the binder has
+no per-call identity. The registry answers "the last call's T" and the cell
+answers "the previous call's T"; neither can answer "this call's T", because
+there is only one `R` object for every instantiation.
+
+**That makes the fix structural, not a guard.** The two bridges and the
+`has_some == 0` gate are all downstream of a binder that cannot distinguish
+calls. The direction this points at is candidate 3 below — per-call identity for
+the callee's forall binders, the thing `_freshen_io_builtin_callee` already does
+for io.async and which the method-call path gets for free (it reads the
+SPECIALIZATION's own body, a genuinely fresh clone, which is why that one shape
+works). Extending freshening from the io.async builtin to any generic callee
+whose return mentions its own binder is the shape of the fix; the obstacle in
+candidate 3 — names compared as data in `_skip_fallback`, the reserved `"Impl"`,
+and the `fv_mn == flabel` forall-label match — is what has to be solved to get
+there, and it is now the ONLY thing between this defect and `spawn_blocking`.
+
 ### What to try next, and the obstacle each candidate hits
 
 Not another name-based special case — that is what the first cut of the
