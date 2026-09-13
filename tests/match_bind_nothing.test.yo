@@ -59,3 +59,57 @@ test("bind-nothing arm can still use a wildcard fallback", {
   assert(!is_dot(Shape.Circle(1)));
 });
 export(Shape);
+// --- Literal payloads: a literal in a pattern payload position is COMPARED,
+// not bound (issues/enum-pattern-bool-payload-not-compared.md). A `false`
+// (or `true`, or an integer, or a string) atom used to be treated as a
+// binding name, so `.Some(false)` silently matched `.Some(true)`.
+Lamp :: enum(On, Off);
+Reading :: enum(Level(v : i32), Flag(v : bool));
+test("boolean literal payload discriminates", {
+  classify :: (fn(o : Option(bool)) -> i32)(
+    match(
+      o,
+      .Some(false) => i32(200),
+      .Some(true) => i32(100),
+      .None => i32(0)
+    )
+  );
+  assert(classify(Option(bool).Some(true)) == i32(100), ".Some(true) must take the true arm");
+  assert(classify(Option(bool).Some(false)) == i32(200), ".Some(false) must take the false arm");
+  assert(classify(Option(bool).None) == i32(0), ".None must take the none arm");
+});
+test("boolean literal payload with a catch-all binder", {
+  classify :: (fn(o : Option(bool)) -> i32)(
+    match(
+      o,
+      .Some(false) => i32(200),
+      .Some(b) => cond(b => i32(100), true => i32(150)),
+      .None => i32(0)
+    )
+  );
+  assert(classify(Option(bool).Some(true)) == i32(100), "true falls to the binder arm");
+  assert(classify(Option(bool).Some(false)) == i32(200), "false takes the literal arm");
+});
+test("integer literal payload discriminates", {
+  band :: (fn(r : Reading) -> i32)(
+    match(
+      r,
+      .Level(404) => i32(4),
+      .Level(n) => n,
+      .Flag(_) => i32(-2)
+    )
+  );
+  assert(band(Reading.Level(404)) == i32(4), "the literal payload arm matches");
+  assert(band(Reading.Level(500)) == i32(500), "other payloads bind");
+});
+test("literal payload on a comptime-known scrutinee", {
+  // The compile-time match path is a different arm evaluator than the
+  // runtime path above — pin both.
+  v := match(
+    Option(bool).Some(true),
+    .Some(false) => i32(200),
+    .Some(true) => i32(100),
+    .None => i32(0)
+  );
+  assert(v == i32(100), "comptime match must take the true arm");
+});
