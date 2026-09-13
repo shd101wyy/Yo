@@ -1,0 +1,12 @@
+# The companion to doc-name-from-manifest: a `yo.toml` that exists and does not
+# parse is an ERROR, not a fall-through to the directory name. The manifest is
+# data every command reads, and silently titling the site after the directory
+# would hide a broken manifest behind a plausible-looking site.
+#
+# A malformed manifest already failed the run before this change — the module
+# loader registers import roots per file and reports it there. What this case
+# pins is WHERE: the failure now comes from name inference, so the run stops
+# before "Generating documentation..." instead of after it. That ordering is
+# the observable difference, and it is the point — nothing is rendered from a
+# manifest the toolchain could not read.
+timeout=300
