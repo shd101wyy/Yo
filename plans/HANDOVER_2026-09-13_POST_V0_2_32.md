@@ -80,7 +80,7 @@ run `34736633080` (28 jobs, 28 green, **0 skipped** — a full battery).
 notes are hand-pasted at publish time, same as v0.2.26–v0.2.31. They are
 written and ready:
 
-- `plans/RELEASE_NOTES_v0_2_32_DRAFT.md` (59 commits; headline is the build +
+- `plans/archive/RELEASE_NOTES_v0.2.32_DRAFT.md` (59 commits; headline is the build +
   dependency redesign, and it carries #638's Windows IOCP section).
 
 Paste that into the release body. **Hazard, learned the hard way:** a body-only
