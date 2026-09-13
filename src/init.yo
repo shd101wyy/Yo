@@ -2,7 +2,7 @@
 //!
 //! Creates a new Yo project with:
 //!   yo.toml, build.yo, src/main.yo, src/lib.yo,
-//!   tests/main.test.yo, .gitignore, README.md
+//!   tests/main.test.yo, tests/lib.test.yo, .gitignore, README.md
 //!
 //! Unless skipped with `--no-skills`, it then installs the bundled agent
 //! skill files into the project's agent config dirs and writes `AGENTS.md`
@@ -128,19 +128,29 @@ generate_lib_source :: (fn() -> str)(
 generate_test_file :: (fn() -> str)(
   "{ assert } :: import(\"std/assert\");\n\ntest(\"it works\", {\n  assert(((1 + 1) == 2), \"math is broken\");\n});\n"
 );
+/// Generate the content of `tests/lib.test.yo` — a REAL test of `src/lib.yo`,
+/// as opposed to `main.test.yo`, which only demonstrates the `test(...)` form.
+/// It imports the library the way a consumer does: by PACKAGE NAME, resolved
+/// through the `[modules] default` entry in `yo.toml`, so the scaffold
+/// exercises the manifest rather than reaching across the tree with a relative
+/// path.
+generate_lib_test_file :: (fn(name : String) -> String)(
+  `{ add } :: import("${name}");
+` + String.from("{ assert } :: import(\"std/assert\");\n\ntest(\"add sums two integers\", {\n  assert((add(2, 3) == 5), \"add(2, 3) should be 5\");\n});\n")
+);
 /// Generate the content of `.gitignore`.
 generate_gitignore :: (fn() -> str)(
   "# Build output\nyo-out/\n\n# Generated files\n*.o\na.out\na.out.c\n\n# OS files\n.DS_Store\nThumbs.db\n"
 );
-/// Generate the content of `README.md`.
+/// Generate the content of `README.md`. Everything below the title is a
+/// plain `str` rather than a template literal: the body is full of markdown
+/// code fences and inline code, and a backtick would close the template.
 generate_readme :: (fn(name : String) -> String)(
   `# ${name}
 
 A project written in Yo programming language.
 
-## Build
-
-` + String.from("```bash\nyo build\n```\n\n## Run\n\n```bash\nyo build run\n```\n\n## Test\n\n```bash\nyo build test\n```\n\n## Documentation\n\n```bash\nyo build doc\n```\n")
+` + String.from("## Project layout\n\n| Path | What it is |\n| ---- | ---------- |\n| `yo.toml` | The package manifest — name, version, `[modules]` (what importers get) and `[dependencies]`. |\n| `yo.lock` | Written by `yo install`. Commit it. |\n| `build.yo` | The build definition: artifacts and steps, written in Yo. |\n| `src/main.yo` | The executable's entry point. |\n| `src/lib.yo` | The library root. Importers get it under the package name, through the `[modules] default` entry — which is how `tests/lib.test.yo` imports it. |\n| `tests/*.test.yo` | Tests. `yo build test` runs every file in `tests/`. |\n\n## Build\n\n```bash\nyo build\n```\n\n## Run\n\n```bash\nyo build run\n```\n\n## Test\n\n```bash\nyo build test\n```\n\n## Documentation\n\n```bash\nyo build doc\n```\n\n## Dependencies\n\nDependencies are declared in `yo.toml` and resolved by Yo's own package manager:\n\n```bash\nyo add user/repo       # latest release tag, recorded as a semver range\nyo add user/repo@^1.2  # an explicit range\nyo add ./path          # a local path dependency\nyo remove name\nyo install             # fetch what yo.toml declares, write yo.lock\n```\n\n`yo build` fetches for you. The other commands — `yo check`, `yo test`,\n`yo compile`, `yo doc` — resolve imports but never fetch, so run `yo install`\nonce after cloning.\n")
 );
 /// Generate the content of `AGENTS.md` — the agent-facing entry point
 /// listing the installed Yo skill files. `targets` are the agent config
@@ -355,6 +365,15 @@ init_project :: (
       },
       true => ()
     );
+    // tests/lib.test.yo
+    lib_test_path := project_dir.join(Path.new(String.from("tests/lib.test.yo")));
+    lib_test_exists := e.io.await(exists(lib_test_path, e.io), e.io);
+    cond(
+      !lib_test_exists => {
+        e.io.await(write_string(lib_test_path, generate_lib_test_file(project_name.clone()), e.io), e);
+      },
+      true => ()
+    );
     // .gitignore
     gitignore_path := project_dir.join(Path.new(String.from(".gitignore")));
     gitignore_exists := e.io.await(exists(gitignore_path, e.io), e.io);
@@ -382,6 +401,7 @@ init_project :: (
     println(String.from("    src/main.yo"));
     println(String.from("    src/lib.yo"));
     println(String.from("    tests/main.test.yo"));
+    println(String.from("    tests/lib.test.yo"));
     println(String.from("    .gitignore"));
     println(String.from("    README.md"));
     println(String.from(""));
@@ -407,6 +427,7 @@ export(
   generate_lib_source,
   generate_test_file,
   generate_yo_toml,
+  generate_lib_test_file,
   generate_gitignore,
   generate_readme,
   generate_agents_md,
