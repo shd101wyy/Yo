@@ -1,7 +1,9 @@
 # Handover — 2026-09-13, immediately after cutting v0.2.32
 
-> **CLOSED 2026-09-13 — every item in this file is done or reassigned.** Kept as
-> the record of the v0.2.32 release and the campaign's last mile.
+> **CLOSED 2026-09-13 — every item this file made actionable is done.** Kept as
+> the record of the v0.2.32 release and the campaign's last mile. Two things in
+> §6 are NOT done and were never this document's to finish; they are listed at
+> the bottom of this banner so the closure is not read as wider than it is.
 >
 > - **§3 the release:** published; the notes are archived to
 >   `plans/archive/RELEASE_NOTES_v0.2.32_DRAFT.md`, after diffing the published
@@ -35,6 +37,20 @@
 > `check ./src` 275/275 and `check ./std` 175/175 were green while
 > `spawn_blocking` — declared `generic(T)` — still miscompiled. **A test suite
 > that shares a naming convention cannot see a name-sensitivity bug.**
+
+> **Still open, and deliberately not closed here:**
+> - **#556** (`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md`
+>   on `std-http-client-pool`) — §6 already scopes it out ("tracked with the std
+>   campaign but outside its scope"). Its own doc records the state to resume
+>   from: after the rebase both Linux legs PASS, which is NOT proof, because the
+>   defect is timing-dependent and does not reproduce locally (27 runs, zero
+>   failures — do not spend another afternoon on a local loop). CI is the only
+>   oracle. The next cheap win it names is making an ABORTED child's captured
+>   output survive: the sweep already redirects per-test output to a log, so the
+>   loss is in `yo test`'s own capture-and-replay, not in
+>   `scripts/bootstrap/hollow_sweep69.sh`.
+> - **`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`** (§6, `build.manifest` and
+>   §4.5.2–§4.5.4) — the peer session's, per §4's split.
 
 **Status was: LIVE INSTRUCTIONS.** Written for the agent taking over. Everything
 below is measured or links to the run/PR it came from; where something is a
