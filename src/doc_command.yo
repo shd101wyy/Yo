@@ -33,6 +33,7 @@
 { render_doc_site } :: import("./doc/render_html.yo");
 { DocModel, DocModule } :: import("./doc/model.yo");
 { ModuleLoadOutcome, mm_load_file, resolve_std_path } :: import("./module_manager.yo");
+{ MANIFEST_FILENAME, file_exists_sync, load_manifest } :: import("./manifest.yo");
 /// Options for `run_doc`. Mirrors `DocCommandOptions` (doc-command.ts:53);
 /// Options with TS `undefined` are "" here.
 DocCommandOptions :: struct(
@@ -274,11 +275,41 @@ _scan_quoted_value_after :: (fn(content : String, marker : String, connector : S
   });
   result
 });
-/// Derive the project name from package.json, build.yo, or the directory
-/// name. Mirrors `inferProjectName` (doc-command.ts:133).
+/// Derive the project name from `yo.toml`, then package.json, build.yo, or the
+/// directory name. Extends `inferProjectName` (doc-command.ts:133), which
+/// predates the manifest.
+///
+/// `[package] name` wins because since P1.3 it IS the project's name — the one
+/// every other command reads, validated (non-empty, no path separator) by the
+/// manifest parser, and what importers write in `import("<name>")`. The TS
+/// chain below stays as the fallback for a directory with no manifest:
+/// `package.json` for a project that is also an npm package, and a regex over
+/// `build.yo` for one that predates `yo.toml`.
+///
+/// Looked up in `base_path` ONLY — deliberately no walk upward. `yo doc ./std`
+/// inside this repository must stay "std" rather than becoming the repo's own
+/// package name, and a sandboxed cli-case must not find a manifest belonging to
+/// some ancestor of its temporary directory.
+///
+/// A manifest that exists but does not parse is an ERROR, not a fall-through:
+/// the manifest is data every command reads, and silently titling the site
+/// after the directory would hide a broken `yo.toml` behind a plausible-looking
+/// site (issues/fixed/yo-doc-infers-the-project-name-from-package-json.md).
 _infer_project_name :: (
   fn(base_path : String, io : Io, exn : Exception) -> String
 )({
+  manifest_path := Path.new(base_path.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string();
+  if(file_exists_sync(manifest_path.clone()), {
+    match(
+      load_manifest(manifest_path.clone(), exn),
+      .Ok(m) => {
+        return(m.name.clone());
+      },
+      .Err(msg) => {
+        exn.throw(dyn(msg));
+      }
+    );
+  });
   pkg_path := Path.new(base_path.clone()).join(Path.new(String.from("package.json")));
   pkg_exists := io.await(exists(pkg_path, io), io);
   if(pkg_exists, {

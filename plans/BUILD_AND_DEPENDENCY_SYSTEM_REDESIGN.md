@@ -25,13 +25,13 @@ write-only state (#626) · **§4.9** depfile-scoped stamps (#631) · **§5.1**
 `comptime_toml_parse` (#633) · **§5.4** `build.env` (#642) · **§4.6**
 workspaces (#646). The five bugs the audit reproduced are filed
 under `issues/` and are all fixed. The campaign surfaced further compiler bugs
-of its own along the way. Two were FIXED with this stack: the extern prototype
-collision and the `-O2` flag that hid it (#624), and the build scheduler's
-nested event loop (in #620). One stays OPEN, worked around structurally rather
-than by weakening a feature:
-`issues/yo-doc-infers-the-project-name-from-package-json.md`. A third was filed
-and then RETRACTED — it could not be reproduced and rested on a misread of a
-two-error build log
+of its own along the way, and NONE is left open. Three were FIXED: the extern
+prototype collision and the `-O2` flag that hid it (#624), the build
+scheduler's nested event loop (in #620), and `yo doc` taking the project name
+from the directory rather than from `[package] name`
+(`issues/fixed/yo-doc-infers-the-project-name-from-package-json.md`). A fourth
+was filed and then RETRACTED — it could not be reproduced and rested on a
+misread of a two-error build log
 (`issues/retired/async-body-local-read-by-two-matches-is-emitted-twice.md`)._
 
 The question that prompted this plan, from the maintainer, in three parts:
