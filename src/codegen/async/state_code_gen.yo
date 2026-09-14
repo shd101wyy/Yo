@@ -3438,13 +3438,42 @@ _emit_match_case_await_or_value :: (
 )({
   if(branch_has_await(case_body), {
     emission := generate_cond_branch_with_await(case_body, await_point, indent, context);
+    remaining := emission.remaining;
+    // An arm whose await is inside a WHILE needs its post-await code split the
+    // way `generate_cond_with_await` splits a cond branch's: statements that
+    // follow the loop must run when the loop EXITS, not as part of its body.
+    // Passing them through as the arm's `remaining` replays them on every
+    // iteration — measured as `println` after the loop printing n=0, n=1, n=2
+    // instead of once, and in production as `std/http`'s `_fetch_deadline`
+    // running its post-loop `cond` on the FIRST turn, aborting the exchange it
+    // was waiting for and throwing `HttpError.Timeout` immediately
+    // (issues/fixed/a-while-loop-inside-a-match-arm-runs-its-trailing-code-every-iteration.md,
+    // the root cause of #556). The cond path has done this since it was
+    // written; only the match path was missing it.
+    has_while := match(
+      context.async_while_loop_info,
+      .Some(m) => match(m.get(await_point.base.index), .Some(_) => true, .None => false),
+      .None => false
+    );
     // Record the arm whether or not anything follows its await: a tail-await
     // arm (the await IS the arm's value) still needs its case — dispatch-mode
     // registration/extraction and the uniform target handover key off the
     // record — and an arm holding a NESTED cond/match needs its case to run
     // the nested arms' remaining code and then its own (its `codes` cover the
     // nested writes to the shared field, so the case is live).
-    _push_cond_branch(context, await_point.base.index, _make_cond_branch(case_index, case_body, true, Option(ArrayList(AstExpr)).Some(emission.remaining), context, emission.nested, Option(ArrayList(usize)).Some(emission.codes)));
+    if(has_while && (remaining.len() > usize(0)), {
+      _attach_cond_branch_post_while(
+        case_index,
+        _make_cond_branch(case_index, case_body, true, Option(ArrayList(AstExpr)).None, context, emission.nested, Option(ArrayList(usize)).Some(emission.codes)).codes,
+        case_body,
+        remaining,
+        context,
+        await_point.base.index
+      );
+      _push_cond_branch(context, await_point.base.index, _make_cond_branch(case_index, case_body, true, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()), context, emission.nested, Option(ArrayList(usize)).Some(emission.codes)));
+    }, {
+      _push_cond_branch(context, await_point.base.index, _make_cond_branch(case_index, case_body, true, Option(ArrayList(AstExpr)).Some(remaining), context, emission.nested, Option(ArrayList(usize)).Some(emission.codes)));
+    });
     _set_cond_branch_target(context, await_point.base.index, _registration_target_assignment(match_expr, context, target_variable_id.clone(), target_assignment_code.clone()));
   }, {
     if(_should_emit_async_branch_completion(match_expr, case_body, context, target_variable_id, target_assignment_code), {
