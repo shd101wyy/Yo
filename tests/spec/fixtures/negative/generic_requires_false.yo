@@ -1,0 +1,12 @@
+// The deliberately-wrong twin of generic_requires_ok.yo: the caller
+// violates the generic callee's `requires` (flag = false). The
+// requires-discharge obligation at the call site must REFUTE.
+pragma(Pragma.Verify);
+
+tagged :: (
+  fn(generic(T : Type), flag : bool, v : T, requires(flag), ensures(result == v)) -> (result : T)
+)(v);
+
+caller_bad :: (fn(ensures(r == i32(7))) -> (r : i32))(
+  tagged(false, i32(7))
+);

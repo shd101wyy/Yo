@@ -1,0 +1,14 @@
+// V6 task 2 twin: the generic callee's `requires` is DISCHARGED at the
+// call site (flag = true) and its `ensures` is ASSUMED — the caller's own
+// post-condition (r == 7) is only provable THROUGH the assumed
+// `result == v` with v = 7. (The negative twin generic_requires_false.yo
+// passes false and must refute at the requires discharge.)
+pragma(Pragma.Verify);
+
+tagged :: (
+  fn(generic(T : Type), flag : bool, v : T, requires(flag), ensures(result == v)) -> (result : T)
+)(v);
+
+caller_ok :: (fn(ensures(r == i32(7))) -> (r : i32))(
+  tagged(true, i32(7))
+);
