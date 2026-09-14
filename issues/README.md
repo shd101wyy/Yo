@@ -15,6 +15,14 @@ verification. See the "Debugging codegen / C compilation issues" workflow in
 | `repros/`  | Standalone `.yo` reproducer files referenced by issue docs                                                                                                                         |
 | `patches/` | WIP / reference patches referenced by issue docs                                                                                                                                   |
 
+`TRIAGE.md` is a generated, categorised index of everything currently in the
+root — areas, self-reported status, and which docs have a runnable reproducer.
+It is a navigation aid; each doc stays authoritative about itself. Regenerate it
+rather than hand-editing, and note its three caveats: a doc's own `Status:`
+header is a claim rather than a verdict, a repro exiting 0 has not necessarily
+passed (most print evidence and exit 0 either way), and an expected-value table
+inside a doc is a claim too — two were found wrong on 2026-09-14.
+
 Conventions:
 
 - File names are kebab-case and say what is broken, not where it was found.
