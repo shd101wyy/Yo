@@ -2,7 +2,23 @@
 
 **Found**: 2026-09-14, while fixing
 `issues/fixed/a-while-loop-inside-a-match-arm-runs-its-trailing-code-every-iteration.md`.
-**Status**: OPEN — a SECOND defect in the same family, NOT fixed by that change.
+**Status**: **FIXED 2026-09-14** in `src/codegen/async/state_code_gen.yo` —
+`branch_has_await` now stops at a nested `io.async` block, the boundary
+`split_body_at_suspension_points` and `contains_suspension_expr` in the same
+file already use. Gated by `tests/async_while_in_match_arm.test.yo` (5 tests,
+two of them new); both reproducers run correctly (765 and 827 turns, vs
+`turns=0`), and the new test FAILS on the v0.2.32 seed and passes here. Full
+fast suite 4244 passed / 0 failed.
+
+Root cause, confirmed against the emitted C: `branch_has_await` recursed into
+the nested `io.async` closure and found ITS `io2.await`, so the statement that
+merely CONSTRUCTS the block to hand to `io.spawn` was mistaken for the branch's
+awaiting statement. `generate_cond_branch_with_await` set `found_await` on it,
+found no handler (its RHS is a `spawn` call, not an await), emitted NOTHING for
+it, and pushed everything after it into `remaining`.
+
+Originally filed as a SECOND defect in the same family, NOT fixed by the
+trailing-code change.
 **Re-measured 2026-09-14**, and the original characterization below the fold was
 WRONG in two ways: two spawns are not required (one is), and the loop is not
 what runs zero times — the **spawn never runs at all**.

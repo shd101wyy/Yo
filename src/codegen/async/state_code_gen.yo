@@ -878,6 +878,24 @@ branch_has_await :: (fn(expr : AstExpr) -> bool)({
   if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
     return(true);
   });
+  // STOP at a nested `io.async` block: its awaits belong to ITS state machine,
+  // not to the branch being split. Without this, a statement that merely
+  // CONSTRUCTS a nested async block to hand to `io.spawn` looks like the
+  // branch's awaiting statement. `generate_cond_branch_with_await` then sets
+  // `found_await` on that statement, finds no handler for it (its RHS is a
+  // `spawn` call, not an await), emits NOTHING for it, and pushes everything
+  // after it into `remaining` — so in a match arm the spawn vanished from the
+  // emitted C entirely and the loop that followed read a handle field nothing
+  // ever assigned
+  // (issues/fixed/a-while-in-a-match-arm-with-spawns-still-runs-zero-iterations.md).
+  //
+  // `is_io_async_call` is already THE nested-block boundary in this file —
+  // `split_body_at_suspension_points` and `contains_suspension_expr` both take
+  // it as their skip predicate. This function was the one member of the family
+  // missing it.
+  if(is_io_async_call(expr.clone()), {
+    return(false);
+  });
   if(ast_expr_is_fn_call(expr), {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     (i : usize) = usize(0);

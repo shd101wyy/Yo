@@ -5,8 +5,8 @@
 //
 //   yo compile issues/repros/spawn-of-an-inline-async-block-in-a-match-arm-is-dropped.yo --optimize 2 -o /tmp/x && /tmp/x
 //
-// Expected: `A`, `B`, `C` all print and turns > 0.
-// Actual:   only `A` prints, then `turns=0` — the arm is truncated after its
+// Expected (and now actual): `A`, `B`, `C` all print and turns > 0.
+// Was:      only `A` printed, then `turns=0` — the arm was truncated after its
 //           first statement.
 //
 // In the emitted C the arm's `case __YO_T_..._LIMIT:` contains ONLY the branch
@@ -20,7 +20,8 @@
 //   3. an awaiting `while` follows it    — drop the loop: works
 // Two spawns are NOT required; one is enough.
 //
-// See issues/a-while-in-a-match-arm-with-spawns-still-runs-zero-iterations.md
+// FIXED 2026-09-14. See
+// issues/fixed/a-while-in-a-match-arm-with-spawns-still-runs-zero-iterations.md
 { println, eprintln } :: import("std/fmt");
 { yield } :: import("std/async");
 { sleep } :: import("std/time/sleep");
