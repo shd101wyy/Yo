@@ -1,0 +1,70 @@
+//! REGRESSION: a `while` whose body awaits, inside a `match` arm, replayed the
+//! statements that FOLLOW it on every iteration instead of running them once
+//! after the loop
+//! (issues/fixed/a-while-loop-inside-a-match-arm-runs-its-trailing-code-every-iteration.md).
+//!
+//! That is the root cause of the #556 HTTP timeout: `std/http`'s
+//! `_fetch_deadline` puts its race loop in the `.Some(limit)` arm of a match
+//! and follows it with `cond(h.is_finished() => deliver, true => abort+throw)`.
+//! With the trailing `cond` inside the loop it ran on the FIRST turn, found the
+//! exchange unfinished because it had barely started, aborted it and threw
+//! `HttpError.Timeout` — on an exchange that completes in about a millisecond.
+//!
+//! The `cond` spelling of the same shape was always correct; only the `match`
+//! path was missing the post-while split. Both are asserted here so the two
+//! cannot drift apart again.
+{ assert } :: import("std/assert");
+{ yield } :: import("std/async");
+_Choice :: enum(Skip, Spin);
+_match_arm :: (fn(c : _Choice, io : Io) -> Impl(Future(i64, Io)))(
+  io.async(e => {
+    (n : i64) = i64(0);
+    (trail : i64) = i64(0);
+    match(
+      c,
+      .Skip => {
+        n = i64(-1);
+      },
+      .Spin => {
+        while(runtime(n < i64(3)), {
+          e.io.await(yield(e.io), e.io);
+          n = (n + i64(1));
+        });
+        // The statement under test: it must run ONCE, after the loop.
+        trail = (trail + i64(1));
+      }
+    );
+    (n * i64(10)) + trail
+  })
+);
+_cond_branch :: (fn(skip : bool, io : Io) -> Impl(Future(i64, Io)))(
+  io.async(e => {
+    (n : i64) = i64(0);
+    (trail : i64) = i64(0);
+    cond(
+      skip => {
+        n = i64(-1);
+      },
+      true => {
+        while(runtime(n < i64(3)), {
+          e.io.await(yield(e.io), e.io);
+          n = (n + i64(1));
+        });
+        trail = (trail + i64(1));
+      }
+    );
+    (n * i64(10)) + trail
+  })
+);
+test("a while-with-await in a match arm runs its trailing code once, not per iteration", {
+  r := io.await(_match_arm(_Choice.Spin, io), io);
+  assert(r == i64(31), `match arm: expected n=3 trail=1 (31), got ${r.to_string()}`);
+});
+test("the cond-branch spelling of the same shape agrees with the match one", {
+  r := io.await(_cond_branch(false, io), io);
+  assert(r == i64(31), `cond branch: expected n=3 trail=1 (31), got ${r.to_string()}`);
+});
+test("the sibling arm is unaffected", {
+  r := io.await(_match_arm(_Choice.Skip, io), io);
+  assert(r == i64(-10), `skip arm: expected n=-1 trail=0 (-10), got ${r.to_string()}`);
+});
