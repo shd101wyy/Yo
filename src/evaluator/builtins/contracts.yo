@@ -28,6 +28,7 @@
   BF_GHOST_FN,
   BF_OLD,
   BK_BEGIN,
+  BK_TUPLE,
   BF_COMPTIME_ASSERT,
   alloc_global_expr_id,
   clone_expr_fresh_ids,
@@ -43,6 +44,19 @@
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
 { ArrayList } :: import("std/collections/array_list");
+// V6 task 1: the trait-method contract tables (inheritance + variance).
+// The func-contract side tables are reached through HOOKS in the same
+// registry — types/function.yo is not importable here (it pulls
+// trait_checking.yo → impl.yo, which imports this module).
+{
+  trait_method_requires,
+  trait_method_ensures,
+  trait_method_return_label,
+  hook_func_requires,
+  hook_func_ensures,
+  hook_func_return_label,
+  hook_register_func_contracts
+} :: import("../values/type_trait_methods.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { format_error_message } :: import("../../error.yo");
@@ -1126,6 +1140,562 @@ take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
   g_verify_tasks = ArrayList(VerifyTask).new();
   out
 });
+/// V6 task 1 (FORMAL_VERIFICATION.md): trait-contract INHERITANCE at impl
+/// registration. An impl method declaring NO contracts of its own inherits
+/// the trait method's, in two pieces:
+///   1. the trait's clauses are planted under the method FuncVal's id, so
+///      every later consumer — a dispatch call site's requires/ensures
+///      assumptions (`_callee_call_term` reads the callee FuncVal's id) —
+///      carries them. The lambda-written impl shape already gets this copy
+///      through its expected type's `origin_id` (anonymous_function.yo);
+///      this is the named/colon-pair twin.
+///   2. a SYNTHETIC verify task proves the impl's BODY against the trait's
+///      contracts — the method's own task registered at its application,
+///      BEFORE the impl statement ran, with no contracts to assume or
+///      prove.
+/// An earlier draft planted under the fn-TYPE EXPRESSION id, hoping the
+/// application's re-key would carry the clauses to the FuncVal — but the
+/// fn-type evaluation and the assert splice both RE-READ those tables by
+/// that id, so the planted clauses were evaluated inside the trait entry
+/// and tripped the env-sharing defect behind
+/// issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md.
+/// The FuncVal id is never re-read by the evaluator — write-only, safe.
+/// (The lambda shape gets piece 1 from origin_id but not piece 2 — no body
+/// task exists for lambdas; pre-existing, recorded in the plan.)
+register_impl_inheritance_task :: (
+  fn(
+    trait_id : String,
+    label : String,
+    method_val : EvalValue,
+    fn_ty : TypeValue,
+    name_tok : Token,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  if(!_is_verify_target(name_tok.module_path.clone()), {
+    return(());
+  });
+  __mode := resolve_verify_mode(name_tok.module_path.clone());
+  if((__mode != "verify") && (__mode != "verify+"), {
+    return(());
+  });
+  __t_reqs := trait_method_requires(trait_id.clone(), label.clone());
+  __t_enss := trait_method_ensures(trait_id.clone(), label.clone());
+  if((__t_reqs.len() == usize(0)) && (__t_enss.len() == usize(0)), {
+    return(());
+  });
+  match(
+    method_val,
+    .FuncVal(__inh_fvd, _) => {
+      __fid := __inh_fvd.*.func_id.clone();
+      // The impl method declares its own contracts (or already inherits via
+      // the lambda origin-copy — the trait's own nodes, indistinguishable
+      // and needing no inheritance): variance governs, nothing to plant.
+      if((hook_func_requires(__fid.clone()).len() > usize(0)) || (hook_func_ensures(__fid.clone()).len() > usize(0)), {
+        return(());
+      });
+      __t_ret := trait_method_return_label(trait_id.clone(), label.clone());
+      // 1. Plant the trait's clauses under the FuncVal id (dispatch sites).
+      hook_register_func_contracts(
+        __fid.clone(),
+        trait_method_requires(trait_id.clone(), label.clone()),
+        trait_method_ensures(trait_id.clone(), label.clone()),
+        __t_ret.clone()
+      );
+      // 2. The synthetic body-proof task. Params from the method's
+      // registered fn type; the RETURN LABEL is NOT a param — the runner
+      // binds it to the walked body value before proving the ensures.
+      (p_names : ArrayList(String)) = ArrayList(String).new();
+      (p_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+      ret_ty := TypeValue.Unit;
+      match(
+        fn_ty,
+        .Func({ meta : __ihm, param_types : __ihpt, result : __ihres }) => {
+          (pih : usize) = usize(0);
+          while(pih < __ihpt.len(), {
+            match(
+              __ihpt.get(pih),
+              .Some(pt) => {
+                p_types.push(pt.clone());
+                p_names.push(
+                  match(
+                    __ihm.*.param_labels.get(pih),
+                    .Some(pl) => pl.clone(),
+                    .None => String.new()
+                  )
+                );
+              },
+              .None => ()
+            );
+            pih = (pih + usize(1));
+          });
+          ret_ty = __ihres.clone();
+        },
+        _ => ()
+      );
+      pred_env := env;
+      pred_env.push_frame(false);
+      (bih : usize) = usize(0);
+      while(bih < p_names.len(), {
+        __pn := match(p_names.get(bih), .Some(x) => x, .None => String.new());
+        __pt := match(p_types.get(bih), .Some(x) => x, .None => t_unit());
+        if(__pn.len() > usize(0), {
+          add_variable_to_env(
+            pred_env,
+            __pn.clone(),
+            __pt.clone(),
+            Option(EvalValue).Some(create_unknown_val(__pt.clone())),
+            false,
+            false,
+            false,
+            false,
+            name_tok
+          );
+        });
+        bih = (bih + usize(1));
+      });
+      match(
+        __t_ret,
+        .Some(rl) => {
+          add_variable_to_env(
+            pred_env,
+            rl.clone(),
+            ret_ty.clone(),
+            Option(EvalValue).Some(create_unknown_val(ret_ty.clone())),
+            false,
+            false,
+            false,
+            false,
+            name_tok
+          );
+        },
+        .None => ()
+      );
+      evh_reqs := ArrayList(AstExpr).new();
+      (vh : usize) = usize(0);
+      while(vh < __t_reqs.len(), {
+        match(
+          __t_reqs.get(vh),
+          .Some(p) => evh_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), pred_env, ctx, exn)),
+          .None => ()
+        );
+        vh = (vh + usize(1));
+      });
+      evh_enss := ArrayList(AstExpr).new();
+      (vh2 : usize) = usize(0);
+      while(vh2 < __t_enss.len(), {
+        match(
+          __t_enss.get(vh2),
+          .Some(p) => evh_enss.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), pred_env, ctx, exn)),
+          .None => ()
+        );
+        vh2 = (vh2 + usize(1));
+      });
+      pred_env.pop_frame();
+      register_verify_task(
+        VerifyTask(
+          fn_id : `impl-inherits@${name_tok.module_path}:${name_tok.row.to_string()}:${label}`,
+          func_id : __fid.clone(),
+          module_path : name_tok.module_path.clone(),
+          // The FuncVal's body: `wrap_function_body_with_contracts`
+          // returned it UNCHANGED at the application (no contracts were
+          // registered under the fn-type expression id then — and verify
+          // mode suppresses the splice regardless), so this is the raw
+          // body whose ExprInfo the def-time trial stamped.
+          body : __inh_fvd.*.body.clone(),
+          param_names : p_names,
+          param_types : p_types,
+          result_type : ret_ty,
+          requires_exprs : evh_reqs,
+          ensures_exprs : evh_enss,
+          return_label : __t_ret,
+          table : ctx.expr_info_table,
+          mode : __mode.clone(),
+          func_val : method_val
+        )
+      );
+    },
+    _ => ()
+  );
+  ()
+});
+/// Whether two predicate lists are the SAME AST NODES in the same order
+/// (node-id identity) — true when one side is an inheritance planting or
+/// lambda origin-copy of the other, i.e. not independently declared
+/// contracts.
+_same_expr_ids :: (fn(a : ArrayList(AstExpr), b : ArrayList(AstExpr)) -> bool)(
+  cond(
+    (a.len() != b.len()) => false,
+    true => {
+      (i : usize) = usize(0);
+      (same : bool) = true;
+      while((i < a.len()) && same, {
+        match(
+          a.get(i),
+          .Some(ax) => {
+            match(
+              b.get(i),
+              .Some(bx) => {
+                if(ast_expr_id(ax) != ast_expr_id(bx), {
+                  same = false;
+                });
+              },
+              .None => {
+                same = false;
+              }
+            );
+          },
+          .None => {
+            same = false;
+          }
+        );
+        i = (i + usize(1));
+      });
+      same
+    }
+  )
+);
+/// Conjoin a non-empty predicate list into ONE expression: nested `&&`
+/// (a single predicate passes through unwrapped). Fresh node ids.
+_conj_exprs :: (fn(preds : ArrayList(AstExpr), tok : Token) -> AstExpr)({
+  out := match(
+    preds.get(usize(0)),
+    .Some(p0) => clone_expr_fresh_ids(p0.clone()),
+    .None => make_err_expr()
+  );
+  (i : usize) = usize(1);
+  while(i < preds.len(), {
+    match(
+      preds.get(i),
+      .Some(p) => {
+        args := ArrayList(AstExpr).new();
+        args.push(out);
+        args.push(clone_expr_fresh_ids(p.clone()));
+        out = AstExpr.FnCall(alloc_global_expr_id(), _synth_atom(String.from("&&"), TokenKind.Operator, tok.clone()), args, true, tok.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// V6 task 1: the trait-contract VARIANCE obligations. An impl method
+/// carrying contracts against a trait method that also carries them must
+/// prove
+///   trait.requires ⇒ impl.requires  (contravariant — dispatch callers
+///                                    prove only the trait's)
+///   impl.ensures ⇒ trait.ensures    (covariant — the trait's promise is
+///                                    the floor)
+/// Registered as a SYNTHETIC verify task whose body is a block of
+/// `assert((Rt && ...) ==> Ri)` / `assert((Ei && ...) ==> Et)` asserts —
+/// the ordinary pipeline (walk → report → strip) runs it with zero driver
+/// changes. The return label binds as one extra synthetic PARAMETER (the
+/// walk binds params to fresh symbolic Vars BEFORE the body — an
+/// in-body label reference would otherwise be unbound). The trait's
+/// predicates must use the impl's parameter and label SPELLINGS; a
+/// mismatch fails loudly in the walk (`unbound runtime name '<p>'`),
+/// which is the honest diagnostic for now. INHERITED contracts are
+/// skipped by node-id identity: an inheritance planting (or the lambda
+/// origin-copy) puts the trait's OWN AST nodes under the FuncVal id, so
+/// both implications would be reflexive — nothing to check (the body
+/// proof is the inherit task's job).
+register_impl_variance_task :: (
+  fn(
+    trait_id : String,
+    label : String,
+    func_id : String,
+    name_tok : Token,
+    fn_ty : TypeValue,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  if(!_is_verify_target(name_tok.module_path.clone()), {
+    return(());
+  });
+  __mode := resolve_verify_mode(name_tok.module_path.clone());
+  if((__mode != "verify") && (__mode != "verify+"), {
+    return(());
+  });
+  __t_reqs := trait_method_requires(trait_id.clone(), label.clone());
+  __t_enss := trait_method_ensures(trait_id.clone(), label.clone());
+  if((__t_reqs.len() == usize(0)) && (__t_enss.len() == usize(0)), {
+    return(());
+  });
+  __i_reqs := hook_func_requires(func_id.clone());
+  __i_enss := hook_func_ensures(func_id.clone());
+  if((__i_reqs.len() == usize(0)) && (__i_enss.len() == usize(0)), {
+    return(());
+  });
+  // INHERITED (this registration's planting, or the lambda origin-copy):
+  // the impl's predicate nodes ARE the trait's own — both implications
+  // reflexive; the body proof is the inherit task's job.
+  if(_same_expr_ids(__i_reqs.clone(), __t_reqs.clone()) && _same_expr_ids(__i_enss.clone(), __t_enss.clone()), {
+    return(());
+  });
+  // The synthetic task's signature: the impl method's params (labels +
+  // types from its registered fn type) plus the RETURN LABEL as one extra
+  // param of the result type — the symbolic value both sides' ensures
+  // compare against.
+  (p_names : ArrayList(String)) = ArrayList(String).new();
+  (p_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  ret_ty := TypeValue.Unit;
+  match(
+    fn_ty,
+    .Func({ meta : __vm, param_types : __vpt, result : __vres }) => {
+      (pi : usize) = usize(0);
+      while(pi < __vpt.len(), {
+        match(
+          __vpt.get(pi),
+          .Some(pt) => {
+            p_types.push(pt.clone());
+            p_names.push(
+              match(
+                __vm.*.param_labels.get(pi),
+                .Some(pl) => pl.clone(),
+                .None => String.new()
+              )
+            );
+          },
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+      ret_ty = __vres.clone();
+    },
+    _ => ()
+  );
+  ret_label := hook_func_return_label(func_id.clone());
+  match(
+    ret_label,
+    .Some(rl) => {
+      p_names.push(rl.clone());
+      p_types.push(ret_ty.clone());
+    },
+    .None => ()
+  );
+  if(p_names.len() != p_types.len(), {
+    return(());
+  });
+  pred_env := env;
+  pred_env.push_frame(false);
+  // `assert` for the synthetic body: the walk matches the BARE `assert`
+  // head (its assert arm), but the fixture need not import std/assert —
+  // the obligations are compiler-synthesized, not user-written. Evaluate
+  // `import("std/assert").assert` once (self-contained, the splice's
+  // `_build_assert_callee` idiom) and bind the resulting FuncVal under
+  // the bare name, so the diagnostic evaluation of the body gives the
+  // asserts exactly the evaluation a user-written body assert gets.
+  __asrt_imp_args := ArrayList(AstExpr).new();
+  __asrt_imp_args.push(
+    _synth_atom(
+      _synth_string_token_value(String.from("std/assert")),
+      TokenKind.StringLit,
+      name_tok.clone()
+    )
+  );
+  __asrt_imp := AstExpr.FnCall(
+    alloc_global_expr_id(),
+    _synth_atom(String.from("import"), TokenKind.Identifier, name_tok.clone()),
+    __asrt_imp_args,
+    false,
+    name_tok.clone()
+  );
+  __asrt_dot_args := ArrayList(AstExpr).new();
+  __asrt_dot_args.push(__asrt_imp);
+  __asrt_dot_args.push(_synth_atom(String.from("assert"), TokenKind.Identifier, name_tok.clone()));
+  __asrt_expr := AstExpr.FnCall(
+    alloc_global_expr_id(),
+    _synth_atom(String.from("."), TokenKind.Identifier, name_tok.clone()),
+    __asrt_dot_args,
+    false,
+    name_tok.clone()
+  );
+  __asrt_ev := evaluated_for_verify(__asrt_expr, pred_env, ctx, exn);
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(__asrt_ev)),
+    .Some(__asrt_info) => {
+      match(
+        __asrt_info.value,
+        .Some(__asrt_val) => {
+          add_variable_to_env(
+            pred_env,
+            String.from("assert"),
+            __asrt_info.ty.clone(),
+            Option(EvalValue).Some(__asrt_val),
+            false,
+            false,
+            false,
+            false,
+            name_tok
+          );
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  // Evaluate every predicate once with the params + label bound as
+  // unknowns in the scoped frame above — the trait predicates were never
+  // evaluated in THIS module (their names must match the impl's).
+  (bi : usize) = usize(0);
+  while(bi < p_names.len(), {
+    __pn := match(p_names.get(bi), .Some(x) => x, .None => String.new());
+    __pt := match(p_types.get(bi), .Some(x) => x, .None => t_unit());
+    if(__pn.len() > usize(0), {
+      add_variable_to_env(
+        pred_env,
+        __pn.clone(),
+        __pt.clone(),
+        Option(EvalValue).Some(create_unknown_val(__pt.clone())),
+        false,
+        false,
+        false,
+        false,
+        name_tok
+      );
+    });
+    bi = (bi + usize(1));
+  });
+  ev_t_reqs := ArrayList(AstExpr).new();
+  ev_t_enss := ArrayList(AstExpr).new();
+  ev_i_reqs := ArrayList(AstExpr).new();
+  ev_i_enss := ArrayList(AstExpr).new();
+  (vi : usize) = usize(0);
+  while(vi < __t_reqs.len(), {
+    match(
+      __t_reqs.get(vi),
+      .Some(p) => ev_t_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), pred_env, ctx, exn)),
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  (vj : usize) = usize(0);
+  while(vj < __t_enss.len(), {
+    match(
+      __t_enss.get(vj),
+      .Some(p) => ev_t_enss.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), pred_env, ctx, exn)),
+      .None => ()
+    );
+    vj = (vj + usize(1));
+  });
+  (vk : usize) = usize(0);
+  while(vk < __i_reqs.len(), {
+    match(
+      __i_reqs.get(vk),
+      .Some(p) => ev_i_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), pred_env, ctx, exn)),
+      .None => ()
+    );
+    vk = (vk + usize(1));
+  });
+  (vl : usize) = usize(0);
+  while(vl < __i_enss.len(), {
+    match(
+      __i_enss.get(vl),
+      .Some(p) => ev_i_enss.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), pred_env, ctx, exn)),
+      .None => ()
+    );
+    vl = (vl + usize(1));
+  });
+  // The assert block: one assert per obligation.
+  stmts := ArrayList(AstExpr).new();
+  if(ev_t_reqs.len() > usize(0), {
+    t_conj := _conj_exprs(ev_t_reqs, name_tok.clone());
+    (ri : usize) = usize(0);
+    while(ri < ev_i_reqs.len(), {
+      match(
+        ev_i_reqs.get(ri),
+        .Some(ir) => stmts.push(_implies_assert(t_conj.clone(), ir.clone(), name_tok.clone())),
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+  });
+  if(ev_i_enss.len() > usize(0), {
+    i_conj := _conj_exprs(ev_i_enss, name_tok.clone());
+    (ei : usize) = usize(0);
+    while(ei < ev_t_enss.len(), {
+      match(
+        ev_t_enss.get(ei),
+        .Some(te) => stmts.push(_implies_assert(i_conj.clone(), te.clone(), name_tok.clone())),
+        .None => ()
+      );
+      ei = (ei + usize(1));
+    });
+  });
+  if(stmts.len() == usize(0), {
+    return(());
+  });
+  // Trailing unit + the begin wrapper (the statement-block shape the
+  // walk's `_begin_term` expects). The unit is the PARSER's zero-arg
+  // `tuple()` call — a bare "()" atom would go down identifier lookup at
+  // the diagnostic evaluation below and die on `Variable "()" not found`.
+  stmts.push(
+    AstExpr.FnCall(
+      alloc_global_expr_id(),
+      _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, name_tok.clone()),
+      ArrayList(AstExpr).new(),
+      false,
+      name_tok.clone()
+    )
+  );
+  body := AstExpr.FnCall(
+    alloc_global_expr_id(),
+    _synth_atom(String.from(BK_BEGIN), TokenKind.Identifier, name_tok.clone()),
+    stmts,
+    false,
+    name_tok.clone()
+  );
+  body_ev := evaluated_for_verify(body, pred_env, ctx, exn);
+  pred_env.pop_frame();
+  register_verify_task(
+    VerifyTask(
+      fn_id : `impl-variance@${name_tok.module_path}:${name_tok.row.to_string()}:${label}`,
+      func_id : func_id.clone(),
+      module_path : name_tok.module_path.clone(),
+      body : body_ev,
+      param_names : p_names,
+      param_types : p_types,
+      result_type : ret_ty,
+      // The trait's requires are ASSUMED on the path — the covariance
+      // obligation is "under the trait's domain, the impl's ensures
+      // imply the trait's" (the contravariance asserts below spell the
+      // implication out themselves, so they hold either way).
+      requires_exprs : ev_t_reqs,
+      ensures_exprs : ArrayList(AstExpr).new(),
+      return_label : Option(String).None,
+      table : ctx.expr_info_table,
+      mode : __mode.clone(),
+      func_val : EvalValue.UnitVal
+    )
+  );
+  ()
+});
+/// `assert((a) ==> (b))` with fresh node ids — one variance obligation.
+_implies_assert :: (fn(a : AstExpr, b : AstExpr, tok : Token) -> AstExpr)({
+  imp_args := ArrayList(AstExpr).new();
+  imp_args.push(a);
+  imp_args.push(b);
+  imp := AstExpr.FnCall(
+    alloc_global_expr_id(),
+    _synth_atom(String.from("==>"), TokenKind.Operator, tok.clone()),
+    imp_args,
+    true,
+    tok.clone()
+  );
+  as_args := ArrayList(AstExpr).new();
+  as_args.push(imp);
+  AstExpr.FnCall(
+    alloc_global_expr_id(),
+    _synth_atom(String.from("assert"), TokenKind.Identifier, tok.clone()),
+    as_args,
+    false,
+    tok.clone()
+  )
+});
 /// The `verify+` strip pass (plan task 6): rewrite a wrapped function
 /// body IN PLACE, dropping the spliced `ensures failed` asserts whose
 /// corresponding obligation PROVED (the runtime check is dead weight —
@@ -1490,6 +2060,8 @@ export(
   register_verify_task,
   evaluated_for_verify,
   take_verify_tasks,
+  register_impl_inheritance_task,
+  register_impl_variance_task,
   record_verify_task_def_eval_failure,
   verify_task_def_eval_failure,
   register_ghost_fn,

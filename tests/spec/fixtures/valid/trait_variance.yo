@@ -1,0 +1,29 @@
+// V6 task 1 (FORMAL_VERIFICATION.md): trait-contract VARIANCE — an impl
+// method declaring contracts against a contracted trait method must
+// prove trait.requires ⇒ impl.requires (contravariant; the impl below
+// WEAKENS requires to i >= -1) and impl.ensures ⇒ trait.ensures
+// (covariant; result == i is STRONGER than result >= i under i >= 0).
+// The method is written as a named function and REFERENCED from the impl
+// entry — the fn-type-with-clauses-inside-the-impl spelling trips a
+// pre-existing evaluator env-sharing defect
+// (issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md).
+pragma(Pragma.Verify);
+
+ClampBound :: trait(
+  get : (
+    fn(self : Self, i : i32, requires(i >= i32(0)), ensures(result >= i)) -> (result : i32)
+  )
+);
+
+get_impl :: (
+  fn(self : i32, i : i32, requires(i >= i32(-1)), ensures(result == i)) -> (result : i32)
+)(
+  i
+);
+
+impl(
+  i32,
+  ClampBound(
+    get : get_impl
+  )
+);
