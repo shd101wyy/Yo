@@ -232,7 +232,10 @@ at `/tmp/prof-selfbuild.json` when re-measuring):
    `evaluator/builtins/comptime_numeric_fns.yo` 15.5 s,
    `vendor/markdown_yo/src/common/entities.yo` 12.8 s — the top five alone
    are ~44% of the eval wall, and vendor/markdown_yo as a whole is 37.1 s
-   (16%). Also: `codegen: emit` is 26% of the eval+emit total here, not the
+   (16%). (Those `vendor/markdown_yo/` paths are how the tree looked when
+   this was measured; since 2026-09-13 the library is a `yo.toml` dependency
+   and the same files live under `~/.cache/yo/store/sha256/<hash>/src/`. The
+   numbers are unaffected — same sources, same closure.) Also: `codegen: emit` is 26% of the eval+emit total here, not the
    "minor share" the M4 suggested — the emission split matters on slower
    machines.
 3. **Function census:** 8186 functions reach emission; 4351 from std, 3835
@@ -486,6 +489,20 @@ Gates:
 - `PORTABLE_C_DISTRIBUTION.md`'s canonicalization advice retired below.
 
 ## 6. Phase 3 — per-definition dependency tracking (Zig lesson 1c: Dependees)
+
+> **Steps 1+2 landed 2026-09-12** (per-definition source hashes, dependency
+> edges at every force/serve/member-read point, and the parse-only
+> no-op fast path in the watch round — a comment-only or whitespace-only
+> edit now costs a ~5 ms diff instead of the full reverse-closure re-check:
+> 222 files / 375 s → 0 files / 5 ms on the `src/token.yo` probe). The
+> per-definition INVALIDATION of step 4 (reset + reverse-edge re-force for
+> body-only edits) is the remaining piece; a real def change currently
+> falls back to today's file-level behavior, which is why the fast path's
+> twin gate — a body edit in `src/token.yo` — still measures 375 s. Also
+> surfaced and filed on the way:
+> `issues/enum-pattern-bool-payload-not-compared.md` (a boolean-literal
+> payload in an enum pattern is bound, not compared — `.Some(false)`
+> matches `.Some(true)`).
 
 `check --watch` invalidates the reverse IMPORT closure of a changed FILE.
 That is the right shape at the wrong granularity: a one-line body edit in

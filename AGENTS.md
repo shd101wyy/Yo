@@ -95,11 +95,13 @@ builds itself (`yo build`).
 | `src/module_manager.yo`                  | "Evaluate a `.yo` file and read its exports" service — used by build/fetch/install/doc/test-runner/codegen; the demand module loader, cached prelude env, shared codegen `ExprInfoTable`, std-path resolution |
 | `src/formatter.yo`                       | `yo fmt` — the source formatter and its directory walker                                                                                                                                                      |
 | `src/build_runner.yo`                    | `yo build` — build execution engine, including the build DAG and its level-based scheduler, plus artifact compilation                                                                                         |
-| `src/install_command.yo`                 | `yo install` — add git/path dependencies                                                                                                                                                                      |
-| `src/fetch.yo`                           | Git dependency fetching, lock file pruning                                                                                                                                                                    |
-| `src/fetch_command.yo`                   | `yo fetch` CLI driver                                                                                                                                                                                         |
-| `src/lock_file.yo`                       | `yo.lock` parse/write                                                                                                                                                                                         |
-| `src/cache.yo`                           | Global dependency cache (`~/.cache/yo/deps/`) + version cache helpers                                                                                                                                         |
+| `src/manifest.yo`                        | `yo.toml` — the package manifest: parser, discovery (nearest manifest above a file), and the `import("name")` closure every command resolves through (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1/§4.5.1) |
+| `src/toml_edit.yo`                       | Comment-preserving `key = value` edits in a named TOML table — what `yo add`/`yo remove` write `yo.toml` with                                                                                       |
+| `src/install_command.yo`                 | `yo add` / `yo remove` / `yo install` / `yo update` CLI — package specifiers, the in-place `yo.toml` edit, `--locked`/`--offline`, `update --latest`; runs the resolver                                    |
+| `src/resolver.yo`                        | The dependency resolver (plan §4.2/§4.3): semver + Cargo range grammar, `git ls-remote` queries, per-package requirement unification (`choose_ref`), lock reuse, the graph walk that fetches and writes `yo.lock` v2 |
+| `src/fetch.yo`                           | Store primitives: `fetch_package` (commit decision, store reuse by `integrity`, bare-mirror fetch, extract, hash, land), content hashing, the `ls-remote --tags` index, the store `flock`, the projects registry, `yo cache gc` |
+| `src/lock_file.yo`                       | `yo.lock` v2 (`version = 2`, `[[package]]` graph with `source`/`commit`/`integrity`/`dependencies`) parse/write/compare                                                                                       |
+| `src/cache.yo`                           | Cache root + layout: `store/sha256/<hash>` trees (+ `.verified` markers), `git/<sha256(url)>.git` mirrors, `index/<sha256(url)>.tags`, `store.lock`, `projects`; version cache helpers |
 | `src/init.yo`                            | `yo init` — project scaffolding                                                                                                                                                                               |
 | `src/skills_command.yo`                  | `yo skills install` — copy bundled agent skills into the project's agent config dirs (restored from the TS-era `src/skills-command.ts`)                                                                        |
 | `src/cli_lang.yo`                        | CLI output language (`--lang` / `YO_LANG`, en + zh-CN) — `tr(en, zh)` selector used by help texts and command output                                                                                           |
@@ -142,7 +144,8 @@ builds itself (`yo build`).
 | `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` | LANDED 2026-09-05 (P0–P5): order-independent `::` definitions and `impl` registration within a module — pending entries forced on a lookup MISS (two-phase fn forcing, cycle errors, error attribution notes); the impl-block forward shells/thunks retired in favour of the same forcing (P3); seed gate lifted, `std/`/`src/` use forward refs (P5); user docs `docs/*/DEFINITION_ORDER.md` |
 | `plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` | ACTIVE 2026-09-09: compile-speed plan after the landed chunked-emission + `check --watch` work — the evaluator is 85% of a warm rebuild and `yo_id_N` symbol names churn every chunk per edit. Zig's lessons that apply (per-definition source hashes + dependency edges recorded at `force_pending`, content-stable C names, resident evaluator for `build`/`test`, per-module TUs) vs those that do not (its 5× claim is the self-hosted x86_64 backend not the C backend; in-place binary patching needs a linker we do not own). Phase 0 = make `--profile` real |
 | `plans/STD_API_STABILIZATION.md`          | ACTIVE 2026-09-06: the std API audit re-measured against the CODE and against Rust — 11 live bugs (imm/vec leaks + drop-of-uninit, unenforced `Send` at spawn, pool self-deadlock, double `pthread_join`, hash tombstones never reclaimed, …), decisions D9–D18 (infallible `push` + `try_push`, `replace` = all, max-heap `PriorityQueue`, `FromStr` parsing → `Result`, `Debug` split from `ToString`, `HashSet := HashMap(T, unit)`, stable `sort`, `timeout -> Result`), P1 batteries per module group, phasing. Raw per-group findings: `plans/STD_API_STABILIZATION_FINDINGS.md` |
-| `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` | PROPOSED 2026-09-11: build + dependency audit and redesign. Audit verdicts: the dependency system is FETCH-ONLY (`import("<dep>")` never resolves — `resolve_module_path` has no dependency rule and the child `yo compile` receives no import mapping; `add_import_list`/`dep.artifact()` are decorative), `Step.link` does not link, `SharedLibrary` compiles as an executable, `build.yo` errors are swallowed, `yo install user/repo@tag` writes `ref: ""`. Design: `yo.toml` manifest — declarative data read WITHOUT the evaluator and edited in place by a comment-preserving `toml_edit` (a Yo data literal was weighed and TOML chosen 2026-09-11), semver ranges over git tags + Cargo-style resolver, `yo.lock` v2 with graph + integrity, content-addressed store, `--imports` file to the child compile, dependency `build.yo` evaluated in an isolated registry, parallel DAG levels, depfile stamps, workspaces. Comptime inputs: `comptime_read_file` (package-root-bounded) and `comptime_json_parse`/`comptime_toml_parse` (a comptime-only `ComptimeValue` enum, builtin parsers) YES; `comptime_fetch` NO (network belongs to the package manager; fixed-output `build.fetch` if ever); `build.env` only under `yo build`, stamped. No backward-compat scaffolding (single user): `deps.yo`, `yo fetch`, `yo install <spec>` are removed outright |
+| `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` | ARCHIVED 2026-09-13 — LANDED, every phase delivered (P0, P1, P2 §5.1/§5.2/§5.4, P3 §4.6/§4.8/§4.9): `yo.toml` manifest, `yo add/remove/install/update`, manifest-driven `import("dep")` in every command, the graph resolver with version unification, `yo.lock` v2 + integrity, `--locked/--offline/--frozen`, `yo update --latest`, the content-addressed store (`store/sha256/<hash>`, bare mirrors, tag index, `yo cache gc`), `build.manifest`, dependency `build.yo` evaluation, workspaces, parallel DAG levels, depfile stamps — closed by the dogfooding milestone (#654: `vendor/markdown_yo` un-vendored, the compiler resolving its own dependency through the store). Its closing banner lists the six deliberate deferrals; P4 (registry + `yo publish`) is designed and unscheduled. Build + dependency audit and redesign. Audit verdicts: the dependency system is FETCH-ONLY (`import("<dep>")` never resolves — `resolve_module_path` has no dependency rule and the child `yo compile` receives no import mapping; `add_import_list`/`dep.artifact()` are decorative), `Step.link` does not link, `SharedLibrary` compiles as an executable, `build.yo` errors are swallowed, `yo install user/repo@tag` writes `ref: ""`. Design: `yo.toml` manifest — declarative data read WITHOUT the evaluator and edited in place by a comment-preserving `toml_edit` (a Yo data literal was weighed and TOML chosen 2026-09-11), semver ranges over git tags + Cargo-style resolver, `yo.lock` v2 with graph + integrity, content-addressed store, `--imports` file to the child compile, dependency `build.yo` evaluated in an isolated registry, parallel DAG levels, depfile stamps, workspaces. Comptime inputs: `comptime_read_file` (package-root-bounded) and `comptime_json_parse`/`comptime_toml_parse` (a comptime-only `ComptimeValue` enum, builtin parsers) YES; `comptime_fetch` NO (network belongs to the package manager; fixed-output `build.fetch` if ever); `build.env` only under `yo build`, stamped. No backward-compat scaffolding (single user): `deps.yo`, `yo fetch`, `yo install <spec>` are removed outright |
+| `plans/MATCH_PATTERN_MATCHING.md` | ACTIVE 2026-09-13: `match` audit + real pattern matching. Measured: value matching exists ONLY on the primitive path (`evaluate_primitive_match`: int/bool/char literals, comptime `::` constants compare, `|(a, b)` or-patterns, C `switch`); the enum path takes `.V`, `.V(binders)`, `_` and nothing else. Three silent wrong answers (comptime `.Some(0)` picks the first same-variant arm; `_` before a literal arm on a primitive is order-insensitive; labeled/curly bindings in an await-carrying arm read zeroed SM fields — `issues/async-match-arm-labeled-destructure-binds-nothing.md`), three check-green/C-red shapes (float `switch`, runtime literal payload, duplicate variant arm). Design: patterns stay expressions (no parser change; every infix pattern operator needs its own parens), ONE compiled `Pattern` IR read by evaluator + sync emitter + async emitter (+ verifier later), usefulness-based exhaustiveness/unreachability, `switch` kept byte-identical when switch-shaped + an ordered test-chain lowering otherwise. New forms: literal payloads, nested variants, `str`/`String` arms (401 `== "lit"` cond arms in src+std), variant or-patterns, identifier catch-all, guards `(p && (g))`, whole-value binding `(x := p)`, ranges `(1..=5)`, tuple/struct scrutinees. Phases P0 (stop the bleeding; absorbs #661 + its exhaustiveness hole) … P6 (verifier). New forms in src/std only after the seed carries them |
 
 **Renamed 2026-08-06 — translate these in older docs.** The `phase6*` prefix named an
 internal porting-plan phase and meant nothing to a reader, so the four macro/reflection
@@ -280,13 +283,15 @@ yo doc -o ./yo-out/doc # Custom output directory
 yo doc --format json   # Output as JSON (default: html)
 
 # Dependency management
-yo fetch              # Fetch all git dependencies
-yo fetch --update     # Re-resolve refs to latest commits
-yo install user/repo  # Install from GitHub (latest semver tag)
-yo install user/repo@v1.0.0  # Install pinned version
-yo install ./path     # Install local path dependency
+yo add user/repo      # Declare a dependency in yo.toml (latest release tag, as version = "^X.Y.Z") and fetch it
+yo add user/repo@^1.2 # Semver range; user/repo@v1.0.0 pins a tag; --branch/--rev/--path/--name/--dev
+yo add ./path         # Local path dependency
+yo remove name        # Delete a dependency from yo.toml and yo.lock
+yo install            # Fetch everything yo.toml declares, write yo.lock (no network when the lock is complete)
+yo update [name...]   # Re-resolve within the ranges / to branch tips
 yo cache path         # Print global cache directory
-yo cache clean        # Remove all cached dependencies
+yo cache clean        # Remove the dependency store (store/, git/, index/); cached Yo versions stay
+yo cache gc           # Drop store trees / mirrors / tag lists no recorded project's yo.lock references
 
 # Version management
 yo version            # Show current + pinned version
@@ -302,6 +307,7 @@ yo version clean      # Remove all cached versions
 
 ## Universal Workflow Rules
 
+- **Always use the LATEST published seed version of Yo** — `yo --version` must be the newest release tag (check GitHub Releases when in doubt). A current tree can require runtime symbols only the newest seed emits, so building it with an older seed fails at link time or silently emits the older runtime. When the installed seed is behind, install the latest yourself: `bash scripts/install.sh` (it resolves the latest release; pass `--no-deps` on boxes whose toolchain comes from nix).
 - Always run `yo check ./src` to ensure the compiler tree still type-checks before running longer `yo` commands. (This replaced `bun run build` when the TypeScript `src/` retired — there is nothing to transpile any more.)
 - **There is no JavaScript runtime at the repo root** — no bun, no npm, no node, no `package.json`. Do not add one, and do not reach for `npm install` to "fix" something here. **The one exception is `vscode-extension/`, which is a deliberate npm-only island** (`npm ci`, `npm run package`), with `package-lock.json` committed and no `bun.lock`. It is a VS Code client and `vsce` is npm-native; `npm version` is what bumps its version at release time. Since 2026-08-22 it carries a plain-JS LSP client (no build step) spawning `yo lsp`; before that it was syntax-only (P2.5 B2 interim). The wasm CI legs also install node, because `emcc` is itself a node program; that is not a repo-root toolchain.
 - Make sure commands run successfully. Don't ask the user to run — run them yourself. Don't end the conversation until the command succeeds.
@@ -312,7 +318,89 @@ yo version clean      # Remove all cached versions
 - Never skip bugs discovered during implementation.
 - After fixing a bug, verify uncommitted changes for leftover or unused code.
 - Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
-- **Always squash-merge a PR AND delete its branch**: `gh pr merge <n> --squash --delete-branch`. A squash merge replays the work as ONE new commit on `develop`, so the source branch is dead the moment it lands — leaving it behind accumulates stale refs that later `git worktree`/branch work trips over, and makes `git ls-remote` unreadable. If `--delete-branch` reports `cannot delete branch '<name>' used by worktree at ...`, the REMOTE branch was still deleted; only the local one survived, so remove the worktree (`git worktree remove <path>`) and then `git branch -d <name>`.
+- **Always squash-merge a PR AND delete its branch**: `gh pr merge <n> --squash --delete-branch`. A squash merge replays the work as ONE new commit on `develop`, so the source branch is dead the moment it lands — leaving it behind accumulates stale refs that later `git worktree`/branch work trips over, and makes `git ls-remote` unreadable. **When `--delete-branch` fails, VERIFY — it can leave the REMOTE branch alive too.** MEASURED twice on 2026-09-13 (#654, #668): after either error the remote ref was still there, and `git push origin --delete <name>` reported `- [deleted]`, which it can only do for a ref that still exists. Both spellings behave this way — `cannot delete branch '<name>' used by worktree at ...`, and `fatal: '<base>' is already used by worktree at ...` (the second bites whenever another worktree holds the base branch, which in this repo the main checkout usually does). This bullet previously asserted the opposite, that only the local branch survived; that is wrong, and believing it is how stale remote refs accumulate while you think you cleaned up. The likely EXPLANATION — inferred, not measured — is that `gh` deletes the local branch first and stops when that step fails, so the remote delete never runs; treat the outcome as the rule and the ordering as a guess. **`git ls-remote --heads origin <name>` is the oracle**: empty output means gone. After ANY `--delete-branch` error, check it, then finish both sides by hand — `git push origin --delete <name>`, plus `git worktree remove <path>` and `git branch -D <name>`.
+### CI runs: cancelling, freezing, and what a battery actually covers
+
+**The next three rules are ONE rule seen from three angles, and applying any of
+them alone is how you destroy a battery you needed.** Cancelling superseded runs
+and refusing a docs merge are hygiene; they exist so that the third — the
+cut-time diff — has a meaningful answer. The diff is the only one of the three
+you can check at the moment you act. All three fired in a single session on
+2026-09-13, in different directions: the cancel rule said cancel, the freeze
+said do not, and the diff said wait. Each was right, because each answers a
+different question about the same object.
+
+- **Then CANCEL the runs that merge made pointless.** A merged PR's branch runs keep going — and a squash-merged branch's run can never gate anything again, because the commit it is testing no longer exists on any branch. The same applies to a superseded `develop` push run once a newer tip has queued. Cancelling is not tidiness: this repo's battery is ~28 jobs across six platforms, and on 2026-09-13 a backlog of runs on already-merged branches held every runner long enough that `develop`'s battery could not start for hours — the first full battery to finish in that window was the one that finally caught four red gates. Leaving them running actively delays the run whose verdict you are waiting for.
+
+  ```bash
+  # Everything still moving, with its branch:
+  gh run list --limit 30 --json databaseId,headBranch,status \
+    --jq '.[]|select(.status=="queued" or .status=="in_progress" or .status=="pending")|"\(.databaseId) \(.status) \(.headBranch)"'
+  # The branches that still MATTER — every open PR's head:
+  gh pr list --state open --limit 50 --json headRefName --jq '[.[].headRefName]|join(" ")'
+  gh run cancel <id>   # for each run whose branch is not in that list
+  ```
+
+  **KEEP**: every open PR's runs, and the newest `develop` run that is actually
+  RUNNING THE BATTERY. **CANCEL**: runs on branches with no open PR (i.e. merged
+  or abandoned), and older `develop` runs superseded by a newer tip that runs the
+  battery.
+
+  **The trap, walked into within minutes of writing this rule:** a docs-only tip
+  takes the fast path and SKIPS 15 of 18 jobs, then reports `success`. If you
+  cancel the older `develop` run because a newer tip queued, and that newer tip
+  is docs-only, you have destroyed the only real verification of the code and
+  replaced it with a green tick that compiled nothing. Check before cancelling —
+  `gh run view <newer-id> --json jobs --jq '[.jobs[]|select(.conclusion=="skipped")]|length'`
+  returning 15 means it is the fast path, so KEEP the older run. If it is already
+  cancelled, `gh run rerun <older-id>` gets it back: a docs-only tip is
+  code-identical to its parent, so the parent's battery is the valid verdict.
+
+  When in doubt about someone else's branch, leave it — the cost of one extra
+  run is small next to cancelling work a teammate is waiting on. Cancellation is
+  asynchronous, so a job may still read `in_progress` for a minute afterwards;
+  re-list rather than cancelling twice.
+
+- **Never merge a docs-only PR to `develop` while a battery you are waiting on is
+  in flight** — a release gate, or any run whose verdict you intend to act on.
+  A push to `develop` starts a new run, and `test.yml`'s concurrency keeps only
+  ONE pending run per group, so the run you were waiting on is superseded. When
+  the replacement is docs-only it takes the fast path, **skips 15 of 18 jobs and
+  reports `success`** (18 is the docs-only total — skipped matrix jobs never
+  expand, so a FULL battery reports 28; measured on run `34731551580`) — so a real battery is replaced by a green tick that
+  compiled nothing, and at the check level you see green where you had green.
+  That is strictly worse than superseding with a code merge, where at least the
+  replacement battery is real. There is no error to notice; the only tell is
+  that the tip changed.
+
+  A related edge with the same cause: **back-to-back merges mean the earlier
+  merge's `develop` battery never completes**, so the gate quietly becomes
+  "whatever the LAST merge triggered" rather than "the battery for the commit I
+  watched". Measured 2026-09-13: #614 (a real evaluator change) landed, and a
+  docs+reproducer merge minutes later superseded its pending battery.
+
+  **Parking work under a freeze is free and durable: push the branch, do not
+  open the PR.** `test.yml`'s push trigger is `develop`-only, so a bare branch
+  push runs nothing; it is the PR that starts a battery — and an ALREADY-OPEN
+  PR starts one on every push, draft or not. Holding the work locally instead
+  risks losing it when a session ends.
+- **Before cutting a release, re-run the code-directory diff — do not reason
+  from run ordering.** The question is only ever "does the battery I am about to
+  trust cover the code I am about to tag", and this answers it directly:
+
+  ```bash
+  git diff --stat <battery-head-sha>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo
+  ```
+
+  Empty ⇒ the battery gates the tip; tag it. Non-empty ⇒ wait for a battery on
+  the new tip. Docs commits landing mid-battery never invalidate it, so they
+  cost nothing; a code commit stops the diff being empty and tells you
+  immediately. Measured 2026-09-13: a battery at 18 green / 0 failed looked like
+  a perfect gate right until the diff showed #614's ~490 insertions across
+  `src/evaluator/context.yo` and `src/module_manager.yo` had landed after it.
+
+### Everything else
+
 - **Always run `yo fmt <file.yo>` on every `.yo` file you create or modify, before committing.** Use `yo fmt --check` to verify. Do not commit unformatted `.yo` files. (There is no pre-commit hook any more — `.husky/` went with the node toolchain, so this is on you.)
 - Always check if there is need to create/update existing instructions & rules & skill files, design/plan docs after implementing a change.
 - **Whenever you learn something new about Yo syntax, semantics, or common pitfalls — especially from trial and error — immediately update the relevant skill files** (`.github/skills/yo-syntax/syntax-cheatsheet.md`, `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`, etc.) **and instruction files** (`.github/instructions/yo-syntax.instructions.md`, `.github/instructions/yo-design.instructions.md`). This keeps the institutional knowledge accurate for future sessions.
@@ -335,7 +423,10 @@ yo version clean      # Remove all cached versions
 - **Algebraic effect `unwind` vs C `abort()`**: They are completely different. The Yo keyword `unwind` discards a continuation; C's `abort()` terminates the process. (`unwind` was previously named `escape`, renamed in commit `a3510d20`.)
 - **The VS Code extension bundles an LSP client since 2026-08-22** (plain JS, no build step): it spawns `yo lsp` (configurable via `yo.binPath`), which serves the FULL feature set — diagnostics, hover, definition, symbols, references, folding, rename, formatting, signature help, completion (P4 feature-complete 2026-08-22, `plans/archive/P4_LSP.md`). With `yo.lsp.enabled: false` (or no yo binary) it degrades to syntax highlighting.
 - **Plans docs state their status up top.** `plans/archive/` docs are CLOSED records — each banner names the outcome (implemented, refuted, superseded) and freezes historical numbers at their writing dates; don't use them as live designs. `plans/reference/` docs are landed designs/decisions that stay authoritative.
-- **`yo fetch` auto-prunes stale lock entries.** When a dep is removed from `build.yo`, running `yo fetch` removes it from `yo.lock`. Global cache is not auto-cleaned.
+- **`yo install` auto-prunes stale lock entries; the store is content-addressed and reclaimed by `yo cache gc`.** When a dep is removed from `yo.toml` (`yo remove`), the next `yo install` drops it from `yo.lock`. A fetched tree lives at `<cache>/store/sha256/<integrity hash>` — the lock's `integrity` IS its address, so `manifest.yo` resolves `import("dep")` from the lock alone — and is never removed by an install; `yo cache gc` removes what no recorded project's lock references (every `yo install` records its project in `<cache>/projects`). A tree without its `.verified` sibling is re-hashed before it is trusted. Local `git = "./x.git"` paths are made absolute against the manifest directory before git sees them (git resolves relative remotes against the child's cwd), and every git child runs with `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS=echo`.
+- **Dependencies live in `yo.toml`, not in `build.yo`.** `build.dependency("name")` only REFERENCES a manifest entry (the runner rejects an undeclared name); `deps.yo`, the struct forms `build.dependency({…})`/`build.path_dependency({…})`, `add_import`/`add_import_list`, `yo fetch` and `yo install <spec>` are gone (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1, landed 2026-09-12). `import("dep")` resolves in EVERY command through the nearest `yo.toml` above the file (`src/manifest.yo`), so `yo check`/`yo test`/LSP need no build.
+- **Resolving is not fetching: only `yo build` materializes a dependency.** `yo build` fetches on its own — `install_dependencies` runs inside `resolve_build_import_roots` before the graph is built, so a build into an EMPTY store re-fetches from `yo.lock` (measured 2026-09-13 with `YO_CACHE_DIR` pointed at an empty dir). Every other command — `yo compile`, `check`, `test`, `doc`, `lsp` — resolves import roots but never fetches, so on a fresh clone they fail at the import site with ``git dependency "<name>" is not in the store (<path>) — run `yo install` ``. That is why CI needs an explicit `yo install` (`.github/actions/install-deps`, `--locked`) in every job that runs `yo` against this tree, while a job that only calls `yo build` needs nothing. It is NOT on-demand because import-root resolution is synchronous and pre-`Io` by construction (`src/manifest.yo` says so at the top) and on-demand fetching there would make the LSP reach the network; Cargo's `cargo check`-fetches-too convergence is written up as a follow-up in `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`, not done.
+- **A new build builtin in `std/build.yo`: what breaks under the seed depends on the BINDING SHAPE** (measured 2026-09-13). A module-level `::` VALUE binding is forced by its own `export(...)`, so an older compiler fails the WHOLE module (`error[E0401]: Variable "__yo_build_x" not found`) — that is the `build.manifest` case, and it genuinely needs the generation-A/B split recorded in `plans/backlog/SEED_VERSION_AUTOMATION.md`. A FUNCTION wrapper (`env :: (fn(comptime(name) : comptime_str) -> comptime(str))(__yo_build_env(name))`) does NOT: its body is deferred, the seed evaluates `std/build.yo` cleanly, and the wrapper can land in the SAME release as the builtin. What still fails is a build file that CALLS it under the seed — so the wrapper is safe to ship, and the repository's OWN `build.yo` must not use it until `SEED_VERSION` carries the builtin (`fixpoint-arm64.yml` bootstraps gen-1 by running `yo build` with the seed). Verify the distinction the same way every time: `<seed> check std/build.yo` for the definition, and a fixture build file calling it for the use. Worse, a pre-v0.2.31 seed does not REPORT the failure: it still swallows build-file evaluation errors and prints `No build steps defined.`, so a broken `std/build.yo` looks like an empty build.
 - **`GIT_TERMINAL_PROMPT=0`** must be set when running `git ls-remote` on potentially non-existent repos to prevent interactive credential prompts.
 - **A "move" of a named local into a struct/enum field is NOT a consumption in the evaluator.** `set_expr_as_consumed` (`src/evaluator/utils.yo`) only fires for owning temps and `own` parameters; a named local passed to a struct literal gets a deferred `___dup` (copy semantics), and the move you see in the emitted C is manufactured by the **dup/drop pair optimizer** (`_optimize_dup_drop_pairs` in `src/evaluator/exprs/begin.yo`) cancelling that dup against the scope-end drop. So a missing drop in the C is an optimizer bug, not a consumption-marking bug — and any tree walk in that optimizer family must follow `ExprInfo.macro_expansion` for macro calls (`for`, collection literals, user macros — their calls keep the macro head in the AST; the expansion is where branch structure is visible). `if(...)` no longer needs this: since 2026-08-21 it is desugared to `cond(...)` at parse time (`desugar_if_calls`, plans/reference/MACRO_POLICY.md), so passes see the real `cond` node. See `issues/fixed/where-constraints-arraylist-96b-leak.md`.
 - **Cancelling a dup/drop pair is only sound when the container OUTLIVES the local, and the optimizer does not check that.** Two consequences, one fixed and one open. (a) A CLOSURE DEFINITION's `deferred_dup_expressions` are its capture-STRUCT field initializers, and that struct is moved into the closure value and released by whatever owns it — a spawn wrapper, an async future, a stored `FuncVal` — possibly before the capturing scope ends. `_search_dup_calls` therefore skips a node whose `ExprInfo.is_anonymous_function_definition` is `Some(true)` and that carries deferred dups; the `io.async` special case it used to have was one instance of that rule. Without it, `shared := arc(i32(42))` captured by a `Thread.spawn` closure read back as `0` after `join()` (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`). (b) The same unsoundness is still LIVE for an ordinary container in an INNER scope — `{ holder := H(sink : sink); }; sink.count()` is a use-after-free, masked into a correct-looking answer on the non-atomic path because a cycle-capable `ref` is GC-TRACKED and `__yo_decr_rc` defers the free (`issues/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md`). Any change here needs the dup/drop emit-diff gate plus an OVER-cancellation canary: the same-scope case must keep its cancellation, or every struct store costs a dup/drop pair again.

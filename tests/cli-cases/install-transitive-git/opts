@@ -1,0 +1,9 @@
+# A TRANSITIVE git dependency: the root declares app_lib (^1, tag v1.0.0);
+# app_lib's own yo.toml declares util (^1). Both are bare repositories in the
+# fixture (`git = "./x.git"`). `yo install` must read app_lib's manifest out
+# of the fetched tree, resolve util to v1.1.0 (the highest tag inside ^1 —
+# v2.0.0 exists and must NOT be chosen), record BOTH in yo.lock with app_lib's
+# `dependencies = ["util"]`, and `build run` must resolve app_lib's
+# import("util") through the same lock.
+timeout=600
+stdout_keep=^(Found|  - |  [a-z_]+ →|Resolving|Done|Building|app_lib |Wrote|yo\.lock is up)

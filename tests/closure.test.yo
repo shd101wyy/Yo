@@ -1,6 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ AtomicI32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
+{ Channel } :: import("std/sync/channel");
 { printf } :: import("std/libc/stdio.yo");
 MyBox :: ref(
   struct(
@@ -276,4 +277,44 @@ test("a named module-level fn still reaches the global", {
   });
   run_it(bump_again);
   assert(module_global_counter.load(MemoryOrder.Relaxed) == i32(4), "named module fn reached the global");
+});
+// ---------------------------------------------------------------------------
+// A generic impl method's closure is emitted ONCE — the substituted
+// generation. Calling such a method used to mint TWO closure generations, one
+// with the impl's `T` still a bare SomeT, and codegen emitted both: the
+// generic one keyed every call in its body on the unresolved `T`
+// ("call to undeclared function ..._rtparam1_2192_...", where the C
+// compiler's own "did you mean" named the correct symbol right beside it).
+// issues/fixed/a-generic-impl-methods-closure-is-emitted-twice.md
+// ---------------------------------------------------------------------------
+GenericHolder :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(struct(_slot : Channel(T)))
+);
+impl(
+  generic(T : Type),
+  GenericHolder(T),
+  where(T <: (Send, Acyclic)),
+  /// The closure captures `sink : Channel(T)` and `v : T` — both generic —
+  /// and is handed to an `Impl(Fn)` parameter, which is what creates the
+  /// second generation.
+  make : (fn(v : T) -> Self)({
+    ch := Channel(T).new(usize(1));
+    sink := ch;
+    run_it(() => {
+      sink.send(v);
+      ()
+    });
+    Self(_slot : ch)
+  }),
+  take : (fn(self : Self, fallback : T) -> T)(
+    match(self._slot.try_recv(), .Ok(r) => r, .Err(_) => fallback)
+  )
+);
+test("a generic impl method's capturing closure compiles and runs", {
+  h := GenericHolder(i32).make(i32(7));
+  assert(h.take(i32(0)) == i32(7), "the generic impl method's closure delivered its value");
+});
+test("the same generic impl method at a second instantiation", {
+  h := GenericHolder(bool).make(true);
+  assert(h.take(false), "the bool instantiation delivered its value too");
 });

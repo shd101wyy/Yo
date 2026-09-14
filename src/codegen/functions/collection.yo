@@ -288,7 +288,15 @@ _register_extern_fn_callee :: (
           // evaluator's side-table (the port of TS reading `type.cInclude`
           // off the extern function type). None for plain `extern("c", ...)`
           // declarations.
-          context.register_extern_function(type_key(cei_ty), cei_ty, c_name, get_c_include_for_extern(c_name.clone()));
+          //
+          // Keyed by the C NAME, not by `type_key`: two externs of the same
+          // SIGNATURE — `extern("Yo", alpha : (fn(n : i32) -> i32))` and the
+          // same for `beta` — share a type key, so the second overwrote the
+          // first and only ONE prototype was emitted. The other was then
+          // called with no declaration, which C99 and later reject
+          // (issues/fixed/two-externs-of-one-signature-emit-one-prototype.md).
+          // A symbol name identifies the function; a type does not.
+          context.register_extern_function(c_name.clone(), cei_ty, c_name, get_c_include_for_extern(c_name.clone()));
         });
       },
       .None => ()

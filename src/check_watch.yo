@@ -37,6 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { IoExn, Exception } :: import("std/error");
 { exit } :: import("std/process");
 { stdout, fflush } :: import("std/libc/stdio");
+env_mod :: import("std/env");
 { Instant } :: import("std/time/instant");
 sleep_mod :: import("std/sys/timer");
 { BufReader } :: import("std/io/bufio");
@@ -44,6 +45,7 @@ sleep_mod :: import("std/sys/timer");
 {
   mm_load_file,
   mm_invalidate_document,
+  mm_definitions_changed,
   mm_resolve_entry_abs,
   _take_load_error
 } :: import("./module_manager.yo");
@@ -81,7 +83,26 @@ watch_round :: (
         // `mm_invalidate_document` re-prefixes it.
         p_key := mm_resolve_entry_abs(p.clone(), std_path.clone());
         p_abs := p_key.replace(String.from("file://"), String.new());
-        dropped := mm_invalidate_document(p_abs);
+        // Phase 3 (§6): a parse-only diff first. When every definition and
+        // the ordered-statement sequence hash the same (a comment-only or
+        // whitespace-only edit), NOTHING needs invalidating at any
+        // granularity — the round skips the file entirely instead of
+        // dropping its reverse import closure.
+        // NOTE: `.Some(v) => !(v)` rather than `.Some(false) => true` —
+        // enum patterns with boolean-literal payloads do not compare the
+        // literal yet (issues/enum-pattern-bool-payload-not-compared.md).
+        skip := match(
+          mm_definitions_changed(p_abs),
+          .Some(v) => !v,
+          .None => false
+        );
+        dropped := cond(
+          skip => ArrayList(String).new(),
+          true => mm_invalidate_document(p_abs)
+        );
+        if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+          eprintln(`[p3round] ${p}: skip=${skip.to_string()} dropped=${dropped.len().to_string()}`);
+        });
         (di : usize) = usize(0);
         while(di < dropped.len(), {
           match(

@@ -1,0 +1,7 @@
+# `dyn(...)` evaluated its payload through the exception-free evaluator, which
+# SWALLOWS a throw: an unknown function inside `dyn(...)` left the payload with
+# no ExprInfo and `yo check` passed the file with a hollow function body
+# (issues/fixed/extern-declarations-are-not-forward-referenceable.md, face 2).
+# `comptime_expect_error` cannot pin this — its propagate mode observes the
+# swallowed throw — so the gate is `yo check` itself: rc=1 and the E0401.
+stdout_keep_match=error\[E0401\]: Variable "totally_unknown_fn" not found\.

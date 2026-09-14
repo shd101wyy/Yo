@@ -1911,6 +1911,38 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       runtime_args = cc_ast_args;
     });
   });
+  // Parallelism spawn primitives dispatch BEFORE the arguments are
+  // materialized. `generate_thread_spawn_call` generates the callback
+  // expression ITSELF — it needs the capture struct, not a value string — so
+  // letting the loop below materialize it first emits the closure's capture
+  // struct TWICE. The first copy is dead, and its field initializers are
+  // `__yo_incr_rc` calls with no matching release: one leaked reference per
+  // RC'd capture, every time a closure LITERAL is spawned.
+  //
+  // Invisible until D18: `Thread.spawn(cb)`'s argument used to be a plain
+  // PARAMETER by the time the specialized body reached here, and materializing
+  // a variable emits no statement. `Thread(T).spawn` wraps the callback in a
+  // result-relaying closure literal, which is what made the second copy
+  // appear. (issues/fixed/a-spawned-closure-literal-is-materialized-twice.md)
+  match(
+    function_type,
+    .Func({ meta : __fm_sp }) => {
+      sp_is_yo := match(__fm_sp.*.is_extern, .Some(sp_lang) => ((sp_lang == "yo") || (sp_lang == "c")), .None => false);
+      match(
+        __fm_sp.*.extern_name,
+        .Some(sp_name) => if(sp_is_yo, {
+          if(sp_name == "__yo_thread_spawn", {
+            return(generate_thread_spawn_call(expr, indent.clone(), context));
+          });
+          if(sp_name == "__yo_worker_spawn", {
+            return(generate_worker_spawn_call(expr, indent.clone(), context));
+          });
+        }),
+        .None => ()
+      );
+    },
+    _ => ()
+  );
   param_types := match(function_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
   param_is_ref := match(function_type, .Func({ meta : __fm5 }) => __fm5.*.param_is_ref, _ => ArrayList(bool).new());
   // Materialize args, then auto-`&` ref params.
@@ -1957,14 +1989,6 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           _maybe_emit_auto_borrow_assert(name.clone(), indent.clone(), context);
           if(is_builtin_yo_inline_function(name.clone()), {
             return(Option(String).Some(generate_yo_inline_function_call(name, args2, expr, context, indent.clone())));
-          });
-          // Parallelism spawn primitives: heap-copy the closure capture + emit a
-          // cleanup wrapper, then call the raw spawn. Mirrors other-fn-call.ts:906.
-          if(name == "__yo_thread_spawn", {
-            return(generate_thread_spawn_call(expr, indent.clone(), context));
-          });
-          if(name == "__yo_worker_spawn", {
-            return(generate_worker_spawn_call(expr, indent.clone(), context));
           });
           if(is_unit_type(r), {
             line := indent.clone();

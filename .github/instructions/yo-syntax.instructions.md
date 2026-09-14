@@ -258,6 +258,9 @@ Yo has **no operator precedence**. Two rules:
 2. **Adjacent DIFFERENT operators require explicit parentheses** — otherwise a
    parse error: _"Adjacent different operators need parentheses to clarify
    grouping."_
+   This includes `:=` / `=` and a struct-literal field's `:` next to a binary
+   operator: `x := a + b;` is E0003 — write `x := (a + b);`, `ok := (p && q);`,
+   `end : (j + usize(1))`.
 
 ```rust
 // CORRECT — same operator, no nesting needed:

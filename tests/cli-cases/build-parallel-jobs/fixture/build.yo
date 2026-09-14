@@ -1,0 +1,12 @@
+build :: import("std/build");
+
+// Two libraries with no edge between them: one DAG level, two nodes.
+lib_a :: build.static_library({ name : "alpha", root : "./src/alpha.yo" });
+lib_b :: build.static_library({ name : "beta", root : "./src/beta.yo" });
+
+exe :: build.executable({ name : "app", root : "./src/main.yo" });
+exe.link(lib_a);
+exe.link(lib_b);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);

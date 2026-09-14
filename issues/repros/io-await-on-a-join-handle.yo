@@ -1,0 +1,11 @@
+//! `io.await` on a JOIN HANDLE (the result of `io.spawn`) is reported as an
+//! internal compiler error instead of a user type error. The correct spelling
+//! is `a.await(io)`, which yields `Option(T)`.
+//! issues/io-await-on-a-join-handle-is-reported-as-an-internal-compiler-error.md
+{ println } :: import("std/fmt");
+main :: (fn(io : Io) -> unit)({
+  a := io.spawn(io.async((io : Io) => i32(1)), io);
+  ra := io.await(a, io);
+  println(`ra=${ra + i32(0)}`);
+});
+export(main);

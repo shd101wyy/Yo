@@ -543,7 +543,15 @@ impl(
           // the expression parser (D3.10).
           sp := _peel_spec(content);
           // Parse the interpolated expression with a fresh sub-parser.
-          (inner_prog : ArrayList(AstExpr)) = Parser.new(sp.expr_text, self.module_path, exn).get_program(exn);
+          // The sub-parse must NOT carry the auto-import (see
+          // `get_expression_program`); a `:spec` the inner source used has to
+          // reach THIS parser, because the enclosing module's import is the
+          // one that has to become `std/fmt/format`.
+          sub_parser := Parser.new(sp.expr_text, self.module_path, exn);
+          (inner_prog : ArrayList(AstExpr)) = sub_parser.get_expression_program(exn);
+          if(sub_parser.has_template_spec, {
+            self.has_template_spec = true;
+          });
           if(inner_prog.len() == usize(0), {
             exn.throw(dyn(make_parse_error(tok, `empty expression in template string interpolation`)));
           });
@@ -1575,6 +1583,18 @@ impl(
       );
     });
     self.program = exprs;
+  }),
+  /// The parsed program WITHOUT the template auto-import that `get_program`
+  /// prepends — what a sub-parse of ONE expression needs. A template
+  /// interpolation is parsed by a fresh sub-parser that then takes the first
+  /// expression, so with the import prepended a NESTED template — `` `x${`y`}z` ``
+  /// — took the import as its expression and emitted
+  /// `import("std/fmt/to_string").to_string()`, which fails as
+  /// `Module field "to_string" not found in module type`
+  /// (issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md).
+  get_expression_program : (fn(inout(self) : Self, exn : Exception) -> ArrayList(AstExpr))({
+    self.do_parse(exn);
+    self.program
   }),
   get_program : (fn(inout(self) : Self, exn : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);

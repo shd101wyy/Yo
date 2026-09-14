@@ -38,7 +38,7 @@ test("__yo_mutex_trylock fails while ANOTHER thread holds the mutex", {
   m := Mutex(i64).new(i64(0));
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
-  holder := Thread.spawn(io => {
+  holder := Thread(unit).spawn(io => {
     m._raw_lock();
     held.send(i32(1));
     release.recv();
@@ -75,7 +75,7 @@ test("__yo_cond_timedwait returns early when signalled", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
   ready := Channel(i32).new(usize(1));
-  signaller := Thread.spawn(io => {
+  signaller := Thread(unit).spawn(io => {
     // Wait until the main thread is inside the wait, then signal. Taking the
     // mutex is what guarantees that: the waiter releases it atomically on
     // entering the wait, so acquiring it here means the wait has begun.

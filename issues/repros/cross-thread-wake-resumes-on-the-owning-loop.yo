@@ -1,0 +1,32 @@
+{ println } :: import("std/fmt");
+{ Park } :: import("std/async/waker");
+{ Thread, get_thread_id } :: import("std/thread");
+{ AtomicI32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
+{ Duration } :: import("std/time/duration");
+{ sleep_blocking } :: import("std/time/sleep");
+main :: (fn(io : Io) -> unit)({
+  p := Park.new();
+  w := p.waker();
+  stamped := AtomicI32(i32(0));
+  resumed_on := AtomicUsize.new(usize(0));
+  main_tid := get_thread_id();
+  h := io.spawn(
+    io.async((io : Io) => {
+      io.await(p.wait(io), io);
+      resumed_on.store(get_thread_id(), MemoryOrder.Release);
+      _a := stamped.fetch_add(i32(100), MemoryOrder.AcqRel);
+      i32(0)
+    }),
+    io
+  );
+  t := Thread(unit).spawn((tio : Io) => {
+    sleep_blocking(Duration.from_millis(i64(50)));
+    _b := stamped.fetch_add(i32(7), MemoryOrder.AcqRel);
+    w.wake();
+    ()
+  });
+  _r := h.await(io);
+  println(`stamped=${stamped.load(MemoryOrder.Acquire)} same_thread=${resumed_on.load(MemoryOrder.Acquire) == main_tid}`);
+  t.join();
+});
+export(main);

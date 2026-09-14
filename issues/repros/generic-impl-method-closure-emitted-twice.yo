@@ -1,0 +1,32 @@
+{ println } :: import("std/fmt");
+{ Channel } :: import("std/sync/channel");
+pragma(Pragma.AllowUnsafe);
+runner :: (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> i32)(i32(0));
+Holder :: (
+  fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type)
+)(ref(struct(_result : Channel(T))));
+impl(
+  generic(T : Type),
+  Holder(T),
+  where(T <: (Send, Acyclic)),
+  make : (fn(v : T) -> Self)({
+    ch := Channel(T).new(usize(1));
+    sink := ch;
+    raw := runner(
+      (io : Io) => {
+        sink.send(v);
+        ()
+      }
+    );
+    _ignored := raw;
+    Self(_result : ch)
+  }),
+  take : (fn(self : Self, fallback : T) -> T)(
+    match(self._result.try_recv(), .Ok(r) => r, .Err(_) => fallback)
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  h := Holder(i32).make(i32(7));
+  println(`${h.take(i32(0))}`);
+});
+export(main);

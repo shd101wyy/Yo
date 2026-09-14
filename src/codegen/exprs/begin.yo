@@ -151,12 +151,15 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
                 );
                 if(!sc_skip, {
                   drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+                  // Record unconditionally, emit conditionally — the drop
+                  // generator writes a multi-line enum/Option drop itself and
+                  // returns "" (see drop_dup.yo's generate_deferred_drop_expressions).
+                  context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
                   if(drop_code.len() > usize(0), {
                     line := indent.clone();
                     line.push_string(drop_code);
                     line.push_str(";");
                     em.emit_string_line(line);
-                    context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
                   });
                 });
               });

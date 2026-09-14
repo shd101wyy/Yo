@@ -43,8 +43,10 @@ pragma(Pragma.AllowUnsafe);
 /// negative error code. `domain` is `AF_INET` or `AF_INET6`; `protocol` 0
 /// lets the kernel pick UDP.
 ///
-/// As in `std/sys/tcp`, macOS additionally sets `O_NONBLOCK` on the new
-/// descriptor for its kqueue backend.
+/// As in `std/sys/tcp`, the POSIX backends set `O_NONBLOCK` on the new
+/// descriptor — the Linux datagram ops complete through io_uring
+/// (`IORING_OP_SENDMSG`/`RECVMSG`) and their inline fast path must see
+/// `-EAGAIN`, not block.
 socket :: (fn(domain : i32, protocol : i32) -> IoFuture)(
   __yo_async_socket_start(domain, SOCK_DGRAM, protocol)
 );

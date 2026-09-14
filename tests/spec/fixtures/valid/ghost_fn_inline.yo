@@ -1,0 +1,18 @@
+// ghost_fn INLINING (V5 task 3 slice 2): a spec function's meaning is its
+// BODY — `requires(within(x, 0))` assumes the inlined (x >= 0) && (x <= 100),
+// which is what makes the ensures provable. The forward reference to the
+// ghost_fn is legal (lazy top-level bindings).
+pragma(Pragma.Verify);
+
+bounded :: (
+  fn(
+    x : i32,
+    requires(within(x, i32(0))),
+    ensures(result >= i32(0))
+  ) -> (result : i32)
+)({
+  y := x;
+  y
+});
+
+within :: ghost_fn((fn(x : i32, lo : i32) -> bool)((x >= lo) && (x <= (lo + i32(100)))));

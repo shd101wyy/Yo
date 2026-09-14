@@ -39,7 +39,7 @@
 { EvalContext, note_unlabeled_ensures_atom } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_bool } :: import("../../types/creators.yo");
+{ t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -107,6 +107,32 @@ _evaluate_contract_marker :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
+/// The file set the current command is verifying (absolute or as-given
+/// paths — matched by equality against `Token.module_path`). Empty = no
+/// verification is recording (plain `yo check`/`compile`), so registry
+/// effects are inert. Declared EARLY: the contract-marker handlers
+/// (evaluate_ghost and friends) read `_is_verify_target`, and importers
+/// can force those lazily before line 900 evaluates.
+(g_verify_target_paths : ArrayList(String)) = ArrayList(String).new();
+set_verify_target_paths :: (fn(paths : ArrayList(String)) -> unit)({
+  g_verify_target_paths = paths;
+  ()
+});
+_is_verify_target :: (fn(module_path : String) -> bool)({
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < g_verify_target_paths.len()) && !found, {
+    match(
+      g_verify_target_paths.get(i),
+      .Some(p) => if(p == module_path, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 /// `requires(...)` in expression position — no-op marker. Mirrors
 /// `evaluateRequires`.
 /// Reject a zero-argument contract marker in expression position.
@@ -162,11 +188,99 @@ evaluate_decreases :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, 
   );
   _evaluate_contract_marker(expr, env, ctx, exn)
 });
-/// `ghost(...)` — ghost-binding marker, transparent in Phase 0. Mirrors
-/// `evaluateGhost`.
-evaluate_ghost :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
-  _evaluate_contract_marker(expr, env, ctx, exn)
+/// V5 task 5: the std/spec ghost-collection builtins (ghost-only).
+BF_SEQ_UNIT :: "seq_unit";
+BF_SEQ_APPEND :: "seq_append";
+BF_SEQ_LEN :: "seq_len";
+BF_SEQ_NTH :: "seq_nth";
+BF_STR_BYTES :: "str_bytes";
+BF_MS_SINGLE :: "ms_single";
+BF_MS_ADD :: "ms_add";
+BF_MS_COUNT :: "ms_count";
+BF_MS_OF :: "ms_of";
+BF_SET_SINGLE :: "set_single";
+BF_SET_ADD :: "set_add";
+BF_SET_CONTAINS :: "set_contains";
+/// V5 task 3: the ghost-BINDING name set. `ghost(name := e)` registers the
+/// bound name here; identifier resolution (identifer_and_operator.yo)
+/// rejects reads of these names from non-ghost context — the "ghost value
+/// escapes specification context" error.
+(g_ghost_binding_names : HashSet(String)) = HashSet(String).new();
+register_ghost_binding :: (fn(name : String) -> unit)({
+  g_ghost_binding_names.insert(name);
+  ()
+});
+is_ghost_binding_name :: (fn(name : String) -> bool)(
+  g_ghost_binding_names.contains(name)
 );
+/// `ghost(...)` — V5 task 3 slice 2: `ghost(name := e)` BINDS the name
+/// for spec use ONLY (contract clauses, ghost code, ghost_fn bodies, and —
+/// in VERIFICATION targets — assert predicates) in EVERY mode: the binding
+/// never reaches codegen, and ordinary code reading it gets the escape
+/// error (identifer_and_operator.yo's ghost-name check). Without this, a
+/// runtime-mode assert reading a ghost binding emitted an UNDECLARED C
+/// identifier — the evaluator resolved the name (Phase 0's marker bound it)
+/// while codegen erased the binding. Other `ghost(...)` shapes keep the
+/// transparent no-op marker. Mirrors `evaluateGhost`.
+evaluate_ghost :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  args0 := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  {
+    match(
+      args0.get(usize(0)),
+      .Some(first) => {
+        if(ast_expr_is_fn_call_of(first, ":=", Option(usize).Some(usize(2))), {
+          ba := match(
+            first,
+            .FnCall(_, _, a2, _, _) => a2,
+            .Atom(_, _) => ArrayList(AstExpr).new()
+          );
+          nm := match(
+            ba.get(usize(0)),
+            .Some(n0) => ast_expr_token(n0).value,
+            .None => String.new()
+          );
+          rhs := match(
+            ba.get(usize(1)),
+            .Some(r0) => r0,
+            .None => make_err_expr()
+          );
+          // The RHS is ghost code (quantifiers are legal in it).
+          prev_ghost := ctx.is_ghost_context;
+          ctx.is_ghost_context = true;
+          evaluated := evaluate_expression_raw(rhs, env, ctx, exn);
+          ctx.is_ghost_context = prev_ghost;
+          r_info := match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+            .Some(ri) => ri,
+            .None => new_expr_info(env, t_unit())
+          );
+          _ := add_variable_to_env(
+            env,
+            nm.clone(),
+            r_info.ty,
+            r_info.value,
+            false,
+            false,
+            false,
+            false,
+            ast_expr_token(first)
+          );
+          register_ghost_binding(nm.clone());
+          out_info := new_expr_info(r_info.env, t_unit());
+          out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+          return(expr);
+        });
+      },
+      .None => ()
+    );
+  };
+  _evaluate_contract_marker(expr, env, ctx, exn)
+});
 /// Shared transparent pass-through for `ghost_fn(inner)` / `old(inner)`:
 /// evaluate the single inner argument and propagate its ExprInfo to the outer
 /// call. Mirrors the bodies of `evaluateGhostFn` / `evaluateOld`.
@@ -269,6 +383,117 @@ evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
   );
   out
 });
+/// The std/spec ghost-collection builtins (V5 task 5): seq_unit /
+/// seq_append / seq_len / seq_nth / str_bytes, ms_single / ms_add /
+/// ms_count, set_single / set_add / set_contains. Ghost-only (same gate as
+/// the quantifiers); evaluates to an UNKNOWN of a plausible element type —
+/// these only appear inside one predicate expression, and the VERIFIER's
+/// walk gives them their real SMT semantics (Seq / Array sorts).
+_evaluate_spec_collection :: (
+  fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr
+)({
+  _reject_not_ghost_context(expr, ctx, exn);
+  (cur_env : Environment) = env;
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arg := match(args.get(i), .Some(x) => x, .None => make_err_expr());
+    prev_ghost := ctx.is_ghost_context;
+    ctx.is_ghost_context = true;
+    evaluated := evaluate_expression_raw(arg, cur_env, ctx, exn);
+    ctx.is_ghost_context = prev_ghost;
+    bi_info := match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+      .Some(x) => x,
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg),
+              String.from("Failed to evaluate a spec-collection argument.")
+            )
+          )
+        );
+        new_expr_info(cur_env, t_unit())
+      }
+    );
+    cur_env = bi_info.env;
+    i = (i + usize(1));
+  });
+  // Result TYPE per builtin — the evaluator only type-checks the chain;
+  // the verifier's walk gives the real SMT semantics. Carriers (unit /
+  // append / singles / add / str_bytes) take the FIRST argument's type
+  // (Seq(T)/Set(T)/Multiset(T) are erased aliases); counts are i64;
+  // contains is bool; nth is u8 (str-content iteration).
+  head := ast_expr_token(expr).value;
+  arg1_ty := t_bool();
+  match(
+    args.get(usize(0)),
+    .Some(a0) => {
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(a0)),
+        .Some(a0i) => {
+          arg1_ty = a0i.ty;
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  res_ty := cond(
+    ((head == "seq_len") || (head == "ms_count")) => t_i64(),
+    (head == "set_contains") => t_bool(),
+    (head == "seq_nth") => t_u8(),
+    true => arg1_ty
+  );
+  out_info := new_expr_info(cur_env, res_ty.clone());
+  out_info.value = Option(EvalValue).Some(create_unknown_val(res_ty));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+evaluate_seq_unit :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_seq_append :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_seq_len :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_seq_nth :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_str_bytes :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_ms_single :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_ms_add :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_ms_count :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+/// `ms_of(a)` (V5 task 6): a fixed-length Array(T, N)'s elements as a
+/// ghost Multiset. The evaluator type-checks only (a carrier of the
+/// array's own type); the verifier's walk folds the count array over N.
+evaluate_ms_of :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_set_single :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_set_add :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
+evaluate_set_contains :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+  _evaluate_spec_collection(expr, env, ctx, exn)
+);
 /// Ghost-only constructs (V5 §6: forall/exists/==>) have NO
 /// runtime semantics — outside ghost context they are a compile error,
 /// the same stance as `unwind(...)` outside `ctl(...) -> R`.
@@ -831,7 +1056,6 @@ verify_task_def_eval_failure :: (fn(fn_id : String) -> Option(String))(
 /// paths — matched by equality against `Token.module_path`). Empty = no
 /// verification is recording (plain `yo check`/`compile`), so registry
 /// effects are inert.
-(g_verify_target_paths : ArrayList(String)) = ArrayList(String).new();
 /// The CLI override (`--verify-mode`); the file pragma is source of truth
 /// when present, this decides otherwise.
 (g_verify_mode_override : Option(String)) = Option(String).None;
@@ -840,25 +1064,6 @@ set_verify_mode_override :: (fn(m : Option(String)) -> unit)({
   ()
 });
 /// Declare the verification target file set (and reset any previous one).
-set_verify_target_paths :: (fn(paths : ArrayList(String)) -> unit)({
-  g_verify_target_paths = paths;
-  ()
-});
-_is_verify_target :: (fn(module_path : String) -> bool)({
-  (found : bool) = false;
-  (i : usize) = usize(0);
-  while((i < g_verify_target_paths.len()) && !found, {
-    match(
-      g_verify_target_paths.get(i),
-      .Some(p) => if(p == module_path, {
-        found = true;
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  found
-});
 /// The verification mode for a module: `"runtime"` | `"verify"` |
 /// `"verify+"` | `"ignore"`. The FILE's pragma is the source of truth when
 /// present (plans/backlog/FORMAL_VERIFICATION.md §"Verification modes");
@@ -1289,5 +1494,19 @@ export(
   verify_task_def_eval_failure,
   register_ghost_fn,
   is_ghost_fn,
+  register_ghost_binding,
+  is_ghost_binding_name,
+  evaluate_seq_unit,
+  evaluate_seq_append,
+  evaluate_seq_len,
+  evaluate_seq_nth,
+  evaluate_str_bytes,
+  evaluate_ms_single,
+  evaluate_ms_add,
+  evaluate_ms_count,
+  evaluate_ms_of,
+  evaluate_set_single,
+  evaluate_set_add,
+  evaluate_set_contains,
   strip_proved_ensures_asserts
 );

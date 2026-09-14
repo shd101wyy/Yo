@@ -176,6 +176,50 @@ _capture_judgement_type :: (fn(ty : TypeValue, value : Option(EvalValue)) -> Opt
     _ => Option(TypeValue).Some(ty)
   )
 );
+/// True when a captured variable's OWN declared type already REQUIRES this
+/// trait — an `Impl(Fn(...), Send)` parameter, say.
+///
+/// Such a capture is satisfied by its DECLARATION and must not be judged by
+/// its resolution. The bound is a proof obligation the CALLER discharged when
+/// it supplied the value — this same machinery rejects a non-`Send` closure at
+/// that site — exactly as Rust's `F : Send` makes a captured `F` `Send`
+/// without re-deriving anything.
+///
+/// Judging the RESOLVED capture struct instead asks the wrong question: the
+/// struct is the argument closure's storage and carries no `Send` impl of its
+/// own, so a correctly-bounded `cb` forwarded into a spawn closure was
+/// rejected with "Captured variable 'cb' (type Impl : (Fn(Io) -> unit + Send))
+/// does not implement Send" — an error whose own text contains the proof it
+/// is wrong. That is D18b's third wall
+/// (`plans/STD_API_STABILIZATION.md` §2 D18).
+///
+/// Deliberately narrow: only a trait the declared wrapper itself lists. A
+/// capture whose declared type carries NO such bound is judged exactly as
+/// before, which is what keeps `tests/thread_safety.test.yo`'s
+/// `_spawn_with_closure_over_ref` negative firing — `worker` there is declared
+/// `Impl(Fn() -> unit)`, with no `Send`, so nothing here applies to it.
+_declared_bound_requires :: (fn(ty : TypeValue, trait_type : TypeValue) -> bool)(
+  match(
+    ty,
+    .SomeT({ required_trait_types : dbr_rtts }) => {
+      want := type_to_string(trait_type);
+      (dbr_i : usize) = usize(0);
+      (dbr_found : bool) = false;
+      while((dbr_i < dbr_rtts.len()) && !dbr_found, {
+        match(
+          dbr_rtts.get(dbr_i),
+          .Some(dbr_t) => if(type_to_string(dbr_t) == want, {
+            dbr_found = true;
+          }),
+          .None => ()
+        );
+        dbr_i = (dbr_i + usize(1));
+      });
+      dbr_found
+    },
+    _ => false
+  )
+);
 /// Validate that a closure created for an `Impl(Fn(...), Send, …)` wrapper
 /// satisfies every NON-Fn trait the wrapper requires — the check that makes
 /// the `Send` on `Thread.spawn` / `spawn(pool, …)` mean something. Each
@@ -223,7 +267,7 @@ validate_capture_trait_requirements :: (
                     .Some(info) => match(
                       _capture_judgement_type(info.ty, info.value),
                       .None => (),
-                      .Some(judged) => if(!type_implements_trait_bool(judged, trait_type, env), {
+                      .Some(judged) => if(!_declared_bound_requires(info.ty, trait_type) && !type_implements_trait_bool(judged, trait_type, env), {
                         var_msg := `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}. To move it across threads, wrap it in Arc/Iso, or capture a ${trait_name} projection of it instead.`;
                         _raise_capture_trait_violation(ctx, exn, info.token, var_msg);
                       })

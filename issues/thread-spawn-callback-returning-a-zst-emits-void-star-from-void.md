@@ -1,7 +1,7 @@
 # `Thread(T).spawn` cannot take a callback returning a ZST — the spawn path emits `void* tmp = <void expr>`
 
-**Status:** the FIRST symptom is **FIXED** (2026-09-12); D18 part 2 is still
-**BLOCKED** on the second and on the `Send` capture judgement. The workaround
+**Status:** BOTH symptoms are **FIXED** (2026-09-12). D18 part 2 is still
+**BLOCKED**, on the `Send` capture judgement alone — see the correction below. The workaround
 recorded below dodges this bug and then hits that wall — see "Why the
 workaround does not land either".
 
@@ -21,13 +21,17 @@ workaround does not land either".
 > for the mechanism, the measurements, and the red-first test.
 >
 > Symptom 2 — the `Channel(unit).send` specialisation called and never emitted
-> — is also NOT the spawn lowering. It is two manglings of one specialisation:
-> `_compute_compile_time_signature` gates its `rtparam<i>` segment on the
-> SHALLOW `is_unit_type`, so a parameter that RESOLVES to unit contributes no
-> segment from one caller and `rtparam1_<T's id>` from another. Filed as
-> `issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
+> — is also NOT the spawn lowering, and is also FIXED. The specialisation binder
+> bound the `Impl(Fn(...))` parameter VALUELESS, so the body's `cb(io)` kept the
+> enclosing generic's binder as its result type; the `send` it feeds keyed its
+> specialisation on that abstract type, and the key named the def-era ORIGINAL,
+> which the emission loop deliberately skips. See
+> `issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md`
+> (an early reading of it as "two manglings of one specialisation" was a
+> symptom, not the cause).
 >
-> The D18b repro is accordingly down from two C errors to one.
+> **The D18b repro now compiles and RUNS.** What remains for D18 part 2 is only
+> the `Send` capture judgement.
 
 Found 2026-09-07 attempting **D18 part 2**
 (`plans/STD_API_STABILIZATION.md` §2: *"`Thread(T).spawn` carries its result and

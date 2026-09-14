@@ -235,7 +235,20 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
       context.consumed_var_pending_drops = prev_consumed;
     },
     true => {
+      // A bare body's scope-end drops ride its node's list; feed them into
+      // the pending path like the begin branch does, so a short-circuit
+      // operand inside the body drops its branch-scoped temps in the branch
+      // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
+      bei_opt := context.base.get_expr_info(body_expr);
+      body_drops := match(bei_opt, .Some(ei) => ei.deferred_drop_expressions, .None => .None);
+      body_consumed := match(bei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(ei), .None => Option(ArrayList(AstExpr)).None);
+      prev_pending := context.pending_deferred_drops;
+      prev_consumed := context.consumed_var_pending_drops;
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(body_drops, prev_pending));
+      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(body_consumed, prev_consumed));
       code := _call_generate_expr(body_expr, indent.clone(), context);
+      context.pending_deferred_drops = prev_pending;
+      context.consumed_var_pending_drops = prev_consumed;
       if(code.len() > usize(0), {
         em := context.base.emitter;
         line := indent.clone();

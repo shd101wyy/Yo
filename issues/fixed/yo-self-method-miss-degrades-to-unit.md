@@ -19,7 +19,7 @@ capture struct — the throw fired inside a SILENT closure-spec channel (no
 downstream. Zero printed swallows does NOT mean zero throws: nested silent
 exns (closure coercions, candidate dry-runs, rte/pte re-evals) absorb before
 any printing handler sees them. An intermediate gate shape also tripped a TS
-codegen bug (`issues/ts-codegen-undeclared-temp-in-short-circuit-option-drop.md`).
+codegen bug (`issues/fixed/ts-codegen-undeclared-temp-in-short-circuit-option-drop.md`).
 
 Pinned by `tests/cli-cases/compile-undefined-method` (rc=1 under both
 compilers; was rc=0 + hollow binary under yo-self). Battery: sweep 188/188 +

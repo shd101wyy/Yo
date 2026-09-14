@@ -1,0 +1,13 @@
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+// Same, without dyn/Error: a plain call to a forward-declared extern.
+read_errno :: (fn() -> i32)(__yo_errno());
+extern(
+  "Yo",
+  __yo_errno : (fn() -> i32)
+);
+main :: (fn() -> unit)({
+  println(read_errno().to_string());
+});
+export(main);

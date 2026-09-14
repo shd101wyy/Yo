@@ -51,7 +51,16 @@ grep -n 'swallow' swallow.txt | tail
 
 Sibling channels, same shape: `YO_DEBUG_CTFE` / `YO_DEBUG_CTFE2` (CTFE call
 failures), `YO_DEBUG_DISPATCH` (method dispatch), `YO_DEBUG_BIND=<name>`
-(type-variable binding), `YO_DEBUG_RRE` (return-type re-evaluation).
+(type-variable binding), `YO_DEBUG_RRE` (return-type re-evaluation),
+`YO_DEBUG_FRESHEN` (per-call freshening of a generic callee's forall binders —
+prints the callee type plus its binder ids `before-ids=` / `after-ids=`).
+
+`YO_DEBUG_FRESHEN` exists because of a specific failure mode worth knowing:
+a freshening can FIRE at every call and change nothing, because `substitute`
+matches a `SomeT` on **(name, frame_level)** and the declaration's
+`forall_types` entry carries a different level from the occurrence that
+matters. Identical `before-ids` and `after-ids` is that bug; identical emitted
+C is the same bug seen later and more expensively.
 
 ## GDB for generated C code
 

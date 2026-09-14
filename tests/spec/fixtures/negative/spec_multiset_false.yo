@@ -1,0 +1,14 @@
+// The refuting twin: the count is 2, not 3 — z3 must REFUTE with the
+// actual count (this is what proves the Array encoding is real).
+pragma(Pragma.Verify);
+
+ms_wrong :: (
+  fn(
+    x : i32,
+    requires(x >= i32(0)),
+    ensures(ms_count(ms_add(ms_single(x), x), x) == i64(3))
+  ) -> (result : i32)
+)({
+  z := x;
+  z
+});

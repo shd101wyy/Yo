@@ -1,10 +1,14 @@
 // Regression fixture: a LIVE "failed to transpile" stub must FAIL THE BUILD,
 // not produce a binary that aborts with no diagnostic.
 //
-// The derive rule below splices a body naming something that does not exist at
-// the splice site. `.to_expr()` re-parses the body, so the name resolves in
-// THIS file's scope, fails, and the failure is SWALLOWED — codegen then emits
-// an `abort()` stub for the function.
+// The derive rule below splices a body that calls a method no type has.
+// `.to_expr()` re-parses the body, the method miss is thrown inside the
+// spliced closure body, and the closure-body trial SWALLOWS it — codegen then
+// emits an `abort()` stub for the function. (It used to name an UNBOUND
+// identifier instead; since 2026-09-12 an unbound name is a hard swallow
+// class and fails `check` outright —
+// issues/fixed/async-closure-body-unknown-identifier-passes-check.md — so a
+// method miss is what still reaches the stub path.)
 //
 // Codegen guards that with GNU's `error` attribute, making the C toolchain the
 // deadness oracle: a dead stub links clean, a live one must fail. But that
@@ -23,7 +27,7 @@ Lbl :: trait(lbl : (fn(inout(self) : Self) -> String));
 __r :: (
   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
 )({
-  src :: "__NoSuchNameAtTheSpliceSite.from(\"x\")";
+  src :: "String.from(\"x\").__no_such_method_at_the_splice_site()";
   ctx.make_impl(quote(Lbl(lbl : ((self) -> #(src.to_expr())))))
 });
 derive_rule(Lbl, __r);

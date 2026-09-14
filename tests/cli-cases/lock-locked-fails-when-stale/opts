@@ -1,0 +1,7 @@
+# `--locked` with a STALE yo.lock: the lock records remote at v1.2.0 (it was
+# written when yo.toml said "^1"), yo.toml now says "^2". Resolution would
+# move the entry to v2.0.0, so the run must fail (rc 1) and print the
+# difference; yo.lock must be left as it was (the tree golden pins it).
+# (The harness rewrites a 40-hex commit to <SHA1> before filtering.)
+timeout=600
+stdout_keep_match=(--locked: yo\.lock is out of date|~ remote: git\+\./remote\.git#v1\.2\.0 @ <SHA1> → git\+\./remote\.git#v2\.0\.0 @ <SHA1>)

@@ -11,7 +11,7 @@
 //! { Thread } :: import "std/thread";
 //!
 //! ch := Channel(i32).new(usize(10));
-//! t := Thread.spawn((io) => {
+//! t := Thread(unit).spawn((io) => {
 //!   ch.send(i32(42));
 //! });
 //! val := ch.recv();   // blocks until data available
@@ -58,7 +58,7 @@
 //! rx := Channel(i32).receiver(usize(16));
 //! {
 //!   tx := rx.sender();
-//!   w := Thread.spawn((io) => {
+//!   w := Thread(unit).spawn((io) => {
 //!     tx.send(i32(7));                     // the capture is released when
 //!   });                                    // the thread's body returns
 //!   w.join();
@@ -78,7 +78,7 @@
 //! rx := Channel(i32).receiver(usize(16));
 //! {
 //!   keeper := rx.sender();                 // holds the count above zero
-//!   w := Thread.spawn((io) => {
+//!   w := Thread(unit).spawn((io) => {
 //!     tx := rx.sender();                   // this thread's producer
 //!     tx.send(i32(7));
 //!   });                                    // tx drops when the body ends

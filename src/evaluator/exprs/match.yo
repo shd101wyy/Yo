@@ -17,6 +17,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   BK_MATCH
 } :: import("../../expr.yo");
+{ TokenKind } :: import("../../token.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -43,7 +44,7 @@ _(env : match_dbg_env) :: import("std/env");
   is_enum_val,
   is_unknown_val
 } :: import("../../value.yo");
-{ value_to_string } :: import("../../value.yo");
+{ value_to_string, type_of_eval_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, resolve_enum_shell } :: import("../../types/creators.yo");
 {
@@ -112,6 +113,149 @@ find_str_in_list :: (fn(list : ArrayList(String), s : String) -> Option(usize))(
     i = (i + usize(1));
   });
   result
+});
+/// True for a pattern-payload atom that denotes a LITERAL to compare rather
+/// than a binding name: `false`/`true` (TokenKind.Bool), integers, floats.
+/// These parse as plain atoms, so the destructuring loops used to bind them
+/// as variables literally named "false"/"404" — `.Some(false)` then matched
+/// any `.Some(...)` payload (issues/enum-pattern-bool-payload-not-compared.md).
+_pattern_param_is_literal :: (fn(e : AstExpr) -> bool)(
+  cond(
+    ast_expr_is_atom(e) => match(
+      ast_expr_token(e).kind,
+      .Bool => true,
+      .Integer => true,
+      .Float => true,
+      _ => false
+    ),
+    // `-1` parses as `-(1)` — a prefix-minus call whose operand is a
+    // numeric atom. It is the literal -1, not a call.
+    (ast_expr_is_fn_call(e) && ast_expr_is_fn_call_of(e, "-", Option(usize).Some(usize(1)))) => match(
+      e,
+      .FnCall(_, _, neg_args, _, _) => match(
+        neg_args.get(usize(0)),
+        .Some(op) => (
+          ast_expr_is_atom(op) && match(
+            ast_expr_token(op).kind,
+            .Integer => true,
+            .Float => true,
+            _ => false
+          )
+        ),
+        .None => false
+      ),
+      .Atom(_, _) => false
+    ),
+    true => false
+  )
+);
+/// A string or char literal atom in a payload position: compared by NO path
+/// today (the literal classifiers take Bool/Integer/Float only) and binding
+/// it is silent nonsense — reject loudly until string patterns land
+/// (plans/MATCH_PATTERN_MATCHING.md P3; #661's gap 4, which turned a loud
+/// duplicate-case C error into a silent wrong answer).
+_pattern_param_is_unsupported_literal :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_atom(e) && match(
+    ast_expr_token(e).kind,
+    .StringLit => true,
+    .CharLit => true,
+    _ => false
+  )
+);
+/// Throw for a string/char literal in payload position (#661 gap 4) —
+/// the classifiers must not let it through as a binder.
+_reject_unsupported_payload_literals :: (fn(params : ArrayList(AstExpr), exn : Exception, expr : AstExpr) -> unit)({
+  (i : usize) = usize(0);
+  while(i < params.len(), {
+    match(
+      params.get(i),
+      .Some(p) => {
+        if(_pattern_param_is_unsupported_literal(p), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(p),
+                `Pattern ${ast_expr_to_string(p)} is not supported in a payload position yet — string patterns are planned; bind the field and compare in the arm body for now`
+              )
+            )
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// True when `params` (a variant pattern's positional destructuring
+/// parameters) contains at least one literal payload.
+_pattern_has_literal_params :: (fn(params : ArrayList(AstExpr)) -> bool)({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < params.len()) && !(found), {
+    match(
+      params.get(i),
+      .Some(p) => {
+        found = _pattern_param_is_literal(p);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Compare the LITERAL payloads of `params` against a concrete enum
+/// scrutinee's field values. `.Some(true)` when every literal parameter
+/// equals its field (binding parameters don't constrain); `.Some(false)` on
+/// any mismatch; `.None` when no comparison applies (no literals, or the
+/// scrutinee is not an enum value) — callers treat `.None` as
+/// "unconstrained".
+_pattern_literals_match_scrutinee :: (
+  fn(params : ArrayList(AstExpr), scrutinee : EvalValue, env : Environment, ctx : EvalContext) -> Option(bool)
+)({
+  if(!(_pattern_has_literal_params(params)), {
+    return(Option(bool).None);
+  });
+  fields := match(
+    scrutinee,
+    .EnumVal(_, fs) => fs,
+    _ => return(Option(bool).None)
+  );
+  (i : usize) = usize(0);
+  (all_ok : bool) = true;
+  while((i < params.len()) && all_ok, {
+    match(
+      params.get(i),
+      .Some(p) => {
+        if(_pattern_param_is_literal(p), {
+          field_val := match(
+            fields.get(i),
+            .Some(fv) => fv,
+            .None => EvalValue.UnitVal
+          );
+          lit_expr := evaluate_expression(p, env, ctx);
+          lit_info := match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(lit_expr)),
+            .Some(li) => li,
+            .None => new_expr_info(env, type_of_eval_value(field_val))
+          );
+          match(
+            lit_info.value,
+            .Some(lv) => {
+              if(!(are_values_equal(field_val, env, lv, lit_info.env)), {
+                all_ok = false;
+              });
+            },
+            .None => {
+              all_ok = false;
+            }
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(bool).Some(all_ok)
 });
 /// True when `expr` is an or-pattern `|(a, b)`.
 is_or_pattern :: (fn(expr : AstExpr) -> bool)(
@@ -308,21 +452,25 @@ evaluate_primitive_match :: (
       .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
+    // The wildcard arm is a catch-all: nothing after it can ever run. The
+    // enum path already rejects this shape; the primitive path used to
+    // error only on a SECOND `_`, letting `1 => …` after `_` silently lose
+    // to the order-insensitive switch (audit row A2).
+    if(used_wildcard, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(match_arm_expr),
+            `Unreachable match arm: the wildcard "_" arm must be the last match arm in a "match" expression.`
+          )
+        )
+      );
+      return(expr);
+    });
     if(ast_expr_is_atom_of(match_arm_expr, "_"), {
       // -----------------------------------------------------------------------
       // Wildcard arm: `_ => body`
       // -----------------------------------------------------------------------
-      if(used_wildcard, {
-        exn.throw(
-          dyn(
-            format_error_message(
-              ast_expr_token(match_arm_expr),
-              `Wildcard pattern "_" can only be used once and must be the last match arm in a "match" expression.`
-            )
-          )
-        );
-        return(expr);
-      });
       used_wildcard = true;
       mae_wc_info := new_expr_info(case_env, scrutinee_type);
       expr_info_set_case_executed(mae_wc_info, Option(bool).Some(true));
@@ -1436,8 +1584,22 @@ evaluate_match :: (
       // the variant and binds none of its fields (the "ignore all fields"
       // form, equivalent to `.Variant({})`). Use `.Variant(a, b)` or
       // `.Variant({label, ...})` when you need the field values.
-      // Record checked variant (BEFORE skip check)
-      checked_variant_names.push(variant_name_fl.clone());
+      // Record checked variant (BEFORE skip check). A bare `.Variant` arm
+      // is always irrefutable, so a second one naming a covered variant is
+      // unreachable (the audit's B3).
+      if(contains_str_in_list(checked_variant_names, variant_name_fl.clone()), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(match_arm_expr),
+              `Unreachable match arm: the variant "${variant_name_fl}" is already covered by an earlier arm`
+            )
+          )
+        );
+        return(expr);
+      }, {
+        checked_variant_names.push(variant_name_fl.clone());
+      });
       // Skip unreachable GADT branches (match.ts:459: e.g. BoolVal when
       // matching Value(i32) — BoolVal -> recur(bool) and bool != i32).
       gadt_reachable_fl := match(
@@ -1746,8 +1908,58 @@ evaluate_match :: (
         variant_idx_wf := match(variant_idx_wf_opt, .Some(idx) => idx, .None => usize(0));
         variant_fields_wf := match(en_vfields.get(variant_idx_wf), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
         variant_labels_wf := match(en_vflabels.get(variant_idx_wf), .Some(vl) => vl, .None => ArrayList(String).new());
-        // Record checked variant (BEFORE skip check)
-        checked_variant_names.push(variant_name_wf.clone());
+        // Record checked variant (BEFORE skip check) — but a literal
+        // payload makes the arm REFUTABLE: it does not cover the variant,
+        // and a second arm naming this variant is legal. Only an arm whose
+        // sub-patterns are all irrefutable (binders/_/labeled binders)
+        // covers; a second irrefutable arm for an already-covered variant
+        // is unreachable (#661 gap 1 + the audit's B3).
+        // The arm's destructuring params, derived here (destr_params is
+        // computed later, inside should_process_wf) — raw args, with the
+        // single-curly `_{...}` wrapper lifted exactly as the binding loop
+        // does, so literal detection sees the same params.
+        cov_params_raw := match(
+          match_arm_expr,
+          .FnCall(_, _, cpargs, _, _) => cpargs,
+          .Atom(_, _) => ArrayList(AstExpr).new()
+        );
+        cov_params := cond(
+          (
+            (cov_params_raw.len() == usize(1)) && match(
+              cov_params_raw.get(usize(0)),
+              .Some(first_arg) => ast_expr_is_fn_call_of(first_arg, "_", .None),
+              .None => false
+            )
+          ) => match(
+            cov_params_raw.get(usize(0)),
+            .Some(ca) => match(
+              ca,
+              .FnCall(_, _, cargs, _, _) => cargs,
+              .Atom(_, _) => ArrayList(AstExpr).new()
+            ),
+            .None => ArrayList(AstExpr).new()
+          ),
+          true => cov_params_raw.clone()
+        );
+        arm_has_literals_wf := _pattern_has_literal_params(cov_params);
+        _reject_unsupported_payload_literals(cov_params, exn, expr);
+        if(arm_has_literals_wf, {
+          _ := 0;
+        }, {
+          if(contains_str_in_list(checked_variant_names, variant_name_wf.clone()), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(match_arm_expr),
+                  `Unreachable match arm: the variant "${variant_name_wf}" is already covered by an earlier arm`
+                )
+              )
+            );
+            return(expr);
+          }, {
+            checked_variant_names.push(variant_name_wf.clone());
+          });
+        });
         // Skip unreachable GADT branches (match.ts:747: e.g. BoolVal when
         // matching Value(i32) — BoolVal -> recur(bool) and bool != i32).
         gadt_reachable_wf := _is_gadt_branch_reachable(en_id.clone(), variant_idx_wf);
@@ -1936,6 +2148,20 @@ evaluate_match :: (
                   .Atom(_, tok) => tok.value.clone(),
                   .FnCall(_, _, _, _, tok) => tok.value.clone()
                 );
+                // A literal in the labeled slot (`label : 0`) is compared by
+                // no path today and binding it is nonsense — reject until
+                // labeled-literal sub-patterns land (P2).
+                if(_pattern_param_is_literal(variable_expr) || _pattern_param_is_unsupported_literal(variable_expr), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(variable_expr),
+                        `Pattern ${ast_expr_to_string(variable_expr)} is not supported in a labeled payload position yet — bind the field and compare in the arm body for now`
+                      )
+                    )
+                  );
+                  return(expr);
+                });
                 // Find field index by label
                 field_idx_lbl_opt := find_str_in_list(variant_labels_wf, lbl_str);
                 if(field_idx_lbl_opt.is_none(), {
@@ -2026,57 +2252,68 @@ evaluate_match :: (
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(variable_expr), var_info_lbl);
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(label_expr), lbl_info_lbl);
               }, {
-                if(ast_expr_is_atom(param), {
-                  // Positional destructuring: param at index dp_i
-                  field_type_pos := match(variant_fields_wf.get(dp_i), .Some(ft) => ft, .None => t_unit());
-                  field_val_pos := cond(
-                    is_comptime_scr_wf => match(
-                      scrutinee_val_opt,
-                      .Some(sv) => match(
-                        sv,
-                        .EnumVal(_, sv_fields) => sv_fields.get(dp_i),
-                        _ => Option(EvalValue).None
-                      ),
-                      .None => Option(EvalValue).None
-                    ),
-                    true => Option(EvalValue).None
-                  );
-                  param_name := match(
-                    param,
-                    .Atom(_, tok) => tok.value.clone(),
-                    .FnCall(_, _, _, _, tok) => tok.value.clone()
-                  );
-                  if(in_def_time_trial() && match_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
-                    eprintln(`[match-bind] name=${param_name} enum=${type_to_string(matched_type)} field=${type_to_string(field_type_pos)}`);
-                  });
-                  if(!(param_name == "_"), {
-                    _added_pos := add_variable_to_env(
-                      env,
-                      param_name.clone(),
-                      field_type_pos,
-                      field_val_pos,
-                      is_comptime_scr_wf,
-                      false,
-                      false,
-                      false,
-                      ast_expr_token(param)
-                    );
-                  });
-                  param_info := new_expr_info(env, field_type_pos);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(param), param_info);
+                // A literal payload is a COMPARISON, not a binding — bind
+                // nothing for it, whatever its shape (`false` is an atom,
+                // `-1` is the call `-(1)`). Checked BEFORE the atom test
+                // below: a negated literal is a call and used to fall into
+                // the "Expected identifier" throw.
+                if(_pattern_param_is_literal(param), {
+                  field_type_lit := match(variant_fields_wf.get(dp_i), .Some(ft) => ft, .None => t_unit());
+                  lit_info_pos := new_expr_info(env, field_type_lit);
+                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(param), lit_info_pos);
                 }, {
-                  exn.throw(
-                    dyn(
-                      format_error_message(
-                        ast_expr_token(param),
-                        cond(
-                          is_curly_wf => `Expected labeled pattern (label: variable) inside curly destructuring "{...}", got ${ast_expr_to_string(param)}`,
-                          true => `Expected identifier, "_", or labeled pattern (label: variable) for destructuring parameter, got ${ast_expr_to_string(param)}`
+                  if(ast_expr_is_atom(param), {
+                    // Positional destructuring: param at index dp_i
+                    field_type_pos := match(variant_fields_wf.get(dp_i), .Some(ft) => ft, .None => t_unit());
+                    field_val_pos := cond(
+                      is_comptime_scr_wf => match(
+                        scrutinee_val_opt,
+                        .Some(sv) => match(
+                          sv,
+                          .EnumVal(_, sv_fields) => sv_fields.get(dp_i),
+                          _ => Option(EvalValue).None
+                        ),
+                        .None => Option(EvalValue).None
+                      ),
+                      true => Option(EvalValue).None
+                    );
+                    param_name := match(
+                      param,
+                      .Atom(_, tok) => tok.value.clone(),
+                      .FnCall(_, _, _, _, tok) => tok.value.clone()
+                    );
+                    if(in_def_time_trial() && match_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+                      eprintln(`[match-bind] name=${param_name} enum=${type_to_string(matched_type)} field=${type_to_string(field_type_pos)}`);
+                    });
+                    if(!(param_name == "_"), {
+                      _added_pos := add_variable_to_env(
+                        env,
+                        param_name.clone(),
+                        field_type_pos,
+                        field_val_pos,
+                        is_comptime_scr_wf,
+                        false,
+                        false,
+                        false,
+                        ast_expr_token(param)
+                      );
+                    });
+                    param_info := new_expr_info(env, field_type_pos);
+                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(param), param_info);
+                  }, {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(param),
+                          cond(
+                            is_curly_wf => `Expected labeled pattern (label: variable) inside curly destructuring "{...}", got ${ast_expr_to_string(param)}`,
+                            true => `Expected identifier, "_", or labeled pattern (label: variable) for destructuring parameter, got ${ast_expr_to_string(param)}`
+                          )
                         )
                       )
-                    )
-                  );
-                  return(expr);
+                    );
+                    return(expr);
+                  });
                 });
               });
               dp_i = (dp_i + usize(1));
@@ -2192,7 +2429,16 @@ evaluate_match :: (
                     sv,
                     .EnumVal(sv_vname, _) => {
                       if(_variant_name_eq(sv_vname.clone(), variant_name_wf.clone()) || (variant_name_wf == "_"), {
-                        matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
+                        // Literal payloads constrain the arm: `.Some(false)`
+                        // must not match a `.Some(true)` scrutinee.
+                        lit_ok := match(
+                          _pattern_literals_match_scrutinee(destr_params, sv, env, ctx),
+                          .Some(ok) => ok,
+                          .None => true
+                        );
+                        if(lit_ok, {
+                          matched_body_idx = Option(usize).Some(bodies.len() - usize(1));
+                        });
                       });
                     },
                     _ => ()

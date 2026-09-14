@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - develop
-  # No base filter: EVERY pull request gets CI, whatever branch it targets —
+  # No base filter: EVERY pull request gets a run, whatever branch it targets —
   # stacked PRs included, so integration problems surface while the stack is
   # open instead of at the end of the merge train (base-merge → retarget →
-  # rebase → force-push). A base-branch glob here is how a stacked PR
-  # silently skips CI the day the naming convention changes. Branch pushes
-  # alone still run nothing (the push trigger stays develop-only); a PR's
-  # synchronize event covers its branch pushes.
+  # rebase → force-push). A base-branch glob HERE is how a stacked PR silently
+  # skips CI the day the naming convention changes, which is why the scope
+  # decision lives in the `changes` job instead: a stacked PR runs a REDUCED
+  # battery (see its `full` output) rather than none, so it still has signal
+  # and the choice is visible in a job log rather than in an event filter.
+  # Branch pushes alone still run nothing (the push trigger stays
+  # develop-only); a PR's synchronize event covers its branch pushes.
   pull_request:
   # Merge queue support, currently INERT and deliberately kept.
   #
@@ -29,9 +32,34 @@ on:
   # once combined with develop.
   merge_group:
 
+# A superseded PR run is wasted CI and is cancelled. A `develop` run is NOT:
+# it is the only battery that scores what actually LANDED (a PR is scored on a
+# merge commit that no longer exists after a squash, and `strict` only proves
+# the branch was up to date at merge time). Cancelling those made develop
+# unverifiable — in one merge storm five consecutive develop runs were
+# cancelled by the next merge, so no tip carrying the merged work ever finished
+# a full battery. `merge_group` runs must not be cancelled either: the queue
+# waits on their checks.
+#
+# The GROUP stays per-ref (NOT per-sha): with `cancel-in-progress: false` a
+# burst of merges leaves the running battery alone and collapses the rest into
+# ONE pending run at the newest tip, which is exactly what wants scoring. A
+# per-sha group would instead run every intermediate commit in parallel — and
+# would break PR cancellation, since `github.sha` on a `pull_request` event is
+# the per-push merge commit and therefore differs run to run.
+#
+# What this does NOT buy, measured 2026-09-12 right after it landed: a develop
+# run that has not STARTED yet is still superseded. `cancel-in-progress`
+# governs runs that are in progress; GitHub keeps only ONE pending run per
+# group, so a merge storm cancels the queued ones regardless. That is the
+# behaviour we want (the survivor is the newest tip) but it means "develop runs
+# are never cancelled" is too strong a reading — what holds is that a develop
+# battery, ONCE RUNNING, finishes. If nothing on develop is finishing at all,
+# suspect runner starvation first (a backlog of runs on already-merged PR
+# branches will sit in front of it — cancel those) rather than this block.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): the previous release (the
@@ -89,7 +117,7 @@ env:
   # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
   # "Workflows: read and write" permission, which any push touching
   # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
-  SEED_VERSION: v0.2.31
+  SEED_VERSION: v0.2.32
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -145,6 +173,23 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      # Whether to run the FULL battery. A pull request whose base is not
+      # `develop` is a STACKED PR: its diff is only meaningful against its base,
+      # the base's own run has already covered everything below it, and the
+      # retarget-to-develop that must happen before it can merge fires a full
+      # run of its own. Running ~28 jobs on every push to every level of a stack
+      # was measured costing hours of runner time and delaying the runs that do
+      # decide a merge (2026-09-12: a stacked run sat QUEUED for 40 minutes
+      # while develop-targeted work waited behind it).
+      #
+      # Stacked PRs keep the two jobs that have actually caught things —
+      # `test (ubuntu-latest)`, which is the ASan leg, and the self-hosted
+      # tier-1 gates — and skip the rest. Both bugs stacked CI caught on
+      # 2026-09-12 (a heap-use-after-free from an over-eager drop, and a
+      # reproducer left behind by an API sweep) came from exactly those two.
+      full: ${{ steps.scope.outputs.full }}
+      # The `test` matrix, narrowed to the ASan leg on a stacked PR.
+      test_os: ${{ steps.scope.outputs.test_os }}
     steps:
       # SEED_VERSION consistency guard (plans/backlog/SEED_VERSION_AUTOMATION.md):
       # the pin is hand-duplicated in THREE workflows, and divergence silently
@@ -154,6 +199,23 @@ jobs:
       # always-running gate, so the guard lives here as a STEP — deliberately
       # not a new job, because the branch-protection required-checks list is
       # maintained by hand and a new job would need a manual edit there.
+      - name: Decide the battery scope (stacked PRs run a reduced one)
+        id: scope
+        run: |
+          # Anything that is not a pull request — a push to develop, a merge
+          # queue entry — always gets the full battery.
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ github.base_ref }}" = "develop" ]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            echo 'test_os=["ubuntu-latest","ubuntu-24.04-arm"]' >> "$GITHUB_OUTPUT"
+            echo "battery: FULL (base=${{ github.base_ref || github.ref_name }})"
+          else
+            echo "full=false" >> "$GITHUB_OUTPUT"
+            echo 'test_os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+            echo "battery: REDUCED — stacked PR, base=${{ github.base_ref }}."
+            echo "Retarget to develop (or merge the base) for the full battery;"
+            echo "branch protection still requires every check before develop."
+          fi
+
       - name: Checkout workflows (SEED_VERSION guard)
         uses: actions/checkout@v4
         with:
@@ -223,6 +285,8 @@ jobs:
 
   vscode-extension:
     name: VS Code extension (package + Marketplace dry-run)
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -284,6 +348,8 @@ jobs:
   # release.yml, gated on the release actually publishing.
   docs-site:
     name: Documentation website (build only, no deploy)
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -311,6 +377,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       # The same two commands release.yml runs, with the version read from the
       # same source of truth the release computes its bump from.
       - name: Generate documentation website
@@ -319,7 +388,7 @@ jobs:
         run: |
           # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
           # renames — `insert`, `read_to_string` — landed 2026-08-25); the
-          # vendored markdown_yo and build_site.yo speak the TREE std, so both
+          # markdown_yo and build_site.yo speak the TREE std, so both
           # the site-builder compile and the `yo doc` runs the site binary
           # spawns must resolve std from the checkout, exactly like the
           # `yo build` bootstrap does.
@@ -355,7 +424,7 @@ jobs:
   verify:
     name: Formal verification (pinned Z3)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -409,6 +478,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: Verifier unit tests (real solver)
         run: yo test ./tests/internal/verifier.test.yo --bail -v
@@ -474,9 +546,9 @@ jobs:
       # suite in the `test-native` job below, under a tree-built compiler
       # delivered by cross-emit (suite-candidate -> suite-cross-emit).
       matrix:
-        os:
-          - ubuntu-latest
-          - ubuntu-24.04-arm
+        # Both legs on a develop-targeted PR; the ASan leg alone on a stacked
+        # one (see the `changes` job's `full` output).
+        os: ${{ fromJSON(needs.changes.outputs.test_os) }}
 
     steps:
       - name: Checkout repository
@@ -520,6 +592,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       # --std-path ./std is LOAD-BEARING: without it the seed compiles against
       # its OWN bundled std instead of this checkout's (same note as the
@@ -642,8 +717,14 @@ jobs:
           # 140 MB of it would drown the job log; the sidecar is the artifact we
           # actually want, and stderr is kept so failures still surface.
           set +e
+          # HOME is forwarded ON PURPOSE. `sudo` resets it to /root, so the Yo cache
+          # root moves with it and the memory-capped compile looks for the dependency
+          # store under /root/.cache/yo — while the unprivileged install-deps step
+          # populated /home/runner/.cache/yo. That mismatch fails the compile with
+          # `git dependency "markdown_yo" is not in the store (/root/.cache/…)`,
+          # which reads like a missing install-deps step and is not one.
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
+            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
               --optimize 2 --allocator mimalloc --std-path ./std \
               --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
           EMIT_RC=$?
@@ -797,7 +878,7 @@ jobs:
   suite-candidate:
     name: Build the suite candidate (Linux, shared by the cross-emits)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -832,6 +913,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: Build the candidate compiler (previous seed, native)
         env:
@@ -881,7 +965,7 @@ jobs:
   chunked-gate:
     name: Chunked-emission behavioural fixpoint (chunked vs single)
     needs: [changes, suite-candidate]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
@@ -917,17 +1001,27 @@ jobs:
         with:
           name: suite-candidate
 
+      - name: Make the candidate executable
+        run: chmod +x yo-candidate
+
+      # chunked_gate.sh runs `compile src/main.yo` four times, and
+      # src/doc/render_html.yo — in that closure — imports the `markdown_yo`
+      # DEPENDENCY. `compile` resolves import roots but never fetches, so the
+      # store has to be populated first. See install-deps' own comment.
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: ./yo-candidate
+
       - name: Run the chunked behavioural fixpoint gate
         env:
           YO_MAIN_STACK_MB: "4096"
-        run: |
-          chmod +x yo-candidate
-          S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
+        run: S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
 
   suite-cross-emit:
     name: Cross-emit suite compiler (${{ matrix.target }})
     needs: [changes, suite-candidate]
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     strategy:
@@ -991,6 +1085,14 @@ jobs:
         with:
           name: suite-candidate
 
+      - name: Make the candidate executable
+        run: chmod +x yo-candidate
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: ./yo-candidate
+
       # The allocator travels with the matrix row (see the matrix comment):
       # system for macOS, mimalloc for the Windows native legs.
       - name: "Cross-emit the suite compiler C (${{ matrix.yo_target }})"
@@ -1025,7 +1127,7 @@ jobs:
   test-native:
     name: test (${{ matrix.os }})
     needs: [changes, suite-cross-emit]
-    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
     runs-on: ${{ matrix.os }}
     # Windows legs finish in ~26 min when healthy. A per-leg budget well under
     # the 4-hour default turns a hang into a FAILED job with a downloadable
@@ -1154,7 +1256,7 @@ jobs:
   bootstrap-fixpoint:
     name: Bootstrap fixpoint (yo-self self-compile)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -1192,6 +1294,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       # The whole chain runs on the bundled mimalloc: glibc malloc inflates
       # the emit's RSS ~72% over its live set (15.5 GB observed vs 9.0 GB
@@ -1240,8 +1345,9 @@ jobs:
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
           ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
           SAMPLER=$!
+          # HOME forwarded for the dependency store — see the note above.
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/yo-stage1 compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           kill $SAMPLER || true
           markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
@@ -1292,9 +1398,10 @@ jobs:
   # NOW GATES PRs (continue-on-error dropped 2026-08-06).
   bootstrap-fixpoint-stage3:
     name: Bootstrap fixpoint stage-3 (byte-identity)
+    needs: [changes, bootstrap-fixpoint]
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    needs: bootstrap-fixpoint
 
     steps:
       - name: Checkout repository
@@ -1323,6 +1430,14 @@ jobs:
           name: bootstrap-stage2
           path: /tmp/stage2
 
+      - name: Make the stage-2 binary executable
+        run: chmod +x /tmp/stage2/yo-stage2-bin
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: /tmp/stage2/yo-stage2-bin
+
       # Same zswap + THP-off + cgroup-cap + sampler treatment as the
       # stage-2 emit — see that step's comment. Extra context: the
       # SELF-BUILT binary's emit touches ~39 GB (vs stage-1's ~28 GB), which
@@ -1336,8 +1451,9 @@ jobs:
           chmod +x /tmp/stage2/yo-stage2-bin
           ( while true; do free -m | awk '/Mem:/{u=$3} /Swap:/{s=$3} END{print "MEMSAMPLE used=" u "MB swap=" s "MB"}'; sleep 60; done ) &
           SAMPLER=$!
+          # HOME forwarded for the dependency store — see the note above.
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
-            env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
+            env HOME="$HOME" YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
             /tmp/stage2/yo-stage2-bin compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
           kill $SAMPLER || true
           if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
@@ -1431,6 +1547,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
@@ -1508,7 +1627,7 @@ jobs:
   compiler-internal-tests-selfhosted:
     name: Compiler internal tests (tests/internal, self-hosted differential shard ${{ matrix.shard }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # Sharded 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md,
     # closed by this change) with the SAME selection the retired TS arm used:
@@ -1564,6 +1683,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
@@ -1593,6 +1715,29 @@ jobs:
           # macro/reflection files (each compiles the whole evaluator,
           # ~6.5 GB peak) go one per shard; the rest stripe round-robin over
           # the sorted glob order.
+          #
+          # A shard number alone does not say WHICH file failed, and the job
+          # log is unavailable until the whole run completes — so when four
+          # shards went red at once on 2026-09-13 the map had to be
+          # reconstructed by hand before any of it could be read. Print it
+          # instead (`shard N files:` below already does, once the job runs);
+          # to get it WITHOUT waiting for CI, run the same selection locally:
+          #
+          #   heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
+          #   for shard in 0 1 2 3; do
+          #     echo "== shard $shard =="
+          #     echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p"
+          #     i=0
+          #     for f in tests/internal/*.test.yo; do
+          #       case " $heavies " in *" $f "*) continue ;; esac
+          #       [ $((i % 4)) -eq "$shard" ] && echo "$f"
+          #       i=$((i + 1))
+          #     done
+          #   done
+          #
+          # Do NOT hardcode the resulting map: it is round-robin over the
+          # sorted glob, so adding ONE file to tests/internal/ reshuffles
+          # every shard after it.
           heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
           shard=${{ matrix.shard }}
           files=$(echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p")
@@ -1636,7 +1781,7 @@ jobs:
   build-linux-musl-static:
     name: Static musl Linux bundle (build + run, no publish)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # Also seed-driven, so the same v0.2.9 slowdown applies (see the TSan job).
     timeout-minutes: 120
@@ -1678,6 +1823,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       # Emit-only: no C compiler runs here, so the host's glibc never enters
       # the artifact. --std-path ./std is load-bearing (the seed would
@@ -1777,7 +1925,7 @@ jobs:
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # 60 was enough while this job's stage-1 fitted in RAM (16 min on the
     # v0.2.4 seed). The SEED_VERSION bump below pushes it over 16 GB, so it now
@@ -1822,6 +1970,9 @@ jobs:
         with:
           version: ${{ env.SEED_VERSION }}
 
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against
         # its own bundled std, not this checkout's. See the fixpoint job.
@@ -1855,7 +2006,7 @@ jobs:
 
   test-wasm32_emscripten:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # 32 min is this leg's real cost; 360 was inherited headroom that let a
     # DEADLOCKED test burn 3.4 h unnoticed on the sibling WASI leg
@@ -1953,7 +2104,7 @@ jobs:
 
   test-wasm32_wasi:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # See the emscripten leg: 360 let a deadlocked test spin for 3.4 h here
     # (issues/wasi-thread-pool-submit-deadlock.md) before anyone looked.
@@ -2036,7 +2187,7 @@ jobs:
   hollow-sweep:
     name: Full-corpus hollow sweep (all 188 language files, self-hosted)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -2075,6 +2226,9 @@ jobs:
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
 
       - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
         # --std-path ./std is load-bearing: without it the seed compiles against

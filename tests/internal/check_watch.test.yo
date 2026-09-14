@@ -11,7 +11,7 @@
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
 { watch_round } :: import("../../src/check_watch.yo");
-{ mm_load_file, mm_invalidate_document, resolve_std_path } :: import("../../src/module_manager.yo");
+{ mm_load_file, mm_invalidate_document, mm_definitions_changed, resolve_std_path } :: import("../../src/module_manager.yo");
 { type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
 
@@ -75,4 +75,119 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
   gi_after := generic_impl_entry_count();
   assert(ttm_after == ttm_before, `type_trait_methods grew across rounds: ${ttm_before.to_string()} -> ${ttm_after.to_string()}`);
   assert(gi_after == gi_before, `generic impls grew across rounds: ${gi_before.to_string()} -> ${gi_after.to_string()}`);
+});
+
+test("Phase 3a: mm_definitions_changed — comment/whitespace edits are no-ops, semantic edits are not", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_check_watch_fixture_p3`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("{ String } :: import(\"std/string\");\nanswer :: (fn() -> i32)({ x := i32(41); (x + i32(1)) });\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  io.await(
+    write_string(
+      Path.new(app_path.clone()),
+      String.from("{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({ _x := answer(); });\nexport(main);\n"),
+      io
+    ),
+    ioexn
+  );
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  // Initial pass records the def hashes of the last walk.
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // 1. Same content on disk: no change.
+  assert(
+    match(
+      mm_definitions_changed(lib_path.clone()),
+      .Some(v) => !v,
+      .None => false
+    ),
+    "identical content must report no change"
+  );
+  // 2. Comment + reformatting (whitespace) edits: still no change — the
+  //    hashes are over the canonical rendering, and the def keys are
+  //    row-free.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("//! a doc comment\n{ String } :: import(\"std/string\");\n\n\nanswer :: (fn() -> i32)({\n  x := i32(41);\n  (x + i32(1))\n});\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  assert(
+    match(
+      mm_definitions_changed(lib_path.clone()),
+      .Some(v) => !v,
+      .None => false
+    ),
+    "comment-only and whitespace-only edits must report no change"
+  );
+  // 3. A body edit moves the def hash.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("{ String } :: import(\"std/string\");\nanswer :: (fn() -> i32)({ x := i32(41); (x + i32(2)) });\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  assert(
+    match(
+      mm_definitions_changed(lib_path.clone()),
+      .Some(v) => v,
+      .None => false
+    ),
+    "a body edit must report a change"
+  );
+  // 4. An ordered-statement edit (the import line) reports a change.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("{ String, StringBuilder } :: import(\"std/string\");\nanswer :: (fn() -> i32)({ x := i32(41); (x + i32(2)) });\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  assert(
+    match(
+      mm_definitions_changed(lib_path.clone()),
+      .Some(v) => v,
+      .None => false
+    ),
+    "an ordered-statement edit must report a change"
+  );
+  // 5. A comment-only round is a no-op end to end: nothing fails and the
+  //    module cache entries survive the round untouched.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("//! back to comments only\n{ String } :: import(\"std/string\");\nanswer :: (fn() -> i32)({ x := i32(41); (x + i32(2)) });\nexport(answer);\n"),
+      io
+    ),
+    ioexn
+  );
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  files.push(lib_path.clone());
+  changed := ArrayList(String).new();
+  changed.push(lib_path.clone());
+  failed := watch_round(changed, files, std_path.clone(), io, exn);
+  assert(failed == usize(0), "comment-only round must not fail anything");
 });

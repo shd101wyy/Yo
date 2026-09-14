@@ -1,0 +1,150 @@
+//! The std/spec ghost-collection tests — V5 task 5
+//! (FORMAL_VERIFICATION.md): Seq over the SMT Seq sort, Multiset as
+//! elem→count Array, Set as membership Array, and str content as Seq(u8).
+//! All builtins are ghost-only (the same gate as forall/exists) and chain
+//! inside ONE predicate expression; the walk gives them the SMT semantics.
+{ String, StringBuilder } :: import("std/string");
+{ Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_and_strip_tasks,
+  VerifyFnReport
+} :: import("../../src/verifier/driver.yo");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+_load_reports :: (
+  fn(rel_path : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_spec_collections: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(
+        outcome.ok == expect_ok,
+        `fixture ${rel_path} load ok=${outcome.ok.to_string()} (expected ${expect_ok.to_string()}): ${rendered}`
+      );
+    },
+    .None => {
+      assert(outcome.ok == expect_ok, `fixture ${rel_path} load ok=${outcome.ok.to_string()}`);
+    }
+  );
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    _ => String.new()
+  );
+  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+});
+_reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
+  ids := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb := StringBuilder.new();
+  (j : usize) = usize(0);
+  while(j < ids.len(), {
+    if(j > usize(0), {
+      sb.write_string(String.from(", "));
+    });
+    sb.write_string(ids.get(j).unwrap().clone());
+    j = (j + usize(1));
+  });
+  sb.to_string()
+});
+_first :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifyFnReport)(
+  reports.get(usize(0)).unwrap()
+);
+
+test("Seq identities prove (unit/append/len)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/spec_seq.yo"), io, true);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "ok", `seq_len_two proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("Multiset counts prove (single + add = 2)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/spec_multiset.yo"), io, true);
+  rp := _first(reports);
+  assert(rp.outcome == "ok", `ms_counts proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("a WRONG Multiset count REFUTES (== 3)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/spec_multiset_false.yo"), io, true);
+  rp := _first(reports);
+  assert(rp.outcome == "refuted", `ms_wrong refutes (the Array encoding is real), got: [${_reports_dump(reports)}]`);
+});
+
+test("Set membership proves (add twice is still present)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/spec_set.yo"), io, true);
+  rp := _first(reports);
+  assert(rp.outcome == "ok", `set_has proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("str content proves as Seq(u8) (length + element)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/spec_str_bytes.yo"), io, true);
+  rp := _first(reports);
+  assert(rp.outcome == "ok", `str_content proves, got: [${_reports_dump(reports)}]`);
+});

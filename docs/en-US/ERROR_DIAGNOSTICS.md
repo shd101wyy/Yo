@@ -82,7 +82,7 @@ misspelled names and enum variants.
 
 ## Where diagnostics surface
 
-- `yo check`, `yo compile`, `yo build`, `yo test`, `yo fetch` — every CLI
+- `yo check`, `yo compile`, `yo build`, `yo test`, `yo install` — every CLI
   edge prints each diagnostic exactly once, in the selected format.
 - `yo lsp` — the language server receives diagnostics through a structured
   channel (exact ranges, no text re-parsing), so editors get precise squiggles

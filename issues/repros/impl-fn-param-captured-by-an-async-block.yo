@@ -1,0 +1,40 @@
+{ println } :: import("std/fmt");
+{ Channel } :: import("std/sync/channel");
+// The defect: an `Impl(Fn)` PARAMETER of the enclosing function, captured by a
+// closure that is built INSIDE an `io.async` block. The state machine emits a
+// bare `cb` for the capture-struct field where it must read the SM's own slot:
+//
+//   __yo_t_N __capture_closure_… = (__yo_t_N){ .cb = cb, … };
+//                                              ^^^^^^^^ undeclared in the
+//                                                       resume function
+//
+// Every OTHER capture in the same struct is rendered correctly through
+// `sm->var_…`, so this is the `Impl(Fn)` param specifically.
+run_it :: (fn(f : Impl(Fn() -> unit, Send)) -> unit)(f());
+relay :: (
+  fn(
+    generic(T : Type),
+    cb : Impl(Fn() -> T, Send),
+    io : Io,
+    where(T <: (Send, Acyclic))
+  ) -> Impl(Future(T, Io))
+)(
+  io.async(
+    (io : Io) => {
+      chan := Channel(T).new(usize(1));
+      sink := chan;
+      run_it(
+        () => {
+          sink.send(cb());
+          ()
+        }
+      );
+      match(chan.try_recv(), .Ok(v) => v, .Err(_) => __yo_panic("no value"))
+    }
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  n := io.await(relay(() => i32(42), io), io);
+  println(`n=${n}`);
+});
+export(main);

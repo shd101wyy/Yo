@@ -1,0 +1,135 @@
+{ String } :: import("std/string");
+{ assert, panic } :: import("std/assert");
+{ toml_string, toml_key, set_entry, remove_entry } :: import("../../src/toml_edit.yo");
+_set :: (fn(text : str, table : str, key : str, value : str) -> String)(
+  match(
+    set_entry(String.from(text), String.from(table), String.from(key), String.from(value)),
+    .Ok(s) => s,
+    .Err(msg) => {
+      panic(`set_entry failed: ${msg}`);
+      String.new()
+    }
+  )
+);
+_remove :: (fn(text : str, table : str, key : str) -> Option(String))(
+  match(
+    remove_entry(String.from(text), String.from(table), String.from(key)),
+    .Ok(r) => r,
+    .Err(msg) => {
+      panic(`remove_entry failed: ${msg}`);
+      Option(String).None
+    }
+  )
+);
+_expect :: (fn(got : String, want : str, what : str) -> unit)(
+  assert(got == want, `${what}:\n--- got ---\n${got}\n--- want ---\n${want}`)
+);
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+test("toml_string: escapes quotes, backslashes and control characters", {
+  assert(toml_string(String.from("plain")) == "\"plain\"", "plain");
+  assert(toml_string(String.from("a\"b\\c")) == "\"a\\\"b\\\\c\"", "quote and backslash");
+  assert(toml_string(String.from("line\nbreak\ttab")) == "\"line\\nbreak\\ttab\"", "newline and tab");
+  assert(toml_string(String.from("\u{01}")) == "\"\\u0001\"", "control char as \\u escape");
+});
+test("toml_key: bare when possible, quoted otherwise", {
+  assert(toml_key(String.from("json-yo")) == "json-yo", "dash is bare");
+  assert(toml_key(String.from("raylib_yo")) == "raylib_yo", "underscore is bare");
+  assert(toml_key(String.from("has space")) == "\"has space\"", "space needs quotes");
+  assert(toml_key(String.from("")) == "\"\"", "empty needs quotes");
+});
+// ---------------------------------------------------------------------------
+// set_entry
+// ---------------------------------------------------------------------------
+_BASE :: "[package]\nname = \"app\"\n\n[dependencies]\n# deps here\nfoo = { path = \"../foo\" }\n";
+test("set_entry: a new key goes after the table's last entry, comments intact", {
+  got := _set(_BASE, "dependencies", "bar", "{ path = \"../bar\" }");
+  _expect(got, "[package]\nname = \"app\"\n\n[dependencies]\n# deps here\nfoo = { path = \"../foo\" }\nbar = { path = \"../bar\" }\n", "insert");
+});
+test("set_entry: an existing key is replaced in place", {
+  got := _set(_BASE, "dependencies", "foo", "{ git = \"https://example.com/foo\", tag = \"v1\" }");
+  _expect(got, "[package]\nname = \"app\"\n\n[dependencies]\n# deps here\nfoo = { git = \"https://example.com/foo\", tag = \"v1\" }\n", "replace");
+});
+test("set_entry: a missing table is appended after one blank line", {
+  got := _set("[package]\nname = \"app\"\n", "dependencies", "foo", "{ path = \"../foo\" }");
+  _expect(got, "[package]\nname = \"app\"\n\n[dependencies]\nfoo = { path = \"../foo\" }\n", "append table");
+});
+test("set_entry: a missing table in an empty document", {
+  got := _set("", "dependencies", "foo", "{ path = \"../foo\" }");
+  _expect(got, "[dependencies]\nfoo = { path = \"../foo\" }\n", "empty doc");
+});
+test("set_entry: the table's trailing blank lines stay trailing", {
+  got := _set("[dependencies]\nfoo = 1\n\n\n[other]\nx = 1\n", "dependencies", "bar", "2");
+  _expect(got, "[dependencies]\nfoo = 1\nbar = 2\n\n\n[other]\nx = 1\n", "trailing blanks");
+});
+test("set_entry: a table with only comments gets the entry after the header", {
+  got := _set("[dependencies]\n# nothing yet\n\n[other]\nx = 1\n", "dependencies", "foo", "1");
+  _expect(got, "[dependencies]\nfoo = 1\n# nothing yet\n\n[other]\nx = 1\n", "comment-only table");
+});
+test("set_entry: a [table.key] section is folded into one inline entry", {
+  text := "[dependencies.foo]\ngit = \"u\"\ntag = \"v1\"\n\n[dependencies]\nbar = { path = \"../bar\" }\n";
+  got := _set(text, "dependencies", "foo", "{ path = \"../foo\" }");
+  _expect(got, "[dependencies]\nbar = { path = \"../bar\" }\nfoo = { path = \"../foo\" }\n", "sub-table folded");
+});
+test("set_entry: dotted-key lines of the same dependency are folded into one entry", {
+  text := "[dependencies]\nfoo.git = \"u\"\nfoo.tag = \"v1\"\nbar = 1\n";
+  got := _set(text, "dependencies", "foo", "{ path = \"../foo\" }");
+  _expect(got, "[dependencies]\nfoo = { path = \"../foo\" }\nbar = 1\n", "dotted folded");
+});
+test("set_entry: a multi-line array value is replaced as one entry", {
+  text := "[dependencies]\nfoo = [\n  1,\n  2,\n]\nbar = 1\n";
+  got := _set(text, "dependencies", "foo", "3");
+  _expect(got, "[dependencies]\nfoo = 3\nbar = 1\n", "multi-line value");
+});
+test("set_entry: a header inside a multi-line string is text, not a table", {
+  text := "[package]\ndescription = \"\"\"\n[dependencies]\n\"\"\"\n\n[dependencies]\nfoo = 1\n";
+  got := _set(text, "dependencies", "bar", "2");
+  _expect(got, "[package]\ndescription = \"\"\"\n[dependencies]\n\"\"\"\n\n[dependencies]\nfoo = 1\nbar = 2\n", "ml string");
+});
+test("set_entry: a quoted key matches its bare spelling", {
+  text := "[dependencies]\n\"foo\" = 1\n";
+  got := _set(text, "dependencies", "foo", "2");
+  _expect(got, "[dependencies]\nfoo = 2\n", "quoted key replaced");
+});
+test("set_entry: a key that needs quoting is written quoted", {
+  got := _set("[dependencies]\n", "dependencies", "has space", "1");
+  _expect(got, "[dependencies]\n\"has space\" = 1\n", "quoted key written");
+});
+test("set_entry: an entry with a trailing comment is replaced whole", {
+  got := _set("[dependencies]\nfoo = 1 # old\nbar = 2\n", "dependencies", "foo", "3");
+  _expect(got, "[dependencies]\nfoo = 3\nbar = 2\n", "trailing comment");
+});
+test("set_entry: an invalid value is refused before touching the document", {
+  match(
+    set_entry(String.from(_BASE), String.from("dependencies"), String.from("foo"), String.from("{ unterminated")),
+    .Ok(_) => panic("expected an error"),
+    .Err(msg) => assert(msg.contains("invalid value"), msg)
+  );
+});
+test("set_entry: a document that does not parse is an error", {
+  match(
+    set_entry(String.from("[dependencies\nfoo = 1\n"), String.from("dependencies"), String.from("foo"), String.from("2")),
+    .Ok(_) => panic("expected an error"),
+    .Err(msg) => assert(msg.len() > usize(0), "has a message")
+  );
+});
+// ---------------------------------------------------------------------------
+// remove_entry
+// ---------------------------------------------------------------------------
+test("remove_entry: deletes the entry line and nothing else", {
+  got := _remove("[dependencies]\n# deps\nfoo = 1\nbar = 2\n", "dependencies", "foo").unwrap();
+  _expect(got, "[dependencies]\n# deps\nbar = 2\n", "remove");
+});
+test("remove_entry: an absent key is .None", {
+  assert(_remove(_BASE, "dependencies", "nope").is_none(), "absent");
+  assert(_remove(_BASE, "other", "foo").is_none(), "absent table");
+});
+test("remove_entry: a [table.key] section and its blank separator go together", {
+  got := _remove("[dependencies.foo]\ngit = \"u\"\n\n[dependencies]\nbar = 1\n", "dependencies", "foo").unwrap();
+  _expect(got, "[dependencies]\nbar = 1\n", "section removed");
+});
+test("remove_entry: the same key in another table is untouched", {
+  got := _remove("[dependencies]\nfoo = 1\n\n[dev-dependencies]\nfoo = 2\n", "dev-dependencies", "foo").unwrap();
+  _expect(got, "[dependencies]\nfoo = 1\n\n[dev-dependencies]\n", "other table kept");
+});

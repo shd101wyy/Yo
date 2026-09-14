@@ -173,7 +173,7 @@ four instantiations compile and run, including `T = unit`).
   type 'void'` (the callee returns C `void`, the temp is still declared
   `void*`). This is what stops `Thread.spawn` from simply being made generic in
   `T`: Yo has no function overloading
-  (`plans/FUNCTION_OVERLOADING_POLICY.md`), so there can be only one
+  (`plans/reference/FUNCTION_OVERLOADING_POLICY.md`), so there can be only one
   `Thread.spawn`, its callback is `Fn(io : Io) -> T` by construction, and every
   existing call site is `T = unit`.
 * **`T = u64` or `i64` compiles clean and is wrong on 32-bit targets.** The

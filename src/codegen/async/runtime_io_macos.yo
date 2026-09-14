@@ -476,8 +476,17 @@ static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
   return result;
 }
 
+// Installed by the kqueue async runtime's __yo_io_init (NULL when this
+// program never uses async): purge any pending async operations registered
+// on the descriptor before it goes away, so a reused fd number cannot
+// collide with a stale registration. The sys runtime is emitted for every
+// program while the kqueue runtime only accompanies async ones, so the
+// call must go through a hook rather than name the function directly.
+static void (*__yo_kq_close_hook)(int32_t) = NULL;
+
 static void __yo_file_close(int32_t fd) {
   ASYNC_DEBUG("[Io] close(%d)\\n", fd);
+  if (__yo_kq_close_hook) __yo_kq_close_hook(fd);
   close(fd);
 }
 
@@ -604,6 +613,10 @@ generate_async_runtime_io_macos :: (fn(emitter : Emitter) -> unit)({
 #include <errno.h>
 
 // kqueue file descriptor for async I/O (per-thread — each thread has its own event loop)
+// Identifier of this loop's EVFILT_USER wakeup channel. Any value works as
+// long as no real fd/ident collides with it under EVFILT_USER, which has its
+// own ident namespace.
+#define __YO_KQ_NOTIFY_IDENT ((uintptr_t)1)
 static _Thread_local int __yo_io_kq = -1;
 // __yo_io_initialized is defined in runtime-core
 static _Thread_local size_t __yo_pending_io_count = 0;  // per-thread event loop counter
@@ -631,7 +644,8 @@ typedef enum {
   __YO_IO_OP_RECVFROM,
 } __yo_io_op_type;
 
-// Context for a pending kqueue operation — stored alongside the future
+// Context for a pending kqueue operation — a waiter on the per-(fd, filter)
+// registration below
 typedef struct __yo_io_pending_op_t {
   __yo_io_op_type op;
   __yo_io_future_t* future;
@@ -645,6 +659,10 @@ typedef struct __yo_io_pending_op_t {
     struct { int fd; const void* buf; size_t len; int flags; const void* addr; uint32_t addrlen; } sendto;
     struct { int fd; void* buf; size_t len; int flags; void* addr; uint32_t* addrlen; } recvfrom;
   };
+  // FIFO link within the owning registration's waiter list. A separate
+  // field rather than an overlay: the free-list overlay below tramples the
+  // front of the struct, and this link must survive alongside the union.
+  struct __yo_io_pending_op_t* next_waiter;
 } __yo_io_pending_op_t;
 
 // Per-thread free list for __yo_io_pending_op_t to eliminate malloc/free
@@ -669,19 +687,125 @@ static inline void __yo_kq_free_pending(__yo_io_pending_op_t* p) {
   __yo_io_pending_free_list = p;
 }
 
-// Forward declaration — defined after __yo_io_init
-static void __yo_io_wake_continuation(__yo_io_future_t* future);
+// One kqueue registration per (fd, filter) pair. kqueue keeps a SINGLE
+// knote per (ident, filter): a second EV_ADD for the same pair UPDATES the
+// existing knote — replacing its udata — instead of adding a second one, so
+// the knote cannot carry a per-operation identity. Its udata is therefore
+// this registration object, which owns a FIFO list of the operations
+// waiting on that (fd, filter) and outlives any single waiter. Keying
+// pending ops by registration is what lets concurrent operations on one
+// descriptor multiplex the way Linux's per-SQE io_uring requests and
+// Windows' overlapped IOCP requests do; before it, the second registration
+// silently orphaned the first pending op and the program hung
+// (issues/macos-kqueue-concurrent-ops-on-one-fd-orphan-the-earlier-pending-op.md).
+typedef struct __yo_io_registration_t {
+  int fd;
+  int16_t filter;
+  __yo_io_pending_op_t* waiters_head;
+  __yo_io_pending_op_t* waiters_tail;
+  struct __yo_io_registration_t* next;
+} __yo_io_registration_t;
 
-static inline void __yo_kq_cancel_pending(__yo_io_pending_op_t* pending, int err, bool wake) {
-  if (!pending) return;
-  pending->future->result = -err;
-  __yo_pending_io_count--;
-  if (wake) {
-    __yo_io_wake_continuation(pending->future);
-  } else {
-    atomic_store_explicit(&pending->future->state, -1, memory_order_release);
+static _Thread_local __yo_io_registration_t* __yo_io_registrations = NULL;
+static _Thread_local __yo_io_registration_t* __yo_io_registration_free_list = NULL;
+
+static inline __yo_io_registration_t* __yo_kq_alloc_registration(void) {
+  if (__yo_io_registration_free_list) {
+    __yo_io_registration_t* r = __yo_io_registration_free_list;
+    __yo_io_registration_free_list = r->next;
+    return r;
   }
-  __yo_kq_free_pending(pending);
+  return (__yo_io_registration_t*)__yo_rc_alloc(sizeof(__yo_io_registration_t));
+}
+
+static inline void __yo_kq_free_registration(__yo_io_registration_t* r) {
+  if (!r) return;
+  r->next = __yo_io_registration_free_list;
+  __yo_io_registration_free_list = r;
+}
+
+// Detach a drained registration from the per-thread list and recycle it.
+static void __yo_kq_release_registration(__yo_io_registration_t* reg) {
+  __yo_io_registration_t** pp = &__yo_io_registrations;
+  while (*pp && *pp != reg) pp = &(*pp)->next;
+  if (*pp) *pp = reg->next;
+  __yo_kq_free_registration(reg);
+}
+
+// Forward declarations — defined after the loop drivers below
+static void __yo_io_wake_continuation(__yo_io_future_t* future);
+static void __yo_kq_flush_changes(void);
+
+// Fail every waiter of a registration with -err, then detach and recycle
+// the registration. Used everywhere the old code cancelled "the pending op
+// attached to a changelist entry": every EV_ADD the backend queues now
+// carries a registration pointer as udata, and a failed or withdrawn
+// registration fails its whole waiter list. At most one queued changelist
+// entry references any registration at a time (see __yo_io_register_kevent),
+// so no caller can meet the same registration twice.
+static void __yo_kq_cancel_registration(__yo_io_registration_t* reg, int err, bool wake) {
+  if (!reg) return;
+  __yo_io_pending_op_t* p = reg->waiters_head;
+  while (p) {
+    __yo_io_pending_op_t* next = p->next_waiter;
+    p->future->result = -err;
+    __yo_pending_io_count--;
+    if (wake) {
+      __yo_io_wake_continuation(p->future);
+    } else {
+      atomic_store_explicit(&p->future->state, -1, memory_order_release);
+    }
+    __yo_kq_free_pending(p);
+    p = next;
+  }
+  reg->waiters_head = NULL;
+  reg->waiters_tail = NULL;
+  __yo_kq_release_registration(reg);
+}
+
+// An fd is about to be closed: drop its registrations. The kernel deletes
+// the knotes when the last descriptor closes, so anything still waiting on
+// that (fd, filter) can never be delivered — fail those waiters with
+// -EBADF, WAKING their continuations (they read the error like any failed
+// operation) instead of staying suspended forever. This also keeps a reused
+// descriptor number from colliding with a stale registration: a new op on
+// the new file would otherwise append to a registration whose knote no
+// longer exists and never fire. Reached from __yo_async_close_start and,
+// through __yo_kq_close_hook, from __yo_file_close — std's Dispose paths
+// close synchronously, which is exactly the abort-and-drop timing where an
+// operation is likeliest to still be pending.
+static void __yo_kq_drop_fd(int fd) {
+  __yo_io_registration_t** pp = &__yo_io_registrations;
+  while (*pp) {
+    __yo_io_registration_t* reg = *pp;
+    if (reg->fd == fd) {
+      *pp = reg->next;
+      // Drop any queued-but-unsubmitted EV_ADD for this registration: its
+      // udata is about to dangle, and the change would only fail on the
+      // closed fd anyway.
+      size_t w = 0;
+      for (size_t i = 0; i < __yo_kq_n_changes; i++) {
+        if ((__yo_io_registration_t*)__yo_kq_changes[i].udata != reg) {
+          __yo_kq_changes[w++] = __yo_kq_changes[i];
+        }
+      }
+      __yo_kq_n_changes = w;
+      __yo_io_pending_op_t* p = reg->waiters_head;
+      while (p) {
+        __yo_io_pending_op_t* next = p->next_waiter;
+        p->future->result = -EBADF;
+        __yo_pending_io_count--;
+        __yo_io_wake_continuation(p->future);
+        __yo_kq_free_pending(p);
+        p = next;
+      }
+      __yo_kq_free_registration(reg);
+      // *pp already advanced past the removed node — keep scanning: a read
+      // and a write registration can both be alive for one fd.
+      continue;
+    }
+    pp = &reg->next;
+  }
 }
 
 // Initialize kqueue subsystem
@@ -694,19 +818,66 @@ static void __yo_io_init(void) {
     abort();
   }
   __yo_io_initialized = true;
+  // Route the always-emitted sync close through this backend's fd purge.
+  __yo_kq_close_hook = __yo_kq_drop_fd;
+  // Cross-thread wakeup channel (plans/WAKER_BASED_SCHEDULING.md step 5): a
+  // user event on this loop's own kqueue. kevent() is the documented way to
+  // interrupt a kevent() wait from another thread, and unlike a self-pipe it
+  // costs no file descriptor and no read() on the wake path.
+  {
+    __yo_loop_t* loop = __yo_loop_self();
+    struct kevent uev;
+    EV_SET(&uev, __YO_KQ_NOTIFY_IDENT, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, NULL);
+    if (kevent(__yo_io_kq, &uev, 1, NULL, 0, NULL) == 0) {
+      loop->notify_handle = (void*)(intptr_t)__yo_io_kq;
+      loop->notify_ready = 1;
+    }
+  }
   ASYNC_DEBUG("[Io] kqueue initialized: kq=%d\\n", __yo_io_kq);
+}
+
+// Nudge a loop out of its kevent() wait. Safe from any thread: the kqueue
+// descriptor is the only thing touched, and kevent() is thread-safe.
+static void __yo_io_notify(__yo_loop_t* loop) {
+  if (!loop || !loop->notify_ready) {
+    return;
+  }
+  int kq = (int)(intptr_t)loop->notify_handle;
+  struct kevent uev;
+  EV_SET(&uev, __YO_KQ_NOTIFY_IDENT, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+  kevent(kq, &uev, 1, NULL, 0, NULL);
 }
 
 // Cleanup kqueue
 static void __yo_io_cleanup(void) {
   if (!__yo_io_initialized) return;
-  // If async main returns while registrations are still only queued in the
+  // The wakeup channel goes with the kqueue it lives on. Clear the loop's
+  // pointer FIRST so a foreign wake racing the shutdown does not call
+  // kevent() on a descriptor this function is about to close.
+  {
+    __yo_loop_t* loop = __yo_loop_self();
+    loop->notify_ready = 0;
+    loop->notify_handle = NULL;
+  }
+  // If async main returns while operations are still only queued in the
   // deferred changelist, cancel them explicitly instead of dropping them on
-  // close(kqueue).
+  // close(kqueue). Then cancel the registrations already armed with the
+  // kernel: closing the kqueue destroys their knotes silently, so fail
+  // their waiters here rather than leaving them counted and forever
+  // pending.
   for (size_t i = 0; i < __yo_kq_n_changes; i++) {
-    __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, ECANCELED, false);
+    __yo_kq_cancel_registration((__yo_io_registration_t*)__yo_kq_changes[i].udata, ECANCELED, false);
   }
   __yo_kq_n_changes = 0;
+  while (__yo_io_registrations) {
+    __yo_io_registration_t* reg = __yo_io_registrations;
+    __yo_kq_cancel_registration(reg, ECANCELED, false);
+  }
+  // Pending timers have no registry to walk here; the closed kqueue
+  // destroys their knotes too, so nothing can move the counter any more —
+  // zero it so a later re-init does not inherit a permanently-pending
+  // count.
+  __yo_pending_io_count = 0;
   if (__yo_io_kq >= 0) {
     close(__yo_io_kq);
     __yo_io_kq = -1;
@@ -742,6 +913,11 @@ static void __yo_io_wake_continuation(__yo_io_future_t* future) {
 
 // Process a single completed kqueue event
 static void __yo_io_process_event(struct kevent* ev) {
+  // The cross-thread wakeup channel. It carries no operation — its only job
+  // is to end the kevent() wait so the loop reaches __yo_async_drain_xwakes.
+  if (ev->filter == EVFILT_USER) {
+    return;
+  }
   // Timer events use a different context struct
   if (ev->filter == EVFILT_TIMER) {
     typedef struct { __yo_io_future_t* future; } __yo_timer_ctx_t;
@@ -756,66 +932,126 @@ static void __yo_io_process_event(struct kevent* ev) {
     return;
   }
   
-  __yo_io_pending_op_t* pending = (__yo_io_pending_op_t*)ev->udata;
-  __yo_io_future_t* future = pending->future;
-  
-  switch (pending->op) {
-    case __YO_IO_OP_READ: {
-      ssize_t r = read(pending->read.fd, pending->read.buf, pending->read.size);
-      future->result = (r < 0) ? -errno : (int32_t)r;
-      break;
-    }
-    case __YO_IO_OP_WRITE: {
-      ssize_t r = write(pending->write.fd, pending->write.buf, pending->write.size);
-      future->result = (r < 0) ? -errno : (int32_t)r;
-      break;
-    }
-    case __YO_IO_OP_ACCEPT: {
-      int r = accept(pending->accept.fd, (struct sockaddr*)pending->accept.addr,
-                     (socklen_t*)pending->accept.addrlen);
-      if (r >= 0) {
-        int fl = fcntl(r, F_GETFL, 0);
-        if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
+  __yo_io_registration_t* reg = (__yo_io_registration_t*)ev->udata;
+
+  // Service waiters in FIFO order until one would block: every completed
+  // operation pops its waiter, so concurrent operations on one descriptor
+  // multiplex over the single knote. A would-block attempt (a spurious
+  // wakeup, or an earlier waiter consuming the readiness) parks the waiter
+  // back at the head and ends this pass.
+  while (reg->waiters_head) {
+    __yo_io_pending_op_t* pending = reg->waiters_head;
+    bool would_block = false;
+    switch (pending->op) {
+      case __YO_IO_OP_READ: {
+        ssize_t r = read(pending->read.fd, pending->read.buf, pending->read.size);
+        if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+          pending->future->result = (r < 0) ? -errno : (int32_t)r;
+        } else {
+          would_block = true;
+        }
+        break;
       }
-      future->result = (r < 0) ? -errno : r;
+      case __YO_IO_OP_WRITE: {
+        ssize_t r = write(pending->write.fd, pending->write.buf, pending->write.size);
+        if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+          pending->future->result = (r < 0) ? -errno : (int32_t)r;
+        } else {
+          would_block = true;
+        }
+        break;
+      }
+      case __YO_IO_OP_ACCEPT: {
+        int r = accept(pending->accept.fd, (struct sockaddr*)pending->accept.addr,
+                       (socklen_t*)pending->accept.addrlen);
+        if (r >= 0) {
+          int fl = fcntl(r, F_GETFL, 0);
+          if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
+          pending->future->result = r;
+        } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          would_block = true;
+        } else {
+          pending->future->result = -errno;
+        }
+        break;
+      }
+      case __YO_IO_OP_CONNECT: {
+        // Connect readiness is terminal: the SO_ERROR answer never
+        // would-blocks, so every queued connect completes on this delivery.
+        int so_error = 0;
+        socklen_t len = sizeof(so_error);
+        getsockopt(pending->connect.fd, SOL_SOCKET, SO_ERROR, &so_error, &len);
+        pending->future->result = (so_error == 0) ? 0 : -so_error;
+        break;
+      }
+      case __YO_IO_OP_SEND: {
+        ssize_t r = send(pending->send.fd, pending->send.buf, pending->send.len, pending->send.flags);
+        if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+          pending->future->result = (r < 0) ? -errno : (int32_t)r;
+        } else {
+          would_block = true;
+        }
+        break;
+      }
+      case __YO_IO_OP_RECV: {
+        ssize_t r = recv(pending->recv.fd, pending->recv.buf, pending->recv.len, pending->recv.flags);
+        if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+          pending->future->result = (r < 0) ? -errno : (int32_t)r;
+        } else {
+          would_block = true;
+        }
+        break;
+      }
+      case __YO_IO_OP_SENDTO: {
+        ssize_t r = sendto(pending->sendto.fd, pending->sendto.buf, pending->sendto.len,
+                           pending->sendto.flags, (const struct sockaddr*)pending->sendto.addr,
+                           (socklen_t)pending->sendto.addrlen);
+        if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+          pending->future->result = (r < 0) ? -errno : (int32_t)r;
+        } else {
+          would_block = true;
+        }
+        break;
+      }
+      case __YO_IO_OP_RECVFROM: {
+        ssize_t r = recvfrom(pending->recvfrom.fd, pending->recvfrom.buf, pending->recvfrom.len,
+                             pending->recvfrom.flags, (struct sockaddr*)pending->recvfrom.addr,
+                             (socklen_t*)pending->recvfrom.addrlen);
+        if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+          pending->future->result = (r < 0) ? -errno : (int32_t)r;
+        } else {
+          would_block = true;
+        }
+        break;
+      }
+    }
+    if (would_block) {
       break;
     }
-    case __YO_IO_OP_CONNECT: {
-      int so_error = 0;
-      socklen_t len = sizeof(so_error);
-      getsockopt(pending->connect.fd, SOL_SOCKET, SO_ERROR, &so_error, &len);
-      future->result = (so_error == 0) ? 0 : -so_error;
-      break;
+    reg->waiters_head = pending->next_waiter;
+    if (!reg->waiters_head) {
+      reg->waiters_tail = NULL;
     }
-    case __YO_IO_OP_SEND: {
-      ssize_t r = send(pending->send.fd, pending->send.buf, pending->send.len, pending->send.flags);
-      future->result = (r < 0) ? -errno : (int32_t)r;
-      break;
-    }
-    case __YO_IO_OP_RECV: {
-      ssize_t r = recv(pending->recv.fd, pending->recv.buf, pending->recv.len, pending->recv.flags);
-      future->result = (r < 0) ? -errno : (int32_t)r;
-      break;
-    }
-    case __YO_IO_OP_SENDTO: {
-      ssize_t r = sendto(pending->sendto.fd, pending->sendto.buf, pending->sendto.len,
-                         pending->sendto.flags, (const struct sockaddr*)pending->sendto.addr,
-                         (socklen_t)pending->sendto.addrlen);
-      future->result = (r < 0) ? -errno : (int32_t)r;
-      break;
-    }
-    case __YO_IO_OP_RECVFROM: {
-      ssize_t r = recvfrom(pending->recvfrom.fd, pending->recvfrom.buf, pending->recvfrom.len,
-                           pending->recvfrom.flags, (struct sockaddr*)pending->recvfrom.addr,
-                           (socklen_t*)pending->recvfrom.addrlen);
-      future->result = (r < 0) ? -errno : (int32_t)r;
-      break;
-    }
+    __yo_pending_io_count--;
+    __yo_io_wake_continuation(pending->future);
+    __yo_kq_free_pending(pending);
   }
-  
-  __yo_pending_io_count--;
-  __yo_io_wake_continuation(future);
-  __yo_kq_free_pending(pending);
+
+  if (reg->waiters_head) {
+    // Waiters whose attempts would block are still parked on this
+    // registration: EV_ONESHOT consumed the knote on delivery, so re-arm
+    // it through the deferred changelist.
+    if (__yo_kq_n_changes >= __YO_KQ_CHANGES_MAX) {
+      __yo_kq_flush_changes();
+    }
+    EV_SET(&__yo_kq_changes[__yo_kq_n_changes], reg->fd, reg->filter,
+           EV_ADD | EV_ONESHOT, 0, 0, (void*)reg);
+    __yo_kq_n_changes++;
+  } else {
+    // Every waiter completed and the one-shot delivery destroyed the
+    // knote — the registration has nothing left to name.
+    __yo_kq_release_registration(reg);
+  }
 }
 
 // Flush any queued kevent changes to the kernel synchronously. Called when
@@ -835,7 +1071,7 @@ static void __yo_kq_flush_changes(void) {
   if (n < 0) {
     int err = errno;
     for (int i = 0; i < nchanges; i++) {
-      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
+      __yo_kq_cancel_registration((__yo_io_registration_t*)__yo_kq_changes[i].udata, err, true);
     }
     __yo_kq_n_changes = 0;
     return;
@@ -844,7 +1080,7 @@ static void __yo_kq_flush_changes(void) {
   for (int i = 0; i < n; i++) {
     // EV_ERROR entries report per-change registration failures.
     if (err_events[i].flags & EV_ERROR) {
-      __yo_kq_cancel_pending((__yo_io_pending_op_t*)err_events[i].udata, (int)err_events[i].data, true);
+      __yo_kq_cancel_registration((__yo_io_registration_t*)err_events[i].udata, (int)err_events[i].data, true);
     } else {
       __yo_io_process_event(&err_events[i]);
     }
@@ -868,7 +1104,7 @@ static int __yo_io_poll(void) {
   if (n < 0) {
     int err = errno;
     for (int i = 0; i < nchanges; i++) {
-      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
+      __yo_kq_cancel_registration((__yo_io_registration_t*)__yo_kq_changes[i].udata, err, true);
     }
     __yo_kq_n_changes = 0;
     return __yo_poll_and_fs_event_tick();
@@ -879,7 +1115,7 @@ static int __yo_io_poll(void) {
   for (int i = 0; i < n; i++) {
     if (events[i].flags & EV_ERROR) {
       if (events[i].udata) {
-        __yo_kq_cancel_pending((__yo_io_pending_op_t*)events[i].udata, (int)events[i].data, true);
+        __yo_kq_cancel_registration((__yo_io_registration_t*)events[i].udata, (int)events[i].data, true);
         processed++;
       }
       continue;
@@ -905,13 +1141,17 @@ static int __yo_io_wait(void) {
     nanosleep(&ts, NULL);
     return __yo_poll_and_fs_event_tick();
   }
-  if (__yo_pending_io_count == 0) {
+  if (__yo_pending_io_count == 0 && !__yo_async_has_blocking_inflight()
+      && !__yo_async_foreign_wake_possible()) {
     // Defensive: if we have deferred changes but nothing pending, flush
     // them so they do not sit indefinitely (rare -- registration bumps
     // __yo_pending_io_count, so this should normally be a no-op).
     if (__yo_kq_n_changes > 0) __yo_kq_flush_changes();
     return 0;
   }
+  // With no I/O outstanding but a blocking call running on another thread, the
+  // kevent() below is a wait on the EVFILT_USER wakeup channel alone — which
+  // is exactly what the loop should be doing rather than spinning.
 
   struct kevent events[64];
   struct timespec timeout = {0, 100 * 1000 * 1000};  // 100ms timeout
@@ -926,7 +1166,7 @@ static int __yo_io_wait(void) {
   if (n < 0) {
     int err = errno;
     for (int i = 0; i < nchanges; i++) {
-      __yo_kq_cancel_pending((__yo_io_pending_op_t*)__yo_kq_changes[i].udata, err, true);
+      __yo_kq_cancel_registration((__yo_io_registration_t*)__yo_kq_changes[i].udata, err, true);
     }
     __yo_kq_n_changes = 0;
     return 0;
@@ -937,7 +1177,7 @@ static int __yo_io_wait(void) {
   for (int i = 0; i < n; i++) {
     if (events[i].flags & EV_ERROR) {
       if (events[i].udata) {
-        __yo_kq_cancel_pending((__yo_io_pending_op_t*)events[i].udata, (int)events[i].data, true);
+        __yo_kq_cancel_registration((__yo_io_registration_t*)events[i].udata, (int)events[i].data, true);
         processed++;
       }
       continue;
@@ -949,17 +1189,41 @@ static int __yo_io_wait(void) {
   return processed;
 }
 
-// Queue a kevent change onto the per-thread deferred changelist. The
+// Attach a pending operation to its (fd, filter) registration, creating
+// the registration — and queueing its EV_ADD onto the per-thread deferred
+// changelist — only if no operation is already waiting on that pair. The
 // actual kevent() syscall is amortized into the next poll/wait call —
 // see __yo_kq_flush_changes / __yo_io_poll / __yo_io_wait. If the
 // changelist is full we flush synchronously to make room.
 static void __yo_io_register_kevent(__yo_io_pending_op_t* pending, int fd, int16_t filter) {
-  if (__yo_kq_n_changes >= __YO_KQ_CHANGES_MAX) {
-    __yo_kq_flush_changes();
+  __yo_io_registration_t* reg = __yo_io_registrations;
+  while (reg && (reg->fd != fd || reg->filter != filter)) reg = reg->next;
+  if (!reg) {
+    reg = __yo_kq_alloc_registration();
+    reg->fd = fd;
+    reg->filter = filter;
+    reg->waiters_head = NULL;
+    reg->waiters_tail = NULL;
+    reg->next = __yo_io_registrations;
+    __yo_io_registrations = reg;
+    // Exactly one EV_ADD per registration is ever queued at a time: one is
+    // queued only at creation, and afterwards only by the service loop's
+    // re-arm — which requires a delivery, which requires a submission that
+    // drained the changelist first.
+    if (__yo_kq_n_changes >= __YO_KQ_CHANGES_MAX) {
+      __yo_kq_flush_changes();
+    }
+    EV_SET(&__yo_kq_changes[__yo_kq_n_changes], fd, filter,
+           EV_ADD | EV_ONESHOT, 0, 0, (void*)reg);
+    __yo_kq_n_changes++;
   }
-  EV_SET(&__yo_kq_changes[__yo_kq_n_changes], fd, filter,
-         EV_ADD | EV_ONESHOT, 0, 0, (void*)pending);
-  __yo_kq_n_changes++;
+  pending->next_waiter = NULL;
+  if (reg->waiters_tail) {
+    reg->waiters_tail->next_waiter = pending;
+  } else {
+    reg->waiters_head = pending;
+  }
+  reg->waiters_tail = pending;
   __yo_pending_io_count++;
 }
 
@@ -1121,7 +1385,10 @@ static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
-  
+
+  // Fail (and wake) anything still registered on this descriptor before it
+  // goes away — see __yo_kq_drop_fd.
+  __yo_kq_drop_fd(fd);
   int result = close(fd);
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);

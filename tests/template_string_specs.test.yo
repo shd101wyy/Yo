@@ -56,3 +56,20 @@ test("a colon inside the expression is NOT a spec separator", {
   sep := String.from("a:b").replace(String.from(":"), String.from("-"));
   assert(`${sep}` == `a-b`, "colon inside a nested call argument");
 });
+test("a template nested inside an interpolation", {
+  // The interpolation is parsed by a FRESH sub-parser, and `get_program`
+  // prepends the template auto-import — so the sub-parse's first expression
+  // was that import, and the interpolation lowered to
+  // `import("std/fmt/to_string").to_string()`:
+  //   error[E0403]: Module field "to_string" not found in module type
+  // (issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md).
+  assert(`x${`y`}z` == `xyz`, "nested template literal");
+  names := ArrayList(String).new();
+  names.push(String.from("a"));
+  names.push(String.from("b"));
+  // The shape that found it: a separator written inline as a template.
+  assert(` <- ${`, `.join(names)}` == ` <- a, b`, "join with an inline separator");
+  // A spec inside the nested template still selects the format import.
+  n := i32(7);
+  assert(`[${`${n:>3}`}]` == `[  7]`, "spec inside a nested template");
+});

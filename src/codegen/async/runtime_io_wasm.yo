@@ -467,6 +467,13 @@ static void __yo_io_init(void) {
   __yo_io_initialized = true;
 }
 
+// Cross-thread wakeup channel: there is no second thread on this target, so
+// there is nothing to wake. The symbol exists because the async core calls it
+// unconditionally (plans/WAKER_BASED_SCHEDULING.md step 5).
+static void __yo_io_notify(__yo_loop_t* loop) {
+  (void)loop;
+}
+
 // Cleanup pending timers
 static void __yo_io_cleanup(void) {
   while (__yo_wasm_timer_head) {

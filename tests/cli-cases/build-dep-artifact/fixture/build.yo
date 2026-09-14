@@ -1,0 +1,11 @@
+build :: import("std/build");
+
+// The dependency's own build.yo defines `mathlib-c`; this file only names it.
+dep :: build.dependency("mathlib");
+lib :: dep.artifact("mathlib-c");
+
+exe :: build.executable({ name : "app", root : "./src/main.yo" });
+exe.link(lib);
+
+run_step :: build.step("run", "Build and run the app");
+run_step.depend_on(build.run(exe));

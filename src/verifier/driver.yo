@@ -327,6 +327,13 @@ _cache_store :: (fn(q : VcQuery, verdict : VerifyVerdict) -> unit)({
 /// Run one obligation end-to-end: cache lookup → solver → parse → cache
 /// store. Synchronous — the solver spawn itself is libc `system(3)`
 /// (z3.yo), so there is no event-loop interaction anywhere in the hot path.
+///
+/// Budget escalation (V5 task 6): a quantified goal the default budget
+/// leaves Unproven gets ONE deterministic retry at 20× the rlimit and 4×
+/// the wall backstop (fixed ladder — deterministic, and cheap queries
+/// stay cheap; measured: the insertion sort's outer iterate needs
+/// ~10⁸ rlimit / ~80 s and proves, while every small goal finishes far
+/// under the first stage). Terminal verdicts from either stage cache.
 run_vc_query :: (fn(q : VcQuery, cfg : VerifyRunConfig, binary : String) -> VerifyResult)({
   cached_opt := _cache_lookup(q, cfg);
   match(
@@ -341,6 +348,25 @@ run_vc_query :: (fn(q : VcQuery, cfg : VerifyRunConfig, binary : String) -> Veri
     run_z3_script(binary.clone(), script),
     .Ok(response) => verdict_of_response(response),
     .Err(msg) => VerifyVerdict.SolverError(msg)
+  );
+  match(
+    verdict,
+    .Unproven(_) => {
+      retry_opts := EncodeOptions(
+        rlimit : (cfg.encode_opts.rlimit * usize(20)),
+        random_seed : cfg.encode_opts.random_seed,
+        timeout_ms : (cfg.encode_opts.timeout_ms * u64(4)),
+        want_unsat_core : cfg.encode_opts.want_unsat_core,
+        want_counterexample : cfg.encode_opts.want_counterexample
+      );
+      retry := encode_script(q, retry_opts);
+      verdict = match(
+        run_z3_script(binary.clone(), retry),
+        .Ok(response) => verdict_of_response(response),
+        .Err(msg) => VerifyVerdict.SolverError(msg)
+      );
+    },
+    _ => ()
   );
   is_terminal := match(
     verdict,

@@ -1,0 +1,17 @@
+// The escape twin: reading a ghost binding from ORDINARY code is a
+// compile error ("ghost value escapes specification context") — the
+// load fails with that cause (through the #557 def-eval chain it reaches
+// the verifier report; plain yo check names it directly).
+pragma(Pragma.Verify);
+
+leaky :: (
+  fn(
+    x : i32,
+    requires(x >= i32(0)),
+    ensures(result >= i32(0))
+  ) -> (result : i32)
+)({
+  ghost(prev := x);
+  y := prev;
+  y
+});

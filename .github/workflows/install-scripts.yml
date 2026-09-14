@@ -208,6 +208,57 @@ jobs:
           Write-Host "program printed: $out"
           if ($out -ne 'installed ok') { throw "unexpected output: $out" }
 
+      # The compile check above links the async I/O runtime into hello.exe and
+      # never runs it: that `main` takes no `io`, so no event loop, no timer,
+      # no subprocess. This job is the only place a PUBLISHED Windows bundle is
+      # exercised at all, and unlike every other target Windows has no
+      # seed-bootstrap job — the posix self-builds run the published bundle's
+      # own `yo` on every battery, Windows runs it nowhere. That matters more
+      # than it sounds: a change to the EMITTED runtime is carried by every
+      # binary the new compiler emits, the bundle's own `yo` included, from the
+      # FIRST release containing it, with no seed-bump cycle to catch it in.
+      #
+      # `yo build run` closes both halves for one extra word: `build` drives
+      # the BUNDLE's own compiled-in runtime (event loop + the child
+      # `yo compile` subprocess), and `run` then EXECUTES the produced binary,
+      # so the FRESHLY EMITTED runtime starts up in its own process. The
+      # scaffolded `main` is replaced with one that takes `io` and awaits a
+      # timer and a spawned task, so that loop is driven rather than merely
+      # entered and exited.
+      #
+      # Hermetic: a scaffolded project declares no dependencies, so nothing
+      # here touches the network — verified by pointing YO_CACHE_DIR at a
+      # scratch dir, which stays EMPTY across the whole step.
+      # issues/fixed/the-published-windows-bundle-is-only-smoke-tested-with-yo-compile.md
+      - name: The bundle's own runtime runs — yo init + yo build run
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:RUNNER_TEMP\yo-test\bin;$env:PATH"
+          $env:YO_CACHE_DIR = Join-Path $env:RUNNER_TEMP 'yo-smoke-cache'
+          $dir = Join-Path $env:RUNNER_TEMP 'buildsmoke'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          Set-Location $dir
+          yo init . --name smoke
+          if ($LASTEXITCODE -ne 0) { throw "yo init failed" }
+          @'
+          { println } :: import("std/fmt");
+          { sleep } :: import("std/time/sleep");
+          { Duration } :: import("std/time/duration");
+
+          main :: (fn(io : Io) -> unit)({
+            h := io.spawn(sleep(Duration.from_millis(i64(5)), io), io);
+            io.await(sleep(Duration.from_millis(i64(1)), io), io);
+            h.await(io);
+            println("installed ok");
+          });
+
+          export(main);
+          '@ | Set-Content -Path src/main.yo -Encoding UTF8
+          $out = (yo build run | Out-String)
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { throw "yo build run failed" }
+          if ($out -notmatch 'installed ok') { throw "the built program did not run" }
+
       - name: Uninstall leaves nothing behind
         shell: pwsh
         run: |

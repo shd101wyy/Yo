@@ -1,7 +1,7 @@
 # Async post-while cond-branch cleanup can run twice — stale `cond_branch_N` key over-releases every slot it drops
 
 **Status: FIXED in tree (2026-08-23). Surfaced by the fix for
-issues/async-future-result-never-dropped.md — the leaked future-result count
+issues/fixed/async-future-result-never-dropped.md — the leaked future-result count
 used to mask this over-drop exactly (one leaked count per awaited RC result
 absorbed one extra drop).**
 
@@ -40,7 +40,7 @@ invocation.
 Pre-existing and previously invisible: each awaited RC result carried one
 LEAKED count (the future's dispose never dropped `sm->result`), which
 absorbed exactly one extra drop. Making the dispose real
-(issues/async-future-result-never-dropped.md) turned the double cleanup into
+(issues/fixed/async-future-result-never-dropped.md) turned the double cleanup into
 a use-after-free.
 
 ## Fix

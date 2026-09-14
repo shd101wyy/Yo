@@ -173,7 +173,7 @@ rm -rf "$init_dir" && mkdir -p "$init_dir"
 (cd "$init_dir" && timeout 300 "$S1" init probe --name probe) &> "/tmp/${P}_init.log"
 init_rc=$?
 missing=""
-for f in build.yo deps.yo src/main.yo src/lib.yo tests/main.test.yo .gitignore README.md; do
+for f in yo.toml build.yo src/main.yo src/lib.yo tests/main.test.yo .gitignore README.md; do
   [ -f "$init_dir/probe/$f" ] || missing="$missing $f"
 done
 echo "INIT_RC=$init_rc  missing=[${missing:-none}]"

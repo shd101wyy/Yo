@@ -1,0 +1,69 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+{ yield } :: import("std/async");
+Parsed :: enum(Git(name : String, url : String), Path(name : String, rel : String));
+probe :: (fn(what : String, io : Io) -> Impl(Future(bool, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    what.len() > usize(1)
+  })
+);
+latest :: (fn(url : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    `^1.0.0(${url})`
+  })
+);
+// Top-level async body: a local bound to a match value (one arm throws), a
+// big match on it, then two sequential awaiting `if` statements, then a
+// later read of the local.
+add :: (fn(spec : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    parsed := match(
+      spec.starts_with("./"),
+      true => Parsed.Path(String.from("mylib"), spec.clone()),
+      false => {
+        if(spec.len() == usize(0), {
+          e.exn.throw(dyn(String.from("empty spec")));
+        });
+        Parsed.Git(String.from("repo"), spec.clone())
+      }
+    );
+    (name : String) = String.new();
+    (url : String) = String.new();
+    (needs_latest : bool) = false;
+    match(
+      parsed,
+      .Path(n, rel) => {
+        name = n;
+        url = rel;
+      },
+      .Git(n, u) => {
+        name = n;
+        url = u;
+        needs_latest = true;
+      }
+    );
+    is_path := match(parsed, .Path(_, _) => true, .Git(_, _) => false);
+    (version : String) = String.new();
+    if(is_path, {
+      present := e.io.await(probe(url.clone(), e.io), e);
+      if(!present, {
+        e.exn.throw(dyn(`missing ${url}`));
+      });
+    });
+    if(needs_latest, {
+      v := e.io.await(latest(url.clone(), e.io), e);
+      version = v;
+    });
+    kind := match(parsed, .Path(_, _) => "path", .Git(_, _) => "git");
+    `${kind} ${name} ${url} ${version}`
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  println(io.await(add(String.from("./mylib"), io), e));
+  println(io.await(add(String.from("user/repo"), io), e));
+});
+export(main);

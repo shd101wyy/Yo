@@ -25,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 run :: (fn(generic(T : Type), v : T, where(T <: Send)) -> T)({
   ch := Channel(T).new(usize(1));
-  t := Thread.spawn((io : Io) => {
+  t := Thread(unit).spawn((io : Io) => {
     ch.send(v);
     ()
   });

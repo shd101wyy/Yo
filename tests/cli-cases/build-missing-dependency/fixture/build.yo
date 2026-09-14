@@ -1,0 +1,10 @@
+build :: import("std/build");
+{ Step, StepKind } :: import("std/build");
+
+exe :: build.executable({ name : "app", root : "./src/main.yo" });
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+// A name nothing defines — the shape a typo takes. This used to be dropped
+// from the DAG without a word, so the build exited 0 having ignored it.
+install.depend_on(Step(name : "helepr", kind : StepKind.StaticLibrary));

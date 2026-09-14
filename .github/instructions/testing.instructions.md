@@ -189,6 +189,40 @@ Two Windows-specific facts remain:
 - Useful as a bulk sanity pass after touching many files: `yo check ./src` or `yo check std/` before running any test.
 - **`check` is evaluator-only.** The async state-machine restrictions are enforced in CODEGEN, so `check` passes straight over them. Use `yo compile src/main.yo --skip-c-compiler` (~3 min) to catch that class.
 
+### Gate on the EXIT CODE — three tools here print a last line that is not the verdict
+
+Measured 2026-09-13, all three on v0.2.32:
+
+| tool | why the tail lies |
+| --- | --- |
+| `yo check` | on failure the summary (`yo: error: check: 1 file(s) failed evaluator coverage`) prints FIRST and the per-file trace AFTER, so `\| tail -4` shows `check: invoking evaluate_anonymous_module_begin_exprs` — indistinguishable from success |
+| `yo fmt --check` | a clean run is SILENT, so empty output cannot be told from a crash that produced none |
+| the fixpoint gate | its verdict line is computed from `/tmp/<P>_stage*.c`, which a previous run may have left behind — see the fixpoint notes below |
+
+**And "just grep for `evaluator OK`" does not fix `check`.** A failing run's
+output CONTAINS an `— evaluator OK` line, because the prelude checked fine
+before your file did not:
+
+```
+error: Cannot unify incompatible types: "String" and "str"   <- the real verdict, FIRST
+  --> badcheck.yo:4:14
+yo: error: check: 1 file(s) failed evaluator coverage
+check: …/std/prelude.yo — evaluator OK                       <- greps GREEN
+check: parsing badcheck.yo
+check: invoking evaluate_anonymous_module_begin_exprs        <- last line
+```
+
+So the grep must carry the failure side too — `grep -E "evaluator OK|error|failed"` —
+and `rc` is better than either. The directory form (`check: 275/275 file(s) passed`)
+is meaningful only when the summary is PRESENT AND the two numbers are EQUAL; absent
+is not the same as clean, and on failure that summary is above the trace as well.
+
+In a gate script, capture `rc=$?` for every command and print it. The failure this
+prevents is not exotic: a bad `push_str` read as green through a `| tail -4` and cost
+a full ~20-minute self-build to discover. The general form — **an output shape chosen
+from where you expect the answer to be is not a measurement** — is the same mistake as
+picking test files from where you think the bug lives.
+
 ### `check` + `build` both green is NOT proof for a tree-wide rename
 
 Renaming an existing std method (`HashSet.add` -> `insert`, 2026-08-25) had
@@ -315,7 +349,7 @@ compiler will not name those sites for you.
 
 ## Build system tests
 
-- The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
+- The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `resolver.test.yo`, `manifest.test.yo`, `toml_edit.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
 - Tests cover: build registry, artifacts, steps, DAG, dependencies, lock file, target parsing, path deps, transitive deps.
 - Run them like any other internal test: `yo test ./tests/internal/build_runner.test.yo --parallel 1`.
 - End-to-end CLI subcommand behaviour is covered separately by the `tests/cli-cases/` corpus.
@@ -339,6 +373,26 @@ locally built one, since that is what CI runs:
 ```bash
 yo fmt --check ./src ./std ./tests
 ```
+
+## A bare-repository fixture needs a tracked file under `refs/`
+
+Several `install`/`update`/`lock` cases ship a bare git repository inside the
+fixture (`fixture/remote.git`, `fixture/util.git`) and point `yo.toml` at it
+(`git = "./remote.git"`). After `git gc`/`pack-refs` the repository's `refs/`
+directory is EMPTY (every ref lives in `packed-refs`), and git does not track
+empty directories — so a fresh checkout (CI, a new worktree) has no `refs/`
+and git refuses the repository outright:
+
+```
+fatal: './remote.git' does not appear to be a git repository
+```
+
+Locally the case keeps passing, because the directory exists where the
+fixture was generated. Put a `refs/.keep` file in every fixture bare
+repository (loose-ref iteration skips dotfiles, so it is inert), then
+re-record: the file is part of the project tree the `expected_tree` golden
+hashes. Verify from a clean worktree, never only from the tree you generated
+the fixture in.
 
 ## A cli-case `cmd` needs a trailing newline, or NOTHING runs
 

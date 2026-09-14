@@ -1,0 +1,74 @@
+// Reproducer for issues/fixed/linux-udp-datagram-ops-are-synchronous-and-park-the-loop.md
+// A spawned task awaits recv_from on a QUIET socket; the main task then sleeps
+// 200 ms and asserts the sleep was not stretched. Pre-fix, the Linux runtime
+// parked the whole event loop inside the blocking recvfrom(2) — timeout-killed
+// with no output at all. Post-fix: sleeps ~200 ms, prints, exits 0 (REPRO OK).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ println } :: import("std/fmt");
+{ UdpSocket } :: import("std/net/udp");
+{ SocketAddr } :: import("std/net/addr");
+{ Error, AnyError, Exception, IoExn } :: import("std/error");
+{ sleep } :: import("std/sys/timer");
+{ Instant } :: import("std/time/instant");
+{ ArrayList } :: import("std/collections/array_list");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        println(`unexpected: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  server := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), e);
+  client := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), e);
+  println(`server on ${server.local_addr().to_string()}, client on ${client.local_addr().to_string()}`);
+
+  recv_task := io.spawn(
+    io.async((io : Io) => {
+      task_exn := Exception(
+        throw : (
+          err -> {
+            unwind(());
+          }
+        )
+      );
+      te := IoExn(io : io, exn : task_exn);
+      recv_buf := (*u8)(malloc(usize(64)).unwrap());
+      got := io.await(server.recv_from(recv_buf, usize(64), io), te);
+      println(`[recv] ${got.0} bytes from port ${got.1.port}`);
+      free(.Some((*void)(recv_buf)));
+      return(());
+    }),
+    io
+  );
+
+  started := Instant.now();
+  io.await(sleep(u64(200)), io);
+  (sleep_ms : i64) = started.elapsed().as_millis();
+  println(`[main] the 200 ms sleep took ${sleep_ms} ms`);
+  assert(
+    sleep_ms < i64(500),
+    `the 200 ms sleep took ${sleep_ms} ms — the loop was parked inside a pending recv_from`
+  );
+
+  data := ArrayList(u8).new();
+  data.push(u8(112)); // p
+  data.push(u8(105)); // i
+  data.push(u8(110)); // n
+  data.push(u8(103)); // g
+  data.push(u8(33)); // !
+  sent := io.await(client.send_to(data, server.local_addr(), io), e);
+  assert(sent == usize(5), "send_to delivered 5 bytes");
+
+  recv_task.await(io);
+  io.await(client.close(io), e);
+  io.await(server.close(io), e);
+  println("REPRO OK");
+});
+export(main);

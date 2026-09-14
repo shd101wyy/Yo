@@ -1,0 +1,42 @@
+//! Primitive-scrutinee value matching: the forms the audit
+//! (plans/MATCH_PATTERN_MATCHING.md §2) exercised, at RUNTIME (scrutinee
+//! derived from argv so no folding).
+{ assert } :: import("std/assert");
+{ args } :: import("std/env");
+runtime_int :: (fn() -> i32)(i32(args().len()) - i32(1)); // 0 when run bare
+test("float scrutinee matches by value at runtime (audit B1)", {
+  x := (f64(runtime_int()) + 1.5); // 1.5 when run bare
+  v := match(
+    x,
+    1.5 => i32(1),
+    2.5 => i32(2),
+    _ => i32(0)
+  );
+  assert(v == i32(1), "1.5 must take the 1.5 arm");
+  y := (f64(runtime_int()) + 2.5); // 2.5
+  w := match(
+    y,
+    1.5 => i32(1),
+    2.5 => i32(2),
+    _ => i32(0)
+  );
+  assert(w == i32(2), "2.5 must take the 2.5 arm");
+});
+test("float or-pattern arms at runtime", {
+  x := (f64(runtime_int()) + 1.5);
+  v := match(
+    x,
+    (1.5 | 2.5) => i32(9),
+    _ => i32(0)
+  );
+  assert(v == i32(9), "the or-arm covers 1.5");
+});
+test("negative float arms at runtime", {
+  x := (f64(runtime_int()) - 2.5); // -2.5
+  v := match(
+    x,
+    -2.5 => i32(5),
+    _ => i32(0)
+  );
+  assert(v == i32(5), "the -2.5 arm matches");
+});

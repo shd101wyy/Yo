@@ -20,15 +20,30 @@
 // ============================================================================
 /// A VC sort. The verifiable subset starts at `bool` and exact-width
 /// bitvectors (the plan's sorts table); datatypes/arrays/Seq join in V3–V5.
-VcSort :: enum(
-  /// SMT `Bool`.
-  BoolS,
-  /// SMT `(_ BitVec <width>)` — widths 8/16/32/64 (and the target's usize).
-  BvS(width : usize),
-  /// A DECLARED DATATYPE sort (V3: value enums). The name is the
-  /// sanitized datatype name; the `(declare-datatypes ...)` block rides
-  /// `VcQuery.datatypes` (rendered once, before the constants).
-  DataS(name : String)
+VcSort :: ref(
+  enum(
+    /// SMT `Bool`.
+    BoolS,
+    /// SMT `(_ BitVec <width>)` — widths 8/16/32/64 (and the target's usize).
+    BvS(width : usize),
+    /// A DECLARED DATATYPE sort (V3: value enums). The name is the
+    /// sanitized datatype name; the `(declare-datatypes ...)` block rides
+    /// `VcQuery.datatypes` (rendered once, before the constants).
+    DataS(name : String),
+    /// SMT `(Seq <elem>)` — z3's built-in sequences (V5 task 5: the
+    /// `std/spec` ghost collections' element carrier; also `str` content
+    /// as `Seq (_ BitVec 8)`).
+    SeqS(elem : Self),
+    /// SMT `(Array <domain> <range>)` — Set(T) is `Array T Bool` (membership),
+    /// Multiset(T) is `Array T (_ BitVec 64)` (element → count; 64-bit so
+    /// counts never wrap in any realistic spec).
+    FunS(domain : Self, range : Self),
+    /// SMT `(Array (_ BitVec 64) <elem>)` — a fixed-length `Array(T, N)`
+    /// value (V5 task 6). The SMT sort ignores `len` (SMT arrays are
+    /// unbounded); `len` is the compile-time element count the WALK uses
+    /// for index-bounds obligations and `ms_of` folding.
+    ArrS(elem : Self, len : usize)
+  )
 );
 derive(VcSort, Eq(VcSort));
 impl(
@@ -39,7 +54,10 @@ impl(
         self,
         .BoolS => String.from("bool"),
         .BvS(w) => `bv${w.to_string()}`,
-        .DataS(name) => name.clone()
+        .DataS(name) => name.clone(),
+        .SeqS(_) => String.from("seq"),
+        .FunS(_, _) => String.from("array"),
+        .ArrS(_, _) => String.from("array")
       )
     )
   )
@@ -93,7 +111,27 @@ VcOp :: enum(
   /// `(_ zero_extend k)` — k = extra bits.
   ZeroExtendOp(extra : usize),
   /// `(_ extract hi lo)` — hi..lo inclusive, hi >= lo.
-  ExtractOp(hi : usize, lo : usize)
+  ExtractOp(hi : usize, lo : usize),
+  // V5 task 5 — sequences and arrays (the std/spec ghost collections).
+  /// `(seq.unit x)` — the one-element sequence.
+  SeqUnit,
+  /// `(seq.++ a b)` — concatenation.
+  SeqConcat,
+  /// `(seq.len a)` — length (SMT Int; the walk compares it as an integer
+  /// expression — casts to/from bitvectors at the walk's edges).
+  SeqLen,
+  /// `(seq.nth a i)` — indexed element (0-based).
+  SeqNth,
+  /// `(store a k v)` — array update.
+  StoreOp,
+  /// `(select a k)` — array read.
+  SelectOp,
+  /// `((_ int2bv w) x)` — integer to bitvector (seq_len's Int result back
+  /// into the subset's bitvector world).
+  IntToBvOp(width : usize),
+  /// `(bv2nat x)` — bitvector to unsigned integer (seq_nth's index into
+  /// the Int the SMT sequences expect).
+  Bv2NatOp
 );
 derive(VcOp, Eq(VcOp));
 // ============================================================================
@@ -123,8 +161,20 @@ VcTerm :: ref(
     /// Datatype field projection `(<Ctor>-<idx> t)` — a match arm's
     /// pattern binding.
     Proj(ctor : String, idx : usize, t : Self),
-    /// Quantifier with explicitly-typed bound variables.
-    Quant(kind : VcQuantKind, names : ArrayList(String), sorts : ArrayList(VcSort), body : Self)
+    /// Quantifier with explicitly-typed bound variables. `triggers`
+    /// carries E-matching patterns (each rendered as its own `:pattern`
+    /// attribute — an OR of independently sufficient patterns); empty =
+    /// solver-default instantiation (MBQI).
+    Quant(
+      kind : VcQuantKind,
+      names : ArrayList(String),
+      sorts : ArrayList(VcSort),
+      body : Self,
+      triggers : ArrayList(Self)
+    ),
+    /// `(const <sort> <lit>)` — the everywhere-constant array (an empty
+    /// Set / Multiset). `lit` is a BoolLit or a BvLit.
+    ArrConst(sort : VcSort, lit : Self)
   )
 );
 /// One declared constant of a query.
@@ -145,6 +195,14 @@ VcQuery :: ref(
     assumptions : ArrayList(VcAssumption),
     /// The obligation proper.
     goal : VcTerm,
+    /// Function declarations — the elem SORT of each distinct
+    /// `__yo_msof_<elem>` multiset function used by the terms (V5 task 6).
+    /// Rendered as one `declare-fun` per entry before the constants.
+    fundecls : ArrayList(VcSort),
+    /// Axioms assumed by EVERY obligation (V5 task 6): closed quantified
+    /// terms (the per-array `ms_of` definitions, with `:pattern` triggers)
+    /// asserted ahead of the path assumptions.
+    axioms : ArrayList(VcTerm),
     /// Datatype declaration BLOCK CONTENT — one entry per datatype, the
     /// `(name 0)` arity pair plus its constructors. Rendered as ONE
     /// combined `declare-datatypes` before the constants so mutually
@@ -177,6 +235,8 @@ new_vc_query :: (fn(name : String) -> VcQuery)(
     declarations : ArrayList(VcDecl).new(),
     assumptions : ArrayList(VcAssumption).new(),
     goal : VcTerm.BoolLit(true),
+    fundecls : ArrayList(VcSort).new(),
+    axioms : ArrayList(VcTerm).new(),
     datatypes : ArrayList(String).new()
   )
 );

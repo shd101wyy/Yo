@@ -1,0 +1,14 @@
+// String content as Seq(u8): str_bytes over a comptime literal — the
+// length is the byte count; the second element of "hi" is 'i' (105).
+pragma(Pragma.Verify);
+
+str_content :: (
+  fn(
+    x : i32,
+    requires(x >= i32(0)),
+    ensures(seq_len(str_bytes("hi")) == i64(2), seq_nth(str_bytes("hi"), i64(1)) == u8(105))
+  ) -> (result : i32)
+)({
+  z := x;
+  z
+});

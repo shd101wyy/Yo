@@ -37,7 +37,13 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../types/definitions.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
-{ mangle_vc_name, encode_sort } :: import("./encode.yo");
+{ mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
+{ is_ghost_fn } :: import("../evaluator/builtins/contracts.yo");
+
+/// V5 task 3 slice 2: the ghost_fn inlining stack (see
+/// `_ghost_fn_inline_term`). Declared at module top so it is initialized
+/// before any lazy `::` definition can be forced by an importer.
+(g_ghost_inline_stack : ArrayList(String)) = ArrayList(String).new();
 {
   get_func_requires_exprs,
   get_func_ensures_exprs,
@@ -77,9 +83,23 @@ _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
     .Some(w) => Option(VcSort).Some(VcSort.BvS(width : w)),
     .None => cond(
       _is_bool_type(t) => Option(VcSort).Some(VcSort.BoolS),
-      // Value enums: a declared datatype (V3). ref enums are heap handles —
-      // outside the verifiable subset's integer/bool/enum core.
-      true => _enum_sort_or_none(t)
+      // Fixed-length Array(T, N) (V5 task 6): a BV64-indexed SMT array;
+      // the length rides the sort for bounds/ms_of. A `length_var`
+      // (generic-length) array is outside the subset.
+      true => match(
+        t,
+        .Array(elem, len, lv) => cond(
+          ((lv.len() == usize(0)) && (len > usize(0))) => match(
+            _type_sort(elem),
+            .Some(es) => Option(VcSort).Some(VcSort.ArrS(elem : es, len : len)),
+            .None => Option(VcSort).None
+          ),
+          true => Option(VcSort).None
+        ),
+        // Value enums: a declared datatype (V3). ref enums are heap handles —
+        // outside the verifiable subset's integer/bool/enum core.
+        _ => _enum_sort_or_none(t)
+      )
     )
   )
 );
@@ -196,7 +216,30 @@ VcCtx :: ref(
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
     /// everything the terms mention.
-    datatypes : ArrayList(String)
+    datatypes : ArrayList(String),
+    /// Name → ArrS sort for every bound ARRAY value (V5 task 6). The name's
+    /// current TERM may be a store chain (index writes rebind), which carries
+    /// no sort — this table is where the walk reads the element sort and the
+    /// compile-time length (bounds obligations, `ms_of` folding, havoc).
+    array_sorts : HashMap(String, VcSort),
+    /// > 0 while walking a quantifier BODY (V5 task 6): index-bounds
+    /// obligations are SUPPRESSED there — a bounded index inside `forall(p, g ==> s(p) ...)`
+    /// is the spec's own guard's business; a free-variable bounds goal under
+    /// a binder would be an unprovable non-obligation.
+    quant_depth : usize,
+    /// The `__yo_msof_<elem>` functions used so far (elem sorts) — merged
+    /// into every obligation's VcQuery.fundecls at `_emit` time. Deduped
+    /// through `fundecl_keys`: comparing VcSorts at runtime would call the
+    /// derived Eq, which is HOLLOW for ref enums with Self payloads
+    /// (issues/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
+    fundecls : ArrayList(VcSort),
+    fundecl_keys : ArrayList(String),
+    /// Closed definition axioms for the `ms_of` terms walked so far
+    /// (merged into every obligation's VcQuery.axioms at `_emit` time),
+    /// deduped by the encoded array term — the same array term walked
+    /// from several invariants defines the same function application.
+    axioms : ArrayList(VcTerm),
+    ms_axiom_keys : ArrayList(String)
   )
 );
 _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) -> VcCtx)(
@@ -218,7 +261,13 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     path_dead : false,
     loop_depth : usize(0),
     entry_vars : HashMap(String, VcTerm).new(),
-    datatypes : ArrayList(String).new()
+    datatypes : ArrayList(String).new(),
+    array_sorts : HashMap(String, VcSort).new(),
+    quant_depth : usize(0),
+    fundecls : ArrayList(VcSort).new(),
+    fundecl_keys : ArrayList(String).new(),
+    axioms : ArrayList(VcTerm).new(),
+    ms_axiom_keys : ArrayList(String).new()
   )
 );
 _next_fresh :: (fn(inout(ctx) : VcCtx) -> usize)({
@@ -357,6 +406,70 @@ _emit :: (
     ai = (ai + usize(1));
   });
   q.goal = _rename_vars(goal, rename_map);
+  // The ms_of function declarations + definition axioms (V5 task 6) —
+  // renamed with the same map (their binders are scoped and never
+  // source-named, so they survive renaming untouched).
+  (fdi : usize) = usize(0);
+  while(fdi < ctx.fundecls.len(), {
+    match(
+      ctx.fundecls.get(fdi),
+      .Some(fs) => {
+        q.fundecls.push(fs);
+      },
+      .None => ()
+    );
+    fdi = (fdi + usize(1));
+  });
+  (axi : usize) = usize(0);
+  while(axi < ctx.axioms.len(), {
+    match(
+      ctx.axioms.get(axi),
+      .Some(ax) => {
+        // An axiom is only usable in a query that DECLARES its free
+        // names (the array term's variables) — a context-wide axiom
+        // mentioning a havoc constant the query never declares is an
+        // "unknown constant" error the solver answers by dropping the
+        // assert, silently un-constraining ms_of.
+        free_of_ax := HashMap(String, VcSort).new();
+        _collect_declared(ax, free_of_ax);
+        fits := true;
+        fit_keys := ArrayList(String).new();
+        {
+          fit_it := free_of_ax.keys();
+          (fit_go : bool) = true;
+          while(fit_go, {
+            match(
+              fit_it.next(),
+              .Some(fk) => {
+                fit_keys.push(fk.clone());
+              },
+              .None => {
+                fit_go = false;
+              }
+            );
+          });
+        };
+        (fki : usize) = usize(0);
+        while(fki < fit_keys.len(), {
+          match(
+            fit_keys.get(fki),
+            .Some(fk) => {
+              if(!declared.contains_key(fk.clone()), {
+                fits = false;
+              });
+            },
+            .None => ()
+          );
+          fki = (fki + usize(1));
+        });
+        if(fits, {
+          q.axioms.push(_rename_vars(ax, rename_map));
+        });
+      },
+      .None => ()
+    );
+    axi = (axi + usize(1));
+  });
   (dti : usize) = usize(0);
   while(dti < ctx.datatypes.len(), {
     match(
@@ -386,22 +499,27 @@ _sorted_strings :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
     );
     i = (i + usize(1));
   });
-  // Insertion sort over the COPY via ptr writes (ArrayList has no set()).
-  buf := out.ptr().unwrap();
-  (j : usize) = usize(1);
-  while(j < out.len(), {
-    key := unsafe((buf.add(j)).*).clone();
-    (k : usize) = j;
-    while(k > usize(0), {
-      prev := unsafe((buf.add(k - usize(1))).*);
-      if(prev <= key, {
-        break;
+  // An empty (or single-element) list has nothing to sort — and an empty
+  // ArrayList's ptr() is None, so the unwrap below must not run (same
+  // guard as encode.yo's _sorted_lines; reachable whenever an obligation
+  // declares no names at all, e.g. a literal-only ensures).
+  if(out.len() > usize(1), {
+    buf := out.ptr().unwrap();
+    (j : usize) = usize(1);
+    while(j < out.len(), {
+      key := unsafe((buf.add(j)).*).clone();
+      (k : usize) = j;
+      while(k > usize(0), {
+        prev := unsafe((buf.add(k - usize(1))).*);
+        if(prev <= key, {
+          break;
+        });
+        unsafe((buf.add(k)).* = prev);
+        k = (k - usize(1));
       });
-      unsafe((buf.add(k)).* = prev);
-      k = (k - usize(1));
+      unsafe((buf.add(k)).* = key);
+      j = (j + usize(1));
     });
-    unsafe((buf.add(k)).* = key);
-    j = (j + usize(1));
   });
   out
 });
@@ -417,6 +535,7 @@ _collect_declared :: (fn(t : VcTerm, out : HashMap(String, VcSort)) -> unit)(
     },
     .BvLit(_, _) => (),
     .BoolLit(_) => (),
+    .ArrConst(_, lit) => _collect_declared(lit, out),
     .App(_, args) => {
       (i : usize) = usize(0);
       while(i < args.len(), {
@@ -452,9 +571,18 @@ _collect_declared :: (fn(t : VcTerm, out : HashMap(String, VcSort)) -> unit)(
     // body's free vars into a fresh map, drop the bound names, then merge
     // (an outer occurrence of the same name elsewhere in the goal still
     // declares it — the merge is insert-if-absent).
-    .Quant(_, names, _, body) => {
+    .Quant(_, names, _, body, triggers) => {
       inner := HashMap(String, VcSort).new();
       _collect_declared(body, inner);
+      (ti2 : usize) = usize(0);
+      while(ti2 < triggers.len(), {
+        match(
+          triggers.get(ti2),
+          .Some(tr) => _collect_declared(tr, inner),
+          .None => ()
+        );
+        ti2 = (ti2 + usize(1));
+      });
       (qi : usize) = usize(0);
       while(qi < names.len(), {
         match(
@@ -501,6 +629,7 @@ _rename_vars :: (fn(t : VcTerm, map : HashMap(String, String)) -> VcTerm)(
     ),
     .BvLit(_, _) => t,
     .BoolLit(_) => t,
+    .ArrConst(sort, lit) => VcTerm.ArrConst(sort : sort, lit : _rename_vars(lit, map)),
     .App(op, args) => {
       out := ArrayList(VcTerm).new();
       (i : usize) = usize(0);
@@ -535,7 +664,7 @@ _rename_vars :: (fn(t : VcTerm, map : HashMap(String, String)) -> VcTerm)(
     .Proj(ctor, idx, child) => VcTerm.Proj(ctor : ctor.clone(), idx : idx, t : _rename_vars(child, map)),
     // Bound names are NOT renamed (the binder keeps its raw spelling; a
     // coinciding outer name stays outer everywhere else).
-    .Quant(kind, names, sorts, body) => {
+    .Quant(kind, names, sorts, body, triggers) => {
       inner_map := HashMap(String, String).new();
       mit := map.keys();
       (mgo : bool) = true;
@@ -572,7 +701,23 @@ _rename_vars :: (fn(t : VcTerm, map : HashMap(String, String)) -> VcTerm)(
           }
         );
       });
-      VcTerm.Quant(kind, names, sorts, _rename_vars(body, inner_map))
+      renamed_triggers := ArrayList(VcTerm).new();
+      (tri : usize) = usize(0);
+      while(tri < triggers.len(), {
+        match(
+          triggers.get(tri),
+          .Some(tr) => renamed_triggers.push(_rename_vars(tr, inner_map)),
+          .None => ()
+        );
+        tri = (tri + usize(1));
+      });
+      VcTerm.Quant(
+        kind : kind,
+        names : names,
+        sorts : sorts,
+        body : _rename_vars(body, inner_map),
+        triggers : renamed_triggers
+      )
     }
   )
 );
@@ -617,6 +762,64 @@ _app2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> VcTerm)({
   args.push(a);
   args.push(b);
   VcTerm.App(op, args)
+});
+/// `((_ int2bv 64) (seq.len a))` — the length as a 64-bit vector.
+_seq_len_bv :: (fn(a : VcTerm) -> VcTerm)({
+  inner := ArrayList(VcTerm).new();
+  inner.push(a);
+  outer := ArrayList(VcTerm).new();
+  outer.push(VcTerm.App(VcOp.SeqLen, inner));
+  VcTerm.App(VcOp.IntToBvOp(width : usize(64)), outer)
+});
+_app3 :: (fn(op : VcOp, a : VcTerm, b : VcTerm, c : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  args.push(a);
+  args.push(b);
+  args.push(c);
+  VcTerm.App(op, args)
+});
+/// The best-effort sort of a term (for Array domains when the operand is
+/// a derived expression rather than a Var).
+_term_sort_of :: (fn(t : VcTerm) -> VcSort)(
+  cond(
+    (_term_width(t) > usize(1)) => VcSort.BvS(width : _term_width(t)),
+    true => VcSort.BoolS
+  )
+);
+/// A comptime str literal's bytes as a right-nested seq.++ of seq.unit.
+_str_bytes_term :: (fn(info : ExprInfo) -> Option(VcTerm))({
+  quoted := match(
+    info.value,
+    .Some(v) => match(
+      v,
+      .StrLit(r) => r.clone(),
+      _ => String.new()
+    ),
+    .None => String.new()
+  );
+  // StrLit.raw carries the surrounding quotes (exprs/import.yo) — strip
+  // them; what folds into seq.units is the CONTENT.
+  raw := quoted.slice_copy(usize(1) .. (quoted.len() - usize(1)));
+  if(raw.len() == usize(0), {
+    // The empty string is still a legitimate Seq(u8) — but there is no
+    // (seq.empty) term variant; represent it as unit(fold) of nothing via
+    // a distinguishing failure instead (specs on the empty string wait for
+    // a SeqEmpty term; honest subset error).
+    return(Option(VcTerm).None);
+  });
+  out := Option(VcTerm).None;
+  (i : usize) = usize(0);
+  while(i < raw.len(), {
+    b := VcTerm.BvLit(value : u64(raw.byte_at(i)), width : usize(8));
+    u := _app1(VcOp.SeqUnit, b);
+    out = match(
+      out,
+      .Some(acc) => Option(VcTerm).Some(_app2(VcOp.SeqConcat, acc, u)),
+      .None => Option(VcTerm).Some(u)
+    );
+    i = (i + usize(1));
+  });
+  out
 });
 _zero_of :: (fn(w : usize) -> VcTerm)(VcTerm.BvLit(value : u64(0), width : w));
 /// Build the term for `e`. `.None` = outside the subset (already recorded).
@@ -1305,7 +1508,21 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
                   out.push(name.clone());
                 });
               },
-              .None => ()
+              .None => {
+                // An index write `a(i) = v` assigns the ARRAY name (the
+                // walk rebinds it to store(a, i, v)); shape-only here —
+                // the scan has no binding table, and a false positive is
+                // a sound extra havoc.
+                match(
+                  _index_write_name_shape(fargs.get(usize(0)).unwrap()),
+                  .Some(aname) => {
+                    if(!out.contains(aname.clone()), {
+                      out.push(aname.clone());
+                    });
+                  },
+                  .None => ()
+                );
+              }
             );
           });
           (i : usize) = usize(0);
@@ -1472,9 +1689,13 @@ _havoc_assigned :: (fn(inout(ctx) : VcCtx, assigned : ArrayList(String)) -> unit
   while(ai < assigned.len(), {
     name := assigned.get(ai).unwrap();
     srt := match(
-      ctx.vars.get(name.clone()),
-      .Some(old) => _havoc_binding_sort(old),
-      .None => VcSort.BoolS
+      ctx.array_sorts.get(name.clone()),
+      .Some(asrt) => asrt,
+      .None => match(
+        ctx.vars.get(name.clone()),
+        .Some(old) => _havoc_binding_sort(old),
+        .None => VcSort.BoolS
+      )
     );
     hv := `__yo_hv${ctx.havoc.to_string()}_${name.clone()}`;
     ctx.vars.insert(name.clone(), VcTerm.Var(name : hv, sort : srt));
@@ -1549,12 +1770,17 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
     );
     hi = (hi + usize(1));
   });
+  // The cond is walked UNDER the invariant, not before it: the head is
+  // only ever reached from states satisfying Inv, so obligations the
+  // cond's own walk emits (an index read inside the condition) must see
+  // the havoced state's invariant facts. Walking it before the push left
+  // those obligations against an unconstrained fresh constant.
+  path_mark := ctx.path.len();
+  ctx.path.push(_and_terms(inv_havoc_terms));
   cond_havoc := _expr_term(ctx, args.get(usize(0)).unwrap());
   if(cond_havoc.is_none(), {
     return(Option(VcTerm).None);
   });
-  path_mark := ctx.path.len();
-  ctx.path.push(_and_terms(inv_havoc_terms));
   ctx.path.push(cond_havoc.unwrap());
   // Optional measure over the havoced state.
   m_havoc := match(
@@ -1655,7 +1881,17 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
     );
     xi = (xi + usize(1));
   });
+  // Walk the exit cond under the invariant — the same reasoning as the
+  // iterate cond (every head evaluation happens in a state satisfying
+  // Inv, and the cond-exit disjunct assumes Inv). The bracket is popped
+  // immediately so the post-loop path keeps its own shape (the no-breaks
+  // branch pushes Inv ∧ ¬Cond again below).
+  cond_guard_mark := ctx.path.len();
+  ctx.path.push(_and_terms(inv_exit));
   cond_exit := _expr_term(ctx, args.get(usize(0)).unwrap());
+  while(ctx.path.len() > cond_guard_mark, {
+    ctx.path.pop();
+  });
   if(cond_exit.is_none(), {
     return(Option(VcTerm).None);
   });
@@ -1806,7 +2042,9 @@ _quant_term :: (
     );
     bi = (bi + usize(1));
   });
+  ctx.quant_depth = (ctx.quant_depth + usize(1));
   body := _expr_term(ctx, args.get(args.len() - usize(1)).unwrap());
+  ctx.quant_depth = (ctx.quant_depth - usize(1));
   // Restore the shadowed bindings (a missing binding goes back to missing).
   (si : usize) = saved_names.len();
   while(si > usize(0), {
@@ -1836,7 +2074,15 @@ _quant_term :: (
   });
   match(
     body,
-    .Some(bt) => Option(VcTerm).Some(VcTerm.Quant(kind : kind, names : qnames, sorts : qsorts, body : bt)),
+    .Some(bt) => Option(VcTerm).Some(
+      VcTerm.Quant(
+        kind : kind,
+        names : qnames,
+        sorts : qsorts,
+        body : bt,
+        triggers : ArrayList(VcTerm).new()
+      )
+    ),
     .None => Option(VcTerm).None
   )
 });
@@ -1883,17 +2129,45 @@ _call_term :: (
   bin := _binop_of_ctx(ctx, head, args);
   if(bin.is_some() && (n == usize(2)), {
     a_opt := _expr_term(ctx, args.get(usize(0)).unwrap());
+    at := match(
+      a_opt,
+      .Some(t0) => t0,
+      .None => VcTerm.BoolLit(true)
+    );
+    // Short-circuit guards: `&&`/`||` do not evaluate the RHS when the
+    // LHS already decided the result, so obligations emitted while
+    // walking the RHS (an index read's bounds, a divisor-nonzero) are
+    // only real on paths where the LHS let evaluation continue. Bracket
+    // the RHS walk with the LHS's term (positive for `&&`, negated for
+    // `||`) as a path assumption — the same discipline cond arms use.
+    // ONLY `&&`/`||` bracket: an ordinary binop's RHS walk may itself
+    // push legitimate path entries (a contracted callee's ensures), and
+    // popping to the mark would destroy them.
+    guard_mark := ctx.path.len();
+    op0 := match(
+      bin,
+      .Some(o0) => o0,
+      .None => VcOp.BvAdd
+    );
+    is_short_circuit := ((op0 == VcOp.AndOp) || (op0 == VcOp.OrOp));
+    if(is_short_circuit, {
+      if(op0 == VcOp.AndOp, {
+        ctx.path.push(at);
+      }, {
+        ctx.path.push(_app1(VcOp.NotOp, at));
+      });
+    });
     b_opt := _expr_term(ctx, args.get(usize(1)).unwrap());
+    if(is_short_circuit, {
+      while(ctx.path.len() > guard_mark, {
+        ctx.path.pop();
+      });
+    });
     if(a_opt.is_none() || b_opt.is_none(), {
       return(Option(VcTerm).None);
     });
-    at := a_opt.unwrap();
     bt := b_opt.unwrap();
-    op := match(
-      bin,
-      .Some(o) => o,
-      .None => VcOp.BvAdd
-    );
+    op := op0;
     // AoRTE: division/remainder divisor non-zero.
     if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
       _emit(ctx, String.from("divisor-nonzero"), ArrayList(VcTerm).new(), _nonzero_term(bt));
@@ -1978,6 +2252,35 @@ _call_term :: (
       e
     );
     return(Option(VcTerm).None);
+  });
+  // --- ghost(x := e) (V5 task 3 slice 2): a SPEC rebind ---------------------
+  // The binding is erased from codegen but the WALK tracks it — later spec
+  // code (assert predicates, ghost_fn calls) reads it through ctx.vars.
+  if((head == "ghost") && (n == usize(1)) && ast_expr_is_fn_call_of(args.get(usize(0)).unwrap(), ":=", Option(usize).Some(usize(2))), {
+    ga := match(
+      args.get(usize(0)).unwrap(),
+      .FnCall(_, _, a2, _, _) => a2,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    );
+    gv := _expr_term(ctx, ga.get(usize(1)).unwrap());
+    return(
+      match(
+        gv,
+        .Some(gvt) => {
+          gn := ga.get(usize(0));
+          is_plain_name := match(
+            gn,
+            .Some(gnx) => ast_expr_is_atom(gnx),
+            .None => false
+          );
+          if(is_plain_name, {
+            ctx.vars.insert(ast_expr_token(ga.get(usize(0)).unwrap()).value.clone(), gvt);
+          });
+          Option(VcTerm).Some(VcTerm.BoolLit(true))
+        },
+        .None => Option(VcTerm).None
+      )
+    );
   });
   // --- begin blocks --------------------------------------------------------
   if(head == "begin", {
@@ -2079,6 +2382,265 @@ _call_term :: (
   if(((head == "forall") || (head == "exists")) && (n >= usize(2)), {
     return(_quant_term(ctx, e, head, args));
   });
+  // --- std/spec ghost collections (V5 task 5) -----------------------------
+  // seq_unit / seq_append / seq_len / seq_nth over the SMT Seq sort;
+  // ms_single / ms_add / ms_count and set_single / set_add / set_contains
+  // over Array sorts (Multiset: elem→count, Set: elem→membership). Ghost
+  // only (same gate as the quantifiers at the evaluator level); the sorts
+  // come from the walked operands' own sorts.
+  if((head == "seq_unit") && (n == usize(1)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    return(
+      match(
+        a,
+        .Some(at) => Option(VcTerm).Some(_app1(VcOp.SeqUnit, at)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "seq_append") && (n == usize(2)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(a.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    b := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        b,
+        .Some(bt) => Option(VcTerm).Some(_app2(VcOp.SeqConcat, a.unwrap(), bt)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "seq_len") && (n == usize(1)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    return(
+      match(
+        a,
+        // seq.len is an SMT Int; the subset is bitvectors — int2bv 64 so
+        // comparisons against integer literals work.
+        .Some(at) => Option(VcTerm).Some(_seq_len_bv(at)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "seq_nth") && (n == usize(2)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(a.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    b := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        b,
+        // seq.nth's index is an SMT Int — bv2nat the (non-negative) index.
+        .Some(bt) => Option(VcTerm).Some(_app2(VcOp.SeqNth, a.unwrap(), _app1(VcOp.Bv2NatOp, bt))),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "str_bytes") && (n == usize(1)), {
+    // A str LITERAL's content as Seq(u8): fold seq.unit over the bytes,
+    // right-nested seq.++. The operand must be comptime (a str param is
+    // outside the verify subset) — read it straight from the ExprInfo,
+    // never through the name walk.
+    lit := args.get(usize(0)).unwrap();
+    return(
+      match(
+        expr_info_table_get(ctx.table, ast_expr_id(lit)),
+        .Some(si) => _str_bytes_term(si),
+        .None => {
+          _fail_subset(ctx, String.from("str_bytes(...) needs a comptime string (str params are outside the subset)"), e);
+          Option(VcTerm).None
+        }
+      )
+    );
+  });
+  if(((head == "ms_single") || (head == "set_single")) && (n == usize(1)), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    return(
+      match(
+        a,
+        .Some(at) => {
+          es := match(at, .Var(_, s) => s, _ => _term_sort_of(at));
+          empty := cond(
+            (head == "ms_single") => VcTerm.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BvS(width : usize(64))), lit : VcTerm.BvLit(value : u64(0), width : usize(64))),
+            true => VcTerm.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BoolS), lit : VcTerm.BoolLit(false))
+          );
+          one := cond(
+            (head == "ms_single") => VcTerm.BvLit(value : u64(1), width : usize(64)),
+            true => VcTerm.BoolLit(true)
+          );
+          Option(VcTerm).Some(_app3(VcOp.StoreOp, empty, at, one))
+        },
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "ms_add") && (n == usize(2)), {
+    m := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(m.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    x := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        x,
+        .Some(xt) => {
+          mv := m.unwrap();
+          cur := _app2(VcOp.SelectOp, mv, xt);
+          one := VcTerm.BvLit(value : u64(1), width : usize(64));
+          bumped := _app2(VcOp.BvAdd, cur, one);
+          Option(VcTerm).Some(_app3(VcOp.StoreOp, mv, xt, bumped))
+        },
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if((head == "set_add") && (n == usize(2)), {
+    m := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(m.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    x := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        x,
+        .Some(xt) => Option(VcTerm).Some(_app3(VcOp.StoreOp, m.unwrap(), xt, VcTerm.BoolLit(true))),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  if(((head == "ms_count") || (head == "set_contains")) && (n == usize(2)), {
+    m := _expr_term(ctx, args.get(usize(0)).unwrap());
+    if(m.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    x := _expr_term(ctx, args.get(usize(1)).unwrap());
+    return(
+      match(
+        x,
+        .Some(xt) => Option(VcTerm).Some(_app2(VcOp.SelectOp, m.unwrap(), xt)),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  // --- array indexing `a(i)` (V5 task 6) -----------------------------------
+  // A call whose head names a BOUND ARRAY value is an index read:
+  // select(a, i). The index is zero-extended to the array's BV64 index
+  // sort (a provably in-bounds index is non-negative). The bounds are an
+  // AoRTE obligation — except inside a quantifier body, where the spec's
+  // own guards carry them (a free-variable bounds goal under a binder
+  // would be unprovable nonsense).
+  if(n == usize(1), {
+    bound_arr := match(
+      ctx.array_sorts.get(head.clone()),
+      .Some(srt) => match(
+        srt,
+        .ArrS(_, _) => Option(VcSort).Some(srt),
+        _ => Option(VcSort).None
+      ),
+      .None => Option(VcSort).None
+    );
+    match(
+      bound_arr,
+      .Some(srt) => {
+        arr_t := match(
+          ctx.vars.get(head.clone()),
+          .Some(av) => av,
+          .None => VcTerm.BoolLit(true)
+        );
+        idx := _expr_term(ctx, args.get(usize(0)).unwrap());
+        return(
+          match(
+            idx,
+            .Some(it) => {
+              alen := match(
+                srt,
+                .ArrS(_, l2) => l2,
+                _ => usize(0)
+              );
+              if(ctx.quant_depth == usize(0), {
+                _emit(
+                  ctx,
+                  String.from("index-in-bounds"),
+                  ArrayList(VcTerm).new(),
+                  _lt_unsigned_term(it, VcTerm.BvLit(value : u64(alen), width : _term_width(it)))
+                );
+              });
+              Option(VcTerm).Some(_app2(VcOp.SelectOp, arr_t, _idx64(it)))
+            },
+            .None => Option(VcTerm).None
+          )
+        );
+      },
+      .None => ()
+    );
+  });
+  // --- ms_of(a) (V5 task 6): an Array's elements as a ghost Multiset ------
+  // `(__yo_msof_<elem> a)` — an UNINTERPRETED function whose meaning is a
+  // per-array DEFINITION axiom (count(x) = Σ_k ite(a(k)==x, 1, 0)) with a
+  // `:pattern` on (select (ms_of a) x), registered once per distinct array
+  // term. The naive alternative — inlining the store fold at every use —
+  // put 100 KB+ chains into each obligation and drowned both MBQI and
+  // E-matching (measured: the insertion sort's outer iterate went unknown
+  // at rlimit 10⁸ with folds, proves in seconds with the axiom).
+  if((head == "ms_of") && (n == usize(1)), {
+    a0 := args.get(usize(0)).unwrap();
+    asort := match(
+      expr_info_table_get(ctx.table, ast_expr_id(a0)),
+      .Some(ai) => match(
+        _type_sort(ai.ty),
+        .Some(srt) => match(
+          srt,
+          .ArrS(_, _) => Option(VcSort).Some(srt),
+          _ => Option(VcSort).None
+        ),
+        .None => Option(VcSort).None
+      ),
+      .None => Option(VcSort).None
+    );
+    return(
+      match(
+        asort,
+        .Some(srt) => {
+          arr_t := _expr_term(ctx, a0);
+          match(
+            arr_t,
+            .Some(at) => {
+              es := match(
+                srt,
+                .ArrS(e2, _) => e2,
+                _ => VcSort.BoolS
+              );
+              m := match(
+                srt,
+                .ArrS(_, l2) => l2,
+                _ => usize(0)
+              );
+              // The application: a Ctor term named `__yo_msof_<elem-key>`
+              // (Ctor renders `(<name> <args>)` — the uninterpreted-
+              // application shape; VcOp has no String-payload variant).
+              msf_args := ArrayList(VcTerm).new();
+              msf_args.push(at);
+              msf := VcTerm.Ctor(name : `__yo_msof_${_msof_key(es)}`, args : msf_args);
+              _note_ms_of(ctx, msf, at, es, m);
+              Option(VcTerm).Some(msf)
+            },
+            .None => Option(VcTerm).None
+          )
+        },
+        .None => {
+          _fail_subset(
+            ctx,
+            String.from("ms_of(...) needs a fixed-length Array(T, N) operand"),
+            e
+          );
+          Option(VcTerm).None
+        }
+      )
+    );
+  });
   // --- calls to contracted callees ----------------------------------------
   return(_callee_call_term(ctx, e, args, info));
 });
@@ -2147,6 +2709,16 @@ _widen_or_trunc :: (fn(t : VcTerm, src_w : usize, dst_w : usize, src_signed : bo
     });
   });
   _app1(VcOp.ExtractOp(hi : (dst_w - usize(1)), lo : usize(0)), t)
+});
+/// An array index term in the arrays' BV64 index sort: zero-extended from
+/// its own width (an in-bounds index is non-negative, so zero-extension
+/// preserves it). Widths ≥ 64 pass through.
+_idx64 :: (fn(t : VcTerm) -> VcTerm)({
+  w := _term_width(t);
+  cond(
+    (w >= usize(64)) => t,
+    true => _app1(VcOp.ZeroExtendOp(extra : (usize(64) - w)), t)
+  )
 });
 /// `cond(c1 => v1, …, true => vN)` as nested ite VALUES (V3: no branch-local
 /// obligations — the whole cond is one value).
@@ -2450,12 +3022,116 @@ _typed_binding_lhs_name :: (fn(lhs : AstExpr) -> Option(String))(
 );
 /// The name a binding statement binds: `x := v` / `x = v` (Atom lhs) or
 /// the declared form `(x : T) = v` (`:`-call lhs). `.None` for anything
-/// else (field writes, index writes — outside the V3 subset).
+/// else (field writes stay outside the subset; index writes are handled
+/// by `_index_write_target`).
 _binding_name_of :: (fn(lhs : AstExpr) -> Option(String))(
   cond(
     ast_expr_is_atom(lhs) => Option(String).Some(ast_expr_token(lhs).value),
     ast_expr_is_fn_call_of(lhs, ":", Option(usize).Some(usize(2))) => _typed_binding_lhs_name(lhs),
     true => Option(String).None
+  )
+);
+/// The array name of an index-write LHS `a(i)` by SHAPE alone — a
+/// one-arg call on a bare name. The havoc scan uses this without a
+/// binding table; a false positive only havocs one extra name (sound).
+_index_write_name_shape :: (fn(lhs : AstExpr) -> Option(String))(
+  match(
+    lhs,
+    .FnCall(_, f, a, _, _) => cond(
+      (ast_expr_is_atom(f) && (a.len() == usize(1))) => Option(String).Some(ast_expr_token(f).value),
+      true => Option(String).None
+    ),
+    .Atom(_, _) => Option(String).None
+  )
+);
+/// The name an index-write LHS `a(i)` targets, when `a` is bound to an
+/// array value in this context; `.None` otherwise.
+_index_write_target :: (fn(inout(ctx) : VcCtx, lhs : AstExpr) -> Option(String))(
+  match(
+    _index_write_name_shape(lhs),
+    .Some(nm) => match(
+      ctx.array_sorts.get(nm.clone()),
+      .Some(_) => Option(String).Some(nm),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+);
+/// Register the definition axiom for one `ms_of` application, deduped by
+/// the encoded ARRAY term: `(! forall ((__yo_msx (Array <elem> BV64)))
+/// (= (select (ms_of a) __yo_msx) (bvadd (ite (= (select a 0) __yo_msx)
+/// 1 0) ...)) :pattern ((select (ms_of a) __yo_msx)))`. The pattern
+/// fires E-matching exactly where a ground select of this multiset
+/// appears (a negated goal's skolem, an instantiated invariant).
+_note_ms_of :: (
+  fn(inout(ctx) : VcCtx, msf : VcTerm, arr : VcTerm, elem : VcSort, len : usize) -> unit
+)({
+  key := encode_term(arr);
+  dup := ctx.ms_axiom_keys.contains(key.clone());
+  if(!dup, {
+    ctx.ms_axiom_keys.push(key.clone());
+    if(!ctx.fundecl_keys.contains(`__yo_msof_${_msof_key(elem)}`), {
+      ctx.fundecl_keys.push(`__yo_msof_${_msof_key(elem)}`);
+      ctx.fundecls.push(elem);
+    });
+    // The counted ELEMENT is the binder — sort `elem`, NOT the count
+    // array's sort.
+    x := VcTerm.Var(name : String.from("__yo_msx"), sort : elem);
+    lhs := _app2(VcOp.SelectOp, msf, x);
+    sum := VcTerm.BvLit(value : u64(0), width : usize(64));
+    one := VcTerm.BvLit(value : u64(1), width : usize(64));
+    zero := VcTerm.BvLit(value : u64(0), width : usize(64));
+    (k : usize) = usize(0);
+    while(k < len, {
+      elemk := _app2(VcOp.SelectOp, arr, VcTerm.BvLit(value : u64(k), width : usize(64)));
+      isx := _app2(VcOp.EqOp, elemk, x);
+      ite_args := ArrayList(VcTerm).new();
+      ite_args.push(isx);
+      ite_args.push(one);
+      ite_args.push(zero);
+      contribution := VcTerm.App(VcOp.IteOp, ite_args);
+      sum = _app2(VcOp.BvAdd, sum, contribution);
+      k = (k + usize(1));
+    });
+    body := _app2(VcOp.EqOp, lhs, sum);
+    names := ArrayList(String).new();
+    names.push(String.from("__yo_msx"));
+    sorts := ArrayList(VcSort).new();
+    sorts.push(elem);
+    triggers := ArrayList(VcTerm).new();
+    triggers.push(lhs);
+    ctx.axioms.push(
+      VcTerm.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : body, triggers : triggers)
+    );
+  });
+  ()
+});
+/// Keep `ctx.array_sorts` in step with a name binding: an RHS of
+/// fixed-length Array type records its ArrS sort; any other type clears
+/// a stale entry, so a name re-shadowed as a non-array never reads as
+/// indexable. A missing ExprInfo leaves the table alone.
+_note_array_binding :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> unit)(
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(rhs)),
+    .Some(ri) => match(
+      _type_sort(ri.ty),
+      .Some(rsort) => match(
+        rsort,
+        .ArrS(_, _) => {
+          ctx.array_sorts.insert(name.clone(), rsort);
+          ()
+        },
+        _ => {
+          _ := ctx.array_sorts.remove(name.clone());
+          ()
+        }
+      ),
+      .None => {
+        _ := ctx.array_sorts.remove(name.clone());
+        ()
+      }
+    ),
+    .None => ()
   )
 );
 /// The `()` unit literal — the parser's trailing element of blocks that
@@ -2507,8 +3183,10 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
     // Bindings: `name := value` and `name = value` / `(name : T) = value`.
     // A reassignment is an SSA REBIND of the same source name — sound for
     // straight-line code (the old term is simply shadowed); mutation-based
-    // two-state reasoning is V5. Non-name assignments (field/index writes)
-    // are outside the subset.
+    // two-state reasoning is V5. Non-name assignments: an INDEX WRITE
+    // `a(i) = v` is the V5 task-6 array update (the name rebinds to
+    // store(a, i, v), same SSA discipline); field writes stay outside the
+    // subset.
     is_bind := ast_expr_is_fn_call_of(stmt, ":=", Option(usize).Some(usize(2)));
     is_assign := ast_expr_is_fn_call_of(stmt, "=", Option(usize).Some(usize(2)));
     if(is_bind || is_assign, {
@@ -2525,6 +3203,7 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
             v,
             .Some(vt) => {
               ctx.vars.insert(name.clone(), vt);
+              _note_array_binding(ctx, name.clone(), ba.get(usize(1)).unwrap());
               result = Option(VcTerm).Some(vt);
             },
             .None => {
@@ -2533,8 +3212,64 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
           );
         },
         .None => {
-          _fail_subset(ctx, String.from("assignment to a non-name (field/index writes are outside the V3 subset)"), stmt);
-          return(Option(VcTerm).None);
+          // `a(i) = v` — an index write on a bound array.
+          iw := match(
+            is_assign,
+            true => _index_write_target(ctx, ba.get(usize(0)).unwrap()),
+            false => Option(String).None
+          );
+          match(
+            iw,
+            .Some(aname) => {
+              la := match(
+                ba.get(usize(0)).unwrap(),
+                .FnCall(_, _, a3, _, _) => a3,
+                .Atom(_, _) => ArrayList(AstExpr).new()
+              );
+              idx := _expr_term(ctx, la.get(usize(0)).unwrap());
+              if(idx.is_none(), {
+                return(Option(VcTerm).None);
+              });
+              val := _expr_term(ctx, ba.get(usize(1)).unwrap());
+              match(
+                val,
+                .Some(vt) => {
+                  base := match(
+                    ctx.vars.get(aname.clone()),
+                    .Some(av) => av,
+                    .None => VcTerm.BoolLit(true)
+                  );
+                  alen := match(
+                    ctx.array_sorts.get(aname.clone()),
+                    .Some(asrt) => match(
+                      asrt,
+                      .ArrS(_, l2) => l2,
+                      _ => usize(0)
+                    ),
+                    .None => usize(0)
+                  );
+                  _emit(
+                    ctx,
+                    String.from("index-in-bounds"),
+                    ArrayList(VcTerm).new(),
+                    _lt_unsigned_term(idx.unwrap(), VcTerm.BvLit(value : u64(alen), width : _term_width(idx.unwrap())))
+                  );
+                  ctx.vars.insert(
+                    aname.clone(),
+                    _app3(VcOp.StoreOp, base, _idx64(idx.unwrap()), vt)
+                  );
+                  result = Option(VcTerm).Some(VcTerm.BoolLit(true));
+                },
+                .None => {
+                  return(Option(VcTerm).None);
+                }
+              );
+            },
+            .None => {
+              _fail_subset(ctx, String.from("assignment to a non-name (field writes are outside the subset; index writes need a bound array)"), stmt);
+              return(Option(VcTerm).None);
+            }
+          );
         }
       );
     }, {
@@ -2558,6 +3293,122 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
     i = (i + usize(1));
   });
   result
+});
+/// V5 task 3 slice 2: inline a ghost_fn call — the spec function's BODY
+/// walks with the actuals bound to its parameters (Dafny's spec-function
+/// semantics; a ghost_fn has no contracts to assume, so its meaning IS its
+/// body). Guarded against recursion by an inlining stack: a spec function
+/// that reaches itself — directly or through another ghost_fn — has no
+/// finite expansion and is rejected.
+_ghost_fn_inline_term :: (
+  fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
+)({
+  (si : usize) = usize(0);
+  while(si < g_ghost_inline_stack.len(), {
+    if(g_ghost_inline_stack.get(si).unwrap() == fid, {
+      _fail_subset(ctx, String.from("recursive ghost_fn inlining (a spec function must not reach itself)"), at);
+      return(Option(VcTerm).None);
+    });
+    si = (si + usize(1));
+  });
+  callee_atom := match(
+    at,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => at
+  );
+  params := ArrayList(String).new();
+  (body : AstExpr) = make_err_expr();
+  (found : bool) = false;
+  match(
+    expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
+    .Some(ci) => {
+      match(
+        ci.value,
+        .Some(v) => {
+          match(
+            v,
+            .FuncVal(gfvd, _) => {
+              params = gfvd.*.params;
+              body = gfvd.*.body;
+              found = true;
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  if(!found, {
+    _fail_subset(ctx, String.from("ghost_fn callee without a resolvable body"), at);
+    return(Option(VcTerm).None);
+  });
+  if(args.len() != params.len(), {
+    _fail_subset(ctx, `ghost_fn call arity mismatch (${args.len().to_string()} args, ${params.len().to_string()} params)`, at);
+    return(Option(VcTerm).None);
+  });
+  // Walk the actuals, bind the spec params, walk the body, restore.
+  saved_names := ArrayList(String).new();
+  saved_vals := ArrayList(Option(VcTerm)).new();
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    match(
+      args.get(i),
+      .Some(a) => {
+        v := _expr_term(ctx, a);
+        match(
+          v,
+          .Some(vt) => {
+            match(
+              params.get(i),
+              .Some(cp) => {
+                saved_names.push(cp.clone());
+                saved_vals.push(ctx.vars.get(cp.clone()));
+                ctx.vars.insert(cp.clone(), vt);
+              },
+              .None => ()
+            );
+          },
+          .None => {
+            return(Option(VcTerm).None);
+          }
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_ghost_inline_stack.push(fid.clone());
+  out := _expr_term(ctx, body);
+  _ := g_ghost_inline_stack.pop();
+  (ri : usize) = saved_names.len();
+  while(ri > usize(0), {
+    ri = (ri - usize(1));
+    match(
+      saved_names.get(ri),
+      .Some(sn) => {
+        match(
+          saved_vals.get(ri),
+          .Some(sv) => {
+            match(
+              sv,
+              .Some(old) => {
+                ctx.vars.insert(sn.clone(), old);
+              },
+              .None => {
+                _ := ctx.vars.remove(sn.clone());
+                ()
+              }
+            );
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
+  out
 });
 /// Calls to a contracted callee: prove requires under the caller path,
 /// then assume ensures with a fresh result var bound.
@@ -2589,6 +3440,12 @@ _callee_call_term :: (
     return(Option(VcTerm).None);
   });
   fid := callee_id.unwrap();
+  // V5 task 3 slice 2: a ghost_fn callee is INLINED — its body walks with
+  // the actuals bound to its parameters (spec functions carry no contracts;
+  // their meaning IS the body).
+  if(is_ghost_fn(fid.clone()), {
+    return(_ghost_fn_inline_term(ctx, e, args, fid.clone()));
+  });
   // Recursion (V4): a self-call needs `decreases(M)`. The measure of the
   // CURRENT state is captured BEFORE the param rebinding; after the
   // rebinding (callee params = actual terms) the measure evaluates as the
@@ -2790,7 +3647,8 @@ _term_width :: (fn(t : VcTerm) -> usize)(
     .Ctor(_, _) => usize(1),
     .Test(_, _) => usize(1),
     .Proj(_, _, _) => usize(1),
-    .Quant(_, _, _, _) => usize(1)
+    .Quant(_, _, _, _, _) => usize(1),
+    .ArrConst(_, _) => usize(1)
   )
 );
 // ============================================================================
@@ -2832,9 +3690,17 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
               _type_sort(pt),
               .Some(sort) => {
                 ctx.vars.insert(pn.clone(), VcTerm.Var(name : pn.clone(), sort : sort));
+                match(
+                  sort,
+                  .ArrS(_, _) => {
+                    ctx.array_sorts.insert(pn.clone(), sort);
+                    ()
+                  },
+                  _ => ()
+                );
               },
               .None => {
-                _fail_subset(ctx, String.from("parameter outside the integer/bool subset"), input.body);
+                _fail_subset(ctx, String.from("parameter outside the integer/bool/array subset"), input.body);
               }
             );
           },

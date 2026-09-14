@@ -1,0 +1,14 @@
+// The Set flavor: membership over an Array to Bool. A member added twice
+// is still just present.
+pragma(Pragma.Verify);
+
+set_has :: (
+  fn(
+    x : i32,
+    requires(x >= i32(0)),
+    ensures(set_contains(set_add(set_add(set_single(x), x), x), x))
+  ) -> (result : i32)
+)({
+  z := x;
+  z
+});

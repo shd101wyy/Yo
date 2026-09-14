@@ -1,7 +1,7 @@
 # In an `io.async` body, a match arm whose body holds a value-producing INNER match with an await is emitted as NOTHING
 
 **Status:** FIXED 2026-09-11 (`fix/async-nested-match-dead-arm`) — see "Fix" below.
-Was the root cause of `issues/yo-install-git-dependency-writes-an-empty-ref.md`.
+Was the root cause of `issues/fixed/yo-install-git-dependency-writes-an-empty-ref.md`.
 **Found:** 2026-09-11, bisecting `run_install` by body substitution. Reproduces
 with `yo 0.2.30` and with develop's codegen (a gen-1 binary built from
 `p1/imports-plumbing` compiling the reproducer).

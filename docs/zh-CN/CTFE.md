@@ -129,6 +129,75 @@ Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))
 IntArray5 :: Array(i32, 5);
 ```
 
+### 编译期读取文件：`comptime_read_file`
+
+`comptime_read_file(path)` 在编译期读取文件，并把其字节作为 `comptime_str` 返回
+——相当于 Zig 的 `@embedFile`：
+
+```rust
+VERSION :: comptime_read_file("./VERSION");
+SHADER  :: comptime_read_file("./shaders/blit.wgsl");
+
+comptime_assert(VERSION == "0.4.1\n");   // 在编译期检查
+```
+
+两条规则保证它的行为可预测：
+
+1. **路径相对于发起 import 的文件**，而不是进程的工作目录。无论从哪里执行
+   `yo build`，同一个模块读到的字节都相同。
+2. **必须落在该文件所属的包根目录内**——即其上方最近的 `yo.toml` 所在目录，
+   否则是最近包含 `build.yo` 的目录，再否则是该文件自身所在目录。越界读取是编译
+   错误；检查基于词法折叠后的路径，因此 `..` 无法先爬出去再绕回来。
+
+文件不存在同样是编译错误，并在调用处报告。
+
+该文件是本次编译的**输入**：`yo compile --emit-deps` 会列出它，`yo build` 在它
+变化时重新构建对应产物（参见构建系统文档的"增量构建"一节）。编辑被嵌入的数据文件
+会让缓存失效，与编辑 `.yo` 源文件完全一致。
+
+二进制内容也没有问题：该值是字节串，含引号、换行或非 UTF-8 字节的文件都会原样保留。
+
+### 编译期解析数据：`comptime_json_parse` / `comptime_toml_parse`
+
+两者都接受一个编译期字符串，返回 `ComptimeValue`——一棵由编译期标量和
+`ComptimeList` 构成的文档树，因为编译期不存在运行时容器。与
+`comptime_read_file` 组合起来，配置文件就变成了常量：
+
+```rust
+CFG :: comptime_json_parse(comptime_read_file("./config.json"));
+
+PORT :: CFG.get("port").as_int(8080);
+NAME :: CFG.get("name").as_str("unnamed");
+
+comptime_assert(PORT == 8080);        // 解析错误会导致**编译失败**
+```
+
+`ComptimeValue` 是一个枚举——`Null`、`Bool`、`Int`、`Float`、`Str`、`List`、
+`Table`——可以直接 match，也提供了常用读取的辅助方法：
+
+| | |
+| --- | --- |
+| `get(key)` | 表中 `key` 对应的值；不存在或自身不是表时为 `.Null` |
+| `at(i)` | 列表中下标 `i` 的元素；越界或自身不是列表时为 `.Null` |
+| `len()` | 列表元素数或表的条目数；其他情况为 `0` |
+| `as_str(fallback)` / `as_int(fallback)` / `as_bool(fallback)` | 对应标量，类型不符时返回 fallback |
+| `is_null()` | 缺失的键与显式的 JSON `null` 都返回 true |
+
+表以文档顺序保存并列的 `keys` 与 `values` 两个列表，与
+`std/encoding/json` 的 `JsonValue.Object` 形状一致。
+
+两个值得注意的细节：
+
+- **JSON 只有一种数字类型。** 整值数字会变成 `Int`，因此 `{"port": 8080}`
+  读回来是整数而不是 `8080.0`。判断依据是值本身，而非书写形式。
+- **文档格式错误是编译错误**，在调用处报告并带上解析器自己的位置——而不是运行时失败。
+
+这两个解析器就是 `std/encoding/json` 与 `std/encoding/toml`，在编译器自身的运行时
+执行；不存在需要同步维护的第二份实现。
+
+Yo 自己的数据则完全不需要解析器：`import("./data.yo")` 导入一个只含单个 `::`
+绑定的文件，本身就在编译期得到该值。
+
 ## 与 Rust 的对比
 
 Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：

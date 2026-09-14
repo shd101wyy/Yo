@@ -2,8 +2,12 @@ pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not availabl
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { printf } :: import("std/libc/stdio");
+{ platform, Platform } :: import("std/process");
 file :: import("std/sys/file");
 pipe_io :: import("std/sys/pipe");
+fcntl_io :: import("std/sys/fcntl");
+{ O_NONBLOCK } :: import("std/sys/constants");
+{ sleep } :: import("std/sys/timer");
 test("pipe read/write", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
@@ -93,4 +97,61 @@ test("dup2 redirects to target fd", {
   c4 := io.await(file.close(write_fd_dst), io);
   assert(c3 == i32(0));
   assert(c4 == i32(0));
+});
+test("two concurrent async reads on one pipe end both complete", {
+  // macOS kqueue keeps ONE knote per (fd, filter): before per-(fd,filter)
+  // registrations, the second pending read silently re-pointed the knote's
+  // udata and orphaned the first — only one task ever completed and the
+  // program hung in the event loop forever
+  // (issues/fixed/macos-kqueue-concurrent-ops-on-one-fd-orphan-the-earlier-pending-op.md).
+  // io_uring (Linux) multiplexes the same program, so Linux runs as the
+  // parity check. Windows skips: its setfl does not serve pipe handles.
+  cond(
+    ((platform == Platform.Macos) || (platform == Platform.Linux)) => {
+      pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+      pipefd := (*i32)(pipefd_uninit.as_ptr());
+      pr := pipe_io.pipe(pipefd);
+      assert(pr == i32(0));
+      read_fd := (pipefd.add(usize(0))).*;
+      write_fd := (pipefd.add(usize(1))).*;
+      // The kqueue backend requires non-blocking descriptors for readiness
+      // waits (same requirement std/sys/tcp documents for sockets).
+      fl := fcntl_io.setfl(read_fd, O_NONBLOCK);
+      assert(fl == i32(0));
+      buf_a_uninit := MaybeUninit(Array(u8, usize(8))).new();
+      buf_a := (*u8)(buf_a_uninit.as_ptr());
+      buf_b_uninit := MaybeUninit(Array(u8, usize(8))).new();
+      buf_b := (*u8)(buf_b_uninit.as_ptr());
+      read_a := Box(i32)(-99);
+      read_b := Box(i32)(-99);
+      task_a := io.async((io : Io) => {
+        n := io.await(file.read(read_fd, buf_a, u32(8), u64(0)), io);
+        read_a.* = n;
+      });
+      task_b := io.async((io : Io) => {
+        n := io.await(file.read(read_fd, buf_b, u32(8), u64(0)), io);
+        read_b.* = n;
+      });
+      handle_a := io.spawn(task_a, io);
+      handle_b := io.spawn(task_b, io);
+      // Let both tasks reach their would-block and register.
+      io.await(sleep(u64(20)), io);
+      data := (*u8)("hi!\n");
+      wr := io.await(file.write(write_fd, data, u32(4), u64(0)), io);
+      assert(wr == i32(4));
+      io.await(sleep(u64(20)), io);
+      // One 4-byte write serves one reader; closing the write end hands the
+      // other reader its EOF so BOTH complete.
+      cw := io.await(file.close(write_fd), io);
+      assert(cw == i32(0));
+      ra := handle_a.await(io);
+      rb := handle_b.await(io);
+      unsafe(printf("  concurrent reads: a=%d b=%d\n", read_a.*, read_b.*));
+      assert((read_a.* >= i32(0)) && (read_b.* >= i32(0)));
+      assert((read_a.* + read_b.*) == i32(4));
+      cr := io.await(file.close(read_fd), io);
+      assert(cr == i32(0));
+    },
+    true => ()
+  );
 });

@@ -4,7 +4,7 @@
 
 Yo uses **async/await with state machine transformation** via **algebraic effects** for efficient **single-threaded concurrency**. This is a stackless coroutine model similar to JavaScript's event loop - all async code runs on the **same thread** as the caller.
 
-**Key Insight**: `io.async`/`io.await` provides **concurrency** (interleaved execution), not **parallelism** (simultaneous execution). For parallelism, see `PARALLELISM.md`, which describes `Thread.spawn` (std/thread) and the worker pool for isolated multi-threaded execution.
+**Key Insight**: `io.async`/`io.await` provides **concurrency** (interleaved execution), not **parallelism** (simultaneous execution). For parallelism, see `PARALLELISM.md`, which describes `Thread(T).spawn` (std/thread) and the worker pool for isolated multi-threaded execution.
 
 ```rust
 { yield } :: import "std/async";
@@ -34,7 +34,7 @@ export main;
 | Concept         | Mechanism             | Description                                |
 | --------------- | --------------------- | ------------------------------------------ |
 | **Concurrency** | `io.async`/`io.await` | Multiple tasks interleaved on ONE thread   |
-| **Parallelism** | `Thread.spawn`        | Multiple tasks running on SEPARATE threads |
+| **Parallelism** | `Thread(T).spawn`        | Multiple tasks running on SEPARATE threads |
 
 ```rust
 // Concurrency: Same thread, interleaved execution
@@ -48,7 +48,7 @@ main :: (fn(io : Io) -> unit)({
 });
 
 // Parallelism: Different threads, true simultaneous execution
-thread := Thread.spawn((io) => {
+thread := Thread(unit).spawn((io) => {
   // Runs on a DIFFERENT thread, with its own independent event loop.
   // Isolated: only Send values cross the boundary.
   ()
@@ -130,7 +130,7 @@ Multi-threaded async (like Rust's tokio) adds complexity:
 - Need cross-thread synchronization
 - Work-stealing adds overhead
 
-Yo's approach: Keep async simple (single-threaded), use `Thread.spawn` for parallelism (isolated threads).
+Yo's approach: Keep async simple (single-threaded), use `Thread(T).spawn` for parallelism (isolated threads).
 
 ## Language Syntax
 
@@ -562,7 +562,7 @@ static _Thread_local struct io_uring __yo_io_ring;
 This means:
 
 - **Main thread**: Has its own event loop for `io.async`/`io.await` tasks
-- **Worker threads** (from `Thread.spawn`): Each gets an independent event loop
+- **Worker threads** (from `Thread(T).spawn`): Each gets an independent event loop
 - **Multiple workers per thread**: Workers on the same OS thread cooperatively share that thread's event loop
 - **No cross-thread task migration**: Tasks always run on the thread that created them
 - **No locking needed**: Queue operations are single-threaded by design
@@ -587,7 +587,7 @@ int main(int argc, char** argv) {
 
 **I/O initialization is lazy**: `__yo_io_init()` is called on the first actual I/O operation (file open, socket connect, etc.), not at program start. This means programs using only `yield()` and pure computation pay zero I/O setup cost.
 
-Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `std/thread`'s `spawn(pool, cb)`. Non-parallel programs save ~450 lines of generated C code.
+Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread(T).spawn` or `std/thread`'s `spawn(pool, cb)`. Non-parallel programs save ~450 lines of generated C code.
 
 **Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, mmap/madvise, fcntl, flock, socket address helpers, signal handlers, TTY) are always emitted via `generate_sys_runtime()` which includes both cross-platform helpers and platform-specific sync helpers (`generate_platform_sys_runtime_{macos,linux,windows,wasm}`). These have **no IoFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, mmap, TTY, etc. compile without pulling in the full async runtime.
 
@@ -618,7 +618,7 @@ What does NOT work on WASM:
 
 - DNS, TCP, UDP — no network stack in Emscripten
 - Process spawn, signals, FS events — no OS-level APIs
-- Parallelism (`Thread.spawn`) — requires pthread support (experimental)
+- Parallelism (`Thread(T).spawn`) — requires pthread support (experimental)
 
 Concurrency helpers return sensible defaults: `__yo_thread_get_hardware_threads()` returns 1, `__yo_get_thread_id()` returns 0, `__yo_thread_yield()` is a no-op.
 
@@ -1091,7 +1091,7 @@ compiler.
 - ✅ No atomic RC overhead
 - ✅ Familiar to web developers
 
-For parallelism, use `Thread.spawn` (see `PARALLELISM.md`).
+For parallelism, use `Thread(T).spawn` (see `PARALLELISM.md`).
 
 ## Effect Injection (Runtime Effect Binding)
 
@@ -1268,8 +1268,8 @@ r2 := handle2.await(io);  // Option(T)
 | ------------------------------ | --------------------------------- |
 | Io-bound concurrent tasks      | `io.async`/`io.await`             |
 | Running multiple tasks at once | `io.spawn` + `handle.await`       |
-| CPU-bound parallel computation | `Thread.spawn` (see PARALLELISM.md) |
-| Background processing          | `Thread.spawn` (see PARALLELISM.md) |
+| CPU-bound parallel computation | `Thread(T).spawn` (see PARALLELISM.md) |
+| Background processing          | `Thread(T).spawn` (see PARALLELISM.md) |
 | Waiting for multiple IOs       | `io.spawn` + `handle.await`       |
 | Consuming an async sequence    | `Stream` + `for_each`/`collect` (see [Async iteration](#async-iteration-the-stream-trait)) |
-| Utilizing multiple CPU cores   | `Thread.spawn` (see PARALLELISM.md) |
+| Utilizing multiple CPU cores   | `Thread(T).spawn` (see PARALLELISM.md) |

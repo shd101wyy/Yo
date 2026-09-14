@@ -70,7 +70,7 @@ NotSendCell :: ref(struct(v : i32));
 comptime_expect_error({
   _spawn_with_ref_struct :: (fn() -> unit)({
     cell := NotSendCell(v : i32(1));
-    t := Thread.spawn(io => {
+    t := Thread(unit).spawn(io => {
       _v := cell.v;
       ()
     });
@@ -81,7 +81,7 @@ comptime_expect_error({
 comptime_expect_error({
   _spawn_with_array_list :: (fn() -> unit)({
     items := ArrayList(i32).new();
-    t := Thread.spawn(io => {
+    t := Thread(unit).spawn(io => {
       items.push(i32(1));
       ()
     });
@@ -99,7 +99,7 @@ comptime_expect_error({
         items.push(i32(1));
       }
     );
-    t := Thread.spawn(io => worker());
+    t := Thread(unit).spawn(io => worker());
     t.join();
   });
   _spawn_with_closure_over_ref();
@@ -116,12 +116,44 @@ _send_captures_still_spawn :: (fn() -> unit)({
       hits.fetch_add(i32(1), MemoryOrder.AcqRel);
     }
   );
-  t := Thread.spawn(io => {
+  t := Thread(unit).spawn(io => {
     _s := (n + a.*);
     bump();
     ()
   });
   t.join();
+});
+// D18b: a captured variable whose OWN declared type already requires the
+// marker trait is accepted by its DECLARATION, not by re-judging what it
+// resolved to. `cb` below is declared `Impl(Fn(io : Io) -> unit, Send)`, so
+// forwarding it into a spawn closure must compile — before this it was
+// rejected with "Captured variable 'cb' (type Impl : (Fn(Io) -> unit + Send))
+// does not implement Send", an error refuted by its own text. This is the
+// shape `Thread(T).spawn` itself has.
+_forward_a_bounded_callback :: (
+  fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit
+)({
+  t := Thread(unit).spawn((io : Io) => {
+    cb(io);
+    ()
+  });
+  t.join();
+});
+// …and that exemption is only sound because the bound is PROVED where the
+// value enters. A non-Send closure may not be bound to a `Send`-bounded
+// declaration in the first place, so no non-Send value can ever reach the
+// exemption above.
+comptime_expect_error({
+  _bind_non_send_to_a_send_bound :: (fn() -> unit)({
+    items := ArrayList(i32).new();
+    (leaky : Impl(Fn() -> unit, Send)) = (
+      () => {
+        items.push(i32(1));
+      }
+    );
+    leaky();
+  });
+  _bind_non_send_to_a_send_bound();
 });
 // ============================================================================
 // Phase P (THREAD_SAFETY): Field visibility — same-file access works

@@ -33,7 +33,7 @@ Each OS thread (both Thread and ThreadPool workers) gets its own async event loo
 - **Linux**: per-thread `io_uring` instance
 - **macOS**: per-thread `kqueue` descriptor
 - **Windows**: per-thread IOCP handle
-- **WASM**: not applicable — WASM is single-threaded; parallelism (`Thread.spawn`, workers) is not supported. Use `io.async`/`io.await` for cooperative concurrency instead.
+- **WASM**: not applicable — WASM is single-threaded; parallelism (`Thread(T).spawn`, workers) is not supported. Use `io.async`/`io.await` for cooperative concurrency instead.
 
 This means spawned threads and worker tasks can perform async I/O via `io.async`/`io.await` without contention — each thread's event loop is fully independent.
 
@@ -46,18 +46,42 @@ The runtime automatically initializes the event loop when the thread starts (`__
 ### API
 
 ```rust
-Thread :: struct(
-  handle : __yo_thread_t
-);
-impl(Thread,
+// `T` is what the thread's body produces. `Thread(unit)` is the value-less
+// thread; any `Send + Acyclic` type may be carried out.
+Thread :: (
+  fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type)
+)(ref(struct(handle : __yo_thread_t, _joined : bool, _result : Channel(T))));
+impl(
+  generic(T : Type),
+  Thread(T),
+  where(T <: (Send, Acyclic)),
   // Spawn a new OS thread running the given closure.
   // The closure receives its own per-thread Io event loop.
-  spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self),
+  spawn : (fn(own(cb) : Impl(Fn(io : Io) -> T, Send)) -> Self),
 
-  // Wait for the thread to complete (blocking)
-  join : (fn(inout(self) : Self) -> unit)
+  // Wait for the thread to complete (blocking) and take its result.
+  // Panics on a second call.
+  join : (fn(self : Self) -> T),
+
+  is_joined : (fn(self : Self) -> bool)
 );
 ```
+
+### Carrying a value out
+
+`join()` returns what the body returned, over a capacity-1 `Channel(T)` the
+handle owns:
+
+```rust
+{ Thread } :: import "std/thread";
+
+t := Thread(i32).spawn((io : Io) => i32(42));
+answer := t.join();   // 42
+```
+
+`Thread(unit)` is the value-less thread the examples below use, and its
+`join()` returns `()`. `ThreadPool` tasks still carry nothing — hand a pool
+task's value back over a `Channel`.
 
 ### Usage
 
@@ -66,13 +90,13 @@ impl(Thread,
 { yield } :: import "std/async";
 
 // Spawn a dedicated thread (no async)
-thread := Thread.spawn((io) => {
+thread := Thread(unit).spawn((io) => {
   printf("Hello from thread\n");
 });
 thread.join();
 
 // Spawn a thread with async I/O
-thread := Thread.spawn((io : Io) => {
+thread := Thread(unit).spawn((io : Io) => {
   task := io.async((io : Io) => {
     io.await(yield());
     return i32(42);
@@ -201,12 +225,12 @@ Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer 
 ch := Channel(i32).new(usize(10));
 
 // Producer thread
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   ch.send(i32(42));
 });
 
 // Consumer thread
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   val := ch.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
@@ -260,7 +284,7 @@ in the parent until the workers are running:
 rx := Channel(i32).receiver(usize(16));
 {
   keeper := rx.sender();               // holds the count above zero
-  w := Thread.spawn((io) => {
+  w := Thread(unit).spawn((io) => {
     tx := rx.sender();                 // this thread's producer
     tx.send(i32(7));
   });                                  // tx drops when the body ends
@@ -268,10 +292,12 @@ rx := Channel(i32).receiver(usize(16));
 };                                     // keeper drops -> channel closed
 ```
 
-A `Sender` *moved into* a `Thread.spawn` closure does not close the channel today: a spawn
-closure's captures are never released, so that sender's drop never runs. Values still flow;
-only the auto-close is lost. Async tasks (`std/async/channel`, which has the same
-`receiver()`/`sender()`/`pair()` API for one event loop) release their captures correctly.
+A `Sender` *moved into* a `Thread(T).spawn` closure does close the channel: the spawn wrapper
+releases the thread's capture struct when the body returns, so that sender's drop runs
+(issues/fixed/spawn-closure-captures-never-dropped-leak.md, and
+issues/a-closure-typed-slot-never-releases-its-captures.md for a capture that is itself
+a closure). Async tasks (`std/async/channel`, which has the same
+`receiver()`/`sender()`/`pair()` API for one event loop) release their captures the same way.
 
 ## Sendable Types
 
@@ -283,14 +309,14 @@ Only types that implement `Send` can cross thread boundaries:
 ```rust
 // ✅ Sendable
 Point :: struct(x: i32, y: i32);
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   p := Point(1, 2);  // OK: created inside thread
 });
 
 // ❌ Not Sendable
 Node :: ref(struct(value: i32));
 node := Node(42);
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   // ERROR: Cannot capture `node` (reference-semantics type is not Send)
   // node.value;
 });
@@ -343,7 +369,7 @@ thread. To return a result, hand it back over a `Channel`.
 { Channel } :: import "std/sync/channel";
 
 // Dedicated thread with async I/O
-thread := Thread.spawn((io : Io) => {
+thread := Thread(unit).spawn((io : Io) => {
   // This thread has its own event loop
   task := io.async((io : Io) => { io.await(yield()); });
   io.await(task);

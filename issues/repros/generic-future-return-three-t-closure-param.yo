@@ -1,0 +1,15 @@
+{ println } :: import("std/fmt");
+Pair :: struct(lo : i32, hi : i32);
+Trip :: struct(a : i64, b : i64, c : i64);
+wrap2 :: (fn(generic(R : Type), f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+  io.async((io : Io) => f())
+);
+main :: (fn(io : Io) -> unit)({
+  a := io.await(wrap2(() => i32(7), io), io);
+  println(`a=${a + i32(0)}`);
+  b := io.await(wrap2(() => Pair(lo : i32(3), hi : i32(5)), io), io);
+  println(`b=${b.lo + b.hi}`);
+  c := io.await(wrap2(() => Trip(a : i64(1), b : i64(2), c : i64(3)), io), io);
+  println(`c=${c.a + c.b + c.c}`);
+});
+export(main);

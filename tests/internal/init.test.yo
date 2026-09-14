@@ -8,7 +8,8 @@ import("std/fmt");
   generate_main_source,
   generate_lib_source,
   generate_test_file,
-  generate_deps_yo,
+  generate_lib_test_file,
+  generate_yo_toml,
   generate_gitignore,
   generate_readme,
   generate_agents_md,
@@ -57,6 +58,32 @@ test("generate_readme: contains project name as heading", {
   assert(out.contains(String.from("cool-lib")), "README contains project name");
 });
 // ---------------------------------------------------------------------------
+// generate_lib_test_file
+// ---------------------------------------------------------------------------
+test("generate_lib_test_file: imports the library by PACKAGE NAME", {
+  out := generate_lib_test_file(String.from("cool-lib"));
+  // Not a relative path: the scaffolded test must go through the manifest's
+  // `[modules] default` entry, which is what makes `yo init` exercise the
+  // package system rather than reach across the tree.
+  assert(out.contains(String.from("import(\"cool-lib\")")), "imports by package name");
+  assert(!out.contains(String.from("../src/lib.yo")), "does not import by relative path");
+});
+test("generate_lib_test_file: actually calls the scaffolded `add`", {
+  out := generate_lib_test_file(String.from("x"));
+  assert(out.contains(String.from("add(2, 3)")), "calls add from src/lib.yo");
+  assert(out.contains(String.from("test(")), "is a test file");
+});
+// ---------------------------------------------------------------------------
+// generate_readme — the layout/dependency sections the build redesign needs
+// ---------------------------------------------------------------------------
+test("generate_readme: documents the manifest, the lock and how to add deps", {
+  out := generate_readme(String.from("cool-lib"));
+  assert(out.contains(String.from("yo.toml")), "README mentions the manifest");
+  assert(out.contains(String.from("yo.lock")), "README mentions the lock file");
+  assert(out.contains(String.from("yo add")), "README shows how to add a dependency");
+  assert(out.contains(String.from("yo install")), "README shows how to fetch them");
+});
+// ---------------------------------------------------------------------------
 // generate_* pure string functions compile and return non-empty
 // ---------------------------------------------------------------------------
 test("generate_main_source: non-empty", {
@@ -71,9 +98,13 @@ test("generate_test_file: non-empty", {
   s := String.from(generate_test_file());
   assert(s.len() > usize(0), "test file is non-empty");
 });
-test("generate_deps_yo: contains export(imports)", {
-  s := String.from(generate_deps_yo());
-  assert(s.contains(String.from("export(imports)")), "deps.yo exports imports");
+test("generate_yo_toml: declares the package, its default module and an empty dependency table", {
+  toml := generate_yo_toml(String.from("demo"));
+  assert(toml.contains("[package]"), "package table");
+  assert(toml.contains("name = \"demo\""), "package name");
+  assert(toml.contains("[modules]"), "modules table");
+  assert(toml.contains("default = \"src/lib.yo\""), "default module");
+  assert(toml.contains("[dependencies]"), "dependencies table");
 });
 test("generate_gitignore: contains yo-out/", {
   s := String.from(generate_gitignore());

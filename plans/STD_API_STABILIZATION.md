@@ -1,6 +1,13 @@
 # std API stabilization — the 2026-09-06 audit against the code and against Rust
 
-**Status: ACTIVE.** Successor to the remaining rows of `plans/archive/STD_API_AUDIT.md`
+**Status: COMPLETE 2026-09-13.** The last open item, `spawn_blocking`, is
+exported and tested; the compiler defect that held it back is fixed
+(`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`).
+The rows still marked "blocked on a language feature" are blocked on their own
+plan docs, not on this one — §0 lists them. Everything below stays as the
+campaign's record.
+
+**Status was: ACTIVE.** Successor to the remaining rows of `plans/archive/STD_API_AUDIT.md`
 (whose §1–§3 decisions D1–D8 stay in force and are NOT re-litigated here). This
 document is the measured state of `std/` on 2026-09-06 — every finding below was
 verified by reading the implementation, not the doc comment — plus the decisions
@@ -23,8 +30,10 @@ every file:line, are in the per-group notes this plan was distilled from (see
 
 Written after the v0.2.31 release, by walking every row of this document
 against the code rather than against the previous status note. **Every item
-below is either DONE, blocked on a named language feature with its own plan
-doc, or one of two remaining engineering items.** §5's three maintainer
+below is either DONE or blocked on a named language feature with its own plan
+doc.** The two engineering items are both fully landed as of 2026-09-13 — the
+compiler defect that was the last thing standing between `spawn_blocking` and
+its export is fixed. §5's three maintainer
 decisions are all made and implemented — nothing is waiting on anyone.
 
 ### Done, and no longer to be re-read as open
@@ -32,13 +41,16 @@ decisions are all made and implemented — nothing is waiting on anyone.
 - **Phases 1 and 2** (§3's seventeen P0 rows) — every row carries a
   FIXED/LANDED marker.
 - **The breaking window** (§2's D9–D18) — shipped in v0.2.28. The one
-  exception, **D18b** (`Thread(T).join() -> T`), is below.
+  exception, **D18b** (`Thread(T).join() -> T`), LANDED 2026-09-12; §0's item 1
+  records the six walls it went through.
 - **Phase 4** (§4's additive work), module group by module group:
   collections, `imm`, encoding, I/O, net, the `## Stability` markers, and the
   documentation sweep. `yo doc ./std --format json` went 1554 → 1161
   undocumented of 3368.
 - **The waker campaign** (`plans/WAKER_BASED_SCHEDULING.md`) is complete
-  through step 4 except for the shape note there. Steps 1, 3a and 3b landed in
+  through step 4 except for the shape note there, and step 5's RUNTIME landed
+  2026-09-12 (#628) — only `spawn_blocking` is held back, on a compiler defect
+  rather than on the runtime. Steps 1, 3a and 3b landed in
   v0.2.31; **step 2 landed once v0.2.31 became the seed** — `yield` has no
   timer under it any more, and a LIFO defect in the shared yield list fell out
   of doing it. This document's concurrency row said "STILL OPEN: waker-based
@@ -79,35 +91,134 @@ Nothing is waiting on anyone here. Re-checked against the code 2026-09-12:
 | `ErrorChain`/`root_cause` | a compiler DEFECT, not a missing feature — #521, `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md` |
 | `JsonValue` integer arms | deliberately deferred to a breaking window (§4, encoding) |
 
-### The two engineering items that are genuinely open
+### The two engineering items — both landed 2026-09-12, both with a named residue
 
-**1. D18b — `Thread(T).spawn` carrying its result, `join() -> T`.** Three
-walls, all now separately diagnosed, and **none of them is the spawn lowering**
-that `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
+**1. D18b — `Thread(T).spawn` carrying its result, `join() -> T`.** **LANDED
+2026-09-12.** `Thread(T)` is generic, `spawn` takes
+`own(cb) : Impl(Fn(io : Io) -> T, Send)` and `join() -> T` reads the body's
+result off a capacity-1 `Channel(T)` the handle owns; `Thread(unit)` is the
+value-less thread the old `Thread` was.
+
+Six walls, none of them the spawn lowering that
+`issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
 blamed:
 
-- *fixed* — a static-dispatch call read the CALL EXPRESSION's type instead of
-  the callee's prototype, so a `void`-returning closure call was bound to a
-  `void*` temp (#598).
-- *open* —
-  `issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
-  One specialisation, two mangled names. Measured: the argument's type is the
-  enclosing generic's own binder, unresolved in the per-object cell, the global
-  registry AND the caller's env — so the resolution does not exist yet rather
-  than being looked up in the wrong place. Three candidate fixes were built and
-  are recorded there as dead ends.
-- *open* — `_capture_judgement_type` resolves a captured closure to its capture
-  STRUCT and then rejects it as not `Send`. A security-relevant checker; needs
-  an over-rejection canary per exempt shape before it is touched.
+- a static-dispatch call read the CALL EXPRESSION's type instead of the callee's
+  prototype, so a `void`-returning closure call was bound to a `void*` temp
+  (#598).
+- `issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
+  The specialisation binder bound an `Impl(Fn(...))` parameter VALUELESS, so the
+  body's `cb(x)` kept the enclosing generic's binder as its result type and the
+  `send` it feeds keyed on that abstract type — naming the def-era ORIGINAL,
+  which the emission loop deliberately skips. It now registers the argument
+  closure's own concrete result against the declared Fn bound's result `SomeT`.
+  TYPE only: binding the FuncVal itself makes the evaluator CALL the closure at
+  compile time and takes `check ./src` to 245/270.
+- `_capture_judgement_type` resolved a captured closure to its capture STRUCT
+  and rejected it as not `Send` — with an error whose own text
+  ("type Impl : (Fn(Io) -> unit + Send) does not implement Send") contained the
+  refutation. A capture whose OWN declared type already requires the trait is
+  now satisfied by its DECLARATION, which is a bound the caller had to discharge
+  where the value entered. Deliberately narrow, and every existing
+  `comptime_expect_error` negative in `tests/thread_safety.test.yo` still fires;
+  the canary and the soundness negative (a non-`Send` closure may not be BOUND
+  to a `Send`-bounded declaration) are in that file.
+- `issues/fixed/a-generic-impl-methods-closure-is-emitted-twice.md` — a dead
+  generic closure generation was emitted and keyed its callees on an unresolved
+  `T`.
+- `issues/a-closure-typed-slot-never-releases-its-captures.md` — the drop walk
+  is blind to a bare `Impl(Fn)` SomeT, so nothing reached through a captured
+  CLOSURE was released. Fixed in the spawn wrapper, which owns the heap copy;
+  doing it in the shared drop generator instead double-released every closure
+  slot whose captures a synthesized capture-dispose already frees, which is a
+  use-after-free the Linux ASan leg caught and macOS ran green.
+- `issues/fixed/a-spawned-closure-literal-is-materialized-twice.md` — the spawn
+  primitives dispatched after the argument-materialization loop had already
+  generated the callback once.
 
-**2. Waker step 5 — cross-thread wake and `spawn_blocking`.**
-`__yo_waker_wake` is already atomic on the future's own fields, but
-`__yo_async_enqueue_continuation` writes a THREAD-LOCAL ready queue, so a wake
-from a worker thread has nowhere safe to put the continuation and no way to
-rouse a loop parked in `__yo_io_wait`. That needs a cross-thread wake queue plus
-a loop wakeup channel (eventfd / pipe / kqueue `EVFILT_USER`), and
-`spawn_blocking` needs it before it is expressible at all
-(`std/net/dns.yo` names it as the reason `lookup_host` blocks).
+**2. Waker step 5 — cross-thread wake and `spawn_blocking`.** **COMPLETE
+2026-09-13.** The runtime landed 2026-09-12 (#628); `spawn_blocking` is now
+exported, with `tests/spawn_blocking.test.yo` live from its parked reproducer.
+
+> **The compiler defect it waited on was FOUR layers, not one**
+> (`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`):
+> a forall binder with no per-call identity; a prototype/definition return-type
+> asymmetry the first layer had been hiding; minting the per-call binder **per
+> NAME**, which collapses the callee's `T` with the prelude `Future(T, E)`'s `T`
+> riding along inside a re-evaluated `Impl(Future(i32) Io)`; and gating the
+> freshening on the callee's SHAPE, which also matches every iterator/stream
+> combinator (`map`, `filter`: `fn(generic(B), f : Impl(Fn(A) -> B)) ->
+> Stream(B)`) and breaks them.
+>
+> Two of those are worth remembering here. Layer 3: every reproducer exercising
+> the closure-param path named its binder `R`, so seven shapes, ten async test
+> files,
+> `check ./src` 275/275 and `check ./std` 175/175 were ALL green while
+> `spawn_blocking` — declared `generic(T)` — still miscompiled. Renaming its
+> binder to `RB`, changing nothing else, made it compile and run. **A test suite
+> that shares a naming convention cannot see a name-sensitivity bug.**
+>
+> Layer 4: all of the above was green again while `tests/async/channel.test.yo`
+> was broken (18/18 under the v0.2.32 seed, fails to compile with the
+> shape-keyed gate). `check ./src` and `check ./std` are evaluator-only — a
+> filter, not a gate — and a hand-picked set of async test files is the same
+> mistake with a bigger number. **For a dispatch or codegen change the gate is
+> the FULL fast suite**: 4206 passed, 0 failed, 271 files.
+
+Each event loop owns one explicitly locked inbox plus a wakeup channel into its
+own I/O backend (`EVFILT_USER` on kqueue, an eventfd with a re-armed `POLL_ADD`
+on io_uring, `PostQueuedCompletionStatus` on IOCP, a no-op on wasm); a foreign
+wake pushes the waker TOKEN onto the owner's inbox and nudges that channel, and
+the owner drains it on its own thread. So exactly one new piece of shared state
+exists, it is locked, every runtime variable stays single-threaded, and NO
+reference count ever crosses a thread — the token travels, not the future.
+`Waker` is `atomic(ref(...))` and therefore `Send`.
+`tests/cross_thread_wake.test.yo` gates it, asserting the THREAD the task
+resumes on rather than the value it gets: measured by emitted-C A/B, the value
+arrives either way and only the thread identity flips.
+
+What was left was `spawn_blocking` itself, blocked not on the runtime but on a
+compiler defect. **That defect is FIXED as of 2026-09-13 and `spawn_blocking`
+is exported; the rest of this section is the record of what it was.** It is
+`fn(generic(T), own(cb) : Impl(Fn() -> T, Send), io) -> Impl(Future(T, Io))`,
+and the closure-param form of that shape emits its async block ONCE for every
+instantiation, so it works for one `T` per program and silently miscompiles the
+second (`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
+— the value-param form of the same family is fixed, in #619). The function is
+written, eager, measured working end to end, and left unexported with the reason
+in its doc comment; its tests are parked at
+`issues/repros/spawn-blocking-tests.yo`. `std/net/dns.yo` still names
+`spawn_blocking` as the reason `lookup_host` blocks.
+
+**Root cause, measured 2026-09-13.** The defect is not a clobber and not a
+race: it is **one forall binder with no per-call identity**, read through two
+channels that disagree. A generic `wrap(generic(R), f : Impl(Fn() -> R), io)
+-> Impl(Future(R))` has ONE `R` SomeT id for every instantiation (the
+declaration is evaluated once), so `register_some_resolved_concrete` against it
+is last-write-wins, while the SomeT's own per-object `resolved_concrete` cell —
+which `resolve_some_type_to_concrete` consults FIRST — trails that registry by
+one call. The emitted C then takes whichever wrong answer its reader happened to
+consult: the first async generation is never re-registered at all (at the first
+call `R` is still abstract and the `has_some == 0` gate rejects it) so it gets
+the registry's LAST write, while later generations get their own cell, one call
+stale.
+
+Two plausible fixes were disproven on the way and are kept in the issue doc:
+the two wrapper bridges in `_evaluate_funcval_runtime_call` DO copy a stale
+value, but guarding them leaves the emitted C byte-identical; and the io.async
+stamp in the `rt` arm is never reached for this shape.
+
+The fix is therefore structural — per-call identity for a user generic callee's
+forall binders, which is what `_freshen_io_builtin_callee` already does for
+io.async's own `T`/`E`, and what the one working shape (the method-call form)
+gets for free by reading the SPECIALIZATION's own freshly-cloned body. The
+surgery has to happen upstream of parameter binding, where the callee type is
+first taken, so it is a scoped follow-up rather than a guard.
+
+The measurement that made this visible is worth reusing: extending the
+reproducer from TWO instantiations to **three**. At n = 2 a lag, a swap and a
+reversal are the same permutation and no probe can separate them; at n = 3 they
+disagree. `issues/repros/generic-future-return-three-t-closure-param.yo`.
 
 ### One more, outside this document's scope but tracked with it
 
@@ -308,39 +419,35 @@ the work in §4 does not re-open them.
   and `Aborted`. Two variants, not Rust's single `Elapsed`, because Yo's
   `timeout` takes a `JoinHandle` rather than a future, which makes cancellation
   a genuinely separate failure. The two are distinguishable ONLY inside the
-  poll loop, so the deadline arm records which arm ended the wait. **SECOND HALF NOT LANDED — blocked from BOTH directions.** The std-side design
-  is written and works in isolation (`Thread(T)` holding a capacity-1
-  `Channel(T)`; `join` keeping the join-once assert and detach-on-drop
-  `Dispose` before `try_recv`; `Thread(i32).join()` returning the body's
-  value), but it cannot be landed:
-  * writing the call-and-send INLINE in the spawn closure does not compile at
-    `T = unit`. This was TWO defects, not one, and the first is now FIXED. The
-    `void* tmp = <void expr>` half was not `parallelism.yo` at all: it was the
-    `cc_` static-dispatch call site in `other_fn_call.yo` (plus the binding
-    emitter one level up) reading the CALL EXPRESSION's type — still the
-    unresolved `T`, spelled as the erasure `void*` — instead of the callee's
-    own emitted prototype, which says `void`
-    (`issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md`,
-    red-first test in `tests/closure_param_forwarding.test.yo`). The repro is
-    down from two C errors to one. The remaining half — the
-    `Channel(unit).send` specialisation being CALLED and never emitted, its
-    mangled name appearing exactly once in the whole translation unit — is
-    `issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
-  * routing it through a top-level generic helper dodges that, and then hits
-    the OTHER wall: the spawn closure now CAPTURES `cb`, and #451's Send
-    enforcement rejects it —
-    `Captured variable 'cb' ... does not implement Send`. Adding the `Send`
-    bound to the helper's parameter does NOT help, because
-    `_capture_judgement_type` resolves a captured closure to its own CAPTURE
-    STRUCT and judges that; one more level of nesting puts a struct in front
-    of the checker that carries no `Send` impl. Before this change `cb` went
-    straight to `__yo_thread_spawn` and was never a captured variable, so the
-    check never saw it.
-  Landing it therefore needs a compiler change — either the ZST lowering or
-  teaching the capture judgement to see a closure whose own captures are all
-  `Send` as `Send`. The latter is a security-relevant checker and should not be
-  rushed. Evidence and the ready design:
-  `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`.
+  poll loop, so the deadline arm records which arm ended the wait. **SECOND HALF
+  LANDED 2026-09-12.** `Thread(T)` holds a capacity-1 `Channel(T)`; `spawn`
+  takes `own(cb) : Impl(Fn(io : Io) -> T, Send)` and wraps it in a relaying
+  closure; `join` keeps the join-once assert and the detach-on-drop `Dispose`,
+  and reads the body's value with `try_recv` (a miss means the body unwound,
+  which `join` cannot answer for and so panics). `Thread(unit)` is the
+  value-less thread the old `Thread` was.
+
+  It was blocked on six compiler defects, every one of them found by walking
+  the emitted C rather than by theory, and none of them the ZST spawn lowering
+  that `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
+  blamed. §0's item 1 lists them with their issue docs. The two that were
+  predicted here read as follows in the end:
+
+  * the `void* tmp = <void expr>` half was the `cc_` static-dispatch call site
+    in `other_fn_call.yo` (plus the binding emitter one level up) reading the
+    CALL EXPRESSION's type instead of the callee's own emitted prototype
+    (#598); the `Channel(unit).send` specialisation being called and never
+    emitted was the specialisation binder binding an `Impl(Fn)` parameter
+    valueless (#612).
+  * the capture-judgement wall resolved exactly as predicted — a captured `cb`
+    was judged by its capture STRUCT, which carries no `Send` impl. The fix is
+    narrower than "see a closure whose own captures are all `Send` as `Send`":
+    a capture whose OWN DECLARED type already requires the trait is satisfied
+    by its declaration, because that bound is a proof obligation the caller
+    discharged where the concrete closure entered — this same machinery
+    rejects a non-`Send` closure at that site, and
+    `tests/thread_safety.test.yo` now proves it with a negative. Every
+    pre-existing `comptime_expect_error` negative there still fires.
 
 - **D19 — `Box` KEEPS its name, and says loudly that it is Rust's `Rc`.**
   (Maintainer, 2026-09-06.) `Box(V)` is `ref(struct((*) : V))`, so copying a
@@ -547,8 +654,8 @@ regex naming, `glob()`. I/O — `Watcher`
 saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `f64`/`f32` method and const (only raw `libc/math` today), `Error.is`,
 `ErrorChain`, `Context`, `derive_rule(Error)`, `black_box`, log `Sink`/`YO_LOG`,
-`thread_rng`. Concurrency — `Thread` is NOT generic and `join -> unit`
-(`std/thread.yo:61,78`), so **D18b is still open**; `Sender`/`Receiver` split
+`thread_rng`. Concurrency — ~~`Thread` is NOT generic and `join -> unit`~~
+**D18b LANDED 2026-09-12**: `Thread(T)`, `join() -> T`; `Sender`/`Receiver` split
 absent then, LANDED 2026-09-11 (the Concurrency record below);
 `spawn_blocking` absent (`Mutex.try_with_lock`,
 `Cond.wait_timeout` and `RwLock.try_with_read`/`try_with_write` all LANDED
@@ -1876,8 +1983,8 @@ emitted C, so it could not be randomized even if that were wanted.
 2. **P0 wrong values + cliffs (§3 6–14)** — **DONE**. Small PRs, each a bug with its test.
 3. **The breaking window (§2 + §3 15–18)** — **SHIPPED in v0.2.28** (not the
    v0.2.27 originally targeted; the batch grew and slipped one release). Every
-   D9–D18 decision landed except **D18b** (`Thread(T).join() -> T`), which is
-   blocked on a compiler fix — `Thread` is still non-generic with `join -> unit`.
+   D9–D18 decision landed except **D18b** (`Thread(T).join() -> T`), which was
+   blocked on compiler fixes and LANDED 2026-09-12 (§0 item 1).
    Breaking changes are in the v0.2.28 release notes; deprecated aliases kept
    for one release are `derive(ToString)` and `json_parse_result`.
 4. **P1 additive work (§4)** — IN PROGRESS, re-measured 2026-09-08 (see the §4

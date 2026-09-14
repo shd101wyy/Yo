@@ -19,13 +19,17 @@ writing dates — the banner is the authoritative summary.
 
 ## Current entry points
 
-Active work (root) — **8 docs, and nothing else lives here**:
+Active work (root) — **plans and handovers driving work right now, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
-- [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — the live std
-  campaign. **All eleven §2 decisions (D9–D19) are LANDED**; §4 (P1 batteries
-  per module group) and §5 (maintainer decisions: `imm`/`Vec` structure,
-  `MemoryOrder.Consume`, HashMap random keys) remain. Raw per-module findings:
+- [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — **COMPLETE
+  2026-09-13**, kept in the root only until its ~50 inbound references are
+  swept to `archive/`. All eleven §2 decisions (D9–D19) landed, §4's P1
+  batteries are in, and §5's three maintainer decisions are made AND
+  implemented. The last open item was `spawn_blocking`, exported once the
+  four-layer compiler defect behind it was fixed. Rows still reading "blocked"
+  are blocked on their own language-feature plan docs, not on this one. Raw
+  per-module findings:
   [`STD_API_STABILIZATION_FINDINGS.md`](STD_API_STABILIZATION_FINDINGS.md).
 - [`HANDOVER_STD_AUDIT_2026-09-07.md`](HANDOVER_STD_AUDIT_2026-09-07.md) — the
   live handover: the PR stack and its verified merge order, what is still open
@@ -40,16 +44,15 @@ Active work (root) — **8 docs, and nothing else lives here**:
   backend, in-place patching). Phase 0 = instrumentation; nothing started.
 - [`PERF_BORROW_ELISION.md`](PERF_BORROW_ELISION.md) — cutting RC traffic in
   the self-compile; in progress.
-- [`BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`](BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md) —
-  PROPOSED 2026-09-11: the build/dependency audit (the dependency system is
-  fetch-only — `import("dep")` never resolves; `Step.link` does not link;
-  `build.yo` errors are swallowed — five issues filed) and the redesign:
-  `yo.toml` manifest (declarative, read without the evaluator, edited in place), semver ranges over git tags with a Cargo-style
-  resolver, `yo.lock` v2 with integrity, a content-addressed store,
-  explicit `--imports` plumbing to the child compile, workspaces; plus the
-  compile-time-input decisions (`comptime_read_file` and
-  `comptime_json_parse`/`comptime_toml_parse` yes, `comptime_fetch` no,
-  `build.env` in the build context only).
+- [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) —
+  ACTIVE 2026-09-13: the `match` audit (value matching exists only on the
+  primitive path; three silent wrong answers and three check-green/C-red
+  shapes measured) and the design for real pattern matching: patterns stay
+  expressions, one compiled `Pattern` IR shared by the evaluator and both C
+  emitters, usefulness-based exhaustiveness, `switch` kept where it is
+  switch-shaped plus a test-chain lowering for nested/literal/or/guard/range/
+  string/tuple/struct patterns. P0 absorbs PR #661 and closes the
+  exhaustiveness hole it leaves.
 
 Closed campaigns (`archive/`) — self-hosting is **finished**. The compiler has
 been self-hosting since 2026-08-03, the TypeScript compiler was retired
@@ -60,6 +63,20 @@ GOAL ACHIEVED) and
 (the P1–P4 umbrella); the per-phase records (`P1_CLI_PARITY.md`,
 `P2_RETIRE_SRC.md`, `P2_5_RETIRE_EXECUTION.md`, `P3_DISTRIBUTION.md`,
 `P4_LSP.md`) sit alongside them.
+
+The **build & dependency campaign** closed 2026-09-13 with every phase
+delivered:
+[`archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`](archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md)
+— the `yo.toml` manifest, the Cargo-style resolver and `yo.lock` v2, the
+content-addressed store, `build.manifest` / `build.env` / `comptime_read_file`
+/ `comptime_json_parse`, parallel DAG levels and workspaces; its closing
+banner lists the six deliberate deferrals (on-demand fetch for `check`,
+`build.fetch`, workspace inheritance, two coexisting majors, `[patch]`, and
+P4's registry + `yo publish`). The dogfooding milestone that ended it —
+`vendor/markdown_yo` un-vendored, the compiler resolving its own dependency —
+was driven by
+[`archive/HANDOVER_UNVENDOR_MARKDOWN_2026-09-13.md`](archive/HANDOVER_UNVENDOR_MARKDOWN_2026-09-13.md),
+archived alongside it.
 
 The **std API campaign's first half** closed 2026-09-07:
 [`archive/STD_API_AUDIT.md`](archive/STD_API_AUDIT.md) (the 2026-08-22 audit —

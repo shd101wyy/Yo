@@ -96,7 +96,9 @@ refuted  fn@/abs/path.yo:8 [verify]
 | `for` 循环（需要迭代器/集合模型） | 后续阶段 |
 | 契约中的 `forall`/`exists`/`==>`（仅限幽灵上下文；SMT 量词，MBQI 实例化） | ✅ 已支持（V5） |
 | `inout` 参数 —— 可重赋值的双态绑定（`old(v)` 读入口快照） | ✅ 已支持（V5） |
-| Ghost 代码（`ghost`/`ghost_fn` 擦除）、`std/spec` 集合 | V5（剩余） |
+| `std/spec` 幽灵集合 —— Seq（`seq_unit`/`seq_append`/`seq_len`/`seq_nth`，SMT `Seq`）、Multiset（`ms_single`/`ms_add`/`ms_count`，元素→计数 `Array`）、Set（`set_single`/`set_add`/`set_contains`，成员 `Array`）、`str_bytes`（字符串内容即 `Seq(u8)`） | ✅ 已支持（V5） |
+| 定长 `Array(T, N)` 值 —— `a(i)` 读取（`select`）、`a(i) = v` 下标写（经 `store` 的 SSA 重绑定）、`index-in-bounds` AoRTE 义务，以及 `ms_of(a)`（数组元素折叠为幽灵 Multiset —— `permutation` 规格的原料） | ✅ 已支持（V5 任务 6） |
+| Ghost 代码（`ghost`/`ghost_fn` 擦除） | ✅ 已支持（V5 任务 3） |
 | 跨抽象边界的 trait/泛型、`Refine` | V6 |
 | `object`/堆、字符串内容、浮点、效应、`unsafe`、FFI | 子集之外 |
 
@@ -133,6 +135,18 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 `ghost(...)` 绑定和 `ghost_fn` 体内，其他位置是编译错误（它们
 没有运行期语义）。`inout` 参数是子集中唯一可重赋值的绑定：
 函数体内的 `=` 重绑定当前值，而 `old(v)` 始终读入口快照。
+定长 `Array(T, N)` 值按 **BV64 下标的 SMT 数组**建模：`a(i)`
+读取 `select(a, i)`（下标零扩展到 64 位），下标写 `a(i) = v`
+把名字**重绑定**为 `store(a, i, v)` —— 值语义，与其他 `=` 相同
+的 SSA 纪律。运行位置上的读写携带 `index-in-bounds` AoRTE 义务
+（`i u< N`，长度来自编译期）；量词体内的读取不携带 —— 那里
+的界由规格自身的守卫承担。`ms_of(a)` 把数组 N 个元素折叠为
+幽灵 Multiset（元素→计数），于是 `permutation(s, old(s))` 就是
+`forall(x, ms_count(ms_of(s), x) == ms_count(ms_of(old(s)), x))`
+—— N 展开后是纯粹的数组合同推理。V5 出口样例 —— 对
+`Array(i64, 8)` 的原地插入排序，通过这两条量词式不变式同时证明
+有序性与置换性 —— 见
+`tests/spec/fixtures/valid/spec_insertion_sort.yo`。
 
 ## 求解器
 

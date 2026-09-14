@@ -1,0 +1,332 @@
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert, panic } :: import("std/assert");
+{
+  SemVer,
+  VersionReq,
+  is_all_digits,
+  parse_semver,
+  compare_semver,
+  semver_tags_from_ls_remote,
+  latest_release,
+  parse_version_req,
+  version_req_matches,
+  select_version,
+  Requirement,
+  ChosenRef,
+  choose_ref,
+  locked_entry_satisfies
+} :: import("../../src/resolver.yo");
+{ GitRequirement } :: import("../../src/manifest.yo");
+{ LockEntry, git_source, path_source } :: import("../../src/lock_file.yo");
+_tags :: (fn(text : str) -> ArrayList(SemVer))(semver_tags_from_ls_remote(String.from(text)));
+_latest_tag :: (fn(text : str) -> Option(String))(
+  match(latest_release(_tags(text)), .Some(sv) => Option(String).Some(sv.tag), .None => Option(String).None)
+);
+// ---------------------------------------------------------------------------
+// semver tags
+// ---------------------------------------------------------------------------
+test("is_all_digits: digits, empty, letters", {
+  assert(is_all_digits(String.from("123")), "digits");
+  assert(!is_all_digits(String.from("")), "empty");
+  assert(!is_all_digits(String.from("12a")), "letter");
+});
+test("parse_semver: v1.2.3 parses correctly", {
+  sv := parse_semver(String.from("v1.2.3")).unwrap();
+  assert(sv.major == i32(1), "major");
+  assert(sv.minor == i32(2), "minor");
+  assert(sv.patch == i32(3), "patch");
+  assert(sv.pre == "", "release");
+  assert(sv.tag == "v1.2.3", "tag kept as written");
+});
+test("parse_semver: uppercase V and no prefix both parse", {
+  assert(parse_semver(String.from("V2.0.1")).unwrap().major == i32(2), "V");
+  assert(parse_semver(String.from("0.0.6")).unwrap().patch == i32(6), "bare");
+});
+test("parse_semver: pre-release and build metadata", {
+  rc := parse_semver(String.from("v1.0.0-rc.1")).unwrap();
+  assert(rc.pre == "rc.1", "pre-release identifiers");
+  built := parse_semver(String.from("v1.0.0+build.5")).unwrap();
+  assert(built.pre == "", "build metadata is not a pre-release");
+  both := parse_semver(String.from("v1.0.0-beta+exp")).unwrap();
+  assert(both.pre == "beta", "pre before build");
+});
+test("parse_semver: rejects non-versions", {
+  assert(parse_semver(String.from("")).is_none(), "empty");
+  assert(parse_semver(String.from("v1.2")).is_none(), "two parts");
+  assert(parse_semver(String.from("v1.x.3")).is_none(), "letter");
+  assert(parse_semver(String.from("v1.0.0-")).is_none(), "dangling dash");
+  assert(parse_semver(String.from("v1.0.0-rc..1")).is_none(), "empty identifier");
+  assert(parse_semver(String.from("latest")).is_none(), "word");
+});
+_sv :: (fn(t : str) -> SemVer)(parse_semver(String.from(t)).unwrap());
+test("compare_semver: numeric ordering", {
+  assert(compare_semver(_sv("v1.0.0"), _sv("v1.0.0")) == i32(0), "equal");
+  assert(compare_semver(_sv("v2.0.0"), _sv("v1.9.9")) > i32(0), "major");
+  assert(compare_semver(_sv("v1.2.0"), _sv("v1.1.9")) > i32(0), "minor");
+  assert(compare_semver(_sv("v1.1.2"), _sv("v1.1.1")) > i32(0), "patch");
+  assert(compare_semver(_sv("v1.1.1"), _sv("v1.1.2")) < i32(0), "less");
+});
+test("compare_semver: pre-release ordering (semver §11)", {
+  assert(compare_semver(_sv("v1.0.0"), _sv("v1.0.0-rc.1")) > i32(0), "release beats pre-release");
+  assert(compare_semver(_sv("v1.0.0-alpha"), _sv("v1.0.0-alpha.1")) < i32(0), "shorter is smaller");
+  assert(compare_semver(_sv("v1.0.0-alpha.1"), _sv("v1.0.0-alpha.beta")) < i32(0), "numeric < alphanumeric");
+  assert(compare_semver(_sv("v1.0.0-beta.11"), _sv("v1.0.0-beta.2")) > i32(0), "numeric identifiers compare by value");
+  assert(compare_semver(_sv("v1.0.0-rc.1"), _sv("v1.0.0-beta.11")) > i32(0), "lexical");
+});
+_LS_REMOTE :: "abc\trefs/heads/main\nabd\trefs/tags/v0.1.0\nabe\trefs/tags/v0.2.0\nabf\trefs/tags/v0.2.0^{}\nac0\trefs/tags/v1.0.0-rc.1\nac1\trefs/tags/v0.10.0\nac2\trefs/tags/not-a-version\nac3\trefs/tags/v1.0.0\nac4\trefs/tags/v1.1.0\nac5\trefs/tags/v2.0.0-beta.1\n";
+test("latest_release: picks the highest RELEASE tag", {
+  assert(_latest_tag(_LS_REMOTE).unwrap() == "v1.1.0", "v2.0.0-beta.1 is a pre-release and never the default");
+});
+test("latest_release: no tags is .None", {
+  assert(_latest_tag("").is_none(), "empty");
+  assert(_latest_tag("abc\trefs/heads/main\n").is_none(), "branches only");
+});
+// ---------------------------------------------------------------------------
+// version requirements
+// ---------------------------------------------------------------------------
+_req :: (fn(t : str) -> VersionReq)(
+  match(
+    parse_version_req(String.from(t)),
+    .Ok(r) => r,
+    .Err(msg) => {
+      panic(`"${t}" should parse: ${msg}`);
+      parse_version_req(String.from("*")).unwrap()
+    }
+  )
+);
+_matches :: (fn(req : str, v : str) -> bool)(version_req_matches(_req(req), _sv(v)));
+test("parse_version_req: rejects garbage and empty", {
+  assert(parse_version_req(String.from("")).is_err(), "empty");
+  assert(parse_version_req(String.from("latest")).is_err(), "word");
+  assert(parse_version_req(String.from("1.2.3.4")).is_err(), "four parts");
+  assert(parse_version_req(String.from("^1.*")).is_err(), "wildcard after operator");
+  assert(parse_version_req(String.from("1.*.3")).is_err(), "wildcard not last");
+  assert(parse_version_req(String.from(">=1,, <2")).is_err(), "empty comparator");
+});
+test("version_req_matches: caret", {
+  assert(_matches("^1.2.3", "v1.2.3"), "lower bound");
+  assert(_matches("^1.2.3", "v1.9.0"), "compatible");
+  assert(!_matches("^1.2.3", "v2.0.0"), "next major");
+  assert(!_matches("^1.2.3", "v1.2.2"), "below");
+  assert(_matches("^0.2.3", "v0.2.9"), "0.x: minor is the compatibility line");
+  assert(!_matches("^0.2.3", "v0.3.0"), "0.x next minor");
+  assert(_matches("^0.0.3", "v0.0.3"), "0.0.x exact");
+  assert(!_matches("^0.0.3", "v0.0.4"), "0.0.x next patch");
+  assert(_matches("^0.0", "v0.0.9"), "^0.0 → <0.1.0");
+  assert(!_matches("^0.0", "v0.1.0"), "^0.0 upper");
+  assert(_matches("^0", "v0.9.9"), "^0 → <1.0.0");
+  assert(_matches("^1", "v1.9.9"), "^1 → <2.0.0");
+  assert(_matches("^1.2", "v1.2.0"), "^1.2 lower");
+  assert(!_matches("^1.2", "v1.1.9"), "^1.2 below");
+});
+test("version_req_matches: a bare version means caret", {
+  assert(_matches("1.2.3", "v1.5.0"), "bare");
+  assert(!_matches("1.2.3", "v2.0.0"), "bare upper");
+  assert(_matches("v1.2.3", "v1.5.0"), "leading v tolerated");
+});
+test("version_req_matches: tilde", {
+  assert(_matches("~1.2.3", "v1.2.9"), "patch moves");
+  assert(!_matches("~1.2.3", "v1.3.0"), "minor does not");
+  assert(_matches("~1.2", "v1.2.0"), "~1.2 lower");
+  assert(!_matches("~1.2", "v1.3.0"), "~1.2 upper");
+  assert(_matches("~1", "v1.9.0"), "~1 → <2.0.0");
+  assert(!_matches("~1", "v2.0.0"), "~1 upper");
+});
+test("version_req_matches: exact", {
+  assert(_matches("=1.2.3", "v1.2.3"), "exact");
+  assert(!_matches("=1.2.3", "v1.2.4"), "exact other");
+  assert(_matches("=1.2", "v1.2.7"), "=1.2 is 1.2.x");
+  assert(!_matches("=1.2", "v1.3.0"), "=1.2 upper");
+  assert(_matches("=1", "v1.7.0"), "=1 is 1.x");
+});
+test("version_req_matches: comparison operators and partials", {
+  assert(_matches(">=1.2.3", "v1.2.3"), ">= inclusive");
+  assert(!_matches(">1.2.3", "v1.2.3"), "> exclusive");
+  assert(_matches(">1.2.3", "v1.2.4"), "> next");
+  assert(_matches(">1.2", "v1.3.0"), ">1.2 means >=1.3.0");
+  assert(!_matches(">1.2", "v1.2.9"), ">1.2 excludes 1.2.x");
+  assert(_matches("<2", "v1.9.9"), "<2");
+  assert(!_matches("<2", "v2.0.0"), "<2 upper");
+  assert(_matches("<=1.2", "v1.2.9"), "<=1.2 includes 1.2.x");
+  assert(!_matches("<=1.2", "v1.3.0"), "<=1.2 excludes 1.3.0");
+  assert(_matches(">=1, <2", "v1.5.0"), "conjunction");
+  assert(!_matches(">=1, <2", "v2.0.0"), "conjunction upper");
+  assert(!_matches(">=1, <2", "v0.9.0"), "conjunction lower");
+});
+test("version_req_matches: wildcards", {
+  assert(_matches("*", "v0.0.1"), "* any");
+  assert(_matches("*", "v9.9.9"), "* any high");
+  assert(_matches("1.*", "v1.9.9"), "1.*");
+  assert(!_matches("1.*", "v2.0.0"), "1.* upper");
+  assert(_matches("1.2.*", "v1.2.9"), "1.2.*");
+  assert(!_matches("1.2.*", "v1.3.0"), "1.2.* upper");
+  assert(_matches("1.x", "v1.4.0"), "x spelling");
+});
+test("version_req_matches: pre-releases only when the range names one at the same version", {
+  assert(!_matches("^1.0.0", "v1.0.0-rc.1"), "pre-release below the release is excluded");
+  assert(!_matches("^1.0.0", "v1.5.0-beta.1"), "pre-release inside the range is excluded");
+  assert(!_matches("*", "v2.0.0-beta.1"), "wildcard excludes pre-releases");
+  assert(_matches("^1.0.0-rc.1", "v1.0.0-rc.1"), "named pre-release matches");
+  assert(_matches("^1.0.0-rc.1", "v1.0.0-rc.2"), "later pre-release of the same version");
+  assert(_matches("^1.0.0-rc.1", "v1.0.0"), "the release matches too");
+  assert(!_matches("^1.0.0-rc.1", "v1.1.0-beta.1"), "pre-release of another version is excluded");
+  assert(!_matches("^1.0.0-rc.5", "v1.0.0-rc.1"), "earlier pre-release is below the bound");
+});
+test("select_version: highest satisfying tag from ls-remote output", {
+  assert(select_version(_tags(_LS_REMOTE), _req("^0.2")).unwrap().tag == "v0.2.0", "^0.2 is <0.3.0 → v0.2.0");
+  assert(select_version(_tags(_LS_REMOTE), _req("^0.2.0")).unwrap().tag == "v0.2.0", "^0.2.0 → v0.2.0");
+  assert(select_version(_tags(_LS_REMOTE), _req(">=0.2")).unwrap().tag == "v1.1.0", ">=0.2 → highest release");
+  assert(select_version(_tags(_LS_REMOTE), _req("^2.0.0-beta.1")).unwrap().tag == "v2.0.0-beta.1", "named pre-release");
+  assert(select_version(_tags(_LS_REMOTE), _req("^3")).is_none(), "nothing satisfies");
+});
+// ---------------------------------------------------------------------------
+// choose_ref — one ref per package across every requirer
+// ---------------------------------------------------------------------------
+_reqs :: (fn() -> ArrayList(Requirement))(ArrayList(Requirement).new());
+_want :: (fn(reqs : ArrayList(Requirement), who : str, r : GitRequirement) -> unit)(
+  reqs.push(Requirement(requirer : String.from(who), requirement : r))
+);
+_ver :: (fn(t : str) -> GitRequirement)(GitRequirement.Version(String.from(t)));
+_choose :: (fn(reqs : ArrayList(Requirement)) -> Result(ChosenRef, String))(
+  choose_ref(String.from("dep"), String.from("https://host/dep"), _tags(_LS_REMOTE), reqs)
+);
+_chosen_tag :: (fn(reqs : ArrayList(Requirement)) -> String)(
+  match(
+    _choose(reqs),
+    .Ok(c) => c.ref_text(),
+    .Err(msg) => {
+      panic(`expected a choice: ${msg}`);
+      String.new()
+    }
+  )
+);
+_choose_err :: (fn(reqs : ArrayList(Requirement)) -> String)(
+  match(
+    _choose(reqs),
+    .Ok(c) => {
+      panic(`expected an error, chose ${c.ref_text()}`);
+      String.new()
+    },
+    .Err(msg) => msg
+  )
+);
+test("choose_ref: one range picks the highest tag inside it", {
+  reqs := _reqs();
+  _want(reqs, "<root>", _ver("^0.2"));
+  assert(_chosen_tag(reqs) == "v0.2.0", "^0.2 → v0.2.0");
+  only := _reqs();
+  _want(only, "<root>", _ver(">=0.1"));
+  assert(_chosen_tag(only) == "v1.1.0", ">=0.1 → the highest release");
+});
+test("choose_ref: two overlapping ranges are unified to the highest tag inside BOTH", {
+  reqs := _reqs();
+  _want(reqs, "<root>", _ver(">=0.1"));
+  _want(reqs, "other", _ver("^0.2"));
+  assert(_chosen_tag(reqs) == "v0.2.0", ">=0.1 ∧ ^0.2 → v0.2.0, not v1.1.0");
+});
+test("choose_ref: disjoint ranges are an error naming every requirer", {
+  reqs := _reqs();
+  _want(reqs, "<root>", _ver("^1"));
+  _want(reqs, "utils", _ver("^0.2"));
+  msg := _choose_err(reqs);
+  assert(msg.contains(String.from("no tag of https://host/dep satisfies every requirement")), `message: ${msg}`);
+  assert(msg.contains(String.from("<root> requires version \"^1\"")), `names the root: ${msg}`);
+  assert(msg.contains(String.from("utils requires version \"^0.2\"")), `names utils: ${msg}`);
+});
+test("choose_ref: an exact tag that is a version satisfies a range, or errors", {
+  ok := _reqs();
+  _want(ok, "<root>", GitRequirement.Tag(String.from("v1.0.0")));
+  _want(ok, "utils", _ver("^1"));
+  assert(_chosen_tag(ok) == "v1.0.0", "the pin is inside the range");
+  match(_choose(ok), .Ok(c) => assert(c.version_text() == "1.0.0", "version text of a tag"), .Err(_) => panic("ok"));
+  bad := _reqs();
+  _want(bad, "<root>", GitRequirement.Tag(String.from("v0.1.0")));
+  _want(bad, "utils", _ver("^1"));
+  msg := _choose_err(bad);
+  assert(msg.contains(String.from("pinned AND ranged")), `message: ${msg}`);
+});
+test("choose_ref: two different pins are an error; the same pin twice is fine", {
+  same := _reqs();
+  _want(same, "<root>", GitRequirement.Rev(String.from("abc123")));
+  _want(same, "utils", GitRequirement.Rev(String.from("abc123")));
+  assert(_chosen_tag(same) == "abc123", "same rev twice");
+  diff := _reqs();
+  _want(diff, "<root>", GitRequirement.Branch(String.from("main")));
+  _want(diff, "utils", GitRequirement.Tag(String.from("v1.0.0")));
+  msg := _choose_err(diff);
+  assert(msg.contains(String.from("pinned two different ways")), `message: ${msg}`);
+  assert(msg.contains(String.from("branch \"main\"")) && msg.contains(String.from("tag \"v1.0.0\"")), `names both pins: ${msg}`);
+});
+test("choose_ref: a rev with a range cannot be reconciled", {
+  reqs := _reqs();
+  _want(reqs, "<root>", GitRequirement.Rev(String.from("abc123")));
+  _want(reqs, "utils", _ver("^1"));
+  assert(_choose_err(reqs).contains(String.from("pinned AND ranged")), "a commit is not a version");
+});
+test("choose_ref: a non-semver exact tag, a branch and the default branch", {
+  t := _reqs();
+  _want(t, "<root>", GitRequirement.Tag(String.from("release-2024")));
+  match(
+    _choose(t),
+    .Ok(c) => match(c, .Exact(r) => assert(r == "release-2024", "exact"), _ => panic("Exact expected")),
+    .Err(_) => panic("ok")
+  );
+  b := _reqs();
+  _want(b, "<root>", GitRequirement.Branch(String.from("dev")));
+  match(_choose(b), .Ok(c) => assert(c.is_branch() && (c.ref_text() == "dev"), "branch"), .Err(_) => panic("ok"));
+  d := _reqs();
+  _want(d, "<root>", GitRequirement.DefaultBranch);
+  match(
+    _choose(d),
+    .Ok(c) => assert(c.is_branch() && (c.ref_text().len() == usize(0)), "default branch has no name yet"),
+    .Err(_) => panic("ok")
+  );
+});
+test("choose_ref: a bad range is reported with its requirer", {
+  reqs := _reqs();
+  _want(reqs, "utils", _ver("latest"));
+  msg := _choose_err(reqs);
+  assert(msg.starts_with(String.from("utils: version requirement \"latest\"")), `message: ${msg}`);
+});
+// ---------------------------------------------------------------------------
+// locked_entry_satisfies — lock reuse without the network
+// ---------------------------------------------------------------------------
+_locked :: (fn(source : String) -> LockEntry)(
+  LockEntry(
+    name : String.from("dep"),
+    version : String.new(),
+    source : source,
+    commit : String.from("c0ffee"),
+    integrity : String.from("sha256-x"),
+    dependencies : ArrayList(String).new()
+  )
+);
+_url :: (fn() -> String)(String.from("https://host/dep"));
+test("locked_entry_satisfies: a locked tag inside every range is reused", {
+  reqs := _reqs();
+  _want(reqs, "<root>", _ver("^0.2"));
+  _want(reqs, "utils", _ver(">=0.1"));
+  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("v0.2.0"))), _url(), reqs), "v0.2.0 fits both");
+  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("v0.1.0"))), _url(), reqs), "v0.1.0 is outside ^0.2");
+  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("main"))), _url(), reqs), "a branch does not satisfy a range");
+});
+test("locked_entry_satisfies: pins must match exactly; a bare git follows any recorded ref", {
+  tag := _reqs();
+  _want(tag, "<root>", GitRequirement.Tag(String.from("v1.0.0")));
+  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("v1.0.0"))), _url(), tag), "same tag");
+  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("v1.1.0"))), _url(), tag), "other tag");
+  branch := _reqs();
+  _want(branch, "<root>", GitRequirement.Branch(String.from("dev")));
+  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("dev"))), _url(), branch), "same branch");
+  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("main"))), _url(), branch), "other branch");
+  dflt := _reqs();
+  _want(dflt, "<root>", GitRequirement.DefaultBranch);
+  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("main"))), _url(), dflt), "any recorded branch");
+});
+test("locked_entry_satisfies: a different URL or a path source never satisfies", {
+  reqs := _reqs();
+  _want(reqs, "<root>", _ver("*"));
+  assert(!locked_entry_satisfies(_locked(git_source(String.from("https://elsewhere/dep"), String.from("v1.0.0"))), _url(), reqs), "moved repository");
+  assert(!locked_entry_satisfies(_locked(path_source(String.from("../dep"))), _url(), reqs), "a path entry for a git requirement");
+});
