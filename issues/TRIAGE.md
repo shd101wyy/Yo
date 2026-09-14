@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 212 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 211 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 32 | 11 |
 | Codegen / emitted C | 23 | 4 |
 | Evaluator / types | 39 | 8 |
-| Std library | 65 | 16 |
+| Std library | 64 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 2 | 1 |
-| **Total** | **212** | **44** |
+| **Total** | **211** | **44** |
 
 ## Cross-cutting buckets
 
@@ -204,7 +204,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (65)
+### Std library (64)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -223,7 +223,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`http-client-omits-the-port-from-the-host-header.md`](./http-client-omits-the-port-from-the-host-header.md) | — | — |
 | [`http-whitespace-before-header-colon-not-rejected.md`](./http-whitespace-before-header-colon-not-rejected.md) | — | — |
 | [`httpmethod-from-string-returns-option-not-result.md`](./httpmethod-from-string-returns-option-not-result.md) | — | — |
-| [`ipaddr-parse-v4-accepts-empty-octets-and-wraps-on-overflow.md`](./ipaddr-parse-v4-accepts-empty-octets-and-wraps-on-overflow.md) | — | — |
 | [`json-stringify-renders-numbers-with-percent-g-and-loses-them.md`](./json-stringify-renders-numbers-with-percent-g-and-loses-them.md) | OPEN — wrong value on a shipped serializer; J | — |
 | [`make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md`](./make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md) | — | — |
 | [`network-path-redirect-location-resolved-against-the-base-host.md`](./network-path-redirect-location-resolved-against-the-base-host.md) | — | — |
