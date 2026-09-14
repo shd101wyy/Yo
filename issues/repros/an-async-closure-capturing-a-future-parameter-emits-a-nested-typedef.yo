@@ -1,0 +1,33 @@
+// Repro — a function that takes an `Impl(Future(T, E))` PARAMETER and captures
+// it in an `io.async` closure emits the Future interface's on-demand forward
+// declaration INSIDE the capture struct's open body, which is not legal C.
+//
+//   yo compile issues/repros/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.yo --optimize 2 -o /tmp/x
+//
+// Expected: it compiles and prints 42.
+// Actual:   error: type name does not allow storage class to be specified
+//           error: field has incomplete type 'struct __yo_t_..._struct'
+//           error: unknown type name '__yo_t_...'
+//
+// The emitted C shows the cause directly — the typedef lands mid-struct:
+//
+//   struct __yo_t_10253227764582054840_struct { //  : <struct:capture_...>
+//   typedef struct __yo_t_9416080281748826554_struct __yo_t_9416080281748826554; // Forward declaration (on-demand)
+//   struct __yo_t_9416080281748826554_struct { // Generic Future interface ...
+//     ...
+//   };
+//     __yo_t_9416080281748826554* fut;   // the capture field that demanded it
+//   };
+//
+// `yo check` passes — the evaluator is happy; only codegen is wrong.
+//
+// See issues/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md
+{ println } :: import("std/fmt");
+_take :: (fn(fut : Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
+  io.async(e => e.io.await(fut, e.io))
+);
+_work :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => i32(42)));
+main :: (fn(io : Io) -> unit)({
+  println(io.await(_take(_work(io), io), io).to_string());
+});
+export(main);
