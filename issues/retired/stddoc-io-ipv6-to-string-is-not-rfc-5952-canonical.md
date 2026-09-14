@@ -1,7 +1,19 @@
 # `IpAddr.to_string()` renders IPv6 uncompressed, not in the RFC 5952 canonical form
 
 **Found:** 2026-09-11, during the `std/` `///` doc sweep (agent A4, net/http/io group).
-**Status:** open. Filed, not fixed — the sweep is documentation-only.
+**Status: RETIRED 2026-09-14 — DUPLICATE.** This is the same defect as
+`issues/fixed/ipaddr-v6-to-string-is-not-rfc-5952-canonical.md`, filed
+independently a week earlier (2026-09-04) by the std API audit. That doc is the
+record: it carries the root-cause analysis, the measurement showing `inet_pton`
+accepts the compressed form, and the fix. The bug is fixed; nothing here is
+outstanding.
+
+Kept rather than deleted because it is evidence of a real process failure
+worth seeing: two sweeps a week apart found the same defect and neither
+searched `issues/` for it first, so it was written up twice from two angles.
+The `issues/TRIAGE.md` index exists partly to make that cheaper to notice.
+
+**Was:** open. Filed, not fixed — the sweep is documentation-only.
 
 ## Behaviour, verbatim
 

@@ -1,6 +1,12 @@
 # IPv6 `to_string` emits `0:0:0:0:0:0:0:1` — no RFC 5952 `::` compression
 
-**Status: OPEN.** **Class**: api-lie — the canonical text form of an IPv6
+**Status: FIXED 2026-09-14.** RFC 5952 section 4.2 implemented in the `.V6`
+arm of the `ToString` impl; verified red-then-green against the repro and nine
+new assertions in `tests/net/addr.test.yo`. Supersedes the duplicate filing
+`issues/retired/stddoc-io-ipv6-to-string-is-not-rfc-5952-canonical.md`, which
+recorded the same defect a week later from the doc sweep.
+
+**Was: OPEN.** **Class**: api-lie — the canonical text form of an IPv6
 address is wrong in every log line, error message and `SocketAddr` rendering.
 
 **Found**: 2026-09-04, measuring the `net` row of the std API audit.
@@ -141,3 +147,63 @@ Then re-run `tests/net/tcp.test.yo` and `tests/net/udp.test.yo` — in particula
 non-local IPv6 address must fail"), which guard the earlier fix that made
 `_make_sockaddr` render the real address instead of hardcoding `::1`; they are
 the tests that prove the sockaddr path still sees the right bytes.
+
+---
+
+## Fix (applied 2026-09-14)
+
+Only section 4.2 was missing, exactly as this doc's root-cause analysis said —
+4.1 (no leading zeros) and 4.3 (lowercase) already came free from `write_hex`
+being `%llx`. The `.V6` arm now scans for the zero run to compress before
+emitting:
+
+- **4.2.1** — the longest run of consecutive all-zero fields becomes `::`.
+- **4.2.3** — on a tie the FIRST run wins. That is a `>` rather than a `>=`
+  when the best run is updated, and it is the whole difference between
+  `2001:db8::1:0:0:1` and `2001:db8:0:0:1::1`.
+- **4.2.2** — a run of a SINGLE zero field is never shortened; `1:0:2:…` must
+  not become `1::2:…`.
+
+`::` carries both colons, so a run touching either end renders correctly
+(`::1`, `2001:db8::`, and `::` for the all-zero address); the separator is
+suppressed for the field immediately after it.
+
+`SocketAddr` needed no change — it brackets whatever `to_string` returns, so
+`[2001:db8::1]:443` follows from the same fix, which is what this doc predicted.
+
+### The misleading comment is corrected too
+
+This doc flagged that `std/net/tcp.yo` told the next reader the uncompressed
+form was *required* as `inet_pton` input, and measured that claim false. That
+comment is now replaced with what is actually true — `inet_pton` accepts both
+forms identically — and points at this record. It was the single most likely
+thing to stop someone making this fix, which is why it mattered more than its
+size. (`std/net/udp.yo` no longer carries that code path at all, so there was
+nothing to correct there.)
+
+The claim is also now covered by execution rather than by reading:
+`tests/net/tcp.test.yo` (23 tests) and `tests/net/dns.test.yo` pass unchanged
+against the compressed rendering, and those drive real `inet_pton`.
+
+## Regression tests (added)
+
+`tests/net/addr.test.yo`, nine assertions across two tests. **The expectations
+are taken from RFC 5952 itself**, not from this doc — an expected-value list
+written alongside a bug report is not an independent oracle, and two such
+lists were found wrong elsewhere in this same clean-up pass. The tie-break row
+is the RFC's own worked example, `2001:db8:0:0:1:0:0:1` → `2001:db8::1:0:0:1`.
+
+Covered: loopback, all-zero, leading run, trailing run, the lone-zero case that
+must NOT compress, longest-run-wins, first-run-wins-on-tie, a link-local
+address that also pins 4.1/4.3, and both `SocketAddr` renderings.
+
+Both tests fail against the pre-fix `std` (exit code 6); the 34 pre-existing
+tests in the file are unaffected. Clean under the published v0.2.32 seed.
+
+## Not done
+
+RFC 5952 **section 5** — the mixed `::ffff:192.0.2.1` notation for
+IPv4-mapped addresses — is not implemented; such an address still renders as
+`::ffff:c000:201`. That is a further behaviour change to a shipped API and was
+not what either filing asked for. Worth doing with the module's next stability
+pass, alongside a `parse_v6` that accepts the same notation.
