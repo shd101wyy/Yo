@@ -581,9 +581,11 @@ test("Async test", {
 
 ## Design-by-contract clauses
 
-`plans/backlog/FORMAL_VERIFICATION.md` Phase 0 + V1. No SMT verifier yet —
-these lower to runtime `assert(...)` (runtime fns) or `comptime_assert(...)`
-(comptime fns, returning `comptime(T)`).
+`plans/backlog/FORMAL_VERIFICATION.md` (V1–V6). In `runtime` mode (no
+pragma) these lower to runtime `assert(...)` (runtime fns) or
+`comptime_assert(...)` (comptime fns, returning `comptime(T)`); under
+`pragma(Pragma.Verify);` the pinned-Z3 SMT verifier proves them at
+compile time — see `docs/en-US/FORMAL_VERIFICATION.md`.
 
 ```rust
 // requires/ensures are SIGNATURE clauses, after params and where(...).
@@ -618,6 +620,26 @@ is_pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
 - One `requires(...)` and one `ensures(...)` max per signature; put
   multiple predicates inside the single call: `requires(a, b)`. Two
   `requires(...)` clauses, or a zero-arg `requires()`, is a syntax error.
+- **Trait-method contracts (V6 task 1):** an impl method's contracts are
+  checked against the trait method's — `trait.requires ⇒ impl.requires`
+  (contravariant: may weaken, never strengthen) and `impl.ensures ⇒
+  trait.ensures` (covariant: may strengthen, never weaken). A clause-less
+  impl method INHERITS the trait's contracts (its body must prove the
+  trait's ensures under the trait's requires). PITFALL: an impl method
+  whose fn-type carries clauses INLINE inside the trait entry trips a
+  known evaluator defect
+  (`issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`)
+  — write it as a named fn referenced from the impl entry (the two-step
+  spelling below):
+
+```rust
+ClampBound :: trait(
+  get : (fn(self : Self, i : i32, requires(i >= i32(0)), ensures(result >= i)) -> (result : i32))
+);
+// two-step: the named fn carries the clauses, the impl references it.
+get_impl :: (fn(self : i32, i : i32, requires(i >= i32(-1)), ensures(result == i)) -> (result : i32))(i);
+impl(i32, ClampBound(get : get_impl));
+```
 - **`short`, `long`, `int`, `char` cannot be used as variable names.** They are
   builtin type names, so `short := ...` fails with `Failed to define variable
   "short"` — a message that points at the binding and says nothing about

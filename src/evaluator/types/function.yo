@@ -73,6 +73,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("../../token.yo");
+{ set_func_contract_hooks } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Macro side-tables (folded from former
 // `evaluator/types/macro_registry.yo`).
@@ -663,6 +664,35 @@ register_func_return_label :: (
 get_func_return_label :: (fn(func_id : String) -> Option(String))(
   g_func_return_label.get(func_id.clone())
 );
+/// Register all three contract artifacts under one id (V6 task 1: the
+/// trait-contract INHERITANCE writer, reached through the hook below).
+register_func_contracts_bundle :: (
+  fn(func_id : String, reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr), ret : Option(String)) -> unit
+)({
+  register_func_requires_exprs(func_id.clone(), reqs);
+  register_func_ensures_exprs(func_id.clone(), enss);
+  register_func_return_label(func_id.clone(), ret);
+});
+// V6 task 1: install the contract-table hooks into the trait-method
+// registry (values/type_trait_methods.yo) — impl.yo reads/writes the
+// func-contract tables through these pointers because it cannot import
+// this module (function.yo → trait_checking.yo → impl.yo). The
+// `_name := (fn() -> bool)({...})();` shape is REQUIRED, not style: a
+// bare module-level call evaluates during the evaluator's module walk
+// (so `yo check` sees the hooks) but codegen collects only `:=` /
+// `(x : T) =` / `x =` inits as module-level initializers — a bare call
+// statement is DROPPED from the compiled binary, silently leaving the
+// hooks uninstalled there (the `_trait_checking_init` precedent above
+// the exports of trait_checking.yo exists for exactly this reason).
+_func_contract_hooks_init := (fn() -> bool)({
+  set_func_contract_hooks(
+    get_func_requires_exprs,
+    get_func_ensures_exprs,
+    get_func_return_label,
+    register_func_contracts_bundle
+  );
+  true
+})();
 /// Append (label, trait, negated) entries for every required/negative trait
 /// carried on `ty` when it is a SomeT (the where clause mutated the param
 /// placeholder's lists in place). No-op for non-SomeT types.

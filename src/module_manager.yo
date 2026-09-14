@@ -32,18 +32,49 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { Path } :: import("std/path");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { getenv } :: import("std/libc/stdlib");
 { current_exe, cwd } :: import("std/env");
 env_mod :: import("std/env");
 { record_input_file } :: import("./input_record.yo");
 { Instant } :: import("std/time/instant");
 { profile_record_module } :: import("./utils.yo");
-{ AstExpr, ast_expr_to_string } :: import("./expr.yo");
+{
+  AstExpr,
+  ast_expr_to_string,
+  ast_expr_token,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call_of,
+  clone_expr_fresh_ids,
+  BK_EXPORT,
+  BK_COLON
+} :: import("./expr.yo");
 { fnv1a64 } :: import("./utils.yo");
 { ExprInfoTable } :: import("./expr_info.yo");
 { parse } :: import("./parser.yo");
 { Environment, clone_env, build_prelude_var_cache } :: import("./env.yo");
-{ EvalContext, eval_context_new, LoadModuleResult, stored_def_hash, stored_stmt_hash, stored_def_count, classify_pending_def } :: import("./evaluator/context.yo");
+{
+  EvalContext,
+  eval_context_new,
+  LoadModuleResult,
+  stored_def_hash,
+  stored_stmt_hash,
+  stored_def_count,
+  classify_pending_def,
+  PendingDef,
+  ModuleWalk,
+  def_key,
+  def_key_module,
+  def_key_index,
+  finished_walk_for,
+  reset_pending_def,
+  graft_pending_def,
+  def_dependents_closure,
+  def_key_dependees,
+  revalidate_walk_defs,
+  ordered_readers_of
+} :: import("./evaluator/context.yo");
 { register_evaluate_expression, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 {
@@ -63,7 +94,7 @@ env_mod :: import("std/env");
   read_file_sync,
   file_exists_sync
 } :: import("./manifest.yo");
-{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module } :: import("./evaluator/module_loader.yo");
+{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot } :: import("./evaluator/module_loader.yo");
 { purge_type_trait_methods_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
 { purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
@@ -345,22 +376,30 @@ mm_module_source :: (fn(fs_path : String) -> Option(String))({
   );
   Option(String).Some(String.from_bytes(read_file_sync(fs_path, read_exn)))
 });
-/// LSP invalidation entry (Phase B1, plans/reference/INCREMENTAL_COMPILATION.md):
-/// drop the module cached for this FILESYSTEM path and every transitive
-/// dependent, so the next analysis of any document re-evaluates exactly the
-/// stale part of its import closure. Returns the removed `file://` paths
-/// (Phase B2's registry purge consumes this). The cached prelude env is NOT
-/// touched — editing std/prelude.yo still needs a server restart.
-/// Phase 3 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6): a parse-only
-/// diff of one changed file against its last walk's records — NO evaluation.
-/// `.Some(false)`: the file's definitions and ordered-statement sequence all
-/// hash the same (a comment-only or whitespace-only edit) — nothing needs
-/// invalidating at any granularity. `.Some(true)`: something moved (the
-/// caller takes the file-level path today; the per-definition path arrives
-/// with the rest of §6). `.None`: the module was never walked here (cold
-/// path) — treat as changed.
-mm_definitions_changed :: (fn(fs_path : String) -> Option(bool))({
-  key := `file://${fs_path}`;
+/// Phase 3b (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6 step 4): the
+/// parse-only diff of one changed file WITH the per-definition detail the
+/// invalidator needs. `.None`: never walked here (cold path). `fallback =
+/// true`: something not attributable to a single definition moved — the
+/// ordered-statement sequence, the definition COUNT, or an ADDED definition
+/// (no stored hash under its key) — so the caller stays on the file-level
+/// path. `fallback = false`: `changed` holds the fresh (re-parsed) defs whose
+/// source hash moved, in index order; everything else in the file is
+/// hash-identical to the last walk.
+DefDiff :: ref(
+  struct(
+    fallback : bool,
+    /// The key the module's definitions hash under — its walk's
+    /// `module_path` (demand loads: the `file://` cache key; entries: the
+    /// path as typed), resolved through the finished-walk table.
+    module_key : String,
+    /// Fresh defs whose `src_hash` moved (new ASTs for grafting).
+    changed : ArrayList(PendingDef),
+    /// The whole fresh statement list — the invalidator's ordered-statement
+    /// and export-alias scans walk it.
+    fresh_exprs : ArrayList(AstExpr)
+  )
+);
+mm_changed_definitions :: (fn(fs_path : String) -> Option(DefDiff))({
   exn_opt := match(
     g_loader_exn,
     .Some(e) => Option(Exception).Some(e),
@@ -369,8 +408,22 @@ mm_definitions_changed :: (fn(fs_path : String) -> Option(bool))({
   exn := match(
     exn_opt,
     .Some(e) => e,
-    .None => return(Option(bool).None)
+    .None => return(Option(DefDiff).None)
   );
+  // The stored hashes are keyed by the WALK's module path. Demand loads walk
+  // under the `file://` cache key; entry modules under the path as typed —
+  // try both before concluding the module was never walked here.
+  walk_key := cond(
+    finished_walk_for(`file://${fs_path}`).is_some() => `file://${fs_path}`,
+    finished_walk_for(fs_path.clone()).is_some() => fs_path.clone(),
+    true => String.new()
+  );
+  if(walk_key.len() == usize(0), {
+    if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+      eprintln(`[p3diff] ${fs_path}: NO finished walk`);
+    });
+    return(Option(DefDiff).None);
+  });
   src_bytes := read_file_sync(fs_path.clone(), exn);
   (src : String) = String.from_bytes(src_bytes);
   match(
@@ -380,9 +433,9 @@ mm_definitions_changed :: (fn(fs_path : String) -> Option(bool))({
     },
     .None => ()
   );
-  mod_exprs := parse(src, key.clone(), exn);
-  // Ordered-statement sequence first — a change there is not attributable
-  // to any definition.
+  mod_exprs := parse(src, walk_key.clone(), exn);
+  // Ordered-statement sequence first — a change there is not attributable to
+  // any definition.
   stmt_state := String.new();
   (i : usize) = usize(0);
   n := mod_exprs.len();
@@ -401,23 +454,20 @@ mm_definitions_changed :: (fn(fs_path : String) -> Option(bool))({
     );
     i = (i + usize(1));
   });
+  (fallback : bool) = false;
   match(
-    stored_stmt_hash(key.clone()),
+    stored_stmt_hash(walk_key.clone()),
     .Some(old_h) => if(!(old_h == fnv1a64(stmt_state)), {
       if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
         eprintln(`[p3diff] ${fs_path}: STMT HASH moved`);
       });
-      return(Option(bool).Some(true));
+      fallback = true;
     }),
     .None => {
-      if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
-        eprintln(`[p3diff] ${fs_path}: NO stored stmt hash`);
-      });
-      return(Option(bool).None);
+      fallback = true;
     }
   );
-  // Definition shape + per-definition hashes.
-  (changed : bool) = false;
+  changed := ArrayList(PendingDef).new();
   (fresh_defs : usize) = usize(0);
   (j : usize) = usize(0);
   while(j < n, {
@@ -428,13 +478,14 @@ mm_definitions_changed :: (fn(fs_path : String) -> Option(bool))({
         .Some(d) => {
           fresh_defs = (fresh_defs + usize(1));
           match(
-            stored_def_hash(key.clone(), d.index, d.name),
+            stored_def_hash(walk_key.clone(), d.index, d.name),
             .Some(old_h) => if(!(old_h == d.src_hash), {
-              changed = true;
+              changed.push(d);
             }),
             .None => {
-              // A NEW definition (no stored hash): shape changed.
-              changed = true;
+              // A NEW definition (no stored hash): indices are no longer
+              // the identity — not attributable per-def.
+              fallback = true;
             }
           );
         },
@@ -444,24 +495,46 @@ mm_definitions_changed :: (fn(fs_path : String) -> Option(bool))({
     );
     j = (j + usize(1));
   });
-  if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
-    eprintln(`[p3diff] ${fs_path}: stmt_ok, changed=${changed.to_string()}, fresh=${fresh_defs.to_string()}`);
-  });
-  if(changed, {
-    return(Option(bool).Some(true));
-  });
-  // A REMOVED definition (a stored count the fresh parse no longer meets)
-  // also changes shape — def indices are dense, so count equality plus the
-  // per-key checks above means no removals.
+  // A REMOVED definition (stored count the fresh parse no longer meets) also
+  // changes shape — def indices are dense.
   match(
-    stored_def_count(key.clone()),
+    stored_def_count(walk_key.clone()),
     .Some(stored_count) => if(!(fresh_defs == stored_count), {
-      return(Option(bool).Some(true));
+      fallback = true;
     }),
-    .None => return(Option(bool).None)
+    .None => {
+      fallback = true;
+    }
   );
-  Option(bool).Some(false)
+  if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+    eprintln(`[p3diff] ${fs_path}: fallback=${fallback.to_string()} changed=${changed.len().to_string()}`);
+  });
+  Option(DefDiff).Some(
+    DefDiff(
+      fallback : fallback,
+      module_key : walk_key,
+      changed : changed,
+      fresh_exprs : mod_exprs
+    )
+  )
 });
+/// Phase 3 (§6): the boolean view of the differ used by the watch round's
+/// no-op fast path. `.Some(false)`: comment/whitespace-only edit — nothing
+/// needs invalidating at any granularity. `.Some(true)`: file-level. `.None`:
+/// never walked here — treat as changed.
+mm_definitions_changed :: (fn(fs_path : String) -> Option(bool))(
+  match(
+    mm_changed_definitions(fs_path),
+    .None => Option(bool).None,
+    .Some(diff) => Option(bool).Some(diff.fallback || (diff.changed.len() > usize(0)))
+  )
+);
+/// LSP invalidation entry (Phase B1, plans/reference/INCREMENTAL_COMPILATION.md):
+/// drop the module cached for this FILESYSTEM path and every transitive
+/// dependent, so the next analysis of any document re-evaluates exactly the
+/// stale part of its import closure. Returns the removed `file://` paths
+/// (Phase B2's registry purge consumes this). The cached prelude env is NOT
+/// touched — editing std/prelude.yo still needs a server restart.
 mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
   removed := invalidate_module(`file://${fs_path}`);
   // Phase B2: each removed module's registry entries go with it — its
@@ -481,6 +554,765 @@ mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
     i = (i + usize(1));
   });
   removed
+});
+// ---------------------------------------------------------------------------
+// Phase 3b (§6 step 4) — per-definition invalidation.
+//
+// `mm_revalidate_plan` + `mm_revalidate_apply` re-evaluate exactly the changed
+// definitions and their reverse-edge dependents, keeping every module cached
+// (the file-level drop of the changed module's whole import closure is what
+// this exists to beat). Conservative file-level FALLBACKS, each because a
+// stale value would otherwise be unpatchable or unattributable:
+//   * the differ says the edit is structural (stmt sequence, def count, an
+//     added def) — `DefDiff.fallback`;
+//   * a changed def is an impl / an extern block / a type producer
+//     (`struct`/`enum`/`trait` RHS, possibly `ref`-wrapped) — re-evaluating
+//     it mints registrations and type identities the per-def path cannot
+//     retire (`derive(...)` is its own ORDERED statement, so it is covered by
+//     the stmt-sequence check);
+//   * the changed module's own ORDERED statements mention a changed name —
+//     their evaluated bindings cannot be re-attributed to a definition;
+//   * an importer ORDER-READ one of the revalidated names (destructured
+//     import, spread) — it holds a COPY of the old slot value, which the
+//     in-place slot patch cannot reach;
+//   * a closure def's module has no finished walk, or the def is an impl;
+//   * a revalidated def is exported under an ALIAS (`export(Foo : bar)`) —
+//     its slot is not addressable by the def's own name.
+// ---------------------------------------------------------------------------
+/// The RHS of a `::` definition's statement (`const(lhs, rhs)`), or `.None`
+/// for another shape.
+_def_rhs :: (fn(def : PendingDef) -> Option(AstExpr))(
+  match(
+    def.expr,
+    .FnCall(_, _, cargs, _, _) => cargs.get(usize(1)),
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
+/// The `(fn(...) -> T)` HEAD of a fn-literal definition RHS — the callee of
+/// the `(fn T)(body)` call — or `.None` for any other shape.
+_def_fn_head :: (fn(rhs : AstExpr) -> Option(AstExpr))(
+  match(
+    rhs,
+    .FnCall(_, callee, cargs, _, _) => {
+      // The fn-type head renders as `fn(...) -> T` (a leading source paren
+      // is not part of the callee). `fn(` specifically — not any `fn…` name.
+      head := ast_expr_to_string(callee);
+      cond(
+        ((head.starts_with(String.from("fn("))) || (head.starts_with(String.from("(fn(")))) => Option(AstExpr).Some(callee),
+        true => Option(AstExpr).None
+      )
+    },
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
+/// True when a `::` definition may take the per-def path: a FN-LITERAL
+/// definition (`name :: (fn(...) -> T)(body)`) whose SIGNATURE — name plus
+/// fn-type head — is unchanged by the edit. This one predicate is the whole
+/// v1 allowlist, and every exclusion is a correctness boundary, not an
+/// optimization:
+///   * a SIGNATURE change (params, result type) changes what every dependent
+///     call means — a dependent's re-forced body trial does not reliably
+///     re-check arity against the patched slot
+///     (issues/per-def-dependent-trial-resolves-stale-callee.md), so the
+///     round must reload the file-level closure where diagnostics are
+///     guaranteed;
+///   * a NON-fn def (a constant, a type constructor — `struct(...)`,
+///     `enum(...)`, `trait(...)`, `ref(...)` around those, a plain value)
+///     either mints a type identity whose registrations the per-def path
+///     cannot retire, or is a comptime VALUE that dependents inline at
+///     def-time — the slot patch updates later readers, not folded copies.
+_def_is_per_def_able :: (fn(old : PendingDef, fresh : PendingDef) -> bool)({
+  old_head := match(
+    _def_rhs(old),
+    .Some(r) => _def_fn_head(r),
+    .None => Option(AstExpr).None
+  );
+  fresh_head := match(
+    _def_rhs(fresh),
+    .Some(r) => _def_fn_head(r),
+    .None => Option(AstExpr).None
+  );
+  match(
+    old_head,
+    .Some(oh) => match(
+      fresh_head,
+      .Some(fh) => ((((!(old.is_impl) && (old.members.len() == usize(0))) && (!(fresh.is_impl) && (fresh.members.len() == usize(0)))) && (fnv1a64(ast_expr_to_string(oh)) == fnv1a64(ast_expr_to_string(fh))))),
+      .None => false
+    ),
+    .None => false
+  )
+});
+/// True if any identifier atom in the tree spells a name in `names`. A
+/// syntactic over-approximation (string-literal contents, field labels and
+/// locals of the same spelling all count) — false positives only ever cost
+/// the file-level fallback.
+_expr_mentions :: (fn(e : AstExpr, names : ArrayList(String)) -> bool)(
+  match(
+    e,
+    .Atom(
+      _,
+      tok
+    ) => names.contains(tok.value),
+    .FnCall(
+      _,
+      func,
+      args,
+      _,
+      _
+    ) => {
+      (hit : bool) = _expr_mentions(func, names);
+      (ai : usize) = usize(0);
+      while((ai < args.len()) && !hit, {
+        match(
+          args.get(ai),
+          .Some(a) => if(_expr_mentions(a, names), {
+            hit = true;
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      hit
+    }
+  )
+);
+/// True when one of a module's ORDERED statements (everything except
+/// definitions and `export(...)` — an export's product is the StructVal slot,
+/// which the in-place patch refreshes) reads any of `names`.
+_ordered_stmts_mention :: (fn(exprs : ArrayList(AstExpr), names : ArrayList(String)) -> bool)({
+  (hit : bool) = false;
+  (i : usize) = usize(0);
+  while((i < exprs.len()) && !hit, {
+    match(
+      exprs.get(i),
+      .Some(e) => if(
+        classify_pending_def(e, i).is_none() && !ast_expr_is_fn_call_of(e, BK_EXPORT, .None),
+        if(_expr_mentions(e, names), {
+          hit = true;
+        })
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  hit
+});
+/// True when the statements export `name` under a DIFFERENT label
+/// (`export(Foo : name)`) — the slot is then not addressable by `name`.
+_export_aliases_name :: (fn(exprs : ArrayList(AstExpr), name : String) -> bool)({
+  (hit : bool) = false;
+  (i : usize) = usize(0);
+  while((i < exprs.len()) && !hit, {
+    match(
+      exprs.get(i),
+      .Some(e) => if(ast_expr_is_fn_call_of(e, BK_EXPORT, .None), {
+        match(
+          e,
+          .FnCall(_, _, eargs, _, _) => {
+            (ai : usize) = usize(0);
+            while((ai < eargs.len()) && !hit, {
+              match(
+                eargs.get(ai),
+                .Some(arg) => if(ast_expr_is_fn_call_of(arg, BK_COLON, .Some(usize(2))), {
+                  match(
+                    arg,
+                    .FnCall(_, _, pair, _, _) => match(
+                      pair.get(usize(1)),
+                      .Some(orig) => if(ast_expr_is_atom(orig) && (ast_expr_token(orig).value == name), {
+                        hit = true;
+                      }),
+                      .None => ()
+                    ),
+                    .Atom(_, _) => ()
+                  );
+                }),
+                .None => ()
+              );
+              ai = (ai + usize(1));
+            });
+          },
+          .Atom(_, _) => ()
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  hit
+});
+/// Linear membership on a (short) string list.
+_list_contains :: (fn(list : ArrayList(String), item : String) -> bool)({
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < list.len()) && !found, {
+    match(
+      list.get(i),
+      .Some(x) => if(x == item, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Add `index` to `module`'s list in the apply-side grouping map.
+_rev_add_index :: (fn(indexes_by_module : HashMap(String, ArrayList(usize)), module : String, index : usize) -> unit)({
+  list := match(
+    indexes_by_module.get(module.clone()),
+    .Some(existing) => existing,
+    .None => ArrayList(usize).new()
+  );
+  list.push(index);
+  _ := indexes_by_module.insert(module.clone(), list);
+});
+/// Append `module` to the ordered module list unless excluded, already
+/// present, or a demand-loaded module whose cache entry is already gone (a
+/// cascade-dropped module — its reload owns it now).
+_rev_add_module :: (fn(modules : ArrayList(String), excluded : HashSet(String), module : String) -> unit)({
+  (skip : bool) = excluded.contains(module.clone());
+  if(!skip, {
+    (mi : usize) = usize(0);
+    while((mi < modules.len()) && !skip, {
+      match(
+        modules.get(mi),
+        .Some(m) => if(m == module, {
+          skip = true;
+        }),
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
+  });
+  if(!skip && module.starts_with(String.from("file://")) && !module_cache_has(module.clone()), {
+    skip = true;
+  });
+  if(!skip, {
+    modules.push(module.clone());
+  });
+});
+/// The per-def revalidation plan for one changed file: what changed, who
+/// depends on it, and who must still take the file-level drop.
+RevalPlan :: ref(
+  struct(
+    module_key : String,
+    changed : ArrayList(PendingDef),
+    fresh_exprs : ArrayList(AstExpr),
+    /// Reverse-edge dependent def keys (the changed module's own defs
+    /// EXCLUDED — they are in `changed`), unordered.
+    closure_keys : ArrayList(String),
+    /// Module KEYS the caller must `mm_invalidate_document` (fs path = the
+    /// key minus any `file://` prefix).
+    fallback_modules : ArrayList(String)
+  )
+);
+/// Compute the plan. `.None`: the edit is not per-def-able (structural, an
+/// impl/extern/type-producer changed, or the changed module's own ordered
+/// statements read a changed name) — the caller takes the file-level path for
+/// the changed file itself.
+mm_revalidate_plan :: (fn(fs_path : String) -> Option(RevalPlan))({
+  diff := match(
+    mm_changed_definitions(fs_path),
+    .Some(d) => d,
+    .None => return(Option(RevalPlan).None)
+  );
+  if(diff.fallback || (diff.changed.len() == usize(0)), {
+    return(Option(RevalPlan).None);
+  });
+  // The changed defs' allowlist: only a SIGNATURE-STABLE fn-literal def is
+  // per-def-able (`_def_is_per_def_able` — every exclusion is a correctness
+  // boundary).
+  walk := finished_walk_for(diff.module_key.clone());
+  (allowed : bool) = walk.is_some();
+  changed_names := ArrayList(String).new();
+  (ci : usize) = usize(0);
+  while((ci < diff.changed.len()) && allowed, {
+    match(
+      diff.changed.get(ci),
+      .Some(fresh) => {
+        changed_names.push(fresh.name.clone());
+        match(
+          walk,
+          .Some(w) => match(
+            w.by_index.get(fresh.index),
+            .Some(old) => {
+              if(!_def_is_per_def_able(old, fresh), {
+                allowed = false;
+              });
+            },
+            .None => {
+              allowed = false;
+            }
+          ),
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  // The changed module's own ordered statements cannot re-run per-def.
+  if(allowed && _ordered_stmts_mention(diff.fresh_exprs.clone(), changed_names.clone()), {
+    allowed = false;
+    if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+      eprintln(`[p3plan] ${fs_path}: reject ordered-mention`);
+    });
+  });
+  if(!allowed, {
+    if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+      eprintln(`[p3plan] ${fs_path}: reject allowlist`);
+    });
+    return(Option(RevalPlan).None);
+  });
+  seeds := ArrayList(String).new();
+  (si : usize) = usize(0);
+  while(si < diff.changed.len(), {
+    match(
+      diff.changed.get(si),
+      .Some(d) => seeds.push(def_key(diff.module_key.clone(), d.index, d.name.clone())),
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  closure := def_dependents_closure(seeds.clone());
+  fallbacks := ArrayList(String).new();
+  closure_keys := ArrayList(String).new();
+  // Per closure def: the walk must exist and the def must not be an impl;
+  // group names per module for the ordered-reader checks. The SEEDS (the
+  // changed defs) are skipped — they ride in `plan.changed` — but a
+  // same-module DEPENDENT (unchanged hash, depends on a changed def) is a
+  // normal closure member.
+  names_by_module := HashMap(String, ArrayList(String)).new();
+  (ki : usize) = usize(0);
+  while(ki < closure.len(), {
+    match(
+      closure.get(ki),
+      .Some(key) => if(!_list_contains(seeds, key.clone()), {
+        module := def_key_module(key.clone());
+        index := def_key_index(key.clone());
+        (def_ok : bool) = index.is_some();
+        if(def_ok, {
+          match(
+            finished_walk_for(module.clone()),
+            .Some(w) => match(
+              w.by_index.get(match(index, .Some(ix) => ix, .None => usize(0))),
+              .Some(d) => {
+                def_ok = !d.is_impl;
+                if(def_ok, {
+                  names := match(
+                    names_by_module.get(module.clone()),
+                    .Some(ns) => ns,
+                    .None => ArrayList(String).new()
+                  );
+                  names.push(d.name.clone());
+                  _ := names_by_module.insert(module.clone(), names);
+                });
+              },
+              .None => {
+                def_ok = false;
+              }
+            ),
+            .None => {
+              def_ok = false;
+            }
+          );
+        });
+        if(def_ok, {
+          closure_keys.push(key.clone());
+        }, {
+          fallbacks.push(module);
+        });
+      }),
+      .None => ()
+    );
+    ki = (ki + usize(1));
+  });
+  // The changed defs' own names join their module's group (they are
+  // revalidated too, and their ordered readers must fall back).
+  cn := match(
+    names_by_module.get(diff.module_key.clone()),
+    .Some(ns) => ns,
+    .None => ArrayList(String).new()
+  );
+  (cni : usize) = usize(0);
+  while(cni < changed_names.len(), {
+    match(
+      changed_names.get(cni),
+      .Some(n) => cn.push(n.clone()),
+      .None => ()
+    );
+    cni = (cni + usize(1));
+  });
+  _ := names_by_module.insert(diff.module_key.clone(), cn);
+  // ORDERED readers (destructured imports, spreads) of any revalidated name
+  // hold copies — file-level for them. And each closure module's own ordered
+  // statements reading its revalidated names likewise.
+  if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+    kit_dbg := names_by_module.keys();
+    kopt_dbg := kit_dbg.next();
+    while(kopt_dbg.is_some(), {
+      match(
+        kopt_dbg,
+        .Some(mk_dbg) => match(
+          names_by_module.get(mk_dbg.clone()),
+          .Some(ns_dbg) => {
+            readers_dbg := ordered_readers_of(mk_dbg.clone(), ns_dbg.clone());
+            eprintln(`[p3read] target=${mk_dbg.clone()} names=${ns_dbg.len().to_string()} readers=${readers_dbg.len().to_string()}`);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      kopt_dbg = kit_dbg.next();
+    });
+  });
+  mit := names_by_module.keys();
+  mopt := mit.next();
+  while(mopt.is_some(), {
+    match(
+      mopt,
+      .Some(module) => match(
+        names_by_module.get(module.clone()),
+        .Some(names) => {
+          readers := ordered_readers_of(module.clone(), names.clone());
+          (ri : usize) = usize(0);
+          while(ri < readers.len(), {
+            match(
+              readers.get(ri),
+              .Some(importer) => fallbacks.push(importer.clone()),
+              .None => ()
+            );
+            ri = (ri + usize(1));
+          });
+          if(module != diff.module_key, {
+            match(
+              finished_walk_for(module.clone()),
+              .Some(w) => if(_ordered_stmts_mention(w.begin_exprs.clone(), names.clone()), {
+                fallbacks.push(module);
+              }),
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    mopt = mit.next();
+  });
+  Option(RevalPlan).Some(
+    RevalPlan(
+      module_key : diff.module_key,
+      changed : diff.changed,
+      fresh_exprs : diff.fresh_exprs,
+      closure_keys : closure_keys,
+      fallback_modules : fallbacks
+    )
+  )
+});
+/// Result of applying a plan.
+RevalOutcome :: ref(
+  struct(
+    applied : bool,
+    failures : ArrayList(String),
+    /// Modules found unpatchable DURING apply (aliased exports) — the caller
+    /// drops these at file level too, after the fact.
+    fallback_modules : ArrayList(String),
+    revalidated : usize
+  )
+);
+/// Apply the plan: reset + graft + re-force the changed defs and their
+/// dependents in dependency order, patch the cached module slots in place.
+/// `excluded` carries module KEYS the caller has already (or is about to)
+/// drop at file level — plus every module the drops cascaded over is caught
+/// by the cache-presence check below — so their defs are left to the reload.
+mm_revalidate_apply :: (
+  fn(plan : RevalPlan, excluded : HashSet(String)) -> RevalOutcome
+)({
+  failures := ArrayList(String).new();
+  fallbacks := ArrayList(String).new();
+  (revalidated : usize) = usize(0);
+  // Group the closure keys per module; the changed module's grafted defs are
+  // the indexes of plan.changed.
+  indexes_by_module := HashMap(String, ArrayList(usize)).new();
+  (ki : usize) = usize(0);
+  while(ki < plan.closure_keys.len(), {
+    match(
+      plan.closure_keys.get(ki),
+      .Some(key) => match(
+        def_key_index(key.clone()),
+        .Some(ix) => _rev_add_index(indexes_by_module, def_key_module(key.clone()), ix),
+        .None => ()
+      ),
+      .None => ()
+    );
+    ki = (ki + usize(1));
+  });
+  (ci : usize) = usize(0);
+  while(ci < plan.changed.len(), {
+    match(
+      plan.changed.get(ci),
+      .Some(d) => _rev_add_index(indexes_by_module, plan.module_key.clone(), d.index),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  // Module list, insertion-ordered (changed module first), minus excluded /
+  // dropped-cache modules.
+  modules := ArrayList(String).new();
+  _rev_add_module(modules, excluded, plan.module_key.clone());
+  (li : usize) = usize(0);
+  while(li < plan.closure_keys.len(), {
+    match(
+      plan.closure_keys.get(li),
+      .Some(key) => _rev_add_module(modules, excluded, def_key_module(key.clone())),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  // Cross-module ordering: a module whose defs read another involved module's
+  // defs waits for it (the slot patch it reads must land first). Kahn-style
+  // passes; a remaining cycle (legal only for cross-module fn recursion,
+  // which phase-A pre-binding handles) breaks on the first unsettled module.
+  ordered := ArrayList(String).new();
+  settled := HashSet(String).new();
+  while(ordered.len() < modules.len(), {
+    (progressed : bool) = false;
+    (mi : usize) = usize(0);
+    while((mi < modules.len()) && !progressed, {
+      match(
+        modules.get(mi),
+        .Some(m) => if(!settled.contains(m.clone()), {
+          (blocked : bool) = false;
+          match(
+            indexes_by_module.get(m.clone()),
+            .Some(idxs) => {
+              (ii : usize) = usize(0);
+              while((ii < idxs.len()) && !blocked, {
+                match(
+                  idxs.get(ii),
+                  .Some(ix) => match(
+                    def_key_dependees(
+                      def_key(
+                        m.clone(),
+                        ix,
+                        match(
+                          finished_walk_for(m.clone()),
+                          .Some(w) => match(
+                            w.by_index.get(ix),
+                            .Some(d) => d.name.clone(),
+                            .None => String.new()
+                          ),
+                          .None => String.new()
+                        )
+                      )
+                    ),
+                    .Some(deps) => {
+                      dit := deps.iter();
+                      dopt := dit.next();
+                      while(dopt.is_some() && !blocked, {
+                        match(
+                          dopt,
+                          .Some(dp) => {
+                            dep_mod := def_key_module(unsafe(dp.*).clone());
+                            (involved : bool) = false;
+                            (xi : usize) = usize(0);
+                            while((xi < modules.len()) && !involved, {
+                              match(
+                                modules.get(xi),
+                                .Some(x) => if((x == dep_mod) && !settled.contains(dep_mod), {
+                                  involved = true;
+                                }),
+                                .None => ()
+                              );
+                              xi = (xi + usize(1));
+                            });
+                            if(involved, {
+                              blocked = true;
+                            });
+                          },
+                          .None => ()
+                        );
+                        dopt = dit.next();
+                      });
+                    },
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                ii = (ii + usize(1));
+              });
+            },
+            .None => ()
+          );
+          if(!blocked, {
+            _ := settled.insert(m.clone());
+            ordered.push(m.clone());
+            progressed = true;
+          });
+        }),
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
+    if(!progressed, {
+      // Cycle break.
+      (mi2 : usize) = usize(0);
+      (advanced : bool) = false;
+      while((mi2 < modules.len()) && !advanced, {
+        match(
+          modules.get(mi2),
+          .Some(m) => if(!settled.contains(m.clone()), {
+            _ := settled.insert(m.clone());
+            ordered.push(m.clone());
+            advanced = true;
+          }),
+          .None => ()
+        );
+        mi2 = (mi2 + usize(1));
+      });
+    });
+  });
+  // Reset, graft and re-force, module by module, defs in walk-index order.
+  (oi : usize) = usize(0);
+  while(oi < ordered.len(), {
+    match(
+      ordered.get(oi),
+      .Some(module) => match(
+        finished_walk_for(module.clone()),
+        .Some(walk) => match(
+          indexes_by_module.get(module.clone()),
+          .Some(idxs) => {
+            defs := ArrayList(PendingDef).new();
+            (pick : usize) = usize(0);
+            while(pick < idxs.len(), {
+              match(
+                idxs.get(pick),
+                .Some(ix) => match(
+                  walk.by_index.get(ix),
+                  .Some(d) => defs.push(d),
+                  .None => ()
+                ),
+                .None => ()
+              );
+              pick = (pick + usize(1));
+            });
+            // Graft the re-parsed statement onto each CHANGED def (fresh AST
+            // ids from the differ's parse). Every OTHER def in the set —
+            // cross-module dependents AND same-module dependents — re-forces
+            // against a FRESH-ID CLONE of its own statement: the original
+            // nodes' ExprInfo entries hold the stale comptime values of the
+            // last evaluation (the old callee!), and a body trial over the
+            // same ids short-circuits on them — neither re-deriving the call
+            // against the patched slot nor re-firing the member-read hooks.
+            (gi : usize) = usize(0);
+            while(gi < plan.changed.len(), {
+              match(
+                plan.changed.get(gi),
+                .Some(fresh) => if(module == plan.module_key, {
+                  match(
+                    walk.by_index.get(fresh.index),
+                    .Some(d) => graft_pending_def(walk, d, fresh),
+                    .None => ()
+                  );
+                }),
+                .None => ()
+              );
+              gi = (gi + usize(1));
+            });
+            (changed_indexes : HashSet(usize)) = HashSet(usize).new();
+            (ci3 : usize) = usize(0);
+            while(ci3 < plan.changed.len(), {
+              match(
+                plan.changed.get(ci3),
+                .Some(fresh) => if(module == plan.module_key, {
+                  _ := changed_indexes.insert(fresh.index);
+                }),
+                .None => ()
+              );
+              ci3 = (ci3 + usize(1));
+            });
+            (di2 : usize) = usize(0);
+            while(di2 < defs.len(), {
+              match(
+                defs.get(di2),
+                .Some(d) => if(!((module == plan.module_key) && changed_indexes.contains(d.index)), {
+                  clone := clone_expr_fresh_ids(d.expr);
+                  d.expr = clone;
+                  walk.begin_exprs(d.index) = clone;
+                }),
+                .None => ()
+              );
+              di2 = (di2 + usize(1));
+            });
+            (ri : usize) = usize(0);
+            while(ri < defs.len(), {
+              match(
+                defs.get(ri),
+                .Some(d) => reset_pending_def(walk, d),
+                .None => ()
+              );
+              ri = (ri + usize(1));
+            });
+            mod_failures := revalidate_walk_defs(walk, defs);
+            revalidated = (revalidated + defs.len());
+            (fi : usize) = usize(0);
+            while(fi < mod_failures.len(), {
+              match(
+                mod_failures.get(fi),
+                .Some(msg) => failures.push(msg.clone()),
+                .None => ()
+              );
+              fi = (fi + usize(1));
+            });
+            // Patch the cached module value's slots in place; an aliased
+            // export is not addressable — file-level fallback for the module.
+            // (Bind-then-`if` rather than `.Some(true)`/`.Some(false)` arms:
+            // two same-variant literal arms on Option(bool) lower to a
+            // duplicate C `case` today — issues/retired/enum-bool-option-literal-arms-duplicate-case.md.)
+            (bi : usize) = usize(0);
+            while(bi < defs.len(), {
+              match(
+                defs.get(bi),
+                .Some(d) => if(
+                  !d.is_impl && match(d.state, .Done => true, _ => false),
+                  match(
+                    d.variable,
+                    .Some(var) => match(
+                      update_module_cache_slot(module.clone(), d.name.clone(), var),
+                      .None => (),
+                      .Some(patched) => if(!patched, {
+                        exprs := cond(
+                          (module == plan.module_key) => plan.fresh_exprs.clone(),
+                          true => walk.begin_exprs.clone()
+                        );
+                        if(_export_aliases_name(exprs, d.name.clone()), {
+                          fallbacks.push(module.clone());
+                        });
+                      })
+                    ),
+                    .None => ()
+                  )
+                ),
+                .None => ()
+              );
+              bi = (bi + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    oi = (oi + usize(1));
+  });
+  RevalOutcome(
+    applied : true,
+    failures : failures,
+    fallback_modules : fallbacks,
+    revalidated : revalidated
+  )
 });
 /// TS `ModuleManager.resetAllState()`. Drops the module cache, the cached
 /// prelude env, the shared ExprInfoTable and the loader context, so the next
@@ -1166,6 +1998,12 @@ mm_load_yo_file :: (
 export(
   ModuleLoadOutcome,
   mm_definitions_changed,
+  mm_changed_definitions,
+  DefDiff,
+  RevalPlan,
+  RevalOutcome,
+  mm_revalidate_plan,
+  mm_revalidate_apply,
   resolve_std_path,
   set_std_path_override,
   get_std_path_override,

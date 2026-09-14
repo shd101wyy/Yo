@@ -46,6 +46,8 @@ sleep_mod :: import("std/sys/timer");
   mm_load_file,
   mm_invalidate_document,
   mm_definitions_changed,
+  mm_revalidate_plan,
+  mm_revalidate_apply,
   mm_resolve_entry_abs,
   _take_load_error
 } :: import("./module_manager.yo");
@@ -71,6 +73,8 @@ watch_round :: (
 )({
   round_t0 := Instant.now();
   removed := HashSet(String).new();
+  (failed : usize) = usize(0);
+  (revalidated : usize) = usize(0);
   (ci : usize) = usize(0);
   while(ci < changed.len(), {
     match(
@@ -96,31 +100,153 @@ watch_round :: (
           .Some(v) => !v,
           .None => false
         );
-        dropped := cond(
-          skip => ArrayList(String).new(),
-          true => mm_invalidate_document(p_abs)
+        cond(
+          skip => {
+            if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+              eprintln(`[p3round] ${p}: skip=true`);
+            });
+          },
+          true => {
+            // Phase 3b (§6 step 4): try the per-DEFINITION path first —
+            // reset + re-force the changed definitions and their reverse-edge
+            // dependents, patching the cached module values' slots in place.
+            // Importers whose ordered statements COPIED a revalidated value
+            // (destructured imports, spreads) still take the file-level drop.
+            plan := mm_revalidate_plan(p_abs.clone());
+            match(
+              plan,
+              .Some(pl) => {
+                // Fallback modules drop BEFORE apply, so the apply skips
+                // whatever the drops (and their cascades) removed.
+                dropped_pre := ArrayList(String).new();
+                (fi0 : usize) = usize(0);
+                while(fi0 < pl.fallback_modules.len(), {
+                  match(
+                    pl.fallback_modules.get(fi0),
+                    .Some(mk) => {
+                      m_fs := mk.replace(String.from("file://"), String.new());
+                      if(m_fs.len() > usize(0), {
+                        (di : usize) = usize(0);
+                        dropped_by_m := mm_invalidate_document(m_fs.clone());
+                        while(di < dropped_by_m.len(), {
+                          match(
+                            dropped_by_m.get(di),
+                            .Some(k) => {
+                              removed.insert(k);
+                              ()
+                            },
+                            .None => ()
+                          );
+                          di = (di + usize(1));
+                        });
+                      });
+                    },
+                    .None => ()
+                  );
+                  fi0 = (fi0 + usize(1));
+                });
+                excluded := HashSet(String).new();
+                (ei : usize) = usize(0);
+                while(ei < pl.fallback_modules.len(), {
+                  match(
+                    pl.fallback_modules.get(ei),
+                    .Some(mk) => {
+                      _ := excluded.insert(mk.clone());
+                    },
+                    .None => ()
+                  );
+                  ei = (ei + usize(1));
+                });
+                kit := removed.iter();
+                kopt := kit.next();
+                while(kopt.is_some(), {
+                  match(
+                    kopt,
+                    .Some(rk) => {
+                      _ := excluded.insert(unsafe(rk.*).clone());
+                    },
+                    .None => ()
+                  );
+                  kopt = kit.next();
+                });
+                outcome := mm_revalidate_apply(pl, excluded);
+                // Aliased-export fallbacks surface only during apply — drop
+                // them too (correct, the work is just wasted).
+                (fi1 : usize) = usize(0);
+                while(fi1 < outcome.fallback_modules.len(), {
+                  match(
+                    outcome.fallback_modules.get(fi1),
+                    .Some(mk) => {
+                      m_fs := mk.replace(String.from("file://"), String.new());
+                      if(m_fs.len() > usize(0), {
+                        (di : usize) = usize(0);
+                        dropped_by_m := mm_invalidate_document(m_fs.clone());
+                        while(di < dropped_by_m.len(), {
+                          match(
+                            dropped_by_m.get(di),
+                            .Some(k) => {
+                              removed.insert(k);
+                              ()
+                            },
+                            .None => ()
+                          );
+                          di = (di + usize(1));
+                        });
+                      });
+                    },
+                    .None => ()
+                  );
+                  fi1 = (fi1 + usize(1));
+                });
+                revalidated = (revalidated + outcome.revalidated);
+                if(outcome.failures.len() > usize(0), {
+                  failed = (failed + usize(1));
+                  (mi : usize) = usize(0);
+                  while(mi < outcome.failures.len(), {
+                    match(
+                      outcome.failures.get(mi),
+                      .Some(msg) => emit_rendered_text(msg.clone()),
+                      .None => ()
+                    );
+                    mi = (mi + usize(1));
+                  });
+                  println(`watch: ${p} — FAILED`);
+                });
+                if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+                  eprintln(
+                    `[p3round] ${p}: per-def revalidated=${outcome.revalidated.to_string()} fallbacks=${outcome.fallback_modules.len().to_string()} failures=${outcome.failures.len().to_string()}`
+                  );
+                });
+              },
+              .None => {
+                // Not per-def-able (structural edit, impl/extern/type-producer
+                // changed, ordered statements touched): today's file-level
+                // drop of the changed file's reverse closure.
+                dropped := mm_invalidate_document(p_abs.clone());
+                if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+                  eprintln(`[p3round] ${p}: file-level dropped=${dropped.len().to_string()}`);
+                });
+                (di : usize) = usize(0);
+                while(di < dropped.len(), {
+                  match(
+                    dropped.get(di),
+                    .Some(k) => {
+                      removed.insert(k);
+                      ()
+                    },
+                    .None => ()
+                  );
+                  di = (di + usize(1));
+                });
+              }
+            );
+          }
         );
-        if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
-          eprintln(`[p3round] ${p}: skip=${skip.to_string()} dropped=${dropped.len().to_string()}`);
-        });
-        (di : usize) = usize(0);
-        while(di < dropped.len(), {
-          match(
-            dropped.get(di),
-            .Some(k) => {
-              removed.insert(k);
-              ()
-            },
-            .None => ()
-          );
-          di = (di + usize(1));
-        });
       },
       .None => ()
     );
     ci = (ci + usize(1));
   });
-  (failed : usize) = usize(0);
   (rechecked : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), {
@@ -152,7 +278,9 @@ watch_round :: (
     fi = (fi + usize(1));
   });
   round_ms := round_t0.elapsed().as_millis();
-  println(`watch: rechecked ${rechecked.to_string()} file(s), ${failed.to_string()} failed (${round_ms.to_string()}ms)`);
+  println(
+    `watch: revalidated ${revalidated.to_string()} definition(s), rechecked ${rechecked.to_string()} file(s), ${failed.to_string()} failed (${round_ms.to_string()}ms)`
+  );
   // Watch runs are killed, piped, and read by harnesses — flush per round so
   // buffered stdout is never lost (`fflush` takes `?(*(FILE))`).
   unsafe(fflush(.Some(stdout)));

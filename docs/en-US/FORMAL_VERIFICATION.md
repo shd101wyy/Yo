@@ -45,6 +45,50 @@ A caller never opens the callee's body — it reads only the signature. A
 function in a `runtime`-mode file still carries usable contracts at
 verified call sites; only its own body goes unverified.
 
+### Trait contracts (variance + inheritance)
+
+A trait method may carry contracts in its signature, and an `impl`
+method may declare its own for the same method. The pair is checked
+against each other at impl registration:
+
+| Obligation | Direction | Why |
+| --- | --- | --- |
+| `trait.requires ⇒ impl.requires` | contravariant | a dispatch caller proves only the trait's precondition, so the impl may weaken it but never strengthen |
+| `impl.ensures ⇒ trait.ensures` | covariant | the trait's promise is the floor, so the impl may strengthen it but never weaken |
+
+```rust
+ClampBound :: trait(
+  get : (
+    fn(self : Self, i : i32, requires(i >= i32(0)), ensures(result >= i)) -> (result : i32)
+  )
+);
+
+// PROVES: requires weakened to i >= -1, ensures strengthened to result == i.
+get_impl :: (
+  fn(self : i32, i : i32, requires(i >= i32(-1)), ensures(result == i)) -> (result : i32)
+)(i);
+
+impl(
+  i32,
+  ClampBound(
+    get : get_impl
+  )
+);
+```
+
+An impl method declaring **no** contracts of its own **inherits** the
+trait method's — they are registered onto the method value like declared
+ones, so the method's own verify task proves them against its body (a
+proof that needs the inherited `requires` genuinely fails without it).
+The variance obligations register as a synthetic
+`impl-variance@module:row:label` verify task — one assert per
+implication, over the impl's parameters with the return label as one
+extra symbolic value — and run through the ordinary pipeline. The impl's
+predicates must use the trait's parameter and label spellings; a
+mismatch is reported as an unbound name at the obligation. An impl that
+strengthens the precondition is refuted with the dispatch
+counter-example (`i = 0` for the twin of the example above).
+
 ## Modes
 
 | Mode | How to select | Behavior |
@@ -105,7 +149,8 @@ runtime assert).
 | `std/spec` ghost collections — Seq (`seq_unit`/`seq_append`/`seq_len`/`seq_nth`, SMT `Seq`), Multiset (`ms_single`/`ms_add`/`ms_count`, elem→count `Array`), Set (`set_single`/`set_add`/`set_contains`, membership `Array`), `str_bytes` (str content as `Seq(u8)`) | ✅ verified (V5) |
 | Fixed-length `Array(T, N)` values — `a(i)` reads (`select`), `a(i) = v` index writes (an SSA rebind through `store`), `index-in-bounds` AoRTE obligations, and `ms_of(a)` (the array's elements as a ghost Multiset — what `permutation` specs are made of) | ✅ verified (V5 task 6) |
 | Ghost code (`ghost`/`ghost_fn` erasure) | ✅ verified (V5 task 3) |
-| Traits/generics across boundaries, `Refine` | V6 |
+| Trait-method contracts — INHERITANCE onto clause-less impl methods + the VARIANCE obligations (`trait.requires ⇒ impl.requires` contravariant, `impl.ensures ⇒ trait.ensures` covariant) as synthetic `impl-variance@…` tasks | ✅ verified (V6 task 1) |
+| Generics verified abstractly across boundaries, `Refine` | V6 |
 | `object`/heap, string content, floats, effects, `unsafe`, FFI | outside the subset |
 
 Integers are modeled as **exact-width bitvectors matching the emitted

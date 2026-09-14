@@ -53,6 +53,8 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue } :: import("../../value.yo");
 {
   register_sns_module,
+  record_module_ordered_read,
+  sns_module_of,
   EvalContext,
   set_module_walk,
   set_module_walk_index,
@@ -481,13 +483,25 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Iterate over fields of the extended module and add non-excluded ones
                       match(
                         ext_mod_type,
-                        .Struct({ field_labels : efls, field_types : efts }) => {
+                        .Struct({ id : ext_sns_id, field_labels : efls, field_types : efts }) => {
+                          // Phase 3 (§6): a spread re-publishes the extended
+                          // module's slots as COPIES — the in-place slot patch
+                          // a per-def revalidation does later cannot reach
+                          // them. Record each copied field as a read of that
+                          // module so its invalidator drops this importer
+                          // instead of serving a stale spread.
+                          ext_mod_path := sns_module_of(ext_sns_id.clone());
                           (k : usize) = usize(0);
                           nk := efls.len();
                           while((k < nk) && !should_stop, {
                             ext_label := match(efls.get(k), .Some(l) => l, .None => String.from(""));
                             ext_type := match(efts.get(k), .Some(t) => t, .None => TypeValue.Unit);
                             if(!_is_excluded_label(excluded_labels, ext_label.clone()), {
+                              match(
+                                ext_mod_path,
+                                .Some(mp) => record_module_ordered_read(env.module_path.clone(), mp, ext_label.clone()),
+                                .None => ()
+                              );
                               // Check for duplicate label
                               if(_find_field_label_index(field_labels, ext_label.clone()).is_some(), {
                                 exn.throw(

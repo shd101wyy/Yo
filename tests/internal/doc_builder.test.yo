@@ -1,0 +1,57 @@
+/// Tests for `src/doc/builder.yo`'s gate on compiler-internal module fields.
+///
+/// `yo doc` published the evaluator's own temporaries as documented API — 790
+/// `__private_tmp_temp_<digits>` entries in `prelude` alone, rendered as
+/// sidebar links to `#const-…` anchors that document nothing, and repeated in
+/// every page's search index. The gate existed but was a PREFIX LIST
+/// (`___`, `__yo_`) and a temp's prefix is its module path, so no literal
+/// prefix can catch them all.
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+{ is_compiler_internal_field_name } :: import("../../src/doc/builder.yo");
+// ---------------------------------------------------------------------------
+// What must be hidden
+// ---------------------------------------------------------------------------
+test("is_compiler_internal_field_name: the prelude's temporaries are internal", {
+  // The exact spelling that reached published documentation.
+  assert(
+    is_compiler_internal_field_name(`__private_tmp_temp_10626258249951560750`),
+    "a prelude temporary is not API"
+  );
+});
+test("is_compiler_internal_field_name: a temp under ANY module path is internal", {
+  // The prefix is the sanitized module path, so the spelling differs per
+  // module. A literal `__private_` check would clean the prelude alone.
+  assert(is_compiler_internal_field_name(`_std_string_temp_42`), "std/string temp");
+  assert(is_compiler_internal_field_name(`_src_lexer_yo_temp_7`), "a src temp");
+  assert(is_compiler_internal_field_name(`__temp_1`), "empty module path still mints a temp");
+});
+test("is_compiler_internal_field_name: synthesized plumbing and runtime builtins", {
+  assert(is_compiler_internal_field_name(`___dup`), "RC plumbing");
+  assert(is_compiler_internal_field_name(`___drop`), "RC plumbing");
+  assert(is_compiler_internal_field_name(`__yo_malloc`), "runtime builtin");
+});
+test("is_compiler_internal_field_name: the empty label of an anonymous impl block", {
+  assert(is_compiler_internal_field_name(String.new()), "anonymous impl carries no label");
+});
+// ---------------------------------------------------------------------------
+// What must STILL be documented — the gate must not over-reach
+// ---------------------------------------------------------------------------
+test("is_compiler_internal_field_name: ordinary public names are API", {
+  assert(!is_compiler_internal_field_name(`push`), "a method name");
+  assert(!is_compiler_internal_field_name(`String`), "a type name");
+  assert(!is_compiler_internal_field_name(`MAX_SAFE_INTEGER`), "a constant");
+});
+test("is_compiler_internal_field_name: a single-underscore name is NOT swallowed", {
+  // `_helper` is underscore-private, which is a SEPARATE policy question
+  // (`--document-private`); this gate is only about compiler-generated names
+  // and must not silently take that decision.
+  assert(!is_compiler_internal_field_name(`_helper`), "underscore-private is not compiler-internal");
+  assert(!is_compiler_internal_field_name(`__two_underscores`), "still a user name");
+});
+test("is_compiler_internal_field_name: temp-LOOKING user names stay documented", {
+  // The predicate requires `_temp_` followed by digits only.
+  assert(!is_compiler_internal_field_name(`_my_temp_buffer`), "digits required after _temp_");
+  assert(!is_compiler_internal_field_name(`_a_temp_`), "no digits at all");
+  assert(!is_compiler_internal_field_name(`_a_temp_3x`), "non-digit tail");
+});

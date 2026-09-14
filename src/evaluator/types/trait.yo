@@ -55,10 +55,10 @@ import("std/fmt");
 { is_valid_variable_name } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ _add_where_clause_constraint, _trait_has_receiver } :: import("./function.yo");
+{ _add_where_clause_constraint, _trait_has_receiver, get_func_requires_exprs, get_func_ensures_exprs, get_func_return_label } :: import("./function.yo");
 { ArrayList } :: import("std/collections/array_list");
 { stable_label_id } :: import("../../utils.yo");
-{ register_trait_default } :: import("../values/type_trait_methods.yo");
+{ register_trait_default, register_trait_method_contracts } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
@@ -770,6 +770,27 @@ _evaluate_trait_field :: (
         .None => TypeValue.Unit
       );
       field_ty_opt = .Some(ty);
+      // V6 task 1 (FORMAL_VERIFICATION.md): a trait-field fn-type's
+      // contract clauses live in the func-side tables keyed by the
+      // fn-type EXPRESSION id — module-local and unstable. Copy them
+      // under the durable `${trait_id}::${label}` key so impl
+      // registration can read them (variance obligations + inheritance).
+      __reqs := get_func_requires_exprs(ast_expr_id(type_expr).to_string());
+      __enss := get_func_ensures_exprs(ast_expr_id(type_expr).to_string());
+      __trait_id := match(
+        trait_ty,
+        .TraitT(_, _, _, _, tid, _, _, _, _, _) => tid.clone(),
+        _ => String.new()
+      );
+      if(((__reqs.len() > usize(0)) || (__enss.len() > usize(0))) && (__trait_id.len() > usize(0)), {
+        register_trait_method_contracts(
+          __trait_id.clone(),
+          label_str.clone(),
+          __reqs,
+          __enss,
+          get_func_return_label(ast_expr_id(type_expr).to_string())
+        );
+      });
     },
     .None => ()
   );
