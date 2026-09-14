@@ -27,7 +27,7 @@ the loop body emitted nothing for it: `sm->await_future_N` was never stored,
 while the resume state (whose target comes from `extract_target_variable_id`,
 which does accept `=`) dereferenced the NULL slot. The cond-arm and
 remaining-code emitters had already grown the `=` arm
-(issues/async-cond-dispatch-skips-chained-sibling-arm.md); the while body
+(issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md); the while body
 had not.
 
 ## Fix
