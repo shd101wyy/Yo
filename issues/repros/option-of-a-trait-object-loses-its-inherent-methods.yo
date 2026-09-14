@@ -1,0 +1,28 @@
+// Repro — an inherent `Option(T)` method called on an `Option(Dyn(Trait))` is
+// CALLED in the emitted C but never DEFINED or DECLARED, so the C fails to
+// compile. Nothing in the Yo source is wrong; `yo check` passes.
+//
+//   yo compile issues/repros/option-of-a-trait-object-loses-its-inherent-methods.yo --optimize 2 -o /tmp/x
+//
+// Expected: it compiles and prints `ok`.
+// Actual:   error: call to undeclared function
+//           'yo_id_<n>_rtparam0_enum_r8058c2_n121_value_1500_ret_bool';
+//           ISO C99 and later do not support implicit function declarations
+//
+// The symbol appears EXACTLY ONCE in the emitted .c — at the call site. The
+// specialization is reached by the evaluator (so the call is emitted) and then
+// skipped by codegen (so no body and no prototype are).
+//
+// `Option(i32).is_none()` is fine, so it is the trait-object payload that does
+// it, not `is_none`. A `match` over the same Option is the shape that works.
+//
+// See issues/option-of-a-trait-object-never-emits-its-inherent-methods.md
+{ assert } :: import("std/assert");
+{ AnyError } :: import("std/error");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  (o : Option(AnyError)) = Option(AnyError).None;
+  assert(o.is_none(), "a None is none");
+  println("ok");
+});
+export(main);
