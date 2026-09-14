@@ -159,6 +159,37 @@ test("numeric to_string through the shared snprintf helper", {
   assert(f64(0.5).to_string() == `0.5`, "f64 %g drops trailing zeros");
   assert(f32(2.5).to_string() == `2.5`, "f32 widened");
 });
+test("a non-finite float renders the same on every platform", {
+  // `%g` spells these differently per C library -- `nan`/`-nan` on
+  // glibc/Apple/musl, `-nan(ind)` or `nan(snan)` on the MS CRT -- so the same
+  // program logged, JSON-encoded and compared differently on Windows
+  // (issues/fixed/float-to-string-is-platform-dependent-for-non-finite-values.md).
+  // The spellings asserted here are Rust's `Display for f64`.
+  //
+  // Every value is built at RUNTIME. A comptime `0.0/0.0` is a hard error, and
+  // `x*y - x*y` contracts to an FMA that yields -inf rather than NaN, so those
+  // two routes would test something other than what they look like.
+  (z : f64) = f64(0.0);
+  (o : f64) = f64(1.0);
+  nan := (z / z);
+  pinf := (o / z);
+  ninf := ((f64(0.0) - o) / z);
+  assert(nan.to_string() == `NaN`, "NaN, not nan/-nan/-nan(ind)");
+  assert(pinf.to_string() == `inf`, "inf");
+  assert(ninf.to_string() == `-inf`, "-inf, with the sign kept");
+  // f32 goes through the same normaliser after widening.
+  (zf : f32) = f32(0.0);
+  (of : f32) = f32(1.0);
+  assert((zf / zf).to_string() == `NaN`, "f32 NaN");
+  assert((of / zf).to_string() == `inf`, "f32 inf");
+  assert(((f32(0.0) - of) / zf).to_string() == `-inf`, "f32 -inf");
+  // FINITE values must be untouched -- the guard runs on every float render,
+  // so a mistake here would silently reformat ordinary numbers.
+  assert(f64(1.5).to_string() == `1.5`, "a finite double still renders via %g");
+  assert(f64(0.0).to_string() == `0`, "zero is finite");
+  assert(f32(2.5).to_string() == `2.5`, "a finite float still renders via %g");
+  assert(f64(1000000.0).to_string() == `1e+06`, "%g exponent form is unchanged");
+});
 test("StringBuilder.clear keeps the capacity and drops the length", {
   // Rust's `String::clear` contract, and what this method's own doc comment
   // promised while the body did the opposite: it reassigned a fresh

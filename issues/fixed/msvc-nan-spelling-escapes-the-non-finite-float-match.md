@@ -85,4 +85,4 @@ from the target: the Windows CI leg IS the gate for this one.
 spelling, so the same `f64.NAN` prints `-nan` on macOS and `-nan(ind)` on
 Windows. Rust prints `NaN` everywhere. That is a std-level portability
 inconsistency in its own right — see
-`issues/float-to-string-is-platform-dependent-for-non-finite-values.md`.
+`issues/fixed/float-to-string-is-platform-dependent-for-non-finite-values.md`.

@@ -2324,7 +2324,7 @@ emitted C, so it could not be randomized even if that were wanted.
    (issues/fixed/msvc-nan-spelling-escapes-the-non-finite-float-match.md).
    The same divergence is visible from Yo — `f64.NAN.to_string()` differs by
    platform — which is filed separately as a std portability defect
-   (issues/float-to-string-is-platform-dependent-for-non-finite-values.md);
+   (issues/fixed/float-to-string-is-platform-dependent-for-non-finite-values.md);
    it also decides what `json_stringify` should do with a NaN, since JSON has
    no non-finite literal.
    **Encoding — `Url.join` / `query_pairs` / `path_segments`: DONE

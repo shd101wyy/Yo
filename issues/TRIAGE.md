@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 208 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 207 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 32 | 11 |
 | Codegen / emitted C | 23 | 4 |
 | Evaluator / types | 39 | 8 |
-| Std library | 61 | 16 |
+| Std library | 60 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 2 | 1 |
-| **Total** | **208** | **44** |
+| **Total** | **207** | **44** |
 
 ## Cross-cutting buckets
 
@@ -55,7 +55,6 @@ Adjudicated by code reading rather than by running a reproducer — the
 defect the doc describes is still present, so these are safe to pick up.
 
 - [`stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md`](./stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md) — the variant is declared at std/string/string.yo:68 with no producer in the module
-- [`float-to-string-is-platform-dependent-for-non-finite-values.md`](./float-to-string-is-platform-dependent-for-non-finite-values.md) — std/fmt/to_string.yo still routes non-finite through %g and says so in its own module doc
 - [`make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md`](./make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md) — std/sys/tcp.yo:188 still documents the failure as unreported
 - [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) — still fails: derive body renders a field named `unit` as the builtin type
 
@@ -232,7 +231,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (61)
+### Std library (60)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -245,7 +244,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`empty-path-redirect-location-drops-the-base-paths-last-segment.md`](./empty-path-redirect-location-drops-the-base-paths-last-segment.md) | — | — |
 | [`error-source-result-cannot-be-held-as-anyerror.md`](./error-source-result-cannot-be-held-as-anyerror.md) | OPEN — blocks `ErrorChain` / `root_cause` | yes |
 | [`file-from-fd-metadata-stats-the-current-directory.md`](./file-from-fd-metadata-stats-the-current-directory.md) | OPEN | — |
-| [`float-to-string-is-platform-dependent-for-non-finite-values.md`](./float-to-string-is-platform-dependent-for-non-finite-values.md) | — | — |
 | [`hash-container-capacity-overflow-guard-has-no-regression-test.md`](./hash-container-capacity-overflow-guard-has-no-regression-test.md) | OPEN | — |
 | [`http-client-omits-the-port-from-the-host-header.md`](./http-client-omits-the-port-from-the-host-header.md) | — | — |
 | [`http-whitespace-before-header-colon-not-rejected.md`](./http-whitespace-before-header-colon-not-rejected.md) | — | — |
