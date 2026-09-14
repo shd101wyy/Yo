@@ -2,7 +2,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { DirEntry, FileType } :: import("std/fs/dir");
 { Path } :: import("std/path");
-{ normalize_line_endings, sort_dir_entries, is_local_git_path, git_remote_url } :: import("../../src/fetch.yo");
+{ normalize_line_endings, sort_dir_entries, is_local_git_path, git_remote_url, commit_from_ls_remote } :: import("../../src/fetch.yo");
 { assert, panic } :: import("std/assert");
 // ---------------------------------------------------------------------------
 // normalize_line_endings
@@ -108,4 +108,49 @@ test("sort_dir_entries: reverse order is sorted", {
   assert(sorted(usize(0)).name == "a.txt", "a first");
   assert(sorted(usize(1)).name == "m.txt", "m second");
   assert(sorted(usize(2)).name == "z.txt", "z third");
+});
+// ---------------------------------------------------------------------------
+// commit_from_ls_remote
+// ---------------------------------------------------------------------------
+_commit_or :: (fn(text : str, fallback : str) -> String)(
+  match(
+    commit_from_ls_remote(String.from(text)),
+    .None => String.from(fallback),
+    .Some(sha) => sha
+  )
+);
+test("commit_from_ls_remote: annotated tag peels to the COMMIT, not the tag object", {
+  // What `git ls-remote -- <url> v0.0.7 'v0.0.7^{}'` prints for an annotated
+  // tag: the tag OBJECT first, the commit on the peeled line.
+  text := "7e942fae34e3146de8503f3bf32411e8b28c0919\trefs/tags/v0.0.7\ne0b57015533d17bb5204737d73e6e06d6bcb6292\trefs/tags/v0.0.7^{}";
+  assert(
+    _commit_or(text, "none") == "e0b57015533d17bb5204737d73e6e06d6bcb6292",
+    "the peeled line wins — a tag object is not a commit"
+  );
+});
+test("commit_from_ls_remote: peeled line first is still preferred", {
+  text := "e0b57015533d17bb5204737d73e6e06d6bcb6292\trefs/tags/v0.0.7^{}\n7e942fae34e3146de8503f3bf32411e8b28c0919\trefs/tags/v0.0.7";
+  assert(
+    _commit_or(text, "none") == "e0b57015533d17bb5204737d73e6e06d6bcb6292",
+    "order-independent"
+  );
+});
+test("commit_from_ls_remote: lightweight tag has one unpeeled line", {
+  text := "ecab5f62bfa3692241d005ada11f77955a9b98e2\trefs/tags/v0.0.4";
+  assert(_commit_or(text, "none") == "ecab5f62bfa3692241d005ada11f77955a9b98e2", "the only line");
+});
+test("commit_from_ls_remote: a branch resolves to its tip", {
+  text := "e0b57015533d17bb5204737d73e6e06d6bcb6292\trefs/heads/master";
+  assert(_commit_or(text, "none") == "e0b57015533d17bb5204737d73e6e06d6bcb6292", "branch tip");
+});
+test("commit_from_ls_remote: HEAD resolves to its tip", {
+  text := "e0b57015533d17bb5204737d73e6e06d6bcb6292\tHEAD";
+  assert(_commit_or(text, "none") == "e0b57015533d17bb5204737d73e6e06d6bcb6292", "HEAD tip");
+});
+test("commit_from_ls_remote: blank lines are skipped", {
+  text := "\n\nabc123\trefs/tags/v1\n\n";
+  assert(_commit_or(text, "none") == "abc123", "leading and trailing blanks ignored");
+});
+test("commit_from_ls_remote: empty output is None", {
+  assert(_commit_or("", "none") == "none", "nothing to resolve");
 });

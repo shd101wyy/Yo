@@ -1,0 +1,22 @@
+# A git dependency whose only release tag is ANNOTATED. `git ls-remote <url>
+# v1.0.0` answers with the tag OBJECT (e917d910…) and SUPPRESSES the peeled
+# `v1.0.0^{}` line, because that ref does not match the pattern — so a
+# resolver that takes the first SHA writes a non-commit into yo.lock. The
+# stdout line kept below is `  remote → v1.0.0 (<12 chars of commit>)`: it
+# must read 004f99c8e1c8 (the COMMIT), never e917d910f283 (the tag object).
+#
+# Every other git fixture in this corpus tags LIGHTWEIGHT, which is why 134
+# cases passed while the bug was live. See issues/fixed/.
+#
+# TWO PROPERTIES OF THE FIXTURE THIS CASE DEPENDS ON. Both are invisible and
+# both turn into confusing failures if a later edit breaks them:
+#   1. remote.git's only tag is ANNOTATED (`git tag -a`). A lightweight tag
+#      makes the case pass under the very bug it exists to catch.
+#   2. remote.git is a COMMITTED bare repo (packed-refs in-tree), so its
+#      object IDs are fixed. Keeping a resolved SHA in the golden stdout is
+#      only safe because of that — rebuild the remote at run time with
+#      `git init` + a commit and the SHAs become timestamp-dependent, and the
+#      golden goes flaky in a way that reads exactly like a resolver
+#      regression.
+timeout=600
+stdout_keep=^(Found|  - |  remote → |Fetching|Done|Building|remote 1\.0\.0$|Wrote|yo\.lock is up)
