@@ -246,8 +246,31 @@ jobs:
               HEAD="${{ github.event.pull_request.head.sha }}"
               ;;
             push)
-              BASE="${{ github.event.before }}"
-              HEAD="${{ github.sha }}"
+              # A push here is a push to DEVELOP — that is the only branch this
+              # workflow's push trigger covers — and develop is the branch every
+              # release tag is cut from. So it ALWAYS gets the full battery,
+              # whatever the diff looks like.
+              #
+              # The fast path classifies the LAST MERGE ALONE
+              # (github.event.before...github.sha), not the release's contents,
+              # so a docs-shaped final merge decided the scope of the gate the
+              # tag was about to be trusted to. v0.2.33 got its 28-job battery
+              # by a margin of TWO non-markdown files: its last merge was a
+              # relicense, almost entirely `*.md`, and only `yo.toml` and
+              # `vscode-extension/package.json` kept `code` true. Had the
+              # licence text landed alone, the release gate would have skipped
+              # 15 jobs and reported success having compiled nothing.
+              #
+              # That is a different failure from the one the "never merge a
+              # docs-only PR while a battery is in flight" rule describes: there
+              # the docs-only push destroys someone ELSE's battery, here it IS
+              # the battery being relied on. The cost of closing it is small —
+              # docs-only pushes to develop are rare, because a docs-only PR
+              # cannot merge here without --admin and the practice is to fold
+              # docs into a code PR.
+              echo "push to develop — the release base always runs the full battery"
+              echo "code=true" >> "$GITHUB_OUTPUT"
+              exit 0
               ;;
             *)
               echo "event ${{ github.event_name }} — running everything"
