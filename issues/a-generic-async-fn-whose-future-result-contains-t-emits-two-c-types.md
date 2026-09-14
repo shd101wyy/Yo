@@ -60,6 +60,71 @@ carries `T` as the `.Ok` variant's field type, so it is found.
 Recorded because it is the FIRST place anyone will look, it is wrong, and the
 cost of re-deriving it is an hour.
 
+## MEASURED 2026-09-14 — and the exclusion is DELIBERATE
+
+`YO_DEBUG_RRE=1` on the minimal shape
+`fn(generic(T), v : T, io : Io) -> Impl(Future(Option(T), Io))`:
+
+```
+[rre] callee=_wrap old=true era=false self=<none>
+      hkt=Impl : (Future[Future](Option(i32)) Io : Io)
+      resolved_ret=Impl : (Future[Future](Option(T)) Io : Io)
+```
+
+The call site's expected type (`hkt`) is CORRECT — `Option(i32)`. The resolved
+return keeps `T`. That is the same signature as bug 1 of the sibling doc, which
+was fixed for a BARE binder; a binder one composite deep still does not resolve.
+
+`src/evaluator/calls/function.yo:2553` is where it is decided, and the comment
+above it names this exact family as an excluded hazard:
+
+> The two recorded adoption hazards stay excluded structurally: **`-> Option(V)`
+> carries its V in ENUM VARIANT FIELDS (no tyarg slots → the collector finds
+> nothing)**, and the per-call closure-F family (`IterFilter(Self, F)`) keeps
+> SomeTs after substitution.
+
+```
+rre_decl_tyarg_somes := ...; _collect_type_arg_somes(ret_type, rre_decl_tyarg_somes, ...);
+rre_era_suspect := ((rre_decl_tyarg_somes.len() > usize(0)) && (get_all_some_types(resolved_ret).len() == usize(0)));
+rre_old_wanted := (hkt_ret_binder || ((get_all_some_types(resolved_ret).len() > usize(0)) && !(type_somes_all_resolve_concrete(resolved_ret))));
+```
+
+`_collect_type_arg_somes` is NOT `get_all_some_types` — it looks only at a
+nominal instantiation's TYPE-ARGUMENT SLOTS. `Option(V)` / `Result(T, E)` carry
+their binder in enum VARIANT FIELD types, not in tyarg slots, so it finds
+nothing and `rre_era_suspect` is false. The other arm does not fire either when
+every SomeT resolves through its cell — the comment immediately above says "Do
+NOT re-evaluate when the substituted result is already codegen-concrete",
+because re-evaluating clobbers the per-call closure identity
+(`iter_filter_closure`: three arms' returns collapsed onto one C record).
+
+So the return type is never re-evaluated, the substituted copy keeps rendering
+as `Result(T, TimeoutError)`, and it keys to a different C type than the
+caller's `Result(i32, TimeoutError)` — the SAME "two C structs with identical
+bodies that do not typecheck against each other" failure the comment describes
+for `local_map_to`, arriving through the door that family is excluded from.
+
+**This is therefore not an oversight to patch but a deliberate exclusion to
+revisit**, which is why it must not be done casually: the exclusion exists
+because the inclusive version broke two other families, both named above and
+both with tests (`tests/where_clause_fn_inference`, `iter_filter_closure`).
+
+### Fix direction, for whoever takes it
+
+Make the era-suspect gate see a binder carried in ENUM VARIANT FIELDS, not only
+in type-argument slots — i.e. widen `_collect_type_arg_somes` for this decision
+only, or add a third arm keyed on "declared return is a nominal enum
+instantiation mentioning a forall binder". Then prove, in this order:
+
+1. the seven `issues/repros/generic-future-return-*.yo` shapes, INCLUDING the
+   canary `-two-t-method-call.yo` that already passes;
+2. `tests/where_clause_fn_inference` and the `iter_filter_closure` arms — the
+   two families the exclusion protects;
+3. the full fast suite.
+
+Anything less will look green and regress one of them silently; the sibling doc
+records exactly that happening.
+
 ## Where to actually look
 
 Unmeasured as of this writing. The sibling doc supplies the instrument:
