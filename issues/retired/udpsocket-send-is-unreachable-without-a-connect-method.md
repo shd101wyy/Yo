@@ -1,6 +1,18 @@
 # `UdpSocket.send` is unreachable public surface — it documents a `connect` that does not exist
 
-**Status: OPEN.** **Class**: api-lie — a documented public method that can
+**Status: RETIRED 2026-09-14 — DUPLICATE, and the defect is FIXED.** This was
+the original filing (2026-09-04). The fix landed 2026-09-06 under a
+consolidated name that also covers a second `udp` defect:
+`issues/fixed/udpsocket-bind-echoes-its-argument-and-send-has-no-connect.md`,
+which is the record. This filing was never closed, so an already-fixed api-lie
+stayed on the open list for eight days.
+
+`UdpSocket.connect` now exists (`std/net/udp.yo:116`), with a doc comment that
+records exactly this defect: "`send`/`recv` documented 'requires prior connect'
+for as long as they existed while no `connect` did, so they could only fail
+with ENOTCONN."
+
+**Was: OPEN.** **Class**: api-lie — a documented public method that can
 never succeed.
 
 **Found**: 2026-09-04, measuring the `net` row of the std API audit.
