@@ -47,7 +47,6 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
-{ eprintln } :: import("../fmt");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { TcpStream } :: import("../net/tcp");
 { TlsStream } :: import("../crypto/tls");
@@ -146,25 +145,14 @@ impl(
   _Transport,
   read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
-      // DIAGNOSTIC (issues/a-bodyless-http-response-is-not-read-until-the-
-      // deadline.md): `[wire RSP] issuing read` is printed BEFORE this future
-      // is even created, so it proves nothing about whether the socket read was
-      // ever REGISTERED. This block is cold until its await runs it. If `entered`
-      // never prints, the transport future was never started and no kevent/SQE
-      // exists — which would explain a completion that never arrives on BOTH
-      // backends. If `entered` prints and `arm done` does not, the socket read
-      // really is registered and unwoken.
-      eprintln(`  [tr] read entered`);
       (n : usize) = usize(0);
       match(
         self,
         .Plain(stream) => {
           n = e.io.await(stream.read(buf, size, e.io), e);
-          eprintln(`  [tr] plain arm done n=${n.to_string()}`);
         },
         .Secure(stream) => {
           n = e.io.await(stream.read(buf, size, e.io), e);
-          eprintln(`  [tr] secure arm done n=${n.to_string()}`);
         }
       );
       n
@@ -718,17 +706,10 @@ _fetch_once :: (
       );
       conn := conn_opt.unwrap();
       _wn := e.io.await(conn.write_string(prep.request, e.io), e);
-      // DIAGNOSTIC (issues/a-bodyless-http-response-is-not-read-until-the-
-      // deadline.md): the two prints bracket the ONE await the 204 hang stops
-      // inside. The wire-level checkpoints say the read itself returned the
-      // whole response, so what these settle is whether this parent await
-      // ever resumes once the inner future completes.
-      eprintln(`  [clt] awaiting the framed response (reused=${reused.to_string()})`);
       framed := e.io.await(
         read_http_message_buffered(conn, opts.max_response_bytes, prep.kind, carry, e.io),
         e
       );
-      eprintln(`  [clt] parent await resumed`);
       (raw : String) = String.new();
       (framing_err : Option(HttpError)) = Option(HttpError).None;
       match(
