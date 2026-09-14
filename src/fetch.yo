@@ -330,6 +330,48 @@ git_command :: (fn() -> Command)({
   cmd.env(String.from("GIT_ASKPASS"), String.from("echo"));
   cmd
 });
+/// The commit SHA named by `git ls-remote` output for ONE ref.
+///
+/// An ANNOTATED tag answers on two lines — `<tagobj>\trefs/tags/v1` and the
+/// peeled `<commit>\trefs/tags/v1^{}` — and only the PEELED line names a
+/// commit; the first line names the tag OBJECT, which is not a commit and
+/// must never reach `yo.lock`. Git only emits the peeled line when a pattern
+/// matches it, which is why the query below asks for `<ref>^{}` as well.
+/// A lightweight tag, a branch and `HEAD` answer on one unpeeled line.
+commit_from_ls_remote :: (fn(text : String) -> Option(String))({
+  lines := text.split("\n");
+  (first : Option(String)) = Option(String).None;
+  (peeled : Option(String)) = Option(String).None;
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    trimmed := lines(i).trim();
+    if(trimmed.len() > usize(0), {
+      parts := trimmed.split("\t");
+      match(
+        parts.get(usize(0)),
+        .None => (),
+        .Some(sha) => {
+          is_peeled := match(
+            parts.get(usize(1)),
+            .None => false,
+            .Some(ref_path) => ref_path.ends_with("^{}")
+          );
+          if(is_peeled, {
+            if(peeled.is_none(), {
+              peeled = Option(String).Some(sha);
+            });
+          }, {
+            if(first.is_none(), {
+              first = Option(String).Some(sha);
+            });
+          });
+        }
+      );
+    });
+    i = (i + usize(1));
+  });
+  if(peeled.is_none(), first, peeled)
+});
 /// Resolve a git ref to a commit SHA using `git ls-remote`.
 resolve_git_ref :: (
   fn(
@@ -344,26 +386,18 @@ resolve_git_ref :: (
     cmd.arg(String.from("ls-remote"));
     cmd.arg(String.from("--"));
     cmd.arg(url);
-    cmd.arg(ref);
+    cmd.arg(ref.clone());
+    // Ask for the PEELED ref too: without a pattern matching it, git omits the
+    // `<ref>^{}` line and an annotated tag answers with its tag OBJECT alone.
+    cmd.arg(`${ref}^{}`);
     out := e.io.await(cmd.output(e.io), e);
     text := String.from_bytes(out.stdout).trim();
     if(text.len() == usize(0), {
       // Assume ref is already a commit SHA
       return(ref);
     });
-    // Take first non-empty line and split on \t
-    lines := text.split(String.from("\n"));
-    first_line := match(
-      lines.get(usize(0)),
-      .None => {
-        e.exn.throw(dyn(`git ls-remote returned empty output`));
-        String.new()
-      },
-      .Some(l) => l
-    );
-    parts := first_line.split(String.from("\t"));
     sha := match(
-      parts.get(usize(0)),
+      commit_from_ls_remote(text),
       .None => {
         e.exn.throw(dyn(`Could not parse git ls-remote output`));
         String.new()
@@ -500,8 +534,11 @@ _mirror_has_commit :: (
     cmd.arg(String.from("cat-file"));
     cmd.arg(String.from("-e"));
     cmd.arg(`${commit}^{commit}`);
-    status := e.io.await(cmd.status(e.io), e);
-    status.success()
+    // `.output()`, not `.status()`: a MISS is the normal pre-fetch answer, and
+    // `.status()` inherits stderr, so git's `fatal: Not a valid object name`
+    // printed straight into the install output.
+    out := e.io.await(cmd.output(e.io), e);
+    out.status.success()
   })
 );
 /// Run one `git --git-dir <mirror> fetch --quiet origin [what]`; the exit
@@ -1043,6 +1080,7 @@ export(
   sort_dir_entries,
   compute_content_hash,
   git_command,
+  commit_from_ls_remote,
   resolve_git_ref,
   StoreLock,
   acquire_store_lock,
