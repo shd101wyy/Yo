@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 213 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 212 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -29,14 +29,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 0 |
 | Async / effects | 32 | 11 |
-| Codegen / emitted C | 24 | 5 |
+| Codegen / emitted C | 23 | 4 |
 | Evaluator / types | 39 | 8 |
 | Std library | 65 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 2 | 1 |
-| **Total** | **213** | **45** |
+| **Total** | **212** | **44** |
 
 ## Cross-cutting buckets
 
@@ -44,7 +44,6 @@ Three things are worth knowing before trusting any row.
 
 Ready to work on — the defect was observed, not inferred.
 
-- [`stddoc-coll-float-modulo-emits-invalid-c.md`](./stddoc-coll-float-modulo-emits-invalid-c.md) — invalid C: `%` applied to two doubles
 - [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) — `disposed: 0 (expected 3)`
 - [`stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md`](./stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md) — both arms are `.Err(String)`; nothing distinguishes help from error
 - [`stddoc-io-arg-parser-positionals-are-never-required.md`](./stddoc-io-arg-parser-positionals-are-never-required.md) — a missing required arg still parses `Ok`
@@ -133,7 +132,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | OPEN — a PERFORMANCE observation, not a corre | — |
 | [`yield-resumption-order-diverges-on-macos-ci.md`](./yield-resumption-order-diverges-on-macos-ci.md) | — | — |
 
-### Codegen / emitted C (24)
+### Codegen / emitted C (23)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -157,7 +156,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`no-volatile-so-black-box-needs-inline-asm.md`](./no-volatile-so-black-box-needs-inline-asm.md) | OPEN — missing capability, not a defect | — |
 | [`rc-value-copied-address-taken-and-returned-is-double-dropped.md`](./rc-value-copied-address-taken-and-returned-is-double-dropped.md) | OPEN | — |
 | [`self-hosted-debug-emission-undeclared-temp.md`](./self-hosted-debug-emission-undeclared-temp.md) | — | — |
-| [`stddoc-coll-float-modulo-emits-invalid-c.md`](./stddoc-coll-float-modulo-emits-invalid-c.md) | OPEN | yes |
 | [`swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md`](./swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md) | — | — |
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
