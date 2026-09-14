@@ -1,6 +1,16 @@
 # The release gate accepts a docs fast-path run as proof of a green suite
 
-**Status: OPEN** (filed 2026-09-06). Found while preparing v0.2.26.
+**Status: RETIRED 2026-09-14 — DUPLICATE.** The same defect was filed
+independently on 2026-09-10 as
+`issues/release-gate-accepts-a-docs-only-fast-path-success.md`, which is the
+richer record (it adds the concurrency-cancellation compounding table, three
+candidate fixes, and the v0.2.30 workaround). **Everything unique to this file
+— the `fcd25ee66` / run 34025793623 measurement, the `gh api … /jobs` query
+shape for the fix, and the SEED_VERSION_AUTOMATION cross-reference — has been
+folded into that doc**, so nothing is lost by retiring this one. The bug itself
+is still OPEN there.
+
+**Was: OPEN** (filed 2026-09-06). Found while preparing v0.2.26.
 
 ## Symptom
 

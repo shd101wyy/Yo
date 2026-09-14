@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 218 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 217 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -27,7 +27,7 @@ Three things are worth knowing before trusting any row.
 
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
-| CI/Release/Build | 14 | 0 |
+| CI/Release/Build | 13 | 0 |
 | Async / effects | 34 | 13 |
 | Codegen / emitted C | 24 | 5 |
 | Evaluator / types | 40 | 9 |
@@ -36,7 +36,7 @@ Three things are worth knowing before trusting any row.
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 2 | 1 |
-| **Total** | **218** | **49** |
+| **Total** | **217** | **49** |
 
 ## Cross-cutting buckets
 
@@ -78,7 +78,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 ## By area
 
 
-### CI/Release/Build (14)
+### CI/Release/Build (13)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -89,7 +89,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`http-limits-test-depends-on-httpbin-org-inside-a-required-gate.md`](./http-limits-test-depends-on-httpbin-org-inside-a-required-gate.md) | — | — |
 | [`leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`](./leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md) | OPEN | — |
 | [`manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md`](./manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md) | OPEN | — |
-| [`release-gate-accepts-a-docs-fast-path-run-as-proof-of-green.md`](./release-gate-accepts-a-docs-fast-path-run-as-proof-of-green.md) | — | — |
 | [`release-gate-accepts-a-docs-only-fast-path-success.md`](./release-gate-accepts-a-docs-only-fast-path-success.md) | open (found 2026-09-10 while cutting v0 | — |
 | [`seed-early-return-drops-later-local-through-shadowing-pattern-name.md`](./seed-early-return-drops-later-local-through-shadowing-pattern-name.md) | — | — |
 | [`v0.2.23-seed-build-lottery-corrupts-shifted-trees.md`](./v0.2.23-seed-build-lottery-corrupts-shifted-trees.md) | — | — |
