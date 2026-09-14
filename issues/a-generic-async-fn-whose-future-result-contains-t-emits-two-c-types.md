@@ -1,0 +1,199 @@
+# A generic `io.async` fn whose Future result CONTAINS `T` emits the unsubstituted type beside the substituted one
+
+**Status:** OPEN.
+**Found:** 2026-09-14, writing `with_deadline` for `std/async` — the last
+actionable row of `plans/backlog/ASYNC_DEADLINE_COMBINATOR.md`. It is the third
+defect standing between that plan and a working combinator, after the two fixed
+in `issues/fixed/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md`.
+**Severity:** blocks the whole shape "a generic async function that returns
+something built from `T`", which is what almost any async combinator is.
+
+## Symptom
+
+The combinator, written as the awaitable twin of `std/async`'s `timeout` (same
+signature, blocking poll replaced by a real `yield` suspension):
+
+```rust
+with_deadline :: (
+  fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io)
+    -> Impl(Future(Result(T, TimeoutError), Io))
+)(io.async(e => { ... }));
+```
+
+ONE call, at `T = i32`:
+
+```
+error: assigning to '__yo_t_12358778192450428604' (aka 'struct __yo_t_12358778192450428604_struct')
+       from incompatible type '__yo_t_14213201662139104531' (aka 'struct __yo_t_14213201662139104531_struct')
+```
+
+and the two C types are the same type, once substituted and once not:
+
+```c
+struct __yo_t_12358778192450428604_struct { //  : Result(i32, TimeoutError)
+struct __yo_t_14213201662139104531_struct { //  : Result(T, TimeoutError)
+```
+
+So the state machine's `result` slot kept the generic `Result(T, TimeoutError)`
+while the caller reads `Result(i32, TimeoutError)`. A SECOND instantiation is
+not required — one call is enough, which distinguishes this from
+`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`
+(same family, different trigger: that one needed a second `T`).
+
+## A hypothesis that READING THE CODE REFUTED — do not re-run it
+
+The obvious suspicion was the binder-site collector
+`_gc_collect_binder_sites` (`src/evaluator/calls/function.yo:1411`), whose
+worklist has arms for only `.SomeT`, `.FnTraitT` and `.FutureTraitT` and then
+`_ => ()`. The reading was: `.FutureTraitT` pushes its output type
+`Result(T, TimeoutError)`, that is an `.EnumT`, `_ => ()` drops it, so the `T`
+one composite deep is never collected and never freshened.
+
+**That is wrong, and the walk is fine.** The arm list only decides what is
+pushed as FURTHER work; the sites themselves are recorded from
+`somes := get_all_some_types(cur)` on every popped item, and
+`_collect_some_types_into` (`src/types/utils.yo:1004`) DOES descend into
+`.EnumT` variant field types, as well as `.Struct` fields, `.Tuple`,
+`.TypeAppT` args, `.Array`, `.Pointer`, `.IsoT` and `.Func`. `Result(T, E)`
+carries `T` as the `.Ok` variant's field type, so it is found.
+
+Recorded because it is the FIRST place anyone will look, it is wrong, and the
+cost of re-deriving it is an hour.
+
+## Where to actually look
+
+Unmeasured as of this writing. The sibling doc supplies the instrument:
+**`YO_DEBUG_RRE=1`** prints the resolved return type per call —
+
+```
+[rre] callee=wrap old=true hkt=Impl : (Future[Future](i32) Io : Io)  resolved_ret=Impl : (Future[Future](R) Io : Io)
+```
+
+Run it on the `with_deadline` call and compare `hkt` against `resolved_ret`. If
+the evaluator's resolved return type is already correct, the loss is downstream
+— in what the ASYNC BLOCK records as its own result type, which is a different
+channel from the function's return type and the likelier suspect given that
+`timeout`, the same signature without `io.async`, is fine.
+
+## What narrows it
+
+- `timeout` itself — generic over `T`, returning the same `Result(T, TimeoutError)`
+  — is shipped, tested and fine. It is a PLAIN fn. The difference is the
+  `io.async` body, so the state-machine result typing is the suspect, not
+  generic `Result` instantiation.
+- A generic async fn returning a BARE `T` is the already-fixed case above, so
+  bare `T` is handled somewhere that a composite is not. The natural read is
+  that the substitution is applied to the result type only when it IS the type
+  variable, rather than being applied THROUGH the type.
+
+A second probe — a generic async fn returning `Impl(Future(Option(T), Io))` —
+fails EARLIER, in the evaluator, with `Cannot unify incompatible types: "i32"
+and "Option(T)"`. That may be the same root cause seen before codegen or a
+separate inference gap; it has NOT been narrowed and should not be assumed
+identical.
+
+## Why it has never been hit
+
+Every combinator in `std/async` (`join_all`, `race`, `any`, `timeout`) is a
+blocking-poll PLAIN fn, by deliberate design — they drive the event loop rather
+than suspending. So the tree has no generic async function returning a
+composite of `T`, and nothing has ever asked for one.
+
+## What it blocks
+
+`plans/backlog/ASYNC_DEADLINE_COMBINATOR.md` Option B. Combined with the two
+defects already fixed, the picture for that plan is:
+
+| defect | status |
+| --- | --- |
+| on-demand typedef emitted inside an open struct body | FIXED 2026-09-14 |
+| `get_future_field_name` returned a bare name for an `.Outer` capture | FIXED 2026-09-14 |
+| this one — generic async result type not substituted through a composite | OPEN |
+
+The first two were only reachable through Option B's original
+future-taking signature; this one is reached by the `JoinHandle`-taking
+signature too, which is the one consistent with the rest of `std/async`. So
+`with_deadline` cannot ship in either shape until this is fixed.
+
+## The working draft
+
+This type-checks (`yo check std/async/index.yo` — `evaluator OK`) and fails only
+at the C compile described above. It is recorded here, rather than as a
+`issues/repros/*.yo`, because it is a fragment meant to be pasted into
+`std/async/index.yo` and would not compile standalone. The next attempt should
+start from it rather than from the plan's prose.
+
+Note the signature takes a `JoinHandle(T)`, not a future: every other
+combinator in `std/async` takes a spawned handle, so that is the consistent
+shape — not a way around the future-parameter defects, which are fixed.
+
+```rust
+/// `timeout`, as a FUTURE — awaitable from inside a task.
+///
+/// `timeout` drives the event loop itself, so calling it from within an
+/// `io.async` body nests the loop and freezes every other task on it
+/// (`issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md`). This is the
+/// same contract with the blocking poll replaced by a real suspension, so it
+/// composes with other futures:
+///
+/// ```rust
+/// h := io.spawn(fetch(io), io);
+/// r := io.await(with_deadline(h, Duration.from_secs(i64(5)), io), io);
+/// match(r, .Ok(v) => use(v), .Err(_) => give_up());
+/// ```
+///
+/// Takes a spawned handle rather than a future, like every other combinator in
+/// this module — spawn at the call site.
+///
+/// Two costs are inherent to today's primitives and are NOT fixed here
+/// (`plans/backlog/ASYNC_DEADLINE_COMBINATOR.md`): the aborted task's in-flight
+/// buffers are not reclaimed, because the I/O backend has no cancel; and the
+/// wait is a `yield` poll rather than a woken one. Putting the race in ONE
+/// place is what makes those fixable in one place later.
+with_deadline :: (
+  fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), Io))
+)(
+  io.async(e => {
+    // Same reasoning as `timeout`: the deadline is a spawned TASK, never a bare
+    // io-timer local, so the armed timer is owned on every path
+    // (issues/pending-io-future-local-drop-uaf.md).
+    ms := Box(u64)(u64(limit.as_millis()));
+    dh := e.io.spawn(
+      io.async((io2 : Io) => {
+        io2.await(IO_timer.sleep(ms.*), io2);
+        return(());
+      }),
+      e.io
+    );
+    (waiting : bool) = true;
+    // Which arm ended the wait — the only place the two failure modes are
+    // distinguishable, since `await` reports `.None` for either abort.
+    (elapsed : bool) = false;
+    while(runtime(waiting), {
+      cond(
+        handle.is_finished() => {
+          waiting = false;
+        },
+        dh.is_finished() => {
+          handle.abort();
+          elapsed = true;
+          waiting = false;
+        },
+        true => e.io.await(yield(e.io), e.io)
+      );
+    });
+    // Consume the deadline handle exactly once; the abort cancels a still-armed
+    // timer so this returns immediately when the task won.
+    dh.abort();
+    dh.await(e.io);
+    match(
+      handle.await(e.io),
+      .Some(v) => .Ok(v),
+      .None => cond(
+        elapsed => .Err(TimeoutError.Elapsed),
+        true => .Err(TimeoutError.Aborted)
+      )
+    )
+  })
+);
+```

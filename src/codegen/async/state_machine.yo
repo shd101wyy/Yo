@@ -60,9 +60,25 @@ generate_resume_function_declaration :: (
   em.emit_declaration_string_line(line);
 });
 /// The state-machine field name for the Future being awaited. Prefers the
-/// captured Future variable's field (`<name>` for an outer capture, `var_<id>`
-/// for a local) over a dedicated `await_future_<index>` field. Mirrors
-/// `getFutureFieldName` (state-machine.ts:461).
+/// captured Future variable's field (`__capture.<name>` for an outer capture,
+/// `var_<id>` for a local) over a dedicated `await_future_<index>` field.
+/// Mirrors `getFutureFieldName` (state-machine.ts:461).
+///
+/// An OUTER capture must carry the `__capture.` prefix: captures live in the
+/// state machine's `__capture` sub-struct, and every caller here splices the
+/// result straight after `sm->`. Returning the bare name emitted `sm->fut` for
+/// a field that only exists as `sm->__capture.fut` — "no member named 'fut'".
+/// Every other spelling of an outer capture in codegen already agrees
+/// (`state_machine_naming.yo`, `exprs/atom.yo`, `exprs/await.yo`, and
+/// `resolve_effect_field_from_sm_scope` just below).
+///
+/// Never hit until a function took an `Impl(Future(T, E))` as a PARAMETER and
+/// awaited it inside an `io.async` closure — that is the only way the awaited
+/// future is an outer capture rather than a local or a dedicated
+/// `await_future_<n>` slot
+/// (issues/fixed/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md).
+/// The `starts_with("await_future_")` slot guards are unaffected: neither the
+/// bare name nor the prefixed one matches that.
 get_future_field_name :: (
   fn(await_point : AwaitPoint, analysis : AwaitAnalysisResult) -> String
 )({
@@ -86,7 +102,11 @@ get_future_field_name :: (
         found,
         .Some(cv) => match(
           cv.kind,
-          .Outer => return(cv.base.name.clone()),
+          .Outer => {
+            o := String.from("__capture.");
+            o.push_string(cv.base.name.clone());
+            return(o);
+          },
           .Local => {
             return(sm_local_field_name(cv.base.id.to_string()));
           }

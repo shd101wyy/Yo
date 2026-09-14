@@ -1,6 +1,31 @@
 # A function taking an `Impl(Future(T, E))` PARAMETER emits the Future's typedef inside another struct — so `std/async` cannot grow a future-taking combinator
 
-**Status:** OPEN.
+**Status: FIXED 2026-09-14.** TWO independent defects stood behind this one
+symptom, both in codegen, both pre-existing, both green under `yo check`:
+
+1. `src/codegen/types/generation.yo` — `generate_struct_declaration` emitted its
+   opening line and only THEN resolved field type strings, and that resolution
+   is what fires the on-demand declaration hook into the same buffer. Field
+   types are now resolved before the aggregate opens
+   (`_prewarm_runtime_field_types`), so any on-demand declaration lands ahead of
+   it. This is the nested-`typedef` half described below.
+2. `src/codegen/async/state_machine.yo` — `get_future_field_name` returned the
+   BARE name for an `.Outer` capture, while callers splice it straight after
+   `sm->`. An awaited future that is a captured parameter therefore emitted
+   `sm->fut` for a field that only exists as `sm->__capture.fut`
+   ("no member named 'fut'"). It now carries the `__capture.` prefix, as every
+   other spelling of an outer capture in codegen already did.
+
+Fixing only the first left the second exposed — it was underneath all along
+(the error set went from five distinct kinds to one). Gated by
+`tests/async_future_parameter.test.yo` (2 tests), which fails on the v0.2.32
+seed and passes here.
+
+**Still open, and NOT this defect:** the combinator this was found for still
+cannot be written, on a THIRD defect —
+`issues/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`.
+
+**Originally filed:** OPEN.
 **Found:** 2026-09-14, probing whether `plans/backlog/ASYNC_DEADLINE_COMBINATOR.md`'s
 recommended **Option B** (`with_deadline` in `std/async`) is writable today.
 It is not, and this is why.

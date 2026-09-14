@@ -4,8 +4,9 @@
 //
 //   yo compile issues/repros/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.yo --optimize 2 -o /tmp/x
 //
-// Expected: it compiles and prints 42.
-// Actual:   error: type name does not allow storage class to be specified
+// FIXED 2026-09-14 (two codegen defects behind one symptom — see the doc).
+// Expected (and now actual): it compiles and prints 42.
+// Was:      error: type name does not allow storage class to be specified
 //           error: field has incomplete type 'struct __yo_t_..._struct'
 //           error: unknown type name '__yo_t_...'
 //
@@ -21,7 +22,7 @@
 //
 // `yo check` passes — the evaluator is happy; only codegen is wrong.
 //
-// See issues/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md
+// See issues/fixed/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md
 { println } :: import("std/fmt");
 _take :: (fn(fut : Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
   io.async(e => e.io.await(fut, e.io))
