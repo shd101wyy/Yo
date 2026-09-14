@@ -26,12 +26,33 @@ AREAS = [
 ORDER = [a for a, _ in AREAS] + ["Other"]
 
 # Curated 2026-09-14: repro executed AND its output read.
+#
+# VERDICT DISCIPLINE, learned the hard way on this corpus -- an exit code is a
+# proxy and is wrong in BOTH directions here:
+#   * exit 0 does not mean pass. `main`'s return value is DISCARDED
+#     (issues/main-return-value-is-discarded-...), so 8 reproducers that compute
+#     a 0/1 status always exit 0. Most others print evidence and exit 0 anyway.
+#   * a non-zero exit does not mean fail. unicode-escape-accepts-non-hex-digits
+#     scores COMPILE_FAIL *because its fix works* -- the program is supposed to
+#     be rejected now, and the honest score is the diagnostic TEXT.
+# So a row is listed below only when its OUTPUT was read against the doc's claim.
 CONFIRMED = {
     "stddoc-coll-float-modulo-emits-invalid-c.md": "invalid C: `%` applied to two doubles",
     "stddoc-coll-imm-vec-dedup-leaks-rc-elements.md": "`disposed: 0 (expected 3)`",
     "stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md": "both arms are `.Err(String)`; nothing distinguishes help from error",
     "stddoc-io-arg-parser-positionals-are-never-required.md": "a missing required arg still parses `Ok`",
     "stddoc-io-json-parse-string-accepts-raw-control-bytes.md": "raw control bytes accepted inside a string",
+}
+# Curated 2026-09-14: verified STILL OPEN by reading the current source (the
+# doc's described defect is still present). Distinct from CONFIRMED, which ran
+# the reproducer; these were adjudicated by code reading alone.
+SOURCE_VERIFIED_OPEN = {
+    "stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md": "the variant is declared at std/string/string.yo:68 with no producer in the module",
+    "stddoc-str-string-builder-clear-drops-capacity.md": "`clear` still does `self._buf = ArrayList(u8).new()`, discarding the buffer; ArrayList.clear retains capacity and is the one-line fix",
+    "float-to-string-is-platform-dependent-for-non-finite-values.md": "std/fmt/to_string.yo still routes non-finite through %g and says so in its own module doc",
+    "make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md": "std/sys/tcp.yo:188 still documents the failure as unreported",
+    "bench-with-zero-iterations-returns-min-ns-greater-than-max-ns.md": "min_ns still seeded to i64::MAX with no zero-iteration guard; bench_auto can never pass 0, so a guard is safe",
+    "derive-body-field-name-collides-with-a-builtin-type.md": "still fails: derive body renders a field named `unit` as the builtin type",
 }
 # Curated 2026-09-14: subject no longer exists (the TS compiler died in P2.5).
 RETIRE = {
@@ -103,12 +124,34 @@ Three things are worth knowing before trusting any row.
     for f, ev in CONFIRMED.items():
         if f in names:
             W(f"- [`{f}`](./{f}) — {ev}")
+    W("\n### Verified still open, by reading the current source\n")
+    W("Adjudicated by code reading rather than by running a reproducer — the")
+    W("defect the doc describes is still present, so these are safe to pick up.\n")
+    for f, ev in SOURCE_VERIFIED_OPEN.items():
+        if f in names:
+            W(f"- [`{f}`](./{f}) — {ev}")
     W("\n### Retirement candidates — subject no longer exists\n")
     W("The TypeScript compiler was deleted in P2.5. A doc whose SUBJECT is that")
     W("compiler, or whose content is a TS-vs-self divergence, cannot be acted on.\n")
     for f, why in RETIRE.items():
         if f in names:
             W(f"- [`{f}`](./{f}) — {why}")
+    W("\n### Duplication — six of the docs once counted as open were not\n")
+    W("""Two distinct mechanisms, both invisible to a "does the cited path resolve"
+check, and both found on 2026-09-14:
+
+1. **Same name, two directories** (3 docs). A fixing commit COPIED instead of
+   MOVING, leaving a stale OPEN snapshot in root beside the FIXED copy.
+   `scripts/check-issue-refs.sh` now asserts this cannot happen.
+2. **Different name, same defect** (3 pairs: IPv6 RFC 5952, the release-gate
+   fast path, IPv4 parse / UdpSocket.send). Fix titles are written from the
+   FIXER's point of view — past tense, often consolidating two defects into one
+   file — while the original is the REPORTER's, present tense, one defect each.
+   No filename check sees that; a title-similarity scan of open docs against
+   `fixed/` and `retired/` does, and finding one is usually a sign the code
+   already contains the prescribed fix, so READ THE SOURCE before implementing
+   any "suggested fix".
+""")
     W("\n### Reference integrity\n")
     W("`scripts/check-issue-refs.sh` asserts every cited `issues/**` path resolves.")
     W("Run it on the MERGE RESULT, not on a branch: a concurrent move reads as a")
