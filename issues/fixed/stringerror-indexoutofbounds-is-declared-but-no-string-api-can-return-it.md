@@ -5,6 +5,9 @@ row (a per-enum sweep of `std/`: 53 enums, 311 variants, with construction sites
 scoped to the declaring module). **Status**: OPEN. Measured against `develop`
 (`8d471c7df`) with `yo` 0.2.24 and `YO_STD=./std`.
 
+**FIXED 2026-09-15** — variant deleted, exactly as the Fix section prescribes.
+See "Fix applied" at the end.
+
 **Class**: api-lie. Lower stakes than its two siblings in the same sweep
 (`crypto-random-reports-every-failure-as-unavailable-and-discards-the-errno.md`,
 `issues/fixed/url-parse-validates-no-characters-so-a-crlf-url-splits-the-http-request.md`):
@@ -194,3 +197,42 @@ deletion sweep (`plans/archive/STD_API_AUDIT.md` §6) alongside the already-land
 `11c34a8b6`). Release-note line: "`StringError.IndexOutOfBounds` is deleted; it was
 never constructed — string bounds failures panic (D4) and the non-panicking
 spellings return `Option`."
+
+---
+
+## Fix applied (2026-09-15)
+
+`IndexOutOfBounds` and its doc comment are deleted from `StringError`, leaving
+the enum single-variant, and the dead `.IndexOutOfBounds(_, _)` arm is removed
+from `tests/encoding/utf8.test.yo` — the one dependent site the Fix section
+named. Nothing else referenced it: the other `IndexOutOfBounds` hits in `std/`
+belong to `LinkedListError`, a different enum that DOES return its variant
+properly, and to `ArrayList`.
+
+The remaining doc comment now records WHY the enum has one variant, so the next
+reader does not re-add a bounds variant on the theory that an error enum ought
+to have one: a bounds failure panics, which is the decided design (D4), and a
+recoverable variant with no entry point returning it is the defect. It also
+says what would make re-adding it correct — landing it *alongside* the fallible
+accessor that returns it, not before.
+
+### Verification, for a REMOVAL
+
+There is no red-then-green here: the change deletes surface rather than
+changing behaviour, so the honest check is the inverse — prove the variant is
+actually gone, and prove nothing needed it.
+
+- **Gone:** constructing `StringError.IndexOutOfBounds(index : 7, length : 3)`
+  now fails with `error[E0402]: Enum variant "IndexOutOfBounds" not found in
+  enum`. Before the change that program compiled, which was the whole
+  complaint — the variant was constructible and matchable public surface.
+- **Unneeded:** `check ./std` clean, and `tests/encoding/utf8.test.yo` 35/35,
+  `tests/string/string.test.yo` 292/292, `tests/string/string_parse.test.yo`
+  42/42. A compile is a real gate for a deletion: anything still referencing
+  the variant could not build.
+- Clean under the published v0.2.32 seed.
+
+This is a breaking change to a stable surface (`yo-design.instructions.md:147`
+— removed exports are not additive), and it is the right moment for it: the
+point of the original filing was that freezing the module would lock in an
+error nobody can produce.

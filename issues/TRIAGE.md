@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 207 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 208 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 32 | 11 |
 | Codegen / emitted C | 23 | 4 |
 | Evaluator / types | 39 | 8 |
-| Std library | 60 | 16 |
+| Std library | 59 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 2 | 1 |
-| **Total** | **207** | **44** |
+| Other | 4 | 1 |
+| **Total** | **208** | **44** |
 
 ## Cross-cutting buckets
 
@@ -54,7 +54,6 @@ Ready to work on — the defect was observed, not inferred.
 Adjudicated by code reading rather than by running a reproducer — the
 defect the doc describes is still present, so these are safe to pick up.
 
-- [`stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md`](./stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md) — the variant is declared at std/string/string.yo:68 with no producer in the module
 - [`make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md`](./make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md) — std/sys/tcp.yo:188 still documents the failure as unreported
 - [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) — still fails: derive body renders a field named `unit` as the builtin type
 
@@ -96,8 +95,8 @@ stale reference there, and 'repairing' it reverts someone else's work.
 - [`calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md`](./calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md) — 17 KB
 - [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 16 KB
 - [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) — 16 KB
+- [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) — 13 KB
 - [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) — 12 KB
-- [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) — 12 KB
 
 ---
 
@@ -231,7 +230,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (60)
+### Std library (59)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -285,7 +284,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`stddoc-sys-signal-handler-data-always-null.md`](./stddoc-sys-signal-handler-data-always-null.md) | open | — |
 | [`stddoc-sys-windows-copyfile-ignores-flags.md`](./stddoc-sys-windows-copyfile-ignores-flags.md) | open | yes |
 | [`string-to-cstr-truncates-at-an-interior-nul.md`](./string-to-cstr-truncates-at-an-interior-nul.md) | OPEN | — |
-| [`stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md`](./stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md) | OPEN | — |
 | [`sys-signals-macos-numbers-are-linux-values.md`](./sys-signals-macos-numbers-are-linux-values.md) | open | yes |
 | [`tempfile-dispose-and-file-pos-interaction.md`](./tempfile-dispose-and-file-pos-interaction.md) | — | — |
 | [`thread-safety-phase-p-never-landed-but-plan-says-complete.md`](./thread-safety-phase-p-never-landed-but-plan-says-complete.md) | Complete | yes |
@@ -312,7 +310,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`template-string-nested-inside-an-interpolation-fails-to-parse.md`](./template-string-nested-inside-an-interpolation-fails-to-parse.md) | — | — |
 | [`test-runner-std-path-shadowed-by-binary-tree-std.md`](./test-runner-std-path-shadowed-by-binary-tree-std.md) | — | — |
 | [`user-facing-async-restrictions-reported-as-internal-compiler-error.md`](./user-facing-async-restrictions-reported-as-internal-compiler-error.md) | OPEN | — |
-| [`yo-doc-leaks-private-compiler-temps-into-the-search-index.md`](./yo-doc-leaks-private-compiler-temps-into-the-search-index.md) | OPEN — found 2026-09-14, incidentally, while | — |
+| [`yo-doc-document-private-flag-is-a-no-op.md`](./yo-doc-document-private-flag-is-a-no-op.md) | OPEN — found 2026-09-14 while fixing | — |
 | [`yo-doc-renders-std-prelude-as-an-empty-module.md`](./yo-doc-renders-std-prelude-as-an-empty-module.md) | OPEN | — |
 | [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | open | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | — | — |
@@ -349,9 +347,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (2)
+### Other (4)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md`](./main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md) | OPEN | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
+| [`per-def-dependent-trial-resolves-stale-callee.md`](./per-def-dependent-trial-resolves-stale-callee.md) | — | — |
+| [`trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`](./trait-impl-method-contract-clauses-corrupt-operator-dispatch.md) | — | — |
