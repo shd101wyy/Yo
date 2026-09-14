@@ -93,7 +93,7 @@ built with the existing `_make_sockaddr` (`std/net/udp.yo:34-51`) and freed with
 a `peer_addr()` accessor becomes possible later.
 
 Do NOT place a nested closure inside the `io.async` body — that shape is the
-known-fragile one (`issues/async-cond-dispatch-skips-chained-sibling-arm.md`,
+known-fragile one (`issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md`,
 `issues/async-await-nested-if-lost-continuation.md`).
 
 Also fix the doc comment on `send` once `connect` exists, so it points at a

@@ -1623,7 +1623,7 @@ _emit_await_suspension_core :: (
 /// as a chained layer (`_chain_additional_remaining`); the dispatch switches
 /// used to read `cbd.branches` alone, so that arm got no `case` — its future
 /// was never awaited and its binding never extracted
-/// (issues/async-cond-dispatch-skips-chained-sibling-arm.md). Chained layers
+/// (issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md). Chained layers
 /// keyed on a DIFFERENT dispatch field cannot share the switch; there is no
 /// such shape in the corpus, so refuse loudly rather than mis-emit.
 _dispatch_branches :: (fn(cbd : AsyncCondBranchInfo, cond_field : usize, ap_index : usize) -> ArrayList(CondBranch))({
@@ -2815,7 +2815,7 @@ _emit_cond_branch_remaining :: (
             // `c := io.await(...)` that carried the additional await. Without
             // it the dispatch extraction had no destination for a sibling
             // arm's second await and the binding stayed NULL
-            // (issues/async-cond-dispatch-skips-chained-sibling-arm.md).
+            // (issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md).
             additional_target := match(
               additional_await_expr,
               .Some(ae) => _find_branch_await_target_variable_id(ae, context),

@@ -3,7 +3,15 @@
 **Found**: 2026-09-04, by the std-API audit re-measurement, when the C36 row's
 cross-reference in `plans/archive/STD_API_AUDIT.md` turned out to be a dead path.
 **Class**: papercut — bookkeeping, but it corrupts the open-issue tally and
-breaks five links, two of them from compiler source comments. **Status**: OPEN.
+breaks five links, two of them from compiler source comments. **Status: DONE 2026-09-14.** `issues/async-cond-dispatch-skips-chained-sibling-arm.md`
+is now in `issues/fixed/`, and every reference points at that path — the two
+compiler-source comments in `src/codegen/async/state_machine.yo` plus the one in
+`issues/udpsocket-send-is-unreachable-without-a-connect-method.md` that cited
+the root path. The fix was re-verified before the move rather than trusted from
+the header: `issues/repros/async-cond-dispatch-skips-chained-sibling-arm.yo`
+compiles and runs `rc=0` (the defect was `rc=139`).
+
+**Was**: OPEN.
 
 ## What is wrong
 
