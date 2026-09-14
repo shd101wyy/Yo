@@ -307,4 +307,4 @@ CLI help texts and user-facing messages are bilingual (English + 简体中文): 
 
 ## License
 
-[UIUC/NCSA Open Source License](./LICENSE.md)
+[Apache License 2.0 with LLVM Exceptions](./LICENSE.md)

@@ -87,3 +87,27 @@ codegen, debugging, testing, language design, syntax); and `.github/skills/`
 ships reusable skill packs. Keeping those current is itself a valued
 contribution — if you learn something about Yo the hard way, write it down
 there.
+
+## Licensing of contributions
+
+Yo is licensed under the [Apache License 2.0 with LLVM Exceptions](./LICENSE.md)
+(`Apache-2.0 WITH LLVM-exception`). Contributions are accepted under that same
+license — by opening a pull request you agree that your contribution may be
+distributed under it.
+
+There is no CLA to sign, and copyright in your contribution stays yours. What
+is asked instead is a Developer Certificate of Origin sign-off: add a
+`Signed-off-by` line to each commit, which `git commit -s` does for you.
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+That line is an assertion that you wrote the patch, or otherwise have the right
+to submit it under this project's license — the full text is at
+<https://developercertificate.org/>. It exists so the project's provenance
+stays checkable in the git history alone, which is what makes a future
+license decision possible without tracking every contributor down.
+
+If you are running an AI agent, sign off in your own name: the certificate is
+about your right to submit the work, not about who or what typed it.
