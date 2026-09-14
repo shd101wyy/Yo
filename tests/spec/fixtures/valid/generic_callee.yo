@@ -1,0 +1,19 @@
+// V6 task 2 (FORMAL_VERIFICATION.md): a contracted GENERIC function's
+// contracts are usable at a monomorphized call site — requires discharged
+// against the caller's path, ensures assumed over fresh result terms.
+// The generic's signature predicates are untyped at its own definition
+// (operators over the type variable have no comptime impl), so the call
+// site evaluates fresh clones at the CONCRETE argument types
+// (CallsiteContracts, contracts.yo) and the specialization re-keys the
+// contract tables onto the specialized FuncVal id (helper.yo). The
+// caller's own ensures is only provable THROUGH the assumed generic
+// ensures (result is 1 or 2 because the callee's ensures says so).
+pragma(Pragma.Verify);
+
+pick :: (
+  fn(generic(T : Type), flag : bool, a : T, b : T, ensures((result == a) || (result == b))) -> (result : T)
+)(if(flag, a, b));
+
+caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
+  pick(true, i32(1), i32(2))
+);

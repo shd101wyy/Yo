@@ -1324,6 +1324,30 @@ become real; the stdlib starts carrying executable specifications.
 > fixtures use the two-step spelling (named fn + reference from the impl
 > entry); the inline clause-carrying spelling stays blocked by that
 > OPEN issue. Remaining for V6: tasks 2–6 below.
+>
+> **Status: TASK 2 SLICE 1 — contracted generic callees at monomorphized
+> call sites (2026-09-14).** Two fixes, both probe-driven: (1) the
+> SPECIALIZATION mint (`helper.yo`, `specialized_func_id = func_id +
+> "_" + sig`) never re-keyed the contract tables — the caller's callee
+> atom carries the SPECIALIZED FuncVal, so every monomorphized call site
+> saw "callee without contracts"; fixed with
+> `copy_func_contract_exprs(func_id, specialized_func_id)` at the
+> specialized FuncVal mint. (2) A generic signature's predicates are
+> UNTYPED (operators over the type variable have no comptime impl; the
+> failure is swallowed at the def-time trial), and the walk's
+> `_expr_term` requires ExprInfo for EVERY node — so the raw predicate
+> ASTs are unusable. The fix is a per-call-site stash
+> (`CallsiteContracts`, contracts.yo): after the def-time trial stamps
+> the call-site ExprInfo (argument types, the specialized callee
+> FuncVal), `prepare_callsite_contracts` walks the task body and
+> evaluates fresh-id clones of each contracted callee's predicates with
+> the callee's params bound to unknowns of the CONCRETE arg types;
+> `_callee_call_term` prefers the stash. TIMING lesson: the stash hook
+> first sat at task registration — BEFORE the trial — and read nothing
+> (the stamps did not exist yet); it must run after
+> `_trial_eval_fn_body`. The generic body itself remains unwalked (the
+> "verified abstractly" half of task 2 — uninterpreted sorts +
+> trait-constraint axioms — is still open), as are tasks 3–6.
 
 Tasks:
 

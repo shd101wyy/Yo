@@ -81,6 +81,31 @@ impl(
 拼写；不一致会在义务处以未绑定名字报错。收紧前置条件的 impl 会被
 以分发的反例驳倒（上例的孪生版本在 `i = 0` 处驳倒）。
 
+### 泛型函数
+
+**泛型**函数的契约在其调用点结算 —— 仍是 Dafny 模块化模型：泛型
+函数体不被遍历（它按特化重新求值），但每个单态化调用点会针对调用
+方路径条件**证明**泛型的 `requires`，并把它的 `ensures` 作为新结果
+项**假设**下来。两处机制支撑这一点：特化会把契约表再键到特化函数
+id 上；调用点会以**具体**实参类型求值签名谓词（在泛型自己的定义
+处，谓词无法求值 —— 作用在类型变量上的运算符没有编译期实现 ——
+正是调用点求值给了验证器带类型的谓词节点）。
+
+```rust
+pick :: (
+  fn(generic(T : Type), flag : bool, a : T, b : T, ensures((result == a) || (result == b))) -> (result : T)
+)(if(flag, a, b));
+
+// 调用方自己的后条件只有通过假设的泛型 ensures 才可证明 ——
+// 验证器从不展开 pick 的函数体。
+caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
+  pick(true, i32(1), i32(2))
+);
+```
+
+违反泛型 `requires` 的调用方（给 `requires(flag)` 的被调方传
+`flag = false`）会在调用点被以反例驳倒。
+
 ## 模式
 
 | 模式 | 选择方式 | 行为 |
@@ -139,7 +164,8 @@ refuted  fn@/abs/path.yo:8 [verify]
 | 定长 `Array(T, N)` 值 —— `a(i)` 读取（`select`）、`a(i) = v` 下标写（经 `store` 的 SSA 重绑定）、`index-in-bounds` AoRTE 义务，以及 `ms_of(a)`（数组元素折叠为幽灵 Multiset —— `permutation` 规格的原料） | ✅ 已支持（V5 任务 6） |
 | Ghost 代码（`ghost`/`ghost_fn` 擦除） | ✅ 已支持（V5 任务 3） |
 | Trait 方法契约 —— 无契约 impl 方法的**继承** + **可变性**义务（`trait.requires ⇒ impl.requires` 逆变、`impl.ensures ⇒ trait.ensures` 协变，合成为 `impl-variance@…` 任务） | ✅ 已支持（V6 任务 1） |
-| 跨抽象边界的泛型、`Refine` | V6 |
+| 带契约的**泛型**函数在调用点 —— 每个单态化调用点结算 `requires` 并假设 `ensures`（泛型函数体本身仍不遍历） | ✅ 已支持（V6 任务 2） |
+| 泛型函数体的抽象验证（未解释类型排序、trait 约束公理）、`Refine` | V6 |
 | `object`/堆、字符串内容、浮点、效应、`unsafe`、FFI | 子集之外 |
 
 整数按**与生成的 C11 完全一致的确宽位向量**建模（`-fwrapv` 二补码
