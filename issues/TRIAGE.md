@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 210 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 208 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 32 | 11 |
 | Codegen / emitted C | 23 | 4 |
 | Evaluator / types | 39 | 8 |
-| Std library | 63 | 16 |
+| Std library | 61 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 2 | 1 |
-| **Total** | **210** | **44** |
+| **Total** | **208** | **44** |
 
 ## Cross-cutting buckets
 
@@ -55,10 +55,8 @@ Adjudicated by code reading rather than by running a reproducer — the
 defect the doc describes is still present, so these are safe to pick up.
 
 - [`stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md`](./stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md) — the variant is declared at std/string/string.yo:68 with no producer in the module
-- [`stddoc-str-string-builder-clear-drops-capacity.md`](./stddoc-str-string-builder-clear-drops-capacity.md) — `clear` still does `self._buf = ArrayList(u8).new()`, discarding the buffer; ArrayList.clear retains capacity and is the one-line fix
 - [`float-to-string-is-platform-dependent-for-non-finite-values.md`](./float-to-string-is-platform-dependent-for-non-finite-values.md) — std/fmt/to_string.yo still routes non-finite through %g and says so in its own module doc
 - [`make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md`](./make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md) — std/sys/tcp.yo:188 still documents the failure as unreported
-- [`bench-with-zero-iterations-returns-min-ns-greater-than-max-ns.md`](./bench-with-zero-iterations-returns-min-ns-greater-than-max-ns.md) — min_ns still seeded to i64::MAX with no zero-iteration guard; bench_auto can never pass 0, so a guard is safe
 - [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) — still fails: derive body renders a field named `unit` as the builtin type
 
 ### Retirement candidates — subject no longer exists
@@ -234,11 +232,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (63)
+### Std library (61)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`bench-with-zero-iterations-returns-min-ns-greater-than-max-ns.md`](./bench-with-zero-iterations-returns-min-ns-greater-than-max-ns.md) | OPEN | — |
 | [`cli-option-declared-with-an-empty-default-never-materializes.md`](./cli-option-declared-with-an-empty-default-never-materializes.md) | OPEN | — |
 | [`cli-parse-returns-err-for-help-so-the-documented-example-aborts.md`](./cli-parse-returns-err-for-help-so-the-documented-example-aborts.md) | OPEN | — |
 | [`cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md`](./cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md) | OPEN | — |
@@ -286,7 +283,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`stddoc-io-windows-temp-naming-is-not-atomic.md`](./stddoc-io-windows-temp-naming-is-not-atomic.md) | OPEN — filed, not fixed (documentation-only P | — |
 | [`stddoc-str-regex-g-and-u-flags-are-silently-ignored.md`](./stddoc-str-regex-g-and-u-flags-are-silently-ignored.md) | open (found by the `std/` `///` doc sweep, 20 | yes |
 | [`stddoc-str-regex-split-emits-the-literal-string-undefined.md`](./stddoc-str-regex-split-emits-the-literal-string-undefined.md) | open (found by the `std/` `///` doc sweep, 20 | yes |
-| [`stddoc-str-string-builder-clear-drops-capacity.md`](./stddoc-str-string-builder-clear-drops-capacity.md) | open (found by the `std/` `///` doc sweep, 20 | — |
 | [`stddoc-str-string-builder-write-f64-truncates.md`](./stddoc-str-string-builder-write-f64-truncates.md) | open (found by the `std/` `///` doc sweep, 20 | yes |
 | [`stddoc-sys-signal-handler-data-always-null.md`](./stddoc-sys-signal-handler-data-always-null.md) | open | — |
 | [`stddoc-sys-windows-copyfile-ignores-flags.md`](./stddoc-sys-windows-copyfile-ignores-flags.md) | open | yes |

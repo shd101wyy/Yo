@@ -4,7 +4,8 @@
 `std/testing/bench` row. **Class**: wrong value on a public std API — the
 returned `BenchResult` violates the `min_ns <= max_ns` invariant that the
 module's own coverage test asserts, and `to_string()` prints the raw sentinel
-to the user. **Status**: OPEN.
+to the user. **Status: FIXED 2026-09-14** — option 1, reject it. See "Fix"
+below.
 
 ## Reproducer
 
@@ -120,3 +121,51 @@ block at `:150-161`:
 
 Either way the test must be verified RED against today's `bench` before the
 fix lands.
+
+---
+
+## Fix (2026-09-14) — option 1, reject it
+
+```rust
+if(iterations == u64(0), {
+  __yo_panic("bench: iterations must be >= 1");
+});
+```
+
+as the first statement of `bench`. A zero-iteration benchmark has no answer,
+and inventing one is what produced the bad value; rejecting keeps every field
+of `BenchResult` a real measurement and changes no signature. It matches how
+std already reports a caller contract violation
+(`ArrayList.with_capacity: capacity overflow`).
+
+**Checked before choosing to panic, since a panic in a library is only
+acceptable if no internal caller can trigger it:** `bench_auto` cannot reach
+here with `0` — its pilot starts at `u64(64)` and its scaling clamps
+`scaled < i64(1)` to `u64(1)`. The only way to a zero is a caller writing
+`u64(0)` literally, which is the contract violation being reported.
+
+Option 2 (return an all-zero result) is recorded above and was not taken: it
+keeps the invariant but reports `avg=min=max=0` for a run that measured
+nothing, which is a plausible-looking number rather than an error — the same
+class of defect as the sentinel it replaces.
+
+## Regression test (added)
+
+`tests/cli-cases/bench-zero-iterations-panics/`, not a `.test.yo`, because the
+observable is a **process-level abort**: the test runner inlines every body
+into one batch, so a panic would take the whole batch down rather than being
+caught. The cli-case shape is what the tree already uses for this
+(`crypto-random-empty-range-panics`, `atomic-illegal-load-order-panics`).
+
+The fixture runs a REAL four-iteration benchmark first and prints
+`iters=4 min<=max=true`, so the case cannot pass by failing early — then calls
+`bench(…, u64(0), …)`. Golden: `rc=1`, stdout `bench: iterations must be >= 1`.
+`stdout_keep_match` keeps only the diagnostic substring, because the panic
+message ends in a machine-specific `(at file:///…/std/testing/bench.yo:L:C)`
+that must not enter a golden.
+
+Verified red-first: with the guard removed the case scores `PASS 0` /
+`NO-GOLDEN 1` — the harness refusing a vacuous keep-match, which is itself the
+protection against recording a golden that asserts nothing.
+
+Clean under the published v0.2.32 seed.

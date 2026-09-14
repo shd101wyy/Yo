@@ -159,6 +159,45 @@ test("numeric to_string through the shared snprintf helper", {
   assert(f64(0.5).to_string() == `0.5`, "f64 %g drops trailing zeros");
   assert(f32(2.5).to_string() == `2.5`, "f32 widened");
 });
+test("StringBuilder.clear keeps the capacity and drops the length", {
+  // Rust's `String::clear` contract, and what this method's own doc comment
+  // promised while the body did the opposite: it reassigned a fresh
+  // ArrayList, throwing the buffer away, so a builder cleared in a loop
+  // re-grew from zero every pass
+  // (issues/fixed/stddoc-str-string-builder-clear-drops-capacity.md).
+  //
+  // `capacity()` exists so this is observable at all -- `with_capacity` could
+  // be set but never read, which made the contract untestable. A fix nothing
+  // can observe is the failure mode this corpus is full of.
+  b := StringBuilder.with_capacity(usize(64));
+  before := b.capacity();
+  assert(before >= usize(64), "with_capacity reserves at least what was asked");
+  b.write_str("hello world");
+  assert(b.len() == usize(11), "eleven bytes written");
+  b.clear();
+  assert(b.len() == usize(0), "clear empties the builder");
+  assert(b.is_empty(), "and is_empty agrees");
+  assert(b.capacity() == before, "clear KEEPS the capacity");
+  // Still usable, and correct, after the clear.
+  b.write_str("again");
+  assert(b.to_string() == `again`, "the builder still works after clear");
+});
+test("StringBuilder.clear on a grown builder keeps the grown capacity", {
+  // The case that actually motivates the contract: capacity acquired by
+  // GROWING (not by with_capacity) must survive too, or a reuse loop still
+  // reallocates.
+  b := StringBuilder.new();
+  i := usize(0);
+  while(runtime(i < usize(200)), {
+    b.write_str("x");
+    i = (i + usize(1));
+  });
+  grown := b.capacity();
+  assert(grown >= usize(200), "the builder grew to hold 200 bytes");
+  b.clear();
+  assert(b.capacity() == grown, "a grown buffer survives clear");
+  assert(b.len() == usize(0), "length still resets");
+});
 test("StringBuilder.to_string detaches the buffer: later writes never mutate a returned String", {
   // issues/fixed/fmt-writer-to-string-aliases-the-live-buffer.md — the
   // returned String used to SHARE the buffer's ArrayList, so a write after
