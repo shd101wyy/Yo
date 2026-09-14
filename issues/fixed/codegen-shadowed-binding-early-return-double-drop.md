@@ -2,7 +2,7 @@
 
 **Status: FIXED** (2026-06-11). Root causes of the yo-self "macro-dispatch
 corruption" / ExprInfo-table use-after-free
-(`issues/yo-self-macro-dispatch-corruption.md`). Two independent
+(`issues/fixed/yo-self-macro-dispatch-corruption.md`). Two independent
 early-return over-release bugs, found via the same lldb + libgmalloc +
 `malloc_history` workflow:
 
@@ -172,7 +172,7 @@ container.
 - `inner := { cond(flag => { return(...) }, ...); i32(20) }` — a block-RHS
   initialization drops its non-tail statements in codegen (pre-existing;
   reproduced on the committed compiler). Filed as
-  `issues/codegen-block-rhs-drops-nontail-statements.md`.
+  `issues/fixed/codegen-block-rhs-drops-nontail-statements.md`.
 - `--sanitize address --allocator libc` produced a binary with **no ASan
   symbols** on this machine (silently uninstrumented) — worth a look at the
   sanitizer flag plumbing.

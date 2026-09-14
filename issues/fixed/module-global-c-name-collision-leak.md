@@ -107,7 +107,7 @@ instance.
 ## Still open: the compiler should not allow this
 
 The underlying codegen behaviour is unchanged and remains a soundness hole — see
-`issues/module-global-c-names-are-not-namespaced.md`. Nothing prevents the next duplicate
+`issues/fixed/module-global-c-names-are-not-namespaced.md`. Nothing prevents the next duplicate
 name from silently aliasing again, in user code as much as in `yo-self/`.
 
 ## Note on a tempting wrong diagnosis

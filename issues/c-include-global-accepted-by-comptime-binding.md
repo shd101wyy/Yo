@@ -1,7 +1,7 @@
 # `::` accepts a `c_include`d extern global and emits an undeclared C name
 
 **Status:** PARTIALLY FIXED 2026-09-08 — the `::` half is fixed, the ASSOCIATED-CONST half is not
-**Found:** 2026-09-08, alongside `issues/c-include-global-does-not-emit-its-header.md`.
+**Found:** 2026-09-08, alongside `issues/fixed/c-include-global-does-not-emit-its-header.md`.
 
 ## Symptom
 
@@ -69,7 +69,7 @@ diagnostic for `::` and for associated consts, and leaves `v := HUGE_VAL`
 working as a runtime read.
 
 Note this fix ALONE leaves `v := HUGE_VAL` emitting an undeclared name until
-`issues/c-include-global-does-not-emit-its-header.md` is fixed too; the two
+`issues/fixed/c-include-global-does-not-emit-its-header.md` is fixed too; the two
 are independent halves of using a c_include constant at all.
 
 ## What the fix covers, and what it does not

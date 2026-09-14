@@ -30,7 +30,7 @@
 // enums are unaffected (they register their own key and get it back), so this is
 // minimal — only genuine duplicates collapse, and only to a C-layout-identical
 // peer. Reference-semantics enums are excluded (they key by id for recursion
-// termination). See issues/yo-self-iterator-option-identity.md.
+// termination). See issues/fixed/yo-self-iterator-option-identity.md.
 // sig → canonical_key, FIRST registration wins (HashMap — same O(n²)-scan
 // fix as g_struct_cfid_keys above).
 (g_enum_sig_keys : HashMap(String, String)) = HashMap(String, String).new();
@@ -164,7 +164,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       // the ref layout was then emitted for the value layout (`if(struct){…}` — a
       // clang scalar-type error, main.yo-only). Prefix ref-semantics struct keys so
       // they never collide with value structs; ref structs still dedup among
-      // themselves (constant marker). See issues/yo-self-gc-traverse-value-struct-field.md.
+      // themselves (constant marker). See issues/fixed/yo-self-gc-traverse-value-struct-field.md.
       ref_pfx := if(s_is_ref, String.from("R#"), String.from(""));
       // Cycle guard (see g_tk_visited): a struct id already on the expansion
       // path renders via its recorded cfid-key / id — no re-recursion into

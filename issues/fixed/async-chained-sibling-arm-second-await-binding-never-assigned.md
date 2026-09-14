@@ -41,7 +41,7 @@ logic). The second arm to chain is appended as a chained LAYER
 `_emit_outer_chained_branch_layers` and the same-field layer block in
 `_emit_cond_branch_continuation` — ran the layer's remaining code WITHOUT that
 assignment. The dispatch-mode path had been fixed earlier
-(issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md); the uniform
+(issues/async-cond-dispatch-skips-chained-sibling-arm.md); the uniform
 path had not.
 
 ## Fix

@@ -93,7 +93,7 @@ Two things to know when reading `yo doc`'s output for coverage:
   `FsEventKind.format` and `Watcher.dispose` all render blank even though
   `ToString`, `Format` and `Dispose` document those methods at the trait.
   Rustdoc falls back to the trait's text here; `yo doc` does not
-  (`issues/yo-doc-trait-impl-methods-never-inherit-the-trait-doc.md`).
+  (`issues/fixed/yo-doc-trait-impl-methods-never-inherit-the-trait-doc.md`).
 - **A doc comment does not follow a re-export.** A barrel module
   (`std/string/index.yo`, `std/http/index.yo`, `std/fmt/index.yo`, …) lists
   every re-exported name as an item of its own with no doc, because the comment

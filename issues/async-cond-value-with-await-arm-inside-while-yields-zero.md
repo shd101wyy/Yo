@@ -70,7 +70,7 @@ fallback (`ft := cond(dt == DT_REG => …, dt == DT_UNKNOWN => await stat, …)`
 and got `.File` — enum tag 0 — for every entry, including directories. It
 ships as shape D instead, with a comment pointing here.
 
-This is the same family as C36 (`issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md`)
+This is the same family as C36 (`issues/async-cond-dispatch-skips-chained-sibling-arm.md`)
 and C38 (`issues/fixed/while-await-inside-match-arm-missing-loop-field.md`) —
 differently-shaped cond arms under an async state machine — but neither covers
 it: C36 was two awaits in sibling arms, C38 emitted a clang error. Here there

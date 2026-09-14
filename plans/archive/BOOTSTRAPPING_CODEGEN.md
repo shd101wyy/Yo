@@ -46,7 +46,7 @@ string-literal floor)`, exits non-zero iff real > 0), never a bare grep.
 > Caveat: the genuine count was only ever cleanly measurable from a COMPLETING
 > self-compile; the TS self-compile (which completes in 81 s) is the reference and
 > shows 0 real, confirming the binary (faithful port) would too once P2 lets it
-> finish. See `issues/yo-self-p1-transpile-tail.md`.
+> finish. See `issues/fixed/yo-self-p1-transpile-tail.md`.
 
 ---
 

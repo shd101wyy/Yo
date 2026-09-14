@@ -500,7 +500,7 @@ Gates:
 > falls back to today's file-level behavior, which is why the fast path's
 > twin gate — a body edit in `src/token.yo` — still measures 375 s. Also
 > surfaced and filed on the way:
-> `issues/enum-pattern-bool-payload-not-compared.md` (a boolean-literal
+> `issues/fixed/enum-pattern-bool-payload-not-compared.md` (a boolean-literal
 > payload in an enum pattern is bound, not compared — `.Some(false)`
 > matches `.Some(true)`).
 

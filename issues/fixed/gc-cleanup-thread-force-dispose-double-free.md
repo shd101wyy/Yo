@@ -3,7 +3,7 @@
 ## Status: FIXED (2026-07-17) — TS `src/codegen/functions/generation.ts` + yo-self mirror `yo-self/codegen/functions/gc_runtime.yo`
 
 This was "Bug 3" of the yo-self test-runner era
-(`issues/yo-self-test-runner-remaining-bugs.md`): any yo-self binary calling
+(`issues/fixed/yo-self-test-runner-remaining-bugs.md`): any yo-self binary calling
 `exit(1)` after real work (a failing `test` suite, a failing `check`) died
 with SIGABRT (rc=134) in the atexit teardown instead of exiting 1 —
 `__yo_process_cleanup → __yo_cleanup_thread_gc → malloc "POINTER BEING FREED

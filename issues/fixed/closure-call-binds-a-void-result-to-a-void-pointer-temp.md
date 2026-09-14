@@ -150,7 +150,7 @@ Measured on the reproducer, `yo compile … --optimize 2`:
 And on the full D18b repro (`issues/repros/d18b-thread-zst-channel.yo`), which
 carries a second independent defect: two C errors → one. The unit argument now
 renders as the dead byte `0` the callee's signature expects. What is left is
-`issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
+`issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md`.
 
 The regression test asserts more than "it compiles": the callback must still
 have RUN exactly once with the forwarded argument, because the fix turns a

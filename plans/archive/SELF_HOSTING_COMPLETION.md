@@ -140,7 +140,7 @@ outputs/exit codes/effects against the TS CLI (`scripts/bootstrap/` style).
 > of defect every prior CI arm was blind to — bugs in what the SELF-HOSTED
 > codegen emits. Two were found and fixed this way
 > (`issues/fixed/seed-built-stage1-miscompiles-current-source.md`,
-> `issues/self-built-compiler-uaf-in-report-and-build-paths.md`), neither
+> `issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md`), neither
 > visible to a TS-built stage-1.
 
 The self-hosting trust chain has to move off TypeScript before `src/` can go.

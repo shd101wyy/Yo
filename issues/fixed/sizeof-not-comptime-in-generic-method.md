@@ -61,7 +61,7 @@ Re-attempting this needs a proper comptime-context model, not the `is_ct` tweak.
 
 _(historical) Open — **this is the REAL `std/encoding/html.yo` blocker** (the previous
 "generic-instantiation re-call" theory was a phantom; see
-`issues/generic-instantiation-object-arg-recall-unknown.md`). Minimal repro
+`issues/fixed/generic-instantiation-object-arg-recall-unknown.md`). Minimal repro
 isolated; root cause narrowed but not yet pinned to a line._
 
 ## Symptom

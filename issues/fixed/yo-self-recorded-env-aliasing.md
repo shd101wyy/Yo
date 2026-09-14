@@ -65,7 +65,7 @@ retroactively mutate the env captured by already-evaluated sub-expressions).
 ## Impact / status
 
 - Blocks `slice_flowability` positive `comptime_str` (one of several positive-case
-  gaps in that test — see issues/yo-self-flowability-swallow.md §2c).
+  gaps in that test — see issues/fixed/yo-self-flowability-swallow.md §2c).
 - Latent for any future consumer that reads a recorded `info.env` for a begin-local
   binding after the block closed.
 - NOT yet fixed: the fix is a central env-model change; deferred to a focused effort

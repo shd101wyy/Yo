@@ -42,4 +42,4 @@ SomeType-returning ones) are generated.
 
 ## Related
 
-- `issues/throw-handler-lambda-scope-restriction.md` — why `SomeType` appears here
+- `issues/fixed/throw-handler-lambda-scope-restriction.md` — why `SomeType` appears here

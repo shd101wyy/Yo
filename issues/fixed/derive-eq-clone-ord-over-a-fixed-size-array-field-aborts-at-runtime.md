@@ -138,7 +138,7 @@ that miscompiled or aborted into one that works.
 
 The issue's half (b) — making a swallowed derive-rule failure FATAL at the
 derive site — is NOT part of this fix. It is the containment measure shared
-with `issues/derive-ord-without-a-prior-derive-eq-kills-module-evaluation.md`
-and `issues/bare-derive-form-kills-module-eval.md`, and it is what would have
+with `issues/fixed/derive-ord-without-a-prior-derive-eq-kills-module-evaluation.md`
+and `issues/fixed/bare-derive-form-kills-module-eval.md`, and it is what would have
 turned this class of bug into a compile error rather than a runtime `abort()`
 for a field type OTHER than `Array`.

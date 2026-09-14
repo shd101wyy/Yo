@@ -120,4 +120,4 @@ both compile and run correctly.
 
 - `src/evaluator/types/field.ts` — added the field-type validation.
 - `tests/impl_fn_field_rejection.test.yo` — regression coverage.
-- `issues/impl-fn-in-struct-field.md` — this document.
+- `issues/fixed/impl-fn-in-struct-field.md` — this document.

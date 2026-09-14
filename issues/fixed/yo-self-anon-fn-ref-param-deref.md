@@ -26,7 +26,7 @@ export(main);
 ```
 
 This is the second layer of the `derive(Clone)` failure
-(`issues/yo-self-derive-clone-typename-quote.md` is the first): `Clone` is declared
+(`issues/fixed/yo-self-derive-clone-typename-quote.md` is the first): `Clone` is declared
 `clone : fn(ref(self) : Self) -> Self`, so the derived clone body
 `T(self.a.clone(), …)` reads `self.field` through a `ref(self)` and hit exactly
 this bug once the type-name corruption was fixed.

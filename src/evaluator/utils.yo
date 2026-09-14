@@ -1275,7 +1275,7 @@ merge_and_check_envs :: (
               // names check (:828) and the per-column consume/init merge (:889+).
               // So defer to them rather than throwing here — symmetric with the
               // case>base all-temps branch above. See
-              // issues/yo-self-p1-transpile-tail.md (branch-merge) +
+              // issues/fixed/yo-self-p1-transpile-tail.md (branch-merge) +
               // [[yo-self-branch-merge-trivial-arm]].
               true => ()
             );
@@ -1292,7 +1292,7 @@ merge_and_check_envs :: (
             // match, so an arm that simply doesn't re-bind it "retains the base
             // state" — treat a missing case var as the base var rather than a
             // mismatch. (Mirrored in the per-column merge below.) See
-            // issues/yo-self-p1-transpile-tail.md Candidate 3.
+            // issues/fixed/yo-self-p1-transpile-tail.md Candidate 3.
             case_var_k := match(case_frame.variables.get(kk), .Some(v) => v, .None => base_var);
             if((base_var.name != case_var_k.name) && !is_temp_variable_name(env.module_path, base_var.name) && !is_temp_variable_name(env.module_path, case_var_k.name), {
               exn.throw(
@@ -1329,7 +1329,7 @@ merge_and_check_envs :: (
             // arm that doesn't re-bind an enclosing binding leaves it untouched
             // (init'd before the match). Using base_var (vs make_err_variable)
             // keeps the consume/init merge consistent. See the names-check note
-            // above + issues/yo-self-p1-transpile-tail.md Candidate 3.
+            // above + issues/fixed/yo-self-p1-transpile-tail.md Candidate 3.
             case_var := match(case_frame_k.variables.get(var_j), .Some(v) => v, .None => base_var);
             {
               initialized_at_tokens.push(case_var.initialized_at_token);

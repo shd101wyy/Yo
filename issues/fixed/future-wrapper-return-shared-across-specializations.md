@@ -6,7 +6,7 @@ symptom below) FIXED 2026-08-31 (#371): the io.async closure's bundle-param
 slot renders the CALL's own recorded Future-trait effect
 (`_io_async_call_effect_type` in src/codegen/exprs/async.yo) instead of the
 shared forall E's global last-winner — CI tier-1 + hollow sweep green with
-it (issues/asan-stack-overread-set-effect-batch-selftest.md).**
+it (issues/fixed/asan-stack-overread-set-effect-batch-selftest.md).**
 **Found:** 2026-08-29 restoring
 `Mutex.with_lock` (`std/async/mutex`) after C27: the test called
 `with_lock((v) => (v * i64(2)), io)` and `with_lock((v) => `v=${v}`, io)` on
@@ -49,7 +49,7 @@ stack-buffer-overflow: a bundle temp sized by one specialization's view of a
 future's effect (`Io`, 32 bytes) is copied by a `set_effect` emitted under
 another specialization's view (`IoExn`, 40 bytes) — same shared-registry
 clobber, `E` instead of `R`. Full analysis + the not-viable codegen mitigation
-attempt: issues/asan-stack-overread-set-effect-batch-selftest.md. This makes
+attempt: issues/fixed/asan-stack-overread-set-effect-batch-selftest.md. This makes
 the C54 body half the critical path for the v0.2.21 release (develop CI is
 red until it lands).
 

@@ -173,7 +173,7 @@ The `exists`-based repro now COMPILES where it previously failed at the C
 compiler, and prints the correct `probe=6` — but only intermittently: the same
 binary SIGBUS/SIGTRAPs on most runs. **That is a separate, still-open defect in
 the nested-loop + real-I/O-future path**, filed as
-`issues/nested-await-loop-remaining-holes.md` (Hole 2) along with a second
+`issues/fixed/nested-await-loop-remaining-holes.md` (Hole 2) along with a second
 shape this fix does not cover (Hole 1). Do not use the repro's exit code as a
 pass/fail gate for THIS issue until Hole 2 is closed.
 

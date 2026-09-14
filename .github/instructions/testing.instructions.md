@@ -105,7 +105,7 @@ language**, so the regression test works everywhere:
 
 Do **not** use `comptime_assert` for this — it is inert inside a function body,
 so a `comptime_assert` in a `test(...)` body verifies nothing
-(`issues/comptime-assert-never-fires-inside-a-function-body.md`).
+(`issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`).
 
 For the out-of-language measurement on macOS, `leaks` works even though ASan
 does not — extract the case to a standalone `.yo` with `main` + `export(main);`
@@ -131,7 +131,7 @@ produced is **not** deterministic: whether two writes arrive as one read is the
 platform's coalescing decision. Such a test passes on five CI legs and fails on
 the sixth, which reads as a flake and is not one — 2026-09-06 that shape hid a
 real body-framing over-read in `std/http/wire.yo` for as long as the tests
-existed (`issues/http-body-is-not-truncated-to-content-length.md`).
+existed (`issues/fixed/http-body-is-not-truncated-to-content-length.md`).
 
 **Write the whole payload — the framed message AND the bytes after it — in ONE
 `write_string`.** The coalesced case is the harder one, so the assertion gets
@@ -750,7 +750,7 @@ and adding redzones around every variable.
 - Unsafe: fib(5) needs ~22 frames × 566KB > 8MB → **STACK OVERFLOW**
 
 Note: Frame sizes grew significantly after Phase 3a (ExprId added to AstExpr) and Phase 2az
-(TraitT extended with new fields). See `issues/asan-eval-frame-size-after-expr-id.md`.
+(TraitT extended with new fields). See `issues/fixed/asan-eval-frame-size-after-expr-id.md`.
 
 **Windows x86_64 (measured against a 16MB reserve, `-Wl,/STACK:16777216`):**
 

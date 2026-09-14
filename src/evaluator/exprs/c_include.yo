@@ -234,7 +234,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     // GLOBAL (`HUGE_VAL`, `M_PI`, `stdout`) emits its real C name at the use
     // site, which only exists if the header is `#include`d — and codegen has no
     // other way to learn which header that is
-    // (issues/c-include-global-does-not-emit-its-header.md). Harmless for the
+    // (issues/fixed/c-include-global-does-not-emit-its-header.md). Harmless for the
     // `Type` fields (`time_t : Type`), which are never emitted as a value.
     record_c_include_for_extern(result.label.clone(), c_header_file.clone());
     field_ty_with_extern := match(
@@ -332,7 +332,7 @@ User code should normally call stdlib wrappers (e.g. functions in
         // consider using \":=\" instead of \"::\"" diagnostic; a plain unknown
         // reads as a comptime value there, so the binding was accepted and
         // codegen then emitted a C name that was never declared.
-        // See issues/fixed/c-include-global-accepted-by-comptime-binding.md.
+        // See issues/c-include-global-accepted-by-comptime-binding.md.
         true => create_runtime_unknown_val_with_name(field_ty_with_extern, result.label.clone())
       )
     );

@@ -65,7 +65,7 @@ UnitVal) where the faithful port carries the OLD value/type
 - phase6f test 1 re-enabled then re-skipped (`if(false, ...)`) on a REAL
   yo-self divergence: `__yo_expr_eq(quote(x), quote(x))` is false inside a
   macro body under yo-self's proper Evaluator, true under TS —
-  `issues/yo-self-expr-eq-macro-body-false.md`.
+  `issues/fixed/yo-self-expr-eq-macro-body-false.md`.
 - Deleted: `_leak_test.yo` (memory-safety-era probe harness) + untracked
   debris (compiled binaries, scratch test file).
 

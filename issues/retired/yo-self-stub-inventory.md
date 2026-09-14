@@ -482,7 +482,7 @@ dispatched from one large `match`. Only zero-with-reading is conclusive.
 
 **TS:** src/evaluator/exprs/recur.ts:92-106 sets `recurUnknown.isRuntimeOnly = true` explicitly to stop comptime overload selection. src/evaluator/calls/index-trait.ts:327 also sets it; src/evaluator/exprs/property-access.ts:366-367, 1047-1050, 1178-1181 propagate it; it is consumed at src/evaluator/calls/function.ts:1706, 2441, 2504, src/evaluator/calls/helper.ts:471 and src/evaluator/exprs/assignment.ts:1207.
 
-**Evidence:** recur.yo:189-193 `// TODO (Phase 3): extend UnknownVal with variable_name and is_runtime_only to match TypeScript's createUnknownValue({variableName, ...}) and the recurUnknown.isRuntimeOnly = true flag that prevents comptime overload selection on recur(...) results. See issues/recur-runtime-result-not-marked-runtime-only.md.` Also property_access.yo:13 `isRuntimeOnly propagation on UnknownVal — skipped (no flag in Phase 2).`
+**Evidence:** recur.yo:189-193 `// TODO (Phase 3): extend UnknownVal with variable_name and is_runtime_only to match TypeScript's createUnknownValue({variableName, ...}) and the recurUnknown.isRuntimeOnly = true flag that prevents comptime overload selection on recur(...) results. See issues/fixed/recur-runtime-result-not-marked-runtime-only.md.` Also property_access.yo:13 `isRuntimeOnly propagation on UnknownVal — skipped (no flag in Phase 2).`
 
 **PROMOTED 2026-07-26 — this one is not cosmetic, it silently deletes code.**
 The missing flag is READ at helper.yo:594-616, which treats EVERY `UnknownVal`

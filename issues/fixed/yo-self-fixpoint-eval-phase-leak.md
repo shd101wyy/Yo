@@ -1625,7 +1625,7 @@ collector must repeatedly reclaim).
 
 **Bottom line for item 3 / item 4:** blocked on the #65 leak fix (reduce cyclic garbage so s2's tracked
 set ≈ s1's, then the emit completes in ~78s and the byte-exact diff runs) — and, for the emitter half of
-that fix, blocked-first on the #30 type-identity collision (issues/yo-self-gc-traverse-value-struct-field.md).
+that fix, blocked-first on the #30 type-identity collision (issues/fixed/yo-self-gc-traverse-value-struct-field.md).
 The fixpoint PROPERTY is proven (mini-fixpoint byte-identical on real files); only the full-main.yo SCALE
 is blocked. This is genuine multi-session work on tasks #65 + #30.
 

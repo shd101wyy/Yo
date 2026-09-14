@@ -1,6 +1,16 @@
 # doc builder: generic-function signatures render differently under the two compilers
 
-**Status: FIX IMPLEMENTED 2026-08-14, pending differential re-verification.**
+**Status: FIXED — closed 2026-09-14.** The remaining step this doc named
+("confirm byte parity" against the TypeScript builder) is **moot**: that
+compiler was deleted in P2.5 and `src/doc/builder.ts` no longer exists, so a
+differential re-verification has nothing to differ against. What survives as
+the standing gate is the recorded goldens for the three `tests/cli-cases/doc-*`
+cases, whose `fixture/point.yo` carries the generic `describe` fn (a
+`where`-constrained generic with a `?=` default) this fix was written for;
+`_extract_top_level_fn_signatures` / `_parse_source_fn_signature` /
+`_render_token_span` are live in `src/doc/builder.yo`.
+
+**Was: FIX IMPLEMENTED 2026-08-14, pending differential re-verification.**
 Both builders now render TOP-LEVEL function signatures (and the
 parameters/typeParams/returnType tables) from the declaration source tokens:
 `extractTopLevelFnSignatures` + `parseSourceFnSignature` + `renderTokenSpan`

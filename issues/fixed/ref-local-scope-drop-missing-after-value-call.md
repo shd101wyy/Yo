@@ -77,7 +77,7 @@ dups entirely (verified: a `diags.len()` callee leaks nothing).
 - Compiled by a **stage-1 built from this tree**: same leak — the codegen
   carries it, not just the v0.2.23 seed.
 - The two `tests/internal/parser.test.yo` multibyte failures
-  (issues/parser-multibyte-spec-tests-leak-under-linux-asan.md) are likely
+  (issues/fixed/parser-multibyte-spec-tests-leak-under-linux-asan.md) are likely
   the same mechanism (small leaked groups in a spec-peel path).
 
 ## The fix (third attempt — this one landed)

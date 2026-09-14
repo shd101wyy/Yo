@@ -59,7 +59,7 @@ inner `MyExpr`, so the inner Boxes inside `MyExpr.Add(lhs, rhs)` are
 never decremented and leak.
 
 This is the same family of bug as
-`issues/recursive-derive-clone-codegen-vtable.md`: when generic impls
+`issues/fixed/recursive-derive-clone-codegen-vtable.md`: when generic impls
 (here `___dispose` / `___drop` for `Box(T)`) are specialized for `T =
 RecursiveEnum`, the generic impl body sees a stale/partial view of the
 recursive type because the type isn't fully registered yet.

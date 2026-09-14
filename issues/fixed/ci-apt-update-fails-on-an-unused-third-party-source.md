@@ -89,7 +89,7 @@ define), so a grep for `$APT_OPTS` does not find it. Audit by matching
 `apt-get` + `update` across `.github/**`, not by matching the env var.
 
 The rationale lives with the existing `APT_OPTS` comment block (which already
-documents the dpkg-lock hang, `issues/ci-apt-hangs-on-dpkg-lock.md`), so the
+documents the dpkg-lock hang, `issues/fixed/ci-apt-hangs-on-dpkg-lock.md`), so the
 per-site line is one comment pointing back at it. Not factored into a composite
 action: `APT_OPTS` is already duplicated per workflow the same way, and matching
 that beats introducing a second mechanism for one `rm`.

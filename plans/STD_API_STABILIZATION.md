@@ -100,7 +100,7 @@ result off a capacity-1 `Channel(T)` the handle owns; `Thread(unit)` is the
 value-less thread the old `Thread` was.
 
 Six walls, none of them the spawn lowering that
-`issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
+`issues/fixed/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
 blamed:
 
 - a static-dispatch call read the CALL EXPRESSION's type instead of the callee's
@@ -429,7 +429,7 @@ the work in §4 does not re-open them.
 
   It was blocked on six compiler defects, every one of them found by walking
   the emitted C rather than by theory, and none of them the ZST spawn lowering
-  that `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
+  that `issues/fixed/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
   blamed. §0's item 1 lists them with their issue docs. The two that were
   predicted here read as follows in the end:
 
@@ -489,7 +489,7 @@ Memory safety / UB / deadlock:
    crosses an OS thread. Compiler fix + `comptime_expect_error` negatives —
    **FIXED 2026-09-06**: the stub is the faithful TS port, called from both
    closure-creation routes; raw-pointer captures still slip through until
-   `issues/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`
+   `issues/fixed/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`
    is fixed (`issues/fixed/send-was-not-enforced-at-spawn-boundaries.md`).
 3. **`spawn(pool, …)` self-deadlocks on nested spawn** whenever the runtime
    takes its inline fallback: the pool mutex is held across
@@ -1036,7 +1036,7 @@ DOES work inside a task — spawn the operation, spawn a `sleep`, poll with
 `std/http/client.yo`'s `_fetch_deadline`, and carries two costs that belong in
 a design decision rather than in this PR: aborting a read parked in the I/O
 backend leaks its 8 KiB buffer and its state machine per timed-out connection
-(the mirror of `issues/timeout-deadline-timer-future-leak.md`), and server
+(the mirror of `issues/fixed/timeout-deadline-timer-future-leak.md`), and server
 keep-alive additionally changes what `serve_once` MEANS in ways that invalidate
 existing tests (pipelining becomes correct rather than smuggling, and
 `_read_all`-shaped tests start waiting out the deadline).
@@ -1447,7 +1447,7 @@ it runs in the following step with exactly one `__yo_io_poll()` in between.
 Both wrong shapes are on record and both are pinned by tests: an
 immediately-complete future takes the await point's inline fast path and never
 leaves the C stack (that is the spin that made a poll-until-finished loop
-starve I/O, issues/build-smoke-hangs-registry-perturbation.md), and a timer
+starve I/O, issues/fixed/build-smoke-hangs-registry-perturbation.md), and a timer
 costs a millisecond per turn on the critical path of every combinator.
 
 **`std/async`'s `yield` itself is SEED-GATED and moves next release.** It is on
@@ -1829,7 +1829,7 @@ reach for, not the ones that lack a marker.
 2026-09-11.** `yo doc ./std --format json` on develop reports **1554 of 3345**
 functions and methods with no documentation. The gap is not missing comments: it
 is `yo doc` DROPPING every doc comment of a re-exported type
-(`issues/yo-doc-drops-every-doc-comment-of-a-re-exported-type.md`). Each module
+(`issues/fixed/yo-doc-drops-every-doc-comment-of-a-re-exported-type.md`). Each module
 is documented from its OWN file's tokens, so a type declared in `foo/thing.yo`
 and re-exported by `foo/index.yo` renders bare under the module readers actually
 open — `string/index` 275, `http/index` 93, `imm/string` 62, `process/index` 50.
@@ -2166,7 +2166,7 @@ emitted C, so it could not be randomized even if that were wanted.
 
    **Two bugs fell out.** `FromStr` turns out to be implemented for only 6 of
    the 13 numeric primitives — `usize` has none, so `token.parse(usize)` does
-   not compile (issues/fromstr-missing-on-seven-numeric-primitives.md). And
+   not compile (issues/fixed/fromstr-missing-on-seven-numeric-primitives.md). And
    writing `Eq` the obvious way — a `_kids_eq` helper comparing children with
    `==`, called from the `Eq` body — produces an abort()-ing stub behind a
    green `yo check`: the helper and the impl body are mutually recursive

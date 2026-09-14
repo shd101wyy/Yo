@@ -46,7 +46,7 @@ Correct these before trusting any plan built on it.
 **Queue items the old handover omitted entirely** (they are in the earlier
 session diaries and the audit's own §4): the arity-validation-outside-the-swallow
 gate, the **systematic registry arc**
-(`issues/build-smoke-hangs-registry-perturbation.md`, OPEN), Windows stdin pipe
+(`issues/fixed/build-smoke-hangs-registry-perturbation.md`, OPEN), Windows stdin pipe
 *writes*, `issues/s3-fs-wrappers-windows-semantics-audit.md`,
 `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` P0 (the forward-reference diagnostic), the D8
 `env` module-merge, regex extras, O5 Formatter routing, `Dyn(Reader)` (unblocked
@@ -92,7 +92,7 @@ since C17), and the builtin-shadowing decision.
    linked by CI's own clang line. Before adding any system library:
    `grep -rn 'lws2_32' .github/workflows/ scripts/ src/` and update every hit in
    the same commit. Recorded in
-   `issues/installer-source-build-never-links-liburing.md`.
+   `issues/fixed/installer-source-build-never-links-liburing.md`.
 
 ---
 

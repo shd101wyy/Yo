@@ -6,7 +6,7 @@ cd "$(dirname "$0")/../.." || exit 2
 S1=${S1:?}; P=${P:?}
 # --std-path on BOTH stages: the resolved std path feeds module paths and
 # type keys, so two different spellings between stages byte-diff ~19k lines
-# of __yo_tN churn (issues/fixpoint-gate-std-path-spelling-changes-type-keys.md).
+# of __yo_tN churn (issues/fixed/fixpoint-gate-std-path-spelling-changes-type-keys.md).
 # resolve_std_path canonicalizes since 2026-09-10; the explicit flag keeps
 # the gate self-describing and independent of the resolution route.
 YO_MAIN_STACK_MB=4096 "$S1" compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --std-path ./std -o /tmp/${P}_stage2 &> /tmp/${P}_stage2_emit.log
