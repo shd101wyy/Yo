@@ -1005,7 +1005,7 @@ Two measurement notes, both learned the hard way and both now in the tests:
 the accept counters live in a `ref(struct(...))` passed to the server, because
 a module-level mutable written across a suspension point in an `io.async` body
 operates on a copy and reads back zero
-(`issues/a-module-global-is-lost-across-an-async-suspension.md`) — which looks
+(`issues/fixed/a-module-global-is-lost-across-an-async-suspension.md`) — which looks
 exactly like "the server never ran". And "did `dispose` close every idle
 connection?" is answered by what the PEERS observe, not by the descriptor
 table: a closed connection is one the server at the other end reads EOF from,
@@ -2479,7 +2479,7 @@ emitted C, so it could not be randomized even if that were wanted.
    because `_hex_digit_val` (`src/evaluator/values/string.yo`) returns 0 for a
    non-hex rune instead of failing, and the backtick form leaves the same text
    literal — one spelling, two meanings, neither an error
-   (`issues/unicode-escape-accepts-non-hex-digits.md`, with a reproducer).
+   (`issues/fixed/unicode-escape-accepts-non-hex-digits.md`, with a reproducer).
 
    The module is marked `## Stability unstable` for one release: the error type
    changed from `String` to `TomlError`, the value model gained three

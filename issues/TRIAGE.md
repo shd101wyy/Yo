@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 217 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 214 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -28,15 +28,15 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 0 |
-| Async / effects | 34 | 13 |
+| Async / effects | 32 | 11 |
 | Codegen / emitted C | 24 | 5 |
 | Evaluator / types | 40 | 9 |
-| Std library | 66 | 17 |
+| Std library | 65 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 2 | 1 |
-| **Total** | **217** | **49** |
+| **Total** | **214** | **46** |
 
 ## Cross-cutting buckets
 
@@ -96,14 +96,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (34)
+### Async / effects (32)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) | OPEN — an inner | — |
 | [`a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`](./a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md) | OPEN | — |
 | [`a-closure-typed-slot-never-releases-its-captures.md`](./a-closure-typed-slot-never-releases-its-captures.md) | PARTIALLY FIXED 2026-09-12 | yes |
-| [`a-module-global-is-lost-across-an-async-suspension.md`](./a-module-global-is-lost-across-an-async-suspension.md) | — | yes |
 | [`a-ref-value-passed-to-an-async-future-is-never-released.md`](./a-ref-value-passed-to-an-async-future-is-never-released.md) | — | yes |
 | [`a-while-in-a-match-arm-with-spawns-still-runs-zero-iterations.md`](./a-while-in-a-match-arm-with-spawns-still-runs-zero-iterations.md) | OPEN — a SECOND defect in the same family, NO | yes |
 | [`async-abort-dispose-double-drops-moved-enum-payload.md`](./async-abort-dispose-double-drops-moved-enum-payload.md) | — | — |
@@ -123,7 +122,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md`](./io-async-sync-path-returns-a-c-comment-and-orphans-its-future-typedef.md) | OPEN | — |
 | [`io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`](./io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md) | — | yes |
 | [`io-await-on-a-join-handle-is-reported-as-an-internal-compiler-error.md`](./io-await-on-a-join-handle-is-reported-as-an-internal-compiler-error.md) | — | yes |
-| [`nested-value-match-with-await-drops-the-enclosing-match-arm.md`](./nested-value-match-with-await-drops-the-enclosing-match-arm.md) | OPEN — root cause of `issues/fixed/yo-install | yes |
 | [`pending-io-future-local-drop-uaf.md`](./pending-io-future-local-drop-uaf.md) | OPEN — analysis-verified hazard, not | — |
 | [`spawn-blocking-degrades-to-inline-on-a-threadless-target.md`](./spawn-blocking-degrades-to-inline-on-a-threadless-target.md) | OPEN — the behaviour is deliberate and | — |
 | [`spawn-wrapper-forwarded-io-crosses-specializations.md`](./spawn-wrapper-forwarded-io-crosses-specializations.md) | OPEN — blocks a std-side wrapper around a use | yes |
@@ -209,7 +207,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (66)
+### Std library (65)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -273,7 +271,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`thread-safety-phase-p-never-landed-but-plan-says-complete.md`](./thread-safety-phase-p-never-landed-but-plan-says-complete.md) | Complete | yes |
 | [`tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md`](./tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md) | PARTIALLY FIXED 2026-09-05 — items 1 (`TlsErr | — |
 | [`udpsocket-send-is-unreachable-without-a-connect-method.md`](./udpsocket-send-is-unreachable-without-a-connect-method.md) | — | — |
-| [`unicode-escape-accepts-non-hex-digits.md`](./unicode-escape-accepts-non-hex-digits.md) | OPEN — silent wrong values from a shipped esc | yes |
 | [`url-origin-drops-userinfo-so-redirect-resolution-loses-credentials.md`](./url-origin-drops-userinfo-so-redirect-resolution-loses-credentials.md) | — | — |
 | [`url-parse-accepts-any-byte-in-the-scheme.md`](./url-parse-accepts-any-byte-in-the-scheme.md) | — | — |
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | OPEN — found during STD_API_AUDIT D8 (the `En | — |
