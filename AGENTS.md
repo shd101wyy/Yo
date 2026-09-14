@@ -346,15 +346,37 @@ different question about the same object.
   or abandoned), and older `develop` runs superseded by a newer tip that runs the
   battery.
 
-  **The trap, walked into within minutes of writing this rule:** a docs-only tip
-  takes the fast path and SKIPS 15 of 18 jobs, then reports `success`. If you
-  cancel the older `develop` run because a newer tip queued, and that newer tip
-  is docs-only, you have destroyed the only real verification of the code and
-  replaced it with a green tick that compiled nothing. Check before cancelling —
-  `gh run view <newer-id> --json jobs --jq '[.jobs[]|select(.conclusion=="skipped")]|length'`
-  returning 15 means it is the fast path, so KEEP the older run. If it is already
-  cancelled, `gh run rerun <older-id>` gets it back: a docs-only tip is
-  code-identical to its parent, so the parent's battery is the valid verdict.
+  **CLOSED for `develop` by #683 (2026-09-14) — the history is kept because the
+  shape recurs elsewhere.** The trap, walked into within minutes of writing this
+  rule, was: a docs-only tip takes the fast path, SKIPS 15 of 18 jobs and reports
+  `success`; cancel the older `develop` run because that newer tip queued and you
+  have destroyed the only real verification of the code, replacing it with a green
+  tick that compiled nothing. **`test.yml`'s fast path is now PR-ONLY** — a push to
+  `develop` classifies nothing and always runs the full battery — so a newer
+  `develop` tip can no longer be a run that compiled nothing, and cancelling a
+  superseded `develop` run needs no such check.
+
+  It still applies verbatim **to PR runs**, where the fast path remains and earns
+  its keep. A docs-only tip is code-identical to its parent, so the parent's
+  battery is the valid verdict, and `gh run rerun <older-id>` gets it back if it
+  was already cancelled.
+
+  **A skip count alone does not tell you which reducer fired — there are TWO,
+  and they mean opposite things.** `test.yml` narrows a battery by two
+  independent outputs of the `changes` job:
+
+  | output | fires when | meaning |
+  | --- | --- | --- |
+  | `code=false` | the diff is only `*.md` / `docs/*` | the docs-only FAST PATH — the trap; a run that compiled nothing |
+  | `full=false` | a PR whose base is **not `develop`** (a STACKED PR) | deliberate and fine — keeps the ASan leg + tier-1 gates, and the retarget-to-develop fires a full run before it can merge |
+
+  So "15 skipped" is not a diagnosis. Measured 2026-09-14: ONE commit, opened
+  twice — stacked on its parent branch it skipped 15 jobs, and reopened against
+  `develop` with identical content it ran the full battery. Nothing about the
+  diff changed; only the base did. Read the `changes` job's log, which states
+  both verdicts outright (`classification: code=…` and `battery: FULL|REDUCED`),
+  rather than inferring from a count — and note the numbers differ between the
+  two reducers anyway, so matching `15` is wrong even for the case it came from.
 
   When in doubt about someone else's branch, leave it — the cost of one extra
   run is small next to cancelling work a teammate is waiting on. Cancellation is
@@ -398,6 +420,26 @@ different question about the same object.
   immediately. Measured 2026-09-13: a battery at 18 green / 0 failed looked like
   a perfect gate right until the diff showed #614's ~490 insertions across
   `src/evaluator/context.yo` and `src/module_manager.yo` had landed after it.
+
+  **Why a release tip cannot be a fast-path run any more — and what it cost to
+  learn.** The docs-only trap above is written about a docs-only push destroying
+  someone ELSE's in-flight battery, which you notice because the tip changed under
+  you. It also arrives from a direction that rule does not describe: the
+  docs-shaped commit being the battery you are *gating the tag on*. There is
+  nothing to notice — the run is green, it is on the right SHA, and it ran 18 jobs
+  instead of 28. Care about *when* to merge docs cannot prevent it, because the
+  docs commit is not competing with the gate; it IS the gate.
+
+  `classify` diffs `github.event.before...github.sha` for a push, so the LAST
+  MERGE ALONE decided the scope, never the release's contents. Measured
+  2026-09-14: v0.2.33's tip was a relicensing, almost entirely `*.md`, and it
+  classified `code=true` only because it also touched `yo.toml` and
+  `vscode-extension/package.json`, which do not match `*.md|docs/*`. **Two
+  non-markdown files were the margin between a 28-job gate and a green tick that
+  compiled nothing.** #683 closed it by making a push to `develop` skip
+  classification entirely; the fast path is now PR-only. The cost is small
+  precisely because docs-only pushes to `develop` are rare — a docs-only PR cannot
+  merge here without `--admin`, and the practice is to fold docs into a code PR.
 
 ### Everything else
 
