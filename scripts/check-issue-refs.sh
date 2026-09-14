@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Report references to issues/**.md that do not resolve.
+# Two assertions over issues/:
+#   1. no doc exists in more than one of root/, fixed/, retired/
+#   2. every cited issues/** path resolves
+#
+# CHECK 2 -- references to issues/**.md that do not resolve.
 #
 # REPORTS, never repairs. A non-resolving reference has three causes and only
 # one of them is a defect:
@@ -24,6 +28,39 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 fail=0
+
+# ---------------------------------------------------------------------------
+# CHECK 1: no doc exists in more than one of root/, fixed/, retired/.
+#
+# A resolves/doesn't-resolve check is BLIND to this: both paths resolve, and
+# the tree simply lies about the open count. Found 2026-09-14 with three docs
+# present in BOTH issues/ and issues/fixed/ -- the fixing commits had COPIED
+# rather than MOVED, so three already-fixed bugs were counted as open for
+# weeks, each root copy a strictly older snapshot still saying OPEN.
+#
+# It also defeats the obvious triage signal: "cited as issues/fixed/ but
+# sitting in root" reads as a stale CITATION, and for these the citation was
+# right -- there were two files.
+# ---------------------------------------------------------------------------
+for f in issues/*.md; do
+  b=$(basename "$f")
+  [ "$b" = "README.md" ] || [ "$b" = "TRIAGE.md" ] && continue
+  for d in fixed retired; do
+    if [ -f "issues/$d/$b" ]; then
+      printf 'DUPLICATE: %s exists in BOTH issues/ and issues/%s/\n' "$b" "$d"
+      printf '    the open count is wrong until one copy is removed; compare them before deleting\n'
+      fail=1
+    fi
+  done
+done
+for f in issues/fixed/*.md; do
+  b=$(basename "$f")
+  if [ -f "issues/retired/$b" ]; then
+    printf 'DUPLICATE: %s exists in BOTH issues/fixed/ and issues/retired/\n' "$b"
+    fail=1
+  fi
+done
+
 while IFS= read -r hit; do
   file=${hit%%:*}; rest=${hit#*:}; line=${rest%%:*}; text=${rest#*:}
   # case 3 heuristic: a quoted shell command naming the path
@@ -35,5 +72,5 @@ while IFS= read -r hit; do
   done
 done < <(grep -rnE "issues/(fixed/|retired/|repros/|patches/)?[A-Za-z0-9._-]+\.(md|yo|patch)" \
            --exclude-dir=.git --exclude-dir=yo-out --exclude-dir=node_modules . 2>/dev/null)
-if [ $fail -eq 0 ]; then echo "issue references: all resolve"; fi
+if [ $fail -eq 0 ]; then echo "issues/: no duplicated docs, and all cited paths resolve"; fi
 exit $fail
