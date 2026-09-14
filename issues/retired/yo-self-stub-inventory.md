@@ -2539,7 +2539,7 @@ which is itself an extra yo-self-only rejection with no TS counterpart.
 
 **TS:** src/env.ts:1010-1040 `getVariableInfo(variable)` builds the object literal including `type: typeToString(variable.type)` and the value rendering.
 
-**Evidence:** env.yo:1204-1210: "NOTE: This slim form omits the type/value rendering present in the TS variant. Calling `type_to_string(v.ty)` and `value_to_string(...)` from inside the template-string interpolations below triggers a 10x compile-time regression in the TS reference evaluator (issues/ts-evaluator-slow-compile-of-nested-tostring-calls.md)."
+**Evidence:** env.yo:1204-1210: "NOTE: This slim form omits the type/value rendering present in the TS variant. Calling `type_to_string(v.ty)` and `value_to_string(...)` from inside the template-string interpolations below triggers a 10x compile-time regression in the TS reference evaluator (issues/retired/ts-evaluator-slow-compile-of-nested-tostring-calls.md)."
 
 ### `yo-self/formatter.yo:9` — intentional-divergence _(root)_
 

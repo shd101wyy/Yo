@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 220 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 218 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -29,14 +29,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 14 | 0 |
 | Async / effects | 34 | 13 |
-| Codegen / emitted C | 25 | 5 |
+| Codegen / emitted C | 24 | 5 |
 | Evaluator / types | 40 | 9 |
 | Std library | 66 | 17 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
-| Self-hosting legacy | 20 | 2 |
+| Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 2 | 1 |
-| **Total** | **220** | **49** |
+| **Total** | **218** | **49** |
 
 ## Cross-cutting buckets
 
@@ -55,8 +55,6 @@ Ready to work on — the defect was observed, not inferred.
 The TypeScript compiler was deleted in P2.5. A doc whose SUBJECT is that
 compiler, or whose content is a TS-vs-self divergence, cannot be acted on.
 
-- [`ts-evaluator-slow-compile-of-nested-tostring-calls.md`](./ts-evaluator-slow-compile-of-nested-tostring-calls.md) — subject is the DELETED TypeScript evaluator
-- [`emitted-c-include-order-differs-ts-vs-self.md`](./emitted-c-include-order-differs-ts-vs-self.md) — a TS-vs-self byte-parity divergence; there is only one compiler now
 
 ### Reference integrity
 
@@ -138,7 +136,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | OPEN — a PERFORMANCE observation, not a corre | — |
 | [`yield-resumption-order-diverges-on-macos-ci.md`](./yield-resumption-order-diverges-on-macos-ci.md) | — | — |
 
-### Codegen / emitted C (25)
+### Codegen / emitted C (24)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -156,7 +154,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`](./drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md) | OPEN for the two remaining sites | — |
 | [`emitted-c-flipped-once-under-extreme-load-unexplained.md`](./emitted-c-flipped-once-under-extreme-load-unexplained.md) | — | — |
 | [`emitted-c-hardcodes-linux-at-fdcwd.md`](./emitted-c-hardcodes-linux-at-fdcwd.md) | — | — |
-| [`emitted-c-include-order-differs-ts-vs-self.md`](./emitted-c-include-order-differs-ts-vs-self.md) | — | — |
 | [`ftt-abort-stub-error-attribute-does-not-fire-above-optimize-0.md`](./ftt-abort-stub-error-attribute-does-not-fire-above-optimize-0.md) | — | — |
 | [`ftt-stub-in-live-closure-falls-off-non-void-function.md`](./ftt-stub-in-live-closure-falls-off-non-void-function.md) | — | yes |
 | [`match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md`](./match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md) | — | — |
@@ -305,7 +302,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | open | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | — | — |
 
-### Self-hosting legacy (20)
+### Self-hosting legacy (19)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -313,7 +310,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`debug-probe-line-costs-gigabytes-at-compile-time.md`](./debug-probe-line-costs-gigabytes-at-compile-time.md) | — | — |
 | [`desugar-token-clones-evaluator-regression.md`](./desugar-token-clones-evaluator-regression.md) | — | — |
 | [`self-hosted-emit-leaks-remaining-classes.md`](./self-hosted-emit-leaks-remaining-classes.md) | — | — |
-| [`ts-evaluator-slow-compile-of-nested-tostring-calls.md`](./ts-evaluator-slow-compile-of-nested-tostring-calls.md) | — | — |
 | [`yo-self-async-await-argcount-overpermissive.md`](./yo-self-async-await-argcount-overpermissive.md) | — | — |
 | [`yo-self-async-completion-drop-set-divergence.md`](./yo-self-async-completion-drop-set-divergence.md) | — | — |
 | [`yo-self-async-emission-cluster.md`](./yo-self-async-emission-cluster.md) | — | — |
