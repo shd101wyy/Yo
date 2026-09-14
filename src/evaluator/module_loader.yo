@@ -28,7 +28,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { EvalValue } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
-{ Environment } :: import("../env.yo");
+{ Environment, Variable } :: import("../env.yo");
 { LoadModuleResult } :: import("./context.yo");
 { set_registration_owner } :: import("./values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
@@ -215,6 +215,78 @@ load_module_from_cache :: (fn(path : String) -> LoadModuleResult)(
     )
   )
 );
+/// Phase 3b (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6 step 4): patch
+/// ONE exported slot of a cached module in place — the value AND the paired
+/// field type — after its definition was re-evaluated per-def. Importers that
+/// hold the whole module value share the StructVal's arrays, so the update
+/// reaches every live consumer without dropping anyone's cache entry (the
+/// file-level drop is what this exists to beat). `.None`: module not cached.
+/// `.Some(false)`: `name` has no slot — either the definition is not exported
+/// (fine, nothing to patch) or it is exported under a DIFFERENT label
+/// (`export(Foo : bar)`), which the caller must treat as unpatchable and fall
+/// back to file-level invalidation.
+update_module_cache_slot :: (fn(path : String, name : String, var : Variable) -> Option(bool))(
+  match(
+    _module_cache_index(path.clone()),
+    .None => Option(bool).None,
+    .Some(i) => {
+      (patched : bool) = false;
+      match(
+        g_module_cache_vals.get(i),
+        .Some(mv) =>
+          match(
+            mv,
+            .StructVal(_, names, vals) => {
+              (ni : usize) = usize(0);
+              while(ni < names.len(), {
+                match(
+                  names.get(ni),
+                  .Some(n) => if(n == name, {
+                    vals(ni) = match(
+                      var.value.get(usize(0)),
+                      .Some(v) => v,
+                      .None => EvalValue.UnitVal
+                    );
+                    patched = true;
+                  }),
+                  .None => ()
+                );
+                ni = (ni + usize(1));
+              });
+            },
+            _ => ()
+          ),
+        .None => ()
+      );
+      // The sns struct TYPE's paired field type, same in-place discipline.
+      if(patched, {
+        match(
+          g_module_cache_types.get(i),
+          .Some(mt) =>
+            match(
+              mt,
+              .Struct({ field_labels : tlabels, field_types : ttypes }) => {
+                (ti : usize) = usize(0);
+                while(ti < tlabels.len(), {
+                  match(
+                    tlabels.get(ti),
+                    .Some(t) => if(t == name, {
+                      ttypes(ti) = var.ty;
+                    }),
+                    .None => ()
+                  );
+                  ti = (ti + usize(1));
+                });
+              },
+              _ => ()
+            ),
+          .None => ()
+        );
+      });
+      Option(bool).Some(patched)
+    }
+  )
+);
 /// Drop one module's cache entry (no-op when absent). Its dependencies
 /// stay cached; its own outgoing import edges are dropped so the
 /// re-evaluation records them fresh.
@@ -294,5 +366,6 @@ export(
   current_loading_module,
   record_import_edge,
   remove_module,
-  invalidate_module
+  invalidate_module,
+  update_module_cache_slot
 );

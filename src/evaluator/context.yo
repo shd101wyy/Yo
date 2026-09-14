@@ -25,7 +25,7 @@ _(env : ctx_dbg_env) :: import("std/env");
 { TypeValue } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable, Frame, _frame_positions, snapshot_env, add_variable_to_env, get_variables_from_frame } :: import("../env.yo");
+{ Environment, Variable, Frame, _frame_positions, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -1139,6 +1139,13 @@ ModuleWalk :: ref(
     /// pushed frames above it) so the forced definition binds INTO the module
     /// frame, where every later lookup finds it.
     module_frame_id : usize,
+    /// The module frame OBJECT. The walker pops it from `env.frames` when the
+    /// module finishes (`keep_frame_at_end = false`), but a Phase 3b
+    /// re-validation re-forces definitions AFTER the walk — the frame (and the
+    /// import bindings living in it) must stay reachable for that, so the walk
+    /// holds the handle and `module_walk_force_env` re-appends it when the
+    /// live list no longer has it.
+    module_frame : Frame,
     ctx : EvalContext,
     defs : ArrayList(PendingDef),
     /// index in begin_exprs → its entry (the walker's per-statement check).
@@ -1238,6 +1245,9 @@ record_def_dependency :: (fn(dependee : String) -> unit)({
       );
       deps.insert(dependee);
       _ := g_def_deps.insert(dk, deps);
+      if(ctx_dbg_env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+        eprintln(`[p3edge] ${top.name} -> ${dependee}`);
+      });
     },
     .None => ()
   );
@@ -1245,6 +1255,9 @@ record_def_dependency :: (fn(dependee : String) -> unit)({
 /// Record an ORDERED-statement read (forcing stack empty) of `field` on
 /// `target_module` from `importer`.
 record_module_ordered_read :: (fn(importer : String, target_module : String, field : String) -> unit)({
+  if(ctx_dbg_env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+    eprintln(`[p3ord] ${importer.clone()} reads ${field.clone()} of ${target_module.clone()}`);
+  });
   by_target := match(
     g_module_ordered_reads.get(importer),
     .Some(existing) => existing,
@@ -1280,6 +1293,206 @@ record_module_member_read :: (fn(importer : String, target_module : String, fiel
     .Some(_) => ()
   );
 });
+// ---------------------------------------------------------------------------
+// Phase 3b (§6 step 4) — per-definition invalidation primitives.
+//
+// On a real definition edit the watch round no longer drops the changed
+// module's whole reverse import closure: the invalidator
+// (`mm_revalidate_plan` / `mm_revalidate_apply`, module_manager.yo)
+// grafts the re-parsed statement onto the walk's PendingDef, resets it plus every reverse-edge
+// dependent in `g_def_deps`, re-forces in walk order, and patches the cached
+// module value's slot IN PLACE (importers share the StructVal). These are the
+// evaluator half; the orchestration and its conservative file-level
+// fallbacks (impls, type producers, ordered-statement readers, structural
+// edits) live in module_manager.yo.
+// ---------------------------------------------------------------------------
+/// Total `force_pending_def` invocations this process — the watch tests'
+/// oracle for "only the changed definition (+ its dependents) re-evaluated".
+(g_force_pending_count : usize) = usize(0);
+force_pending_count :: (fn() -> usize)(g_force_pending_count);
+/// The module segment of a def key (`<module>#<index>#<name>` — module paths
+/// never contain `#`). That segment IS the walk key the definition's module
+/// was finished under (demand loads: the `file://` cache key; entries: the
+/// path as typed), so the invalidator resolves walks straight from it.
+def_key_module :: (fn(key : String) -> String)(
+  match(
+    key.index_of(String.from("#")),
+    .Some(h) => key.substring(usize(0), h),
+    .None => key
+  )
+);
+/// The index segment of a def key. `.None` only for a malformed key — the
+/// invalidator mints these keys itself.
+def_key_index :: (fn(key : String) -> Option(usize))(
+  match(
+    key.index_of(String.from("#")),
+    .Some(h1) => match(
+      key.index_of(String.from("#"), (h1 + usize(1))),
+      .Some(h2) => Option(usize).Some(
+        match(
+          key.substring((h1 + usize(1)), h2).parse(usize),
+          .Ok(v) => v,
+          .Err(_) => usize(0)
+        )
+      ),
+      .None => Option(usize).None
+    ),
+    .None => Option(usize).None
+  )
+);
+/// The walk a module was finished under, by the def keys' own module segment.
+finished_walk_for :: (fn(module_path : String) -> Option(ModuleWalk))(
+  g_finished_walks.get(module_path)
+);
+/// Reset one definition for re-evaluation: clear the lazy-binding state and
+/// drop its bindings from the walk's module frame (so a lookup MISSES again
+/// and the re-force re-binds, and so no consumer keeps serving the stale
+/// Variable). The statement itself is replaced separately —
+/// `graft_pending_def` for the changed module's defs, nothing for dependents
+/// (their source did not change). Recorded dependencies are deliberately
+/// KEPT: a re-force does not reliably re-record them (a body trial can
+/// short-circuit on the node's existing ExprInfo), and a stale edge only
+/// over-invalidates — never under-invalidates — later rounds.
+reset_pending_def :: (fn(walk : ModuleWalk, def : PendingDef) -> unit)({
+  // The walk's saved module frame — the live env may already have popped it
+  // (the module finished), but the re-force re-binds through this very object.
+  f := walk.module_frame;
+  // Backward: drain shifts the tail, and a def binds at most a handful of
+  // names (an extern block's members).
+  (vi : usize) = f.variables.len();
+  while(vi > usize(0), {
+    vi = (vi - usize(1));
+    match(
+      f.variables.get(vi),
+      .Some(v) => if(_def_declares(def, v.name.clone()), {
+        f.variables.drain(vi .. (vi + usize(1)));
+      }),
+      .None => ()
+    );
+  });
+  // The side-table index assumes frames only append — a shrink must drop the
+  // frame's entry or lookups read stale positions (env.yo
+  // `invalidate_frame_index`).
+  invalidate_frame_index(f);
+  def.state = PendingDefState.Unforced;
+  def.failure = Option(String).None;
+  def.phase_a_value = Option(EvalValue).None;
+  def.phase_a_type = Option(TypeValue).None;
+  def.variable = Option(Variable).None;
+  ()
+});
+/// Graft a re-parsed statement onto a walk entry: the fresh AST (new expr
+/// ids, current row), its hash into the differ's table (so the NEXT round
+/// sees this source as the stored one), and the walker's statement list —
+/// the forcer points `set_module_walk` at it and index-consistency is what
+/// the miss hook's walk lookup depends on.
+graft_pending_def :: (fn(walk : ModuleWalk, def : PendingDef, fresh : PendingDef) -> unit)({
+  def.expr = fresh.expr;
+  def.row = fresh.row;
+  def.src_hash = fresh.src_hash;
+  walk.begin_exprs(def.index) = fresh.expr;
+  _ := g_def_hash.insert(def_key(walk.module_path, def.index, def.name), fresh.src_hash);
+  ()
+});
+/// Every def key that transitively DEPENDS on a seed (reverse edges over
+/// `g_def_deps`), seeds included. Edges only ever over-approximate (a
+/// definition's recorded dependees are never pruned — a re-force does not
+/// reliably re-record them), so the closure is a sound over-estimate of what
+/// must re-evaluate. Worklist over the dependent→dependees map: dependents
+/// come from `keys()` (values, safe to hold), and each dependee set is probed
+/// with `contains` — no pointer iteration.
+def_dependents_closure :: (fn(seeds : ArrayList(String)) -> ArrayList(String))({
+  reached := HashSet(String).new();
+  work := ArrayList(String).new();
+  (si : usize) = usize(0);
+  while(si < seeds.len(), {
+    match(
+      seeds.get(si),
+      .Some(s) => {
+        _ := reached.insert(s.clone());
+        work.push(s.clone());
+      },
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  (wi : usize) = usize(0);
+  while(wi < work.len(), {
+    seed := match(
+      work.get(wi),
+      .Some(s) => s.clone(),
+      .None => String.new()
+    );
+    kit := g_def_deps.keys();
+    kopt := kit.next();
+    while(kopt.is_some(), {
+      match(
+        kopt,
+        .Some(dep) => if(!reached.contains(dep.clone()), {
+          match(
+            g_def_deps.get(dep.clone()),
+            .Some(deps) => if(deps.contains(seed.clone()), {
+              _ := reached.insert(dep.clone());
+              work.push(dep.clone());
+            }),
+            .None => ()
+          );
+        }),
+        .None => ()
+      );
+      kopt = kit.next();
+    });
+    wi = (wi + usize(1));
+  });
+  work
+});
+/// The importers whose ORDERED statements read one of `names` off
+/// `target_module` (`g_module_ordered_reads`, Phase 3's fallback table): a
+/// destructured-import or spread copy the per-def slot patch cannot reach, so
+/// the invalidator drops each returned importer at file granularity.
+ordered_readers_of :: (fn(target_module : String, names : ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  iit := g_module_ordered_reads.keys();
+  iopt := iit.next();
+  while(iopt.is_some(), {
+    match(
+      iopt,
+      .Some(importer) => match(
+        g_module_ordered_reads.get(importer.clone()),
+        .Some(by_target) => match(
+          by_target.get(target_module.clone()),
+          .Some(fields) => {
+            (hit : bool) = false;
+            (ni : usize) = usize(0);
+            while(((ni < names.len()) && (!hit)), {
+              match(
+                names.get(ni),
+                .Some(n) => if(fields.contains(n.clone()), {
+                  hit = true;
+                }),
+                .None => ()
+              );
+              ni = (ni + usize(1));
+            });
+            if(hit, {
+              out.push(importer.clone());
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    iopt = iit.next();
+  });
+  out
+});
+/// The dependees recorded for one def key (the forward edges of
+/// `g_def_deps`), for the invalidator's cross-module ordering.
+def_key_dependees :: (fn(key : String) -> Option(HashSet(String)))(
+  g_def_deps.get(key)
+);
 /// The forcer slot. Returns `.None` on success, `.Some(message)` on failure.
 ForcePendingDefFn :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String));
 (g_force_pending_def_fn : Option(ForcePendingDefFn)) = Option(ForcePendingDefFn).None;
@@ -1517,11 +1730,21 @@ begin_module_walk :: (
     );
     i = (i + usize(1));
   });
+  // The module frame OBJECT (the walker pushed it immediately before calling
+  // here — it is `env`'s last frame and carries `module_frame_id`). Held for
+  // Phase 3b's post-walk re-forces: the walker pops the frame from `env` when
+  // the module finishes, but a re-validation still evaluates against it.
+  module_frame := match(
+    env.frames.get(env.frames.len() - usize(1)),
+    .Some(f) => f,
+    .None => new_frame(false)
+  );
   walk := ModuleWalk(
     module_path : module_path,
     begin_exprs : begin_exprs,
     env : env,
     module_frame_id : module_frame_id,
+    module_frame : module_frame,
     ctx : copy_eval_context(ctx),
     defs : defs,
     by_index : by_index
@@ -1766,6 +1989,22 @@ module_walk_force_env :: (fn(walk : ModuleWalk) -> Environment)({
     );
     j = (j + usize(1));
   });
+  // The walker pops the module frame from `env` when the module finishes
+  // (`keep_frame_at_end = false`). A force after that point (Phase 3b's
+  // re-validation) re-appends the walk's saved handle — a forced definition
+  // must still see the module's import bindings and bind INTO the module
+  // frame.
+  (has_module_frame : bool) = false;
+  match(
+    frames.get(frames.len() - usize(1)),
+    .Some(last) => {
+      has_module_frame = (last.id == walk.module_frame_id);
+    },
+    .None => ()
+  );
+  if(!has_module_frame, {
+    frames.push(walk.module_frame);
+  });
   Environment(
     frames : frames,
     module_path : walk.env.module_path,
@@ -1817,6 +2056,9 @@ force_pending_def :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String))
   if(ctx_dbg_env.get(`YO_DEBUG_LAZY`).is_some(), {
     eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.len().to_string()})`);
   });
+  // Phase 3b: the watch tests' oracle — only the changed definition (+ its
+  // dependents) may re-evaluate in a per-def round.
+  g_force_pending_count = (g_force_pending_count + usize(1));
   // Phase 3 (§6): the definition currently being evaluated (the forcing
   // stack top) NEEDS this one — record the dependency edge. In-order roots
   // (empty stack) record nothing.
@@ -1842,6 +2084,33 @@ force_pending_def :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String))
     }
   );
   result
+});
+/// Re-force a module's reset definitions in walk order, with the walk pushed
+/// as ACTIVE — a reference from one reset def to a later sibling then forces
+/// it through the same miss path the original walk used (out-of-order forces
+/// stay first-class, `YO_DEBUG_LAZY`). Definitions that became Done as a side
+/// effect of an earlier force are skipped. Returns each failure message in
+/// force order.
+revalidate_walk_defs :: (fn(walk : ModuleWalk, defs : ArrayList(PendingDef)) -> ArrayList(String))({
+  failures := ArrayList(String).new();
+  g_module_walks.push(walk);
+  (i : usize) = usize(0);
+  while(i < defs.len(), {
+    match(
+      defs.get(i),
+      .Some(def) => if(match(def.state, .Unforced => true, _ => false), {
+        match(
+          force_pending_def(walk, def),
+          .Some(msg) => failures.push(msg),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  _ := g_module_walks.pop();
+  failures
 });
 /// Outcome of a lookup-miss resolution. `Resolved` carries the defining
 /// module frame's id so the caller can adopt the Variable into its own env
@@ -2416,6 +2685,7 @@ track_variable_usage :: (
 
 export(
   record_module_member_read,
+  record_module_ordered_read,
   register_sns_module,
   sns_module_of,
   stored_def_hash,
@@ -2488,6 +2758,17 @@ export(
   end_module_walk,
   walk_pending_def_at,
   force_pending_def,
+  force_pending_count,
+  def_key,
+  def_key_module,
+  def_key_index,
+  finished_walk_for,
+  reset_pending_def,
+  graft_pending_def,
+  def_dependents_closure,
+  def_key_dependees,
+  revalidate_walk_defs,
+  ordered_readers_of,
   current_forcing_def,
   push_forcing_def,
   pop_forcing_def,
