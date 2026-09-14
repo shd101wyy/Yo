@@ -1277,7 +1277,7 @@ ghost collections are usable in `requires`/`ensures`.
 **Scope:** contracts across abstraction boundaries; refinement types
 become real; the stdlib starts carrying executable specifications.
 
-> **Status: TASK 1 LANDED 2026-09-14 (PR pending).** The durable
+> **Status: TASK 1 MERGED via #685 (develop 451b75a7fb9e43e7dad02ea714f0d09d12d67144, 2026-09-14 — all 28 checks green).** The durable
 > trait-method contract tables live in
 > `src/evaluator/values/type_trait_methods.yo`
 > (`register_trait_method_contracts`, keyed `${trait_id}::${label}`,
