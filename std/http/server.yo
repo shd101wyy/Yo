@@ -33,7 +33,7 @@ import("../string");
 { TcpListener, TcpStream } :: import("../net/tcp");
 { SocketAddr } :: import("../net/addr");
 { HttpError, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, parse_request } :: import("./http.yo");
-{ read_http_message } :: import("./wire.yo");
+{ read_http_message, MessageKind } :: import("./wire.yo");
 /// Default ceiling on a request (headers + body): 16 MiB.
 DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
 /// An HTTP/1.1 server bound to a `TcpListener`.
@@ -78,7 +78,7 @@ impl(
   )(
     io.async(e => {
       stream := e.io.await(self.listener.accept(e.io), e);
-      framed := e.io.await(read_http_message(stream, self.max_request_bytes, true, e.io), e);
+      framed := e.io.await(read_http_message(stream, self.max_request_bytes, MessageKind.Request, e.io), e);
       resp := match(
         framed,
         .Ok(raw) => match(

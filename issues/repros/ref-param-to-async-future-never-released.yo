@@ -1,0 +1,55 @@
+// A `ref` value passed as a PARAMETER to an `io.async` future is never
+// released: the future's state machine dups it into its capture record and
+// nothing ever drops it, so the value's reference count never reaches zero
+// and its `Dispose` never runs.
+//
+//   yo compile issues/repros/ref-param-to-async-future-never-released.yo \
+//     --std-path ./std --optimize 2 -o /tmp/repro.out && /tmp/repro.out
+//
+// Expected: "created=50 disposed=50" on both lines.
+// Actual:   "disposed=0" — 50 leaked objects, one per call.
+{ println } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+(g_disposed : i32) = i32(0);
+Thing :: ref(struct(n : i32));
+impl(
+  Thing,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+// The control: a plain fn taking the same parameter releases it correctly.
+_plain :: (fn(t : Thing) -> i32)(t.n);
+// The bug: the identical parameter, on an `io.async` future.
+_async :: (fn(t : Thing, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    return(t.n);
+  })
+);
+_via_plain :: (fn() -> unit)({
+  i := i32(0);
+  while(runtime(i < i32(50)), {
+    t := Thing(n : i32(i));
+    _v := _plain(t);
+    i = (i + i32(1));
+  });
+});
+_via_async :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  i := i32(0);
+  while(runtime(i < i32(50)), {
+    t := Thing(n : i32(i));
+    _v := io.await(_async(t, io), e);
+    i = (i + i32(1));
+  });
+});
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  _via_plain();
+  println(`plain fn:  created=50 disposed=${g_disposed}`);
+  g_disposed = i32(0);
+  _via_async(io, exn);
+  println(`io.async:  created=50 disposed=${g_disposed}`);
+});
+export(main);

@@ -93,7 +93,7 @@ test("parse_request: request line, headers, body, and the error cases", {
   assert(match(parse_request(`GET /x HTTP/1.1\r\nno-colon-here\r\n\r\n`), .Err(m) => m.to_string().contains(`Invalid header line: no-colon-here`), .Ok(_) => false), "header line without a colon, rendered for a 400 body");
   assert(match(HttpMethod.from_string(`OPTIONS`), .Some(m) => (m.to_string() == "OPTIONS"), .None => false), "OPTIONS round-trips");
 });
-// The request-side half of the same defect: `read_http_message(is_request=true)`
+// The request-side half of the same defect: `read_http_message` on a REQUEST
 // completes a body-less request at its headers, but returned the whole buffer —
 // so a second request pipelined into the SAME write became the first one's
 // body. That is request smuggling (RFC 9112 §11.2).
