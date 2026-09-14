@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 218 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 220 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,7 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 20 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| **Total** | **218** | **48** |
+| Other | 2 | 1 |
+| **Total** | **220** | **49** |
 
 ## Cross-cutting buckets
 
@@ -247,7 +248,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | — | yes |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | OPEN | — |
 | [`stddoc-coll-duplicate-fromiterator-impl-on-hashset.md`](./stddoc-coll-duplicate-fromiterator-impl-on-hashset.md) | OPEN | — |
-| [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | OPEN | yes |
+| [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | OPEN — | yes |
 | [`stddoc-core-doc-comment-attached-by-bare-member-name.md`](./stddoc-core-doc-comment-attached-by-bare-member-name.md) | OPEN | yes |
 | [`stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md`](./stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md) | OPEN | — |
 | [`stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md`](./stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md) | — | yes |
@@ -336,3 +337,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-punycode-encode-reads-past-the-buffer.md`](./vendor-markdown-punycode-encode-reads-past-the-buffer.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
+
+### Other (2)
+
+| Doc | Status (self-reported) | Repro |
+| --- | --- | --- |
+| [`main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md`](./main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md) | OPEN | — |
+| [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
