@@ -537,13 +537,18 @@ Gates:
 > oracle; measured 2026-09-14 over `check ./src --watch`: a comment-only
 > edit is a no-op round, and a BODY edit of `src/token.yo`'s
 > `is_identifier_continue` (the §6 hub probe) revalidates exactly 1
-> definition and drops 0 modules in ~50-90 ms — against the 87 s file-level
-> baseline (the twin gate of the 3a fast path, closed). Caveat carried in
-> issues/per-def-dependent-trial-resolves-stale-callee.md: the
-> ordered-reader fallback needs the sns-attribution fix to fire in DIRECTORY
-> checks (single-entry checks already do), which is also what would let a
-> hub round stay honest if destructured importers comptime-fold the changed
-> fn. Surfaced on the way:
+> definition in ~50-90 ms when no importer destructures the changed name.
+> The sns-attribution bug that kept the ordered-reader fallback from firing
+> in DIRECTORY checks was fixed 2026-09-15 (`stable_sns_module_id` — the
+> sns id embeds the module-path hash; every module's first mint used to
+> collide on `source_namespace_0`), so the hub round now SOUNDLY drops the
+> destructured reader's closure: `src/token.yo`'s `is_identifier_continue`
+> edit drops `src/lexer.yo` + its 143-file import closure, a ~355 s
+> full re-check on the WSL2 box — correct, and the perf unlock for hub
+> edits is the dependent-trial stale-callee fix in
+> issues/per-def-dependent-trial-resolves-stale-callee.md (once a dependent
+> re-derives calls against the patched slot, signature-stable edits no
+> longer need to drop their readers). Surfaced on the way:
 > `issues/retired/enum-bool-option-literal-arms-duplicate-case.md` — an
 > in-tree `.Some(true)/.Some(false)` two-arm match broke the SELF-BUILD
 > because the v0.2.32 seed's codegen predates #661/#672; the tree's own
