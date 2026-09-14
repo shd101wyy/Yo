@@ -61,10 +61,32 @@ main :: (fn() -> i32)({
 A reader follows that, ships a CLI that reports failure through its exit
 status, and the program always succeeds.
 
-**It makes reproducers hollow.** Twelve files under `issues/repros/` are
-written as `fn() -> i32` returning `0` on success and `1` on failure — which is
-the natural way to make a reproducer self-checking. Every one of them exits 0
-whatever it observes. This is the same class as
+**It makes reproducers hollow.** **Eight** files under `issues/repros/` have a
+`main` returning `i32` — `0` on success, `1` on failure, which is the natural
+way to make a reproducer self-checking. Every one exits 0 whatever it observes:
+
+- `async-match-arm-labeled-destructure-binds-nothing.yo`
+- `hashmap-hashset-error-enums-collide.yo`
+- `pr661-string-literal-payload-binds-instead-of-comparing.yo`
+- `stddoc-coll-float-modulo-emits-invalid-c.yo`
+- `stddoc-coll-imm-vec-dedup-leaks-rc-elements.yo`
+- `stddoc-io-is-valid-entity-code-accepts-negative-code-points.yo`
+- `stddoc-io-json-parse-string-accepts-raw-control-bytes.yo`
+- `stddoc-io-url-empty-host-collapses-to-none.yo`
+
+(The count was first written here as twelve, from a grep for files CONTAINING
+`fn() -> i32` rather than for files whose MAIN returns it — that over-counted
+by four. Anchoring on `^main :: \(fn\([^)]*\) -> i32\)` gives the list above.
+A census of the whole directory: 87 `fn() -> unit`, 67 `fn(io : Io) -> unit`,
+20 `fn(io, exn) -> unit`, these 8, and 3 odd forms — so the affected set is
+small, but it is concentrated in the RECENT std-audit reproducers.)
+
+Each of those needs a real oracle — a print plus a grep, or an `assert` that
+aborts — not just a corrected exit code.
+
+A signal-based exit code is unaffected: an rc=139 SIGSEGV or an rc=134 abort is
+set by the kernel, not by `main`'s return, so verdicts that rest on a crash
+still hold. This is the same class as
 `issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`
 and the hollow-batch problem: a gate that cannot fail. Anything scoring those
 repros by exit code — including a bulk sweep over the corpus — silently reads

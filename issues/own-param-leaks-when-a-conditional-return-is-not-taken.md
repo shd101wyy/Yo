@@ -168,6 +168,28 @@ warns must follow `ExprInfo.macro_expansion` — though `if` has been desugared
 to `cond` at parse time since 2026-08-21, so the real `cond` node is visible
 here.
 
+## It reproduces on `AnyError` / `dyn` — this is a live leak in ordinary code
+
+`own` is what `box`, `dyn` and `AnyError` ride on
+(`issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md`), so the six
+one-liners above are not the interesting case. This is:
+
+```rust
+norm :: (fn(own(e) : AnyError, flag : bool) -> AnyError)({
+  if(flag, { return(e); });
+  e
+});
+```
+
+```
+AnyError, guard TAKEN    : disposed=1 (expected 1)
+AnyError, guard NOT taken: disposed=0 (expected 1)
+```
+
+An error-normalising helper with a guard clause — about as ordinary a shape as
+exists — leaks the boxed error on every call where the guard does not fire.
+Whatever gate the fix lands with should use this shape, not a synthetic one.
+
 ## Severity
 
 Silent, and it hits a shape that is idiomatic: "fast-path guard, then the real
