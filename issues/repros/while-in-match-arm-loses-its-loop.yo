@@ -1,0 +1,38 @@
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ sleep } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+_Opt :: enum(NoLimit, Limit(secs : i64));
+_run :: (fn(o : _Opt, io : Io) -> Impl(Future(i64, Io)))(
+  io.async(e => {
+    (turns : i64) = i64(0);
+    match(
+      o,
+      .NoLimit => {
+        turns = i64(-1);
+      },
+      .Limit(secs) => {
+        h := e.io.spawn(
+          io.async((io2 : Io) => {
+            io2.await(sleep(Duration.from_millis(i64(30)), io2), io2);
+            i32(1)
+          }),
+          e.io
+        );
+        dh := e.io.spawn(sleep(Duration.from_secs(secs), e.io), e.io);
+        while(runtime(!h.is_finished() && !dh.is_finished()), {
+          e.io.await(yield(e.io), e.io);
+          turns = (turns + i64(1));
+        });
+        println(`  after loop: turns=${turns.to_string()} h_fin=${h.is_finished().to_string()} dh_fin=${dh.is_finished().to_string()}`);
+      }
+    );
+    turns
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  t := io.await(_run(_Opt.Limit(secs : i64(5)), io), io);
+  println(`turns=${t.to_string()}`);
+  cond((t == i64(0)) => println(`BUG: the while condition was false at entry while both handles were unfinished`), true => println(`OK`));
+});
+export(main);

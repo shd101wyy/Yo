@@ -1,0 +1,27 @@
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+_E :: enum(A, B);
+_run :: (fn(v : _E, io : Io) -> Impl(Future(i64, Io)))(
+  io.async(e => {
+    (n : i64) = i64(0);
+    match(
+      v,
+      .A => {
+        n = i64(-1);
+      },
+      .B => {
+        while(runtime(n < i64(3)), {
+          e.io.await(yield(e.io), e.io);
+          n = (n + i64(1));
+        });
+        println(`  arm: after the loop, n=${n.to_string()}`);
+      }
+    );
+    n
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  inside := io.await(_run(_E.B, io), io);
+  println(`inside a match arm: n=${inside.to_string()} (expected 3)`);
+});
+export(main);
