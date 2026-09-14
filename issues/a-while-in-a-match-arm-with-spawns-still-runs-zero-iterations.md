@@ -1,65 +1,103 @@
-# A `while` in a match arm whose condition reads spawned handles still runs zero iterations
+# An `io.spawn` of an inline `io.async` block is DROPPED from a match arm that also has an awaiting `while`
 
 **Found**: 2026-09-14, while fixing
 `issues/fixed/a-while-loop-inside-a-match-arm-runs-its-trailing-code-every-iteration.md`.
 **Status**: OPEN — a SECOND defect in the same family, NOT fixed by that change.
+**Re-measured 2026-09-14**, and the original characterization below the fold was
+WRONG in two ways: two spawns are not required (one is), and the loop is not
+what runs zero times — the **spawn never runs at all**.
+**Reproducer**: `issues/repros/spawn-of-an-inline-async-block-in-a-match-arm-is-dropped.yo`
+(15 lines of body, no network, no timing dependence).
 
 ## Symptom
 
-`issues/repros/while-in-match-arm-loses-its-loop.yo` still prints:
-
 ```
+A: arm entered
 turns=0
-BUG: the while condition was false at entry while both handles were unfinished
+BUG: the spawn was dropped, so the loop saw an unassigned handle
 ```
 
-The loop body never runs, and the statement after the loop does not run either
-— where before the trailing-code fix it ran once, on iteration zero.
+`B` and `C` never print. The arm is truncated after its FIRST statement.
 
-## What distinguishes it from the fixed defect
+## The three ingredients, each necessary
 
-Both live in a match arm. The fixed one needed only `while` + a trailing
-statement. This one additionally has **two `io.spawn` calls in the same arm,
-before the loop**:
-
-```rust
-.Limit(secs) => {
-  h  := e.io.spawn(<a 30 ms task>, e.io);
-  dh := e.io.spawn(sleep(Duration.from_secs(secs), e.io), e.io);
-  while(runtime(!h.is_finished() && !dh.is_finished()), { e.io.await(yield(e.io), e.io); turns = (turns + i64(1)); });
-  println(`after loop: ...`);
-}
-```
-
-Measured while narrowing, all on the FIXED compiler:
+Measured one at a time, each as its own compile, on the fixed compiler:
 
 | shape | result |
 | --- | --- |
-| arm + while + trailing statement | correct (this is what was fixed) |
-| arm + ONE spawn + while + trailing `_u := h.is_finished();` | correct |
-| arm + TWO spawns + while + trailing `println` | **zero iterations** |
-| condition `!h.is_finished() && !dh.is_finished()` | zero iterations |
-| condition `turns < i64(5)` (no method calls) | zero iterations |
+| arm + inline-`io.async` spawn + awaiting `while` | **broken** |
+| the same body OUTSIDE any match | works (782 turns) |
+| spawn `sleep(...)` instead of an inline `io.async` closure | works (878 turns) |
+| drop the `while` (spawn + plain statements after) | works |
+| TWO plain `sleep` spawns + awaiting `while` | works (769 turns) |
+| TWO spawns where the first is an inline `io.async` closure | broken |
 
-So the condition's shape is NOT the trigger — the same counter condition works
-without the spawns. Something about the spawns in the arm is.
+So the trigger is **a match arm + a spawn whose argument is an inline
+`io.async` block + an awaiting `while` after it**. The spawn COUNT is
+irrelevant — what matters is whether any spawned argument is a nested async
+block. The earlier "needs two spawns" reading came from varying two things at
+once.
+
+## What the emitted C shows
+
+The arm's `case` in state 0 contains only the branch tag and the payload
+binding — the spawn is not there, and `sm->var_h_…` is assigned NOWHERE in the
+file:
+
+```c
+case __YO_T_840350763561994393_LIMIT: {
+  sm->cond_branch_0 = 2;
+  sm->var_secs_2185503934883823007 = sm->__capture.o.data.Limit.secs;
+  break;
+}
+```
+
+while the post-await dispatch still reads that never-assigned field:
+
+```c
+switch (sm->cond_branch_0) {
+  case 2: {
+    while (true) {
+      bool …146147223485560216812 = …_ret_bool(sm->var_h_8604776450266449399);
+      if (!((!(…146147223485560216812)))) { break; }
+      …
+```
+
+`while_loop_0_active` is declared in the state struct and never assigned or
+tested — the async-while wiring was not emitted either. Compare a WORKING
+no-spawn arm, which emits the full set (`while_loop_0_start`,
+`sm->while_loop_0_active = true`, `while_loop_0_end`, `after_while_loop_0`, and
+the resume-side checks).
+
+So this is not "the loop runs zero iterations". The loop is a downstream
+victim: its condition reads a handle whose initializing statement was deleted.
+
+## Hypothesis for the root cause — NOT yet confirmed
+
+`_emit_match_case_await_or_value` splits an arm at its await point:
+`generate_cond_branch_with_await` emits everything BEFORE the await inline and
+returns the rest as `remaining`. A nested `io.async` closure contains its own
+`io2.await(...)`, which belongs to the NESTED state machine, not this one — but
+it appears EARLIER in source order than the arm's real await (the `yield` in
+the loop body). If the await scan does not stop at a nested `io.async`
+boundary, the split point lands before the spawn: nothing is emitted inline,
+and the spawn falls into `remaining`. The `has_while` path then passes an
+EMPTY remaining to `_push_cond_branch` and hands the real `remaining` to
+`_attach_cond_branch_post_while` — so a statement that belonged BEFORE the loop
+is either relocated after it or dropped.
+
+That would explain every row of the table: the inline `io.async` supplies the
+misattributed await, the `while` is what makes the arm take the splitting path
+at all, and outside a match no such arm split happens.
+
+**Check this before anything else** by dumping, for both the working and broken
+shapes, the await index the arm is keyed under and the index the `while`
+registered in `context.async_while_loop_info`, plus whether the await scan
+descends into a nested `io.async`. The prior fix in this family was exactly a
+mismatch of that kind.
 
 ## Why it is filed rather than fixed
 
-The production case it came from — `std/http`'s `_fetch_deadline`, which has
-exactly two spawns — now works, and `tests/http/http.test.yo` is 51/51. So this
-is not what #556 needed, and bundling a second speculative codegen change into
-that fix would make both harder to review and to revert.
-
-It is real, it is narrow, and it has a standalone reproducer that needs no
-network. It should be fixed on its own.
-
-## Where to start
-
-The fixed defect was `_emit_match_case_await_or_value` not mirroring
-`generate_cond_with_await`'s `has_while` split. The natural suspicion is that
-`has_while` (a lookup of `context.async_while_loop_info` at
-`await_point.base.index`) does not see the loop in this shape — the spawns
-introduce await points of their own, so the index the arm is keyed under may not
-be the one the while registered. Check that before anything else: print the map
-keys and the arm's `await_point.base.index` for both shapes and compare.
+The production case it came from — `std/http`'s `_fetch_deadline` — now works
+and `tests/http/http.test.yo` is 51/51, so nothing in flight depends on it.
+It is real, narrow, and has a standalone reproducer.
