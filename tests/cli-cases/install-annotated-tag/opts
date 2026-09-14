@@ -18,5 +18,11 @@
 #      `git init` + a commit and the SHAs become timestamp-dependent, and the
 #      golden goes flaky in a way that reads exactly like a resolver
 #      regression.
+#   3. refs/.keep exists, and must. Git refuses to recognise a directory
+#      without a `refs/` DIRECTORY ("repository does not exist"), and git
+#      cannot commit an empty directory — so without the placeholder the
+#      fixture works on the machine that created it and is not a repository
+#      anywhere else. That is exactly how this case failed its first CI run
+#      while passing locally.
 timeout=600
 stdout_keep=^(Found|  - |  remote → |Fetching|Done|Building|remote 1\.0\.0$|Wrote|yo\.lock is up)
