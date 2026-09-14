@@ -449,7 +449,7 @@ _compat_impl :: (
   // every empty-`{}` arm paired with a unit sibling throws "Incompatible types"
   // at def-time and loses the match's ExprInfo -> "Failed to transpile" marker.
   // Exact compatibility (cache keys) stays strict (different tags). See
-  // issues/yo-self-p1-transpile-tail.md (arm-type / Incompatible-types cluster).
+  // issues/fixed/yo-self-p1-transpile-tail.md (arm-type / Incompatible-types cluster).
   if(!(require_exact), {
     unit_empty_struct := match(
       actual,
@@ -661,7 +661,7 @@ _compat_impl :: (
         // constructor_func_id — TS's `functionValue.funcId` check), and otherwise
         // recurse field types (which resolves `__self_shell`s via the EnumT arm and
         // treats a generic SomeT as compatible). See
-        // issues/yo-self-recursive-enum-nested-member-shell.md.
+        // issues/fixed/yo-self-recursive-enum-nested-member-shell.md.
         !(require_exact) => cond(
           // Two instantiations of one constructor whose CONCRETE recorded type
           // arguments disagree are different types even under the lenient rule — `Carrier(AErr)`
@@ -822,7 +822,7 @@ _compat_impl :: (
         // (arc.test.yo class). Generic instantiations/copies are untouched:
         // instantiations carry type_arguments, and cfid-empty copies SHARE
         // their original's id (caught by the id-equality arm). See
-        // issues/yo-self-same-name-local-struct-spec-cache-collision.md.
+        // issues/fixed/yo-self-same-name-local-struct-spec-cache-collision.md.
         (((aname.len() != usize(0)) && (aname == ename)) && (((ata.len() == usize(0)) && (eta.len() == usize(0))) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected)))))) => false,
         // CAPTURE-STRUCT nominal identity (exact only): each closure's capture
         // struct is minted ONCE under a deterministic `capture_<id>` struct id

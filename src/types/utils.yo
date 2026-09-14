@@ -1579,7 +1579,7 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
 // re-entry means an infinite-size VALUE cycle — the definition-time check in
 // evaluator/types/enum.yo rejects those, so seeing one here means that check
 // was bypassed (yield unknown, never overflow the stack).
-// issues/plain-recursive-enum-segfaults-the-evaluator.md.
+// issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md.
 (g_size_walk_stack : ArrayList(String)) = ArrayList(String).new();
 _size_walk_stack_has :: (fn(id : String) -> bool)({
   (found : bool) = false;
@@ -1773,7 +1773,7 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
     // Mirrors TS `getSizeOfType`/`getEnumTypeSize`.
     .EnumT({ id : e_sz_id, variant_fields : evf, is_reference_semantics : e_ref }) => cond(
       e_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
-      // Cycle backstop (issues/plain-recursive-enum-segfaults-the-evaluator.md):
+      // Cycle backstop (issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md):
       // a VALUE enum re-entered on the walk stack is an infinite-size type the
       // definition-time check should have rejected — yield unknown rather than
       // overflow the stack.
