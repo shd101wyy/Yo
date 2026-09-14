@@ -52,6 +52,22 @@ These are ready to be worked on — the defect was observed, not inferred.
 - [`stddoc-io-ipv6-to-string-is-not-rfc-5952-canonical.md`](./stddoc-io-ipv6-to-string-is-not-rfc-5952-canonical.md) — prints `0:0:0:0:0:0:0:1`, not `::1`
 - [`stddoc-io-json-parse-string-accepts-raw-control-bytes.md`](./stddoc-io-json-parse-string-accepts-raw-control-bytes.md) — repro runs; raw control bytes accepted
 
+### Reference integrity — 86 unresolved citations remain (`scripts/check-issue-refs.sh`)
+
+The bulk repair on 2026-09-14 fixed 149 citations whose target had simply
+MOVED. What is left is archaeology, because these targets were **renamed or
+deleted**, not moved, and each needs a human to name the successor:
+
+| Fate | Targets | Examples |
+| --- | ---: | --- |
+| Deleted outright | 9 | `yo-self-evaluator-gaps.md`, `yo-self-macro-dispatch-corruption.md`, `issues/patches/*.patch`, `repros/spawn-blocking-tests.yo` |
+| Never existed at that path | ~24 | `async-await-in-nested-if-drops-continuation.md`, `suspension-analysis-*.md`, `parse-i64-and-parse-u64-wrap-on-overflow.md` |
+| Ahead of this tree | 9 | `fixed/async-cond-dispatch-skips-chained-sibling-arm.md` — a concurrent branch moves it; **must not be repaired here** |
+
+Run the checker on the MERGE RESULT, not on a branch. On a branch, a
+concurrent move reads as a stale reference and "repairing" it reverts someone
+else's work — that happened on 2026-09-14 and had to be undone.
+
 ### Retirement candidates — subject no longer exists
 
 The TypeScript compiler was deleted in P2.5. A doc whose SUBJECT is that
