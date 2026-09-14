@@ -12,6 +12,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("../token.yo");
+{ is_any_temp_variable_name } :: import("../utils.yo");
 {
   DocParam,
   DocField,
@@ -2792,6 +2793,27 @@ _doc_type_id :: (fn(t : TypeValue) -> String)(
 /// Mirrors `buildDocModule` (builder.ts:990). `module_value`/`module_type`
 /// come from module_manager's load outcome (TS: `moduleValue: StructValue`,
 /// whose `.type` yo-self carries separately since FuncVals are untyped).
+/// Is `field_name` a compiler-internal module field rather than public API?
+///
+/// Three shapes, none of which may reach a page, a sidebar link or the search
+/// index:
+///
+/// - the empty label an anonymous impl block carries;
+/// - `___*` (synthesized RC / trait plumbing) and `__yo_*` (runtime builtins);
+/// - the evaluator's TEMPORARIES — `_<sanitized module path>_temp_<digits>`,
+///   minted by `generate_new_temp_variable_name` (src/utils.yo).
+///
+/// The prefix list handled the first two and silently admitted the third for
+/// as long as `yo doc` has existed: 790 of them were published as `constant`
+/// entries in `prelude` alone. A temp's prefix is the MODULE PATH, so its
+/// spelling differs per module (`__private_tmp_temp_…` is only what the
+/// prelude's path sanitizes to) — matching a literal prefix would clean one
+/// module and miss every other, which is why this defers to the canonical
+/// `is_any_temp_variable_name`. The LSP's completion list had the same bug
+/// and the same fix (issues/fixed/lsp-completion-lists-compiler-temporaries.md).
+is_compiler_internal_field_name :: (fn(field_name : String) -> bool)(
+  (field_name.len() == usize(0)) || (field_name.starts_with(String.from("___")) || (field_name.starts_with(String.from("__yo_")) || is_any_temp_variable_name(field_name)))
+);
 build_doc_module :: (
   fn(
     name : String,
@@ -2866,7 +2888,7 @@ build_doc_module :: (
     doc := doc_lookup.get(field_name.clone());
     // Skip empty-label fields (anonymous impl blocks) and compiler-internal
     // names.
-    if((field_name.len() == usize(0)) || field_name.starts_with(String.from("___")) || field_name.starts_with(String.from("__yo_")), {
+    if(is_compiler_internal_field_name(field_name.clone()), {
       i = (i + usize(1));
       continue;
     });
@@ -3594,6 +3616,7 @@ build_doc_module :: (
 });
 export(
   DocSections,
+  is_compiler_internal_field_name,
   TokenImplInfo,
   TraitBodyExtraction,
   extract_doc_sections,
