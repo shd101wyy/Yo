@@ -1,0 +1,24 @@
+// V6 task 1 (FORMAL_VERIFICATION.md): trait-contract INHERITANCE — an
+// impl method declaring NO contracts of its own inherits the trait
+// method's, registered onto its FuncVal so every ordinary consumer (the
+// runtime splice, the verify task) carries them unchanged. The proof
+// NEEDS the inheritance: the body `i` can only prove `result >= 0` under
+// the inherited `requires(i >= 0)` — without it the task refutes at
+// i = -1. The clause-less fn-type inline in the impl entry is the shape
+// the inheritance hook reads (the clause-carrying inline spelling trips
+// a pre-existing evaluator defect —
+// issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md).
+pragma(Pragma.Verify);
+
+NonNeg :: trait(
+  get : (
+    fn(self : Self, i : i32, requires(i >= i32(0)), ensures(result >= i32(0))) -> (result : i32)
+  )
+);
+
+impl(
+  i32,
+  NonNeg(
+    get : (fn(self : i32, i : i32) -> i32)(i)
+  )
+);

@@ -118,3 +118,31 @@ FuncVals alias. A first probe: compare the env frame IDENTITY
 (`env.frames` array identity) seen by the prelude `(~)` impl's trial
 before/after evaluating a trait-entry impl method with clauses — the
 frame the corrupted `self` is read from is the frame to stop sharing.
+
+## Update 2026-09-14 — confirming evidence from the V6 task 1 work
+
+Task 1 landed with the two-step spelling (named fn carrying the clauses,
+referenced from the impl entry), which evaluates clean — the defect is
+routed around, not fixed, and this issue stays OPEN.
+
+Two new data points for whoever fixes it:
+
+1. **The trigger is clauses visible in the fn-type side tables during
+   trait-entry evaluation, not the clause ASTs sitting in the impl's
+   fn-type syntax.** The first inheritance draft planted the TRAIT's
+   clauses under the impl fn-TYPE EXPRESSION id before the application
+   evaluated (hoping the re-key would carry them to the FuncVal). The
+   impl's fn-type itself was CLAUSE-LESS — and the corruption fired
+   identically (`Cannot unify incompatible types: "bool" and "fn(...)"`
+   anchored at the TRAIT's clause). The fn-type evaluation / splice
+   re-reads `get_func_requires_exprs(<fn-type-expr-id>)` and evaluates
+   whatever it finds there inside the trait-entry expected-type path.
+   Anything that writes those tables before a trait-entry application
+   re-triggers this.
+2. **A bare module-level call statement is evaluator-only** (codegen
+   collects only `:=` / `(x : T) =` / `x =` inits as module-level
+   initializers, `anonymous_module.yo`'s collection loop) — a hook
+   installed by a bare call works under `yo check` and is silently
+   DROPPED from compiled binaries. The `_name := (fn() -> bool)({...})();`
+   runtime-binding shape (the `_trait_checking_init` precedent) is the
+   form that survives both.

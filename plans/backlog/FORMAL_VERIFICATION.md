@@ -1277,6 +1277,54 @@ ghost collections are usable in `requires`/`ensures`.
 **Scope:** contracts across abstraction boundaries; refinement types
 become real; the stdlib starts carrying executable specifications.
 
+> **Status: TASK 1 LANDED 2026-09-14 (PR pending).** The durable
+> trait-method contract tables live in
+> `src/evaluator/values/type_trait_methods.yo`
+> (`register_trait_method_contracts`, keyed `${trait_id}::${label}`,
+> written from `_evaluate_trait_field` phase 4 — key on `TraitT`'s SIXTH
+> field `id`); the func-contract side tables are reached through
+> function-pointer hooks installed by `types/function.yo`'s
+> `_func_contract_hooks_init` binding. Two registration paths at
+> `_c3_eval_colon_pair` (impl.yo): VARIANCE
+> (`register_impl_variance_task`, contracts.yo) — a synthetic
+> `impl-variance@module:row:label` verify task whose body is one
+> `assert((Rt && …) ==> Ri)` / `assert((Ei && …) ==> Et)` per
+> obligation, the trait's requires assumed, the return label as ONE
+> EXTRA SYNTHETIC PARAM; and INHERITANCE
+> (`register_impl_inheritance_task`) — a clause-less impl method gets the
+> trait's clauses planted under its FuncVal id (write-only — the
+> evaluator never re-reads that id; dispatch call sites
+> `_callee_call_term` do) PLUS a synthetic `impl-inherits@…` task
+> proving its BODY against them (the runner binds the return label to
+> the walked body value, so the label is NOT a param there). Variance
+> skips an inherited pair by AST node-id identity (`_same_expr_ids` —
+> both implications would be reflexive). Fixtures:
+> `tests/spec/fixtures/valid/trait_variance.yo` (weakened requires +
+> strengthened ensures proves), `negative/trait_variance_false.yo`
+> (strengthened requires REFUTES at i = 0), `valid/trait_inherit.yo`
+> (the proof NEEDS the inherited requires); tests:
+> `tests/internal/verifier_trait_variance.test.yo` (3/3, real z3).
+>
+> Lessons that cost a driver build each (2026-09-14): (1) a BARE
+> module-level call statement is evaluator-only — codegen collects only
+> `:=` / `(x : T) =` / `x =` inits as module-level initializers, so a
+> hook installed by a bare call works under `yo check` and is silently
+> DROPPED from compiled binaries; the `_name := (fn() -> bool)({...})();`
+> runtime-binding shape survives both (`_trait_checking_init`
+> precedent). (2) A synthetic body's trailing unit must be the parser's
+> zero-arg `tuple()` call and its asserts need a BOUND `assert` — the
+> diagnostic predicate evaluation would die on `Variable "()" not found`
+> / `Variable "assert" not found`; bind `import("std/assert").assert`'s
+> FuncVal under the bare name in the pred env (the splice's
+> `_build_assert_callee` idiom). (3) Planting inherited clauses under the
+> impl's fn-TYPE EXPRESSION id re-triggers
+> `issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
+> (the fn-type evaluation and the splice re-read those tables by that
+> id) — plant under the FuncVal id instead, which nothing re-reads. The
+> fixtures use the two-step spelling (named fn + reference from the impl
+> entry); the inline clause-carrying spelling stays blocked by that
+> OPEN issue. Remaining for V6: tasks 2–6 below.
+
 Tasks:
 
 1. Trait-level contract semantics: an impl declaring contracts must
