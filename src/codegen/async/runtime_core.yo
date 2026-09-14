@@ -106,6 +106,18 @@ typedef struct __yo_waker_token_t {
   // Set by a foreign __yo_waker_release: the owner drops the token's reference
   // and frees the token when it drains the inbox.
   _Atomic int release_pending;
+  // OWNERSHIP. Two things can hold a token and they finish with it in either
+  // order, so neither may free it unilaterally:
+  //   * the waker HANDLE the user code holds, dropped by __yo_waker_release;
+  //   * the owner loop's INBOX, taken by a successful post and dropped by the
+  //     drain.
+  // A flag cannot express that. Before this counter, a foreign release set
+  // release_pending and then called __yo_waker_post(t), and the drain could
+  // observe the flag and free the token in between — so post dereferenced
+  // freed memory, which is what AddressSanitizer caught on 'test
+  // (macos-latest)' for run 34777537902
+  // (issues/fixed/a-waker-token-is-freed-while-back-on-the-inbox.md).
+  _Atomic int refs;
 } __yo_waker_token_t;
 
 typedef struct __yo_loop_t {
@@ -599,6 +611,8 @@ static void* __yo_waker_new(void* f) {
   t->xnext = NULL;
   atomic_init(&t->queued, 0);
   atomic_init(&t->release_pending, 0);
+  // One reference: the handle this call returns.
+  atomic_init(&t->refs, 1);
   atomic_fetch_add(&t->owner->live_wakers, 1);
   return (void*)t;
 }
@@ -619,8 +633,25 @@ static void __yo_waker_wake_local(__yo_io_future_t* f) {
   }
 }
 
+// Release one reference to a token; the last one out frees it. The token's
+// memory is plain malloc, so any thread may do the free — what may NOT happen
+// on a foreign thread is touching 'future' -- the non-atomic refcount, which is why
+// 'release_pending' still defers that one step to the owner's drain.
+static void __yo_waker_token_unref(__yo_waker_token_t* t) {
+  if (!t) {
+    return;
+  }
+  if (atomic_fetch_sub(&t->refs, 1) == 1) {
+    __yo_free(t);
+  }
+}
+
 // Hand a token to its owner loop and nudge that loop awake. The push is the
 // only shared write, and the CAS above it makes a repeated wake free.
+//
+// The caller must already hold a reference — every caller does, either the
+// handle (__yo_waker_wake, __yo_waker_release) or the inbox. Without that this
+// function would be racing a concurrent free of its own argument.
 //
 // INVARIANT, and it is not obvious from this file: __yo_io_notify MUST NOT be
 // called while holding owner->lock. The Linux backend's notify takes that same
@@ -637,6 +668,10 @@ static void __yo_waker_post(__yo_waker_token_t* t) {
     __yo_io_notify(owner);
     return;
   }
+  // The CAS won, so this call is the one that puts the token on the inbox:
+  // take the inbox's reference BEFORE linking it, so the drain always has a
+  // reference to drop and never frees a token a releaser is still inside.
+  atomic_fetch_add(&t->refs, 1);
   __yo_mutex_lock(&owner->lock);
   t->xnext = NULL;
   if (owner->xwake_tail) {
@@ -670,41 +705,21 @@ static void __yo_async_drain_xwakes(void) {
     if (t->future) {
       __yo_waker_wake_local(t->future);
     }
-    // ORDER MATTERS: decide this token's fate BEFORE making it re-postable.
-    // Clearing 'queued' first opened a window in which a foreign
-    // __yo_waker_release could set release_pending and CAS the token straight
-    // back onto THIS inbox, after which the free below left loop->xwake_head
-    // dangling and the next drain walked freed memory
-    // (issues/fixed/a-waker-token-is-freed-while-back-on-the-inbox.md).
-    //
-    // A release raised on a foreign thread is deferred to here so the park
-    // future's non-atomic refcount is only ever touched by its own loop.
-    if (atomic_load(&t->release_pending)) {
-      // Leave 'queued' at 1. A concurrent __yo_waker_post then CAS-fails and
-      // only notifies, so nothing can re-enter the node we are about to free.
-      if (t->future) {
-        __yo_decr_rc((void*)t->future);
-        t->future = NULL;
-      }
-      __yo_free(t);
-    } else {
-      atomic_store(&t->queued, 0);
-      // A release can also land between the load above and this store. It saw
-      // 'queued' still set, so it returned WITHOUT pushing, and this is now
-      // the only place left that can reclaim the token. Claim it with a CAS so
-      // that a wake which has since queued it wins instead and the next drain
-      // frees it — exactly one of the two paths runs.
-      if (atomic_load(&t->release_pending)) {
-        int expected_idle = 0;
-        if (atomic_compare_exchange_strong(&t->queued, &expected_idle, 1)) {
-          if (t->future) {
-            __yo_decr_rc((void*)t->future);
-            t->future = NULL;
-          }
-          __yo_free(t);
-        }
-      }
+    // A release raised on a foreign thread defers ONE step to here: the park
+    // future's refcount is non-atomic and belongs to this loop. The token
+    // itself is freed by whoever drops the last reference, which may be this
+    // drain or may be the releaser — see __yo_waker_token_unref.
+    if (atomic_load(&t->release_pending) && t->future) {
+      __yo_decr_rc((void*)t->future);
+      t->future = NULL;
     }
+    // Off the inbox: a later post may queue it again and will take its own
+    // reference. Clearing this BEFORE dropping the inbox reference is safe now
+    // in a way it was not before the refcount — a racing post can re-queue the
+    // token, but it cannot be looking at freed memory, because it holds the
+    // handle reference while it does so.
+    atomic_store(&t->queued, 0);
+    __yo_waker_token_unref(t);
     t = next;
   }
 }
@@ -747,23 +762,23 @@ static void __yo_waker_release(void* p) {
     atomic_fetch_sub(&owner->live_wakers, 1);
   }
   if (owner != __yo_loop_self()) {
-    // The park future's refcount belongs to the owner loop, so the drop is
-    // deferred to it rather than taken here. The owner frees the token too.
+    // The park future's refcount belongs to the owner loop, so that drop is
+    // deferred to its drain. Post so the owner actually looks at the token,
+    // then drop the HANDLE reference: this thread must not touch the token again
+    // after that, and does not.
     atomic_store(&t->release_pending, 1);
     __yo_waker_post(t);
+    __yo_waker_token_unref(t);
     return;
   }
-  if (atomic_load(&t->queued)) {
-    // Still on this loop's own inbox (a foreign wake landed before the local
-    // release): mark it and let the drain do both.
-    atomic_store(&t->release_pending, 1);
-    return;
-  }
+  // Local release. The future's refcount is ours to drop either way; what
+  // decides the token's lifetime is only whether the inbox still holds a
+  // reference, and the refcount answers that without inspecting 'queued'.
   if (t->future) {
     __yo_decr_rc((void*)t->future);
     t->future = NULL;
   }
-  __yo_free(t);
+  __yo_waker_token_unref(t);
 }
 
 // ============================================================================
