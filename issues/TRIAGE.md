@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 214 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 213 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -30,13 +30,13 @@ Three things are worth knowing before trusting any row.
 | CI/Release/Build | 13 | 0 |
 | Async / effects | 32 | 11 |
 | Codegen / emitted C | 24 | 5 |
-| Evaluator / types | 40 | 9 |
+| Evaluator / types | 39 | 8 |
 | Std library | 65 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 2 | 1 |
-| **Total** | **214** | **46** |
+| **Total** | **213** | **45** |
 
 ## Cross-cutting buckets
 
@@ -162,7 +162,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (40)
+### Evaluator / types (39)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -170,7 +170,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`anonymous-module-trial-swallows-a-top-level-derive.md`](./anonymous-module-trial-swallows-a-top-level-derive.md) | — | yes |
 | [`arraylist-private-ptr-read-across-module-boundaries.md`](./arraylist-private-ptr-read-across-module-boundaries.md) | OPEN | — |
 | [`assignment-to-call-expression-silently-accepted.md`](./assignment-to-call-expression-silently-accepted.md) | — | — |
-| [`associated-constant-in-a-type-position-resolves-to-zero.md`](./associated-constant-in-a-type-position-resolves-to-zero.md) | OPEN | yes |
 | [`blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md`](./blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md) | OPEN | — |
 | [`blanket-into-iter-is-not-an-intoiterator-impl.md`](./blanket-into-iter-is-not-an-intoiterator-impl.md) | OPEN | — |
 | [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) | — | — |

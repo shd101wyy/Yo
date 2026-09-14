@@ -197,7 +197,7 @@ committed anywhere.**
 An associated constant in a TYPE position — `-> Array(u8, T.BYTES)` — silently
 resolves to length **0** in the signature while specialized bodies emit the
 right widths, producing invalid C. Filed with a repro:
-`issues/associated-constant-in-a-type-position-resolves-to-zero.md`,
+`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`,
 `issues/repros/associated-constant-as-an-array-length-in-a-return-type.yo`.
 Design: `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`. **Step 1 (make
 it an error, not a 0) is small and worth doing on its own.**

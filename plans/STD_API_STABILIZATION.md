@@ -1783,7 +1783,7 @@ from the blocked call sites, in `plans/backlog/`:
 | waker-based `yield`/async `channel`/async `mutex`; `spawn_blocking` | a `Waker` + `park` primitive, so one task can be woken by another's progress | [`WAKER_BASED_SCHEDULING.md`](WAKER_BASED_SCHEDULING.md) |
 | `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `ctrl`/`data`/`size` private; `imm/*` internals | member visibility (`priv`, plus a path-prefix scope for the cross-module `std/` callers) | [`MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) |
 | `TcpListener.incoming` | a `Stream` trait — the async analogue of `Iterator`. **Needs no compiler change** | [`ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) |
-| the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
+| the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
 | `rand.thread_rng` | thread-local storage | [`THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) |
 
 `ErrorChain`/`root_cause` is a sixth blocker but is a compiler DEFECT rather
@@ -2684,7 +2684,7 @@ found while writing or measuring std, and each was silent.
    the specialized bodies emitted lengths 1 and 4; C caught it only because
    those are different types. It is now a diagnostic naming the limitation.
    The feature itself — a value channel in `substitute()` — stays open
-   (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`), and
+   (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`), and
    with it the collapse of `std/prelude.yo`'s ten byte-conversion blocks and
    byte conversions for `usize`/`isize`. `tests/array.test.yo` carries the
    rejection plus an over-rejection canary for every length form that must keep

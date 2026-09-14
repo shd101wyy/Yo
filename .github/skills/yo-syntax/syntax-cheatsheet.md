@@ -1257,7 +1257,7 @@ impl(
 **Do NOT read an associated constant from a TYPE position.** `-> Array(u8,
 T.BYTES)` silently resolves the length to **0** in the signature while
 specialized bodies emit the right widths, which produces invalid C
-(`issues/associated-constant-in-a-type-position-resolves-to-zero.md`,
+(`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`,
 `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`). A VALUE position is
 fine; a type position is not.
 
