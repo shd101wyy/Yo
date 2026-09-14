@@ -295,4 +295,4 @@ CLI 帮助文本和用户可见消息支持双语（英语 + 简体中文）：`
 
 ## 许可证
 
-[UIUC/NCSA Open Source License](../../LICENSE.md)
+[Apache License 2.0 with LLVM Exceptions](../../LICENSE.md)

@@ -76,3 +76,24 @@ $ yo test ./tests/internal --parallel 1   # 编译器自身的测试
 `.github/instructions/` 存放各领域的规则（C 代码生成、调试、测试、语言设计、语法）；
 `.github/skills/` 提供可复用的技能包。保持这些文档的准确本身就是有价值的贡献 —— 如果
 你在 Yo 上踩过坑并学到了什么，请把它写进去。
+
+## 贡献的许可
+
+Yo 采用 [Apache License 2.0 with LLVM Exceptions](../../LICENSE.md)
+（`Apache-2.0 WITH LLVM-exception`）授权。贡献同样以该许可证接受——提交 Pull
+Request 即表示你同意你的贡献可以在该许可证下分发。
+
+无需签署 CLA，你的贡献的著作权仍归你所有。取而代之的是「开发者原创声明」
+（Developer Certificate of Origin）签名：请在每个提交中加入 `Signed-off-by`
+一行，使用 `git commit -s` 即可自动添加。
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+这一行表示你撰写了该补丁，或以其他方式有权以本项目的许可证提交它——完整文本见
+<https://developercertificate.org/>。它的作用是让项目的来源仅凭 git 历史即可核
+查，从而使将来的许可证决定无需逐一联系每位贡献者。
+
+如果你在使用 AI Agent，请以你本人的名义签名：该声明关乎你提交这份工作的权利，
+而非由谁或由什么键入。
