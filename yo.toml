@@ -13,12 +13,14 @@
 name = "yo"
 version = "0.2.32"
 description = "The Yo programming language compiler, written in Yo"
-license = "MIT"
+# SPDX id for the University of Illinois/NCSA Open Source License in
+# LICENSE.md. This field said "MIT" until 2026-09-14, which was simply wrong:
+# the repository has never carried an MIT licence.
+license = "NCSA"
 
 [dependencies]
-# Pinned by REV, not by a semver range: the commit that compiles against the
-# current language is the head of `migrate-to-latest-yo`, which carries no
-# release tag. This is the exact pin the submodule held
-# (v0.0.4-9-ga46f700), so un-vendoring changes the resolution mechanism and
-# nothing about which source is compiled.
-markdown_yo = { git = "https://github.com/shd101wyy/markdown_yo", rev = "a46f7004bbf39ba8eb35692619e422b78026f6cb" }
+# A semver RANGE, as of markdown_yo v0.0.7. It was pinned by `rev` until that
+# release existed: the only commit that compiled against the current language
+# was the head of a migration branch, which carried no tag. That closes the
+# last deferred item of the build/dependency redesign (§8.7 of its handover).
+markdown_yo = { git = "https://github.com/shd101wyy/markdown_yo", version = "^0.0.7" }
