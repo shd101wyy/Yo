@@ -88,6 +88,52 @@ computations and determine which one fails to resolve, rather than to add a
 declaration for the missing symbol — a prototype for a body that does not exist
 under that name would only move the failure to link time.
 
+### `value_1500` is the UNRESOLVED `T`, not the payload
+
+Decisive measurement: `Option(AnyError).is_none()` and
+`Option(Dyn(ToString)).is_none()` — two different types — mangle to the
+**byte-identical** name
+
+```
+yo_id_17497239930646507321000000_rtparam0_enum_r8058c2_n121_value_1500_ret_bool
+```
+
+A key that does not distinguish two distinct types is not keying the payload at
+all. `1500` is the `impl(generic(T : Type), Option(T), …)` block's own `T`, left
+unresolved — the same shape `src/codegen/functions/declarations.yo:584` already
+documents for a different caller ("keys the callee's specialization on the
+UNRESOLVED `T` — `..._rtparam1_2193_...`, a name nothing ever declares"), and
+the reason `should_skip_function_codegen` drops the body: it is correctly
+skipping a hard-generic generation. The defect is that a CALL was emitted
+against it.
+
+### Four hypotheses, all measured and REFUTED
+
+Recorded so the next reader does not re-run them:
+
+| hypothesis | test | result |
+| --- | --- | --- |
+| `is_none`'s arm order (`.None` first binds no payload, so nothing forces `T`) | a user fn with the identical body and arm order | compiles — REFUTED |
+| a generic impl method over a `Dyn` payload, generally | `impl(generic(T : Type), Option(T), my_none : …)` called on `Option(Dyn(ToString))` | compiles — REFUTED |
+| method ORDER within the impl block (calling the second of two) | a two-method user impl mirroring `is_some`/`is_none`, calling the second | compiles — REFUTED |
+| a generic-context call interns the poisoned spec first, and the concrete `Dyn` call then reuses it | a generic `gen_use` calling the replica with `U` unresolved, then a `Dyn` call | compiles — REFUTED |
+| the block's leading `T`-returning method (`unwrap`) drags the block's `T` in | a replica block with `my_unwrap : fn(self) -> T` ahead of the bool method | compiles — REFUTED |
+| an asymmetric runtime/comptime `Call` pairing, the shape `declarations.yo` warns shares one func_id | read `std/prelude.yo` — `is_some`/`is_none` have symmetric `comptime_` twins and NO `Call` tuple | symmetric — REFUTED |
+
+Calling `is_none` behind a wrapper function taking `Option(Dyn(ToString))`
+reproduces too, so it is not a property of the call site's expression shape
+either.
+
+A faithful USER replica of `is_none` does not reproduce under any of these. Only
+the PRELUDE's `is_none` does, which is the sharpest remaining clue: whatever
+poisons the key is a property of how `std/prelude.yo`'s `Option(T)` impl is
+evaluated/cached (`src/module_manager.yo`'s cached prelude env is the obvious
+suspect, and "prelude frame cache was unsound — REMOVED" is prior art), not of
+the method's source shape.
+
+Also measured: resolving `Option(i32).is_none()` FIRST in the same program does
+not fix the later `Dyn` call, and `is_some`, in the same impl block, is clean.
+
 ## Why it had not been seen
 
 `Option(Dyn(Trait))` was close to unconstructible in practice: the only trait
