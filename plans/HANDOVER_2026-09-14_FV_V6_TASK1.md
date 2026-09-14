@@ -1,6 +1,21 @@
 # Handover — 2026-09-14, FORMAL_VERIFICATION campaign: V5 landed, V6 task 1 mid-flight
 
-**Status: LIVE INSTRUCTIONS.** Written for the agent taking over the
+**Status: SUPERSEDED — task 1 is COMPLETE.** Merged via #685 (develop
+`451b75a7f`, 2026-09-14, all 28 checks green); the authoritative record
+is the V6 task-1 banner in `plans/backlog/FORMAL_VERIFICATION.md`. The
+frontier described in §3 resolved as: (a) the hook install was a bare
+module-level call — evaluator-only, silently dropped by codegen (only
+`:=` / `(x : T) =` / `x =` inits are collected as module initializers) —
+fixed with the `_name := (fn() -> bool)({…})();` shape; (b) two latent
+bugs in the synthetic variance body (bare `"()"` atom + unbound
+`assert`) — fixed with the parser's `tuple()` call and a pred-env
+binding of `import("std/assert").assert`; (c) INHERITANCE was
+re-designed — planting under the impl fn-TYPE expr id re-triggers the
+filed env-sharing issue, so the landed form plants under the FuncVal id
+plus a synthetic `impl-inherits@…` body-proof task. Everything below is
+the frozen mid-flight state.
+
+**Was: LIVE INSTRUCTIONS.** Written for the agent taking over the
 `plans/backlog/FORMAL_VERIFICATION.md` campaign ("finish everything in the
 plan; document and fix surfaced bugs; no workarounds; stacked PRs fine").
 Everything below is measured or names the PR/run it came from; beliefs are
