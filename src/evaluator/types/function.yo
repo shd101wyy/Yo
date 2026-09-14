@@ -73,6 +73,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("../../token.yo");
+{ set_func_contract_hooks } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Macro side-tables (folded from former
 // `evaluator/types/macro_registry.yo`).
@@ -662,6 +663,27 @@ register_func_return_label :: (
 /// Return the labeled-return name for `func_id` (None when unlabeled).
 get_func_return_label :: (fn(func_id : String) -> Option(String))(
   g_func_return_label.get(func_id.clone())
+);
+/// Register all three contract artifacts under one id (V6 task 1: the
+/// trait-contract INHERITANCE writer, reached through the hook below).
+register_func_contracts_bundle :: (
+  fn(func_id : String, reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr), ret : Option(String)) -> unit
+)({
+  register_func_requires_exprs(func_id.clone(), reqs);
+  register_func_ensures_exprs(func_id.clone(), enss);
+  register_func_return_label(func_id.clone(), ret);
+});
+// V6 task 1: install the contract-table hooks into the trait-method
+// registry (values/type_trait_methods.yo) — impl.yo reads/writes the
+// func-contract tables through these pointers because it cannot import
+// this module (function.yo → trait_checking.yo → impl.yo). Module-level
+// call in definition order (the E0906 discipline; single statement, so
+// no IIFE needed).
+set_func_contract_hooks(
+  get_func_requires_exprs,
+  get_func_ensures_exprs,
+  get_func_return_label,
+  register_func_contracts_bundle
 );
 /// Append (label, trait, negated) entries for every required/negative trait
 /// carried on `ty` when it is a SomeT (the where clause mutated the param

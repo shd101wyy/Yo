@@ -47,6 +47,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
 { EvalValue } :: import("../../value.yo");
+{ AstExpr } :: import("../../expr.yo");
 /// Extract the unique `id` string from a `TypeValue` variant that
 /// carries one (Struct / EnumT / TraitT / SomeT). Returns
 /// the empty string for variants that don't — method lookup is
@@ -416,10 +417,142 @@ register_trait_default :: (fn(trait_id : String, label : String, value : EvalVal
 get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue))(
   _trait_method_defaults.get(trait_id + String.from("::") + label)
 );
+/// Trait-method CONTRACT clauses (V6 task 1, FORMAL_VERIFICATION.md):
+/// each trait-field fn-type's `requires(...)`/`ensures(...)` ASTs plus its
+/// return label, keyed `${trait_id}::${label}`. `TraitT` stores no AstExprs
+/// and the fn-type expression id is module-local and unstable across
+/// specializations, so this is the durable key — the same pattern as
+/// `_trait_method_defaults` above. Written at trait-field evaluation
+/// (types/trait.yo); read at impl registration (values/impl.yo) for the
+/// variance obligations (trait.requires ⇒ impl.requires,
+/// impl.ensures ⇒ trait.ensures) and for contract inheritance onto impl
+/// methods that declare none of their own.
+(_trait_method_requires : HashMap(String, ArrayList(AstExpr))) = HashMap(String, ArrayList(AstExpr)).new();
+(_trait_method_ensures : HashMap(String, ArrayList(AstExpr))) = HashMap(String, ArrayList(AstExpr)).new();
+(_trait_method_return_labels : HashMap(String, String)) = HashMap(String, String).new();
+register_trait_method_contracts :: (
+  fn(trait_id : String, label : String, reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr), ret : Option(String)) -> unit
+)({
+  key := (trait_id + String.from("::") + label);
+  _trait_method_requires.insert(key.clone(), reqs);
+  _trait_method_ensures.insert(key.clone(), enss);
+  match(
+    ret,
+    .Some(r) => {
+      _trait_method_return_labels.insert(key, r);
+    },
+    .None => ()
+  );
+});
+trait_method_requires :: (fn(trait_id : String, label : String) -> ArrayList(AstExpr))(
+  match(
+    _trait_method_requires.get(trait_id + String.from("::") + label),
+    .Some(xs) => xs.clone(),
+    .None => ArrayList(AstExpr).new()
+  )
+);
+trait_method_ensures :: (fn(trait_id : String, label : String) -> ArrayList(AstExpr))(
+  match(
+    _trait_method_ensures.get(trait_id + String.from("::") + label),
+    .Some(xs) => xs.clone(),
+    .None => ArrayList(AstExpr).new()
+  )
+);
+trait_method_return_label :: (fn(trait_id : String, label : String) -> Option(String))(
+  match(
+    _trait_method_return_labels.get(trait_id + String.from("::") + label),
+    .Some(r) => Option(String).Some(r.clone()),
+    .None => Option(String).None
+  )
+);
+trait_method_has_contracts :: (fn(trait_id : String, label : String) -> bool)(
+  match(
+    _trait_method_requires.get(trait_id + String.from("::") + label),
+    .Some(xs) => (xs.len() > usize(0)),
+    .None => false
+  ) ||
+    match(
+      _trait_method_ensures.get(trait_id + String.from("::") + label),
+      .Some(xs) => (xs.len() > usize(0)),
+      .None => false
+    )
+);
+/// V6 task 1: function-pointer hooks to the func-contract side tables in
+/// types/function.yo, routed via pointers to break the import cycle —
+/// function.yo pulls trait_checking.yo which pulls impl.yo, so neither
+/// impl.yo nor this module may import function.yo directly (the same
+/// pattern as impl.yo's set_register_trait_value_fn). Installed by
+/// function.yo's init block; before installation the readers return
+/// empty and the writer is a no-op.
+TraitContractReadFn :: (fn(id : String) -> ArrayList(AstExpr));
+TraitReturnLabelReadFn :: (fn(id : String) -> Option(String));
+TraitContractRegisterFn :: (
+  fn(id : String, reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr), ret : Option(String)) -> unit
+);
+(g_func_requires_read : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
+(g_func_ensures_read : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
+(g_func_return_label_read : Option(TraitReturnLabelReadFn)) = Option(TraitReturnLabelReadFn).None;
+(g_func_contract_register : Option(TraitContractRegisterFn)) = Option(TraitContractRegisterFn).None;
+set_func_contract_hooks :: (
+  fn(
+    r : TraitContractReadFn,
+    e : TraitContractReadFn,
+    l : TraitReturnLabelReadFn,
+    w : TraitContractRegisterFn
+  ) -> unit
+)({
+  g_func_requires_read = Option(TraitContractReadFn).Some(r);
+  g_func_ensures_read = Option(TraitContractReadFn).Some(e);
+  g_func_return_label_read = Option(TraitReturnLabelReadFn).Some(l);
+  g_func_contract_register = Option(TraitContractRegisterFn).Some(w);
+});
+hook_func_requires :: (fn(id : String) -> ArrayList(AstExpr))(
+  match(
+    g_func_requires_read,
+    .Some(f) => f(id.clone()),
+    .None => ArrayList(AstExpr).new()
+  )
+);
+hook_func_ensures :: (fn(id : String) -> ArrayList(AstExpr))(
+  match(
+    g_func_ensures_read,
+    .Some(f) => f(id.clone()),
+    .None => ArrayList(AstExpr).new()
+  )
+);
+hook_func_return_label :: (fn(id : String) -> Option(String))(
+  match(
+    g_func_return_label_read,
+    .Some(f) => f(id.clone()),
+    .None => Option(String).None
+  )
+);
+hook_register_func_contracts :: (
+  fn(id : String, reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr), ret : Option(String)) -> unit
+)(
+  match(
+    g_func_contract_register,
+    .Some(f) => {
+      f(id.clone(), reqs, enss, ret);
+      ()
+    },
+    .None => ()
+  )
+);
 export(
   MethodEntry,
   register_trait_default,
   get_trait_default,
+  register_trait_method_contracts,
+  trait_method_requires,
+  trait_method_ensures,
+  trait_method_return_label,
+  trait_method_has_contracts,
+  set_func_contract_hooks,
+  hook_func_requires,
+  hook_func_ensures,
+  hook_func_return_label,
+  hook_register_func_contracts,
   register_type_trait_method,
   note_inherent_method_site,
   get_type_trait_methods_for_type,

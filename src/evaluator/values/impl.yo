@@ -73,6 +73,7 @@ _(env : impl_dbg_env) :: import("std/env");
   type_id_or_empty,
   registration_owner
 } :: import("./type_trait_methods.yo");
+{ inherit_trait_contracts_for_impl_method, register_impl_variance_task } :: import("../builtins/contracts.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id } :: import("../../types/creators.yo");
@@ -2812,6 +2813,30 @@ _c3_eval_colon_pair :: (
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : st.env)),
     .None => Option(ExpectedTypeCtx).None
   );
+  // V6 task 1 (FORMAL_VERIFICATION.md): INHERIT the trait method's
+  // contracts onto this impl method (which declares none of its own)
+  // BEFORE the body application re-keys the fn-type expression id onto
+  // the FuncVal — the inherited clauses then ride every ordinary
+  // consumer unchanged (runtime splice, verify-task registration, later
+  // dispatch assumptions). `val_expr`'s callee is the `fn(...)` type
+  // expression — the same node the re-key reads.
+  match(
+    current_trait_ty,
+    .Some(__inh_tt) => {
+      match(
+        val_expr,
+        .FnCall(_, __inh_ftb, _, _, _) => {
+          inherit_trait_contracts_for_impl_method(
+            type_id_or_empty(__inh_tt),
+            method_name.clone(),
+            __inh_ftb
+          );
+        },
+        .Atom(_, _) => ()
+      );
+    },
+    .None => ()
+  );
   eval_val := evaluate_expression_raw(val_expr, st.env, ctx, exn);
   ctx.expected_type = saved2;
   match(
@@ -2951,6 +2976,35 @@ _c3_eval_colon_pair :: (
           );
         });
       });
+      // V6 task 1 (FORMAL_VERIFICATION.md): trait-contract VARIANCE —
+      // when both the trait method and this impl method carry contracts,
+      // register the synthetic obligations (trait.requires ⇒
+      // impl.requires, impl.ensures ⇒ trait.ensures). An impl that
+      // INHERITED the trait's contracts makes both implications
+      // reflexive — they register and prove trivially, so no
+      // own/inherited disambiguation is needed here.
+      match(
+        current_trait_ty,
+        .Some(__var_tt) => {
+          match(
+            method_val,
+            .FuncVal(__var_fvd, _) => {
+              register_impl_variance_task(
+                type_id_or_empty(__var_tt),
+                method_name.clone(),
+                __var_fvd.*.func_id.clone(),
+                name_tok,
+                fi.ty,
+                st.env,
+                ctx,
+                exn
+              );
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
     }
   );
 });
