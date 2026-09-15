@@ -1156,7 +1156,12 @@ jobs:
   # run (for code PRs) and fail fast in the artifact download when their C
   # never arrived.
   test-native:
-    name: test (${{ matrix.os }})
+    # The shard suffix appears ONLY on sharded legs, so the two REQUIRED
+    # status contexts — `test (macos-latest)` and `test (windows-latest)` —
+    # keep their exact names and the ruleset needs no change. Sharding a
+    # REQUIRED leg would rename its context and must land in ruleset
+    # 13548862 in the same commit (see compiler-internal-tests' note).
+    name: test (${{ matrix.os }})${{ matrix.shards && format(' shard {0}/{1}', matrix.shard, matrix.shards) || '' }}
     needs: [changes, suite-cross-emit]
     if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
     runs-on: ${{ matrix.os }}
@@ -1175,17 +1180,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # UNSHARDED — these two are REQUIRED status checks; their names are
+          # matched by string in the ruleset and must not change.
           - os: macos-latest
             target: macos-arm64
-          - os: macos-26-intel
-            target: macos-x64
           - os: windows-latest
             target: windows-x64
+          # SHARDED 4-way. These two are the long legs (macos-26-intel ~80 min,
+          # windows-11-arm ~66 min) and windows-11-arm is the critical path:
+          # suite-candidate 36m -> cross-emit 15m -> this 66m = 118m wall clock
+          # (measured, run 34932915472). Neither is a required context, so the
+          # rename costs no ruleset change. They CONSUME a cross-emitted
+          # artifact and rebuild nothing, so shards are cheap — the same
+          # argument that justified sharding compiler-internal-tests.
+          - { os: macos-26-intel, target: macos-x64, shard: 0, shards: 4 }
+          - { os: macos-26-intel, target: macos-x64, shard: 1, shards: 4 }
+          - { os: macos-26-intel, target: macos-x64, shard: 2, shards: 4 }
+          - { os: macos-26-intel, target: macos-x64, shard: 3, shards: 4 }
           # windows-11-arm doubles as the strictest C-conformance runner: it
           # installs clang 22 (no pre-installed LLVM, unlike windows-latest's
           # 20), where -Wincompatible-pointer-types is a default ERROR.
-          - os: windows-11-arm
-            target: windows-arm64
+          - { os: windows-11-arm, target: windows-arm64, shard: 0, shards: 4 }
+          - { os: windows-11-arm, target: windows-arm64, shard: 1, shards: 4 }
+          - { os: windows-11-arm, target: windows-arm64, shard: 2, shards: 4 }
+          - { os: windows-11-arm, target: windows-arm64, shard: 3, shards: 4 }
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1271,7 +1289,14 @@ jobs:
             Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
             *) TEST_SAN_FLAG="" ;;
           esac
-          "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+          # `--shard i/n` stripes the SORTED file list, so the shards partition
+          # the corpus with no file dropped and no hardcoded map to rot. Empty
+          # for the unsharded (required-context) legs.
+          SHARD_FLAG=""
+          if [ -n "${{ matrix.shards }}" ]; then
+            SHARD_FLAG="--shard ${{ matrix.shard }}/${{ matrix.shards }}"
+          fi
+          "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG $SHARD_FLAG
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
