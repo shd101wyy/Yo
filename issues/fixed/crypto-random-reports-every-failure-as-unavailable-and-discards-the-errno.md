@@ -5,6 +5,9 @@ row (a per-enum sweep of `std/`: 53 enums, 311 variants, scoped to construction 
 inside the declaring module). **Status**: OPEN. Measured against `develop`
 (`8d471c7df`) with `yo` 0.2.24 and `YO_STD=./std`.
 
+**FIXED 2026-09-15** — `.Other` wired at all three platform failure sites. See
+"Fix applied" at the end.
+
 **Class**: api-lie plus diagnostic loss. Same shape as C33 (`HttpError.Timeout` /
 `TooManyRedirects` / `ResponseTooLarge`) and C34
 (`issues/fixed/json-number-parser-accepts-invalid-and-any-garbage.md`), both of
@@ -191,3 +194,46 @@ existing arm reachable. The **message text** for a non-`EINTR` Linux failure and
 Windows failure changes, which is a release-note line ("crypto failures now report
 the underlying OS error instead of `platform random unavailable`") but not an API
 break.
+
+---
+
+## Fix applied (2026-09-15)
+
+`.Other` now has a producer on **all three** platform paths, not just the Linux
+one the Fix section spelled out — each failure site has a real code available
+and was discarding it:
+
+| site | was | now carries |
+| --- | --- | --- |
+| Linux `getrandom`, non-`EINTR` | `.Unavailable` | `` `getrandom: ${IoError.from_errno(e_now)} (errno ${e_now})` `` |
+| WASM/WASI `getentropy` | `.Unavailable` | the same, from `__yo_errno()` after the failed call |
+| Windows `BCryptGenRandom` | `.Unavailable` | `` `BCryptGenRandom failed: NTSTATUS ${r}` `` |
+
+The Windows row is deliberately different: `BCryptGenRandom` returns an
+**NTSTATUS, not an errno**, so routing it through `IoError.from_errno` would
+have rendered a confidently wrong message — an `EACCES` where the real status
+was `STATUS_INVALID_HANDLE`. Carrying the raw status is less pretty and is
+correct.
+
+`.Unavailable` is kept for the case that genuinely means it, so the variant is
+not now dead in the other direction.
+
+No new table: `IoError.from_errno` (`std/sys/errors.yo:103`) already maps errno
+to a named variant and renders it. No import cycle — `std/sys/errors.yo` pulls
+only `../string`, `../fmt`, `../error` and `../libc/errno`.
+
+## Regression test (added)
+
+`tests/crypto/random.test.yo` — "CryptoError renders both variants, and
+`.Other` now has a producer". It pins the message SHAPE both variants produce;
+the file previously imported `CryptoError` and asserted nothing about it.
+
+**The untestable half is deliberately left untested.** Forcing a real
+`getrandom` / `getentropy` / `BCryptGenRandom` failure needs syscall injection
+the harness does not have, and this doc's own Regression test section says
+plainly: *do not add a test that pretends to*. A test that constructed the
+error by hand and called it coverage of the failure path would assert nothing
+about whether the throw sites are wired — which is the entire fix. What proves
+they are wired is that the code no longer contains a `.Unavailable` throw on a
+path with an error code in hand, and `check ./std` compiles the new
+`IoError.from_errno` calls.

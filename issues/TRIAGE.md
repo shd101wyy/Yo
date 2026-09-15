@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 205 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 204 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 32 | 11 |
 | Codegen / emitted C | 22 | 4 |
 | Evaluator / types | 39 | 8 |
-| Std library | 57 | 16 |
+| Std library | 56 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 4 | 1 |
-| **Total** | **205** | **44** |
+| **Total** | **204** | **44** |
 
 ## Cross-cutting buckets
 
@@ -247,7 +247,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (57)
+### Std library (56)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -256,7 +256,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md`](./cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md) | OPEN | — |
 | [`cli-repeated-option-yields-the-first-value-and-the-rest-are-unreachable.md`](./cli-repeated-option-yields-the-first-value-and-the-rest-are-unreachable.md) | OPEN | — |
 | [`cli-required-arg-field-is-declared-but-never-enforced.md`](./cli-required-arg-field-is-declared-but-never-enforced.md) | OPEN | — |
-| [`crypto-random-reports-every-failure-as-unavailable-and-discards-the-errno.md`](./crypto-random-reports-every-failure-as-unavailable-and-discards-the-errno.md) | OPEN | — |
 | [`empty-path-redirect-location-drops-the-base-paths-last-segment.md`](./empty-path-redirect-location-drops-the-base-paths-last-segment.md) | — | — |
 | [`error-source-result-cannot-be-held-as-anyerror.md`](./error-source-result-cannot-be-held-as-anyerror.md) | OPEN — blocks `ErrorChain` / `root_cause` | yes |
 | [`file-from-fd-metadata-stats-the-current-directory.md`](./file-from-fd-metadata-stats-the-current-directory.md) | OPEN | — |
