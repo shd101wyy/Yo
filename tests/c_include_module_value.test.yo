@@ -1,0 +1,75 @@
+//! `c_include(...)` and `extern(...)` evaluate to a MODULE VALUE
+//! (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md): the same source-namespace struct
+//! an `import(...)` yields. Their names enter scope only through a binding —
+//! qualified (`c.fputs`), selective and renamed (`{ strlen : c_strlen } :: …`),
+//! or the glob `{ ... } :: c_include(...)`, which is what a bare
+//! statement-position `c_include(...)` desugars to at parse time.
+//!
+//! Before this a `c_include` splatted its names straight into scope, which
+//! bypassed the no-shadowing rule (a Yo `abs` was silently replaced by
+//! `<stdlib.h>`'s), and a collision had no resolution (`std/libc/sys/stat.yo`
+//! still carries a commented-out `struct_stat` for exactly that reason).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+// ── Value position: the module is bound and its members are reached
+//    through it — a function, a global, an opaque type.
+c :: c_include(
+  "<stdio.h>",
+  FILE : Type,
+  stdout : *FILE,
+  fputs : (fn(s : *char, stream : *FILE) -> int),
+  fflush : (fn(stream : ?*FILE) -> int)
+);
+test("a bound c_include module value: qualified call and qualified global", {
+  rc := unsafe(c.fputs((*char)("c_include module value: qualified\n"), c.stdout));
+  assert(rc >= int(0), "fputs through the module value wrote to the module value's stdout");
+  assert(unsafe(c.fflush(.Some(c.stdout))) == int(0), "fflush through the module value");
+});
+test("a qualified opaque type names the same C type", {
+  (stream : *c.FILE) = c.stdout;
+  rc := unsafe(c.fputs((*char)("typed through c.FILE\n"), stream));
+  assert(rc >= int(0), "a value typed through the qualified type is the C stream");
+});
+// ── Selective import with a RENAMED function: the C symbol is `strlen`,
+//    the Yo name is `c_strlen` (the documented destructuring rename).
+{ strlen : c_strlen } :: c_include("<string.h>", strlen : (fn(s : *char) -> usize));
+test("a renamed extern function calls the C symbol", {
+  assert(unsafe(c_strlen((*char)("hello"))) == usize(5), "strlen ran under the Yo name c_strlen");
+});
+// ── A renamed GLOBAL: a global's C name lived only in its binding name, so
+//    the destructurer records the alias and codegen emits `M_PI`, not `c_pi`.
+{ M_PI : c_pi } :: c_include("<math.h>", M_PI : f64);
+test("a renamed extern global reads the C symbol", {
+  assert((c_pi > f64(3.14)) && (c_pi < f64(3.15)), "c_pi is <math.h>'s M_PI");
+});
+// ── A qualified GLOBAL read: no variable carries `M_E`; the read resolves
+//    through the module value by name and declared type.
+m :: c_include("<math.h>", M_PI : f64, M_E : f64);
+test("a qualified extern global reads the C symbol", {
+  assert((m.M_E > f64(2.71)) && (m.M_E < f64(2.72)), "m.M_E is <math.h>'s M_E");
+});
+// ── The glob: every declared name, under its own name.
+{ ... } :: c_include("<stdlib.h>", abs : (fn(x : int) -> int));
+test("the glob destructure binds every declared name", {
+  assert(unsafe(abs(int(-3))) == int(3), "abs came in through the glob");
+});
+// ── `extern(...)` is a module value too.
+rt :: extern("Yo", __yo_thread_self : (fn() -> usize));
+test("an extern module value is called through its name", {
+  assert(rt.__yo_thread_self() == rt.__yo_thread_self(), "the same symbol both times");
+});
+// ── Definition order: a `c_include` member — here under a renamed binding —
+//    is forward-referenceable like an `extern` member: the statement is a
+//    pending definition whose members are the names the pattern BINDS.
+strlen_via_forward_c_include :: (fn() -> usize)(unsafe(c_strlen_below((*char)("four"))));
+{ strlen : c_strlen_below } :: c_include("<string.h>", strlen : (fn(s : *char) -> usize));
+test("a c_include member declared below its caller is forward-referenceable", {
+  assert(strlen_via_forward_c_include() == usize(4), "the body above resolved the member bound below");
+});
+// ── A bare statement inside a block is that block's glob: the name is bound
+//    in the block, and only there (`rt` above bound no bare name, so this
+//    does not shadow anything).
+test("a bare extern statement inside a block binds into that block", {
+  extern("Yo", __yo_thread_self : (fn() -> usize));
+  assert(__yo_thread_self() == rt.__yo_thread_self(), "the block-scoped binding is the same symbol");
+});
