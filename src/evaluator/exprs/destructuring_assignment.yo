@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
   register_extern_c_global_alias
 } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type } :: import("../../types/guards.yo");
+{ is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -166,6 +166,27 @@ _record_extern_c_alias :: (fn(rhs_type : TypeValue, label : String, var_name : S
     _ => ()
   );
 });
+/// True when a `c_include` module field is an ADOPTED type — `Name : Type`
+/// where `Name` already names a Yo `struct`/`enum` in scope, meaning "this Yo
+/// type IS the C type of that name" (c_include.yo, `_adoptable_type_binding`;
+/// issues/fixed/c-include-cannot-express-a-by-value-c-struct.md). The field's
+/// value is that existing type itself, so destructuring it under its own name
+/// binds nothing: the binding it would create is the one that already exists,
+/// and re-creating it is exactly the shadowing the rule rejects.
+_is_adopted_extern_c_field :: (fn(rhs_type : TypeValue, fval_opt : Option(EvalValue)) -> bool)(
+  match(
+    rhs_type,
+    .Struct({ id : sid, is_source_namespace : sns }) => (
+      (sns && is_extern_c_module_id(sid.clone())) &&
+        match(
+          fval_opt,
+          .Some(fv) => match(fv, .TypeVal(t) => get_adopted_extern_c_type(t).is_some(), _ => false),
+          .None => false
+        )
+    ),
+    _ => false
+  )
+);
 /// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
 /// Returns `.None` when not found.
 _find_field_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({
@@ -338,8 +359,9 @@ handle_member_destructuring :: (
               )
             );
           });
-          _reject_shadowing(env, flab.clone(), ast_expr_token(lhs_field), exn);
-          {
+          // An adopted C type is already bound under this name — leave it.
+          if(!_is_adopted_extern_c_field(rhs_type, fval_opt), {
+            _reject_shadowing(env, flab.clone(), ast_expr_token(lhs_field), exn);
             add_variable_to_env(
               env,
               flab.clone(),
@@ -354,7 +376,7 @@ handle_member_destructuring :: (
               // is_implicit
               ast_expr_token(lhs_field)
             );
-          };
+          });
         });
         j = (j + usize(1));
       });
@@ -548,30 +570,35 @@ handle_member_destructuring :: (
               )
             );
           });
-          _reject_shadowing(env, var_name.clone(), ast_expr_token(var_tok_expr), exn);
-          _record_extern_c_alias(rhs_type, rhs_field_label.clone(), var_name.clone(), rhs_field_type);
-          added_var_opt := add_variable_to_env(
-            env,
-            var_name.clone(),
-            rhs_field_type,
-            match(field_value_opt, .Some(fv) => Option(EvalValue).Some(clone_value(fv, true)), .None => Option(EvalValue).None),
-            is_compile_time_only,
-            false,
-            // is_reassignable
-            false,
-            // is_owning_the_rc_value (stub)
-            false,
-            // is_implicit
-            ast_expr_token(var_tok_expr)
-          );
-          // Patch is_created_from_destructuring_atom_variable.
-          match(
-            added_var_opt,
-            .Some(added_var) => {
-              added_var.is_created_from_destructuring_atom_variable = is_destructuring_atom_variable;
-            },
-            .None => ()
-          );
+          // An adopted C type selected under its own name is already bound —
+          // leave it; under a NEW name it is an ordinary alias of the type.
+          adopted_in_place := _is_adopted_extern_c_field(rhs_type, field_value_opt) && (var_name == rhs_field_label);
+          if(!adopted_in_place, {
+            _reject_shadowing(env, var_name.clone(), ast_expr_token(var_tok_expr), exn);
+            _record_extern_c_alias(rhs_type, rhs_field_label.clone(), var_name.clone(), rhs_field_type);
+            added_var_opt := add_variable_to_env(
+              env,
+              var_name.clone(),
+              rhs_field_type,
+              match(field_value_opt, .Some(fv) => Option(EvalValue).Some(clone_value(fv, true)), .None => Option(EvalValue).None),
+              is_compile_time_only,
+              false,
+              // is_reassignable
+              false,
+              // is_owning_the_rc_value (stub)
+              false,
+              // is_implicit
+              ast_expr_token(var_tok_expr)
+            );
+            // Patch is_created_from_destructuring_atom_variable.
+            match(
+              added_var_opt,
+              .Some(added_var) => {
+                added_var.is_created_from_destructuring_atom_variable = is_destructuring_atom_variable;
+              },
+              .None => ()
+            );
+          });
           // Record ExprInfo on the lhs field.
           lf_info := new_expr_info(env, rhs_field_type);
           lf_info.value = field_value_opt;

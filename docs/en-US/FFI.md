@@ -95,4 +95,6 @@ fcntl :: import("std/libc/fcntl");   // fcntl.open, fcntl.O_RDONLY
   cannot be declared as a type; pass such objects as `*(void)`.
 - Adopting a Yo struct as a C struct (`Point : Type` where `Point` is already a
   Yo `struct`) lowers the Yo type to the C name and emits no definition of its
-  own; the header's definition is the layout.
+  own; the header's definition is the layout. Such a field is the existing
+  type itself, so the glob leaves the existing `Point` binding in place rather
+  than re-binding it (which the no-shadowing rule would reject).

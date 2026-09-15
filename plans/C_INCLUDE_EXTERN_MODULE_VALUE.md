@@ -118,7 +118,12 @@ the named / renamed / positional field — now run the same check as
 `binding.yo`: a name visible in ANY frame is a hard error
 (`Variable "x" is already defined here (variable shadowing is not allowed)`),
 with the `__yo_self` exemption. This closes the hole for every RHS kind, not
-only extern modules. Any `std/`/`src/` file that re-destructured a name it
+only extern modules. One field kind binds nothing: an ADOPTED type
+(`Point : Type` where `Point` already names a Yo struct — the by-value C
+struct feature, `tests/c_include_struct_by_value.test.yo`). Its value IS the
+existing type, so the glob (and a selection under the same name) leaves the
+existing binding in place instead of re-creating it; only a selection under
+a NEW name (`{ Point : CPoint }`) binds. Any `std/`/`src/` file that re-destructured a name it
 already had in scope is corrected in the same PR (measured with the
 tree-built compiler; see §5).
 
