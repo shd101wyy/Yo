@@ -1,0 +1,13 @@
+// V6 task 3 hermetic twin of valid/refine_nonzero.yo: the SAME refine()
+// annotations in a file WITHOUT a verify pragma — plain runtime mode. The
+// module must evaluate unchanged (the annotation erases to i32; the
+// division computes) and register no verify tasks. The module-level
+// `:=` + assert evaluate during the loader's module walk.
+{ assert } :: import("std/assert");
+
+non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+
+safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / denom);
+
+quotient := safe_div(i32(10), i32(2));
+assert(quotient == i32(5), "the erased denominator computes: 10/2 == 5");

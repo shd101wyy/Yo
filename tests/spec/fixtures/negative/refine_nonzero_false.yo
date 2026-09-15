@@ -1,0 +1,13 @@
+// The deliberately-wrong twin of valid/refine_nonzero.yo: `caller_bad`
+// passes an UNCONSTRAINED `d` where the callee demands
+// `refine(i32, non_zero)` — the call-site `refine#1` obligation (the
+// predicate inlined over the argument: d != 0) must REFUTE with d = 0.
+// The callee itself still verifies (its entry ASSUME is sound — one bad
+// caller does not poison the callee, the modular rule).
+pragma(Pragma.Verify);
+
+non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+
+safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / denom);
+
+caller_bad :: (fn(d : i32) -> (r : i32))(safe_div(i32(7), d));
