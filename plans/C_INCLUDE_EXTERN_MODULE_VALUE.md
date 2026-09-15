@@ -184,6 +184,26 @@ ordered form never was.
 - Existing: `tests/extern_unsafe_wrap.test.yo` (bare form, forward reference,
   two externs of one signature), `tests/c_include_struct_by_value.test.yo`
   (adoption), `tests/safe_code_structural_gates.test.yo` (privilege gate).
+- `tests/expected_error_keeps_prelude_env_clean.test.yo`: the no-shadowing
+  rule's first catch outside its own scope — a failing typed binding inside
+  `comptime_expect_error` leaked the entry module's frame into the cached
+  prelude env, so every module loaded afterwards saw the entry's bindings
+  (`issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md`).
 - `yo check ./src` + `./std` with the tree-built compiler, the fast language
   suite, and the bootstrap fixpoint (the desugar allocates AST ids, so
   emission is identical MODULO `yo_id_N` renumbering).
+
+## 6. Measured (2026-09-15)
+
+- Seed v0.2.33 `check ./src`: 275/275. Tree-built `check ./std` 175/175,
+  `check ./src` 275/275.
+- Tree defects the rule exposed and this PR fixes: duplicate imports in
+  `std/fmt/spec.yo`, `std/fmt/format.yo`, `std/url/index.yo`, `std/net/addr.yo`,
+  `std/collections/hash_set.yo`, `std/collections/ordered_map.yo`,
+  `tests/internal/parser.test.yo`; a libc `stdout`/`stderr` import silently
+  shadowed by `std/io/stdio`'s in `tests/io/async_traits.test.yo`; three local
+  `extern("Yo", __yo_ptr_eq …)` re-declarations of a prelude symbol
+  (`std/string/string.yo`, `src/env.yo`, `src/expr_info.yo`); and the
+  `comptime_expect_error` env leak above.
+- cli-diff scorecard: PASS 134; the seven goldens that hash the bundled
+  `yo-syntax` cheatsheet re-recorded (only that path moved).
