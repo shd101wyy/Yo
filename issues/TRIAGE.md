@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 208 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 206 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 32 | 11 |
 | Codegen / emitted C | 23 | 4 |
 | Evaluator / types | 39 | 8 |
-| Std library | 59 | 16 |
+| Std library | 57 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 4 | 1 |
-| **Total** | **208** | **44** |
+| **Total** | **206** | **44** |
 
 ## Cross-cutting buckets
 
@@ -230,7 +230,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (59)
+### Std library (57)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -289,10 +289,8 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`thread-safety-phase-p-never-landed-but-plan-says-complete.md`](./thread-safety-phase-p-never-landed-but-plan-says-complete.md) | Complete | yes |
 | [`tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md`](./tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md) | PARTIALLY FIXED 2026-09-05 — items 1 (`TlsErr | — |
 | [`url-origin-drops-userinfo-so-redirect-resolution-loses-credentials.md`](./url-origin-drops-userinfo-so-redirect-resolution-loses-credentials.md) | — | — |
-| [`url-parse-accepts-any-byte-in-the-scheme.md`](./url-parse-accepts-any-byte-in-the-scheme.md) | — | — |
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | — | — |
-| [`writer-write-padded-measures-bytes-but-pads-in-runes.md`](./writer-write-padded-measures-bytes-but-pads-in-runes.md) | OPEN | — |
 
 ### Tooling (fmt/doc/lsp) (16)
 
@@ -311,7 +309,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`test-runner-std-path-shadowed-by-binary-tree-std.md`](./test-runner-std-path-shadowed-by-binary-tree-std.md) | — | — |
 | [`user-facing-async-restrictions-reported-as-internal-compiler-error.md`](./user-facing-async-restrictions-reported-as-internal-compiler-error.md) | OPEN | — |
 | [`yo-doc-document-private-flag-is-a-no-op.md`](./yo-doc-document-private-flag-is-a-no-op.md) | OPEN — found 2026-09-14 while fixing | — |
-| [`yo-doc-renders-std-prelude-as-an-empty-module.md`](./yo-doc-renders-std-prelude-as-an-empty-module.md) | OPEN | — |
+| [`yo-doc-renders-std-prelude-as-an-empty-module.md`](./yo-doc-renders-std-prelude-as-an-empty-module.md) | — | — |
 | [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | open | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | — | — |
 

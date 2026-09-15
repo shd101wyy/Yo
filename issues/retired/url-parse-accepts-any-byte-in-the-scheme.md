@@ -2,7 +2,26 @@
 
 ## Status
 
-**OPEN** — found 2026-09-04 while verifying the redirect-resolution defects
+**RETIRED 2026-09-15 — DUPLICATE, and the defect is FIXED.** The same
+tautological guard was filed and fixed as
+`issues/fixed/url-scheme-character-guard-is-tautological-so-any-byte-passes.md`,
+which is the record. This filing was never closed.
+
+Verified against a tree-built compiler, using this doc's own inputs:
+
+```
+foo bar!baz:qux/x     -> REJECTED
+a/b:c                 -> REJECTED
+http://example.com/x  -> ACCEPTED scheme="http" path="/x"      (canary)
+h+t-t.p1://x          -> ACCEPTED scheme="h+t-t.p1"            (full RFC 3986 charset)
+```
+
+The two acceptance rows matter: a guard that rejected everything would satisfy
+the first two and be just as wrong. `std/url/index.yo` now tests `ch` rather
+than re-testing `first`, and the API returns `Result` rather than throwing, so
+this doc's reproducer no longer even type-checks as written.
+
+**Was: OPEN** — found 2026-09-04 while verifying the redirect-resolution defects
 during the std-API audit re-measurement of the `url` row. **Severity:
 wrong-value** (`scheme()` returns text that is not a scheme, and strings that
 are not URIs parse as URIs). Reproduced at runtime with v0.2.24.
