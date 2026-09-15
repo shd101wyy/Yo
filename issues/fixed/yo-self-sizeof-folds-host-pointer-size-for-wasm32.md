@@ -45,7 +45,7 @@ the compile and test paths.
 ## Class note
 
 This is the second member of the cross-emit-host-constants family
-(`issues/yo-self-cross-emit-host-constants.md` fixed
+(`issues/fixed/yo-self-cross-emit-host-constants.md` fixed
 `platform`/`arch`/`__yo_pointer_size_bits`; this one is the `sizeof` folding
 global). Anything else keyed off a "default 64" global should be audited when
 a new target-width divergence appears: `grep -rn "u32(64)" yo-self/types/`.

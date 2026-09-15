@@ -1,0 +1,13 @@
+{ bench } :: import("std/testing/bench");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  // A real benchmark first, so the case cannot pass by failing early.
+  ok := bench(`ok`, u64(4), () => ());
+  println(`iters=${ok.iterations} min<=max=${ok.min_ns <= ok.max_ns}`);
+  // Zero iterations measures nothing. This used to hand back
+  // min_ns = i64::MAX and max_ns = 0 -- a BenchResult violating its own
+  // min_ns <= max_ns invariant, with the raw sentinel printed by to_string().
+  _bad := bench(`zero`, u64(0), () => ());
+  println(`unreachable`);
+});
+export(main);

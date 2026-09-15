@@ -11,7 +11,7 @@ Yo has three ways to parameterize a member over a type, and two of them work:
 | --- | --- | --- |
 | associated TYPE in a type position (`-> T.Unsigned`) | **works** | `std/prelude.yo`'s `UnsignedCounterpart`; probe 2026-09-10 |
 | associated CONSTANT in a value position (`n >= T.BITS`) | **works** | `std/prelude.yo`'s six shift methods, one blanket impl |
-| associated CONSTANT in a TYPE position (`-> Array(u8, T.BYTES)`) | **broken — silently resolves to 0** | `issues/associated-constant-in-a-type-position-resolves-to-zero.md` |
+| associated CONSTANT in a TYPE position (`-> Array(u8, T.BYTES)`) | **broken — silently resolves to 0** | `issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md` |
 
 The third is this document's subject. It is the same gap recorded from the
 `forall` side in `issues/retired/yo-self-stub-inventory.md:1782`:

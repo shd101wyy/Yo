@@ -1,7 +1,7 @@
 { assert } :: import("std/assert");
 { rune, String } :: import("std/string");
 html :: import("std/encoding/html");
-{ from_code_point } :: import("std/encoding/html");
+{ from_code_point, is_valid_entity_code } :: import("std/encoding/html");
 test("named entities decode", {
   assert(html.decode(String.from("a &amp; b")) == `a & b`, "amp");
   assert(html.decode(String.from("&lt;p&gt;")) == `<p>`, "lt/gt");
@@ -45,6 +45,51 @@ test("malformed numeric entities stay literal", {
 });
 test("invalid code points keep the original entity text", {
   assert(html.decode(String.from("&#xD800;")) == `&#xD800;`, "surrogate kept literal");
+});
+test("is_valid_entity_code rejects negative code points", {
+  // A negative is not a code point at all. The predicate is EXPORTED, so a
+  // caller validating its own input is the case that matters -- independent of
+  // whether `decode` happens to contain the damage.
+  //
+  // -1 and -2 were already rejected, but only by ACCIDENT: the noncharacter arm
+  // masks with 0xFFFF, which catches exactly those two. Every other negative
+  // fell through to `true`. Both are asserted so the accidental path cannot be
+  // mistaken for coverage of the real one.
+  assert(!html.is_valid_entity_code(i32(-65536)), "-65536 is not a code point");
+  assert(!html.is_valid_entity_code(i32(-1)), "-1 is not a code point");
+  assert(!html.is_valid_entity_code(i32(-2)), "-2 is not a code point");
+  assert(!html.is_valid_entity_code(i32(-1114112)), "-0x110000 is not a code point");
+  // The valid neighbours still answer true, so the new first arm cannot be
+  // rejecting everything.
+  assert(html.is_valid_entity_code(i32(65)), "U+0041 is valid");
+  // U+10FFFD, NOT U+10FFFF: the last two code points of every plane are
+  // Unicode NONCHARACTERS, so `0x10FFFF & 0xFFFF == 0xFFFF` is correctly
+  // rejected by the noncharacter arm. Picking the true maximum as the
+  // "largest valid" case asserts the wrong thing.
+  assert(html.is_valid_entity_code(i32(1114109)), "U+10FFFD is valid");
+  assert(!html.is_valid_entity_code(i32(1114111)), "U+10FFFF is a noncharacter");
+  assert(!html.is_valid_entity_code(i32(1114112)), "U+110000 is out of range");
+});
+test("an over-long numeric reference saturates instead of wrapping", {
+  // `&#xFFFF0000;` is 8 hex digits: accumulating it into an i32 overflowed --
+  // undefined behaviour in C -- and wrapped to -65536, which the unguarded
+  // predicate then called VALID. The parsers now stop accumulating once past
+  // U+10FFFF, so the value stays above the range and is rejected for the right
+  // reason.
+  //
+  // The expected output is the module's own tested policy for an invalid code
+  // point, asserted directly above this: keep the original entity text. Before
+  // the fix this case produced U+FFFD instead -- which is what WHATWG
+  // prescribes, but this module deliberately does not follow WHATWG here, so
+  // the old output was luck rather than conformance and was INCONSISTENT with
+  // the surrogate case beside it.
+  assert(html.decode(String.from("&#xFFFF0000;")) == `&#xFFFF0000;`, "over-long hex kept literal");
+  assert(html.decode(String.from("&#x110000;")) == `&#x110000;`, "just past U+10FFFF kept literal");
+  assert(html.decode(String.from("&#99999999999;")) == `&#99999999999;`, "over-long decimal kept literal");
+  // Values that still fit are unaffected by the saturation guard.
+  assert(html.decode(String.from("&#x10FFFD;")) == from_code_point(i32(1114109)), "U+10FFFD still decodes");
+  assert(html.decode(String.from("&#65;")) == `A`, "short decimal still decodes");
+  assert(html.decode(String.from("&#x41;")) == `A`, "short hex still decodes");
 });
 // D4 (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S1). Every test above puts multibyte
 // content only in the DECODER'S OUTPUT; the INPUT is pure ASCII, so the

@@ -523,10 +523,12 @@ test("String.from_utf8 validates and from_bytes does not", {
     .Err(e) =>
       match(
         e,
+        // StringError is single-variant since 2026-09-15: the dead
+        // IndexOutOfBounds arm that used to sit here named a variant no
+        // String API could return.
         .InvalidUtf8(cause) => {
           assert(cause.message() == "truncated UTF-8 sequence", "the cause is carried through");
-        },
-        .IndexOutOfBounds(_, _) => assert(false, "wrong StringError variant")
+        }
       )
   );
   // The unchecked constructor still takes anything, by contract.

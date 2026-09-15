@@ -63,14 +63,26 @@ _parse_hex :: (fn(s : String) -> i32)({
         break;
       },
       .Some(c) => {
-        result = (result * i32(16));
+        (digit : i32) = i32(0);
         if((c >= rune(u32('0'))) && (c <= rune(u32('9'))), {
-          result = (result + (i32(c.to_u32()) - i32(48)));
+          digit = (i32(c.to_u32()) - i32(48));
         }, if((c >= rune(u32('a'))) && (c <= rune(u32('f'))), {
-          result = (result + ((i32(c.to_u32()) - i32(97)) + i32(10)));
+          digit = ((i32(c.to_u32()) - i32(97)) + i32(10));
         }, if((c >= rune(u32('A'))) && (c <= rune(u32('F'))), {
-          result = (result + ((i32(c.to_u32()) - i32(65)) + i32(10)));
+          digit = ((i32(c.to_u32()) - i32(65)) + i32(10));
         })));
+        // SATURATE, do not wrap. Once past the largest scalar value the answer
+        // can only be "out of range", so there is nothing to gain by
+        // accumulating further -- and everything to lose: `result * 16` on a
+        // large i32 is signed overflow, which is UNDEFINED BEHAVIOUR in C, and
+        // in practice wrapped `&#xFFFF0000;` to i32(-65536), a negative
+        // "code point" that is_valid_entity_code then called valid
+        // (issues/fixed/stddoc-io-is-valid-entity-code-accepts-negative-code-points.md).
+        // Stopping at the first value above the range leaves `result` above
+        // 0x10FFFF, so the existing range check rejects it for the right reason.
+        if(result <= i32(0x10FFFF), {
+          result = ((result * i32(16)) + digit);
+        });
       }
     );
   });
@@ -87,7 +99,10 @@ _parse_dec :: (fn(s : String) -> i32)({
         break;
       },
       .Some(c) => {
-        result = ((result * i32(10)) + (i32(c.to_u32()) - i32(48)));
+        // Saturating, for the same reason as `_parse_hex` above.
+        if(result <= i32(0x10FFFF), {
+          result = ((result * i32(10)) + (i32(c.to_u32()) - i32(48)));
+        });
       }
     );
   });

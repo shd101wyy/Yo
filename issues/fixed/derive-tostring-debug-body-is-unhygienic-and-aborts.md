@@ -84,7 +84,7 @@ Verified with **no** `String` import in the deriving file:
 
 The first route tried was a template literal (`` `P(${self.x.debug_string()})` ``),
 which is also identifier-free, but `.to_expr()` cannot parse one — filed
-separately as `issues/comptime-str-to-expr-cannot-parse-a-template-literal.md`.
+separately as `issues/fixed/comptime-str-to-expr-cannot-parse-a-template-literal.md`.
 
 Note `quote(...)` is only partially hygienic, which is worth knowing before the
 next derive rule is written: a name **defined** at this module's top level does

@@ -1,0 +1,13 @@
+# `bench(name, 0, body)` used to invent a result for a run that measured
+# nothing: `min_ns` kept its i64::MAX seed and `max_ns` its 0, so the returned
+# BenchResult violated the `min_ns <= max_ns` invariant the module's own
+# coverage test asserts, and `to_string()` printed 9223372036854775807 at the
+# user. It now rejects, which is how std already reports a caller contract
+# violation (`ArrayList.with_capacity: capacity overflow`).
+#
+# The program compiles cleanly and PANICS at run time; `build run` propagates
+# that as a non-zero rc. The panic message rides stderr with build chatter and
+# ends in a machine-specific `(at file:///.../std/testing/bench.yo:L:C)`, so
+# stdout keeps only the diagnostic substring.
+stdout_keep_match=bench: iterations must be >= 1
+timeout=300

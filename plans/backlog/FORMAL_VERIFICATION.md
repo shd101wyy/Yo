@@ -916,7 +916,7 @@ all `tests/spec/` green; cheatsheet updated.
 >    state-machine bugs — invalid C struct casts, `.io` member-projection
 >    loss in cond-branch arms, an ASan-confirmed use-after-free on resume
 >    — filed as
->    `issues/async-closure-value-struct-param-emits-invalid-c-cast.md`.
+>    `issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md`.
 >    The ONE async path left is the one-time download install
 >    (`_install_z3`), in `version_cache.yo`'s proven shape.
 > 2. **One z3 process per query** (stronger isolation than push/pop per
@@ -925,7 +925,7 @@ all `tests/spec/` green; cheatsheet updated.
 >    (get-value on unsat / get-unsat-core on sat) is tolerated when a
 >    verdict was parsed; `system(3)`'s wait status is decoded.
 > 4. Surfaced and filed on the way:
->    `issues/plain-recursive-enum-segfaults-the-evaluator.md` (a plain
+>    `issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md` (a plain
 >    `enum` recursing into itself SIGSEGVs the size walk instead of
 >    erroring — the V2 IR uses `ref(enum)` per the `AstExpr` precedent).
 >
@@ -1349,7 +1349,7 @@ become real; the stdlib starts carrying executable specifications.
 > "verified abstractly" half of task 2 — uninterpreted sorts +
 > trait-constraint axioms — is still open), as are tasks 3, 5, 6.
 >
-> **Status: TASK 4 — mutual-recursion decreases (2026-09-14).** The
+> **Status: TASK 4 MERGED via #691 (develop `3177afa4a19d97037b5d61e61800aac3d7adfbeb`, 2026-09-15 — all 28 checks green).** The
 > driver prepass (`register_recursion_cliques`, vc.yo) scans every
 > task's body for call edges (callee FuncVal from the func-slot atom's
 > ExprInfo, normalized through the specialization base map

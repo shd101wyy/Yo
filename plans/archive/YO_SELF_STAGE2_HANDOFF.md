@@ -269,7 +269,7 @@ Two durable lessons:
   function in the trace with no drop frame. Absence of a drop frame is not
   evidence that no drop was involved.
 
-Still open and filed: `issues/ctl-handler-void-signature-vs-sret-cast.md` — a
+Still open and filed: `issues/fixed/ctl-handler-void-signature-vs-sret-cast.md` — a
 `ctl` handler is emitted `void` while each call site casts it to the surrounding
 expression's type. Benign for return types ≤16 bytes (the whole current corpus;
 `ParseResult` sits exactly on the 16-byte boundary), an argument-shifting ABI
@@ -634,7 +634,7 @@ registry). **Remaining (one root): arm 18** — the sibling-method forall
 NAME leak (`filter`'s `F` binding leaks through a persistent shared env
 frame into `fold`'s param resolution) — the SAME env-frame-sharing leak
 that blocks async arm-65 layer 4 (§3.4); measured mechanism in
-`issues/yo-self-chained-combinator-assoc-binding.md`.
+`issues/fixed/yo-self-chained-combinator-assoc-binding.md`.
 Corpus gained `iter_filter_multi_closure.yo` + `iter_map_closure.yo` (154).
 
 ### 3.2 `fn` — SOLVED (deferred def-eval re-run; 24/24 GREEN)
@@ -695,7 +695,7 @@ classification chain — full six-part write-up in
 
 ### 3.5 stage-2 dyn-capture residual — SOLVED 2026-08-03 (`65ebcdbb2`; FIXPOINT RESTORED)
 
-`issues/yo-self-stage2-get-type-string-cycle.md`. TS emits NO
+`issues/fixed/yo-self-stage2-get-type-string-cycle.md`. TS emits NO
 `is_yo_dyn_*` predicate functions for the same input — the whole family is
 a yo-self-only divergence around dyn(Fn) capture structs, and its
 resolution cycle is what the `get_type_string` guard now demotes. Fixing
@@ -969,8 +969,8 @@ you touch address-of / Index-trait / comptime-place code.
 
 | path                                                       | what                                                                                              |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `issues/yo-self-closure-f-identity-split.md`               | **§3.1's whole context** — repro, TS mechanism, measured dead ends, io_async hazards              |
-| `issues/yo-self-stage2-get-type-string-cycle.md`           | **§3.5** — the fixpoint blocker: crash controls, the guard, the 4-error residual                  |
+| `issues/fixed/yo-self-closure-f-identity-split.md`               | **§3.1's whole context** — repro, TS mechanism, measured dead ends, io_async hazards              |
+| `issues/fixed/yo-self-stage2-get-type-string-cycle.md`           | **§3.5** — the fixpoint blocker: crash controls, the guard, the 4-error residual                  |
 | `issues/retired/handoff-2026-08-02/`                       | the ten reports behind the morning's §3 — read each `-VERIFY` before its `-scope`; 06↔08 SWAPPED |
 | `issues/retired/yo-self-hollow-root-cause-map.md`          | per-file evidence base + the noise table + every measured dead end                                |
 | `issues/fixed/yo-self-no-matching-overload-silent-drop.md` | zero-surviving-overload-candidates drops the statement (TS hard-errors)                           |

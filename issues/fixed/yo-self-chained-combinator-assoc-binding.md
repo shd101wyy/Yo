@@ -100,7 +100,7 @@ Binding io.await's `E := <bundle>` per call — even as a PURE
 `add_variable_to_env` into the callee env, no cell contact — leaks into
 later name-keyed renders of the Io struct's member types during the STAGE-2
 self-compile and aborts emission (three variants measured; see
-issues/yo-self-io-await-shared-wrapper-poisoning.md). Fixing this
+issues/fixed/yo-self-io-await-shared-wrapper-poisoning.md). Fixing this
 env-frame-sharing leak (call-scoped frames, or TS-style per-call forall
 freshening — helper.ts:1047) unlocks BOTH arm 18 and arm-65 layer 4. It is
 now the single highest-leverage remaining root.

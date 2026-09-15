@@ -491,7 +491,7 @@ items follow.
   completion counter (issues/spawn-wrapper-forwarded-io-crosses-specializations.md);
   `shutdown` drains this pool but cannot stop the process-global OS workers.
   Known leak, filed not worked around: ~344 B per `join_all`
-  (issues/spawn-closure-captures-never-dropped-leak.md — spawn emitter never
+  (issues/fixed/spawn-closure-captures-never-dropped-leak.md — spawn emitter never
   drops closure captures; pre-existing).
 - **`Semaphore` + `Barrier`** — DONE 2026-08-26 (`std/sync/semaphore.yo`,
   `std/sync/barrier.yo`; counting P/V model, reusable generation model). Both
@@ -636,7 +636,7 @@ One-line records; decisions embedded in them stay binding:
   sets keep `min`/`max` (return the element).
 - `Bucket`/`BTreeEntry`/`OrderedMapEntry`/`Pair` → one `MapEntry(K,V)` in new
   `std/collections/entry.yo` (NOT in the prelude — measured self-emit memory
-  cost, issues/std-s1-prelude-growth-tripled-self-emit-memory.md). Prelude
+  cost, issues/retired/std-s1-prelude-growth-tripled-self-emit-memory.md). Prelude
   `IterPair(A, B)` is POSITIONAL, not a map entry — left alone.
 - `canonical` family → `canonicalize`; `relative_from` → `strip_prefix`;
   `created_time` → `status_changed_time` (it returns ctime; a real btime is a

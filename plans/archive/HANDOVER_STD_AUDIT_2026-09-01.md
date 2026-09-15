@@ -273,7 +273,7 @@ async_await 188/188, battery FIXPOINT_HOLDS CLANG_RC=0.
    #376 backend that happens exactly when version_cache starts using
    std/http); verify the strict CLI golden. The wrong-arity compiler hole
    it exposed stays open
-   (`issues/wrong-arity-call-silently-accepted-version-install-broken.md`).
+   (`issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md`).
 3. **v0.2.21**: after the queue lands and develop CI is green on HEAD,
    `gh workflow run release.yml --ref develop -f bump=patch`. Release notes
    MUST say `yo version install` / `yo version list --remote` were broken

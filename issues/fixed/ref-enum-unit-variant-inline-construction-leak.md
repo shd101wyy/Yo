@@ -210,7 +210,7 @@ gates them.
   CTFE (unit return, trivial body), the argument temp is declared but no drop is emitted.
   Pre-existing, not a regression, needs a separate look at the call's
   `deferredDropExpressions`.
-- `issues/fieldless-ref-enum-simple-enum-collapse.md` — an all-payload-free
+- `issues/fixed/fieldless-ref-enum-simple-enum-collapse.md` — an all-payload-free
   `ref(enum(On, Off))` does not compile at all (9 clang errors): `canOptimizeAsSimpleEnum`
   collapses it to a plain C enum while the constructors and parameter types still treat it
   as `T*`. Independent pre-existing codegen bug; the "some variant has fields" conjunct

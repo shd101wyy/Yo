@@ -105,7 +105,7 @@ env:
   # cliff function of memory; it is what turned seed-bundles' linux-x64 leg into
   # a 159-minute job during the v0.2.10 release. v0.2.11 carries the fix in its
   # OWN codegen, which is the generation that matters — see
-  # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+  # issues/retired/seed-v0.2.9-memory-growth-slows-every-self-build.md.
   #
   # The raised timeouts (#137, #167) stay. They now buy headroom rather than
   # bare survival, and the cliff they guard is still there for the next seed.
@@ -132,7 +132,7 @@ env:
   # failure. Acquire::Retries covers ordinary mirror flakiness.
   #
   # EVERY apt-get call in this file must use these — a bare one reintroduces
-  # the hang. See issues/ci-apt-hangs-on-dpkg-lock.md.
+  # the hang. See issues/fixed/ci-apt-hangs-on-dpkg-lock.md.
   #
   # Every `update` is ALSO preceded by an `rm` of the runner image's
   # third-party apt sources, which is a separate failure with the same blast
@@ -143,7 +143,7 @@ env:
   # This repo installs only from Ubuntu's own archives, so those lists are pure
   # liability. Acquire::Retries above cannot help: a hash mismatch is
   # DETERMINISTIC, so each retry re-fetches the same bad file.
-  # See issues/ci-apt-update-fails-on-an-unused-third-party-source.md.
+  # See issues/fixed/ci-apt-update-fails-on-an-unused-third-party-source.md.
   APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
 
 jobs:
@@ -794,7 +794,7 @@ jobs:
         # own build runner (self-application), so it must run stage-2 — the
         # generation whose C the tree's codegen emitted (the 2026-09-01
         # missing-tail-completion hang was invisible at stage-1 and dead at
-        # stage-2; issues/build-smoke-hangs-registry-perturbation.md). The
+        # stage-2; issues/fixed/build-smoke-hangs-registry-perturbation.md). The
         # corpus gains the same correctness. Stage-1 carries the
         # arena-release fix, so no memory cage is needed here.
         env:
@@ -961,7 +961,7 @@ jobs:
         # (self-application), so the shared candidate must be stage-2 — the
         # generation whose C the tree's codegen emitted (the 2026-09-01
         # missing-tail-completion hang was invisible at stage-1 and dead at
-        # stage-2; issues/build-smoke-hangs-registry-perturbation.md).
+        # stage-2; issues/fixed/build-smoke-hangs-registry-perturbation.md).
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
@@ -1399,7 +1399,7 @@ jobs:
           # duplicate storage-class specifiers silently, so it stayed invisible
           # until the release job's `gcc -fsyntax-only` on the portable yo.c —
           # GCC rejects it ("duplicate 'static'"), which blocked v0.2.6 and
-          # breaks `--cc gcc` for users. See issues/comptime-only-prototype-breaks-gcc.md.
+          # breaks `--cc gcc` for users. See issues/fixed/comptime-only-prototype-breaks-gcc.md.
           #
           # Runs against the ALREADY-EMITTED /tmp/yo-stage2.c, so it costs no
           # extra compile. The marker is also fine inside a string literal
@@ -1964,7 +1964,7 @@ jobs:
     # build ~4x slower and it hit exactly 60:00 and was killed. Measured on the
     # same commit: fixpoint 39->53 min, internal shard 55->56 min (both already
     # swapping, so barely moved), TSan 16 -> >60. See
-    # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md.
+    # issues/retired/seed-v0.2.9-memory-growth-slows-every-self-build.md.
     timeout-minutes: 120
     # NOW GATES PRs (continue-on-error dropped 2026-08-06). This was informational
     # while TSan + the Yo runtime was unvalidated on Linux clang — local macOS arm64
@@ -2041,7 +2041,7 @@ jobs:
     runs-on: ubuntu-latest
     # 32 min is this leg's real cost; 360 was inherited headroom that let a
     # DEADLOCKED test burn 3.4 h unnoticed on the sibling WASI leg
-    # (issues/wasi-thread-pool-submit-deadlock.md). 90 keeps ~2.8x margin and
+    # (issues/fixed/wasi-thread-pool-submit-deadlock.md). 90 keeps ~2.8x margin and
     # turns a hang into a timely failure.
     timeout-minutes: 90
 
@@ -2087,7 +2087,7 @@ jobs:
       # 2026-09-01 missing-tail-completion hang was invisible at stage-1 and,
       # combined with the tree's parking yield, hung THIS job's smoke for the
       # full 90 min (run 33477750650;
-      # issues/build-smoke-hangs-registry-perturbation.md). The wasm TEST
+      # issues/fixed/build-smoke-hangs-registry-perturbation.md). The wasm TEST
       # suite below stays on stage-1: its children are cross-compiled by the
       # tree's codegen either way.
       - name: Build stage-2 for the smoke
@@ -2138,7 +2138,7 @@ jobs:
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # See the emscripten leg: 360 let a deadlocked test spin for 3.4 h here
-    # (issues/wasi-thread-pool-submit-deadlock.md) before anyone looked.
+    # (issues/fixed/wasi-thread-pool-submit-deadlock.md) before anyone looked.
     timeout-minutes: 90
 
     steps:

@@ -223,7 +223,7 @@ markers say the NAMES are stable and the MECHANISM is not.
    measurable. Note the trap recorded at `std/async/index.yo:53`: an earlier
    `yield` that did NOT reach `__yo_async_poll_step` made a
    poll-until-finished loop spin without ever polling I/O
-   (`issues/build-smoke-hangs-registry-perturbation.md`). The new `yield` must
+   (`issues/fixed/build-smoke-hangs-registry-perturbation.md`). The new `yield` must
    still guarantee a loop tick.
 3. **`Mutex`, then `Channel`.** Both need a waiter LIST, so build the list
    once and share it.

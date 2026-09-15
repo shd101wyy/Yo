@@ -37,7 +37,7 @@ bindings by name.
 later-position closure, `Impl(ToString)` return, two closure shapes);
 `Mutex.with_lock` is NOT yet restored: with C27 gone, calling a generic
 `-> Impl(Future(R))` method with two different `R`s still miscompiles (C54,
-`issues/future-wrapper-return-shared-across-specializations.md`).
+`issues/fixed/future-wrapper-return-shared-across-specializations.md`).
 
 **Original report (2026-08-27) follows.** **Found**: 2026-08-27, implementing `std/async/mutex`'s `with_lock`
 (STD_API_AUDIT §7 P0 item 6). **Blocks**: the `with_lock` sugar on the async

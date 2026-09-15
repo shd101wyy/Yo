@@ -233,7 +233,7 @@ far, 3/3 green locally; correlate with #449's rerun).
 
 Held for later (not P0): #433 (dyn trait check), #420 (`comptime_assert` in fn
 bodies — 1559 dormant assertions), #441 (json trailing junk),
-`issues/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`
+`issues/fixed/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`
 (soundness; gates full `Send` enforcement for pointers/arrays),
 `issues/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`
 (runtime: rc 0 on an aborted main future; language: no catch inside async),

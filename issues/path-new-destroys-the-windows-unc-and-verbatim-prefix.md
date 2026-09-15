@@ -134,7 +134,7 @@ Do NOT fix this by making `to_string` render `\` on Windows targets. That
 option was considered and rejected: `src/evaluator/memory_safety.yo:174` does
 `_lex_abs_path(mp).starts_with(`${_lex_abs_path(sp)}/`)` — a `/`-literal string
 comparison on a rendered path, and it is the std pragma exemption, i.e. exactly
-the mechanism `issues/windows-lex-abs-path-voids-std-exemption.md` describes
+the mechanism `issues/fixed/windows-lex-abs-path-voids-std-exemption.md` describes
 breaking the whole Windows build. There are ~250 separator-literal string
 operations in `src/` in the same class. Win32 file APIs accept `/` anyway; the
 UNC prefix is the one Windows path form that genuinely changes meaning today.

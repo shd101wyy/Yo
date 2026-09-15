@@ -192,3 +192,24 @@ test("random_range stays in-bounds across many draws (rejection sampling)", {
     assert(v < i64(6), "random_range upper bound (exclusive)");
   });
 });
+test("CryptoError renders both variants, and `.Other` now has a producer", {
+  // Until 2026-09-15 `.Other` was declared, documented and exported but
+  // UNREACHABLE: every failure path threw `.Unavailable`, so a caller could
+  // not tell "this platform has no entropy source" from "getrandom returned
+  // EFAULT", and the real errno was discarded
+  // (issues/fixed/crypto-random-reports-every-failure-as-unavailable-and-discards-the-errno.md).
+  //
+  // This pins the MESSAGE SHAPE the three wired sites produce. Forcing a real
+  // getrandom/getentropy/BCryptGenRandom failure needs syscall injection the
+  // harness does not have, and a test that pretended to would be worse than
+  // none — so the untestable half is recorded in the issue as a manual
+  // procedure instead of faked here.
+  assert(
+    CryptoError.Unavailable.to_string() == `crypto: platform random unavailable`,
+    "Unavailable still renders, and still means what it says"
+  );
+  assert(
+    CryptoError.Other(msg : `getrandom: Bad address (errno 14)`).to_string() == `crypto error: getrandom: Bad address (errno 14)`,
+    "Other carries the cause through to the rendered message"
+  );
+});

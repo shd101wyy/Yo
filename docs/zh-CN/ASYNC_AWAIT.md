@@ -1149,9 +1149,9 @@ handle.await(io);
 
 2. **异步 unwind 的引用计数双重递减** — 当 Future 作为参数传递给在 `io.await` 期间 unwind 的函数时，Future 的引用计数会被递减两次（一次在 await 中止路径，一次在 unwind 清理中），导致释放后使用。解决方法：在 unwind 的函数内部创建 Future。参见 `issues/async-unwind-rc-double-decrement.md`。
 
-3. **异步中的三参数 while 循环** — 异步状态机代码生成仅处理两参数形式 `while condition, body`。三参数形式 `while condition, step, body` 会生成错误的 C 代码。解决方法：将步进表达式放在循环体内。参见 `issues/async-while-3arg-form.md`。
+3. **异步中的三参数 while 循环** — 异步状态机代码生成仅处理两参数形式 `while condition, body`。三参数形式 `while condition, step, body` 会生成错误的 C 代码。解决方法：将步进表达式放在循环体内。参见 `issues/fixed/async-while-3arg-form.md`。
 
-4. **二元表达式作为异步返回值** — 当异步闭包的最后一个表达式是二元运算（如 `(a + b)`）时，状态机结构体得到的是 `void* result` 而非正确的类型。解决方法：先赋值给变量。参见 `issues/async-sm-result-type-binary-expr.md`。
+4. **二元表达式作为异步返回值** — 当异步闭包的最后一个表达式是二元运算（如 `(a + b)`）时，状态机结构体得到的是 `void* result` 而非正确的类型。解决方法：先赋值给变量。参见 `issues/fixed/async-sm-result-type-binary-expr.md`。
 
 ## 总结
 

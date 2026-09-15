@@ -1,6 +1,10 @@
 # The release guard accepts a docs-only fast-path "success" as proof the code was tested
 
-**Status:** open (found 2026-09-10 while cutting v0.2.30).
+**Status:** open (found 2026-09-10 while cutting v0.2.30). **Merged 2026-09-14**
+with the independent earlier filing of the same defect,
+`issues/retired/release-gate-accepts-a-docs-fast-path-run-as-proof-of-green.md`
+(2026-09-06, found while cutting v0.2.26) — its unique evidence and its
+concrete query shape are folded in below.
 
 ## What the guard does
 
@@ -85,3 +89,65 @@ Option 1 is the small one and closes the hole.
 
 Re-ran the cancelled full Test run on `95bc2493a` — `develop`'s head minus one
 markdown file — and confirmed it genuinely green before triggering the release.
+
+---
+
+## Folded in from the 2026-09-06 duplicate filing
+
+The same hole was found independently four days earlier, cutting v0.2.26. Two
+things it carried that are not above:
+
+**An earlier measurement, on a different commit.** `develop` at `fcd25ee66`
+(the merge of the docs-only #455):
+
+```
+34025793623  fcd25ee66  completed  success   09:50:59 -> 09:54:36
+jobs: skipped=13 success=3
+```
+
+Three and a half minutes, thirteen jobs skipped, conclusion `success`. So the
+defect is reproducible across releases, not a property of the v0.2.30 window:
+two independent sessions hit it on two different commits four days apart, each
+while doing the ordinary thing.
+
+**The query shape for fix option 1**, which is what makes it the small fix:
+
+```bash
+gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+  --jq '[.jobs[] | select(.name | startswith("test (")) | .conclusion] | unique'
+```
+
+The release workflow already knows how to look at individual jobs, so this is
+the same query shape it uses elsewhere — assert the gating `test (…)` jobs
+concluded `success` rather than `skipped`, and walk back to the most recent run
+that did if the newest is a fast path.
+
+**Also cross-referenced there:** `plans/backlog/SEED_VERSION_AUTOMATION.md`
+covers the other release-time consistency guard, and the two want doing
+together — both are "the release trusts something that did not verify what it
+appears to".
+
+### Why this was filed twice, and what it costs
+
+Neither session searched `issues/` before filing. That is the second duplicate
+pair found in the 2026-09-14 clean-up (the first was IPv6 RFC 5952, filed
+2026-09-04 and 2026-09-11). The pattern is the same: a defect hit while doing a
+routine task gets written up from the angle of that task, and the title differs
+enough that the earlier filing does not surface.
+
+The cost is not just the duplicated writing — it is that **neither copy
+accumulates the evidence**. Here, one copy had the concurrency-cancellation
+table and three candidate fixes, the other had a second independent measurement
+and the query to implement the chosen fix. Whoever picked up either one alone
+would have started with half of what was known. `issues/TRIAGE.md` exists partly
+so this is cheaper to notice next time.
+
+### Still relevant as of 2026-09-14
+
+Unfixed, and the surrounding practice has hardened around it instead:
+`AGENTS.md` now carries three CI-run rules whose entire purpose is to stop a
+human walking into this (never merge docs-only while a battery you need is in
+flight; cancel superseded runs but check the newer tip is not a fast path; and
+re-run the code-directory diff before tagging). Those rules are good, but they
+are guidance a person must remember, and the guard is a check a machine
+performs. The guard should still be fixed.

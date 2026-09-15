@@ -15,7 +15,7 @@
 //! Known semantic gaps vs. TypeScript (to be filled in Phase 3):
 //!   - `UnknownVal` does not yet carry `variable_name` or `is_runtime_only`.
 //!     The `is_runtime_only` flag prevents comptime overload selection on
-//!     `recur(...)` results (see issues/recur-runtime-result-not-marked-runtime-only.md).
+//!     `recur(...)` results (see issues/fixed/recur-runtime-result-not-marked-runtime-only.md).
 //!   - `try_to_call_function_with_arguments` is a throwing stub (Phase 3).
 //!   - `attach_temp_variable_to_expr` is a no-op stub (Phase 3).
 pragma(Pragma.AllowUnsafe);
@@ -191,7 +191,7 @@ evaluate_recur :: (
     // resolution at the call site of `recur(...)` may incorrectly prefer a
     // comptime overload (e.g. `comptime_not` over runtime `not` for
     // `!recur(...)`), producing malformed C with a 0-arg comptime function
-    // call". See issues/recur-runtime-result-not-marked-runtime-only.md.
+    // call". See issues/fixed/recur-runtime-result-not-marked-runtime-only.md.
     // (`variable_name` is still not carried — see the stub inventory.)
     return_type := call_result.return_type;
     recur_ret_is_comptime := match(

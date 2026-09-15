@@ -82,4 +82,4 @@ The fix exposes the issue in
 `tests/algebraic_effects.test.yo` →
 _"Struct-record effect with forall handler — early return after
 resume in while loop"_. Tracking separately in
-`issues/codegen-forall-resume-handler-stub.md`.
+`issues/fixed/codegen-forall-resume-handler-stub.md`.

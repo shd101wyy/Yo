@@ -168,7 +168,7 @@ derive(ControlFlowFlags, Clone, Eq(ControlFlowFlags));
 /// Mirrors `controlFlowOf` in `src/expr.ts`.
 ///
 /// Note: uses mutable flag variables rather than struct literals directly
-/// in match arms due to a codegen bug (see issues/struct-literal-in-match-arm-not-assigned.md).
+/// in match arms due to a codegen bug (see issues/fixed/struct-literal-in-match-arm-not-assigned.md).
 control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)({
   r := false;
   e := false;
@@ -196,7 +196,7 @@ control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)({
 /// Mirrors `hasControlFlow` in `src/expr.ts`.
 ///
 /// Note: uses early-return pattern instead of struct literal in match arm
-/// due to codegen bug (see issues/struct-literal-in-match-arm-not-assigned.md).
+/// due to codegen bug (see issues/fixed/struct-literal-in-match-arm-not-assigned.md).
 has_control_flow :: (fn(cf : Option(ControlFlowFlags), kind : ControlFlowKind) -> bool)({
   f := match(
     cf,
@@ -507,7 +507,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
 /// `deferred_drop_expressions`) and the conditional CLEARS (`variable_name`,
 /// `runtime_arg_exprs_in_order`, the index-field group) — see begin.yo's
 /// shared-id tail. This INVERTS the old fresh-info + carry-whitelist merge
-/// (issues/yo-self-begin-shared-id-clobber.md): loss is now the explicit
+/// (issues/fixed/yo-self-begin-shared-id-clobber.md): loss is now the explicit
 /// choice, so fields codegen reads on the inner node's shape (source_variable,
 /// origin_type, early_return_only drops, the rare group's converted type /
 /// dyn traits / async analysis, ...) survive without per-field carries.
@@ -762,7 +762,7 @@ expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInf
 // unique), so one process-wide table is safe. Mutated via `set` (the loader
 // makes fresh ctx-keyed ExprInfoTables per module, but this global side-table
 // is shared — harmless, ids never collide). See
-// issues/yo-self-flowability-swallow.md.
+// issues/fixed/yo-self-flowability-swallow.md.
 // ---------------------------------------------------------------------------
 (g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
 /// Record the resolved method `Func` type for a method-call expr id.

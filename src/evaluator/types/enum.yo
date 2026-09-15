@@ -116,7 +116,7 @@ _type_is_ref_indirection :: (fn(t : TypeValue) -> bool)(
 /// Whether walking `t`'s VALUE composition reaches the enum identified by
 /// `root` (or its pre-patch `Self` shell) without passing through reference
 /// indirection — the definition-time check for
-/// issues/plain-recursive-enum-segfaults-the-evaluator.md. Such a cycle has
+/// issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md. Such a cycle has
 /// infinite C size; the size walks stack-overflowed (SIGSEGV, no diagnostic)
 /// before this check existed. `visited` cuts re-entered named types (finite
 /// DAGs, and cycles that DO have indirection somewhere on the path).
@@ -731,7 +731,7 @@ evaluate_enum_type :: (
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForEnumType` in TypeScript.
   auto_derive_traits_for_enum_type(enum_id.clone(), variant_fields, env);
   // Definition-time value-cycle rejection
-  // (issues/plain-recursive-enum-segfaults-the-evaluator.md): a plain
+  // (issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md): a plain
   // `enum(...)` whose variant fields reach itself by VALUE — no reference
   // indirection anywhere on the path — would have infinite C size; the
   // size walks used to stack-overflow (SIGSEGV, no diagnostic) at the next

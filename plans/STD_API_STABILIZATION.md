@@ -100,7 +100,7 @@ result off a capacity-1 `Channel(T)` the handle owns; `Thread(unit)` is the
 value-less thread the old `Thread` was.
 
 Six walls, none of them the spawn lowering that
-`issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
+`issues/fixed/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
 blamed:
 
 - a static-dispatch call read the CALL EXPRESSION's type instead of the callee's
@@ -429,7 +429,7 @@ the work in §4 does not re-open them.
 
   It was blocked on six compiler defects, every one of them found by walking
   the emitted C rather than by theory, and none of them the ZST spawn lowering
-  that `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
+  that `issues/fixed/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
   blamed. §0's item 1 lists them with their issue docs. The two that were
   predicted here read as follows in the end:
 
@@ -489,7 +489,7 @@ Memory safety / UB / deadlock:
    crosses an OS thread. Compiler fix + `comptime_expect_error` negatives —
    **FIXED 2026-09-06**: the stub is the faithful TS port, called from both
    closure-creation routes; raw-pointer captures still slip through until
-   `issues/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`
+   `issues/fixed/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`
    is fixed (`issues/fixed/send-was-not-enforced-at-spawn-boundaries.md`).
 3. **`spawn(pool, …)` self-deadlocks on nested spawn** whenever the runtime
    takes its inline fallback: the pool mutex is held across
@@ -1005,7 +1005,7 @@ Two measurement notes, both learned the hard way and both now in the tests:
 the accept counters live in a `ref(struct(...))` passed to the server, because
 a module-level mutable written across a suspension point in an `io.async` body
 operates on a copy and reads back zero
-(`issues/a-module-global-is-lost-across-an-async-suspension.md`) — which looks
+(`issues/fixed/a-module-global-is-lost-across-an-async-suspension.md`) — which looks
 exactly like "the server never ran". And "did `dispose` close every idle
 connection?" is answered by what the PEERS observe, not by the descriptor
 table: a closed connection is one the server at the other end reads EOF from,
@@ -1036,7 +1036,7 @@ DOES work inside a task — spawn the operation, spawn a `sleep`, poll with
 `std/http/client.yo`'s `_fetch_deadline`, and carries two costs that belong in
 a design decision rather than in this PR: aborting a read parked in the I/O
 backend leaks its 8 KiB buffer and its state machine per timed-out connection
-(the mirror of `issues/timeout-deadline-timer-future-leak.md`), and server
+(the mirror of `issues/fixed/timeout-deadline-timer-future-leak.md`), and server
 keep-alive additionally changes what `serve_once` MEANS in ways that invalidate
 existing tests (pipelining becomes correct rather than smuggling, and
 `_read_all`-shaped tests start waiting out the deadline).
@@ -1447,7 +1447,7 @@ it runs in the following step with exactly one `__yo_io_poll()` in between.
 Both wrong shapes are on record and both are pinned by tests: an
 immediately-complete future takes the await point's inline fast path and never
 leaves the C stack (that is the spin that made a poll-until-finished loop
-starve I/O, issues/build-smoke-hangs-registry-perturbation.md), and a timer
+starve I/O, issues/fixed/build-smoke-hangs-registry-perturbation.md), and a timer
 costs a millisecond per turn on the critical path of every combinator.
 
 **`std/async`'s `yield` itself is SEED-GATED and moves next release.** It is on
@@ -1783,7 +1783,7 @@ from the blocked call sites, in `plans/backlog/`:
 | waker-based `yield`/async `channel`/async `mutex`; `spawn_blocking` | a `Waker` + `park` primitive, so one task can be woken by another's progress | [`WAKER_BASED_SCHEDULING.md`](WAKER_BASED_SCHEDULING.md) |
 | `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `ctrl`/`data`/`size` private; `imm/*` internals | member visibility (`priv`, plus a path-prefix scope for the cross-module `std/` callers) | [`MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) |
 | `TcpListener.incoming` | a `Stream` trait — the async analogue of `Iterator`. **Needs no compiler change** | [`ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) |
-| the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
+| the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
 | `rand.thread_rng` | thread-local storage | [`THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) |
 
 `ErrorChain`/`root_cause` is a sixth blocker but is a compiler DEFECT rather
@@ -1829,7 +1829,7 @@ reach for, not the ones that lack a marker.
 2026-09-11.** `yo doc ./std --format json` on develop reports **1554 of 3345**
 functions and methods with no documentation. The gap is not missing comments: it
 is `yo doc` DROPPING every doc comment of a re-exported type
-(`issues/yo-doc-drops-every-doc-comment-of-a-re-exported-type.md`). Each module
+(`issues/fixed/yo-doc-drops-every-doc-comment-of-a-re-exported-type.md`). Each module
 is documented from its OWN file's tokens, so a type declared in `foo/thing.yo`
 and re-exported by `foo/index.yo` renders bare under the module readers actually
 open — `string/index` 275, `http/index` 93, `imm/string` 62, `process/index` 50.
@@ -2166,7 +2166,7 @@ emitted C, so it could not be randomized even if that were wanted.
 
    **Two bugs fell out.** `FromStr` turns out to be implemented for only 6 of
    the 13 numeric primitives — `usize` has none, so `token.parse(usize)` does
-   not compile (issues/fromstr-missing-on-seven-numeric-primitives.md). And
+   not compile (issues/fixed/fromstr-missing-on-seven-numeric-primitives.md). And
    writing `Eq` the obvious way — a `_kids_eq` helper comparing children with
    `==`, called from the `Eq` body — produces an abort()-ing stub behind a
    green `yo check`: the helper and the impl body are mutually recursive
@@ -2324,7 +2324,7 @@ emitted C, so it could not be randomized even if that were wanted.
    (issues/fixed/msvc-nan-spelling-escapes-the-non-finite-float-match.md).
    The same divergence is visible from Yo — `f64.NAN.to_string()` differs by
    platform — which is filed separately as a std portability defect
-   (issues/float-to-string-is-platform-dependent-for-non-finite-values.md);
+   (issues/fixed/float-to-string-is-platform-dependent-for-non-finite-values.md);
    it also decides what `json_stringify` should do with a NaN, since JSON has
    no non-finite literal.
    **Encoding — `Url.join` / `query_pairs` / `path_segments`: DONE
@@ -2479,7 +2479,7 @@ emitted C, so it could not be randomized even if that were wanted.
    because `_hex_digit_val` (`src/evaluator/values/string.yo`) returns 0 for a
    non-hex rune instead of failing, and the backtick form leaves the same text
    literal — one spelling, two meanings, neither an error
-   (`issues/unicode-escape-accepts-non-hex-digits.md`, with a reproducer).
+   (`issues/fixed/unicode-escape-accepts-non-hex-digits.md`, with a reproducer).
 
    The module is marked `## Stability unstable` for one release: the error type
    changed from `String` to `TomlError`, the value model gained three
@@ -2684,7 +2684,7 @@ found while writing or measuring std, and each was silent.
    the specialized bodies emitted lengths 1 and 4; C caught it only because
    those are different types. It is now a diagnostic naming the limitation.
    The feature itself — a value channel in `substitute()` — stays open
-   (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`), and
+   (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`), and
    with it the collapse of `std/prelude.yo`'s ten byte-conversion blocks and
    byte conversions for `usize`/`isize`. `tests/array.test.yo` carries the
    rejection plus an over-rejection canary for every length form that must keep

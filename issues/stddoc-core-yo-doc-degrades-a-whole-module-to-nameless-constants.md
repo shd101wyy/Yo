@@ -92,4 +92,4 @@ module in this state, all of them are invisible on the generated site while
 
 Related: `issues/collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`,
 `issues/stddoc-core-doc-comment-attached-by-bare-member-name.md`,
-`issues/skip-prelude-doc-comment-false-positive.md`.
+`issues/fixed/skip-prelude-doc-comment-false-positive.md`.

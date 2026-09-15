@@ -28,7 +28,7 @@
 //! growing it (`write_f64(f64(1.0e300), i32(2))` yields 63 digits of a
 //! 302-digit number — `issues/stddoc-str-string-builder-write-f64-truncates.md`),
 //! and `clear` releases the buffer where Rust's `String::clear` keeps the
-//! capacity (`issues/stddoc-str-string-builder-clear-drops-capacity.md`).
+//! capacity (`issues/fixed/stddoc-str-string-builder-clear-drops-capacity.md`).
 //! Freezing follows fixing those two and deciding whether number formatting
 //! belongs on a text builder at all — it is here because of a dependency
 //! direction, not because it was designed here.
@@ -93,6 +93,13 @@ impl(
     Self(_buf : ArrayList(u8).with_capacity(capacity))
   ),
   /// Returns the current number of bytes in the buffer.
+  /// Bytes the builder can hold before it must grow — Rust's
+  /// `String::capacity`. `with_capacity` could be SET but never read, which
+  /// made the `clear` contract (capacity survives, length does not)
+  /// unobservable and so untestable.
+  capacity : (fn(self : Self) -> usize)(
+    self._buf.capacity()
+  ),
   len : (fn(self : Self) -> usize)(
     self._buf.len()
   ),
@@ -230,17 +237,24 @@ impl(
       }
     );
   }),
-  /// Empty the builder.
+  /// Empty the builder, KEEPING its capacity for reuse — Rust's
+  /// `String::clear`, and the same contract as `ArrayList.clear`.
   ///
-  /// This RELEASES the buffer rather than retaining its capacity — unlike
-  /// Rust's `String::clear` and unlike `ArrayList.clear`, both of which keep the
-  /// allocation for reuse. A builder cleared in a loop therefore reallocates
-  /// from zero on every pass; when that matters, keep a fresh builder per
-  /// iteration instead (it costs the same) or hand the bytes off with
-  /// `to_string()`, which detaches for the same price.
-  /// (`issues/stddoc-str-string-builder-clear-drops-capacity.md`)
+  /// `len()` becomes 0 while `capacity()` is unchanged, so a builder cleared
+  /// in a loop allocates once rather than on every pass. Use `to_string()`
+  /// when you want the bytes handed off instead; that detaches the buffer and
+  /// the next write starts from nothing.
+  ///
+  /// Until 2026-09-14 this released the buffer, contradicting its own doc
+  /// comment (`issues/fixed/stddoc-str-string-builder-clear-drops-capacity.md`).
   clear : (fn(self : Self) -> unit)({
-    self._buf = ArrayList(u8).new();
+    // `ArrayList.clear` drops the elements and sets `_length = 0` WITHOUT
+    // releasing the buffer, which is what "clear without freeing memory"
+    // means and what Rust's `String::clear` does. Reassigning a fresh
+    // `ArrayList` threw the capacity away, so a builder reused in a loop
+    // re-grew from nothing every round
+    // (issues/fixed/stddoc-str-string-builder-clear-drops-capacity.md).
+    self._buf.clear();
   })
 );
 /// `Default` — an empty builder.
