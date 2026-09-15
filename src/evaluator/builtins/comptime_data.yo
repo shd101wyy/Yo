@@ -56,6 +56,9 @@ _lift_json :: (fn(v : JsonValue) -> EvalValue)(
     v,
     .Null => _cv0(String.from("Null")),
     .Bool(b) => _cv1(String.from("Bool"), EvalValue.BoolVal(b)),
+    // JsonValue.Int is the exact arm — no f64 round trip, so an integer beyond
+    // 2^53 lifts to a comptime Int losslessly instead of being rounded.
+    .Int(i) => _cv1(String.from("Int"), EvalValue.IntLit(i.to_string())),
     .Number(n) => if(
       n == f64(i64(n)),
       _cv1(String.from("Int"), EvalValue.IntLit(i64(n).to_string())),

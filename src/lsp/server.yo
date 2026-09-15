@@ -86,7 +86,9 @@ _jfield_str :: (fn(v : JsonValue, key : str) -> String)(
 _jfield_usize :: (fn(v : JsonValue, key : str) -> usize)(
   match(
     v.get(String.from(key)),
-    .Some(f) => match(f, .Number(n) => usize(n), _ => usize(0)),
+    // LSP integer fields (line, character, id) parse as .Int — without this
+    // arm every one of them would silently read 0.
+    .Some(f) => match(f, .Int(i) => usize(i), .Number(n) => usize(n), _ => usize(0)),
     .None => usize(0)
   )
 );
