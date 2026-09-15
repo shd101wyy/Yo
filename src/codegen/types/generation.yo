@@ -172,6 +172,45 @@ generate_str_type_declaration :: (fn(context : CodeGenContext) -> unit)({
 });
 /// Emit `  <type> <name>;` for each runtime struct field.
 /// (Defined before generate_struct_declaration — Yo has no forward references.)
+/// Resolve every runtime field's C type string BEFORE the enclosing aggregate's
+/// opening line is emitted.
+///
+/// `get_type_string` can fire the ON-DEMAND declaration hook
+/// (`_on_demand_collect_and_declare`, src/codegen/codegen_c.yo), which writes a
+/// `typedef` and a full type body straight into the DECLARATION buffer. Called
+/// from inside `_emit_runtime_fields`, that append lands between the
+/// `struct X_struct {` line and the field that demanded it — a storage-class
+/// specifier inside a struct body, which is not legal C:
+///
+///   struct ..._struct { //  : <struct:capture_...>
+///   typedef struct ..._struct ...;      // ← "type name does not allow storage class"
+///   struct ..._struct { ... };
+///     ...* fut;                          // ← "field has incomplete type"
+///   };
+///
+/// Resolving the strings first moves any such declaration ahead of the
+/// aggregate, where it belongs. The results are discarded: `get_type_string` is
+/// idempotent and the hook guards re-entry with `on_demand_body_cnames`, so the
+/// second call inside `_emit_runtime_fields` emits nothing new.
+///
+/// Hit by the first function in the tree to take an `Impl(Future(T, E))` as a
+/// PARAMETER and capture it in an `io.async` closure — the capture struct's
+/// field was the Future interface type's first use
+/// (issues/fixed/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md).
+_prewarm_runtime_field_types :: (fn(fields : ArrayList(RuntimeStructField), context : CodeGenContext) -> unit)({
+  n := fields.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      fields.get(i),
+      .Some(field) => if(!is_unit_type(field.ty), {
+        get_type_string(field.ty, context);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 _emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : CodeGenContext) -> bool)({
   n := fields.len();
   (i : usize) = usize(0);
@@ -214,6 +253,8 @@ generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, con
         return(());
       });
       runtime_fields := get_runtime_struct_fields(struct_type);
+      // Before ANY line of this struct is emitted — see the helper's header.
+      _prewarm_runtime_field_types(runtime_fields, context);
       cond(
         is_reference_semantics => {
           atomic_word := if(is_atomic_rc, "atomic ", "");

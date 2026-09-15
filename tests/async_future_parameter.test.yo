@@ -1,0 +1,41 @@
+//! REGRESSION: a function that takes an `Impl(Future(T, E))` PARAMETER and
+//! awaits it inside an `io.async` closure emitted C that did not compile. Two
+//! independent codegen defects, both pre-existing and both invisible to
+//! `yo check`
+//! (issues/fixed/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md):
+//!
+//! 1. The Future interface type's ON-DEMAND declaration was written into the
+//!    capture struct's OPEN BODY — a `typedef` inside a struct, plus a field of
+//!    incomplete type. `generate_struct_declaration` emitted its opening line
+//!    and only then resolved field type strings, and that resolution is what
+//!    fires the on-demand hook into the same buffer.
+//! 2. `get_future_field_name` returned the BARE name for an `.Outer` capture,
+//!    so the await emitted `sm->fut` for a field that only exists as
+//!    `sm->__capture.fut`. Every other spelling of an outer capture in codegen
+//!    already carried the prefix.
+//!
+//! Neither had been reachable: `Impl(Future(T, E))` appears as a parameter type
+//! only in `std/prelude.yo`'s BUILTIN declarations (`io.await`, `io.state`,
+//! `io.spawn`), which are compiler intrinsics, and no `std/` function takes a
+//! future — so nothing ever produced an awaited future that was an outer
+//! capture rather than a local or an `await_future_<n>` slot.
+{ assert } :: import("std/assert");
+_take :: (fn(fut : Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
+  io.async(e => e.io.await(fut, e.io))
+);
+_work :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => i32(42)));
+test("a future passed as a parameter can be awaited inside an async closure", {
+  r := io.await(_take(_work(io), io), io);
+  assert(r == i32(42), `expected 42, got ${r.to_string()}`);
+});
+_twice :: (fn(a : Impl(Future(i32, Io)), b : Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
+  io.async(e => {
+    x := e.io.await(a, e.io);
+    y := e.io.await(b, e.io);
+    x + y
+  })
+);
+test("two future parameters each keep their own capture slot", {
+  r := io.await(_twice(_work(io), _work(io), io), io);
+  assert(r == i32(84), `expected 84, got ${r.to_string()}`);
+});

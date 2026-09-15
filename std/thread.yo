@@ -11,8 +11,8 @@
 //! `Thread(T).spawn` carries a value out of the thread: the body returns `T`
 //! and `join()` returns it.
 //!
-//! ```rust
-//! { Thread } :: import "std/thread";
+//! ```yo
+//! { Thread } :: import("std/thread");
 //!
 //! t := Thread(i32).spawn((io : Io) => i32(42));
 //! result := t.join();
@@ -164,11 +164,11 @@ impl(
 ///
 /// ## Example
 ///
-/// ```rust
-/// { ThreadPool, spawn } :: import "std/thread";
+/// ```yo
+/// { ThreadPool, spawn } :: import("std/thread");
 ///
 /// pool := ThreadPool.new(usize(4));
-/// spawn(pool, (io) => {
+/// spawn(pool, io => {
 ///   // ... do work ...
 /// });
 /// pool.join_all(); // wait for everything submitted so far
@@ -280,8 +280,8 @@ impl(
 ///
 /// Panics if the pool has been shut down.
 ///
-/// ```rust
-/// spawn(pool, (io) => {
+/// ```yo
+/// spawn(pool, io => {
 ///   // ... do work ...
 /// });
 /// ```
@@ -350,8 +350,8 @@ spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
 /// ready queue. It hands a `Waker` back instead, which posts the resumption to
 /// the owning loop's inbox and nudges that loop out of its I/O wait.
 ///
-/// ```rust
-/// { spawn_blocking } :: import "std/thread";
+/// ```yo
+/// { spawn_blocking } :: import("std/thread");
 ///
 /// // A synchronous, blocking call — a C library, a getaddrinfo, a big read.
 /// n := io.await(spawn_blocking(() => expensive_sync_work(), io), io);

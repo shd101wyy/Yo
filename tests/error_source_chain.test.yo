@@ -1,0 +1,94 @@
+//! REGRESSION: `Error.source()` on an erased receiver returned a type that had
+//! LOST the `Error` trait, so the result could not be stored back as an
+//! `AnyError` — which is what blocked `ErrorChain` / `root_cause`, the last row
+//! of plans/STD_API_STABILIZATION.md held up by a defect rather than a decision
+//! (issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md).
+//!
+//! `source` is declared `fn(inout(self) : Self) -> Option(Dyn(SelfTrait))`, and
+//! `SelfTrait` is `Error` there. `TraitT` equality was NOMINAL, and a trait's
+//! name is attached EXTERNALLY by its variable binding — `evaluate_trait_type`
+//! builds the value with `trait_name_str := String.from("")` and the name
+//! arrives afterwards. So the trait captured while it is still being defined is
+//! nameless, `"" == "Error"` is false, and a nominal test declared "different
+//! trait" about one trait. Identity is now the `id` that `stable_label_id` sets
+//! at construction.
+//!
+//! The walk below is the whole point: it must TYPE-CHECK, not merely run. The
+//! value and the vtable were always right — only the static type was wrong, and
+//! in the one way that stops the result being re-erased.
+{ assert } :: import("std/assert");
+{ Error, AnyError, Context } :: import("std/error");
+{ String } :: import("std/string");
+{ ToString } :: import("std/fmt/to_string");
+_Inner :: enum(Boom);
+derive(_Inner, Error(.Boom => `boom`));
+test("an Error.source() result re-erases as AnyError, so a chain can be walked", {
+  (base : AnyError) = dyn(_Inner.Boom);
+  (top : AnyError) = dyn(Context.new(`while loading`, base));
+  (cur : AnyError) = top;
+  (links : usize) = usize(1);
+  // The assignment `cur = next` is what failed to type-check: `source()` is
+  // declared to return `Option(Dyn(SelfTrait))` and this stores it back.
+  (walking : bool) = true;
+  while(runtime(walking), {
+    match(
+      cur.source(),
+      .Some(next) => {
+        cur = next;
+        links = (links + usize(1));
+      },
+      .None => {
+        walking = false;
+      }
+    );
+  });
+  assert(links == usize(2), `the chain has two links, got ${links.to_string()}`);
+  assert(cur.to_string() == `boom`, `the root cause is the inner error, got ${cur.to_string()}`);
+});
+test("a one-link error reports no source", {
+  (c : AnyError) = dyn(_Inner.Boom);
+  // Spelled as a `match` rather than `is_none()`: `Option(Dyn(Trait))` cannot
+  // take an inherent Option method at all — the specialization is called but
+  // never emitted, so the C fails to compile
+  // (issues/option-of-a-trait-object-never-emits-its-inherent-methods.md).
+  // That is a separate, pre-existing defect; it is not what this file gates.
+  (had_source : bool) = match(
+    c.source(),
+    .Some(_) => true,
+    .None => false
+  );
+  assert(had_source == false, "an error with nothing underneath has no source");
+});
+// The defect was never std-specific: ANY user trait declaring a member that
+// returns `Dyn(SelfTrait)` hit it, because the nameless-trait capture happens
+// while that trait is being defined. This is the shape from
+// issues/fixed/dyn-selftrait-payload-never-matches-the-named-trait.md.
+_Node :: trait(
+  (parent : (fn(inout(self) : Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
+  where(Self <: ToString)
+);
+_AnyNode :: Dyn(_Node);
+_Root :: struct(tag : String);
+impl(_Root, ToString(to_string : (fn(inout(self) : Self) -> String)(`root(${self.tag})`)));
+impl(_Root, _Node());
+_Child :: ref(struct(tag : String, up : _AnyNode));
+impl(_Child, ToString(to_string : (fn(inout(self) : Self) -> String)(`child(${self.tag})`)));
+impl(_Child, _Node(parent : (fn(inout(self) : Self) -> Option(_AnyNode))(Option(_AnyNode).Some(self.up))));
+_handle :: (fn(n : _AnyNode) -> String)(n.to_string());
+test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)", {
+  (r : _AnyNode) = dyn(_Root(tag : `R`));
+  (c : _AnyNode) = dyn(_Child(tag : `C`, up : r));
+  // Binding the payload into a named local is one half of the defect...
+  (bound : String) = match(
+    c.parent(),
+    .Some(p) => {
+      (q : _AnyNode) = p;
+      q.to_string()
+    },
+    .None => `root`
+  );
+  assert(bound == `root(R)`, `binding the payload lost the trait, got ${bound}`);
+  // ...and passing it straight to a parameter is the other.
+  (passed : String) = match(c.parent(), .Some(p) => _handle(p), .None => `root`);
+  assert(passed == `root(R)`, `passing the payload lost the trait, got ${passed}`);
+});
