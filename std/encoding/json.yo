@@ -28,8 +28,7 @@
 //!
 //! ## Stability
 //!
-//! unstable — two open questions, one of them a rename that touches every
-//! call site.
+//! unstable — one open question, a rename that touches every call site.
 //!
 //! The names still stutter (D2): `json_parse` / `json_parse_bytes` /
 //! `json_parse_string` / `json_stringify` repeat the module they live in, and
@@ -39,13 +38,14 @@
 //! module unstable. `json_parse_result` is a deprecated alias of
 //! `json_parse_string`, kept for one release and due for removal.
 //!
-//! The second is how strict the string scanner should be. `parse_string`
-//! accepts a raw control byte (U+0000-U+001F) where RFC 8259 §7 requires it
-//! escaped, and copies non-escape bytes through without UTF-8 validation, so
-//! invalid UTF-8 in the input reaches the resulting `String`. `serde_json`
-//! rejects both. Tightening either one turns input that parses today into an
-//! error, so it is a breaking change rather than a bug fix
-//! (`issues/stddoc-io-json-parse-string-accepts-raw-control-bytes.md`).
+//! How strict the string scanner should be WAS the second question; it is
+//! settled. `parse_string` now rejects a raw control byte (RFC 8259 §7
+//! requires U+0000-U+001F escaped) and validates that the decoded bytes are
+//! UTF-8, which is what `serde_json`, `JSON.parse` and Go's `encoding/json`
+//! all do. Both were breaking changes — input that parsed before now errors —
+//! and were taken because the alternative was a `String` that claims to be
+//! UTF-8 while holding bytes that are not
+//! (`issues/fixed/stddoc-io-json-parse-string-accepts-raw-control-bytes.md`).
 //!
 //! The value tree itself is settled: `JsonValue`'s six variants, the `is_*` /
 //! `as_*` accessors, `pointer`, `insert`/`remove`/`object`, and the
@@ -584,11 +584,13 @@ impl(
   /// round-trip cannot silently change the data. Any other escape letter is
   /// `.Err(.InvalidEscape)`.
   ///
-  /// Two deliberate leniences, both wider than `serde_json`: a raw control
-  /// byte (U+0000-U+001F) inside the string is accepted where §7 requires it
-  /// escaped, and the non-escape bytes are copied through without UTF-8
-  /// validation, so invalid UTF-8 in the input reaches the resulting `String`.
-  /// See the module's `## Stability` note.
+  /// The literal bytes are checked too, matching `serde_json`: a raw control
+  /// byte (U+0000-U+001F) is `.Err(.UnexpectedChar(c, pos))` because §7
+  /// requires it escaped, and a byte run that is not valid UTF-8 is
+  /// `.Err(.InvalidUnicode)` — `String` claims to be UTF-8, so a scanner that
+  /// copied arbitrary bytes into one was producing a value that lied about
+  /// itself. Both used to be accepted
+  /// (`issues/fixed/stddoc-io-json-parse-string-accepts-raw-control-bytes.md`).
   parse_string : (fn(self : Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();
@@ -701,6 +703,13 @@ impl(
                 }
               );
             },
+            (c < u8(0x20)) => {
+              // RFC 8259 section 7: unescaped = %x20-21 / %x23-5B / %x5D-10FFFF,
+              // so U+0000-U+001F must be escaped. A raw LF, CR, TAB or NUL used
+              // to fall through to the catch-all and be accepted
+              // (issues/fixed/stddoc-io-json-parse-string-accepts-raw-control-bytes.md).
+              return(.Err(.UnexpectedChar(c, self.pos)));
+            },
             true => {
               bytes.push(c);
               self.advance();
@@ -709,6 +718,18 @@ impl(
         }
       );
     });
+    // The literal bytes were copied through unchecked above, so the buffer can
+    // hold invalid UTF-8 even though `String` claims to be UTF-8. Validate once
+    // here rather than per byte: everything `\uXXXX` contributed was encoded by
+    // `encode_lossy_into` from an already-validated scalar, so the only thing
+    // this pass can reject is a literal byte from the input.
+    match(
+      utf8.validate(bytes),
+      .Err(_) => {
+        return(.Err(.InvalidUnicode));
+      },
+      .Ok(_) => ()
+    );
     .Ok(String.from_bytes(bytes))
   }),
   /// RFC 8259 section 6:

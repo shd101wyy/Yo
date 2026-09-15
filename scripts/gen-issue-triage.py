@@ -11,7 +11,7 @@ and carry the date they were established; update them deliberately.
 TRIAGE.md is generated. Edit this script, not the output, or it rots the way
 the 149 stale issue references repaired on 2026-09-14 did.
 """
-import os, re, collections
+import os, re, sys, collections
 
 AREAS = [
     ("CI/Release/Build", r"^(ci-|release-|build-|version-install|installer-|windows-images|test-matrix|d6-schannel|liburing|the-published-windows|http-limits-test|leak-regression-tests|seed-|v0\.2\.23|fixpoint-|retired-windows|std-s1|emscripten-heap|manifest-package|yo-lock-records)"),
@@ -37,27 +37,18 @@ ORDER = [a for a, _ in AREAS] + ["Other"]
 #     be rejected now, and the honest score is the diagnostic TEXT.
 # So a row is listed below only when its OUTPUT was read against the doc's claim.
 CONFIRMED = {
-    "stddoc-coll-float-modulo-emits-invalid-c.md": "invalid C: `%` applied to two doubles",
     "stddoc-coll-imm-vec-dedup-leaks-rc-elements.md": "`disposed: 0 (expected 3)`",
     "stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md": "both arms are `.Err(String)`; nothing distinguishes help from error",
     "stddoc-io-arg-parser-positionals-are-never-required.md": "a missing required arg still parses `Ok`",
-    "stddoc-io-json-parse-string-accepts-raw-control-bytes.md": "raw control bytes accepted inside a string",
 }
 # Curated 2026-09-14: verified STILL OPEN by reading the current source (the
 # doc's described defect is still present). Distinct from CONFIRMED, which ran
 # the reproducer; these were adjudicated by code reading alone.
 SOURCE_VERIFIED_OPEN = {
-    "stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md": "the variant is declared at std/string/string.yo:68 with no producer in the module",
-    "stddoc-str-string-builder-clear-drops-capacity.md": "`clear` still does `self._buf = ArrayList(u8).new()`, discarding the buffer; ArrayList.clear retains capacity and is the one-line fix",
-    "float-to-string-is-platform-dependent-for-non-finite-values.md": "std/fmt/to_string.yo still routes non-finite through %g and says so in its own module doc",
-    "make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md": "std/sys/tcp.yo:188 still documents the failure as unreported",
-    "bench-with-zero-iterations-returns-min-ns-greater-than-max-ns.md": "min_ns still seeded to i64::MAX with no zero-iteration guard; bench_auto can never pass 0, so a guard is safe",
     "derive-body-field-name-collides-with-a-builtin-type.md": "still fails: derive body renders a field named `unit` as the builtin type",
 }
 # Curated 2026-09-14: subject no longer exists (the TS compiler died in P2.5).
 RETIRE = {
-    "ts-evaluator-slow-compile-of-nested-tostring-calls.md": "subject is the DELETED TypeScript evaluator",
-    "emitted-c-include-order-differs-ts-vs-self.md": "a TS-vs-self byte-parity divergence; there is only one compiler now",
 }
 
 def area(fn):
@@ -118,23 +109,42 @@ Three things are worth knowing before trusting any row.
             W(f"| {k} | {len(rs)} | {sum(1 for r in rs if r[3])} |")
     W(f"| **Total** | **{len(rows)}** | **{sum(1 for r in rows if r[3])}** |")
     names = {r[1] for r in rows}
+    # A curated key that no longer names an open doc is DEAD WEIGHT: the doc was
+    # fixed or retired, and `if f in names` below silently stops rendering it.
+    # Silence is how these tables rot into a list of things that used to be true,
+    # so refuse to generate instead -- the fix is one line, deleting the key.
+    stale = sorted(
+        k
+        for d in (CONFIRMED, SOURCE_VERIFIED_OPEN, RETIRE)
+        for k in d
+        if k not in names
+    )
+    if stale:
+        sys.stderr.write(
+            "gen-issue-triage: curated entries name docs that are no longer open "
+            "in issues/ root.\nDelete them from CONFIRMED / SOURCE_VERIFIED_OPEN / "
+            "RETIRE and re-run:\n"
+        )
+        for k in stale:
+            sys.stderr.write(f"  {k}\n")
+        return 1
     W("\n## Cross-cutting buckets\n")
-    W("### Confirmed still reproducing (output read, 2026-09-14)\n")
-    W("Ready to work on — the defect was observed, not inferred.\n")
-    for f, ev in CONFIRMED.items():
-        if f in names:
+    if CONFIRMED:
+        W("### Confirmed still reproducing (output read, 2026-09-14)\n")
+        W("Ready to work on — the defect was observed, not inferred.\n")
+        for f, ev in CONFIRMED.items():
             W(f"- [`{f}`](./{f}) — {ev}")
-    W("\n### Verified still open, by reading the current source\n")
-    W("Adjudicated by code reading rather than by running a reproducer — the")
-    W("defect the doc describes is still present, so these are safe to pick up.\n")
-    for f, ev in SOURCE_VERIFIED_OPEN.items():
-        if f in names:
+    if SOURCE_VERIFIED_OPEN:
+        W("\n### Verified still open, by reading the current source\n")
+        W("Adjudicated by code reading rather than by running a reproducer — the")
+        W("defect the doc describes is still present, so these are safe to pick up.\n")
+        for f, ev in SOURCE_VERIFIED_OPEN.items():
             W(f"- [`{f}`](./{f}) — {ev}")
-    W("\n### Retirement candidates — subject no longer exists\n")
-    W("The TypeScript compiler was deleted in P2.5. A doc whose SUBJECT is that")
-    W("compiler, or whose content is a TS-vs-self divergence, cannot be acted on.\n")
-    for f, why in RETIRE.items():
-        if f in names:
+    if RETIRE:
+        W("\n### Retirement candidates — subject no longer exists\n")
+        W("The TypeScript compiler was deleted in P2.5. A doc whose SUBJECT is that")
+        W("compiler, or whose content is a TS-vs-self divergence, cannot be acted on.\n")
+        for f, why in RETIRE.items():
             W(f"- [`{f}`](./{f}) — {why}")
     W("\n### Duplication — six of the docs once counted as open were not\n")
     W("""Two distinct mechanisms, both invisible to a "does the cited path resolve"
@@ -187,6 +197,7 @@ pointing the other way.
             W(f"| [`{r[1]}`](./{r[1]}) | {r[2][:60] if r[2] else '—'} | {'yes' if r[3] else '—'} |")
     open(os.path.join(idir, "TRIAGE.md"), "w").write("\n".join(out) + "\n")
     print(f"issues/TRIAGE.md regenerated: {len(rows)} open docs")
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

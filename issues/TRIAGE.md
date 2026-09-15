@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 205 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 203 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 32 | 11 |
 | Codegen / emitted C | 22 | 4 |
 | Evaluator / types | 39 | 8 |
-| Std library | 56 | 16 |
+| Std library | 54 | 15 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 5 | 1 |
-| **Total** | **205** | **44** |
+| **Total** | **203** | **43** |
 
 ## Cross-cutting buckets
 
@@ -47,21 +47,13 @@ Ready to work on — the defect was observed, not inferred.
 - [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) — `disposed: 0 (expected 3)`
 - [`stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md`](./stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md) — both arms are `.Err(String)`; nothing distinguishes help from error
 - [`stddoc-io-arg-parser-positionals-are-never-required.md`](./stddoc-io-arg-parser-positionals-are-never-required.md) — a missing required arg still parses `Ok`
-- [`stddoc-io-json-parse-string-accepts-raw-control-bytes.md`](./stddoc-io-json-parse-string-accepts-raw-control-bytes.md) — raw control bytes accepted inside a string
 
 ### Verified still open, by reading the current source
 
 Adjudicated by code reading rather than by running a reproducer — the
 defect the doc describes is still present, so these are safe to pick up.
 
-- [`make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md`](./make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md) — std/sys/tcp.yo:188 still documents the failure as unreported
 - [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) — still fails: derive body renders a field named `unit` as the builtin type
-
-### Retirement candidates — subject no longer exists
-
-The TypeScript compiler was deleted in P2.5. A doc whose SUBJECT is that
-compiler, or whose content is a TS-vs-self divergence, cannot be acted on.
-
 
 ### Duplication — six of the docs once counted as open were not
 
@@ -247,7 +239,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (56)
+### Std library (54)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -264,7 +256,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`http-whitespace-before-header-colon-not-rejected.md`](./http-whitespace-before-header-colon-not-rejected.md) | — | — |
 | [`httpmethod-from-string-returns-option-not-result.md`](./httpmethod-from-string-returns-option-not-result.md) | — | — |
 | [`json-stringify-renders-numbers-with-percent-g-and-loses-them.md`](./json-stringify-renders-numbers-with-percent-g-and-loses-them.md) | OPEN — wrong value on a shipped serializer; J | — |
-| [`make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md`](./make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md) | — | — |
 | [`network-path-redirect-location-resolved-against-the-base-host.md`](./network-path-redirect-location-resolved-against-the-base-host.md) | — | — |
 | [`path-join-and-push-never-refold-parent-segments.md`](./path-join-and-push-never-refold-parent-segments.md) | OPEN | — |
 | [`path-new-destroys-the-windows-unc-and-verbatim-prefix.md`](./path-new-destroys-the-windows-unc-and-verbatim-prefix.md) | OPEN | — |
@@ -287,7 +278,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`stddoc-io-dns-lookup-host-returns-duplicate-addresses.md`](./stddoc-io-dns-lookup-host-returns-duplicate-addresses.md) | open | — |
 | [`stddoc-io-dns-resolution-blocks-the-event-loop.md`](./stddoc-io-dns-resolution-blocks-the-event-loop.md) | open | — |
 | [`stddoc-io-doc-renders-every-stability-marker-as-unstable.md`](./stddoc-io-doc-renders-every-stability-marker-as-unstable.md) | open | — |
-| [`stddoc-io-json-parse-string-accepts-raw-control-bytes.md`](./stddoc-io-json-parse-string-accepts-raw-control-bytes.md) | open | yes |
 | [`stddoc-io-negative-duration-sleeps-forever.md`](./stddoc-io-negative-duration-sleeps-forever.md) | — | yes |
 | [`stddoc-io-percent-encode-calls-str-to-string-without-importing-fmt.md`](./stddoc-io-percent-encode-calls-str-to-string-without-importing-fmt.md) | open, and | — |
 | [`stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`](./stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md) | open | yes |

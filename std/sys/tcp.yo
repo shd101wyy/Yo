@@ -40,9 +40,7 @@
 //! `SockAddr` is a malloc'd byte buffer plus a length that the CALLER must
 //! free, with the field offsets baked into `make_sockaddr_in`
 //! (`buf.add(4)` for `sin_addr`, `buf.add(8)` for `sin6_addr`) rather than
-//! asked of the platform, and `make_sockaddr_in` silently ignores a failed
-//! `inet_pton` so a malformed IP string yields a zero address instead of an
-//! error. On top of that the error channel is two different vocabularies
+//! asked of the platform. On top of that the error channel is two different vocabularies
 //! (errno and WSA) and the byte-order helpers are exported raw. Freezing
 //! needs an owning address type with a fallible parser and one error
 //! vocabulary; `std/net/tcp` already provides both, and is the surface to
@@ -53,6 +51,8 @@ pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
 { __yo_async_socket_start, __yo_async_bind_start, __yo_async_listen_start, __yo_async_accept_start, __yo_async_connect_start, __yo_async_send_start, __yo_async_recv_start, __yo_async_shutdown_start, __yo_async_setsockopt_start, __yo_async_getsockopt_start, __yo_async_close_start, __yo_sockaddr_set_family, __yo_sockaddr_get_family, __yo_sockaddr_in_set_port, __yo_sockaddr_in_get_port, __yo_sockaddr_in_set_addr, __yo_sockaddr_in_get_addr, __yo_sockaddr_in6_set_port, __yo_sockaddr_in6_get_port, __yo_sockaddr_in6_set_addr, __yo_sockaddr_in6_get_addr, __yo_inet_pton, __yo_inet_ntop, __yo_htons, __yo_ntohs, __yo_htonl, __yo_ntohl } :: import("./externs.yo");
 { AF_INET, AF_INET6, SOCK_STREAM, sockaddr_in_size, sockaddr_in6_size } :: import("./socket.yo");
+{ IoError } :: import("./errors.yo");
+{ EINVAL } :: import("../libc/errno.yo");
 // ============================================================================
 // SockAddr - Socket address buffer with pointer and length
 // ============================================================================
@@ -183,13 +183,16 @@ getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen
 // ============================================================================
 /// Build a `sockaddr_in` from a dotted-quad IP string and a HOST-order port
 /// (the helper does the `htons`). `ip` must be a NUL-terminated C string like
-/// `"127.0.0.1"`. The caller must `free_sockaddr` the result.
+/// `"127.0.0.1"`. On `.Ok` the caller must `free_sockaddr` the result; on
+/// `.Err` nothing is allocated and there is nothing to free.
 ///
-/// A malformed `ip` is NOT reported: the underlying `inet_pton` failure is
-/// discarded and the address field stays zero, which binds to
-/// `INADDR_ANY` — so validate the string first, or use `std/net`'s
-/// `IpAddr.parse`, which returns a `Result`.
-make_sockaddr_in :: (fn(ip : *u8, port : u16) -> SockAddr)({
+/// Text that `inet_pton` cannot parse as IPv4 is `.Err(IoError.InvalidInput)`.
+/// It used to be accepted silently — the conversion's return value was
+/// discarded and the zero-filled address field stayed zero, which is
+/// `INADDR_ANY`, so a typo in a config file turned a loopback-only service
+/// into a public one with nothing reported
+/// (`issues/fixed/make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md`).
+make_sockaddr_in :: (fn(ip : *u8, port : u16) -> Result(SockAddr, IoError))({
   size := sockaddr_in_size();
   buf := (*u8)(malloc(size).unwrap());
   i := usize(0);
@@ -199,14 +202,26 @@ make_sockaddr_in :: (fn(ip : *u8, port : u16) -> SockAddr)({
   });
   __yo_sockaddr_set_family(buf, u16(AF_INET));
   __yo_sockaddr_in_set_port(buf, port);
-  __yo_inet_pton(AF_INET, ip, buf.add(usize(4)));
-  SockAddr(buf, u32(size))
+  // `inet_pton` returns 1 on success, 0 for text that is not an address of
+  // this family, and -1 (EAFNOSUPPORT) for a family it does not know. Only 1
+  // means the destination was written.
+  rc := __yo_inet_pton(AF_INET, ip, buf.add(usize(4)));
+  cond(
+    (rc != i32(1)) => {
+      free(.Some((*void)(buf)));
+      return(.Err(IoError.from_errno(i32(EINVAL))));
+    },
+    true => ()
+  );
+  .Ok(SockAddr(buf, u32(size)))
 });
 /// Build a `sockaddr_in6` from an IPv6 string (e.g. `"::1"`) and a host-order
-/// port. Caller frees with `free_sockaddr`. Same silent-`inet_pton` caveat as
-/// `make_sockaddr_in`, and note that `sin6_scope_id` is left zero, so a
-/// link-local address (`fe80::…%en0`) cannot be expressed here.
-make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> SockAddr)({
+/// port. On `.Ok` the caller frees with `free_sockaddr`. Same `.Err` rule as
+/// `make_sockaddr_in` — text `inet_pton` cannot parse as IPv6, which includes
+/// a dotted-quad IPv4 string, is `IoError.InvalidInput`. Note that
+/// `sin6_scope_id` is left zero, so a link-local address (`fe80::…%en0`)
+/// cannot be expressed here.
+make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> Result(SockAddr, IoError))({
   size := sockaddr_in6_size();
   buf := (*u8)(malloc(size).unwrap());
   i := usize(0);
@@ -216,8 +231,15 @@ make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> SockAddr)({
   });
   __yo_sockaddr_set_family(buf, u16(AF_INET6));
   __yo_sockaddr_in6_set_port(buf, port);
-  __yo_inet_pton(AF_INET6, ip, buf.add(usize(8)));
-  SockAddr(buf, u32(size))
+  rc := __yo_inet_pton(AF_INET6, ip, buf.add(usize(8)));
+  cond(
+    (rc != i32(1)) => {
+      free(.Some((*void)(buf)));
+      return(.Err(IoError.from_errno(i32(EINVAL))));
+    },
+    true => ()
+  );
+  .Ok(SockAddr(buf, u32(size)))
 });
 /// Build a `sockaddr_in` for `INADDR_ANY` (0.0.0.0) on `port` — bind to
 /// every IPv4 interface. This is the wildcard a server wants; note it does

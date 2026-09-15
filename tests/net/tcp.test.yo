@@ -9,6 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { TcpListener, TcpStream, Shutdown } :: import("std/net/tcp");
+IO_tcp :: import("std/sys/tcp");
 { SocketAddr, IpAddr } :: import("std/net/addr");
 { NetError } :: import("std/net/errors");
 { Error, AnyError, Exception, IoExn } :: import("std/error");
@@ -739,4 +740,75 @@ test("connecting to a non-routable address does not park the event loop", {
     sleep_ms < i64(900),
     `the 300 ms sleep took ${sleep_ms} ms — the loop was parked inside connect()`
   );
+});
+// ============================================================================
+// make_sockaddr_in / make_sockaddr_in6 — inet_pton's verdict is not discarded
+// ============================================================================
+// Regression for
+// issues/fixed/make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md
+// Before the fix both builders threw away inet_pton's return value, so text it
+// could not parse left the already-zeroed address field alone and the caller
+// got a fully-formed sockaddr for INADDR_ANY / :: — a typo in a config file
+// turned a loopback-only service into a public one with nothing reported.
+//
+// The `.Ok` cases are the over-rejection canary and matter as much as the
+// `.Err` ones: 0.0.0.0 is a LEGITIMATE request for the wildcard address and
+// must stay distinguishable from a parse failure, which is exactly the
+// distinction the old code could not express.
+_v4_addr_of :: (fn(txt : String) -> Option(u32))({
+  c := txt.to_cstr();
+  match(
+    IO_tcp.make_sockaddr_in(c.ptr().unwrap(), u16(80)),
+    .Ok(sa) => {
+      a := IO_tcp.get_addr_in(sa.buf);
+      IO_tcp.free_sockaddr(sa);
+      .Some(a)
+    },
+    .Err(_) => .None
+  )
+});
+_v6_ok :: (fn(txt : String) -> bool)({
+  c := txt.to_cstr();
+  match(
+    IO_tcp.make_sockaddr_in6(c.ptr().unwrap(), u16(80)),
+    .Ok(sa) => {
+      IO_tcp.free_sockaddr(sa);
+      true
+    },
+    .Err(_) => false
+  )
+});
+test("make_sockaddr_in rejects text inet_pton cannot parse", {
+  assert(_v4_addr_of(`not-an-ip`).is_none(), "`not-an-ip` must not build a sockaddr_in");
+  assert(_v4_addr_of(``).is_none(), "the empty string must not build a sockaddr_in");
+  assert(_v4_addr_of(`999.999.999.999`).is_none(), "out-of-range octets must be rejected");
+  assert(_v4_addr_of(`1.2.3`).is_none(), "a three-octet address must be rejected");
+  assert(_v4_addr_of(`::1`).is_none(), "an IPv6 literal is not valid for AF_INET");
+});
+test("make_sockaddr_in still accepts every valid dotted quad", {
+  // Network byte order, so 127.0.0.1 reads back as 0x0100007f on a
+  // little-endian host; compare against htonl of the host-order value rather
+  // than a hardcoded word so the test is not endianness-specific.
+  assert(
+    _v4_addr_of(`127.0.0.1`) == .Some(IO_tcp.htonl(u32(0x7F000001))),
+    "127.0.0.1 must still produce the loopback address"
+  );
+  assert(
+    _v4_addr_of(`0.0.0.0`) == .Some(u32(0)),
+    "0.0.0.0 is a legitimate wildcard request and must still succeed"
+  );
+  assert(
+    _v4_addr_of(`255.255.255.255`) == .Some(u32(0xFFFFFFFF)),
+    "255.255.255.255 must still produce the broadcast address"
+  );
+});
+test("make_sockaddr_in6 rejects text inet_pton cannot parse", {
+  assert(_v6_ok(`garbage`) == false, "`garbage` must not build a sockaddr_in6");
+  assert(_v6_ok(``) == false, "the empty string must not build a sockaddr_in6");
+  assert(_v6_ok(`1.2.3.4`) == false, "an IPv4 literal is not valid for AF_INET6");
+});
+test("make_sockaddr_in6 still accepts every valid IPv6 literal", {
+  assert(_v6_ok(`::1`), "::1 must still build");
+  assert(_v6_ok(`2001:db8::1`), "2001:db8::1 must still build");
+  assert(_v6_ok(`::`), ":: must still build");
 });

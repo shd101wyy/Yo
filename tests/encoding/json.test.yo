@@ -652,3 +652,69 @@ test("JsonValue ToString is the compact JSON text", {
   v := json.parse("{\"a\": [1, 2]}").unwrap();
   assert(v.to_string() == `{"a":[1,2]}`, "ToString == json.stringify");
 });
+// ===== RFC 8259 section 7: the string scanner checks its literal bytes =====
+// Regression for
+// issues/fixed/stddoc-io-json-parse-string-accepts-raw-control-bytes.md
+// The scanner's catch-all arm used to push any byte that was not `"` or `\\`,
+// so a raw control byte was accepted where section 7 requires it escaped, and
+// arbitrary bytes were copied into a `String` that claims to be UTF-8.
+//
+// The 0x20 case is the over-rejection canary: `unescaped` starts AT 0x20, so
+// the boundary has to be exactly `< 0x20` and not `<= 0x20`.
+_with_raw_byte :: (fn(b0 : u8) -> Result(JsonValue, JsonError))({
+  // {"a":"x<b0>y"} — assembled by hand because the point is a RAW byte in the
+  // string body, which a Yo string literal would not carry through unescaped.
+  b := ArrayList(u8).new();
+  b.push(u8(123));
+  b.push(u8(34));
+  b.push(u8(97));
+  b.push(u8(34));
+  b.push(u8(58));
+  b.push(u8(34));
+  b.push(u8(120));
+  b.push(b0);
+  b.push(u8(121));
+  b.push(u8(34));
+  b.push(u8(125));
+  json.parse_bytes(b)
+});
+test("json string rejects every raw control byte", {
+  assert(_with_raw_byte(u8(0x00)).is_err(), "raw NUL must be rejected");
+  assert(_with_raw_byte(u8(0x09)).is_err(), "raw TAB must be rejected");
+  assert(_with_raw_byte(u8(0x0A)).is_err(), "raw LF must be rejected");
+  assert(_with_raw_byte(u8(0x0D)).is_err(), "raw CR must be rejected");
+  assert(_with_raw_byte(u8(0x1F)).is_err(), "raw 0x1F must be rejected");
+});
+test("json string still accepts 0x20, the first unescaped byte", {
+  v := _with_raw_byte(u8(0x20)).unwrap();
+  assert(json.stringify(v) == `{"a":"x y"}`, "a literal space is legal per section 7");
+});
+test("json string rejects bytes that are not valid UTF-8", {
+  // A `String` claims to be UTF-8; the scanner used to copy these straight in.
+  assert(_with_raw_byte(u8(0x80)).is_err(), "a lone continuation byte must be rejected");
+  assert(_with_raw_byte(u8(0xFF)).is_err(), "0xFF is never valid UTF-8");
+});
+test("json string tightening did not break valid input", {
+  // Escapes, multi-byte literal UTF-8 (2-, 3- and 4-byte), and surrogate pairs
+  // all have to survive the two new checks. The literal-UTF-8 case uses a
+  // backtick `String` so the bytes reach the scanner as themselves rather than
+  // as `\uXXXX` escapes — escapes go down the already-validated path and would
+  // not exercise the new check at all.
+  assert(
+    json.stringify(json.parse("{\"a\":\"x\\ny\\tz\"}").unwrap()) == `{"a":"x\\ny\\tz"}`,
+    "escaped control characters must still decode"
+  );
+  assert(
+    json.parse_string(`{"a":"héllo ☃ 𝄞"}`).is_ok(),
+    "literal 2-, 3- and 4-byte UTF-8 must still parse"
+  );
+  assert(json.parse("{\"a\":\"\"}").is_ok(), "an empty string must still parse");
+  assert(
+    json.parse("{\"a\":\"\\ud834\\udd1e\"}").is_ok(),
+    "a surrogate PAIR escape must still decode"
+  );
+  assert(
+    json.parse("{\"a\":\"\\ud834\"}").is_err(),
+    "a LONE surrogate escape stays rejected"
+  );
+});

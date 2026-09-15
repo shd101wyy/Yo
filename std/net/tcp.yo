@@ -58,8 +58,15 @@ SockInfo :: import("../sys/sockinfo");
 /// — which is how the hardcoded-"::1" bug below had to be fixed twice. One
 /// encoder and one decoder (`sockaddr_to_socket_addr`) for the whole `net`
 /// layer.
-make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
-  match(
+/// `exn` is taken because the conversion can fail: `std/sys/tcp`'s builders
+/// return `Result` since they stopped discarding `inet_pton`'s verdict
+/// (`issues/fixed/make-sockaddr-ignores-inet-pton-failure-and-returns-the-wildcard-address.md`).
+/// An `.Err` here means the text this function RENDERED from an already-typed
+/// `IpAddr` did not round-trip, which is a std bug rather than bad user input
+/// — it is thrown as `NetError` so it surfaces instead of becoming a silent
+/// bind to the wildcard address.
+make_sockaddr :: (fn(addr : SocketAddr, exn : Exception) -> IO_tcp.SockAddr)({
+  built := match(
     addr.ip,
     .V4(a, b, c, d) => {
       // Build the IP string "a.b.c.d"
@@ -82,8 +89,13 @@ make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       ip_c := ip_txt.to_cstr();
       IO_tcp.make_sockaddr_in6(ip_c.ptr().unwrap(), addr.port)
     }
+  );
+  match(
+    built,
+    .Ok(sa) => sa,
+    .Err(err) => exn.throw(dyn(NetError.from_io(err)))
   )
-);
+});
 /// Parse a low-level sockaddr buffer (as filled in by accept/getsockname/
 /// recvfrom) back into a `SocketAddr`. Unknown families fall back to 0.0.0.0:0.
 /// Shared with `std/net/udp` (its `bind` readback) — one decoder for the whole
@@ -264,7 +276,7 @@ impl(
       reuse_ptr := &reuse_val;
       e.io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*u8)(reuse_ptr), u32(4)), e.io);
       // Bind
-      saddr := make_sockaddr(addr);
+      saddr := make_sockaddr(addr, e.exn);
       bind_result := e.io.await(IO_tcp.bind(fd, saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
@@ -393,7 +405,7 @@ impl(
       );
       raw_fd := e.io.await(IO_tcp.socket(domain, SOCK_STREAM, i32(0)), e.io);
       fd := NetError.check(raw_fd, e.exn);
-      saddr := make_sockaddr(addr);
+      saddr := make_sockaddr(addr, e.exn);
       conn_result := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(

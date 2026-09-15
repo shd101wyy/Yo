@@ -1,15 +1,21 @@
 // Reproducer for
-// issues/stddoc-io-json-parse-string-accepts-raw-control-bytes.md
+// issues/fixed/stddoc-io-json-parse-string-accepts-raw-control-bytes.md
 //
 //   yo compile issues/repros/stddoc-io-json-parse-string-accepts-raw-control-bytes.yo \
 //     --std-path ./std --optimize 2 -o /tmp/t && /tmp/t
 //
-// Observed: ACCEPTED raw control byte: {"a":"x\ny"}
-// Expected: rejected — RFC 8259 section 7 requires U+0000-U+001F escaped
-//           inside a string, and serde_json / JSON.parse / Go both reject it.
+// FIXED 2026-09-15. Before the fix this printed
+//   ACCEPTED raw control byte: {"a":"x\ny"}
+// because `_Parser.parse_string`'s catch-all arm pushed any byte that was not
+// `"` or `\`. RFC 8259 section 7 requires U+0000-U+001F escaped, and
+// serde_json / JSON.parse / Go's encoding/json all reject a raw one.
+//
+// This ASSERTS rather than printing: a repro that prints and exits 0 either
+// way cannot tell a fixed tree from a broken one.
 //
 // The bytes are assembled by hand because the point is a RAW 0x0A inside the
 // string body; a Yo string literal would not carry one through unescaped.
+{ assert } :: import("std/assert");
 { println } :: import("std/fmt");
 { json_parse_bytes, json_stringify } :: import("std/encoding/json");
 { ArrayList } :: import("std/collections/array_list");
@@ -29,7 +35,10 @@ main :: (fn() -> i32)({
   b.push(u8(125)); // }
   match(
     json_parse_bytes(b),
-    .Ok(v) => println(`ACCEPTED raw control byte: ${json_stringify(v)}`),
+    .Ok(v) => {
+      println(`ACCEPTED raw control byte: ${json_stringify(v)}`);
+      assert(false, "a raw control byte inside a JSON string must be rejected");
+    },
     .Err(e) => println(`rejected: ${e}`)
   );
   i32(0)

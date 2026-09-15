@@ -82,7 +82,7 @@ impl(
       );
       raw_fd := e.io.await(IO_udp.socket(domain, i32(0)), e.io);
       fd := NetError.check(raw_fd, e.exn);
-      saddr := make_sockaddr(addr);
+      saddr := make_sockaddr(addr, e.exn);
       bind_r := e.io.await(IO_udp.bind(fd, saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
@@ -116,7 +116,7 @@ impl(
   connect : (fn(self : Self, addr : SocketAddr, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      saddr := make_sockaddr(addr);
+      saddr := make_sockaddr(addr, e.exn);
       r := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
@@ -133,7 +133,7 @@ impl(
   send_to : (fn(self : Self, data : ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      saddr := make_sockaddr(addr);
+      saddr := make_sockaddr(addr, e.exn);
       r := e.io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       usize(NetError.check(r, e.exn))
