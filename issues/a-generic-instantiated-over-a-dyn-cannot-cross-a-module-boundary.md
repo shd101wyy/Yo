@@ -68,6 +68,44 @@ adds that the MODULE BOUNDARY is the trigger, which narrows where to look
 (instantiation identity / specialization registration across module loads,
 rather than the container's own method bodies).
 
+## The mechanism (added 2026-09-16)
+
+Not a codegen limitation — a **swallowed definition-time evaluation**.
+
+Put the call in a HELPER rather than in `main` and the compile SUCCEEDS, because
+the FTT guard is fatal only for `__yo_user_main`. The binary then links and, when
+run, says exactly what happened:
+
+```
+yo: FATAL: reached yo_id_17528351815223688312000000, whose body failed to
+transpile - its definition-time evaluation failed and was swallowed.
+Re-run `yo check` with YO_DEBUG_SWALLOW=1 to see the original error.
+```
+
+The stub IS the calling function (`size_t yo_id_…()`, no parameters — the
+helper). So: evaluating the call at definition time fails, the failure is
+swallowed, the caller's body degrades to an abort stub, and in `main` that stub
+trips the fatal FTT guard. The `_ptr.add` "No matching call" seen with `.get()`
+is the same broken instantiation surfacing one layer down.
+
+`YO_DEBUG_SWALLOW=1` on this repro prints 50 swallows, all of them `[trial]`
+noise from `std/prelude.yo`'s generic def-time trials — none names this call
+site. So the swallow that matters is NOT attributed to the failing function,
+which is itself worth fixing: the diagnostic points at a tool that then does not
+show the error.
+
+## The narrowing, as a 2x2
+
+| | built locally | crosses a module boundary |
+| --- | --- | --- |
+| `ArrayList(i32)` | OK | **OK** |
+| bare `Dyn(ToString)` param | OK | **OK** |
+| `ArrayList(Dyn(ToString))` | **OK** | **FAILS** |
+
+A bare `Dyn` crosses fine and a non-`Dyn` generic crosses fine. It is the
+COMBINATION — a generic whose type argument is a `Dyn` — instantiated on one
+side of a module boundary and used on the other.
+
 ## Note on oracles
 
 `yo check` passes over every failing case above — it is evaluator-only, and this
