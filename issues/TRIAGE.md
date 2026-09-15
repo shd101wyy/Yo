@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 204 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 205 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 4 | 1 |
-| **Total** | **204** | **44** |
+| Other | 5 | 1 |
+| **Total** | **205** | **44** |
 
 ## Cross-cutting buckets
 
@@ -361,7 +361,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (4)
+### Other (5)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -369,3 +369,4 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
 | [`per-def-dependent-trial-resolves-stale-callee.md`](./per-def-dependent-trial-resolves-stale-callee.md) | — | — |
 | [`trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`](./trait-impl-method-contract-clauses-corrupt-operator-dispatch.md) | — | — |
+| [`verifier-decreases-nonneg-is-signed-for-unsigned-measures.md`](./verifier-decreases-nonneg-is-signed-for-unsigned-measures.md) | — | — |
