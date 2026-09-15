@@ -43,6 +43,13 @@ decisions are all made and implemented — nothing is waiting on anyone.
 - **The breaking window** (§2's D9–D18) — shipped in v0.2.28. The one
   exception, **D18b** (`Thread(T).join() -> T`), LANDED 2026-09-12; §0's item 1
   records the six walls it went through.
+- **`ErrorChain`/`root_cause`** — LANDED 2026-09-16, the last row of this
+  document held up by a defect rather than a decision. The defect was fixed
+  2026-09-14 (#521); the two-release sequencing then held the std API one more
+  release, and v0.2.34 is the seed that carries it. `root_cause(err)` returns
+  the innermost error; `error_chain(err)` is the whole walk as an `Iterator`,
+  cursored on an `Option(AnyError)` struct field. Gated by
+  `tests/error_source_chain.test.yo`.
 - **Phase 4** (§4's additive work), module group by module group:
   collections, `imm`, encoding, I/O, net, the `## Stability` markers, and the
   documentation sweep. `yo doc ./std --format json` went 1554 → 1161
@@ -88,7 +95,6 @@ Nothing is waiting on anyone here. Re-checked against the code 2026-09-12:
 | private `ctrl`/`data`/`size` fields; `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `imm/*` internals | `plans/backlog/MEMBER_VISIBILITY.md` |
 | `rand.thread_rng` | `plans/backlog/THREAD_LOCAL_STORAGE.md` |
 | the ten byte conversions; `usize`/`isize` byte conversions; `Array(T,N)` `Default` | `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` |
-| `ErrorChain`/`root_cause` | ~~a compiler DEFECT~~ **FIXED 2026-09-14** (#521, `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`); now waiting only on a SEED that carries the fix, since `std/` is built by the seed |
 | `JsonValue` integer arms | deliberately deferred to a breaking window (§4, encoding) |
 
 ### The two engineering items — both landed 2026-09-12, both with a named residue
@@ -1357,9 +1363,10 @@ design — and that defect is FIXED** (2026-09-14,
 `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`;
 `TraitT` identity is now the trait's `id`, not its externally-attached name).
 The walk type-checks and runs, gated by `tests/error_source_chain.test.yo`.
-What remains is purely mechanical sequencing: `std/` is compiled by the SEED
-during bootstrap, so the API lands one release after a seed carries the fix.
-The original analysis follows.
+The mechanical sequencing that remained — `std/` is compiled by the SEED during
+bootstrap, so the API lands one release after a seed carries the fix — is done:
+v0.2.34 is that seed, and both `root_cause` and `error_chain` are exported from
+`std/error.yo` as of 2026-09-16. The original analysis follows.
 Both must store the result of `source()` as an `AnyError`, and on a
 `Dyn(Error)` receiver that result's static type has lost the `Error` trait:
 `Given: dyn((source : fn(...) -> Option(dyn( + ToString))) + ToString)` against
@@ -1794,8 +1801,9 @@ from the blocked call sites, in `plans/backlog/`:
 `ErrorChain`/`root_cause` WAS a sixth blocker — a compiler DEFECT rather than
 a missing feature — and it is **FIXED** (2026-09-14,
 `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`,
-filed as #521). It is no longer a blocker in this sense; it is queued behind the
-seed bump like any other std use of a new compiler behaviour.
+filed as #521). It then waited on the seed bump like any other std use of a new
+compiler behaviour, and **SHIPPED 2026-09-16** on the v0.2.34 seed. Not a
+blocker any more in either sense.
 
 **Three "Yo has no X" claims in this document were measured and found false**
 on 2026-09-10, so treat the rest with the same suspicion:
