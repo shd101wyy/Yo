@@ -11,7 +11,7 @@ pragma(Pragma.SkipWasm32Wasi); // https needs a network stack + TLS
 { HttpHeader, HeaderMap, StatusCode } :: import("std/http/http");
 { fetch, fetch_with, FetchOptions, HttpClient } :: import("std/http/client");
 _wire :: import("std/http/wire.yo");
-{ Exception, IoExn } :: import("std/error");
+{ Exception, IoExn, AnyError } :: import("std/error");
 { println, eprintln } :: import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -20,6 +20,7 @@ _wire :: import("std/http/wire.yo");
 { TcpListener, TcpStream, Shutdown } :: import("std/net/tcp");
 { Reader } :: import("std/io");
 { SocketAddr } :: import("std/net/addr");
+{ NetError } :: import("std/net/errors");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/time/sleep");
 { timeout } :: import("std/async");
@@ -30,6 +31,18 @@ _wire :: import("std/http/wire.yo");
 /// A capture-free `->` handler may not read a runtime local, but it CAN call
 /// a module-level binding (#396) — hence a module-level fn.
 _network_required :: (fn() -> bool)(env.get("CI").is_some());
+/// True when the throw is a name-RESOLUTION failure rather than anything the
+/// HTTP/TLS stack did — `std/net/dns.yo` throws `dyn(NetError.DNSFailed(host))`,
+/// recovered here through `downcast` rather than by reading the rendered
+/// English (D1). Resolution happens before any connection, so a broken stack
+/// cannot produce it; every other error stays fatal under CI.
+_is_dns_failure :: (fn(err : AnyError) -> bool)(
+  match(
+    downcast(err, NetError),
+    .Some(ne) => match(ne, .DNSFailed => true, _ => false),
+    .None => false
+  )
+);
 pragma(Pragma.AllowUnsafe);
 test("HttpRequest build GET request", {
   req := HttpRequest.new(HttpMethod.GET, `/index.html`);
@@ -150,7 +163,7 @@ test("fetch over https returns a real response (mandatory under CI)", {
       err -> {
         detail := err.to_string();
         cond(
-          _network_required() => {
+          (_network_required() && !_is_dns_failure(err)) => {
             // eprintln, not println: a buffered println is lost when the
             // panic below aborts the test child.
             eprintln(`  https fetch FAILED where the network is required: ${detail}`);

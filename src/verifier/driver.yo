@@ -545,9 +545,43 @@ verify_and_strip_tasks :: (
     match(
       tasks.get(ti),
       .Some(t) => {
+        // V6 task 5: an `assumed()` fn — its contracts gate callers, its
+        // body is outside the verifiable subset (raw pointers, allocator
+        // calls). No walk: report the honest outcome and move on. This
+        // fires BEFORE the def-eval-failure check on purpose — an assumed
+        // DEFERRED (generic) body has no ExprInfo and no recorded trial
+        // failure; that is expected, not a swallowed error.
+        if(t.body_assumed, {
+          reports.push(
+            VerifyFnReport(
+              fn_id : t.fn_id.clone(),
+              mode : t.mode.clone(),
+              outcome : String.from("assumed"),
+              obligations : ArrayList(VerifyFnObligation).new(),
+              subset_construct : String.from("contracts assumed — body outside the verifiable subset (assumed())"),
+              subset_source : String.new()
+            )
+          );
+          ti = (ti + usize(1));
+          continue;
+        });
         // V5 honest diagnostics: a body whose definition-time trial
         // SWALLOWED (E0902/E0401 class) reaches here hollow — report the
         // recorded CAUSE instead of walking into "untyped expression".
+        // V6 task 5: on a CONTRACT-LESS fn (no requires/ensures/decreases,
+        // not assumed) the subset failure degrades to the passing
+        // `outside-subset` outcome — nothing was promised, the body is
+        // infrastructure (raw pointers, allocator calls); the flagship
+        // (AoRTE refutations on unannotated code) is unaffected: a walk
+        // that REFUTES stays a refutation whatever the fn's contracts.
+        contract_less := (
+          (t.requires_exprs.len() == usize(0)) &&
+            (t.ensures_exprs.len() == usize(0)) && t.decreases_expr.is_none()
+        );
+        degrade_outcome := cond(
+          contract_less => String.from("outside-subset"),
+          true => String.from("subset-error")
+        );
         match(
           verify_task_def_eval_failure(t.fn_id.clone()),
           .Some(msg) => {
@@ -555,7 +589,7 @@ verify_and_strip_tasks :: (
               VerifyFnReport(
                 fn_id : t.fn_id.clone(),
                 mode : t.mode.clone(),
-                outcome : String.from("subset-error"),
+                outcome : degrade_outcome.clone(),
                 obligations : ArrayList(VerifyFnObligation).new(),
                 subset_construct : `body's definition-time evaluation failed (swallowed at load): ${msg}`,
                 subset_source : String.new()
@@ -587,7 +621,7 @@ verify_and_strip_tasks :: (
               VerifyFnReport(
                 fn_id : t.fn_id.clone(),
                 mode : t.mode.clone(),
-                outcome : String.from("subset-error"),
+                outcome : degrade_outcome.clone(),
                 obligations : ArrayList(VerifyFnObligation).new(),
                 subset_construct : err.construct.clone(),
                 subset_source : err.source.clone()

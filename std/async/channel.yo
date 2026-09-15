@@ -20,8 +20,8 @@
 //! capped a producer/consumer pair at ~1000 values per second
 //! (`plans/backlog/WAKER_BASED_SCHEDULING.md` stage 3).
 //!
-//! ```rust
-//! { Channel } :: import "std/async/channel";
+//! ```yo
+//! { Channel } :: import("std/async/channel");
 //! ch := Channel(i32).new(usize(8));
 //! producer := io.spawn(io.async((io : Io) => {
 //!   _s := io.await(ch.send(i32(42), io), io);
@@ -40,7 +40,7 @@
 //! Exactly one `Receiver` exists per channel, which is what makes "the
 //! receiver is gone" a fact a sender can act on.
 //!
-//! ```rust
+//! ```yo
 //! rx := Channel(i32).receiver(usize(4));   // channel + its one consumer
 //! {
 //!   tx := rx.sender();                     // a counted producer
@@ -469,7 +469,7 @@ impl(
   /// `Sender`/`Receiver` split. Mint producers with `Receiver.sender()` and
   /// `Sender.clone()`.
   ///
-  /// ```rust
+  /// ```yo
   /// rx := Channel(i32).receiver(usize(4));
   /// tx := rx.sender();
   /// _s := io.await(tx.send(i32(1), io), io);

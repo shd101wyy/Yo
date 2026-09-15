@@ -24,6 +24,7 @@
   BF_ENSURES,
   BF_INVARIANT,
   BF_DECREASES,
+  BF_ASSUMED,
   BF_GHOST,
   BF_GHOST_FN,
   BF_OLD,
@@ -200,6 +201,28 @@ evaluate_decreases :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, 
     String.from("'decreases(...)' with zero arguments is a syntax error."),
     exn
   );
+  _evaluate_contract_marker(expr, env, ctx, exn)
+});
+/// V6 task 5 (FORMAL_VERIFICATION.md): `assumed()` in EXPRESSION position —
+/// no-op marker, the INVERSE of the others: the zero-argument form is the
+/// only legal one (the signature extraction rejects it anywhere else); any
+/// argument is a syntax error naming the contract clauses it expected.
+evaluate_assumed :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  n := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a.len(),
+    .Atom(_, _) => usize(0)
+  );
+  if(n != usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("'assumed()' takes no arguments: it marks the BODY as outside the verifiable subset, and the contracts themselves come from requires(...)/ensures(...)/decreases(...).")
+        )
+      )
+    );
+  });
   _evaluate_contract_marker(expr, env, ctx, exn)
 });
 /// V5 task 5: the std/spec ghost-collection builtins (ghost-only).
@@ -1049,7 +1072,11 @@ VerifyTask :: ref(
     mode : String,
     /// The FuncVal itself — the `verify+` strip pass rewrites its boxed
     /// body data in place (dropping asserts whose predicates proved).
-    func_val : EvalValue
+    func_val : EvalValue,
+    /// V6 task 5: the signature carried `assumed()` — the verifier reports
+    /// the fn as `assumed` without walking the body (raw-pointer internals
+    /// are outside the verifiable subset); its contracts still gate callers.
+    (body_assumed : bool) ?= false
   )
 );
 (g_verify_tasks : ArrayList(VerifyTask)) = ArrayList(VerifyTask).new();
@@ -2286,7 +2313,7 @@ wrap_function_body_with_contracts :: (
   });
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
 });
-export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_ghost);
+export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_assumed, evaluate_ghost);
 export(evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
 export(wrap_function_body_with_contracts);
 export(

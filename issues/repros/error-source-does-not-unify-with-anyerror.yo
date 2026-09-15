@@ -1,11 +1,13 @@
-// Repro — `Error.source()` on a `Dyn(Error)` receiver returns a type that has
-// LOST the `Error` trait, so it cannot be stored back as an `AnyError`.
+// Repro — FIXED 2026-09-14. `Error.source()` on a `Dyn(Error)` receiver used to
+// return a type that had LOST the `Error` trait, so it could not be stored back
+// as an `AnyError`. It now compiles and prints `boom`; kept as a regression
+// witness. The same walk is gated by tests/error_source_chain.test.yo.
 //
 //   YO_STD=<worktree>/std yo check issues/repros/error-source-does-not-unify-with-anyerror.yo
 //
-// Expected: it type-checks; `source()` is declared to return
+// Expected (and now actual): it type-checks; `source()` is declared to return
 //           `Option(Dyn(SelfTrait))` and SelfTrait IS `Error` here.
-// Actual:   error[E0601]: Incompatible types:
+// Was:      error[E0601]: Incompatible types:
 //           - Expected: Option(dyn(Error + ToString))
 //           - Given   : Option(dyn( + ToString))
 //
@@ -14,9 +16,10 @@
 // right — only the static type is wrong, and in the one way that blocks
 // `ErrorChain` / `root_cause`.
 //
-// See issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md
+// See issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md
 { Error, AnyError, Context } :: import("std/error");
 import("std/string");
+{ ToString } :: import("std/fmt/to_string");
 { println } :: import("std/fmt");
 Inner :: enum(Boom);
 derive(Inner, Error(.Boom => `boom`));

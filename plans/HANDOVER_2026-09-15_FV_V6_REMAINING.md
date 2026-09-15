@@ -1,8 +1,8 @@
-# Handover — 2026-09-15, FORMAL_VERIFICATION campaign: V6 tasks 1+2(slice)+4 LANDED, tasks 2(abstract)/3/5/6 remain
+# Handover — 2026-09-15, FORMAL_VERIFICATION campaign: V6 tasks 1+2(slice)+4 LANDED; #695 + #697 OPEN (task 5 slice 1); tasks 2(abstract)/3/5(slice 2)/6 remain
 
-**Status: LIVE INSTRUCTIONS (updated in the task-4 banner PR: #691 merged
-green 2026-09-15, develop `3177afa4a`).** Written for the agent taking over
-the `plans/backlog/FORMAL_VERIFICATION.md` campaign ("finish everything in
+**Status: LIVE INSTRUCTIONS (updated at the session-3 handoff, 2026-09-15
+late).** Written for the agent taking over the
+`plans/backlog/FORMAL_VERIFICATION.md` campaign ("finish everything in
 the plan; document and fix surfaced bugs; no workarounds; stacked PRs fine").
 Everything below is measured or names the PR/run it came from; beliefs are
 labelled as such. Supersedes `plans/HANDOVER_2026-09-14_FV_V6_TASK1.md`
@@ -12,9 +12,110 @@ labelled as such. Supersedes `plans/HANDOVER_2026-09-14_FV_V6_TASK1.md`
 inheritance), task 2's call-site half (contracted generic callees discharge
 at monomorphized call sites), and task 4 (mutual-recursion decreases) all
 LANDED (#685 → `451b75a7f`, #687 → `16aed5f46`, #691 → `3177afa4a`, each
-28/28 green). Remaining: task 2's abstract-body half, task 3
-(`Refine(T, p)` real), task 5 (std/collections dogfood), task 6 (worked
-example — needs task 3).
+28/28 green). Two PRs are OPEN (§0): #695 (u64 decreases signedness —
+ready) and #697 (task-5 slice 1 — CI stalled + conflicts vs develop, with
+the recipe). Remaining after those: task 2's abstract-body half, task 3
+(`Refine(T, p)` real), task-5 slice 2 (std/collections dogfood — blocked
+on a seed bump), task 6 (worked example — needs task 3).
+
+## 0. TAKEOVER STATE — 2026-09-15 late (session-3 handoff; read this first)
+
+**Merged since the last update:** banner #694 → develop `d2a9f6fd3`
+(this handover landed there). Develop tip at handoff: `604896dd6` (#689,
+the peer issues-triage sweep).
+
+**OPEN PR 1 — #695 (`fix/verifier-decreases-unsigned`): GREEN — MERGE
+IT.** The u64 decreases signedness fix (`_measure_is_signed` in
+`src/verifier/vc.yo`; entry ground `bvsge`/`bvuge`, step
+`bvslt`/`bvult`), the task-4 mutual fixtures flipped to u64, the issue
+moved to `issues/fixed/` (the Fix section rides commit `ec7f6cf99`).
+Run 34932915472 COMPLETED SUCCESS (all 28). Action:
+`gh pr merge 695 --squash --delete-branch --admin` → the
+`--delete-branch` step WILL fail (the Yo-fv worktree holds the branch);
+check `git ls-remote --heads origin fix/verifier-decreases-unsigned`
+and clean up both sides by hand (the §3 pattern). Probed: merges clean
+into current develop.
+
+**OPEN PR 2 — #697 (`feat/fv6-task5-assumed-contracts`): stacked on
+#695; CI battery NEVER STARTED, and it now CONFLICTS with develop.**
+
+- Content (task-5 slice 1 — see the V6 task-5 banner in
+  `plans/backlog/FORMAL_VERIFICATION.md` for the full record): the
+  `assumed()` signature clause + the contract-less `outside-subset`
+  degrade; `tests/internal/verifier_assumed.test.yo` (5 tests) + 5
+  fixtures; a CI verify-job step; the cheatsheet `assumed()` bullet.
+  Local gates ALL green: `yo check ./src` 275/275 and the serialized
+  10-file verifier battery (`tmp/run_battery.sh` in the worktree,
+  61 tests) green with real z3.
+- THE STALL (STILL TRUE at the final update — the only blocker on
+  #697): no Actions run was EVER created for the branch —
+  `gh api repos/shd101wyy/Yo/commits/<sha>/check-runs --jq .total_count`
+  returned 0 across THREE empty `ci:` re-trigger commits (`9c92c7e8`,
+  `e1e16519`, `fef60245`) AND a close+reopen, over ~40 min. The runs
+  list shows no run for the branch at all — never queued, not failed.
+  Three peer branches were mid-battery the whole window
+  (`fix/selftrait-dyn-return-type`, `inc/phase4-warm-occurrence`,
+  `inc/phase4-warm-selfcheck`); runner saturation is the likely cause.
+  The §3 remedies were insufficient this time.
+- THE CONFLICT — RESOLVED (updated minutes after it appeared): #689
+  repaired issue paths INSIDE the cheatsheet and re-recorded the same
+  seven cli-case goldens (`fe8aed4f…`); this branch had pinned its own
+  hash (`f5b2b5be…`) after adding the `assumed()` bullet. The taking-
+  over session merged develop into the branch (`854907e6b`) — the
+  merged cheatsheet hashes `ba3b6b34…` and ALL SEVEN goldens were
+  verified consistent with it (`grep`-checked 2026-09-15). Only the
+  stall below remains.
+- RESOLUTION RECIPE (SUPERSEDED for the conflict — see above; KEPT for
+  the stall): push again (any empty commit) once runner load drops;
+  watch `gh run list --branch feat/fv6-task5-assumed-contracts` and the
+  check-runs oracle. The classify step runs FULL (src/ changes).
+
+**Design decisions locked this session (do not re-litigate):**
+
+- Task 5 = assumed contracts (option (a) of handover §4.3; the heap
+  model stays parked). The landed shape: EVERY fn in a verify target
+  still registers — the AoRTE flagship (`bugged_div`: div-by-zero
+  refutations on unannotated code) is untouched — but a walk that fails
+  the SUBSET on a CONTRACT-LESS fn degrades to the passing
+  `outside-subset` outcome (construct kept as the note); contracted fns
+  stay loud; `assumed()` (at least one real contract clause required)
+  skips the walk and reports `assumed` while its contracts gate callers
+  (call sites read the FuncVal-id side tables, so assumed tasks carry
+  RAW predicates and register for DEFERRED generic bodies too). An
+  earlier same-session draft that stopped uncontracted fns from
+  registering was REVERTED when the battery caught it killing
+  `bugged_div` — do not re-propose the flip.
+- Task-5 slice 2 (the `std/collections` annotations + the
+  `yo verify ./std/collections` CI step) is BLOCKED on a seed bump:
+  seed 0.2.33 hard-errors on `assumed()` in a signature (the zone
+  check rejects the unknown clause; measured). The `build.manifest`
+  generation-A/B pattern (`plans/backlog/SEED_VERSION_AUTOMATION.md`)
+  applies; the checklist is in the plan's task-5 banner.
+- Task 3 rides the same generation split: a `RefineT` TypeValue variant
+  + new builtins cannot be exercised through `std/spec` under the
+  current seed (and a file-level pragma extension would throw on old
+  seeds too — `evaluate_pragma` rejects unknown variants).
+- Probe-validated (`tmp/lstprobe.yo`): contract clauses on a GENERIC
+  INHERENT impl method (ArrayList's exact shape) evaluate clean and
+  register — the trait-entry clause corruption issue does not extend
+  there.
+
+**Session-3 lessons (new since the §5 catalogue):**
+
+- `cond` is ARM-styled (`cond(c => a, true => b)`); the comma form is a
+  parse error `yo fmt` does NOT catch. `if(c, a, b)` is the comma form.
+- Adding a `?=`-defaulted ref-struct field: a forgotten non-default at
+  any construction site silently takes the default
+  (`VerifyTask.body_assumed` cost a 10-min iteration — the assumed task
+  registered with `false` and walked into "untyped expression").
+  Declare new fields LAST (matching construction order) and grep every
+  construction site.
+- The CLI cannot exercise in-worktree evaluator changes — `yo check` /
+  `yo verify` run the SEED's compiled-in evaluator; only the in-process
+  harness (tests importing `src/`) validates PR code locally.
+- Pushing ANY commit (even docs) to a PR branch supersedes its in-flight
+  battery (same concurrency group) — finish a branch's battery before
+  touching the branch.
 
 ## 1. Campaign ledger (what landed, with SHAs)
 
@@ -23,10 +124,12 @@ example — needs task 3).
 | V1–V5 (contract surface → solver → straight-line/AoRTE → loops → two-state/quantifiers/ghost → std/spec ghost collections → insertion-sort exit) | complete | see the plan's per-phase banners; last was task 6 → `d5143f99e` |
 | V6 task 1 — trait-contract variance + inheritance | **complete** | #685 → `451b75a7f` (28/28), banner #686 → `6dfe26d9d` |
 | V6 task 2 SLICE 1 — contracted generic callees at monomorphized call sites | **complete** | #687 → `16aed5f46` (28/28) |
-| V6 task 4 — mutual-recursion decreases | **complete** | #691 → `3177afa4a` (28/28), banner = this PR |
+| V6 task 4 — mutual-recursion decreases | **complete** | #691 → `3177afa4a` (28/28), banner #694 → `d2a9f6fd3` |
+| u64 decreases signedness (`issues/fixed/verifier-decreases-nonneg-…`) | **PR OPEN, GREEN** | #695 → branch `fix/verifier-decreases-unsigned`, run 34932915472 completed success |
+| V6 task 5 SLICE 1 — `assumed()` + contract-less `outside-subset` degrade | **PR OPEN, CI stalled (conflict resolved by the develop merge `854907e6b`)** | #697 → branch `feat/fv6-task5-assumed-contracts`; local battery green; see §0 |
+| V6 task 5 SLICE 2 — std/collections dogfood + CI verify | **blocked on a seed bump** | checklist in the plan's task-5 banner |
 | V6 task 2 remainder — generic bodies verified ABSTRACTLY | not started | see §4.1 |
-| V6 task 3 — `Refine(T, p)` real type constructor | not started | see §4.2 |
-| V6 task 5 — std/collections dogfood + CI verify | not started | see §4.3 |
+| V6 task 3 — `Refine(T, p)` real type constructor | not started (scoped 2026-09-15; std rework rides the generation split) | see §4.2 |
 | V6 task 6 — tests incl. the worked example | not started | see §4.4 (needs task 3) |
 
 The plan file carries full per-slice banners with lessons
@@ -201,26 +304,21 @@ Scope notes from scoping done 2026-09-14 (not started):
 
 ### 4.3 Task 5 — dogfood std/collections + CI verify
 
-Plan: annotate `std/collections/array_list.yo` (`get`/`set`/`add`
-bounds + len post-conditions) and `hash_map.yo` core ops; run
-`yo verify ./std/collections` green in CI; fix what the verifier finds
-(each real bug → `issues/fixed/` with a reproducer).
-
-**The open design decision** (write it down before coding): the
-internals of those methods are raw-pointer/`unsafe` code — outside the
-verifiable subset — so a naive `yo verify` over the module reports
-subset errors, not proofs. The modular model offers the answer shape:
-contracted functions whose bodies are outside the subset could carry
-ASSUMED contracts at call sites (the "hollow-body" path the V5
-diagnostics made loud) — but today `verify` mode makes unprovable a
-compile ERROR. Decide: either (a) contracts on subset-external bodies
-are assumed-with-diagnostic (a new per-fn marker/pragma), or (b) the
-walk gains a minimal ptr-arithmetic model. (a) is the plan-consistent
-cheap path; (b) is the "object/heap model" the plan explicitly parks
-out of subset. Also wire CI: the "Formal verification (pinned Z3)" job
-in `.github/workflows/test.yml` currently runs the tests/internal
-verifier battery — extending it to `yo verify ./std/collections` is
-the exit criterion.
+**UPDATED at the session-3 handoff: the design decision is RESOLVED and
+slice 1 is OPEN as PR #697 (§0).** Landed: `assumed()` (option (a)) +
+the contract-less `outside-subset` degrade; the "verify mode makes
+unprovable a compile ERROR" obstacle is gone for contract-less
+infrastructure fns. What REMAINS (slice 2) is BLOCKED on a seed bump —
+seed 0.2.33 hard-errors on the `assumed()` clause (measured; the zone
+check rejects the unknown clause name), and the battery's `yo` runs
+evaluate `std/` with the SEED, so the annotations cannot land in the
+same release as the mechanism. Slice-2 checklist (post-bump, in the
+plan's task-5 banner): `pragma(Pragma.Verify)` at the top of
+`array_list.yo`/`hash_map.yo`, bounds/len contracts + `assumed()` on
+the core ops (get/set/push/insert/remove), the `yo verify
+./std/collections` CI step (the exit criterion), and an
+`issues/fixed/` write-up per real bug the verifier surfaces at call
+sites.
 
 ### 4.4 Task 6 — tests + the worked example
 
@@ -321,21 +419,31 @@ construction site) — part of task 3's acceptance really.
 - The battery is ~28 jobs / ~2 h; the first hours are queued, not
   failing. Check `gh pr checks <n>` non-passing count, not the queue.
 - `plans/backlog/FORMAL_VERIFICATION.md` V6 section carries the
-  per-slice banners (task 1, task 2 slice, task 4) with the full
-  lessons — keep appending there per landing.
+  per-slice banners (task 1, task 2 slice, task 4, task 5 slice 1) with
+  the full lessons — keep appending there per landing.
 - Update `~/.zcode/cli/memories/projects/yo-eebb55377c6e8044/memory/
   fv-worktree-build-recipe.md` when things land (it is current through
-  #691's opening).
+  the session-3 handoff).
+- `tmp/run_battery.sh` (worktree, untracked) runs the whole local
+  verifier battery serialized with the right env; `tmp/lstprobe.yo`
+  is the generic-impl-clauses probe; `tmp/zerodrv.yo` stands (§2
+  caveat applies).
 
 ## 6. Suggested order for the next window
 
-1. Merge #691 when green + banner PR (mechanical, §3).
-2. The u64-nonneg signedness fix (#4.5) — small, unblocks unsigned
-   measures, flips the mutual fixtures to `u64`.
-3. Task 5's design decision written into the plan (assumed-contracts
-   for subset-external bodies), then the `array_list.yo` annotations +
-   CI verify wiring. Real verifier bugs found here are the campaign's
-   payoff — budget for the `issues/fixed/` write-ups.
-4. Task 3 (`Refine(T, p)`) as its own focused window — the largest
-   remaining piece and the worked example's dependency.
+1. Merge #695 when its last job lands, clean up both branch sides
+   (mechanical, §0/§3).
+2. Resolve #697 per the §0 recipe (cherry-pick onto fresh develop,
+   re-pin the seven goldens to the merged cheatsheet's hash), force-
+   push, make sure the battery actually STARTS this time, merge when
+   green + clean both sides.
+3. Task 3 (`Refine(T, p)`) as its own focused window — the largest
+   remaining piece and the worked example's dependency. Mechanism may
+   land ahead of its `std/spec` rework (the generation split), but
+   design that split into the PR boundary from the start.
+4. After the NEXT seed release: task-5 slice 2 — `pragma(Pragma.Verify)`
+   + bounds/len contracts + `assumed()` on `array_list.yo`/`hash_map.yo`
+   core ops, the `yo verify ./std/collections` CI step, and the
+   `issues/fixed/` write-ups for whatever the verifier surfaces (the
+   campaign's payoff — budget for them).
 5. Task 2's abstract-body half and task 6 last.

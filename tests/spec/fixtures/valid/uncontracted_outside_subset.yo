@@ -1,0 +1,18 @@
+// V6 task 5 (FORMAL_VERIFICATION.md): the CONTRACT-LESS degrade rule.
+// `plain_read` carries no requires/ensures/decreases; its body reads a
+// struct field — outside the verifiable subset — so the walk fails the
+// subset. Since task 5 that report DEGRADES to the passing
+// `outside-subset` outcome for contract-less fns (infrastructure,
+// nothing was promised), instead of a subset ERROR: `yo verify` over a
+// raw-pointer module goes green with honest per-fn notes, while a
+// CONTRACTED fn with the same body (or `assumed()`) is the loud path.
+// Needs no solver — the walk rejects the body before any obligation.
+pragma(Pragma.Verify);
+
+Holder :: ref(
+  struct(
+    _v : i32
+  )
+);
+
+plain_read :: (fn(h : Holder) -> (r : i32))(h._v);

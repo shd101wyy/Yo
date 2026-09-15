@@ -1,6 +1,34 @@
 # `Dyn(SelfTrait)` in a return type resolves WITHOUT the trait when called on an erased receiver, so `Error.source` cannot be chained
 
-**Status: OPEN.** Found 2026-09-09 while implementing `ErrorChain` /
+**Status: FIXED** 2026-09-14, in `src/types/compatibility.yo` — `TraitT`
+equality is now `id`-based rather than nominal. Gated by
+`tests/error_source_chain.test.yo` (3 tests); both reproducers
+(`issues/repros/error-source-does-not-unify-with-anyerror.yo`,
+`issues/repros/error-source-selftrait-dyn.yo`) compile and run.
+
+**Root cause.** A trait's NAME is attached externally by its variable binding:
+`evaluate_trait_type` (`src/evaluator/types/trait.yo:1056`) constructs the value
+with `trait_name_str := String.from("")` and the comment "trait name is set
+externally via variable binding, not embedded in the trait expr". A
+`Dyn(SelfTrait)` written inside a trait's OWN declaration therefore captures the
+trait while it is still nameless. The comparison was `aname == ename`, i.e.
+`"" == "Error"` — false. A nominal test declared "different trait" about one
+trait. `id` (`stable_label_id`, set at construction) is the identity that was
+always there; the name is decoration that arrives late.
+
+This doc, `error-source-result-cannot-be-held-as-anyerror.md` and
+`dyn-selftrait-payload-never-matches-the-named-trait.md` are the SAME defect,
+filed three times from three angles (2026-09-04, 2026-09-08, 2026-09-09). One
+change closes all three.
+
+**Still open, and NOT this defect:** `std`'s `ErrorChain`/`root_cause` cannot be
+written until a SEED carries this fix — `std/` is compiled by the seed during
+bootstrap, and the seed still rejects the walk. Two-release sequencing; see
+`plans/STD_API_STABILIZATION.md`.
+
+---
+
+**Originally filed** 2026-09-09, while implementing `ErrorChain` /
 `root_cause` for §4's Error-ergonomics row, which this blocks.
 
 ## Reproducer

@@ -1,0 +1,21 @@
+// V6 task 5 negative twin: an ASSUMED callee's `requires` still gates
+// callers — `assumed()` skips the callee's BODY proof, never the
+// call-site obligation. Nothing constrains x, so `bad_caller` fails to
+// discharge `requires(x > 0)` and REFUTES with x = 0. The callee
+// itself reports `assumed` (not walked, not refuted): one bad caller
+// does not poison the callee, and one assumed callee does not
+// un-gate its callers.
+pragma(Pragma.Verify);
+
+assumed_pos :: (
+  fn(
+    x : i32,
+    requires(x > i32(0)),
+    ensures(r > i32(0)),
+    assumed()
+  ) -> (r : i32)
+)(
+  x
+);
+
+bad_caller :: (fn(x : i32) -> (r : i32))(assumed_pos(x));

@@ -34,7 +34,8 @@ import("std/fmt");
   BK_TUPLE,
   BF_REQUIRES,
   BF_ENSURES,
-  BF_DECREASES
+  BF_DECREASES,
+  BF_ASSUMED
 }
 :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
@@ -567,6 +568,12 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
   HashMap(String, ArrayList(AstExpr)).new();
 /// Phase V4 `decreases(M)` termination measure (at most one per fn).
 (g_func_decreases_expr : HashMap(String, AstExpr)) = HashMap(String, AstExpr).new();
+/// V6 task 5 (FORMAL_VERIFICATION.md): `assumed()` in the signature — the
+/// fn's contracts gate callers but its BODY is outside the verifiable
+/// subset and is never walked. Sparse (present ⇒ true), like the other
+/// contract tables; same keys and lifecycle (fn-type-expr id at the
+/// signature, re-keyed under the FuncVal id at the application).
+(g_func_assumed_body : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Phase V1 (plans/backlog/FORMAL_VERIFICATION.md): the signature's labeled
 /// return `-> (name : T)` — same keys and lifecycle as the predicate tables
 /// above. `ensures(...)` predicates name the return value through this label
@@ -596,6 +603,21 @@ register_func_decreases_expr :: (fn(func_id : String, measure : Option(AstExpr))
     .None => ()
   );
 });
+/// Register the signature's `assumed()` marker. No-op when absent (sparse).
+register_func_assumed_body :: (fn(func_id : String, assumed : bool) -> unit)({
+  if(assumed, {
+    g_func_assumed_body.insert(func_id.clone(), true);
+  });
+});
+/// Whether `func_id`'s signature carried `assumed()` (the body is outside
+/// the verifiable subset; contracts still gate callers).
+has_func_assumed_body :: (fn(func_id : String) -> bool)(
+  match(
+    g_func_assumed_body.get(func_id.clone()),
+    .Some(_) => true,
+    .None => false
+  )
+);
 /// Return the `decreases(M)` measure for `func_id` (None when absent).
 get_func_decreases_expr :: (fn(func_id : String) -> Option(AstExpr))(
   g_func_decreases_expr.get(func_id.clone())
@@ -620,6 +642,13 @@ copy_func_contract_exprs :: (fn(from_id : String, to_id : String) -> unit)({
     g_func_decreases_expr.get(from_id.clone()),
     .Some(m) => {
       g_func_decreases_expr.insert(to_id.clone(), m);
+    },
+    .None => ()
+  );
+  match(
+    g_func_assumed_body.get(from_id.clone()),
+    .Some(a) => {
+      g_func_assumed_body.insert(to_id.clone(), a);
     },
     .None => ()
   );
@@ -796,7 +825,10 @@ FuncParamsResult :: struct(
   /// Phase-0 `ensures(...)` predicates (same rationale).
   ensures_exprs : ArrayList(AstExpr),
   /// Phase V4 `decreases(M)` termination measure (at most one).
-  decreases_expr : Option(AstExpr)
+  decreases_expr : Option(AstExpr),
+  /// V6 task 5: the signature carried `assumed()` — the body is outside
+  /// the verifiable subset; the contracts gate callers (no body proof).
+  (assumed_body : bool) ?= false
 );
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -938,6 +970,7 @@ _clause_zone :: (fn(e : AstExpr) -> usize)(
     ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) => usize(3),
     ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) => usize(4),
     ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None) => usize(5),
+    ast_expr_is_fn_call_of(e, BF_ASSUMED, Option(usize).None) => usize(6),
     true => usize(1)
   )
 );
@@ -949,6 +982,7 @@ _clause_name :: (fn(e : AstExpr) -> String)(
     ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) => String.from("requires(...)"),
     ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) => String.from("ensures(...)"),
     ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None) => String.from("decreases(...)"),
+    ast_expr_is_fn_call_of(e, BF_ASSUMED, Option(usize).None) => String.from("assumed()"),
     true => String.from("parameter")
   )
 );
@@ -960,7 +994,8 @@ _zone_label :: (fn(zone : usize) -> String)(
     (zone == usize(2)) => String.from("where(...)"),
     (zone == usize(3)) => String.from("requires(...)"),
     (zone == usize(4)) => String.from("ensures(...)"),
-    true => String.from("decreases(...)")
+    (zone == usize(5)) => String.from("decreases(...)"),
+    true => String.from("assumed()")
   )
 );
 /// True when `e` is a Phase-0 contract clause (`requires(...)`/`ensures(...)`).
@@ -968,7 +1003,8 @@ _zone_label :: (fn(zone : usize) -> String)(
 _is_contract_clause :: (fn(e : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) ||
     ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) ||
-      ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None)
+      ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None) ||
+        ast_expr_is_fn_call_of(e, BF_ASSUMED, Option(usize).None)
 );
 /// Whether any identifier atom in `e` has the name `name` — Phase V1: the
 /// unit-return label check for `ensures(...)`. Walks FnCall heads and
@@ -3211,7 +3247,7 @@ evaluate_function_parameters :: (
         dyn(
           format_error_message(
             ast_expr_token(z_expr),
-            `${z_name} appears after ${max_name} in the function signature. The canonical clause order is: generic(...), parameters, where(...), requires(...), ensures(...). Move ${z_name} before ${_zone_label(max_zone)}.`
+            `${z_name} appears after ${max_name} in the function signature. The canonical clause order is: generic(...), parameters, where(...), requires(...), ensures(...), decreases(...), assumed(). Move ${z_name} before ${_zone_label(max_zone)}.`
           )
         )
       );
@@ -3229,6 +3265,8 @@ evaluate_function_parameters :: (
   (seen_requires : bool) = false;
   (seen_ensures : bool) = false;
   (seen_decreases : bool) = false;
+  (assumed_body : bool) = false;
+  (assumed_clause : AstExpr) = make_err_expr();
   (ci : usize) = usize(0);
   while(ci < param_exprs.len(), {
     c_expr := match(param_exprs.get(ci), .Some(e) => e, .None => make_err_expr());
@@ -3331,6 +3369,44 @@ evaluate_function_parameters :: (
       decreases_expr = d_args.get(usize(0));
       continue;
     });
+    if(ast_expr_is_fn_call_of(c_expr, BF_ASSUMED, Option(usize).None), {
+      a_args := _fn_call_args(c_expr);
+      if(a_args.len() != usize(0), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("'assumed()' takes no arguments: it marks the BODY as outside the verifiable subset, and the contracts themselves come from requires(...)/ensures(...)/decreases(...).")
+            )
+          )
+        );
+      });
+      if(assumed_body, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("Multiple 'assumed()' clauses in the same signature are a syntax error.")
+            )
+          )
+        );
+      });
+      assumed_body = true;
+      assumed_clause = c_expr;
+      continue;
+    });
+  });
+  // V6 task 5: `assumed()` is only meaningful on a CONTRACTED function —
+  // there is nothing to assume otherwise. Reject the naked marker.
+  if(assumed_body && !seen_requires && !seen_ensures && !seen_decreases, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(assumed_clause),
+          String.from("'assumed()' without any contract clause: assumed() marks a contracted function's body as outside the verifiable subset while its requires/ensures/decreases still gate callers. Add a contract clause or drop assumed().")
+        )
+      )
+    );
   });
   // --------------------------------------------------------------------------
   // Pass 3 — pre-add all comptime parameters to env (so where clauses can ref them)
@@ -3757,7 +3833,7 @@ evaluate_function_parameters :: (
       _retry_errors := parse_where_clause_constraints(one_failed, env_mut, ctx, false, exn);
     });
   });
-  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param, requires_exprs, ensures_exprs, decreases_expr)
+  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param, requires_exprs, ensures_exprs, decreases_expr, assumed_body)
 });
 // Helper to get a param expr for error reporting
 param_exprs_for_error :: (fn(arg_list : ArrayList(AstExpr), idx : usize) -> Option(AstExpr))(
@@ -4257,6 +4333,8 @@ evaluate_function_type :: (
   register_func_requires_exprs(ast_expr_id(expr).to_string(), params_result.requires_exprs);
   register_func_ensures_exprs(ast_expr_id(expr).to_string(), params_result.ensures_exprs);
   register_func_decreases_expr(ast_expr_id(expr).to_string(), params_result.decreases_expr);
+  // V6 task 5: the `assumed()` marker rides the same re-keying lifecycle.
+  register_func_assumed_body(ast_expr_id(expr).to_string(), params_result.assumed_body);
   // Phase V1: `-> (name : unit)` parses, but the label names nothing — reject
   // `ensures(...)` predicates that reference it (decision D3,
   // plans/backlog/FORMAL_VERIFICATION.md). Checked here, where the evaluated
@@ -5066,6 +5144,8 @@ export(
   register_func_ensures_exprs,
   register_func_decreases_expr,
   get_func_decreases_expr,
+  register_func_assumed_body,
+  has_func_assumed_body,
   register_func_return_label,
   copy_func_contract_exprs,
   get_func_requires_exprs,

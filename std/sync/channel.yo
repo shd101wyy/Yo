@@ -6,16 +6,16 @@
 //!
 //! ## Example
 //!
-//! ```rust
-//! { Channel } :: import "std/sync/channel";
-//! { Thread } :: import "std/thread";
+//! ```yo
+//! { Channel } :: import("std/sync/channel");
+//! { Thread } :: import("std/thread");
 //!
 //! ch := Channel(i32).new(usize(10));
-//! t := Thread(unit).spawn((io) => {
+//! t := Thread(unit).spawn(io => {
 //!   ch.send(i32(42));
 //! });
 //! val := ch.recv();   // blocks until data available
-//! assert((val.unwrap() == i32(42)), "received value");
+//! assert(val.unwrap() == i32(42), "received value");
 //! t.join();
 //! ```
 //!
@@ -37,8 +37,8 @@
 //! fact worth acting on. The split is a layer ON TOP of `Channel`, sharing
 //! the same buffer, mutex and condvars.
 //!
-//! ```rust
-//! { Channel } :: import "std/sync/channel";
+//! ```yo
+//! { Channel } :: import("std/sync/channel");
 //!
 //! rx := Channel(i32).receiver(usize(4));   // queue + its one consumer
 //! {
@@ -54,11 +54,11 @@
 //! A `Sender` MOVED INTO a `Thread.spawn` closure disposes when the thread
 //! finishes, so it closes the channel like any other sender:
 //!
-//! ```rust
+//! ```yo
 //! rx := Channel(i32).receiver(usize(16));
 //! {
 //!   tx := rx.sender();
-//!   w := Thread(unit).spawn((io) => {
+//!   w := Thread(unit).spawn(io => {
 //!     tx.send(i32(7));                     // the capture is released when
 //!   });                                    // the thread's body returns
 //!   w.join();
@@ -74,11 +74,11 @@
 //! in the parent, is still a fine pattern and is what you want when the
 //! senders outnumber the threads:
 //!
-//! ```rust
+//! ```yo
 //! rx := Channel(i32).receiver(usize(16));
 //! {
 //!   keeper := rx.sender();                 // holds the count above zero
-//!   w := Thread(unit).spawn((io) => {
+//!   w := Thread(unit).spawn(io => {
 //!     tx := rx.sender();                   // this thread's producer
 //!     tx.send(i32(7));
 //!   });                                    // tx drops when the body ends
@@ -586,8 +586,8 @@ impl(
   /// the `Sender`/`Receiver` split. Mint producers with `Receiver.sender()`
   /// and `Sender.clone()`.
   ///
-  /// ```rust
-  /// { Channel } :: import "std/sync/channel";
+  /// ```yo
+  /// { Channel } :: import("std/sync/channel");
   /// rx := Channel(i32).receiver(usize(4));
   /// tx := rx.sender();
   /// tx.send(i32(1));
@@ -611,7 +611,7 @@ impl(
   /// Create a bounded queue and hand back both halves at once — the shape of
   /// Rust's `mpsc::sync_channel(capacity)`.
   ///
-  /// ```rust
+  /// ```yo
   /// pair := Channel(i32).pair(usize(4));
   /// tx := pair.0;
   /// rx := pair.1;

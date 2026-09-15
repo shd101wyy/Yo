@@ -1,6 +1,18 @@
 # `Dyn(SelfTrait)` produces a type no `Dyn(Trait)` accepts — `Error.source()`'s payload cannot be bound, passed or re-thrown
 
-**Status:** OPEN
+**Status: FIXED** 2026-09-14 — same defect as
+`issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`,
+which carries the root cause and the fix. This doc's generalization was the
+useful half and is now gated directly: the user-trait `Node`/`AnyNode` shape
+below, binding the payload into a named local AND passing it to a parameter, is
+the third test in `tests/error_source_chain.test.yo`.
+
+(The reproducers below use the pre-2026-09-10 `open(...)` spelling, which the
+language no longer has. They are left as written — historical record.)
+
+---
+
+**Originally filed:** OPEN at the time
 **Found:** 2026-09-04, measuring the `error`/`assert` row of the std API audit
 (the row's third item is "`Error.source` actually used for chaining"; the walk
 does not type-check).
