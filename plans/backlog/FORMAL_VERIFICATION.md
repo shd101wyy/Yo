@@ -1349,7 +1349,7 @@ become real; the stdlib starts carrying executable specifications.
 > "verified abstractly" half of task 2 — uninterpreted sorts +
 > trait-constraint axioms — is still open), as are tasks 3, 5, 6.
 >
-> **Status: TASK 4 — mutual-recursion decreases (2026-09-14).** The
+> **Status: TASK 4 MERGED via #691 (develop `3177afa4a19d97037b5d61e61800aac3d7adfbeb`, 2026-09-15 — all 28 checks green).** The
 > driver prepass (`register_recursion_cliques`, vc.yo) scans every
 > task's body for call edges (callee FuncVal from the func-slot atom's
 > ExprInfo, normalized through the specialization base map
