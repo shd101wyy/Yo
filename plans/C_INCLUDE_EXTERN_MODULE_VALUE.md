@@ -164,13 +164,25 @@ ordered form never was.
   seed-compatible. Value-position forms may be used in `tests/` immediately
   (tests run under the tree-built compiler) and in `std/`/`src/` only after
   `SEED_VERSION` carries this change (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
-- A C symbol that is not a Yo identifier (`struct stat`, `struct timespec`)
-  still cannot be spelled. That needs a per-field C-name override for `Type`
-  fields and is a separate, smaller feature; `std/libc/sys/stat.yo`'s comment
-  stands until then.
-- The name-keyed extern registries stay process-global. Two modules declaring
-  the same C label with different types still overwrite each other; keying
-  them by module id is a follow-up the module value makes possible.
+- ~~A C symbol that is not a Yo identifier still cannot be spelled.~~ LANDED
+  as a follow-up (2026-09-15): `label : c_type("struct stat")` declares an
+  opaque type with an explicit C spelling (`register_extern_type_c_name`,
+  `src/types/guards.yo`; codegen lowers the SomeT to the spelling); an
+  adopted Yo struct takes the spelling too. SEED-GATED for `std/` —
+  `std/libc/sys/stat.yo` and `time.yo` keep `*(void)` until a release carries
+  it. `tests/c_include_c_type.test.yo`.
+- ~~The name-keyed extern registries overwrite each other.~~ LANDED as a
+  follow-up (2026-09-15): the registries stay name-keyed but hold EVERY
+  declaration; codegen matches a binding by `type_key` against all of them
+  (`extern_c_global_matches`) and `#include`s every header a symbol was
+  declared under. Measured on the seed: two modules declaring `LC_ALL` as
+  `int` and `i64` left the first without `<locale.h>` ("use of undeclared
+  identifier"). `tests/c_include_registry_collision.test.yo`.
+- Also landed in the same follow-up: the prelude env cache is a PRIVATE
+  `clone_env` snapshot and `mm_fresh_module_env` treats growth of its frame
+  count as an internal error — the class behind
+  `issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md`,
+  not just the instance.
 
 ## 5. Gates
 

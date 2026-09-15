@@ -19,7 +19,9 @@ c_include(
   mode_t : Type,
   // The stat structure - platform specific layout
   // Use helper functions to extract fields portably
-  // struct_stat : Type,  // Can't use 'stat' as type name since it conflicts with function
+  // struct_stat : c_type("struct stat"),  // SEED-GATED: `c_type` (docs/en-US/FFI.md)
+  // spells the C name; use it here once SEED_VERSION carries it. `stat` itself
+  // cannot be the type name — it is the function below.
   // File status functions
   stat :
     (fn(pathname : *char, statbuf : *void) -> int),

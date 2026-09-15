@@ -1,0 +1,23 @@
+//! `label : c_type("<C spelling>")` in a `c_include` declares an opaque C type
+//! whose C name is not a Yo identifier. `struct stat` has no typedef, so the
+//! only way to name it used to be `*(void)` (`std/libc/sys/stat.yo` carries
+//! the comment); the SomeT `stat_buf` now lowers to `struct stat`, so a
+//! `*stat_buf` parameter is `struct stat*` in the emitted C.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+{ stat_buf, stat } :: c_include(
+  "<sys/stat.h>",
+  stat_buf : c_type("struct stat"),
+  stat : (fn(pathname : *char, statbuf : *stat_buf) -> int)
+);
+test("a c_type opaque type is usable as a pointer target with the C spelling", {
+  // 512 bytes comfortably exceeds `struct stat` on every supported target;
+  // only the return code is read.
+  raw := malloc(usize(512)).unwrap();
+  buf := (*stat_buf)(raw);
+  rc := unsafe(stat((*char)("/"), buf));
+  free(.Some(raw));
+  assert(rc == int(0), "stat(\"/\") succeeded through a struct stat* parameter");
+});
