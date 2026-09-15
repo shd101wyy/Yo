@@ -2064,11 +2064,19 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    # 32 min is this leg's real cost; 360 was inherited headroom that let a
-    # DEADLOCKED test burn 3.4 h unnoticed on the sibling WASI leg
-    # (issues/fixed/wasi-thread-pool-submit-deadlock.md). 90 keeps ~2.8x margin and
-    # turns a hang into a timely failure.
-    timeout-minutes: 90
+    # MEASURED 2026-09-16: this leg now takes 86-87 min (develop runs
+    # 35009566215 and 34980992486), not the 32 min the previous note recorded —
+    # so a 90 min cap was ~1.03x margin, not 2.8x, and it began cancelling on
+    # variance alone (run 35014588354 cancelled "Run WASM tests" at 90:28 with
+    # every prior step green). 150 restores real margin while still turning a
+    # HANG into a timely failure, which is what the cap is for — 360 is what let
+    # a deadlocked test burn 3.4 h unnoticed on the sibling WASI leg
+    # (issues/fixed/wasi-thread-pool-submit-deadlock.md).
+    #
+    # The 32 -> 87 min growth is unexplained; this PR measured the symptom, not
+    # a cause. Sharding this leg the way test-native is sharded here would cut
+    # it and remove the cliff rather than move it.
+    timeout-minutes: 150
 
     steps:
       - name: Checkout repository
