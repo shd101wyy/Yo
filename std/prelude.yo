@@ -8050,10 +8050,10 @@ export(Var);
 /// - `.None` — contains no value
 ///
 /// ## Example
-/// ```rust
+/// ```yo
 /// (x : Option(i32)) = .Some(i32(42));
 /// assert(x.is_some(), "expected Some");
-/// assert((x.unwrap() == i32(42)), "expected 42");
+/// assert(x.unwrap() == i32(42), "expected 42");
 /// ```
 Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
@@ -8911,7 +8911,7 @@ derive_rule(Default, __derive_default);
 /// - `.Err(error)` — contains an error value of type `ErrorType`
 ///
 /// ## Example
-/// ```rust
+/// ```yo
 /// (r : Result(i32, str)) = .Ok(i32(42));
 /// assert(r.is_ok(), "expected Ok");
 /// ```
@@ -9474,11 +9474,11 @@ export(Result);
 /// is a `ref` type — copying the handle **shares one heap value and bumps a
 /// refcount**, exactly like Rust's `Rc<T>`:
 ///
-/// ```rust
+/// ```yo
 /// a := box(i32(42));
 /// b := a;          // NOT a copy of the value — a second handle to it
 /// consume(b.* = i32(7));
-/// assert((a.* == i32(7)), "a and b name the SAME value");
+/// assert(a.* == i32(7), "a and b name the SAME value");
 /// ```
 ///
 /// The name is kept deliberately: `Rc` is already a **trait** in this prelude
@@ -9500,9 +9500,9 @@ export(Result);
 /// Use `box(value)` to allocate. Access the inner value with `b.*`.
 ///
 /// ## Example
-/// ```rust
+/// ```yo
 /// b := box(i32(42));
-/// assert((b.* == i32(42)), "inner value is 42");
+/// assert(b.* == i32(42), "inner value is 42");
 /// ```
 Box :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
@@ -9641,9 +9641,9 @@ export(^);
 /// Use `arc(value)` to allocate. Access the inner value with `a.*`.
 ///
 /// ## Example
-/// ```rust
+/// ```yo
 /// a := arc(i32(42));
-/// assert((a.* == i32(42)), "inner value is 42");
+/// assert(a.* == i32(42), "inner value is 42");
 /// ```
 Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
@@ -9677,11 +9677,12 @@ extern(
 /// allocated first and initialized later (e.g., by a C function).
 ///
 /// ## Example
-/// ```rust
-/// extern "C",
+/// ```yo
+/// extern(
+///   "C",
 ///   time_t : Type,
-///   time : fn(timer: ?(*(time_t))) -> time_t
-/// ;
+///   time : (fn(timer : ?*time_t) -> time_t)
+/// );
 ///
 /// uninitialized_timer := MaybeUninit(time_t).new();
 /// ptr := uninitialized_timer.as_ptr();
@@ -9782,7 +9783,7 @@ FromIterator :: trait(
 export(FromIterator);
 /// === Array Iterator ===
 /// Value iterator for Array(T, N) — yields elements by value. Backs
-/// the for-macro value form `for(arr, (x) => body)` via `into_iter`.
+/// the for-macro value form `for(arr, x => body)` via `into_iter`.
 _ArrayIter :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   struct(
     _arr : Array(T, N),
@@ -9951,7 +9952,7 @@ __borrow_guard :: (fn(generic(C : Type), c : C) -> __BorrowGuard(C))({
 });
 /// `for` macro — iterate over a collection.
 ///
-///   `for(coll, (x) => body)` — calls `coll.into_iter()` and binds `x`
+///   `for(coll, x => body)` — calls `coll.into_iter()` and binds `x`
 ///     to each yielded value. The collection is moved into the
 ///     iterator; object elements are handles, so mutating `x` in the
 ///     body mutates the element in place.
@@ -9966,14 +9967,14 @@ __borrow_guard :: (fn(generic(C : Type), c : C) -> __BorrowGuard(C))({
 /// makes every iterator its own `IntoIterator`.
 ///
 /// ## Examples
-/// ```rust
+/// ```yo
 /// // Object elements — mutate in place through the handle.
-/// for(names, (s) => {
+/// for(names, s => {
 ///   s.push_str("!");
 /// });
 ///
 /// // Consume an iterator chain.
-/// for(list.into_iter(), (x) => print(x));
+/// for(list.into_iter(), x => print(x));
 /// ```
 for :: (
   fn(
@@ -11548,9 +11549,9 @@ impl(
 // Blanket methods — added to all types implementing Iterator
 // ---------------------------------------------------------------------------
 /// Blanket `into_iter` — every `Iterator` is its own `IntoIterator`,
-/// returning `self`. This lets `for(combinator_chain, (x) => body)`
+/// returning `self`. This lets `for(combinator_chain, x => body)`
 /// expand to `combinator_chain.into_iter().next()` uniformly with
-/// `for(coll, (x) => body)` — the macro always calls `.into_iter()`
+/// `for(coll, x => body)` — the macro always calls `.into_iter()`
 /// for the value-iteration form, and for an iterator we hand back
 /// self. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
@@ -12020,8 +12021,8 @@ impl(
   /// ARGUMENT the way `into(T)` is. The element type is not written — it comes
   /// from `Self.Item` and must match `C`'s `FromIterator.Elem`.
   ///
-  /// ```rust
-  /// squares := (i32(0) .. i32(5)).map((x) => (x * x)).collect(ArrayList(i32));
+  /// ```yo
+  /// squares := (i32(0) .. i32(5)).map(x => (x * x)).collect(ArrayList(i32));
   /// uniq := words.into_iter().collect(HashSet(String));
   /// ```
   ///
@@ -12067,8 +12068,8 @@ impl(
   I,
   /// Reverse the iteration order, producing an `IterRev` iterator.
   ///
-  /// ```rust
-  /// (i32(0) .. i32(5)).rev().for_each((x) => { out.push(x); });  // 4 3 2 1 0
+  /// ```yo
+  /// (i32(0) .. i32(5)).rev().for_each(x => { out.push(x); });  // 4 3 2 1 0
   /// ```
   rev : (fn(self : Self) -> IterRev(Self))(
     IterRev(Self)(_inner : self)

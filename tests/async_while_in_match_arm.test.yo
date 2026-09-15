@@ -68,3 +68,54 @@ test("the sibling arm is unaffected", {
   r := io.await(_match_arm(_Choice.Skip, io), io);
   assert(r == i64(-10), `skip arm: expected n=-1 trail=0 (-10), got ${r.to_string()}`);
 });
+//! SECOND DEFECT, same family: an `io.spawn` whose argument is an INLINE
+//! `io.async` block, in a match arm that also contains an awaiting `while`, was
+//! DROPPED from the emitted C entirely — the arm's `case` held only the branch
+//! tag and the payload binding, the handle field was assigned nowhere, and the
+//! loop condition read it anyway
+//! (issues/fixed/a-while-in-a-match-arm-with-spawns-still-runs-zero-iterations.md).
+//!
+//! Root cause: `branch_has_await` recursed into the nested `io.async` closure
+//! and found ITS `io.await`, so the statement that merely CONSTRUCTS the nested
+//! block was mistaken for the branch's awaiting statement. Nothing handled it,
+//! and everything after it became `remaining`. `is_io_async_call` is the
+//! nested-block boundary everywhere else in that file; this one function was
+//! missing it.
+_spawn_arm :: (fn(c : _Choice, io : Io) -> Impl(Future(i64, Io)))(
+  io.async(e => {
+    (turns : i64) = i64(0);
+    match(
+      c,
+      .Skip => {
+        turns = i64(-1);
+      },
+      .Spin => {
+        // The spawn under test: its argument is an inline io.async block, and
+        // an awaiting while follows it. Both are required to reproduce.
+        h := e.io.spawn(
+          io.async((io2 : Io) => {
+            io2.await(yield(io2), io2);
+            i32(1)
+          }),
+          e.io
+        );
+        while(runtime(!h.is_finished()), {
+          e.io.await(yield(e.io), e.io);
+          turns = (turns + i64(1));
+        });
+      }
+    );
+    turns
+  })
+);
+test("a spawn of an inline io.async block survives in a match arm with an awaiting while", {
+  r := io.await(_spawn_arm(_Choice.Spin, io), io);
+  // The spawned task finishes after a yield or two. What matters is that the
+  // loop ran at all: turns==0 means the spawn was dropped and the loop read an
+  // unassigned handle.
+  assert(r > i64(0), `expected the loop to turn at least once, got turns=${r.to_string()}`);
+});
+test("the sibling arm is unaffected by the spawn split", {
+  r := io.await(_spawn_arm(_Choice.Skip, io), io);
+  assert(r == i64(-1), `skip arm: expected -1, got ${r.to_string()}`);
+});

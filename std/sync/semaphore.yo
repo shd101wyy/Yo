@@ -18,12 +18,12 @@
 //!
 //! Typical use is bounding concurrency — at most K threads inside a region:
 //!
-//! ```rust
-//! { Semaphore } :: import "std/sync/semaphore";
-//! { Thread } :: import "std/thread";
+//! ```yo
+//! { Semaphore } :: import("std/sync/semaphore");
+//! { Thread } :: import("std/thread");
 //!
 //! sem := Semaphore.new(i32(2)); // at most 2 workers in the region
-//! t := Thread(unit).spawn((io) => {
+//! t := Thread(unit).spawn(io => {
 //!   sem.acquire();
 //!   // ... at most 2 threads are ever here ...
 //!   sem.release();
@@ -142,7 +142,7 @@ impl(
   /// `async/mutex.with_lock`. See
   /// issues/with-lock-and-with-permit-cannot-see-an-unwind.md.
   ///
-  /// ```rust
+  /// ```yo
   /// pool.with_permit(() => fetch(url));
   /// ```
   with_permit : (

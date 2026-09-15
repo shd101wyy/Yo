@@ -1,8 +1,11 @@
 //! `std/error`'s §4 Core ergonomics: `error_is` and `Context`.
 //!
-//! `ErrorChain`/`root_cause` are absent on purpose — `Error.source`'s result
-//! cannot be held at `Option(AnyError)`, so the chain cannot be walked past
-//! one link. See issues/error-source-result-cannot-be-held-as-anyerror.md.
+//! `ErrorChain`/`root_cause` are absent from `std/error` for a MECHANICAL
+//! reason, not a design one: the compiler defect that blocked them is fixed
+//! (issues/fixed/error-source-result-cannot-be-held-as-anyerror.md) and the
+//! walk is gated by tests/error_source_chain.test.yo, but `std/` is compiled by
+//! the SEED during bootstrap and the seed predates the fix. They land one
+//! release after a seed carries it.
 { assert } :: import("std/assert");
 { Error, AnyError, error_is, Context } :: import("std/error");
 { ToString } :: import("std/fmt/to_string");

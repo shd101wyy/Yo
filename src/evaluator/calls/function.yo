@@ -326,7 +326,7 @@ _try_find_receiver_method :: (
   // value (`Type(1)`), so e.g. `ArrayList(Self).clone()` fails to clone its
   // elements ("Type mismatch for type member"). Resolve the shell to the
   // finalized enum (registered by register_enum_final) so the derived clone is
-  // found. No-op for non-shell receivers. issues/yo-self-p1-transpile-tail.md.
+  // found. No-op for non-shell receivers. issues/fixed/yo-self-p1-transpile-tail.md.
   receiver_type := resolve_enum_shell(receiver_info.ty);
   receiver_value := receiver_info.value;
   // 3. Method name token.
@@ -2015,7 +2015,7 @@ _funcval_bind_foralls :: (
     // `V := String` (type_arguments[0]) — dispatching every
     // `HashMap(String, i32).from_json` value decode to String's impl
     // ("expected a string"). See
-    // issues/generic-impl-fromjson-container-decode-failures.md.
+    // issues/fixed/generic-impl-fromjson-container-decode-failures.md.
     if(!(fa_bound), {
       (fcap_i : usize) = usize(0);
       while((fcap_i < cap_names.len()) && !(fa_bound), {
@@ -3073,7 +3073,7 @@ _evaluate_funcval_runtime_call :: (
     // stamp is whichever specialization was evaluated LAST — so two calls
     // with different `R` both pointed at the second spec's future struct and
     // the first caller's `->result` read the wrong C type
-    // (issues/future-wrapper-return-shared-across-specializations.md).
+    // (issues/fixed/future-wrapper-return-shared-across-specializations.md).
     // The spec's body is a fresh-id clone with its own stamp: read that.
     if(is_some_type(resolved_ret), {
       match(
@@ -4113,7 +4113,7 @@ Fix: wrap the call:
             // `Self._resize` → `Self._alloc_with_capacity`'s `Self(...)`) checks the
             // concrete field value (`*(String)`) against the UNSUBSTITUTED `*(T)`
             // and degenerates the whole construction to `Type(1)`. See
-            // issues/yo-self-p1-transpile-tail.md (2026-06-26 "TRUE ROOT").
+            // issues/fixed/yo-self-p1-transpile-tail.md (2026-06-26 "TRUE ROOT").
             fields_subst := ArrayList(TypeField).new();
             (fsi : usize) = usize(0);
             while(fsi < fields.len(), {
@@ -4961,8 +4961,8 @@ Fix: wrap the call:
         // layer, NOT enabled in committed builds: executing macro bodies
         // intermittently corrupts the heap (allocator SIGTRAPs at innocent
         // sites; ~50%% on heavy files) — the underlying Rc/copy issue is
-        // tracked in issues/codegen-continue-in-while-heap-corruption.md
-        // and issues/yo-self-macro-dispatch-corruption.md. The REGISTRY
+        // tracked in issues/fixed/codegen-continue-in-while-heap-corruption.md
+        // and issues/fixed/yo-self-macro-dispatch-corruption.md. The REGISTRY
         // (quoted params / unquote returns) stays populated so the
         // experiment patch only has to flip this constant.
         fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
@@ -5027,7 +5027,7 @@ Fix: wrap the call:
           // shape matches the TS original; the 2026-06-07 corruption it was
           // once bisected to no longer reproduces (0/52 on the original
           // 4-file protocol, post-slice-rework) — see
-          // issues/codegen-continue-in-while-heap-corruption.md.
+          // issues/fixed/codegen-continue-in-while-heap-corruption.md.
           // A QUOTED VARIADIC (`...(quote(elems))`, e.g. `array_list`) treats
           // every trailing arg (index >= n_p) as quoted: bind its raw AST as an
           // `Expr` so the macro body's `elems` receives un-evaluated exprs (and
@@ -6802,7 +6802,7 @@ Fix: wrap the call:
         // binder must not ship the bare SomeT to codegen — codegen resolves a
         // SomeT through the GLOBAL registry keyed by the forall id, so the
         // LAST specialization's `R` renders every caller
-        // (issues/future-wrapper-return-shared-across-specializations.md;
+        // (issues/fixed/future-wrapper-return-shared-across-specializations.md;
         // the develop-HEAD ASan red is the same clobber on `E`). Resolve
         // through the CALL's env, where the enclosing specialization binds
         // the binder concretely; a legitimately-unbound binder keeps the
@@ -7200,7 +7200,7 @@ Fix: wrap the call:
           // registration for the DECLARED wrapper id — shared by every
           // specialization of the method, last writer wins — so two `R`s
           // through one method cast both futures to the second spec's struct
-          // (issues/future-wrapper-return-shared-across-specializations.md).
+          // (issues/fixed/future-wrapper-return-shared-across-specializations.md).
           // Prefer the specialization (its body is a fresh-id clone with its
           // own stamp); a non-generic method's own body is unique anyway.
           if(is_some_type(m_out_ty), {
@@ -7250,7 +7250,7 @@ Fix: wrap the call:
           // forall `R` itself. Stamping the bare SomeT hands codegen the
           // GLOBAL registry — keyed by the forall id shared by EVERY
           // specialization — so the LAST specialization's `R` renders every
-          // caller (issues/future-wrapper-return-shared-across-specializations.md;
+          // caller (issues/fixed/future-wrapper-return-shared-across-specializations.md;
           // the develop-HEAD ASan red is the same clobber on `E`). Resolve
           // through the CALL's env, where the enclosing specialization binds
           // R concretely; a legitimately-unbound R keeps the original type.
@@ -7484,7 +7484,7 @@ ${ast_expr_to_string(expr)}`
           // SomeT through the GLOBAL registry keyed by the forall id, so the
           // LAST specialization's `R := i64` renders the FIRST
           // specialization's call
-          // (issues/future-wrapper-return-shared-across-specializations.md;
+          // (issues/fixed/future-wrapper-return-shared-across-specializations.md;
           // the develop-HEAD ASan red is the same clobber on `E`). Resolve
           // through the CALL's env, where the enclosing specialization binds
           // R concretely. Keep the ORIGINAL type when it stays abstract —

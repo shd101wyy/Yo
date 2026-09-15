@@ -88,7 +88,7 @@ Nothing is waiting on anyone here. Re-checked against the code 2026-09-12:
 | private `ctrl`/`data`/`size` fields; `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `imm/*` internals | `plans/backlog/MEMBER_VISIBILITY.md` |
 | `rand.thread_rng` | `plans/backlog/THREAD_LOCAL_STORAGE.md` |
 | the ten byte conversions; `usize`/`isize` byte conversions; `Array(T,N)` `Default` | `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` |
-| `ErrorChain`/`root_cause` | a compiler DEFECT, not a missing feature — #521, `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md` |
+| `ErrorChain`/`root_cause` | ~~a compiler DEFECT~~ **FIXED 2026-09-14** (#521, `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`); now waiting only on a SEED that carries the fix, since `std/` is built by the seed |
 | `JsonValue` integer arms | deliberately deferred to a breaking window (§4, encoding) |
 
 ### The two engineering items — both landed 2026-09-12, both with a named residue
@@ -1352,9 +1352,14 @@ wasm32. `downcast` is now DOCUMENTED (2026-09-09) in
 pointer-compare against the vtable's `__yo_type_id`, the owned/RC'd result, the
 box-unwrapping for value targets, and the statically-`.None` case for a target
 no `dyn()` in the program ever wraps.
-**`ErrorChain` and `root_cause` are BLOCKED on a compiler defect, not on
-design** —
-`issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`.
+**`ErrorChain` and `root_cause` were blocked on a compiler defect, not on
+design — and that defect is FIXED** (2026-09-14,
+`issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`;
+`TraitT` identity is now the trait's `id`, not its externally-attached name).
+The walk type-checks and runs, gated by `tests/error_source_chain.test.yo`.
+What remains is purely mechanical sequencing: `std/` is compiled by the SEED
+during bootstrap, so the API lands one release after a seed carries the fix.
+The original analysis follows.
 Both must store the result of `source()` as an `AnyError`, and on a
 `Dyn(Error)` receiver that result's static type has lost the `Error` trait:
 `Given: dyn((source : fn(...) -> Option(dyn( + ToString))) + ToString)` against
@@ -1786,10 +1791,11 @@ from the blocked call sites, in `plans/backlog/`:
 | the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
 | `rand.thread_rng` | thread-local storage | [`THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) |
 
-`ErrorChain`/`root_cause` is a sixth blocker but is a compiler DEFECT rather
-than a missing feature —
-`issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`
-(filed as #521).
+`ErrorChain`/`root_cause` WAS a sixth blocker — a compiler DEFECT rather than
+a missing feature — and it is **FIXED** (2026-09-14,
+`issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`,
+filed as #521). It is no longer a blocker in this sense; it is queued behind the
+seed bump like any other std use of a new compiler behaviour.
 
 **Three "Yo has no X" claims in this document were measured and found false**
 on 2026-09-10, so treat the rest with the same suspicion:

@@ -1,0 +1,66 @@
+// Repro — in a MATCH ARM, an `io.spawn` of an INLINE `io.async` closure is
+// DROPPED from the emitted C when the arm also contains an awaiting `while`.
+// The handle variable is then never assigned, the loop condition reads it
+// anyway, and the loop exits immediately.
+//
+//   yo compile issues/repros/spawn-of-an-inline-async-block-in-a-match-arm-is-dropped.yo --optimize 2 -o /tmp/x && /tmp/x
+//
+// Expected (and now actual): `A`, `B`, `C` all print and turns > 0.
+// Was:      only `A` printed, then `turns=0` — the arm was truncated after its
+//           first statement.
+//
+// In the emitted C the arm's `case __YO_T_..._LIMIT:` contains ONLY the branch
+// tag and the payload binding; the spawn that assigns `sm->var_h_...` is
+// nowhere in the file, while the loop condition still reads that field.
+//
+// THREE ingredients, each necessary (measured one at a time):
+//   1. the code is in a `match` arm      — same body outside a match: works
+//   2. the spawn's argument is an INLINE `io.async` closure
+//                                        — spawning `sleep(...)` instead: works
+//   3. an awaiting `while` follows it    — drop the loop: works
+// Two spawns are NOT required; one is enough.
+//
+// FIXED 2026-09-14. See
+// issues/fixed/a-while-in-a-match-arm-with-spawns-still-runs-zero-iterations.md
+{ println, eprintln } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ sleep } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+_Opt :: enum(NoLimit, Limit(secs : i64));
+_run :: (fn(o : _Opt, io : Io) -> Impl(Future(i64, Io)))(
+  io.async(e => {
+    (turns : i64) = i64(0);
+    match(
+      o,
+      .NoLimit => {
+        turns = i64(-1);
+      },
+      .Limit(secs) => {
+        eprintln(`A: arm entered`);
+        h := e.io.spawn(
+          io.async((io2 : Io) => {
+            io2.await(sleep(Duration.from_millis(i64(30)), io2), io2);
+            i32(1)
+          }),
+          e.io
+        );
+        eprintln(`B: after the spawn`);
+        while(runtime(!h.is_finished()), {
+          e.io.await(yield(e.io), e.io);
+          turns = (turns + i64(1));
+        });
+        eprintln(`C: after the loop turns=${turns.to_string()}`);
+      }
+    );
+    turns
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  t := io.await(_run(_Opt.Limit(secs : i64(5)), io), io);
+  println(`turns=${t.to_string()}`);
+  cond(
+    (t == i64(0)) => println(`BUG: the spawn was dropped, so the loop saw an unassigned handle`),
+    true => println(`OK`)
+  );
+});
+export(main);

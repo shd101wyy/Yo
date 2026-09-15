@@ -1,6 +1,14 @@
 # `Dyn(SelfTrait)` does not unify with `Dyn(ThatTrait)`, so `Error.source`'s result cannot be held
 
-**Status:** OPEN — blocks `ErrorChain` / `root_cause`
+**Status: FIXED** 2026-09-14 — same defect as
+`issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`,
+which carries the root cause and the fix. `TraitT` equality was nominal, and a
+trait captured inside its own declaration is nameless, so `Dyn(SelfTrait)` and
+`Dyn(Error)` compared unequal. Now keyed on `id`.
+
+---
+
+**Originally filed:** OPEN at the time — blocked `ErrorChain` / `root_cause`
 **Found:** 2026-09-08, building §4 Core's error ergonomics.
 **Reproducer:** `issues/repros/error-source-selftrait-dyn.yo`
 

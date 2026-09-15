@@ -117,6 +117,49 @@ not a step.
 3. File the backend cancellation work separately; until it exists, document the
    per-timeout leak on `with_keep_alive`.
 
+## MEASURED 2026-09-14 — Option B is BLOCKED, not merely unstarted
+
+The recommendation below ("B, then A") was written without trying to compile B.
+It was tried on 2026-09-14. `with_deadline` cannot be written today, in either
+signature, and three separate compiler defects stand in the way:
+
+| # | defect | status |
+| --- | --- | --- |
+| 1 | a fn taking an `Impl(Future(T, E))` PARAMETER emitted the Future's on-demand `typedef` INSIDE the capture struct's open body | **FIXED** 2026-09-14 |
+| 2 | `get_future_field_name` returned a bare name for an `.Outer` capture, so an awaited captured future emitted `sm->fut` for a field that only exists as `sm->__capture.fut` | **FIXED** 2026-09-14 |
+| 3 | a generic `io.async` fn whose Future result CONTAINS `T` emits the unsubstituted `Result(T, TimeoutError)` beside the caller's `Result(i32, TimeoutError)` | **OPEN** — `issues/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md` |
+
+Both fixed defects are recorded in
+`issues/fixed/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md`
+and gated by `tests/async_future_parameter.test.yo`.
+
+**Defect 3 is the live blocker and it is not a small fix.** Measured with
+`YO_DEBUG_RRE=1`: the call site's expected type is correct and the resolved
+return type keeps `T`. The decision sits at
+`src/evaluator/calls/function.yo:2553`, whose own comment names this family as a
+**deliberately excluded hazard** — "`-> Option(V)` carries its V in ENUM VARIANT
+FIELDS (no tyarg slots → the collector finds nothing)". The exclusion protects
+two other families that regressed when it was inclusive
+(`tests/where_clause_fn_inference`, `iter_filter_closure`). So this is an
+exclusion to revisit with a proof obligation, not an oversight to patch, and the
+issue doc lists the order it must be proven in.
+
+### Two corrections to the plan below
+
+- **The signature should take a `JoinHandle(T)`, not a future.** Every other
+  combinator in `std/async` (`join_all`, `race`, `any`, `timeout`) takes a
+  spawned handle; taking a future would make `with_deadline` the odd one out.
+  This is not a way around defects 1 and 2 — those are fixed — it is the
+  module's own convention. Note it does NOT dodge defect 3, which the
+  handle-taking signature hits too.
+- **`Option A` is unaffected** by all three: hand-rolling the race in
+  `std/http/server.yo` takes no future as a parameter and is not generic. If the
+  server keep-alive is wanted before defect 3 is fixed, A is available now, at
+  the cost the plan already records (the race duplicated per call site).
+
+The working draft of the combinator — correct Yo, `yo check` clean, failing only
+at the C compile — is kept in the issue doc so the next attempt starts from code.
+
 ## Collateral the server half carries (why it is not a small step)
 
 Turning `serve_once` into a connection loop changes what it MEANS, and existing

@@ -449,7 +449,7 @@ _compat_impl :: (
   // every empty-`{}` arm paired with a unit sibling throws "Incompatible types"
   // at def-time and loses the match's ExprInfo -> "Failed to transpile" marker.
   // Exact compatibility (cache keys) stays strict (different tags). See
-  // issues/yo-self-p1-transpile-tail.md (arm-type / Incompatible-types cluster).
+  // issues/fixed/yo-self-p1-transpile-tail.md (arm-type / Incompatible-types cluster).
   if(!(require_exact), {
     unit_empty_struct := match(
       actual,
@@ -661,7 +661,7 @@ _compat_impl :: (
         // constructor_func_id — TS's `functionValue.funcId` check), and otherwise
         // recurse field types (which resolves `__self_shell`s via the EnumT arm and
         // treats a generic SomeT as compatible). See
-        // issues/yo-self-recursive-enum-nested-member-shell.md.
+        // issues/fixed/yo-self-recursive-enum-nested-member-shell.md.
         !(require_exact) => cond(
           // Two instantiations of one constructor whose CONCRETE recorded type
           // arguments disagree are different types even under the lenient rule — `Carrier(AErr)`
@@ -822,7 +822,7 @@ _compat_impl :: (
         // (arc.test.yo class). Generic instantiations/copies are untouched:
         // instantiations carry type_arguments, and cfid-empty copies SHARE
         // their original's id (caught by the id-equality arm). See
-        // issues/yo-self-same-name-local-struct-spec-cache-collision.md.
+        // issues/fixed/yo-self-same-name-local-struct-spec-cache-collision.md.
         (((aname.len() != usize(0)) && (aname == ename)) && (((ata.len() == usize(0)) && (eta.len() == usize(0))) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected)))))) => false,
         // CAPTURE-STRUCT nominal identity (exact only): each closure's capture
         // struct is minted ONCE under a deterministic `capture_<id>` struct id
@@ -996,10 +996,30 @@ _compat_impl :: (
       .Union(ename, _, _) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
       _ => false
     ),
-    // TraitT: nominal comparison; FnTraitT/FutureTraitT: structural
-    .TraitT(name : aname) => match(
+    // TraitT: nominal comparison; FnTraitT/FutureTraitT: structural.
+    //
+    // IDENTITY IS `id`, NOT `name`, whenever both sides carry one. A trait's
+    // name is attached EXTERNALLY by its variable binding — `evaluate_trait_type`
+    // builds the TraitT with `trait_name_str := String.from("")` and the name
+    // arrives later — so a TraitT captured while the trait is still being
+    // defined is NAMELESS. `Dyn(SelfTrait)` in a trait member's own signature
+    // captures exactly that, which is why `Error.source()`'s declared
+    // `Option(Dyn(SelfTrait))` would not unify with `Option(AnyError)`: the
+    // names were "" and "Error", so a nominal test said "different trait" about
+    // one trait. `id` is `stable_label_id` over the declaration site and is set
+    // at construction, so both sides of that comparison carry the same one
+    // (issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md).
+    //
+    // Falls back to the name when either id is absent: the simple creators
+    // (`t_trait`, `t_trait_simple`) mint ids as "", and traits compared by name
+    // alone kept working that way before this.
+    .TraitT(name : aname, id : aid) => match(
       expected,
-      .TraitT(name : ename) => (aname == ename),
+      .TraitT(name : ename, id : eid) => if(
+        (aid.len() > usize(0)) && (eid.len() > usize(0)),
+        (aid == eid),
+        (aname == ename)
+      ),
       _ => false
     ),
     // SomeT: name + frame_level identity (Phase 2f: no env resolution) —

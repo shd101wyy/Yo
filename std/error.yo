@@ -4,20 +4,24 @@
 //!
 //! unstable — the `Error` trait, `AnyError`, `Exception` and the `IoExn`
 //! bundle are the core of every fallible API in `std` and their shapes are
-//! settled. What is missing is the part a real error story needs and this one
-//! does not have: **`ErrorChain` and `root_cause` cannot be written today**,
-//! and it is a compiler defect rather than a design gap
-//! (`issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`,
-//! filed as #521). Both must store what `source()` returned as an `AnyError`,
-//! and on a `Dyn(Error)` receiver that value's STATIC type has lost the
-//! `Error` trait — so a caller can follow one link and print it, but cannot
-//! store, re-erase, `downcast` or re-throw it. Spelling `Dyn(Error)` instead
-//! of `Dyn(SelfTrait)` is not available either: `Error` is unbound inside its
-//! own definition.
+//! settled. The one thing that blocked freezing them was a COMPILER defect,
+//! not a design gap: `source()`'s `Option(Dyn(SelfTrait))` result had lost the
+//! `Error` trait on an erased receiver, so a caller could follow one link and
+//! print it but could not store, re-erase, `downcast` or re-throw it — and
+//! `ErrorChain`/`root_cause` are exactly that store.
 //!
-//! So `source()` exists and works one level deep, and the walk over it does
-//! not. Freezing before that is decided would freeze a trait whose defining
-//! use case is still blocked.
+//! **That defect is FIXED** (2026-09-14, `TraitT` identity is the trait's `id`
+//! rather than its externally-attached name —
+//! `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`,
+//! filed as #521). The walk type-checks and runs; it is gated by
+//! `tests/error_source_chain.test.yo`.
+//!
+//! `ErrorChain`/`root_cause` are still absent HERE for one reason only, and it
+//! is mechanical: `std/` is compiled by the SEED during bootstrap, and the seed
+//! predates the fix, so std code performing the walk fails to build. They land
+//! in the release AFTER a seed carries the fix — the usual two-release
+//! sequencing (`plans/STD_API_STABILIZATION.md`). Nothing about the trait's
+//! shape is waiting on a decision any more.
 // Narrow imports (audit error row: the blanket glob import of `./string`/`./fmt`
 // re-exported ALL of string/fmt through std/error — every error-module
 // importer gained println, String, Format, ... — for the two names actually
@@ -32,10 +36,10 @@ Error :: trait(
   /// Rust's `Error::source`. Defaulted to `.None`, so an error with nothing
   /// underneath it implements the trait by saying only what it is; a wrapper
   /// overrides it to hand back what it wrapped. Walking the chain to the root
-  /// cause is not expressible yet — the returned `Dyn` loses the `Error`
-  /// trait on an erased receiver, so a caller can print one link but cannot
-  /// follow it (#521,
-  /// `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`).
+  /// cause works as of 2026-09-14 — the returned `Dyn` used to lose the
+  /// `Error` trait on an erased receiver, so a caller could print one link but
+  /// not follow it (#521,
+  /// `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`).
   (source : (fn(inout(self) : Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
   where(Self <: ToString)
 );
@@ -73,7 +77,7 @@ __derive_error_head :: (fn(comptime(v) : VariantInfo) -> comptime(comptime_str))
 /// Generate `ToString` + `Error` for an enum from one message per variant —
 /// `thiserror`'s `#[error("…")]`, in the syntax Yo already has.
 ///
-/// ```rust
+/// ```yo
 /// derive(JsonError, Error(
 ///   .UnexpectedChar => `unexpected character at position ${pos}`,
 ///   .UnexpectedEnd  => `unexpected end of input`,
@@ -175,7 +179,7 @@ derive_rule(Error, __derive_error);
 /// issues/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md;
 /// when that is fixed this becomes `err.is(T)`.
 ///
-/// ```rust
+/// ```yo
 /// cond(
 ///   error_is(err, NotFound) => recover(),
 ///   true => rethrow(err)
@@ -199,7 +203,7 @@ export(error_is);
 /// the tree overrides it, so before this every error chain was one link long.
 /// `to_string` renders the whole chain, innermost last:
 ///
-/// ```rust
+/// ```yo
 /// e := Context.new(`while loading the config`, dyn(io_err));
 /// println(e.to_string());   // while loading the config: no such file
 /// ```
