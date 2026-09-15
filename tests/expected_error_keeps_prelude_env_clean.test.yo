@@ -1,0 +1,21 @@
+//! A `comptime_expect_error(...)` whose body is a typed binding that fails
+//! (`(p : *(i32)) = i32(0)` in safe code) used to leak this module's frame into
+//! the cached prelude env: the typed-binding path re-points `env.frames` at a
+//! frame list the prelude env shares, the expected throw unwinds, and the
+//! builtin's restore re-pushed the saved module frame into that list. Every
+//! module demand-loaded afterwards then saw THIS file's bindings — so
+//! `std/async`'s own `{ ArrayList } :: import(...)` collided with the
+//! `ArrayList` below under the destructurer's no-shadowing rule
+//! (`Variable "ArrayList" is already defined here`, pointing at this file).
+//! The builtin now restores the frame LIST identity before its depth.
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+comptime_expect_error((p : *i32) = i32(0));
+// Loaded AFTER the expected error: its import preamble binds `ArrayList` and
+// `assert` in its own module env, which must not contain ours.
+{ yield } :: import("std/async");
+test("a module loaded after an expected error does not see this module's bindings", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  assert(xs.len() == usize(1), "the file's own ArrayList binding still works");
+});
