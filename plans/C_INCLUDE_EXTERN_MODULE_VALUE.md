@@ -19,7 +19,14 @@ call. Two consequences, both measured on 2026-09-15 with the v0.2.33 seed:
    `{ println : p2 } :: import("std/fmt")` was accepted, as was importing the
    same name twice. The check lives at the atom-binding sites
    (`binding.yo`, `initialization_assignment.yo`) and the destructurer never
-   ran it.
+   ran it. **What the old behaviour actually did is worse than "tolerated a
+   duplicate":** it silently redirected an existing name to a DIFFERENT value
+   and let the damage surface somewhere else. `p2 :: i32(1)` followed by
+   `{ println : p2 } :: import("std/fmt")` rebinds `p2` to `println`, so a
+   later `println(p2)` fails with "No matching call found" at a site that
+   never mentions the rebind (measured on the v0.2.33 seed while writing
+   `tests/cli-cases/check-destructure-rename-shadows`). The rule turns that
+   into an error at the rebind, naming both sites.
 2. **A collision had no resolution.** There was no way to give a C symbol a
    different Yo name, so `std/libc/sys/stat.yo` carries a commented-out
    `struct_stat : Type` ("conflicts with function") and `src/manifest.yo`'s
