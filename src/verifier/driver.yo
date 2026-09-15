@@ -17,7 +17,7 @@ json :: import("std/encoding/json");
 { sha256_hex } :: import("std/crypto/sha256");
 { VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, EncodeOptions, default_encode_options } :: import("./encode.yo");
-{ VerifyFnInput, verify_function_body } :: import("./vc.yo");
+{ VerifyFnInput, verify_function_body, register_recursion_cliques } :: import("./vc.yo");
 { take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure } :: import("../evaluator/builtins/contracts.yo");
 {
   Z3_VERSION,
@@ -536,6 +536,10 @@ verify_and_strip_tasks :: (
   fn(cfg : VerifyRunConfig, binary : String, tasks : ArrayList(VerifyTask)) -> ArrayList(VerifyFnReport)
 )({
   reports := ArrayList(VerifyFnReport).new();
+  // V6 task 4: compute the batch's mutual-recursion cliques BEFORE the
+  // first walk — the walk's clique-edge decrease obligation consults
+  // them (see g_recursion_cliques in vc.yo).
+  register_recursion_cliques(tasks);
   (ti : usize) = usize(0);
   while(ti < tasks.len(), {
     match(

@@ -1384,6 +1384,17 @@ register_callsite_contracts :: (
 callsite_contracts_for :: (fn(call_id : String) -> Option(CallsiteContracts))(
   g_callsite_contracts.get(call_id)
 );
+/// V6 task 4: specialized FuncVal id → the base (unspecialized) id it
+/// was minted from. Written at the specialization mint (calls/helper.yo)
+/// so the verifier's mutual-recursion cliques can be spelled in BASE fids
+/// while the walk sees SPECIALIZED callee ids (`..._ret_N`).
+(g_specialized_base : HashMap(String, String)) = HashMap(String, String).new();
+register_specialized_base :: (fn(spec_id : String, base_id : String) -> unit)({
+  _ := g_specialized_base.insert(spec_id, base_id);
+});
+specialized_base_of :: (fn(id : String) -> Option(String))(
+  g_specialized_base.get(id)
+);
 /// Task-registration hook: stash contract instances for every contracted
 /// callee call in the task body (see the CallsiteContracts doc).
 prepare_callsite_contracts :: (
@@ -2290,6 +2301,8 @@ export(
   register_impl_inheritance_task,
   prepare_callsite_contracts,
   callsite_contracts_for,
+  register_specialized_base,
+  specialized_base_of,
   register_impl_variance_task,
   record_verify_task_def_eval_failure,
   verify_task_def_eval_failure,

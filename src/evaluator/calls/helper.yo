@@ -139,6 +139,7 @@ _(env : helper_dbg_env) :: import("std/env");
   are_types_compatible,
   are_types_compatible_exact
 } :: import("../../types/compatibility.yo");
+{ register_specialized_base } :: import("../builtins/contracts.yo");
 {
   evaluate_function_parameter_type_again,
   evaluate_function_return_type_again,
@@ -3401,6 +3402,7 @@ create_specialized_function_inline :: (
           // specialization), so the walker's param rebinding applies
           // unchanged.
           copy_func_contract_exprs(func_id.clone(), specialized_func_id.clone());
+          register_specialized_base(specialized_func_id.clone(), func_id.clone());
           // Register the SPECIALIZED Func TYPE under the specialized func_id so
           // codegen's get_func_type(specialized_func_id) returns concrete
           // param/return types (generic dropped) instead of the generic

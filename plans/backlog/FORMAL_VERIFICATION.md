@@ -1347,7 +1347,30 @@ become real; the stdlib starts carrying executable specifications.
 > (the stamps did not exist yet); it must run after
 > `_trial_eval_fn_body`. The generic body itself remains unwalked (the
 > "verified abstractly" half of task 2 — uninterpreted sorts +
-> trait-constraint axioms — is still open), as are tasks 3–6.
+> trait-constraint axioms — is still open), as are tasks 3, 5, 6.
+>
+> **Status: TASK 4 MERGED via #691 (develop `3177afa4a19d97037b5d61e61800aac3d7adfbeb`, 2026-09-15 — all 28 checks green).** The
+> driver prepass (`register_recursion_cliques`, vc.yo) scans every
+> task's body for call edges (callee FuncVal from the func-slot atom's
+> ExprInfo, normalized through the specialization base map
+> `register_specialized_base` written at helper.yo's mint — the walk
+> sees SPECIALIZED callee ids, the cliques are spelled in BASE task
+> fids), derives mutual-reachability classes, and stores cliques larger
+> than one. The walk's recursion gate extends to clique edges: the
+> obligation is the CALLEE's own `decreases(Mc)` evaluated at the
+> rebound actuals, strictly `<` the caller's current measure — sound
+> with one measure per member and no lexicographic tuples (an infinite
+> call sequence would give an infinite strictly descending chain in a
+> well-founded order). A clique edge whose callee lacks `decreases`
+> fails the subset loudly. One measure per function, strictly
+> decreasing at every edge, IS the termination argument. Fixture quirk
+> recorded: `decreases-nonneg` compares SIGNED for all sorts, so
+> unsigned measures refute at n = 2^63 — filed as
+> `issues/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md`;
+> the fixtures use i32 with an explicit bound until it lands. Fixtures:
+> `mutual_recursion.yo` (even/odd proves) +
+> `mutual_recursion_false.yo` (the n-unchanged edge refutes);
+> `tests/internal/verifier_mutual.test.yo` 2/2. Tasks 3, 5, 6 remain.
 
 Tasks:
 

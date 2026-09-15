@@ -119,6 +119,24 @@ A caller that violates the generic's `requires` (passing `flag = false`
 to a `requires(flag)` callee) is refuted at the call site with a
 counter-example.
 
+### Mutual recursion
+
+Mutually recursive functions terminate when every member carries
+`decreases(M)` and every call **between clique members** proves the
+callee's measure at the actuals strictly below the caller's current
+measure — one shared well-founded domain, no lexicographic tuples. The
+cliques are derived automatically from the task set's call graph, so an
+edge without a decrease (passing `n` unchanged) is refuted:
+
+```rust
+is_even :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
+  if(n == i32(0), true, is_odd(n - i32(1)))
+);
+is_odd :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
+  if(n == i32(0), false, is_even(n - i32(1)))
+);
+```
+
 ## Modes
 
 | Mode | How to select | Behavior |
@@ -181,6 +199,7 @@ runtime assert).
 | Ghost code (`ghost`/`ghost_fn` erasure) | ✅ verified (V5 task 3) |
 | Trait-method contracts — INHERITANCE onto clause-less impl methods + the VARIANCE obligations (`trait.requires ⇒ impl.requires` contravariant, `impl.ensures ⇒ trait.ensures` covariant) as synthetic `impl-variance@…` tasks | ✅ verified (V6 task 1) |
 | Contracted GENERIC functions at call sites — `requires` discharged and `ensures` assumed per monomorphized call site (the generic body itself stays unwalked) | ✅ verified (V6 task 2) |
+| MUTUAL recursion — `decreases(M)` on every clique member; clique-edge calls prove the callee's measure at the actuals (cliques derived from the call graph) | ✅ verified (V6 task 4) |
 | Generic bodies verified abstractly (uninterpreted type sorts, trait-constraint axioms), `Refine` | V6 |
 | `object`/heap, string content, floats, effects, `unsafe`, FFI | outside the subset |
 
