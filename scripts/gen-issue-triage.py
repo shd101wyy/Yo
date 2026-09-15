@@ -152,6 +152,22 @@ check, and both found on 2026-09-14:
    already contains the prescribed fix, so READ THE SOURCE before implementing
    any "suggested fix".
 """)
+    W("\n### Twenty closed docs still carry an OPEN status line\n")
+    W("""`scripts/check-issue-refs.sh` now reports these. A doc under `fixed/` or
+`retired/` whose `**Status**` line still reads a bare OPEN is either a stale
+header or a live bug hiding in the closed pile, and nothing else here can see
+the difference — several contradict themselves outright, carrying a `FIXED`
+banner at the top and an `OPEN` status line below it.
+
+**Do not bulk-rewrite these headers.** Each needs the same treatment as any
+other status claim: check the code. Of the three examined on 2026-09-15, one was
+a live-looking blocker (`an ArrayList(Waker)` tracer said to be blocking the
+channel rewrite) that turned out to be FIXED — but only reading
+`std/async/channel.yo`, and finding the waiter queues present and the 1 ms tick
+gone, established that. Rewriting the header to match the directory would have
+been the same error as trusting a Status header in the first place, just
+pointing the other way.
+""")
     W("\n### Reference integrity\n")
     W("`scripts/check-issue-refs.sh` asserts every cited `issues/**` path resolves.")
     W("Run it on the MERGE RESULT, not on a branch: a concurrent move reads as a")

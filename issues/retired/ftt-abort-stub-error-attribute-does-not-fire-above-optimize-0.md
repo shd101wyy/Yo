@@ -1,6 +1,32 @@
 # The "failed to transpile" `__attribute__((error))` guard is silently inert at `--optimize 1` and above
 
-**Status: OPEN.** **Class**: crash — the one mechanism that turns a swallowed
+**Status: RETIRED 2026-09-15 — DUPLICATE, and the defect is FIXED.** Filed
+2026-09-04; the same hole was filed again on 2026-09-07 after it let a real
+defect ship in a release, and fixed that day as
+`issues/fixed/ftt-stub-error-attribute-does-not-fire-at-O2.md`. That is the
+record. This filing was never closed.
+
+**What changed, and what deliberately did not.** The stub now names itself on
+stderr before aborting (`src/codegen/functions/generation.yo:924`):
+
+```
+yo: FATAL: reached <fn>, whose body failed to transpile - its definition-time
+evaluation failed and was swallowed. Re-run `yo check` with YO_DEBUG_SWALLOW=1
+to see the original error.
+```
+
+That works at EVERY optimization level, needs no liveness judgement and so has
+no false positives, and it is gated by
+`tests/cli-cases/ftt-stub-names-itself-before-aborting/`.
+
+The `error` attribute is kept, so at `-O0` this is still a compile-time error.
+But the "silently inert above -O0" half is **not** restored — making an
+optimized build FAIL on a live stub was considered and declined; the closed
+doc's "Why not a build failure" section carries that reasoning. So this doc's
+`abort()`-with-no-diagnostic complaint is answered, while its implicit ask (the
+build should fail at `-O2`) was decided against rather than overlooked.
+
+**Was: OPEN.** **Class**: crash — the one mechanism that turns a swallowed
 definition-time evaluation into a build failure does nothing in optimized
 builds, so those builds ship a binary that `abort()`s with no diagnostic.
 

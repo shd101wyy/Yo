@@ -2,7 +2,7 @@
 
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the dead-public-surface
 row (a per-enum sweep of `std/`: 53 enums, 311 variants, with construction sites
-scoped to the declaring module). **Status**: OPEN. Measured against `develop`
+scoped to the declaring module). **Status**: FIXED 2026-09-15 (was OPEN when filed). Measured against `develop`
 (`8d471c7df`) with `yo` 0.2.24 and `YO_STD=./std`.
 
 **FIXED 2026-09-15** — variant deleted, exactly as the Fix section prescribes.

@@ -53,6 +53,29 @@ for f in issues/*.md; do
     fi
   done
 done
+# A doc filed under fixed/ or retired/ whose status line still reads a BARE
+# "OPEN" is either a stale header or a live bug hiding in the closed pile --
+# both worth a look, and invisible to every other check here. 18 were found on
+# 2026-09-15; the one that looked worst (an ArrayList(Waker) tracer said to be
+# blocking the channel rewrite) turned out to be a stale header, but only
+# reading the CODE established that.
+#
+# Narrow on purpose: a doc that says "was OPEN", "OPEN -> fixed" or carries a
+# FIXED marker in the same line is a normal, honest narration of history.
+for f in issues/fixed/*.md issues/retired/*.md; do
+  [ -f "$f" ] || continue
+  line=$(head -14 "$f" | grep -iE '^\*\*Status' | head -1)
+  case "$line" in
+    *[Ww]as*|*FIXED*|*RETIRED*|*FIX*|*FIXED*) continue;;
+  esac
+  case "$line" in
+    *OPEN*)
+      printf '%s: filed as closed but its status line still reads OPEN\n' "$f"
+      printf '    %s\n' "$(printf '%s' "$line" | cut -c1-100)"
+      fail=1
+      ;;
+  esac
+done
 for f in issues/fixed/*.md; do
   b=$(basename "$f")
   if [ -f "issues/retired/$b" ]; then

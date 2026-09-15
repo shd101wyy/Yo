@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 206 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 205 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -29,14 +29,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 0 |
 | Async / effects | 32 | 11 |
-| Codegen / emitted C | 23 | 4 |
+| Codegen / emitted C | 22 | 4 |
 | Evaluator / types | 39 | 8 |
 | Std library | 57 | 16 |
 | Tooling (fmt/doc/lsp) | 16 | 2 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 4 | 1 |
-| **Total** | **206** | **44** |
+| **Total** | **205** | **44** |
 
 ## Cross-cutting buckets
 
@@ -79,6 +79,24 @@ check, and both found on 2026-09-14:
    `fixed/` and `retired/` does, and finding one is usually a sign the code
    already contains the prescribed fix, so READ THE SOURCE before implementing
    any "suggested fix".
+
+
+### Twenty closed docs still carry an OPEN status line
+
+`scripts/check-issue-refs.sh` now reports these. A doc under `fixed/` or
+`retired/` whose `**Status**` line still reads a bare OPEN is either a stale
+header or a live bug hiding in the closed pile, and nothing else here can see
+the difference — several contradict themselves outright, carrying a `FIXED`
+banner at the top and an `OPEN` status line below it.
+
+**Do not bulk-rewrite these headers.** Each needs the same treatment as any
+other status claim: check the code. Of the three examined on 2026-09-15, one was
+a live-looking blocker (`an ArrayList(Waker)` tracer said to be blocking the
+channel rewrite) that turned out to be FIXED — but only reading
+`std/async/channel.yo`, and finding the waiter queues present and the 1 ms tick
+gone, established that. Rewriting the header to match the directory would have
+been the same error as trusting a Status header in the first place, just
+pointing the other way.
 
 
 ### Reference integrity
@@ -158,7 +176,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | OPEN — a PERFORMANCE observation, not a corre | — |
 | [`yield-resumption-order-diverges-on-macos-ci.md`](./yield-resumption-order-diverges-on-macos-ci.md) | — | — |
 
-### Codegen / emitted C (23)
+### Codegen / emitted C (22)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -176,7 +194,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`](./drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md) | OPEN for the two remaining sites | — |
 | [`emitted-c-flipped-once-under-extreme-load-unexplained.md`](./emitted-c-flipped-once-under-extreme-load-unexplained.md) | — | — |
 | [`emitted-c-hardcodes-linux-at-fdcwd.md`](./emitted-c-hardcodes-linux-at-fdcwd.md) | — | — |
-| [`ftt-abort-stub-error-attribute-does-not-fire-above-optimize-0.md`](./ftt-abort-stub-error-attribute-does-not-fire-above-optimize-0.md) | — | — |
 | [`ftt-stub-in-live-closure-falls-off-non-void-function.md`](./ftt-stub-in-live-closure-falls-off-non-void-function.md) | — | yes |
 | [`match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md`](./match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md) | — | — |
 | [`no-volatile-so-black-box-needs-inline-asm.md`](./no-volatile-so-black-box-needs-inline-asm.md) | OPEN — missing capability, not a defect | — |

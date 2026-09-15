@@ -57,7 +57,7 @@ the derive rules generated a body that compared, cloned or ordered a field
 whose type implemented none of it, the derive rule's definition-time trial
 swallowed the error, and codegen turned the enclosing function into an
 `abort()` stub whose `__attribute__((error))` guard is inert above `-O0`
-(`issues/ftt-abort-stub-error-attribute-does-not-fire-above-optimize-0.md`).
+(`issues/retired/ftt-abort-stub-error-attribute-does-not-fire-above-optimize-0.md`).
 
 **2. `substitute` could not resolve a const-generic array LENGTH.** A length
 var is not a `SomeT`: `TypeValue.Array` stores it as the plain string
