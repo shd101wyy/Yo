@@ -70,9 +70,13 @@ record_c_include_for_extern :: (fn(name : String, header : String) -> unit)({
       (i : usize) = usize(0);
       (seen : bool) = false;
       while(i < list.len(), {
-        match(list.get(i), .Some(h) => if(h == header, {
-          seen = true;
-        }), .None => ());
+        match(
+          list.get(i),
+          .Some(h) => if(h == header, {
+            seen = true;
+          }),
+          .None => ()
+        );
         i = (i + usize(1));
       });
       if(!seen, {
