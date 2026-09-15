@@ -1277,6 +1277,101 @@ ghost collections are usable in `requires`/`ensures`.
 **Scope:** contracts across abstraction boundaries; refinement types
 become real; the stdlib starts carrying executable specifications.
 
+> **Status: TASK 1 MERGED via #685 (develop 451b75a7fb9e43e7dad02ea714f0d09d12d67144, 2026-09-14 — all 28 checks green).** The durable
+> trait-method contract tables live in
+> `src/evaluator/values/type_trait_methods.yo`
+> (`register_trait_method_contracts`, keyed `${trait_id}::${label}`,
+> written from `_evaluate_trait_field` phase 4 — key on `TraitT`'s SIXTH
+> field `id`); the func-contract side tables are reached through
+> function-pointer hooks installed by `types/function.yo`'s
+> `_func_contract_hooks_init` binding. Two registration paths at
+> `_c3_eval_colon_pair` (impl.yo): VARIANCE
+> (`register_impl_variance_task`, contracts.yo) — a synthetic
+> `impl-variance@module:row:label` verify task whose body is one
+> `assert((Rt && …) ==> Ri)` / `assert((Ei && …) ==> Et)` per
+> obligation, the trait's requires assumed, the return label as ONE
+> EXTRA SYNTHETIC PARAM; and INHERITANCE
+> (`register_impl_inheritance_task`) — a clause-less impl method gets the
+> trait's clauses planted under its FuncVal id (write-only — the
+> evaluator never re-reads that id; dispatch call sites
+> `_callee_call_term` do) PLUS a synthetic `impl-inherits@…` task
+> proving its BODY against them (the runner binds the return label to
+> the walked body value, so the label is NOT a param there). Variance
+> skips an inherited pair by AST node-id identity (`_same_expr_ids` —
+> both implications would be reflexive). Fixtures:
+> `tests/spec/fixtures/valid/trait_variance.yo` (weakened requires +
+> strengthened ensures proves), `negative/trait_variance_false.yo`
+> (strengthened requires REFUTES at i = 0), `valid/trait_inherit.yo`
+> (the proof NEEDS the inherited requires); tests:
+> `tests/internal/verifier_trait_variance.test.yo` (3/3, real z3).
+>
+> Lessons that cost a driver build each (2026-09-14): (1) a BARE
+> module-level call statement is evaluator-only — codegen collects only
+> `:=` / `(x : T) =` / `x =` inits as module-level initializers, so a
+> hook installed by a bare call works under `yo check` and is silently
+> DROPPED from compiled binaries; the `_name := (fn() -> bool)({...})();`
+> runtime-binding shape survives both (`_trait_checking_init`
+> precedent). (2) A synthetic body's trailing unit must be the parser's
+> zero-arg `tuple()` call and its asserts need a BOUND `assert` — the
+> diagnostic predicate evaluation would die on `Variable "()" not found`
+> / `Variable "assert" not found`; bind `import("std/assert").assert`'s
+> FuncVal under the bare name in the pred env (the splice's
+> `_build_assert_callee` idiom). (3) Planting inherited clauses under the
+> impl's fn-TYPE EXPRESSION id re-triggers
+> `issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
+> (the fn-type evaluation and the splice re-read those tables by that
+> id) — plant under the FuncVal id instead, which nothing re-reads. The
+> fixtures use the two-step spelling (named fn + reference from the impl
+> entry); the inline clause-carrying spelling stays blocked by that
+> OPEN issue. Remaining for V6: tasks 2–6 below.
+>
+> **Status: TASK 2 SLICE 1 — contracted generic callees at monomorphized
+> call sites (2026-09-14).** Two fixes, both probe-driven: (1) the
+> SPECIALIZATION mint (`helper.yo`, `specialized_func_id = func_id +
+> "_" + sig`) never re-keyed the contract tables — the caller's callee
+> atom carries the SPECIALIZED FuncVal, so every monomorphized call site
+> saw "callee without contracts"; fixed with
+> `copy_func_contract_exprs(func_id, specialized_func_id)` at the
+> specialized FuncVal mint. (2) A generic signature's predicates are
+> UNTYPED (operators over the type variable have no comptime impl; the
+> failure is swallowed at the def-time trial), and the walk's
+> `_expr_term` requires ExprInfo for EVERY node — so the raw predicate
+> ASTs are unusable. The fix is a per-call-site stash
+> (`CallsiteContracts`, contracts.yo): after the def-time trial stamps
+> the call-site ExprInfo (argument types, the specialized callee
+> FuncVal), `prepare_callsite_contracts` walks the task body and
+> evaluates fresh-id clones of each contracted callee's predicates with
+> the callee's params bound to unknowns of the CONCRETE arg types;
+> `_callee_call_term` prefers the stash. TIMING lesson: the stash hook
+> first sat at task registration — BEFORE the trial — and read nothing
+> (the stamps did not exist yet); it must run after
+> `_trial_eval_fn_body`. The generic body itself remains unwalked (the
+> "verified abstractly" half of task 2 — uninterpreted sorts +
+> trait-constraint axioms — is still open), as are tasks 3, 5, 6.
+>
+> **Status: TASK 4 — mutual-recursion decreases (2026-09-14).** The
+> driver prepass (`register_recursion_cliques`, vc.yo) scans every
+> task's body for call edges (callee FuncVal from the func-slot atom's
+> ExprInfo, normalized through the specialization base map
+> `register_specialized_base` written at helper.yo's mint — the walk
+> sees SPECIALIZED callee ids, the cliques are spelled in BASE task
+> fids), derives mutual-reachability classes, and stores cliques larger
+> than one. The walk's recursion gate extends to clique edges: the
+> obligation is the CALLEE's own `decreases(Mc)` evaluated at the
+> rebound actuals, strictly `<` the caller's current measure — sound
+> with one measure per member and no lexicographic tuples (an infinite
+> call sequence would give an infinite strictly descending chain in a
+> well-founded order). A clique edge whose callee lacks `decreases`
+> fails the subset loudly. One measure per function, strictly
+> decreasing at every edge, IS the termination argument. Fixture quirk
+> recorded: `decreases-nonneg` compares SIGNED for all sorts, so
+> unsigned measures refute at n = 2^63 — filed as
+> `issues/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md`;
+> the fixtures use i32 with an explicit bound until it lands. Fixtures:
+> `mutual_recursion.yo` (even/odd proves) +
+> `mutual_recursion_false.yo` (the n-unchanged edge refutes);
+> `tests/internal/verifier_mutual.test.yo` 2/2. Tasks 3, 5, 6 remain.
+
 Tasks:
 
 1. Trait-level contract semantics: an impl declaring contracts must

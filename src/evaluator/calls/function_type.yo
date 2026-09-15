@@ -64,6 +64,7 @@ _(env : cap_dbg_env_fnty_rp) :: import("std/env");
   register_verify_task,
   record_verify_task_def_eval_failure,
   evaluated_for_verify,
+  prepare_callsite_contracts,
   _is_verify_target,
   resolve_verify_mode
 } :: import("../builtins/contracts.yo");
@@ -1443,6 +1444,19 @@ Result type: ${type_to_string(result_box)}`
             `fn@${tok.module_path}:${tok.row.to_string()}`,
             _trial_swallow_message()
           );
+        });
+        // V6 task 2 (FORMAL_VERIFICATION.md): stash evaluated contract
+        // instances for every contracted callee call in this body — AFTER
+        // the trial, which is what stamps the call-site ExprInfo (argument
+        // types, callee FuncVal) the stash reads. Contracted GENERIC
+        // callees carry untyped signature predicates (operators over the
+        // type variable fail comptime evaluation at their own definition),
+        // so the stash evaluates fresh-id clones at THIS call site's
+        // concrete types — see CallsiteContracts in contracts.yo and the
+        // `_callee_call_term` consult.
+        __cs_mode := resolve_verify_mode(tok.module_path.clone());
+        if((_is_verify_target(tok.module_path.clone()) && ((__cs_mode == "verify") || (__cs_mode == "verify+"))), {
+          prepare_callsite_contracts(body_expr_raw.clone(), caller_env, ctx, exn);
         });
         if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[flow-post] out=${flow_out.len().to_string()} pending=${_trial_swallow_pending().to_string()} fwd=${has_fwd_comptime_fn_cap.to_string()}`);

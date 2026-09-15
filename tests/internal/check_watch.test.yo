@@ -11,7 +11,10 @@
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
 { watch_round } :: import("../../src/check_watch.yo");
-{ mm_load_file, mm_invalidate_document, mm_definitions_changed, resolve_std_path } :: import("../../src/module_manager.yo");
+{ mm_load_file, mm_invalidate_document, mm_definitions_changed, mm_revalidate_plan, resolve_std_path } :: import("../../src/module_manager.yo");
+{ force_pending_count, PendingDef } :: import("../../src/evaluator/context.yo");
+{ AstExpr } :: import("../../src/expr.yo");
+{ RevalPlan } :: import("../../src/module_manager.yo");
 { type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
 
@@ -19,6 +22,16 @@ _LIB_OK :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
 _LIB_RENAMED :: "answer_renamed :: (fn() -> i32)(i32(42));\nexport(answer_renamed);\n";
 _APP :: "{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n";
 
+/// Unreachable unwrap helper for plan matches (an assert precedes every use).
+p0 :: (fn() -> RevalPlan)(
+  RevalPlan(
+    module_key : String.new(),
+    changed : ArrayList(PendingDef).new(),
+    fresh_exprs : ArrayList(AstExpr).new(),
+    closure_keys : ArrayList(String).new(),
+    fallback_modules : ArrayList(String).new()
+  )
+);
 /// One watch round with `lib.yo` as the changed file. Returns failed count.
 _round :: (
   fn(lib_path : String, files : ArrayList(String), std_path : String, io : Io, exn : Exception) -> usize
@@ -190,4 +203,232 @@ test("Phase 3a: mm_definitions_changed — comment/whitespace edits are no-ops, 
   changed.push(lib_path.clone());
   failed := watch_round(changed, files, std_path.clone(), io, exn);
   assert(failed == usize(0), "comment-only round must not fail anything");
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3b (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6 step 4): the
+// per-DEFINITION path. A body edit in an imported module re-evaluates exactly
+// the changed definition plus its def-level dependents, measured with the
+// `force_pending_def` counter — in-order settlements never call it, so the
+// FILE-LEVEL path measures 0 and the per-def path measures the revalidated
+// count. The importer binds the WHOLE module (`lib_mod :: import(...)`), the
+// shape whose member reads carry def-level edges; a type-producer edit
+// (struct field) must fall back to file-level.
+// ---------------------------------------------------------------------------
+_P3B_LIB_V1 :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(41)));\nexport(answer, helper);\n";
+_P3B_LIB_V2 :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(42)));\nexport(answer, helper);\n";
+_P3B_LIB_SIG :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn(n : i32) -> i32)((helper() + n));\nexport(answer, helper);\n";
+_P3B_LIB_BRK :: "helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + true));\nexport(answer, helper);\n";
+_P3B_APP :: "lib_mod :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := lib_mod.answer();\n});\nexport(main);\n";
+
+test("Phase 3b: a body edit re-evaluates only the changed def + its dependents", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_check_watch_fixture_p3b`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_P3B_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // Body edit: answer's constant moves. Per-def must re-evaluate exactly
+  // `answer` (lib) and `main` (app, the def-edge dependent) — NOT `helper`
+  // (unchanged, no dependent edge).
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  before := force_pending_count();
+  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  delta := (force_pending_count() - before);
+  assert(failed == usize(0), `body edit must not fail: ${failed.to_string()}`);
+  assert(delta == usize(2), `body edit must re-force exactly answer+main, forced ${delta.to_string()}`);
+  // Long-lived-process guarantee on the per-def path: five more rounds
+  // (alternating bodies keeps the def hash moving every round) leave the
+  // registries flat.
+  ttm_before := type_trait_methods_entry_count();
+  gi_before := generic_impl_entry_count();
+  (r : usize) = usize(0);
+  while(r < usize(5), {
+    body := cond(((r % usize(2)) == usize(0)) => _P3B_LIB_V1, true => _P3B_LIB_V2);
+    io.await(write_string(Path.new(lib_path.clone()), String.from(body), io), ioexn);
+    _f := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+    r = (r + usize(1));
+  });
+  assert(type_trait_methods_entry_count() == ttm_before, "type_trait_methods grew across per-def rounds");
+  assert(generic_impl_entry_count() == gi_before, "generic impls grew across per-def rounds");
+  // Failure -> recovery through the per-def channel: a body that stops
+  // type-checking fails the round; fixing it cleans the next round (the
+  // failed def must not stay failed after its hash moves again).
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_BRK), io), ioexn);
+  failed_b := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed_b == usize(1), `broken body must fail the round, failed=${failed_b.to_string()}`);
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  failed_f := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed_f == usize(0), `fixed body must clean the round, failed=${failed_f.to_string()}`);
+});
+
+test("Phase 3b: a signature edit falls back to file-level and still fails the importer", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  // Own fixture directory: this test drives the FILE-LEVEL path, and a
+  // preceding per-def sequence leaves warm state (grafted defs, cloned
+  // dependents) whose interaction with the reload is exactly what
+  // issues/per-def-dependent-trial-resolves-stale-callee.md tracks — the
+  // gate's contract is asserted from a clean load.
+  dir := `/tmp/yo_check_watch_fixture_p3b_sig`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_P3B_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _pre1 := mm_invalidate_document(lib_path.clone());
+  _pre2 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // Signature edit: answer takes a parameter now. A changed signature alters
+  // what every dependent call MEANS, and a dependent's re-forced body trial
+  // does not reliably re-check arity against the patched slot — so the round
+  // must take the FILE-LEVEL path (zero per-def forces) and the importer's
+  // reload must surface the error.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_SIG), io), ioexn);
+  before := force_pending_count();
+  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  delta := (force_pending_count() - before);
+  assert(failed == usize(1), `signature edit must fail the importer via reload, failed=${failed.to_string()}`);
+  assert(delta == usize(0), `signature edit must stay file-level (no per-def forces), forced ${delta.to_string()}`);
+  // Fix: back to the parameterless body — the next round is clean again.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), "fixed signature must be clean again");
+});
+
+test("Phase 3b: a DIRECTORY check attributes destructured reads to the right module", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  // Reproduces the sns id->module mis-attribution of
+  // issues/per-def-dependent-trial-resolves-stale-callee.md: every module's
+  // FIRST source-namespace mint collided on `source_namespace_0` (the
+  // occurrence counter is per module), so the attribution map was
+  // last-wins — in a directory check a later module's mint overwrote the
+  // entry a LATER importer was about to look up, and that importer's
+  // destructured read was recorded against the wrong module. The per-def
+  // plan then found no reader and left the importer holding a stale copy.
+  dir := `/tmp/yo_check_watch_fixture_p3b_dir`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  first_path := `${dir}/first.yo`;
+  mid_path := `${dir}/mid.yo`;
+  second_path := `${dir}/second.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V1), io), ioexn);
+  io.await(
+    write_string(Path.new(first_path.clone()), String.from("{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n"), io),
+    ioexn
+  );
+  io.await(
+    write_string(Path.new(mid_path.clone()), String.from("extra :: (fn() -> i32)(i32(7));\nexport(extra);\n"), io),
+    ioexn
+  );
+  io.await(
+    write_string(Path.new(second_path.clone()), String.from("{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n"), io),
+    ioexn
+  );
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(first_path.clone());
+  _p3 := mm_invalidate_document(mid_path.clone());
+  _p4 := mm_invalidate_document(second_path.clone());
+  // The directory-check ordering: first's destructure demand-loads lib (its
+  // sns registration is correct while lib is the latest mint), then mid is
+  // checked as its own entry (its mint used to OVERWRITE the shared id),
+  // then second's destructure of the cached lib looks the id up.
+  assert(mm_load_file(first_path.clone(), std_path.clone(), true, io, exn).ok, "first should pass");
+  assert(mm_load_file(mid_path.clone(), std_path.clone(), true, io, exn).ok, "mid should pass");
+  assert(mm_load_file(second_path.clone(), std_path.clone(), true, io, exn).ok, "second should pass");
+  // Body edit: the plan must treat BOTH destructured importers as
+  // ordered-reader fallbacks — their copies cannot be patched in place.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
+  plan := mm_revalidate_plan(lib_path.clone());
+  assert(plan.is_some(), "a signature-stable body edit must produce a per-def plan");
+  p := match(plan, .Some(pp) => pp, .None => p0());
+  (second_is_fallback : bool) = false;
+  (fi : usize) = usize(0);
+  while(fi < p.fallback_modules.len(), {
+    match(
+      p.fallback_modules.get(fi),
+      .Some(mk) => if(mk.ends_with(String.from("second.yo")), {
+        second_is_fallback = true;
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  assert(second_is_fallback, "a destructured importer after another module's mint must still be attributed");
+});
+
+test("Phase 3b: a struct-field edit (type producer) falls back to file-level", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_check_watch_fixture_p3b_ty`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(41)));\nP :: struct(x : i32);\nexport(answer, helper, P);\n"),
+      io
+    ),
+    ioexn
+  );
+  io.await(write_string(Path.new(app_path.clone()), String.from(_P3B_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _p1 := mm_invalidate_document(lib_path.clone());
+  _p2 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  // `P`'s field type moves: P is a type producer, so the round must take the
+  // FILE-LEVEL path — zero per-def forces, app re-checked from a full reload.
+  io.await(
+    write_string(
+      Path.new(lib_path.clone()),
+      String.from("helper :: (fn() -> i32)(i32(1));\nanswer :: (fn() -> i32)((helper() + i32(41)));\nP :: struct(x : i64);\nexport(answer, helper, P);\n"),
+      io
+    ),
+    ioexn
+  );
+  before := force_pending_count();
+  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  delta := (force_pending_count() - before);
+  assert(failed == usize(0), "unused struct edit must not fail");
+  assert(delta == usize(0), `type-producer edit must stay file-level (no per-def forces), forced ${delta.to_string()}`);
 });

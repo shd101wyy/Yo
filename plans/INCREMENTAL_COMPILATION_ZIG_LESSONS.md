@@ -494,15 +494,67 @@ Gates:
 > edges at every force/serve/member-read point, and the parse-only
 > no-op fast path in the watch round — a comment-only or whitespace-only
 > edit now costs a ~5 ms diff instead of the full reverse-closure re-check:
-> 222 files / 375 s → 0 files / 5 ms on the `src/token.yo` probe). The
-> per-definition INVALIDATION of step 4 (reset + reverse-edge re-force for
-> body-only edits) is the remaining piece; a real def change currently
-> falls back to today's file-level behavior, which is why the fast path's
-> twin gate — a body edit in `src/token.yo` — still measures 375 s. Also
-> surfaced and filed on the way:
-> `issues/enum-pattern-bool-payload-not-compared.md` (a boolean-literal
-> payload in an enum pattern is bound, not compared — `.Some(false)`
-> matches `.Some(true)`).
+> 222 files / 375 s → 0 files / 5 ms on the `src/token.yo` probe).
+>
+> **Step 4 (per-definition INVALIDATION) landed 2026-09-14.** A real def edit
+> no longer drops the changed module's whole import closure: the watch round
+> plans (`mm_revalidate_plan`) and applies (`mm_revalidate_apply`) a reset +
+> re-force of exactly the changed definitions and their reverse-edge
+> dependents (`g_def_deps`), grafting the re-parsed statement onto the walk's
+> `PendingDef`, and patches the cached module values' exported slots IN PLACE
+> (`update_module_cache_slot` — importers holding the whole module value share
+> the StructVal's arrays). Post-walk re-forcing required the walk to keep its
+> module FRAME object (`ModuleWalk.module_frame`) — the walker pops it from
+> `env` when the module finishes, and the first force after that point would
+> otherwise evaluate against an env with no module frame (import bindings
+> vanished: "Variable not found"). Recorded def edges are monotone by design:
+> a reset does NOT prune them, because a re-force does not reliably re-record
+> (a body trial can short-circuit on existing ExprInfo) — a stale edge only
+> ever over-invalidates. The v1 ALLOWLIST is one predicate,
+> `_def_is_per_def_able`: only a SIGNATURE-STABLE fn-literal edit
+> (`name :: (fn(...) -> T)(body)`, fn-type head unchanged) is per-def-able —
+> a dependent's re-forced body trial does not reliably re-check arity, or
+> re-fold comptime values, against the patched slot
+> (issues/per-def-dependent-trial-resolves-stale-callee.md), so signature
+> changes, constants and type producers (whose values/types dependents fold
+> at def time; `derive(...)` is an ordered statement, so the stmt-sequence
+> check covers it) all take the file-level reload. The remaining conservative
+> FILE-LEVEL fallbacks: structural edits (stmt sequence, def count, an added
+> def — `DefDiff.fallback`), the changed module's own ordered statements
+> mentioning a changed name, any importer that ORDER-READ a revalidated name
+> (destructured import or spread — a copy the slot patch cannot reach; the
+> spread now records its fields as ordered reads), a closure def with no
+> finished walk or an impl def, and a revalidated def exported under an alias
+> (`export(Foo : bar)` — the slot is not addressable by the def's name). The
+> export-spread staleness hole (a spread re-publishes slots as COPIES) was
+> closed by recording each spread field as an ordered read. Gates:
+> `tests/internal/check_watch.test.yo` (force-counter deltas: a body edit
+> re-evaluates exactly the changed def + its def-level dependents; a
+> signature edit surfaces the dependent's error through the per-def channel;
+> a struct-field edit stays file-level; registries flat across rounds) and
+> `scripts/bootstrap/watch_verify.sh` (a live watch session vs a cold check
+> over a scripted edit sequence — the "stale state the invalidation missed"
+> oracle; measured 2026-09-14 over `check ./src --watch`: a comment-only
+> edit is a no-op round, and a BODY edit of `src/token.yo`'s
+> `is_identifier_continue` (the §6 hub probe) revalidates exactly 1
+> definition in ~50-90 ms when no importer destructures the changed name.
+> The sns-attribution bug that kept the ordered-reader fallback from firing
+> in DIRECTORY checks was fixed 2026-09-15 (`stable_sns_module_id` — the
+> sns id embeds the module-path hash; every module's first mint used to
+> collide on `source_namespace_0`), so the hub round now SOUNDLY drops the
+> destructured reader's closure: `src/token.yo`'s `is_identifier_continue`
+> edit drops `src/lexer.yo` + its 143-file import closure, a ~355 s
+> full re-check on the WSL2 box — correct, and the perf unlock for hub
+> edits is the dependent-trial stale-callee fix in
+> issues/per-def-dependent-trial-resolves-stale-callee.md (once a dependent
+> re-derives calls against the patched slot, signature-stable edits no
+> longer need to drop their readers). Surfaced on the way:
+> `issues/retired/enum-bool-option-literal-arms-duplicate-case.md` — an
+> in-tree `.Some(true)/.Some(false)` two-arm match broke the SELF-BUILD
+> because the v0.2.32 seed's codegen predates #661/#672; the tree's own
+> compiler handles the shape, so `src/` avoids it until the seed carries the
+> fix (the two-generation seed rule, met in practice). Also
+> `issues/enum-pattern-bool-payload-not-compared.md` (from steps 1+2; fixed).
 
 `check --watch` invalidates the reverse IMPORT closure of a changed FILE.
 That is the right shape at the wrong granularity: a one-line body edit in

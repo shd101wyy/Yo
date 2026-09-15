@@ -1,0 +1,25 @@
+// The deliberately-wrong twin of trait_variance.yo: the impl STRENGTHENS
+// the trait's requires (i >= 1 vs the trait's i >= 0) — a dispatch caller
+// that proved only the trait's precondition would reach the impl with
+// i == 0. The variance obligation (trait.requires ⇒ impl.requires) must
+// REFUTE with exactly that counter-example.
+pragma(Pragma.Verify);
+
+ClampBound :: trait(
+  get : (
+    fn(self : Self, i : i32, requires(i >= i32(0)), ensures(result >= i)) -> (result : i32)
+  )
+);
+
+get_impl :: (
+  fn(self : i32, i : i32, requires(i >= i32(1)), ensures(result == i)) -> (result : i32)
+)(
+  i
+);
+
+impl(
+  i32,
+  ClampBound(
+    get : get_impl
+  )
+);

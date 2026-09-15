@@ -73,6 +73,7 @@ _(env : impl_dbg_env) :: import("std/env");
   type_id_or_empty,
   registration_owner
 } :: import("./type_trait_methods.yo");
+{ register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id } :: import("../../types/creators.yo");
@@ -2951,6 +2952,47 @@ _c3_eval_colon_pair :: (
           );
         });
       });
+      // V6 task 1 (FORMAL_VERIFICATION.md): trait contracts at impl
+      // registration — INHERITANCE first (a clause-less impl method gets
+      // the trait's contracts planted under its FuncVal id for dispatch
+      // sites, plus a synthetic task proving its BODY against them), then
+      // VARIANCE (both sides carrying independently declared contracts
+      // prove trait.requires ⇒ impl.requires and impl.ensures ⇒
+      // trait.ensures). The inheritance planting makes the variance
+      // implications reflexive; the variance gate detects that by node-id
+      // identity and skips.
+      match(
+        current_trait_ty,
+        .Some(__var_tt) => {
+          match(
+            method_val,
+            .FuncVal(__var_fvd, _) => {
+              register_impl_inheritance_task(
+                type_id_or_empty(__var_tt),
+                method_name.clone(),
+                method_val,
+                fi.ty,
+                name_tok,
+                st.env,
+                ctx,
+                exn
+              );
+              register_impl_variance_task(
+                type_id_or_empty(__var_tt),
+                method_name.clone(),
+                __var_fvd.*.func_id.clone(),
+                name_tok,
+                fi.ty,
+                st.env,
+                ctx,
+                exn
+              );
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
     }
   );
 });
