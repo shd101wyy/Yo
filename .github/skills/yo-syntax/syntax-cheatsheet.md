@@ -959,7 +959,10 @@ renames (functions, globals AND opaque types keep their C symbol in the emitted 
 destructurer now runs the NO-SHADOWING rule (it never did — `{ a : b } :: m` onto an
 existing `b` and the same import twice were silently accepted), so a `c_include` name
 that a Yo binding already uses is an error either way round: qualify or rename. Value
-position forms are seed-gated for `std/` and `src/`; `tests/` may use them now.
+position forms are seed-gated for `std/` and `src/`; `tests/` may use them now. The
+BARE form is the canonical spelling (user decision 2026-09-15): do NOT migrate existing
+`extern(...)`/`c_include(...)` statements to `{ ... } :: …`; write the explicit forms
+only when you qualify, select or rename.
 
 **`extern("Yo", …)` / `extern("c", …)` blocks are order-independent too
 (fixed 2026-09-12, `issues/fixed/extern-declarations-are-not-forward-referenceable.md`),

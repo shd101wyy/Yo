@@ -67,9 +67,12 @@ round-trips the source. Rationale:
 - It is NOT the removed `open(...)`: the names a bare `extern(...)` brings in
   are written in the statement itself.
 
-Removing the sugar later (pure form everywhere) is a one-line deletion in the
-desugar plus the `std/`/`src/` rewrite, gated on the seed as usual. It is not
-planned.
+**DECIDED 2026-09-15 (user): the bare form is the canonical declaration
+spelling and stays; no migration of `std/`/`src/` to `{ ... } :: extern(...)`
+is planned, now or after the seed bump.** The explicit forms exist for what
+the bare form cannot express — qualification, selection, renaming. (Removing
+the sugar would be a one-line deletion in the desugar plus a rewrite of ~90
+sites; it buys no semantic change and is rejected.)
 
 ## 3. Implementation
 
