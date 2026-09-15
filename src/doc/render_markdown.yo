@@ -7,6 +7,42 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+
+/// A doc body, with Yo code fences retagged for GITHUB.
+///
+/// Doc comments in `.yo` source tag their samples ```yo — the honest tag, and
+/// the one `yo doc`'s own highlighter keys on. GitHub has never heard of `yo`
+/// and renders such a block unhighlighted, while it DOES highlight `rust`,
+/// which is close enough to read well (AGENTS.md keeps ```rust for the
+/// hand-written Markdown under `docs/` for exactly that reason).
+///
+/// The HTML renderer needs no such translation: it ships its own Yo
+/// highlighter and matches `language-yo` directly. Only this renderer's output
+/// is read on GitHub, so only this renderer translates.
+_md_doc :: (fn(d : String) -> String)({
+  out := String.new();
+  lines := d.split(`\n`);
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    line := match(lines.get(i), .Some(l) => l, .None => String.new());
+    trimmed := line.trim();
+    if(trimmed == `\`\`\`yo`, {
+      // Preserve the original indentation; only the tag changes.
+      // Preserve the original indentation exactly; only the tag changes.
+      // Leading whitespace is ASCII, so the byte-indexed substring is safe.
+      lead := (line.len() - line.trim_start().len());
+      out.push_string(line.substring(usize(0), lead));
+      out.push_str("```rust");
+    }, {
+      out.push_string(line);
+    });
+    if((i + usize(1)) < lines.len(), {
+      out.push_str("\n");
+    });
+    i = (i + usize(1));
+  });
+  out
+});
 {
   DocParam,
   DocField,
@@ -220,7 +256,7 @@ render_function_md :: (fn(fn_ : DocFunction) -> String)({
     fn_.doc,
     .None => (),
     .Some(d) => {
-      lines.push(d);
+      lines.push(_md_doc(d));
       lines.push(``);
     }
   );
@@ -302,7 +338,7 @@ render_type_md :: (fn(t : DocType) -> String)({
     t.doc,
     .None => (),
     .Some(d) => {
-      lines.push(d);
+      lines.push(_md_doc(d));
       lines.push(``);
     }
   );
@@ -513,7 +549,7 @@ render_trait_md :: (fn(t : DocTrait) -> String)({
     t.doc,
     .None => (),
     .Some(d) => {
-      lines.push(d);
+      lines.push(_md_doc(d));
       lines.push(``);
     }
   );
@@ -594,7 +630,7 @@ render_constant_md :: (fn(c : DocConstant) -> String)({
     c.doc,
     .None => (),
     .Some(d) => {
-      lines.push(d);
+      lines.push(_md_doc(d));
       lines.push(``);
     }
   );
@@ -619,7 +655,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     mod.doc,
     .None => (),
     .Some(d) => {
-      lines.push(d);
+      lines.push(_md_doc(d));
       lines.push(``);
     }
   );

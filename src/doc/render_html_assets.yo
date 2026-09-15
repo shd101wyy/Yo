@@ -822,7 +822,23 @@ generate_highlight_js :: (fn() -> String)({
   s.push_str("    return src;\n");
   s.push_str("  }\n");
   s.push_str("\n");
+  // LANGUAGE-AWARE. This used to select `code[class*="language-"]` — every
+  // fenced block, whatever its tag — and apply the YO highlighter to all of
+  // them, so a ```text, ```toml or ```sh sample came out with Yo keywords
+  // coloured in it. The highlighter below only ever knew Yo (its keyword,
+  // type and operator tables are Yo's: `comptime`, `usize`, `::`, `:=`, `?=`),
+  // so the fence language was being read by nobody.
+  //
+  // `rust` is accepted alongside `yo` because doc comments historically tagged
+  // Yo samples ```rust — GitHub highlights `rust` and has never heard of `yo`,
+  // and that rule still holds for the MARKDOWN under docs/. Inside a .yo doc
+  // comment GitHub never renders the fence at all, so those are migrating to
+  // ```yo; both spellings must highlight while that is in flight.
+  s.push_str("  var YO_LANGS = { 'language-yo': 1, 'language-rust': 1 };\n");
   s.push_str("  document.querySelectorAll('pre > code[class*=\"language-\"]').forEach(function(el) {\n");
+  s.push_str("    var yo = false;\n");
+  s.push_str("    el.classList.forEach(function(c) { if (YO_LANGS[c]) yo = true; });\n");
+  s.push_str("    if (!yo) return;\n");
   s.push_str("    el.innerHTML = highlight(el.textContent || '');\n");
   s.push_str("  });\n");
   s.push_str("\n");

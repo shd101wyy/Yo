@@ -6,7 +6,7 @@
 //!
 //! ## Example
 //!
-//! ```rust
+//! ```yo
 //! { Channel } :: import "std/sync/channel";
 //! { Thread } :: import "std/thread";
 //!
@@ -37,7 +37,7 @@
 //! fact worth acting on. The split is a layer ON TOP of `Channel`, sharing
 //! the same buffer, mutex and condvars.
 //!
-//! ```rust
+//! ```yo
 //! { Channel } :: import "std/sync/channel";
 //!
 //! rx := Channel(i32).receiver(usize(4));   // queue + its one consumer
@@ -54,7 +54,7 @@
 //! A `Sender` MOVED INTO a `Thread.spawn` closure disposes when the thread
 //! finishes, so it closes the channel like any other sender:
 //!
-//! ```rust
+//! ```yo
 //! rx := Channel(i32).receiver(usize(16));
 //! {
 //!   tx := rx.sender();
@@ -74,7 +74,7 @@
 //! in the parent, is still a fine pattern and is what you want when the
 //! senders outnumber the threads:
 //!
-//! ```rust
+//! ```yo
 //! rx := Channel(i32).receiver(usize(16));
 //! {
 //!   keeper := rx.sender();                 // holds the count above zero
@@ -586,7 +586,7 @@ impl(
   /// the `Sender`/`Receiver` split. Mint producers with `Receiver.sender()`
   /// and `Sender.clone()`.
   ///
-  /// ```rust
+  /// ```yo
   /// { Channel } :: import "std/sync/channel";
   /// rx := Channel(i32).receiver(usize(4));
   /// tx := rx.sender();
@@ -611,7 +611,7 @@ impl(
   /// Create a bounded queue and hand back both halves at once — the shape of
   /// Rust's `mpsc::sync_channel(capacity)`.
   ///
-  /// ```rust
+  /// ```yo
   /// pair := Channel(i32).pair(usize(4));
   /// tx := pair.0;
   /// rx := pair.1;

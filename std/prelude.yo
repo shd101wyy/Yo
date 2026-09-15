@@ -8050,7 +8050,7 @@ export(Var);
 /// - `.None` — contains no value
 ///
 /// ## Example
-/// ```rust
+/// ```yo
 /// (x : Option(i32)) = .Some(i32(42));
 /// assert(x.is_some(), "expected Some");
 /// assert(x.unwrap() == i32(42), "expected 42");
@@ -8911,7 +8911,7 @@ derive_rule(Default, __derive_default);
 /// - `.Err(error)` — contains an error value of type `ErrorType`
 ///
 /// ## Example
-/// ```rust
+/// ```yo
 /// (r : Result(i32, str)) = .Ok(i32(42));
 /// assert(r.is_ok(), "expected Ok");
 /// ```
@@ -9474,7 +9474,7 @@ export(Result);
 /// is a `ref` type — copying the handle **shares one heap value and bumps a
 /// refcount**, exactly like Rust's `Rc<T>`:
 ///
-/// ```rust
+/// ```yo
 /// a := box(i32(42));
 /// b := a;          // NOT a copy of the value — a second handle to it
 /// consume(b.* = i32(7));
@@ -9500,7 +9500,7 @@ export(Result);
 /// Use `box(value)` to allocate. Access the inner value with `b.*`.
 ///
 /// ## Example
-/// ```rust
+/// ```yo
 /// b := box(i32(42));
 /// assert(b.* == i32(42), "inner value is 42");
 /// ```
@@ -9641,7 +9641,7 @@ export(^);
 /// Use `arc(value)` to allocate. Access the inner value with `a.*`.
 ///
 /// ## Example
-/// ```rust
+/// ```yo
 /// a := arc(i32(42));
 /// assert(a.* == i32(42), "inner value is 42");
 /// ```
@@ -9677,7 +9677,7 @@ extern(
 /// allocated first and initialized later (e.g., by a C function).
 ///
 /// ## Example
-/// ```rust
+/// ```yo
 /// extern "C",
 ///   time_t : Type,
 ///   time : fn(timer: ?(*(time_t))) -> time_t
@@ -9966,7 +9966,7 @@ __borrow_guard :: (fn(generic(C : Type), c : C) -> __BorrowGuard(C))({
 /// makes every iterator its own `IntoIterator`.
 ///
 /// ## Examples
-/// ```rust
+/// ```yo
 /// // Object elements — mutate in place through the handle.
 /// for(names, s => {
 ///   s.push_str("!");
@@ -12020,7 +12020,7 @@ impl(
   /// ARGUMENT the way `into(T)` is. The element type is not written — it comes
   /// from `Self.Item` and must match `C`'s `FromIterator.Elem`.
   ///
-  /// ```rust
+  /// ```yo
   /// squares := (i32(0) .. i32(5)).map(x => (x * x)).collect(ArrayList(i32));
   /// uniq := words.into_iter().collect(HashSet(String));
   /// ```
@@ -12067,7 +12067,7 @@ impl(
   I,
   /// Reverse the iteration order, producing an `IterRev` iterator.
   ///
-  /// ```rust
+  /// ```yo
   /// (i32(0) .. i32(5)).rev().for_each(x => { out.push(x); });  // 4 3 2 1 0
   /// ```
   rev : (fn(self : Self) -> IterRev(Self))(

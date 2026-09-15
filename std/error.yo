@@ -77,7 +77,7 @@ __derive_error_head :: (fn(comptime(v) : VariantInfo) -> comptime(comptime_str))
 /// Generate `ToString` + `Error` for an enum from one message per variant —
 /// `thiserror`'s `#[error("…")]`, in the syntax Yo already has.
 ///
-/// ```rust
+/// ```yo
 /// derive(JsonError, Error(
 ///   .UnexpectedChar => `unexpected character at position ${pos}`,
 ///   .UnexpectedEnd  => `unexpected end of input`,
@@ -179,7 +179,7 @@ derive_rule(Error, __derive_error);
 /// issues/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md;
 /// when that is fixed this becomes `err.is(T)`.
 ///
-/// ```rust
+/// ```yo
 /// cond(
 ///   error_is(err, NotFound) => recover(),
 ///   true => rethrow(err)
@@ -203,7 +203,7 @@ export(error_is);
 /// the tree overrides it, so before this every error chain was one link long.
 /// `to_string` renders the whole chain, innermost last:
 ///
-/// ```rust
+/// ```yo
 /// e := Context.new(`while loading the config`, dyn(io_err));
 /// println(e.to_string());   // while loading the config: no such file
 /// ```
