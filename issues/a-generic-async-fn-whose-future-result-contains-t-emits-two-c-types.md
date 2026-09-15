@@ -125,6 +125,56 @@ instantiation mentioning a forall binder". Then prove, in this order:
 Anything less will look green and regress one of them silently; the sibling doc
 records exactly that happening.
 
+## TRAP IN THE INSTRUMENT — `[rre]` prints the PRE-adoption value
+
+`YO_DEBUG_RRE=1`'s line is emitted at `src/evaluator/calls/function.yo:2579`,
+inside the `rre_wanted` block and immediately after `_trial_eval_ret_type_expr`.
+The ADOPTION that may overwrite `resolved_ret` is ~50 lines later (the
+`.Some(hkt_ty) => if(...) { resolved_ret = hkt_ty; }` arm). So
+
+```
+[rre] ... hkt=Impl : (Future[Future](Option(i32)) Io : Io)
+          resolved_ret=Impl : (Future[Future](Option(T)) Io : Io)
+```
+
+does NOT show that adoption was refused — it shows `resolved_ret` before the
+adoption ran. Reading it as "the evaluator computed the right answer and threw
+it away" is wrong, and it was my second dead end.
+
+Worked by hand, the adoption condition looks SATISFIED for this shape:
+
+```yo
+((get_all_some_types(hkt_ty).len() == 0)
+ || (rre_old_wanted && (type_somes_all_resolve_concrete(hkt_ty)
+      || (is_some_type(hkt_ty) && !_rre_mentions_binder(hkt_ty, rre_binder_ids)))))
+&& !is_unit_type(hkt_ty)
+```
+
+- arm 1 fails — `Impl(...)` IS a SomeT, so the result is not SomeT-free;
+- `rre_old_wanted` is true (the trace says `old=true`);
+- `type_somes_all_resolve_concrete` is false — an async `Impl` return is one
+  SomeT with an EMPTY resolution cell, exactly as the comment there says;
+- but `is_some_type(hkt_ty)` is true and the re-evaluated type no longer
+  mentions `T`, so the THIRD arm should fire and adopt `Option(i32)`.
+
+**So the next measurement is not "was it adopted" but "what happens after".**
+Add a debug print AFTER the adoption arm (or inspect `resolved_ret` at the
+call's registration) and compare with what the async block records as its own
+result type — the state machine's result is a DIFFERENT channel from the
+function's return type, and `timeout` (the same signature WITHOUT `io.async`)
+is fine, which keeps pointing there.
+
+## Two hypotheses eliminated so far
+
+1. the binder-site collector misses `T` inside an enum — REFUTED by reading
+   `_collect_some_types_into`, which walks `.EnumT` variant fields;
+2. the re-evaluated type is computed correctly and adoption refuses it —
+   NOT SUPPORTED: the trace that suggested it prints before adoption, and the
+   condition appears to hold.
+
+Neither is the cause. Recording both so the next attempt starts at the third
+question rather than re-running these.
+
 ## Where to actually look
 
 Unmeasured as of this writing. The sibling doc supplies the instrument:
