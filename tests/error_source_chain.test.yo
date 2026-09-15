@@ -17,7 +17,7 @@
 //! value and the vtable were always right — only the static type was wrong, and
 //! in the one way that stops the result being re-erased.
 { assert } :: import("std/assert");
-{ Error, AnyError, Context } :: import("std/error");
+{ Error, AnyError, Context, root_cause } :: import("std/error");
 { String } :: import("std/string");
 { ToString } :: import("std/fmt/to_string");
 _Inner :: enum(Boom);
@@ -91,4 +91,21 @@ test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)",
   // ...and passing it straight to a parameter is the other.
   (passed : String) = match(c.parent(), .Some(p) => _handle(p), .None => `root`);
   assert(passed == `root(R)`, `passing the payload lost the trait, got ${passed}`);
+});
+test("root_cause returns the innermost error, and is identity on a lone error", {
+  // Scored at RUNTIME on the rendered value, not on a comptime assertion:
+  // a comptime_assert here could hold vacuously.
+  (base : AnyError) = dyn(_Inner.Boom);
+  (top : AnyError) = dyn(Context.new(`while loading`, base));
+  assert(
+    root_cause(top).to_string() == `boom`,
+    `root_cause of a wrapped error is the inner one, got ${root_cause(top).to_string()}`
+  );
+  // An error with nothing underneath is its own root cause — never .None, so
+  // callers need no unwrapping.
+  (lone : AnyError) = dyn(_Inner.Boom);
+  assert(
+    root_cause(lone).to_string() == `boom`,
+    "root_cause of a lone error is that error"
+  );
 });
