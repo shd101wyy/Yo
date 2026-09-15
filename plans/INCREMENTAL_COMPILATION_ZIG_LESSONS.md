@@ -631,6 +631,19 @@ Gates:
 
 ## 7. Phase 4 — keep the evaluator alive across builds and tests (Zig lesson: `--watch`)
 
+> **Step 1's gate harness landed 2026-09-15**: `yo compile <file>
+> --warm-selfcheck` (hidden debug flag, `src/main.yo`) compiles the input
+> twice in one process — pass 2 with `--warm-reuse`, holding pass 1's module
+> cache, prelude env and shared ExprInfoTable — and requires byte-identical C
+> with zero FTT markers. `scripts/bootstrap/warm_compile_gate.sh` runs a
+> fixture battery with a ratcheting expectation table. Measured baseline
+> (issues/warm-compile-selfcheck.md): a std-free input already PASSES with
+> pass 2 = 0 ms (the resident-evaluator payoff, visible today); an
+> `array_list` input diverges in emission (type-id churn + a stale forward
+> shell the COLD pass carries); a `std/string` input throws in the warm
+> evaluator (struct-identity unification against the cached prelude). Those
+> two failure modes are the step-1 work list.
+
 The deferred original Phase C of `INCREMENTAL_COMPILATION.md` — reusing
 evaluated modules across build invocations — has two possible shapes:
 serialize the evaluated state, or never let the process die. The repo
