@@ -177,7 +177,7 @@ no false positive there); nested io.async green; `compile src/main.yo
 --skip-c-compiler` green; async_await.test.yo 188/188; async_trait_default_
 await.test.yo 4/4; full CLI battery PASS 57 / GOLDEN-DIFF 0 / NO-GOLDEN 0.
 New golden case `tests/cli-cases/compile-async-body-type-error` (recorded
-with gen-2). Issue: `issues/async-body-type-error-compiles-vacuously.md`.
+with gen-2). Issue: `issues/fixed/async-body-type-error-compiles-vacuously.md`.
 Two facts learned while pinning the repro: (1) a compiled entry point needs
 `export(main);` and `main` may take ONLY `(io : Io)` — no `exn : Exception`
 (docs updated in the cheatsheet); (2) the trait-`?=`-default variant of a
@@ -207,7 +207,7 @@ resolution; generic fn bodies need NO carve-out.)
 
 Shipped in #390's second commit (`0897c642e`): the test's closure params
 annotated (`(io2 : Io) => ...`, the form every other async test uses), and
-the class filed as `issues/io-async-bare-e-closure-body-never-evaluates.md`
+the class filed as `issues/fixed/io-async-bare-e-closure-body-never-evaluates.md`
 (open work: bind the bundle before the def-time trial from the enclosing
 signature — the Step-6b call-site binding already does this when the
 expected type is concrete). Re-verified with the gate binary: the file's
@@ -234,7 +234,7 @@ expected type is concrete). Re-verified with the gate binary: the file's
 
 ## 0h. 2026-09-03 — the bare-`e` ROOT FIX landed (#394)
 
-`issues/io-async-bare-e-closure-body-never-evaluates.md` is FIXED (moved to
+`issues/fixed/io-async-bare-e-closure-body-never-evaluates.md` is FIXED (moved to
 `fixed/` in the PR): the `.io` projection is now TOTAL — on a receiver whose
 type is the bare `Io` effect struct, `X.io` is the IDENTITY (evaluator +
 codegen twins in the two `property_access.yo` files; keyed on the
@@ -247,7 +247,7 @@ value flows out (regression test in async_unit_tail_await, 3/3). Verified:
 discovered en route: Step 6b-nested already binds `E := Io` from the
 receiver for this shape — the failure was purely the bundle-projection
 `e.io` being partial. NEW orthogonal bug filed:
-`issues/module-global-referenced-inside-async-closure-undeclared.md` (a
+`issues/fixed/module-global-referenced-inside-async-closure-undeclared.md` (a
 module-level global inside an async closure body emits
 `use of undeclared identifier` + a mangled capture-struct member; the
 ANNOTATED form fails identically; every existing async test works around it
@@ -431,7 +431,7 @@ worktree — see §4), FIXPOINT_HOLDS, CLI `--network` 55/0/0, dyn 9/9.
    blocker measured fixed 2026-08-28).
 5. Compiler holes tracked by the audit: C29 (generic type vars re-resolve per
    argument); arity validation OUTSIDE the def-eval swallow + the async-SM
-   C22 equivalent (`issues/wrong-arity-call-silently-accepted-version-install-broken.md`).
+   C22 equivalent (`issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md`).
 6. Windows: stdin pipe WRITES (overlapped named pipes; reads landed #353);
    `issues/s3-fs-wrappers-windows-semantics-audit.md`; Schannel (D6 deferred).
 7. Polish rows: regex extras, cli typed values + std/term adoption, O5

@@ -80,19 +80,19 @@ but **`yo-self` itself is not**: `yo-self/target.yo:165-184 detect_host()`
 folds `arch ==` as well as `platform ==`, so the x64 and arm64 emissions of the
 compiler differ in that constant. Collapsing to three arms means making
 `detect_host` probe the arch at runtime — a small, independently valuable fix
-(it is also part of what `issues/yo-self-cross-emit-host-constants.md` needs).
+(it is also part of what `issues/fixed/yo-self-cross-emit-host-constants.md` needs).
 Gate it by emitting both arches and `cmp`-ing: let the measurement decide,
 rather than assuming.
 
 ### Prerequisites specific to the one-file artifact
 
-- **`issues/liburing-fallback-does-not-compile.md` must be fixed first.** The
+- **`issues/fixed/liburing-fallback-does-not-compile.md` must be fixed first.** The
   Linux arm currently fails to compile on a box without liburing headers, which
   is precisely the audience for a source distribution.
 - **The Windows arm needs a Windows emission that does not exist yet.** The
-  Windows self-build SEGVs (`issues/windows-no-main-worker-stack-rc139.md`) and
+  Windows self-build SEGVs (`issues/fixed/windows-no-main-worker-stack-rc139.md`) and
   cross-emitting it from Linux is blocked by
-  `issues/yo-self-cross-emit-host-constants.md`. Ship with the arms that exist
+  `issues/fixed/yo-self-cross-emit-host-constants.md`. Ship with the arms that exist
   and add Windows when one of those two is fixed — a missing arm degrades to
   "unsupported platform" at the `#else`, not to a wrong build.
 - Publish the **libc** allocator flavor: mimalloc-flavored C needs
@@ -274,7 +274,7 @@ because the binary still needs `std/` sources at runtime.
 
 ### Work worth doing regardless of the one-file decision
 
-1. `issues/liburing-fallback-does-not-compile.md` — the `#else` arm does not
+1. `issues/fixed/liburing-fallback-does-not-compile.md` — the `#else` arm does not
    compile for programs using `sleep`. Breaks the "any C compiler" promise on
    Linux **today**.
 2. Make dispose/dyn type-ids position-independent (key on the dispose function
@@ -424,7 +424,7 @@ Three files (linux, macos, windows). Traps:
 Assert `linux-x64 == linux-arm64` and `macos-x64 == macos-arm64`. Notes:
 
 - **Do not cross-emit all targets from one host.** Blocked by the open bug
-  `issues/yo-self-cross-emit-host-constants.md`: the self-hosted evaluator
+  `issues/fixed/yo-self-cross-emit-host-constants.md`: the self-hosted evaluator
   resolves target-conditional constants for the HOST, not `--target`, so a
   macOS→linux cross-emit bakes macOS's `AT_FDCWD` (-2) where Linux needs -100.
 - Cheapest honest slot is the existing 5-leg `test` matrix, which already

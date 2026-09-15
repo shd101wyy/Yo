@@ -3,7 +3,7 @@
 **Status: OPEN (the probe is reverted; the underlying compile-cost mechanism
 is the open part).** Found 2026-08-24 root-causing what was first
 misdiagnosed as "S1 std growth hit a memory wall"
-(issues/std-s1-prelude-growth-tripled-self-emit-memory.md — superseded by
+(issues/retired/std-s1-prelude-growth-tripled-self-emit-memory.md — superseded by
 this doc's finding).
 
 ## The numbers (seed v0.2.16, `yo compile src/main.yo --release

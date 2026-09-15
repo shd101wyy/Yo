@@ -34,7 +34,7 @@ dereferencing it: `&(self.value)` where `self` is `__yo_t9*`. It must be
 
 That is the `Variable.is_ref` channel again — the same family as
 issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md (#258) and
-issues/generic-trait-method-reads-primitive-inout-self-as-pointer.md — but a
+issues/fixed/generic-trait-method-reads-primitive-inout-self-as-pointer.md — but a
 third distinct site: the ADDRESS-OF-A-FIELD path rather than a plain scalar read.
 It is why `derive(Clone)` on a generic struct is fine after its own fix while
 this one still fails: Clone's body reads fields as values, ToString's takes their

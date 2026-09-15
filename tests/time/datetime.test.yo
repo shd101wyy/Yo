@@ -7,6 +7,21 @@ import("std/fmt");
 { env } :: import("std/env");
 { platform, Platform, arch, Arch } :: import("std/process");
 { Duration } :: import("std/time/duration");
+/// 1 January of `y` at midnight UTC. Built as a struct literal rather than
+/// through `new`, because `new` returns a Result and these tests want the
+/// calendar maths, not the validation path.
+_jan1 :: (fn(y : i32) -> DateTime)(
+  DateTime(
+    year : y,
+    month : u8(1),
+    day : u8(1),
+    hour : u8(0),
+    minute : u8(0),
+    second : u8(0),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(0)
+  )
+);
 // ============================================================================
 // DateTime tests
 // ============================================================================
@@ -106,6 +121,81 @@ test("DateTime.day_of_week", {
   dow2 := dt2.day_of_week();
   unsafe(printf("  2024-01-14 day_of_week = %u\n", dow2));
   assert(dow2 == u8(6), "2024-01-14 should be Sunday (6)");
+});
+test("DateTime.day_of_week is exact for year 0 and negative years", {
+  // Expected weekdays are derived INDEPENDENTLY of std, by two routes that
+  // agree: (a) days-from-civil counted from 1970-01-01, which was a Thursday
+  // (ISO 3); (b) by hand from 0001-01-01, which was a Monday, using the
+  // proleptic Gregorian leap rule.
+  //
+  // The issue doc tabulates -0004-01-01 as "Tuesday (ISO 1)". That row is
+  // WRONG and is deliberately NOT pinned here. Years -4..0 span
+  // 366+365+365+365+366 = 1827 days, and 1827 = 261*7 exactly, so the weekday
+  // is unchanged from 0001-01-01's Monday -> ISO 0. The row is also
+  // self-inconsistent before any arithmetic: ISO 8601 numbers Monday as 1, so
+  // "Tuesday (ISO 1)" disagrees with itself.
+  d2026 := _jan1(i32(2026));
+  assert(d2026.day_of_week() == u8(3), "2026-01-01 is a Thursday (3)");
+  d1 := _jan1(i32(1));
+  assert(d1.day_of_week() == u8(0), "0001-01-01 is a Monday (0)");
+  // Year 0 is a leap year (0 % 400 == 0), so 0000-01-01 is 366 days before
+  // 0001-01-01: 366 mod 7 = 2, Monday - 2 = Saturday.
+  d0 := _jan1(i32(0));
+  assert(d0.day_of_week() == u8(5), "0000-01-01 is a Saturday (5)");
+  // Year -1 is not leap, so 365 days before 0000-01-01's Saturday -> Friday.
+  dm1 := _jan1(i32(-1));
+  assert(dm1.day_of_week() == u8(4), "-0001-01-01 is a Friday (4)");
+  dm4 := _jan1(i32(-4));
+  assert(dm4.day_of_week() == u8(0), "-0004-01-01 is a Monday (0)");
+});
+test("DateTime.day_of_week is in range for every year, including negative", {
+  // Catches the u8 wrap independently of any per-date expectation: the old
+  // Sakamoto path returned 254 and 250 here, which are wraps of -2 and -6.
+  // Sweeping across the era boundary exercises the floored-division path that
+  // a truncating divide gets wrong.
+  y := i32(-500);
+  while(runtime(y <= i32(500)), {
+    dt := _jan1(y);
+    dow := dt.day_of_week();
+    assert(dow <= u8(6), "day_of_week must be 0..=6 for every year");
+    y = (y + i32(1));
+  });
+});
+test("DateTime.day_of_week advances one day at a time across boundaries", {
+  // A relative check that needs no weekday table at all: consecutive days must
+  // step the weekday by exactly 1 (mod 7). Walks the year 0 leap day, which is
+  // where a wrong leap rule for a negative-adjacent year would show up.
+  dt := DateTime(
+    year : i32(0),
+    month : u8(2),
+    day : u8(27),
+    hour : u8(12),
+    minute : u8(0),
+    second : u8(0),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(0)
+  );
+  base := dt.to_unix();
+  i := i64(0);
+  while(runtime(i < i64(5)), {
+    a := DateTime.from_unix(base + (i * i64(86400)), i64(0));
+    b := DateTime.from_unix(base + (i * i64(86400)) + i64(86400), i64(0));
+    expected := u8((i64(a.day_of_week()) + i64(1)) % i64(7));
+    assert(b.day_of_week() == expected, "consecutive days step the weekday by 1");
+    i = (i + i64(1));
+  });
+  // And year 0 really does have a 29 February for that walk to cross.
+  feb29 := DateTime(
+    year : i32(0),
+    month : u8(2),
+    day : u8(29),
+    hour : u8(0),
+    minute : u8(0),
+    second : u8(0),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(0)
+  );
+  assert(feb29.is_leap_year(), "year 0 is a leap year under the proleptic Gregorian rule");
 });
 test("DateTime.day_of_year", {
   // 2024-01-15 should be day 15

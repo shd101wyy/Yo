@@ -37,7 +37,7 @@ _is_word_byte :: (fn(b : u8) -> bool)(
 /// `return` inside a GENERATED STRING LITERAL (e.g. a Yo source literal
 /// "...before early return") is NOT a return statement — treating it as one
 /// skipped the arm's result-temp assignment and left the temp uninitialized
-/// (SIGBUS; issues/cond-arm-return-inside-string-literal.md).
+/// (SIGBUS; issues/fixed/cond-arm-return-inside-string-literal.md).
 _inside_c_string_literal :: (fn(s : String, idx : usize) -> bool)({
   (in_str : bool) = false;
   (i : usize) = usize(0);
@@ -259,7 +259,7 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
           vtv := get_variable_name_for_codegen(vvn.clone(), Option(Environment).Some(vei.env));
           // Skip the temp-var declaration when value is an inout-param atom —
           // `T name = (*name);` would shadow the pointer parameter
-          // (cond.ts:427-443, issues/inout-multi-stmt-body-shadow.md).
+          // (cond.ts:427-443, issues/fixed/inout-multi-stmt-body-shadow.md).
           (is_inout_atom : bool) = false;
           if(ast_expr_is_atom(value), {
             iv_vars := get_variables_from_env(vei.env, vvn.clone());
@@ -434,7 +434,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
                 ftv := get_variable_name_for_codegen(fvn.clone(), Option(Environment).Some(fei.env));
                 // Skip the temp-var declaration when final_expr is an inout-param
                 // atom — `T name = (*name);` would shadow the pointer parameter
-                // (cond.ts:318-328, issues/inout-multi-stmt-body-shadow.md).
+                // (cond.ts:318-328, issues/fixed/inout-multi-stmt-body-shadow.md).
                 (is_inout_atom : bool) = false;
                 if(ast_expr_is_atom(final_expr), {
                   fv_vars := get_variables_from_env(fei.env, fvn.clone());

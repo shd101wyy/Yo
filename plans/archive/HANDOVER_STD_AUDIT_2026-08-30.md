@@ -52,17 +52,17 @@ CI bootstrap-fixpoint + stage-3 + all four internal shards pass.
 **THE NEW CRITICAL PATH: develop CI is red from the ASan regression, which is
 now ROOT-CAUSED as C54's specialization split on the EFFECT type** — the same
 "second specialization clobbers the first via the global last-writer registry"
-mechanism as issues/future-wrapper-return-shared-across-specializations.md,
+mechanism as issues/fixed/future-wrapper-return-shared-across-specializations.md,
 clobbering `E` instead of `R`: the await site's future type says effect=Io
 (32-byte temp) while the child SM's set_effect was emitted under IoExn (40-byte
 copy). A codegen-side mitigation was built, tested on CI, and is NOT viable
 (neither side can see the other's type) — recorded in
-issues/asan-stack-overread-set-effect-batch-selftest.md so it is not retried.
+issues/fixed/asan-stack-overread-set-effect-batch-selftest.md so it is not retried.
 Repro assets: the `debug/asan-batch` branch (temporary workflow + the offending
 pre-emitted tests/debug-batch-linux.c; crash at batch index 85) — delete when
 C54 lands. **v0.2.21 remains gated on the E-class ASan red** (the spec-cache dispatch
 investigation — breadcrumb + repro assets in
-issues/asan-stack-overread-set-effect-batch-selftest.md: the body capture's
+issues/fixed/asan-stack-overread-set-effect-batch-selftest.md: the body capture's
 type read Fn(i64)->R during the R=String spec's eval, so
 create_specialized_function_inline's cache key is serving cross-substituted
 signatures; check it FIRST). The R-class fix (#367) does not cover it.
@@ -157,12 +157,12 @@ uncommitted work — everything described above is intentional; commit it all.
 
 | Issue | Summary | Suggested attack |
 |---|---|---|
-| issues/wrong-arity-call-silently-accepted-version-install-broken.md | Wrong-arity calls are swallowed at def-eval and ship as UB; broke `yo version install` in two releases | Validate argument count against the resolved callee OUTSIDE the trial swallow (same enforcement family as C61); `try_to_call_function_with_arguments` already produces the error inside the swallow — find which layer eats it for async-helper shapes |
+| issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md | Wrong-arity calls are swallowed at def-eval and ship as UB; broke `yo version install` in two releases | Validate argument count against the resolved callee OUTSIDE the trial swallow (same enforcement family as C61); `try_to_call_function_with_arguments` already produces the error inside the swallow — find which layer eats it for async-helper shapes |
 | (same issue, "gate gap" section) | A hollow ASYNC STATE MACHINE passes the C22 stub gate (completes/aborts instantly instead of poisoning the build) | Give the C22 attribute treatment an async-SM equivalent: an SM whose body ExprInfos were never stamped must poison its resume fn |
 | issues/builtin-name-shadows-user-definition.md (upgraded) | Builtin-first dispatch silently shadows user locals — now with a production casualty (`short`) | The audit decision is pending: reserve builtin names (option 1) or prefer user bindings (option 2); at minimum land the shadowing diagnostic (option 3) before the next release |
 | issues/module-level-control-bound-binding-not-rejected.md | Module-level `(g : Exception) = ...` accepted though escape boundary 2 should reject it; the rule only fires in comptime_expect_error propagate mode | Trace `rhs_info_opt` for annotated module bindings; add check-visible repros |
 | issues/command-stdin-windows-pipe-write-blocks-the-event-loop.md | Windows pipe WRITES still block the loop (reads fixed in #353) | Overlapped NAMED pipes for child stdin |
-| issues/future-wrapper-return-shared-across-specializations.md (C54, body half) | Second specialization's `R` clobbers the first's async body via the global last-writer registry | Stamp the call result concretely inside the spec body (resolve `R` through the spec env at stamping time) or stop keying the fallback by the shared forall id; repro: issues/repros/future-wrapper-return-two-r-specializations.yo; unblocks async `Mutex.with_lock` |
+| issues/fixed/future-wrapper-return-shared-across-specializations.md (C54, body half) | Second specialization's `R` clobbers the first's async body via the global last-writer registry | Stamp the call result concretely inside the spec body (resolve `R` through the spec env at stamping time) or stop keying the fallback by the shared forall id; repro: issues/repros/future-wrapper-return-two-r-specializations.yo; unblocks async `Mutex.with_lock` |
 | issues/generic-type-var-rebinds-per-argument.md (C29) | The last open §2 row; per-call unification state needed | Read the issue — two failed approaches are recorded so they are not retried |
 
 ---
@@ -199,7 +199,7 @@ onto develop or drop the superseded changes.
 > **The standing blocker for v0.2.21 is that smoke hang** — root-caused to
 > the same registry-divergence family but at DIFFERENT read-sites; the full
 > investigation state (verified against a `--debug-async-await` build of
-> #369) is in issues/build-smoke-hangs-registry-perturbation.md: the
+> #369) is in issues/fixed/build-smoke-hangs-registry-perturbation.md: the
 > synchronous `yield()` defect (fixed in the /private/tmp/yo-369 worktree —
 > park on a 1 ms timer — cures the spin, NOT the hang), the mistyped
 > `await_future_9 : __yo_io_future_t*` rendition in std/process output()

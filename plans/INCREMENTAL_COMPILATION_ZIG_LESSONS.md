@@ -554,7 +554,7 @@ Gates:
 > because the v0.2.32 seed's codegen predates #661/#672; the tree's own
 > compiler handles the shape, so `src/` avoids it until the seed carries the
 > fix (the two-generation seed rule, met in practice). Also
-> `issues/enum-pattern-bool-payload-not-compared.md` (from steps 1+2; fixed).
+> `issues/fixed/enum-pattern-bool-payload-not-compared.md` (from steps 1+2; fixed).
 
 `check --watch` invalidates the reverse IMPORT closure of a changed FILE.
 That is the right shape at the wrong granularity: a one-line body edit in

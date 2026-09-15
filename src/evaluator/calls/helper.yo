@@ -139,6 +139,7 @@ _(env : helper_dbg_env) :: import("std/env");
   are_types_compatible,
   are_types_compatible_exact
 } :: import("../../types/compatibility.yo");
+{ register_specialized_base } :: import("../builtins/contracts.yo");
 {
   evaluate_function_parameter_type_again,
   evaluate_function_return_type_again,
@@ -1924,7 +1925,7 @@ _reeval_closure_body_swallow :: (
 /// in the spec cache (`are_types_compatible_exact` matches SomeT-vs-SomeT by
 /// shape), so a caller holding a concrete capture struct called the void*
 /// spec — `(void*)(<struct value>)`, the stage-2 dyn-capture clang cluster
-/// (issues/yo-self-stage2-get-type-string-cycle.md).
+/// (issues/fixed/yo-self-stage2-get-type-string-cycle.md).
 _spec_resolve_arg_ty :: (fn(t_in : TypeValue) -> TypeValue)({
   (cur : TypeValue) = t_in;
   (seen : ArrayList(String)) = ArrayList(String).new();
@@ -3009,7 +3010,7 @@ create_specialized_function_inline :: (
                   // type, and the key names the def-era ORIGINAL — which the
                   // emission loop deliberately skips, so the C calls a symbol
                   // nothing declares
-                  // (issues/generic-channel-send-specialisation-is-called-but-never-emitted.md).
+                  // (issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md).
                   //
                   // Register the argument closure's own concrete result
                   // against it. TYPE ONLY — binding the FuncVal itself was
@@ -3142,7 +3143,7 @@ create_specialized_function_inline :: (
           // be a freshly-MINTED shell instance of the generic (e.g. a SECOND
           // `ArrayList(String)` struct id distinct from the call-site's), whose
           // nested specializations (`Self.with_capacity` → `(*(T))(_ptr)`) fail —
-          // see issues/yo-self-p1-transpile-tail.md. The call argument carries the
+          // see issues/fixed/yo-self-p1-transpile-tail.md. The call argument carries the
           // real, complete receiver struct, so resolve `Self` to it.
           if(params.len() > usize(0), {
             is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
@@ -3401,6 +3402,7 @@ create_specialized_function_inline :: (
           // specialization), so the walker's param rebinding applies
           // unchanged.
           copy_func_contract_exprs(func_id.clone(), specialized_func_id.clone());
+          register_specialized_base(specialized_func_id.clone(), func_id.clone());
           // Register the SPECIALIZED Func TYPE under the specialized func_id so
           // codegen's get_func_type(specialized_func_id) returns concrete
           // param/return types (generic dropped) instead of the generic

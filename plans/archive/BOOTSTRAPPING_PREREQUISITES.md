@@ -74,7 +74,7 @@ Deferred follow-ups (separate items, not blocking bootstrapping):
 
 - `Command.env(k, v)` / `current_dir(dir)` — not yet implemented.
 - `Command.spawn` returning a `Child` handle — not yet implemented.
-- `JoinHandle.await` leaks RC-typed result values — see `issues/joinhandle-await-arraylist-result-leak.md`. Worked around in `output()` by draining sequentially via `io.await`.
+- `JoinHandle.await` leaks RC-typed result values — see `issues/fixed/joinhandle-await-arraylist-result-leak.md`. Worked around in `output()` by draining sequentially via `io.await`.
 
 ### 1.2 ✅ Iterator Combinators on the Iterator Trait (Done — partial)
 
@@ -87,8 +87,8 @@ Verified by `tests/iterator_combinators.test.yo` (11 passing tests covering sing
 
 **Known limitations** filed as issues for follow-up:
 
-- `issues/fn-trait-param-multi-arg-call.md` — **Resolved.** All three forms now work: named-fn `fold(0, add)`, inline `(fn(...) -> ...)`, and the `=>` lambda form `fold(0, (acc, x) => (acc + x))`. Fixed by `substituteSomeTypesFromEnv` in `src/evaluator/values/anonymous-function.ts`, which substitutes forall SomeTypes from the callee env into the Fn trait callType before binding lambda parameter types.
-- ~~`issues/iter-zip-blanket-impl-not-resolved.md`~~ — **Fixed**. Root cause: where-constraint expression map keyed by `traitType.id` collided across specialized variants of the same trait. Now keyed by `(someType, kind, index)`.
+- `issues/fixed/fn-trait-param-multi-arg-call.md` — **Resolved.** All three forms now work: named-fn `fold(0, add)`, inline `(fn(...) -> ...)`, and the `=>` lambda form `fold(0, (acc, x) => (acc + x))`. Fixed by `substituteSomeTypesFromEnv` in `src/evaluator/values/anonymous-function.ts`, which substitutes forall SomeTypes from the callee env into the Fn trait callType before binding lambda parameter types.
+- ~~`issues/fixed/iter-zip-blanket-impl-not-resolved.md`~~ — **Fixed**. Root cause: where-constraint expression map keyed by `traitType.id` collided across specialized variants of the same trait. Now keyed by `(someType, kind, index)`.
 - Closure capture leak in `for_each(x => list.push(x))` — **Fixed.** Root cause: `attachTempVariableToExpr` (in `src/expr.ts`) used `expr.$.type` (the closure's `Impl(Fn(...))` trait type, which contains no RC fields) for the RC ownership check. The closure temp was therefore marked `isOwningTheRcValue: false` and never dropped at scope end, leaking every captured RC variable. Fixed by detecting `expr.$.captureType` (the underlying capture struct) and using it for both the RC check and the temp variable's type so drop codegen dispatches to the capture struct's `___drop`. Regression coverage: `tests/closure_capture_rc_leak.test.yo` (7 tests).
 
 **Pre-fixes shipped while testing**:
@@ -163,7 +163,7 @@ s := hash_set(i32(1), i32(2), i32(3));               // HashSet(i32)
 
 #### Bug discovered + fixed during implementation
 
-`recur` in a comptime helper short-circuits to `UnknownValue` when called inside a macro body (because the caller's `isValidatingFunctionDefinition` flag was still set). Fixed in `src/evaluator/calls/function.ts` — the two macro-expansion call sites now clear validation flags. See `issues/recur-short-circuit-inside-macro-body.md` for details.
+`recur` in a comptime helper short-circuits to `UnknownValue` when called inside a macro body (because the caller's `isValidatingFunctionDefinition` flag was still set). Fixed in `src/evaluator/calls/function.ts` — the two macro-expansion call sites now clear validation flags. See `issues/fixed/recur-short-circuit-inside-macro-body.md` for details.
 
 Tests: `tests/collection_literals.test.yo` (11 tests, all passing).
 
@@ -193,7 +193,7 @@ derive(Clone) verified for:
 - ✅ Enums with data variants — existing
 - ✅ Enums with `String` variant fields — `derive Clone on enum with String field variant`
 - ✅ Structs with `ArrayList(T)` / `HashMap(K, V)` / `Box(T)` fields — verified in `tests/derive_clone_complex.test.yo`
-- ✅ Recursive types: `TreeNode` containing `Box(Self)` — `tests/derive_clone_complex.test.yo` "derive Clone for recursive enum with Box(Self)" (codegen ordering bug fixed via late-dispatch resolution in `src/codegen/exprs/property-access.ts`; see `issues/recursive-derive-clone-codegen-vtable.md`)
+- ✅ Recursive types: `TreeNode` containing `Box(Self)` — `tests/derive_clone_complex.test.yo` "derive Clone for recursive enum with Box(Self)" (codegen ordering bug fixed via late-dispatch resolution in `src/codegen/exprs/property-access.ts`; see `issues/fixed/recursive-derive-clone-codegen-vtable.md`)
 
 **Side fix**: Added missing `Eq` impls for `Option(T)` (where `T <: Eq(T)`) and `Result(T, E)` (where `T <: Eq(T), E <: Eq(E)`) in `std/prelude.yo` so that derive(Eq) works on structs containing Option/Result fields.
 
@@ -222,7 +222,7 @@ Expr :: enum(
 - ✅ `ArrayList(Self)` variant drops correctly (per-element drop iterates)
 - ✅ Nested Box(Self) trees drop correctly (fixed in `evaluator/types/utils.ts` via post-pass `regenerateRcFunctionsForRecursiveStructs`)
 - ✅ Deeply nested Box(Self) spines (50+ levels) drop without leaks
-- ✅ `derive(Clone)` on recursive types — fixed via late-dispatch resolution in codegen (`src/codegen/exprs/property-access.ts`); see `issues/recursive-derive-clone-codegen-vtable.md`
+- ✅ `derive(Clone)` on recursive types — fixed via late-dispatch resolution in codegen (`src/codegen/exprs/property-access.ts`); see `issues/fixed/recursive-derive-clone-codegen-vtable.md`
 
 Tests: `tests/recursive_enum.test.yo` (4 passing).
 

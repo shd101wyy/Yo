@@ -107,7 +107,7 @@ argument-rendering** defect cluster:
    ref-struct capture (the pre-sync V2 driver) hits a UAF in
    `__yo_incr_rc` inside the generated `<sm>_resume` — the capture is
    dropped at suspension and re-incremented on resume
-   (`issues/async-closure-value-struct-param-emits-invalid-c-cast.md`,
+   (`issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md`,
    ASan backtrace captured).
 
 The V2 verifier sidestepped the whole cluster by going synchronous (the

@@ -146,7 +146,7 @@ operator/comptime-routing gate (`a4977828`) and the R3 method-callee side-table
 (`308c854d`, fixes ref-returning \_method* calls in `-> ref`returns). **Still
 failing:`ref*local_binding`, `ref_closure_capture`\*\* (need the ref-capture-
 >   escape check, blocked by yo-self deferring \_closure* body eval → no precise
->   free-var set; `issues/yo-self-flowability-swallow.md`) **and `slice_flowability`**
+>   free-var set; `issues/fixed/yo-self-flowability-swallow.md`) **and `slice_flowability`**
 >   (a long tail of distinct positive-case gaps — first is `comptime_str`, blocked
 >   by recorded-`ExprInfo.env` aliasing + begin `pop_frame`;
 >   `issues/fixed/yo-self-recorded-env-aliasing.md`).

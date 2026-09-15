@@ -223,5 +223,5 @@ Also needed beyond the runtime file, per step 10:
   driving the stage-1 binary instead of `node out/cjs/yo-cli.cjs`.
 - Option 2: the two required contexts are removed from ruleset 13548862 in the
   same change that deletes the legs (see
-  `issues/test-matrix-stage1-silent-failure.md` for why the ordering matters),
+  `issues/fixed/test-matrix-stage1-silent-failure.md` for why the ordering matters),
   and `docs/{en-US,zh-CN}` no longer advertise wasm targets.

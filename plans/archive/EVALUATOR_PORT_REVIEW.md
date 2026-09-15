@@ -470,7 +470,7 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
     the `.method` node's ExprInfo is destructive — regressed std 151→15).
   - **REMAINING in-body flowability (the other 2+ tests):** **ref_local_binding /
     ref_closure_capture** need the ref-capture-escape check (anonymous-function.ts: 1082) which relies on the PRECISE free-var capture set — blocked by yo-self
-    deferring _closure_ body eval (`issues/yo-self-flowability-swallow.md`).
+    deferring _closure_ body eval (`issues/fixed/yo-self-flowability-swallow.md`).
     **slice_flowability** is a long tail of distinct positive-case gaps: the slice
     return-check itself ports + is std-clean, but each positive hits its own gap —
     the first, `comptime_str`, is blocked by a confirmed general bug: recorded
@@ -502,7 +502,7 @@ unsafe(zid(u8(7)))` threw "Expected T, Got u8" where TS passes. The
     (assignment.ts:667 port in exprs/assignment.yo), and `ref(name) := ...`
     locals stamp `Variable.is_ref` (ts:510 port in initialization_assignment.yo).
     **Final: tests 170/170, zero failures.**
-    `issues/yo-self-flowability-swallow.md` → `issues/fixed/`.
+    `issues/fixed/yo-self-flowability-swallow.md` → `issues/fixed/`.
 - ⬜ `types/fn-trait.ts` → `types/fn_trait.yo`
 - 🔧 `types/function.ts` → `types/function.yo` — where-constraint side table
   added (7a67b961, the TS `whereClauseExprs` stand-in: WhereConstraintEntry

@@ -740,7 +740,7 @@ the recommended FIRST fix — it needs no type-identity or RC reasoning.
 ExprInfo (generation.yo:405). That comment eats the rest of the C line — parens AND braces —
 so it is UPSTREAM of the brace-imbalance (#0), implicit-int, K&R-param, and expected-\*
 syntax cascades. Fixing the 66 markers likely collapses ~350-500 errors together.
-**Minimal TS-divergent reproducer** (`issues/yo-self-failed-transpile-if-in-match-arm.md`):
+**Minimal TS-divergent reproducer** (`issues/fixed/yo-self-failed-transpile-if-in-match-arm.md`):
 a method call inside an `if` that is a match-arm body — `match(o,.Some(cv)=>if(cv.len()>0,..),.None=>..)`
 — loses ExprInfo on `cv.len()`. `if` is a macro; its expansion is cloned-fresh + evaluated at
 `evaluator/calls/function.yo:3000` (works at top level), but the match-arm path gives codegen a

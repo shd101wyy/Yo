@@ -1,0 +1,27 @@
+// The deliberately-wrong twin of mutual_recursion.yo: the clique edge
+// passes n UNCHANGED, so the decrease obligation (callee measure at the
+// actuals n < caller's current n) must REFUTE — under the UNSIGNED
+// comparison, n <u n is false for every n, with no signed-high-bit
+// escape. Unsigned measure per
+// issues/fixed/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md.
+pragma(Pragma.Verify);
+
+is_even_bad :: (
+  fn(
+    n : u64,
+    ensures((r == true) || (r == false)),
+    decreases(n)
+  ) -> (r : bool)
+)(
+  if(n == u64(0), true, is_odd_bad(n - u64(1)))
+);
+
+is_odd_bad :: (
+  fn(
+    n : u64,
+    ensures((r == true) || (r == false)),
+    decreases(n)
+  ) -> (r : bool)
+)(
+  if(n == u64(0), false, is_even_bad(n))
+);

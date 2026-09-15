@@ -34,13 +34,13 @@ T :: HashMap(String, String);                // PASS (exit 0)
 ```
 
 So `HashMap(String,String)` **instantiates fine** under `yo-self-bin check`.
-The `type_arguments` / self-dispatch work (`issues/self-dispatch-loses-type-args.md`)
+The `type_arguments` / self-dispatch work (`issues/fixed/self-dispatch-loses-type-args.md`)
 stands on its own; it was never the cause of this symptom.
 
 **The real `std/encoding/html.yo` blocker is now a DIFFERENT error:**
 `Expected compile-time value for "bucket_size"` — `bucket_size :: sizeof(Bucket(K, V))`
 in `std/collections/hash_map.yo:59` evaluates to a _runtime_ value instead of a
-comptime one. Tracked separately in `issues/sizeof-not-comptime-in-generic-method.md`.
+comptime one. Tracked separately in `issues/fixed/sizeof-not-comptime-in-generic-method.md`.
 
 **Lesson / latent footgun:** the not-found soft fallback in the identifier
 evaluator silently degrades a missing binding into `UnknownVal`. TS throws
@@ -59,7 +59,7 @@ _Original (pre-resolution) investigation notes preserved below for the record._
 Open — **root cause precisely localized** to a 4-line repro. This is the
 `std/encoding/html.yo` blocker (`HashMap(String,String)`), the head of the
 generic-method-resolution cascade. The earlier `type_arguments` /
-`self-dispatch` work (`issues/self-dispatch-loses-type-args.md`) was a related
+`self-dispatch` work (`issues/fixed/self-dispatch-loses-type-args.md`) was a related
 but distinct layer; THIS is why `HashMap(String,String)` fails to even
 instantiate as a type.
 

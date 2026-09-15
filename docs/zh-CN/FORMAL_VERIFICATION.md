@@ -106,6 +106,22 @@ caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
 违反泛型 `requires` 的调用方（给 `requires(flag)` 的被调方传
 `flag = false`）会在调用点被以反例驳倒。
 
+### 互递归
+
+当互递归函数组的每个成员都带 `decreases(M)`，且组内每一次调用都证明
+被调方的测度在实参上严格小于调用方当前测度时，递归终止 —— 共享一个
+良基域，无需字典序元组。函数组由验证器从任务集的调用图自动推导，因此
+没有递减的边（原样传递 `n`）会被驳倒：
+
+```rust
+is_even :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
+  if(n == i32(0), true, is_odd(n - i32(1)))
+);
+is_odd :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
+  if(n == i32(0), false, is_even(n - i32(1)))
+);
+```
+
 ## 模式
 
 | 模式 | 选择方式 | 行为 |
@@ -165,6 +181,7 @@ refuted  fn@/abs/path.yo:8 [verify]
 | Ghost 代码（`ghost`/`ghost_fn` 擦除） | ✅ 已支持（V5 任务 3） |
 | Trait 方法契约 —— 无契约 impl 方法的**继承** + **可变性**义务（`trait.requires ⇒ impl.requires` 逆变、`impl.ensures ⇒ trait.ensures` 协变，合成为 `impl-variance@…` 任务） | ✅ 已支持（V6 任务 1） |
 | 带契约的**泛型**函数在调用点 —— 每个单态化调用点结算 `requires` 并假设 `ensures`（泛型函数体本身仍不遍历） | ✅ 已支持（V6 任务 2） |
+| 互递归 —— 函数组每个成员都带 `decreases(M)`；组内调用证明被调方测度在实参上递减（函数组由调用图推导） | ✅ 已支持（V6 任务 4） |
 | 泛型函数体的抽象验证（未解释类型排序、trait 约束公理）、`Refine` | V6 |
 | `object`/堆、字符串内容、浮点、效应、`unsafe`、FFI | 子集之外 |
 

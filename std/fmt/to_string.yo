@@ -26,7 +26,7 @@
 //! C library's `%g` output, so a non-finite value renders `nan` on
 //! glibc/Apple libc and `-nan(ind)` on the MS CRT — a program that logs, JSON-
 //! encodes or fixture-compares a NaN produces different bytes per platform
-//! (`issues/float-to-string-is-platform-dependent-for-non-finite-values.md`,
+//! (`issues/fixed/float-to-string-is-platform-dependent-for-non-finite-values.md`,
 //! OPEN). Rust renders `NaN` / `inf` / `-inf` everywhere because it does not
 //! delegate to libc. Fixing that CHANGES output, so it has to happen before
 //! the module freezes, not after.
@@ -37,6 +37,10 @@ pragma(Pragma.AllowUnsafe);
 { snprintf } :: import("../libc/stdio");
 { ArrayList } :: import("../collections/array_list");
 utf8 :: import("../encoding/utf8");
+// `isnan`/`isinf` come straight from libc rather than via `std/math`: that
+// module registers METHODS on f64/f32 and importing it here would be a cycle
+// for a two-predicate need.
+{ isnan : _c_isnan, isinf : _c_isinf } :: import("../libc/math.yo");
 /// Trait for converting values to their `String` representation.
 /// Types implementing this trait can be used with `println`, `print`, and template strings.
 ToString :: trait(
@@ -173,6 +177,38 @@ impl(
   )
 );
 // === Floating Point Implementations ===
+/// The platform-independent spelling of a non-finite double, or `.None` when
+/// `v` is finite and `%g` should render it.
+///
+/// `%g` hands back whatever the host C library spells: `nan` or `-nan` on
+/// glibc / Apple libc / musl, and `-nan(ind)` or `nan(snan)` on the MS CRT. So
+/// the same program logged a different token on Windows, JSON-encoded a
+/// different token, and compared differently against a fixture — silently, and
+/// with no way for a caller to normalise without knowing every spelling
+/// (issues/fixed/float-to-string-is-platform-dependent-for-non-finite-values.md).
+///
+/// It had already produced one compiler bug: codegen's non-finite match tested
+/// the raw string against `"nan"` / `"-nan"` and emitted `-nan(ind).0` — not
+/// valid C — on Windows.
+///
+/// The spellings are Rust's `Display for f64`: `NaN`, `inf`, `-inf`. Rust
+/// implements this itself rather than delegating to the C library, for exactly
+/// this reason. Note `inf` / `-inf` already matched on POSIX; `NaN` is the one
+/// that changes there, and Windows is normalised on all three.
+_non_finite_str :: (fn(v : f64) -> Option(str))(
+  cond(
+    // NaN first: it is the only value that is neither finite nor comparable,
+    // and `isinf` is false for it.
+    (unsafe(_c_isnan(v)) != int(0)) => Option(str).Some("NaN"),
+    (unsafe(_c_isinf(v)) != int(0)) => cond(
+      // A negative infinity compares below every finite double, so a plain
+      // sign test is enough and needs no `signbit`.
+      (v < f64(0.0)) => Option(str).Some("-inf"),
+      true => Option(str).Some("inf")
+    ),
+    true => Option(str).None
+  )
+);
 // Buffer size for float to string conversion
 // Scientific notation can be long, use generous buffer
 _FLOAT_BUFFER_SIZE :: usize(64);
@@ -181,7 +217,11 @@ impl(
   // %g: general format, trailing zeros removed (widened to f64 for varargs)
   ToString(
     to_string : (fn(inout(self) : Self) -> String)(
-      _snprintf_to_string("%g", f64, f64(self))
+      match(
+        _non_finite_str(f64(self)),
+        .Some(t) => String.from(t),
+        .None => _snprintf_to_string("%g", f64, f64(self))
+      )
     )
   )
 );
@@ -190,7 +230,11 @@ impl(
   // %g: general format, trailing zeros removed
   ToString(
     to_string : (fn(inout(self) : Self) -> String)(
-      _snprintf_to_string("%g", f64, self)
+      match(
+        _non_finite_str(self),
+        .Some(t) => String.from(t),
+        .None => _snprintf_to_string("%g", f64, self)
+      )
     )
   )
 );

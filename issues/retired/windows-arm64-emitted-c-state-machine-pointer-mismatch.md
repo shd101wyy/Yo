@@ -69,7 +69,7 @@ across. Numerically the pairs are adjacent (8543/8574, 1354819/1355141,
 7930/7950), which suggests two modules emitted close together in the same run
 rather than an arbitrary collision.
 
-Compare `issues/module-global-c-names-are-not-namespaced.md` (same family:
+Compare `issues/fixed/module-global-c-names-are-not-namespaced.md` (same family:
 identity derived from a name that is not unique enough) and
 `memory: yo-self-enum-codegen-identity-dedup`.
 

@@ -36,7 +36,7 @@ The intended resume semantics is that `return(resume_val)` returns
 ## Why this only surfaces now
 
 Before
-`issues/codegen-exn-throw-ref-self-while-hang.md` was fixed, every
+`issues/fixed/codegen-exn-throw-ref-self-while-hang.md` was fixed, every
 caller of an effect-record-bearing function simply propagated
 `__yo_effect_escaped` upward without clearing it. The install fn's
 outer caller (typically `__yo_user_main` or a test body) early-returned

@@ -1,6 +1,13 @@
 # `yo doc` renders `std/prelude` as an empty module — 0 types, 0 traits, 0 functions
 
-**Status:** OPEN. Found 2026-09-11 while implementing trait-doc inheritance
+**Status: OPEN, but NARROWED — the emptiness is fixed and the remaining
+defect is different and sharper.** The prelude is no longer empty; 49 of its
+declarations now render. What is still missing is every PARAMETERISED
+declaration — 62 of them, including `Option`, `Result`, `Box`, `Range`, `Eq`,
+`Ord`, `Index`, `Arc` and the whole operator-trait family. Re-measured
+2026-09-15; see "Re-measured" at the end before working from the text above.
+
+**Was: OPEN.** Found 2026-09-11 while implementing trait-doc inheritance
 (`issues/fixed/yo-doc-trait-impl-methods-never-inherit-the-trait-doc.md`). It is
 what stops that fix from reaching most of the library.
 
@@ -74,3 +81,56 @@ that the prelude also defines, and see whether the items appear.
 `yo doc ./std` shows `Iterator`, `Eq`, `Dispose` and friends with their
 declared methods, and the inherited-doc count rises from 110 toward the ~454
 the coverage measurement predicts — without a single new `///` in `std/`.
+
+---
+
+## Re-measured 2026-09-15 — half fixed, and the other half has a precise cause
+
+`yo doc ./std/prelude.yo --format json` against a tree-built compiler now
+reports **50 types, 31 traits** where this doc recorded `types 0 traits 0
+functions 0`. The emptiness itself was fixed by
+`issues/fixed/yo-doc-renders-the-prelude-empty.md` (same date, different
+filename — the namespace is now built from the cached env and handed back from
+both prelude branches of `mm_load_file`).
+
+**So this doc is NOT simply a duplicate of that one**, which is what it looks
+like at a glance and what a title-similarity scan flags it as. Of the sixteen
+names this doc lists by hand as missing, **nine now appear and seven still do
+not**: `Eq`, `Ord`, `Index`, `Option`, `Result`, `Box`, `Range`.
+
+### The rule, measured over the whole file rather than the seven examples
+
+| declaration form | in prelude | documented |
+| --- | ---: | ---: |
+| `X :: trait(…)` / `struct(…)` / `enum(…)` — direct | 49 | **49 (100%)** |
+| `X :: (fn(comptime(T) : Type) -> comptime(Type\|Trait))(…)` — parameterised | 64 | **2 (3%)** |
+
+The extractor recognises a name bound *directly* to a `trait` / `struct` /
+`enum` and misses one bound to a **comptime function that returns a `Type` or
+`Trait`** — which is how every generic type and every parameterised trait in
+the prelude is declared. That is why `Dispose`, `Clone` and `Iterator` render
+(all plain `:: trait(`) while `Option`, `Result`, `Box`, `Range`, `Index`,
+`Eq`, `Ord`, `Arc` and the entire operator-trait family (`Add`, `BitAnd`,
+`BitOr`, `BitXor`, `BitLeftShift`, `BitRightShift`, …) do not.
+
+The two parameterised declarations that DO render are `MapFieldsFn` and
+`MapVariantsFn`; worth a look when fixing, since whatever makes those two
+visible is probably the shape the other 62 need.
+
+### Why this matters more than the original framing
+
+"The prelude renders empty" reads as a module-level plumbing bug, and it was
+one. What is left is a **declaration-form** bug with a much wider blast radius
+than the prelude: any module declaring a generic type the same way loses it
+from the docs. The prelude is simply where 64 of them sit together.
+
+It also still blocks what this doc was filed for — trait-doc inheritance cannot
+reach `Eq`/`Ord`/`Index` while the extractor cannot see them.
+
+### Method note
+
+This was nearly retired as a duplicate on the strength of the title match plus
+the headline number going from 0 to 50. Checking the SPECIFIC names the doc
+named — rather than the count it led with — is what separated "fixed" from
+"half fixed", and the whole-file measurement is what turned the remaining half
+into a one-line root cause instead of a list of seven missing names.

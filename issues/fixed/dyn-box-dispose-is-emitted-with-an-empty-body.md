@@ -260,7 +260,7 @@ All five were verified RED on the pre-fix stage-1 and GREEN on the post-fix one:
   heap memory releases it". Each observes the release through a `Dispose`
   counter on a module-level `(g_dyn_payload_disposed : i32)` binding, asserted
   at runtime (a `comptime_assert` inside a `test(...)` body verifies nothing —
-  `issues/comptime-assert-never-fires-inside-a-function-body.md`).
+  `issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`).
 - `tests/dyn.test.yo` — "downcasting a value payload out of a Dyn dups it",
   which asserts `rc(p.r) == 2` (the downcast copy AND the Dyn's box each hold a
   reference). It reported 1 on the build that had the leak fixed but not the

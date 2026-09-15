@@ -132,12 +132,12 @@ is what `source` and the operator families were waiting on.
   `plans/WAKER_BASED_SCHEDULING.md` step 4.
 - D18b (`Thread(T).join() -> T`) is still open. Its three blockers are now
   separately diagnosed and none of them is the spawn lowering that
-  `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
+  `issues/fixed/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
   used to blame. The first — a static-dispatch call reading the CALL
   EXPRESSION's type instead of the callee's prototype, so a `void`-returning
   closure call was bound to a `void*` temp — is fixed in #598, which lands
   after this release. The other two are
-  `issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`
+  `issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md`
   — one specialisation mangled two ways, so it is emitted under one name and
   called under another — and `_capture_judgement_type` resolving a captured
   closure to its capture STRUCT and then rejecting it as not `Send`.

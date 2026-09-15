@@ -7,7 +7,7 @@ the rest of the line, so the error cascade pointed nowhere near the cause.
 
 **Found**: 2026-09-04, measuring the `net` row of the std API audit. This is
 what blocks the correct, prelude-wide fix for
-`issues/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`.
+`issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`.
 
 ## Symptom
 

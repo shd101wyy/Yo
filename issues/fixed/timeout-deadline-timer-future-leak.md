@@ -2,7 +2,7 @@
 
 **Found**: 2026-09-04, by the std-API audit re-measurement of the `std/async`
 row. `std/async/index.yo:124-127` already documents this residual and cites
-`issues/timeout-deadline-timer-future-leak.md` — this file, which did not
+`issues/fixed/timeout-deadline-timer-future-leak.md` — this file, which did not
 exist (`find . -name 'timeout-deadline-timer-future-leak.md'` returned
 nothing, and the only occurrence of the string in the tree was the citation
 itself). **Class**: unbounded-until-deadline memory retention on a shipped std

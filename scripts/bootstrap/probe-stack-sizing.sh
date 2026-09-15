@@ -14,7 +14,7 @@
 #
 # A build that ignored the request would therefore pass ordinary workloads and
 # SIGSEGV (rc=139, no message) only on deep recursion — the Windows failure in
-# issues/windows-no-main-worker-stack-rc139.md, where YO_MAIN_STACK_MB was
+# issues/fixed/windows-no-main-worker-stack-rc139.md, where YO_MAIN_STACK_MB was
 # silently a no-op. This matters most for the static musl bundle, whose libc
 # defaults to a ~128 KB thread stack against glibc's 8 MB.
 #

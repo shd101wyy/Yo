@@ -163,7 +163,7 @@ park :: (fn(register : Impl(Fn(w : Waker) -> unit), io : Io) -> Impl(Future(unit
 /// would not do: the await point takes an inline fast path for one of those
 /// and the task never leaves the C stack, which is the spin that once made a
 /// poll-until-finished loop starve I/O
-/// (issues/build-smoke-hangs-registry-perturbation.md).
+/// (issues/fixed/build-smoke-hangs-registry-perturbation.md).
 yield_now :: (fn(io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {
     _r := io.await(unsafe(__yo_async_yield_start()), io);

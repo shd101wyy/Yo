@@ -48,7 +48,7 @@ put_all_generic :: (
 // def-time trial, so `e.io.await` cannot resolve there — that body used to
 // be silently swallowed and the future compiled to a runs-nothing stub
 // (caught by the async poison gate; see
-// issues/io-async-bare-e-closure-body-never-evaluates.md).
+// issues/fixed/io-async-bare-e-closure-body-never-evaluates.md).
 inner_unit :: (fn(io : Io) -> Impl(Future(unit)))(
   io.async((io2 : Io) => ())
 );
@@ -83,7 +83,7 @@ test("concrete unit tail await control still works", {
   io.await(outer_unit(io), t_e);
   assert(true, "completed");
 });
-// The bare-(e) form (issues/io-async-bare-e-closure-body-never-evaluates.md):
+// The bare-(e) form (issues/fixed/io-async-bare-e-closure-body-never-evaluates.md):
 // an UNANNOTATED closure param with a bundle-style `e.io.await(...)` body.
 // The `.io` projection on a bare `Io` receiver is identity, so the body
 // evaluates at def time and the future actually RUNS it — before the root

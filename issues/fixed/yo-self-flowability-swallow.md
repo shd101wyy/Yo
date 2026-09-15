@@ -183,7 +183,7 @@ until the 2c positive-case gaps are closed (else it false-rejects valid
   bindings from every recorded env. Fix: `new_expr_info` records `snapshot_env`
   (shallow frames-list clone, shares `Frame` refs) + begin uses
   `Environment.pop_frame_nonmutating()`. Validated std 151 / yo-self 228 /
-  tests 172. Closed `comptime_str`. See `issues/yo-self-recorded-env-aliasing.md`.
+  tests 172. Closed `comptime_str`. See `issues/fixed/yo-self-recorded-env-aliasing.md`.
 - **In-body slice/ref flow checks LANDED (commit 6a681f82, faithful, MATCH TS).**
   (1) slice/raw-ptr RETURN check (function_type.yo, else-branch of the ref check);
   (2) explicit-`return(arg)` check (begin.yo — the function-body `is_flowable_expr`
@@ -216,7 +216,7 @@ until the 2c positive-case gaps are closed (else it false-rejects valid
 
 **Landed & validated (std 151 · yo-self 228 · tests 172):**
 - `f6fa7132` — recorded-`ExprInfo.env` aliasing fix (snapshot env in `new_expr_info`
-  + non-mutating begin `pop_frame`). See `issues/yo-self-recorded-env-aliasing.md`.
+  + non-mutating begin `pop_frame`). See `issues/fixed/yo-self-recorded-env-aliasing.md`.
   This resolved the `comptime_str` env-snapshot false-positive (2c).
 
 **Attempted, then REVERTED (`6a681f82` → revert `4f81a993`):** the three in-body

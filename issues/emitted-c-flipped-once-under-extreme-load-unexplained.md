@@ -40,6 +40,21 @@ downstream renumbers).
 - **Module-load async ordering** — the loader reads files synchronously
   (`_read_file_sync`, "synchronous on purpose").
 
+## A candidate carried over from a retired doc (2026-09-14)
+
+`issues/retired/emitted-c-include-order-differs-ts-vs-self.md` was retired
+because its TS-vs-self framing died with the TypeScript compiler, but it
+observed something still true: `c_includes` is a `HashSet(String)` and
+`emit_c_includes` emits by iterating it, so the `#include` block's order comes
+from hash iteration rather than insertion.
+
+That is NOT this bug — the churn observed here is `__yo_tN` renumbering, not
+include order — but it is the right SHAPE of suspect, and it establishes that
+at least one emitted artefact's order is decided by a hash container. Any other
+such container in the emission path is worth auditing for the same reason.
+Determinism currently rests on the hashing being fixed-key rather than on an
+ordering guarantee.
+
 ## Leading suspicion
 
 A resource-pressure-sensitive branch somewhere in evaluation/collection that

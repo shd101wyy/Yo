@@ -12,4 +12,4 @@ arms verbatim.
 
 Verified: `tests/sys/copy.test.yo` 2/2 under `--c-compiler emcc` (with the
 io-future Concrete fix landing alongside —
-`issues/yo-self-io-future-return-type-mismatch.md`).
+`issues/fixed/yo-self-io-future-return-type-mismatch.md`).

@@ -1,6 +1,9 @@
 # `std/imm` exports nine internal node types nothing can use — dead surface about to be frozen stable
 
-**Status: OPEN.** Severity: **api-lie / dead public surface**. Found 2026-09-04
+**Status: OPEN — but the prescribed fix is WRONG in one item.** Re-verified
+2026-09-15; the dead-surface finding holds, the removal list does not. See
+"Correction" at the end before acting on the Fix section.
+Severity: **api-lie / dead public surface**. Found 2026-09-04
 during the std-API-audit re-measurement of the `std/imm` row, at v0.2.24.
 
 `std/imm/map.yo`, `std/imm/sorted_map.yo` and `std/imm/list.yo` export nine
@@ -193,3 +196,58 @@ back "marking it stable" with a runtime test per exported name
 (`tests/std_export_coverage.test.yo:1-4`). Once the nine are gone, every
 remaining `std/imm` export is exercised by `tests/imm_*.test.yo`, which is the
 condition the §6 rule asks for before the freeze.
+
+---
+
+## Correction (2026-09-15) — `ListIter` must NOT be removed
+
+The finding is sound and still reproduces: `src/` does not import `std/imm` at
+all, and nothing outside each defining module references the node types. (Three
+names — `MapNode`, `MapEntry`, `RBNode` — appear to be referenced in `src/` on a
+naive grep, but every hit is inside a COMMENT discussing a bug once found in
+`std/imm`. Worth knowing, because that grep is the obvious way to check this
+claim and it answers wrongly.)
+
+**Item 3 of the Fix is wrong.** It says change `std/imm/list.yo` to
+`export(List);`, which would remove `ListIter` — and `ListIter` is public
+surface, not internal:
+
+```rust
+// std/imm/list.yo:339-341
+IntoIter : ListIter(T),
+into_iter : (fn(self : Self) -> ListIter(T))(
+```
+
+It is the `IntoIterator::IntoIter` associated type AND the declared return type
+of `into_iter`. Removing the export makes a public return type unnameable by a
+caller who wants to bind the iterator rather than hand it straight to `for`.
+
+The decisive evidence is the sibling: **`std/imm/vec.yo` exports `VecIter`,
+which has the byte-identical role** (`IntoIter : VecIter(T)`, `into_iter : (fn(self : Self) -> VecIter(T))`)
+— and `vec.yo` is not on this doc's removal list at all. So the module family's
+own convention is to export the iterator type, and item 3 would have made
+`list` the lone exception, in the same change that is supposed to be tidying
+the family up before it freezes.
+
+### The corrected removal list
+
+- `std/imm/list.yo` → `export(List, ListIter);` — drop **`ListNode`** only.
+- `std/imm/map.yo` → `export(Map, MapEntry);` — as written. Note `MapEntry` is
+  a RE-EXPORT: map.yo imports it from `../collections/entry.yo:48`, which is
+  what item 4 is about.
+- `std/imm/sorted_map.yo` → drop the `export(RBNode);` line. As written.
+
+That is **eight** names, not nine.
+
+### Method note
+
+The Fix section was written by reading the export lines, which is how
+`ListNode` and `ListIter` came to be treated as one kind of thing — they sit
+on adjacent lines in the same `export(...)`. They are not: one is a cons cell,
+the other is a public return type. Checking what each name is USED for, rather
+than where it is declared, separates them in one grep. Same shape as the other
+prescriptions corrected in this clean-up: a fix sketch is a claim too.
+
+**Not implemented here.** Removing an export is a breaking change to a stable
+surface (`yo-design.instructions.md:147`), and the list needed correcting
+before anyone acts on it — which was the more valuable half.

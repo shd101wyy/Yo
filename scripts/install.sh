@@ -310,7 +310,7 @@ apt_get_install() {
     # boot, which is exactly when somebody curls this script — so the installer
     # would appear to hang on the very machines it is written for. Ten minutes,
     # then a real error message. (Same fix as CI's APT_OPTS; see
-    # issues/ci-apt-hangs-on-dpkg-lock.md for the measurement that identified
+    # issues/fixed/ci-apt-hangs-on-dpkg-lock.md for the measurement that identified
     # it.)
     # shellcheck disable=SC2086
     if ! sudocmd apt-get -o DPkg::Lock::Timeout=600 install -y $missing; then

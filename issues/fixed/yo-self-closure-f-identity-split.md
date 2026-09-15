@@ -117,4 +117,4 @@ Fixed by a six-part stack (all measured on `scratchpad/w1/repro6.yo` /
 Result: `tests/iter_filter_closure.test.yo` GREEN (3 passed, 0 markers);
 `tests/iterator_combinators.test.yo` 16/19 arms real (was 0/19 — the whole
 batch hollow). Arms 16–18 (3-deep chained combinators) remain hollow — see
-`issues/yo-self-chained-combinator-assoc-binding.md`.
+`issues/fixed/yo-self-chained-combinator-assoc-binding.md`.
