@@ -1,0 +1,159 @@
+//! The generic-callee contract tests — V6 task 2 slice
+//! (FORMAL_VERIFICATION.md): a contracted GENERIC function's contracts
+//! discharge at monomorphized call sites. Two pieces make that work: the
+//! specialization re-keys the contract tables onto the specialized
+//! FuncVal id (helper.yo), and the call site evaluates fresh clones of
+//! the (otherwise untyped) signature predicates at the CONCRETE argument
+//! types (CallsiteContracts, contracts.yo). The requires-violation twin
+//! must refute — that is what proves the discharge is real.
+{ String, StringBuilder } :: import("std/string");
+{ Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_and_strip_tasks,
+  VerifyFnReport
+} :: import("../../src/verifier/driver.yo");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+_load_reports :: (
+  fn(rel_path : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_generics: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(
+        outcome.ok == expect_ok,
+        `fixture ${rel_path} load ok=${outcome.ok.to_string()} (expected ${expect_ok.to_string()}): ${rendered}`
+      );
+    },
+    .None => {
+      assert(outcome.ok == expect_ok, `fixture ${rel_path} load ok=${outcome.ok.to_string()}`);
+    }
+  );
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    _ => String.new()
+  );
+  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+});
+_reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
+  ids := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}]`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb := StringBuilder.new();
+  (j : usize) = usize(0);
+  while(j < ids.len(), {
+    if(j > usize(0), {
+      sb.write_string(String.from(", "));
+    });
+    sb.write_string(ids.get(j).unwrap().clone());
+    j = (j + usize(1));
+  });
+  sb.to_string()
+});
+
+test("a contracted generic callee's ensures is assumed at the call site", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/generic_callee.yo"),
+    io,
+    true
+  );
+  assert(reports.len() == usize(1), `the caller registers, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  match(
+    reports.get(usize(0)),
+    .Some(rp) => {
+      assert(rp.outcome == "ok", `the caller proves via the assumed generic ensures, got: [${_reports_dump(reports)}]`);
+    },
+    .None => ()
+  );
+});
+
+test("a generic callee's requires discharges when satisfied", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/generic_requires_ok.yo"),
+    io,
+    true
+  );
+  match(
+    reports.get(usize(0)),
+    .Some(rp) => {
+      assert(rp.outcome == "ok", `flag=true discharges the generic requires, got: [${_reports_dump(reports)}]`);
+    },
+    .None => ()
+  );
+});
+
+test("a generic callee's requires VIOLATION refutes", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/generic_requires_false.yo"),
+    io,
+    true
+  );
+  match(
+    reports.get(usize(0)),
+    .Some(rp) => {
+      assert(rp.outcome == "refuted", `flag=false must refute the requires discharge, got: [${_reports_dump(reports)}]`);
+    },
+    .None => ()
+  );
+});

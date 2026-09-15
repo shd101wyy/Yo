@@ -66,7 +66,24 @@ Phase 3b therefore gates its per-def path on `_def_is_per_def_able`
 per-def-able; signature changes, constants, and type-producing defs take the
 file-level reload where diagnostics are the cold path's by construction.
 
-## Second finding (2026-09-14, later): ordered-read TARGET attribution is wrong in directory checks
+## Second finding — FIXED 2026-09-15: ordered-read TARGET attribution was wrong in directory checks
+
+**Fixed** by `stable_sns_module_id` (src/utils.yo): the sns struct id now
+embeds the module-path hash, so ids are unique per module instead of every
+module's first mint colliding on `source_namespace_0` (the occurrence
+counter was per module). Red-first test:
+`tests/internal/check_watch.test.yo` "a DIRECTORY check attributes
+destructured reads to the right module" (an importer whose destructure
+follows another module's mint). Measured after the fix: the hub body-edit
+round's reader lookup finds `src/lexer.yo` (`[p3read] readers=1`) and the
+round drops + re-checks lexer's 143-file closure — ~355 s on the WSL2 box,
+a full re-check. That is the SOUND posture (the destructured copy cannot be
+patched in place); the perf unlock for hub edits is fixing the FIRST
+finding below — once a dependent's trial re-derives calls against the
+patched slot, signature-stable fn edits no longer need to drop their
+readers.
+
+Original finding, kept for the record:
 
 Instrumenting `record_module_ordered_read` (`[p3ord]`, YO_DEBUG_P3DIFF) over
 `check ./src --watch` shows the reader table's TARGET attribution is broken in

@@ -89,6 +89,36 @@ mismatch is reported as an unbound name at the obligation. An impl that
 strengthens the precondition is refuted with the dispatch
 counter-example (`i = 0` for the twin of the example above).
 
+### Generic functions
+
+A **generic** function's contracts discharge at its call sites — the
+Dafny modular model again: the generic body is not walked (it is
+re-evaluated per specialization), but every monomorphized call site
+**proves** the generic's `requires` against the caller's path condition
+and **assumes** its `ensures` over a fresh result term. Two pieces of
+machinery make that work: the specialization re-keys the contract
+tables onto the specialized function id, and the call site evaluates
+the signature predicates at the **concrete** argument types (at the
+generic's own definition the predicates cannot be evaluated — operators
+over the type variable have no comptime impl — so the caller-side
+evaluation is what gives the verifier typed predicate nodes).
+
+```rust
+pick :: (
+  fn(generic(T : Type), flag : bool, a : T, b : T, ensures((result == a) || (result == b))) -> (result : T)
+)(if(flag, a, b));
+
+// The caller's own post-condition is provable only THROUGH the assumed
+// generic ensures — the verifier never opens the pick body.
+caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
+  pick(true, i32(1), i32(2))
+);
+```
+
+A caller that violates the generic's `requires` (passing `flag = false`
+to a `requires(flag)` callee) is refuted at the call site with a
+counter-example.
+
 ## Modes
 
 | Mode | How to select | Behavior |
@@ -150,7 +180,8 @@ runtime assert).
 | Fixed-length `Array(T, N)` values — `a(i)` reads (`select`), `a(i) = v` index writes (an SSA rebind through `store`), `index-in-bounds` AoRTE obligations, and `ms_of(a)` (the array's elements as a ghost Multiset — what `permutation` specs are made of) | ✅ verified (V5 task 6) |
 | Ghost code (`ghost`/`ghost_fn` erasure) | ✅ verified (V5 task 3) |
 | Trait-method contracts — INHERITANCE onto clause-less impl methods + the VARIANCE obligations (`trait.requires ⇒ impl.requires` contravariant, `impl.ensures ⇒ trait.ensures` covariant) as synthetic `impl-variance@…` tasks | ✅ verified (V6 task 1) |
-| Generics verified abstractly across boundaries, `Refine` | V6 |
+| Contracted GENERIC functions at call sites — `requires` discharged and `ensures` assumed per monomorphized call site (the generic body itself stays unwalked) | ✅ verified (V6 task 2) |
+| Generic bodies verified abstractly (uninterpreted type sorts, trait-constraint axioms), `Refine` | V6 |
 | `object`/heap, string content, floats, effects, `unsafe`, FFI | outside the subset |
 
 Integers are modeled as **exact-width bitvectors matching the emitted

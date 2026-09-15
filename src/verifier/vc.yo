@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val } :: import("../value.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
-{ is_ghost_fn } :: import("../evaluator/builtins/contracts.yo");
+{ is_ghost_fn, callsite_contracts_for } :: import("../evaluator/builtins/contracts.yo");
 
 /// V5 task 3 slice 2: the ghost_fn inlining stack (see
 /// `_ghost_fn_inline_term`). Declared at module top so it is initialized
@@ -3459,8 +3459,20 @@ _callee_call_term :: (
     _fail_subset(ctx, String.from("recursion (requires decreases(...) in the signature)"), e);
     return(Option(VcTerm).None);
   });
-  reqs := get_func_requires_exprs(fid.clone());
-  enss := get_func_ensures_exprs(fid.clone());
+  (reqs : ArrayList(AstExpr)) = get_func_requires_exprs(fid.clone());
+  (enss : ArrayList(AstExpr)) = get_func_ensures_exprs(fid.clone());
+  // V6 task 2: a call site with a STASHED contract instance (contracted
+  // generic callee — the raw signature predicates are untyped, the stash
+  // holds clones evaluated at this call site's concrete types) uses it
+  // wholesale.
+  match(
+    callsite_contracts_for(ast_expr_id(e).to_string()),
+    .Some(cs) => {
+      reqs = cs.reqs.clone();
+      enss = cs.enss.clone();
+    },
+    .None => ()
+  );
   if((reqs.len() == usize(0)) && (enss.len() == usize(0)), {
     // No contracts: the plan's case 3 — result unconstrained beyond type.
     _fail_subset(ctx, String.from("call to a callee without contracts"), e);

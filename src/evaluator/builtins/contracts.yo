@@ -1357,6 +1357,233 @@ _same_expr_ids :: (fn(a : ArrayList(AstExpr), b : ArrayList(AstExpr)) -> bool)(
     }
   )
 );
+/// V6 task 2 (FORMAL_VERIFICATION.md): per-call-site CONTRACT INSTANCES
+/// for contracted generic callees. A generic function's signature
+/// predicates are diagnostic-evaluated at ITS definition, where the
+/// parameters are unknowns of the GENERIC types — every operator over
+/// them fails to evaluate (no trait impl for a SomeT), the failure is
+/// swallowed by the def-time trial, and the stored predicate nodes reach
+/// the verifier UNTYPED (no ExprInfo — the walk's `_expr_term` rejects
+/// them). At a monomorphized call site the concrete argument types ARE
+/// known, so the walker's caller registers EVALUATED CLONES of the
+/// callee's predicates with the callee's params bound to unknowns of the
+/// CONCRETE types, keyed by the call expression's id; `_callee_call_term`
+/// prefers the stash over the raw tables. This is the plan's
+/// "monomorphized call sites discharge through the generic's own
+/// contracts".
+CallsiteContracts :: struct(
+  reqs : ArrayList(AstExpr),
+  enss : ArrayList(AstExpr)
+);
+(g_callsite_contracts : HashMap(String, CallsiteContracts)) = HashMap(String, CallsiteContracts).new();
+register_callsite_contracts :: (
+  fn(call_id : String, reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr)) -> unit
+)({
+  _ := g_callsite_contracts.insert(call_id, CallsiteContracts(reqs : reqs, enss : enss));
+});
+callsite_contracts_for :: (fn(call_id : String) -> Option(CallsiteContracts))(
+  g_callsite_contracts.get(call_id)
+);
+/// Task-registration hook: stash contract instances for every contracted
+/// callee call in the task body (see the CallsiteContracts doc).
+prepare_callsite_contracts :: (
+  fn(
+    body : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  _prepare_callsite_contracts(body, env, ctx, exn);
+});
+/// Walk a task body and stash evaluated contract instances for every
+/// contracted callee call. Follows `ExprInfo.macro_expansion` for macro
+/// calls (the optimizer-family discipline). Plain recursion: cond/match
+/// arms and begin blocks are FnCall args, so every call site is reached.
+_prepare_callsite_contracts :: (
+  fn(
+    e : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  // A trailing `; ()` — a sole un-semicoloned `match(...)` would be an
+  // E0007 struct literal, and a lone `match(...);` block-value reads as
+  // unit anyway; the explicit tail keeps the shape obvious.
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, f, args, _, _) => {
+      // Macro calls: the semantics live in the expansion.
+      expanded := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+        .Some(ei) => ei.macro_expansion,
+        .None => Option(AstExpr).None
+      );
+      match(
+        expanded,
+        .Some(xp) => {
+          _prepare_callsite_contracts(xp, env, ctx, exn);
+        },
+        .None => {
+          _stash_callsite_contracts(e, f, env, ctx, exn);
+          (ai : usize) = usize(0);
+          while(ai < args.len(), {
+            match(
+              args.get(ai),
+              .Some(a) => _prepare_callsite_contracts(a, env, ctx, exn),
+              .None => ()
+            );
+            ai = (ai + usize(1));
+          });
+        }
+      );
+    }
+  );
+  ()
+});
+/// The declared type of a call's `i`-th argument from its ExprInfo.
+_callsite_arg_type :: (
+  fn(ctx : EvalContext, e : AstExpr, i : usize) -> Option(TypeValue)
+)(
+  match(
+    e,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(i),
+      .Some(a) => match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)),
+        .Some(ai) => Option(TypeValue).Some(ai.ty.clone()),
+        .None => Option(TypeValue).None
+      ),
+      .None => Option(TypeValue).None
+    ),
+    .Atom(_, _) => Option(TypeValue).None
+  )
+);
+/// For one call site: read the callee FuncVal's contracts (through the
+/// hooks — types/function.yo is not importable here), evaluate fresh-id
+/// clones with the callee's params + return label bound to unknowns of
+/// the CONCRETE call-site types, stash under the call node's id. A call
+/// whose callee is not a contracted FuncVal is skipped; a predicate that
+/// still fails to evaluate throws (a malformed contract at a real call
+/// site is an error, not a silent drop).
+_stash_callsite_contracts :: (
+  fn(
+    e : AstExpr,
+    f : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  callee_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(f)),
+    .Some(ci) => ci,
+    .None => {
+      return(());
+    }
+  );
+  fid := match(
+    callee_info.value,
+    .Some(v) => match(
+      v,
+      .FuncVal(fvd, _) => fvd.*.func_id.clone(),
+      _ => {
+        return(());
+      }
+    ),
+    .None => {
+      return(());
+    }
+  );
+  raw_reqs := hook_func_requires(fid.clone());
+  raw_enss := hook_func_ensures(fid.clone());
+  if((raw_reqs.len() == usize(0)) && (raw_enss.len() == usize(0)), {
+    return(());
+  });
+  // The callee's param labels (FuncVal order) and the CONCRETE types:
+  // each argument's ExprInfo type at this call site, the call node's own
+  // type for the return label.
+  fvd_params := match(
+    callee_info.value,
+    .Some(v2) => match(
+      v2,
+      .FuncVal(fvd2, _) => fvd2.*.params,
+      _ => ArrayList(String).new()
+    ),
+    .None => ArrayList(String).new()
+  );
+  ret_ty := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+    .Some(ei) => ei.ty.clone(),
+    .None => t_unit()
+  );
+  site_env := env;
+  site_env.push_frame(false);
+  (bi : usize) = usize(0);
+  while(bi < fvd_params.len(), {
+    __pn := match(fvd_params.get(bi), .Some(x) => x, .None => String.new());
+    if(__pn.len() > usize(0), {
+      __pt := match(
+        _callsite_arg_type(ctx, e, bi),
+        .Some(at) => at,
+        .None => t_unit()
+      );
+      add_variable_to_env(
+        site_env,
+        __pn.clone(),
+        __pt.clone(),
+        Option(EvalValue).Some(create_unknown_val(__pt.clone())),
+        false,
+        false,
+        false,
+        false,
+        ast_expr_token(e)
+      );
+    });
+    bi = (bi + usize(1));
+  });
+  match(
+    hook_func_return_label(fid.clone()),
+    .Some(rl) => {
+      add_variable_to_env(
+        site_env,
+        rl.clone(),
+        ret_ty.clone(),
+        Option(EvalValue).Some(create_unknown_val(ret_ty.clone())),
+        false,
+        false,
+        false,
+        false,
+        ast_expr_token(e)
+      );
+    },
+    .None => ()
+  );
+  ev_reqs := ArrayList(AstExpr).new();
+  (ri : usize) = usize(0);
+  while(ri < raw_reqs.len(), {
+    match(
+      raw_reqs.get(ri),
+      .Some(p) => ev_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), site_env, ctx, exn)),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  ev_enss := ArrayList(AstExpr).new();
+  (ei : usize) = usize(0);
+  while(ei < raw_enss.len(), {
+    match(
+      raw_enss.get(ei),
+      .Some(p) => ev_enss.push(evaluated_for_verify(clone_expr_fresh_ids(p.clone()), site_env, ctx, exn)),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  site_env.pop_frame();
+  register_callsite_contracts(ast_expr_id(e).to_string(), ev_reqs, ev_enss);
+});
 /// Conjoin a non-empty predicate list into ONE expression: nested `&&`
 /// (a single predicate passes through unwrapped). Fresh node ids.
 _conj_exprs :: (fn(preds : ArrayList(AstExpr), tok : Token) -> AstExpr)({
@@ -2061,6 +2288,8 @@ export(
   evaluated_for_verify,
   take_verify_tasks,
   register_impl_inheritance_task,
+  prepare_callsite_contracts,
+  callsite_contracts_for,
   register_impl_variance_task,
   record_verify_task_def_eval_failure,
   verify_task_def_eval_failure,

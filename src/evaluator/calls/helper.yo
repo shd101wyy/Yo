@@ -151,6 +151,7 @@ _(env : helper_dbg_env) :: import("std/env");
   get_func_where_constraints,
   get_func_where_clause_exprs,
   apply_where_clause_constraints,
+  copy_func_contract_exprs,
   WhereConstraintEntry,
   collect_wrapper_trait_somes,
   _collect_type_arg_somes
@@ -3387,6 +3388,19 @@ create_specialized_function_inline :: (
             ),
             new_cap_vals
           );
+          // V6 task 2 (FORMAL_VERIFICATION.md): re-key the ORIGINAL
+          // FuncVal's contract tables onto the specialized id — the
+          // specialized FuncVal is what a caller's callee atom carries,
+          // and both the verifier's `_callee_call_term` and the runtime
+          // splice read the contracts by THAT id. Without this, a
+          // contracted generic function's contracts are invisible at
+          // every monomorphized call site ("call to a callee without
+          // contracts") even though its own definition re-keyed them
+          // onto the unspecialized id. The predicate ASTs are the
+          // signature's own nodes (param labels unchanged by
+          // specialization), so the walker's param rebinding applies
+          // unchanged.
+          copy_func_contract_exprs(func_id.clone(), specialized_func_id.clone());
           // Register the SPECIALIZED Func TYPE under the specialized func_id so
           // codegen's get_func_type(specialized_func_id) returns concrete
           // param/return types (generic dropped) instead of the generic
