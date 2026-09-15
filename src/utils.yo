@@ -344,12 +344,26 @@ stable_module_id :: (fn(prefix : String, module_path : String) -> String)({
   k := stable_occurrence_key(`${prefix}:${module_path}`);
   `${prefix}${k.to_string()}`
 });
+/// The source-namespace struct id for a module value. `stable_module_id`
+/// alone gives every module's FIRST mint the same id (the occurrence counter
+/// is per module), which made the sns id→module attribution map
+/// (`g_sns_module`) last-wins ACROSS modules — in a directory check a later
+/// module's mint overwrote the id a subsequent importer looked up, and its
+/// destructured read was recorded against the wrong module
+/// (issues/per-def-dependent-trial-resolves-stale-callee.md). Embedding the
+/// module-path hash keeps ids unique per module (a re-mint of the SAME
+/// module still gets a fresh occurrence, and both map back to it).
+stable_sns_module_id :: (fn(module_path : String) -> String)({
+  h := fnv1a64(module_path.clone());
+  stable_module_id(`source_namespace_${h.to_string()}_`, module_path)
+});
 export(
   stable_position_id,
   stable_occurrence_key,
   stable_label_id,
   stable_func_id,
   stable_module_id,
+  stable_sns_module_id,
   fnv1a64,
   _stable_id_module_stem
 );
