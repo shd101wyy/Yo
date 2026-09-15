@@ -697,7 +697,11 @@ _run_contract_verification :: (fn(io : Io, exn : Exception) -> bool)({
       reports.get(ri),
       .Some(rp) => {
         _print_verify_fn_report(rp, false);
-        if(!(rp.outcome == "ok"), {
+        // `assumed` passes like `ok` (V6 task 5): the fn's contracts gate
+        // callers; its body is declared outside the verifiable subset.
+        // `outside-subset` too: a CONTRACT-LESS fn whose body failed the
+        // subset walk (infrastructure — nothing was promised).
+        if(!((rp.outcome == "ok") || (rp.outcome == "assumed") || (rp.outcome == "outside-subset")), {
           if((rp.outcome == "refuted") || (rp.mode == "verify"), {
             all_ok = false;
           }, {
@@ -1147,7 +1151,9 @@ run_verify_cmd :: (
     match(
       reports.get(ri3),
       .Some(rp) => {
-        if(!(rp.outcome == "ok"), {
+        // `assumed`/`outside-subset` pass like `ok` (V6 task 5): contracts
+        // assumed, or a contract-less body outside the verifiable subset.
+        if(!((rp.outcome == "ok") || (rp.outcome == "assumed") || (rp.outcome == "outside-subset")), {
           bad = (bad + usize(1));
           if(rp.outcome == "refuted", {
             refuted_n = (refuted_n + usize(1));
@@ -1321,6 +1327,18 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
         `  subset   ${rp.fn_id} [${rp.mode}] — cannot verify: ${rp.subset_construct}`
       );
       println(`           ${rp.subset_source}`);
+      ()
+    },
+    (rp.outcome == "assumed") => {
+      println(
+        `  assumed  ${rp.fn_id} [${rp.mode}] — ${rp.subset_construct}`
+      );
+      ()
+    },
+    (rp.outcome == "outside-subset") => {
+      println(
+        `  n/a      ${rp.fn_id} [${rp.mode}] — no contracts; body outside the verifiable subset: ${rp.subset_construct}`
+      );
       ()
     },
     (rp.outcome == "ok") => {

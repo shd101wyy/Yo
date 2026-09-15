@@ -1,0 +1,26 @@
+// V6 task 5 (FORMAL_VERIFICATION.md): the `assumed()` marker. A
+// contracted fn whose body is OUTSIDE the verifiable subset declares
+// `assumed()`: the verifier reports it as `assumed` WITHOUT walking the
+// body, while its contracts still gate callers — the caller here
+// discharges `requires(x >= 0)` and proves through the assumed
+// `ensures(r >= 0)`. `opaque_inc` is UNCONTRACTED and still registers
+// (unannotated code is checked — the AoRTE flagship); its in-subset
+// body walks clean. Calling it from a WALKED body is a subset error,
+// which is exactly why `assumed_double` needs the marker: without it,
+// its own report would be that subset error.
+pragma(Pragma.Verify);
+
+opaque_inc :: (fn(x : i32) -> (r : i32))(x + i32(1));
+
+assumed_double :: (
+  fn(
+    x : i32,
+    requires(x >= i32(0)),
+    ensures(r >= i32(0)),
+    assumed()
+  ) -> (r : i32)
+)(
+  opaque_inc(opaque_inc(x))
+);
+
+caller_ok :: (fn(x : i32, requires(x >= i32(0))) -> (r : i32))(assumed_double(x));
