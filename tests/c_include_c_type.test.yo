@@ -19,5 +19,10 @@ test("a c_type opaque type is usable as a pointer target with the C spelling", {
   buf := (*stat_buf)(raw);
   rc := unsafe(stat((*char)("/"), buf));
   free(.Some(raw));
-  assert(rc == int(0), "stat(\"/\") succeeded through a struct stat* parameter");
+  // What this test pins is the C SPELLING: a wrong lowering (`stat_buf*`)
+  // fails to COMPILE, which the runner reports as a batch compile failure.
+  // Whether `stat("/")` itself succeeds is the platform's business — WASI
+  // has no "/" without a preopened directory and returns -1 (measured on
+  // the wasm32-wasi leg) — so only "the call ran" is asserted here.
+  assert((rc == int(0)) || (rc == int(-1)), "stat ran through a struct stat* parameter");
 });
