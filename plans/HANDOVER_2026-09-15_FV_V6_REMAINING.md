@@ -56,29 +56,18 @@ current develop.
   (`fix/selftrait-dyn-return-type`, `inc/phase4-warm-occurrence`,
   `inc/phase4-warm-selfcheck`); runner saturation is the likely cause.
   The §3 remedies were insufficient this time.
-- THE CONFLICT: #689 repaired issue paths INSIDE the cheatsheet
-  (`issues/x.md` → `issues/fixed/x.md` for resolved ones) and
-  re-recorded the same seven cli-case goldens with hash `fe8aed4f…`;
-  this branch edited the cheatsheet differently (the `assumed()`
-  bullet) and pinned `f5b2b5be…`. Probed: conflicts on
-  `tests/cli-cases/{init,init-existing,skills-install,skills-install-zh}/expected_tree`
-  (the cheatsheet itself auto-merges — the edits touch different lines).
-- RESOLUTION RECIPE (after #695 merges):
-  1. `git checkout -B feat/fv6-task5-assumed-contracts origin/develop`
-     then `git cherry-pick eb8e5f08` (the task-5 commit; the #687
-     precedent — the stacked #695 commits and the `ci:` nudges drop
-     away).
-  2. Golden conflicts: take develop's side, THEN recompute the merged
-     cheatsheet's sha256 (`sha256sum
-     .github/skills/yo-syntax/syntax-cheatsheet.md`) and sed it over
-     `fe8aed4f…` in ALL SEVEN goldens (`init`, `init-cwd`,
-     `init-existing`, `init-build-test`, `build-stamp-dotted-dir`,
-     `skills-install`, `skills-install-zh`). `grep -c` the pinned line
-     in each afterwards — conflict resolution duplicating lines has
-     bitten before.
-  3. `yo check ./src`, rerun at least `verifier_assumed` +
-     `verifier_negative` locally, force-push, and confirm the battery
-     actually STARTS (the stall oracle above) before waiting on it.
+- THE CONFLICT — RESOLVED (updated minutes after it appeared): #689
+  repaired issue paths INSIDE the cheatsheet and re-recorded the same
+  seven cli-case goldens (`fe8aed4f…`); this branch had pinned its own
+  hash (`f5b2b5be…`) after adding the `assumed()` bullet. The taking-
+  over session merged develop into the branch (`854907e6b`) — the
+  merged cheatsheet hashes `ba3b6b34…` and ALL SEVEN goldens were
+  verified consistent with it (`grep`-checked 2026-09-15). Only the
+  stall below remains.
+- RESOLUTION RECIPE (SUPERSEDED for the conflict — see above; KEPT for
+  the stall): push again (any empty commit) once runner load drops;
+  watch `gh run list --branch feat/fv6-task5-assumed-contracts` and the
+  check-runs oracle. The classify step runs FULL (src/ changes).
 
 **Design decisions locked this session (do not re-litigate):**
 
@@ -136,7 +125,7 @@ current develop.
 | V6 task 2 SLICE 1 — contracted generic callees at monomorphized call sites | **complete** | #687 → `16aed5f46` (28/28) |
 | V6 task 4 — mutual-recursion decreases | **complete** | #691 → `3177afa4a` (28/28), banner #694 → `d2a9f6fd3` |
 | u64 decreases signedness (`issues/fixed/verifier-decreases-nonneg-…`) | **PR OPEN, ready** | #695 → branch `fix/verifier-decreases-unsigned`, run 34932915472 (one job pending at handoff, 0 failed) |
-| V6 task 5 SLICE 1 — `assumed()` + contract-less `outside-subset` degrade | **PR OPEN, CI stalled + conflicts** | #697 → branch `feat/fv6-task5-assumed-contracts` (stacked on #695), resolution recipe in §0 |
+| V6 task 5 SLICE 1 — `assumed()` + contract-less `outside-subset` degrade | **PR OPEN, CI stalled (conflict resolved by the develop merge `854907e6b`)** | #697 → branch `feat/fv6-task5-assumed-contracts`; local battery green; see §0 |
 | V6 task 5 SLICE 2 — std/collections dogfood + CI verify | **blocked on a seed bump** | checklist in the plan's task-5 banner |
 | V6 task 2 remainder — generic bodies verified ABSTRACTLY | not started | see §4.1 |
 | V6 task 3 — `Refine(T, p)` real type constructor | not started (scoped 2026-09-15; std rework rides the generation split) | see §4.2 |
