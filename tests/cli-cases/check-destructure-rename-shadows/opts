@@ -1,5 +1,9 @@
 # plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.3: the destructurer never ran the
 # no-shadowing rule, so a rename onto an existing name (and the same import
-# twice) was silently accepted — the v0.2.33 seed passed this file (rc=0).
+# twice) was silently accepted. Verified against the v0.2.33 seed on
+# 2026-09-15: this exact file type-checks there (rc=0) — the second binding
+# silently REBINDS `p2` to `println`, which is why `main` must not use `p2`
+# (a `println(p2)` fails on the seed for that unrelated reason, as an earlier
+# revision of this fixture did, and would hide what the seed enforces).
 stdout_keep_match=Variable "p2" is already defined here \(variable shadowing is not allowed\)
 timeout=120
