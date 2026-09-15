@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val } :: import("../value.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
-{ is_ghost_fn, callsite_contracts_for } :: import("../evaluator/builtins/contracts.yo");
+{ is_ghost_fn, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
 
 /// V5 task 3 slice 2: the ghost_fn inlining stack (see
 /// `_ghost_fn_inline_term`). Declared at module top so it is initialized
@@ -47,8 +47,202 @@ pragma(Pragma.AllowUnsafe);
 {
   get_func_requires_exprs,
   get_func_ensures_exprs,
-  get_func_return_label
+  get_func_return_label,
+  get_func_decreases_expr
 } :: import("../evaluator/types/function.yo");
+// ---------------------------------------------------------------------------
+// V6 task 4: mutual-recursion cliques.
+// ---------------------------------------------------------------------------
+/// The mutual-recursion cliques of the CURRENT verification batch: each
+/// entry lists the func_ids of functions that (transitively) call each
+/// other. Computed once per `verify_and_strip_tasks` from the task set's
+/// call edges; a clique of one is self-recursion and is not stored. The
+/// walk consults this for the clique-edge decrease obligation
+/// (`_same_recursion_clique`).
+(g_recursion_cliques : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
+/// True when `a` and `b` sit in the same mutual-recursion clique.
+_same_recursion_clique :: (fn(a : String, b : String) -> bool)({
+  (found : bool) = false;
+  (ci : usize) = usize(0);
+  while((ci < g_recursion_cliques.len()) && !found, {
+    match(
+      g_recursion_cliques.get(ci),
+      .Some(clique) => {
+        if(clique.contains(a.clone()) && clique.contains(b.clone()), {
+          found = true;
+        });
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  found
+});
+/// Scan one expression for calls to task functions, recording
+/// `(caller, callee)` fid edges. Follows `ExprInfo.macro_expansion` for
+/// macro calls (the optimizer-family discipline); reads the callee
+/// FuncVal from the func-slot atom's ExprInfo — the same source the walk
+/// resolves, so the edges match what the walk will see.
+_scan_call_edges :: (
+  fn(
+    table : ExprInfoTable,
+    e : AstExpr,
+    caller_fid : String,
+    inout(from) : ArrayList(String),
+    inout(to) : ArrayList(String)
+  ) -> unit
+)(
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, f, args, _, _) => {
+      expanded := match(
+        expr_info_table_get(table, ast_expr_id(e)),
+        .Some(ei) => ei.macro_expansion,
+        .None => Option(AstExpr).None
+      );
+      match(
+        expanded,
+        .Some(xp) => {
+          _scan_call_edges(table, xp, caller_fid, from, to);
+        },
+        .None => {
+          match(
+            expr_info_table_get(table, ast_expr_id(f)),
+            .Some(fi) => match(
+              fi.value,
+              .Some(v) => match(
+                v,
+                .FuncVal(fvd, _) => {
+                  // Normalize: the atom carries the SPECIALIZED id; the
+                  // cliques are spelled in base (task) fids.
+                  raw_callee := fvd.*.func_id.clone();
+                  callee_fid := match(
+                    specialized_base_of(raw_callee.clone()),
+                    .Some(b) => b,
+                    .None => raw_callee
+                  );
+                  if(callee_fid != caller_fid, {
+                    from.push(caller_fid.clone());
+                    to.push(callee_fid.clone());
+                  });
+                },
+                _ => ()
+              ),
+              .None => ()
+            ),
+            .None => ()
+          );
+          (ai : usize) = usize(0);
+          while(ai < args.len(), {
+            match(
+              args.get(ai),
+              .Some(a) => _scan_call_edges(table, a, caller_fid, from, to),
+              .None => ()
+            );
+            ai = (ai + usize(1));
+          });
+        }
+      );
+    }
+  )
+);
+/// Driver prepass: collect the task set's call edges and store the
+/// mutual-recursion cliques (mutually reachable groups with more than
+/// one member). Must run before the first `verify_function_body`.
+register_recursion_cliques :: (fn(tasks : ArrayList(VerifyTask)) -> unit)({
+  g_recursion_cliques = ArrayList(ArrayList(String)).new();
+  (from : ArrayList(String)) = ArrayList(String).new();
+  (to : ArrayList(String)) = ArrayList(String).new();
+  (nodes : ArrayList(String)) = ArrayList(String).new();
+  (ti : usize) = usize(0);
+  while(ti < tasks.len(), {
+    match(
+      tasks.get(ti),
+      .Some(t) => {
+        nodes.push(t.func_id.clone());
+        _scan_call_edges(t.table, t.body, t.func_id.clone(), from, to);
+      },
+      .None => ()
+    );
+    ti = (ti + usize(1));
+  });
+  // Reachability by iterative DFS over the small task graph.
+  reach := HashMap(String, HashMap(String, bool)).new();
+  (ni : usize) = usize(0);
+  while(ni < nodes.len(), {
+    match(
+      nodes.get(ni),
+      .Some(n) => {
+        seen := HashMap(String, bool).new();
+        stack := ArrayList(String).new();
+        stack.push(n.clone());
+        seen.insert(n.clone(), true);
+        while(stack.len() > usize(0), {
+          cur := match(stack.pop(), .Some(c) => c, .None => String.new());
+          (ei : usize) = usize(0);
+          while(ei < from.len(), {
+            match(
+              from.get(ei),
+              .Some(f) => if(f == cur, {
+                match(
+                  to.get(ei),
+                  .Some(t) => if(!seen.contains_key(t.clone()), {
+                    seen.insert(t.clone(), true);
+                    stack.push(t.clone());
+                  }),
+                  .None => ()
+                );
+              }),
+              .None => ()
+            );
+            ei = (ei + usize(1));
+          });
+        });
+        _ := reach.insert(n.clone(), seen);
+      },
+      .None => ()
+    );
+    ni = (ni + usize(1));
+  });
+  // Mutual reachability is an equivalence relation — the cliques are its
+  // classes. Walk the nodes in order; each node not yet claimed starts
+  // its class (all mutually reachable nodes join it, so every class is
+  // stored exactly once, by its first member).
+  (claimed : HashMap(String, bool)) = HashMap(String, bool).new();
+  (mi : usize) = usize(0);
+  while(mi < nodes.len(), {
+    match(
+      nodes.get(mi),
+      .Some(a) => if(!claimed.contains_key(a.clone()), {
+        claimed.insert(a.clone(), true);
+        clique := ArrayList(String).new();
+        clique.push(a.clone());
+        (mj : usize) = usize(0);
+        while(mj < nodes.len(), {
+          match(
+            nodes.get(mj),
+            .Some(b) => if(!(a == b), {
+              a_reaches_b := match(reach.get(a.clone()), .Some(r) => r.contains_key(b.clone()), .None => false);
+              b_reaches_a := match(reach.get(b.clone()), .Some(r) => r.contains_key(a.clone()), .None => false);
+              if(a_reaches_b && b_reaches_a, {
+                claimed.insert(b.clone(), true);
+                clique.push(b.clone());
+              });
+            }),
+            .None => ()
+          );
+          mj = (mj + usize(1));
+        });
+        if(clique.len() > usize(1), {
+          g_recursion_cliques.push(clique);
+        });
+      }),
+      .None => ()
+    );
+    mi = (mi + usize(1));
+  });
+});
 // ============================================================================
 // Small type probes (local, to keep this module's import fan-in minimal)
 // ============================================================================
@@ -3451,12 +3645,32 @@ _callee_call_term :: (
   // rebinding (callee params = actual terms) the measure evaluates as the
   // ACTUALS' measure, and the call proves M(actuals) < M(current) — the
   // well-foundedness step that makes the ensures-assume below sound.
+  // V6 task 4: MUTUAL recursion — a call to another member of the
+  // caller's recursion clique (the driver prepass computed the cliques
+  // from the task set's call edges) proves the CALLEE's own measure
+  // `decreases(Mc)` evaluated at the rebound actuals, strictly below the
+  // caller's current measure. One measure per function, strictly
+  // decreasing at every clique edge, is sound without lexicographic
+  // tuples: an infinite call sequence would yield an infinite strictly
+  // descending chain in a well-founded order.
+  is_self_recursion := (fid == ctx.func_id);
+  walk_base_fid := match(
+    specialized_base_of(fid.clone()),
+    .Some(b) => b,
+    .None => fid
+  );
+  is_clique_recursion := (!is_self_recursion && _same_recursion_clique(ctx.func_id.clone(), walk_base_fid.clone()));
   m_current := Option(VcTerm).None;
-  if((fid == ctx.func_id) && ctx.decreases.is_some(), {
+  if((is_self_recursion || is_clique_recursion) && ctx.decreases.is_some(), {
     m_current = _expr_term(ctx, ctx.decreases.unwrap());
   });
-  if((fid == ctx.func_id) && m_current.is_none(), {
+  if((is_self_recursion || is_clique_recursion) && m_current.is_none(), {
     _fail_subset(ctx, String.from("recursion (requires decreases(...) in the signature)"), e);
+    return(Option(VcTerm).None);
+  });
+  callee_decreases := get_func_decreases_expr(fid.clone());
+  if(is_clique_recursion && callee_decreases.is_none(), {
+    _fail_subset(ctx, String.from("mutual recursion (the callee needs decreases(...) in its signature)"), e);
     return(Option(VcTerm).None);
   });
   (reqs : ArrayList(AstExpr)) = get_func_requires_exprs(fid.clone());
@@ -3528,12 +3742,26 @@ _callee_call_term :: (
     );
     i = (i + usize(1));
   });
-  if((fid == ctx.func_id) && m_current.is_some(), {
-    m_actual := _expr_term(ctx, ctx.decreases.unwrap());
+  if((is_self_recursion || is_clique_recursion) && m_current.is_some(), {
+    // SELF: my own measure re-evaluated over the rebound (actual)
+    // bindings. MUTUAL: the CALLEE's measure over its rebound params —
+    // the clique edge's decrease obligation.
+    step_measure_expr := match(
+      is_clique_recursion,
+      true => callee_decreases.clone(),
+      false => ctx.decreases.clone()
+    );
     match(
-      m_actual,
-      .Some(ma) => {
-        _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(VcOp.BvSlt, ma, m_current.unwrap()));
+      step_measure_expr,
+      .Some(dm) => {
+        m_actual := _expr_term(ctx, dm);
+        match(
+          m_actual,
+          .Some(ma) => {
+            _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(VcOp.BvSlt, ma, m_current.unwrap()));
+          },
+          .None => ()
+        );
       },
       .None => ()
     );
@@ -3845,5 +4073,6 @@ export(
   VcSubsetError,
   VcBodyResult,
   VerifyFnInput,
-  verify_function_body
+  verify_function_body,
+  register_recursion_cliques
 );

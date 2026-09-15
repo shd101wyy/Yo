@@ -1,0 +1,26 @@
+// The deliberately-wrong twin of mutual_recursion.yo: the clique edge
+// passes n UNCHANGED, so the decrease obligation (callee measure at the
+// actuals n < caller's current n) must REFUTE.
+pragma(Pragma.Verify);
+
+is_even_bad :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0)),
+    ensures((r == true) || (r == false)),
+    decreases(n)
+  ) -> (r : bool)
+)(
+  if(n == i32(0), true, is_odd_bad(n - i32(1)))
+);
+
+is_odd_bad :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0)),
+    ensures((r == true) || (r == false)),
+    decreases(n)
+  ) -> (r : bool)
+)(
+  if(n == i32(0), false, is_even_bad(n))
+);
