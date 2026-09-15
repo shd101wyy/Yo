@@ -42,8 +42,13 @@ register_extern_type_c_name :: (fn(name : String, c_name : String) -> unit)({
   });
   ()
 });
+/// Returns a CLONE: the pointer lowering appends `*` to the string it gets
+/// back IN PLACE, and handing out the registry's own String turned the
+/// stored spelling into `struct stat*` after the first use, so the next
+/// `*stat_buf` lowered to `struct stat**` (clang-22 rejects the mismatch;
+/// macOS clang only warned — the Windows arm64 leg of PR #703 caught it).
 extern_type_c_name :: (fn(name : String) -> String)(
-  match(g_extern_type_c_names.get(name.clone()), .Some(c) => c, .None => name)
+  match(g_extern_type_c_names.get(name.clone()), .Some(c) => c.clone(), .None => name)
 );
 // ---------------------------------------------------------------------------
 // c_include TYPE ADOPTION — "this Yo type IS the C type `Name` in <header>".

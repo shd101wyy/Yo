@@ -884,8 +884,10 @@ register_extern_c_global_alias :: (fn(yo_name : String, c_name : String, ty : Ty
 });
 /// The C symbol behind the extern-C global bound as `yo_name` — the recorded
 /// alias target, or `yo_name` itself when it was never renamed.
+/// Returns a CLONE (never the registry's own String — a caller that appends
+/// to it in place would corrupt the stored name; see `extern_type_c_name`).
 extern_c_global_c_name :: (fn(yo_name : String) -> String)(
-  match(g_extern_c_global_c_names.get(yo_name.clone()), .Some(c) => c, .None => yo_name)
+  match(g_extern_c_global_c_names.get(yo_name.clone()), .Some(c) => c.clone(), .None => yo_name)
 );
 /// Every declared type recorded for the extern-C global `name` (empty when
 /// the name was never declared). Consumers match a resolved binding against
