@@ -1373,6 +1373,71 @@ become real; the stdlib starts carrying executable specifications.
 > `mutual_recursion.yo` (even/odd proves) +
 > `mutual_recursion_false.yo` (the n-unchanged edge refutes);
 > `tests/internal/verifier_mutual.test.yo` 2/2. Tasks 3, 5, 6 remain.
+>
+> **Status: TASK 5 SLICE 1 — the `assumed()` marker + specified-only
+> registration (2026-09-15).** The open design decision (the 2026-09-15
+> handover §4.3: assumed-contracts vs a ptr-arithmetic heap model) is
+> resolved as **(a) assumed contracts** — the heap model stays parked
+> out of the subset, per the plan. Two mechanisms landed:
+>
+> 1. **`assumed()` — a zero-argument signature clause** (zone 6, after
+>    `decreases`; `BF_ASSUMED`): a CONTRACTED fn whose body is outside
+>    the verifiable subset (raw pointers, allocator calls) declares it;
+>    the verifier reports outcome `assumed` without walking the body,
+>    while its contracts still gate callers (the call-site machinery
+>    reads the FuncVal-id side tables, not the task — assumed tasks
+>    carry the RAW predicate exprs, and the diagnostic evaluation pass
+>    is skipped: it exists to feed the body walk, which assumed tasks
+>    never run, and generic signature predicates do not evaluate at def
+>    time anyway). Assumed tasks also register for DEFERRED (generic)
+>    bodies — nothing is walked, so the `should_defer_ft` gate does not
+>    apply. Validation: `assumed()` takes no arguments and REQUIRES at
+>    least one real contract clause (a naked marker is a signature
+>    error). Probe-validated on the ArrayList shape: a clause-carrying
+>    method on a GENERIC INHERENT impl evaluates cleanly and registers —
+>    the env-sharing corruption behind
+>    `issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
+>    is trait-entry-specific, as its variant table measured.
+> 2. **The contract-less subset degrade**: uncontracted fns KEEP
+>    registering — the AoRTE flagship (div-by-zero refutations on code
+>    nobody annotated, `bugged_div.yo`) survives intact — but a walk
+>    that fails the SUBSET on a contract-less fn (no
+>    requires/ensures/decreases, not `assumed()`) now degrades to the
+>    PASSING `outside-subset` outcome (with the construct as its note)
+>    instead of a subset ERROR: nothing was promised, the body is
+>    infrastructure (the dogfood's 121 raw-pointer methods). CONTRACTED
+>    fns keep failing loudly (a spec that cannot be honored must be
+>    heard — use `assumed()` for a subset-external body), and
+>    REFUTATIONS stay refutations whatever the contracts. Both exit
+>    policies (`yo verify` + the check/compile drain) treat `assumed`
+>    and `outside-subset` as passing. Fixture consequence:
+>    `subset_while.yo`'s `sum_to` gained `decreases(n)` so its subset
+>    error stays LOUD (an honest measure — it terminates — and it
+>    splices no runtime assert).
+>
+> **The generation split (measured, blocking the std annotations):** a
+> seed that predates the clause HARD-ERRORS on it — seed 0.2.33 rejects
+> `assumed()` as "parameter appears after requires(...)" in the zone
+> check, and every battery job evaluates `std/` with the SEED. So the
+> `std/collections` annotations + the `yo verify ./std/collections` CI
+> step CANNOT land in the mechanism's PR; they wait for a release whose
+> seed carries the clause (the `build.manifest` generation-A/B pattern,
+> `plans/backlog/SEED_VERSION_AUTOMATION.md`). Checklist for slice 2:
+> `pragma(Pragma.Verify)` at the top of `array_list.yo`/`hash_map.yo`,
+> bounds/len contracts + `assumed()` on the core ops (get/set/push/
+> insert/remove), the CI step, and an `issues/fixed/` write-up per real
+> bug the verifier surfaces at call sites.
+>
+> Tests: `tests/internal/verifier_assumed.test.yo` (5: assumed outcome +
+> caller proves through assumed contracts; assumed-callee requires still
+> refutes a violating caller with x = 0; the two signature errors; the
+> contract-less outside-subset degrade), fixtures `valid/assumed_body.yo`,
+> `valid/uncontracted_outside_subset.yo`,
+> `negative/assumed_caller_violates.yo`, `negative/assumed_with_arg.yo`,
+> `negative/assumed_naked.yo`; wired into the CI verify job. Exit
+> policies treat `assumed` and `outside-subset` as passing in both
+> `yo verify` and the check/compile integration. Tasks 3, 6, and task 5
+> slice 2 (the std annotations) remain.
 
 Tasks:
 

@@ -620,6 +620,24 @@ is_pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
 - One `requires(...)` and one `ensures(...)` max per signature; put
   multiple predicates inside the single call: `requires(a, b)`. Two
   `requires(...)` clauses, or a zero-arg `requires()`, is a syntax error.
+- **`assumed()` (V6 task 5):** a zero-argument signature clause (last,
+  after `decreases(...)`) for a CONTRACTED fn whose body is outside the
+  verifiable subset (raw pointers, allocator calls). The verifier
+  reports the fn as `assumed` without walking the body; its contracts
+  still gate callers (call sites prove its `requires` and assume its
+  `ensures`). At least one `requires`/`ensures`/`decreases` clause must
+  accompany it — a naked `assumed()` is a syntax error. Uncontracted
+  fns still register (unannotated code gets AoRTE checks), but a
+  subset-failing CONTRACT-LESS body reports the passing
+  `outside-subset` outcome instead of an error — contract your fn
+  (or `assumed()` it) to make its subset failures loud.
+
+```rust
+// A raw-pointer body cannot be walked — declare the contracts assumed.
+get :: (
+  fn(self : Self, index : usize, requires(index < self.len()), assumed()) -> (result : Option(T))
+)(/* raw-pointer reads */);
+```
 - **Trait-method contracts (V6 task 1):** an impl method's contracts are
   checked against the trait method's — `trait.requires ⇒ impl.requires`
   (contravariant: may weaken, never strengthen) and `impl.ensures ⇒

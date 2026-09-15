@@ -522,6 +522,14 @@ jobs:
           YO_TEST_LEAK_VERDICT: "0"
         run: yo test ./tests/internal/verifier_negative.test.yo --bail -v
 
+      # V6 task 5 (plans/backlog/FORMAL_VERIFICATION.md): the `assumed()`
+      # marker — contracts gate callers, subset-external bodies are not
+      # walked. Same in-process model as the negative-path step above.
+      - name: Verifier assumed-contract tests
+        env:
+          YO_TEST_LEAK_VERDICT: "0"
+        run: yo test ./tests/internal/verifier_assumed.test.yo --bail -v
+
       - name: yo verify harness report (JSON)
         run: |
           yo verify ./std/spec --format json | tee verify-report.json
