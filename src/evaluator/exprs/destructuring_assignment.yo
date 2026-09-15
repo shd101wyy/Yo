@@ -29,19 +29,23 @@ pragma(Pragma.AllowUnsafe);
   BK_TUPLE,
   make_err_expr
 } :: import("../../expr.yo");
-{ Environment, Variable, add_variable_to_env } :: import("../../env.yo");
+{ Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
 { EvalContext, record_module_member_read, sns_module_of } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 {
   RuntimeDestructuring,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  is_extern_c_module_id,
+  get_extern_c_global_type,
+  register_extern_c_global_alias
 } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type } :: import("../../types/guards.yo");
+{ is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { clone_value } :: import("../values/clone_value.yo");
 { Exception } :: import("std/error");
@@ -107,6 +111,82 @@ _record_destructured_read :: (fn(env : Environment, rhs_type : TypeValue, label 
     _ => ()
   );
 });
+/// The no-shadowing rule at a destructuring binding site — the same check
+/// `binding.yo` and `initialization_assignment.yo` run for an atom LHS (TS
+/// env.ts:644-658 ran it inside addVariableToEnv; yo-self keeps it at the
+/// user binding-introduction sites). Until 2026-09-15 the destructurer never
+/// ran it, so `{ a : b } :: m` onto an existing `b`, the same import twice,
+/// and a `c_include` re-declaring a Yo name were all silently accepted
+/// (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §1).
+_reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, exn : Exception) -> unit)({
+  if(var_name == String.from("__yo_self"), {
+    return(());
+  });
+  existing := get_variables_from_env(env, var_name.clone());
+  n := existing.len();
+  if(n == usize(0), {
+    return(());
+  });
+  match(
+    existing.get(n - usize(1)),
+    .Some(shadow_var) => {
+      sh_entries := ArrayList(TokenAndError).new();
+      sh_entries.push(
+        TokenAndError(
+          token : at,
+          error_message : `Failed to define variable "${var_name}":`
+        )
+      );
+      sh_entries.push(
+        TokenAndError(
+          token : shadow_var.token,
+          error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
+        )
+      );
+      exn.throw(dyn(format_error_messages(sh_entries)));
+    },
+    .None => ()
+  );
+});
+/// A field bound off a `c_include(...)` module value under a NEW name is an
+/// extern-C symbol behind a Yo alias. A function carries its C name on the
+/// type (`FuncMeta.extern_name`) and an opaque type on its SomeT, but a
+/// GLOBAL's C name lived only in the variable name — record the alias so
+/// codegen still emits `stdout` for `{ stdout : out } :: c_include(...)`
+/// (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
+_record_extern_c_alias :: (fn(rhs_type : TypeValue, label : String, var_name : String, ty : TypeValue) -> unit)({
+  if(var_name == label, {
+    return(());
+  });
+  match(
+    rhs_type,
+    .Struct({ id : sid, is_source_namespace : sns }) => if((sns && is_extern_c_module_id(sid.clone())) && get_extern_c_global_type(label.clone()).is_some(), {
+      register_extern_c_global_alias(var_name, label, ty);
+    }),
+    _ => ()
+  );
+});
+/// True when a `c_include` module field is an ADOPTED type — `Name : Type`
+/// where `Name` already names a Yo `struct`/`enum` in scope, meaning "this Yo
+/// type IS the C type of that name" (c_include.yo, `_adoptable_type_binding`;
+/// issues/fixed/c-include-cannot-express-a-by-value-c-struct.md). The field's
+/// value is that existing type itself, so destructuring it under its own name
+/// binds nothing: the binding it would create is the one that already exists,
+/// and re-creating it is exactly the shadowing the rule rejects.
+_is_adopted_extern_c_field :: (fn(rhs_type : TypeValue, fval_opt : Option(EvalValue)) -> bool)(
+  match(
+    rhs_type,
+    .Struct({ id : sid, is_source_namespace : sns }) => (
+      (sns && is_extern_c_module_id(sid.clone())) &&
+        match(
+          fval_opt,
+          .Some(fv) => match(fv, .TypeVal(t) => get_adopted_extern_c_type(t).is_some(), _ => false),
+          .None => false
+        )
+    ),
+    _ => false
+  )
+);
 /// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
 /// Returns `.None` when not found.
 _find_field_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({
@@ -279,7 +359,9 @@ handle_member_destructuring :: (
               )
             );
           });
-          {
+          // An adopted C type is already bound under this name — leave it.
+          if(!_is_adopted_extern_c_field(rhs_type, fval_opt), {
+            _reject_shadowing(env, flab.clone(), ast_expr_token(lhs_field), exn);
             add_variable_to_env(
               env,
               flab.clone(),
@@ -294,7 +376,7 @@ handle_member_destructuring :: (
               // is_implicit
               ast_expr_token(lhs_field)
             );
-          };
+          });
         });
         j = (j + usize(1));
       });
@@ -488,28 +570,35 @@ handle_member_destructuring :: (
               )
             );
           });
-          added_var_opt := add_variable_to_env(
-            env,
-            var_name.clone(),
-            rhs_field_type,
-            match(field_value_opt, .Some(fv) => Option(EvalValue).Some(clone_value(fv, true)), .None => Option(EvalValue).None),
-            is_compile_time_only,
-            false,
-            // is_reassignable
-            false,
-            // is_owning_the_rc_value (stub)
-            false,
-            // is_implicit
-            ast_expr_token(var_tok_expr)
-          );
-          // Patch is_created_from_destructuring_atom_variable.
-          match(
-            added_var_opt,
-            .Some(added_var) => {
-              added_var.is_created_from_destructuring_atom_variable = is_destructuring_atom_variable;
-            },
-            .None => ()
-          );
+          // An adopted C type selected under its own name is already bound —
+          // leave it; under a NEW name it is an ordinary alias of the type.
+          adopted_in_place := (_is_adopted_extern_c_field(rhs_type, field_value_opt) && (var_name == rhs_field_label));
+          if(!adopted_in_place, {
+            _reject_shadowing(env, var_name.clone(), ast_expr_token(var_tok_expr), exn);
+            _record_extern_c_alias(rhs_type, rhs_field_label.clone(), var_name.clone(), rhs_field_type);
+            added_var_opt := add_variable_to_env(
+              env,
+              var_name.clone(),
+              rhs_field_type,
+              match(field_value_opt, .Some(fv) => Option(EvalValue).Some(clone_value(fv, true)), .None => Option(EvalValue).None),
+              is_compile_time_only,
+              false,
+              // is_reassignable
+              false,
+              // is_owning_the_rc_value (stub)
+              false,
+              // is_implicit
+              ast_expr_token(var_tok_expr)
+            );
+            // Patch is_created_from_destructuring_atom_variable.
+            match(
+              added_var_opt,
+              .Some(added_var) => {
+                added_var.is_created_from_destructuring_atom_variable = is_destructuring_atom_variable;
+              },
+              .None => ()
+            );
+          });
           // Record ExprInfo on the lhs field.
           lf_info := new_expr_info(env, rhs_field_type);
           lf_info.value = field_value_opt;

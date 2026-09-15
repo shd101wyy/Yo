@@ -111,6 +111,22 @@ evaluate_comptime_expect_error :: (
   // (the algebraic_effects batch FTT). Restore env frame depth + the ctx
   // mode fields after the arg eval, success or throw.
   saved_frames_len := env.frames.len();
+  // Snapshot the frame LIST OBJECT too. The evaluator threads envs by
+  // reassigning `env.frames = <ExprInfo>.env.frames` after a sub-evaluation
+  // (initialization_assignment.yo's typed-binding path among others), and
+  // the list it adopts can be one the PRELUDE env shares — the prelude's own
+  // evaluation performed the same reassignment, so a prelude node's recorded
+  // frame list IS `g_cached_prelude_env.frames`, and an inline builtin
+  // (`i32(0)`) hands its prelude body node back as the evaluated RHS. When
+  // the expected throw then unwinds, the re-push below appended this
+  // module's saved MODULE FRAME into the prelude's list, and every module
+  // demand-loaded afterwards (`mm_fresh_module_env` clones that env) saw the
+  // entry module's bindings: the destructurer's no-shadowing rule rejected
+  // std/async's `{ assert } :: import("../assert")` against the test file's
+  // own `assert` (measured on `comptime_expect_error((p : *(i32)) = i32(0))`
+  // followed by `import("std/async")`). Restoring the depth is not enough;
+  // the depth has to be restored ON THE ORIGINAL LIST.
+  saved_frames_list := env.frames;
   // Snapshot the FRAME OBJECTS, not just the depth. The expected throw can
   // unwind past a `pop_frame` and leave the env SHORTER than it started —
   // measured on `cee(begin((p : *(i32)) = i32(0), ()))`: 3 frames in, 2 out,
@@ -201,6 +217,7 @@ evaluate_comptime_expect_error :: (
   saved_depths := forcing_depths();
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
   truncate_forcing_depths(saved_depths);
+  env.frames = saved_frames_list;
   set_propagate_def_time_errors(false);
   ctx.is_executing = saved_is_executing;
   ctx.is_validating_function_definition = saved_is_validating;

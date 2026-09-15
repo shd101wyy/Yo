@@ -78,7 +78,7 @@ mark_uses_tls :: (fn() -> unit)({
   g_uses_tls = true;
 });
 get_uses_tls :: (fn() -> bool)(g_uses_tls);
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_ADDRESS_OF,
@@ -1694,7 +1694,11 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
             .None => false
           );
           is_extern_c := (is_extern_c_fn || is_extern_c_glob);
-          var_name := sanitize_for_c_identifier(variable.name.clone(), is_extern_c);
+          // A global bound under a Yo alias (`{ stdout : out } :: c_include(...)`)
+          // is emitted by its C symbol, not by the alias
+          // (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
+          c_symbol := if(is_extern_c_glob, extern_c_global_c_name(variable.name.clone()), variable.name.clone());
+          var_name := sanitize_for_c_identifier(c_symbol, is_extern_c);
           // A generated fn_* name shadowing a local → prefer the original name.
           if((var_name != variable_name) && var_name.starts_with(String.from("fn_yo_id_")), {
             return(sanitize_for_c_identifier(variable_name.clone(), false));

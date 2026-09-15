@@ -622,6 +622,10 @@ len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
 
 `asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
 
+### `c_include(...)` / `extern(...)` are module values
+
+Both evaluate to a module value (a source-namespace struct, like `import(...)`), so their names enter scope only through a binding — `c :: c_include(...)` then `c.fputs(...)`, `{ strlen : c_strlen } :: c_include(...)` (select + rename), or the glob `{ ... } :: c_include(...)`. A bare statement `c_include(...);` / `extern("Yo", …);` is parse-time sugar for the glob, so the existing declaration style keeps working and is what `std/` and `src/` must keep using until the seed carries the feature. Destructuring runs the no-shadowing rule, so a declared name that is already in scope is an error whichever came first: qualify or rename. User docs: `docs/en-US/FFI.md`; design: `plans/C_INCLUDE_EXTERN_MODULE_VALUE.md`.
+
 ### `*T(x)` is NOT a pointer cast — write `(*T)(x)`
 
 A bare prefix operator binds ONE postfix expression, and a call is one postfix

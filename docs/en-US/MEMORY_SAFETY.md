@@ -228,6 +228,8 @@ User code cannot declare `extern(...)` or `c_include(...)`. To call a C function
 1. **Preferred:** call an existing stdlib wrapper (`std/sys/*`, `std/fs`, `std/libc/*`, `std/net`, etc.).
 2. **If no wrapper exists:** create a new file with `pragma(Pragma.AllowUnsafe);`, declare the extern there, wrap each call site in `unsafe(...)`, and treat the file as part of your project's trusted base.
 
+Both declaration forms evaluate to a module value — bind it, select or rename members, or take the glob; a bare declaration statement is the glob. See [FFI.md](FFI.md).
+
 ```rust
 // my_ffi.yo
 pragma(Pragma.AllowUnsafe);
