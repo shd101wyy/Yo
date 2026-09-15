@@ -34,13 +34,9 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 { hash_one } :: import("std/hash");
 { cwd } :: import("std/env");
-// Pointer-identity builtin — `expr_info_paths_for_write` uses it to detect the
-// SHARED empty PathCollection before a push (same local-extern pattern as
-// env.yo / std/string/string.yo).
-extern(
-  "Yo",
-  __yo_ptr_eq : (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool)
-);
+// `expr_info_paths_for_write` detects the SHARED empty PathCollection before a
+// push with the prelude's pointer-identity builtin `__yo_ptr_eq` (the same
+// direct call as env.yo / std/string/string.yo).
 { TypeValue } :: import("./types/definitions.yo");
 { get_all_some_types } :: import("./types/utils.yo");
 { is_some_type } :: import("./types/guards.yo");
