@@ -1,7 +1,18 @@
 # The live TLS/HTTP tests turn a runner DNS outage into a red battery
 
-**Status:** open
-**Found:** 2026-09-15, on PR #695 and PR #692 simultaneously
+**Status:** open — **THREE occurrences in one day; now repeatedly blocking the merge queue**
+**Found:** 2026-09-15, on PR #695 and PR #692 simultaneously; again on PR #697
+
+| PR | leg | test | result |
+| --- | --- | --- | --- |
+| #692 | `test (macos-26-intel)` | `live TLS fetch of example.com` | 1238 passed / 1 failed |
+| #695 | `test (macos-26-intel)` | `live TLS fetch of example.com` | 1238 passed / 1 failed |
+| #697 | `test (macos-26-intel)` | `fetch over https returns a real response` | 1897 passed / 1 failed |
+
+The third hit the `tests/http/http.test.yo:137` twin rather than the TLS one,
+confirming the defect is the SHARED classification logic and not one test: both
+gate on `env.get("CI").is_some()` alone and both see the error only as a
+rendered string. Each occurrence costs a full rerun of an ~80-minute leg.
 
 ## Symptom
 
