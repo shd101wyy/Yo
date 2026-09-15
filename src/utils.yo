@@ -247,6 +247,18 @@ _stable_id_module_stem :: (fn(module_path : String) -> String)({
 /// The next 0-based occurrence index for `key`. Keys are caller-composed:
 /// `<module>:<row>:<column>` where a source position exists, a semantic key
 /// (`<module>:dup:<var>`) where one does not.
+/// Reset ALL occurrence counters. Called at the start of every in-process
+/// compile (`run_compile`): the ids these counters shape must be a function
+/// of (source, position, mint-order-within-this-compile), never of how many
+/// compiles ran before — a second compile of the SAME source must mint the
+/// SAME ids or its emission can never be byte-identical to the first
+/// (Phase 4 §7's warm gate; measured: an `array_list` fixture's second
+/// in-process compile emitted different `__yo_t_*` ids purely from advanced
+/// counters).
+stable_occurrence_reset :: (fn() -> unit)({
+  g_stable_occurrence = HashMap(String, usize).new();
+  ()
+});
 stable_occurrence_key :: (fn(key : String) -> usize)({
   next := match(
     g_stable_occurrence.get(key),
@@ -364,6 +376,7 @@ export(
   stable_func_id,
   stable_module_id,
   stable_sns_module_id,
+  stable_occurrence_reset,
   fnv1a64,
   _stable_id_module_stem
 );

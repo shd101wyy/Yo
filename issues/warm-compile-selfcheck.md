@@ -13,13 +13,33 @@ markers in the warm emission; exit 0 only when both hold.
 explicit PASS/FAIL expectation per fixture (a ratchet: when a known-red
 fixture goes green it moves columns and the script starts enforcing it).
 
-## Measured baseline (2026-09-15, WSL2 box, develop + the harness)
+## Measured baseline (CORRECTED 2026-09-15, seed v0.2.33 box, true warm state)
+
+The first published numbers were measured through three harness bugs, fixed
+in the same pass:
+
+1. **`mm_reset()` at the end of pass 1** dropped the module cache, the
+   prelude env AND the shared table — pass 2 was never warm. Now gated on
+   `!warm_reuse`.
+2. **Stale output files**: a pass that died before emitting left the
+   PREVIOUS run's `.c` in place, and the comparison silently read it. The
+   orchestrator now removes both outputs first (existence-guarded — an
+   unwind-swallow handler for the removal silently ABORTED the whole
+   orchestrator, `unwind` discards its continuation: rc=0 with no output at
+   all) and fails loudly when a pass emits nothing.
+3. **Occurrence-counter churn**: `g_stable_occurrence` is process-global and
+   never reset, so any second in-process compile minted different ordinals —
+   ids must be a function of (source, position, mint-order-WITHIN-this-
+   compile). `stable_occurrence_reset()` now runs at the start of EVERY
+   compile.
+
+True-warm baseline with all three fixed:
 
 | fixture | verdict |
 | --- | --- |
-| no std imports (`main` only) | **PASSES** — byte-identical, 0 FTT, and pass 2 = **0 ms** vs 1656 ms cold: the resident-evaluator payoff, already real for std-free inputs |
-| `std/collections/array_list` | FAILS — no FTT, but the C diverges (63872 vs 63386 bytes) |
-| `std/string` + `std/fmt` + `array_list` | FAILS — the warm pass THROWS in the evaluator while re-importing `std/string` |
+| no std imports (`main` only) | **PASSES** — byte-identical, 0 FTT |
+| `std/collections/array_list` | FAILS — C diverges (63891 vs 57343 bytes) AND `ftt_pass2=1`: the historical "Failed to transpile" class reappears under true warm state |
+| `std/string` + `std/fmt` + `array_list` | FAILS — the warm pass fails re-importing `std/string` (E0605 through the cached-module path) |
 
 ## The failure modes to fix (in order)
 
@@ -41,10 +61,11 @@ fixture goes green it moves columns and the script starts enforcing it).
    RESOLUTION ordering. Fixing this needs per-definition ExprInfo/function
    registry ownership (§7 step 1's owner-tagged purges) so both passes emit
    from the same resolved identities.
-3. **FTT markers**: none observed on these fixtures yet (the historical 47
-   came from cached-module ASTs whose table was discarded; the harness
-   KEEPS the table, so this class is already dodged — the registries and
-   identities are the remaining surface).
+3. **FTT markers**: `ftt_pass2=1` on the array_list fixture under true warm
+   state — exactly the historical class (codegen finding no/broken info for
+   a node), now reproducible on demand by the gate. The failure-modes order
+   stands: identity first (it blocks half the battery), then the
+   owner-tagged purge work this FTT belongs to.
 
 ## Why this shape
 
