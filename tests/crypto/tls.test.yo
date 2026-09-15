@@ -15,7 +15,8 @@ pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { TlsStream, TlsError, tls_available } :: import("std/crypto/tls");
-{ Exception, IoExn } :: import("std/error");
+{ Exception, IoExn, AnyError } :: import("std/error");
+{ NetError } :: import("std/net/errors");
 { arch, Arch } :: import("std/process");
 { env } :: import("std/env");
 /// True where a TLS failure is a REAL failure rather than "this box has no
@@ -24,6 +25,24 @@ pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 /// A capture-free `->` handler may not read a runtime local, but it CAN call
 /// a module-level binding (#396), which is why this is a module-level fn.
 _network_required :: (fn() -> bool)(env.get("CI").is_some());
+/// True when the throw is a name-RESOLUTION failure rather than anything the
+/// TLS backend did. `std/net/dns.yo` throws `dyn(NetError.DNSFailed(host))`, so
+/// the variant is recoverable through `downcast` — we do NOT read the rendered
+/// English, which D1 rules out for exactly this kind of decision.
+///
+/// This is the one failure mode that means "no egress" even under CI: a runner
+/// that cannot resolve a name has told us nothing about the backend, and
+/// resolution happens BEFORE any handshake, so a broken backend can never
+/// produce it. Every other error stays fatal under CI, which is what keeps the
+/// anti-vacuity property from
+/// issues/fixed/live-tls-tests-pass-vacuously-when-the-handshake-fails.md.
+_is_dns_failure :: (fn(err : AnyError) -> bool)(
+  match(
+    downcast(err, NetError),
+    .Some(ne) => match(ne, .DNSFailed => true, _ => false),
+    .None => false
+  )
+);
 
 test("TlsError renders each variant", {
   a := TlsError.Connect(host : `example.com`.to_string());
@@ -46,6 +65,32 @@ test("a TLS backend is present wherever one can be", {
     true => assert(true, "not CI: no TLS backend is promised on this box")
   );
 });
+test("a DNS failure is classified apart from a backend failure", {
+  // Network-free and deterministic. This is what keeps the CI skip honest in
+  // BOTH directions: a resolver outage must skip, and everything else must
+  // stay fatal. Without it the classifier could quietly start returning true
+  // for every error and the live test would pass vacuously again — the exact
+  // regression issues/fixed/live-tls-tests-pass-vacuously-when-the-handshake-fails.md
+  // was filed for.
+  //
+  // The positive case is the EXACT value std/net/dns.yo:76 throws.
+  assert(
+    _is_dns_failure(dyn(NetError.DNSFailed(msg : `example.com`.to_string()))),
+    "a DNSFailed throw is a resolution failure"
+  );
+  assert(
+    !_is_dns_failure(dyn(NetError.ConnectionRefused)),
+    "a refused connection is NOT a resolution failure"
+  );
+  assert(
+    !_is_dns_failure(dyn(NetError.Other(msg : `boom`.to_string()))),
+    "an Other error is NOT a resolution failure"
+  );
+  assert(
+    !_is_dns_failure(dyn(TlsError.Handshake(detail : `bad cert`.to_string()))),
+    "a handshake failure is NOT a resolution failure — it must stay fatal under CI"
+  );
+});
 test("live TLS fetch of example.com (mandatory under CI)", {
   // A box with no egress SKIPS; under CI a failure is a FAILURE. The old
   // handler unwound out of the test body on EVERY error, so the trailing
@@ -58,7 +103,7 @@ test("live TLS fetch of example.com (mandatory under CI)", {
       err -> {
         detail := err.to_string();
         cond(
-          _network_required() => {
+          (_network_required() && !_is_dns_failure(err)) => {
             // eprintln, not a buffered println: the panic below aborts the
             // test child and a buffered line would be lost with it.
             eprintln(`  TLS FAILED where the network is required: ${detail}`);
