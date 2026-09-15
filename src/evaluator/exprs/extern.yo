@@ -1,4 +1,9 @@
-//! evaluate_extern — handles `extern "yo" { ... }` and `extern "c" { ... }`.
+//! evaluate_extern — handles `extern("Yo", ...)` and `extern("c", ...)`.
+//!
+//! An `extern(...)` call evaluates to a MODULE VALUE, exactly like
+//! `c_include(...)` (see c_include.yo's header): bind it, destructure it, or
+//! write it as a bare statement, which the parser desugars to the glob
+//! `{ ... } :: extern(...)`. plans/C_INCLUDE_EXTERN_MODULE_VALUE.md.
 //!
 //! 1:1 port of `src/evaluator/exprs/extern.ts` (201 lines).
 //!
@@ -21,7 +26,8 @@ pragma(Pragma.AllowUnsafe);
   BK_EXTERN
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../env.yo");
+{ stable_module_id, fnv1a64 } :: import("../../utils.yo");
+{ Environment, Frame, new_frame, add_variable_to_env, invalidate_frame_index } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
@@ -149,9 +155,16 @@ User code should normally call stdlib wrappers (e.g. functions in
   });
   // `language` is stamped onto each function field type below (is_extern),
   // so the extern-call `unsafe(...)` gate can identify FFI call sites.
-  // Iterate over the field declarations.
+  // Iterate over the field declarations, binding each in the CURRENT frame
+  // so a later field can name an earlier one; the bindings are removed again
+  // afterwards and the collected labels / types / values become the module
+  // value. (Not a pushed scratch frame — see c_include.yo: a generic
+  // parameter's SomeT is keyed on its frame level.)
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
+  field_vals := ArrayList(EvalValue).new();
+  (scratch_frame : Frame) = match(env.frames.get(env.frames.len() - usize(1)), .Some(f) => f, .None => new_frame(false));
+  scratch_base := scratch_frame.variables.len();
   (args_idx : usize) = field_start;
   (field_idx : usize) = usize(0);
   while(args_idx < all_args.len(), {
@@ -236,12 +249,15 @@ User code should normally call stdlib wrappers (e.g. functions in
     env.module_path = result.env.module_path;
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
     env.input_string = result.env.input_string;
-    // Add field variable to env (compile-time only, unknown value placeholder).
+    field_val := create_unknown_val_with_name(field_ty_with_extern, result.label.clone());
+    field_vals.push(field_val);
+    // Bind the field so the remaining field declarations can refer to it
+    // (compile-time only, unknown value placeholder); removed below.
     _var_opt := add_variable_to_env(
       env,
       result.label.clone(),
       field_ty_with_extern,
-      Option(EvalValue).Some(create_unknown_val_with_name(field_ty_with_extern, result.label.clone())),
+      Option(EvalValue).Some(field_val),
       true,
       // is_compile_time_only
       false,
@@ -262,13 +278,37 @@ User code should normally call stdlib wrappers (e.g. functions in
     args_idx = (args_idx + usize(1));
     field_idx = (field_idx + usize(1));
   });
-  // Store UnitVal result on the extern expression.
-  unit_info := new_expr_info(env, t_unit());
-  unit_info.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
+  if(scratch_frame.variables.len() > scratch_base, {
+    scratch_frame.variables.truncate(scratch_base);
+    invalidate_frame_index(scratch_frame);
+  });
+  // The module value — see c_include.yo for the id scheme. An `extern`
+  // module is not recorded as a c_include module: its globals are not
+  // extern-C globals (no header, no reserved-name exemption).
+  sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(env.module_path.clone()).to_string()}_`, env.module_path.clone());
+  module_type := TypeValue.Struct(
+    sns_id.clone(),
+    String.from(""),
+    field_labels.clone(),
+    field_types,
+    false,
+    // is_reference_semantics
+    false,
+    // is_atomic_rc
+    false,
+    // is_newtype
+    String.from(""),
+    // constructor_func_id
+    ArrayList(TypeValue).new(),
+    // type_arguments
+    true // is_source_namespace
+  );
+  mod_info := new_expr_info(env, module_type);
+  mod_info.value = .Some(EvalValue.StructVal(sns_id, field_labels, field_vals));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), mod_info);
   // Annotate callee (the "extern" func node) with same info.
   callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), unit_info);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), mod_info);
   expr
 });
 export(evaluate_extern);

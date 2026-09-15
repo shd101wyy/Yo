@@ -1,4 +1,12 @@
-//! evaluate_c_include — handles `c_include "<stdio.h>" { ... }` declarations.
+//! evaluate_c_include — handles `c_include("<stdio.h>", ...)` declarations.
+//!
+//! A `c_include(...)` call evaluates to a MODULE VALUE — the same
+//! source-namespace struct an `import(...)` yields — so its names enter scope
+//! only through a binding: `c :: c_include(...)` (qualified `c.printf`),
+//! `{ printf, stdout : out } :: c_include(...)` (selective, renamed), or the
+//! glob `{ ... } :: c_include(...)`, which is what a bare statement-position
+//! `c_include(...)` desugars to at parse time (`_wrap_glob_destructure`,
+//! src/expr.yo). plans/C_INCLUDE_EXTERN_MODULE_VALUE.md.
 //!
 //! 1:1 port of `src/evaluator/exprs/c-include.ts` (189 lines).
 //!
@@ -22,8 +30,9 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of,
   BK_C_INCLUDE
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_set, expr_info_table_get, register_extern_c_global } :: import("../../expr_info.yo");
-{ Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get, register_extern_c_global, register_extern_c_module_id } :: import("../../expr_info.yo");
+{ stable_module_id, fnv1a64 } :: import("../../utils.yo");
+{ Environment, Frame, new_frame, add_variable_to_env, get_variables_from_env, invalidate_frame_index } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { is_function_type } :: import("../../types/guards.yo");
@@ -186,9 +195,20 @@ User code should normally call stdlib wrappers (e.g. functions in
       )
     );
   });
-  // Iterate over the field declarations (args[1..]).
+  // Iterate over the field declarations (args[1..]). Each field is bound in
+  // the CURRENT frame while the list is walked, so a later field can name an
+  // earlier one (`FILE : Type, stdin : *FILE`); those bindings are removed
+  // again afterwards and the collected labels / types / values become the
+  // module value. Nothing stays in the caller's scope. The current frame, not
+  // a pushed scratch frame: a generic parameter's SomeT is keyed on its frame
+  // LEVEL, so a field type evaluated one frame deeper stopped unifying with
+  // the identical type written at module level (`Io.async : (fn(generic(T, E),
+  // …))` against `extern("Yo", __yo_io_async : (fn(generic(T, E), …)))`).
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
+  field_vals := ArrayList(EvalValue).new();
+  (scratch_frame : Frame) = match(env.frames.get(env.frames.len() - usize(1)), .Some(f) => f, .None => new_frame(false));
+  scratch_base := scratch_frame.variables.len();
   (args_idx : usize) = usize(1);
   (field_idx : usize) = usize(0);
   while(args_idx < all_args.len(), {
@@ -336,7 +356,9 @@ User code should normally call stdlib wrappers (e.g. functions in
         true => create_runtime_unknown_val_with_name(field_ty_with_extern, result.label.clone())
       )
     );
-    // Add field variable to env (compile-time only, unknown value placeholder).
+    field_vals.push(field_val);
+    // Bind the field so the remaining field declarations can refer to it
+    // (compile-time only, unknown value placeholder); removed below.
     _var_opt := add_variable_to_env(
       env,
       result.label.clone(),
@@ -361,13 +383,47 @@ User code should normally call stdlib wrappers (e.g. functions in
     args_idx = (args_idx + usize(1));
     field_idx = (field_idx + usize(1));
   });
-  // Store UnitVal result on the c_include expression.
-  unit_info := new_expr_info(env, t_unit());
-  unit_info.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
+  // Remove the field bindings again. A shrunk frame violates the name
+  // index's append-only contract, so drop the index (the same idiom as
+  // comptime_expect_error's frame restore and the pending-def reset).
+  if(scratch_frame.variables.len() > scratch_base, {
+    scratch_frame.variables.truncate(scratch_base);
+    invalidate_frame_index(scratch_frame);
+  });
+  // The module value: a source-namespace struct, exactly the shape an
+  // `import(...)` produces (anonymous_module.yo), so destructuring, property
+  // access and the glob all work unchanged. The id is `source_namespace_`-
+  // prefixed (that prefix is how a StructVal is recognised as a module) under
+  // a distinct `extern_` marker so it never collides with the enclosing
+  // module's own id, and it is deliberately NOT registered in `g_sns_module`:
+  // there is no module on disk to attribute member reads to. It IS recorded
+  // as a c_include module so the destructurer can alias a renamed global to
+  // its C symbol (expr_info.yo, plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
+  sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(env.module_path.clone()).to_string()}_`, env.module_path.clone());
+  register_extern_c_module_id(sns_id.clone());
+  module_type := TypeValue.Struct(
+    sns_id.clone(),
+    String.from(""),
+    field_labels.clone(),
+    field_types,
+    false,
+    // is_reference_semantics
+    false,
+    // is_atomic_rc
+    false,
+    // is_newtype
+    String.from(""),
+    // constructor_func_id
+    ArrayList(TypeValue).new(),
+    // type_arguments
+    true // is_source_namespace
+  );
+  mod_info := new_expr_info(env, module_type);
+  mod_info.value = .Some(EvalValue.StructVal(sns_id, field_labels, field_vals));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), mod_info);
   // Annotate callee (the "c_include" func node) with same info.
   callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), unit_info);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), mod_info);
   expr
 });
 export(evaluate_c_include);
