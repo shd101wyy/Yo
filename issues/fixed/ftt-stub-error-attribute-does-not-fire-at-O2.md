@@ -92,7 +92,7 @@ compiler, PASS after.
 - The **address-taken live stub in `tests/http` batch 102** is a genuine
   swallowed exception-handler body that nothing reports today. It is now loud if
   reached, but it should not exist — filed as
-  `issues/ftt-stub-installed-as-an-exception-handler-in-tests-http.md`.
+  `issues/fixed/ftt-stub-installed-as-an-exception-handler-in-tests-http.md`.
 - `yo check` still cannot see any of this: the marker is a codegen artifact and
   `check` never runs codegen. A `check`-visible signal would need the evaluator
   to record swallowed def-time body failures.

@@ -145,8 +145,8 @@ free, not deleting the alloc.
   `aligned_free` did not exist.
 
 The Windows leg is the one that matters for the corruption, and it is also the
-riskiest to bring up — see `issues/retired-windows-vcpkg-capability.md` and
-`issues/windows-no-main-worker-stack-rc139.md` for the live hazards there. Do
+riskiest to bring up — see `issues/retired/retired-windows-vcpkg-capability.md` and
+`issues/fixed/windows-no-main-worker-stack-rc139.md` for the live hazards there. Do
 not skip the test on Windows: the whole point is that the Windows leg is the
 broken one.
 

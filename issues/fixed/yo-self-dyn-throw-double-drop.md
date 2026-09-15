@@ -597,7 +597,7 @@ work (the memory-corruption era is over; what remains is a behavioral
 self-hosting gap). Next: capture the error message (rerun in flight) and
 fix the divergence; then the fixpoint diff.
 
-Separate finding filed: issues/yo-self-ctor-arg-move-vs-dup.md (ctor RC
+Separate finding filed: issues/fixed/yo-self-ctor-arg-move-vs-dup.md (ctor RC
 arg: TS moves, yo-self dups — a +1 leak class, not a UAF).
 
 ### Round-7 RESOLVED AS: NOT a bug — jetsam OOM (rc=137) in the codegen phase
@@ -612,7 +612,7 @@ box (s1 completes the same compile at ~9-10 GB).
 
 So the memory-corruption era is fully closed and what remains is the OLD
 footprint-gap class: s2 under-frees vs s1. PRIME SUSPECT (filed):
-issues/yo-self-ctor-arg-move-vs-dup.md — yo-self dups struct-ctor RC args
+issues/fixed/yo-self-ctor-arg-move-vs-dup.md — yo-self dups struct-ctor RC args
 where TS moves them (+1 leak per construction; compiler workloads construct
 millions). Mitigation for the fixpoint NOW: `YO_GC_FULL_PCT=130` bounds
 peak memory at the cost of time (per the 2026-07-13 notes) — a bounded run

@@ -35,7 +35,7 @@ the fix cannot reach that job yet:
 > This has now bitten twice (v0.2.2 and v0.2.3); treat it as the default
 > assumption whenever a self-hosted CI arm disagrees with a local build.
 
-The blocker itself is `issues/self-built-compiler-uaf-in-report-and-build-paths.md`
+The blocker itself is `issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md`
 (a binding lowered into an async state-machine slot skipped its deferred dup
 while the slot's drop was still emitted — net −1 per binding). Note the first
 diagnosis of that bug was **wrong** and the wrong fix shipped in v0.2.3; the
@@ -178,7 +178,7 @@ markdown-it fixtures green) supplies `markdown_to_html` by SOURCE import to
 `render_html_assets.yo`, script-extracted verbatim). The TS side keeps the
 npm WASM. `tests/cli-cases/doc-html` PASSES byte-identical, and
 doc-json/doc-markdown stay green with the vendored library in the build.
-Open follow-up: `issues/doc-builder-generic-signature-divergence.md`
+Open follow-up: `issues/fixed/doc-builder-generic-signature-divergence.md`
 (builder-level, all formats, predates html).
 
 ## 2.4 — TS-only test inventory (23 files, ~9,000 lines)

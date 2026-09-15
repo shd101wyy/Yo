@@ -61,7 +61,7 @@
   BF_YO_ARRAY_INDEX
 } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_enum_type, is_primitive_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_enum_type, is_primitive_type, is_unit_type, is_f32_type, is_f64_type } :: import("../../types/guards.yo");
 { is_target_windows } :: import("../../target.yo");
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -90,6 +90,42 @@ _binop :: (fn(args : ArrayList(String), op : str) -> String)({
   out.push_string(rhs);
   out.push_str("))");
   out
+});
+/// `<fn>((a), (b))` — a two-argument C call, with `_binop`'s degraded render.
+_callop2 :: (fn(args : ArrayList(String), fname : str) -> String)({
+  lhs := _a(args, usize(0));
+  rhs := _a(args, usize(1));
+  if((lhs.len() == usize(0)) || (rhs.len() == usize(0)) || (lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile")), {
+    return(`// Failed to transpile ${fname}((${lhs}), (${rhs}))`);
+  });
+  out := String.from(fname);
+  out.push_str("((");
+  out.push_string(lhs);
+  out.push_str("), (");
+  out.push_string(rhs);
+  out.push_str("))");
+  out
+});
+/// `%` — C's `%` for integers, `fmod`/`fmodf` for floats.
+///
+/// C's `%` is defined for INTEGER operands only, so a float pair emitted as
+/// `(a) % (b)` is a hard C error ("invalid operands to binary expression")
+/// that surfaces long after `yo check` reported the file fine, naming a
+/// generated temporary rather than the user's source
+/// (issues/fixed/stddoc-coll-float-modulo-emits-invalid-c.md).
+///
+/// Rust implements `Rem` for `f64`/`f32` as `fmod`, which is the house
+/// precedent, and it is what `std/math.yo`'s `rem_euclid` doc comment already
+/// claimed `%` meant for floats. `<math.h>` is added unconditionally by
+/// `codegen_c.yo`, so the declaration is always in scope — no `add_c_include`
+/// from here, which would be a silent no-op this late in emission anyway.
+_mod_op :: (fn(args : ArrayList(String), expr : AstExpr, context : FunctionGenerationContext) -> String)({
+  ty := ei_ty(expr, context);
+  cond(
+    is_f32_type(ty) => _callop2(args, "fmodf"),
+    is_f64_type(ty) => _callop2(args, "fmod"),
+    true => _binop(args, "%")
+  )
 });
 /// `(<op>(a))` — prefix unary.
 _unop :: (fn(args : ArrayList(String), op : str) -> String)({
@@ -185,7 +221,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     (function_name == BF_YO_OP_SUB) => _binop(args, "-"),
     (function_name == BF_YO_OP_MUL) => _binop(args, "*"),
     (function_name == BF_YO_OP_DIV) => _binop(args, "/"),
-    (function_name == BF_YO_OP_MOD) => _binop(args, "%"),
+    (function_name == BF_YO_OP_MOD) => _mod_op(args, expr, context),
     (function_name == BF_YO_OP_NEG) => _unop_narrowed(args, "-", expr, context),
     (function_name == BF_YO_OP_EQ) => _binop(args, "=="),
     (function_name == BF_YO_OP_NEQ) => _binop(args, "!="),

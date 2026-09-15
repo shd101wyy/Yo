@@ -1,6 +1,30 @@
 # `IpAddr.parse_v4` accepts empty octets and leading zeros, and WRAPS on overflow into a wrong address
 
-**Status: OPEN.** **Class**: wrong-value — a caller can bind or connect to an
+**Status: RETIRED 2026-09-14 — DUPLICATE, and the defect is FIXED.** This was
+the ORIGINAL filing (2026-09-04). The fix landed 2026-09-06 under a different
+filename, `issues/fixed/ipaddr-parse-v4-accepts-empty-and-wrapping-octets.md`,
+which is the record — it carries the wrong-value table, the fix and the
+regression tests. This filing was never closed, so the bug stayed on the open
+list for eight days after it was fixed.
+
+Verified fixed 2026-09-14 against a tree-built compiler, every shape this doc
+named:
+
+```
+1..2.3            -> REJECTED
+1.2.3.            -> REJECTED
+01.2.3.4          -> REJECTED
+4294967297.0.0.0  -> REJECTED
+1.2.3.256         -> REJECTED
+192.168.1.100     -> ACCEPTED as 192.168.1.100   (acceptance canary)
+```
+
+The implementation in `std/net/addr.yo` follows this doc's prescription
+exactly — per-octet `digits` counter, leading-zero rejection, and the range
+check moved INSIDE the digit arm so the accumulator cannot wrap — and its
+comment cites the other filename.
+
+**Was: OPEN.** **Class**: wrong-value — a caller can bind or connect to an
 address the input text never named, with no error anywhere.
 
 **Found**: 2026-09-04, measuring the `net` row of the std API audit (the row

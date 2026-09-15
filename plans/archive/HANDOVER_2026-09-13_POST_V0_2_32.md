@@ -87,7 +87,7 @@ behind a merge freeze that lifts when the release publishes.
 | --- | --- |
 | `AGENTS.md` § "CI runs: cancelling, freezing, and what a battery actually covers" | three rules that WILL bite you; they landed today and each one fired once |
 | `plans/STD_API_STABILIZATION.md` § 0 | the campaign's state; §0 names the single remaining item |
-| `issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md` | the remaining item's root cause, plus three disproven hypotheses |
+| `issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md` | the remaining item's root cause, plus three disproven hypotheses |
 | `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` | the other active plan; P1 landed, §4.5.2–§4.5.4 next |
 
 ---
@@ -287,7 +287,7 @@ end to end, and left unexported. `std/net/dns.yo` still names it as the reason
 `lookup_host` blocks.
 
 It is blocked on
-`issues/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`.
+`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`.
 **Read that document before touching anything** — it contains three disproven
 hypotheses, and re-running them is the main way to waste a day here.
 

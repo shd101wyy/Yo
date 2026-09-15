@@ -35,7 +35,7 @@ env:
   # failure. Acquire::Retries covers ordinary mirror flakiness.
   #
   # EVERY apt-get call in this file must use these — a bare one reintroduces
-  # the hang. See issues/ci-apt-hangs-on-dpkg-lock.md.
+  # the hang. See issues/fixed/ci-apt-hangs-on-dpkg-lock.md.
   #
   # Every `update` is ALSO preceded by an `rm` of the runner image's
   # third-party apt sources, which is a separate failure with the same blast
@@ -46,7 +46,7 @@ env:
   # This repo installs only from Ubuntu's own archives, so those lists are pure
   # liability. Acquire::Retries above cannot help: a hash mismatch is
   # DETERMINISTIC, so each retry re-fetches the same bad file.
-  # See issues/ci-apt-update-fails-on-an-unused-third-party-source.md.
+  # See issues/fixed/ci-apt-update-fails-on-an-unused-third-party-source.md.
   APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
 
 jobs:
@@ -956,7 +956,7 @@ jobs:
       # This is exactly the failure the v0.2.9 seed bump was warned to cause:
       # a seed-driven job sitting just under the 16 GB line goes over it, and
       # the ones already swapping only get slower (see
-      # issues/seed-v0.2.9-memory-growth-slows-every-self-build.md). musl-bundle
+      # issues/retired/seed-v0.2.9-memory-growth-slows-every-self-build.md). musl-bundle
       # was the release-side job with no swapfile, so it did not get slower —
       # it died.
       #

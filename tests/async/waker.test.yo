@@ -67,7 +67,7 @@ test("Test std/async yield is the timer-free mechanism", {
   // point's inline fast path, so the task never leaves the C stack and the
   // event loop is never reached. The `while` below would then spin 400 times
   // without a single `__yo_io_poll()`, which is exactly the build-smoke hang
-  // (issues/build-smoke-hangs-registry-perturbation.md). The spawned task's
+  // (issues/fixed/build-smoke-hangs-registry-perturbation.md). The spawned task's
   // counter reaching 400 with the spawner making progress is the oracle.
   n := Box(i32)(i32(400));
   started := Instant.now();
@@ -318,7 +318,7 @@ test("Test a waker relay hands off without a millisecond floor", {
 //        `yield` that completed synchronously broke exactly this: a
 //        poll-until-finished loop built on it spun without ever polling I/O,
 //        so the polled task never progressed
-//        (issues/build-smoke-hangs-registry-perturbation.md).
+//        (issues/fixed/build-smoke-hangs-registry-perturbation.md).
 //    (b) That turn no longer costs a millisecond, which the 1 ms `yield`
 //        still does — the last test measures both, side by side.
 // ---------------------------------------------------------------------------

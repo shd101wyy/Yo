@@ -149,6 +149,19 @@ export(black_box);
 // ============================================================================
 /// Run `body` for `iterations` times and return timing statistics.
 bench :: (fn(name : String, iterations : u64, body : Impl(Fn() -> unit)) -> BenchResult)({
+  // A zero-iteration benchmark has no answer, and the sentinels used to
+  // compute one: `min_ns` stayed at i64::MAX and `max_ns` at 0, so the result
+  // violated its own `min_ns <= max_ns` invariant and `to_string()` printed
+  // 9223372036854775807 to the user
+  // (issues/fixed/bench-with-zero-iterations-returns-min-ns-greater-than-max-ns.md).
+  //
+  // Rejecting is how std already reports a caller contract violation
+  // (`ArrayList.with_capacity: capacity overflow`), and it keeps every field
+  // of `BenchResult` a real measurement. `bench_auto` can never reach here
+  // with 0: its pilot starts at 64 and its scaling clamps `scaled < 1` to 1.
+  if(iterations == u64(0), {
+    __yo_panic("bench: iterations must be >= 1");
+  });
   total_ns := i64(0);
   min_ns := i64(9223372036854775807); // i64::MAX
   max_ns := i64(0);

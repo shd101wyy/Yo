@@ -46,7 +46,7 @@ This complexity is bug-prone and bit the bootstrap **twice**:
    registry entry (the inherent `prefix:String`), passing a `__yo_str` to a `String`
    parameter → C type error. Fixed by preferring the evaluator-resolved method
    (`lookup_method_callee_value`) over the registry first-hit (this session;
-   `issues/yo-self-p1-transpile-tail.md` "(cont. 2)").
+   `issues/fixed/yo-self-p1-transpile-tail.md` "(cont. 2)").
 
 Both fixes _entrench_ overloading. The redesign removes the need for it.
 
@@ -431,7 +431,7 @@ first-hit fix keeps overloading working in the meantime, so there is no urgency.
 StrPattern(...))`), `:842` (inherent `starts_with`).
 - `plans/archive/SLICE_REWORK.md` — `as_str()`/`as_slice()` deletion and the str-overload
   replacement strategy this redesign supersedes.
-- `issues/yo-self-p1-transpile-tail.md` — the two overloading bugs (eval-level
+- `issues/fixed/yo-self-p1-transpile-tail.md` — the two overloading bugs (eval-level
   `b4788d38e`; codegen first-hit, this session) and the dispatch internals.
 - TS overload resolution: `src/env.ts` (`getReceiverMethodsByNameFromEnv`),
   `src/evaluator/calls/function.ts:330,1691`; codegen `src/codegen/exprs/other-fn-call.ts:453`.

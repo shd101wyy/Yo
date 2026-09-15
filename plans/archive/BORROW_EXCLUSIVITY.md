@@ -284,7 +284,7 @@ Both `docs/en-US/` and `docs/zh-CN/`; ```rust fences for Yo code:
    `.github/skills/` cheatsheets — get/set model, "no ref returns", the
    for-macro value form, the removal error message.
 5. Mark `plans/archive/ITERATOR_REDESIGN.md`'s borrow form as superseded by this
-   file. Update `issues/flowability-growth-invalidation-method-calls.md`
+   file. Update `issues/fixed/flowability-growth-invalidation-method-calls.md`
    → resolved, move to `issues/fixed/`.
 
 Gate: G1–G2 + final G5 + CI green. Commit + push.

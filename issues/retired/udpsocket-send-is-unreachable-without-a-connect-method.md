@@ -1,6 +1,18 @@
 # `UdpSocket.send` is unreachable public surface — it documents a `connect` that does not exist
 
-**Status: OPEN.** **Class**: api-lie — a documented public method that can
+**Status: RETIRED 2026-09-14 — DUPLICATE, and the defect is FIXED.** This was
+the original filing (2026-09-04). The fix landed 2026-09-06 under a
+consolidated name that also covers a second `udp` defect:
+`issues/fixed/udpsocket-bind-echoes-its-argument-and-send-has-no-connect.md`,
+which is the record. This filing was never closed, so an already-fixed api-lie
+stayed on the open list for eight days.
+
+`UdpSocket.connect` now exists (`std/net/udp.yo:116`), with a doc comment that
+records exactly this defect: "`send`/`recv` documented 'requires prior connect'
+for as long as they existed while no `connect` did, so they could only fail
+with ENOTCONN."
+
+**Was: OPEN.** **Class**: api-lie — a documented public method that can
 never succeed.
 
 **Found**: 2026-09-04, measuring the `net` row of the std API audit.
@@ -93,7 +105,7 @@ built with the existing `_make_sockaddr` (`std/net/udp.yo:34-51`) and freed with
 a `peer_addr()` accessor becomes possible later.
 
 Do NOT place a nested closure inside the `io.async` body — that shape is the
-known-fragile one (`issues/async-cond-dispatch-skips-chained-sibling-arm.md`,
+known-fragile one (`issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md`,
 `issues/async-await-nested-if-lost-continuation.md`).
 
 Also fix the doc comment on `send` once `connect` exists, so it points at a

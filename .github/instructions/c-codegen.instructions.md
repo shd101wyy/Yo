@@ -333,7 +333,7 @@ For the full design document with overhead analysis and language semantics, see 
 - A sync effectful function called inside async can't access those captures via the SM mechanism
 - Evidence passing is composable across sync/async boundaries because function pointers are runtime values
 
-See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale.
+See `issues/fixed/sync-effect-inlining-inside-async-context.md` for the full design rationale.
 
 **Forall function-type effects (e.g., `Raise :: ctl(generic(T), msg: String) -> T`):**
 
@@ -447,7 +447,7 @@ The `override_return_type_str` field on `FunctionGenerationContext` (`src/codege
 
 When calling an evidence handler through a function pointer cast (the evidence call-site path in `src/codegen/exprs/other_fn_call.yo`), the cast return type **must** match the handler's actual C return type. For generic handlers (e.g., `Exception.throw :: (fn(generic(T), error: AnyError) -> T)`), the C return type is `void` (SomeType → void). Using the call-site concrete type (e.g., `JsonValue`) creates an ABI mismatch — **undefined behavior** in C11 that crashes on WASM (`RuntimeError: unreachable`) and corrupts the stack on native.
 
-The "handler returns void" branch handles this: it declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates unwind. See `issues/evidence-fn-ptr-void-return-abi-mismatch.md`.
+The "handler returns void" branch handles this: it declares a zero-initialized temp var, calls the handler as void, checks `__yo_effect_escaped`, and propagates unwind. See `issues/fixed/evidence-fn-ptr-void-return-abi-mismatch.md`.
 
 ### Handler functions are standalone, not closures
 

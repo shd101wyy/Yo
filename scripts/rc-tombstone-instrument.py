@@ -8,7 +8,7 @@ On the first incr/decr of a freed RC object it prints: the USE backtrace, the
 FREE backtrace, and the object's full incr/decr history (per-op backtraces from
 a 4M-event ring). Frees are QUARANTINED (never reused), so detection is exact
 and deterministic without gmalloc. See
-issues/yo-self-stage2-unwind-check-coverage.md (drain workflow).
+issues/retired/yo-self-stage2-unwind-check-coverage.md (drain workflow).
 """
 import os
 import sys

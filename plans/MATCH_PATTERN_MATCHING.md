@@ -93,7 +93,7 @@ consequences shape everything below:
 Nothing else in the front end knows about patterns: `src/expr_traversal.yo`
 walks both sides of every `=>` arg uniformly; `src/formatter.yo` formats a
 pattern as an expression; the LSP resolves pattern bindings by spelling
-(`issues/lsp-references-and-rename-match-by-spelling.md`).
+(`issues/fixed/lsp-references-and-rename-match-by-spelling.md`).
 
 ### 1.2 The evaluator — two hand-rolled interpreters
 
@@ -138,7 +138,7 @@ pattern change:
   (`if(ast_expr_is_atom(dvar), …)` at `:3580`) into SM fields or C locals. It
   shares no helper with `codegen/exprs/match.yo`, and it is already wrong for
   the labeled/curly forms the sync emitter accepts (§2.1 A3,
-  `issues/async-match-arm-labeled-destructure-binds-nothing.md`).
+  `issues/fixed/async-match-arm-labeled-destructure-binds-nothing.md`).
 - **The verifier** (`src/verifier/vc.yo:985-1230`, V3): encodes variant patterns
   as SMT datatype tests; any non-variant, non-wildcard pattern is
   `_fail_subset("non-variant match pattern (outside the V3 subset)")`.
@@ -171,7 +171,7 @@ named constant.
 | --- | --- | --- |
 | A1 | `K :: Option(i32).Some(i32(5)); match(K, .Some(0) => "zero", .Some(v) => "nonzero", .None => "none")` | prints **`zero`**. `0` is bound as a variable named `0`; the first same-variant arm wins. No diagnostic. (The runtime twin at least dies in the C compiler — B2.) **PR #661 fixes this row.** |
 | A2 | `match(x, _ => "a", 1 => "b")` on `i32`, x = 1 | prints **`b`**. The `switch` is order-insensitive; Rust returns `"a"` and flags the unreachable arm. The `"_" … must be the last match arm` message only fires on a SECOND `_`. On an enum the same shape IS rejected — the two paths disagree. |
-| A3 | inside `io.async`, an arm with an `await` and a labeled or curly pattern: `.Rect({ width, height : h }) => { io.await(yield(io), io); (width * h) }` on `Rect(4, 5)` | prints **`0`** (expected 20). The async emitter's own destructuring loop binds bare atoms only, so the labeled/curly bindings are never assigned and the body reads zeroed state-machine fields; the positional twin prints 20. Same on develop + v0.2.31 seed and on the #661 build. Filed: `issues/async-match-arm-labeled-destructure-binds-nothing.md` (+ repro). |
+| A3 | inside `io.async`, an arm with an `await` and a labeled or curly pattern: `.Rect({ width, height : h }) => { io.await(yield(io), io); (width * h) }` on `Rect(4, 5)` | prints **`0`** (expected 20). The async emitter's own destructuring loop binds bare atoms only, so the labeled/curly bindings are never assigned and the body reads zeroed state-machine fields; the positional twin prints 20. Same on develop + v0.2.31 seed and on the #661 build. Filed: `issues/fixed/async-match-arm-labeled-destructure-binds-nothing.md` (+ repro). |
 
 ### 2.2 `yo check` green, C compile red
 
@@ -270,7 +270,7 @@ without touching the exhaustiveness/ordering model:
    §3.1. Fix: reject a string/char literal in payload position explicitly
    (`Pattern "<lit>" is not supported in a payload position yet`) until P3
    implements string patterns properly. Filed with its reproducer:
-   `issues/pr661-string-literal-payload-binds-instead-of-comparing.md`.
+   `issues/fixed/pr661-string-literal-payload-binds-instead-of-comparing.md`.
 
 Recommendation: **do not merge #661 as it stands.** Gap 4 turns a compile error
 into a silent wrong answer, which is strictly worse than the bug being fixed.
@@ -669,7 +669,7 @@ Goal: nothing that passes `yo check` fails in the C compiler or answers wrongly.
 | B3 duplicate variant arm | evaluator: two arms naming the same variant with no refutable sub-pattern → `Unreachable match arm` (interim wording until §4.10 lands) | cli-case `match-duplicate-variant-arm` |
 | A2 `_` not last on primitives | evaluator primitive path: any arm after `_` → same error (the enum path already rejects) | cli-case `match-wildcard-not-last-primitive` |
 | A1/B2 literal payload (= #661) | take #661's evaluator half and sync-codegen half **plus**: (a) a literal-guarded arm does not mark its variant covered unless an unguarded same-variant arm or `_` exists (gap 1); (b) a string/char literal in payload position is rejected loudly instead of silently binding (gap 4 — the regression #661 would ship); (c) `-1` (prefix-minus call whose operand is an integer atom) counts as a literal (gap 3) | #661's four tests + `.Some(true), .None` without `.Some(_)` must fail check + `.Tag("a")` must fail check + `.Some(-1)` must discriminate + async twin |
-| async emitter (A3 + #661 gap 2) | `_generate_match_with_await_impl`: group same-variant arms into one `case` with literal guards exactly as the sync emitter does (shared helper `_cg_literal_arm_guards` moved to a file both import); bind labeled/curly params by reusing `_emit_destructure_binds`' label→index resolution (today positional atoms only — `issues/async-match-arm-labeled-destructure-binds-nothing.md`) | `tests/match_async_arms.test.yo`: `.Some(true)`/`.Some(false)` with an `await` in each arm; `.V({a, b : c})` and `.V(label : x)` with an `await` in the arm (the repro in `issues/repros/`) |
+| async emitter (A3 + #661 gap 2) | `_generate_match_with_await_impl`: group same-variant arms into one `case` with literal guards exactly as the sync emitter does (shared helper `_cg_literal_arm_guards` moved to a file both import); bind labeled/curly params by reusing `_emit_destructure_binds`' label→index resolution (today positional atoms only — `issues/fixed/async-match-arm-labeled-destructure-binds-nothing.md`) | `tests/match_async_arms.test.yo`: `.Some(true)`/`.Some(false)` with an `await` in each arm; `.V({a, b : c})` and `.V(label : x)` with an `await` in the arm (the repro in `issues/repros/`) |
 | dead code | delete the `=> rename` branch in `codegen/exprs/match.yo` (§1.4) | none — no evaluator path produces the shape it reads, so its deletion cannot change any emit (the emit-diff gate proves it) |
 
 Exit: fast suite green; each of the six probes in §2.1/§2.2 either answers

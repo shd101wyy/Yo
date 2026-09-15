@@ -3,7 +3,22 @@
 **Found**: 2026-09-04, by the std-API-audit coverage read — `write_padded` is an
 exported, documented formatting entry point with no consumer and no test
 anywhere in the tree, and it disagrees with the sibling padding routine in
-`std/fmt/spec.yo` that IS used. **Class**: wrong-value. **Status**: OPEN.
+`std/fmt/spec.yo` that IS used. **Class**: wrong-value.
+
+**Status: RETIRED 2026-09-15 — the subject is gone and the defect is fixed
+elsewhere.** `std/fmt/writer.yo` no longer exists; there is no `Writer` type in
+`std/fmt` at all. The padding entry point is now
+`StringBuilder.write_padded` (`std/string/string_builder.yo`), and it counts
+RUNES on both sides — `n_runes := _str_rune_count(s)` — so the two-unit
+disagreement this doc describes cannot arise.
+
+That fix has its own record,
+`issues/fixed/write-padded-counted-bytes-where-formatspec-counts-runes.md`, and
+unlike the entry point this doc measured, it IS tested:
+`tests/fmt.test.yo` "StringBuilder.write_padded pads to a RUNE width, not a byte
+width" asserts `"héllo"` padded to 8 gets three trailing spaces rather than two
+(6 bytes, 5 runes), both alignments, plus ASCII rows where the two counts agree
+— which is why the defect stayed invisible for so long.
 
 ## Symptom
 

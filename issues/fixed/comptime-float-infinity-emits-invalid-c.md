@@ -51,7 +51,7 @@ Any comptime arithmetic that overflows the f64 range folds to infinity, and
 `f64` constants are exactly what §4 asks the std to grow. It is also the only
 spelling of `f64.INFINITY` available: the alternative — binding
 `<math.h>`'s `HUGE_VAL` — is blocked by
-`issues/c-include-global-does-not-emit-its-header.md`.
+`issues/fixed/c-include-global-does-not-emit-its-header.md`.
 
 ## Fix
 

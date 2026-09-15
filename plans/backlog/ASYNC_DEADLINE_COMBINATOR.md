@@ -66,7 +66,7 @@ itself an `io.async` future and can be spawned. Two costs come with it:
    end of that body, so an abort skips the free: one 8 KiB buffer plus one
    state machine per timed-out connection. (`std/async`'s `timeout` records the
    mirror-image residual for its deadline timer —
-   `issues/timeout-deadline-timer-future-leak.md`.) There is no way to avoid
+   `issues/fixed/timeout-deadline-timer-future-leak.md`.) There is no way to avoid
    it with today's primitives: the read is already in flight by the time the
    deadline is known, and the backend has no cancel.
 2. **A polling wait, not a woken one.** `yield` parks on a 1 ms timer, so an

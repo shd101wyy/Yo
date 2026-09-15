@@ -593,17 +593,68 @@ impl(
               String.from_cstr(&buf(usize(0))).unwrap()
             },
             .V6(segs) => {
-              w := StringBuilder.new();
+              // RFC 5952 canonical form. Section 4.1 (no leading zeros) and 4.3
+              // (lowercase) come free from `write_hex`, which is `%llx`; what
+              // follows is section 4.2, the single `::` run.
+              //
+              // 4.2.1/4.2.3: compress the LONGEST run of consecutive all-zero
+              // fields, and on a tie the FIRST run wins -- hence `>` rather
+              // than `>=` when the best run is updated.
+              (best_start : usize) = usize(8);
+              (best_len : usize) = usize(0);
+              (cur_start : usize) = usize(8);
+              (cur_len : usize) = usize(0);
               i := usize(0);
               while(runtime(i < usize(8)), {
                 cond(
-                  (i > usize(0)) => {
-                    w.write_str(":");
+                  (segs(i) == u16(0)) => {
+                    if(cur_len == usize(0), {
+                      cur_start = i;
+                    });
+                    cur_len = (cur_len + usize(1));
+                    if(cur_len > best_len, {
+                      best_len = cur_len;
+                      best_start = cur_start;
+                    });
                   },
-                  true => ()
+                  true => {
+                    cur_len = usize(0);
+                  }
                 );
-                w.write_hex(u64(segs(i)));
                 i = (i + usize(1));
+              });
+              // 4.2.2: a run of a SINGLE zero field is written as `0`, never
+              // as `::` -- `1:0:2:...` must not become `1::2:...`.
+              if(best_len < usize(2), {
+                best_len = usize(0);
+                best_start = usize(8);
+              });
+              w := StringBuilder.new();
+              (j : usize) = usize(0);
+              while(runtime(j < usize(8)), {
+                cond(
+                  ((best_len > usize(0)) && (j == best_start)) => {
+                    // `::` carries BOTH colons, so a run touching either end
+                    // renders correctly (`::1`, `2001:db8::`, and `::` when
+                    // every field is zero).
+                    w.write_str("::");
+                    j = (j + best_len);
+                  },
+                  true => {
+                    // A separator before every field except the first, and
+                    // except immediately after the `::` that already supplied
+                    // one.
+                    (need_sep : bool) = (j > usize(0));
+                    if((best_len > usize(0)) && (j == (best_start + best_len)), {
+                      need_sep = false;
+                    });
+                    if(need_sep, {
+                      w.write_str(":");
+                    });
+                    w.write_hex(u64(segs(j)));
+                    j = (j + usize(1));
+                  }
+                );
               });
               w.to_string()
             }

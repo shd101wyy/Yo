@@ -44,7 +44,7 @@ immediately without making a recursive call, so only ~2 `evaluate` frames are st
 
 ### Why the ASAN measurements differed
 
-The ASAN documentation (`issues/asan-eval-frame-size-after-expr-id.md`) reported ~566 KB
+The ASAN documentation (`issues/fixed/asan-eval-frame-size-after-expr-id.md`) reported ~566 KB
 per frame with ASAN enabled. This is because ASAN uses a "fake stack" (a separate heap
 region) for many local variables, which dramatically reduces the _real_ C-stack usage per
 frame. Without ASAN (`--disable-sanitize`) all locals live on the real C stack, giving the

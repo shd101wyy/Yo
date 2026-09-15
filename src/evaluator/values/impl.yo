@@ -227,7 +227,7 @@ GenericImplEntry :: struct(
   /// Mirrors TS `GenericImpl.whereConstraints` (impl.ts:3011). Without this a
   /// blanket `impl(generic(I), where(I <: Iterator), I, into_iter -> Self)`
   /// leaks onto non-Iterator types (e.g. ArrayList), shadowing the type's own
-  /// method. See issues/yo-self-p1-transpile-tail.md.
+  /// method. See issues/fixed/yo-self-p1-transpile-tail.md.
   where_constraint_some_types : ArrayList(TypeValue),
   where_constraint_traits : ArrayList(TypeValue)
 );
@@ -1646,7 +1646,7 @@ find_methods_from_generic_impls :: (
   (ki : usize) = usize(0);
   while(ki < n_keys, {
     // No `continue` in these registry loops — see
-    // issues/codegen-continue-in-while-heap-corruption.md.
+    // issues/fixed/codegen-continue-in-while-heap-corruption.md.
     entry_list := match(
       g_impl_registry_entry_lists.get(ki),
       .Some(l) => l,
@@ -1686,7 +1686,7 @@ find_methods_from_generic_impls :: (
         });
       };
       // if/else rather than an early `continue` — see
-      // issues/codegen-continue-in-while-heap-corruption.md (`continue`
+      // issues/fixed/codegen-continue-in-while-heap-corruption.md (`continue`
       // after an Rc-bound local in a while body miscompiles; this is the
       // hottest loop in the evaluator).
       if(!has_field_with_name, {
@@ -1881,7 +1881,7 @@ find_associated_type_from_generic_impls :: (
   (ki : usize) = usize(0);
   while((ki < n_keys) && found.is_none(), {
     // No `continue` in these registry loops — see
-    // issues/codegen-continue-in-while-heap-corruption.md.
+    // issues/fixed/codegen-continue-in-while-heap-corruption.md.
     entry_list := match(
       g_impl_registry_entry_lists.get(ki),
       .Some(l) => l,
@@ -2160,7 +2160,7 @@ get_generic_impl_doc_entries :: (
   (ki : usize) = usize(0);
   while(ki < n_keys, {
     // No `continue` in these registry loops — see
-    // issues/codegen-continue-in-while-heap-corruption.md.
+    // issues/fixed/codegen-continue-in-while-heap-corruption.md.
     entry_list := match(
       g_impl_registry_entry_lists.get(ki),
       .Some(l) => l,
@@ -2397,7 +2397,7 @@ _trait_field_type_by_label :: (
 /// program), and (b) lets Step-10 expected-synthesis POLLUTE the callee
 /// env: the unresolved `Output` unifies with the caller's ambient expected
 /// SomeT and the return re-eval launders the caller's `_ret` into the call
-/// result (issues/yo-self-io-async-return-binop-void.md).
+/// result (issues/fixed/yo-self-io-async-return-binop-void.md).
 _substitute_assoc_in_method_ty :: (
   fn(
     method_ty : TypeValue,

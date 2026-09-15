@@ -57,7 +57,7 @@ the derive rules generated a body that compared, cloned or ordered a field
 whose type implemented none of it, the derive rule's definition-time trial
 swallowed the error, and codegen turned the enclosing function into an
 `abort()` stub whose `__attribute__((error))` guard is inert above `-O0`
-(`issues/ftt-abort-stub-error-attribute-does-not-fire-above-optimize-0.md`).
+(`issues/retired/ftt-abort-stub-error-attribute-does-not-fire-above-optimize-0.md`).
 
 **2. `substitute` could not resolve a const-generic array LENGTH.** A length
 var is not a `SomeT`: `TypeValue.Array` stores it as the plain string
@@ -138,7 +138,7 @@ that miscompiled or aborted into one that works.
 
 The issue's half (b) — making a swallowed derive-rule failure FATAL at the
 derive site — is NOT part of this fix. It is the containment measure shared
-with `issues/derive-ord-without-a-prior-derive-eq-kills-module-evaluation.md`
-and `issues/bare-derive-form-kills-module-eval.md`, and it is what would have
+with `issues/fixed/derive-ord-without-a-prior-derive-eq-kills-module-evaluation.md`
+and `issues/fixed/bare-derive-form-kills-module-eval.md`, and it is what would have
 turned this class of bug into a compile error rather than a runtime `abort()`
 for a field type OTHER than `Array`.

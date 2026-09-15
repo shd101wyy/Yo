@@ -17,7 +17,7 @@ Two more members surfaced while validating (same root, now also fixed):
   — the switch's `default:` then skipped the await entirely. Dispatch points
   now UNION branch records, and anonymous cases carry a NULL-slot guard so
   dead/outer codes and never-stored paths skip cleanly.
-Supersedes `issues/windows-arm64-emitted-c-state-machine-pointer-mismatch.md`
+Supersedes `issues/retired/windows-arm64-emitted-c-state-machine-pointer-mismatch.md`
 (the Windows-arm64 sighting was one symptom of this; the defect is in the
 emitter and affects EVERY target).
 

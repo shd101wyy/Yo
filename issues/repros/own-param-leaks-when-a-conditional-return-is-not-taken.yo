@@ -1,0 +1,112 @@
+// Reproducer: an `own` parameter is never dropped if the function body
+// contains an `if(cond, { return(param); })` whose condition is FALSE at
+// runtime. The value leaks however the function then exits -- through the
+// tail, or through a LATER return of the same parameter.
+//
+// Oracle is a Dispose counter in a module-level global, not a sanitizer: CI
+// runs with detect_leaks=0 everywhere, so a leak is only observable as a
+// MISSING disposal (issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md).
+//
+// Run: yo compile issues/repros/own-param-leaks-when-a-conditional-return-is-not-taken.yo \
+//        --std-path ./std --optimize 2 -o /tmp/ownleak && /tmp/ownleak
+//
+// Expected: every row disposed=1. Actual: B, C and F report 0.
+{ println } :: import("std/fmt");
+{ assert } :: import("std/assert");
+(g : i32) = i32(0);
+H :: atomic(ref(struct(tag : i32)));
+impl(
+  H,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g = (g + i32(1));
+    })
+  )
+);
+// --- no untaken conditional return: all correct ---
+a_fn :: (fn(own(h) : H) -> H)({
+  if(h.tag > i32(0), {
+    return(h);
+  });
+  h
+});
+d_fn :: (fn(own(h) : H) -> H)({
+  (x : i32) = h.tag;
+  if(x > i32(0), {
+    return(h);
+  });
+  h
+});
+e_fn :: (fn(own(h) : H) -> H)(h);
+// --- an untaken conditional return poisons the parameter: all leak ---
+b_fn :: (fn(own(h) : H) -> H)({
+  if(h.tag < i32(0), {
+    return(h);
+  });
+  h
+});
+c_fn :: (fn(own(h) : H) -> H)({
+  if(h.tag < i32(0), {
+    return(h);
+  });
+  if(h.tag > i32(0), {
+    return(h);
+  });
+  h
+});
+f_fn :: (fn(own(h) : H) -> H)({
+  if(h.tag < i32(0), {
+    return(h);
+  });
+  if(h.tag < i32(0), {
+    return(h);
+  });
+  h
+});
+main :: (fn() -> i32)({
+  (good : i32) = i32(0);
+  g = i32(0);
+  {
+    r1 := a_fn(H(tag : i32(1)));
+  };
+  println(`A if fires, first stmt        : disposed=${g} (expected 1)`);
+  good = (good + g);
+  g = i32(0);
+  {
+    r2 := b_fn(H(tag : i32(1)));
+  };
+  println(`B if NOT taken, exits by tail : disposed=${g} (expected 1)`);
+  good = (good + g);
+  g = i32(0);
+  {
+    r3 := c_fn(H(tag : i32(1)));
+  };
+  println(`C first if NOT taken, 2nd does: disposed=${g} (expected 1)`);
+  good = (good + g);
+  g = i32(0);
+  {
+    r4 := d_fn(H(tag : i32(1)));
+  };
+  println(`D stmt, then if fires         : disposed=${g} (expected 1)`);
+  good = (good + g);
+  g = i32(0);
+  {
+    r5 := e_fn(H(tag : i32(1)));
+  };
+  println(`E bare tail, no if            : disposed=${g} (expected 1)`);
+  good = (good + g);
+  g = i32(0);
+  {
+    r6 := f_fn(H(tag : i32(1)));
+  };
+  println(`F two ifs, neither taken      : disposed=${g} (expected 1)`);
+  good = (good + g);
+  println(`total disposed: ${good} of 6 expected`);
+  // `assert`, not the return value: `main`'s result is DISCARDED by the
+  // generated wrapper, so an exit code computed here would always read 0 and
+  // this reproducer would be hollow
+  // (issues/main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md).
+  assert(good == i32(6), "every own(h) parameter must be disposed exactly once");
+  i32(0)
+});
+export(main);

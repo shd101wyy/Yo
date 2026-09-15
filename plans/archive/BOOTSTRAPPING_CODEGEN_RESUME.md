@@ -34,7 +34,7 @@ closure-param fn now specializes with `cb` typed as its concrete capture struct.
 Four faithful, corpus-safe (75/75), non-regressing changes landed (expected-type
 coercion of `Impl(Fn)` args, capture_type→spec arg_type, narrowed soft-generic
 trigger via `_func_type_has_closure_param`, ref-spill monotonic counter). See
-`issues/yo-self-parallelism-emitter-gated-on-closure-codegen.md` UPDATE (2).
+`issues/fixed/yo-self-parallelism-emitter-gated-on-closure-codegen.md` UPDATE (2).
 
 CODEGEN-EMISSION HALF: REMAINING. None of A/B/C alone compiles the repro — land
 together. MINIMAL non-extern repro (fix this before spawn — same gap, no wrapper):

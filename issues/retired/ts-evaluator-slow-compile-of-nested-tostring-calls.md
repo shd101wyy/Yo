@@ -6,7 +6,21 @@
 
 ## Status
 
-Open. Reproduced 2026-05-16 in commit `bd05a8c1` of `bootstrap/phase-4`.
+**RETIRED 2026-09-14 — the subject no longer exists.** This measures the
+TypeScript reference evaluator, deleted in P2.5, and its "Next steps" are to
+patch `tryToCallFunctionWithArguments` in that compiler. There is nothing to
+patch.
+
+**What is NOT answered, and is worth re-filing fresh if it matters:** whether
+the SAME source shape — `type_to_string` / `value_to_string` called through
+template-string interpolation in a function body that is never called — is
+disproportionately expensive in the *Yo* compiler. That question is live and
+this document does not answer it; its measurements are all of the deleted
+implementation. `plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` is where
+compile-speed work lives now, and its Phase 0 is "make `--profile` real",
+which is the tool that would answer it properly rather than by stopwatch.
+
+**Was: Open.** Reproduced 2026-05-16 in commit `bd05a8c1` of `bootstrap/phase-4`.
 
 ## Symptom
 

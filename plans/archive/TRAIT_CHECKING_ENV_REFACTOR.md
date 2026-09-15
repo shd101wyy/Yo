@@ -92,7 +92,7 @@ Escalate to the full refactor when **any** of the following holds:
 - Regression tests:
   - `tests/where_clause_fn_inference.test.yo`
   - `tests/blanket_impl_inner_forall.test.yo`
-- Related issue: `issues/blanket-impl-inner-forall-sometype-leakage.md`
+- Related issue: `issues/fixed/blanket-impl-inner-forall-sometype-leakage.md`
 - Bootstrap dependency: `plans/archive/BOOTSTRAPPING_PREREQUISITES.md` §1.2
   (Iterator combinators) — partially unblocked.
 

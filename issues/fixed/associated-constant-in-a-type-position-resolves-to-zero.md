@@ -1,6 +1,11 @@
 # An associated constant used as an `Array` length resolves to 0 in the signature
 
-**Status:** OPEN. Found 2026-09-10 while checking whether `to_be_bytes` could
+**Status: FIXED 2026-09-14** — as filed. The length no longer resolves to 0 and
+no longer reaches the C compiler; it is now REJECTED by the evaluator with a
+source location and a workaround. The underlying capability is still missing
+and is tracked as a plan, not a bug — see "Re-measured" below.
+
+**Was: OPEN.** Found 2026-09-10 while checking whether `to_be_bytes` could
 become a blanket impl.
 
 ## Symptom
@@ -115,3 +120,48 @@ canary listing the length forms that MUST keep working (a literal, a
 an associated constant can be rewritten in a type position — is still missing,
 and it is still what blocks collapsing `std/prelude.yo`'s ten byte-conversion
 impl blocks and giving `usize`/`isize` byte conversions at all.
+
+---
+
+## Re-measured 2026-09-14 — the defect as filed is gone
+
+The same reproducer, unchanged, against a tree-built compiler:
+
+```
+error: Array length is neither a compile-time constant nor a bare generic parameter:
+(T.BYTES)
+
+An associated constant or a computed expression in a LENGTH position needs value
+substitution, which the evaluator cannot express yet
+(plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md). Bind the length to a
+generic(N : usize) parameter and use that name directly, or write the type once
+per instantiation.
+   --> issues/repros/associated-constant-as-an-array-length-in-a-return-type.yo:14:39
+   |
+14 |   zeros : (fn(self : T) -> Array(u8, T.BYTES))(Array(u8, T.BYTES).fill(u8(0)))
+   |                                       ^
+```
+
+Compare what this doc recorded: a length silently resolving to **0**, surfacing
+as `returning 'Array_uint8_t_1' from a function with incompatible result type
+'Array_uint8_t_0'` — a C diagnostic about generated type names, with no source
+location in the user's file.
+
+**That is the whole defect this doc filed, and it is fixed.** The bug was never
+"Yo lacks value substitution in type positions" — it was that the *absence* of
+it produced a silent zero and invalid C instead of an error. The error now
+arrives at the right layer, names the offending column, explains the
+limitation, and gives two workarounds.
+
+## What remains, and why it is not this issue
+
+Value substitution in type positions is still unimplemented. That is a missing
+capability with a written design
+(`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`), which the diagnostic
+itself now points at — the right home for it. Keeping this doc open would count
+a planned feature as a bug, and would keep a "resolves to zero" symptom on the
+open list that can no longer happen.
+
+The reproducer stays in `issues/repros/` and is now a NEGATIVE test: it must
+keep failing with that diagnostic. If value substitution ever lands, it becomes
+a positive one.

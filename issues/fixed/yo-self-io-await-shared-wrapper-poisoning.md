@@ -73,7 +73,7 @@ Landed on top of the two compat fixes above:
    name-keyed renders of the Io struct's member types, minting an
    instantiation key mid-emission that collection never registered. This is
    the SAME env-frame-sharing leak as iterator_combinators arm 18's sibling
-   `F` (issues/yo-self-chained-combinator-assoc-binding.md) — layer 4 is
+   `F` (issues/fixed/yo-self-chained-combinator-assoc-binding.md) — layer 4 is
    BLOCKED until call-frame bindings stop leaking into shared frames (or
    per-call forall freshening lands, TS helper.ts:1047). The mechanism
    itself is proven: with any variant in place the arm-65 extraction is

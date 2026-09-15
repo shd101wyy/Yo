@@ -100,7 +100,7 @@ _emit_pattern_binding_decl :: (
 /// `return` inside a GENERATED STRING LITERAL (e.g. a Yo source literal
 /// "...before early return") is NOT a return statement — treating it as one
 /// skipped the arm's result-temp assignment and left the temp uninitialized
-/// (SIGBUS; issues/cond-arm-return-inside-string-literal.md).
+/// (SIGBUS; issues/fixed/cond-arm-return-inside-string-literal.md).
 _inside_c_string_literal :: (fn(s : String, idx : usize) -> bool)({
   (in_str : bool) = false;
   (i : usize) = usize(0);
@@ -1350,7 +1350,7 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
   // order — an unguarded arm of the same variant is its catch-all. Two
   // `case TAG:` blocks for one tag is a C error (duplicate case value), and
   // the evaluator's arm selection has compared literal payloads since
-  // issues/enum-pattern-bool-payload-not-compared.md.
+  // issues/fixed/enum-pattern-bool-payload-not-compared.md.
   group_variant_names := ArrayList(String).new();
   group_arm_indices := ArrayList(ArrayList(usize)).new();
   (gi : usize) = usize(1);

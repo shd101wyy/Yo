@@ -7,7 +7,7 @@ redesign regression: a pre-redesign build (`cead3db9f`) SIGABRTs identically, so
 this is a pre-existing bug (most plausibly introduced by `98b95a9dd`, the
 default-arg codegen fix). Uncommitted (in working tree) pending the user's commit.
 With the panic gone, the genuine 564-marker recursive-self-shell tail is revealed
-— see `issues/yo-self-p1-transpile-tail.md`.
+— see `issues/fixed/yo-self-p1-transpile-tail.md`.
 
 ## Symptom
 

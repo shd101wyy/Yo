@@ -16,7 +16,7 @@
 >   qualifies registry-direct (its recorded env can predate the binding),
 >   and the qualifier is skipped when any match for the name is a
 >   PARAMETER — which surfaced a real latent divergence, filed as
->   `issues/yo-self-specialized-body-env-param-resolution-order.md`.
+>   `issues/fixed/yo-self-specialized-body-env-param-resolution-order.md`.
 >   Bonus fix: the `(name : T) = ...` binding form never stamped
 >   `is_module_level` on its variable at all (`binding.yo`).
 >

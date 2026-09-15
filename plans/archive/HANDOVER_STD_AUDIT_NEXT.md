@@ -167,7 +167,7 @@ extracted into §6 below.
 13. **Dead public surface** — remaining decisions from the enum sweep:
     delete `HashMapError.KeyNotFound`/`HashSetError.ElementNotFound` (dead
     by design; lookups return `Option`). **BLOCKED** by
-    `issues/structurally-identical-error-enums-in-two-generic-impls-collide.md`
+    `issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md`
     (deleting them makes the two enums structurally identical → collision;
     fix the compiler first). `std/allocator`'s `Layout`/`layout_of` were
     DECIDED KEEP 2026-08-29. (`DateTime.nanosecond` measured fine.)
@@ -274,7 +274,7 @@ as standalone issue docs. All are on develop; read the doc before touching.
   begin-form arm bodies — the standing goal's "no workaround" makes this a
   real queue item, but budget it as a codegen project, not a std-row errand.
 - **Structurally identical error enums in two generic impls collide**
-  (`issues/structurally-identical-error-enums-in-two-generic-impls-collide.md`,
+  (`issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md`,
   repro in `issues/repros/`): blocks freeze item 13. Fixing this unlocks the
   KeyNotFound/ElementNotFound deletion.
 - **Async tail match/return hangs the state machine**
@@ -284,7 +284,7 @@ as standalone issue docs. All are on develop; read the doc before touching.
   (`issues/iterator-chain-shared-stamp-cross-item-pollution.md`): `.map(f)`
   chains at two Item types in one module.
 - **`Variable.is_ref` family** —
-  `issues/generic-trait-method-reads-primitive-inout-self-as-pointer.md`
+  `issues/fixed/generic-trait-method-reads-primitive-inout-self-as-pointer.md`
   was the D3.9 blocker; D3.9 Hasher landed anyway (2026-08-28), but the
   underlying family bug is worth attacking as a group if it resurfaces.
 - The long tail lives in `issues/` (~85 open docs). The `yo-self-*` prefixed

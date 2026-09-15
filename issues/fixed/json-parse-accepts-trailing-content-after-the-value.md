@@ -8,7 +8,7 @@ parses the first value, stops, and never checks that the cursor reached the end
 of the input, so it returns `.Ok` for input that is not JSON.
 
 **Found** 2026-09-06, while auditing `std/` for the read-overshoot class fixed in
-`issues/http-body-is-not-truncated-to-content-length.md`. It is the same
+`issues/fixed/http-body-is-not-truncated-to-content-length.md`. It is the same
 *shape* — a buffer that may hold more than one message, consumed as if it held
 one — but not the same bug: no bytes are misattributed, they are simply ignored.
 
