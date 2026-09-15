@@ -24,17 +24,17 @@ on a seed bump), task 6 (worked example — needs task 3).
 (this handover landed there). Develop tip at handoff: `604896dd6` (#689,
 the peer issues-triage sweep).
 
-**OPEN PR 1 — #695 (`fix/verifier-decreases-unsigned`): READY.** The u64
-decreases signedness fix (`_measure_is_signed` in `src/verifier/vc.yo`;
-entry ground `bvsge`/`bvuge`, step `bvslt`/`bvult`), the task-4 mutual
-fixtures flipped to u64, the issue moved to `issues/fixed/` (the Fix
-section rides commit `ec7f6cf99`). Run 34932915472 at handoff: every job
-green except `test (macos-26-intel)` still running, 0 failures. Action:
-confirm green → `gh pr merge 695 --squash --delete-branch --admin` → the
+**OPEN PR 1 — #695 (`fix/verifier-decreases-unsigned`): GREEN — MERGE
+IT.** The u64 decreases signedness fix (`_measure_is_signed` in
+`src/verifier/vc.yo`; entry ground `bvsge`/`bvuge`, step
+`bvslt`/`bvult`), the task-4 mutual fixtures flipped to u64, the issue
+moved to `issues/fixed/` (the Fix section rides commit `ec7f6cf99`).
+Run 34932915472 COMPLETED SUCCESS (all 28). Action:
+`gh pr merge 695 --squash --delete-branch --admin` → the
 `--delete-branch` step WILL fail (the Yo-fv worktree holds the branch);
-check `git ls-remote --heads origin fix/verifier-decreases-unsigned` and
-clean up both sides by hand (the §3 pattern). Probed: merges clean into
-current develop.
+check `git ls-remote --heads origin fix/verifier-decreases-unsigned`
+and clean up both sides by hand (the §3 pattern). Probed: merges clean
+into current develop.
 
 **OPEN PR 2 — #697 (`feat/fv6-task5-assumed-contracts`): stacked on
 #695; CI battery NEVER STARTED, and it now CONFLICTS with develop.**
@@ -47,7 +47,8 @@ current develop.
   Local gates ALL green: `yo check ./src` 275/275 and the serialized
   10-file verifier battery (`tmp/run_battery.sh` in the worktree,
   61 tests) green with real z3.
-- THE STALL: no Actions run was EVER created for the branch —
+- THE STALL (STILL TRUE at the final update — the only blocker on
+  #697): no Actions run was EVER created for the branch —
   `gh api repos/shd101wyy/Yo/commits/<sha>/check-runs --jq .total_count`
   returned 0 across THREE empty `ci:` re-trigger commits (`9c92c7e8`,
   `e1e16519`, `fef60245`) AND a close+reopen, over ~40 min. The runs
@@ -124,7 +125,7 @@ current develop.
 | V6 task 1 — trait-contract variance + inheritance | **complete** | #685 → `451b75a7f` (28/28), banner #686 → `6dfe26d9d` |
 | V6 task 2 SLICE 1 — contracted generic callees at monomorphized call sites | **complete** | #687 → `16aed5f46` (28/28) |
 | V6 task 4 — mutual-recursion decreases | **complete** | #691 → `3177afa4a` (28/28), banner #694 → `d2a9f6fd3` |
-| u64 decreases signedness (`issues/fixed/verifier-decreases-nonneg-…`) | **PR OPEN, ready** | #695 → branch `fix/verifier-decreases-unsigned`, run 34932915472 (one job pending at handoff, 0 failed) |
+| u64 decreases signedness (`issues/fixed/verifier-decreases-nonneg-…`) | **PR OPEN, GREEN** | #695 → branch `fix/verifier-decreases-unsigned`, run 34932915472 completed success |
 | V6 task 5 SLICE 1 — `assumed()` + contract-less `outside-subset` degrade | **PR OPEN, CI stalled (conflict resolved by the develop merge `854907e6b`)** | #697 → branch `feat/fv6-task5-assumed-contracts`; local battery green; see §0 |
 | V6 task 5 SLICE 2 — std/collections dogfood + CI verify | **blocked on a seed bump** | checklist in the plan's task-5 banner |
 | V6 task 2 remainder — generic bodies verified ABSTRACTLY | not started | see §4.1 |
