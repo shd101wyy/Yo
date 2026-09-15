@@ -79,3 +79,22 @@ task param type): unsigned sorts emit `bvuge`/`bvult`, signed sorts keep
 (`tests/spec/fixtures/{valid,negative}/mutual_recursion*.yo`) use `i32`
 measures with an explicit `requires(n >= 0)` bound until this lands —
 switch them to `u64` when fixing.
+
+## Fix (2026-09-15)
+
+`src/verifier/vc.yo` gained `_measure_is_signed(ctx, e)` — the measure
+expression's own type through `expr_info_table_get` → `_int_is_signed`,
+defaulting to signed when the measure carries no ExprInfo (mirroring
+`_binop_of_ctx`'s default). Both emissions derive their comparison
+signedness from it:
+
+- `decreases-nonneg` (entry ground): `bvsge`/`bvuge`
+- `decreases-step` (self + clique edges): `bvslt`/`bvult`
+
+The task-4 fixtures
+(`tests/spec/fixtures/{valid,negative}/mutual_recursion*.yo`) flipped
+from `i32` + `requires(n >= 0)` to `u64` without the explicit bound
+(the unsigned ground is trivially true, and the n = 0 wrap is excluded
+by the branch guard) — `tests/internal/verifier_mutual.test.yo` stays
+2/2 with real z3. Signed-measure coverage stays on the V4 fixture
+`recursion_decreases.yo` (i32).

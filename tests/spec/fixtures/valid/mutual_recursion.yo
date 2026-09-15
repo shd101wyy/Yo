@@ -1,34 +1,35 @@
 // V6 task 4 (FORMAL_VERIFICATION.md): MUTUAL recursion — even/odd over
-// i32, each with `decreases(n)`, calling each other with n - 1. The
+// u64, each with `decreases(n)`, calling each other with n - 1. The
 // driver prepass computes the two-function clique from the task set's
 // call edges, and every clique-edge call proves the CALLEE's measure at
 // the actuals strictly below the caller's current measure (n - 1 < n) —
 // one shared well-founded domain, no lexicographic tuples needed. The
 // contracts are the trivially-true bool post-condition (the modular
 // call-site machinery needs the callee contracted; the point of the
-// fixture is the clique-edge decrease obligation). The measure is i32
-// with an explicit lower bound — the exact-width model wraps, so an
-// unbounded measure would honestly refute.
+// fixture is the clique-edge decrease obligation). The measure is u64:
+// the entry `decreases-nonneg` ground compares UNSIGNED (trivially true
+// for u64 — no explicit lower-bound requires needed), and the wrap at
+// n = 0 is excluded by the branch guard. Unsigned-measure regression
+// fixture for
+// issues/fixed/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md.
 pragma(Pragma.Verify);
 
 is_even :: (
   fn(
-    n : i32,
-    requires(n >= i32(0)),
+    n : u64,
     ensures((r == true) || (r == false)),
     decreases(n)
   ) -> (r : bool)
 )(
-  if(n == i32(0), true, is_odd(n - i32(1)))
+  if(n == u64(0), true, is_odd(n - u64(1)))
 );
 
 is_odd :: (
   fn(
-    n : i32,
-    requires(n >= i32(0)),
+    n : u64,
     ensures((r == true) || (r == false)),
     decreases(n)
   ) -> (r : bool)
 )(
-  if(n == i32(0), false, is_even(n - i32(1)))
+  if(n == u64(0), false, is_even(n - u64(1)))
 );

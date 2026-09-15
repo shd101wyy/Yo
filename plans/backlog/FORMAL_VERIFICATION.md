@@ -1364,10 +1364,12 @@ become real; the stdlib starts carrying executable specifications.
 > well-founded order). A clique edge whose callee lacks `decreases`
 > fails the subset loudly. One measure per function, strictly
 > decreasing at every edge, IS the termination argument. Fixture quirk
-> recorded: `decreases-nonneg` compares SIGNED for all sorts, so
-> unsigned measures refute at n = 2^63 — filed as
-> `issues/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md`;
-> the fixtures use i32 with an explicit bound until it lands. Fixtures:
+> FIXED after landing: `decreases-nonneg`/`decreases-step` compared
+> SIGNED for all sorts (unsigned measures refuted at n = 2^63) — fixed
+> by deriving the comparison signedness from the measure's own type
+> (`_measure_is_signed`, vc.yo); the fixtures are u64 now
+> (`issues/fixed/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md`).
+> Fixtures:
 > `mutual_recursion.yo` (even/odd proves) +
 > `mutual_recursion_false.yo` (the n-unchanged edge refutes);
 > `tests/internal/verifier_mutual.test.yo` 2/2. Tasks 3, 5, 6 remain.
