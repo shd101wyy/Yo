@@ -3944,6 +3944,14 @@ run_test :: (
     // Say what this shard covers: a shard number alone does not identify a
     // failure, and the job log is unavailable until the run completes.
     println(`shard ${shard_index.to_string()}/${shard_total.to_string()}: ${picked.len().to_string()} of ${all_files.len().to_string()} files`);
+    // Print the FILE LIST too: a shard number alone does not say WHICH file
+    // failed, and the job log is unreadable until the whole run completes —
+    // compiler-internal-tests prints its map for exactly that reason.
+    (pi : usize) = usize(0);
+    while(pi < picked.len(), {
+      match(picked.get(pi), .Some(pf) => println(`  shard-file ${pf}`), .None => ());
+      pi = (pi + usize(1));
+    });
     picked
   });
   // `Pragma.SkipWasm` pre-scan for wasm targets (hasSkipDirectiveForTarget,
