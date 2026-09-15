@@ -261,6 +261,41 @@ export(ResumableException);
 /// Common effect bundle: Io + Exception.
 /// Used as the effect parameter for Futures that perform Io and may throw.
 /// Construct with `{ io, exn }`; project with `e.io` or `e.exn`.
+/// The innermost error in a chain — Rust's `anyhow::Error::root_cause`.
+///
+/// Follows `source()` until an error reports none, and returns that one. An
+/// error with nothing underneath it is its own root cause, so this never
+/// returns `.None` and callers need no unwrapping.
+///
+/// ```yo
+/// { root_cause } :: import("std/error");
+/// e := dyn(Context.new(`while loading the config`, dyn(io_err)));
+/// println(root_cause(e).to_string());   // the io error, not the context
+/// ```
+///
+/// Spelled with `match` rather than `Option` methods deliberately: the result
+/// of `source()` is an `Option(Dyn(Error))`, and an `Option` of a trait object
+/// cannot take an inherent `Option` method — the specialization is called but
+/// never emitted, so the C fails to compile
+/// (issues/option-of-a-trait-object-never-emits-its-inherent-methods.md). That
+/// is a separate open defect; this walk stays clear of it.
+root_cause :: (fn(err : AnyError) -> AnyError)({
+  (cur : AnyError) = err;
+  (walking : bool) = true;
+  while(walking, {
+    match(
+      cur.source(),
+      .Some(next) => {
+        cur = next;
+      },
+      .None => {
+        walking = false;
+      }
+    );
+  });
+  cur
+});
+export(root_cause);
 IoExn :: struct(
   io : Io,
   exn : Exception
