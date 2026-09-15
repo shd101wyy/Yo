@@ -269,9 +269,10 @@ impl(
   /// `(-7.0).rem_euclid(3.0)` is `2`, where the truncated remainder `fmod`
   /// gives is `-1`; the result lies in `[0, |rhs|)` for a finite receiver,
   /// which is what makes this the right choice for wrapping an index or an
-  /// angle. This is the only remainder available on floats: `%` type-checks
-  /// on `f64` but emits invalid C
-  /// (issues/stddoc-coll-float-modulo-emits-invalid-c.md).
+  /// angle. For the TRUNCATED remainder use `%`, which lowers to `fmod` and
+  /// keeps the DIVIDEND's sign — the two differ on every negative receiver, so
+  /// pick deliberately. (`%` on floats emitted invalid C until 2026-09-14:
+  /// issues/fixed/stddoc-coll-float-modulo-emits-invalid-c.md.)
   rem_euclid : (fn(self : Self, rhs : Self) -> Self)({
     r := unsafe(_c_fmod(self, rhs));
     cond(

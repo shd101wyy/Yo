@@ -4,7 +4,7 @@
 landed after all: it made CI's tier-1 async_await and the hollow sweep PASS
 (the only change that ever did), and the smoke-leg retraction of it was
 mistaken — the smokes hang on pristine #369 too (see
-issues/build-smoke-hangs-registry-perturbation.md). The evaluator-side
+issues/fixed/build-smoke-hangs-registry-perturbation.md). The evaluator-side
 registration hardening remains the right follow-up (see the end).** The divergence: the child SM's `__yo_param_0`
 C type comes from `get_func_type(closure_fid).param_types[0]`
 (src/codegen/exprs/async.yo's slot collections) — the io.async builtin's
@@ -29,7 +29,7 @@ type-graph perturbation flips into manifestation.** #370's std-only sweep
 (dead enum variants + prelude if-macro deletion + `Command.current_dir`)
 shifted every `yo_id` and this ASan (plus `tests/dyn.test.yo` going RED and
 the `yo build run` smoke hanging on every CI platform — see
-issues/build-smoke-hangs-registry-perturbation.md) appeared with NO compiler
+issues/fixed/build-smoke-hangs-registry-perturbation.md) appeared with NO compiler
 change. An evaluator-side fix attempt (per-call seeding of the closure's
 bundle cell into the global func-type registry, PR #371's first two pushes)
 made the ASan test pass but BROKE the compiler's own build path the same way
@@ -118,7 +118,7 @@ clean; only the multi-specialization batch context splits the views.
 
 **Fix**: the C54 body half (stamp the call's types concretely inside the
 specialization body / stop keying the fallback by the shared forall id) — see
-issues/future-wrapper-return-shared-across-specializations.md (C54) and its repro
+issues/fixed/future-wrapper-return-shared-across-specializations.md (C54) and its repro
 issues/repros/future-wrapper-return-two-r-specializations.yo. Until then,
 every PR's native test legs stay red on this one test.
 

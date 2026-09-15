@@ -11,7 +11,7 @@ against a black-holed address, with every concurrent task (timers, other
 sockets, the accept path) frozen behind it.
 
 This is the same class as the D6 accept hang
-(`issues/fixed/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`,
+(`issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`,
 fixed by the overlapped AcceptEx port in be3b42aa6): connect was simply
 never given the same treatment. On Linux the same operation goes through
 `io_uring_prep_connect` and never parks the loop, so this is a Windows

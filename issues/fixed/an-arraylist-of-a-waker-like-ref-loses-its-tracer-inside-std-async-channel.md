@@ -1,6 +1,17 @@
 # `ArrayList(Waker)` inside `std/async/channel` loses its GC tracer
 
-**Status:** OPEN. Found 2026-09-11 while rewriting the async `Channel` over
+**Status: FIXED — the rewrite this blocked has LANDED.** Header corrected
+2026-09-15: the doc was moved to `fixed/` without updating it, so it still read
+as open and still claimed to be blocking work that has since shipped. Verified
+in the code rather than assumed — `std/async/channel.yo` now carries
+`_send_waiters : ArrayList(Waker)` and `_recv_waiters : ArrayList(Waker)`
+(the construction this doc says lost its tracer), and the module doc records
+"The 1 ms timer tick is GONE", which was the cost this issue existed to remove.
+
+Everything below is the original filing, kept as the record of the
+investigation.
+
+**Was: OPEN.** Found 2026-09-11 while rewriting the async `Channel` over
 wakers (`plans/WAKER_BASED_SCHEDULING.md` stage 3). It blocks that
 rewrite; the async `Mutex` half of the same stage landed, because the identical
 construction works there.

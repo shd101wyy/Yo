@@ -1458,7 +1458,7 @@ _schedule_scope_end_drops :: (
         // narrowing to direct ref-struct/ref-enum handles under-dropped those
         // locals: the compound-literal dup + dup-on-store then over-counted
         // every store by +1 and cycle collection never reclaimed HashMap
-        // cycles (issues/yo-self-compound-literal-rc-overcount.md).
+        // cycles (issues/fixed/yo-self-compound-literal-rc-overcount.md).
         e0 := (!params_only || v.is_parameter);
         e1 := (e0 && v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
         e2 := (e1 && !v.is_module_level);
@@ -2103,7 +2103,7 @@ evaluate_begin_expression :: (
   // when synthesis THROWS does TS fall back to the raw compatibility check +
   // the mismatch error. NOTE: this alone does NOT fix the io.async
   // `return(<binop>)` void-result bug — there the GIVEN side is already the
-  // same bare SomeT (see issues/yo-self-io-async-return-binop-void.md).
+  // same bare SomeT (see issues/fixed/yo-self-io-async-return-binop-void.md).
   is_return_ctrl := has_control_flow(last_info.control_flow, .Return);
   if(is_return_ctrl, {
     match(
@@ -2435,7 +2435,7 @@ evaluate_begin_expression :: (
   // address-of emitters) and the begin block (scope-end drops). A fresh info
   // here therefore CLOBBERED every inner field codegen needs unless it was on
   // a hand-picked carry list — four separate miscompiles came from that
-  // (issues/yo-self-begin-shared-id-clobber.md). INVERT the merge instead:
+  // (issues/fixed/yo-self-begin-shared-id-clobber.md). INVERT the merge instead:
   // start from a copy of the tail's info (preservation is the default),
   // override what the begin level owns (env/ty in the clone helper; value +
   // deferred_drop_expressions below), and explicitly CLEAR the fields whose
@@ -2478,7 +2478,7 @@ evaluate_begin_expression :: (
   // left the dup (deferred_dup_expressions survives the clone) with no
   // balancing drop — every bare-tail projection-by-value call to a
   // may-mutate callee leaked its whole RC group
-  // (issues/ref-local-scope-drop-missing-after-value-call.md). Concat the
+  // (issues/fixed/ref-local-scope-drop-missing-after-value-call.md). Concat the
   // tail's drops AFTER the scope drops; codegen's emitted-once guard
   // (FunctionGenerationContext.emitted_deferred_drop_ids) keeps each drop to
   // a single emission now that one list is flushed from several points.

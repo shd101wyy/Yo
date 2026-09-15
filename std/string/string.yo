@@ -60,12 +60,22 @@ extern(
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc } :: GlobalAllocator;
 /// String operation error variants.
+///
+/// One variant, deliberately. An `IndexOutOfBounds(index, length)` variant was
+/// declared here and documented as public surface, but **no `String` entry
+/// point could ever return it**: a bounds failure PANICS, which is the decided
+/// design (D4), not an oversight. So the enum published a *recoverable* error
+/// the API offers no way to recover from, and freezing the module would have
+/// locked that in
+/// (issues/fixed/stringerror-indexoutofbounds-is-declared-but-no-string-api-can-return-it.md).
+///
+/// If a fallible bounds-checked accessor is ever added, it should carry its own
+/// error type or reintroduce this variant ALONGSIDE the entry point that
+/// returns it — not before.
 StringError :: enum(
   /// The input bytes are not valid UTF-8. `cause` says exactly what is wrong
   /// and at which byte offset.
-  InvalidUtf8(cause : utf8.Utf8Error),
-  /// The index is out of bounds for the string's byte length.
-  IndexOutOfBounds(index : usize, length : usize)
+  InvalidUtf8(cause : utf8.Utf8Error)
 );
 /// Growable UTF-8 encoded string — the same shape as Rust's `String`.
 ///

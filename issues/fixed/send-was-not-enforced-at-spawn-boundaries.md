@@ -69,7 +69,7 @@ thread-safety model; the regression tests therefore make the offending value
 a FUNCTION LOCAL (a `comptime_expect_error` block that defines and calls a fn).
 
 
-`issues/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`:
+`issues/fixed/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`:
 `Type.impls(*(NonSend), Send)` answers `true` because the prelude's
 where-bounded blanket impls are matched without discharging their `where`
 clause. Until that is fixed the enforcement UNDER-rejects raw pointers,

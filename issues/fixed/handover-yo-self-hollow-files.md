@@ -341,7 +341,7 @@ design, so a real fix makes CI red until the list is updated. That is intentiona
 | What                              | Where                                                                                     |
 | --------------------------------- | ----------------------------------------------------------------------------------------- |
 | Repro                             | `issues/repros/yo-self-variadic-comptime-call-not-funcval.yo`                             |
-| Full history                      | `issues/yo-self-hollow-language-test-files.md`                                            |
+| Full history                      | `issues/fixed/yo-self-hollow-language-test-files.md`                                            |
 | Allowlist                         | `scripts/bootstrap/known-failing.tsv`                                                     |
 | The swallowing handler            | `yo-self/evaluator/calls/function_type.yo:249-283`                                        |
 | Def-time env builder              | `yo-self/evaluator/calls/function_type.yo:291`                                            |

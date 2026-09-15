@@ -42,7 +42,7 @@ methods / no layout, and degenerates:
 `resolve_enum_shell(t)` swaps a shell→final, but it must be called at EVERY
 semantic site the shell reaches, and the shell propagates through many
 specialization-input paths. Attempts this session + the 8 in
-`issues/yo-self-p1-transpile-tail.md`:
+`issues/fixed/yo-self-p1-transpile-tail.md`:
 
 | attempt                    | site                                                              | result                                               |
 | -------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------- |
@@ -159,7 +159,7 @@ technique: a `[CLONE_DBG]` `eprintln` of receiver-type / is_static / hits in
 > **def-time body-eval typing** (the trial wrapper `_trial_eval_fn_body` evaluates
 > ~93 of yo-self's own function bodies with mistyped params/locals, so ordinary
 > `if`/`match` statements throw "got unit"/"incompatible types"/"member mismatch").
-> 246/296 throw-points are plain `if(...)`. See `issues/yo-self-p1-transpile-tail.md`.
+> 246/296 throw-points are plain `if(...)`. See `issues/fixed/yo-self-p1-transpile-tail.md`.
 > The mechanism below is kept as a correct, revivable cleanup (it removes a
 > yo-self-only divergence from TS's mutable `EnumType`) should the shell ever need
 > eliminating for faithfulness — but it is NOT a P1 fix.
@@ -214,7 +214,7 @@ effort now redirects to the def-time body-eval typing root.
 
 ## References
 
-- `issues/yo-self-p1-transpile-tail.md` — full evidence, throw distribution,
+- `issues/fixed/yo-self-p1-transpile-tail.md` — full evidence, throw distribution,
   the 8+ ruled-out use-site attempts, this session's 3 attempts.
 - `plans/archive/BOOTSTRAPPING_CODEGEN.md` — P1 (this is the lead blocker for the fixpoint).
 - `yo-self/evaluator/types/enum.yo` — shell creation + `_patch_self_shell` +

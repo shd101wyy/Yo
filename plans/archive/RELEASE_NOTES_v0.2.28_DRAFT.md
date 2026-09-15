@@ -184,10 +184,10 @@ asserts on it.
   codegen.
 - A swallowed exception-handler body ships as an FTT stub in the `tests/http` batch.
   Not reached today, and loud if it ever is
-  (`issues/ftt-stub-installed-as-an-exception-handler-in-tests-http.md`).
+  (`issues/fixed/ftt-stub-installed-as-an-exception-handler-in-tests-http.md`).
 - `.to_expr()` cannot parse a backtick template literal, and surfaces the failure as
   a misleading "derive rule must return(comptime(Expr))"
-  (`issues/comptime-str-to-expr-cannot-parse-a-template-literal.md`).
+  (`issues/fixed/comptime-str-to-expr-cannot-parse-a-template-literal.md`).
 - `inout` follow-ups, tracked in `plans/INOUT_LOCAL_BINDINGS_AUDIT.md`'s status
   banner: an `Iterable` marker trait (which would also refuse a plain `inout(e)`
   on maps/sets), a compile-time same-variable diagnostic, last-use live ranges,

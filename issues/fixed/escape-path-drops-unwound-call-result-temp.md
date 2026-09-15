@@ -152,4 +152,4 @@ The deterministic, platform-independent gate is the emitted-C check in the table
   but a `ctl` whose `ResumeType` is a **larger** struct would make the caller pass an sret
   pointer in RDI and shift every argument, so the handler would read the sret pointer as
   its `err` argument. Not reachable from the current corpus; filed as
-  `issues/ctl-handler-void-signature-vs-sret-cast.md`.
+  `issues/fixed/ctl-handler-void-signature-vs-sret-cast.md`.

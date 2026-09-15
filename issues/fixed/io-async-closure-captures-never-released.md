@@ -40,7 +40,7 @@ constructor receives it. But:
 - **sync future** (`generate_io_async_sync_call`): ignored the dup'd capture temp and
   installed a fresh borrowed re-copy of the fields (`->__capture = (cap){ .h = h }`),
   orphaning the dup'd temp; its dispose deliberately dropped nothing ("the capture is
-  borrowed"). `issues/async-future-result-never-dropped.md` recorded this half as
+  borrowed"). `issues/fixed/async-future-result-never-dropped.md` recorded this half as
   deferred "until the dup/drop pair lands together" — but the dup side was already
   landing (the closure emitter's), which is why the leak was exactly +1 per capture.
 

@@ -99,6 +99,34 @@ test("f64 mul_add and rem_euclid", {
   assert(_close(f64(-7.0).rem_euclid(f64(3.0)), f64(2.0)), "rem_euclid is NON-NEGATIVE for a negative receiver");
   assert(_close(f64(4.0).recip(), f64(0.25)), "recip");
 });
+test("`%` on floats is fmod — truncated, keeping the dividend's sign", {
+  // Expectations derived from C's `fmod` (the truncated remainder), NOT from
+  // the issue report: `fmod(x, y)` has the sign of X, so a negative dividend
+  // gives a negative result. Cross-checked against Rust's `%` for f64, which
+  // is the same operation.
+  //
+  // Before 2026-09-14 this did not run at all: codegen lowered `%` to the C
+  // `%` token unconditionally, and C's `%` is integer-only, so a float pair
+  // was a hard C error naming a generated temporary while `yo check` reported
+  // the file fine
+  // (issues/fixed/stddoc-coll-float-modulo-emits-invalid-c.md).
+  assert(_close(f64(-7.0) % f64(3.0), f64(-1.0)), "-7 % 3 = -1: fmod keeps the DIVIDEND's sign");
+  assert(_close(f64(7.0) % f64(3.0), f64(1.0)), "7 % 3 = 1");
+  assert(_close(f64(-7.0) % f64(-3.0), f64(-1.0)), "-7 % -3 = -1: the divisor's sign is irrelevant");
+  assert(_close(f64(7.5) % f64(2.0), f64(1.5)), "a fractional remainder survives");
+  assert(_close(f64(5.0) % f64(2.5), f64(0.0)), "an exact division gives 0");
+  // THE CONTRAST THAT MATTERS, and the one the std doc comment used to get
+  // wrong by calling `rem_euclid` "what Yo's % means for floats": for the same
+  // operands `%` is -1 and rem_euclid is +2. They are different functions.
+  assert(_close(f64(-7.0) % f64(3.0), f64(-1.0)), "% is truncated");
+  assert(_close(f64(-7.0).rem_euclid(f64(3.0)), f64(2.0)), "rem_euclid is euclidean, and NON-NEGATIVE");
+  // f32 goes through fmodf, a different C function, so it needs its own row.
+  assert(((f32(-7.0) % f32(3.0)) > f32(-1.001)) && ((f32(-7.0) % f32(3.0)) < f32(-0.999)), "f32 -7 % 3 = -1 via fmodf");
+  assert(((f32(7.5) % f32(2.0)) > f32(1.499)) && ((f32(7.5) % f32(2.0)) < f32(1.501)), "f32 7.5 % 2 = 1.5 via fmodf");
+  // Integer `%` must be untouched by the float lowering.
+  assert((i32(-7) % i32(3)) == i32(-1), "integer % still lowers to C's %");
+  assert((usize(7) % usize(3)) == usize(1), "unsigned integer % still lowers to C's %");
+});
 test("f64 constants are the right values", {
   assert(_close(f64.PI, f64(3.141592653589793)), "PI");
   assert(_close(f64.TAU, f64.PI * f64(2.0)), "TAU is two pi");

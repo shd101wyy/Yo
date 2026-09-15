@@ -1,6 +1,10 @@
 # `imm.Vec.dedup` leaks every refcounted element on its uniquely-owned path
 
-**Status:** OPEN
+**Status:** OPEN — **but the diagnosis below is WRONG, and the leak is not a
+`std` bug.** Re-measured 2026-09-14; see "Correction" at the end. The real
+cause is a compiler defect,
+`issues/own-param-leaks-when-a-conditional-return-is-not-taken.md`, and this
+doc should close when that one does.
 **Severity:** memory leak of RC element types — silent, and invisible to every
 existing test because `tests/imm_vec.test.yo` deduplicates `i32`s.
 **Found:** 2026-09-11, during the `///` documentation sweep of
@@ -83,3 +87,66 @@ In the unique branch, either
 The regression test wants the Dispose counter above, not a `len` assertion: CI
 runs with `detect_leaks=0` everywhere, so a leak is only observable as a
 missing disposal.
+
+---
+
+## Correction (2026-09-14) — the `consume` store is not what leaks
+
+The mechanism described above is real: `consume(p.* = v)` does not drop what it
+overwrites, and using it on a live slot would leak. **It is not what this
+reproducer is measuring.** Three controls, each removing the `consume` store
+from the picture:
+
+| variant | disposed | what it removes |
+| --- | ---: | --- |
+| `dedup` on `[1, 2, 3]` — no duplicates, so `count == i` always and the store NEVER executes | **0** | the store |
+| the whole unique branch replaced by a bare `return(self)` — no loop, no store, no `_len` change | **0** | the store AND the loop |
+| the same branch reached from the FIRST early return instead of the second | **3** ✅ | nothing — only *which* return fires |
+
+The first two delete the accused code and the leak survives. The third changes
+no code at all and the leak disappears. So the accusation does not hold.
+
+`contains` / `index_of` perform the same `(self._ptr.add(j)).*` element reads
+and do not leak, which also rules out the reads.
+
+### What actually leaks
+
+`dedup`'s prologue is two guards:
+
+```rust
+if(self._len <= usize(1), { return(self); });      // untaken for len > 1
+if(rc(self) == usize(1), { … return(self); });     // the unique path
+```
+
+An `own` parameter is never dropped when the body contains an
+`if(cond, { return(param); })` whose condition is **false at runtime** — so the
+first guard, merely by not firing, orphans `self` for every vector longer than
+one element. Filed with a 30-line reproducer and a six-shape control matrix as
+`issues/own-param-leaks-when-a-conditional-return-is-not-taken.md`.
+
+That also explains the number this doc could not: the reproducer reports **0**
+disposals, not the 1 its own header predicts and not the 1 the `consume`
+mechanism would cause. The entire vector is orphaned, so none of its three
+elements is ever disposed.
+
+### What to do
+
+- **Do not "fix" `dedup`** by rewriting the unique path. It would not fix the
+  leak (the controls above show the leak without that code), and it would make
+  the real defect harder to find by removing the clearest instance of it.
+- The `consume`-into-a-live-slot hazard is nonetheless a latent bug in that
+  branch and should be corrected **once the compiler defect is fixed**, when a
+  regression test can actually distinguish the two. Until then there is no
+  test that can tell a correct `dedup` from an incorrect one.
+- This doc closes when the compiler issue closes, and the reproducer moves
+  with it.
+
+### Method note
+
+The filed diagnosis was arrived at by reading, and it is a *plausible* reading
+— `consume` on a live slot genuinely is a leak, and the file even documents
+that hazard two methods up, which made it look confirmed. What was missing was
+a control that removes the accused mechanism and checks whether the symptom
+survives. That control took one `sed` and one recompile. The same lesson as the
+two wrong expected-value tables found elsewhere in this clean-up pass: the
+artefact under test cannot supply its own oracle.

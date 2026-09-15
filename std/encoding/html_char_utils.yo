@@ -24,7 +24,7 @@
 //! `is_valid_entity_code` also has a hole worth closing in the same pass: its
 //! range checks are all written against POSITIVE code points, so a negative
 //! `i32` falls through to `true`
-//! (`issues/stddoc-io-is-valid-entity-code-accepts-negative-code-points.md`).
+//! (`issues/fixed/stddoc-io-is-valid-entity-code-accepts-negative-code-points.md`).
 //! Fixing that changes the predicate's answer, which is why it is named here.
 //!
 //! The `i32` parameter type is the third thing: a Unicode scalar is
@@ -45,12 +45,17 @@
 /// A NEGATIVE `c` answers `true`, which is wrong and is a known defect —
 /// every range check here is written against positive values, so a negative
 /// falls through to the `true` arm
-/// (`issues/stddoc-io-is-valid-entity-code-accepts-negative-code-points.md`).
+/// (`issues/fixed/stddoc-io-is-valid-entity-code-accepts-negative-code-points.md`).
 /// Callers reaching this with a value that could be negative — `html_decode`
 /// does, since its hex parser accumulates into an `i32` and overflows —
 /// should range-check first.
 is_valid_entity_code :: (fn(c : i32) -> bool)(
   cond(
+    // FIRST, and it has to be: the noncharacter arm below masks with 0xFFFF,
+    // so it already answers for SOME negatives (-1 and -2 among them) while
+    // letting every other negative fall through to `true => true`. A negative
+    // is not a code point at all, and `c > 0x10FFFF` alone is one-sided.
+    (c < i32(0)) => false,
     ((c >= i32(0xD800)) && (c <= i32(0xDFFF))) => false,
     ((c >= i32(0xFDD0)) && (c <= i32(0xFDEF))) => false,
     (((c & i32(0xFFFF)) == i32(0xFFFF)) || ((c & i32(0xFFFF)) == i32(0xFFFE))) => false,

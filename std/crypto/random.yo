@@ -37,6 +37,10 @@ pragma(Pragma.AllowUnsafe);
 hex :: import("../encoding/hex");
 { Error, AnyError, Exception } :: import("../error");
 { ToString } :: import("../fmt");
+// `IoError.from_errno` already maps an errno to a named variant and renders it,
+// so carrying the real cause needs no new table here. No cycle: std/sys/errors
+// imports only ../string, ../fmt, ../error and ../libc/errno.
+{ IoError } :: import("../sys/errors");
 // ============================================================================
 // Error type
 // ============================================================================
@@ -100,7 +104,10 @@ random_bytes :: (fn(buf : RawSlice(u8), exn : Exception) -> unit)({
       cond(
         (r == i32(0)) => (),
         true => {
-          exn.throw(dyn(CryptoError.Unavailable));
+          // BCryptGenRandom returns an NTSTATUS, NOT an errno, so it cannot go
+          // through `IoError.from_errno` — carry the raw status instead, which
+          // is still infinitely more than "unavailable".
+          exn.throw(dyn(CryptoError.Other(msg : `BCryptGenRandom failed: NTSTATUS ${r}`)));
         }
       );
     },
@@ -116,7 +123,8 @@ random_bytes :: (fn(buf : RawSlice(u8), exn : Exception) -> unit)({
         ret := __yo_getentropy(buf_ptr.add(offset), chunk);
         cond(
           (ret < i32(0)) => {
-            exn.throw(dyn(CryptoError.Unavailable));
+            e_ent := __yo_errno();
+            exn.throw(dyn(CryptoError.Other(msg : `getentropy: ${IoError.from_errno(e_ent).to_string()} (errno ${e_ent})`)));
           },
           true => ()
         );
@@ -141,7 +149,12 @@ random_bytes :: (fn(buf : RawSlice(u8), exn : Exception) -> unit)({
               (e_now == i32(EINTR)) => (),
               // retry
               true => {
-                exn.throw(dyn(CryptoError.Unavailable));
+                // The REAL cause, not a blanket "unavailable": getrandom can
+                // fail with EFAULT, EINVAL or ENOSYS, and reporting all three
+                // as "platform random unavailable" told the caller nothing and
+                // left `.Other` with no producer at all
+                // (issues/fixed/crypto-random-reports-every-failure-as-unavailable-and-discards-the-errno.md).
+                exn.throw(dyn(CryptoError.Other(msg : `getrandom: ${IoError.from_errno(e_now).to_string()} (errno ${e_now})`)));
               }
             );
           },

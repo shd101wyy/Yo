@@ -97,7 +97,7 @@ documents it verbatim:
 with an explicit `has_drive` branch (`src/expr_info.yo:887`). A third copy,
 `_lex_abs_path` (`src/evaluator/memory_safety.yo:141-155`), was bitten by a
 neighbouring Windows path bug and now delegates to `Path`
-(`issues/windows-lex-abs-path-voids-std-exemption.md`). `uri_to_fs_path` was
+(`issues/fixed/windows-lex-abs-path-voids-std-exemption.md`). `uri_to_fs_path` was
 never given either treatment.
 
 ## Fix

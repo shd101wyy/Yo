@@ -26,6 +26,73 @@ test("IpAddr.loopback_v6 returns ::1", {
   assert(addr.is_v6(), "should be v6");
   assert(!addr.is_v4(), "should not be v4");
 });
+/// Build a V6 address from eight segment values.
+_v6 :: (fn(a : u16, b : u16, c : u16, d : u16, e : u16, f : u16, g : u16, h : u16) -> IpAddr)({
+  segs := Array(u16, usize(8)).fill(u16(0));
+  segs(usize(0)) = a;
+  segs(usize(1)) = b;
+  segs(usize(2)) = c;
+  segs(usize(3)) = d;
+  segs(usize(4)) = e;
+  segs(usize(5)) = f;
+  segs(usize(6)) = g;
+  segs(usize(7)) = h;
+  IpAddr.V6(segs)
+});
+test("IpAddr v6 to_string is RFC 5952 canonical", {
+  // Expectations are taken from RFC 5952 ITSELF (sections 4.2.1-4.2.3 and the
+  // worked examples in section 4), not from the issue report -- an
+  // expected-value list written alongside a bug report is not an independent
+  // oracle. Cross-checks against `inet_ntop` and Rust's `Ipv6Addr::to_string`,
+  // which agree with the RFC on every row below.
+  //
+  // 4.2.1 -- a run of zero fields is replaced by "::".
+  assert(_v6(u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(1)).to_string() == `::1`, "loopback is ::1");
+  assert(_v6(u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(0)).to_string() == `::`, "all-zero is ::");
+  assert(
+    _v6(u16(0x2001), u16(0xdb8), u16(0), u16(0), u16(0), u16(0), u16(0), u16(1)).to_string() == `2001:db8::1`,
+    "2001:db8::1"
+  );
+  // A run touching the END still renders both colons.
+  assert(
+    _v6(u16(0x2001), u16(0xdb8), u16(0), u16(0), u16(0), u16(0), u16(0), u16(0)).to_string() == `2001:db8::`,
+    "trailing run renders as 2001:db8::"
+  );
+  // 4.2.2 -- a SINGLE zero field is NOT shortened. `1:0:2:...` must not
+  // collapse to `1::2:...`, which would be ambiguous.
+  assert(
+    _v6(u16(1), u16(0), u16(2), u16(3), u16(4), u16(5), u16(6), u16(7)).to_string() == `1:0:2:3:4:5:6:7`,
+    "a lone zero field stays 0"
+  );
+  // 4.2.3 -- the LONGEST run wins...
+  assert(
+    _v6(u16(1), u16(0), u16(0), u16(2), u16(0), u16(0), u16(0), u16(3)).to_string() == `1:0:0:2::3`,
+    "the longer of two runs is the one compressed"
+  );
+  // ...and on a TIE the FIRST run wins. This is RFC 5952's own worked example:
+  // 2001:db8:0:0:1:0:0:1 has two runs of length two and must render as
+  // 2001:db8::1:0:0:1, NOT 2001:db8:0:0:1::1.
+  assert(
+    _v6(u16(0x2001), u16(0xdb8), u16(0), u16(0), u16(1), u16(0), u16(0), u16(1)).to_string() == `2001:db8::1:0:0:1`,
+    "on a tie the FIRST run is compressed (RFC 5952 4.2.3 worked example)"
+  );
+  // 4.1/4.3 -- no leading zeros, lowercase hex. Already true before this fix,
+  // asserted so a future change to the hex writer cannot silently break them.
+  assert(
+    _v6(u16(0xfe80), u16(0), u16(0), u16(0), u16(0x204), u16(0x61ff), u16(0xfe9d), u16(0xf156)).to_string() == `fe80::204:61ff:fe9d:f156`,
+    "link-local renders lowercase with no leading zeros"
+  );
+  // A leading run.
+  assert(_v6(u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(1), u16(2)).to_string() == `::1:2`, "leading run");
+});
+test("SocketAddr brackets the canonical v6 form", {
+  // RFC 3986 3.2.2 / RFC 5952 6: the bracketed text is the canonical address,
+  // so the compression has to show through the SocketAddr rendering too.
+  sa := SocketAddr.new(_v6(u16(0x2001), u16(0xdb8), u16(0), u16(0), u16(0), u16(0), u16(0), u16(1)), u16(443));
+  assert(sa.to_string() == `[2001:db8::1]:443`, "[2001:db8::1]:443");
+  sl := SocketAddr.new(IpAddr.loopback_v6(), u16(443));
+  assert(sl.to_string() == `[::1]:443`, "[::1]:443");
+});
 test("IpAddr.any_v4 returns 0.0.0.0", {
   addr := IpAddr.any_v4();
   assert(addr.is_v4(), "should be v4");

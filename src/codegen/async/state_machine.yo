@@ -1918,7 +1918,7 @@ _emit_await_suspension :: (
 /// firing the continuation on its fall-through path: the future suspended
 /// forever and every awaiter polled eternally (the `yo build run` smoke hang —
 /// _git_version's success path,
-/// issues/build-smoke-hangs-registry-perturbation.md).
+/// issues/fixed/build-smoke-hangs-registry-perturbation.md).
 _emit_last_segment_completion :: (
   fn(segment : StateSegment, body_expr : AstExpr, local_var_drop_codes : ArrayList(String), context : FunctionGenerationContext) -> unit
 )({
@@ -3479,7 +3479,7 @@ _emit_post_while_cond_branch :: (
         // the future's result used to mask this exactly (one leaked count per
         // list ate one extra drop); once dispose really drops results, the
         // double cleanup surfaced as a use-after-free in fs_walker
-        // (issues/async-postwhile-branch-cleanup-double-drop.md). A real
+        // (issues/fixed/async-postwhile-branch-cleanup-double-drop.md). A real
         // re-selection of the branch re-assigns the field before the next
         // pass, so consuming it here keeps the cleanup at most once per
         // selection. Chained continuations keep the key — their next state's
@@ -4270,7 +4270,7 @@ generate_async_block_resume_function :: (
             // completion block placed after it is reachable only via the
             // fall-through. Without this, the future suspended forever and
             // every awaiter polled eternally (the `yo build run` smoke hang,
-            // issues/build-smoke-hangs-registry-perturbation.md).
+            // issues/fixed/build-smoke-hangs-registry-perturbation.md).
             if(is_last_segment, {
               _emit_last_segment_completion(segment, body_expr, local_var_drop_codes, context);
             });

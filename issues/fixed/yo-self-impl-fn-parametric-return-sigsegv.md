@@ -21,7 +21,7 @@ symptom; both are now understood.
    near an unmapped page — i.e. **stack overflow** on macOS's
    default 8 MB main-thread stack. Workaround:
    `ulimit -s 65520` before running yo-self-bin. Tracked
-   separately in `issues/yo-self-evaluator-stack-overflow.md`.
+   separately in `issues/fixed/yo-self-evaluator-stack-overflow.md`.
 
 Resolved by commits:
 

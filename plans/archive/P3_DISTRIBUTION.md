@@ -415,7 +415,7 @@ Codegen requests a 1 GiB worker stack and **falls back silently** to
 `__yo_main_thread_entry(NULL)` on the ~8 MB process stack when `pthread_create`
 fails. A musl build that ignored the request would therefore pass ordinary
 workloads and SIGSEGV (rc=139, no message) on deep comptime recursion — the
-Windows failure in `issues/windows-no-main-worker-stack-rc139.md`.
+Windows failure in `issues/fixed/windows-no-main-worker-stack-rc139.md`.
 
 Two attempts failed to probe it, both reporting themselves inconclusive rather
 than passing green:
@@ -601,7 +601,7 @@ Watch that job, and promote it off `continue-on-error` once it is green.
   because the big-stack worker thread was gated on `isTargetPosix`, and
   `YO_MAIN_STACK_MB` was read only inside that arm — so the knob was silently a
   no-op on Windows. Now a `CreateThread` worker with `dwStackSize`, in both
-  compilers. See `issues/windows-no-main-worker-stack-rc139.md`.
+  compilers. See `issues/fixed/windows-no-main-worker-stack-rc139.md`.
 
   **Sequencing:** the CI leg stays red until a release ships this and
   `SEED_VERSION` bumps, because the crash is in the released SEED, built by the

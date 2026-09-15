@@ -69,8 +69,14 @@ make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       IO_tcp.make_sockaddr_in(&buf(usize(0)), addr.port)
     },
     .V6(_) => {
-      // Render the real address text (full uncompressed hex form — valid
-      // inet_pton input). This used to hardcode "::1" for EVERY V6 address
+      // Render the real address text. `to_string` emits the RFC 5952 canonical
+      // form (with `::` compression) as of 2026-09-14, and `inet_pton` accepts
+      // that identically to the uncompressed form — measured both ways, see
+      // issues/fixed/ipaddr-v6-to-string-is-not-rfc-5952-canonical.md. The
+      // comment that used to sit here claimed the UNCOMPRESSED form was
+      // required; it was not, and it would have stopped the next reader from
+      // fixing the canonicalisation.
+      // This used to hardcode "::1" for EVERY V6 address
       // (plans/archive/STD_API_AUDIT.md C2).
       ip_txt := addr.ip.to_string();
       ip_c := ip_txt.to_cstr();

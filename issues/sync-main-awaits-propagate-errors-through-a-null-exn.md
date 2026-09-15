@@ -70,5 +70,5 @@ remaining direct call-through (currently only the sync-await bridge and
   (my probe bug) took the error path and crashed — the ENOENT itself was
   correct behavior.
 - Related cluster:
-  issues/async-closure-value-struct-param-emits-invalid-c-cast.md (same
+  issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md (same
   state-machine argument plumbing).
