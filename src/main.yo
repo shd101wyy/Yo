@@ -64,6 +64,9 @@ _(env : proc_env) :: import("std/env");
 { get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build, expand_workspace_members } :: import("./build_runner.yo");
+{ remove_file } :: import("std/fs/dir");
+{ file_exists_sync } :: import("./manifest.yo");
+{ stable_occurrence_reset } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -2237,11 +2240,31 @@ run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Excep
   argv_b.push(out_b.clone());
   argv_b.push(String.from("--skip-c-compiler"));
   argv_b.push(String.from("--warm-reuse"));
+  // A pass that dies before emitting must not leave the PREVIOUS run's
+  // output in place — the comparison would silently read stale C. Remove
+  // only when present: an unwind-swallow handler here would abort this
+  // whole orchestrator silently (the unwind discards its continuation).
+  if(file_exists_sync(out_a.clone()), {
+    _rm_a := io.await(remove_file(Path.new(out_a.clone()), io), IoExn(io : io, exn : exn));
+  });
+  if(file_exists_sync(out_b.clone()), {
+    _rm_b := io.await(remove_file(Path.new(out_b.clone()), io), IoExn(io : io, exn : exn));
+  });
   t0 := Instant.now();
   run_compile(argv_a, io, exn);
   t1 := Instant.now();
   run_compile(argv_b, io, exn);
   t2 := Instant.now();
+  exists_a := file_exists_sync(out_a.clone());
+  if(!exists_a, {
+    eprintln(String.from("warm-selfcheck: pass 1 emitted nothing"));
+    unsafe(exit(int(1)));
+  });
+  exists_b := file_exists_sync(out_b.clone());
+  if(!exists_b, {
+    eprintln(String.from("warm-selfcheck: pass 2 emitted nothing (it failed — see the error above)"));
+    unsafe(exit(int(1)));
+  });
   a := String.from_bytes(read_file_sync(out_a.clone(), exn));
   b := String.from_bytes(read_file_sync(out_b.clone(), exn));
   (identical : bool) = (a == b);
@@ -2863,6 +2886,10 @@ run_compile :: (
     profile_set_enabled(true);
   });
   {
+    // Ids are mint-ordinal-shaped: every compile (cold OR warm) must replay
+    // the same ordinals or a second compile emits different `__yo_t_*` names
+    // (see stable_occurrence_reset).
+    stable_occurrence_reset();
     if(!warm_reuse, {
       clear_module_cache();
       mm_clear_prelude_env();
@@ -3069,8 +3096,11 @@ run_compile :: (
   // closure), the cached prelude env, and the shared ExprInfoTable. Clearing
   // them is the other half of the fix — either half alone frees nothing,
   // because each still holds a reference to what the other drops.
-  // TS equivalent: ModuleManager.resetAllState().
-  mm_reset();
+  // TS equivalent: ModuleManager.resetAllState(). NOT on a --warm-reuse
+  // pass: the whole point is that the next pass holds this pass's universe.
+  if(!warm_reuse, {
+    mm_reset();
+  });
   // --skip-c-compiler: write the C and stop.
   if(skip_cc, {
     _print_compile_profile(profile_json.clone(), io, exn);
