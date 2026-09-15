@@ -38,6 +38,8 @@ _(env : ctx_dbg_env) :: import("std/env");
   ast_expr_to_string,
   BK_CONST,
   BK_EXTERN,
+  BK_C_INCLUDE,
+  BK_ANON_STRUCT,
   BK_COLON,
   BK_ASSIGN,
   BK_IMPL_LOWER,
@@ -1628,6 +1630,80 @@ _extern_member_names :: (fn(e : AstExpr) -> ArrayList(String))({
   );
   names
 });
+/// `{ pattern } :: extern(...)` / `{ pattern } :: c_include(...)` — the
+/// destructuring of a declaration module value, which is also what a bare
+/// statement-position `extern(...)` / `c_include(...)` desugars to at parse
+/// time (`_wrap_glob_destructure`, src/expr.yo).
+_is_extern_decl_destructure :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BK_CONST, .Some(usize(2))) &&
+    match(
+      e,
+      .FnCall(_, _, dargs, _, _) => match(
+        dargs.get(usize(0)),
+        .Some(lhs) => (
+          ast_expr_is_fn_call_of(lhs, BK_ANON_STRUCT, .None) &&
+            match(
+              dargs.get(usize(1)),
+              .Some(rhs) => (ast_expr_is_fn_call_of(rhs, BK_EXTERN, .None) || ast_expr_is_fn_call_of(rhs, BK_C_INCLUDE, .None)),
+              .None => false
+            )
+        ),
+        .None => false
+      ),
+      .Atom(_, _) => false
+    )
+);
+/// The names a `{ pattern } :: extern(...)` statement BINDS: every declared
+/// label for a `...` spread (or the `(... : ...)` form), the atom for `a`,
+/// the new name for `(a : b)`. These are the statement's pending members.
+_extern_decl_bound_names :: (fn(e : AstExpr) -> ArrayList(String))({
+  names := ArrayList(String).new();
+  dargs := match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs := match(dargs.get(usize(0)), .Some(l) => l, .None => e);
+  rhs := match(dargs.get(usize(1)), .Some(r) => r, .None => e);
+  fields := match(lhs, .FnCall(_, _, fa, _, _) => fa, .Atom(_, _) => ArrayList(AstExpr).new());
+  (i : usize) = usize(0);
+  while(i < fields.len(), {
+    match(
+      fields.get(i),
+      .Some(f) => cond(
+        (ast_expr_is_atom(f) && (ast_expr_token(f).value == "...")) => {
+          all := _extern_member_names(rhs);
+          (j : usize) = usize(0);
+          while(j < all.len(), {
+            names.push(all(j).clone());
+            j = (j + usize(1));
+          });
+        },
+        ast_expr_is_atom(f) => names.push(ast_expr_token(f).value.clone()),
+        ast_expr_is_fn_call_of(f, BK_COLON, .Some(usize(2))) => match(
+          f,
+          .FnCall(_, _, pair, _, _) => {
+            a0 := match(pair.get(usize(0)), .Some(x) => x, .None => f);
+            a1 := match(pair.get(usize(1)), .Some(x) => x, .None => f);
+            cond(
+              (ast_expr_is_atom(a0) && (ast_expr_token(a0).value == "...")) => {
+                all := _extern_member_names(rhs);
+                (j : usize) = usize(0);
+                while(j < all.len(), {
+                  names.push(all(j).clone());
+                  j = (j + usize(1));
+                });
+              },
+              ast_expr_is_atom(a1) => names.push(ast_expr_token(a1).value.clone()),
+              true => ()
+            );
+          },
+          .Atom(_, _) => ()
+        ),
+        true => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  names
+});
 /// Classify one module-level statement. `.Some(def)` for a deferrable
 /// statement, `.None` for an ordered one (imports, pragmas, runtime
 /// globals, destructurings, bare expressions, exports).
@@ -1636,11 +1712,29 @@ _extern_member_names :: (fn(e : AstExpr) -> ArrayList(String))({
 /// `import(...)` (an import binding is an ordered statement: its effects —
 /// loading the module, registering its impls — are the module's observable
 /// evaluation), `impl(<receiver>, ...)` other than the anonymous
-/// `impl({ ... })` block form, and an `extern(...)` block (a body above it
-/// that calls one of its members forces the whole block —
-/// issues/fixed/extern-declarations-are-not-forward-referenceable.md).
+/// `impl({ ... })` block form, and a declaration destructure
+/// `{ ... } :: extern(...)` / `{ ... } :: c_include(...)` — the parsed form of
+/// a bare `extern(...)` block — whose members are the names it binds (a body
+/// above it that calls one of them forces the whole statement —
+/// issues/fixed/extern-declarations-are-not-forward-referenceable.md). A
+/// bare `extern(...)` node is kept for ASTs built without the parse-time
+/// desugar.
 classify_pending_def :: (fn(e : AstExpr, index : usize) -> Option(PendingDef))(
   cond(
+    _is_extern_decl_destructure(e) => {
+      members := _extern_decl_bound_names(e);
+      cond(
+        (members.len() == usize(0)) => Option(PendingDef).None,
+        true => match(
+          _make_pending_def(members(usize(0)).clone(), e, index, false),
+          .Some(def) => {
+            def.members = members;
+            Option(PendingDef).Some(def)
+          },
+          .None => Option(PendingDef).None
+        )
+      )
+    },
     ast_expr_is_fn_call_of(e, BK_EXTERN, .None) => {
       members := _extern_member_names(e);
       cond(

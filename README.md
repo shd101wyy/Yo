@@ -51,6 +51,7 @@ Below is a non-exhaustive list of features that Yo supports:
 - Closure.
 - [Algebraic Effects and Handlers](./docs/en-US/ALGEBRAIC_EFFECTS.md) (One-shot delimited continuation. Tail-Resumptive. Effect handlers with `return`/`unwind`, by [Evidence Passing](https://xnning.github.io/papers/multip.pdf)).
 - [Async/await](./docs/en-US/ASYNC_AWAIT.md) (Builtin `Io` effect. Stackless coroutine & Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).
+- [FFI](./docs/en-US/FFI.md) — `c_include(...)` / `extern(...)` evaluate to module values: bind, select, rename, or glob their members; a bare declaration is the glob; no shadowing.
 - [Memory safety by default](./docs/en-US/MEMORY_SAFETY.md) — user code can't write UB (no raw pointers, no FFI, no inline assembly) without an explicit `pragma(Pragma.AllowUnsafe);` opt-in. `inout(name)` for in-place mutation; `yo unsafe-report` for auditing the unsafe surface.
 - `ref(struct(...))` and `ref(enum(...))` types with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/en-US/CYCLE_COLLECTION.md).
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).

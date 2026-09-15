@@ -227,6 +227,8 @@ Findings (file:line:col):
 1. **首选：** 调用已有的标准库包装（`std/sys/*`、`std/fs`、`std/libc/*`、`std/net` 等）。
 2. **如果没有包装：** 新建一个带 `pragma(Pragma.AllowUnsafe);` 的文件，在其中声明 extern，在每个调用处包 `unsafe(...)`，并把这个文件视为项目可信基础的一部分。
 
+两种声明形式都求值为模块值——绑定它、挑选或重命名成员、或整体 glob 引入；裸声明语句就是 glob。见 [FFI.md](FFI.md)。
+
 ```rust
 // my_ffi.yo
 pragma(Pragma.AllowUnsafe);

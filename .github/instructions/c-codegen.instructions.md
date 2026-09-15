@@ -540,6 +540,18 @@ For `Option(unit)` return types, the `.Some` variant has no data field — only 
   the `.None` arm left `context.extern_functions` permanently empty until
   2026-08-10 — see
   `issues/fixed/yo-self-extern-c-include-never-registered.md`.
+- **A renamed extern-C GLOBAL keeps its C symbol through an ALIAS registry.**
+  A function's C name rides `FuncMeta.extern_name` and an opaque type's rides
+  the SomeT name, but a global's (`stdout : *FILE`) lived only in the Yo
+  variable name. `{ stdout : out } :: c_include(...)` therefore records
+  `out → stdout` (`register_extern_c_global_alias`, `src/expr_info.yo`, called
+  from the destructurer when the RHS id is a `c_include` module —
+  `is_extern_c_module_id`); `get_variable_name_for_codegen` emits
+  `extern_c_global_c_name(name)` and `_register_extern_global_header` looks
+  the header up by it. A module-qualified read (`c.stdout`) has NO variable:
+  the property atom is matched by name + declared type (its ExprInfo carries
+  `is_accessing_property`) in both `property_access.yo` (raw C name, no
+  reserved-word prefix) and the header registration.
 - Missing-header failures are MASKED for common headers: `emit_c_includes`
   hardcodes `<unistd.h>`/`<sys/stat.h>`/`<sys/random.h>` (POSIX) and
   `<windows.h>`/`<bcrypt.h>`/`<io.h>` (Windows), and the sys-runtime C

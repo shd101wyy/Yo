@@ -31,15 +31,12 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { hash_one } :: import("std/hash");
 { cwd } :: import("std/env");
-// Pointer-identity builtin — `expr_info_paths_for_write` uses it to detect the
-// SHARED empty PathCollection before a push (same local-extern pattern as
-// env.yo / std/string/string.yo).
-extern(
-  "Yo",
-  __yo_ptr_eq : (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool)
-);
+// `expr_info_paths_for_write` detects the SHARED empty PathCollection before a
+// push with the prelude's pointer-identity builtin `__yo_ptr_eq` (the same
+// direct call as env.yo / std/string/string.yo).
 { TypeValue } :: import("./types/definitions.yo");
 { get_all_some_types } :: import("./types/utils.yo");
 { is_some_type } :: import("./types/guards.yo");
@@ -837,6 +834,18 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 // the C header is `#include`d, so the real `stdout` is in scope. Populated by
 // c_include's field loop; read by get_variable_name_for_codegen.
 (g_extern_c_globals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+/// Yo binding name → C symbol name, for extern-C globals bound under a
+/// DIFFERENT name by a destructuring rename (`{ stdout : out } :: c_include(...)`,
+/// plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4). A name with no entry IS its
+/// own C name. Functions and opaque types carry their C name on the type
+/// (`FuncMeta.extern_name`, the SomeT's name); a global's lived only in the
+/// variable name, so the rename has to be recorded somewhere codegen can read.
+(g_extern_c_global_c_names : HashMap(String, String)) = HashMap(String, String).new();
+/// The source-namespace ids minted by `c_include(...)` module values. The
+/// destructurer consults this to know that a field it binds is an extern-C
+/// symbol (and so may need a C-name alias) rather than an ordinary module
+/// export that merely shares a name with one.
+(g_extern_c_module_ids : HashSet(String)) = HashSet(String).new();
 /// Mark `name` as an extern-C global symbol with its DECLARED type (called by
 /// c_include per field). The type is what identifies "this resolved binding
 /// IS the global": TS hangs `isExtern === "c"` on the TYPE itself, so a LOCAL
@@ -847,6 +856,20 @@ register_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
   g_extern_c_globals.insert(name, ty);
   ()
 });
+/// Bind the Yo name `yo_name` to the extern-C global whose C symbol is
+/// `c_name` (a destructuring rename off a `c_include` module value). The
+/// declared type travels with it so the per-resolved-variable match in
+/// codegen keeps working for the new name.
+register_extern_c_global_alias :: (fn(yo_name : String, c_name : String, ty : TypeValue) -> unit)({
+  g_extern_c_globals.insert(yo_name.clone(), ty);
+  g_extern_c_global_c_names.insert(yo_name, c_name);
+  ()
+});
+/// The C symbol behind the extern-C global bound as `yo_name` — the recorded
+/// alias target, or `yo_name` itself when it was never renamed.
+extern_c_global_c_name :: (fn(yo_name : String) -> String)(
+  match(g_extern_c_global_c_names.get(yo_name.clone()), .Some(c) => c, .None => yo_name)
+);
 /// The declared type of the c_include'd extern-C global `name`, if any.
 get_extern_c_global_type :: (fn(name : String) -> Option(TypeValue))(
   g_extern_c_globals.get(name)
@@ -854,6 +877,15 @@ get_extern_c_global_type :: (fn(name : String) -> Option(TypeValue))(
 /// True if `name` is a c_include'd extern-C global symbol (name-only check).
 is_extern_c_global :: (fn(name : String) -> bool)(
   g_extern_c_globals.get(name).is_some()
+);
+/// Record `sns_id` as the id of a `c_include(...)` module value.
+register_extern_c_module_id :: (fn(sns_id : String) -> unit)({
+  g_extern_c_module_ids.insert(sns_id);
+  ()
+});
+/// True if `sns_id` names a `c_include(...)` module value.
+is_extern_c_module_id :: (fn(sns_id : String) -> bool)(
+  g_extern_c_module_ids.contains(sns_id)
 );
 /// Registry of module-level RUNTIME globals, keyed "module_path|#|name".
 /// Populated by the evaluator at binding creation
@@ -1441,6 +1473,7 @@ export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
 export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
+export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
 export(module_global_recording_mark, rollback_module_level_globals_to);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete);
