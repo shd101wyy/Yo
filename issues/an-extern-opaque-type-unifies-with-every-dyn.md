@@ -3,6 +3,13 @@
 **Status:** OPEN
 **Found:** 2026-09-16
 **Repro:** `issues/repros/an-extern-opaque-type-unifies-with-every-dyn.yo`
+**Supersedes:** `issues/arraylist-of-a-trait-object-cannot-be-indexed.md` (which
+PR #706 renames to `a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`).
+Same defect, same `_ptr.add` error, both found while writing `error_chain`. Both
+of those titles are wrong: the failure is not about indexing, and not about
+module boundaries — it is about whether some other module has already
+instantiated `Option(*(<an extern opaque>))`. Retire that doc in favour of this
+one once #706 and this change have both landed.
 
 ## Symptom
 
@@ -148,6 +155,20 @@ while the same helper IS emitted for concrete element types
 (`..._value___u8__ret___u8_`). That is newly *exposed*, not newly introduced —
 before these fixes the same program failed earlier, in the evaluator. It is why
 this issue stays OPEN and why `error_chain` in `std/error.yo` is still blocked.
+
+The caller there (`..._R_gs_..._dyn_trait_r45c12_n0_ret_unit`) *did* specialize
+on the dyn; only the callee it references is the abstract spec. That is the same
+family as everything above — a cache keyed on a `SomeT` that
+`are_types_compatible_exact` matches by shape — so the place to look is the
+FUNCTION spec cache rather than the CTFE memo:
+`_spec_resolve_arg_ty` (`src/evaluator/calls/helper.yo`) exists precisely to
+resolve a `SomeT` to its concrete before keying a spec, and its doc comment
+records the identical failure for forwarded closure params ("the def-era
+TYPE-ERASED spec ... and the resolved-era call collided in the spec cache").
+The open question is whether a `T` instantiated at `Dyn(Trait)` gets a
+resolution registered for that helper to find. Not patched here — that is
+specialization machinery, and a speculative change there is exactly what this
+investigation has twice shown to be wrong.
 
 ## Note on the TypeScript compiler
 
