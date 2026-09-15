@@ -37,6 +37,39 @@ common loop/recursion measures, so this bites any unsigned-measure
 fixture. The V4 fixtures did not catch it because
 `tests/spec/fixtures/valid/recursion_decreases.yo` uses `i32`.
 
+## Why this is SAFE today, and the trap in fixing it (added 2026-09-15, review of #691)
+
+The symptom above is a FALSE ALARM — a sound measure is reported refuted, which
+is the conservative direction for a verifier. But the same defect has a second
+half that is NOT conservative, and the doc should say so before anyone touches
+it:
+
+**`decreases-step` is signed too** (`vc.yo:3761`, `VcOp.BvSlt`), and signed is
+the UNSOUND direction there. For an unsigned measure going `0 -> 2^63` — an
+INCREASE — `bvslt` reads `2^63` as most-negative, so `bvslt(2^63, 0)` is TRUE
+and the obligation is discharged. The verifier would conclude a growing measure
+shrank and accept non-terminating recursion.
+
+That is not reachable today only because **`decreases-nonneg` is emitted
+UNCONDITIONALLY** for every function carrying `decreases(M)` (`vc.yo:4021`, the
+`match(ctx.decreases, .Some(dm) => …)` with no guard). Any unsigned measure
+fails that entry obligation at `2^63`, so the function is never verified and the
+bad step comparison never grants a false pass. The false alarm is what keeps the
+unsoundness unreachable.
+
+**So: do NOT fix `decreases-nonneg` alone, and do not make it conditional.**
+Fixing the entry obligation while leaving `decreases-step` signed converts a
+loud false alarm into a silent soundness hole — unsigned measures would start
+passing entry and then be checked for decrease with the wrong comparison. Fix
+both in the same change, and add an unsigned NEGATIVE fixture (a `u64` measure
+that increases across `2^63` and must REFUTE) so the step direction is gated by
+a test rather than by the nonneg obligation happening to fire first.
+
+The same hardcoded signedness is in the loop-variant obligations
+(`vc.yo:1853` `BvSlt`, `1988` `BvSge`, `2049` `BvSlt`) — check whether the same
+argument holds there, or whether a loop variant can reach the step without a
+nonneg gate.
+
 ## Suggested fix
 
 Derive the comparison signedness from the measure term's declared type
