@@ -990,12 +990,13 @@ _unwrap_if_label :: (fn(arg : AstExpr, label : str) -> Option(AstExpr))({
 /// The rewritten node KEEPS the original call's ExprId (the rewrite runs
 /// before any ExprInfo for the node is written, and the `if` node it
 /// replaces is discarded); synthesized inner nodes mint fresh ids.
-/// Allocation-free pre-scan: does `e` contain a 2- or 3-arg `if(...)` call
-/// anywhere outside quote(...)? The desugar rebuild only pays for itself on
-/// trees that actually carry one — an if-free subtree is returned unchanged
-/// by the copy-on-write check below, so parsing a module with no `if` costs
-/// one read-only walk instead of a full AST reconstruction.
-_contains_if_call :: (fn(e : AstExpr) -> bool)(
+/// Allocation-free pre-scan: does `e` contain a desugar target — a 2- or
+/// 3-arg `if(...)` call, or a `c_include(...)` / `extern(...)` call — anywhere
+/// outside quote(...)? The desugar rebuild only pays for itself on trees that
+/// actually carry one — a target-free subtree is returned unchanged by the
+/// copy-on-write check below, so parsing a module with neither costs one
+/// read-only walk instead of a full AST reconstruction.
+_contains_desugar_target :: (fn(e : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
@@ -1005,6 +1006,9 @@ _contains_if_call :: (fn(e : AstExpr) -> bool)(
       });
       n_args := args.len();
       if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
+        return(true);
+      });
+      if(_is_extern_decl_call(e), {
         return(true);
       });
       if(recur(func_box), {
@@ -1025,6 +1029,40 @@ _contains_if_call :: (fn(e : AstExpr) -> bool)(
     }
   )
 );
+/// A `c_include(...)` or `extern(...)` call — the two declaration forms that
+/// evaluate to a MODULE VALUE (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md).
+_is_extern_decl_call :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BK_C_INCLUDE, .None) || ast_expr_is_fn_call_of(e, BK_EXTERN, .None)
+);
+/// Statement-position sugar: a bare `c_include(...)` / `extern(...)` statement
+/// is `{ ... } :: c_include(...)` — the glob destructure of the module value it
+/// evaluates to. The wrapper nodes get fresh ids; `decl` (already desugared
+/// below it) keeps its own id, which is where the evaluator records the
+/// module type and value. The synthesized tokens share the declaration's
+/// position, so a no-shadowing error on one of the names points at the
+/// declaration. The formatter never sees this: it works on the token stream.
+_wrap_glob_destructure :: (fn(decl : AstExpr) -> AstExpr)({
+  tok := ast_expr_token(decl);
+  pat_args := ArrayList(AstExpr).new();
+  pat_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "...", tok)));
+  pat := AstExpr.FnCall(
+    alloc_global_expr_id(),
+    AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Identifier, BK_ANON_STRUCT, tok)),
+    pat_args,
+    false,
+    tok
+  );
+  bind_args := ArrayList(AstExpr).new();
+  bind_args.push(pat);
+  bind_args.push(decl);
+  AstExpr.FnCall(
+    alloc_global_expr_id(),
+    AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, BK_CONST, tok)),
+    bind_args,
+    true,
+    tok
+  )
+});
 desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
   match(
     e,
@@ -1039,7 +1077,7 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
       // sharing fix in _synth_desugar_tok — the two together close the
       // v0.2.15 evaluator regression
       // (issues/desugar-token-clones-evaluator-regression.md).
-      if(!_contains_if_call(e), {
+      if(!_contains_desugar_target(e), {
         return(e);
       });
       n_args := args.len();
@@ -1108,6 +1146,9 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
           );
         });
       });
+      // Every argument of a `begin` block is a statement: a bare
+      // `c_include(...)` / `extern(...)` there is the glob-destructure sugar.
+      is_begin := ast_expr_is_fn_call_of(e, BK_BEGIN, .None);
       new_args := ArrayList(AstExpr).new();
       (di : usize) = usize(0);
       dn := args.len();
@@ -1115,7 +1156,8 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
         match(
           args.get(di),
           .Some(a) => {
-            new_args.push(recur(a));
+            da := recur(a);
+            new_args.push(if(is_begin && _is_extern_decl_call(a), _wrap_glob_destructure(da), da));
           },
           .None => ()
         );
@@ -1125,8 +1167,10 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
     }
   )
 );
-/// Desugar every top-level statement of a freshly parsed program.
-/// Returns a new statement list (ArrayList has no in-place `set`).
+/// Desugar every top-level statement of a freshly parsed program: `if` →
+/// `cond` throughout, and a bare `c_include(...)` / `extern(...)` statement →
+/// its glob destructure. Returns a new statement list (ArrayList has no
+/// in-place `set`).
 desugar_program_if_calls :: (fn(program : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   (pi : usize) = usize(0);
@@ -1135,7 +1179,8 @@ desugar_program_if_calls :: (fn(program : ArrayList(AstExpr)) -> ArrayList(AstEx
     match(
       program.get(pi),
       .Some(s) => {
-        out.push(desugar_if_calls(s));
+        ds := desugar_if_calls(s);
+        out.push(if(_is_extern_decl_call(s), _wrap_glob_destructure(ds), ds));
       },
       .None => ()
     );

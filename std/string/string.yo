@@ -52,11 +52,9 @@ unicode_case :: import("./unicode.yo");
 // (short_circuit_rc_temp_drop corpus DIFF, rc=133 — see
 // issues/fixed/yo-self-ptr-eq-trait-call-in-shortcircuit.md), and the direct
 // builtin also skips trait dispatch in the hottest function in the
-// compiler. Same local-extern pattern as std/gc.yo.
-extern(
-  "Yo",
-  __yo_ptr_eq : (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool)
-);
+// compiler. `__yo_ptr_eq` is the PRELUDE's declaration: a local
+// `extern("Yo", __yo_ptr_eq : …)` here would shadow it, which the
+// no-shadowing rule rejects (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.3).
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc } :: GlobalAllocator;
 /// String operation error variants.

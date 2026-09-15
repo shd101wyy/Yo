@@ -967,6 +967,21 @@ What stays ORDERED (still "define before use"): imports (`{ a } :: import(...)`,
 
 **SEED GATE — do NOT rely on this in `std/` or `src/` yet.** `yo build` compiles `std/` and `src/` with the SEED compiler (`SEED_VERSION`), which predates the feature and still fails with `Variable "X" not found` on a forward reference (and needs `recur` for self-recursion). Keep the callee-before-caller / impl-before-caller order in `std/` and `src/` until a release carrying the feature becomes the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md` is the scheduling point). `tests/` are compiled by the stage-1 built from the tree and may use the new order.
 
+**`c_include(...)` / `extern(...)` are MODULE VALUES (2026-09-15,
+`plans/C_INCLUDE_EXTERN_MODULE_VALUE.md`).** `c :: c_include("<stdio.h>", …)` then
+`c.fputs(...)` / `c.stdout`; `{ strlen : c_strlen } :: c_include(...)` selects and
+renames (functions, globals AND opaque types keep their C symbol in the emitted C);
+`{ ... } :: c_include(...)` is the glob. A BARE statement `c_include(...);` /
+`extern("Yo", …);` is parse-time sugar for that glob (`_wrap_glob_destructure`,
+`src/expr.yo`), so existing sources are unchanged and the seed builds them. The
+destructurer now runs the NO-SHADOWING rule (it never did — `{ a : b } :: m` onto an
+existing `b` and the same import twice were silently accepted), so a `c_include` name
+that a Yo binding already uses is an error either way round: qualify or rename. Value
+position forms are seed-gated for `std/` and `src/`; `tests/` may use them now. The
+BARE form is the canonical spelling (user decision 2026-09-15): do NOT migrate existing
+`extern(...)`/`c_include(...)` statements to `{ ... } :: …`; write the explicit forms
+only when you qualify, select or rename.
+
 **`extern("Yo", …)` / `extern("c", …)` blocks are order-independent too
 (fixed 2026-09-12, `issues/fixed/extern-declarations-are-not-forward-referenceable.md`),
 but SEED-GATED: the released seed compiles `src/` and `std/` and still lacks

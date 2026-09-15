@@ -64,7 +64,7 @@ _(env : proc_env) :: import("std/env");
 { get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build, expand_workspace_members } :: import("./build_runner.yo");
-{ MANIFEST_FILENAME, find_manifest, load_manifest } :: import("./manifest.yo");
+{ MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
 { set_cli_lang_override, cli_lang, tr } :: import("./cli_lang.yo");
@@ -103,6 +103,7 @@ json :: import("std/encoding/json");
   set_imports_file_override,
   mm_clear_prelude_env,
   mm_set_shared_expr_info_table,
+  mm_shared_expr_info_table,
   mm_reset,
   mm_resolve_entry_abs,
   mm_eval_entry_exprs,
@@ -2221,6 +2222,63 @@ _write_depfile :: (
   })
 );
 /// Run the `compile` subcommand.
+/// Phase 4 (§7 step 1) gate — the 47-stub experiment re-run as a command
+/// (hidden debug surface, not in `--help`): compile the input TWICE in this
+/// one process — the second pass with `--warm-reuse`, holding the first
+/// pass's module cache, prelude env and shared ExprInfoTable, exactly the
+/// state a resident `build`/`test` evaluator would hold — then require the
+/// two emitted C files to be byte-identical and the second to carry ZERO
+/// "Failed to transpile" markers. Exit 0 only when both hold. This is the
+/// red-first oracle for lifting run_compile's self-containment invariant;
+/// whatever it reports is the Phase-4 work list (issues found land in
+/// issues/warm-compile-selfcheck.md).
+run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Exception) -> unit)({
+  input := match(
+    argv.get(usize(2)),
+    .Some(x) => x.clone(),
+    .None => String.new()
+  );
+  out_a := String.from("/tmp/yo_warm_selfcheck_a.c");
+  out_b := String.from("/tmp/yo_warm_selfcheck_b.c");
+  argv_a := ArrayList(String).new();
+  argv_a.push(String.from("yo"));
+  argv_a.push(String.from("compile"));
+  argv_a.push(input.clone());
+  argv_a.push(String.from("--emit-c-to"));
+  argv_a.push(out_a.clone());
+  argv_a.push(String.from("--skip-c-compiler"));
+  argv_b := ArrayList(String).new();
+  argv_b.push(String.from("yo"));
+  argv_b.push(String.from("compile"));
+  argv_b.push(input.clone());
+  argv_b.push(String.from("--emit-c-to"));
+  argv_b.push(out_b.clone());
+  argv_b.push(String.from("--skip-c-compiler"));
+  argv_b.push(String.from("--warm-reuse"));
+  t0 := Instant.now();
+  run_compile(argv_a, io, exn);
+  t1 := Instant.now();
+  run_compile(argv_b, io, exn);
+  t2 := Instant.now();
+  a := String.from_bytes(read_file_sync(out_a.clone(), exn));
+  b := String.from_bytes(read_file_sync(out_b.clone(), exn));
+  (identical : bool) = (a == b);
+  // Count "Failed to transpile" markers in the WARM emission.
+  (ftt : usize) = usize(0);
+  marker := String.from("Failed to transpile");
+  (scan : Option(usize)) = b.index_of(marker.clone());
+  while(scan.is_some(), {
+    ftt = (ftt + usize(1));
+    scan = b.index_of(marker.clone(), match(scan, .Some(k) => (k + marker.len()), .None => usize(0)));
+  });
+  eprintln(
+    `warm-selfcheck: pass1=${t1.elapsed().as_millis().to_string()}ms pass2=${t2.elapsed().as_millis().to_string()}ms identical=${identical.to_string()} ftt_pass2=${ftt.to_string()} bytes_a=${a.len().to_string()} bytes_b=${b.len().to_string()}`
+  );
+  if((!(identical) || (ftt > usize(0))), {
+    unsafe(exit(int(1)));
+  });
+  unsafe(exit(int(0)));
+});
 run_compile :: (
   fn(
     argv : ArrayList(String),
@@ -2293,6 +2351,12 @@ run_compile :: (
   // verify-pragma fixtures otherwise).
   (no_verify : bool) = false;
   (skip_cc : bool) = false;
+  // Phase 4 (§7 step 1) gate plumbing: set by `--warm-reuse` (the second
+  // pass of `--warm-selfcheck`). The self-containment clears further below
+  // are skipped, so the pass compiles against the FIRST pass's warm module
+  // cache, prelude env and shared ExprInfoTable — exactly the state a
+  // resident `build`/`test` evaluator would hold.
+  (warm_reuse : bool) = false;
   (skip_codegen : bool) = false;
   (debug_gc : bool) = false;
   (debug_parallelism : bool) = false;
@@ -2484,6 +2548,13 @@ run_compile :: (
       },
       (a_name == "--skip-c-compiler") => {
         skip_cc = true;
+        ai = (ai + usize(1));
+      },
+      // Internal to `--warm-selfcheck` (never user-facing): skip the
+      // self-containment clears so this pass reuses the previous in-process
+      // compile's evaluator state.
+      (a_name == "--warm-reuse") => {
+        warm_reuse = true;
         ai = (ai + usize(1));
       },
       (a == "--skip-codegen") => {
@@ -2810,13 +2881,24 @@ run_compile :: (
     profile_set_enabled(true);
   });
   {
-    clear_module_cache();
-    mm_clear_prelude_env();
+    if(!warm_reuse, {
+      clear_module_cache();
+      mm_clear_prelude_env();
+    });
     // §4.9: this compile's input record starts empty. `run_compile` can be
     // reached more than once in a process (the LSP, `check --watch`), and a
     // depfile naming a previous compile's inputs would over-invalidate.
     reset_input_files();
-    shared_info_table := expr_info_table_new();
+    (shared_info_table : ExprInfoTable) = expr_info_table_new();
+    if(warm_reuse, {
+      match(
+        mm_shared_expr_info_table(),
+        .Some(t) => {
+          shared_info_table = t;
+        },
+        .None => ()
+      );
+    });
     mm_set_shared_expr_info_table(shared_info_table);
     // Ensure the prelude env is cached (provides std types to the evaluator).
     // Quiet: `compile` has no `check:` chatter.
@@ -6688,7 +6770,25 @@ main :: (fn(io : Io) -> unit)({
   }, if(subcmd == "lsp", {
     run_lsp_server(io, exn);
   }, if(subcmd == "compile", {
-    run_compile(argv, io, exn);
+    // The Phase-4 warm gate intercepts before run_compile ever sees the
+    // flag (it strips it by building fresh argvs).
+    (warm_gate : bool) = false;
+    (wi : usize) = usize(0);
+    while(wi < argv.len(), {
+      match(
+        argv.get(wi),
+        .Some(w) => if(w == "--warm-selfcheck", {
+          warm_gate = true;
+        }),
+        .None => ()
+      );
+      wi = (wi + usize(1));
+    });
+    if(warm_gate, {
+      run_warm_selfcheck_compile(argv, io, exn);
+    }, {
+      run_compile(argv, io, exn);
+    });
   }, if(subcmd == "test", {
     run_test(argv, io, exn);
   }, if(subcmd == "fmt", {
