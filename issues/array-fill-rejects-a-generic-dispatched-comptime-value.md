@@ -151,13 +151,30 @@ resolve a `Default` impl while `T` is abstract, so it arrives as an
 constructed; and the caller ends up an FTT stub. `T(0)` needs no impl
 resolution, arrives known, and the body runs.
 
-**Still short of proof.** The counts differ but the probe does not say WHICH
-two calls the extra unknowns are — the print carries no function identity. The
-next step is to add the callee id to that print and confirm the two extra
-`true`s are `fill` itself, not an unrelated comptime call. Only then is the
-fix shape settled; on this defect family four plausible mechanisms have
-already been refuted by measurement, so a surviving one is a lead with
-evidence, not a conclusion.
+**Narrowed further without a rebuild**, by bucketing the same traces on the
+argument COUNT the gate reports:
+
+| bucket | broken `fill(T.default())` | working `fill(T(0))` |
+| --- | --- | --- |
+| `any_arg_unknown=false nargs=1` | 1305 | **1306** |
+| `any_arg_unknown=true  nargs=1` | **9** | 7 |
+| `false nargs=2` / `nargs=3` / `nargs=5` | 434 / 29 / 11 | 434 / 29 / 11 |
+| `true nargs=2` | 3 | 3 |
+
+Every bucket is identical EXCEPT `nargs=1`, where the working case has one more
+KNOWN hit and the broken case has more UNKNOWN ones. `fill` takes exactly one
+argument (`comptime(val) : T`), and the two programs differ ONLY in that
+argument. So a single-argument comptime call flips from known to unknown
+between them, in the only bucket that moves.
+
+That is much stronger than the raw 12-vs-10 count: it localises the flip to
+one-argument calls and rules out the multi-argument traffic entirely.
+
+**Still not a formal identification.** The print carries no callee id, so this
+is an argument from arity and from the programs' only difference, not a direct
+observation that the flipping call is `fill`. Adding the callee id to the
+`[ctgate]` print would settle it and costs one build. Given four refuted
+mechanisms in this family, that build is worth spending before any fix.
 
 ### Where that leaves it
 
