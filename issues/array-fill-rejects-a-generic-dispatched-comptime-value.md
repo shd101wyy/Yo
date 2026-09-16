@@ -121,6 +121,44 @@ mechanism** and a fix there would have changed nothing.
 That also means `fill` never reaches this predicate under a distinguishing
 path — the difference between the two programs is invisible here entirely.
 
+### A hypothesis that SURVIVED measurement — the unknown-arg execution gate
+
+Measured 2026-09-17, after the mint was ruled out. `evaluate_comptime_fn_call`
+(`src/evaluator/calls/comptime_fn.yo`, ~line 849) carries an **execution gate
+for unknown arguments**: if any argument value `is_unknown_val`, it returns
+`UnknownVal(return_type)` **without executing the body**. Its own comment
+describes the consequence in a neighbouring case — "the self arg has lost its
+value — `evaluate_comptime_fn_call`'s unknown-arg gate then refuses to
+execute".
+
+`fill` IS a comptime fn (`fn(comptime(val) : T) -> comptime(Self)`), so this
+gate is on its path. Instrumented with a gated `[ctgate]` print and run on both
+cases:
+
+| case | `[ctgate]` lines | `any_arg_unknown=true` |
+| --- | --- | --- |
+| broken `fill(T.default())` | 1791 | **12** |
+| working `fill(T(0))` | 1790 | **10** |
+
+**The broken case hits the gate twice more than the working one.** That is a
+real discriminator — unlike the mint, whose traces were byte-identical across
+the same pair. It also explains why the mint looked identical: the divergence
+is upstream of it, exactly where those traces implied.
+
+Mechanism, consistent with every observation so far: `T.default()` cannot
+resolve a `Default` impl while `T` is abstract, so it arrives as an
+`UnknownVal`; the gate then declines to execute `fill`; no array is
+constructed; and the caller ends up an FTT stub. `T(0)` needs no impl
+resolution, arrives known, and the body runs.
+
+**Still short of proof.** The counts differ but the probe does not say WHICH
+two calls the extra unknowns are — the print carries no function identity. The
+next step is to add the callee id to that print and confirm the two extra
+`true`s are `fill` itself, not an unrelated comptime call. Only then is the
+fix shape settled; on this defect family four plausible mechanisms have
+already been refuted by measurement, so a surviving one is a lead with
+evidence, not a conclusion.
+
 ### Where that leaves it
 
 The remaining explanation is the one recorded as competing: the receiver type
