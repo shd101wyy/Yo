@@ -15,3 +15,12 @@ non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
 safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / denom);
 
 caller_ok :: (fn(x : i32, requires(x != i32(0))) -> (r : i32))(safe_div(i32(7), x));
+
+// The NAMED-ALIAS spelling (task 3 slice 2): the alias binds the
+// refinement type; a parameter annotated with the alias carries the same
+// predicate as the inline spelling.
+NonZeroI32 :: refine(i32, non_zero);
+
+by_alias :: (fn(num : i32, denom : NonZeroI32) -> (r : i32))(num / denom);
+
+alias_caller :: (fn(x : i32, requires(x != i32(0))) -> (r : i32))(by_alias(i32(9), x));

@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("./definitions.yo");
+{ TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
 {
@@ -1019,6 +1019,9 @@ _collect_some_types_into :: (
   // collects the concrete instance and `get_enum_variant_c_name` aborts
   // (tests: scratchpad/t2/v1_empty.yo, an empty `std/imm/map` suffices).
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  // V6 task 3: a refinement is erased for layout — sizeof(refine(T, p))
+  // == sizeof(T) (the zero-runtime-cost rule).
+  ty = t_refine_inner(ty);
   match(
     ty,
     .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
@@ -1481,6 +1484,9 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   // reasoning as get_size_of_type below (an empty shell walks to alignment 1,
   // mis-laying out any aggregate that embeds the recursive type).
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  // V6 task 3: a refinement is erased for layout — sizeof(refine(T, p))
+  // == sizeof(T) (the zero-runtime-cost rule).
+  ty = t_refine_inner(ty);
   match(
     ty,
     // comptime-only types have minimal alignment
@@ -1652,6 +1658,9 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   // corruption (the recursive_enum / encoding/json crashes). Resolve to the
   // registered final first — same convention as type_key.yo.
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  // V6 task 3: a refinement is erased for layout — sizeof(refine(T, p))
+  // == sizeof(T) (the zero-runtime-cost rule).
+  ty = t_refine_inner(ty);
   match(
     ty,
     // `unit` is a TRUE zero-sized type, as in Rust (`size_of::<()>() == 0`):

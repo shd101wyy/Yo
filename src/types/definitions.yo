@@ -369,9 +369,41 @@ TypeValue :: ref(
       effect_labels : ArrayList(String),
       effect_types : ArrayList(Self),
       effect_spreads : ArrayList(bool)
+    ),
+    /// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — "a `T` that
+    /// satisfies `p`". Distinct at the type level (two predicates over the
+    /// same `T` are different types), ERASED to `T` at every runtime
+    /// surface: the guard predicates and `type_value_tag` unwrap to
+    /// `inner`, variable bindings store `inner` (env.yo), and codegen
+    /// therefore emits `T`'s representation unchanged (zero runtime cost —
+    /// the plan's erasure rule). The predicate is a ghost_fn VALUE carried
+    /// by its `func_id` (TypeValue cannot import EvalValue — the
+    /// `Struct.constructor_func_id` precedent); the verifier resolves the
+    /// body through the ghost-fn def registry (contracts.yo) and discharges
+    /// it: ASSUMED for a refined parameter at the callee entry, PROVED
+    /// (`refine#N`) for an argument at a call site. `""` = no predicate
+    /// (a pure alias — no obligation).
+    RefineT(
+      inner : Self,
+      predicate_func_id : String
     )
   )
 );
+/// V6 task 3: unwrap ONE refinement wrapper — `refine(T, p)` reads as `T`
+/// for every runtime surface (the erasure rule). Lives HERE (not in
+/// guards.yo) because guards.yo imports creators.yo, whose
+/// `type_value_tag` needs the unwrap — the import direction forbids the
+/// reverse. Not recursive by itself; a guard on a nested
+/// `refine(refine(i32, p), q)` unwraps one level per match, which is
+/// enough for every integer/bool surface.
+t_refine_inner :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .RefineT(inner, _) => inner,
+    _ => t
+  )
+);
+
 // Cycle-aware, SHARE-on-recursion Clone for TypeValue (replaces
 // `derive(TypeValue, Clone)`).
 //
@@ -454,4 +486,4 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );
-export(TypeValue, FuncMeta, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, FuncMeta, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
