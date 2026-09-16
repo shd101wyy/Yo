@@ -783,6 +783,45 @@ p := Point(3, 4);
 p.set_x(10);  // 无需写 `&(p)` — 编译器自动插入
 ```
 
+### 私有成员
+
+名称以 `_` 开头的结构体字段或 impl 方法是**私有的**，并由编译器强制执行。这样的成员只能在声明该类型（或该 impl）的模块以及该模块的**同目录兄弟模块**中读取、写入、调用、构造或解构。其余成员都是公开的。没有新的关键字：下划线约定*就是*可见性规则。
+
+```rust
+// counter.yo
+Counter :: struct(_count : i32, label : String);
+impl(Counter,
+  new : (fn(label : String) -> Counter)(Counter(_count : i32(0), label : label)),
+  _bump : (fn(self : Self, by : i32) -> Counter)(
+    Counter(_count : (self._count + by), label : self.label.clone())
+  ),
+  add : (fn(self : Self, by : i32) -> Counter)(self._bump(by)),
+  count : (fn(self : Self) -> i32)(self._count)
+);
+export(Counter);
+
+// app/main.yo —— 另一个目录
+{ Counter } :: import("../counter.yo");
+c := Counter.new(String.from("clicks")).add(i32(2));
+c.count();                                  // OK —— 公开方法
+c.label;                                    // OK —— 公开字段
+c._count;                                   // error[E0405]: Field "_count" of Counter is private to its declaring module
+c._bump(i32(1));                            // error[E0405]: Method "_bump" of Counter is private to its declaring module
+Counter(_count : i32(9), label : c.label);  // error[E0405]: Cannot construct Counter outside its declaring module: field "_count" is private
+{ _count } := c;                            // error[E0405]: Cannot destructure field "_count" of Counter outside its declaring module: it is private
+{ label } := c;                             // OK —— 只点名公开字段
+```
+
+由此推出的规则：
+
+- 含有任何私有字段的类型需要为外部调用者提供构造函数（`Counter.new`），外部代码只能通过方法读取这种类型。`{ ... }` 展开同样会被拒绝，所以私有字段不会从中泄漏。
+- 兄弟模块规则让目录成为一个单元：`std/sync/cond.yo` 可以调用 `std/sync/mutex.yo` 声明的 `_raw_handle_ptr` 方法，而 `std/thread.yo` 不行。
+- 静态形式 `Counter._bump(c, i32(1))` 与实例调用受到完全相同的检查；泛型 `impl(generic(T), ...)` 提供的方法以该 impl 所在的模块为声明处。
+- 以 `___` 开头的名称保留给编译器合成的成员，永远不算私有。
+- 模块级绑定不受影响：无论绑定叫什么名字，`export(...)` 仍是模块对外发布内容的唯一控制。trait 的*签名*不是类型的成员，也不做检查。
+
+运行 `yo explain E0405` 查看该诊断。
+
 ### recur
 
 使用 `recur` 来递归调用函数。
