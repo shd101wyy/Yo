@@ -371,6 +371,86 @@ render_any_error :: (fn(err : AnyError) -> String)(
 (g_last_error_diagnostics : Option(ArrayList(Diagnostic))) = Option(
   ArrayList(Diagnostic)
 ).None;
+// ---------------------------------------------------------------------------
+// SWALLOWED-CAUSE CHANNEL (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §3)
+// ---------------------------------------------------------------------------
+/// The exn-LESS `evaluate_expression` swallows its error and returns an error
+/// expr, so the caller sees only a MISSING `ExprInfo` and reports a generic
+/// "Failed to evaluate X" — the real diagnostic is gone. Audited 2026-09-16:
+/// **59 of the 105 such messages in `src/evaluator`** sit right after an
+/// exn-less call, and every one of them can hide a real error (measured:
+/// `match(undefined_thing, …)` reported the generic text instead of
+/// `Variable "undefined_thing" not found.`).
+///
+/// Rather than patch 59 call sites, the swallow itself records the cause here
+/// and `format_eval_failure` attaches it.
+///
+/// STALENESS GUARD. `g_eval_attempt` is bumped by the wrapper on every
+/// entry; a swallow records the attempt number it happened on. A cause is
+/// only attached when the stashed number is still the CURRENT one — i.e. the
+/// most recent evaluation attempt is the one that failed. Any later or nested
+/// evaluation invalidates it, so a generic message can never inherit an
+/// unrelated earlier failure.
+(g_swallowed_diagnostics : Option(ArrayList(Diagnostic))) = Option(
+  ArrayList(Diagnostic)
+).None;
+(g_eval_attempt : usize) = usize(0);
+(g_swallowed_at_attempt : usize) = usize(0);
+/// Called by the exn-less evaluation wrapper on entry.
+note_eval_attempt :: (fn() -> unit)({
+  g_eval_attempt = (g_eval_attempt + usize(1));
+});
+/// Called by the exn-less evaluation wrapper's swallowing handler.
+note_swallowed_error :: (fn(err : AnyError) -> unit)({
+  match(
+    downcast(err, YoError),
+    .Some(ye) => {
+      g_swallowed_diagnostics = Option(ArrayList(Diagnostic)).Some(ye.diagnostics);
+      g_swallowed_at_attempt = g_eval_attempt;
+    },
+    .None => ()
+  );
+});
+/// The swallowed cause, if the most recent evaluation attempt is the one that
+/// swallowed it. Taken (cleared) so it is reported at most once.
+_take_fresh_swallowed :: (fn() -> Option(ArrayList(Diagnostic)))({
+  if(g_swallowed_at_attempt != g_eval_attempt, {
+    return(Option(ArrayList(Diagnostic)).None);
+  });
+  taken := g_swallowed_diagnostics;
+  g_swallowed_diagnostics = Option(ArrayList(Diagnostic)).None;
+  taken
+});
+/// A generic "could not evaluate this expression" error, with the REAL cause
+/// as the primary diagnostic and the generic text demoted to a note when the
+/// exn-less evaluation that just failed recorded one. Identical to
+/// `format_error_message` when there is no recorded cause, so a site that
+/// switches to it loses nothing.
+format_eval_failure :: (fn(token : Token, error_message : String) -> YoError)({
+  generic := _diagnostic_of_token(token, Severity.Error, error_message);
+  match(
+    _take_fresh_swallowed(),
+    .Some(causes) => {
+      entries := ArrayList(Diagnostic).new();
+      (ci : usize) = usize(0);
+      while(ci < causes.len(), {
+        match(
+          causes.get(ci),
+          .Some(c) => {
+            entries.push(c);
+          },
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      note := generic;
+      note.severity = Severity.Note;
+      entries.push(note);
+      YoError(diagnostics : entries)
+    },
+    .None => _yo_error_of(generic)
+  )
+});
 stash_error_diagnostics :: (fn(err : AnyError) -> unit)({
   match(
     downcast(err, YoError),
@@ -453,6 +533,7 @@ format_warning_messages :: (
 });
 export(TokenAndError, TokenAndWarning, YoError);
 export(format_error_message_with_repair);
+export(note_eval_attempt, note_swallowed_error, format_eval_failure);
 // Exported for the registry/classifier tests (tests/internal).
 export(_classify_message);
 export(get_line_at_token, get_line_at_position);

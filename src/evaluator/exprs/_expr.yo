@@ -216,7 +216,7 @@ import("std/fmt");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure } :: import("../../error.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -1372,10 +1372,20 @@ _evaluate_expression_wrapper :: (
         // on note_def_time_swallow. The real defect was the unwind emitter raising
         // __yo_effect_escaped before evaluating the argument, fixed 2026-08-07.
         note_def_time_swallow();
+        // Record the cause for `format_eval_failure`: without this the
+        // caller sees only a missing ExprInfo and reports a generic
+        // "Failed to evaluate X", losing the real diagnostic — 59 of the 105
+        // such messages in src/evaluator sit right after this swallow
+        // (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §3).
+        note_swallowed_error(err);
         unwind(make_err_expr());
       }
     )
   );
+  // Bumped per attempt so a stashed cause cannot be inherited by a LATER
+  // generic message: `format_eval_failure` only attaches a cause recorded on
+  // the current attempt.
+  note_eval_attempt();
   result := _evaluate_expression(expr, env, ctx, exn);
   // Inline _bridge_expr_info to avoid the codegen emitting an
   // `if(__yo_effect_escaped) return NULL` after the call. HashMap ops

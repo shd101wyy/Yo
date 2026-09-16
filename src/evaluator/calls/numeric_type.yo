@@ -47,7 +47,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../value.yo");
 { parse_raw_int } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
 /// Return the numeric bounds `[min, max]` for `type_val`, or `.None` if the type
@@ -262,7 +262,7 @@ try_to_convert_to_numeric_type :: (
   if(info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
+        format_eval_failure(
           ast_expr_token(arg_expr),
           `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`
         )

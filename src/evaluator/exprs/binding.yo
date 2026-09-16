@@ -46,7 +46,7 @@ import("std/fmt");
   type_contains_rc_type,
   get_all_some_types
 } :: import("../../types/utils.yo");
-{ format_error_message, format_error_messages, TokenAndError, YoError } :: import("../../error.yo");
+{ format_error_message, format_error_messages, TokenAndError, YoError, format_eval_failure } :: import("../../error.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
@@ -121,7 +121,7 @@ evaluate_binding :: (
   if(rhs_info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
+        format_eval_failure(
           ast_expr_token(rhs),
           `Failed to evaluate rhs expression:\n${ast_expr_to_string(rhs)}`
         )

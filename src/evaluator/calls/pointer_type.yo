@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { EvalContext } :: import("../context.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
 /// Attempt to cast `arg_expr` to `target_type` as a pointer-type conversion.
@@ -66,7 +66,7 @@ try_to_convert_to_pointer_type :: (
   if(info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
+        format_eval_failure(
           ast_expr_token(arg_expr),
           `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`
         )
