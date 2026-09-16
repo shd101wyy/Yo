@@ -730,9 +730,27 @@ canonical_module_dir :: (fn(p : String) -> String)(
 /// `_raw_unlock` / `_raw_handle_ptr` lives in `std/sync/` beside `mutex.yo`.
 /// No new syntax: the convention the tree already writes is what is enforced,
 /// so `std/` needs no seed-gated marker to adopt it.
-is_private_member_name :: (fn(name : String) -> bool)(
-  name.starts_with(String.from("_"))
-);
+is_private_member_name :: (fn(name : String) -> bool)({
+  if(!name.starts_with(String.from("_")), {
+    return(false);
+  });
+  // `_0`, `_1`, … are POSITIONAL labels (tuple-shaped structs, `derive`d
+  // payload records), not a privacy marker.
+  rest := name.substring(usize(1), name.len());
+  if(rest.len() == usize(0), {
+    return(false);
+  });
+  (all_digits : bool) = true;
+  (i : usize) = usize(0);
+  while(i < rest.len(), {
+    b := rest.byte_at(i);
+    if((b < u8(48)) || (b > u8(57)), {
+      all_digits = false;
+    });
+    i = (i + usize(1));
+  });
+  !all_digits
+});
 /// True when code in `access_module` may touch a private member declared in
 /// `decl_module`: the same file, or a file in the same directory.
 member_visible_from :: (fn(decl_module : String, access_module : String) -> bool)({

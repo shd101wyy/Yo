@@ -411,7 +411,7 @@ else: the field cannot be read, written or destructured (the `{ ... }` spread
 included), the method cannot be called (instance or `Type._m(...)` static
 form, inherent or generic-impl), and a struct with ANY private field cannot be
 built by literal — go through a public constructor / method. `___`-prefixed
-names are compiler-reserved and never private; `export(...)` still governs
+names are compiler-reserved and positional `_0`/`_1` labels are not private; `export(...)` still governs
 module-level bindings regardless of name. Write a fixture in another
 directory to test the rejection (`tests/member_visibility.test.yo`).
 
