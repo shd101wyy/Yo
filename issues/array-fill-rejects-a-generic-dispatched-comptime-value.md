@@ -98,6 +98,101 @@ conversions under
 So closing the value-substitution row does not close this one, and the two
 should be tracked apart.
 
+## The lead above is REFUTED — measured 2026-09-17
+
+The specialization-mint lead recorded below was tested with a gated `[ctspec]`
+print at `src/evaluator/calls/function.yo`, reporting `any_ct`, `all_known` and
+whether a spec is minted, on BOTH the failing and the working case.
+
+**The traces are identical.**
+
+| trace line | broken `fill(T.default())` | working `fill(T(0))` |
+| --- | --- | --- |
+| `any_ct=true all_known=true mint=true` | 20 | 20 |
+| `any_ct=true all_known=false mint=false` | 3 | 3 |
+| `any_ct=true all_known=true mint=true` (2nd fid) | 2 | 2 |
+
+Same function ids, same counts, same values, 25 lines each. The
+`all_known=false` entries the lead pointed at are present in the WORKING case
+too, so they are ordinary and not the cause. The comptime-value specialization
+mint behaves the same whether the call succeeds or FTTs, so **it is not the
+mechanism** and a fix there would have changed nothing.
+
+That also means `fill` never reaches this predicate under a distinguishing
+path — the difference between the two programs is invisible here entirely.
+
+### A hypothesis that SURVIVED measurement — the unknown-arg execution gate
+
+Measured 2026-09-17, after the mint was ruled out. `evaluate_comptime_fn_call`
+(`src/evaluator/calls/comptime_fn.yo`, ~line 849) carries an **execution gate
+for unknown arguments**: if any argument value `is_unknown_val`, it returns
+`UnknownVal(return_type)` **without executing the body**. Its own comment
+describes the consequence in a neighbouring case — "the self arg has lost its
+value — `evaluate_comptime_fn_call`'s unknown-arg gate then refuses to
+execute".
+
+`fill` IS a comptime fn (`fn(comptime(val) : T) -> comptime(Self)`), so this
+gate is on its path. Instrumented with a gated `[ctgate]` print and run on both
+cases:
+
+| case | `[ctgate]` lines | `any_arg_unknown=true` |
+| --- | --- | --- |
+| broken `fill(T.default())` | 1791 | **12** |
+| working `fill(T(0))` | 1790 | **10** |
+
+**The broken case hits the gate twice more than the working one.** That is a
+real discriminator — unlike the mint, whose traces were byte-identical across
+the same pair. It also explains why the mint looked identical: the divergence
+is upstream of it, exactly where those traces implied.
+
+Mechanism, consistent with every observation so far: `T.default()` cannot
+resolve a `Default` impl while `T` is abstract, so it arrives as an
+`UnknownVal`; the gate then declines to execute `fill`; no array is
+constructed; and the caller ends up an FTT stub. `T(0)` needs no impl
+resolution, arrives known, and the body runs.
+
+**Narrowed further without a rebuild**, by bucketing the same traces on the
+argument COUNT the gate reports:
+
+| bucket | broken `fill(T.default())` | working `fill(T(0))` |
+| --- | --- | --- |
+| `any_arg_unknown=false nargs=1` | 1305 | **1306** |
+| `any_arg_unknown=true  nargs=1` | **9** | 7 |
+| `false nargs=2` / `nargs=3` / `nargs=5` | 434 / 29 / 11 | 434 / 29 / 11 |
+| `true nargs=2` | 3 | 3 |
+
+Every bucket is identical EXCEPT `nargs=1`, where the working case has one more
+KNOWN hit and the broken case has more UNKNOWN ones. `fill` takes exactly one
+argument (`comptime(val) : T`), and the two programs differ ONLY in that
+argument. So a single-argument comptime call flips from known to unknown
+between them, in the only bucket that moves.
+
+That is much stronger than the raw 12-vs-10 count: it localises the flip to
+one-argument calls and rules out the multi-argument traffic entirely.
+
+**Still not a formal identification.** The print carries no callee id, so this
+is an argument from arity and from the programs' only difference, not a direct
+observation that the flipping call is `fill`. Adding the callee id to the
+`[ctgate]` print would settle it and costs one build. Given four refuted
+mechanisms in this family, that build is worth spending before any fix.
+
+### Where that leaves it
+
+The remaining explanation is the one recorded as competing: the receiver type
+is not bound at the point the difference is decided, so `T.default()` cannot
+resolve to an impl while `T(0)` needs no impl to resolve. The emitted stub name
+supports it — `..._ret_Array_T____Default___Comptime___3_` still carries the
+UNSUBSTITUTED `T` with its bound, beside a correctly-substituted
+`Array_int32_t_3` in the same file.
+
+Next probe should instrument where the ARGUMENT is evaluated rather than where
+the spec is minted: find the point at which `T.default()` yields no value, and
+print whether `T` is bound there. Do not write a fix before that print exists —
+this is the fourth hypothesis on this defect family to be refuted by
+measurement on 2026-09-16/17, after TypeValue interning and a trait-id
+collision (for the prelude line-count defect) and `force_in_flight_field` (for
+the inherent-constant one).
+
 ## A LEAD, not a confirmed root cause
 
 `src/evaluator/calls/function.yo` (~2433-2468) decides whether to mint a
