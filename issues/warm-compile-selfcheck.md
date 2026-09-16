@@ -75,6 +75,15 @@ is process-global EMIT-side once-only bookkeeping, catalogue:
 All three are per-EMISSION state that must reset (or generation-key) per
 compile — the next PR.
 
+NEGATIVE FINDING (2026-09-16): `should_skip_function_codegen` is NOT the
+mechanism — traced with a gated verdict print: the trio's member returns
+"emit" in BOTH passes. The trio never REACHES pass 2's collection list:
+derive/trait-method registrations made while a module evaluated are
+collected for emission only from that module's own evaluation walk; a
+CACHE-HIT module's registrations are invisible to the collector. The fix
+must collect derive/trait-method emissions from the type registry for all
+types in the compiled set (registry-driven, not walk-driven).
+
 FIRST MECHANISMS FOUND (2026-09-16, for the purge PR):
 1. The missing Dispose trio (`yo_id_1564…`/`44648…`/`107466…` for
    ArrayList(i32)): the COLLECT phase walks evaluator registries
