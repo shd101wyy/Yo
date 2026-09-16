@@ -23,17 +23,18 @@
 //!
 //! ## Stability
 //!
-//! unstable — two shapes are still open, both in the READ direction. A
-//! `TcpStream` can be written from safe code (`write_str`, `write_string`,
-//! `write_bytes`) but can only be read through `read(buf : *(u8), size, io)`,
-//! so a program without `pragma(Pragma.AllowUnsafe)` has to go through the
-//! `Reader` defaults or `std/io/bufio`'s `BufReader` to get a byte out — the
-//! same asymmetry `std/net/udp` closed on 2026-09-09 with `recv_bytes`, and
-//! not yet closed here. And there is no `incoming`: Rust's listener iterator
-//! needs the async iterator protocol Yo does not have (`std/io/index.yo`
-//! names the same gap), so `accept` in a loop is the only spelling.
-//! Freezing waits on a pointer-free read; the listener/stream names, which
-//! mirror Rust's, are not expected to move.
+//! unstable — ONE shape is still open, in the READ direction. A `TcpStream`
+//! can be written from safe code (`write_str`, `write_string`, `write_bytes`)
+//! but can only be read through `read(buf : *(u8), size, io)`, so a program
+//! without `pragma(Pragma.AllowUnsafe)` has to go through the `Reader`
+//! defaults or `std/io/bufio`'s `BufReader` to get a byte out — the same
+//! asymmetry `std/net/udp` closed on 2026-09-09 with `recv_bytes`, and not
+//! yet closed here. Freezing waits on that pointer-free read; the
+//! listener/stream names, which mirror Rust's, are not expected to move.
+//!
+//! The second open shape is CLOSED: `incoming` exists (see `Incoming` below),
+//! built on the `Stream` trait in `std/async/stream.yo`, so a server loop can
+//! be a stream with combinators rather than a hand-rolled `accept` loop.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
