@@ -33,13 +33,27 @@ in the same pass:
    compile). `stable_occurrence_reset()` now runs at the start of EVERY
    compile.
 
-True-warm baseline with all three fixed:
+True-warm baseline (corrected again 2026-09-15, after fixing bug 4 below):
 
 | fixture | verdict |
 | --- | --- |
 | no std imports (`main` only) | **PASSES** — byte-identical, 0 FTT |
-| `std/collections/array_list` | FAILS — C diverges (63891 vs 57343 bytes) AND `ftt_pass2=1`: the historical "Failed to transpile" class reappears under true warm state |
-| `std/string` + `std/fmt` + `array_list` | FAILS — the warm pass fails re-importing `std/string` (E0605 through the cached-module path) |
+| `std/collections/array_list` | FAILS — C diverges (63889 vs 63403 bytes): warm-minted type ids continue pass 1's ordinals, so the same types emit different `__yo_t_*` names |
+| `std/string` + `std/fmt` + `array_list` | FAILS — the warm pass re-imports `std/string` and dies at `string.yo:438` (`self.substring(r.start, r.end)`): `Cannot unify incompatible struct types: "<struct:struct_r28c4_n50>" and "ArrayList(u8)"` — an UNSPECIALIZED ArrayList shell minted in the warm pass will not unify with the cached prelude's specialized `ArrayList(u8)`
+
+**Bug 4 (found by the gate, fixed here): the occurrence reset was unsound
+under warm reuse.** Resetting `g_stable_occurrence` at the start of a warm
+pass replays ordinals from 0 while the cached modules SKIP their mints — the
+sequence shifts, and fresh ids collide with the surviving id-keyed tables'
+pass-1 entries. Measured: ArrayList's `Self(...)` constructor call answered
+with another type's registry record ("Too many members provided. Expected 1
+arguments, got 3"). The reset now runs on COLD passes only (a fresh-process
+no-op; hygiene for multi-compile processes). The remaining two failures are
+the genuine §7 step-1 work: the type intern / shell-resolution tables
+(`types/intern.yo`, the recursive-shell buckets keyed by minted ids) must be
+purged or generation-keyed per compile so warm-pass mints unify with — or
+freshly replace — the cached identities, and byte-identical warm emission
+follows from that same purge.
 
 ## The failure modes to fix (in order)
 

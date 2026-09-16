@@ -2903,11 +2903,17 @@ run_compile :: (
     profile_set_enabled(true);
   });
   {
-    // Ids are mint-ordinal-shaped: every compile (cold OR warm) must replay
-    // the same ordinals or a second compile emits different `__yo_t_*` names
-    // (see stable_occurrence_reset).
-    stable_occurrence_reset();
     if(!warm_reuse, {
+      // Ids are mint-ordinal-shaped, so a COLD compile resets the counters
+      // (fresh-process no-op; hygiene for multi-compile processes). A WARM
+      // pass must NOT reset: its cached modules skip their mints, so the
+      // replayed sequence would SHIFT and fresh ids would collide with the
+      // surviving registries' pass-1 entries (a struct-call answered with
+      // another type's field count: "Too many members provided. Expected 1,
+      // got 3" — issues/warm-compile-selfcheck.md). Byte-identical warm
+      // emission needs the id-keyed registries purged per compile instead —
+      // the owner-tagged purge work of §7 step 1.
+      stable_occurrence_reset();
       clear_module_cache();
       mm_clear_prelude_env();
     });
