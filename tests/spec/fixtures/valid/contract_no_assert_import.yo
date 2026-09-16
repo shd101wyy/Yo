@@ -1,0 +1,16 @@
+// V6 task 5 slice 2 REGRESSION fixture: a contract-carrying module that
+// does NOT import std/assert. The runtime contract splice used to call
+// `import("std/assert").assert` — weaving a load-time dependency on
+// std/assert into the module — which CYCLED for std/collections
+// (std/assert imports std/string imports std/collections) and made any
+// non-assert-importing module with contracts fail its load. The splice is
+// now the dependency-free `cond((pred) => (), true => __yo_panic(msg))`
+// guard; this module must load and VERIFY with no std/assert anywhere in
+// its own imports.
+pragma(Pragma.Verify);
+
+half :: (fn(x : i32, requires(x > i32(0)), ensures(r == (x / i32(2)))) -> (r : i32))(
+  x / i32(2)
+);
+
+caller :: (fn(x : i32, requires(x > i32(0))) -> (r : i32))(half(x));
