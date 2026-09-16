@@ -501,8 +501,15 @@ ${ast_expr_to_string(expr)}`
   if(pred_fid.len() > usize(0), {
     hook_register_refine_annotation(ast_expr_id(expr), pred_fid.clone());
   });
+  // The annotation's TYPE is the refinement wrapper — named aliases
+  // (`NonZeroI32 :: refine(i32, non_zero)`) and inline annotations both
+  // carry `RefineT` into the parameter's resolved type, where fn-type
+  // registration reads it onto the fn's FuncVal id for the verifier. The
+  // ERASURE happens at the binding (env.yo unwraps to `inner`) and in the
+  // guards/tag/sizes, so runtime cost stays zero.
+  refined := TypeValue.RefineT(inner : inner_ty, predicate_func_id : pred_fid.clone());
   out_info := new_expr_info(cur_env, t_type());
-  out_info.value = Option(EvalValue).Some(EvalValue.TypeVal(inner_ty));
+  out_info.value = Option(EvalValue).Some(EvalValue.TypeVal(refined));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

@@ -153,17 +153,18 @@ test("safe_div over refine(i32, non_zero) proves with no manual requires; a disc
     true
   );
   // The callee's divisor-nonzero obligation must PROVE from the assumed
-  // refinement alone — that is the flagship claim. THREE fns report (the
-  // ghost_fn's inner fn walks the trivial AoRTE sweep too) and ALL of
-  // them must be ok — a subset error on caller_ok would otherwise pass
-  // the ok-count vacuously.
+  // refinement alone — that is the flagship claim. FIVE fns report (the
+  // ghost_fn's inner fn walks the trivial AoRTE sweep too; by_alias and
+  // alias_caller are the NAMED-ALIAS spellings) and ALL of them must be
+  // ok — a subset error on caller_ok would otherwise pass the ok-count
+  // vacuously.
   assert(
-    reports.len() == usize(3),
-    `all three functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    reports.len() == usize(5),
+    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(3),
-    `safe_div (entry-assumed denom != 0), caller_ok (refine#1 discharged) and the predicate fn must all verify, got: [${_reports_dump(reports)}]`
+    _count_outcome(reports, String.from("ok")) == usize(5),
+    `safe_div, caller_ok, by_alias (the NAMED-ALIAS spelling carries the refinement too), alias_caller and the predicate fn must all verify, got: [${_reports_dump(reports)}]`
   );
 });
 

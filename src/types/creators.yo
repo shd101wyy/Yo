@@ -17,7 +17,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, FuncMeta } :: import("./definitions.yo");
+{ TypeValue, FuncMeta, t_refine_inner } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 // ---------------------------------------------------------------------------
 // Global counter for generating unique SomeType IDs.
@@ -306,7 +306,7 @@ t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) 
 // ---------------------------------------------------------------------------
 type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
   match(
-    t,
+    t_refine_inner(t),
     .Unit => TypeTag.TUnit,
     .BoolT => TypeTag.TBool,
     .Void => TypeTag.TVoid,
@@ -363,7 +363,9 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .IsoT(_) => TypeTag.TIso,
     .DynT(_, _, _, _) => TypeTag.TDyn,
     .FnTraitT(base_name : _) => TypeTag.TTrait,
-    .FutureTraitT(base_name : _) => TypeTag.TTrait
+    .FutureTraitT(base_name : _) => TypeTag.TTrait,
+    // V6 task 3: a refinement's tag IS its inner's tag (erasure).
+    .RefineT(inner, _) => type_value_tag(inner)
   )
 );
 /// True if `visited` already holds `tok` (linear scan — the set stays small:
