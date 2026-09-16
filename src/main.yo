@@ -114,7 +114,8 @@ json :: import("std/encoding/json");
   _take_load_error
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files } :: import("./input_record.yo");
-{ YoError, render_any_error } :: import("./error.yo");
+{ YoError, render_any_error, take_error_diagnostics } :: import("./error.yo");
+{ Diagnostic } :: import("./diagnostics.yo");
 {
   render_diagnostics_for_mode,
   set_error_format,
@@ -775,6 +776,219 @@ _arg_val_req :: (
 ///
 /// Exits 0 if every file passes, non-zero if any file's evaluator
 /// throws.
+/// Replace the runes `[col, col + len)` of `line` with `replacement`.
+/// Rune-indexed because `Span` is (`diagnostics.yo`), so a non-ASCII line
+/// splices correctly; a span at end-of-line (`col` == rune count) appends.
+_splice_runes :: (
+  fn(line : String, col : usize, len : usize, replacement : String) -> String
+)({
+  out := String.new();
+  it := line.chars();
+  (i : usize) = usize(0);
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(r) => {
+        if(i == col, {
+          out.push_string(replacement.clone());
+        });
+        if((i < col) || (i >= (col + len)), {
+          out.push_rune(r);
+        });
+        i = (i + usize(1));
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+  if(i <= col, {
+    out.push_string(replacement.clone());
+  });
+  out
+});
+/// One repair to apply, resolved against a file's current text.
+_PendingFix :: struct(row : usize, col : usize, len : usize, replacement : String, description : String);
+/// Apply `fixes` to `path`'s text and write it back. Applied from the LAST
+/// position backwards so an earlier edit cannot invalidate a later span.
+/// Returns the number applied.
+_apply_fixes_to_file :: (
+  fn(path : String, fixes : ArrayList(_PendingFix), io : Io, exn : Exception) -> usize
+)({
+  if(fixes.len() == usize(0), {
+    return(usize(0));
+  });
+  src := String.from_bytes(io.await(read(Path.new(path.clone()), io), IoExn(io : io, exn : exn)));
+  lines := src.split(String.from("\n"));
+  // Descending by (row, col): a later edit on the same line must be applied
+  // before an earlier one, or its column would have shifted.
+  (n : usize) = fixes.len();
+  (oi : usize) = usize(0);
+  while(oi < n, {
+    (best : usize) = oi;
+    (bi : usize) = (oi + usize(1));
+    while(bi < n, {
+      b := match(fixes.get(bi), .Some(f) => f, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
+      cur := match(fixes.get(best), .Some(f) => f, .None => b);
+      if((b.row > cur.row) || ((b.row == cur.row) && (b.col > cur.col)), {
+        best = bi;
+      });
+      bi = (bi + usize(1));
+    });
+    if(best != oi, {
+      tmp_a := match(fixes.get(oi), .Some(f) => f, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
+      tmp_b := match(fixes.get(best), .Some(f) => f, .None => tmp_a);
+      fixes(oi) = tmp_b;
+      fixes(best) = tmp_a;
+    });
+    oi = (oi + usize(1));
+  });
+  (applied : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < fixes.len(), {
+    match(
+      fixes.get(fi),
+      .Some(f) => if(f.row < lines.len(), {
+        old_line := match(lines.get(f.row), .Some(l) => l, .None => String.new());
+        lines(f.row) = _splice_runes(old_line, f.col, f.len, f.replacement.clone());
+        applied = (applied + usize(1));
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  io.await(write_string(Path.new(path.clone()), String.from("\n").join(lines), io), IoExn(io : io, exn : exn));
+  applied
+});
+/// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
+/// already computed (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
+///
+/// A repair is only ever attached where exactly ONE edit fixes the
+/// diagnostic, so this never guesses between alternatives. Evaluation stops at
+/// the first error per file, so one pass fixes at most one error per file and
+/// the loop repeats until a pass changes nothing (or the cap is reached) —
+/// that also means a repair whose edit does not actually fix the file cannot
+/// spin, because the pass count is bounded.
+run_fix :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  if(argv.len() < usize(3), {
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run]`));
+  });
+  (target_path : String) = String.new();
+  (dry_run : bool) = false;
+  excludes := ArrayList(String).new();
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    cond(
+      (a == "--dry-run") => {
+        dry_run = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--exclude") => {
+        next_i := (ai + usize(1));
+        if(next_i < argv.len(), {
+          excludes.push(argv(next_i));
+          ai = (ai + usize(2));
+        }, {
+          ai = (ai + usize(1));
+        });
+      },
+      a.starts_with(String.from("-")) => {
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run]`));
+      },
+      true => {
+        target_path = a.clone();
+        ai = (ai + usize(1));
+      }
+    );
+  });
+  if(target_path.len() == usize(0), {
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--dry-run]`));
+  });
+  files := collect_check_files(target_path.clone(), excludes, io, exn);
+  if(files.len() == usize(0), {
+    exn.throw(dyn(`fix: no .yo files found at ${target_path}`));
+  });
+  std_path := resolve_std_path();
+  (total_applied : usize) = usize(0);
+  (pass : usize) = usize(0);
+  (progress : bool) = true;
+  while(progress && (pass < usize(10)), {
+    progress = false;
+    pass = (pass + usize(1));
+    (fi : usize) = usize(0);
+    while(fi < files.len(), {
+      file := match(files.get(fi), .Some(f) => f, .None => String.new());
+      fi = (fi + usize(1));
+      // A fresh evaluation per file per pass: the previous pass may have
+      // rewritten this file, and a cached module would hide the edit.
+      mm_reset();
+      outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+      if(outcome.ok, {
+        continue;
+      });
+      _drop := _take_load_error();
+      diags := match(take_error_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new());
+      pending := ArrayList(_PendingFix).new();
+      (dj : usize) = usize(0);
+      while(dj < diags.len(), {
+        match(
+          diags.get(dj),
+          .Some(d) => match(
+            d.repair,
+            .Some(r) => if(r.span.path == file, {
+              pending.push(
+                _PendingFix(
+                  row : r.span.row,
+                  col : r.span.col,
+                  len : r.span.len,
+                  replacement : r.replacement.clone(),
+                  description : r.description.clone()
+                )
+              );
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+        dj = (dj + usize(1));
+      });
+      (pi : usize) = usize(0);
+      while(pi < pending.len(), {
+        match(
+          pending.get(pi),
+          .Some(p) => println(`fix: ${file}:${(p.row + usize(1)).to_string()}:${(p.col + usize(1)).to_string()}: ${p.description}`),
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+      if(!dry_run && (pending.len() > usize(0)), {
+        n_applied := _apply_fixes_to_file(file.clone(), pending, io, exn);
+        if(n_applied > usize(0), {
+          total_applied = (total_applied + n_applied);
+          progress = true;
+          fmt_argv := ArrayList(String).new();
+          fmt_argv.push(String.from("yo"));
+          fmt_argv.push(String.from("fmt"));
+          fmt_argv.push(file.clone());
+          run_fmt(fmt_argv, io, exn);
+        });
+      });
+    });
+  });
+  cond(
+    dry_run => println(`fix: dry run — nothing written`),
+    (total_applied == usize(0)) => println(`fix: nothing to fix`),
+    true => println(`fix: applied ${total_applied.to_string()} repair(s) in ${pass.to_string()} pass(es)`)
+  );
+});
 run_check :: (
   fn(
     argv : ArrayList(String),
@@ -5773,6 +5987,10 @@ Example:
   $ yo test ./tests              Run all *.test.yo files in ./tests directory
   $ yo test ./some-file.yo       Run tests in some-file.yo
 
+yo fix [path] [options]          Apply the compiler's mechanical repairs
+Example:
+  $ yo fix ./src                 Rename misspelled names the compiler can name
+
 yo fmt [paths...] [options]      Format Yo source files
 Examples:
   $ yo fmt                       Format all .yo files in the current directory
@@ -5856,6 +6074,10 @@ yo test [path] [options]         运行测试
   $ yo test                      运行工作区内全部 *.test.yo 文件
   $ yo test ./tests              运行 ./tests 目录下的全部 *.test.yo 文件
   $ yo test ./some-file.yo       运行 some-file.yo 中的测试
+
+yo fix [path] [options]          应用编译器已算出的机械修复
+示例：
+  $ yo fix ./src                 重命名编译器能指名的拼写错误
 
 yo fmt [paths...] [options]      格式化 Yo 源文件
 示例：
@@ -6242,6 +6464,42 @@ Examples:
   $ yo test                       工作区内的全部测试
   $ yo test ./tests --bail
   $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"`
+      )
+    ),
+    (subcmd == "fix") => Option(String).Some(
+      tr(
+        `Usage: yo fix <file-or-dir> [options]
+
+Apply the mechanical repairs the compiler already computed. A repair is
+attached to a diagnostic only when exactly ONE edit fixes it, so 'fix' never
+guesses between alternatives; '--error-format json' carries the same repair
+as a structured field. Evaluation stops at the first error in a file, so fix
+re-runs until a pass changes nothing (at most 10 passes), formatting each
+file it rewrites.
+
+Options:
+  --exclude <path>          Exclude a directory/file (repeatable)
+  --dry-run                 Print the repairs without writing
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo fix ./src
+  $ yo fix main.yo --dry-run`,
+        `用法：yo fix <file-or-dir> [options]
+
+应用编译器已经算出的机械修复。只有当恰好存在唯一一种修改能修复该诊断时，
+才会附带修复方案，因此 'fix' 从不在多种候选之间猜测；'--error-format json'
+也会以结构化字段携带同一修复。求值在每个文件的第一个错误处停止，因此 fix 会
+反复运行直到某一轮没有任何改动（最多 10 轮），并对它改写过的文件执行格式化。
+
+选项：
+  --exclude <path>          排除目录/文件（可重复）
+  --dry-run                 只打印修复，不写入
+  --std-path <dir>          覆盖 std 库目录
+
+示例：
+  $ yo fix ./src
+  $ yo fix main.yo --dry-run`
       )
     ),
     (subcmd == "check") => Option(String).Some(
@@ -7016,6 +7274,8 @@ main :: (fn(io : Io) -> unit)({
     run_test(argv, io, exn);
   }, if(subcmd == "fmt", {
     run_fmt(argv, io, exn);
+  }, if(subcmd == "fix", {
+    run_fix(argv, io, exn);
   }, if(subcmd == "check", {
     run_check(argv, io, exn);
   }, if(subcmd == "verify", {
@@ -7045,7 +7305,7 @@ main :: (fn(io : Io) -> unit)({
   }, if(subcmd == "version", {
     run_version_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|verify|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`, `未知子命令 '${subcmd}'。用法：yo <compile|test|fmt|check|verify|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`)));
-  })))))))))))))));
+    exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|fix|check|verify|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`, `未知子命令 '${subcmd}'。用法：yo <compile|test|fmt|fix|check|verify|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`)));
+  }))))))))))))))));
 });
 export(main);

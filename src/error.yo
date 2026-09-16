@@ -16,6 +16,7 @@
   Severity,
   Span,
   Diagnostic,
+  Repair,
   render_diagnostics_human,
   render_diagnostics_for_mode,
   E_UNEXPECTED_TOKEN,
@@ -235,6 +236,30 @@ format_error_message :: (fn(token : Token, error_message : String) -> YoError)(
 );
 /// Create a `YoError` from a token, a message, and a P3 repair hint —
 /// the did-you-mean channel ("help: did you mean …?").
+/// Like `format_error_message_with_help`, plus the UNIQUE mechanical repair
+/// for this error: replace the offending TOKEN's own text with
+/// `replacement`. That is the right span for every name-level fix — a
+/// misspelled variable, a misspelled enum variant — because the token IS the
+/// thing to rewrite. `yo fix` applies it; `--error-format json` carries it
+/// (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
+format_error_message_with_repair :: (
+  fn(
+    token : Token,
+    error_message : String,
+    help : Option(String),
+    replacement : String,
+    repair_description : String
+  ) -> YoError
+)({
+  d := _diagnostic_of_token(token, Severity.Error, error_message);
+  if(help.is_some(), {
+    d.help = Option(String).Some(match(help, .Some(hh) => hh, .None => String.new()));
+  });
+  d.repair = Option(Repair).Some(
+    Repair(span : _span_of_token(token), replacement : replacement, description : repair_description)
+  );
+  _yo_error_of(d)
+});
 format_error_message_with_help :: (
   fn(token : Token, error_message : String, help : Option(String)) -> YoError
 )({
@@ -427,6 +452,7 @@ format_warning_messages :: (
   )
 });
 export(TokenAndError, TokenAndWarning, YoError);
+export(format_error_message_with_repair);
 // Exported for the registry/classifier tests (tests/internal).
 export(_classify_message);
 export(get_line_at_token, get_line_at_position);
