@@ -23,21 +23,19 @@
 //! (`Io`, `Future`, `JoinHandle`). These have Rust's names and meanings and
 //! are not expected to move.
 //!
-//! Known to move: the byte-conversion battery. `to_be_bytes`, `to_le_bytes`,
-//! `from_be_bytes` and `from_le_bytes` are written ten times, once per integer
-//! type, because the return type is `Array(u8, N)` with `N` the receiver's
-//! width — and an associated constant in a LENGTH position is not
-//! substitutable
-//! (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`, now a
-//! diagnostic rather than a silent zero). `usize`/`isize` deliberately have
-//! none, because their width is the target's. The compiler support for
-//! collapsing them landed on 2026-09-16: an associated constant now resolves
-//! as an `Array` length, so a signature may say `-> Array(u8, T.BYTES)` and
-//! get the receiver's own width
-//! (`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` steps 1-2).
-//! The collapse itself waits on a RELEASE, because the seed compiles `std/`;
-//! after that these become one blanket impl and `usize`/`isize` gain them,
-//! which is additive for callers but changes where the methods are defined.
+//! The byte-conversion battery is now ONE blanket impl, not ten copies.
+//! `to_be_bytes`, `to_le_bytes`, `from_be_bytes` and `from_le_bytes` return
+//! `Array(u8, T.BYTES)`, taking the length from the receiver's own associated
+//! constant, which value substitution in a type position made expressible
+//! (`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`). `usize` and
+//! `isize` therefore HAVE them now, which they could not before: their width
+//! is the target's, and `_USIZE_BYTES` derives it the same way `_USIZE_BITS`
+//! derives the bit width. `BYTES` is declared through the `ByteWidth` trait
+//! rather than inherently beside `BITS`, because an inherent associated
+//! constant does not resolve in a length position
+//! (`issues/an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`).
+//! This is additive for callers — same names, same meanings — but the methods
+//! are defined in a different place, so a doc link may move.
 // === Foundational traits ===
 // `Comptime` and `Runtime` are defined first because every other
 // type (including `Pragma` below) is type-checked against them.
@@ -5323,6 +5321,24 @@ _USIZE_BITS :: cond((usize.MAX == usize(4294967295)) => u32(32), true => u32(64)
 // — is decided.
 impl(usize, BITS : _USIZE_BITS);
 impl(isize, BITS : _USIZE_BITS);
+/// The width in BYTES, as a TRAIT member so it can be read from a TYPE
+/// position — `-> Array(u8, T.BYTES)`. `BITS` is an inherent associated
+/// constant and works in a VALUE position; an inherent constant does NOT
+/// resolve as an `Array` length, so this one is declared through a trait
+/// (issues/an-inherent-associated-constant-does-not-resolve-as-an-array-length.md).
+ByteWidth :: trait(id := "ByteWidth", BYTES : usize);
+export(ByteWidth);
+_USIZE_BYTES :: cond((usize.MAX == usize(4294967295)) => usize(4), true => usize(8));
+impl(u8, ByteWidth(BYTES : usize(1)));
+impl(u16, ByteWidth(BYTES : usize(2)));
+impl(u32, ByteWidth(BYTES : usize(4)));
+impl(u64, ByteWidth(BYTES : usize(8)));
+impl(i8, ByteWidth(BYTES : usize(1)));
+impl(i16, ByteWidth(BYTES : usize(2)));
+impl(i32, ByteWidth(BYTES : usize(4)));
+impl(i64, ByteWidth(BYTES : usize(8)));
+impl(usize, ByteWidth(BYTES : _USIZE_BYTES));
+impl(isize, ByteWidth(BYTES : _USIZE_BYTES));
 // An unsigned type's own unsigned counterpart is ITSELF. Trivial, and it is
 // what lets the batteries below cover all ten integer types from one blanket:
 // `T.Unsigned` is the type every receiver is widened through, so the unsigned
@@ -5402,6 +5418,63 @@ impl(
     )
   )
 );
+// The byte-conversion battery, written ONCE over `T` instead of four times per
+// integer type. This is what value substitution in a type position bought:
+// `Array(u8, T.BYTES)` takes its length from the RECEIVER's own associated
+// constant, so one signature covers every width — and `usize`/`isize` get these
+// at all, which they could not before, because their width is the target's.
+//
+// Every intermediate goes through `T.Unsigned`. A signed intermediate is the
+// recurring bug in this file's integer helpers: `i8.MIN >> 8` is
+// implementation-defined arithmetic shift, and masking a negative value gives
+// the wrong byte. `swap_bytes` above routes through the unsigned counterpart
+// for exactly this reason.
+impl(
+  generic(T : Type),
+  where(T <: (Integer, ByteWidth)),
+  T,
+  /// The big-endian byte representation — most significant byte first.
+  to_be_bytes : (fn(self : T) -> Array(u8, T.BYTES))({
+    (out : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
+    u := T.Unsigned(self);
+    (i : usize) = usize(0);
+    while(i < T.BYTES, i = (i + usize(1)), {
+      sh := (((T.BYTES - usize(1)) - i) * usize(8));
+      out(i) = u8(((u >> T.Unsigned(sh)) & T.Unsigned(255)));
+    });
+    out
+  }),
+  /// The little-endian byte representation — least significant byte first.
+  to_le_bytes : (fn(self : T) -> Array(u8, T.BYTES))({
+    (out : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
+    u := T.Unsigned(self);
+    (i : usize) = usize(0);
+    while(i < T.BYTES, i = (i + usize(1)), {
+      sh := (i * usize(8));
+      out(i) = u8(((u >> T.Unsigned(sh)) & T.Unsigned(255)));
+    });
+    out
+  }),
+  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
+  from_be_bytes : (fn(bs : Array(u8, T.BYTES)) -> T)({
+    (acc : T.Unsigned) = T.Unsigned(0);
+    (i : usize) = usize(0);
+    while(i < T.BYTES, i = (i + usize(1)), {
+      acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(i)));
+    });
+    T(acc)
+  }),
+  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
+  from_le_bytes : (fn(bs : Array(u8, T.BYTES)) -> T)({
+    (acc : T.Unsigned) = T.Unsigned(0);
+    (i : usize) = usize(0);
+    while(i < T.BYTES, i = (i + usize(1)), {
+      j := ((T.BYTES - usize(1)) - i);
+      acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(j)));
+    });
+    T(acc)
+  })
+);
 // The power-of-two trio, UNSIGNED only, in a LATER impl block than the
 // batteries above because `checked_next_power_of_two` CALLS `leading_zeros`
 // and `next_power_of_two` calls `checked_next_power_of_two`.
@@ -5465,32 +5538,6 @@ impl(
       (self >= other) => (u8(self) - u8(other)),
       true => (u8(other) - u8(self))
     )
-  ),
-  /// The big-endian byte representation — most significant byte first.
-  to_be_bytes : (fn(self : Self) -> Array(u8, usize(1)))({
-    v := u8(self);
-    Array(u8, usize(1))(
-      u8(u8(self))
-    )
-  }),
-  /// The little-endian byte representation — least significant byte first.
-  to_le_bytes : (fn(self : Self) -> Array(u8, usize(1)))({
-    v := u8(self);
-    Array(u8, usize(1))(
-      u8(u8(self))
-    )
-  }),
-  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
-  from_be_bytes : (fn(bs : Array(u8, usize(1))) -> Self)(
-    Self(
-      u8(bs(usize(0)))
-    )
-  ),
-  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
-  from_le_bytes : (fn(bs : Array(u8, usize(1))) -> Self)(
-    Self(
-      u8(bs(usize(0)))
-    )
   )
 );
 impl(
@@ -5502,36 +5549,6 @@ impl(
     cond(
       (self >= other) => (u16(self) - u16(other)),
       true => (u16(other) - u16(self))
-    )
-  ),
-  /// The big-endian byte representation — most significant byte first.
-  to_be_bytes : (fn(self : Self) -> Array(u8, usize(2)))({
-    v := u16(self);
-    Array(u8, usize(2))(
-      u8((v >> u16(8)) & u16(255)),
-      u8((v >> u16(0)) & u16(255))
-    )
-  }),
-  /// The little-endian byte representation — least significant byte first.
-  to_le_bytes : (fn(self : Self) -> Array(u8, usize(2)))({
-    v := u16(self);
-    Array(u8, usize(2))(
-      u8((v >> u16(0)) & u16(255)),
-      u8((v >> u16(8)) & u16(255))
-    )
-  }),
-  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
-  from_be_bytes : (fn(bs : Array(u8, usize(2))) -> Self)(
-    Self(
-      (u16(bs(usize(0))) << u16(8)) |
-        (u16(bs(usize(1))) << u16(0))
-    )
-  ),
-  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
-  from_le_bytes : (fn(bs : Array(u8, usize(2))) -> Self)(
-    Self(
-      (u16(bs(usize(0))) << u16(0)) |
-        (u16(bs(usize(1))) << u16(8))
     )
   )
 );
@@ -5545,44 +5562,6 @@ impl(
       (self >= other) => (u32(self) - u32(other)),
       true => (u32(other) - u32(self))
     )
-  ),
-  /// The big-endian byte representation — most significant byte first.
-  to_be_bytes : (fn(self : Self) -> Array(u8, usize(4)))({
-    v := u32(self);
-    Array(u8, usize(4))(
-      u8((v >> u32(24)) & u32(255)),
-      u8((v >> u32(16)) & u32(255)),
-      u8((v >> u32(8)) & u32(255)),
-      u8((v >> u32(0)) & u32(255))
-    )
-  }),
-  /// The little-endian byte representation — least significant byte first.
-  to_le_bytes : (fn(self : Self) -> Array(u8, usize(4)))({
-    v := u32(self);
-    Array(u8, usize(4))(
-      u8((v >> u32(0)) & u32(255)),
-      u8((v >> u32(8)) & u32(255)),
-      u8((v >> u32(16)) & u32(255)),
-      u8((v >> u32(24)) & u32(255))
-    )
-  }),
-  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
-  from_be_bytes : (fn(bs : Array(u8, usize(4))) -> Self)(
-    Self(
-      (u32(bs(usize(0))) << u32(24)) |
-        (u32(bs(usize(1))) << u32(16)) |
-          (u32(bs(usize(2))) << u32(8)) |
-            (u32(bs(usize(3))) << u32(0))
-    )
-  ),
-  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
-  from_le_bytes : (fn(bs : Array(u8, usize(4))) -> Self)(
-    Self(
-      (u32(bs(usize(0))) << u32(0)) |
-        (u32(bs(usize(1))) << u32(8)) |
-          (u32(bs(usize(2))) << u32(16)) |
-            (u32(bs(usize(3))) << u32(24))
-    )
   )
 );
 impl(
@@ -5594,60 +5573,6 @@ impl(
     cond(
       (self >= other) => (u64(self) - u64(other)),
       true => (u64(other) - u64(self))
-    )
-  ),
-  /// The big-endian byte representation — most significant byte first.
-  to_be_bytes : (fn(self : Self) -> Array(u8, usize(8)))({
-    v := u64(self);
-    Array(u8, usize(8))(
-      u8((v >> u64(56)) & u64(255)),
-      u8((v >> u64(48)) & u64(255)),
-      u8((v >> u64(40)) & u64(255)),
-      u8((v >> u64(32)) & u64(255)),
-      u8((v >> u64(24)) & u64(255)),
-      u8((v >> u64(16)) & u64(255)),
-      u8((v >> u64(8)) & u64(255)),
-      u8((v >> u64(0)) & u64(255))
-    )
-  }),
-  /// The little-endian byte representation — least significant byte first.
-  to_le_bytes : (fn(self : Self) -> Array(u8, usize(8)))({
-    v := u64(self);
-    Array(u8, usize(8))(
-      u8((v >> u64(0)) & u64(255)),
-      u8((v >> u64(8)) & u64(255)),
-      u8((v >> u64(16)) & u64(255)),
-      u8((v >> u64(24)) & u64(255)),
-      u8((v >> u64(32)) & u64(255)),
-      u8((v >> u64(40)) & u64(255)),
-      u8((v >> u64(48)) & u64(255)),
-      u8((v >> u64(56)) & u64(255))
-    )
-  }),
-  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
-  from_be_bytes : (fn(bs : Array(u8, usize(8))) -> Self)(
-    Self(
-      (u64(bs(usize(0))) << u64(56)) |
-        (u64(bs(usize(1))) << u64(48)) |
-          (u64(bs(usize(2))) << u64(40)) |
-            (u64(bs(usize(3))) << u64(32)) |
-              (u64(bs(usize(4))) << u64(24)) |
-                (u64(bs(usize(5))) << u64(16)) |
-                  (u64(bs(usize(6))) << u64(8)) |
-                    (u64(bs(usize(7))) << u64(0))
-    )
-  ),
-  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
-  from_le_bytes : (fn(bs : Array(u8, usize(8))) -> Self)(
-    Self(
-      (u64(bs(usize(0))) << u64(0)) |
-        (u64(bs(usize(1))) << u64(8)) |
-          (u64(bs(usize(2))) << u64(16)) |
-            (u64(bs(usize(3))) << u64(24)) |
-              (u64(bs(usize(4))) << u64(32)) |
-                (u64(bs(usize(5))) << u64(40)) |
-                  (u64(bs(usize(6))) << u64(48)) |
-                    (u64(bs(usize(7))) << u64(56))
     )
   )
 );
@@ -5661,32 +5586,6 @@ impl(
       (self >= other) => (u8(self) - u8(other)),
       true => (u8(other) - u8(self))
     )
-  ),
-  /// The big-endian byte representation — most significant byte first.
-  to_be_bytes : (fn(self : Self) -> Array(u8, usize(1)))({
-    v := u8(self);
-    Array(u8, usize(1))(
-      u8(u8(self))
-    )
-  }),
-  /// The little-endian byte representation — least significant byte first.
-  to_le_bytes : (fn(self : Self) -> Array(u8, usize(1)))({
-    v := u8(self);
-    Array(u8, usize(1))(
-      u8(u8(self))
-    )
-  }),
-  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
-  from_be_bytes : (fn(bs : Array(u8, usize(1))) -> Self)(
-    Self(
-      u8(bs(usize(0)))
-    )
-  ),
-  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
-  from_le_bytes : (fn(bs : Array(u8, usize(1))) -> Self)(
-    Self(
-      u8(bs(usize(0)))
-    )
   )
 );
 impl(
@@ -5698,36 +5597,6 @@ impl(
     cond(
       (self >= other) => (u16(self) - u16(other)),
       true => (u16(other) - u16(self))
-    )
-  ),
-  /// The big-endian byte representation — most significant byte first.
-  to_be_bytes : (fn(self : Self) -> Array(u8, usize(2)))({
-    v := u16(self);
-    Array(u8, usize(2))(
-      u8((v >> u16(8)) & u16(255)),
-      u8((v >> u16(0)) & u16(255))
-    )
-  }),
-  /// The little-endian byte representation — least significant byte first.
-  to_le_bytes : (fn(self : Self) -> Array(u8, usize(2)))({
-    v := u16(self);
-    Array(u8, usize(2))(
-      u8((v >> u16(0)) & u16(255)),
-      u8((v >> u16(8)) & u16(255))
-    )
-  }),
-  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
-  from_be_bytes : (fn(bs : Array(u8, usize(2))) -> Self)(
-    Self(
-      (u16(bs(usize(0))) << u16(8)) |
-        (u16(bs(usize(1))) << u16(0))
-    )
-  ),
-  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
-  from_le_bytes : (fn(bs : Array(u8, usize(2))) -> Self)(
-    Self(
-      (u16(bs(usize(0))) << u16(0)) |
-        (u16(bs(usize(1))) << u16(8))
     )
   )
 );
@@ -5741,44 +5610,6 @@ impl(
       (self >= other) => (u32(self) - u32(other)),
       true => (u32(other) - u32(self))
     )
-  ),
-  /// The big-endian byte representation — most significant byte first.
-  to_be_bytes : (fn(self : Self) -> Array(u8, usize(4)))({
-    v := u32(self);
-    Array(u8, usize(4))(
-      u8((v >> u32(24)) & u32(255)),
-      u8((v >> u32(16)) & u32(255)),
-      u8((v >> u32(8)) & u32(255)),
-      u8((v >> u32(0)) & u32(255))
-    )
-  }),
-  /// The little-endian byte representation — least significant byte first.
-  to_le_bytes : (fn(self : Self) -> Array(u8, usize(4)))({
-    v := u32(self);
-    Array(u8, usize(4))(
-      u8((v >> u32(0)) & u32(255)),
-      u8((v >> u32(8)) & u32(255)),
-      u8((v >> u32(16)) & u32(255)),
-      u8((v >> u32(24)) & u32(255))
-    )
-  }),
-  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
-  from_be_bytes : (fn(bs : Array(u8, usize(4))) -> Self)(
-    Self(
-      (u32(bs(usize(0))) << u32(24)) |
-        (u32(bs(usize(1))) << u32(16)) |
-          (u32(bs(usize(2))) << u32(8)) |
-            (u32(bs(usize(3))) << u32(0))
-    )
-  ),
-  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
-  from_le_bytes : (fn(bs : Array(u8, usize(4))) -> Self)(
-    Self(
-      (u32(bs(usize(0))) << u32(0)) |
-        (u32(bs(usize(1))) << u32(8)) |
-          (u32(bs(usize(2))) << u32(16)) |
-            (u32(bs(usize(3))) << u32(24))
-    )
   )
 );
 impl(
@@ -5790,60 +5621,6 @@ impl(
     cond(
       (self >= other) => (u64(self) - u64(other)),
       true => (u64(other) - u64(self))
-    )
-  ),
-  /// The big-endian byte representation — most significant byte first.
-  to_be_bytes : (fn(self : Self) -> Array(u8, usize(8)))({
-    v := u64(self);
-    Array(u8, usize(8))(
-      u8((v >> u64(56)) & u64(255)),
-      u8((v >> u64(48)) & u64(255)),
-      u8((v >> u64(40)) & u64(255)),
-      u8((v >> u64(32)) & u64(255)),
-      u8((v >> u64(24)) & u64(255)),
-      u8((v >> u64(16)) & u64(255)),
-      u8((v >> u64(8)) & u64(255)),
-      u8((v >> u64(0)) & u64(255))
-    )
-  }),
-  /// The little-endian byte representation — least significant byte first.
-  to_le_bytes : (fn(self : Self) -> Array(u8, usize(8)))({
-    v := u64(self);
-    Array(u8, usize(8))(
-      u8((v >> u64(0)) & u64(255)),
-      u8((v >> u64(8)) & u64(255)),
-      u8((v >> u64(16)) & u64(255)),
-      u8((v >> u64(24)) & u64(255)),
-      u8((v >> u64(32)) & u64(255)),
-      u8((v >> u64(40)) & u64(255)),
-      u8((v >> u64(48)) & u64(255)),
-      u8((v >> u64(56)) & u64(255))
-    )
-  }),
-  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
-  from_be_bytes : (fn(bs : Array(u8, usize(8))) -> Self)(
-    Self(
-      (u64(bs(usize(0))) << u64(56)) |
-        (u64(bs(usize(1))) << u64(48)) |
-          (u64(bs(usize(2))) << u64(40)) |
-            (u64(bs(usize(3))) << u64(32)) |
-              (u64(bs(usize(4))) << u64(24)) |
-                (u64(bs(usize(5))) << u64(16)) |
-                  (u64(bs(usize(6))) << u64(8)) |
-                    (u64(bs(usize(7))) << u64(0))
-    )
-  ),
-  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
-  from_le_bytes : (fn(bs : Array(u8, usize(8))) -> Self)(
-    Self(
-      (u64(bs(usize(0))) << u64(0)) |
-        (u64(bs(usize(1))) << u64(8)) |
-          (u64(bs(usize(2))) << u64(16)) |
-            (u64(bs(usize(3))) << u64(24)) |
-              (u64(bs(usize(4))) << u64(32)) |
-                (u64(bs(usize(5))) << u64(40)) |
-                  (u64(bs(usize(6))) << u64(48)) |
-                    (u64(bs(usize(7))) << u64(56))
     )
   )
 );
