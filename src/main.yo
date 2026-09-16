@@ -929,9 +929,15 @@ run_fix :: (
   (total_applied : usize) = usize(0);
   (pass : usize) = usize(0);
   (progress : bool) = true;
+  // Files that still fail at the END of the last pass. `fix` exits non-zero
+  // when any remain: "I applied what I could and the tree is STILL broken" is
+  // not a success, and an rc=0 there is the hollow shape this plan exists to
+  // remove (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §0).
+  (still_failing : usize) = usize(0);
   while(progress && (pass < usize(10)), {
     progress = false;
     pass = (pass + usize(1));
+    still_failing = usize(0);
     // Per pass, not per file: a previous pass may have rewritten a file, and
     // a cached module would hide the edit.
     clear_module_cache();
@@ -947,6 +953,7 @@ run_fix :: (
         });
         continue;
       });
+      still_failing = (still_failing + usize(1));
       _drop := _take_load_error();
       // The TYPED load stash is the only sound source here. The swallowed-cause
       // stash (§3) was tried and REJECTED: a normal evaluation swallows many
@@ -1034,6 +1041,13 @@ run_fix :: (
     (total_applied == usize(0)) => println(`fix: no repairs applied`),
     true => println(`fix: applied ${total_applied.to_string()} repair(s) in ${pass.to_string()} pass(es)`)
   );
+  if(!dry_run && (still_failing > usize(0)), {
+    exn.throw(
+      dyn(
+        `fix: ${still_failing.to_string()} file(s) still do not evaluate — run \`yo check ${target_path}\` for the remaining diagnostics`
+      )
+    );
+  });
 });
 run_check :: (
   fn(
