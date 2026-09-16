@@ -421,8 +421,7 @@ test("File.from_fd wraps an existing descriptor", {
   // Rust's File::from_raw_fd semantics: ownership of the descriptor MOVES to
   // the wrapped handle — retire the original so its close/dispose cannot
   // double-close the fd.
-  wrapped := File.from_fd(opened.fd());
-  opened._is_closed = true;
+  wrapped := File.from_fd(opened.into_fd());
   buf := (*u8)(malloc(usize(8)).unwrap());
   n := io.await(wrapped.read(buf, usize(8), io), IoExn(io : io, exn : exn));
   assert(n == usize(8), "read through the wrapped handle");
