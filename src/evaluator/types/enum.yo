@@ -43,7 +43,7 @@ import("std/fmt");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
 { fields_have_incompatible_contexts } :: import("../../types/utils.yo");
-{ is_comptime_int_type, is_type_0 } :: import("../../types/guards.yo");
+{ is_comptime_int_type, is_type_0, register_type_decl_module } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -324,6 +324,8 @@ evaluate_enum_type :: (
     stable_position_id(String.from("enum_decl_"), decl_tok.module_path, decl_tok.row, decl_tok.column),
     stable_label_id(String.from("enum_"), decl_tok.module_path, decl_tok.row, decl_tok.column)
   );
+  // Member visibility: record which module declares this type (guards.yo).
+  register_type_decl_module(enum_id.clone(), decl_tok.module_path.clone());
   // Preliminary EnumT (empty variants) used as SelfType during field evaluation
   // so self-referential variants like `Some(Self)` work. The shell carries a
   // DISTINCT id: sharing the final's id made EXACT type comparison — the

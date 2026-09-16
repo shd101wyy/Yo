@@ -24,8 +24,7 @@ pragma(Pragma.AllowUnsafe);
 { get_all_some_types, type_contains_rc_type, type_contains_some_type, type_contains_some_type_deep, func_params_have_raw_some_type } :: import("../../types/utils.yo");
 { CodeGenContext, DynImplEntry, type_key, sanitize_for_c_identifier, function_c_name } :: import("../utils/index.yo");
 { is_target_wasm } :: import("../../target.yo");
-{ Path } :: import("std/path");
-{ cwd } :: import("std/env");
+{ canonical_module_path } :: import("../../utils.yo");
 // Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): yo-self
 // has no codegen-time monomorphizer, so the trace collector drives the evaluator's
 // create_specialized_function_inline. These are the normal codegen->evaluator
@@ -487,14 +486,7 @@ _func_has_some_param :: (fn(fid : String) -> bool)(
 );
 /// One canonical spelling for a module path: `file://` stripped, made
 /// absolute against the process cwd, lexically normalized.
-_canonical_module_path :: (fn(p : String) -> String)({
-  stripped := p.replace(String.from("file://"), String.new());
-  abs := if(Path.new(stripped.clone()).is_absolute(), stripped, {
-    cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
-    Path.new(cwd_str).join(Path.new(stripped)).to_string()
-  });
-  Path.new(abs).normalize().to_string()
-});
+_canonical_module_path :: (fn(p : String) -> String)(canonical_module_path(p));
 /// True when `token_path` names the same file as `entry_path`. The two are
 /// spelled differently on purpose: a demand-loaded module's tokens carry the
 /// `file://<abs>` cache key, but the ENTRY module's tokens carry the path as
