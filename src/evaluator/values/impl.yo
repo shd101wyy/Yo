@@ -1462,7 +1462,11 @@ find_matching_negative_generic_impl :: (
 MethodCandidate :: struct(
   method_type : TypeValue,
   method_value : Option(EvalValue),
-  source_trait_id : String
+  source_trait_id : String,
+  /// The module whose evaluation registered the generic impl this candidate
+  /// came from (`g_impl_registry_entry_owners`) — MEMBER VISIBILITY needs the
+  /// impl's DECLARING module, not the module that first specialized it.
+  owner : String
 );
 // Memo for `_inject_forall_captures`: injections are ~99% duplicates (a
 // 150k-call probe saw 1,259 distinct (func_id, bindings) keys), and each
@@ -1663,6 +1667,11 @@ find_methods_from_generic_impls :: (
           continue;
         }
       );
+      fmg_owner := match(
+        g_impl_registry_entry_owners.get(ki),
+        .Some(fmg_ol) => match(fmg_ol.get(ei), .Some(o) => o.clone(), .None => String.new()),
+        .None => String.new()
+      );
       // Cheap pre-filter: skip entries that don't even carry a field with
       // this name BEFORE attempting the receiver match — semantics are
       // identical (a non-name-matching entry contributes no candidates),
@@ -1833,7 +1842,8 @@ find_methods_from_generic_impls :: (
                 MethodCandidate(
                   method_type : fmg_spec_ty,
                   method_value : _inject_forall_captures(fvalue, entry.forall_names, match_bindings, match_binding_vals),
-                  source_trait_id : entry.trait_key.clone()
+                  source_trait_id : entry.trait_key.clone(),
+                  owner : fmg_owner.clone()
                 )
               );
             });
@@ -4633,6 +4643,7 @@ _find_methods_from_generic_impls_as_method_entries :: (
             ty : c.method_type,
             value : c.method_value,
             source_trait_id : c.source_trait_id,
+            owner : c.owner,
             needs_pointer_conversion : false,
             // Generic-impl candidates come from
             // `find_methods_from_generic_impls` which already

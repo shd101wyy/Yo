@@ -45,7 +45,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
 { fields_have_incompatible_contexts } :: import("../../types/utils.yo");
-{ is_iso_type } :: import("../../types/guards.yo");
+{ is_iso_type, register_type_decl_module } :: import("../../types/guards.yo");
 evaluate_struct_type :: (
   fn(
     expr : AstExpr,
@@ -87,6 +87,8 @@ evaluate_struct_type :: (
     stable_position_id(String.from("struct_decl_"), decl_tok.module_path, decl_tok.row, decl_tok.column),
     stable_label_id(String.from("struct_"), decl_tok.module_path, decl_tok.row, decl_tok.column)
   );
+  // Member visibility: record which module declares this type (guards.yo).
+  register_type_decl_module(struct_id.clone(), decl_tok.module_path.clone());
   // Preliminary struct type (empty fields) used as SelfType during field evaluation.
   // This allows self-referential types like `struct(val: Option(Self))`.
   // The shell shares the final's `struct_id` (UNLIKE enum.yo's distinct

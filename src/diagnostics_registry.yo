@@ -29,6 +29,7 @@ json :: import("std/encoding/json");
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
   E_NOT_DEFINED,
+  E_PRIVATE_MEMBER,
   E_INCOMPATIBLE_TYPES,
   E_TRAIT_NOT_IMPLEMENTED,
   E_ARGUMENT_COUNT_MISMATCH,
@@ -272,6 +273,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "helper2 :: (fn() -> unit)(());\nmain :: (fn() -> unit)({\n  helper2();\n});",
       "The callee is never defined in the file.",
       "被调用者从未在文件中定义。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_PRIVATE_MEMBER,
+      "private member used outside its module",
+      "在模块外使用了私有成员",
+      "A `_`-prefixed field or method is used outside the module that declares it.",
+      "以 `_` 开头的字段或方法在声明它的模块之外被使用。",
+      "A member whose name starts with `_` is private: it can be read, called, constructed or destructured only from the module that declares its type or impl, and from that module's same-directory siblings. Call a public method of the type instead, or add one that exposes what you need. A struct with any private field cannot be built or destructured by literal from outside.",
+      "名称以 `_` 开头的成员是私有的：只能在声明其类型或 impl 的模块及其同目录的兄弟模块中读取、调用、构造或解构。请改为调用该类型的公开方法，或新增一个公开方法来暴露所需内容。含有任何私有字段的结构体不能在外部通过字面量构造或解构。",
+      "{ Counter } :: import(\"./counter.yo\");\nc := Counter.new();\nc._count = i32(0);",
+      "{ Counter } :: import(\"./counter.yo\");\nc := Counter.new();\nc.reset();",
+      "`_count` is private to counter.yo; `reset` is its public door.",
+      "`_count` 是 counter.yo 的私有成员；`reset` 是它的公开入口。"
     )
   );
   out.push(

@@ -400,8 +400,20 @@ println(erased);
 | Function / variable         | `snake_case`       | `safe_divide`      |
 | Trait / type / enum variant | `PascalCase`       | `ToString`, `Some` |
 | Constant                    | `UPPER_SNAKE_CASE` | `MAX_SIZE`         |
+| Private field / method      | `_snake_case`      | `_count`, `_raw_lock` |
 
 Use 2-space indentation.
+
+**The `_` prefix is ENFORCED member visibility (E0405, landed 2026-09-16).** A
+`_`-prefixed struct field or impl method is usable only from the module that
+declares the type/impl and from files in the same directory. From anywhere
+else: the field cannot be read, written or destructured (the `{ ... }` spread
+included), the method cannot be called (instance or `Type._m(...)` static
+form, inherent or generic-impl), and a struct with ANY private field cannot be
+built by literal — go through a public constructor / method. `___`-prefixed
+names are compiler-reserved and positional `_0`/`_1` labels are not private; `export(...)` still governs
+module-level bindings regardless of name. Write a fixture in another
+directory to test the rejection (`tests/member_visibility.test.yo`).
 
 ## Recursion and loops
 

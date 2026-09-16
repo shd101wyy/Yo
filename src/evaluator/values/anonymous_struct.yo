@@ -27,6 +27,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ register_type_decl_module } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { EvalContext } :: import("../context.yo");
@@ -87,6 +88,8 @@ evaluate_anonymous_struct_value :: (
   // but the names no longer follow the global counter.
   as_tok := ast_expr_token(expr);
   struct_id := stable_label_id(String.from("struct_"), as_tok.module_path, as_tok.row, as_tok.column);
+  // Member visibility: an anonymous struct literal is declared where it is written.
+  register_type_decl_module(struct_id.clone(), as_tok.module_path.clone());
   // Preliminary struct type (empty fields) for SelfType during field evaluation.
   prelim_ty := TypeValue.Struct(
     struct_id.clone(),

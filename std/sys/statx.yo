@@ -37,21 +37,21 @@ pragma(Pragma.AllowUnsafe);
 /// `std/sys/file`'s `statx`/`fstat` has filled; reading it before a
 /// successful fill returns whatever was in the memory.
 Statx :: struct(
-  _buf_ptr : *u8,
-  _buf_size : usize
+  buf_ptr : *u8,
+  buf_size : usize
 );
 impl(
   Statx,
   /// Whether this is a regular file — `S_ISREG`, i.e. `mode & S_IFMT ==
   /// S_IFREG`. Sockets, FIFOs and devices are all false.
   is_file : (fn(self : Self) -> bool)({
-    mode := __yo_statx_mode(self._buf_ptr);
+    mode := __yo_statx_mode(self.buf_ptr);
     file_type := (mode & S_IFMT);
     return(file_type == S_IFREG);
   }),
   /// Whether this is a directory — `S_ISDIR`.
   is_directory : (fn(self : Self) -> bool)({
-    mode := __yo_statx_mode(self._buf_ptr);
+    mode := __yo_statx_mode(self.buf_ptr);
     file_type := (mode & S_IFMT);
     return(file_type == S_IFDIR);
   }),
@@ -61,7 +61,7 @@ impl(
   /// the call was made with `AT_SYMLINK_NOFOLLOW`. A plain `statx` resolves
   /// the link and reports its target, so it answers false for a symlink.
   is_symlink : (fn(self : Self) -> bool)({
-    mode := __yo_statx_mode(self._buf_ptr);
+    mode := __yo_statx_mode(self.buf_ptr);
     file_type := (mode & S_IFMT);
     return(file_type == S_IFLNK);
   }),
@@ -70,7 +70,7 @@ impl(
   /// a `readlink` buffer exactly. For a directory an unspecified
   /// filesystem-internal number, not an entry count.
   size : (fn(self : Self) -> i64)(
-    __yo_statx_size(self._buf_ptr)
+    __yo_statx_size(self.buf_ptr)
   ),
   /// The raw `st_mode` word: file-type bits AND permission bits together.
   /// Mask with `S_IFMT` for the type (the `is_*` predicates above do it for
@@ -79,51 +79,51 @@ impl(
   /// file attributes, so the group and other bits mirror the owner's rather
   /// than describing an ACL.
   mode : (fn(self : Self) -> u32)(
-    __yo_statx_mode(self._buf_ptr)
+    __yo_statx_mode(self.buf_ptr)
   ),
   /// Owning user id. **0 on Windows**, which has no numeric uid — the CRT's
   /// `_stat64` zeroes the field rather than mapping a SID.
   uid : (fn(self : Self) -> u32)(
-    __yo_statx_uid(self._buf_ptr)
+    __yo_statx_uid(self.buf_ptr)
   ),
   /// Owning group id. 0 on Windows, for the same reason as `uid`.
   gid : (fn(self : Self) -> u32)(
-    __yo_statx_gid(self._buf_ptr)
+    __yo_statx_gid(self.buf_ptr)
   ),
   /// Inode number — unique per filesystem, so the pair (device, inode)
   /// identifies a file and is how you detect two paths that are hard links
   /// to the same thing. On Windows the runtime supplies the NTFS file index
   /// from `GetFileInformationByHandle`, which plays the same role.
   ino : (fn(self : Self) -> u64)(
-    __yo_statx_ino(self._buf_ptr)
+    __yo_statx_ino(self.buf_ptr)
   ),
   /// Number of hard links. A directory counts 2 plus its subdirectories on
   /// most POSIX filesystems; a file with no other names counts 1, and 0 means
   /// the file has been unlinked while this descriptor kept it alive.
   nlink : (fn(self : Self) -> u64)(
-    __yo_statx_nlink(self._buf_ptr)
+    __yo_statx_nlink(self.buf_ptr)
   ),
   /// Modification time, whole seconds since the Unix epoch — when the
   /// CONTENTS last changed. This is the timestamp to compare for "is my
   /// build output stale".
   mtime_sec : (fn(self : Self) -> i64)(
-    __yo_statx_mtime_sec(self._buf_ptr)
+    __yo_statx_mtime_sec(self.buf_ptr)
   ),
   /// Nanoseconds part of the modification time, 0..999_999_999. Filesystem
   /// resolution varies — HFS+ and many older filesystems store whole seconds,
   /// so a 0 here does not mean the write landed exactly on a second boundary.
   mtime_nsec : (fn(self : Self) -> u32)(
-    __yo_statx_mtime_nsec(self._buf_ptr)
+    __yo_statx_mtime_nsec(self.buf_ptr)
   ),
   /// Access time, whole seconds since the Unix epoch. Often stale on purpose:
   /// most systems mount with `relatime` or `noatime`, so this may not have
   /// been updated by the last read.
   atime_sec : (fn(self : Self) -> i64)(
-    __yo_statx_atime_sec(self._buf_ptr)
+    __yo_statx_atime_sec(self.buf_ptr)
   ),
   /// Nanoseconds part of the access time, 0..999_999_999.
   atime_nsec : (fn(self : Self) -> u32)(
-    __yo_statx_atime_nsec(self._buf_ptr)
+    __yo_statx_atime_nsec(self.buf_ptr)
   ),
   /// Inode CHANGE time in whole seconds — when the metadata last changed
   /// (a `chmod`, a rename, a link count change), not when the file was
@@ -134,14 +134,14 @@ impl(
   /// so this reads as a birth time there. Do not use it to detect a metadata
   /// change portably.
   ctime_sec : (fn(self : Self) -> i64)(
-    __yo_statx_ctime_sec(self._buf_ptr)
+    __yo_statx_ctime_sec(self.buf_ptr)
   ),
   /// Nanoseconds part of the change time, 0..999_999_999. On Windows the
   /// runtime copies the modification time's sub-second part here, since the
   /// creation time's own is tracked separately — so it does not belong to the
   /// seconds value `ctime_sec` returns.
   ctime_nsec : (fn(self : Self) -> u32)(
-    __yo_statx_ctime_nsec(self._buf_ptr)
+    __yo_statx_ctime_nsec(self.buf_ptr)
   )
 );
 export(Statx);

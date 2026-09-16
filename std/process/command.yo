@@ -213,6 +213,12 @@ impl(
     });
     self
   }),
+  /// The program this command will run — Rust's `Command::get_program`.
+  get_program : (fn(self : Self) -> String)(self._program.clone()),
+  /// The argv list built so far (a copy) — Rust's `Command::get_args`. The
+  /// builder's fields are private to `std/process/` (member visibility), so
+  /// this is how a caller reads back what it assembled.
+  get_args : (fn(self : Self) -> ArrayList(String))(self._args.clone()),
   /// Set an environment variable for the child (overrides an inherited one).
   env : (fn(self : Self, key : String, value : String) -> Self)({
     entry := key;
