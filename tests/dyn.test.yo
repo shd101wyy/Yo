@@ -1,6 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ printf } :: import("std/libc/stdio.yo");
+{ printf, FILE } :: import("std/libc/stdio.yo");
 { String } :: import("std/string");
 { AnyError, Error, Exception, IoExn } :: import("std/error");
 TestDyn :: trait(
@@ -479,4 +479,33 @@ test("Test dyn inside a generic body whose concrete is still a type variable", {
   // check has to defer to the specialization below.
   assert(_generic_show(i32(5)) == `5`, "dyn() of a generic parameter");
   assert(_generic_show(true) == `true`, "dyn() of a generic parameter, second instantiation");
+});
+
+// An `extern("Yo", X : Type)` opaque — libc's `FILE` here — is a `SomeT` with
+// an EMPTY required-trait list. `_compat_impl`'s two `Dyn`<->`SomeT` rules walk
+// that list to check the `Dyn` satisfies it, so an empty list meant the loop
+// body never ran and both rules returned true VACUOUSLY. Every `Dyn(Trait)`
+// unified with every extern opaque, in both directions and at every depth.
+// issues/an-extern-opaque-type-unifies-with-every-dyn.md
+_file_sink :: (fn(x : *FILE) -> usize)(usize(0));
+_widget_sink :: (fn(x : *String) -> usize)(usize(0));
+test("Test a trait object is not accepted where an extern opaque is expected", {
+  comptime_expect_error((fn(p : *Dyn(ToString)) -> usize)(_file_sink(p)));
+  assert(true, "a *(Dyn(ToString)) is rejected for a *(FILE) parameter");
+});
+test("Test an Option of a pointer-to-trait-object keeps its payload type", {
+  // The same vacuity reached `are_types_compatible_exact`, which the CTFE
+  // instantiation memo uses to compare type arguments — so a concrete
+  // `Option(*(Dyn(Trait)))` request memo-hit whichever `Option(*(SomeT))` entry
+  // came first: the `Option(*(FILE))` one this file's own `std/libc/stdio`
+  // import creates, or the abstract `Option(*(T))` shell. Under the first the
+  // payload read back as `*(FILE)`; under the second as a type variable that
+  // unified with anything. Either way this `comptime_expect_error` would NOT
+  // have fired, because the payload was not `*(Dyn(ToString))`.
+  comptime_expect_error(
+    (fn(o : ?*Dyn(ToString)) -> usize)(
+      match(o, .Some(p) => _widget_sink(p), .None => usize(0))
+    )
+  );
+  assert(true, "the payload is *(Dyn(ToString)), not *(FILE) and not a wildcard");
 });

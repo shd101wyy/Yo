@@ -1724,8 +1724,12 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
 /// `SomeT`/`TypeAppT`, so generic ptr/slice/struct fns aren't deferred. NOT YET
 /// CONSUMED (body-eval wiring is the remaining multi-layer work); exported for
 /// that wiring. The `checked_ids` arg is the cycle guard (TS `checkedTypes`),
-/// keyed by nominal type id. yo-self `SomeT` has no `is_extern` /
-/// `resolved_concrete_type`, so those TS exclusions are no-ops here.
+/// keyed by nominal type id. TS's `isExtern` and `resolvedConcreteType`
+/// exclusions ARE implemented here — extern-ness through the
+/// `g_extern_type_names` side table, resolution through `SomeT`'s own
+/// `resolved_concrete` cell. (The original port note called both "no-ops in
+/// yo-self"; that was wrong on both counts and is what let
+/// `should_skip_function_codegen` drop functions with a resolved-SomeT return.)
 type_contains_some_type_for_codegen_param :: (
   fn(ty : TypeValue, checked_ids : ArrayList(String)) -> bool
 )({
@@ -1756,19 +1760,50 @@ type_contains_some_type_for_codegen_param :: (
     checked_ids.push(nominal_id.clone());
   });
   if(is_some_type(ty), {
-    // SomeType: TS excludes extern + resolved-concrete (no-ops in yo-self) and
-    // Fn/Future-trait SomeTypes; otherwise it IS a codegen SomeType.
-    if(type_implements_fn(ty), {
-      return(false);
-    });
-    if(type_implements_future(ty), {
-      return(false);
-    });
+    // SomeType: TS excludes extern SomeTypes, RECURSES INTO a resolved concrete,
+    // and excludes Fn/Future-trait SomeTypes; otherwise it IS a codegen
+    // SomeType. (TS order: isExtern, resolvedConcreteType, Fn, Future —
+    // src/types/utils.ts:694-713.)
     // Extern opaque type (`extern("Yo", X : Type)` → a SomeT placeholder named X)
     // that codegen lowers to a concrete C type: NOT a codegen-blocking generic.
     // Mirrors TS excluding `isExtern` SomeTypes (src/types/utils.ts:10).
     tc_some_nm := match(ty, .SomeT({ name : snm }) => snm, _ => String.from(""));
     if(is_extern_type_name(tc_some_nm), {
+      return(false);
+    });
+    // A SomeT that already carries a resolved concrete IS that concrete for
+    // codegen purposes, so ask the question of the RESOLUTION. This was
+    // recorded as a "no-op in yo-self" when the file was ported — but yo-self's
+    // `SomeT` does carry a `resolved_concrete` cell, and the SHALLOW sibling
+    // `type_contains_some_type` (types/utils.yo) has always read it
+    // (`(cst_rc.len() > usize(0)) => false`). So the exclusion was not a no-op,
+    // it was simply unimplemented.
+    //
+    // SCOPE: this is a port-fidelity restoration, NOT the fix for any measured
+    // symptom. It was written while chasing an `ArrayList(Dyn(Trait))` link
+    // failure ("call to undeclared function yo_id_…_ret___<someT id>_", which
+    // IS this predicate feeding `should_skip_function_codegen`'s `skip2`) — but
+    // measurement showed that particular SomeT carries no resolved concrete, so
+    // this arm does not fire for it and the failure is unchanged. It is kept
+    // because TS does exactly this and the divergence is real; it is gated only
+    // by the absence of regressions, so drop it if it ever costs anything.
+    // issues/an-extern-opaque-type-unifies-with-every-dyn.md
+    tc_rc := match(
+      ty,
+      .SomeT({ resolved_concrete : rcl }) => rcl.get(usize(0)),
+      _ => Option(TypeValue).None
+    );
+    match(
+      tc_rc,
+      .Some(tc_conc) => {
+        return(recur(tc_conc, checked_ids));
+      },
+      .None => ()
+    );
+    if(type_implements_fn(ty), {
+      return(false);
+    });
+    if(type_implements_future(ty), {
       return(false);
     });
     return(true);

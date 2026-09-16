@@ -1156,16 +1156,34 @@ jobs:
   # run (for code PRs) and fail fast in the artifact download when their C
   # never arrived.
   test-native:
-    name: test (${{ matrix.os }})
+    # The shard suffix appears ONLY on sharded legs, so the two REQUIRED
+    # status contexts — `test (macos-latest)` and `test (windows-latest)` —
+    # keep their exact names and the ruleset needs no change. Sharding a
+    # REQUIRED leg would rename its context and must land in ruleset
+    # 13548862 in the same commit (see compiler-internal-tests' note).
+    name: test (${{ matrix.os }})${{ matrix.shards && format(' shard {0}/{1}', matrix.shard, matrix.shards) || '' }}
     needs: [changes, suite-cross-emit]
     if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
     runs-on: ${{ matrix.os }}
-    # Windows legs finish in ~26 min when healthy. A per-leg budget well under
-    # the 4-hour default turns a hang into a FAILED job with a downloadable
-    # log; the 4-hour cancellation left no blob at all, which is what made
-    # #413 undiagnosable (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
+    # A per-leg budget well under the 4-hour default turns a hang into a FAILED
+    # job with a downloadable log; the 4-hour cancellation left no blob at all,
+    # which is what made #413 undiagnosable
+    # (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
     # The other legs keep the old budget (macos-26-intel regularly needs >1h).
-    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 75 || 240 }}
+    #
+    # MEASURED 2026-09-16, because the note here said "Windows legs finish in
+    # ~26 min when healthy" and that is stale by ~2.5x. Across recent runs:
+    # windows-11-arm 65/67/68 min and windows-latest 54/55/58 min, against a 75
+    # min cap — a 1.11x margin on arm64, 1.30x on x64. That is the same shape as
+    # test-wasm32_emscripten in this file, which sat at 1.04x and duly started
+    # cancelling on variance alone. 120 restores real headroom on both while
+    # still catching a hang in a bounded time.
+    #
+    # windows-11-arm is ALSO sharded by this PR, so its per-shard cost drops far
+    # below the cap; windows-latest is deliberately NOT sharded (it is a REQUIRED
+    # status context and renaming it would remove a required check), so the cap
+    # is the only thing protecting it.
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 120 || 240 }}
     env:
       YO_MAIN_STACK_MB: "4096"
       # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
@@ -1175,17 +1193,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # UNSHARDED — these two are REQUIRED status checks; their names are
+          # matched by string in the ruleset and must not change.
           - os: macos-latest
             target: macos-arm64
-          - os: macos-26-intel
-            target: macos-x64
           - os: windows-latest
             target: windows-x64
+          # SHARDED 4-way. These two are the long legs (macos-26-intel ~80 min,
+          # windows-11-arm ~66 min) and windows-11-arm is the critical path:
+          # suite-candidate 36m -> cross-emit 15m -> this 66m = 118m wall clock
+          # (measured, run 34932915472). Neither is a required context, so the
+          # rename costs no ruleset change. They CONSUME a cross-emitted
+          # artifact and rebuild nothing, so shards are cheap — the same
+          # argument that justified sharding compiler-internal-tests.
+          - { os: macos-26-intel, target: macos-x64, shard: 0, shards: 4 }
+          - { os: macos-26-intel, target: macos-x64, shard: 1, shards: 4 }
+          - { os: macos-26-intel, target: macos-x64, shard: 2, shards: 4 }
+          - { os: macos-26-intel, target: macos-x64, shard: 3, shards: 4 }
           # windows-11-arm doubles as the strictest C-conformance runner: it
           # installs clang 22 (no pre-installed LLVM, unlike windows-latest's
           # 20), where -Wincompatible-pointer-types is a default ERROR.
-          - os: windows-11-arm
-            target: windows-arm64
+          - { os: windows-11-arm, target: windows-arm64, shard: 0, shards: 4 }
+          - { os: windows-11-arm, target: windows-arm64, shard: 1, shards: 4 }
+          - { os: windows-11-arm, target: windows-arm64, shard: 2, shards: 4 }
+          - { os: windows-11-arm, target: windows-arm64, shard: 3, shards: 4 }
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -1271,7 +1302,14 @@ jobs:
             Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
             *) TEST_SAN_FLAG="" ;;
           esac
-          "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+          # `--shard i/n` stripes the SORTED file list, so the shards partition
+          # the corpus with no file dropped and no hardcoded map to rot. Empty
+          # for the unsharded (required-context) legs.
+          SHARD_FLAG=""
+          if [ -n "${{ matrix.shards }}" ]; then
+            SHARD_FLAG="--shard ${{ matrix.shard }}/${{ matrix.shards }}"
+          fi
+          "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG $SHARD_FLAG
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
@@ -2039,11 +2077,19 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    # 32 min is this leg's real cost; 360 was inherited headroom that let a
-    # DEADLOCKED test burn 3.4 h unnoticed on the sibling WASI leg
-    # (issues/fixed/wasi-thread-pool-submit-deadlock.md). 90 keeps ~2.8x margin and
-    # turns a hang into a timely failure.
-    timeout-minutes: 90
+    # MEASURED 2026-09-16: this leg now takes 86-87 min (develop runs
+    # 35009566215 and 34980992486), not the 32 min the previous note recorded —
+    # so a 90 min cap was ~1.03x margin, not 2.8x, and it began cancelling on
+    # variance alone (run 35014588354 cancelled "Run WASM tests" at 90:28 with
+    # every prior step green). 150 restores real margin while still turning a
+    # HANG into a timely failure, which is what the cap is for — 360 is what let
+    # a deadlocked test burn 3.4 h unnoticed on the sibling WASI leg
+    # (issues/fixed/wasi-thread-pool-submit-deadlock.md).
+    #
+    # The 32 -> 87 min growth is unexplained; this PR measured the symptom, not
+    # a cause. Sharding this leg the way test-native is sharded here would cut
+    # it and remove the cliff rather than move it.
+    timeout-minutes: 150
 
     steps:
       - name: Checkout repository
