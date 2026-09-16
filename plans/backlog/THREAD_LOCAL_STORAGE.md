@@ -167,6 +167,38 @@ accident.
 2. **Evaluator** — treat it as a runtime global for typing and name
    resolution; reject a non-module-level declaration; under Option 1, reject
    a type that is not `Acyclic` and RC-free, naming the restriction.
+
+   **Interception point located 2026-09-17** (`src/evaluator/exprs/assignment.yo`,
+   `evaluate_assignment`, ~line 313). That function already branches three
+   ways on the LHS shape:
+
+   ```rust
+   is_atom_lhs           := ast_expr_is_atom(lhs);                                   // x = rhs
+   is_typed_binding_lhs  := ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2)));   // (x : T) = rhs
+   // else -> property/index LHS: x.a = rhs, arr(0) = rhs
+   ```
+
+   `thread_local(counter : i32) = 0` is a FnCall whose head atom is
+   `thread_local` with ONE argument that is itself a `BK_COLON` 2-arg call. It
+   matches neither of the first two, so it falls into the property/index
+   branch, which evaluates the head and produces the observed
+   `E0401 Variable "thread_local" not found`.
+
+   So the change is a fourth shape test beside those two — unwrap to the inner
+   colon pair, mark it thread-local, and reuse the existing typed-binding path
+   rather than duplicating it. The module-level registration those paths
+   already perform (`binding.yo:427`, `initialization_assignment.yo:1076`) is
+   where the sibling `register_thread_local` call goes.
+
+   **Sequencing note, and it decides the order of work.** The evaluator change
+   is NOT independently testable, even with a build: with no codegen there is
+   nothing to run, and `yo check` never evaluates bodies
+   ([[yo-check-src-std-are-a-filter-not-a-gate]]). So evaluator and codegen
+   want to land together behind one build, not as two separately "verified"
+   halves — writing the evaluator half alone buys no verification it would not
+   get later, and risks a plausible-but-wrong change that reviews as correct.
+   Four mechanisms in adjacent defects were refuted by measurement on
+   2026-09-16/17 for exactly that reason.
 3. **Codegen** — emit `_Thread_local` storage, the init flag and the accessor;
    route reads through the accessor. Single global on the WASM targets.
 4. **`std/rand.yo`** — `thread_rng()` returning a pointer/reference to this
