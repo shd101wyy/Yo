@@ -24,6 +24,14 @@
 //! convenience over `with_keys` may still be added. Freezing follows the field
 //! privatization; everything else about this module is additive already.
 pragma(Pragma.AllowUnsafe);
+// V6 task 5 slice 2 (plans/backlog/FORMAL_VERIFICATION.md): verified under
+// `yo verify ./std/collections`. The public surface is TOTAL (Option/Result
+// returns — no panicking bounds precondition to declare), so unlike
+// array_list there are no caller-facing `requires` contracts here yet; the
+// module participates in the CI verify gate (every fn reports the passing
+// `outside-subset`), and the internals stay parked with the heap model
+// (the object/heap model is explicitly out of subset).
+pragma(Pragma.Verify);
 { GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
 { DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");

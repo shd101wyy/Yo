@@ -117,6 +117,60 @@ into current develop.
   battery (same concurrency group) — finish a branch's battery before
   touching the branch.
 
+## 0.5 WINDOW STATE — 2026-09-16 (session 4; task 5 slice 2 + task 6)
+
+- **v0.2.34 CUT** (2026-09-15T18:46) carrying #697's `assumed()`; the in-repo
+  SEED_VERSION pin is v0.2.34 — the seed generation gate for `assumed()` is
+  OPEN (slice 2 annotations are spellable in std now), `refine` is NOT in
+  the seed (task 3's std/spec rework still rides the next release).
+- **#705** (task 3 slice 1) rebased onto the v0.2.34 pin (`14d39884c`),
+  fresh battery in flight. **#710** (NEW): the dependency-free contract
+  splice — see below. **#712** (NEW): task 6's worked example, stacked on
+  #705. **#713** (NEW, DRAFT): the std/collections annotations, merged
+  gate = a release carrying #710.
+- **SURFACE BUG FIXED (#710): the runtime contract splice was not
+  dependency-free.** The splice called `import("std/assert").assert` — a
+  load-time dependency; std/assert imports std/string imports
+  std/collections, so a contract clause in std/collections was an IMPORT
+  CYCLE (array_list half-loaded, E0403 "Module field assert not found",
+  every downstream import cascaded). Std contracts were structurally
+  impossible. The splice is now
+  `cond(begin(runtime(pred)) => (), true => { __yo_panic(msg); () })` —
+  builtins resolve without imports; runtime() tolerates unknown predicates
+  at the def-time trial; the begin wrapper matches the parser's
+  paren-condition AST; the panic arm is sequenced with `()` so
+  evaluate_panic's stand-in type unifies as unit; the verify+ strip
+  recognizer matches the new shape. Same panic text, same verify behavior.
+  Synthesis gotchas that each cost a cycle: `_synth_atom` takes `String`
+  (wrap BK_/BF_ constants in String.from — a raw `str` compiles to a C
+  type error); the `true` arm test is TokenKind.Bool (an Identifier atom
+  "true" var-misses); non-atom cond conditions must be begin-wrapped;
+  evaluate_panic adopts the ambient expected type, so a bare panic arm
+  breaks arm unification.
+- **TASK 6 LANDED (#712):** the worked example re-based off deleted
+  `Slice(T)` onto `Array(T, N)` + a REFINED INDEX — `s(i)`'s AoRTE bound
+  discharges from the entry-assumed refinement; an under-constrained
+  caller refutes at `refine#N`. Fixtures worked_example_array_index{,_false};
+  verifier_refine 5/5. Plan task-6 item + worked-example section updated
+  (the Slice-based .check/.unchecked sketch = the std/spec rework target).
+- **TASK 5 SLICE 2 = two PRs:** #710 (the fix, this line's parent) +
+  #713/DRAFT (the annotations: pragma(Verify) on array_list/hash_map;
+  bounds requires + assumed() on insert/remove/swap/swap_remove/drain/
+  set_len; push's len ensures; total ops join as outside-subset). PR B's
+  CI is red BY DESIGN until a release carries #710 (the v0.2.34 seed's
+  old splice cycles on annotated std at batch-compile — even the test
+  harness's batch compile evaluates std). Comptime evaluation never
+  panics (module inits run at comptime), so runtime-violation coverage
+  rides the contracts-runtime-* cli-cases.
+- **Local check status:** `yo check ./src` gets reaper-killed past ~9 min
+  when the machine is loaded (multiple 143s measured; even disowned
+  nohup runs SIGKILLed). The per-test batch compiles compile the whole
+  evaluator tree and CI runs check ./src — rely on those.
+- **Remaining after the open PRs land:** task 3's type-level variant
+  (213 exhaustive matches — the mountain), std/spec rework (.check/
+  .unchecked, composition, named aliases), task 2 abstract generic
+  bodies, V7 productization, the trait-impl clause corruption issue.
+
 ## 1. Campaign ledger (what landed, with SHAs)
 
 | Phase | State | Merge |
