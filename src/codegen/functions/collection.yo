@@ -16,13 +16,13 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, extern_c_global_c_name, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, is_extern_c_global, extern_c_global_c_name, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
 { is_control_fn, mark_as_effect_record_member, get_func_type, fn_has_specializations } :: import("../../function_value.yo");
 { get_all_some_types, type_contains_rc_type, type_contains_some_type, type_contains_some_type_deep, func_params_have_raw_some_type } :: import("../../types/utils.yo");
-{ CodeGenContext, DynImplEntry, type_key, sanitize_for_c_identifier, function_c_name } :: import("../utils/index.yo");
+{ CodeGenContext, DynImplEntry, type_key, sanitize_for_c_identifier, function_c_name, extern_c_global_matches } :: import("../utils/index.yo");
 { is_target_wasm } :: import("../../target.yo");
 { canonical_module_path } :: import("../../utils.yo");
 // Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): yo-self
@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { find_methods_from_generic_impls } :: import("../../evaluator/values/impl.yo");
 { create_specialized_function_inline } :: import("../../evaluator/calls/helper.yo");
 { get_func_param_comptime } :: import("../../evaluator/types/function.yo");
-{ get_c_include_for_extern } :: import("../../evaluator/exprs/c_include.yo");
+{ get_c_include_for_extern, get_c_includes_for_extern } :: import("../../evaluator/exprs/c_include.yo");
 // Auto-derived ___dispose synthesis (collect_dispose_methods): synthesize the
 // recursive RC-field-drop function from the struct's fields, parse + evaluate it,
 // register it as the type's ___dispose method. Mirrors TS evaluator/types/utils.ts
@@ -295,7 +295,11 @@ _register_extern_fn_callee :: (
           // called with no declaration, which C99 and later reject
           // (issues/fixed/two-externs-of-one-signature-emit-one-prototype.md).
           // A symbol name identifies the function; a type does not.
-          context.register_extern_function(c_name.clone(), cei_ty, c_name, get_c_include_for_extern(c_name.clone()));
+          context.register_extern_function(c_name.clone(), cei_ty, c_name.clone(), get_c_include_for_extern(c_name.clone()));
+          // A symbol declared under SEVERAL headers (two `c_include` modules
+          // binding it) gets every one of them — the registration slot holds
+          // one, the rest go straight to the include set.
+          _add_all_c_includes(get_c_includes_for_extern(c_name), context);
         });
       },
       .None => ()
@@ -329,10 +333,20 @@ _register_extern_fn_callee :: (
 /// way. The header is looked up by the C SYMBOL — a global bound under a Yo
 /// alias (`{ stdout : out }`) is registered under its Yo name
 /// (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
+/// `#include` every header in `headers`.
+_add_all_c_includes :: (fn(headers : ArrayList(String), context : CodeGenContext) -> unit)({
+  (i : usize) = usize(0);
+  while(i < headers.len(), {
+    match(headers.get(i), .Some(h) => context.add_c_include(h), .None => ());
+    i = (i + usize(1));
+  });
+});
 _register_extern_global_header :: (
   fn(name : String, ei_opt : Option(ExprInfo), context : CodeGenContext) -> unit
 )({
-  gty := match(get_extern_c_global_type(name.clone()), .Some(g) => g, .None => return(()));
+  if(!is_extern_c_global(name.clone()), {
+    return(());
+  });
   ei := match(ei_opt, .Some(e) => e, .None => return(()));
   vs := get_variables_from_env(ei.env, name.clone());
   n := vs.len();
@@ -341,14 +355,9 @@ _register_extern_global_header :: (
     match(ei.is_accessing_property, .Some(b) => b, .None => false) => ei.ty,
     true => return(())
   );
-  cond(
-    (type_key(gty) == type_key(resolved_ty)) => match(
-      get_c_include_for_extern(extern_c_global_c_name(name.clone())),
-      .Some(header) => context.add_c_include(header),
-      .None => ()
-    ),
-    true => ()
-  );
+  if(extern_c_global_matches(name.clone(), resolved_ty), {
+    _add_all_c_includes(get_c_includes_for_extern(extern_c_global_c_name(name)), context);
+  });
 });
 /// func_id of a FuncVal EvalValue, or "".
 _func_val_id :: (fn(v : EvalValue) -> String)(

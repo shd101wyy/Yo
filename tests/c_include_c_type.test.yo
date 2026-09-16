@@ -1,0 +1,32 @@
+//! `label : c_type("<C spelling>")` in a `c_include` declares an opaque C type
+//! whose C name is not a Yo identifier. `struct stat` has no typedef, so the
+//! only way to name it used to be `*(void)` (`std/libc/sys/stat.yo` carries
+//! the comment); the SomeT `stat_buf` now lowers to `struct stat`, so a
+//! `*stat_buf` parameter is `struct stat*` in the emitted C.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+{ stat_buf, stat } :: c_include(
+  "<sys/stat.h>",
+  stat_buf : c_type("struct stat"),
+  stat : (fn(pathname : *char, statbuf : *stat_buf) -> int)
+);
+test("a c_type opaque type is usable as a pointer target with the C spelling", {
+  // 512 bytes comfortably exceeds `struct stat` on every supported target;
+  // only the return code is read.
+  raw := malloc(usize(512)).unwrap();
+  buf := (*stat_buf)(raw);
+  rc := unsafe(stat((*char)("/"), buf));
+  free(.Some(raw));
+  // What this test pins is the C SPELLING: a wrong lowering (`stat_buf*`)
+  // fails to COMPILE, which the runner reports as a batch compile failure.
+  // Two uses of `*stat_buf` on purpose (the cast, then the typed local it
+  // initialises): a registry accessor that handed out its stored String by
+  // handle let the first lowering's appended `*` leak into the second
+  // (`struct stat** buf = (struct stat*)…`), which clang-22 rejects.
+  // Whether `stat("/")` itself succeeds is the platform's business — WASI
+  // has no "/" without a preopened directory and returns -1 (measured on
+  // the wasm32-wasi leg) — so only "the call ran" is asserted here.
+  assert((rc == int(0)) || (rc == int(-1)), "stat ran through a struct stat* parameter");
+});

@@ -89,10 +89,27 @@ never write `c_include` themselves:
 fcntl :: import("std/libc/fcntl");   // fcntl.open, fcntl.O_RDONLY
 ```
 
+## C types whose name is not a Yo identifier
+
+An opaque `Name : Type` field lowers to the C type spelled `Name`. When the
+C spelling is not a Yo identifier (`struct stat`, `struct timespec`), give
+it explicitly with `c_type`:
+
+```rust
+{ stat_buf, stat } :: c_include(
+  "<sys/stat.h>",
+  stat_buf : c_type("struct stat"),
+  stat : (fn(pathname : *char, statbuf : *stat_buf) -> int)
+);
+```
+
+`stat_buf` is an opaque type in Yo and `struct stat` in the emitted C, so a
+`*stat_buf` parameter is `struct stat*`. Adopting a Yo struct under a
+`c_type` spelling (`Point : c_type("struct point")` where `Point` is a Yo
+`struct`) lowers the Yo type to that spelling.
+
 ## Limits
 
-- A C name that is not a Yo identifier (`struct stat`, `struct timespec`)
-  cannot be declared as a type; pass such objects as `*(void)`.
 - Adopting a Yo struct as a C struct (`Point : Type` where `Point` is already a
   Yo `struct`) lowers the Yo type to the C name and emits no definition of its
   own; the header's definition is the layout. Such a field is the existing

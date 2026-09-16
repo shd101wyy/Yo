@@ -249,14 +249,14 @@ _stable_id_module_stem :: (fn(module_path : String) -> String)({
 /// The next 0-based occurrence index for `key`. Keys are caller-composed:
 /// `<module>:<row>:<column>` where a source position exists, a semantic key
 /// (`<module>:dup:<var>`) where one does not.
-/// Reset ALL occurrence counters. Called at the start of every in-process
-/// compile (`run_compile`): the ids these counters shape must be a function
-/// of (source, position, mint-order-within-this-compile), never of how many
-/// compiles ran before — a second compile of the SAME source must mint the
-/// SAME ids or its emission can never be byte-identical to the first
-/// (Phase 4 §7's warm gate; measured: an `array_list` fixture's second
-/// in-process compile emitted different `__yo_t_*` ids purely from advanced
-/// counters).
+/// Reset ALL occurrence counters. Called at the start of a COLD compile
+/// (`run_compile` with the evaluator universe cleared): within one compile
+/// the ids these counters shape must be a function of (source, position,
+/// mint-order-within-this-compile). Deliberately NOT called on a warm-reuse
+/// pass — its cached modules skip their mints, so a reset would shift the
+/// sequence and collide fresh ids with the surviving registries' entries
+/// (issues/warm-compile-selfcheck.md). Byte-identical warm emission needs
+/// those registries purged per compile instead.
 stable_occurrence_reset :: (fn() -> unit)({
   g_stable_occurrence = HashMap(String, usize).new();
   ()

@@ -833,7 +833,25 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 // C name (skip the `__yo_c_reserved_` reserved-word prefix) for such symbols —
 // the C header is `#include`d, so the real `stdout` is in scope. Populated by
 // c_include's field loop; read by get_variable_name_for_codegen.
-(g_extern_c_globals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+(g_extern_c_globals : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
+/// Append `ty` to the declarations recorded under `name` (a name may be
+/// declared by several `c_include` modules with DIFFERENT types — `stdout :
+/// *FILE` in one, `stdout : *(void)` in another; a last-wins slot made the
+/// other module's binding stop matching and get emitted under a mangled
+/// name — plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §4 follow-up).
+_push_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
+  match(
+    g_extern_c_globals.get(name.clone()),
+    .Some(list) => {
+      list.push(ty);
+    },
+    .None => {
+      list := ArrayList(TypeValue).new();
+      list.push(ty);
+      g_extern_c_globals.insert(name, list);
+    }
+  );
+});
 /// Yo binding name → C symbol name, for extern-C globals bound under a
 /// DIFFERENT name by a destructuring rename (`{ stdout : out } :: c_include(...)`,
 /// plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4). A name with no entry IS its
@@ -852,27 +870,30 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 /// binding that merely shares the name (e.g. an `errno : i32` parameter
 /// shadowing <errno.h>'s `errno : *(int)`) does not match — see
 /// get_extern_c_global_type's consumer in codegen get_variable_name_for_codegen.
-register_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
-  g_extern_c_globals.insert(name, ty);
-  ()
-});
+register_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)(
+  _push_extern_c_global(name, ty)
+);
 /// Bind the Yo name `yo_name` to the extern-C global whose C symbol is
 /// `c_name` (a destructuring rename off a `c_include` module value). The
 /// declared type travels with it so the per-resolved-variable match in
 /// codegen keeps working for the new name.
 register_extern_c_global_alias :: (fn(yo_name : String, c_name : String, ty : TypeValue) -> unit)({
-  g_extern_c_globals.insert(yo_name.clone(), ty);
+  _push_extern_c_global(yo_name.clone(), ty);
   g_extern_c_global_c_names.insert(yo_name, c_name);
   ()
 });
 /// The C symbol behind the extern-C global bound as `yo_name` — the recorded
 /// alias target, or `yo_name` itself when it was never renamed.
+/// Returns a CLONE (never the registry's own String — a caller that appends
+/// to it in place would corrupt the stored name; see `extern_type_c_name`).
 extern_c_global_c_name :: (fn(yo_name : String) -> String)(
-  match(g_extern_c_global_c_names.get(yo_name.clone()), .Some(c) => c, .None => yo_name)
+  match(g_extern_c_global_c_names.get(yo_name.clone()), .Some(c) => c.clone(), .None => yo_name)
 );
-/// The declared type of the c_include'd extern-C global `name`, if any.
-get_extern_c_global_type :: (fn(name : String) -> Option(TypeValue))(
-  g_extern_c_globals.get(name)
+/// Every declared type recorded for the extern-C global `name` (empty when
+/// the name was never declared). Consumers match a resolved binding against
+/// this list by `type_key`.
+get_extern_c_global_types :: (fn(name : String) -> ArrayList(TypeValue))(
+  match(g_extern_c_globals.get(name), .Some(l) => l, .None => ArrayList(TypeValue).new())
 );
 /// True if `name` is a c_include'd extern-C global symbol (name-only check).
 is_extern_c_global :: (fn(name : String) -> bool)(
@@ -1472,7 +1493,7 @@ export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
 export(record_method_callee_value, lookup_method_callee_value);
-export(register_extern_c_global, is_extern_c_global, get_extern_c_global_type);
+export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
 export(module_global_recording_mark, rollback_module_level_globals_to);

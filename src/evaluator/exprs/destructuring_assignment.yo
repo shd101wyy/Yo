@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   expr_info_table_get,
   is_extern_c_module_id,
-  get_extern_c_global_type,
+  is_extern_c_global,
   register_extern_c_global_alias
 } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -188,7 +188,7 @@ _record_extern_c_alias :: (fn(rhs_type : TypeValue, label : String, var_name : S
   });
   match(
     rhs_type,
-    .Struct({ id : sid, is_source_namespace : sns }) => if((sns && is_extern_c_module_id(sid.clone())) && get_extern_c_global_type(label.clone()).is_some(), {
+    .Struct({ id : sid, is_source_namespace : sns }) => if((sns && is_extern_c_module_id(sid.clone())) && is_extern_c_global(label.clone()), {
       register_extern_c_global_alias(var_name, label, ty);
     }),
     _ => ()

@@ -2249,6 +2249,7 @@ run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Excep
   argv_a.push(String.from("--emit-c-to"));
   argv_a.push(out_a.clone());
   argv_a.push(String.from("--skip-c-compiler"));
+  argv_a.push(String.from("--warm-first"));
   argv_b := ArrayList(String).new();
   argv_b.push(String.from("yo"));
   argv_b.push(String.from("compile"));
@@ -2379,6 +2380,11 @@ run_compile :: (
   // cache, prelude env and shared ExprInfoTable — exactly the state a
   // resident `build`/`test` evaluator would hold.
   (warm_reuse : bool) = false;
+  // Set by `--warm-first` (the FIRST pass of `--warm-selfcheck`): a normal
+  // cold start (the clears below run), but the trailing `mm_reset` is
+  // skipped — pass 2 is about to compile against this pass's universe, so
+  // wiping it here defeats the whole exercise.
+  (warm_first : bool) = false;
   (skip_codegen : bool) = false;
   (debug_gc : bool) = false;
   (debug_parallelism : bool) = false;
@@ -2577,6 +2583,10 @@ run_compile :: (
       // compile's evaluator state.
       (a_name == "--warm-reuse") => {
         warm_reuse = true;
+        ai = (ai + usize(1));
+      },
+      (a_name == "--warm-first") => {
+        warm_first = true;
         ai = (ai + usize(1));
       },
       (a == "--skip-codegen") => {
@@ -2903,11 +2913,17 @@ run_compile :: (
     profile_set_enabled(true);
   });
   {
-    // Ids are mint-ordinal-shaped: every compile (cold OR warm) must replay
-    // the same ordinals or a second compile emits different `__yo_t_*` names
-    // (see stable_occurrence_reset).
-    stable_occurrence_reset();
     if(!warm_reuse, {
+      // Ids are mint-ordinal-shaped, so a COLD compile resets the counters
+      // (fresh-process no-op; hygiene for multi-compile processes). A WARM
+      // pass must NOT reset: its cached modules skip their mints, so the
+      // replayed sequence would SHIFT and fresh ids would collide with the
+      // surviving registries' pass-1 entries (a struct-call answered with
+      // another type's field count: "Too many members provided. Expected 1,
+      // got 3" — issues/warm-compile-selfcheck.md). Byte-identical warm
+      // emission needs the id-keyed registries purged per compile instead —
+      // the owner-tagged purge work of §7 step 1.
+      stable_occurrence_reset();
       clear_module_cache();
       mm_clear_prelude_env();
     });
@@ -3113,9 +3129,11 @@ run_compile :: (
   // closure), the cached prelude env, and the shared ExprInfoTable. Clearing
   // them is the other half of the fix — either half alone frees nothing,
   // because each still holds a reference to what the other drops.
-  // TS equivalent: ModuleManager.resetAllState(). NOT on a --warm-reuse
-  // pass: the whole point is that the next pass holds this pass's universe.
-  if(!warm_reuse, {
+  // TS equivalent: ModuleManager.resetAllState(). Skipped on BOTH selfcheck
+  // passes: --warm-reuse holds the previous pass's universe, and --warm-first
+  // (pass 1) must leave ITS universe for pass 2 — wiping it here is what
+  // made pass 2 start from an empty module cache and re-import std/string.
+  if((!(warm_reuse) && !(warm_first)), {
     mm_reset();
   });
   // --skip-c-compiler: write the C and stop.
@@ -3737,6 +3755,15 @@ run_test :: (
   (test_heap_size_raw : String) = String.new();
   (test_debug_heap : bool) = false;
   (json_summary : bool) = false;
+  // `--shard i/n` keeps only the files whose index mod n equals i, over the
+  // SORTED collected order. It exists because `tests/` is flat — 158 of ~276
+  // files sit directly in the directory — so there is no `--exclude` split
+  // that balances, and the positional path takes exactly one directory.
+  // Striping (not contiguous blocks) keeps the shards balanced without a
+  // hardcoded map that would reshuffle every time a file is added, which is
+  // the same reason compiler-internal-tests stripes in test.yml.
+  (shard_index : usize) = usize(0);
+  (shard_total : usize) = usize(0);
   // §4.6: `--workspace` tests every member of the workspace above the cwd.
   (workspace : bool) = false;
   (batch_size : usize) = TEST_BATCH_SIZE;
@@ -3823,10 +3850,43 @@ run_test :: (
         test_profile = true;
         ai = (ai + usize(1));
       },
+      (a == "--shard") => {
+        spec := _arg_val_req(argv, ai, a.clone(), exn);
+        slash := spec.index_of(String.from("/"));
+        if(slash.is_none(), {
+          exn.throw(dyn(`test: --shard expects <index>/<total>, got '${spec}'`));
+        });
+        cut := match(slash, .Some(k) => k, .None => usize(0));
+        idx_raw := spec.substring(usize(0), cut);
+        tot_raw := spec.substring(cut + usize(1), spec.len());
+        match(
+          tot_raw.parse_u32(),
+          .Some(t) => if(t > u32(0), {
+            shard_total = usize(t);
+          }, {
+            exn.throw(dyn(`test: --shard total must be at least 1, got '${spec}'`));
+          }),
+          .None => {
+            exn.throw(dyn(`test: --shard expects <index>/<total>, got '${spec}'`));
+          }
+        );
+        match(
+          idx_raw.parse_u32(),
+          .Some(i2) => if(usize(i2) < shard_total, {
+            shard_index = usize(i2);
+          }, {
+            exn.throw(dyn(`test: --shard index must be below the total, got '${spec}'`));
+          }),
+          .None => {
+            exn.throw(dyn(`test: --shard expects <index>/<total>, got '${spec}'`));
+          }
+        );
+        ai = (ai + usize(2));
+      },
       a.starts_with(String.from("-")) => {
         // TS's yargs is .strict(): an unknown option is an error, never a
         // path (yo-cli.ts:1348).
-        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH] [--workspace]`));
+        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH] [--shard I/N] [--workspace]`));
       },
       true => {
         target_path = a.clone();
@@ -3881,11 +3941,37 @@ run_test :: (
   // summary per member. The members are resolved from the nearest `[workspace]`
   // manifest above the cwd and their directories replace the positional path;
   // ordering is the sorted member order, so the report is stable.
-  files := if(
+  all_files := if(
     workspace,
     _collect_workspace_test_files(excludes, io, exn),
     _collect_test_files(target_path, excludes, io, exn)
   );
+  // `--shard i/n`: stripe the SORTED collection. `_collect_test_files` already
+  // returns sorted paths, so the partition is deterministic across shards and
+  // across machines — every file lands in exactly one shard, and adding a file
+  // reshuffles membership without ever dropping one.
+  files := if((shard_total == usize(0)), all_files.clone(), {
+    picked := ArrayList(String).new();
+    (fi : usize) = usize(0);
+    while(fi < all_files.len(), {
+      if(((fi % shard_total) == shard_index), {
+        match(all_files.get(fi), .Some(f) => picked.push(f.clone()), .None => ());
+      });
+      fi = (fi + usize(1));
+    });
+    // Say what this shard covers: a shard number alone does not identify a
+    // failure, and the job log is unavailable until the run completes.
+    println(`shard ${shard_index.to_string()}/${shard_total.to_string()}: ${picked.len().to_string()} of ${all_files.len().to_string()} files`);
+    // Print the FILE LIST too: a shard number alone does not say WHICH file
+    // failed, and the job log is unreadable until the whole run completes —
+    // compiler-internal-tests prints its map for exactly that reason.
+    (pi : usize) = usize(0);
+    while(pi < picked.len(), {
+      match(picked.get(pi), .Some(pf) => println(`  shard-file ${pf}`), .None => ());
+      pi = (pi + usize(1));
+    });
+    picked
+  });
   // `Pragma.SkipWasm` pre-scan for wasm targets (hasSkipDirectiveForTarget,
   // src/test-runner.ts:152-170 + its filter loop at :1425-1453): a file whose
   // first 50 lines carry `pragma(Pragma.SkipWasm)` — or the targeted

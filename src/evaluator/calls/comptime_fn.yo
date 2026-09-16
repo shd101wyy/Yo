@@ -26,9 +26,9 @@ _(env : ctfe_dbg_env) :: import("std/env");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type } :: import("../../types/guards.yo");
+{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_extern_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
-{ type_contains_some_type } :: import("../../types/utils.yo");
+{ type_contains_some_type, get_all_some_types } :: import("../../types/utils.yo");
 {
   EvalValue,
   eval_value_eq,
@@ -79,6 +79,35 @@ _(env : ctfe_dbg_env) :: import("std/env");
 //   - Otherwise: use standard type compatibility.
 // For non-TypeVal arguments: use eval_value_eq.
 // ---------------------------------------------------------------------------
+/// TRUE when `ty` still carries a GENUINELY ABSTRACT `SomeT` anywhere inside it.
+///
+/// `get_all_some_types` (types/utils.yo) is the DEEP walk — it recurses through
+/// `Pointer`/`Struct`/`Func`/… where `type_contains_some_type` only looks at the
+/// top level — but it collects every `SomeT` raw. The two carve-outs below are
+/// the same ones `type_contains_some_type`'s own `SomeT` arm makes, for the same
+/// reason: an `extern(...)` opaque and a `SomeT` that already carries a resolved
+/// concrete are CONCRETE, and counting them as abstract splits one memo entry
+/// into two (the era hazard `_ctfe_types_era_equal` exists to avoid).
+_has_abstract_some :: (fn(ty : TypeValue) -> bool)({
+  somes := get_all_some_types(ty);
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < somes.len()) && !(found), {
+    match(
+      somes.get(i),
+      .Some(st) => match(
+        st,
+        .SomeT({ name : has_nm, resolved_concrete : has_rc }) => if((!(is_extern_type_name(has_nm))) && (has_rc.len() == usize(0)), {
+          found = true;
+        }),
+        _ => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 /// ERA-equivalence for CTFE cache identity (depth-bounded): two type values
 /// are the SAME instantiation when their ids match — or when they are ERA
 /// INSTANCES of one instantiation: same constructor fid AND (for structs)
@@ -215,6 +244,23 @@ _ctfe_args_equal :: (
           ),
           // One bare SomeT, other not: different types
           (a_is_some || b_is_some) => false,
+          // NESTED analogue of the rule above: one side still carries an
+          // unresolved SomeT somewhere inside and the other does not, so one is
+          // an ABSTRACT instantiation and the other a CONCRETE one — never the
+          // same memo entry. `type_contains_some_type` below is SHALLOW (top
+          // level `SomeT`/`TypeAppT` only), so it cannot see into a `Pointer`,
+          // and `are_types_compatible_exact` is a SUBTYPING predicate that
+          // answers TRUE for an unconstrained `SomeT` against anything. With
+          // neither able to tell them apart, a concrete `Option(*(Dyn(Trait)))`
+          // request memo-hit the abstract `Option(*(T))` shell (and, before the
+          // extern carve-out in types/compatibility.yo, the `Option(*(FILE))`
+          // entry `std/libc/stdio` creates) — so `ArrayList(T)._ptr : ?(*(T))`
+          // at `T = Dyn(Trait)` bound to a payload that was not `*(Dyn(Trait))`,
+          // and `_ptr.add(self._length)` in `push` had no `.add` to resolve.
+          // `_has_abstract_some` is the DEEP walk, and a `DynT` contributes no
+          // SomeTs at all — which is the whole distinction.
+          // issues/an-extern-opaque-type-unifies-with-every-dyn.md
+          (_has_abstract_some(aty) != _has_abstract_some(bty)) => false,
           // Either side contains a SomeT inside: require exact structural match
           (type_contains_some_type(aty) || type_contains_some_type(bty)) =>
             are_types_compatible_exact(aty, bty),

@@ -1,0 +1,46 @@
+// Repro — an `extern("Yo", X : Type)` opaque is a `SomeT` with NO required
+// traits, and `_compat_impl`'s two `Dyn`↔`SomeT` rules return true vacuously
+// when that list is empty. So every `Dyn(Trait)` unifies with every extern
+// opaque, and `are_types_compatible_exact` agrees — which makes the CTFE
+// instantiation memo hand `Option(*(Dyn(T)))` the `Option(*(FILE))` entry
+// `std/libc/stdio` already created.
+//
+//   yo compile issues/repros/an-extern-opaque-type-unifies-with-every-dyn.yo --optimize 2 -o /tmp/x && /tmp/x
+//
+// Eventually: prints 2 — `xs` holds the two trait objects pushed into it.
+//
+// Was (before the compatibility + memo fixes):
+//   error: No matching call found with arguments:
+//   (_ptr.add)((self._length))
+//       --> std/collections/array_list.yo:250:31
+// `_ptr` there is `?(*(T))` at `T = Dyn(ToString)`; the memo collision made it
+// `Option(*(FILE))`, so `_ptr` bound as `*(FILE)` — opaque, hence no pointer
+// arithmetic, hence no `.add`.
+//
+// STILL FAILS, now in the RC drop path and for a DIFFERENT reason — a separate
+// defect this one was hiding:
+//   error: call to undeclared function
+//   'yo_id_..._enum_r8058c2_n170_value___1781__ret___1781_'
+// The generated scan for `ArrayList(Dyn(Trait))` calls an Option-unwrap helper
+// specialized at an UNRESOLVED SomeT, which codegen declines to emit. The same
+// helper IS emitted for concrete element types (`..._value___u8__ret___u8_`).
+// The type-level half is covered and green in tests/dyn.test.yo.
+//
+// See issues/an-extern-opaque-type-unifies-with-every-dyn.md
+{ println } :: import("std/fmt");
+{ ToString } :: import("std/fmt/to_string");
+{ ArrayList } :: import("std/collections/array_list");
+
+collect :: (fn(a : Dyn(ToString), b : Dyn(ToString)) -> ArrayList(Dyn(ToString)))({
+  (out : ArrayList(Dyn(ToString))) = ArrayList(Dyn(ToString)).new();
+  out.push(a);
+  out.push(b);
+  out
+});
+
+main :: (fn() -> unit)({
+  xs := collect(dyn(i32(7), ToString), dyn(i32(9), ToString));
+  println(xs.len().to_string());
+});
+
+export(main);
