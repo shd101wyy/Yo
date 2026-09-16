@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr
 } :: import("../expr.yo");
 { ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, t_refine_inner } :: import("../types/definitions.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
@@ -257,7 +257,7 @@ _is_bool_type :: (fn(t : TypeValue) -> bool)(
 /// Width in bits of an integer-ish type; `.None` for non-integers.
 _int_width :: (fn(t : TypeValue) -> Option(usize))(
   match(
-    t,
+    t_refine_inner(t),
     .Int({ bits : b }) => Option(usize).Some(usize(b)),
     .Usize => Option(usize).Some(usize(64)),
     .Isize => Option(usize).Some(usize(64)),
@@ -266,7 +266,7 @@ _int_width :: (fn(t : TypeValue) -> Option(usize))(
 );
 _int_is_signed :: (fn(t : TypeValue) -> bool)(
   match(
-    t,
+    t_refine_inner(t),
     .Int({ signed : s }) => s,
     .Isize => true,
     _ => false
@@ -286,15 +286,15 @@ _measure_is_signed :: (fn(ctx : VcCtx, e : AstExpr) -> bool)(
 );
 _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
   match(
-    _int_width(t),
+    _int_width(t_refine_inner(t)),
     .Some(w) => Option(VcSort).Some(VcSort.BvS(width : w)),
     .None => cond(
-      _is_bool_type(t) => Option(VcSort).Some(VcSort.BoolS),
+      _is_bool_type(t_refine_inner(t)) => Option(VcSort).Some(VcSort.BoolS),
       // Fixed-length Array(T, N) (V5 task 6): a BV64-indexed SMT array;
       // the length rides the sort for bounds/ms_of. A `length_var`
       // (generic-length) array is outside the subset.
       true => match(
-        t,
+        t_refine_inner(t),
         .Array(elem, len, lv) => cond(
           ((lv.len() == usize(0)) && (len > usize(0))) => match(
             _type_sort(elem),

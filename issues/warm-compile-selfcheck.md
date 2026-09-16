@@ -104,6 +104,28 @@ FIRST MECHANISMS FOUND (2026-09-16, for the purge PR):
 env, def registries) must KEEP being held — that holding is what made the
 strings re-import crash disappear.
 
+## OPEN (§7 step 2 remainder): warm re-specialization binds Self to the WRONG type
+
+With the in-process path ON (YO_BUILD_IN_PROCESS=1), a build --watch round's
+artifact compile fails at `std/collections/array_list.yo:83` — `Self(...)`,
+ArrayList's own constructor — with:
+
+```
+Cannot construct String outside its declaring module: field "_bytes" is private
+```
+
+The construct site is ArrayList's constructor, but the constructed type is
+**String** (String's `_bytes` field): `ctx.self_type` during the warm pass's
+re-specialization of `ArrayList(String)`'s method resolved to a DIFFERENT
+type's registry entry. This is the member-visibility check
+(`_reject_private_construction` → `type_decl_module(struct_id)` →
+`g_type_decl_modules`) correctly rejecting a genuinely wrong Self — the bug
+is upstream in the warm state's generic-impl/specialization resolution.
+The in-process path is gated behind YO_BUILD_IN_PROCESS=1 (default = the
+proven child-process spawn) until this is fixed. Repro:
+`/home/yiyiwang/Workspace/yo-watch-probe` with YO_BUILD_IN_PROCESS=1,
+`yo build --watch --poll-ms 300`.
+
 ## RESOLVED 2026-09-16 — the warm pass emits byte-identical C for the whole gate battery
 
 The three fixes below closed the battery: trivial, alist AND strings all

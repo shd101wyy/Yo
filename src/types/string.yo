@@ -393,6 +393,19 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
           (body.len() > usize(0)) => `Future[${bn}](${recur(out, _d + usize(1), visited)}) ${body}`,
           true => `Future[${bn}](${recur(out, _d + usize(1), visited)})`
         )
+      },
+      // V6 task 3: `refine(T, p)` renders with a SHORT predicate tag — the
+      // func_id's tail is unique per ghost_fn declaration and keeps two
+      // predicates over the same inner distinct in keys/signatures without
+      // printing a mangled id in user-facing diagnostics.
+      .RefineT(inner, pfid) => {
+        tag := String.from("@");
+        slen := pfid.len();
+        cond(
+          (slen > usize(8)) => tag.push_string(pfid.substring(slen - usize(8), slen)),
+          true => tag.push_string(pfid.clone())
+        );
+        `refine(${recur(inner, _d + usize(1), visited)}, ${tag})`
       }
     )
   )
