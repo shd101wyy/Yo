@@ -1165,12 +1165,25 @@ jobs:
     needs: [changes, suite-cross-emit]
     if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
     runs-on: ${{ matrix.os }}
-    # Windows legs finish in ~26 min when healthy. A per-leg budget well under
-    # the 4-hour default turns a hang into a FAILED job with a downloadable
-    # log; the 4-hour cancellation left no blob at all, which is what made
-    # #413 undiagnosable (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
+    # A per-leg budget well under the 4-hour default turns a hang into a FAILED
+    # job with a downloadable log; the 4-hour cancellation left no blob at all,
+    # which is what made #413 undiagnosable
+    # (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
     # The other legs keep the old budget (macos-26-intel regularly needs >1h).
-    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 75 || 240 }}
+    #
+    # MEASURED 2026-09-16, because the note here said "Windows legs finish in
+    # ~26 min when healthy" and that is stale by ~2.5x. Across recent runs:
+    # windows-11-arm 65/67/68 min and windows-latest 54/55/58 min, against a 75
+    # min cap — a 1.11x margin on arm64, 1.30x on x64. That is the same shape as
+    # test-wasm32_emscripten in this file, which sat at 1.04x and duly started
+    # cancelling on variance alone. 120 restores real headroom on both while
+    # still catching a hang in a bounded time.
+    #
+    # windows-11-arm is ALSO sharded by this PR, so its per-shard cost drops far
+    # below the cap; windows-latest is deliberately NOT sharded (it is a REQUIRED
+    # status context and renaming it would remove a required check), so the cap
+    # is the only thing protecting it.
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 120 || 240 }}
     env:
       YO_MAIN_STACK_MB: "4096"
       # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
