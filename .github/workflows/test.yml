@@ -542,6 +542,14 @@ jobs:
         run: |
           yo verify ./std/spec --format json | tee verify-report.json
 
+      # Task 5 slice 2 (FORMAL_VERIFICATION.md): the dogfooded
+      # std/collections annotations — assumed() on the ArrayList core ops,
+      # the contract-less outside-subset degrade elsewhere; every outcome
+      # here is a passing one and the step is the plan's exit criterion.
+      - name: yo verify std/collections (dogfooded annotations)
+        run: |
+          yo verify ./std/collections --format json | tee verify-collections.json
+
       # The straight-line positive battery end-to-end. Under a V2-era seed
       # this is a smoke (self-test only, exit 0); once the seed carries the
       # V3 pass it genuinely proves every function in the battery — the
@@ -558,6 +566,7 @@ jobs:
           path: |
             verify-report.json
             verify-battery.json
+            verify-collections.json
           retention-days: 7
 
   test:
