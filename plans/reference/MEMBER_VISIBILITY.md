@@ -1,9 +1,37 @@
 # Member visibility
 
-**Status:** BACKLOG — designed here, not started. Written 2026-09-10 because
-three rows of `plans/STD_API_STABILIZATION.md` cannot be closed without it,
-and because the convention standing in for it has grown to 752 sites in
-`std/` alone.
+**Status:** LANDED 2026-09-16 — as the compiler-ENFORCED underscore
+convention, NOT the `priv` marker recommended below. The maintainer's
+decision: "any field starting with `_` is the private field". No new syntax,
+so `std/` adopts it without waiting for a seed release. What shipped:
+
+- **Rule.** A struct field or impl method whose name starts with `_` is
+  private to the module that declares its type or impl **and to that
+  module's same-directory siblings** (the scope every `_raw_lock` caller in
+  `std/sync/` needs; `std/thread.yo` is outside it). Names starting with
+  `___` are compiler-reserved (the synthesized RC hooks) and never private.
+  Trait-declared signatures and module exports are untouched — `export(...)`
+  is still the only control over module-level bindings.
+- **Enforced at** property access (read and write), method resolution
+  (instance and `Type._m(...)` static forms, inherent and generic-impl
+  methods — generic-impl candidates carry their impl's declaring module),
+  struct-literal construction (a type with any private field is not
+  constructible by literal from outside) and destructuring (named fields and
+  the `{ ... }` spread). Answers to the open questions at the bottom:
+  non-constructible/non-destructurable YES, `tests/` exemption NO.
+- **Diagnostic** `E0405` (`yo explain E0405`); classifier keys on
+  "is private". Codegen is untouched — the emitted C is byte-identical.
+- **Mechanism.** `register_type_decl_module` / `type_decl_module`
+  (`src/types/guards.yo`) record a type id's declaring module at struct /
+  enum / union / anonymous-struct minting; `MethodEntry.owner` and
+  `MethodCandidate.owner` carry the registration owner; the shared predicate
+  is `private_member_blocked` in `src/utils.yo`. Tests:
+  `tests/member_visibility.test.yo` (+ `tests/member_visibility/`),
+  `tests/cli-cases/check-private-member`.
+
+Everything below is the design record as written on 2026-09-10 — three rows
+of `plans/STD_API_STABILIZATION.md` could not be closed without it, and the
+convention standing in for it had grown to 752 sites in `std/` alone.
 
 ## The problem
 
