@@ -484,6 +484,28 @@ trait_method_return_label :: (fn(trait_id : String, label : String) -> Option(St
 /// empty and the writer is a no-op.
 TraitContractReadFn :: (fn(id : String) -> ArrayList(AstExpr));
 TraitReturnLabelReadFn :: (fn(id : String) -> Option(String));
+/// V6 task 3: the refine() ANNOTATION-registry write hook — contracts.yo
+/// (evaluate_refine) records an annotation node's predicate id into the
+/// registry types/function.yo owns; the two modules cannot import each
+/// other, so the pointer is installed at function.yo module init (the
+/// `_name := (fn() -> bool)({...})();` shape — a bare call is dropped
+/// from compiled binaries).
+RefineAnnotationRegisterFn :: (fn(expr_id : usize, pred_fid : String) -> unit);
+(g_refine_annotation_register : Option(RefineAnnotationRegisterFn)) = Option(RefineAnnotationRegisterFn).None;
+set_refine_annotation_hook :: (fn(r : RefineAnnotationRegisterFn) -> unit)({
+  g_refine_annotation_register = Option(RefineAnnotationRegisterFn).Some(r);
+  ()
+});
+hook_register_refine_annotation :: (fn(expr_id : usize, pred_fid : String) -> unit)(
+  match(
+    g_refine_annotation_register,
+    .Some(f) => {
+      f(expr_id, pred_fid);
+      ()
+    },
+    .None => ()
+  )
+);
 TraitContractRegisterFn :: (
   fn(id : String, reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr), ret : Option(String)) -> unit
 );
@@ -629,6 +651,8 @@ export(
   trait_method_ensures,
   trait_method_return_label,
   set_func_contract_hooks,
+  set_refine_annotation_hook,
+  hook_register_refine_annotation,
   hook_func_requires,
   hook_func_ensures,
   hook_func_return_label,

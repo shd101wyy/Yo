@@ -731,6 +731,12 @@ _is_c_identifier_byte :: (fn(b : u8) -> bool)(
 /// within the function's C scope. NOT for file-scope names (two functions
 /// mint colliding `<prefix>0`); those derive from their own identity.
 (g_fresh_local_counts : HashMap(String, usize)) = HashMap(String, usize).new();
+/// Reset the fresh-local counters — per-EMISSION state (see
+/// ref_spill_counter_reset for the reasoning).
+fresh_local_counts_reset :: (fn() -> unit)({
+  g_fresh_local_counts = HashMap(String, usize).new();
+  ()
+});
 fresh_local_name :: (fn(prefix : String, current_function_name : String) -> String)({
   key := `${prefix}@${current_function_name}`;
   k := match(
@@ -1958,5 +1964,6 @@ export(
   mark_uses_parallelism,
   get_uses_parallelism,
   get_needs_intel_asm_syntax,
-  set_on_demand_declare_fn
+  set_on_demand_declare_fn,
+  fresh_local_counts_reset
 );

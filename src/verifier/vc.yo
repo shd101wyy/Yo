@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val } :: import("../value.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
-{ is_ghost_fn, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
+{ is_ghost_fn, ghost_fn_def_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
 
 /// V5 task 3 slice 2: the ghost_fn inlining stack (see
 /// `_ghost_fn_inline_term`). Declared at module top so it is initialized
@@ -48,7 +48,8 @@ pragma(Pragma.AllowUnsafe);
   get_func_requires_exprs,
   get_func_ensures_exprs,
   get_func_return_label,
-  get_func_decreases_expr
+  get_func_decreases_expr,
+  get_func_refined_params
 } :: import("../evaluator/types/function.yo");
 // ---------------------------------------------------------------------------
 // V6 task 4: mutual-recursion cliques.
@@ -3506,6 +3507,45 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
 /// body). Guarded against recursion by an inlining stack: a spec function
 /// that reaches itself — directly or through another ghost_fn — has no
 /// finite expansion and is rejected.
+/// V6 task 3: inline a REFINEMENT predicate over a value term. The
+/// predicate is a ghost_fn carried by func_id on `TypeValue.RefineT` — a
+/// TYPE-level refinement has no call AST node, so the body comes from the
+/// ghost-fn def registry (contracts.yo) instead of the ExprInfo table the
+/// call-path inliner reads. The predicate's parameter binds to `vt` and
+/// the body walks as a term under the caller's path. A predicate outside
+/// the subset (or unregistered) fails it loudly.
+_refine_pred_term :: (
+  fn(inout(ctx) : VcCtx, at : AstExpr, vt : VcTerm, pred_fid : String) -> Option(VcTerm)
+)({
+  gfd := match(
+    ghost_fn_def_of(pred_fid.clone()),
+    .Some(d) => d,
+    .None => {
+      _fail_subset(ctx, String.from("refinement predicate without a resolvable ghost_fn body"), at);
+      return(Option(VcTerm).None);
+    }
+  );
+  if(gfd.params.len() != usize(1), {
+    _fail_subset(ctx, String.from("refinement predicate must take exactly one parameter"), at);
+    return(Option(VcTerm).None);
+  });
+  pname := match(gfd.params.get(usize(0)), .Some(p) => p.clone(), .None => String.new());
+  saved := ctx.vars.get(pname.clone());
+  ctx.vars.insert(pname.clone(), vt);
+  out := _expr_term(ctx, gfd.body);
+  match(
+    saved,
+    .Some(sv) => {
+      ctx.vars.insert(pname.clone(), sv);
+      ()
+    },
+    .None => {
+      ctx.vars.remove(pname.clone());
+      ()
+    }
+  );
+  out
+});
 _ghost_fn_inline_term :: (
   fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
 )({
@@ -3699,7 +3739,39 @@ _callee_call_term :: (
     },
     .None => ()
   );
-  if((reqs.len() == usize(0)) && (enss.len() == usize(0)), {
+  // V6 task 3: a callee whose parameters carry `refine(T, p)` annotations
+  // IS contracted — the refinements are its spec (the call site owes a
+  // `refine#N` per refined argument below), so they satisfy the
+  // contracted-callee gate exactly like requires/ensures.
+  callee_has_refined_spec := cond(
+    (reqs.len() > usize(0)) => false,
+    (enss.len() > usize(0)) => false,
+    true => {
+      (any_refined : bool) = false;
+      base_preds := get_func_refined_params(
+        match(
+          specialized_base_of(fid.clone()),
+          .Some(b) => b,
+          .None => fid
+        ).clone()
+      );
+      (hri : usize) = usize(0);
+      while((hri < base_preds.len()) && !any_refined, {
+        match(
+          base_preds.get(hri),
+          .Some(pid) => {
+            if(pid.len() > usize(0), {
+              any_refined = true;
+            });
+          },
+          .None => ()
+        );
+        hri = (hri + usize(1));
+      });
+      any_refined
+    }
+  );
+  if((reqs.len() == usize(0)) && (enss.len() == usize(0)) && !callee_has_refined_spec, {
     // No contracts: the plan's case 3 — result unconstrained beyond type.
     _fail_subset(ctx, String.from("call to a callee without contracts"), e);
     return(Option(VcTerm).None);
@@ -3726,6 +3798,19 @@ _callee_call_term :: (
   );
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
+  arg_terms := ArrayList(VcTerm).new();
+  // V6 task 3: the callee's REFINED parameters (predicate ghost_fn ids,
+  // "" = not refined) — read by the SPECIALIZED base id (the same
+  // normalization the cliques use; the walk sees specialized callee ids;
+  // the table rides copy_func_contract_exprs onto specialized ids at the
+  // mint).
+  refine_preds := get_func_refined_params(
+    match(
+      specialized_base_of(fid.clone()),
+      .Some(b) => b,
+      .None => fid
+    ).clone()
+  );
   (i : usize) = usize(0);
   while(i < args.len(), {
     match(
@@ -3735,6 +3820,7 @@ _callee_call_term :: (
         match(
           v,
           .Some(vt) => {
+            arg_terms.push(vt);
             match(
               callee_params.get(i),
               .Some(cp) => {
@@ -3799,6 +3885,39 @@ _callee_call_term :: (
       .None => ()
     );
     ri = (ri + usize(1));
+  });
+  // V6 task 3: the caller PROVES each refined argument satisfies its
+  // predicate (`refine#N`) — the other half of the callee's entry assume.
+  // The obligation is the predicate inlined over the ARGUMENT's term.
+  (ri2 : usize) = usize(0);
+  while(ri2 < refine_preds.len(), {
+    match(
+      refine_preds.get(ri2),
+      .Some(pred_fid) => {
+        if(pred_fid.len() > usize(0), {
+          at2 := match(
+            args.get(ri2),
+            .Some(a2) => a2,
+            .None => e
+          );
+          match(
+            arg_terms.get(ri2),
+            .Some(at_term) => {
+              match(
+                _refine_pred_term(ctx, at2, at_term, pred_fid.clone()),
+                .Some(rterm) => {
+                  _emit(ctx, `refine#${ri2.to_string()}`, ArrayList(VcTerm).new(), rterm);
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    ri2 = (ri2 + usize(1));
   });
   // Assume ensures with a fresh result bound. The callee's ensures name
   // the return value through ITS return label (V1 decision D3) — bind that
@@ -3933,6 +4052,8 @@ VerifyFnInput :: ref(
 /// subset violations land in `.error`, never thrown.
 verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
   ctx := _new_vc_ctx(input.table, input.fn_name.clone(), input.func_id.clone());
+  // V6 task 3: this fn's per-parameter refinement predicates ("" = none).
+  param_pred_ids := get_func_refined_params(input.func_id.clone());
   // Bind params as declared vars.
   (i : usize) = usize(0);
   while(i < input.param_names.len(), {
@@ -3953,6 +4074,34 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
                     ()
                   },
                   _ => ()
+                );
+                // V6 task 3: a REFINED parameter (per-position predicate
+                // ghost_fn ids from types/function.yo, keyed by this fn's
+                // FuncVal id) ASSUMES its predicate at the callee entry —
+                // the modular model; the caller proves `refine#N` at the
+                // call site. The sort above is already the plain declared
+                // type (refine() evaluates to its inner — erasure).
+                match(
+                  param_pred_ids.get(i),
+                  .Some(pred_fid) => {
+                    if(pred_fid.len() > usize(0), {
+                      ptm := ctx.vars.get(pn.clone());
+                      match(
+                        ptm,
+                        .Some(pv) => {
+                          match(
+                            _refine_pred_term(ctx, input.body, pv, pred_fid.clone()),
+                            .Some(rt) => {
+                              ctx.path.push(rt);
+                            },
+                            .None => ()
+                          );
+                        },
+                        .None => ()
+                      );
+                    });
+                  },
+                  .None => ()
                 );
               },
               .None => {

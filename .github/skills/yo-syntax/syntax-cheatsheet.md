@@ -669,6 +669,22 @@ get :: (
   fn(self : Self, index : usize, requires(index < self.len()), assumed()) -> (result : Option(T))
 )(/* raw-pointer reads */);
 ```
+- **`refine(T, p)` (V6 task 3):** a refinement annotation — "a `T`
+  satisfying the predicate `p`", where `p` is a ONE-parameter `ghost_fn`
+  value. The annotation evaluates to `T` (erasure: zero runtime cost;
+  bindings, dispatch and codegen see the plain type) and the refinement
+  rides the SIGNATURE: the verifier ASSUMES `p(param)` at the callee
+  entry (so `safe_div` over a non-zero denominator needs no manual
+  `requires`) and each call site PROVES `refine#N` for the argument —
+  an unprovable argument refutes with a counter-example while the
+  callee stays verified. `refine(T)` without a predicate is a bare
+  alias. Attach it INLINE in the parameter annotation (named aliases
+  over refinements arrive with the `std/spec` surface).
+
+```rust
+non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / denom);
+```
 - **Trait-method contracts (V6 task 1):** an impl method's contracts are
   checked against the trait method's — `trait.requires ⇒ impl.requires`
   (contravariant: may weaken, never strengthen) and `impl.ensures ⇒

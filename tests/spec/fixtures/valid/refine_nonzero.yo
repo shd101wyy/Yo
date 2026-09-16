@@ -1,0 +1,17 @@
+// V6 task 3 (FORMAL_VERIFICATION.md §7): the plan's own worked example —
+// `safe_div` over a REFINED denominator. `NonZeroI32` is
+// `refine(i32, non_zero)` with `non_zero` a ghost_fn predicate: distinct
+// at the type level, erased to i32 at runtime (the call lowers exactly as
+// before), and the verifier discharges the predicate MODULARLY — the
+// callee ASSUMES `denom != 0` at entry (so the division's
+// divisor-nonzero obligation proves with NO manual `requires`), and
+// every caller PROVES `refine#N` for the argument it passes. The
+// discharging caller is `caller_ok` (bottom); its violating twin is
+// negative/refine_nonzero_false.yo.
+pragma(Pragma.Verify);
+
+non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+
+safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / denom);
+
+caller_ok :: (fn(x : i32, requires(x != i32(0))) -> (r : i32))(safe_div(i32(7), x));

@@ -66,8 +66,8 @@ EOF
 
 # must_pass: enforced green. known_red: the open work list — see
 # issues/warm-compile-selfcheck.md; move entries here as they are fixed.
-MUST_PASS="trivial"
-KNOWN_RED="alist strings"
+MUST_PASS="trivial alist strings"
+KNOWN_RED=""
 
 fails=0
 run_one() {

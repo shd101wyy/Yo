@@ -122,6 +122,29 @@ is_odd :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
 );
 ```
 
+### 精化类型 —— `refine(T, p)`
+
+`refine(T, p)` 注解"满足谓词 `p` 的 `T`"。注解求值为 `T` —— 已擦除、
+零运行期开销；值绑定、分发和 lowering 都与普通类型完全一致 —— 而精化
+条件附着在函数签名上。谓词是单参数的 `ghost_fn` 值；验证器以模块化
+方式消解它 —— 被调方在入口**假设**每个精化参数的精化条件，而每个调用
+点为实参**证明** `refine#N` 义务：
+
+```rust
+non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+
+// 无需手写 `requires`：除零义务由假设的 `denom` 精化条件直接证得。
+safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / denom);
+
+// 调用方在自己的 requires 下证明 `refine#1`（x != 0）。
+caller :: (fn(x : i32, requires(x != i32(0))) -> (r : i32))(safe_div(i32(7), x));
+```
+
+无法证明谓词的调用方会被以反例驳倒（`d = 0`），而被调方仍保持已验证
+状态 —— 一个坏的调用方不会污染被调方。不带谓词的 `refine(T)` 是无义务
+的裸别名。精化条件附着在 `refine(...)` 注解本身上；具名别名
+（`NonZero(i32)`）将随 `std/spec` 精化接口一同落地。
+
 ## 模式
 
 | 模式 | 选择方式 | 行为 |

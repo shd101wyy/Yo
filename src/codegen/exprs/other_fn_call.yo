@@ -45,6 +45,13 @@
 /// on `__yo_ref_spill_0`. Mirrors TS module-level `refSpillCounter`
 /// (src/codegen/exprs/other-fn-call.ts:84).
 (g_ref_spill_counter : usize) = usize(0);
+/// Reset the ref-spill counter — per-EMISSION state (each emitted C file is
+/// self-contained), so every compile of one process must start at 0 or the
+/// second compile's names shift (issues/warm-compile-selfcheck.md).
+ref_spill_counter_reset :: (fn() -> unit)({
+  g_ref_spill_counter = usize(0);
+  ()
+});
 /// ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -2480,4 +2487,4 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   });
   Option(String).Some(out)
 });
-export(_is_addressable_c_expr, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call);
+export(_is_addressable_c_expr, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset);

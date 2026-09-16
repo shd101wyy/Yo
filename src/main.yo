@@ -65,7 +65,7 @@ pragma(Pragma.AllowUnsafe);
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build, expand_workspace_members } :: import("./build_runner.yo");
 { file_exists_sync } :: import("./manifest.yo");
-{ stable_occurrence_reset } :: import("./utils.yo");
+{ stable_occurrence_reset, emission_occurrence_reset } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -139,7 +139,9 @@ json :: import("std/encoding/json");
 { host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { set_target_pointer_size } :: import("./types/utils.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
-{ get_needs_intel_asm_syntax, get_uses_parallelism } :: import("./codegen/utils/index.yo");
+{ get_needs_intel_asm_syntax, get_uses_parallelism, fresh_local_counts_reset } :: import("./codegen/utils/index.yo");
+{ ref_spill_counter_reset } :: import("./codegen/exprs/other_fn_call.yo");
+{ closure_capture_counter_reset } :: import("./codegen/exprs/closures.yo");
 { panic, assert } :: import("std/assert");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
@@ -3199,6 +3201,14 @@ run_compile :: (
     profile_set_enabled(true);
   });
   {
+    // EMISSION names (temps, labels) are per-artifact: reset on EVERY
+    // compile, warm included, so the same site mints the same C name in
+    // every compile of one process (the identity counters below are a
+    // different namespace and stay cold-only).
+    emission_occurrence_reset();
+    fresh_local_counts_reset();
+    ref_spill_counter_reset();
+    closure_capture_counter_reset();
     if(!warm_reuse, {
       // Ids are mint-ordinal-shaped, so a COLD compile resets the counters
       // (fresh-process no-op; hygiene for multi-compile processes). A WARM
