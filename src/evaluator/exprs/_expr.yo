@@ -216,11 +216,12 @@ import("std/fmt");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_some_type } :: import("../../types/guards.yo");
+{ is_primitive_type, is_unit_type, is_enum_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../value.yo");
 { expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
@@ -233,6 +234,56 @@ import("std/fmt");
 { is_pointer_type } :: import("../../types/guards.yo");
 { is_pointer_value_capable_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
+/// True when `expr` is the desugaring of a PUNNED one-field record — the
+/// `{ x }` shape, which the parser rewrites to `_(x : x)`. Structural, so an
+/// explicit `{ x : x }` is treated the same (the advice is identical).
+_is_punned_single_field :: (fn(expr : AstExpr) -> bool)(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => (
+      (args.len() == usize(1)) && match(
+        args.get(usize(0)),
+        .Some(pair) => (
+          ast_expr_is_fn_call_of(pair, BK_COLON, Option(usize).Some(usize(2))) && match(
+            pair,
+            .FnCall(_, _, pargs, _, _) => match(
+              pargs.get(usize(0)),
+              .Some(l) => match(
+                pargs.get(usize(1)),
+                .Some(r) => (ast_expr_is_atom(l) && ast_expr_is_atom(r) && (ast_expr_token(l).value == ast_expr_token(r).value)),
+                .None => false
+              ),
+              .None => false
+            ),
+            _ => false
+          )
+        ),
+        .None => false
+      )
+    ),
+    _ => false
+  )
+);
+/// The punned field's name, for the message. Empty when not punned.
+_punned_field_name :: (fn(expr : AstExpr) -> String)(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
+      .Some(pair) => match(
+        pair,
+        .FnCall(_, _, pargs, _, _) => match(
+          pargs.get(usize(0)),
+          .Some(l) => ast_expr_token(l).value.clone(),
+          .None => String.new()
+        ),
+        _ => String.new()
+      ),
+      .None => String.new()
+    ),
+    _ => String.new()
+  )
+);
 { is_unknown_val } :: import("../../value.yo");
 { evaluate_extern } :: import("./extern.yo");
 { evaluate_c_include } :: import("./c_include.yo");
@@ -765,11 +816,38 @@ _evaluate_expression :: (
             // Land patch D together with either shared-Variable def-env
             // threading or a deferred re-eval of comptime fn bodies at
             // assignment.
-            if(
+            // THE `{ x }` FOOTGUN. A brace group without a semicolon is a
+            // RECORD, uniformly and in every position — that is the decided
+            // rule (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §4), so
+            // `v => { v }` builds a one-field record where every other
+            // language would read a block. It then meets a non-record
+            // expected type and fails somewhere downstream with a bare type
+            // mismatch that never mentions braces. Say the actual cause
+            // HERE, while the punned shape is still visible.
+            //
+            // Narrow on purpose: only a single PUNNED field (`{ x }`, which
+            // the parser desugared to `_(x : x)`) and only against an
+            // expected type that can never be a record — a primitive, unit,
+            // or an enum. A trait/Impl/Dyn position can legitimately receive
+            // a record literal, so those are left alone.
+            if(!expected_is_anon_struct && _is_punned_single_field(expr) && (is_primitive_type(et_ty) || is_unit_type(et_ty) || is_enum_type(et_ty)), {
+              exn.throw(
+                dyn(
+                  format_error_message_with_help(
+                    ast_expr_token(expr),
+                    `"{ ${_punned_field_name(expr)} }" is a one-field record, but ${type_to_string(et_ty)} is expected here`,
+                    Option(String).Some(
+                      `a brace group without a semicolon is a record: write "${_punned_field_name(expr)}" for the value, or "{ ${_punned_field_name(expr)}; }" for a block`
+                    )
+                  )
+                )
+              );
+              make_err_expr()
+            }, if(
               expected_is_anon_struct && !is_some_type(et_ty),
               evaluate_function_call(expr, env, type_of_type(et_ty), Option(EvalValue).Some(EvalValue.TypeVal(et_ty)), ctx, exn),
               evaluate_anonymous_struct_value(expr, env, ctx, exn)
-            )
+            ))
           },
           .None => evaluate_anonymous_struct_value(expr, env, ctx, exn)
         ),
