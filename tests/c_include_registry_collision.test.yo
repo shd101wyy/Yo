@@ -1,0 +1,22 @@
+//! Two modules declare the SAME C symbol with DIFFERENT types. The extern-C
+//! global registry is keyed by name, and a last-wins slot made the module
+//! evaluated first stop matching its own declared type — its binding was then
+//! treated as an ordinary Yo global: `stdout` (a C reserved name) was emitted
+//! as `__yo_c_reserved_stdout`, and `LC_ALL`'s `<locale.h>` was never
+//! `#include`d — both "use of undeclared identifier" in the C compiler
+//! (measured on the v0.2.33 seed with the `LC_ALL` shape). The registry now
+//! keeps every declaration and codegen matches a binding against all of them
+//! (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §4).
+{ assert } :: import("std/assert");
+{ write_a } :: import("./c_include_registry/a.yo");
+{ flush_b } :: import("./c_include_registry/b.yo");
+{ lc_all_c } :: import("./c_include_registry/c.yo");
+{ unused_d } :: import("./c_include_registry/d.yo");
+test("a reserved-name symbol declared with two types in two modules resolves in both", {
+  assert(write_a() >= int(0), "a.yo's stdout : *FILE is the C stdout");
+  assert(flush_b() == int(0), "b.yo's stdout : *(void) is the C stdout too");
+});
+test("a symbol whose header only its own module can supply is still resolved", {
+  assert(lc_all_c() >= int(0), "c.yo's LC_ALL : int read <locale.h>'s macro");
+  assert(unused_d() == i64(0), "d.yo evaluated (its declaration is the competing one)");
+});

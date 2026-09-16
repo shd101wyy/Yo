@@ -26,9 +26,9 @@
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ sanitize_for_c_identifier, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key } :: import("../utils/index.yo");
+{ sanitize_for_c_identifier, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
-{ lookup_io_builtin_struct_field, get_extern_c_global_type } :: import("../../expr_info.yo");
+{ lookup_io_builtin_struct_field } :: import("../../expr_info.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
@@ -332,11 +332,7 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
     // (`c.stdout`): no variable carries it, so resolve it the way the atom
     // resolver does — by name + declared type — and keep the REAL C name
     // (no reserved-word prefix). plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4.
-    if(is_module_type(object_type) && match(
-      get_extern_c_global_type(field_name.clone()),
-      .Some(gty) => (type_key(gty) == type_key(ei.ty)),
-      .None => false
-    ), {
+    if(is_module_type(object_type) && extern_c_global_matches(field_name.clone(), ei.ty), {
       return(sanitize_for_c_identifier(field_name.clone(), true));
     });
     return(get_variable_name_for_codegen(field_name.clone(), Option(Environment).Some(ei.env)));
