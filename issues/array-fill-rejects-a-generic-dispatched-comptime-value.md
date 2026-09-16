@@ -98,6 +98,31 @@ conversions under
 So closing the value-substitution row does not close this one, and the two
 should be tracked apart.
 
+## A LEAD, not a confirmed root cause
+
+`src/evaluator/calls/function.yo` (~2433-2468) decides whether to mint a
+specialization keyed on comptime argument VALUES. Its own comment says it fires
+only when "every flagged arg's value is compile-time KNOWN", and it sets
+`ou_all_known = false` whenever an evaluated arg's `value` is `.None`, an
+`UnknownVal`, or a `TypeVal` still carrying unresolved SomeTs. Without the mint,
+the call falls through to the non-specializing path — and that comment records
+the same downstream symptom this issue has, an FTT spliced at the C call site.
+
+`fill`'s `val` is comptime-flagged, and `T.default()` plausibly presents as
+`.None` at that point, which would match exactly.
+
+**This is a reading of the code, NOT a verified diagnosis.** It has not been
+instrumented, and the obvious competing explanation — that `T` simply is not
+bound yet when the check runs, so the dispatch cannot resolve regardless — is
+equally consistent with the evidence, and the emitted stub's unsubstituted
+`Array_T____Default___Comptime___3` name mildly favours it.
+
+Whoever takes this should settle which it is FIRST, with a gated print at that
+predicate rather than by reasoning: three plausible chains were followed and
+refuted on adjacent defects on 2026-09-16 (TypeValue interning and a trait-id
+collision for the prelude line-count defect; `force_in_flight_field` for the
+inherent-constant one), each costing a build.
+
 ## Fix shapes
 
 1. **Make `comptime(val)` accept a generic-dispatched call whose result IS a
