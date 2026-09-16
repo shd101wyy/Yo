@@ -1438,6 +1438,67 @@ become real; the stdlib starts carrying executable specifications.
 > policies treat `assumed` and `outside-subset` as passing in both
 > `yo verify` and the check/compile integration. Tasks 3, 6, and task 5
 > slice 2 (the std annotations) remain.
+>
+> **Status: TASK 3 SLICE 1 — `refine(T, p)` annotations with modular VCs
+> (2026-09-15).** The refinement MECHANISM lands without a new
+> `TypeValue` variant: a first implementation WITH `RefineT(inner, p)`
+> was built and REVERTED the same day — the variant breaks 213
+> exhaustive `match`es across the tree (every one needs a semantics
+> decision per site), which is the real cost the plan's "touches all
+> exhaustive matches — there are many" line was pointing at. The landed
+> shape is the campaign's own side-table pattern (the same one
+> requires/ensures use):
+>
+> 1. **Erasure by identity**: `refine(T, p)` (a builtin, BF_REFINE,
+>    dispatched in _expr.yo, evaluated in contracts.yo) evaluates to
+>    plain `T` — bindings, dispatch, codegen and sizes see the type with
+>    zero runtime cost, and NOTHING else in the compiler changes. The
+>    predicate `p` must be a ONE-parameter ghost_fn VALUE (the plan's
+>    predicate-as-value; a plain fn is rejected — a type-level predicate
+>    must not carry runtime semantics). `refine(T)` is the bare alias.
+> 2. **The annotation registry**: evaluate_refine records the predicate's
+>    func_id keyed by the ANNOTATION NODE's id
+>    (`g_refine_annotation_preds`, types/function.yo, written through a
+>    type_trait_methods hook because contracts.yo cannot import that
+>    module); fn-type registration reads each parameter's declared
+>    TYPE-EXPR node id there and carries the per-position predicate ids
+>    onto the fn's FuncVal id (`g_func_refined_params`, re-keyed via
+>    copy_func_contract_exprs — specialization-copies included).
+>    CONSEQUENCE: the refinement attaches to the INLINE-spelled
+>    annotation (`denom : refine(i32, non_zero)`) only — a NAMED alias
+>    (`NonZeroI32 :: refine(...)`) binds a plain `T` and loses the
+>    refinement, because the alias atom is a different node. Named
+>    aliases need the type-level wrapper — they land with the std/spec
+>    rework slice (breaking change, ledger entry 3), which also waits
+>    for the seed to carry `refine` (a v0.2.33-seed evaluating a
+>    refine-spelled std/spec hard-errors E0401 — the generation split
+>    again).
+> 3. **The ghost-fn DEF registry** (contracts.yo): evaluate_ghost_fn now
+>    also records `func_id → (params, body)` — type-level refinements
+>    have no call AST node, so the walk inlines predicates from THIS
+>    registry (`_refine_pred_term`, vc.yo) instead of the ExprInfo-based
+>    call-path inliner.
+> 4. **Modular discharge**: the callee ASSUMES `p(param)` at entry (the
+>    predicate inlined over the parameter's term, pushed on the path) —
+>    `safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r :
+>    i32))(num / denom)` verifies with NO manual `requires` (the plan's
+>    own example; the divisor-nonzero AoRTE obligation discharges from
+>    the assumption); every call site PROVES `refine#N` for each refined
+>    argument; and the V3 contracted-callee gate now accepts
+>    refinements-only callees (their refinements ARE the spec). Runtime
+>    mode is untouched (a fixture without the pragma loads, computes and
+>    registers zero tasks).
+>
+> Tests: `tests/internal/verifier_refine.test.yo` (3: runtime-mode
+> erasure smoke, no solver; the flagship proves + a discharging caller;
+> a violating caller refutes at refine#1 with `d = 0` while the callee
+> stays ok), fixtures `valid/refine_nonzero.yo`,
+> `valid/refine_nonzero_runtime.yo`, `negative/refine_nonzero_false.yo`.
+> Docs en/zh + cheatsheet (goldens re-recorded). Remaining for task 3:
+> the type-level variant (distinct-at-type-level + the 213-match audit),
+> named aliases + std/spec rework (.check/.unchecked/composition
+> normalization — generation-split), literal-construction CTFE folding.
+> Tasks 5 slice 2, task 2 abstract, task 6 remain.
 
 Tasks:
 
