@@ -320,14 +320,18 @@ test("Array Hash agrees with Eq through a HashMap key", {
 // a silently-wrong-type class rather than a reliable error.
 // issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md
 //
-// The real feature — a value half for `substitute()`, so an associated
-// constant can be rewritten in a type position — is step 2 of
-// plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md. Until then this is an
-// error, which is strictly better than a wrong type.
+// Step 2 of plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md has since
+// landed, so a BARE associated constant (`T.BYTES`) is carried as a
+// projection and resolved during substitution — the first test below is the
+// positive case, at two widths, which is what makes the length-0 class
+// unreachable rather than merely loud. A COMPUTED length (`T.BYTES * 2`) is
+// still unsupported and still rejected; that is what the rejection test now
+// pins, because a rejection test aimed at a case that now WORKS would go
+// green for the wrong reason.
 //
-// The cases that must KEEP working are below the rejection, deliberately:
-// a bare generic parameter, a comptime constant, and `_` inference are all
-// legal lengths and none of them may be caught by the new guard.
+// The cases that must KEEP working are below, deliberately: a bare generic
+// parameter, a comptime constant, and `_` inference are all legal lengths and
+// none of them may be caught by the guard.
 _Widthy :: trait(
   id := "WidthyArrayLen",
   BYTES : usize
@@ -335,15 +339,30 @@ _Widthy :: trait(
 impl(u8, _Widthy(BYTES : usize(1)));
 impl(u32, _Widthy(BYTES : usize(4)));
 _ARR_LEN :: usize(3);
-test("Test an array length that cannot be substituted is an error, not zero", {
+impl(
+  generic(T : Type),
+  where(T <: _Widthy),
+  T,
+  _zeros : (fn(self : T) -> Array(u8, T.BYTES))(Array(u8, T.BYTES).fill(u8(0)))
+);
+test("Test an associated constant resolves as an array length, at two widths", {
+  // The length follows the RECEIVER, so one blanket impl covers both. Two
+  // widths in one file is the point: a single width would pass even if the
+  // projection collapsed to a constant, and the length-0 bug was exactly a
+  // collapse. Asserting both 1 and 4 makes that failure visible.
+  assert(u8(1)._zeros().len() == usize(1), "u8 -> Array(u8, 1)");
+  assert(u32(1)._zeros().len() == usize(4), "u32 -> Array(u8, 4)");
+});
+test("Test a COMPUTED array length is still an error, not zero", {
   comptime_expect_error(
-    // `T.BYTES` in a LENGTH position: an associated constant, which
-    // substitution has no channel to rewrite.
+    // `T.BYTES * 2` in a LENGTH position: arithmetic over an associated
+    // constant, which substitution still has no channel to rewrite. It must
+    // stay an error rather than degrade to a concrete zero.
     impl(
       generic(T : Type),
       where(T <: _Widthy),
       T,
-      _zeros : (fn(self : T) -> Array(u8, T.BYTES))(Array(u8, T.BYTES).fill(u8(0)))
+      _twice : (fn(self : T) -> Array(u8, T.BYTES * 2))(Array(u8, T.BYTES * 2).fill(u8(0)))
     )
   );
 });

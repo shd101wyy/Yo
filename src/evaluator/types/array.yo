@@ -283,18 +283,18 @@ evaluate_array_type :: (
   // compiled, so this was a silently-wrong-type class
   // (issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md).
   //
-  // Reject it instead, naming the limitation. The real feature — a value
-  // half for `substitute()`, so an associated constant can be rewritten in a
-  // type position — is designed in
-  // plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md step 2. Until then
-  // an error is strictly better than a wrong type.
+  // A single associated-constant projection (`T.BYTES`) is now carried
+  // through as a projection and resolved during substitution, so it is no
+  // longer part of this rejection. Everything else with a variable in it —
+  // any COMPUTED length, `T.BYTES * 2` included — still has nowhere to go,
+  // and an error remains strictly better than a wrong type.
   len_proj := _length_projection_text(length_expr);
   if(len_is_var && !ast_expr_is_atom(length_expr) && len_proj.is_none(), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(length_expr),
-          `Array length is neither a compile-time constant nor a bare generic parameter:\n${ast_expr_to_string(length_expr)}\n\nAn associated constant or a computed expression in a LENGTH position needs value substitution, which the evaluator cannot express yet (plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md). Bind the length to a generic(N : usize) parameter and use that name directly, or write the type once per instantiation.`
+          `Array length is not a compile-time constant, a bare generic parameter, or an associated constant:\n${ast_expr_to_string(length_expr)}\n\nA COMPUTED length expression cannot be resolved in a type position. Bind the length to a generic(N : usize) parameter and use that name directly, write a single associated constant such as T.BYTES, or write the type once per instantiation.`
         )
       )
     );
