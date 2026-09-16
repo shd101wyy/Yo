@@ -1,0 +1,13 @@
+# `main` must return `unit` (issues/fixed/main-return-value-is-discarded-so-a-
+# main-computed-exit-code-is-always-zero.md, decided 2026-09-16). The program
+# body runs on a worker thread and the C wrapper returns a literal 0, so a
+# value returned from Yo's `main` was computed and DISCARDED: a CLI reporting
+# failure through its exit status always succeeded, and eight repros signalled
+# pass/fail that way and could never fail.
+#
+# This case pins the REJECTION, and pins it under `check` rather than
+# `compile`: the rule lives in the entry-module evaluation both commands share,
+# so a green `check` + red `compile` split is impossible by construction.
+# stdout_keep_match asserts THE diagnostic rather than merely a failure.
+stdout_keep_match=must return unit
+timeout=120

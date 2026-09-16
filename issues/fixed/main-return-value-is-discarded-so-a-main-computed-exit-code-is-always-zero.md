@@ -1,9 +1,34 @@
 # `main`'s return value is discarded — a `main`-computed exit code is always 0
 
-**Status:** OPEN. **Class**: documented capability that silently does nothing,
-and — because 12 reproducers in this repo signal pass/fail through it — a
-**hollow gate**. **Found:** 2026-09-14, when a reproducer that computed a
-failing status reported `rc=0`.
+**Status:** FIXED 2026-09-16 by **fix 2 below** — the maintainer's rule is
+that `main` returns `unit`, so a non-`unit` `main` is now a compile error
+instead of a silently discarded value. **Class**: documented capability that
+silently does nothing, and — because 8 reproducers in this repo signalled
+pass/fail through it — a **hollow gate**. **Found:** 2026-09-14, when a
+reproducer that computed a failing status reported `rc=0`.
+
+## What shipped
+
+The rule lives in `mm_eval_entry_exprs` (`src/module_manager.yo`), the entry
+module evaluation that BOTH `yo check` (through `mm_load_file`, whose fresh
+path delegates to it) and `yo compile` run — so the rule cannot be green
+under one command and red under the other. The diagnostic's span is the
+body's own token, and it names `exit(code)` from `std/process` as the way to
+set a status. Only the entry module is inspected: a library module that
+happens to export a function named `main` is untouched.
+
+Fixed in the same change: the eight repros now use `assert` as their oracle
+(the one with distinct exit codes 1/2/3 keeps its `println` diagnostics and
+returns `()`), the documented `Dyn` example in `docs/{en-US,zh-CN}/DESIGN.md`
+prints its result instead of returning it, the Hello World section states the
+rule, four cli-case fixtures were converted, and
+`tests/cli-cases/check-main-must-return-unit` pins the rejection.
+
+**Still open, and NOT fixed by this:** an unwound `main` (effect escape) exits
+0. `__yo_main_module_init()`'s `if (__yo_effect_escaped) return 0;` is
+unchanged, and `issues/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`
+is the same complaint from the effects side. Rejecting a non-`unit` signature
+does not give an unwound program a non-zero status.
 
 ## Symptom
 

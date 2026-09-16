@@ -1,0 +1,9 @@
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  // `undefined_thing` is a place expression, so it took the exn-less
+  // evaluation path and its "not found" diagnostic used to be replaced by a
+  // generic "failed to evaluate the match scrutinee" message.
+  x := match(undefined_thing, .Some(v) => v, .None => i32(0));
+  println(`${x}`);
+});
+export(main);

@@ -217,6 +217,23 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
+`main` 必须返回 `unit`，编译器会拒绝其他返回类型。程序主体在一个大栈的工作线程上运行，
+因此从 `main` 返回的值无处可去 —— 过去它会被计算然后被静默丢弃。请用 `std/process` 的
+`exit(code)` 设置进程退出状态：
+
+```rust
+{ exit } :: import("std/process");
+
+main :: (fn() -> unit)({
+  if(!ok(), {
+    exit(usize(1));
+  });
+});
+export(main);
+```
+
+`main` 可以带效应参数（`main :: (fn(io : Io) -> unit)`）；受约束的只有返回类型。
+
 ## CLI 用法
 
 ```bash
@@ -2552,11 +2569,11 @@ act :: (fn(s: Dyn(Speak, Run)) -> i32)
   (s.speak() + s.run())
 ;
 
-main :: (fn() -> i32)({
+main :: (fn() -> unit)({
   dog := Dog();
   // dyn() 创建一个引用计数的 trait 对象
   result := act(dyn(dog));
-  return(result);
+  printf("%d\n", result);
 });
 ```
 
