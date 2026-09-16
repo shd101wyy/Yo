@@ -114,8 +114,31 @@ accident.
 ## Implementation sketch
 
 1. **Parser** — `thread_local(name : T) = init;` as a module-level form, next
-   to where `(g : T) = v` runtime globals are parsed. A new `ExprInfo` flag
-   rather than a new node type, if the existing global path can carry it.
+   to where `(g : T) = v` runtime globals are parsed.
+
+   **The open question here is now ANSWERED: the existing global path CAN
+   carry it, as a registry entry rather than a new node type** (surveyed
+   2026-09-17 against develop `987c2b420`). `src/expr_info.yo` already has the
+   whole mechanism:
+
+   - `register_module_level_global(module_path, name)` — the registry;
+   - `is_module_level_global(module_path, name)` — the predicate codegen asks;
+   - `module_global_c_suffix(module_path)` — `_m<hash>` appended to the C
+     name, hashing the CANONICAL path so the declaration and every read agree
+     regardless of which path spelling the resolved variable's token carries
+     (this is what closed the unmangled-global-name aliasing defect).
+
+   Codegen already consumes all three — `src/codegen/utils/index.yo:1772` and
+   `src/codegen/functions/generation.yo:1142` both append the suffix at a read
+   site. So a thread-local wants a SIBLING registry with the same shape
+   (`register_thread_local` / `is_thread_local`) reusing the same suffix
+   function, not a parallel naming scheme: the C name must stay identical
+   between the storage, the init flag and the accessor, and the suffix is what
+   already guarantees that.
+
+   That also bounds the codegen change: the read path is the two suffix sites
+   above, which is where the accessor call has to be substituted for a direct
+   read.
 2. **Evaluator** — treat it as a runtime global for typing and name
    resolution; reject a non-module-level declaration; under Option 1, reject
    a type that is not `Acyclic` and RC-free, naming the restriction.
