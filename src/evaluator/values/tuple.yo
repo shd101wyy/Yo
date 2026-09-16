@@ -47,7 +47,7 @@ import("std/fmt");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("../exprs/expr.yo");
 // Pragmatic stand-in for the TS `isComptimeOnlyType` while the full
@@ -172,7 +172,7 @@ evaluate_tuple_element_value :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
+          format_eval_failure(
             ast_expr_token(expr),
             `Failed to evaluate the tuple field: ${ast_expr_to_string(expr)}`
           )

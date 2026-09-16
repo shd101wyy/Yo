@@ -262,6 +262,11 @@ transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
 
 ## Imports and modules
 
+A renaming import is `{ export_name : local_name } :: import("mod")`. The
+`_( … )` call form that desugars to is INTERNAL — the 33 user-written sites in
+the tree were migrated away from it on 2026-09-16, so do not write `_(` in
+source.
+
 ```rust
 { Parser } :: import("./parser.yo");
 parser_module :: import("./parser.yo");
@@ -779,6 +784,19 @@ impl(MyType,
 );
 ```
 
+### `_` is the discard; `___` is an ordinary name that only works once
+
+MEASURED 2026-09-16: `_ := expr` twice in one scope is fine — the evaluator
+rewrites a `_` binding to a FRESH temp name each time
+(`initialization_assignment.yo`), which is what makes it a real discard.
+`___ := expr` twice is an error, because `___` is just a name and no-shadowing
+applies. Write `_`.
+
+`___` survives for two other jobs and neither is a discard: it is the
+compiler-RESERVED prefix for synthesized members (`___dup`, `___drop`, ~326
+sites), and a few RC regression tests use a bare `___ :=` deliberately to pin
+the NAMED-local drop path, which is a different path from `_`'s temp.
+
 ### `___` discard variable cannot appear twice in the same scope
 
 ```rust
@@ -1293,7 +1311,12 @@ my_fn :: (fn(x : i32) -> i32)({
 });
 ```
 
-### `{ expr }` without semicolons is a struct literal, not a block
+### A brace group is a RECORD unless it has a `;` — in every position
+
+The rule is uniform and decided (2026-09-16,
+`plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4): a value, the left of
+`::` / `:=` / `=`, and a `match` payload pattern all read braces the same way,
+so patterns and literals can never disagree. No leading dot, no comma tax.
 
 ```rust
 // ❌ Parsed as struct literal `{ match(...) }`
@@ -1303,6 +1326,13 @@ fn :: (fn() -> T)({ match(x, arms) })
 fn :: (fn() -> T)(match(x, arms))
 fn :: (fn() -> T)({ match(x, arms); })
 ```
+
+**`{ x }` is a ONE-FIELD RECORD, not a one-expression block** — the shape that
+looks most like a block in every other language. `v => { v }` builds
+`_(v : v)`. Write `v` for the value, `{ v; }` for a block. The compiler now
+says this at the literal when the expected type can never be a record; when
+it cannot tell (no expected type, as in `y := { x }`), the rule still holds
+and you get a record.
 
 ### Sibling match/cond arms must agree in type — brace statement-like arms
 

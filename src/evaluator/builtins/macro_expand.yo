@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression } :: import("../exprs/expr.yo");
 { evaluate_function_call } :: import("../calls/function.yo");
 { process_unquotes_in_expr } :: import("./quote.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Expands a quoted macro expression.
 ///
@@ -81,7 +81,7 @@ evaluate_macro_expand :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
+          format_eval_failure(
             ast_expr_token(arg_expr),
             `Failed to evaluate the argument expression for "macro_expand"`
           )
@@ -118,7 +118,7 @@ evaluate_macro_expand :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
+            format_eval_failure(
               ast_expr_token(level_arg),
               `Failed to evaluate the level argument expression for "macro_expand"`
             )

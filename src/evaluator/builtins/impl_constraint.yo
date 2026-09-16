@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { is_trait_type, is_concrete_trait_type } :: import("../../types/guards.yo");
 { generate_some_type_id, t_resolved_cell } :: import("../../types/creators.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 evaluate_impl_constraint :: (
@@ -102,7 +102,7 @@ evaluate_impl_constraint :: (
           .None => {
             exn.throw(
               dyn(
-                format_error_message(
+                format_eval_failure(
                   ast_expr_token(module_expr),
                   String.from("Failed to evaluate Impl argument.")
                 )

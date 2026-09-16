@@ -12,7 +12,7 @@
 //!   - Variable lookup with closure-capture tracking
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-_(env : ident_dbg_env) :: import("std/env");
+{ env : ident_dbg_env } :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 {
@@ -33,7 +33,7 @@ _(env : ident_dbg_env) :: import("std/env");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_unknown_val }
 :: import("../../value.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
-{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair } :: import("../../error.yo");
 { suggest_name } :: import("../../diagnostics.yo");
 { is_ghost_binding_name } :: import("../builtins/contracts.yo");
 { Exception } :: import("std/error");
@@ -283,8 +283,16 @@ evaluate_identifier_and_operator :: (
         if(ident_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path} frames=${env.frames.len().to_string()}`);
         });
+        // The suggestion doubles as a MECHANICAL REPAIR: the token IS the
+        // name to rewrite (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
+        // Kept separately from the help text so the repair survives the
+        // ensures-atom branch below APPENDING advice to the help — a second
+        // piece of advice means the rename is no longer the unique fix, and
+        // that branch clears the repair for exactly that reason.
+        not_found_suggestion := suggest_name(identifier_string, env_candidate_names(env));
+        (not_found_repair : Option(String)) = not_found_suggestion;
         not_found_help := match(
-          suggest_name(identifier_string, env_candidate_names(env)),
+          not_found_suggestion,
           .Some(h) => Option(String).Some(`did you mean "${h}"?`),
           .None => Option(String).None
         );
@@ -300,13 +308,26 @@ evaluate_identifier_and_operator :: (
             .Some(h) => Option(String).Some(`${h} ${label_hint}`),
             .None => Option(String).Some(label_hint)
           );
+          // Two candidate fixes now (rename, or label the return), so neither
+          // is unique — `yo fix` must not pick one.
+          not_found_repair = Option(String).None;
         });
         exn.throw(
           dyn(
-            format_error_message_with_help(
-              token,
-              `Variable "${identifier_string}" not found.`,
-              not_found_help
+            match(
+              not_found_repair,
+              .Some(fix_name) => format_error_message_with_repair(
+                token,
+                `Variable "${identifier_string}" not found.`,
+                not_found_help,
+                fix_name.clone(),
+                `rename to "${fix_name}"`
+              ),
+              .None => format_error_message_with_help(
+                token,
+                `Variable "${identifier_string}" not found.`,
+                not_found_help
+              )
             )
           )
         );

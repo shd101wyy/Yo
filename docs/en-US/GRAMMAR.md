@@ -134,7 +134,13 @@ ArrayExpression ::=
   | '[' Expression ';' Expression ']'                 ;; Array type [i32; 5]
 
 ;; Curly Bracket Expressions
-;; Can be: struct literal (anonymous record) or begin block
+;; A brace group is a RECORD unless it contains a semicolon — the same rule in
+;; every position: a value, the left side of `::` / `:=` / `=`, and a `match`
+;; payload pattern. That uniformity is deliberate (decided 2026-09-16,
+;; plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §4): patterns and literals can
+;; never disagree about what a brace means. The consequence to know is that
+;; `{ x }` is a ONE-FIELD RECORD, not a one-expression block — write `x` for
+;; the value and `{ x; }` for a block. The compiler says so where it can.
 ;; Separator determines the interpretation:
 ;; - Comma or no separator: struct literal { x: 1, y: 2 } or { x, y }
 ;; - Semicolon: begin block { expr; expr; expr }

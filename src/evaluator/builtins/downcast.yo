@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
 { create_option_type } :: import("./rc_fns.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Evaluate `downcast(dyn_value, T)`.
 ///
@@ -70,7 +70,7 @@ evaluate_downcast :: (
   if(dyn_info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
+        format_eval_failure(
           ast_expr_token(dyn_expr),
           String.from("Failed to evaluate dyn value argument for downcast.")
         )
@@ -103,7 +103,7 @@ evaluate_downcast :: (
   if(type_info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
+        format_eval_failure(
           ast_expr_token(type_expr),
           String.from("Failed to evaluate type argument for downcast.")
         )

@@ -102,6 +102,22 @@ Label :: struct(
   message : String,
   span : Span
 );
+/// A MECHANICAL REPAIR — the edit that fixes this diagnostic, when exactly
+/// one edit does. `yo fix` applies it and `--error-format json` carries it, so
+/// an agent does not have to re-derive a fix the compiler already knows
+/// (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
+///
+/// The edit replaces the runes `[span.col, span.col + span.len)` on
+/// `span.row` of `span.path` with `replacement` — rune-indexed like `Span`
+/// itself, so a non-ASCII line is handled by the same conversion the renderer
+/// uses. A repair is only ever set when it is the UNIQUE fix: `yo fix` never
+/// guesses between alternatives.
+Repair :: struct(
+  span : Span,
+  replacement : String,
+  description : String
+);
+derive(Repair, Clone);
 /// One diagnostic entry. `source_line` is the source text at `span.row`,
 /// extracted once at construction — the renderer never re-reads files.
 /// `help` (P3) carries an in-band repair hint ("did you mean …"); it
@@ -112,7 +128,8 @@ Diagnostic :: struct(
   message : String,
   span : Span,
   source_line : String,
-  (help : Option(String)) ?= Option(String).None
+  (help : Option(String)) ?= Option(String).None,
+  (repair : Option(Repair)) ?= Option(Repair).None
 );
 _max_usize :: (fn(a : usize, b : usize) -> usize)(
   cond(
@@ -390,6 +407,30 @@ render_diagnostics_json :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
         vals.push(JsonValue.Array(items : ArrayList(JsonValue).new()));
         keys.push(String.from("notes"));
         vals.push(JsonValue.Array(items : ArrayList(JsonValue).new()));
+        keys.push(String.from("repair"));
+        vals.push(
+          match(
+            d.repair,
+            .Some(r) => {
+              rk := ArrayList(String).new();
+              rv := ArrayList(JsonValue).new();
+              rk.push(String.from("file"));
+              rv.push(JsonValue.Str(value : r.span.path));
+              rk.push(String.from("row"));
+              rv.push(JsonValue.Number(value : f64(r.span.row)));
+              rk.push(String.from("col"));
+              rv.push(JsonValue.Number(value : f64(r.span.col)));
+              rk.push(String.from("end_col"));
+              rv.push(JsonValue.Number(value : f64(r.span.col + r.span.len)));
+              rk.push(String.from("replacement"));
+              rv.push(JsonValue.Str(value : r.replacement));
+              rk.push(String.from("description"));
+              rv.push(JsonValue.Str(value : r.description));
+              JsonValue.Object(keys : rk, values : rv)
+            },
+            .None => JsonValue.Null
+          )
+        );
         keys.push(String.from("help"));
         vals.push(
           match(
@@ -417,7 +458,7 @@ render_diagnostics_for_mode :: (fn(diagnostics : ArrayList(Diagnostic)) -> Strin
     true => render_diagnostics_human(diagnostics)
   )
 );
-export(Severity, Span, Label, Diagnostic);
+export(Severity, Span, Label, Diagnostic, Repair);
 export(render_diagnostics_human, render_diagnostics_short, render_diagnostics_json);
 export(render_diagnostics_for_mode, set_error_format, error_format, emit_rendered_text, emit_chatter);
 export(edit_distance, suggest_name);
