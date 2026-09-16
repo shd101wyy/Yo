@@ -1277,7 +1277,12 @@ my_fn :: (fn(x : i32) -> i32)({
 });
 ```
 
-### `{ expr }` without semicolons is a struct literal, not a block
+### A brace group is a RECORD unless it has a `;` — in every position
+
+The rule is uniform and decided (2026-09-16,
+`plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4): a value, the left of
+`::` / `:=` / `=`, and a `match` payload pattern all read braces the same way,
+so patterns and literals can never disagree. No leading dot, no comma tax.
 
 ```rust
 // ❌ Parsed as struct literal `{ match(...) }`
@@ -1287,6 +1292,13 @@ fn :: (fn() -> T)({ match(x, arms) })
 fn :: (fn() -> T)(match(x, arms))
 fn :: (fn() -> T)({ match(x, arms); })
 ```
+
+**`{ x }` is a ONE-FIELD RECORD, not a one-expression block** — the shape that
+looks most like a block in every other language. `v => { v }` builds
+`_(v : v)`. Write `v` for the value, `{ v; }` for a block. The compiler now
+says this at the literal when the expected type can never be a record; when
+it cannot tell (no expected type, as in `y := { x }`), the rule still holds
+and you get a record.
 
 ### Sibling match/cond arms must agree in type — brace statement-like arms
 
