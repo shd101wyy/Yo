@@ -13,6 +13,8 @@
 //! (needs findMethodsFromGenericImpls). See issues/retired/codegen-port-type-model-gaps.md.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+_(env : warm_dbg_env) :: import("std/env");
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
@@ -1330,7 +1332,40 @@ _synthesize_and_register_dispose :: (
   // instantiation its own dispose. Mirrors the Trace path (register/lookup under
   // type_key — see _specialize_and_register_trace + get_trace_function_for_type)
   // and the #30 fix. See issues/fixed/yo-self-container-dispose-not-wired.md.
-  if(get_type_trait_methods_by_name(type_key(ct), String.from("___dispose")).len() > usize(0), {
+  existing := get_type_trait_methods_by_name(type_key(ct), String.from("___dispose"));
+  if(existing.len() > usize(0), {
+    // Already registered — by THIS compile or (the warm case) by a PRIOR pass.
+    // The registration dedups across passes (identity), but the EMISSION list
+    // is per-compile: a warm second compile must still emit the registered
+    // function, or its C has no ___dispose at all (the pass-1 emission lives
+    // only in pass 1's C file). Re-insert the registered FuncVal into this
+    // compile's emit list. See issues/warm-compile-selfcheck.md.
+    (mi : usize) = usize(0);
+    while(mi < existing.len(), {
+      match(
+        existing.get(mi),
+        .Some(m) => match(
+          m.value,
+          .Some(mfv) => if(is_func_val(mfv), {
+            match(
+              mfv,
+              .FuncVal(__dfvd, _) => {
+                fid := __dfvd.*.func_id;
+                fbody := __dfvd.*.body;
+                if(!(base.has_function(fid.clone())), {
+                  base.register_function(fid.clone(), mfv, function_c_name(fid));
+                  find_function_calls_in_expr(fbody, base, info);
+                });
+              },
+              _ => ()
+            );
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
     return(());
   });
   // Does this type carry a user `impl Dispose` (its RAII destructor)? Containers
@@ -1413,7 +1448,36 @@ _synthesize_and_register_enum_dispose :: (
 )({
   // Skip if a ___dispose is already registered for THIS instantiation (type_key —
   // see _synthesize_and_register_dispose for why not the shared enum id).
-  if(get_type_trait_methods_by_name(type_key(ct), String.from("___dispose")).len() > usize(0), {
+  existing_e := get_type_trait_methods_by_name(type_key(ct), String.from("___dispose"));
+  if(existing_e.len() > usize(0), {
+    // Already registered — same per-compile emission reasoning as the struct
+    // variant above: a warm second compile must still emit the registered fn.
+    (mi : usize) = usize(0);
+    while(mi < existing_e.len(), {
+      match(
+        existing_e.get(mi),
+        .Some(m) => match(
+          m.value,
+          .Some(mfv) => if(is_func_val(mfv), {
+            match(
+              mfv,
+              .FuncVal(__dfvd, _) => {
+                fid := __dfvd.*.func_id;
+                fbody := __dfvd.*.body;
+                if(!(base.has_function(fid.clone())), {
+                  base.register_function(fid.clone(), mfv, function_c_name(fid));
+                  find_function_calls_in_expr(fbody, base, info);
+                });
+              },
+              _ => ()
+            );
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
     return(());
   });
   // User `impl Dispose` destructor: TS emits the call at the top of the ___dispose

@@ -26,6 +26,12 @@
 /// Date.now(); a module-level counter gives the per-site uniqueness TS gets from
 /// `Date.now()_<row>`.
 (g_closure_capture_counter : usize) = usize(0);
+/// Reset the closure-capture counter — per-EMISSION state (see
+/// ref_spill_counter_reset for the reasoning).
+closure_capture_counter_reset :: (fn() -> unit)({
+  g_closure_capture_counter = usize(0);
+  ()
+});
 /// Hook to atom.yo's `_generate_sm_atom` (the `sm->` alias/capture resolution
 /// for variables inside a state machine). atom.yo imports THIS module
 /// (check_variable_is_closure_captured), so a direct import back would be a
@@ -354,4 +360,4 @@ register_impl_closure_call_mappings :: (fn(context : FunctionGenerationContext) 
     );
   });
 });
-export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, register_impl_closure_call_mappings, set_sm_atom_resolver);
+export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, register_impl_closure_call_mappings, set_sm_atom_resolver, closure_capture_counter_reset);
