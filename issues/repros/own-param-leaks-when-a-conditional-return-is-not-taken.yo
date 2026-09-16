@@ -63,7 +63,7 @@ f_fn :: (fn(own(h) : H) -> H)({
   });
   h
 });
-main :: (fn() -> i32)({
+main :: (fn() -> unit)({
   (good : i32) = i32(0);
   g = i32(0);
   {
@@ -105,8 +105,7 @@ main :: (fn() -> i32)({
   // `assert`, not the return value: `main`'s result is DISCARDED by the
   // generated wrapper, so an exit code computed here would always read 0 and
   // this reproducer would be hollow
-  // (issues/main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md).
+  // (issues/fixed/main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md).
   assert(good == i32(6), "every own(h) parameter must be disposed exactly once");
-  i32(0)
 });
 export(main);

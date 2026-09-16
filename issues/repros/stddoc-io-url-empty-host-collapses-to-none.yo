@@ -12,13 +12,13 @@
 // `file:///a/b` has path segments ["a", "b"].
 { println } :: import("std/fmt");
 { Url } :: import("std/url");
-main :: (fn() -> i32)({
+main :: (fn() -> unit)({
   a := match(
     Url.parse(`file:///a/b`),
     .Ok(u) => u,
     .Err(_) => {
       println(`file:///a/b did not parse`);
-      return(i32(1));
+      return(());
     }
   );
   println(
@@ -29,7 +29,7 @@ main :: (fn() -> i32)({
     .Ok(u) => u,
     .Err(_) => {
       println(`http://:80/x did not parse`);
-      return(i32(2));
+      return(());
     }
   );
   match(
@@ -42,7 +42,7 @@ main :: (fn() -> i32)({
     .Ok(u) => u,
     .Err(_) => {
       println(`http:///x did not parse`);
-      return(i32(3));
+      return(());
     }
   );
   match(
@@ -50,6 +50,5 @@ main :: (fn() -> i32)({
     .Some(h) => println(`http:///x     host_is_some=true   host="${h}"`),
     .None => println(`http:///x     host_is_some=false`)
   );
-  i32(0)
 });
 export(main);

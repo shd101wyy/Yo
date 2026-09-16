@@ -13,7 +13,7 @@
 { println } :: import("std/fmt");
 { json_parse_bytes, json_stringify } :: import("std/encoding/json");
 { ArrayList } :: import("std/collections/array_list");
-main :: (fn() -> i32)({
+main :: (fn() -> unit)({
   // {"a":"x<LF>y"}
   b := ArrayList(u8).new();
   b.push(u8(123)); // {
@@ -32,6 +32,5 @@ main :: (fn() -> i32)({
     .Ok(v) => println(`ACCEPTED raw control byte: ${json_stringify(v)}`),
     .Err(e) => println(`rejected: ${e}`)
   );
-  i32(0)
 });
 export(main);

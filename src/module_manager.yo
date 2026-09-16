@@ -100,8 +100,11 @@ env_mod :: import("std/env");
 { purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
-{ clear_type_display_names } :: import("./types/string.yo");
-{ render_any_error, stash_error_diagnostics } :: import("./error.yo");
+{ clear_type_display_names, type_to_string } :: import("./types/string.yo");
+{ render_any_error, stash_error_diagnostics, format_error_message } :: import("./error.yo");
+{ get_func_type } :: import("./function_value.yo");
+{ is_unit_type } :: import("./types/guards.yo");
+{ t_unit } :: import("./types/creators.yo");
 { emit_rendered_text, emit_chatter } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
 // State
@@ -1744,6 +1747,65 @@ mm_load_prelude_file :: (
 /// Evaluate the already-parsed top-level `exprs` of the entry module at
 /// `entry_abs`, with the demand loader wired in. Shared by every caller that
 /// has its own parse step (`check`, `compile`, and the library front doors).
+/// `main` MUST return `unit` — the rule the docs and `yo init` have always
+/// stated, now enforced.
+///
+/// The entry point's result has nowhere to go: the program body runs on a
+/// worker thread for its 1 GiB stack and the C `main` wrapper returns a
+/// literal 0, so a value returned from Yo's `main` was computed and dropped.
+/// That silence was the defect — a CLI reporting failure through its exit
+/// status always succeeded, and eight `issues/repros/*.yo` signalled pass/fail
+/// that way and could never fail
+/// (`issues/fixed/main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md`,
+/// which lists rejecting the signature as one of the two defensible fixes;
+/// the maintainer chose it 2026-09-16). A process exit status comes from
+/// `exit(code)` in `std/process`.
+///
+/// Placed here because both `check` (via `mm_load_file`, whose fresh path
+/// delegates to this function) and `compile` (directly) evaluate the entry
+/// module through it, so the rule cannot be green under one and red under the
+/// other. The span is the body's own token — a real position in the right
+/// file. Only the ENTRY module is inspected: a library module that happens to
+/// export a function named `main` is not an entry point.
+_reject_non_unit_main :: (fn(module_value : EvalValue, exn : Exception) -> unit)({
+  match(
+    module_value,
+    .StructVal(_, labels, values) => {
+      (i : usize) = usize(0);
+      while(i < labels.len(), {
+        if(match(labels.get(i), .Some(l) => (l == "main"), .None => false), {
+          match(
+            values.get(i),
+            .Some(v) => match(
+              v,
+              .FuncVal(__main_fvd, _) => {
+                main_result := match(
+                  get_func_type(__main_fvd.*.func_id.clone()),
+                  .Func({ result : __main_res }) => __main_res,
+                  _ => t_unit()
+                );
+                if(!is_unit_type(main_result), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(__main_fvd.*.body),
+                        `"main" must return unit, but this one returns ${type_to_string(main_result)}. The entry point's result is discarded — it can never become the process exit status. Write \`-> unit\` and call \`exit(code)\` from "std/process" to set a status.`
+                      )
+                    )
+                  );
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+        });
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+});
 mm_eval_entry_exprs :: (
   fn(
     entry_abs : String,
@@ -1787,13 +1849,16 @@ mm_eval_entry_exprs :: (
   unregister_loading(entry_abs.clone());
   match(
     out_vals.get(usize(0)),
-    .Some(mv) => ModuleLoadOutcome(
-      ok : true,
-      module_value : mv,
-      module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit),
-      env : env,
-      ctx : ctx
-    ),
+    .Some(mv) => {
+      _reject_non_unit_main(mv, exn);
+      ModuleLoadOutcome(
+        ok : true,
+        module_value : mv,
+        module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit),
+        env : env,
+        ctx : ctx
+      )
+    },
     // Not ok, but with the REAL env/ctx: the evaluation stopped at its first
     // error, and everything it recorded before that — the ExprInfo of every
     // expression it did reach — lives in `ctx.expr_info_table`. The LSP
