@@ -1321,12 +1321,21 @@ impl(
 );
 ```
 
-**Do NOT read an associated constant from a TYPE position.** `-> Array(u8,
-T.BYTES)` silently resolves the length to **0** in the signature while
-specialized bodies emit the right widths, which produces invalid C
-(`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`,
-`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`). A VALUE position is
-fine; a type position is not.
+**An associated constant in a TYPE position works, but only as a BARE
+projection.** `-> Array(u8, T.BYTES)` resolves per instantiation: the
+projection is recorded as the array's length variable and substitution reads
+the constant off the bound receiver. A COMPUTED length is still rejected —
+`Array(u8, T.BYTES * 2)` errors, and so does a projection whose receiver
+carries no such constant.
+
+This entry used to say the opposite, and the history is worth keeping because
+both halves of it were true in turn: the length first resolved **silently to
+0** while specialized bodies emitted the right widths, producing invalid C
+(`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`);
+that became a hard error; and the resolution landed on 2026-09-16
+(`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` steps 1-2). `std/`
+cannot use it until a release carries it — the seed compiles `std/` — so a
+per-type copy there is not evidence the feature is missing.
 
 ### "Yo has no X" in a comment is a claim about a moving target
 
