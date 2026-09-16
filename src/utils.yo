@@ -755,9 +755,14 @@ private_member_blocked :: (
   if(!is_private_member_name(label.clone()) || label.starts_with(String.from("___")), {
     return(false);
   });
-  // A synthesized token (`synthetic_token`, `placeholder_token`'s `"_"`) has
-  // no lexical module: compiler-generated accesses are never blocked.
-  if((access_module.len() == usize(0)) || (access_module == "_"), {
+  // A synthesized token has no lexical module — `synthetic_token`,
+  // `placeholder_token`'s `"_"`, and the `auto-generated://` pseudo-path
+  // `generate_expr_from_code` stamps on code the compiler writes for itself
+  // (type_fns.yo's `VariantInfo(...)` / `TypeFieldInfo(...)` constructions):
+  // compiler-generated accesses are never blocked.
+  if((access_module.len() == usize(0)) || (access_module == "_") || access_module.starts_with(
+    String.from("auto-generated://")
+  ), {
     return(false);
   });
   match(
