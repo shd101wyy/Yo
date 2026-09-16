@@ -1,0 +1,11 @@
+//! Fixture for tests/c_include_registry_collision.test.yo: binds `stdout` as
+//! `*FILE` — the OTHER fixture binds the same symbol as `*(void)`.
+pragma(Pragma.AllowUnsafe);
+{ FILE, stdout, fputs } :: c_include(
+  "<stdio.h>",
+  FILE : Type,
+  stdout : *FILE,
+  fputs : (fn(s : *char, stream : *FILE) -> int)
+);
+write_a :: (fn() -> int)(unsafe(fputs((*char)("registry a\n"), stdout)));
+export(write_a);

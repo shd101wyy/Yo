@@ -81,10 +81,25 @@ c_include("<stdlib.h>", abs : (fn(x : int) -> int));
 fcntl :: import("std/libc/fcntl");   // fcntl.open、fcntl.O_RDONLY
 ```
 
+## 名字不是 Yo 标识符的 C 类型
+
+不透明的 `Name : Type` 字段会降低为拼写为 `Name` 的 C 类型。当 C 拼写不是合法的 Yo 标识符
+（`struct stat`、`struct timespec`）时，用 `c_type` 显式给出：
+
+```rust
+{ stat_buf, stat } :: c_include(
+  "<sys/stat.h>",
+  stat_buf : c_type("struct stat"),
+  stat : (fn(pathname : *char, statbuf : *stat_buf) -> int)
+);
+```
+
+`stat_buf` 在 Yo 里是不透明类型，在生成的 C 里是 `struct stat`，所以 `*stat_buf` 参数就是
+`struct stat*`。用 `c_type` 拼写采纳 Yo 结构体（`Point : c_type("struct point")`，其中
+`Point` 是一个 Yo `struct`）会把该 Yo 类型降低为该拼写。
+
 ## 限制
 
-- 不是合法 Yo 标识符的 C 名字（`struct stat`、`struct timespec`）不能声明为类型；这类对象
-  请以 `*(void)` 传递。
 - 把 Yo 结构体采纳为 C 结构体（`Point : Type`，而 `Point` 已经是一个 Yo `struct`）会把该
   Yo 类型降低为 C 名字且不生成自己的定义；布局以头文件的定义为准。这样的字段就是已有的类型
   本身，所以 glob 会保留已有的 `Point` 绑定，而不是重新绑定它（那会被禁止遮蔽规则拒绝）。
