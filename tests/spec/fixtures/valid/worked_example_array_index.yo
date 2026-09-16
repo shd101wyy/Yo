@@ -1,0 +1,22 @@
+// V6 task 6 (FORMAL_VERIFICATION.md): the WORKED EXAMPLE, re-based off
+// the deleted builtin Slice(T) onto Array(T, N). A refinement-typed
+// INDEX makes an array read provably in bounds with no manual
+// `requires`: the callee ASSUMES `in_bounds8(i)` at entry, which
+// discharges the array-index AoRTE obligation (0 <= i < 8) — the
+// verifier's proof replaces the runtime bounds panic. `first_of_8` is
+// the plan's `head` example in its post-Slice spelling.
+pragma(Pragma.Verify);
+
+in_bounds8 :: ghost_fn(
+  (fn(i : i32) -> bool)((i >= i32(0)) && (i < i32(8)))
+);
+
+first_of_8 :: (
+  fn(s : Array(i32, 8), i : refine(i32, in_bounds8)) -> (r : i32)
+)(
+  s(i)
+);
+
+pick :: (fn(s : Array(i32, 8), i : i32, requires(i >= i32(2), i <= i32(9))) -> (r : i32))(
+  first_of_8(s, i - i32(2))
+);
