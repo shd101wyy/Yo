@@ -22,19 +22,17 @@ FIXDIR=$(mktemp -d /tmp/yo_warm_gate.XXXXXX)
 trap 'rm -rf "$FIXDIR"' EXIT
 
 cat >"$FIXDIR/trivial.yo" <<'EOF'
-main :: (fn(io : Io) -> i32)({
+main :: (fn(io : Io) -> unit)({
   x := i32(41);
-  i32(0)
 });
 export(main);
 EOF
 cat >"$FIXDIR/alist.yo" <<'EOF'
 { ArrayList } :: import("std/collections/array_list");
-main :: (fn(io : Io) -> i32)({
+main :: (fn(io : Io) -> unit)({
   xs := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
-  i32(xs.len())
 });
 export(main);
 EOF
@@ -42,7 +40,7 @@ cat >"$FIXDIR/strings.yo" <<'EOF'
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-main :: (fn(io : Io) -> i32)({
+main :: (fn(io : Io) -> unit)({
   names := ArrayList(String).new();
   names.push(String.from("alpha"));
   names.push(String.from("beta"));
@@ -59,7 +57,6 @@ main :: (fn(io : Io) -> i32)({
     i = (i + usize(1));
   });
   println(`total=${total.to_string()}`);
-  i32(0)
 });
 export(main);
 EOF

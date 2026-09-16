@@ -8,6 +8,7 @@
 //! Mirrors `src/build-runner.ts`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+_(env : warm_dbg_env) :: import("std/env");
 { println, eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -31,7 +32,7 @@ _(env : proc_env) :: import("std/env");
 { Command, Output, ExitStatus } :: import("std/process/command");
 { error_format, emit_rendered_text } :: import("./diagnostics.yo");
 { yield } :: import("std/async");
-{ mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path, _take_load_error } :: import("./module_manager.yo");
+{ mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path, _take_load_error, set_std_path_override, set_imports_file_override } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
 { Instant } :: import("std/time/instant");
 {
@@ -96,7 +97,10 @@ BuildOptions :: ref(
     offline : bool,
     /// `-p <name>` / `--package <name>`: build this workspace MEMBER instead of
     /// the project in the current directory (§4.6). `.None` = build here.
-    package : Option(String)
+    package : Option(String),
+    /// §7 step 2: set by the `--watch` loop — artifacts compile in-process
+    /// through the registered callback (see InProcessCompileFn).
+    watch_in_process : bool
   )
 );
 // ---------------------------------------------------------------------------
@@ -119,6 +123,32 @@ StepResult :: ref(
     description : String
   )
 );
+// §7 step 2 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): the watch
+// rounds' in-process artifact compile. main.yo registers a wrapper over
+// run_compile (failures return false instead of exiting); `.Some(f)` in the
+// execution context makes compile_artifact call f(argv) instead of spawning
+// a child `yo compile`, so the warm evaluator universe (module cache,
+// prelude env, shared ExprInfoTable) is reused across watch rounds.
+InProcessCompileFn :: (fn(argv : ArrayList(String), io : Io, exn : Exception) -> bool);
+/// The callback lives in a MUTABLE REF-STRUCT SLOT, not a bare global
+/// Option: an async fn (`run_build`) reading a global fn-typed Option
+/// minted a temp the state machine carried across a suspension point, and
+/// fn-typed SM fields do not emit ("use of undeclared identifier",
+/// issues/async-sm-fn-typed-local-across-suspension.md). A ref-struct field
+/// is a supported SM capture (the pointer is), so reads go through the slot
+/// object.
+InProcessCompileSlot :: ref(
+  struct(
+    f : Option(InProcessCompileFn)
+  )
+);
+(g_in_process_compile_slot : InProcessCompileSlot) = InProcessCompileSlot(
+  f : Option(InProcessCompileFn).None
+);
+set_in_process_compile_fn :: (fn(f : InProcessCompileFn) -> unit)({
+  g_in_process_compile_slot.f = Option(InProcessCompileFn).Some(f);
+  ()
+});
 ExecutionContext :: ref(
   struct(
     registry : BuildRegistry,
@@ -138,7 +168,13 @@ ExecutionContext :: ref(
     run_args : ArrayList(String),
     /// `-j N`: how many nodes of one DAG level may run at once (§4.8). 1 keeps
     /// their output in DAG order, which every recorded golden depends on.
-    jobs : usize
+    jobs : usize,
+    /// §7 step 2: `.Some(slot)` on build --watch rounds — artifacts compile
+    /// through slot.f in-process against the warm evaluator universe. The
+    /// SLOT REF (a pointer) is stored, never the fn value itself: an
+    /// fn-typed value materializing in an async state machine is the
+    /// issues/async-sm-fn-typed-local-across-suspension.md bug.
+    in_process_compile_slot : InProcessCompileSlot
   )
 );
 /// `git describe --tags --always` in the project dir, or `.None` when that fails
@@ -1941,7 +1977,51 @@ compile_artifact :: (
       println(`  (cached: inputs unchanged, skipping compile)`);
       return(Result(unit, String).Ok(()));
     });
-    st := e.io.await(cmd.status(e.io), e);
+    (compile_ok : bool) = false;
+    (fail_code : i32) = i32(-1);
+    if(ctx.in_process_compile_slot.f.is_some(), {
+      // §7 step 2: run the artifact compile IN PROCESS against the warm
+      // evaluator universe. The argv is the child's exact command line, so
+      // both paths run the same flags. The fn value is read and called
+      // within this SM segment (no await between) — see
+      // issues/async-sm-fn-typed-local-across-suspension.md.
+      argv := cmd.get_args();
+      argv.insert(usize(0), String.from("compile"));
+      argv.insert(usize(0), String.from("yo"));
+      // The child's MAIN strips the global flags (--std-path, --imports,
+      // --lang) before dispatching to run_compile; in-process we must do
+      // that here, or run_compile rejects them as unknown options.
+      filtered := ArrayList(String).new();
+      filtered.push(argv(usize(0)));
+      filtered.push(argv(usize(1)));
+      (ai : usize) = usize(2);
+      while(ai < argv.len(), {
+        a := argv(ai);
+        if(a == "--std-path", {
+          set_std_path_override(argv(ai + usize(1)).clone());
+          ai = (ai + usize(2));
+        }, {
+          if(a == "--imports", {
+            set_imports_file_override(argv(ai + usize(1)).clone());
+            ai = (ai + usize(2));
+          }, {
+            filtered.push(a.clone());
+            ai = (ai + usize(1));
+          });
+        });
+      });
+      compile_ok = match(
+        ctx.in_process_compile_slot.f,
+        .Some(f) => f(filtered, e.io, e.exn),
+        .None => false
+      );
+    }, {
+      st := e.io.await(cmd.status(e.io), e);
+      compile_ok = st.success();
+      if(!compile_ok, {
+        fail_code = st.code().unwrap_or(i32(-1));
+      });
+    });
     // §4.9: RE-stamp from the depfile the child just wrote, rather than
     // recording the stamp computed before it ran.
     //
@@ -1956,16 +2036,13 @@ compile_artifact :: (
     // The write decision is DATA, not a branch: an empty stamp (cache off or
     // stamping failed) is written as-is and truncates — see _write_stamp.
     stamp_to_write := cond(
-      ((st.success() && cache_enabled) && (post_stamp.len() > usize(0))) => post_stamp.clone(),
+      ((compile_ok && cache_enabled) && (post_stamp.len() > usize(0))) => post_stamp.clone(),
       true => String.new()
     );
     e.io.await(_write_stamp(stamp_path.clone(), stamp_to_write, e.io), e);
     cond(
-      st.success() => Result(unit, String).Ok(()),
-      true => {
-        code := st.code().unwrap_or(i32(-1));
-        Result(unit, String).Err(`Compilation failed (exit ${code})`)
-      }
+      compile_ok => Result(unit, String).Ok(()),
+      true => Result(unit, String).Err(`Compilation failed (exit ${fail_code.to_string()})`)
     )
   })
 );
@@ -3077,7 +3154,8 @@ run_build :: (
       dry_run : options.dry_run,
       summary : options.summary,
       run_args : options.run_args,
-      jobs : options.jobs
+      jobs : options.jobs,
+      in_process_compile_slot : g_in_process_compile_slot
     );
     requested := if(options.steps.len() == usize(0), {
       defaults := ArrayList(String).new();
@@ -3121,3 +3199,4 @@ export(print_steps);
 export(print_options);
 export(undeclared_options);
 export(print_build_summary);
+export(set_in_process_compile_fn, InProcessCompileFn);
