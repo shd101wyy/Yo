@@ -743,4 +743,22 @@ member_visible_from :: (fn(decl_module : String, access_module : String) -> bool
   });
   canonical_module_dir(decl_module) == canonical_module_dir(access_module)
 });
-export(canonical_module_path, canonical_module_dir, is_private_member_name, member_visible_from);
+/// True when `label` names a private member that code in `access_module` may
+/// NOT touch: the name is `_`-prefixed and the declaring module (`Some`) is
+/// neither `access_module` nor one of its same-directory siblings. `None`
+/// (no declaring module recorded — builtins, source-namespace module structs,
+/// trait-declared signatures) never blocks, and names starting with `___`
+/// are compiler-reserved (the synthesized RC hooks) and never private.
+private_member_blocked :: (
+  fn(label : String, decl_module_opt : Option(String), access_module : String) -> bool
+)({
+  if(!is_private_member_name(label.clone()) || label.starts_with(String.from("___")), {
+    return(false);
+  });
+  match(
+    decl_module_opt,
+    .Some(d) => !member_visible_from(d, access_module),
+    .None => false
+  )
+});
+export(canonical_module_path, canonical_module_dir, is_private_member_name, member_visible_from, private_member_blocked);

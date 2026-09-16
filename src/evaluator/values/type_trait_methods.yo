@@ -151,7 +151,13 @@ MethodEntry :: ref(
     value : Option(EvalValue),
     source_trait_id : String,
     needs_pointer_conversion : bool,
-    self_type : Option(TypeValue)
+    self_type : Option(TypeValue),
+    /// MEMBER VISIBILITY: the `file://` module whose evaluation registered
+    /// this entry — stamped by `register_type_trait_method` from
+    /// `registration_owner()` (a generic-impl candidate carries its impl's
+    /// owner instead). `""` = unknown, never enforced. Read by function.yo's
+    /// `_`-prefixed method check (plans/backlog/MEMBER_VISIBILITY.md).
+    (owner : String) ?= String.new()
   )
 );
 /// Module-level storage: `type id` → list of method entries.
@@ -183,6 +189,9 @@ register_type_trait_method :: (
   fn(type_id : String, entry : MethodEntry) -> unit
 )({
   owner := _registration_owner.clone();
+  if(entry.owner.len() == usize(0), {
+    entry.owner = owner.clone();
+  });
   match(
     _type_trait_methods.get(type_id.clone()),
     .Some(list) => {

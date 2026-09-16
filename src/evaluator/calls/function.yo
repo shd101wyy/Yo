@@ -74,7 +74,7 @@ _(env : fncall_dbg_env) :: import("std/env");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
-{ stable_module_id, stable_func_id } :: import("../../utils.yo");
+{ stable_module_id, stable_func_id, private_member_blocked } :: import("../../utils.yo");
 { attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, parse_raw_int } :: import("../utils.yo");
 {
   EvalContext,
@@ -95,7 +95,7 @@ _(env : fncall_dbg_env) :: import("std/env");
   flag_pending_impl_force_error,
   take_pending_impl_force_error
 } :: import("../context.yo");
-{ is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0 } :: import("../../types/guards.yo");
+{ is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
@@ -247,6 +247,96 @@ _try_eval_receiver_node :: (
   );
   rcv_evaled := evaluate_expression_raw(arg, env, ctx, rcv_exn);
   out.push(rcv_evaled);
+});
+/// MEMBER VISIBILITY (plans/backlog/MEMBER_VISIBILITY.md, decided
+/// 2026-09-16): a `_`-prefixed method resolves only from the module whose
+/// evaluation registered its impl and from that module's same-directory
+/// siblings. Runs on the RESOLVED hit — after forcing and overload selection —
+/// so the lookup machinery stays untouched; the owner is the entry's
+/// registration owner (generic-impl candidates carry their impl's owner). An
+/// entry without an owner (trait-declared signatures, provisional entries)
+/// is never blocked.
+_reject_private_method_call :: (
+  fn(
+    method_info_opt : Option(ReceiverMethodResult),
+    callee : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  mi := match(
+    method_info_opt,
+    .Some(m) => m,
+    .None => {
+      return(());
+    }
+  );
+  name_expr := match(
+    callee,
+    .FnCall(_, _, pargs, _, _) => match(
+      pargs.get(usize(1)),
+      .Some(a) => a,
+      .None => {
+        return(());
+      }
+    ),
+    _ => {
+      return(());
+    }
+  );
+  name_tok := ast_expr_token(name_expr);
+  owner := match(mi.all_hits.get(usize(0)), .Some(h) => h.owner.clone(), .None => String.new());
+  owner_opt := cond((owner.len() > usize(0)) => Option(String).Some(owner), true => Option(String).None);
+  if(private_member_blocked(name_tok.value.clone(), owner_opt, env.module_path.clone()), {
+    recv_str := cond(
+      mi.is_static => ast_expr_to_string(mi.receiver_expr),
+      true => match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(mi.receiver_expr)),
+        .Some(ri) => type_to_string(ri.ty),
+        .None => ast_expr_to_string(mi.receiver_expr)
+      )
+    );
+    exn.throw(
+      dyn(
+        format_error_message(
+          name_tok,
+          `Method "${name_tok.value}" of ${recv_str} is private to its declaring module`
+        )
+      )
+    );
+  });
+});
+/// MEMBER VISIBILITY: a struct with any `_`-prefixed field can be built by
+/// literal only inside its declaring module / directory — a literal from
+/// outside would write a private field. Enums, unions and source-namespace
+/// records are not literal-constructed this way and are unaffected.
+_reject_private_construction :: (
+  fn(
+    struct_id : String,
+    struct_name : String,
+    labels : ArrayList(String),
+    env : Environment,
+    tok : Token,
+    exn : Exception
+  ) -> unit
+)({
+  decl := type_decl_module(struct_id);
+  (i : usize) = usize(0);
+  while(i < labels.len(), {
+    lbl := match(labels.get(i), .Some(l) => l.clone(), .None => String.new());
+    if(private_member_blocked(lbl.clone(), decl, env.module_path.clone()), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            `Cannot construct ${struct_name} outside its declaring module: field "${lbl}" is private`
+          )
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
 });
 _try_find_receiver_method :: (
   fn(
@@ -4144,6 +4234,7 @@ Fix: wrap the call:
             if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[call-struct] id=${struct_id} name=${struct_name}`);
             });
+            _reject_private_construction(struct_id.clone(), struct_name.clone(), struct_field_labels, env, tok, exn);
             call_result_s := try_to_call_type_with_arguments(fields_subst, func_expr, args, callee_env, ctx, false, exn);
             // Propagate io-builtin markers from extern function VALUES to the
             // constructed struct's FIELDS — faithful port of TS
@@ -6856,6 +6947,7 @@ Fix: wrap the call:
         ),
         .None => Option(ReceiverMethodResult).None
       );
+      _reject_private_method_call(method_info_opt, evaluated_callee, env, ctx, exn);
       match(
         method_info_opt,
         // Method found: build the arg list and call it. Instance methods
