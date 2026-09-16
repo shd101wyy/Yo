@@ -92,7 +92,7 @@ Nothing is waiting on anyone here. Re-checked against the code 2026-09-12:
 
 | blocked row | doc |
 | --- | --- |
-| private `ctrl`/`data`/`size` fields; `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `imm/*` internals | `plans/backlog/MEMBER_VISIBILITY.md` |
+| private `ctrl`/`data`/`size` fields; `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `imm/*` internals | `plans/reference/MEMBER_VISIBILITY.md` (LANDED 2026-09-16 as the enforced `_` convention) |
 | `rand.thread_rng` | `plans/backlog/THREAD_LOCAL_STORAGE.md` |
 | the ten byte conversions; `usize`/`isize` byte conversions; `Array(T,N)` `Default` | `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` |
 | `JsonValue` integer arms | deliberately deferred to a breaking window (§4, encoding) |
@@ -1793,7 +1793,7 @@ from the blocked call sites, in `plans/backlog/`:
 | blocked row | language feature | doc |
 | --- | --- | --- |
 | waker-based `yield`/async `channel`/async `mutex`; `spawn_blocking` | a `Waker` + `park` primitive, so one task can be woken by another's progress | [`WAKER_BASED_SCHEDULING.md`](WAKER_BASED_SCHEDULING.md) |
-| `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `ctrl`/`data`/`size` private; `imm/*` internals | member visibility (`priv`, plus a path-prefix scope for the cross-module `std/` callers) | [`MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) |
+| `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `ctrl`/`data`/`size` private; `imm/*` internals | member visibility — LANDED 2026-09-16 as the compiler-enforced `_` prefix (scope = declaring module + same-directory siblings; the `priv` marker was rejected) | [`MEMBER_VISIBILITY.md`](reference/MEMBER_VISIBILITY.md) |
 | `TcpListener.incoming` | a `Stream` trait — the async analogue of `Iterator`. **Needs no compiler change** | [`ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) |
 | the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
 | `rand.thread_rng` | thread-local storage | [`THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) |

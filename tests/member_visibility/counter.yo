@@ -1,0 +1,25 @@
+{ String } :: import("std/string");
+/// MEMBER VISIBILITY fixture (tests/member_visibility.test.yo): `_count`,
+/// `_bump` and `_inner`/`_peek` are private to this directory; `new`, `add`,
+/// `count`, `wrap` and `get` are the public surface.
+Counter :: struct(_count : i32, label : String);
+impl(
+  Counter,
+  new : (fn(label : String) -> Counter)(Counter(_count : i32(0), label : label)),
+  _bump : (fn(self : Self, by : i32) -> Counter)(
+    Counter(_count : (self._count + by), label : self.label.clone())
+  ),
+  add : (fn(self : Self, by : i32) -> Counter)(self._bump(by)),
+  count : (fn(self : Self) -> i32)(self._count)
+);
+/// A GENERIC type: its methods reach callers through the generic-impl
+/// registry, whose candidates must carry the impl's declaring module.
+Cell :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_inner : T));
+impl(
+  generic(T : Type),
+  Cell(T),
+  wrap : (fn(v : T) -> Self)(Self(_inner : v)),
+  _peek : (fn(self : Self) -> T)(self._inner),
+  get : (fn(self : Self) -> T)(self._peek())
+);
+export(Counter, Cell);

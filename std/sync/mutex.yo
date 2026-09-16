@@ -83,6 +83,35 @@ Mutex :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))
 // inside each other and inside the imm family (same contract as std/imm).
 impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Acyclic());
 
+/// An UNGUARDED lock with no protected value. `lock` / `try_lock` /
+/// `unlock` are the whole API and balancing them is the caller's job — no
+/// guard releases it for you — so it exists only for the shapes
+/// `Mutex.with_lock`'s closure cannot express: a lock taken in one function
+/// and released in another (the thread pool's submission lock in
+/// `std/thread.yo`). Prefer `Mutex(T)` everywhere else; `Mutex`'s own raw
+/// methods are private to `std/sync/` (member visibility).
+RawMutex :: atomic(ref(struct(_handle : __YO_THREAD_SYNC_TYPE)));
+impl(RawMutex, Acyclic());
+impl(
+  RawMutex,
+  new : (fn() -> Self)(Self(__yo_mutex_create())),
+  /// Block until the lock is taken. Re-locking from the holding thread is
+  /// platform-defined (deadlock or recursion) — never do it.
+  lock : (fn(self : Self) -> unit)(__yo_mutex_lock(&self._handle)),
+  /// Take the lock if it is free; `true` = taken (you must `unlock`).
+  try_lock : (fn(self : Self) -> bool)(__yo_mutex_trylock(&self._handle)),
+  /// Release a lock THIS thread holds.
+  unlock : (fn(self : Self) -> unit)(__yo_mutex_unlock(&self._handle))
+);
+impl(
+  RawMutex,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      return(__yo_mutex_destroy(&self._handle));
+    })
+  )
+);
+
 // __MutexUnlocker — private object that calls _raw_unlock on Dispose.
 // Allocated locally inside with_lock; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees unlock under both normal return
@@ -227,5 +256,6 @@ impl(
 
 export(
   __YO_THREAD_SYNC_TYPE,
-  Mutex
+  Mutex,
+  RawMutex
 );

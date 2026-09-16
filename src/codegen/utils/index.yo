@@ -41,7 +41,8 @@ _(env : cgu_env) :: import("std/env");
   is_pointer_type,
   is_struct_type,
   is_enum_type,
-  is_extern_type_name
+  is_extern_type_name,
+  extern_type_c_name
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
@@ -78,7 +79,7 @@ mark_uses_tls :: (fn() -> unit)({
   g_uses_tls = true;
 });
 get_uses_tls :: (fn() -> bool)(g_uses_tls);
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_ADDRESS_OF,
@@ -887,6 +888,27 @@ function_c_name :: (fn(func_id : String) -> String)(
 /// identifiers are ASCII, so this matches TS `charCodeAt` for the cases that
 /// occur). If the result is a C reserved word/macro and not extern-C, it is
 /// prefixed with `__yo_c_reserved_`. Mirrors `sanitizeForCIdentifier`.
+/// True when a binding named `name` with resolved type `ty` IS one of the
+/// extern-C globals declared under that name: the registry is name-keyed and
+/// holds EVERY declaration's type, so a local that merely shares the name
+/// (`errno : i32` beside <errno.h>'s `errno : *(int)`) does not match, while
+/// two modules declaring the same symbol with different types both do.
+extern_c_global_matches :: (fn(name : String, ty : TypeValue) -> bool)({
+  tk := type_key(ty);
+  tys := get_extern_c_global_types(name);
+  (i : usize) = usize(0);
+  while(i < tys.len(), {
+    match(
+      tys.get(i),
+      .Some(gty) => if(type_key(gty) == tk, {
+        return(true);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
 sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
   sanitized := String.new();
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
@@ -1496,7 +1518,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       // (issues/fixed/io-future-named-local-declared-by-value.md).
       .None => if(
         is_extern_type_name(snm),
-        if(_some_t_requires_future(t) || (snm == "__yo_io_future_t"), `${snm.clone()}*`, snm.clone()),
+        if(_some_t_requires_future(t) || (snm == "__yo_io_future_t"), `${snm.clone()}*`, extern_type_c_name(snm.clone())),
         match(
           context.get_type_c_name(type_key(t)),
           .Some(cn) => cn,
@@ -1688,11 +1710,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
           // returned Other instead of NotFound under the self-compiled
           // binary). Match the RESOLVED variable's type against the global's
           // DECLARED type to restore the per-variable semantics.
-          is_extern_c_glob := match(
-            get_extern_c_global_type(variable.name.clone()),
-            .Some(gty) => (type_key(gty) == type_key(variable.ty)),
-            .None => false
-          );
+          is_extern_c_glob := extern_c_global_matches(variable.name.clone(), variable.ty);
           is_extern_c := (is_extern_c_fn || is_extern_c_glob);
           // A global bound under a Yo alias (`{ stdout : out } :: c_include(...)`)
           // is emitted by its C symbol, not by the alias
@@ -1925,6 +1943,7 @@ export(
   get_variable_type_string,
   get_enum_variant_c_name,
   sanitize_for_c_identifier,
+  extern_c_global_matches,
   scope_stack_contains,
   should_avoid_const,
   is_function_value_with_only_builtin_yo_inline_function_call,

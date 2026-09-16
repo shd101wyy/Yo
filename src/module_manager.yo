@@ -30,6 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { Exception } :: import("std/error");
 { eprintln } :: import("std/fmt");
+{ panic } :: import("std/assert");
 { Path } :: import("std/path");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -107,6 +108,11 @@ env_mod :: import("std/env");
 // ---------------------------------------------------------------------------
 // Cached prelude env — populated on first load, reused thereafter.
 (g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
+/// Frame count of `g_cached_prelude_env` when it was cached. The cache is a
+/// PRIVATE snapshot and nothing may push into it; `mm_fresh_module_env`
+/// treats any growth as an internal error (silent contamination of every
+/// later module — issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md).
+(g_cached_prelude_frame_count : usize) = usize(0);
 // Demand-driven module loader state (set per load run). The import handler
 // `ctx.load_module` has a fixed `(path) -> LoadModuleResult` signature with no
 // `exn`, so the loading context is stashed here for the on-demand load
@@ -272,6 +278,7 @@ mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env);
 mm_has_prelude_env :: (fn() -> bool)(!g_cached_prelude_env.is_none());
 mm_clear_prelude_env :: (fn() -> unit)({
   g_cached_prelude_env = Option(Environment).None;
+  g_cached_prelude_frame_count = usize(0);
 });
 /// Publish the shared codegen ExprInfoTable. Every module loaded from here on
 /// routes its per-expression metadata into `t`.
@@ -284,6 +291,15 @@ mm_shared_expr_info_table :: (fn() -> Option(ExprInfoTable))(
 /// Clone the cached prelude env, or start a fresh one keyed on `module_path`
 /// when no prelude has been loaded yet.
 mm_fresh_module_env :: (fn(module_path : String) -> Environment)({
+  match(
+    g_cached_prelude_env,
+    .Some(pe) => if(pe.frames.len() != g_cached_prelude_frame_count, {
+      panic(
+        `internal error: the cached prelude env has ${pe.frames.len().to_string()} frames, expected ${g_cached_prelude_frame_count.to_string()} — a live env's frame list aliased the cache and something pushed into it (issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md)`
+      );
+    }),
+    .None => ()
+  );
   env := clone_env(
     match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(module_path.clone()))
   );
@@ -1321,6 +1337,7 @@ mm_reset :: (fn() -> unit)({
   clear_module_cache();
   clear_type_display_names();
   g_cached_prelude_env = Option(Environment).None;
+  g_cached_prelude_frame_count = usize(0);
   g_shared_expr_info_table = Option(ExprInfoTable).None;
   g_loader_std_path = Option(String).None;
   g_loader_exn = Option(Exception).None;
@@ -1710,7 +1727,17 @@ mm_load_prelude_file :: (
     prof_t0.elapsed().as_nanos() - g_prof_child_load_ns
   );
   if(g_cached_prelude_env.is_none(), {
-    g_cached_prelude_env = Option(Environment).Some(prelude_env);
+    // Cache a PRIVATE SNAPSHOT (fresh frame lists and Frame objects, the
+    // same Frame ids, shared Variable handles), never the live prelude env:
+    // the evaluator threads envs by reassigning `env.frames = <ExprInfo>.env.frames`,
+    // and a prelude node's recorded list IS the live env's, so a later push
+    // on some module's env could land in the cache and leak that module's
+    // bindings into every load after it (measured 2026-09-15, see the
+    // g_cached_prelude_frame_count doc). The prelude walk is complete here,
+    // so the snapshot holds every prelude binding.
+    snapshot := clone_env(prelude_env);
+    g_cached_prelude_frame_count = snapshot.frames.len();
+    g_cached_prelude_env = Option(Environment).Some(snapshot);
   });
   true
 });

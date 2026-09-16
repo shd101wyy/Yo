@@ -217,6 +217,11 @@ test("classifier: representative messages map to their families", {
     .None => assert(false, "enum variant must classify")
   );
   match(
+    _classify_message(`Field "_count" of Counter is private to its declaring module`),
+    .Some(c) => assert(c == "E0405", `E0405, got ${c}`),
+    .None => assert(false, "private member must classify")
+  );
+  match(
     _classify_message(`Incompatible types:\n- Expected: i32\n- Given   : i64`),
     .Some(c) => assert(c == "E0601", `E0601, got ${c}`),
     .None => assert(false, "incompatible types must classify")
