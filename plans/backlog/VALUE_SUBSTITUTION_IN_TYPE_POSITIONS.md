@@ -125,9 +125,29 @@ threaded through the same call sites as the type map. Concretely:
 ### Step 3 — adopt in `std/`
 
 Behind a seed gate, as always ([[yo-seed-gate-blocks-std-using-new-runtime-macros]]):
-add `BYTES : usize` to the integer types beside `BITS`, collapse the four byte
-conversions to one blanket impl each, and give `usize`/`isize` the conversions
-they currently lack.
+collapse the four byte conversions to one blanket impl each, and give
+`usize`/`isize` the conversions they currently lack.
+
+**Declare `BYTES` as a TRAIT member, not inherently beside `BITS`** — measured
+2026-09-16 against a tree build of steps 1-2. An inherent associated constant
+(`impl(u8, BYTES : usize(1))`, which is exactly how `BITS` is written) does NOT
+resolve in a length position; a trait-declared one does. Writing `BYTES` the
+way `BITS` is written would therefore not work, which is the shape this step
+would naturally have reached for. See
+`issues/an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`
+— including a fix attempt that was implemented, measured to change nothing, and
+reverted.
+
+Verified as working for this step's actual needs:
+
+- `_W :: trait(BYTES : usize)` + `impl(u8, _W(BYTES : usize(1)))` → a blanket
+  `-> Array(u8, T.BYTES)` resolves per width.
+- the `usize`/`isize` case, where the width is target-dependent rather than a
+  literal, also resolves: `impl(usize, _W(BYTES : _CD))` with
+  `_CD :: cond((usize.MAX == usize(4294967295)) => usize(4), true => usize(8))`
+  gives 8 on a 64-bit box. This was the part the original plan flagged as the
+  reason `usize`/`isize` have no byte conversions at all, and it is not a
+  problem.
 
 ## Acceptance
 
