@@ -502,3 +502,50 @@ test("unsigned_abs is the one total absolute value", {
   assert(i64.MIN.unsigned_abs() == u64(9223372036854775808), "i64.MIN's magnitude is 2^63");
   assert(isize(0 - 3).unsigned_abs() == usize(3), "isize");
 });
+test("byte conversions: the width follows the receiver, through ONE blanket impl", {
+  // These four methods were ten per-type copies until the associated constant
+  // `T.BYTES` became usable in a LENGTH position. Asserting several widths in
+  // ONE file is the point: a single width would pass even if the length
+  // collapsed to a constant, and collapsing to zero was the original defect.
+  assert(u8(0).to_be_bytes().len() == usize(1), "u8 -> 1");
+  assert(u16(0).to_be_bytes().len() == usize(2), "u16 -> 2");
+  assert(u32(0).to_be_bytes().len() == usize(4), "u32 -> 4");
+  assert(u64(0).to_be_bytes().len() == usize(8), "u64 -> 8");
+  // usize/isize could not have these AT ALL before: the width is the target's.
+  assert(usize(0).to_be_bytes().len() == isize(0).to_be_bytes().len(), "usize and isize agree");
+  assert(usize(0).to_be_bytes().len() == usize(usize.BYTES), "usize width is its own BYTES");
+});
+test("byte conversions: big-endian is most-significant-first, little-endian is not", {
+  b := u32(0x01020304).to_be_bytes();
+  l := u32(0x01020304).to_le_bytes();
+  assert(b(usize(0)) == u8(1), "be[0] is the MSB");
+  assert(b(usize(3)) == u8(4), "be[3] is the LSB");
+  assert(l(usize(0)) == u8(4), "le[0] is the LSB");
+  assert(l(usize(3)) == u8(1), "le[3] is the MSB");
+});
+test("byte conversions round-trip, including at the signed extremes", {
+  assert(u8.from_be_bytes(u8(0x42).to_be_bytes()) == u8(0x42), "u8 be");
+  assert(u8.from_le_bytes(u8(0x42).to_le_bytes()) == u8(0x42), "u8 le");
+  assert(u16.from_be_bytes(u16(0xBEEF).to_be_bytes()) == u16(0xBEEF), "u16 be");
+  assert(u32.from_be_bytes(u32(0xDEADBEEF).to_be_bytes()) == u32(0xDEADBEEF), "u32 be");
+  assert(u64.from_le_bytes(u64(81985529216486895).to_le_bytes()) == u64(81985529216486895), "u64 le");
+  assert(usize.from_be_bytes(usize(123456789).to_be_bytes()) == usize(123456789), "usize be");
+  // MIN/MAX are where a SIGNED intermediate breaks: `i8.MIN >> 8` is an
+  // arithmetic shift, so masking a negative value yields the wrong byte. The
+  // blanket impl routes through `T.Unsigned` to avoid exactly this.
+  assert(i8.from_be_bytes(i8.MIN.to_be_bytes()) == i8.MIN, "i8 MIN");
+  assert(i8.from_be_bytes(i8.MAX.to_be_bytes()) == i8.MAX, "i8 MAX");
+  assert(i8.from_le_bytes(i8(0 - 1).to_le_bytes()) == i8(0 - 1), "i8 -1");
+  assert(i16.from_be_bytes(i16.MIN.to_be_bytes()) == i16.MIN, "i16 MIN");
+  assert(i32.from_be_bytes(i32.MIN.to_be_bytes()) == i32.MIN, "i32 MIN");
+  assert(i32.from_le_bytes(i32(0 - 1).to_le_bytes()) == i32(0 - 1), "i32 -1");
+  assert(i64.from_be_bytes(i64.MIN.to_be_bytes()) == i64.MIN, "i64 MIN");
+  assert(i64.from_le_bytes(i64.MAX.to_le_bytes()) == i64.MAX, "i64 MAX");
+  assert(isize.from_be_bytes(isize(0 - 12345).to_be_bytes()) == isize(0 - 12345), "isize negative");
+  // a signed MIN's big-endian bytes are 0x80 then zeros — the sign bit, not a
+  // sign-extended 0xFF run, which is what a signed shift would have produced.
+  m := i32.MIN.to_be_bytes();
+  assert(m(usize(0)) == u8(0x80), "i32.MIN be[0] == 0x80");
+  assert(m(usize(1)) == u8(0), "i32.MIN be[1] == 0");
+  assert(m(usize(3)) == u8(0), "i32.MIN be[3] == 0");
+});
