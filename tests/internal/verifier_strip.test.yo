@@ -25,7 +25,8 @@
   set_verify_mode_override,
   set_verify_target_paths,
   take_verify_tasks,
-  strip_proved_ensures_asserts
+  strip_proved_ensures_asserts,
+  _is_contract_assert_call
 } :: import("../../src/evaluator/builtins/contracts.yo");
 {
   default_verify_run_config,
@@ -129,59 +130,13 @@ _arg1_atom_value :: (fn(a : ArrayList(AstExpr)) -> String)(
     .None => String.new()
   )
 );
-/// The recognizer (test-side mirror of the wrapper's `_build_assert_call`
-/// shape): an `assert`/`comptime_assert` call of two args whose message
-/// atom starts with `<label>:`.
+/// The counter uses the PRODUCTION recognizer (`_is_contract_assert_call`)
+/// so the test tracks the wrapper's spliced shape by construction — it
+/// previously mirrored the old `assert(pred, msg)` call shape and counted
+/// zero after the splice became the dependency-free cond guard.
 _is_assert_with_label :: (fn(e : AstExpr, label : String) -> bool)(
-  match(
-    e,
-    .FnCall(_, f, a, _, _) => {
-      is_assert := cond(
-        _callee_is_bare(f, String.from("assert")) => true,
-        _callee_is_bare(f, String.from("comptime_assert")) => true,
-        _callee_is_member(f, String.from("assert")) => true,
-        true => false
-      );
-      msg := _arg1_atom_value(a);
-      is_assert && msg.starts_with(`"${label}:`)
-    },
-    .Atom(_, _) => false
-  )
+  _is_contract_assert_call(e, `${label}:`)
 );
-_callee_is_bare :: (fn(f : AstExpr, name : String) -> bool)(
-  match(
-    f,
-    .Atom(_, ht) => (ht.value == name),
-    .FnCall(_, _, _, _, _) => false
-  )
-);
-_callee_is_member :: (fn(f : AstExpr, name : String) -> bool)(
-  match(
-    f,
-    .Atom(_, _) => false,
-    .FnCall(_, dot_h, dot_args, _, _) => _callee_member_cond(dot_h, dot_args, name.clone())
-  )
-);
-_callee_member_cond :: (
-  fn(dot_h : AstExpr, dot_args : ArrayList(AstExpr), name : String) -> bool
-)(
-  cond(
-    (ast_expr_token(dot_h).value == ".") => _dot_arg1_is(dot_args, name.clone()),
-    true => false
-  )
-);
-_dot_arg1_is :: (fn(dot_args : ArrayList(AstExpr), name : String) -> bool)(
-  match(
-    dot_args.get(usize(1)),
-    .Some(second) => match(
-      second,
-      .Atom(_, st) => (st.value == name),
-      .FnCall(_, _, _, _, _) => false
-    ),
-    .None => false
-  )
-);
-
 test("strip drops proved ensures asserts and keeps the requires guard (mechanism, no solver)", {
   // ONE load per test body: a second load would re-evaluate the std
   // modules after the cache clear and trip the duplicate-registration

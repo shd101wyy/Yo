@@ -1,0 +1,156 @@
+//! The runtime contract-splice regression tests — V6 task 5 slice 2
+//! (plans/backlog/FORMAL_VERIFICATION.md): the spliced runtime guard is
+//! DEPENDENCY-FREE (`cond((pred) => (), true => __yo_panic(msg))`), so a
+//! contract-carrying module needs NO std/assert import. The previous
+//! splice called `import("std/assert").assert` — a LOAD-TIME dependency
+//! that cycled for std/collections (std/assert imports std/string imports
+//! std/collections) and broke every non-assert-importing contract module.
+//!
+//! Gates:
+//!  - The runtime-mode load test needs NO solver and always runs — the
+//!    load succeeding IS the regression assertion (the old splice failed
+//!    the load with E0403 "Module field \"assert\" not found").
+//!    (Comptime evaluation never panics — module initializers run at
+//!    comptime, where __yo_panic is a no-op — so runtime-violation
+//!    panics are covered by the contracts-runtime-* cli-cases against
+//!    the self-hosted binary, not here.)
+//!  - The verify-mode proof needs real Z3 (YO_TEST_Z3=1).
+{ String } :: import("std/string");
+{ Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_and_strip_tasks,
+  VerifyFnReport
+} :: import("../../src/verifier/driver.yo");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+/// Arm the harness for one fixture (runtime mode) and load it.
+_load_runtime :: (fn(rel_path : String, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_contract_splice: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).Some(String.from("runtime")));
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  set_verify_mode_override(Option(String).None);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(outcome.ok, `runtime load failed: ${rendered}`);
+    },
+    .None => ()
+  );
+  outcome.ok
+});
+/// The verify-mode harness (same shape as the other verifier tests).
+_load_reports :: (
+  fn(rel_path : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_contract_splice: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(
+        outcome.ok == expect_ok,
+        `fixture ${rel_path} load ok=${outcome.ok.to_string()} (expected ${expect_ok.to_string()}): ${rendered}`
+      );
+    },
+    .None => {
+      assert(outcome.ok == expect_ok, `fixture ${rel_path} load ok=${outcome.ok.to_string()}`);
+    }
+  );
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    _ => String.new()
+  );
+  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+});
+
+test("a contract module without a std/assert import loads and runs in runtime mode (the splice is dependency-free)", {
+  ok := _load_runtime(
+    String.from("./tests/spec/fixtures/valid/contract_no_assert_import_runtime.yo"),
+    io
+  );
+  assert(ok, "the no-import runtime module must load (the old splice failed it with E0403)");
+});
+
+test("a contract module without a std/assert import VERIFIES end-to-end", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/contract_no_assert_import.yo"),
+    io,
+    true
+  );
+  (ok_n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        if(rp.outcome == "ok", {
+          ok_n = (ok_n + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(
+    (reports.len() == usize(2)) && (ok_n == usize(2)),
+    `both functions must verify, got ${reports.len().to_string()} report(s), ${ok_n.to_string()} ok`
+  );
+});
