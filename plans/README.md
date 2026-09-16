@@ -35,8 +35,16 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   live handover: the PR stack and its verified merge order, what is still open
   and why, and the rules that bit the last session.
 - [`THREAD_SAFETY.md`](THREAD_SAFETY.md) — 13 of 14 phases landed; Phase P
-  (field visibility) never landed — `_`-prefixed fields are private by
-  CONVENTION only.
+  (field visibility) was closed by `reference/MEMBER_VISIBILITY.md` (#716,
+  2026-09-16): `_`-prefixed members are private, ENFORCED by the compiler.
+- [`LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md) —
+  what to change for a model-driven workflow, written 2026-09-16 after a
+  two-agent day: P0 a toolchain that never reports success for work it did
+  not do (transpile failure = error, no hollow batches, `check --bodies`,
+  `main`'s value is the exit code), P1 `yo fix` + innermost-cause
+  diagnostics, and the `{ x }` brace design (§4: reject the one-field
+  punned record in value position vs Zig's `.{ … }`; destructuring keeps
+  plain braces either way). `struct(generic(T), …)` sugar REJECTED.
 - [`INCREMENTAL_COMPILATION_ZIG_LESSONS.md`](INCREMENTAL_COMPILATION_ZIG_LESSONS.md) —
   edit-compile-run latency: what Yo takes from Zig's incremental design
   (per-definition hashing + dependency edges, stable symbol identity, a
