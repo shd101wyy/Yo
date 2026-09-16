@@ -78,20 +78,35 @@ silently drop a statement, while dead stubs stay harmless and live ones
 `fprintf` + `abort()` exactly as the non-void ones already do. `main` stays
 fatal.
 
-Acceptance, in this order, because the risk is turning a currently-green
-test red by making a real defect visible:
+**MEASURED 2026-09-16 — the residual set is EMPTY in the test corpus, so
+this is a cheap defensive invariant, not a bug fix.** No instrumentation was
+needed: a rewritten function has its prefix truncated, so its marker is GONE
+from the emitted C, which makes any marker LEFT in the C exactly a residual
+case. Emitted the whole fast-suite corpus with `YO_KEEP_BATCH=1` on a
+tree-built compiler and counted:
 
-1. **Measure first.** Instrument the scan to count, per corpus, functions
-   that are (marker ∧ unit ∧ non-superseded) — the set the change converts
-   to stubs. The non-void set was 6 in the `tests/` batch corpus when the
-   gate was written; this set is unmeasured.
-2. If the count is 0, the change is a pure invariant with no behaviour
-   delta — land it with a synthetic cli-case as the only proof.
-3. If it is non-zero, each one is a statement the tree is silently losing
-   today. Triage them as bugs BEFORE landing the stub change, so the suite
-   never goes red for a reason the PR did not cause.
-4. Fixpoint + byte-identity: the emitted C changes only for functions that
-   contain a marker, so a clean corpus must be byte-identical.
+| | count |
+| --- | --- |
+| batch `.c` files emitted | 287 |
+| files containing a surviving `// Failed to transpile` | **0** |
+| markers surviving anywhere in the corpus | **0** |
+| functions rewritten to a loud `abort()` stub | 34 |
+
+So the machinery fires often (34 stubs) and the silent-drop class does not
+occur today anywhere in `tests/`. Consequences:
+
+1. The change — extend the loud-stub rewrite to the unit-returning
+   non-superseded case — has **no behaviour delta on this corpus**, which is
+   acceptance case 2: land it with a synthetic cli-case as the only proof,
+   and with fixpoint + byte-identity (the emitted C changes only for
+   functions that contain a marker, so a clean corpus stays byte-identical).
+2. Its VALUE is lower than estimated: it closes a hole nothing currently
+   falls into. §1.3 (`check --bodies`) and §2 (`yo fix`) are the higher-value
+   remaining items and should go first.
+3. Re-run the count before landing it; a non-zero result means the tree has
+   started silently losing statements, and each one is a bug to triage
+   BEFORE the stub change, so the suite never goes red for a reason the PR
+   did not cause.
 
 ### 1.2 Was the runner's hollow-batch hole (ALREADY CLOSED — kept as a note)
 
