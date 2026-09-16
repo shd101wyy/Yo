@@ -36,7 +36,7 @@ paid for, each one a memory or an `issues/` entry:
 | green `check ./std` + `check ./src` | `check` is evaluator-only and never specializes generic bodies; #717 found four private-member reaches that only the suite could see (`yo-check-src-std-are-a-filter-not-a-gate`) |
 | a derive rule "worked" | derive swallows the rule's own error and reports a generic message, or nothing with rc=0 (`yo-derive-swallows-a-rules-own-error`) |
 | `comptime_assert` passed | it can pass vacuously when the value is never forced (`yo-comptime-assert-vacuous-testing-trap`) |
-| a repro "self-checked" and exited 0 | a Yo `main` returning `i32` always exits 0; the value is discarded (`yo-main-return-value-is-discarded-exit-code-is-always-0`) |
+| a repro "self-checked" and exited 0 | `main` is meant to return `unit`, but the compiler accepts `-> i32` and discards the value, so the exit code is always 0 (`yo-main-return-value-is-discarded-exit-code-is-always-0`) |
 | green build, symbol missing | `--static-library` exported nothing because two spellings of a module path were compared with `==` (`issues/fixed/static-library-exports-no-symbols.md`) |
 
 Every one of these was eventually caught by a person who happened to look at
@@ -88,12 +88,20 @@ loader already records which modules import what). It is slower than plain
 member-visibility violations that `check` missed on the #716 branch when run
 against that branch's pre-fix commit.
 
-### 1.4 The exit code of a Yo program is its `main`'s value
+### 1.4 `main` returns `unit`, and the compiler says so
 
-`main :: (fn() -> i32)` returning non-zero must exit non-zero. Today the
-value is discarded. This is a one-line fix in the generated `main` wrapper
-plus a cli-case, and it removes a whole class of repros that "self-checked
-into a no-op".
+The contract is that `main` returns `unit` (every example in `docs/` and the
+scaffold from `yo init` write `main :: (fn() -> unit)`); a program that
+needs an exit status calls the process exit API. But the compiler does not
+enforce the contract: `main :: (fn() -> i32)({ … i32(3) })` compiles today,
+runs, and exits 0 — the value is silently discarded (measured 2026-09-16;
+`yo-main-return-value-is-discarded-exit-code-is-always-0`). Fourteen
+`issues/repros/*.yo` are written against the accepted-but-ignored form and
+"self-check" into a no-op. Make the contract a diagnostic: a `main` whose
+result type is not `unit` is a compile error naming the rule and pointing
+at the exit API. Then fix the fourteen repros to assert or exit explicitly.
+Acceptance: a cli-case for the rejection; the repros compile under the new
+rule; `issues/repros` re-run through the repro gate.
 
 ## 2. P1 — `yo fix`: mechanical diagnostics repair themselves
 

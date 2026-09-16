@@ -41,7 +41,7 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   what to change for a model-driven workflow, written 2026-09-16 after a
   two-agent day: P0 a toolchain that never reports success for work it did
   not do (transpile failure = error, no hollow batches, `check --bodies`,
-  `main`'s value is the exit code), P1 `yo fix` + innermost-cause
+  a non-`unit` `main` is rejected), P1 `yo fix` + innermost-cause
   diagnostics, and the brace design (§4, decided on principle with
   compatibility explicitly not an input: `.{ … }` builds AND unbuilds a
   record, bare braces are blocks, `_` becomes the discard).
