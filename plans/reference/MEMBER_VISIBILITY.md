@@ -28,6 +28,18 @@ so `std/` adopts it without waiting for a seed release. What shipped:
   is `private_member_blocked` in `src/utils.yo`. Tests:
   `tests/member_visibility.test.yo` (+ `tests/member_visibility/`),
   `tests/cli-cases/check-private-member`.
+- **std API the rule forced into the open** (each replaced a cross-directory
+  reach into a `_` member): `Cond.wait_with(m)` / `wait_timeout_with(m, d)`
+  (Mutex-typed, for use inside `with_lock`), `RawMutex` (an unguarded
+  lock/try_lock/unlock for the thread pool's split lock — `with_lock`'s
+  closure cannot hold a lock across two functions), `Command.get_args` /
+  `get_program`, `File.into_fd` (Rust's `IntoRawFd`), `HashSet.k0/k1/
+  tombstones` (twins of `HashMap`'s public fields), and `Statx.buf_ptr` /
+  `buf_size` made public (sys plumbing constructed from `std/fs`).
+- **Enumeration method.** Import chains collapse `check` to one error per
+  chain, so the tree was enumerated once with a report-instead-of-throw
+  build (never committed), then fixed; the full suite still found three
+  more sites in bodies `check` never specializes — the suite is the gate.
 
 Everything below is the design record as written on 2026-09-10 — three rows
 of `plans/STD_API_STABILIZATION.md` could not be closed without it, and the
