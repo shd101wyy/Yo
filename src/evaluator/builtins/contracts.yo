@@ -24,6 +24,7 @@
   BF_ENSURES,
   BF_INVARIANT,
   BF_DECREASES,
+  BF_REFINE,
   BF_ASSUMED,
   BF_GHOST,
   BF_GHOST_FN,
@@ -41,9 +42,10 @@
 { EvalContext, note_unlabeled_ensures_atom } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
+{ t_type, t_unit, t_bool, t_i64, t_u8 } :: import("../../types/creators.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
+{ hook_register_refine_annotation } :: import("../values/type_trait_methods.yo");
 { ArrayList } :: import("std/collections/array_list");
 // V6 task 1: the trait-method contract tables (inheritance + variance).
 // The func-contract side tables are reached through HOOKS in the same
@@ -364,6 +366,144 @@ register_ghost_fn :: (fn(func_id : String) -> unit)({
 is_ghost_fn :: (fn(func_id : String) -> bool)(
   g_ghost_fn_ids.contains(func_id)
 );
+/// V6 task 3: the ghost-fn DEF registry — `func_id → (params, body)` for
+/// every registered ghost_fn. The refinement machinery reads it: a
+/// `refine(T, p)` predicate is a ghost_fn VALUE whose func_id rides the
+/// annotation registry (types/function.yo), and the verifier's walk
+/// inlines `p(x)` from HERE (type-level refinements have no call node
+/// for the ExprInfo-based inliner to read). Written by evaluate_ghost_fn
+/// next to register_ghost_fn.
+GhostFnDef :: ref(
+  struct(
+    params : ArrayList(String),
+    body : AstExpr
+  )
+);
+(g_ghost_fn_defs : HashMap(String, GhostFnDef)) = HashMap(String, GhostFnDef).new();
+register_ghost_fn_def :: (fn(func_id : String, params : ArrayList(String), body : AstExpr) -> unit)({
+  g_ghost_fn_defs.insert(func_id, GhostFnDef(params : params, body : body));
+  ()
+});
+ghost_fn_def_of :: (fn(func_id : String) -> Option(GhostFnDef))(
+  g_ghost_fn_defs.get(func_id)
+);
+/// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — the refinement
+/// annotation. `T` is a type, `p` a one-parameter ghost_fn VALUE (the
+/// plan's predicate-as-value). The annotation evaluates to `T` (the
+/// erasure rule: no new TypeValue variant, so bindings, dispatch, codegen
+/// and sizes see the plain type with zero runtime cost) while `p`'s
+/// func_id is recorded in the ANNOTATION registry keyed by this node's id
+/// (types/function.yo, written through the type_trait_methods hook —
+/// this module cannot import that one); fn-type registration reads each
+/// parameter's declared type-expr node id there and carries the predicate
+/// onto the fn's FuncVal id. The verifier discharges it: ASSUMED at a
+/// refined param's callee entry, PROVED (`refine#N`) at a call site
+/// passing a T. `refine(T)` (one argument) is the bare alias: no
+/// predicate, no obligation.
+evaluate_refine :: (
+  fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr
+)({
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  if((args.len() != usize(1)) && (args.len() != usize(2)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `'refine(...)' takes one or two arguments — refine(T) (a bare alias) or refine(T, p) with p a one-parameter ghost_fn — got ${args.len().to_string()}:
+${ast_expr_to_string(expr)}`
+        )
+      )
+    );
+  });
+  // Evaluate the arguments (a TYPE argument evaluates to a TypeVal).
+  (cur_env : Environment) = env;
+  (inner_ty : TypeValue) = t_unit();
+  (pred_fid : String) = String.from("");
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    arg := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
+    evaluated := evaluate_expression_raw(arg, cur_env, ctx, exn);
+    match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+      .Some(info) => {
+        cur_env = info.env;
+        matched := false;
+        match(
+          info.value,
+          .Some(v) => {
+            match(
+              v,
+              .TypeVal(tv) => {
+                if(ai == usize(0), {
+                  inner_ty = tv;
+                  matched = true;
+                });
+              },
+              .FuncVal(fvd, _) => {
+                if((ai == usize(1)) && (fvd.*.params.len() == usize(1)), {
+                  pred_fid = fvd.*.func_id.clone();
+                  if(!is_ghost_fn(pred_fid.clone()), {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(arg),
+                          String.from("the refinement predicate must be a ghost_fn value — write refine(T, ghost_fn((fn(x : T) -> bool)(...))). Plain functions have runtime semantics, which a type-level predicate must not.")
+                        )
+                      )
+                    );
+                  });
+                  matched = true;
+                });
+              },
+              _ => ()
+            );
+          },
+          .None => ()
+        );
+        if(!matched && !((ai == usize(0)) || (ai == usize(1))), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(arg),
+                String.from("Failed to evaluate argument of refine(...).")
+              )
+            )
+          );
+        });
+      },
+      .None => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(arg),
+              String.from("Failed to evaluate argument of refine(...).")
+            )
+          )
+        );
+      }
+    );
+    ai = (ai + usize(1));
+  });
+  // The erasure rule: the annotation's TYPE is the inner — bindings,
+  // dispatch, codegen and sizes see plain `T` (zero runtime cost). The
+  // refinement lives in the ANNOTATION registry (types/function.yo, via
+  // the type_trait_methods hook — contracts.yo cannot import that
+  // module), keyed by THIS node's id; fn-type registration reads each
+  // parameter's declared type-expr node id there and carries the
+  // predicate onto the fn's FuncVal id for the verifier.
+  if(pred_fid.len() > usize(0), {
+    hook_register_refine_annotation(ast_expr_id(expr), pred_fid.clone());
+  });
+  out_info := new_expr_info(cur_env, t_type());
+  out_info.value = Option(EvalValue).Some(EvalValue.TypeVal(inner_ty));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+
 /// `ghost_fn(f)` — marks a function value ghost-only. V5 task 3: the
 /// wrapped function is REGISTERED as ghost (calls from non-ghost context
 /// are a compile error — function.yo's FuncVal arm checks the registry);
@@ -406,6 +546,15 @@ evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
                 gv,
                 .FuncVal(gfvd, _) => {
                   register_ghost_fn(gfvd.*.func_id.clone());
+                  // V6 task 3: record the def so type-level refinement
+                  // predicates can be INLINED by the verifier's walk (the
+                  // predicate rides its func_id on TypeValue.RefineT — no
+                  // call node exists for the ExprInfo-based inliner).
+                  register_ghost_fn_def(
+                    gfvd.*.func_id.clone(),
+                    gfvd.*.params.clone(),
+                    gfvd.*.body.clone()
+                  );
                 },
                 _ => ()
               );
@@ -2313,7 +2462,7 @@ wrap_function_body_with_contracts :: (
   });
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
 });
-export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_assumed, evaluate_ghost);
+export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_assumed, evaluate_refine, evaluate_ghost);
 export(evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
 export(wrap_function_body_with_contracts);
 export(
@@ -2334,6 +2483,7 @@ export(
   record_verify_task_def_eval_failure,
   verify_task_def_eval_failure,
   register_ghost_fn,
+  ghost_fn_def_of,
   is_ghost_fn,
   register_ghost_binding,
   is_ghost_binding_name,

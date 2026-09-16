@@ -74,7 +74,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("../../token.yo");
-{ set_func_contract_hooks } :: import("../values/type_trait_methods.yo");
+{ set_func_contract_hooks, set_refine_annotation_hook } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Macro side-tables (folded from former
 // `evaluator/types/macro_registry.yo`).
@@ -574,6 +574,72 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
 /// contract tables; same keys and lifecycle (fn-type-expr id at the
 /// signature, re-keyed under the FuncVal id at the application).
 (g_func_assumed_body : HashMap(String, bool)) = HashMap(String, bool).new();
+/// V6 task 3 (FORMAL_VERIFICATION.md §7): the REFINED parameters of each
+/// fn — parallel to the parameter list, the predicate ghost_fn's func_id
+/// per position ("" = not refined). `refine(T, p)` evaluates to `T` (the
+/// erasure rule: no new TypeValue variant, zero match breakage, zero
+/// runtime cost); the refinement itself lives HERE and this table is what
+/// the verifier reads to discharge it: the callee side ASSUMES `p(param)`
+/// at entry; a call site PROVES `refine#N` for each refined argument.
+/// Same keys and lifecycle as the contract tables (fn-type-expr id at the
+/// signature, re-keyed under the FuncVal id at the application via
+/// copy_func_contract_exprs — which also carries it onto SPECIALIZED ids
+/// at the helper.yo mint, so generic callees refine too).
+(g_func_refined_params : HashMap(String, ArrayList(String))) =
+  HashMap(String, ArrayList(String)).new();
+/// Register the per-parameter predicate ids. No-op when none is refined
+/// (keeps the table sparse).
+register_func_refined_params :: (
+  fn(func_id : String, preds : ArrayList(String)) -> unit
+)({
+  (any : bool) = false;
+  (i : usize) = usize(0);
+  while((i < preds.len()) && !any, {
+    match(
+      preds.get(i),
+      .Some(pid) => {
+        if(pid.len() > usize(0), {
+          any = true;
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(any, {
+    g_func_refined_params.insert(func_id.clone(), preds);
+  });
+});
+/// The per-parameter predicate ids for `func_id` (empty = no refinements).
+get_func_refined_params :: (
+  fn(func_id : String) -> ArrayList(String)
+)(
+  match(
+    g_func_refined_params.get(func_id.clone()),
+    .Some(preds) => preds,
+    .None => ArrayList(String).new()
+  )
+);
+/// V6 task 3: the refine() ANNOTATION registry — the expr id of a
+/// `refine(T, p)` type annotation node → its predicate's func_id. Written
+/// by evaluate_refine (contracts.yo); read at fn-type registration where
+/// each parameter's declared TYPE EXPR is inspected. The node id is the
+/// key because the refinement has no TypeValue presence — inline-spelled
+/// `denom : refine(i32, non_zero)` annotations only for now; NAMED
+/// aliases (`NonZero(i32)`) re-route through std/spec's comptime fns and
+/// need the type-level wrapper — the std/spec rework slice.
+(g_refine_annotation_preds : HashMap(usize, String)) = HashMap(usize, String).new();
+register_refine_annotation :: (fn(expr_id : usize, pred_fid : String) -> unit)({
+  g_refine_annotation_preds.insert(expr_id, pred_fid);
+  ()
+});
+refine_annotation_pred :: (fn(expr_id : usize) -> String)(
+  match(
+    g_refine_annotation_preds.get(expr_id),
+    .Some(fid) => fid,
+    .None => String.from("")
+  )
+);
 /// Phase V1 (plans/backlog/FORMAL_VERIFICATION.md): the signature's labeled
 /// return `-> (name : T)` — same keys and lifecycle as the predicate tables
 /// above. `ensures(...)` predicates name the return value through this label
@@ -653,6 +719,13 @@ copy_func_contract_exprs :: (fn(from_id : String, to_id : String) -> unit)({
     .None => ()
   );
   match(
+    g_func_refined_params.get(from_id.clone()),
+    .Some(preds) => {
+      g_func_refined_params.insert(to_id.clone(), preds);
+    },
+    .None => ()
+  );
+  match(
     g_func_return_label.get(from_id.clone()),
     .Some(label) => {
       g_func_return_label.insert(to_id.clone(), label);
@@ -720,6 +793,13 @@ _func_contract_hooks_init := (fn() -> bool)({
     get_func_return_label,
     register_func_contracts_bundle
   );
+  true
+})();
+// V6 task 3: install the refine()-annotation registry write hook for
+// contracts.yo (evaluate_refine) — see the RefineAnnotationRegisterFn
+// note in values/type_trait_methods.yo.
+_refine_annotation_hook_init := (fn() -> bool)({
+  set_refine_annotation_hook(register_refine_annotation);
   true
 })();
 /// Append (label, trait, negated) entries for every required/negative trait
@@ -4335,6 +4415,29 @@ evaluate_function_type :: (
   register_func_decreases_expr(ast_expr_id(expr).to_string(), params_result.decreases_expr);
   // V6 task 5: the `assumed()` marker rides the same re-keying lifecycle.
   register_func_assumed_body(ast_expr_id(expr).to_string(), params_result.assumed_body);
+  // V6 task 3: pick up per-parameter `refine(T, p)` predicates from the
+  // declared TYPE EXPR nodes (the annotation registry is keyed by node id
+  // — evaluate_refine writes it), and ride the same two-step keying so
+  // the verifier can read them by the FuncVal id.
+  refined_preds := ArrayList(String).new();
+  (rp2_i : usize) = usize(0);
+  while(rp2_i < param_type_exprs.len(), {
+    pred_here := String.from("");
+    match(
+      param_type_exprs.get(rp2_i),
+      .Some(te_opt) => match(
+        te_opt,
+        .Some(te) => {
+          pred_here = refine_annotation_pred(ast_expr_id(te));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    refined_preds.push(pred_here);
+    rp2_i = (rp2_i + usize(1));
+  });
+  register_func_refined_params(ast_expr_id(expr).to_string(), refined_preds);
   // Phase V1: `-> (name : unit)` parses, but the label names nothing — reject
   // `ensures(...)` predicates that reference it (decision D3,
   // plans/backlog/FORMAL_VERIFICATION.md). Checked here, where the evaluated
@@ -5146,6 +5249,8 @@ export(
   get_func_decreases_expr,
   register_func_assumed_body,
   has_func_assumed_body,
+  register_func_refined_params,
+  get_func_refined_params,
   register_func_return_label,
   copy_func_contract_exprs,
   get_func_requires_exprs,
