@@ -172,6 +172,16 @@ into current develop.
   ~9 min when the machine is loaded (multiple 143s; even disowned
   nohup runs SIGKILLed). The per-test batch compiles compile the whole
   evaluator tree and CI runs check ./src — rely on those.
+- **TASK 2 ENTRY POINT FILED (issue merged via #731):** a contracted
+  GENERIC fn registers no verify task (deferred bodies are skipped) —
+  the body is never checked and nothing reports the gap. The issue
+  (`issues/verifier-contracted-generic-fn-is-silently-unverified.md`)
+  carries the measured obstacles and the first-slice sketch (opaque T
+  only; `==` supported; loud subset fails on arithmetic over T; the
+  identity fixture). The minimal honest improvement until then: a loud
+  `unsupported: generic body` report instead of silence — with the
+  exit-policy decision made explicitly.
+- **Remaining after the open PRs land:** task 3's type-level variant
 - **Remaining after the open PRs land:** task 3's type-level variant
   (213 exhaustive matches — the mountain), std/spec rework (.check/
   .unchecked, composition, named aliases), task 2 abstract generic
