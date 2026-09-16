@@ -218,6 +218,25 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
+`main` must return `unit`, and the compiler rejects any other result type. A
+program body runs on a worker thread for its large stack, so a value returned
+from `main` would have nowhere to go — it used to be computed and silently
+discarded. Set a process exit status with `exit(code)` from `std/process`:
+
+```rust
+{ exit } :: import("std/process");
+
+main :: (fn() -> unit)({
+  if(!ok(), {
+    exit(usize(1));
+  });
+});
+export(main);
+```
+
+`main` may take effect parameters (`main :: (fn(io : Io) -> unit)`); only the
+result type is constrained.
+
 ## CLI Usage
 
 ```bash
@@ -2577,11 +2596,11 @@ DogRun :: impl(Dog, Run(
 // Dyn type is reference counted - no & needed
 act :: (fn(s: Dyn(Speak, Run)) -> i32)((s.speak() + s.run()));
 
-main :: (fn() -> i32)({
+main :: (fn() -> unit)({
   dog := Dog();
   // dyn() creates a reference-counted trait object
   result := act(dyn(dog));
-  return(result);
+  printf("%d\n", result);
 });
 ```
 

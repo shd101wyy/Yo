@@ -10,6 +10,7 @@
 //        --std-path ./std --optimize 2 -o /tmp/dedup_leak && /tmp/dedup_leak
 { Vec } :: import("std/imm/vec");
 { println } :: import("std/fmt");
+{ assert } :: import("std/assert");
 (g_disposed : i32) = i32(0);
 /// Atomic ref handle (imm.Vec requires `Send`) that counts its disposals in a
 /// module-level global, which has program lifetime and is readable after the
@@ -31,7 +32,7 @@ impl(
     )
   )
 );
-main :: (fn() -> i32)({
+main :: (fn() -> unit)({
   {
     v := Vec(Handle).new();
     v = v.push(Handle(tag : i32(1)));
@@ -41,9 +42,9 @@ main :: (fn() -> i32)({
     println(`len after dedup: ${v.len()}`);
   };
   println(`disposed: ${g_disposed} (expected 3)`);
-  cond(
-    (g_disposed == i32(3)) => i32(0),
-    true => i32(1)
-  )
+  // `assert` is the oracle, not a returned exit code: `main` must return
+  // unit (the entry point's result has nowhere to go), and an assert aborts
+  // with rc=134, which the kernel sets and a sweep can actually see.
+  assert(g_disposed == i32(3), "every deduped element must be disposed exactly once");
 });
 export(main);

@@ -365,7 +365,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md`](./main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md) | OPEN | — |
+| [`main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md`](./fixed/main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md) | FIXED 2026-09-16 — non-`unit` `main` is rejected | cli-case |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
 | [`per-def-dependent-trial-resolves-stale-callee.md`](./per-def-dependent-trial-resolves-stale-callee.md) | — | — |
 | [`trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`](./trait-impl-method-contract-clauses-corrupt-operator-dispatch.md) | — | — |

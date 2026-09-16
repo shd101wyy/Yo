@@ -2,7 +2,7 @@
 { yield } :: import("std/async");
 { args } :: import("std/env");
 Shape :: enum(Circle(radius : i32), Rect(width : i32, height : i32));
-main :: (fn(io : Io) -> i32)({
+main :: (fn(io : Io) -> unit)({
   n := i32(args().len());
   s := if(n > 100, Shape.Circle(i32(1)), Shape.Rect(i32(4), i32(5)));
   result := Box(i32)(0);
@@ -21,6 +21,5 @@ main :: (fn(io : Io) -> i32)({
   });
   io.await(task, io);
   println(`result=${result.*}`);
-  i32(0)
 });
 export(main);
