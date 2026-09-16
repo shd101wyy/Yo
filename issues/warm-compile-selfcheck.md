@@ -73,7 +73,25 @@ is process-global EMIT-side once-only bookkeeping, catalogue:
 3. temp-name occurrence suffixes continue (`...521` vs `...520`).
 
 All three are per-EMISSION state that must reset (or generation-key) per
-compile — the next PR. The evaluator-identity state (module cache, prelude
+compile — the next PR.
+
+FIRST MECHANISMS FOUND (2026-09-16, for the purge PR):
+1. The missing Dispose trio (`yo_id_1564…`/`44648…`/`107466…` for
+   ArrayList(i32)): the COLLECT phase walks evaluator registries
+   (`g_specialized_originals`, spec caches — function_value.yo) that hold
+   PASS-1 entries; pass 2's walk sees "already specialized/served" state
+   and skips bodies whose emission only exists in PASS 1's C file. The
+   emit-side once-decisions must be keyed per compile (or the collect
+   inputs snapshotted per compile), not inferred from process-global
+   evaluator state.
+2. `header.type_id = 1` vs `0`: the ordinal comes from
+   `context.dispose_type_ids` (codegen_c.yo `emit_dispose_dispatch`) —
+   its population ORDER changed because the collect walk's inputs changed
+   (same root as 1).
+3. Temp-name occurrence suffixes: emission names draw from
+   `g_stable_occurrence`, shared with evaluator-identity mints — the split
+   into emission-local (reset per compile) vs identity (held) counters is
+   part of the same purge. The evaluator-identity state (module cache, prelude
 env, def registries) must KEEP being held — that holding is what made the
 strings re-import crash disappear.
 
