@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, trial_flag_get } :: import("./creators.yo");
-{ is_int_type, is_float_type, is_some_type, is_dyn_type } :: import("./guards.yo");
+{ is_int_type, is_float_type, is_some_type, is_dyn_type, is_extern_type_name } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
@@ -53,6 +53,14 @@ _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
   });
   false
 });
+/// TRUE when `t` is a `SomeT` standing in for an `extern(...)` opaque type.
+/// Extern-ness has no slot on `TypeValue`, so it is read from the
+/// `g_extern_type_names` side table by the SomeT's NAME — the same mechanism
+/// `type_contains_some_type` and `type_contains_some_type_for_codegen_param`
+/// use.
+_is_extern_some :: (fn(t : TypeValue) -> bool)(
+  match(t, .SomeT({ name : ies_nm }) => is_extern_type_name(ies_nm), _ => false)
+);
 /// Walk a SomeT's resolution-cell chain (cycle-guarded) to its terminal.
 /// Returns the input unchanged when the chain doesn't terminate concrete.
 /// Used by the Future-effect comparison + the wrapper-carrier concreteness
@@ -322,7 +330,30 @@ _compat_impl :: (
   // dyn's required traits (incl. expanded supertraits) cover the constraint.
   // Checked before the tag-mismatch guard since the tags differ.
   // Mirrors `areTypesCompatible` (src/types/compatibility.ts:662-684).
-  if(is_some_type(actual) && is_dyn_type(expected), {
+  // An `extern("Yo", X : Type)` opaque is a `SomeT` carrying NO required traits
+  // (yo-self's TypeValue has no `is_extern` slot; extern-ness lives in the
+  // `g_extern_type_names` side table). It is a CONCRETE C type wearing a SomeT
+  // as a representation stand-in, so it must unify with itself and nothing
+  // else — the same carve-out `type_contains_some_type` (types/utils.yo) and
+  // `type_contains_some_type_for_codegen_param` (evaluator/trait_checking.yo)
+  // already make, for the same reason.
+  //
+  // Without it the two `Dyn`<->`SomeT` rules below returned true VACUOUSLY for
+  // an extern: they walk the SomeT's required traits, and an empty list means
+  // the loop body never runs. So a `*(Dyn(Clone))` was silently accepted where
+  // libc's `*(FILE)` was expected, and — because pointer children compare with
+  // require_exact (see the Pointer arm) — the CTFE instantiation memo agreed
+  // too, handing `Option(*(Dyn(T)))` the `Option(*(FILE))` entry
+  // `std/libc/stdio` creates.
+  //
+  // The memo half of this — an ABSTRACT `Option(*(T))` entry serving a
+  // CONCRETE `Option(*(Dyn(Trait)))` request — is fixed in the memo itself
+  // (`_ctfe_args_equal`, evaluator/calls/comptime_fn.yo), not here: a `Dyn`
+  // receiver legitimately matches an UNCONSTRAINED `*(Self)` pointee, and
+  // pointer children always compare with require_exact=true, so exactness
+  // cannot tell the two cases apart.
+  // issues/an-extern-opaque-type-unifies-with-every-dyn.md
+  if((is_some_type(actual) && is_dyn_type(expected)) && !(_is_extern_some(actual)), {
     artt := match(
       actual,
       .SomeT(required_trait_types : rtt) => rtt,
@@ -365,7 +396,7 @@ _compat_impl :: (
   // method call (`value.print()` on `value : Dyn(TestDyn)`, self : `*(Self)`)
   // synthesized `*(Self)` vs the bare `dyn(...)` arg and failed the
   // tag-mismatch guard (tests/dyn.test.yo).
-  if(is_dyn_type(actual) && is_some_type(expected), {
+  if((is_dyn_type(actual) && is_some_type(expected)) && !(_is_extern_some(expected)), {
     erts := match(
       expected,
       .SomeT(required_trait_types : rtt) => rtt,
