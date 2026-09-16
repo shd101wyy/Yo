@@ -104,6 +104,32 @@ FIRST MECHANISMS FOUND (2026-09-16, for the purge PR):
 env, def registries) must KEEP being held — that holding is what made the
 strings re-import crash disappear.
 
+## RESOLVED 2026-09-16 — the warm pass emits byte-identical C for the whole gate battery
+
+The three fixes below closed the battery: trivial, alist AND strings all
+pass `--warm-selfcheck` (byte-identical, 0 FTT) on seed v0.2.35. The
+fixtures moved to the gate's must_pass column and are enforced green.
+
+1. **Dispose-trio re-insertion** (`_synthesize_and_register_dispose` +
+   the enum twin, codegen/functions/collection.yo): the dedup path
+   ("___dispose already registered for this type_key") skipped BOTH the
+   registration AND the per-compile emission insert. The registered
+   FuncVal is now re-inserted into the fresh compile's emit list via
+   `base.register_function` + `find_function_calls_in_expr`.
+2. **Emission/identity counter split** (utils.yo): temp variables and
+   labels now draw from `g_emission_occurrence`, reset at the start of
+   EVERY compile (they are per-artifact names); identity ids keep the
+   persistent `g_stable_occurrence` (cold-only reset — #702).
+3. **Codegen counter resets** (`ref_spill_counter_reset`,
+   `fresh_local_counts_reset`, `closure_capture_counter_reset`): the
+   remaining once-only emission counters reset per compile.
+
+What REMAINS warm-specific (the honest residue): a warm pass holds pass 1's
+evaluator universe, so identity-side state (module cache, prelude env,
+def/spec registries, ExprInfoTable) is shared — any new once-only EMIT
+decision added by future codegen must reset per compile or the gate will
+catch it (that is what the ratchet is for).
+
 ## The failure modes to fix (in order)
 
 1. **Warm evaluator throw (blocking)**: with the caches held, pass 2 dies
