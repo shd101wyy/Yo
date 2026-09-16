@@ -116,6 +116,7 @@ json :: import("std/encoding/json");
 { record_input_file, reset_input_files, input_files } :: import("./input_record.yo");
 { YoError, render_any_error, take_error_diagnostics } :: import("./error.yo");
 { Diagnostic } :: import("./diagnostics.yo");
+{ set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
   render_diagnostics_for_mode,
   set_error_format,
@@ -1005,6 +1006,7 @@ run_check :: (
   excludes := ArrayList(String).new();
   (watch : bool) = false;
   (watch_once : bool) = false;
+  (test_bodies : bool) = false;
   (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
@@ -1027,13 +1029,17 @@ run_check :: (
         watch_once = true;
         ai = (ai + usize(1));
       },
+      (a == "--test-bodies") => {
+        test_bodies = true;
+        ai = (ai + usize(1));
+      },
       (a == "--poll-ms") => {
         pv := _arg_val_req(argv, ai, String.from("--poll-ms"), exn);
         poll_ms = match(pv.parse_u64(), .Some(n) => n, .None => u64(200));
         ai = (ai + usize(2));
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH] [--watch | --watch-once] [--poll-ms N]`));
+        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH] [--test-bodies] [--watch | --watch-once] [--poll-ms N]`));
       },
       true => {
         target_path = a.clone();
@@ -1048,6 +1054,13 @@ run_check :: (
   if(files.len() == usize(0), {
     exn.throw(dyn(`check: no .yo files found at ${target_path}`));
   });
+  // `--test-bodies`: stop SWALLOWING errors from the test-body trial. Off by
+  // default because that trial has known false positives (it takes a
+  // different generic-inference path than the real `main` wrapper —
+  // src/evaluator/exprs/test.yo), but with the swallow a `.test.yo` whose body
+  // references an undefined name reports "evaluator OK", so only the
+  // ~30-minute suite finds out. plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.3.
+  set_strict_test_bodies(test_bodies);
   std_path := resolve_std_path();
   // Reset the per-module loader cache for this run. Keys are absolute
   // paths, so cache entries are valid for the whole run (a module

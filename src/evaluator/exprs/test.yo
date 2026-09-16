@@ -73,16 +73,43 @@ pragma(Pragma.AllowUnsafe);
 /// proceeds. Mirrors the `try { … } catch {}` in
 /// `src/evaluator/exprs/test.ts`. On success, attaches `original_body` to the
 /// body's `ExprInfo` when the body has unit type (also matching TypeScript).
+/// STRICT TEST BODIES (`yo check --test-bodies`,
+/// plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.3). Off by default: the
+/// swallow above exists because this trial takes a different
+/// generic-inference path than the real `main` wrapper, so it has known
+/// FALSE POSITIVES. On, the trial's error is re-raised through the caller's
+/// exception instead of being dropped.
+///
+/// Why the mode is worth having: with the swallow, `yo check` on a `.test.yo`
+/// reports "evaluator OK" for a body containing an undefined name — measured
+/// 2026-09-16 — so a test file can be arbitrarily broken and only the suite
+/// (~30 min) finds out. That is exactly how #717's four private-member
+/// reaches escaped `check` and surfaced one per suite run.
+(g_strict_test_bodies : bool) = false;
+set_strict_test_bodies :: (fn(on : bool) -> unit)({
+  g_strict_test_bodies = on;
+});
+strict_test_bodies :: (fn() -> bool)(g_strict_test_bodies);
 _trial_eval_test_body :: (
   fn(
     body : AstExpr,
     original_body : AstExpr,
     env : Environment,
-    ctx : EvalContext
+    ctx : EvalContext,
+    outer_exn : Exception
   ) -> unit
 )({
-  inner_exn := Exception(throw : (_err -> unwind(())));
-  evaluated := evaluate_expression_raw(body, env, ctx, inner_exn);
+  // Strict mode hands the trial the CALLER's exception, so a real error
+  // propagates; the default builds the swallowing one. A `->` function
+  // cannot capture `outer_exn`, so the choice is made here rather than
+  // inside a forwarding handler.
+  evaluated := cond(
+    g_strict_test_bodies => evaluate_expression_raw(body, env, ctx, outer_exn),
+    true => {
+      inner_exn := Exception(throw : (_err -> unwind(())));
+      evaluate_expression_raw(body, env, ctx, inner_exn)
+    }
+  );
   body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
   match(
     body_info_opt,
@@ -266,7 +293,7 @@ evaluate_test :: (
   // Trial-evaluate the body (best effort; errors are swallowed — see the
   // helper). This surfaces obvious mistakes early; the authoritative check
   // is the test runner's compile step. Matches TypeScript's `try/catch`.
-  _trial_eval_test_body(test_body_expr, original_test_body_expr, env, ctx);
+  _trial_eval_test_body(test_body_expr, original_test_body_expr, env, ctx, exn);
   // Restore context.
   ctx.is_evaluating_function_body_or_async_block = old_func_ctx;
   // Restore env to its pre-test frame state: pops the implicit-io frame and
@@ -282,3 +309,4 @@ evaluate_test :: (
   expr
 });
 export(evaluate_test);
+export(set_strict_test_bodies, strict_test_bodies);
