@@ -31,10 +31,11 @@
 //! (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`, now a
 //! diagnostic rather than a silent zero). `usize`/`isize` deliberately have
 //! none, because their width is the target's. The compiler support for
-//! collapsing them landed on 2026-09-16 — an associated constant now resolves
-//! as an `Array` length, so `-> Array(u8, T.BYTES)` works
-//! (`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` steps 1-2). The
-//! collapse itself waits on a RELEASE, because the seed compiles `std/`;
+//! collapsing them landed on 2026-09-16: an associated constant now resolves
+//! as an `Array` length, so a signature may say `-> Array(u8, T.BYTES)` and
+//! get the receiver's own width
+//! (`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` steps 1-2).
+//! The collapse itself waits on a RELEASE, because the seed compiles `std/`;
 //! after that these become one blanket impl and `usize`/`isize` gain them,
 //! which is additive for callers but changes where the methods are defined.
 // === Foundational traits ===
