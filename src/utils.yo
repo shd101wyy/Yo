@@ -23,6 +23,8 @@
 { rune, String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ Path } :: import("std/path");
+{ cwd } :: import("std/env");
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Unicode escape scanning — shared by the lexer (template strings, and
@@ -697,3 +699,94 @@ export(
   profile_fn_std,
   profile_reset
 );
+
+// ---------------------------------------------------------------------------
+// Module identity — one spelling for the two forms a module path takes.
+// ---------------------------------------------------------------------------
+/// The canonical spelling of a module path. A demand-loaded module's tokens
+/// and every `env.module_path` carry the `file://<abs>` cache key, but the
+/// ENTRY module's tokens carry the path exactly as typed on the command line
+/// (`src/lib.yo`, so diagnostics stay relative) — so two paths naming the
+/// same file must never be compared with `==` (AGENTS.md; the
+/// `--static-library exports no symbols` bug was exactly that). Strip the
+/// scheme, absolutize against the cwd, normalize.
+canonical_module_path :: (fn(p : String) -> String)({
+  stripped := p.replace(String.from("file://"), String.new());
+  abs := if(Path.new(stripped.clone()).is_absolute(), stripped, {
+    cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+    Path.new(cwd_str).join(Path.new(stripped)).to_string()
+  });
+  Path.new(abs).normalize().to_string()
+});
+/// The directory a module path lives in (canonical spelling).
+canonical_module_dir :: (fn(p : String) -> String)(
+  match(Path.new(canonical_module_path(p)).parent(), .Some(d) => d.to_string(), .None => String.new())
+);
+/// MEMBER VISIBILITY (plans/reference/MEMBER_VISIBILITY.md, decided
+/// 2026-09-16): a struct field or impl method whose name starts with `_` is
+/// private to the module that declares its type or impl AND to that module's
+/// SIBLINGS — every module in the same directory. The sibling rule is what
+/// the tree's own usage requires: every caller of `Mutex`'s `_raw_lock` /
+/// `_raw_unlock` / `_raw_handle_ptr` lives in `std/sync/` beside `mutex.yo`.
+/// No new syntax: the convention the tree already writes is what is enforced,
+/// so `std/` needs no seed-gated marker to adopt it.
+is_private_member_name :: (fn(name : String) -> bool)({
+  if(!name.starts_with(String.from("_")), {
+    return(false);
+  });
+  // `_0`, `_1`, … are POSITIONAL labels (tuple-shaped structs, `derive`d
+  // payload records), not a privacy marker.
+  rest := name.substring(usize(1), name.len());
+  if(rest.len() == usize(0), {
+    return(false);
+  });
+  (all_digits : bool) = true;
+  (i : usize) = usize(0);
+  while(i < rest.len(), {
+    b := rest.byte_at(i);
+    if((b < u8(48)) || (b > u8(57)), {
+      all_digits = false;
+    });
+    i = (i + usize(1));
+  });
+  !all_digits
+});
+/// True when code in `access_module` may touch a private member declared in
+/// `decl_module`: the same file, or a file in the same directory.
+member_visible_from :: (fn(decl_module : String, access_module : String) -> bool)({
+  d := canonical_module_path(decl_module.clone());
+  a := canonical_module_path(access_module.clone());
+  if(d == a, {
+    return(true);
+  });
+  canonical_module_dir(decl_module) == canonical_module_dir(access_module)
+});
+/// True when `label` names a private member that code in `access_module` may
+/// NOT touch: the name is `_`-prefixed and the declaring module (`Some`) is
+/// neither `access_module` nor one of its same-directory siblings. `None`
+/// (no declaring module recorded — builtins, source-namespace module structs,
+/// trait-declared signatures) never blocks, and names starting with `___`
+/// are compiler-reserved (the synthesized RC hooks) and never private.
+private_member_blocked :: (
+  fn(label : String, decl_module_opt : Option(String), access_module : String) -> bool
+)({
+  if(!is_private_member_name(label.clone()) || label.starts_with(String.from("___")), {
+    return(false);
+  });
+  // A synthesized token has no lexical module — `synthetic_token`,
+  // `placeholder_token`'s `"_"`, and the `auto-generated://` pseudo-path
+  // `generate_expr_from_code` stamps on code the compiler writes for itself
+  // (type_fns.yo's `VariantInfo(...)` / `TypeFieldInfo(...)` constructions):
+  // compiler-generated accesses are never blocked.
+  if((access_module.len() == usize(0)) || (access_module == "_") || access_module.starts_with(
+    String.from("auto-generated://")
+  ), {
+    return(false);
+  });
+  match(
+    decl_module_opt,
+    .Some(d) => !member_visible_from(d, access_module),
+    .None => false
+  )
+});
+export(canonical_module_path, canonical_module_dir, is_private_member_name, member_visible_from, private_member_blocked);

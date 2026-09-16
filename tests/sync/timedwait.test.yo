@@ -1,35 +1,27 @@
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 /// Behavioural coverage for the two runtime primitives the compiler emits for
-/// `Mutex.try_lock` / `Condvar.wait_timeout` / `RwLock.try_*`:
+/// `Mutex.try_with_lock` / `Cond.wait_timeout` / `RwLock.try_*`:
 /// `__yo_mutex_trylock` and `__yo_cond_timedwait`.
 ///
-/// std/ cannot use them until the SEED ships them, so this file is what proves
-/// they WORK before that release — `tests/` is not seed-gated and is compiled
-/// by the tree's own compiler on every CI platform, which is exactly the
-/// coverage a `static inline` with no caller would otherwise lack.
-pragma(Pragma.AllowUnsafe);
+/// Reached through the PUBLIC std surface (`try_with_lock`,
+/// `wait_timeout_with`) rather than the raw handles: `Mutex._raw_handle_ptr`
+/// and friends are private to `std/sync/` (member visibility —
+/// plans/reference/MEMBER_VISIBILITY.md), and the public methods are exactly
+/// the callers whose behaviour these primitives must carry.
 { assert } :: import("std/assert");
 { Mutex } :: import("std/sync/mutex");
 { Cond } :: import("std/sync/cond");
 { Channel } :: import("std/sync/channel");
 { Thread } :: import("std/thread");
 { Instant } :: import("std/time/instant");
+{ Duration } :: import("std/time/duration");
 { eprintln } :: import("std/fmt");
-extern(
-  "Yo",
-  __YO_THREAD_SYNC_TYPE : Type,
-  __YO_COND_TYPE : Type,
-  __yo_mutex_trylock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> bool),
-  __yo_cond_timedwait : (fn(cv : *__YO_COND_TYPE, mutex : *__YO_THREAD_SYNC_TYPE, timeout_ns : i64) -> bool)
-);
 test("__yo_mutex_trylock acquires an uncontended mutex", {
   m := Mutex(i64).new(i64(0));
-  assert(__yo_mutex_trylock(m._raw_handle_ptr()), "trylock succeeds on a free mutex");
-  m._raw_unlock();
-  // And again, so a successful trylock is a real acquisition that unlock
-  // released — not a no-op that always answers true.
-  assert(__yo_mutex_trylock(m._raw_handle_ptr()), "trylock succeeds again after unlock");
-  m._raw_unlock();
+  assert(m.try_with_lock(_v => ()).is_some(), "trylock succeeds on a free mutex");
+  // And again, so a successful trylock is a real acquisition that the guard's
+  // unlock released — not a no-op that always answers true.
+  assert(m.try_with_lock(_v => ()).is_some(), "trylock succeeds again after unlock");
 });
 test("__yo_mutex_trylock fails while ANOTHER thread holds the mutex", {
   // Cross-thread on purpose: a same-thread re-lock diverges by platform
@@ -39,19 +31,18 @@ test("__yo_mutex_trylock fails while ANOTHER thread holds the mutex", {
   held := Channel(i32).new(usize(1));
   release := Channel(i32).new(usize(1));
   holder := Thread(unit).spawn(io => {
-    m._raw_lock();
-    held.send(i32(1));
-    release.recv();
-    m._raw_unlock();
+    m.with_lock(_v => {
+      held.send(i32(1));
+      release.recv();
+    });
   });
   // Block until the other thread is definitely holding it.
   held.recv();
-  assert(!__yo_mutex_trylock(m._raw_handle_ptr()), "trylock fails on a held mutex");
+  assert(m.try_with_lock(_v => ()).is_none(), "trylock fails on a held mutex");
   release.send(i32(1));
   holder.join();
   // Once released, it is acquirable again.
-  assert(__yo_mutex_trylock(m._raw_handle_ptr()), "trylock succeeds after the holder released");
-  m._raw_unlock();
+  assert(m.try_with_lock(_v => ()).is_some(), "trylock succeeds after the holder released");
 });
 test("__yo_cond_timedwait times out, and actually waits that long", {
   // The elapsed check is the load-bearing half. A deadline whose tv_nsec is
@@ -60,11 +51,9 @@ test("__yo_cond_timedwait times out, and actually waits that long", {
   // pass over a broken carry. Only the elapsed time distinguishes them.
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
-  m._raw_lock();
   start := Instant.now();
-  signalled := __yo_cond_timedwait(&cv.cv, m._raw_handle_ptr(), i64(50000000));
+  signalled := m.with_lock(_v => cv.wait_timeout_with(m, Duration.from_nanos(i64(50000000))));
   waited := start.elapsed();
-  m._raw_unlock();
   assert(!signalled, "nobody signalled, so it must report a timeout");
   eprintln(`  waited ${waited.as_millis()}ms for a 50ms timeout`);
   // 40ms rather than 50ms: a platform may round the deadline down to its timer
@@ -80,17 +69,15 @@ test("__yo_cond_timedwait returns early when signalled", {
     // mutex is what guarantees that: the waiter releases it atomically on
     // entering the wait, so acquiring it here means the wait has begun.
     ready.recv();
-    m._raw_lock();
-    cv.signal();
-    m._raw_unlock();
+    m.with_lock(_v => cv.signal());
   });
-  m._raw_lock();
-  ready.send(i32(1));
   start := Instant.now();
-  // A 10s budget that must not be consumed.
-  signalled := __yo_cond_timedwait(&cv.cv, m._raw_handle_ptr(), i64(10000000000));
+  signalled := m.with_lock(_v => {
+    ready.send(i32(1));
+    // A 10s budget that must not be consumed.
+    cv.wait_timeout_with(m, Duration.from_secs(i64(10)))
+  });
   waited := start.elapsed();
-  m._raw_unlock();
   signaller.join();
   assert(signalled, "a signalled wait does not report a timeout");
   assert(waited.as_secs() < i64(5), `returned in ${waited.as_millis()}ms, well under the 10s budget`);
@@ -102,21 +89,19 @@ test("__yo_cond_timedwait honours a SUB-millisecond timeout", {
   // instant false that happens to look the same.
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
-  m._raw_lock();
-  signalled := __yo_cond_timedwait(&cv.cv, m._raw_handle_ptr(), i64(100000));
-  m._raw_unlock();
+  signalled := m.with_lock(_v => cv.wait_timeout_with(m, Duration.from_micros(i64(100))));
   assert(!signalled, "an unsignalled sub-millisecond wait still times out");
 });
 test("__yo_cond_timedwait treats a zero and a negative timeout as 'do not block'", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
-  m._raw_lock();
   start := Instant.now();
-  assert(!__yo_cond_timedwait(&cv.cv, m._raw_handle_ptr(), i64(0)), "zero times out");
-  // A negative timeout is clamped to zero rather than becoming a very long
-  // wait through an unsigned conversion.
-  assert(!__yo_cond_timedwait(&cv.cv, m._raw_handle_ptr(), i64(-1)), "negative times out");
+  m.with_lock(_v => {
+    assert(!cv.wait_timeout_with(m, Duration.zero()), "zero times out");
+    // A negative timeout is clamped to zero rather than becoming a very long
+    // wait through an unsigned conversion.
+    assert(!cv.wait_timeout_with(m, Duration.from_nanos(i64(-1))), "negative times out");
+  });
   waited := start.elapsed();
-  m._raw_unlock();
   assert(waited.as_secs() < i64(2), `both returned promptly, in ${waited.as_millis()}ms`);
 });

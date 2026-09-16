@@ -1,0 +1,58 @@
+// MEMBER VISIBILITY (plans/reference/MEMBER_VISIBILITY.md, decided
+// 2026-09-16): a `_`-prefixed struct field or impl method is private to the
+// module that declares its type/impl AND to that module's same-directory
+// siblings. This file lives in tests/ while the fixture lives in
+// tests/member_visibility/, so every direct use of a private member from HERE
+// is the cross-directory case the compiler must reject (E0405), and every use
+// through tests/member_visibility/sibling.yo is the legal sibling case.
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+{ Counter, Cell } :: import("./member_visibility/counter.yo");
+{ sibling_peek, sibling_bump, sibling_static_bump, sibling_build, sibling_destructure, sibling_spread } :: import("./member_visibility/sibling.yo");
+{ sibling_cell_peek, sibling_cell_field } :: import("./member_visibility/sibling.yo");
+test("the public surface works from another directory", {
+  c := Counter.new(String.from("clicks")).add(i32(2)).add(i32(3));
+  assert(c.count() == i32(5), "public methods compose over the private state");
+  assert(c.label == "clicks", "public fields stay readable");
+  { label } := c;
+  assert(label == "clicks", "public fields stay destructurable");
+});
+test("same-directory siblings may use private members", {
+  c := sibling_build(i32(10));
+  assert(sibling_peek(c) == i32(10), "sibling reads the private field");
+  assert(sibling_bump(c, i32(1)).count() == i32(11), "sibling calls the private method");
+  assert(sibling_static_bump(c, i32(2)).count() == i32(12), "sibling calls it in static form");
+  assert(sibling_destructure(c) == i32(10), "sibling destructures the private field");
+  assert(sibling_spread(c) == i32(10), "sibling spreads the private field");
+});
+test("a private field is neither readable nor writable from another directory", {
+  (c : Counter) = Counter.new(String.from("x"));
+  comptime_expect_error(c._count);
+  comptime_expect_error(c._count = i32(5));
+  assert(c.count() == i32(0), "the rejected writes never happened");
+});
+test("a private method is not callable from another directory", {
+  c := Counter.new(String.from("x"));
+  comptime_expect_error(c._bump(i32(1)));
+  comptime_expect_error(Counter._bump(c, i32(1)));
+  assert(c.add(i32(1)).count() == i32(1), "the public wrapper still reaches it");
+});
+test("a type with a private field is not literal-constructible from another directory", {
+  comptime_expect_error(Counter(_count : i32(1), label : String.from("x")));
+  assert(sibling_build(i32(1)).count() == i32(1), "the sibling constructor is the door");
+});
+test("a private field is not destructurable from another directory", {
+  c := Counter.new(String.from("x"));
+  comptime_expect_error({ _count } := c);
+  comptime_expect_error({ ... } := c);
+  { label : l2 } := c;
+  assert(l2 == "x", "naming only public fields still works");
+});
+test("generic-impl methods carry their declaring module", {
+  cell := Cell(i32).wrap(i32(7));
+  assert(cell.get() == i32(7), "public generic method");
+  assert(sibling_cell_peek(cell) == i32(7), "sibling calls the private generic method");
+  assert(sibling_cell_field(cell) == i32(7), "sibling reads the private generic field");
+  comptime_expect_error(cell._peek());
+  comptime_expect_error(cell._inner);
+});

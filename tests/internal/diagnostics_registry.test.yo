@@ -145,6 +145,17 @@ test("lookup a known code", {
     .None => ()
   );
 });
+test("lookup the member-visibility code", {
+  match(
+    lookup_explain(String.from("E0405")),
+    .Some(e) => {
+      assert(e.code == "E0405", "E0405 round-trips");
+      assert(e.title.contains(String.from("private")), "E0405 title names privacy");
+      assert(e.explanation.contains(String.from("`_`")), "E0405 explanation names the prefix");
+    },
+    .None => assert(false, "E0405 must resolve")
+  );
+});
 test("lookup an unknown code is None", {
   assert(lookup_explain(String.from("E9999")).is_none(), "E9999 unknown");
 });
@@ -152,7 +163,8 @@ test("suggest_code finds near misses", {
   // E1404 is NOT a registered code and E0404 is its UNIQUE nearest entry —
   // no tie for first-listed-wins to hide behind. (E0402, the original pick,
   // IS registered: suggest_name deliberately returns None when the target
-  // itself exists; E0405 would tie E0005 and E0404 at distance 1 with the
+  // itself exists — and so is E0405 since member visibility landed; as a
+  // typo it would have tied E0005 and E0404 at distance 1 with the
   // earlier-listed E0005 winning. The far miss grew a digit too: E9999 is
   // distance 3 from the E09xx family — within the threshold — since that
   // family landed.)

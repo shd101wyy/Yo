@@ -336,6 +336,15 @@ impl(
   fd : (fn(self : Self) -> i32)(
     self._fd
   ),
+  /// Give up ownership of the descriptor WITHOUT closing it — Rust's
+  /// `IntoRawFd`. This handle is retired (a later `close` or its dispose is a
+  /// no-op) and the caller owns the fd from here, typically to hand it to
+  /// `File.from_fd` or another wrapper; reading through the retired handle is
+  /// a programming error.
+  into_fd : (fn(self : Self) -> i32)({
+    self._is_closed = true;
+    self._fd
+  }),
   /// Get the path this file was opened with.
   path : (fn(self : Self) -> Path)(
     self._path
@@ -583,7 +592,7 @@ is_file :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
     r := cond(
       (result < i32(0)) => false,
       true => {
-        sx := Statx(_buf_ptr : buf, _buf_size : buf_size);
+        sx := Statx(buf_ptr : buf, buf_size : buf_size);
         sx.is_file()
       }
     );
@@ -611,7 +620,7 @@ is_dir :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
     r := cond(
       (result < i32(0)) => false,
       true => {
-        sx := Statx(_buf_ptr : buf, _buf_size : buf_size);
+        sx := Statx(buf_ptr : buf, buf_size : buf_size);
         sx.is_directory()
       }
     );

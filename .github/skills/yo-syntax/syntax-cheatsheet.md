@@ -150,7 +150,7 @@ masked := ((A | B) | C);
 - **Byte-buffer params:** for SAFE public signatures use owned collections (`ArrayList(u8)`/`String`). For pragma'd internals/FFI, `RawSlice(u8)` carries ptr+len (construct with `RawSlice(u8)(ptr : &(buf(0)), len : n)`; read `.ptr`/`.len` fields). The `_cstr` family is the explicit raw-pointer variant — those names signal raw-pointer use by contract.
 - **Audit public stdlib safety with `yo public-safe-report [path]`.** Flags every top-level public `fn(...)` whose params or return type expose `*(T)` outside an `extern(...)` block. Skips FFI-by-construction directories (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`) and names that signal raw-pointer use by contract (`*_cstr`, `*_ptr`, `*_raw`, `raw_*`, `from_raw_parts`, `as_ptr`, `argv`, `argc`). Currently reports 0 findings on `./std` and `./src`; keep it that way when adding new APIs.
 - **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/archive/EXTERN_UNSAFE_WRAP.md`.
-- **A `c_include` opaque type is emitted by its bare name — a C `struct` tag is NOT added.** `tm : Type` from `<time.h>` renders as `tm*` in the C, which clang rejects (`must use 'struct' tag to refer to type 'tm'`); the same holds for any struct-tagged libc type (`std/libc/sys/stat.yo` already notes it for `stat`). Pass such objects as `*(void)` — declare the binding's pointer parameters/returns as `*(void)` and cast the buffer with `(*void)(&buf(usize(0)))`; C converts `void*` to and from `struct tm*` implicitly. Do not declare a prototype-conflicting signature for a name the header already declares (`std/libc/time.yo`'s `localtime_r`, 2026-09-06).
+- **A `c_include` opaque type is emitted by its bare name — a C `struct` tag is NOT added.** `tm : Type` from `<time.h>` renders as `tm*` in the C, which clang rejects (`must use 'struct' tag to refer to type 'tm'`). Give the C spelling explicitly: `tm_buf : c_type("struct tm")` lowers the SomeT `tm_buf` to `struct tm`, so `*tm_buf` is `struct tm*` (2026-09-15, `tests/c_include_c_type.test.yo`; SEED-GATED for `std/` until a release carries it — `std/libc/sys/stat.yo` and `time.yo` keep `*(void)` until then). Do not declare a prototype-conflicting signature for a name the header already declares (`std/libc/time.yo`'s `localtime_r`, 2026-09-06).
 - **`extern("Yo", …)` runtime symbols come from DIFFERENT preambles, and not all are always emitted.** `__yo_get_thread_id` is defined in the ASYNC runtime core (`src/codegen/async/runtime_core.yo`), which a program without `io` never emits — std code that calls it makes every such program fail to link (`undefined symbol`, after an `implicit-function-declaration` warning). For thread identity in std use `__yo_thread_self()` (a macro in the always-present threading preamble, `src/codegen/types/generation.yo`), declared as `__yo_thread_self : (fn() -> usize)`. Before leaning on any `__yo_*` runtime function from std, `grep -rn "static .*NAME" src/codegen/` and check WHICH preamble defines it and when that preamble is emitted; then compile a probe whose `main` has NO `io` (`std/thread.yo`, 2026-09-06).
 - **Static-str model (post slice-rework):** builtin `Slice(T)`, `as_str()`, `as_slice()` are DELETED. `str` = static string view (no flow constraints); ranges COPY (`arr(a..b)` → ArrayList, String range → String, str range → str window); safe windows = `ListView(T)`; pragma'd ptr+len = `RawSlice(T)` (naming any raw-ptr-carrying type in an annotation requires the pragma). See `docs/en-US/FLOWABILITY.md`.
 - **KNOWN MISCOMPILE — a trait method carrying its own `generic(...)` reads a PRIMITIVE `inout(self)` as a POINTER (OPEN, 2026-08-25).** `g : (fn(generic(S : Type), inout(self) : Self, dummy : S) -> u64)(u64(self))` on `i32` returns the receiver's ADDRESS, not `42`. Silent — no diagnostic, no crash, and `-Wint-conversion` cannot see it because the emitted cast is explicit (`(uint64_t)(self)` where `(*self)` is meant). Needs all three of: the method's own `generic(...)`, an `inout(self)` receiver, and a primitive receiver type — a STRUCT receiver reads its fields correctly, and a by-value `self` is fine. Until it is fixed, write such a method with a by-value `self`, or keep the receiver a struct. `issues/fixed/generic-trait-method-reads-primitive-inout-self-as-pointer.md` (reproducer under `issues/repros/`).
@@ -400,8 +400,20 @@ println(erased);
 | Function / variable         | `snake_case`       | `safe_divide`      |
 | Trait / type / enum variant | `PascalCase`       | `ToString`, `Some` |
 | Constant                    | `UPPER_SNAKE_CASE` | `MAX_SIZE`         |
+| Private field / method      | `_snake_case`      | `_count`, `_raw_lock` |
 
 Use 2-space indentation.
+
+**The `_` prefix is ENFORCED member visibility (E0405, landed 2026-09-16).** A
+`_`-prefixed struct field or impl method is usable only from the module that
+declares the type/impl and from files in the same directory. From anywhere
+else: the field cannot be read, written or destructured (the `{ ... }` spread
+included), the method cannot be called (instance or `Type._m(...)` static
+form, inherent or generic-impl), and a struct with ANY private field cannot be
+built by literal — go through a public constructor / method. `___`-prefixed
+names are compiler-reserved and positional `_0`/`_1` labels are not private; `export(...)` still governs
+module-level bindings regardless of name. Write a fixture in another
+directory to test the rejection (`tests/member_visibility.test.yo`).
 
 ## Recursion and loops
 

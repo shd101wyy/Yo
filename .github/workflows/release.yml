@@ -852,6 +852,8 @@ jobs:
           mkdir -p "$BUNDLE/bin"
           if [ -f yo-seed.exe ]; then cp yo-seed.exe "$BUNDLE/bin/yo.exe"; else cp yo-seed "$BUNDLE/bin/yo"; fi
           cp -R std "$BUNDLE/std"
+          # Sibling tests (`std/**/*.test.yo`) are for `yo test ./std`, not for users.
+          find "$BUNDLE/std" -name "*.test.yo" -delete
           # vendor/mimalloc must ship as a SIBLING of std (see the native
           # legs' comment).
           mkdir -p "$BUNDLE/vendor"
@@ -1147,6 +1149,8 @@ jobs:
           mkdir -p "$BUNDLE/bin"
           cp yo-musl "$BUNDLE/bin/yo"
           cp -R std "$BUNDLE/std"
+          # Sibling tests (`std/**/*.test.yo`) are for `yo test ./std`, not for users.
+          find "$BUNDLE/std" -name "*.test.yo" -delete
           # vendor/mimalloc must ship as a SIBLING of std: both compilers
           # resolve it as dirname(std)/vendor, and mimalloc is the DEFAULT
           # allocator, so a bundle without it cannot compile anything.

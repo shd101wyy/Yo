@@ -1,0 +1,10 @@
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+{ Counter } :: import("./lib/counter.yo");
+main :: (fn() -> unit)({
+  _c := Counter.new(String.from("clicks")).add(i32(1));
+});
+export(main);
+test("in-file beside a program's main: the batch supplies its own main", {
+  assert(Counter.new(String.from("x")).add(i32(4)).count() == i32(4), "the program's module is usable from its own test");
+});

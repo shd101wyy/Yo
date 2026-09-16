@@ -119,17 +119,18 @@ impl(
   capacity : (fn(self : Self) -> usize)(
     self._map.capacity
   ),
-  /// The backing table's SipHash keys. Internal — exposed so the key-survival
-  /// tests can assert the delegation is real.
-  _k0 : (fn(self : Self) -> u64)(
+  /// The backing table's SipHash keys — the set's twin of `HashMap`'s public
+  /// `k0` / `k1` fields (the key-survival tests assert the delegation is real).
+  k0 : (fn(self : Self) -> u64)(
     self._map.k0
   ),
-  _k1 : (fn(self : Self) -> u64)(
+  k1 : (fn(self : Self) -> u64)(
     self._map.k1
   ),
-  /// Tombstoned slots in the backing table. Internal — exposed for the
-  /// reclamation tests, which now verify that the delegation is real.
-  _tombstones : (fn(self : Self) -> usize)(
+  /// Tombstoned slots in the backing table — a read-only diagnostic, the
+  /// set's twin of `HashMap`'s public `tombstones` field (the reclamation
+  /// tests assert the load invariant through it).
+  tombstones : (fn(self : Self) -> usize)(
     self._map.tombstones
   ),
   /// True when the set holds no elements.

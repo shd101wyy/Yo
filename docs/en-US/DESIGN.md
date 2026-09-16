@@ -783,6 +783,46 @@ p := Point(3, 4);
 p.set_x(10);  // No `&(p)` required — the compiler inserts it
 ```
 
+### Private members
+
+A struct field or impl method whose name starts with `_` is **private**, and the compiler enforces it. Such a member can be read, written, called, constructed or destructured only from the module that declares the type (or the impl) and from that module's **same-directory siblings**. Everything else is public. There is no keyword: the underscore convention *is* the visibility rule.
+
+```rust
+// counter.yo
+Counter :: struct(_count : i32, label : String);
+impl(Counter,
+  new : (fn(label : String) -> Counter)(Counter(_count : i32(0), label : label)),
+  _bump : (fn(self : Self, by : i32) -> Counter)(
+    Counter(_count : (self._count + by), label : self.label.clone())
+  ),
+  add : (fn(self : Self, by : i32) -> Counter)(self._bump(by)),
+  count : (fn(self : Self) -> i32)(self._count)
+);
+export(Counter);
+
+// app/main.yo — a different directory
+{ Counter } :: import("../counter.yo");
+c := Counter.new(String.from("clicks")).add(i32(2));
+c.count();                                  // OK — public method
+c.label;                                    // OK — public field
+c._count;                                   // error[E0405]: Field "_count" of Counter is private to its declaring module
+c._bump(i32(1));                            // error[E0405]: Method "_bump" of Counter is private to its declaring module
+Counter(_count : i32(9), label : c.label);  // error[E0405]: Cannot construct Counter outside its declaring module: field "_count" is private
+{ _count } := c;                            // error[E0405]: Cannot destructure field "_count" of Counter outside its declaring module: it is private
+{ label } := c;                             // OK — naming only public fields
+```
+
+The rules that follow from this:
+
+- A type with any private field needs a constructor function (`Counter.new`) for outside callers, and outside code reads such a type only through its methods. The `{ ... }` spread is rejected too, so a private field never leaks through it.
+- To test private members, put the test file **next to the module** (`counter.test.yo` beside `counter.yo`): a sibling may reach them, exactly like Rust's in-file `#[cfg(test)] mod tests`, while tests in another directory exercise the public surface. `yo test <dir>` runs sibling tests; a normal build treats `test(...)` as a no-op.
+- The sibling rule makes a directory a unit: `std/sync/cond.yo` may call the `_raw_handle_ptr` method that `std/sync/mutex.yo` declares, while `std/thread.yo` may not.
+- The static form `Counter._bump(c, i32(1))` is checked exactly like the instance call, and methods provided by a generic `impl(generic(T), ...)` count as declared where that impl is written.
+- Names starting with `___` are reserved for compiler-synthesized members and are never private, and positional labels `_0`, `_1`, … (tuple-shaped structs) are not private either.
+- Module-level bindings are unaffected: `export(...)` remains the only control over what a module publishes, whatever the binding is called. Trait *signatures* are not members of a type and are not checked either.
+
+Run `yo explain E0405` for the diagnostic.
+
 ### recur
 
 Use `recur` to call the function recursively.  

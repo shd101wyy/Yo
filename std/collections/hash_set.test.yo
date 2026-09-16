@@ -1,0 +1,41 @@
+// SIBLING TEST — lives beside hash_set.yo on purpose. Member visibility
+// (plans/reference/MEMBER_VISIBILITY.md) makes `_`-prefixed members usable
+// only from the declaring module and its same-directory siblings, so this is
+// Yo's shape of Rust's in-file `#[cfg(test)] mod tests`: a test that may reach
+// the private `_map` directly, where tests/collections/hash_set.test.yo may
+// not. `yo test ./std` runs it; `yo check ./std` and normal builds see the
+// `test(...)` declarations as no-ops; release bundles drop `*.test.yo`.
+{ assert } :: import("std/assert");
+{ HashSet } :: import("./hash_set");
+test("HashSet delegates to one backing HashMap, reachable as the private _map", {
+  set := HashSet(i32).new();
+  set.insert(i32(1));
+  set.insert(i32(2));
+  assert(set._map.len() == usize(2), "the set's length IS the backing map's");
+  assert(set._map.capacity == set.capacity(), "capacity() reads the backing map's capacity field");
+  assert(set._map.contains_key(i32(2)), "membership IS key presence in the backing map");
+});
+test("HashSet.remove of an isolated element leaves no tombstone in the backing map", {
+  set := HashSet(i32).new();
+  set.insert(i32(7));
+  set.remove(i32(7));
+  assert(set._map.tombstones == usize(0), "a slot whose successor is EMPTY goes straight back to EMPTY");
+  assert(set._map.len() == usize(0));
+});
+test("HashSet churn keeps the backing map's live + tombstones under the load threshold", {
+  set := HashSet(i32).new();
+  (k : i32) = i32(0);
+  while(k < i32(2000), k = (k + i32(1)), {
+    set.insert(k);
+  });
+  cap0 := set._map.capacity;
+  (n : i32) = i32(0);
+  while(n < i32(20000), n = (n + i32(1)), {
+    assert(set.remove(n), "the oldest element is present");
+    set.insert(i32(2000) + n);
+    threshold := ((set._map.capacity * usize(7)) / usize(8));
+    assert((set._map.len() + set._map.tombstones) <= threshold, "live + tombstones never exceeds the load threshold");
+  });
+  assert(set._map.len() == usize(2000), "size is unchanged by churn");
+  assert(set._map.capacity == cap0, "a table that is mostly tombstones is rehashed in place, not doubled");
+});

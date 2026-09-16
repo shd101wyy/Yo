@@ -55,6 +55,55 @@ purged or generation-keyed per compile so warm-pass mints unify with — or
 freshly replace — the cached identities, and byte-identical warm emission
 follows from that same purge.
 
+## UPDATE 2026-09-16 (bug 5 — the big one): pass 1's own `mm_reset` wiped the universe
+
+The strings fixture's re-import crash had nothing to do with intern
+identity: **pass 1 of the selfcheck ran its trailing `mm_reset()`** (the
+gate only protected warm passes), so pass 2 started from an EMPTY module
+cache and re-evaluated std/string against a half-warm evaluator. Fixed with
+`--warm-first` (pass 1: cold start, NO end-reset; pass 2: --warm-reuse as
+before). Measured after the fix: the strings fixture no longer throws —
+both remaining reds are pure EMISSION divergence with ZERO FTT markers
+(strings 107425 vs 102376 bytes; alist 63892 vs 61912). The remaining churn
+is process-global EMIT-side once-only bookkeeping, catalogue:
+
+1. a Dispose/dup method trio emitted in pass 1 is SKIPPED in pass 2 (an
+   "already emitted" set shared across passes);
+2. a runtime `header.type_id` ordinal continues across passes (1 vs 0);
+3. temp-name occurrence suffixes continue (`...521` vs `...520`).
+
+All three are per-EMISSION state that must reset (or generation-key) per
+compile — the next PR.
+
+NEGATIVE FINDING (2026-09-16): `should_skip_function_codegen` is NOT the
+mechanism — traced with a gated verdict print: the trio's member returns
+"emit" in BOTH passes. The trio never REACHES pass 2's collection list:
+derive/trait-method registrations made while a module evaluated are
+collected for emission only from that module's own evaluation walk; a
+CACHE-HIT module's registrations are invisible to the collector. The fix
+must collect derive/trait-method emissions from the type registry for all
+types in the compiled set (registry-driven, not walk-driven).
+
+FIRST MECHANISMS FOUND (2026-09-16, for the purge PR):
+1. The missing Dispose trio (`yo_id_1564…`/`44648…`/`107466…` for
+   ArrayList(i32)): the COLLECT phase walks evaluator registries
+   (`g_specialized_originals`, spec caches — function_value.yo) that hold
+   PASS-1 entries; pass 2's walk sees "already specialized/served" state
+   and skips bodies whose emission only exists in PASS 1's C file. The
+   emit-side once-decisions must be keyed per compile (or the collect
+   inputs snapshotted per compile), not inferred from process-global
+   evaluator state.
+2. `header.type_id = 1` vs `0`: the ordinal comes from
+   `context.dispose_type_ids` (codegen_c.yo `emit_dispose_dispatch`) —
+   its population ORDER changed because the collect walk's inputs changed
+   (same root as 1).
+3. Temp-name occurrence suffixes: emission names draw from
+   `g_stable_occurrence`, shared with evaluator-identity mints — the split
+   into emission-local (reset per compile) vs identity (held) counters is
+   part of the same purge. The evaluator-identity state (module cache, prelude
+env, def registries) must KEEP being held — that holding is what made the
+strings re-import crash disappear.
+
 ## The failure modes to fix (in order)
 
 1. **Warm evaluator throw (blocking)**: with the caches held, pass 2 dies

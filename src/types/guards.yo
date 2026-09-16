@@ -31,6 +31,47 @@ register_extern_type_name :: (fn(name : String) -> unit)({
   ()
 });
 is_extern_type_name :: (fn(name : String) -> bool)(g_extern_type_names.contains(name));
+/// Yo name → C spelling for an opaque extern type whose C name is not a Yo
+/// identifier: `stat_buf : c_type("struct stat")` in a `c_include` lowers the
+/// SomeT `stat_buf` to `struct stat` (so `*stat_buf` is `struct stat*`). A
+/// name with no entry is its own spelling.
+(g_extern_type_c_names : HashMap(String, String)) = HashMap(String, String).new();
+register_extern_type_c_name :: (fn(name : String, c_name : String) -> unit)({
+  if((name.len() > usize(0)) && (c_name.len() > usize(0)), {
+    g_extern_type_c_names.insert(name, c_name);
+  });
+  ()
+});
+/// Returns a CLONE: the pointer lowering appends `*` to the string it gets
+/// back IN PLACE, and handing out the registry's own String turned the
+/// stored spelling into `struct stat*` after the first use, so the next
+/// `*stat_buf` lowered to `struct stat**` (clang-22 rejects the mismatch;
+/// macOS clang only warned — the Windows arm64 leg of PR #703 caught it).
+extern_type_c_name :: (fn(name : String) -> String)(
+  match(g_extern_type_c_names.get(name.clone()), .Some(c) => c.clone(), .None => name)
+);
+// ---------------------------------------------------------------------------
+// Type-declaration MODULE registry — which module declared a struct / enum /
+// union, keyed by the type id its declaration minted. `TypeValue` carries no
+// module, and the id only HASHES the module path into its stable key, so the
+// path has to be recorded at the declaration site. Consumer: the member
+// visibility check (`_`-prefixed fields are private to the declaring module
+// and its same-directory siblings — plans/reference/MEMBER_VISIBILITY.md,
+// decided 2026-09-16). A type with no entry (source-namespace module structs,
+// builtins) has no private members.
+// ---------------------------------------------------------------------------
+(g_type_decl_modules : HashMap(String, String)) = HashMap(String, String).new();
+register_type_decl_module :: (fn(type_id : String, module_path : String) -> unit)({
+  if((type_id.len() > usize(0)) && (module_path.len() > usize(0)), {
+    g_type_decl_modules.insert(type_id, module_path);
+  });
+  ()
+});
+/// The module that declared the type with id `type_id`, if recorded (a clone —
+/// never the registry's own String).
+type_decl_module :: (fn(type_id : String) -> Option(String))(
+  match(g_type_decl_modules.get(type_id), .Some(m) => Option(String).Some(m.clone()), .None => Option(String).None)
+);
 // ---------------------------------------------------------------------------
 // c_include TYPE ADOPTION — "this Yo type IS the C type `Name` in <header>".
 //
@@ -796,6 +837,10 @@ export(
   set_lookup_some_resolved_concrete,
   register_extern_type_name,
   is_extern_type_name,
+  register_type_decl_module,
+  type_decl_module,
+  register_extern_type_c_name,
+  extern_type_c_name,
   AdoptedExternCType,
   register_adopted_extern_c_type,
   get_adopted_extern_c_type,

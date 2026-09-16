@@ -595,7 +595,11 @@ Two conventions that are easy to miss:
 
 - **`sys/` is plumbing, `std/*` is the product.** Every user-relevant syscall
   gets a typed wrapper, and an underscore-private name must never appear in an
-  `export(...)` list.
+  `export(...)` list. For struct fields and impl methods the `_` prefix is not
+  a convention but the visibility rule the compiler enforces (E0405,
+  `plans/reference/MEMBER_VISIBILITY.md`): private to the declaring module and
+  its same-directory siblings, so a `_` member another directory needs is an
+  API gap to close with a public method, never a reason to reach in.
 - **Traits are the API.** An inherent method that duplicates a trait method
   becomes a trait impl, so generic code can dispatch on it. Types that should
   compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.
