@@ -137,6 +137,35 @@ is_odd :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
 );
 ```
 
+### Refinement types — `refine(T, p)`
+
+`refine(T, p)` annotates "a `T` that satisfies the predicate `p`". The
+annotation evaluates to `T` — erased, zero runtime cost; values bind,
+dispatch and lower exactly as the plain type — while the refinement
+rides the function's signature. The predicate is a one-parameter
+`ghost_fn` value; the verifier discharges it modularly — a function
+**assumes** the refinement of every refined parameter at entry, and
+every call site **proves** a `refine#N` obligation for the argument it
+passes:
+
+```rust
+non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+
+// No manual `requires` needed: the divisor obligation proves from the
+// assumed refinement of `denom`.
+safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / denom);
+
+// The caller proves `refine#1` (x != 0) under its own requires.
+caller :: (fn(x : i32, requires(x != i32(0))) -> (r : i32))(safe_div(i32(7), x));
+```
+
+A caller that cannot prove the predicate is refuted with a
+counter-example (`d = 0`), while the callee stays verified — one bad
+caller does not poison the callee. `refine(T)` with no predicate is a
+bare alias carrying no obligation. The refinement attaches to the
+`refine(...)` annotation itself; named aliases over refinements
+(`NonZero(i32)`) arrive with the `std/spec` refinement surface.
+
 ## Modes
 
 | Mode | How to select | Behavior |
