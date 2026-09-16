@@ -63,7 +63,7 @@ pragma(Pragma.AllowUnsafe);
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
-{ BuildOptions, run_build, expand_workspace_members } :: import("./build_runner.yo");
+{ BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build_runner.yo");
 { file_exists_sync } :: import("./manifest.yo");
 { stable_occurrence_reset, emission_occurrence_reset } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
@@ -2522,6 +2522,20 @@ _write_depfile :: (
 /// red-first oracle for lifting run_compile's self-containment invariant;
 /// whatever it reports is the Phase-4 work list (issues found land in
 /// issues/warm-compile-selfcheck.md).
+// §7 step 2: `--compile-watch-mode` failure plumbing. The flag is read by
+// build_runner's watch round after each in-process artifact compile.
+(g_compile_watch_failed : bool) = false;
+compile_watch_failed :: (fn() -> bool)(g_compile_watch_failed);
+// The four in-run_compile failure exits become RETURNS in watch mode (the
+// build runner's round survives an artifact failure and keeps the warm
+// universe); standalone compiles still exit the process with the code.
+_compile_fail :: (fn(watch_mode : bool, code : int) -> unit)({
+  if(watch_mode, {
+    g_compile_watch_failed = true;
+    return(());
+  });
+  unsafe(exit(code));
+});
 run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Exception) -> unit)({
   input := match(
     argv.get(usize(2)),
@@ -2673,6 +2687,11 @@ run_compile :: (
   // skipped — pass 2 is about to compile against this pass's universe, so
   // wiping it here defeats the whole exercise.
   (warm_first : bool) = false;
+  // Set by `--compile-watch-mode` (build_runner's watch rounds, §7 step 2):
+  // failure paths RETURN (setting `g_compile_watch_failed`) instead of
+  // exiting the process, the trailing mm_reset is skipped (the next round
+  // reuses this round's universe), and the caller reads the flag.
+  (watch_mode : bool) = false;
   (skip_codegen : bool) = false;
   (debug_gc : bool) = false;
   (debug_parallelism : bool) = false;
@@ -2875,6 +2894,10 @@ run_compile :: (
       },
       (a_name == "--warm-first") => {
         warm_first = true;
+        ai = (ai + usize(1));
+      },
+      (a_name == "--compile-watch-mode") => {
+        watch_mode = true;
         ai = (ai + usize(1));
       },
       (a == "--skip-codegen") => {
@@ -3249,7 +3272,8 @@ run_compile :: (
     // batch and every artifact re-pays it (Phase 0's first question).
     prof_prelude_t0 := Instant.now();
     if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
-      unsafe(exit(int(1)));
+      _compile_fail(watch_mode, int(1));
+      return(());
     });
     profile_record_phase(String.from("prelude evaluation"), prof_prelude_t0.elapsed().as_nanos());
     // Read + parse the input module.
@@ -3294,13 +3318,15 @@ run_compile :: (
       cond(
         evaluator_deadline_tripped() => {
           emit_rendered_text(evaluator_deadline_message());
-          unsafe(exit(int(1)));
+          _compile_fail(watch_mode, int(1));
+          return(());
         },
         true => match(
           _take_load_error(),
           .Some(rendered) => {
             emit_rendered_text(rendered);
-            unsafe(exit(int(1)));
+            _compile_fail(watch_mode, int(1));
+            return(());
           },
           .None => exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`))
         )
@@ -3321,7 +3347,8 @@ run_compile :: (
     // per-function lines are already printed by the helper.
     prof_verify_t0 := Instant.now();
     if(!(_run_contract_verification(io, exn)), {
-      unsafe(exit(int(1)));
+      _compile_fail(watch_mode, int(1));
+      return(());
     });
     profile_record_phase(String.from("contract verification"), prof_verify_t0.elapsed().as_nanos());
     // --skip-codegen: evaluate only (type-check), emit no C.
@@ -3429,7 +3456,7 @@ run_compile :: (
   // passes: --warm-reuse holds the previous pass's universe, and --warm-first
   // (pass 1) must leave ITS universe for pass 2 — wiping it here is what
   // made pass 2 start from an empty module cache and re-import std/string.
-  if((!(warm_reuse) && !(warm_first)), {
+  if(((!(warm_reuse) && !(warm_first)) && !(watch_mode)), {
     mm_reset();
   });
   // --skip-c-compiler: write the C and stop.
@@ -5437,6 +5464,11 @@ run_update_cmd :: (
 /// One watch-mode build round: a full `run_build` whose failure is reported
 /// but never exits the loop (`unwind` returns `false` from THIS fn).
 _build_round_watch :: (fn(opts : BuildOptions, io : Io) -> bool)({
+  eprintln(String.from("[watchdbg] round begins"));
+  // §7 step 2: this round's artifact compiles run IN PROCESS against the
+  // warm universe (the flag rides on opts into run_build's context).
+  opts.watch_in_process = true;
+  eprintln(String.from("[watchdbg] flag set"));
   swallow := Exception(
     throw : (
       (err) -> {
@@ -5618,6 +5650,23 @@ run_build_cmd :: (
     );
     ai = (ai + usize(1));
   });
+  // §7 step 2 (EXPERIMENTAL — YO_BUILD_IN_PROCESS=1 opts in): watch rounds
+  // compile artifacts IN PROCESS against the warm evaluator universe (module
+  // cache, prelude env, shared ExprInfoTable persist across rounds). The
+  // wrapper converts run_compile's watch-mode failure flag into the bool the
+  // build runner expects. OFF by default: a warm pass still trips a
+  // module-privacy check when a cached std module is re-imported
+  // ("Cannot construct String outside its declaring module") — the next
+  // eval-state hardening layer, tracked in issues/warm-compile-selfcheck.md.
+  if(proc_env.get(`YO_BUILD_IN_PROCESS`).is_some(), {
+    set_in_process_compile_fn(
+      (fn(argv : ArrayList(String), io : Io, exn : Exception) -> bool)({
+        g_compile_watch_failed = false;
+        run_compile(argv, io, exn);
+        !(g_compile_watch_failed)
+      })
+    );
+  });
   opts := BuildOptions(
     steps : steps,
     c_compiler : c_compiler,
@@ -5630,6 +5679,7 @@ run_build_cmd :: (
     jobs : jobs,
     dry_run : dry_run,
     verbose : verbose,
+    watch_in_process : watch,
     summary : summary,
     defines : defines,
     locked : locked,
