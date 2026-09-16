@@ -415,6 +415,20 @@ names are compiler-reserved and positional `_0`/`_1` labels are not private; `ex
 module-level bindings regardless of name. Write a fixture in another
 directory to test the rejection (`tests/member_visibility.test.yo`).
 
+## `main` returns `unit`
+
+```rust
+main :: (fn() -> unit)({ ... });        // the only legal result type
+main :: (fn(io : Io) -> unit)({ ... }); // effect params are fine
+export(main);
+```
+
+A non-`unit` `main` is a compile error (both `yo check` and `yo compile`): the
+program body runs on a worker thread, so a returned value has nowhere to go
+and used to be silently discarded — which made every repro that signalled
+pass/fail through its exit code hollow. Set a status with `exit(code)` from
+`std/process`, and use `assert` (aborts, rc=134) as a self-check.
+
 ## Recursion and loops
 
 ```rust

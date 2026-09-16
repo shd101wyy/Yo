@@ -4459,7 +4459,17 @@ run_test :: (
         });
         bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
         if(bst.raw != i32(0), {
-          exn.throw(dyn(`test: batch compile failed (exit ${bst.code().unwrap_or(i32(-1)).to_string()}) for ${tmp_yo}`));
+          // Say how many tests DID NOT RUN, not just that a compile failed.
+          // "batch compile failed" reads like an infrastructure hiccup; the
+          // fact that matters is that none of this file's tests in this batch
+          // executed, which is the same shape as the hollow batch the
+          // `__yo_user_main` marker gate catches
+          // (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.2).
+          exn.throw(
+            dyn(
+              `test: ${file} — 0 of ${(batch_end - batch_start).to_string()} tests in this batch ran: the batch failed to compile (exit ${bst.code().unwrap_or(i32(-1)).to_string()}). The generated batch is ${tmp_yo} (keep it with YO_KEEP_BATCH=1).`
+            )
+          );
         });
         // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
         // passes environ through when envp is NULL). The ASan run environment

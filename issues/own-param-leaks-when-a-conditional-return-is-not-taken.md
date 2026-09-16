@@ -205,7 +205,7 @@ counts.
 
 The repro asserts rather than returning a status, because `main`'s return value
 is discarded
-(`issues/main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md`).
+(`issues/fixed/main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md`).
 It aborts with rc=134 while the bug is present. It should become a
 `tests/` case with the fix, covering all six shapes — A, D and E are the
 controls that must keep passing, and without them a fix could "work" by
