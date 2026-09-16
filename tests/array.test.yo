@@ -366,6 +366,24 @@ test("Test a COMPUTED array length is still an error, not zero", {
     )
   );
 });
+test("Test an UNRESOLVABLE projection is an error, not a silent zero", {
+  comptime_expect_error(
+    // `T.NOPE` is a projection, so it is RECORDED rather than caught by the
+    // rejection above — it gets past the front door. Resolution then fails,
+    // because `_Widthy` carries no `NOPE`. The fallback for that must not be
+    // the unresolved length, which degrades to a concrete zero: that is the
+    // exact class the rejection exists to remove, reachable by a different
+    // route. Measured 2026-09-16 — a length-evaluation guard downstream
+    // catches it with a precise span, so this pins a path the record/resolve
+    // split would otherwise leave open.
+    impl(
+      generic(T : Type),
+      where(T <: _Widthy),
+      T,
+      _nope : (fn(self : T) -> Array(u8, T.NOPE))(Array(u8, T.NOPE).fill(u8(0)))
+    )
+  );
+});
 test("Test the array lengths that DO work are unaffected", {
   // A comptime constant, by name.
   a := Array(i32, _ARR_LEN)(1, 2, 3);

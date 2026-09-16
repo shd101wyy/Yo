@@ -1,7 +1,22 @@
 # Value substitution in type positions (const generics that actually generalize)
 
-**Status:** BACKLOG — designed here, not started. Written 2026-09-10 after
-measuring exactly which half of the feature is missing.
+**Status:** STEPS 1-2 LANDED 2026-09-16; STEP 3 (std adoption) NOT STARTED,
+and seed-gated. Written 2026-09-10 after measuring which half of the feature
+was missing — an attribution that turned out to be wrong, corrected under
+"Root cause" below.
+
+What works as of 2026-09-16: a BARE associated-constant projection is a legal
+`Array` length, so `-> Array(u8, T.BYTES)` resolves per instantiation.
+Measured on the acceptance repro
+(`issues/repros/associated-constant-as-an-array-length-in-a-return-type.yo`
+prints `1 4`), with three rejections pinned in `tests/array.test.yo`: a
+computed length (`T.BYTES * 2`), an unresolvable projection (`T.NOPE`), and
+the lengths that already worked, unaffected.
+
+It stays in `backlog/` rather than moving, because what REMAINS — Step 3 — is
+still written-not-started, which is what this directory means. Step 3 cannot
+begin until a release ships the capability: the seed compiles `std/`, so
+`std/` cannot use it before then ([[yo-seed-gate-blocks-std-using-new-runtime-macros]]).
 
 ## The gap, measured
 
