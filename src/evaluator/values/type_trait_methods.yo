@@ -46,6 +46,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
+{ set_lookup_assoc_const } :: import("../../types/substitution.yo");
 { EvalValue } :: import("../../value.yo");
 { AstExpr } :: import("../../expr.yo");
 /// Extract the unique `id` string from a `TypeValue` variant that
@@ -527,8 +528,91 @@ hook_register_func_contracts :: (
     .None => ()
   )
 );
+/// Read an associated CONSTANT off a concrete type as a `usize`
+/// (`u32.BYTES` -> 4), for use in a TYPE position.
+///
+/// This is the constant sibling of `find_associated_type_from_generic_impls`
+/// (values/impl.yo), which resolves `T.Assoc` as a TYPE. Both answer the same
+/// question against the same registrations; this one returns the VALUE half,
+/// which is what an `Array` length needs.
+///
+/// Concrete impls (`impl(u8, Widthy(BYTES : usize(1)))`) land in the
+/// type-trait registry keyed by `type_id_or_empty`, and primitives have stable
+/// synthetic ids there (`__yo_t_u8`), so an `impl` on an integer type is
+/// findable exactly like one on a struct.
+///
+/// `.None` for: no id, no such label, a label whose value is absent or not an
+/// integer. Every one of those leaves the caller's length untouched rather
+/// than substituting a wrong number — the failure this whole path exists to
+/// prevent is a SILENT 0
+/// (issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md).
+find_associated_const_usize :: (
+  fn(recv : TypeValue, label : String) -> Option(usize)
+)({
+  tid := type_id_or_empty(recv);
+  if(tid.len() == usize(0), {
+    return(Option(usize).None);
+  });
+  entries := get_type_trait_methods_for_type(tid);
+  (i : usize) = usize(0);
+  n := entries.len();
+  while(i < n, {
+    match(
+      entries.get(i),
+      .Some(e) => if(e.label == label, {
+        match(
+          e.value,
+          .Some(v) => match(
+            v,
+            .IntLit(raw) => match(
+              _parse_usize_literal(raw),
+              .Some(k) => {
+                return(Option(usize).Some(k));
+              },
+              .None => ()
+            ),
+            _ => ()
+          ),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+/// Decimal `IntLit` text -> `usize`. Local rather than imported: this module is
+/// below `evaluator/utils.yo` in the import order, and an associated constant
+/// used as a length is always a plain non-negative decimal literal.
+_parse_usize_literal :: (fn(raw : String) -> Option(usize))({
+  if(raw.len() == usize(0), {
+    return(Option(usize).None);
+  });
+  (acc : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < raw.len(), {
+    c := raw(i);
+    if((c < u8(48)) || (c > u8(57)), {
+      return(Option(usize).None);
+    });
+    acc = ((acc * usize(10)) + usize(c - u8(48)));
+    i = (i + usize(1));
+  });
+  Option(usize).Some(acc)
+});
+// Install the associated-constant lookup into substitution's `.Array` arm
+// (cycle breaker: types/ cannot import THIS file). Same shape as
+// expr_info.yo's `_compat_some_resolved_init`. Until this runs, a length
+// projection stays unresolved, which is the old behaviour rather than a wrong
+// length.
+_assoc_const_len_init := (fn() -> bool)({
+  set_lookup_assoc_const(find_associated_const_usize);
+  true
+})();
 export(
   MethodEntry,
+  find_associated_const_usize,
   register_trait_default,
   get_trait_default,
   register_trait_method_contracts,
