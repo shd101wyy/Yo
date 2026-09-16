@@ -3696,24 +3696,49 @@ _collect_test_files :: (
   // closure and peak near 6.5 GB — they cannot share a run with the fast
   // language tests. Mirrors the `exclude` option on the TS `test` subcommand
   // (src/yo-cli.ts) and `findTestFiles` (src/test-runner.ts).
+  //
+  // Two kinds of file carry tests: `*.test.yo` (always), and a plain `.yo`
+  // MODULE with a top-level `test(...)` declaration — Rust's in-file
+  // `#[cfg(test)] mod tests`, which is how a module tests its own private
+  // (`_`-prefixed) members (plans/reference/MEMBER_VISIBILITY.md). The
+  // evaluator treats `test(...)` as a no-op in a normal build, so the module
+  // costs nothing outside `yo test`; here it is recognised by a line that
+  // STARTS with `test(` (top-level statements sit at column 0 under `yo fmt`),
+  // so a mention inside a comment or a nested block does not turn a module
+  // into a test file. The batch inlines the module's other top-level
+  // statements exactly as it does for a `.test.yo`, so the tests see the
+  // module's private helpers too.
   all := collect_check_files(path_str, excludes, io, exn);
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < all.len(), {
     match(
       all.get(i),
-      .Some(f) => if(f.ends_with(String.from(".test.yo")), {
-        out.push(f.clone());
-      }),
+      .Some(f) => cond(
+        f.ends_with(String.from(".test.yo")) => {
+          out.push(f.clone());
+        },
+        true => {
+          if(_module_has_inline_tests(f.clone(), io, exn), {
+            out.push(f.clone());
+          });
+        }
+      ),
       .None => ()
     );
     i = (i + usize(1));
   });
   out
 });
+/// True when the plain module at `path` declares a top-level `test(...)`.
+_module_has_inline_tests :: (fn(path : String, io : Io, exn : Exception) -> bool)({
+  src := String.from_bytes(io.await(read(Path.new(path), io), IoExn(io : io, exn : exn)));
+  src.starts_with(String.from("test(")) || src.contains(String.from("\ntest("))
+});
 /// One extracted `test("name", { body })` declaration (source-string form).
 TestDecl :: struct(name : String, body_src : String);
-/// Run `*.test.yo` files with the self-hosted pipeline. Port of the TS
+/// Run `*.test.yo` files — and plain modules with in-file `test(...)`
+/// declarations — with the self-hosted pipeline. Port of the TS
 /// test runner's BATCHED strategy (src/test-runner.ts): per file, parse and
 /// split `test(name, body)` declarations from the non-test content, synthesize
 /// ONE program whose `main` dispatches on the `YO_TEST_INDEX` env var over the

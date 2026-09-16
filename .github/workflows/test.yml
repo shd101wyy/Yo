@@ -885,6 +885,10 @@ jobs:
             *) TEST_SAN_FLAG="" ;;
           esac
           "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+          # Sibling and in-file tests under std/ — the private-member tests
+          # (plans/reference/MEMBER_VISIBILITY.md): `yo test` collects
+          # `std/**/*.test.yo` and any module with a top-level `test(...)`.
+          "$S1" test ./std --bail --verbose --c-compiler clang $TEST_SAN_FLAG
 
   # ---------------------------------------------------------------------
   # The four NON-LINUX release targets: full language suite per PR, under a
@@ -1310,6 +1314,11 @@ jobs:
             SHARD_FLAG="--shard ${{ matrix.shard }}/${{ matrix.shards }}"
           fi
           "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG $SHARD_FLAG
+          # std/'s sibling and in-file tests are small: run them once per leg
+          # (shard 0 of a sharded leg, or the whole unsharded leg).
+          if [ -z "${{ matrix.shards }}" ] || [ "${{ matrix.shard }}" = "0" ]; then
+            "$YO" test ./std --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+          fi
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the

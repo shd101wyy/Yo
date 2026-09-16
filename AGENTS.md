@@ -224,6 +224,11 @@ yo test ./tests/internal --parallel 1
 # suite reports ~4 false failures. This mirrors CI (test.yml).
 yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
 
+# std/'s OWN tests: sibling files (`std/**/*.test.yo`) and in-file
+# `test(...)` declarations inside a module — the way private `_` members
+# get tested (plans/reference/MEMBER_VISIBILITY.md). CI runs this too.
+yo test ./std --bail
+
 # Self-hosted gate battery (needs a built yo-self binary in $S1). GATE 4 is
 # `check ./src`, which type-checks the whole tree rather than one import
 # closure. (It USED to be the only thing covering build_runner.yo and

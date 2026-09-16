@@ -36,6 +36,12 @@ so `std/` adopts it without waiting for a seed release. What shipped:
   `get_program`, `File.into_fd` (Rust's `IntoRawFd`), `HashSet.k0/k1/
   tombstones` (twins of `HashMap`'s public fields), and `Statx.buf_ptr` /
   `buf_size` made public (sys plumbing constructed from `std/fs`).
+- **Testing private members** (follow-up PR, same release): Rust's in-file
+  `#[cfg(test)]` maps onto two shapes — a SIBLING `*.test.yo` beside the
+  module (legal under the directory rule; `std/collections/hash_set.test.yo`
+  is the first) and IN-FILE `test(...)` declarations, which `yo test <dir>`
+  now collects from plain modules (recognised by a line starting with
+  `test(`). CI runs `yo test ./std`; release bundles drop `std/**/*.test.yo`.
 - **Enumeration method.** Import chains collapse `check` to one error per
   chain, so the tree was enumerated once with a report-instead-of-throw
   build (never committed), then fixed; the full suite still found three
