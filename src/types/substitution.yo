@@ -109,6 +109,65 @@ _without_len_vars :: (fn(s : Substitution) -> Substitution)(
   )
 );
 /// Look up a const-generic array length binding by name.
+/// Resolve an ASSOCIATED CONSTANT in a type position (`Array(u8, T.BYTES)`).
+///
+/// `types/` is low-level and cannot import the evaluator's impl registry, so
+/// the lookup is injected at evaluator init — the same indirection as
+/// `set_lookup_some_resolved_concrete` (types/guards.yo). Unset (e.g. during
+/// early bootstrap) means "cannot resolve", which leaves the length variable
+/// in place exactly as before.
+AssocConstLookupFn :: (fn(recv : TypeValue, label : String) -> Option(usize));
+(g_lookup_assoc_const : Option(AssocConstLookupFn)) = Option(AssocConstLookupFn).None;
+set_lookup_assoc_const :: (fn(f : AssocConstLookupFn) -> unit)({
+  g_lookup_assoc_const = Option(AssocConstLookupFn).Some(f);
+  ()
+});
+/// Look a type parameter up by NAME alone, ignoring frame level.
+///
+/// `subst_lookup` keys on (name, level) because a SomeT carries its level, but
+/// a length projection is recorded as the bare text `T.BYTES` and has no level
+/// to offer. First match wins, which matches how the projection was written:
+/// the `T` in `Array(u8, T.BYTES)` is the `T` of the enclosing impl.
+_subst_lookup_by_name :: (fn(s : Substitution, name : String) -> Option(TypeValue))({
+  i := usize(0);
+  n := s.names.len();
+  while(i < n, {
+    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    if(ni == name, {
+      return(
+        match(s.types.get(i), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None)
+      );
+    });
+    i = (i + usize(1));
+  });
+  Option(TypeValue).None
+});
+/// Resolve a dotted length variable (`T.BYTES`) against this substitution:
+/// bind the receiver through the type map, then read the associated constant
+/// off the bound concrete type. `.None` for a non-dotted name, an unbound
+/// receiver, an unset hook, or a type that does not carry the constant — every
+/// one of which leaves the caller's length untouched.
+_subst_resolve_len_projection :: (fn(s : Substitution, lvar : String) -> Option(usize))({
+  dot := lvar.index_of(String.from("."));
+  if(dot.is_none(), {
+    return(Option(usize).None);
+  });
+  cut := match(dot, .Some(k) => k, .None => usize(0));
+  recv_name := lvar.substring(usize(0), cut);
+  label := lvar.substring(cut + usize(1), lvar.len());
+  if((recv_name.len() == usize(0)) || (label.len() == usize(0)), {
+    return(Option(usize).None);
+  });
+  match(
+    _subst_lookup_by_name(s, recv_name),
+    .Some(bound) => match(
+      g_lookup_assoc_const,
+      .Some(f) => f(bound, label),
+      .None => Option(usize).None
+    ),
+    .None => Option(usize).None
+  )
+});
 subst_lookup_len_var :: (fn(s : Substitution, name : String) -> Option(usize))({
   i := usize(0);
   n := s.len_var_names.len();
@@ -343,7 +402,16 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
             true => match(
               subst_lookup_len_var(s, lvar.clone()),
               .Some(bound_len) => .Array(new_inner, bound_len, String.from("")),
-              .None => .Array(new_inner, len, lvar)
+              // Not a plain length variable — it may be an associated-constant
+              // projection (`T.BYTES`) recorded by evaluator/types/array.yo.
+              // Resolving it here is the whole point of the value half: the
+              // receiver is bound in THIS substitution, so the constant is
+              // knowable exactly when the impl specializes.
+              .None => match(
+                _subst_resolve_len_projection(s, lvar.clone()),
+                .Some(proj_len) => .Array(new_inner, proj_len, String.from("")),
+                .None => .Array(new_inner, len, lvar)
+              )
             )
           )
         },
@@ -636,5 +704,6 @@ export(
   subst_add_len_var,
   subst_lookup_len_var,
   substitute,
-  substitute_all
+  substitute_all,
+  set_lookup_assoc_const
 );
