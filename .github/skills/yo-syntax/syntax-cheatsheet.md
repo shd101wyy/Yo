@@ -262,6 +262,11 @@ transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
 
 ## Imports and modules
 
+A renaming import is `{ export_name : local_name } :: import("mod")`. The
+`_( … )` call form that desugars to is INTERNAL — the 33 user-written sites in
+the tree were migrated away from it on 2026-09-16, so do not write `_(` in
+source.
+
 ```rust
 { Parser } :: import("./parser.yo");
 parser_module :: import("./parser.yo");
@@ -762,6 +767,19 @@ impl(MyType,
   get : (fn(self : Self) -> i32)(self.x)
 );
 ```
+
+### `_` is the discard; `___` is an ordinary name that only works once
+
+MEASURED 2026-09-16: `_ := expr` twice in one scope is fine — the evaluator
+rewrites a `_` binding to a FRESH temp name each time
+(`initialization_assignment.yo`), which is what makes it a real discard.
+`___ := expr` twice is an error, because `___` is just a name and no-shadowing
+applies. Write `_`.
+
+`___` survives for two other jobs and neither is a discard: it is the
+compiler-RESERVED prefix for synthesized members (`___dup`, `___drop`, ~326
+sites), and a few RC regression tests use a bare `___ :=` deliberately to pin
+the NAMED-local drop path, which is a different path from `_`'s temp.
 
 ### `___` discard variable cannot appear twice in the same scope
 
