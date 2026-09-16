@@ -31,6 +31,36 @@ its definition-time evaluation failed and was swallowed.
 function bodies ([[yo-check-src-std-are-a-filter-not-a-gate]]). So nothing
 short of running the binary reports this.
 
+## Narrowed 2026-09-16 — `fill` and generics are both fine; the trait DISPATCH is not
+
+Four probes in the same generic shape, so only one thing varies:
+
+| probe | body | result |
+| --- | --- | --- |
+| A | `-> Array(T, usize(3))`, value passed through, no construction | **OK** |
+| C | `Array(T, usize(3))(x, x, x)` — explicit construction, same `(Default, Comptime)` bound | **OK** |
+| D | `Array(T, usize(3)).fill(T(0))` — `fill`, generic element, comptime LITERAL | **OK** |
+| G2 | `Array(T, usize(3)).fill(T.default())` — `fill`, generic element, TRAIT CALL | **FTT stub** |
+
+So none of these is the cause: the generic return type (A), the `Comptime`
+bound (C), `fill` itself (D), or `fill` with a generic element type (D again).
+
+What fails is specifically **a generic-dispatched trait method call in a
+`comptime(...)` argument position**. `T(0)` is comptime-evaluable without
+knowing which impl to pick; `T.default()` requires resolving the `Default` impl
+for the bound `T` first, and that resolution has not happened when
+`fill`'s `comptime(val)` is checked — even though after specialization `T` is
+`i32` and `i32.default()` is the constant `0`.
+
+The emitted C names the symptom exactly. The stub is
+
+```
+yo_id_..._ret_Array_T____Default___Comptime___3_
+```
+
+— the return type still carries the UNSUBSTITUTED `T` with its bound, while a
+sibling function in the same file is correctly `Array_int32_t_3`.
+
 ## What it blocks
 
 **`Array(T, N)`'s `Default`**, which is the only spelling available:

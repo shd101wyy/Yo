@@ -22,3 +22,12 @@ main :: (fn() -> unit)({
   println(`${broken(i32(0)).len()}`);
 });
 export(main);
+
+// Controls that make the isolation airtight — all three COMPILE AND RUN, so
+// neither `fill`, nor a generic element type, nor the bound is the cause:
+//
+//   passthrough :: (fn(generic(T : Type), a : Array(T, usize(3))) -> Array(T, usize(3)))(a);
+//   explicit    :: (fn(generic(T : Type), x : T, where(T <: (Default, Comptime))) -> Array(T, usize(3)))(Array(T, usize(3))(x, x, x));
+//   literal     :: (fn(generic(T : Type), x : T, where(T <: Comptime)) -> Array(T, usize(3)))(Array(T, usize(3)).fill(T(0)));
+//
+// Only the TRAIT-DISPATCHED value `T.default()` fails.
