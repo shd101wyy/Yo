@@ -3743,6 +3743,15 @@ run_test :: (
   (test_heap_size_raw : String) = String.new();
   (test_debug_heap : bool) = false;
   (json_summary : bool) = false;
+  // `--shard i/n` keeps only the files whose index mod n equals i, over the
+  // SORTED collected order. It exists because `tests/` is flat — 158 of ~276
+  // files sit directly in the directory — so there is no `--exclude` split
+  // that balances, and the positional path takes exactly one directory.
+  // Striping (not contiguous blocks) keeps the shards balanced without a
+  // hardcoded map that would reshuffle every time a file is added, which is
+  // the same reason compiler-internal-tests stripes in test.yml.
+  (shard_index : usize) = usize(0);
+  (shard_total : usize) = usize(0);
   // §4.6: `--workspace` tests every member of the workspace above the cwd.
   (workspace : bool) = false;
   (batch_size : usize) = TEST_BATCH_SIZE;
@@ -3829,10 +3838,43 @@ run_test :: (
         test_profile = true;
         ai = (ai + usize(1));
       },
+      (a == "--shard") => {
+        spec := _arg_val_req(argv, ai, a.clone(), exn);
+        slash := spec.index_of(String.from("/"));
+        if(slash.is_none(), {
+          exn.throw(dyn(`test: --shard expects <index>/<total>, got '${spec}'`));
+        });
+        cut := match(slash, .Some(k) => k, .None => usize(0));
+        idx_raw := spec.substring(usize(0), cut);
+        tot_raw := spec.substring(cut + usize(1), spec.len());
+        match(
+          tot_raw.parse_u32(),
+          .Some(t) => if(t > u32(0), {
+            shard_total = usize(t);
+          }, {
+            exn.throw(dyn(`test: --shard total must be at least 1, got '${spec}'`));
+          }),
+          .None => {
+            exn.throw(dyn(`test: --shard expects <index>/<total>, got '${spec}'`));
+          }
+        );
+        match(
+          idx_raw.parse_u32(),
+          .Some(i2) => if(usize(i2) < shard_total, {
+            shard_index = usize(i2);
+          }, {
+            exn.throw(dyn(`test: --shard index must be below the total, got '${spec}'`));
+          }),
+          .None => {
+            exn.throw(dyn(`test: --shard expects <index>/<total>, got '${spec}'`));
+          }
+        );
+        ai = (ai + usize(2));
+      },
       a.starts_with(String.from("-")) => {
         // TS's yargs is .strict(): an unknown option is an error, never a
         // path (yo-cli.ts:1348).
-        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH] [--workspace]`));
+        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH] [--shard I/N] [--workspace]`));
       },
       true => {
         target_path = a.clone();
@@ -3887,11 +3929,37 @@ run_test :: (
   // summary per member. The members are resolved from the nearest `[workspace]`
   // manifest above the cwd and their directories replace the positional path;
   // ordering is the sorted member order, so the report is stable.
-  files := if(
+  all_files := if(
     workspace,
     _collect_workspace_test_files(excludes, io, exn),
     _collect_test_files(target_path, excludes, io, exn)
   );
+  // `--shard i/n`: stripe the SORTED collection. `_collect_test_files` already
+  // returns sorted paths, so the partition is deterministic across shards and
+  // across machines — every file lands in exactly one shard, and adding a file
+  // reshuffles membership without ever dropping one.
+  files := if((shard_total == usize(0)), all_files.clone(), {
+    picked := ArrayList(String).new();
+    (fi : usize) = usize(0);
+    while(fi < all_files.len(), {
+      if(((fi % shard_total) == shard_index), {
+        match(all_files.get(fi), .Some(f) => picked.push(f.clone()), .None => ());
+      });
+      fi = (fi + usize(1));
+    });
+    // Say what this shard covers: a shard number alone does not identify a
+    // failure, and the job log is unavailable until the run completes.
+    println(`shard ${shard_index.to_string()}/${shard_total.to_string()}: ${picked.len().to_string()} of ${all_files.len().to_string()} files`);
+    // Print the FILE LIST too: a shard number alone does not say WHICH file
+    // failed, and the job log is unreadable until the whole run completes —
+    // compiler-internal-tests prints its map for exactly that reason.
+    (pi : usize) = usize(0);
+    while(pi < picked.len(), {
+      match(picked.get(pi), .Some(pf) => println(`  shard-file ${pf}`), .None => ());
+      pi = (pi + usize(1));
+    });
+    picked
+  });
   // `Pragma.SkipWasm` pre-scan for wasm targets (hasSkipDirectiveForTarget,
   // src/test-runner.ts:152-170 + its filter loop at :1425-1453): a file whose
   // first 50 lines carry `pragma(Pragma.SkipWasm)` — or the targeted
