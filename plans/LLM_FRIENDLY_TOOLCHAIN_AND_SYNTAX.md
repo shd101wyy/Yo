@@ -32,7 +32,7 @@ paid for, each one a memory or an `issues/` entry:
 
 | the lie | what actually happened |
 | --- | --- |
-| "N passed" from `yo test` | one untranspilable expression turned the whole batch into a `Failed to transpile` comment and an `abort()` stub; every test in the file ran nothing (`yo-hollow-batch-voids-every-test-in-the-file`) |
+| "N passed" from `yo test` | one untranspilable expression made the batch's single `__yo_user_main` a comment, so every test in the file ran nothing (`yo-hollow-batch-voids-every-test-in-the-file`). **CLOSED** by the entry-point gate — kept here because §1.1 shows what is still open next to it |
 | green `check ./std` + `check ./src` | `check` is evaluator-only and never specializes generic bodies; #717 found four private-member reaches that only the suite could see (`yo-check-src-std-are-a-filter-not-a-gate`) |
 | a derive rule "worked" | derive swallows the rule's own error and reports a generic message, or nothing with rc=0 (`yo-derive-swallows-a-rules-own-error`) |
 | `comptime_assert` passed | it can pass vacuously when the value is never forced (`yo-comptime-assert-vacuous-testing-trap`) |
@@ -45,35 +45,68 @@ say what happened.
 
 ## 1. P0 — the toolchain never reports success for work it did not do
 
-### 1.1 A transpile failure is a compile error
+### 1.1 The residual silent-degradation hole (READ THIS BEFORE TOUCHING IT)
 
-Today `src/codegen` emits a `Failed to transpile` **comment** plus an
-`abort()` stub into the C when an expression cannot be lowered
-(`src/codegen/constants.yo:228` names the mechanism), and the build goes on
-to succeed. `scripts/count-transpile-failures.sh` exists precisely because
-the compiler's own exit code does not tell you. Make it an error:
+**Corrected 2026-09-16 by reading the code: most of what §0 lists as a live
+lie is already fixed, and two of the obvious fixes were BUILT AND REVERTED.
+Do not re-attempt either.** The mechanism, in `src/codegen/functions/
+generation.yo` around the per-function FTT scan (`stub_found_ftt`):
 
-- `yo compile` / `yo build` / the `yo test` batch compile exit non-zero when
-  any transpile-failure marker would be emitted, with the marker's source span
-  as the diagnostic (code in the E09xx family; the classifier already has the
-  substring).
-- Keep the stub emission behind an explicit `--allow-hollow` for the two
-  places that measure it on purpose: the hollow sweep
-  (`scripts/bootstrap/hollow_sweep69.sh`) and the fixpoint gates. Nothing
-  else may pass it. Delete `count-transpile-failures.sh` once no gate needs
-  it.
-- Acceptance: a batch with one untranspilable expression reports **that
-  expression**, rc=1, and zero tests; `tests/cli-cases/` gets a case pinning
-  the diagnostic; the fast suite's file count is unchanged.
+| case | today | verdict |
+| --- | --- | --- |
+| marker in the program's own `main` (`__yo_user_main`) | `codegen_fatal` — hard error | already loud; **this is what makes a hollow test batch fail**, because the runner inlines every test body into `__yo_user_main` |
+| marker in a NON-void function, or in a superseded generic original | body rewritten to a stub that `fprintf`s its own name plus the `YO_DEBUG_SWALLOW=1` hint, then `abort()`s (PR #477) | already loud at runtime, at every `-O` |
+| marker in a **unit-returning, non-superseded** function | comment stays in the body; the C compiler skips it; the statement is silently gone | **THE RESIDUAL HOLE** |
 
-### 1.2 The test runner refuses a hollow batch
+Two approaches are closed:
 
-Independent of 1.1 as belt and braces: after compiling a batch, the runner
-scans the emitted C for the stub signature and, if present, fails the FILE
-with "N tests never ran" instead of printing their names as passed. The
-runner already keeps the `.c` around under `YO_KEEP_BATCH`; the scan is a
-substring search. Acceptance: the same cli-case as 1.1 with `--allow-hollow`
-on the compile still fails the run.
+- **"any marker anywhere is fatal" was tried and reverted** — it fails
+  `tests/fn.test.yo` and `tests/algebraic_effects.test.yo`, whose markers are
+  dead superseded-generic code that never runs. The code comment at the gate
+  records this.
+- **the linker-as-oracle stub (body calls an undefined extern) was built and
+  reverted** — a stub whose ADDRESS is taken survives DCE with no call, so a
+  never-run stub fails the link; `tests/http` batch 102 installs one as an
+  exception handler and the full suite failed under it
+  (`yo-ftt-stub-error-attribute-dead-at-O2`). The `__attribute__((error))`
+  variant is diagnosed post-optimization and never fires at `-O2`, which is
+  every real build; it is kept only for the `-O0` upgrade.
+
+So the work is narrow: **extend the existing loud-stub rewrite to the
+unit-returning non-superseded case**, so that no emitted function can
+silently drop a statement, while dead stubs stay harmless and live ones
+`fprintf` + `abort()` exactly as the non-void ones already do. `main` stays
+fatal.
+
+Acceptance, in this order, because the risk is turning a currently-green
+test red by making a real defect visible:
+
+1. **Measure first.** Instrument the scan to count, per corpus, functions
+   that are (marker ∧ unit ∧ non-superseded) — the set the change converts
+   to stubs. The non-void set was 6 in the `tests/` batch corpus when the
+   gate was written; this set is unmeasured.
+2. If the count is 0, the change is a pure invariant with no behaviour
+   delta — land it with a synthetic cli-case as the only proof.
+3. If it is non-zero, each one is a statement the tree is silently losing
+   today. Triage them as bugs BEFORE landing the stub change, so the suite
+   never goes red for a reason the PR did not cause.
+4. Fixpoint + byte-identity: the emitted C changes only for functions that
+   contain a marker, so a clean corpus must be byte-identical.
+
+### 1.2 Was the runner's hollow-batch hole (ALREADY CLOSED — kept as a note)
+
+The 2026-08-12 case — `tests/internal/expr_info.test.yo` reporting 23 tests
+passed while running nothing — is closed by the `__yo_user_main` gate above,
+because the runner compiles every test body of a file into that one function.
+Nothing to build here. Two things to preserve rather than implement:
+
+- **Do not weaken the `__yo_user_main` gate to get a job green.** It caught
+  the 23-test case on its first run (`yo-hollow-batch-voids-every-test-in-the-file`).
+- The batch's per-file failure is currently reported as
+  `test: batch compile failed (exit N)`. Worth one wording change so the
+  count is unmissable: name the file and say **"0 of N tests ran"**, since
+  "batch compile failed" reads like an infrastructure hiccup rather than
+  "your tests did not run".
 
 ### 1.3 `check` can force the bodies the suite would specialize
 
@@ -223,9 +256,10 @@ Python for the first two.
 
 ## 7. Sequencing and gates
 
-1. §1.1 + §1.2 + §1.4 together (they share the cli-case fixture); land
-   behind the fixpoint and hollow-sweep gates, which are the only consumers
-   of the old behaviour.
+1. §1.4 first (self-contained, no measurement needed), then §1.1 — whose
+   first step is a MEASUREMENT, not an edit — plus §1.2's wording change.
+   The fixpoint and hollow-sweep gates are the only consumers of the old
+   behaviour.
 2. §1.3 `check --bodies`, measured against the #716 pre-fix commit.
 3. §2 `yo fix` with the §4 diagnostic as one of its four repairs; §3 in
    the same PR or the next.
