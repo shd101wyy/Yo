@@ -17,7 +17,7 @@
 //! value and the vtable were always right — only the static type was wrong, and
 //! in the one way that stops the result being re-erased.
 { assert } :: import("std/assert");
-{ Error, AnyError, Context, root_cause } :: import("std/error");
+{ Error, AnyError, Context, root_cause, error_chain } :: import("std/error");
 { String } :: import("std/string");
 { ToString } :: import("std/fmt/to_string");
 _Inner :: enum(Boom);
@@ -108,4 +108,48 @@ test("root_cause returns the innermost error, and is identity on a lone error", 
     root_cause(lone).to_string() == `boom`,
     "root_cause of a lone error is that error"
   );
+});
+
+// `error_chain` is the same walk as `root_cause`, yielding every link instead of
+// keeping only the last. Its cursor is an `Option(AnyError)` struct FIELD, which
+// is a step past what `root_cause` needs (a local) — the field has to survive
+// `source()`'s re-erasure across a method boundary.
+test("error_chain yields every link, outermost first", {
+  (base : AnyError) = dyn(_Inner.Boom);
+  (top : AnyError) = dyn(Context.new(`while loading`, base));
+  it := error_chain(top);
+  (links : usize) = usize(0);
+  (last : String) = String.new();
+  (going : bool) = true;
+  while(runtime(going), {
+    match(
+      it.next(),
+      .Some(link) => {
+        links = (links + usize(1));
+        last = link.to_string();
+      },
+      .None => {
+        going = false;
+      }
+    );
+  });
+  assert(links == usize(2), `a 2-link chain yields 2 links, got ${links.to_string()}`);
+  assert(last == `boom`, `the last link is the root cause, got ${last}`);
+});
+test("error_chain of a lone error yields exactly one link", {
+  it := error_chain(dyn(_Inner.Boom));
+  (links : usize) = usize(0);
+  (going : bool) = true;
+  while(runtime(going), {
+    match(
+      it.next(),
+      .Some(_) => {
+        links = (links + usize(1));
+      },
+      .None => {
+        going = false;
+      }
+    );
+  });
+  assert(links == usize(1), `a lone error is one link, got ${links.to_string()}`);
 });
