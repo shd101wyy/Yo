@@ -652,3 +652,54 @@ test("JsonValue ToString is the compact JSON text", {
   v := json.parse("{\"a\": [1, 2]}").unwrap();
   assert(v.to_string() == `{"a":[1,2]}`, "ToString == json.stringify");
 });
+// ===== Integer arms (JsonValue.Int) =====
+// These ASSERT THE POSITIVE — that an integer literal now takes the Int arm.
+// Without them the whole split could be inert and every existing test would
+// still pass, since the accessors deliberately keep working across both arms.
+test("an integer literal parses as Int, a fractional one as Number", {
+  a := json.parse("42").unwrap();
+  assert(match(a, .Int(_) => true, _ => false), "42 must take the Int arm");
+  f := json.parse("4.5").unwrap();
+  assert(match(f, .Number(_) => true, _ => false), "4.5 must stay a Number");
+  e := json.parse("1e3").unwrap();
+  assert(match(e, .Number(_) => true, _ => false), "an exponent literal stays a Number");
+  n := json.parse("-7").unwrap();
+  assert(match(n, .Int(_) => true, _ => false), "a negative integer takes the Int arm");
+});
+test("an Int renders in decimal, never through %g", {
+  // %g would print 10000000 as "1e+07", which is not a round-trippable integer.
+  v := json.parse("10000000").unwrap();
+  assert(json.stringify(v) == "10000000", `10000000 must render exactly, got ${json.stringify(v)}`);
+  neg := json.parse("-42").unwrap();
+  assert(json.stringify(neg) == "-42", `-42 must render exactly, got ${json.stringify(neg)}`);
+});
+test("an integer beyond 2^53 survives exactly — the reason the arm exists", {
+  // As an f64 this value is indistinguishable from 2^53; as an Int it is exact.
+  v := json.parse("9007199254740993").unwrap();
+  assert(match(v, .Int(_) => true, _ => false), "2^53+1 must take the Int arm");
+  assert(v.as_i64().unwrap() == i64(9007199254740993), "as_i64 must be exact above 2^53");
+  assert(json.stringify(v) == "9007199254740993", `must round-trip exactly, got ${json.stringify(v)}`);
+});
+test("both arms are numbers, and Int widens to f64", {
+  a := json.parse("42").unwrap();
+  f := json.parse("4.5").unwrap();
+  assert(a.is_number(), "an Int IS a number");
+  assert(f.is_number(), "a Number is a number");
+  assert(a.as_number().unwrap() == f64(42), "as_number widens an Int");
+  assert(a.as_u64().unwrap() == u64(42), "as_u64 reads an Int exactly");
+  neg := json.parse("-1").unwrap();
+  assert(match(neg.as_u64(), .Some(_) => false, .None => true), "a negative Int has no u64");
+});
+test("integer ToJson emits Int, so a round trip is stable", {
+  v := i32(7).to_json();
+  assert(match(v, .Int(_) => true, _ => false), "i32.to_json must emit Int");
+  assert(json.stringify(v) == "7", `must render as 7, got ${json.stringify(v)}`);
+  // FromJson still accepts both arms.
+  back := i32.from_json(json.parse("7").unwrap()).unwrap();
+  assert(back == i32(7), "i32 decodes from an Int");
+  back2 := i32.from_json(JsonValue.Number(value : f64(7))).unwrap();
+  assert(back2 == i32(7), "i32 still decodes from a Number");
+  // A float still emits Number.
+  fv := f64(1.5).to_json();
+  assert(match(fv, .Number(_) => true, _ => false), "f64.to_json must stay Number");
+});

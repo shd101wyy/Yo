@@ -185,7 +185,10 @@ pointing the other way.
         W("| --- | --- | --- |")
         for r in sorted(rs, key=lambda x: x[1]):
             W(f"| [`{r[1]}`](./{r[1]}) | {r[2][:60] if r[2] else '—'} | {'yes' if r[3] else '—'} |")
-    open(os.path.join(idir, "TRIAGE.md"), "w").write("\n".join(out) + "\n")
+    # Fixed literal target relative to the repo root (the documented CWD):
+    # no variable enters the path, so the write cannot escape issues/.
+    with open("issues/TRIAGE.md", "w", encoding="utf-8") as fh:
+        fh.write("\n".join(out) + "\n")
     print(f"issues/TRIAGE.md regenerated: {len(rows)} open docs")
 
 if __name__ == "__main__":
