@@ -117,8 +117,10 @@ _record_destructured_read :: (fn(env : Environment, rhs_type : TypeValue, label 
 /// module's directory — a spread from outside is rejected too, so a private
 /// field never leaks through `{ ... } := s`. A module value's exports are not
 /// members of a declared type (`is_source_namespace`), so they never block.
+/// The access site is the pattern TOKEN's module (lexical), not
+/// `env.module_path` (a call-time generic body carries the caller's).
 _reject_private_destructure :: (
-  fn(env : Environment, rhs_type : TypeValue, label : String, tok : Token, exn : Exception) -> unit
+  fn(rhs_type : TypeValue, label : String, tok : Token, exn : Exception) -> unit
 )({
   pv_type_id := match(
     rhs_type,
@@ -126,7 +128,7 @@ _reject_private_destructure :: (
     .Union(pv_uid, _, _) => pv_uid.clone(),
     _ => String.new()
   );
-  if(private_member_blocked(label.clone(), type_decl_module(pv_type_id), env.module_path.clone()), {
+  if(private_member_blocked(label.clone(), type_decl_module(pv_type_id), tok.module_path.clone()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -361,7 +363,7 @@ handle_member_destructuring :: (
             seen_labels.push(flab.clone());
           };
           _record_destructured_read(env, rhs_type, flab.clone());
-          _reject_private_destructure(env, rhs_type, flab.clone(), ast_expr_token(lhs_field), exn);
+          _reject_private_destructure(rhs_type, flab.clone(), ast_expr_token(lhs_field), exn);
           {
             runtime_destructurings.push(
               RuntimeDestructuring(
@@ -469,7 +471,7 @@ handle_member_destructuring :: (
           .None => Option(EvalValue).None
         );
         _record_destructured_read(env, rhs_type, rhs_field_label.clone());
-        _reject_private_destructure(env, rhs_type, rhs_field_label.clone(), ast_expr_token(lhs_field), exn);
+        _reject_private_destructure(rhs_type, rhs_field_label.clone(), ast_expr_token(lhs_field), exn);
         if(ast_expr_is_atom(right_side) && is_valid_variable_name(right_side), {
           rename_expr_opt = Option(AstExpr).Some(right_side);
           variable_name_opt = Option(String).Some(ast_expr_token(right_side).value.clone());
@@ -565,7 +567,7 @@ handle_member_destructuring :: (
           .None => Option(EvalValue).None
         );
         _record_destructured_read(env, rhs_type, rhs_field_label.clone());
-        _reject_private_destructure(env, rhs_type, rhs_field_label.clone(), ast_expr_token(lhs_field), exn);
+        _reject_private_destructure(rhs_type, rhs_field_label.clone(), ast_expr_token(lhs_field), exn);
         variable_name_opt = Option(String).Some(pos_var_name);
         variable_token_opt = Option(AstExpr).Some(lhs_field);
       });

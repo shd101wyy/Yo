@@ -1594,7 +1594,10 @@ Raw pointer operations may dereference invalid memory.`
             return(expr);
           },
           .Some(fi_lbl) => {
-            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), env.module_path.clone()), {
+            // The access site is the label TOKEN's module (lexical) — never
+            // `env.module_path`, which inside a generic impl body evaluated at
+            // call time is the CALLER's module.
+            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), ast_expr_token(property_expr).module_path.clone()), {
               exn.throw(
                 dyn(
                   format_error_message(
