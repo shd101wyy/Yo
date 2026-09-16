@@ -113,8 +113,33 @@ accident.
 
 ## Implementation sketch
 
-1. **Parser** — `thread_local(name : T) = init;` as a module-level form, next
-   to where `(g : T) = v` runtime globals are parsed.
+1. ~~**Parser**~~ — **NO PARSER CHANGE IS NEEDED. Measured 2026-09-17.**
+
+   `thread_local(counter : i32) = 0;` at module level ALREADY parses on the
+   released v0.2.35 seed. It fails at NAME RESOLUTION, not at parse:
+
+   ```
+   error[E0401]: Variable "thread_local" not found.
+     --> tl_parse.yo:2:1
+     | thread_local(counter : i32) = 0;
+     | ^^^^^^^^^^^^
+   ```
+
+   The form is an ordinary assignment whose LHS is a call expression, which
+   the grammar already accepts — the same shape as `(g : T) = v` with a
+   named head. So the work is EVALUATOR recognition plus codegen, and the
+   parser is untouched.
+
+   **This changes the sequencing story materially.** A new parser form is the
+   hardest seed gate there is; this feature does not have one. `std/` adoption
+   is still two-release, because the SEED's evaluator must know
+   `thread_local` before `std/rand.yo` can use it — but the implementation
+   itself is smaller than the plan assumed, and nothing about the grammar has
+   to be designed, reviewed or frozen.
+
+   (Probed rather than assumed, which this document's own §4b advises: three
+   "Yo has no X" claims in `plans/STD_API_STABILIZATION.md` were measured and
+   found false the same way.)
 
    **The open question here is now ANSWERED: the existing global path CAN
    carry it, as a registry entry rather than a new node type** (surveyed
