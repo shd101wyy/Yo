@@ -41,8 +41,8 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   what to change for a model-driven workflow, written 2026-09-16 after a
   two-agent day: P0 a toolchain that never reports success for work it did
   not do (transpile failure = error, no hollow batches, `check --bodies`,
-  a non-`unit` `main` is rejected), P1 `yo fix` + innermost-cause
-  diagnostics, and the brace question DECIDED (§4: braces stay "record
+  a non-`unit` `main` is rejected), P1 `yo fix` plus a diagnosis of the
+  generic "failed to evaluate" messages, and the brace question DECIDED (§4: braces stay "record
   unless `;`" in every position; `{ x }` gets a diagnostic + `yo fix`, not
   a grammar change; `_` becomes the discard).
   `struct(generic(T), …)` sugar REJECTED.

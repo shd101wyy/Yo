@@ -161,16 +161,45 @@ stays a formatter (it is not a syntax gate, and must not become one).
 Acceptance: each of the four has a cli-case with an `expected_tree` golden
 showing the repaired file, and `yo fix` on a clean tree is a no-op.
 
-## 3. P1 — a wrapped diagnostic keeps its innermost cause
+## 3. P1 — a generic "failed to evaluate X" must not replace a real cause
 
-During #716 a member-visibility rejection inside a `match` scrutinee
-surfaced only as "Failed to evaluate the match scrutinee expression", with
-the E0405 text and span gone. The wrapping sites (`match`, `cond`, import
-chains, derive) should carry the inner diagnostic as the primary and their
-own text as a `note:`, the way the import chain already collapses. The
-classifier then sees the real code and `yo explain` names the real rule.
-Acceptance: `tests/internal/error.test.yo` gains a wrapped-cause case per
-wrapping site.
+**Re-scoped 2026-09-16 after reading the site: this is probably NOT a
+wrapping problem, so do not implement it as one.** The case that prompted it
+was, during #716, a private-member rejection inside a `match` scrutinee
+surfacing only as:
+
+```
+error: Failed to evaluate the match scrutinee expression: (al._ptr)
+```
+
+Reading `src/evaluator/exprs/match.yo` (the scrutinee block): the message is
+not a wrapper around an inner diagnostic at all. The scrutinee is evaluated
+through `evaluate_expression(scrutinee_expr, env, ctx)` — **no `exn`
+argument** — and the generic message is then raised because the result
+carries no `variable_name` in its `ExprInfo`. So by the time this site runs,
+the specific error has already been lost somewhere upstream: either it was
+never raised on a channel this frame can see, or a def-time trial swallowed
+it. A wrapper that "keeps the inner cause" has no inner cause to keep.
+
+Therefore the first step is a DIAGNOSIS, not an edit:
+
+1. Reproduce minimally: a `match` whose scrutinee is an expression the
+   evaluator rejects (a private member access from another directory is the
+   known one, now that #716 is in).
+2. Find where the specific diagnostic dies — run with `YO_DEBUG_SWALLOW=1`,
+   which prints swallowed evaluator errors, and compare against the raising
+   site.
+3. Only then decide the fix. If the error is swallowed by a trial, the fix is
+   in the swallow (re-raise on the real path, as
+   `function_type.yo:1541` already does for one case). If it is raised on a
+   channel this frame cannot see, the fix is to give the scrutinee evaluation
+   the `exn` it lacks. If it genuinely is a wrap, then and only then does the
+   original plan (inner diagnostic as primary, own text as `note:`) apply.
+
+Audit the same shape elsewhere while there: any message of the form
+"Failed to evaluate the X expression" that fires on a MISSING `ExprInfo`
+rather than on a caught error is the same pattern, and each one can hide a
+real diagnostic. `grep -n "Failed to evaluate" src/evaluator` is the list.
 
 ## 4. Design — braces: DECIDED, keep "record unless `;`", everywhere
 
@@ -261,8 +290,8 @@ Python for the first two.
    The fixpoint and hollow-sweep gates are the only consumers of the old
    behaviour.
 2. §1.3 `check --bodies`, measured against the #716 pre-fix commit.
-3. §2 `yo fix` with the §4 diagnostic as one of its four repairs; §3 in
-   the same PR or the next.
+3. §2 `yo fix` with the §4 diagnostic as one of its four repairs; §3's
+   DIAGNOSIS (not its fix) can run any time and is independent.
 4. §4.3 item 3 (`_` as the discard) on the next seed-gated release.
 
 None of 1–3 touches `std/` source forms, so none is seed-gated. The only
