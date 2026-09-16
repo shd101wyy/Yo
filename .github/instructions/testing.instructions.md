@@ -90,7 +90,14 @@ exercise the PUBLIC surface. Two shapes reach the private one, both run by
   module-level helpers. Limitation: the batch is a COPY of the module, so a
   module whose types the prelude already re-exports (`String`, `ArrayList`,
   `Option`, …) gets a second, distinct copy of those types inside the batch —
-  test such modules with a sibling file instead.
+  test such modules with a sibling file instead. A module that is also a
+  PROGRAM may carry in-file tests: the batch drops the module's own `main`
+  and `export(main)` and supplies its own.
+
+**Never point `yo test` at `issues/`.** Four `issues/repros/*.yo` are
+programs written in `test(...)` shape because the bug shows in a test body;
+in-file collection makes them runnable, and a repro for an OPEN bug is
+supposed to fail — that red is the bug, not a regression.
 
 Release bundles drop `std/**/*.test.yo` (`release.yml`, `scripts/install.sh`);
 in-file tests ship with their module and cost a no-op.
