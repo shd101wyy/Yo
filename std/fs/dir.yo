@@ -322,7 +322,7 @@ read_link_str :: (fn(path : str, io : Io) -> Impl(Future(Path, IoExn)))(read_lin
 /// walker's `follow_symlinks` decision depends on seeing `.Symlink` rather
 /// than the target's type.
 _statx_file_type :: (fn(buf : *u8, buf_size : usize) -> FileType)({
-  sx := Statx(_buf_ptr : buf, _buf_size : buf_size);
+  sx := Statx(buf_ptr : buf, buf_size : buf_size);
   cond(
     sx.is_symlink() => FileType.Symlink,
     sx.is_directory() => FileType.Directory,

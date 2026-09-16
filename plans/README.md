@@ -117,6 +117,11 @@ designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
 (the `open(...)` builtin removed 2026-09-10 — glob imports are
 `{ ... } :: import(...)`, and the migration rules there are how to read an
 `open(...)` in an older doc),
+[`reference/MEMBER_VISIBILITY.md`](reference/MEMBER_VISIBILITY.md)
+(member visibility landed 2026-09-16 as the compiler-ENFORCED `_` prefix —
+private to the declaring module and its same-directory siblings, error
+E0405; the `priv` marker the doc recommended was rejected as seed-gated
+syntax),
 ….
 
 Backlog (`backlog/`) — written, not started. Recent additions:
@@ -153,10 +158,6 @@ written from the std row that needs it, with the blocked call sites named):
   `park` primitive and the async `Mutex` over it have landed; `yield` is
   seed-gated, `Channel` is blocked on a tracer defect, and the combinators and
   cross-thread wake are open — the doc's status table says which is which.
-- [`backlog/MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) — Yo has no
-  visibility mechanism; the leading-underscore convention standing in for it
-  covers **752 members** in `std/` and enforces nothing. Blocks three
-  stabilization rows, including `Mutex._raw_lock`.
 - [`backlog/ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) —
   no async analogue of `Iterator`, so four std APIs have each invented their
   own "value, later, repeatedly" shape. Blocks `TcpListener.incoming`. This

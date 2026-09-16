@@ -28,6 +28,7 @@ import("std/fmt");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ register_type_decl_module } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -65,6 +66,8 @@ evaluate_union_type :: (
   // module cannot renumber it.
   decl_tok := ast_expr_token(expr);
   union_id := stable_label_id(String.from("union_"), decl_tok.module_path, decl_tok.row, decl_tok.column);
+  // Member visibility: record which module declares this type (guards.yo).
+  register_type_decl_module(union_id.clone(), decl_tok.module_path.clone());
   // Temporarily set SelfType so fields can reference Self.
   old_self_type := ctx.self_type;
   prelim_ty := TypeValue.Union(

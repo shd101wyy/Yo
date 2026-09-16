@@ -52,7 +52,8 @@ _(env : pa_dbg_env) :: import("std/env");
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type, type_decl_module } :: import("../../types/guards.yo");
+{ private_member_blocked, is_private_member_name } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
@@ -233,6 +234,34 @@ build_field_path_collection :: (
 /// not-found handling). Used by the EnumT branch — without it,
 /// `Self.Output` on an enum receiver wrongly errors as a missing enum
 /// variant before any associated-type lookup runs.
+/// MEMBER VISIBILITY for the STATIC spelling `Type._m` (resolved here from
+/// the registry, so it never reaches function.yo's receiver-method check):
+/// the member's declaring module is its registry entry's registration owner
+/// when recorded, else the type's own declaring module. Throws when the
+/// access token's module may not see a private member.
+_reject_private_static_member :: (
+  fn(type_id : String, prop_name : String, type_val_inner : TypeValue, property_expr : AstExpr, exn : Exception) -> unit
+)({
+  if(!is_private_member_name(prop_name.clone()), {
+    return(());
+  });
+  entries := get_type_trait_methods_by_name(type_id.clone(), prop_name.clone());
+  entry_owner := match(entries.get(usize(0)), .Some(e) => e.owner.clone(), .None => String.new());
+  decl := cond(
+    (entry_owner.len() > usize(0)) => Option(String).Some(entry_owner),
+    true => type_decl_module(type_id)
+  );
+  if(private_member_blocked(prop_name.clone(), decl, ast_expr_token(property_expr).module_path.clone()), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(property_expr),
+          `Method "${prop_name}" of ${type_to_string(type_val_inner)} is private to its declaring module`
+        )
+      )
+    );
+  });
+});
 _try_resolve_associated_type :: (
   fn(
     type_val_inner : TypeValue,
@@ -712,6 +741,7 @@ Raw pointer operations may dereference invalid memory.`
       prim_type_id := type_id_or_empty(type_val_inner);
       if(prim_type_id != "", {
         prim_prop_name := ast_expr_token(property_expr).value;
+        _reject_private_static_member(prim_type_id.clone(), prim_prop_name.clone(), type_val_inner, property_expr, exn);
         prim_methods := get_type_trait_methods_by_name(prim_type_id, prim_prop_name);
         if(prim_methods.len() > usize(0), {
           (pm_idx : usize) = usize(0);
@@ -1021,6 +1051,7 @@ Raw pointer operations may dereference invalid memory.`
       // function dispatch path handles method overload resolution.
       su_type_id := type_id_or_empty(type_val_inner);
       if(su_type_id != "", {
+        _reject_private_static_member(su_type_id.clone(), prop_name_su.clone(), type_val_inner, property_expr, exn);
         registry_methods := get_type_trait_methods_by_name(su_type_id, prop_name_su);
         // OVERLOAD DEFER — the struct-arm twin of
         // _try_resolve_associated_type's rule (:216-231): when the type
@@ -1469,6 +1500,15 @@ Raw pointer operations may dereference invalid memory.`
       .Union(_, _, types) => types,
       _ => ArrayList(TypeValue).new()
     );
+    // MEMBER VISIBILITY: the declared type behind this access, for the
+    // `_`-prefixed field check below. Tuples and source-namespace module
+    // structs have no declaring type and are never blocked.
+    pa_vis_type_id := match(
+      base_ty,
+      .Struct({ id : pa_sid, is_source_namespace : pa_sns }) => cond(pa_sns => String.new(), true => pa_sid.clone()),
+      .Union(pa_uid, _, _) => pa_uid.clone(),
+      _ => String.new()
+    );
     if(ast_expr_is_atom(property_expr), {
       // --- Integer index access (tuple fields only) -----------------------
       if(ast_expr_token(property_expr).kind == TokenKind.Integer, {
@@ -1584,6 +1624,19 @@ Raw pointer operations may dereference invalid memory.`
             return(expr);
           },
           .Some(fi_lbl) => {
+            // The access site is the label TOKEN's module (lexical) — never
+            // `env.module_path`, which inside a generic impl body evaluated at
+            // call time is the CALLER's module.
+            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), ast_expr_token(property_expr).module_path.clone()), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(property_expr),
+                    `Field "${label_str}" of ${type_to_string(base_ty)} is private to its declaring module`
+                  )
+                )
+              );
+            });
             ft_lbl := match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit());
             field_origin_lbl := match(
               match(obj_info_opt, .Some(oi) => expr_info_origin_type(oi), .None => Option(TypeValue).None),

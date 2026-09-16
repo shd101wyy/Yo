@@ -43,7 +43,8 @@ pragma(Pragma.AllowUnsafe);
   register_extern_c_global_alias
 } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type } :: import("../../types/guards.yo");
+{ is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type, type_decl_module } :: import("../../types/guards.yo");
+{ private_member_blocked } :: import("../../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -110,6 +111,33 @@ _record_destructured_read :: (fn(env : Environment, rhs_type : TypeValue, label 
     }),
     _ => ()
   );
+});
+/// MEMBER VISIBILITY (plans/reference/MEMBER_VISIBILITY.md): a `_`-prefixed
+/// field may be destructured only inside its type's declaring module or that
+/// module's directory — a spread from outside is rejected too, so a private
+/// field never leaks through `{ ... } := s`. A module value's exports are not
+/// members of a declared type (`is_source_namespace`), so they never block.
+/// The access site is the pattern TOKEN's module (lexical), not
+/// `env.module_path` (a call-time generic body carries the caller's).
+_reject_private_destructure :: (
+  fn(rhs_type : TypeValue, label : String, tok : Token, exn : Exception) -> unit
+)({
+  pv_type_id := match(
+    rhs_type,
+    .Struct({ id : pv_sid, is_source_namespace : pv_sns }) => cond(pv_sns => String.new(), true => pv_sid.clone()),
+    .Union(pv_uid, _, _) => pv_uid.clone(),
+    _ => String.new()
+  );
+  if(private_member_blocked(label.clone(), type_decl_module(pv_type_id), tok.module_path.clone()), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `Cannot destructure field "${label}" of ${type_to_string(rhs_type)} outside its declaring module: it is private`
+        )
+      )
+    );
+  });
 });
 /// The no-shadowing rule at a destructuring binding site — the same check
 /// `binding.yo` and `initialization_assignment.yo` run for an atom LHS (TS
@@ -335,6 +363,7 @@ handle_member_destructuring :: (
             seen_labels.push(flab.clone());
           };
           _record_destructured_read(env, rhs_type, flab.clone());
+          _reject_private_destructure(rhs_type, flab.clone(), ast_expr_token(lhs_field), exn);
           {
             runtime_destructurings.push(
               RuntimeDestructuring(
@@ -442,6 +471,7 @@ handle_member_destructuring :: (
           .None => Option(EvalValue).None
         );
         _record_destructured_read(env, rhs_type, rhs_field_label.clone());
+        _reject_private_destructure(rhs_type, rhs_field_label.clone(), ast_expr_token(lhs_field), exn);
         if(ast_expr_is_atom(right_side) && is_valid_variable_name(right_side), {
           rename_expr_opt = Option(AstExpr).Some(right_side);
           variable_name_opt = Option(String).Some(ast_expr_token(right_side).value.clone());
@@ -537,6 +567,7 @@ handle_member_destructuring :: (
           .None => Option(EvalValue).None
         );
         _record_destructured_read(env, rhs_type, rhs_field_label.clone());
+        _reject_private_destructure(rhs_type, rhs_field_label.clone(), ast_expr_token(lhs_field), exn);
         variable_name_opt = Option(String).Some(pos_var_name);
         variable_token_opt = Option(AstExpr).Some(lhs_field);
       });

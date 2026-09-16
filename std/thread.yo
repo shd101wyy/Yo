@@ -31,7 +31,7 @@
 //! whose task type is still value-less and whose shutdown story is a separate
 //! decision.
 pragma(Pragma.AllowUnsafe);
-{ Mutex } :: import("./sync/mutex");
+{ RawMutex } :: import("./sync/mutex");
 { AtomicBool, AtomicUsize, MemoryOrder } :: import("./sync/atomic");
 { Channel } :: import("./sync/channel");
 { assert } :: import("./assert");
@@ -177,7 +177,7 @@ impl(
 ThreadPool :: atomic(
   ref(
     struct(
-      _mutex : Mutex(bool),
+      _mutex : RawMutex,
       _used : AtomicBool,
       _closed : AtomicBool,
       /// Which thread holds `_mutex`, so a submission made FROM a task that the
@@ -199,7 +199,7 @@ impl(
     assert(num_threads > usize(0), "ThreadPool.new: num_threads must be > 0");
     __yo_worker_set_num_threads(num_threads);
     Self(
-      _mutex : Mutex(bool).new(false),
+      _mutex : RawMutex.new(),
       _used : AtomicBool(false),
       _closed : AtomicBool(false),
       _held : AtomicBool(false),
@@ -310,7 +310,7 @@ _lock_for_submission :: (fn(pool : ThreadPool) -> bool)({
   cond(
     (pool._held.load(MemoryOrder.Acquire) && (pool._owner.load(MemoryOrder.Acquire) == me)) => false,
     true => {
-      pool._mutex._raw_lock();
+      pool._mutex.lock();
       pool._owner.store(me, MemoryOrder.Release);
       pool._held.store(true, MemoryOrder.Release);
       true
@@ -321,7 +321,7 @@ _unlock_after_submission :: (fn(pool : ThreadPool, took : bool) -> unit)({
   cond(
     took => {
       pool._held.store(false, MemoryOrder.Release);
-      pool._mutex._raw_unlock();
+      pool._mutex.unlock();
     },
     true => ()
   );

@@ -30,6 +30,7 @@
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
   E_NOT_DEFINED,
+  E_PRIVATE_MEMBER,
   E_INCOMPATIBLE_TYPES,
   E_TRAIT_NOT_IMPLEMENTED,
   E_ARGUMENT_COUNT_MISMATCH,
@@ -125,6 +126,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.contains(String.from("is not defined.")), {
     return(_coded(E_NOT_DEFINED));
+  });
+  if(msg.contains(String.from("is private")), {
+    return(_coded(E_PRIVATE_MEMBER));
   });
   if(msg.contains(String.from("not found.")) || msg.contains(
     String.from("not found ")

@@ -125,6 +125,12 @@ impl(
   /// The configured period.
   period : (fn(self : Self) -> Duration)(
     self._period
+  ),
+  /// The instant the next tick is DUE — the schedule's anchor, which `tick`
+  /// advances by exactly one period. Read-only; the drift tests assert the
+  /// schedule through it.
+  next_tick : (fn(self : Self) -> Instant)(
+    self._next
   )
 );
 /// Start a repeating tick of `period`. The first `tick()` is immediate.

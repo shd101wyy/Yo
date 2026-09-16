@@ -95,11 +95,11 @@ test("interval's schedule advances by exactly one period per tick", {
   period := Duration.from_millis(i64(30));
   t := interval(period, io);
   io.await(t.tick(io), io);
-  due_after_first := t._next;
+  due_after_first := t.next_tick();
   // Burn real time between ticks — more than a whole period.
   io.await(sleep(Duration.from_millis(i64(45)), io), io);
   io.await(t.tick(io), io);
-  due_after_second := t._next;
+  due_after_second := t.next_tick();
   delta := due_after_second.duration_since(due_after_first);
   assert(
     delta.as_millis() == i64(30),
@@ -107,7 +107,7 @@ test("interval's schedule advances by exactly one period per tick", {
   );
   // And again, with no work at all — same advance.
   io.await(t.tick(io), io);
-  delta2 := t._next.duration_since(due_after_second);
+  delta2 := t.next_tick().duration_since(due_after_second);
   assert(delta2.as_millis() == i64(30), `and again, got ${delta2.as_millis()}ms`);
   assert(t.period().as_millis() == i64(30), "period() reports the configured period");
 });
@@ -119,10 +119,10 @@ test("interval's first tick is due immediately", {
   before := Instant.now();
   t := interval(Duration.from_millis(i64(40)), io);
   // The first tick is due at construction time, so it is already due.
-  assert(t._next.duration_since(before).as_millis() < i64(5), "the first tick is due at once");
+  assert(t.next_tick().duration_since(before).as_millis() < i64(5), "the first tick is due at once");
   io.await(t.tick(io), io);
   // After it, the next is due one period later — never two.
-  assert(t._next.duration_since(before).as_millis() >= i64(35), "the second tick is a period out");
+  assert(t.next_tick().duration_since(before).as_millis() >= i64(35), "the second tick is a period out");
 });
 test("interval bursts to catch up after an overrun", {
   // NO wall-clock assertion here, deliberately. A first version asserted that
@@ -138,14 +138,14 @@ test("interval bursts to catch up after an overrun", {
   // the schedule catches up one period at a time rather than re-anchoring to
   // now. Checked on the schedule again — how FAST the burst comes back is a
   // property of the runner's timers, not of the interval.
-  before_overrun := t._next;
+  before_overrun := t.next_tick();
   io.await(sleep(Duration.from_millis(i64(100)), io), io);
   (n : i64) = i64(0);
   while(runtime(n < i64(3)), {
     io.await(t.tick(io), io);
     n = (n + i64(1));
   });
-  advanced := t._next.duration_since(before_overrun);
+  advanced := t.next_tick().duration_since(before_overrun);
   assert(
     advanced.as_millis() == i64(90),
     `three owed ticks advanced the schedule by 3 periods, got ${advanced.as_millis()}ms`

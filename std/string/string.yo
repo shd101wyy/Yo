@@ -228,8 +228,8 @@ impl(
       self._bytes,
       .None => RawSlice(u8)(ptr : (*u8)(""), len : usize(0)),
       .Some(al) => match(
-        al._ptr,
-        .Some(p) => RawSlice(u8)(ptr : p, len : al._length),
+        al.ptr(),
+        .Some(p) => RawSlice(u8)(ptr : p, len : al.len()),
         .None => RawSlice(u8)(ptr : (*u8)(""), len : usize(0))
       )
     )
@@ -1170,8 +1170,8 @@ impl(
       // calls before the memcmp (issues/
       // yo-self-compile-performance-rc-string-eq.md, lever 1). Same
       // semantics — `len()` returns `_length`, `ptr()` returns `_ptr`.
-      (self_len : usize) = match(self._bytes, .Some(b) => b._length, .None => usize(0));
-      (other_len : usize) = match(other._bytes, .Some(b) => b._length, .None => usize(0));
+      (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+      (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
       cond(
         (self_len != other_len) => false,
         (self_len == usize(0)) => true,
@@ -1183,10 +1183,10 @@ impl(
                 other._bytes,
                 .Some(other_al) =>
                   match(
-                    self_al._ptr,
+                    self_al.ptr(),
                     .Some(self_ptr) =>
                       match(
-                        other_al._ptr,
+                        other_al.ptr(),
                         // SAFETY: self_len equals other_len (checked
                         // above) and both equal each ArrayList's
                         // ._length (the inner Option's _ptr is Some only
@@ -3356,7 +3356,7 @@ impl(
             true => {
               buf := ArrayList(u8).with_capacity(n);
               match(
-                al._ptr,
+                al.ptr(),
                 .Some(ptr) => buf.extend_from_ptr(ptr, n),
                 .None => ()
               );
