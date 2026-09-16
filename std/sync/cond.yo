@@ -20,7 +20,7 @@
 //! its OS primitive — Rust passes a `MutexGuard`, and `Mutex(T)`
 //! deliberately has no guard type to pass.
 pragma(Pragma.AllowUnsafe);
-{ __YO_THREAD_SYNC_TYPE } :: import("./mutex");
+{ __YO_THREAD_SYNC_TYPE, Mutex } :: import("./mutex");
 { Duration } :: import("../time/duration");
 extern(
   "Yo",
@@ -90,6 +90,27 @@ impl(
   wait : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE) -> unit)({
     return(__yo_cond_wait(&self.cv, handle));
   }),
+  /// `wait` spelled against the `Mutex` itself — the PUBLIC form. Call it
+  /// from inside `m.with_lock(...)`, whose closure runs holding `m`; the
+  /// wait releases `m` while parked and holds it again on return, so the
+  /// guard's unlock at the closure's end stays balanced:
+  ///
+  /// ```yo
+  /// m.with_lock(_v => {
+  ///   while(!ready(), {
+  ///     cv.wait_with(m);
+  ///   });
+  /// });
+  /// ```
+  ///
+  /// The raw-handle `wait` above needs `Mutex._raw_handle_ptr`, which is
+  /// private to `std/sync/` (member visibility: a `_` member is usable only
+  /// from its declaring directory) — this is the door for everyone else.
+  wait_with : (
+    fn(generic(T : Type), self : Self, m : Mutex(T), where(T <: (Send, Acyclic))) -> unit
+  )(
+    self.wait(m._raw_handle_ptr())
+  ),
   /// Wait until signalled or until `timeout` elapses. Rust's
   /// `Condvar::wait_timeout`.
   ///
@@ -122,6 +143,15 @@ impl(
   /// does not block.
   wait_timeout : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE, timeout : Duration) -> bool)(
     __yo_cond_timedwait(&self.cv, handle, timeout.as_nanos())
+  ),
+  /// `wait_timeout` spelled against the `Mutex` itself — the PUBLIC form of
+  /// the raw-handle method above, with the same `true` = woken (possibly
+  /// spuriously) / `false` = timed out contract. Call it from inside
+  /// `m.with_lock(...)`, exactly as `wait_with`.
+  wait_timeout_with : (
+    fn(generic(T : Type), self : Self, m : Mutex(T), timeout : Duration, where(T <: (Send, Acyclic))) -> bool
+  )(
+    self.wait_timeout(m._raw_handle_ptr(), timeout)
   ),
   /// Wake ONE waiting thread, if any — Rust's `Condvar::notify_one`.
   ///
