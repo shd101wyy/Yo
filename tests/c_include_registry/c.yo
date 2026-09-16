@@ -1,0 +1,8 @@
+//! Fixture for tests/c_include_registry_collision.test.yo: binds `LC_ALL` as
+//! `int` and READS it — `d.yo` binds the same symbol as `i64` and never uses
+//! it, so `<locale.h>` reaches the emitted C only if THIS module's binding
+//! is recognised as the extern-C global it is.
+pragma(Pragma.AllowUnsafe);
+{ LC_ALL } :: c_include("<locale.h>", LC_ALL : int);
+lc_all_c :: (fn() -> int)(LC_ALL);
+export(lc_all_c);

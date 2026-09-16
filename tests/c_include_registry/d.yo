@@ -1,0 +1,7 @@
+//! Fixture for tests/c_include_registry_collision.test.yo: binds `LC_ALL` as
+//! `i64` (unused) — the OTHER declaration of the same symbol, evaluated after
+//! `c.yo`, which is what used to overwrite `c.yo`'s registry entry.
+pragma(Pragma.AllowUnsafe);
+{ LC_ALL } :: c_include("<locale.h>", LC_ALL : i64);
+unused_d :: (fn() -> i64)(i64(0));
+export(unused_d);
