@@ -219,7 +219,13 @@ impl(
   YoError,
   ToString(
     to_string : (fn(inout(self) : Self) -> String)(
-      render_diagnostics_human(self.diagnostics)
+      // MODE-AWARE, not human-only: `--error-format json` worked for parse
+      // and lexer errors but not evaluator ones, because every path that
+      // stringifies a YoError through `to_string()` landed here and rendered
+      // human regardless of the mode (measured on the released v0.2.35 seed,
+      // so the defect predates this branch). `render_diagnostics_for_mode`
+      // returns human when no mode is set, so the default is unchanged.
+      render_diagnostics_for_mode(self.diagnostics)
     )
   )
 );
@@ -533,7 +539,21 @@ format_warning_messages :: (
 });
 export(TokenAndError, TokenAndWarning, YoError);
 export(format_error_message_with_repair);
+/// The swallowed cause WITHOUT the freshness guard and without clearing —
+/// for `yo fix`, which runs after a whole file's evaluation and wants the
+/// repair-bearing diagnostic even though the attempt counter has moved on.
+/// An evaluator error can reach `yo fix` no other way: a def-time trial
+/// swallows it and the module walker reports a flattened string, so the typed
+/// load stash is empty (measured 2026-09-17: a parse error reaches it with 1
+/// diagnostic, `Variable "countr" not found.` with 0).
+peek_swallowed_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
+  g_swallowed_diagnostics
+);
+clear_swallowed_diagnostics :: (fn() -> unit)({
+  g_swallowed_diagnostics = Option(ArrayList(Diagnostic)).None;
+});
 export(note_eval_attempt, note_swallowed_error, format_eval_failure);
+export(peek_swallowed_diagnostics, clear_swallowed_diagnostics);
 // Exported for the registry/classifier tests (tests/internal).
 export(_classify_message);
 export(get_line_at_token, get_line_at_position);

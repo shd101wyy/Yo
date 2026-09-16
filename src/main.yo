@@ -918,25 +918,58 @@ run_fix :: (
     exn.throw(dyn(`fix: no .yo files found at ${target_path}`));
   });
   std_path := resolve_std_path();
+  // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
+  // version called `mm_reset()` per file, which threw away the cached prelude
+  // env: the reload then failed before reaching the target file, so the only
+  // stashed diagnostics belonged to another path and `fix` reported "nothing
+  // to fix" on a file `check` rejects.
+  if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
+    exn.throw(dyn(`fix: could not load the prelude from ${std_path}`));
+  });
   (total_applied : usize) = usize(0);
   (pass : usize) = usize(0);
   (progress : bool) = true;
   while(progress && (pass < usize(10)), {
     progress = false;
     pass = (pass + usize(1));
+    // Per pass, not per file: a previous pass may have rewritten a file, and
+    // a cached module would hide the edit.
+    clear_module_cache();
     (fi : usize) = usize(0);
     while(fi < files.len(), {
       file := match(files.get(fi), .Some(f) => f, .None => String.new());
       fi = (fi + usize(1));
-      // A fresh evaluation per file per pass: the previous pass may have
-      // rewritten this file, and a cached module would hide the edit.
-      mm_reset();
       outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+      fix_dbg := proc_env.get(`YO_DEBUG_FIX`).is_some();
       if(outcome.ok, {
+        if(fix_dbg, {
+          eprintln(`[fix] ${file}: evaluated OK, nothing to repair`);
+        });
         continue;
       });
       _drop := _take_load_error();
+      // The TYPED load stash is the only sound source here. The swallowed-cause
+      // stash (§3) was tried and REJECTED: a normal evaluation swallows many
+      // internal trial failures, so its most recent entry is routinely an
+      // unrelated error (measured: it offered
+      // "check_if_function_parameter_matches_argument: arg has no ExprInfo"
+      // from std/prelude.yo for a file whose actual error was an undefined
+      // name). Reading it would make `fix` act on the wrong diagnostic.
       diags := match(take_error_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new());
+      if(fix_dbg, {
+        eprintln(`[fix] ${file}: failed, ${diags.len().to_string()} diagnostic(s)`);
+        (ddj : usize) = usize(0);
+        while(ddj < diags.len(), {
+          match(
+            diags.get(ddj),
+            .Some(dd) => eprintln(
+              `[fix]   span.path="${dd.span.path}" repair=${match(dd.repair, .Some(rr) => `"${rr.replacement}"`, .None => String.from("none"))} msg=${dd.message}`
+            ),
+            .None => ()
+          );
+          ddj = (ddj + usize(1));
+        });
+      });
       pending := ArrayList(_PendingFix).new();
       (dj : usize) = usize(0);
       while(dj < diags.len(), {
@@ -970,6 +1003,18 @@ run_fix :: (
         );
         pi = (pi + usize(1));
       });
+      // TRUTHFULNESS. A file can fail with diagnostics that carry no repair,
+      // and — today — an evaluator error reaches this point with NO typed
+      // diagnostics at all, because the lazy-binding/def-time-trial path
+      // flattens it to a rendered string before the typed stash sees it
+      // (issues/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md).
+      // Say so rather than reporting "nothing to fix", which would read as
+      // "this file is clean".
+      if(pending.len() == usize(0), {
+        println(
+          `fix: ${file} has errors, but no machine-applicable repair was available — run \`yo check ${file}\` for the diagnostics`
+        );
+      });
       if(!dry_run && (pending.len() > usize(0)), {
         n_applied := _apply_fixes_to_file(file.clone(), pending, io, exn);
         if(n_applied > usize(0), {
@@ -986,7 +1031,7 @@ run_fix :: (
   });
   cond(
     dry_run => println(`fix: dry run — nothing written`),
-    (total_applied == usize(0)) => println(`fix: nothing to fix`),
+    (total_applied == usize(0)) => println(`fix: no repairs applied`),
     true => println(`fix: applied ${total_applied.to_string()} repair(s) in ${pass.to_string()} pass(es)`)
   );
 });

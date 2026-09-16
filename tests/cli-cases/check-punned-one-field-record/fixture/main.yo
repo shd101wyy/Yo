@@ -1,10 +1,10 @@
 { println } :: import("std/fmt");
-double :: (fn(v : i32, f : Impl(Fn(x : i32) -> i32)) -> i32)(f(v));
 main :: (fn() -> unit)({
-  // `{ v }` is a one-field RECORD, not a block — braces mean "record unless
+  y := i32(7);
+  // `{ y }` is a one-field RECORD, not a block — braces mean "record unless
   // `;`", uniformly. Every other language reads this as a block, so the error
-  // has to say so instead of reporting a bare type mismatch downstream.
-  n := double(i32(21), v => { v });
-  println(n.to_string());
+  // has to say so rather than surfacing as a bare type mismatch.
+  (x : i32) = { y };
+  println(x.to_string());
 });
 export(main);
