@@ -1,0 +1,24 @@
+{ println } :: import("std/fmt");
+
+// `Array(T, N).fill` takes `comptime(val) : T`. A LITERAL satisfies it, even
+// inside a generic function (see the `ok` arm). A value produced by a
+// GENERIC-DISPATCHED trait call does not — even when `T` is bounded
+// `Comptime` and the concrete `T`'s `default()` is itself a comptime
+// constant. It compiles rc=0 and aborts at runtime as an FTT stub.
+//
+// This is what blocks `Array(T, N)`'s `Default`.
+// WORKS: literal fill value inside the same generic shape.
+ok :: (fn(generic(T : Type), x : T, where(T <: (Default, Comptime))) -> Array(i32, usize(3)))(
+  Array(i32, usize(3)).fill(i32(0))
+);
+
+// FTT STUB: identical shape, fill value from `T.default()`.
+broken :: (fn(generic(T : Type), x : T, where(T <: (Default, Comptime))) -> Array(T, usize(3)))(
+  Array(T, usize(3)).fill(T.default())
+);
+
+main :: (fn() -> unit)({
+  println(`${ok(i32(0)).len()}`);
+  println(`${broken(i32(0)).len()}`);
+});
+export(main);
