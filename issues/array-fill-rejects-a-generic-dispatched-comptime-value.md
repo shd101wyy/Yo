@@ -98,6 +98,46 @@ conversions under
 So closing the value-substitution row does not close this one, and the two
 should be tracked apart.
 
+## The lead above is REFUTED — measured 2026-09-17
+
+The specialization-mint lead recorded below was tested with a gated `[ctspec]`
+print at `src/evaluator/calls/function.yo`, reporting `any_ct`, `all_known` and
+whether a spec is minted, on BOTH the failing and the working case.
+
+**The traces are identical.**
+
+| trace line | broken `fill(T.default())` | working `fill(T(0))` |
+| --- | --- | --- |
+| `any_ct=true all_known=true mint=true` | 20 | 20 |
+| `any_ct=true all_known=false mint=false` | 3 | 3 |
+| `any_ct=true all_known=true mint=true` (2nd fid) | 2 | 2 |
+
+Same function ids, same counts, same values, 25 lines each. The
+`all_known=false` entries the lead pointed at are present in the WORKING case
+too, so they are ordinary and not the cause. The comptime-value specialization
+mint behaves the same whether the call succeeds or FTTs, so **it is not the
+mechanism** and a fix there would have changed nothing.
+
+That also means `fill` never reaches this predicate under a distinguishing
+path — the difference between the two programs is invisible here entirely.
+
+### Where that leaves it
+
+The remaining explanation is the one recorded as competing: the receiver type
+is not bound at the point the difference is decided, so `T.default()` cannot
+resolve to an impl while `T(0)` needs no impl to resolve. The emitted stub name
+supports it — `..._ret_Array_T____Default___Comptime___3_` still carries the
+UNSUBSTITUTED `T` with its bound, beside a correctly-substituted
+`Array_int32_t_3` in the same file.
+
+Next probe should instrument where the ARGUMENT is evaluated rather than where
+the spec is minted: find the point at which `T.default()` yields no value, and
+print whether `T` is bound there. Do not write a fix before that print exists —
+this is the fourth hypothesis on this defect family to be refuted by
+measurement on 2026-09-16/17, after TypeValue interning and a trait-id
+collision (for the prelude line-count defect) and `force_in_flight_field` (for
+the inherent-constant one).
+
 ## A LEAD, not a confirmed root cause
 
 `src/evaluator/calls/function.yo` (~2433-2468) decides whether to mint a
