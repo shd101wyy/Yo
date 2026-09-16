@@ -29,7 +29,7 @@ import("std/fmt");
 { t_i32 } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("../exprs/expr.yo");
 evaluate_concrete_type :: (
@@ -69,7 +69,7 @@ evaluate_concrete_type :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
+          format_eval_failure(
             ast_expr_token(concrete_type_expr),
             `Failed to evaluate the concrete type expression for Concrete:\n${ast_expr_to_string(concrete_type_expr)}`
           )

@@ -52,7 +52,7 @@ import("std/fmt");
 } :: import("../values/type_trait_methods.yo");
 { set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Specialize a trait type by binding associated types via `:=` arguments.
 /// e.g. `Iterator(Item := i32)` — constraint validated but NOT stored in TraitT
@@ -426,7 +426,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         if(arg_info_opt.is_none(), {
           exn.throw(
             dyn(
-              format_error_message(
+              format_eval_failure(
                 ast_expr_token(value_sub),
                 `Failed to evaluate trait member "${field_label}".`
               )

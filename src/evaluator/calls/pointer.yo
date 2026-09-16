@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, in_def_time_trial } :: import("../context.yo");
-_(env : ptr_dbg_env) :: import("std/env");
+{ env : ptr_dbg_env } :: import("std/env");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr, t_i32 } :: import("../../types/creators.yo");
@@ -30,7 +30,7 @@ _(env : ptr_dbg_env) :: import("std/env");
 { type_to_string } :: import("../../types/string.yo");
 { type_is_control_bound } :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("../exprs/expr.yo");
 /// Evaluate a raw pointer call `*(T)` (pointer type) or `*(val)` (error).
@@ -65,7 +65,7 @@ evaluate_raw_pointer_call :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
+          format_eval_failure(
             ast_expr_token(arg_expr),
             `Failed to evaluate the argument expression for pointer:\n${ast_expr_to_string(arg_expr)}`
           )

@@ -51,7 +51,7 @@ import("std/fmt");
 { get_all_some_types } :: import("../../types/utils.yo");
 { find_some_type_missing_comptime_constraint } :: import("../trait_checking.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -829,7 +829,7 @@ _evaluate_trait_field :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
+              format_eval_failure(
                 ast_expr_token(av_expr),
                 `Failed to evaluate required value expression: ${ast_expr_to_string(av_expr)}`
               )
@@ -917,7 +917,7 @@ _evaluate_trait_field :: (
         .None => {
           exn.throw(
             dyn(
-              format_error_message(
+              format_eval_failure(
                 ast_expr_token(dv_expr),
                 `Failed to evaluate default value expression: ${ast_expr_to_string(dv_expr)}`
               )

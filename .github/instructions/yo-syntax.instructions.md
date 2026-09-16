@@ -7,7 +7,19 @@ description: "Use when writing or editing Yo language code. Covers critical synt
 
 ## Curly braces `{...}` behave differently based on separators
 
+- A brace group is a **record unless it contains a `;`**, and that rule is the
+  same in EVERY position — a value, the left of `::` / `:=` / `=`, and a
+  `match` payload pattern (decided 2026-09-16,
+  `plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4, where the `.{ … }` and
+  comma-decides alternatives are recorded as declined). Patterns and literals
+  therefore never disagree about what a brace means.
 - `{ expr }` without semicolons creates an **anonymous struct value**, NOT a block!
+- `{ x }` — a bare identifier — is a **one-field record** (`_(x : x)`), the
+  case that looks most like a block in other languages. The parser's clear
+  error covers a single non-fieldable expression (a call, a `match`), but
+  `{ x }` IS fieldable, so it is accepted; the compiler reports it at the
+  literal when the expected type can never be a record, and when there is no
+  expected type (`y := { x }`) you simply get the record.
 - `{ expr; }` with semicolons creates a **begin block** (sequence of statements)
 - Struct literal fields use spaces around `:` and infix field values must stay grouped: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
 - If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.

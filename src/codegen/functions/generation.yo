@@ -41,7 +41,7 @@
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
 { t_unit } :: import("../../types/creators.yo");
-_(env : gen_dbg_env) :: import("std/env");
+{ env : gen_dbg_env } :: import("std/env");
 { eprintln } :: import("std/fmt");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
 { generate_sys_runtime, AsyncRuntimeOptions, generate_tls_runtime } :: import("../async/runtime_io_common.yo");
@@ -864,7 +864,21 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         .Func({ result : stub_r }) => is_unit_type(resolve_some_type_to_concrete(stub_r.clone())),
         _ => true
       );
-      if(stub_found_ftt && (stub_is_superseded || !stub_ret_unit), {
+      // EVERY marker-bearing body is rewritten, including a unit-returning
+      // non-superseded one. That last class used to keep the marker as a C
+      // COMMENT, so the C compiler skipped the statement and the function
+      // silently ran without it — the residual silent-degradation hole in
+      // plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.1.
+      //
+      // MEASURED before making it unconditional: that class is EMPTY in the
+      // whole fast-suite corpus today (287 emitted batch `.c` files, 0
+      // surviving markers, 34 already-rewritten stubs — a rewritten body has
+      // its prefix truncated, so a marker LEFT in the C is exactly a residual
+      // case). So this is a defensive invariant with no behaviour delta on
+      // the corpus, not a bug fix: a dead stub stays harmless, and a LIVE one
+      // now says its own name and aborts instead of quietly doing less than
+      // the source said.
+      if(stub_found_ftt, {
         // Rebuild the prefix from bytes once. Byte-exact equivalent of the
         // former char-indexed `substring(0, stub_mark)` — stub_mark_b was taken
         // at the same buffer position.
@@ -924,10 +938,10 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           `  fprintf(stderr, "yo: FATAL: reached ${c_function_name}, whose body failed to transpile - its definition-time evaluation failed and was swallowed. Re-run \`yo check\` with YO_DEBUG_SWALLOW=1 to see the original error.\\n");`
         );
         em.emit_string_line(
-          if(
-            stub_is_superseded,
-            String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"),
-            String.from("  abort(); /* untranspilable body in a value-returning fn: aborting beats falling off the end (UB) */")
+          cond(
+            stub_is_superseded => String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"),
+            !stub_ret_unit => String.from("  abort(); /* untranspilable body in a value-returning fn: aborting beats falling off the end (UB) */"),
+            true => String.from("  abort(); /* untranspilable body in a unit fn: aborting beats silently running without the statement */")
           )
         );
         em.emit_string_line(String.from("}"));

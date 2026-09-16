@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
   attach_temp_variable_to_expr
 } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Construct an array value from `array_type` and the provided `arg_exprs`.
 ///
@@ -123,7 +123,7 @@ try_to_implement_array_by_array_type :: (
     if(arg_info_opt.is_none(), {
       exn.throw(
         dyn(
-          format_error_message(
+          format_eval_failure(
             ast_expr_token(arg_expr),
             `Failed to evaluate array element at index ${i.to_string()}.`
           )

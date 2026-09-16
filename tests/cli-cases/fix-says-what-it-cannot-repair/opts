@@ -1,0 +1,18 @@
+# `yo fix` applies the repairs the compiler computed
+# (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2). This case pins the TRUTHFUL
+# half, which is the half that matters right now.
+#
+# `countr` is one deletion from `counter`, so the diagnostic carries a unique
+# rename — visible in `--error-format json` (see check-json-carries-the-repair).
+# `fix` cannot apply it yet: an error raised inside a definition's body is
+# rendered to text and re-thrown as a plain error by the lazy-binding path, so
+# the typed stash is EMPTY for evaluator errors (measured: 1 diagnostic for a
+# parse error, 0 for this one) —
+# issues/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md
+#
+# So the assertion is that `fix` SAYS it could not repair the file rather than
+# printing "nothing to fix", which would read as "this file is clean" — the
+# exact hollow-success shape this plan exists to remove. When the flattening
+# is fixed, this golden flips to the applied rename, and that diff is the proof.
+stdout_keep=^fix:
+timeout=180
