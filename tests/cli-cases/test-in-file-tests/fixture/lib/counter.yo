@@ -1,0 +1,22 @@
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+Counter :: struct(_count : i32, label : String);
+impl(
+  Counter,
+  new : (fn(label : String) -> Counter)(Counter(_count : i32(0), label : label)),
+  add : (fn(self : Self, by : i32) -> Counter)(_bump(self, by)),
+  count : (fn(self : Self) -> i32)(self._count)
+);
+/// A private module-level helper: an in-file test may call it, an outside
+/// test may not even name it.
+_bump :: (fn(c : Counter, by : i32) -> Counter)(Counter(_count : (c._count + by), label : c.label.clone()));
+export(Counter);
+test("in-file: the private field and helper are reachable", {
+  c := Counter.new(String.from("clicks"));
+  assert(c._count == i32(0), "fresh counter");
+  assert(_bump(c, i32(3))._count == i32(3), "the private helper bumps the private field");
+});
+test("in-file: the public surface agrees with the private state", {
+  c := Counter.new(String.from("clicks")).add(i32(2));
+  assert(c.count() == c._count, "count() reads _count");
+});

@@ -56,7 +56,7 @@ _(env : proc_env) :: import("std/env");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, BK_IMPORT, BK_TEST, ast_expr_is_fn_call_of, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
+{ AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
@@ -3696,24 +3696,111 @@ _collect_test_files :: (
   // closure and peak near 6.5 GB — they cannot share a run with the fast
   // language tests. Mirrors the `exclude` option on the TS `test` subcommand
   // (src/yo-cli.ts) and `findTestFiles` (src/test-runner.ts).
+  //
+  // Two kinds of file carry tests: `*.test.yo` (always), and a plain `.yo`
+  // MODULE with a top-level `test(...)` declaration — Rust's in-file
+  // `#[cfg(test)] mod tests`, which is how a module tests its own private
+  // (`_`-prefixed) members (plans/reference/MEMBER_VISIBILITY.md). The
+  // evaluator treats `test(...)` as a no-op in a normal build, so the module
+  // costs nothing outside `yo test`; here it is recognised by a line that
+  // STARTS with `test(` (top-level statements sit at column 0 under `yo fmt`),
+  // so a mention inside a comment or a nested block does not turn a module
+  // into a test file. The batch inlines the module's other top-level
+  // statements exactly as it does for a `.test.yo`, so the tests see the
+  // module's private helpers too.
   all := collect_check_files(path_str, excludes, io, exn);
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < all.len(), {
     match(
       all.get(i),
-      .Some(f) => if(f.ends_with(String.from(".test.yo")), {
-        out.push(f.clone());
-      }),
+      .Some(f) => cond(
+        f.ends_with(String.from(".test.yo")) => {
+          out.push(f.clone());
+        },
+        true => {
+          if(_module_has_inline_tests(f.clone(), io, exn), {
+            out.push(f.clone());
+          });
+        }
+      ),
       .None => ()
     );
     i = (i + usize(1));
   });
   out
 });
+/// True when the plain module at `path` declares a top-level `test(...)`.
+/// The textual pre-filter (a line starting with `test(`) keeps the walk cheap;
+/// the parse behind it is what decides, so a `test(` inside a multi-line
+/// string literal cannot turn a fixture into a test file.
+_module_has_inline_tests :: (fn(path : String, io : Io, exn : Exception) -> bool)({
+  src := String.from_bytes(io.await(read(Path.new(path.clone()), io), IoExn(io : io, exn : exn)));
+  if(!(src.starts_with(String.from("test(")) || src.contains(String.from("\ntest("))), {
+    return(false);
+  });
+  prog := parse(src, path, exn);
+  (found : bool) = false;
+  (pi : usize) = usize(0);
+  while((pi < prog.len()) && !found, {
+    match(
+      prog.get(pi),
+      .Some(e) => if(ast_expr_is_fn_call_of(e, BK_TEST, .None), {
+        found = true;
+      }),
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  found
+});
+/// A module's OWN `main :: …` — the batch supplies its `main`, so a program
+/// that carries in-file tests must not bring a second one along.
+_is_main_definition :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BK_CONST, Option(usize).Some(usize(2))) &&
+    match(
+      e,
+      .FnCall(_, _, args, _, _) => match(
+        args.get(usize(0)),
+        .Some(lhs) => (ast_expr_is_atom(lhs) && (ast_expr_token(lhs).value == "main")),
+        .None => false
+      ),
+      _ => false
+    )
+);
+/// `export(...)` with `main` removed — `None` when nothing else was exported
+/// (the statement is dropped). The batch exports its own `main`.
+_export_without_main :: (fn(e : AstExpr) -> Option(String))({
+  if(!ast_expr_is_fn_call_of(e, BK_EXPORT, .None), {
+    return(Option(String).Some(ast_expr_to_string(e)));
+  });
+  kept := ArrayList(String).new();
+  match(
+    e,
+    .FnCall(_, _, args, _, _) => {
+      (ai : usize) = usize(0);
+      while(ai < args.len(), {
+        match(
+          args.get(ai),
+          .Some(a) => if(!(ast_expr_is_atom(a) && (ast_expr_token(a).value == "main")), {
+            kept.push(ast_expr_to_string(a));
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    },
+    _ => ()
+  );
+  cond(
+    (kept.len() == usize(0)) => Option(String).None,
+    true => Option(String).Some((String.from("export(") + String.from(", ").join(kept)) + String.from(")"))
+  )
+});
 /// One extracted `test("name", { body })` declaration (source-string form).
 TestDecl :: struct(name : String, body_src : String);
-/// Run `*.test.yo` files with the self-hosted pipeline. Port of the TS
+/// Run `*.test.yo` files — and plain modules with in-file `test(...)`
+/// declarations — with the self-hosted pipeline. Port of the TS
 /// test runner's BATCHED strategy (src/test-runner.ts): per file, parse and
 /// split `test(name, body)` declarations from the non-test content, synthesize
 /// ONE program whose `main` dispatches on the `YO_TEST_INDEX` env var over the
@@ -4132,7 +4219,18 @@ run_test :: (
           });
         });
       }, {
-        non_test.push(ast_expr_to_string(e));
+        // A program's own `main` / `export(main)` stays out of the batch: the
+        // batch defines and exports the `main` that runs the tests (in-file
+        // tests in a module that is also a program — Rust binaries have them).
+        if(!_is_main_definition(e), {
+          match(
+            _export_without_main(e),
+            .Some(stmt) => {
+              non_test.push(stmt);
+            },
+            .None => ()
+          );
+        });
       });
     });
     if(tests.len() == usize(0), {

@@ -71,6 +71,37 @@ Run the throwing `fetch` as its OWN `io.spawn`ed task and inspect the
 task parked on a listener that is never closed, which keeps the Linux event
 loop alive and the process never exits (rc=124).
 
+## Testing private members: sibling files and in-file tests
+
+A `_`-prefixed field or method is visible only from its declaring module and
+that module's same-directory siblings (E0405 elsewhere —
+`plans/reference/MEMBER_VISIBILITY.md`), so a test under `tests/` can only
+exercise the PUBLIC surface. Two shapes reach the private one, both run by
+`yo test <dir>` (CI runs `yo test ./std`):
+
+- **Sibling file** — `std/collections/hash_set.test.yo` beside `hash_set.yo`.
+  The runner writes the batch into the test file's own directory, so the
+  batch's tokens carry that directory and `set._map` is legal. Import the
+  module the way its neighbours do (`import("./hash_set")`).
+- **In-file** — a top-level `test("…", { … })` inside the module itself,
+  Rust's `#[cfg(test)] mod tests`. Recognised by a line starting with `test(`;
+  a normal build (and `yo check`) treats it as a no-op. The batch inlines the
+  module's other top-level statements, so the tests also see private
+  module-level helpers. Limitation: the batch is a COPY of the module, so a
+  module whose types the prelude already re-exports (`String`, `ArrayList`,
+  `Option`, …) gets a second, distinct copy of those types inside the batch —
+  test such modules with a sibling file instead. A module that is also a
+  PROGRAM may carry in-file tests: the batch drops the module's own `main`
+  and `export(main)` and supplies its own.
+
+**Never point `yo test` at `issues/`.** Four `issues/repros/*.yo` are
+programs written in `test(...)` shape because the bug shows in a test body;
+in-file collection makes them runnable, and a repro for an OPEN bug is
+supposed to fail — that red is the bug, not a regression.
+
+Release bundles drop `std/**/*.test.yo` (`release.yml`, `scripts/install.sh`);
+in-file tests ship with their module and cost a no-op.
+
 ## Scratch experiments
 
 - `tmp/fixme.yo` is the scratch file for one-off experiments (`tmp*` is gitignored). It replaces the old `src/tests/fixme.yo`.

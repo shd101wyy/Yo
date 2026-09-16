@@ -804,6 +804,8 @@ install_from_source() {
   mv "$YO_TEMP_DIR/yo" "$stage/bin/yo"
   chmod +x "$stage/bin/yo"
   cp -R "$src_std" "$stage/std"
+  # Sibling tests (`std/**/*.test.yo`) are for `yo test ./std`, not for users.
+  find "$stage/std" -name "*.test.yo" -delete
 
   if [ -e "$target" ]; then
     writable_parent "$PREFIX/lib/yo" && rm -rf "$target" || sudocmd rm -rf "$target"

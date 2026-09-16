@@ -815,6 +815,7 @@ Counter(_count : i32(9), label : c.label);  // error[E0405]: Cannot construct Co
 由此推出的规则：
 
 - 含有任何私有字段的类型需要为外部调用者提供构造函数（`Counter.new`），外部代码只能通过方法读取这种类型。`{ ... }` 展开同样会被拒绝，所以私有字段不会从中泄漏。
+- 要测试私有成员，把测试文件放在**模块旁边**（`counter.yo` 旁的 `counter.test.yo`）：兄弟模块可以访问它们，这正是 Rust 文件内 `#[cfg(test)] mod tests` 的对应形式；而放在其他目录的测试只能覆盖公开接口。`yo test <dir>` 会运行兄弟测试；普通构建把 `test(...)` 视为空操作。
 - 兄弟模块规则让目录成为一个单元：`std/sync/cond.yo` 可以调用 `std/sync/mutex.yo` 声明的 `_raw_handle_ptr` 方法，而 `std/thread.yo` 不行。
 - 静态形式 `Counter._bump(c, i32(1))` 与实例调用受到完全相同的检查；泛型 `impl(generic(T), ...)` 提供的方法以该 impl 所在的模块为声明处。
 - 以 `___` 开头的名称保留给编译器合成的成员，永远不算私有；位置标签 `_0`、`_1`……（元组形结构体）同样不算私有。
