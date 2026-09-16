@@ -2361,7 +2361,7 @@ _guard_arm2_is :: (fn(arm2 : AstExpr, prefix : String) -> bool)(
             match(
               aargs.get(usize(1)),
               .None => false,
-              .Some(pc) => _guard_panic_is(pc, prefix)
+              .Some(body) => _guard_body_is(body, prefix)
             ),
           true => false
         ),
@@ -2386,6 +2386,27 @@ _guard_panic_is :: (fn(pc : AstExpr, prefix : String) -> bool)(
           .Some(m) => match(m, .Atom(_, mt) => mt.value.starts_with(`"${prefix}`), .FnCall(_, _, _, _, _) => false)
         ),
       true => false
+    ),
+    .Atom(_, _) => false
+  )
+);
+/// The arm body: either the bare panic call or a begin sequencing the
+/// panic with `()` (the unit-unification wrapper) — descend into the
+/// begin's first statement.
+_guard_body_is :: (fn(body : AstExpr, prefix : String) -> bool)(
+  match(
+    body,
+    .FnCall(_, bh, bargs, _, _) => cond(
+      (
+        match(bh, .Atom(_, bt) => (bt.value == BK_BEGIN), .FnCall(_, _, _, _, _) => false) &&
+          (bargs.len() >= usize(1))
+      ) =>
+        match(
+          bargs.get(usize(0)),
+          .None => false,
+          .Some(first) => _guard_panic_is(first, prefix)
+        ),
+      true => _guard_panic_is(body, prefix)
     ),
     .Atom(_, _) => false
   )
@@ -2587,7 +2608,7 @@ wrap_function_body_with_contracts :: (
 });
 export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_assumed, evaluate_refine, evaluate_ghost);
 export(evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
-export(wrap_function_body_with_contracts);
+export(wrap_function_body_with_contracts, _is_contract_assert_call);
 export(
   VerifyTask,
   set_verify_mode_override,
