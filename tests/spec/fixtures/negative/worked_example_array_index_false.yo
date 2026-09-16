@@ -1,0 +1,22 @@
+// The deliberately-wrong twin of valid/worked_example_array_index.yo:
+// `bad_pick` passes an index that is only known `>= 0` — the upper
+// bound `i < 8` is UNPROVEN, so the call-site `refine#1` obligation
+// (in_bounds8(i)) must REFUTE (z3 picks i = 7's successor — an index
+// inside the type's length would satisfy the read, so the
+// counter-example has to be i >= 8 to violate the refinement). The
+// callee stays verified (its entry assume is sound).
+pragma(Pragma.Verify);
+
+in_bounds8 :: ghost_fn(
+  (fn(i : i32) -> bool)((i >= i32(0)) && (i < i32(8)))
+);
+
+first_of_8 :: (
+  fn(s : Array(i32, 8), i : refine(i32, in_bounds8)) -> (r : i32)
+)(
+  s(i)
+);
+
+bad_pick :: (fn(s : Array(i32, 8), i : i32, requires(i >= i32(7))) -> (r : i32))(
+  first_of_8(s, i)
+);

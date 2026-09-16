@@ -233,3 +233,56 @@ test("a caller passing an unconstrained value REFUTES at refine#N (the callee st
   });
   assert(names_d, "the refine#1 counter-example must name the argument d");
 });
+
+// ---------------------------------------------------------------------------
+// V6 task 6: the WORKED EXAMPLE, re-based off the deleted builtin
+// Slice(T) onto Array(T, N) — a refinement-typed index makes an array
+// read provably in bounds with no manual `requires`.
+// ---------------------------------------------------------------------------
+test("worked example: a refinement-typed index proves an array read in bounds", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/worked_example_array_index.yo"),
+    io,
+    true
+  );
+  (ok_n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        if(rp.outcome == "ok", {
+          ok_n = (ok_n + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(
+    (reports.len() == usize(3)) && (ok_n == usize(3)),
+    `first_of_8 (entry-assumed index in [0,8) discharges the AoRTE bound) and pick (refine#1 discharged from its requires) must verify alongside the predicate fn, got ${reports.len().to_string()} report(s), ${ok_n.to_string()} ok: [${_reports_dump(reports)}]`
+  );
+});
+
+test("worked example twin: an under-constrained index refutes at refine#1", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/negative/worked_example_array_index_false.yo"),
+    io,
+    true
+  );
+  assert(
+    _count_outcome(reports, String.from("refuted")) == usize(1),
+    `bad_pick must refute at refine#1, got: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _count_outcome(reports, String.from("ok")) == usize(2),
+    `the callee and predicate fn stay ok (modular), got: [${_reports_dump(reports)}]`
+  );
+});

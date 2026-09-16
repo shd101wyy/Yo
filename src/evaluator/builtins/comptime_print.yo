@@ -25,7 +25,7 @@
 { EvalContext } :: import("../context.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 evaluate_comptime_print :: (
@@ -88,7 +88,7 @@ evaluate_comptime_print :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
+            format_eval_failure(
               ast_expr_token(arg_expr),
               `Failed to evaluate argument for "comptime_print": ${ast_expr_to_string(arg_expr)}`
             )

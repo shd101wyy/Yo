@@ -37,7 +37,7 @@ import("std/fmt");
 { is_some_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message, YoError } :: import("../../error.yo");
+{ format_error_message, YoError, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
 evaluate_unwind :: (
@@ -139,7 +139,7 @@ evaluate_unwind :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
+          format_eval_failure(
             ast_expr_token(arg_expr),
             String.from("Failed to evaluate the argument of `unwind`.")
           )

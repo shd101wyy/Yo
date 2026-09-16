@@ -82,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_sns_module_id } :: import("../../utils.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ format_error_message, render_any_error } :: import("../../error.yo");
+{ format_error_message, render_any_error, stash_error_diagnostics } :: import("../../error.yo");
 { is_overload_set_capable_file } :: import("../memory_safety.yo");
 { Exception, AnyError } :: import("std/error");
 { panic, assert } :: import("std/assert");
@@ -165,6 +165,16 @@ _force_eval :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext) -> unit
   inner_exn := Exception(
     throw : (
       _err -> {
+        // Keep the STRUCTURED diagnostics, not only the rendered text.
+        // A forced definition's failure is stored as a String and re-thrown
+        // as a plain error, so every evaluator diagnostic that surfaces
+        // through the lazy-binding path loses its code, span and repair —
+        // measured 2026-09-17: a parse error reached the typed stash with 1
+        // diagnostic while `Variable "countr" not found.` reached it with 0,
+        // which is why `yo fix` could not apply a rename it had already
+        // computed. Stashing here, where the YoError still exists, restores
+        // the typed channel for `yo fix`, `--error-format json` and the LSP.
+        stash_error_diagnostics(_err);
         _flag_force_failure(render_any_error(_err));
         unwind(());
       }

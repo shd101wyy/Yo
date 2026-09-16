@@ -1,0 +1,10 @@
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  y := i32(7);
+  // `{ y }` is a one-field RECORD, not a block — braces mean "record unless
+  // `;`", uniformly. Every other language reads this as a block, so the error
+  // has to say so rather than surfacing as a bare type mismatch.
+  (x : i32) = { y };
+  println(x.to_string());
+});
+export(main);

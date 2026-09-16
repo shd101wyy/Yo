@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, in_def_time_trial } :: import("../context.yo");
 { eprintln } :: import("std/fmt");
-_(env : match_dbg_env) :: import("std/env");
+{ env : match_dbg_env } :: import("std/env");
 {
   EvalValue,
   create_unknown_val,
@@ -65,7 +65,7 @@ _(env : match_dbg_env) :: import("std/env");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 {
   merge_and_check_envs,
   consume_case_body_temp_var,
@@ -659,7 +659,7 @@ evaluate_primitive_match :: (
         if(fp_info_opt.is_none(), {
           exn.throw(
             dyn(
-              format_error_message(
+              format_eval_failure(
                 ast_expr_token(fp_expr),
                 `Failed to evaluate pattern expression: ${ast_expr_to_string(fp_expr)}`
               )

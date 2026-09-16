@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_bool, t_ptr } :: import("../../types/creators.yo");
 { is_comptime_string_type, is_str_type, is_u8_type } :: import("../../types/guards.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
@@ -115,7 +115,7 @@ evaluate_panic :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
+            format_eval_failure(
               ast_expr_token(msg_expr),
               String.from("Failed to evaluate panic message")
             )

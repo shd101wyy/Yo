@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_some_t, t_type } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { register_extern_type_name, register_extern_type_c_name, register_adopted_extern_c_type, type_decl_id } :: import("../../types/guards.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { evaluate_expression } :: import("./expr.yo");
@@ -236,7 +236,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
+          format_eval_failure(
             ast_expr_token(c_header_file_arg),
             `Failed to evaluate C header file argument`
           )

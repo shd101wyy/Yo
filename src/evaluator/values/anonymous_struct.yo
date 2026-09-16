@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { is_valid_variable_name } :: import("../utils.yo");
 { set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { stable_label_id } :: import("../../utils.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Evaluate an anonymous struct literal expression of the form
 /// `_(field1: val1, field2: val2, ...)`.
@@ -153,7 +153,7 @@ evaluate_anonymous_struct_value :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
+            format_eval_failure(
               ast_expr_token(value_expr),
               String.from("Failed to evaluate anonymous struct field expression")
             )

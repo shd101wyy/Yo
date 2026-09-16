@@ -1,13 +1,36 @@
 # LLM-friendly toolchain and syntax: truthful results, mechanical fixes, one meaning per brace
 
-**Status:** ACTIVE 2026-09-16 — written after a two-agent day on the tree
-(member visibility #716/#717, FFI follow-ups #703, value substitution #714)
-as the answer to "what would you change about Yo as an LLM-targeted
-language". Nothing here is started. Two decisions are already made by the
-maintainer and recorded below so nobody re-opens them: **`struct(generic(T),
-…)` sugar is REJECTED**, and the brace question is DECIDED in §4 (keep "record unless `;`" in every
-position; handle `{ x }` with a diagnostic), weighed with compatibility
-explicitly NOT an input.
+**Status:** IMPLEMENTED 2026-09-17 except one item — written 2026-09-16 after
+a two-agent day on the tree (member visibility #716/#717, FFI follow-ups #703,
+value substitution #714) as the answer to "what would you change about Yo as an
+LLM-targeted language", then implemented in two slices. Two decisions are made
+by the maintainer and recorded below so nobody re-opens them: **`struct(generic(T),
+…)` sugar is REJECTED**, and the brace question is DECIDED in §4 (keep "record
+unless `;`" in every position; handle `{ x }` with a diagnostic), weighed with
+compatibility explicitly NOT an input.
+
+| item | state | where |
+| --- | --- | --- |
+| §1.1 residual silent degradation | LANDED — every marker-bearing body is rewritten to a loud stub, unit-returning ones included. Census first: 287 emitted batch `.c`, **0** surviving markers, 34 already-rewritten stubs, so this is a defensive invariant with no behaviour delta | #724 |
+| §1.2 hollow batch | was ALREADY CLOSED when the plan was written (the `__yo_user_main` marker gate); a failed batch now leads with `0 of N tests in this batch ran` | #720 |
+| §1.3 `check` forces specialized bodies | LANDED, **re-scoped by measurement**: generic fn and generic impl-method bodies were already checked. The real hole was the test-body trial swallowing every error, so `yo check --test-bodies` is the opt-in flag. Documented as a fast filter, not a gate | #724 |
+| §1.4 `main` returns `unit` | LANDED — rejected in `mm_eval_entry_exprs`, so `check` and `compile` cannot disagree | #720 |
+| §2 `yo fix` | LANDED **parse-level only**, and it says so rather than printing "nothing to fix". Diagnostics carry a structured `Repair`, and `--error-format json` emits it | #724 |
+| §3 generic "failed to evaluate" | LANDED — audited (**59 of 105** sites fire after an exn-less `evaluate_expression`) and fixed **once at the swallow** with an attempt-counter staleness guard, not at 59 sites | #720 + #724 |
+| §4.3 the `{ x }` footgun | LANDED — reported at the literal, narrow by construction (punned single field, expected type that can never be a record) | #724 |
+| §5 underscore surface | LANDED — `_( … )` is internal-only, 33 renaming imports converted. The discard rename was **already done** (a `_` binding is a fresh temp; `___` is an ordinary name) | #724 |
+| §6 | rejected sugar, no work | — |
+
+**The one item that remains**, now precisely scoped rather than vague: make
+`yo fix` able to apply **evaluator** repairs. It is blocked on
+`issues/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md`
+— the lazy-binding/def-time-trial path renders an evaluator error to TEXT and
+re-throws it as a plain error, so `downcast(err, YoError)` fails and the typed
+stash is empty (measured with `YO_DEBUG_FIX=1`: **1** diagnostic for a parse
+error, **0** for an undefined name). The fix is to carry `failure_diagnostics`
+on `PendingDef` and re-throw the `YoError`. That is its own PR with its own
+gates, since error paths are where the fixpoint is sensitive, and it also
+unblocks the LSP's typed channel, which reads the same empty stash.
 
 Companion plans that this one does not duplicate:
 `INCREMENTAL_COMPILATION_ZIG_LESSONS.md` (edit-compile latency, resident
@@ -136,6 +159,16 @@ loader already records which modules import what). It is slower than plain
 member-visibility violations that `check` missed on the #716 branch when run
 against that branch's pre-fix commit.
 
+**OUTCOME (#724) — do not implement `--bodies` as written above.** Probing
+first showed generic function bodies *and* generic impl-method bodies are
+already checked, so the proposal's premise was wrong. The real hole is that
+`yo check` on a `.test.yo` whose body references an undefined name reports
+"evaluator OK", because the test-body trial swallows every error by design.
+The flag that shipped is therefore **`yo check --test-bodies`**, and it is
+documented as a fast filter rather than a gate (the trial takes a different
+generic-inference path than the real `main` wrapper and has known false
+positives).
+
 ### 1.4 `main` returns `unit`, and the compiler says so
 
 The contract is that `main` returns `unit` (every example in `docs/` and the
@@ -152,6 +185,14 @@ Acceptance: a cli-case for the rejection; the repros compile under the new
 rule; `issues/repros` re-run through the repro gate.
 
 ## 2. P1 — `yo fix`: mechanical diagnostics repair themselves
+
+**OUTCOME (#724): shipped PARSE-LEVEL only.** Read the status table's last
+paragraph before extending it — the evaluator half is blocked on a
+flattening bug, not on missing `fix` machinery, and the shortcut of reading
+the §3 swallowed-cause stash was tried and REJECTED (a normal evaluation
+swallows many internal trial failures, so its latest entry is routinely
+unrelated: it offered a `std/prelude.yo` argument-matching failure for a
+file whose real error was an undefined name).
 
 A model recovers from a compile error by re-reading the message and
 editing. For diagnostics whose fix is fully determined, that round trip is

@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Type-cast builtin `as(value, TargetType)`.
 /// Takes two arguments: value and target type.
@@ -79,7 +79,7 @@ evaluate_as :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
+          format_eval_failure(
             ast_expr_token(val_arg_expr),
             `Failed to evaluate value argument for "as"`
           )
@@ -97,7 +97,7 @@ evaluate_as :: (
     .None => {
       exn.throw(
         dyn(
-          format_error_message(
+          format_eval_failure(
             ast_expr_token(type_arg_expr),
             `Failed to evaluate type argument for "as"`
           )

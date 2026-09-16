@@ -50,7 +50,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, value_to_string } :: import("../../value.yo");
 { set_expr_as_needs_to_call_dup } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Bind `arg_exprs` to the fields of `module_type`, returning a ModuleTypeCallResult.
 ///
@@ -196,7 +196,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         if(arg_info_opt.is_none(), {
           exn.throw(
             dyn(
-              format_error_message(
+              format_eval_failure(
                 ast_expr_token(value_sub),
                 `Failed to evaluate module member "${field_label}".`
               )

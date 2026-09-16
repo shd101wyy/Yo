@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
 { set_variable_as_consumed } :: import("../builtins/consume.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// True if struct type `t` has a dereference field labeled `*` (the
 /// pointed-to-value field of a Box/Arc wrapper). Mirrors TS
@@ -105,7 +105,7 @@ evaluate_iso_type_call :: (
   if(arg_info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
+        format_eval_failure(
           ast_expr_token(arg_expr),
           `Failed to evaluate the argument expression for Iso`
         )
@@ -272,7 +272,7 @@ evaluate_iso_value_call :: (
   if(arg_info_opt.is_none(), {
     exn.throw(
       dyn(
-        format_error_message(
+        format_eval_failure(
           ast_expr_token(arg_expr),
           `Failed to evaluate argument for Iso value constructor`
         )
