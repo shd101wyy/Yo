@@ -128,6 +128,63 @@ The node-id-aliasing class already has precedent in this tree — a
 single-expression begin block sharing its node id with its tail expr
 (`issues/fixed/ref-local-scope-drop-missing-after-value-call.md`).
 
+## Interning is RULED OUT — the hypothesis below was tested and refuted
+
+The "stronger lead" recorded above was wrong. Measured 2026-09-16 by building a
+compiler from `develop` with `intern_type` reduced to the identity function
+(`intern_type :: (fn(t : TypeValue) -> TypeValue)(t)`), so no type is ever
+merged:
+
+| run | verdict |
+| --- | --- |
+| CONTROL — unmodified prelude, interning OFF | 175/175 |
+| TREATMENT — +2 lines, interning OFF | **172/175** |
+
+Same three sites as before: `std/path.yo:176`, `std/fs/temp.yo:55`,
+`std/fs/walker.yo:58`. The control is what makes the treatment readable — a
+binary with interning disabled still type-checks the whole tree, so the failure
+is not an artifact of the probe.
+
+**So it is not a wrong-merge in the intern table.** The reasoning that led there
+(ids enter the key via the cycle breaker, ids come from assignment order, a
+shift perturbs them) was sound as far as it went and still produced the wrong
+answer, which is worth leaving on the record next to the refutation.
+
+## It is `Comptime` specifically, not "an early declaration"
+
+A second probe, `check`-only:
+
+| shift | verdict |
+| --- | --- |
+| 2 lines before `Comptime :: trait(` (prelude:44) | **FAIL** 172/175 |
+| 2 lines before `Runtime :: trait(` (prelude:51) | PASS 175/175 |
+
+Both shift every declaration after themselves by two. Only the one that moves
+`Comptime`'s own declaration line fails — and inserting one line LATER, inside
+`Comptime`'s body (prelude:45), also passes, which shifts everything after it
+just the same.
+
+So the variable is not "how much of the prelude moved" and not "how many
+tokens". It is the absolute source position of the FIRST declaration in the
+prelude: `Comptime` at line 44 is fine, at 45 fine, at **46 broken**, at 47 and
+48 fine.
+
+## What to try next
+
+Something keys on `Comptime`'s source position — a token offset or line number
+reaching a type/trait identity, not the intern key. `Comptime` is the first
+trait the prelude defines and every type is checked against it, so a collision
+in its identity would surface anywhere, which fits a failure landing in
+`std/path.yo`'s `where(P <: ToString)`.
+
+Worth ruling out in order, cheapest first:
+1. Grep the trait/type id construction path for anything derived from a token
+   position rather than from a name or a counter.
+2. Print `Comptime`'s constructed identity at line 44 vs line 46 and diff it.
+   If they differ, the position is in the key and the question becomes what it
+   collides with.
+3. Only if both come back clean, go back to AST node ids.
+
 ## Interaction with the value-substitution work
 
 The branch that found this had to reword a `std/prelude.yo` module doc from 5
