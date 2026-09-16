@@ -55,6 +55,28 @@ purged or generation-keyed per compile so warm-pass mints unify with — or
 freshly replace — the cached identities, and byte-identical warm emission
 follows from that same purge.
 
+## UPDATE 2026-09-16 (bug 5 — the big one): pass 1's own `mm_reset` wiped the universe
+
+The strings fixture's re-import crash had nothing to do with intern
+identity: **pass 1 of the selfcheck ran its trailing `mm_reset()`** (the
+gate only protected warm passes), so pass 2 started from an EMPTY module
+cache and re-evaluated std/string against a half-warm evaluator. Fixed with
+`--warm-first` (pass 1: cold start, NO end-reset; pass 2: --warm-reuse as
+before). Measured after the fix: the strings fixture no longer throws —
+both remaining reds are pure EMISSION divergence with ZERO FTT markers
+(strings 107425 vs 102376 bytes; alist 63892 vs 61912). The remaining churn
+is process-global EMIT-side once-only bookkeeping, catalogue:
+
+1. a Dispose/dup method trio emitted in pass 1 is SKIPPED in pass 2 (an
+   "already emitted" set shared across passes);
+2. a runtime `header.type_id` ordinal continues across passes (1 vs 0);
+3. temp-name occurrence suffixes continue (`...521` vs `...520`).
+
+All three are per-EMISSION state that must reset (or generation-key) per
+compile — the next PR. The evaluator-identity state (module cache, prelude
+env, def registries) must KEEP being held — that holding is what made the
+strings re-import crash disappear.
+
 ## The failure modes to fix (in order)
 
 1. **Warm evaluator throw (blocking)**: with the caches held, pass 2 dies

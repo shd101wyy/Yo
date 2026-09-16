@@ -2249,6 +2249,7 @@ run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Excep
   argv_a.push(String.from("--emit-c-to"));
   argv_a.push(out_a.clone());
   argv_a.push(String.from("--skip-c-compiler"));
+  argv_a.push(String.from("--warm-first"));
   argv_b := ArrayList(String).new();
   argv_b.push(String.from("yo"));
   argv_b.push(String.from("compile"));
@@ -2379,6 +2380,11 @@ run_compile :: (
   // cache, prelude env and shared ExprInfoTable — exactly the state a
   // resident `build`/`test` evaluator would hold.
   (warm_reuse : bool) = false;
+  // Set by `--warm-first` (the FIRST pass of `--warm-selfcheck`): a normal
+  // cold start (the clears below run), but the trailing `mm_reset` is
+  // skipped — pass 2 is about to compile against this pass's universe, so
+  // wiping it here defeats the whole exercise.
+  (warm_first : bool) = false;
   (skip_codegen : bool) = false;
   (debug_gc : bool) = false;
   (debug_parallelism : bool) = false;
@@ -2577,6 +2583,10 @@ run_compile :: (
       // compile's evaluator state.
       (a_name == "--warm-reuse") => {
         warm_reuse = true;
+        ai = (ai + usize(1));
+      },
+      (a_name == "--warm-first") => {
+        warm_first = true;
         ai = (ai + usize(1));
       },
       (a == "--skip-codegen") => {
@@ -3119,9 +3129,11 @@ run_compile :: (
   // closure), the cached prelude env, and the shared ExprInfoTable. Clearing
   // them is the other half of the fix — either half alone frees nothing,
   // because each still holds a reference to what the other drops.
-  // TS equivalent: ModuleManager.resetAllState(). NOT on a --warm-reuse
-  // pass: the whole point is that the next pass holds this pass's universe.
-  if(!warm_reuse, {
+  // TS equivalent: ModuleManager.resetAllState(). Skipped on BOTH selfcheck
+  // passes: --warm-reuse holds the previous pass's universe, and --warm-first
+  // (pass 1) must leave ITS universe for pass 2 — wiping it here is what
+  // made pass 2 start from an empty module cache and re-import std/string.
+  if((!(warm_reuse) && !(warm_first)), {
     mm_reset();
   });
   // --skip-c-compiler: write the C and stop.

@@ -182,7 +182,12 @@ module_cache_has :: (fn(path : String) -> bool)(
 /// wins; callers guard with `module_cache_has` so this is a no-op on
 /// re-registration (a duplicate push would still be harmless because
 /// `_module_cache_index` returns the first match).
+_(env : warm_dbg_env) :: import("std/env");
+{ eprintln } :: import("std/fmt");
 register_module :: (fn(path : String, module_value : EvalValue, module_type : TypeValue) -> unit)({
+  if(warm_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+    eprintln(`[warmcache] register ${path.clone()}`);
+  });
   if(!module_cache_has(path.clone()), {
     g_module_cache_keys.push(path);
     g_module_cache_vals.push(module_value);
