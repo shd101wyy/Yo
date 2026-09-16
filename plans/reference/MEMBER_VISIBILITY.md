@@ -1,6 +1,6 @@
 # Member visibility
 
-**Status:** LANDED 2026-09-16 — as the compiler-ENFORCED underscore
+**Status:** LANDED 2026-09-16 (PR #716) — as the compiler-ENFORCED underscore
 convention, NOT the `priv` marker recommended below. The maintainer's
 decision: "any field starting with `_` is the private field". No new syntax,
 so `std/` adopts it without waiting for a seed release. What shipped:
