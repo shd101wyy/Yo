@@ -108,6 +108,7 @@ json :: import("std/encoding/json");
   mm_shared_expr_info_table,
   mm_reset,
   mm_resolve_entry_abs,
+  mm_invalidate_document,
   mm_eval_entry_exprs,
   mm_load_file,
   mm_preload_prelude,
@@ -940,43 +941,34 @@ run_fix :: (
     progress = false;
     pass = (pass + usize(1));
     still_failing = usize(0);
-    // Per pass, not per file: a previous pass may have rewritten a file, and
-    // a cached module would hide the edit.
+    // NO cache clear here. Clearing the whole module cache between passes
+    // is what made `fix` lie about its own success, and the story is worth
+    // keeping because two sessions agreed on the WRONG fix for it first.
     //
-    // The prelude env goes WITH the module cache, and leaving it behind is a
-    // real bug this loop could not reach until repairs actually applied.
-    // `clear_module_cache()` is a HALF reset (module_loader.yo): six lists and
-    // the registration owner. It does NOT clear `g_cached_prelude_env`. So on
-    // pass 2 the cache is empty, `std/string/string.yo` is re-evaluated from
-    // source and mints a FRESH `ArrayList(u8)` struct id, while the cached
-    // prelude still holds pass 1's — and the unify guard
-    // (types/synthesizer.yo, `(exp_id != giv_id) && !same_constructor &&
-    // !same_shape`) compares IDS, never names. The result was
-    // `Cannot unify incompatible struct types: "ArrayList(u8)" and
-    // "ArrayList(u8)"` — identical names on both sides, which is the
-    // signature of an id/era split rather than a real mismatch. `fix` then
-    // applied the repair correctly and reported the file still broken.
+    // A cleared cache means pass 2 re-evaluates `std/string/string.yo` from
+    // source and mints a FRESH `ArrayList(u8)` struct id, while state that
+    // SURVIVES the clear still holds pass 1's. The unify guard
+    // (types/synthesizer.yo) compares IDS, never names, so the pass failed
+    // with `Cannot unify incompatible struct types: "ArrayList(u8)" and
+    // "ArrayList(u8)"` — identical names on both sides, the signature of an
+    // id/era split rather than a real mismatch. `fix` applied the rename
+    // correctly and then reported the file still broken, with rc=1.
     //
-    // This pairs the two exactly as the WARM-COMPILE path does
-    // (`run_compile`: `clear_module_cache(); mm_clear_prelude_env();`), whose
-    // comment names the same class — "fresh ids would collide with the
-    // surviving registries' pass-1 entries"
-    // (issues/warm-compile-selfcheck.md). It is the same HALF-MEASURE as that
-    // site, deliberately: the prelude env is the biggest thing surviving the
-    // half reset but not the only one (the struct-field and func registries
-    // and the id-keyed expr_info tables survive too), and the complete answer
-    // is the owner-tagged per-compile purge of the id-keyed registries that
-    // plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §7 step 1 owns. `mm_reset()`
-    // is the bigger hammer and is NOT used here: it also drops the shared
-    // ExprInfoTable, and an earlier version of this loop that reset per file
-    // failed before ever reaching the target file (see the preload above).
-    clear_module_cache();
-    if(pass > usize(1), {
-      mm_clear_prelude_env();
-      if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
-        exn.throw(dyn(`fix: could not reload the prelude from ${std_path}`));
-      });
-    });
+    // The first attempt paired `mm_clear_prelude_env()` + a re-preload with
+    // the clear, as the warm-compile path does. MEASURED: it did not work.
+    // The prelude env is the biggest thing surviving `clear_module_cache()`
+    // but far from the only one — the struct-field and func registries and
+    // the id-keyed expr_info tables survive it too — so resetting more state
+    // around the problem was never going to be enough.
+    //
+    // So do not re-evaluate what did not change. Only a REWRITTEN file needs
+    // to be re-read, and `mm_invalidate_document` (built for the LSP, Phase
+    // B1/B2) drops exactly that file plus its transitive dependents AND
+    // purges their registry entries by owner — the owner-tagged purge that
+    // issues/warm-compile-selfcheck.md names as the real answer. Everything
+    // else stays cached, so nothing is re-minted and there is no era to split.
+    // It is called at the rewrite site below, which also makes the invariant
+    // local: the only module that leaves the cache is one whose bytes changed.
     (fi : usize) = usize(0);
     while(fi < files.len(), {
       file := match(files.get(fi), .Some(f) => f, .None => String.new());
@@ -1068,6 +1060,12 @@ run_fix :: (
         if(n_applied > usize(0), {
           total_applied = (total_applied + n_applied);
           progress = true;
+          // The bytes changed, so this module and everything that imported it
+          // must leave the cache — and nothing else may. See the note at the
+          // top of the pass loop for why a full clear is wrong here.
+          mm_invalidate_document(
+            mm_resolve_entry_abs(file.clone(), std_path.clone()).replace(String.from("file://"), String.new())
+          );
           fmt_argv := ArrayList(String).new();
           fmt_argv.push(String.from("yo"));
           fmt_argv.push(String.from("fmt"));
