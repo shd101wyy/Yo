@@ -1530,6 +1530,16 @@ Tasks:
    requires rejected with the proof failure), generic `head` on
    `NonEmpty(Slice(T))` (the doc's worked example, now verifying),
    refinement construction-site rejection with counter-example.
+   **LANDED 2026-09-16 (task 3 slice 1's PR):** the construction-site
+   rejection test (counter-example at the call site) and the worked
+   example, RE-BASED off the deleted builtin `Slice(T)` onto
+   `Array(T, N)` — a refinement-typed INDEX
+   (`i : refine(i32, in_bounds8)`) makes `s(i)` provably in bounds
+   with no manual `requires` (the entry-assumed refinement discharges
+   the AoRTE bound; a caller under-constraining the index refutes at
+   `refine#N`). Fixtures `valid/worked_example_array_index.yo` +
+   `negative/worked_example_array_index_false.yo`,
+   `tests/internal/verifier_refine.test.yo`.
 
 **Exit criteria:** `std/collections/array_list.yo` carries verified
 bounds contracts; the worked example below verifies end-to-end;
@@ -1779,6 +1789,17 @@ verifier design choices (kept from the 2026-05 draft, now normative):
    inventory.
 
 ## Worked example: verified `NonEmpty(Slice(T)).head()`
+
+> **RE-BASED 2026-09-16 (task 6):** builtin `Slice(T)` is DELETED
+> (`plans/reference/` history; `Array(T, N)` is the value type,
+> `ArrayList(T)` the growable one), so the `Slice`-based sketch below is
+> historical. The LANDED spelling exercises the same refinement story
+> over a fixed array with a REFINED INDEX — `s(i)`'s AoRTE bound
+> discharges from the assumed refinement, and an under-constrained
+> caller refutes at `refine#N` (`valid/worked_example_array_index.yo`,
+> task 3 slice 1's PR). The `NonEmpty(Slice(T))`/`.check(...)` API
+> below remains the target for the std/spec rework slice (it needs the
+> type-level refinement wrapper — see the task 3 banner).
 
 Target state after V6 (updated from the old draft to named returns):
 
