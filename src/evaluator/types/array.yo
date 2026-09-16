@@ -9,6 +9,7 @@
 pragma(Pragma.AllowUnsafe);
 import("std/string");
 import("std/fmt");
+{ String } :: import("std/string");
 {
   AstExpr,
   ast_expr_token,
@@ -18,6 +19,7 @@ import("std/fmt");
   ast_expr_is_atom_of,
   ast_expr_is_atom,
   make_err_expr,
+  BF_DOT,
   BK_ARRAY
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
@@ -34,6 +36,41 @@ import("std/fmt");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { parse_raw_int } :: import("../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
+/// `T.BYTES` in a LENGTH position, rendered as the text `T.BYTES` so
+/// `TypeValue.Array.length_var` can carry it.
+///
+/// An associated constant cannot be read at DEFINITION time — `T` is still an
+/// unbound generic there — but it IS knowable the moment the impl specializes,
+/// which is where `substitute`'s `.Array` arm resolves it
+/// (`_subst_resolve_len_projection`, types/substitution.yo). Recording the
+/// projection is what gives substitution something to rewrite; before this the
+/// only shapes `length_var` could hold were a bare identifier or nothing, which
+/// is why an associated constant had nowhere to go.
+///
+/// Deliberately narrow: exactly `<atom>.<atom>`. A computed length
+/// (`N * 2`, `f(x)`) still has nowhere to go and is still rejected below —
+/// this widens the accepted set by one well-defined shape, not to
+/// "any expression".
+_length_projection_text :: (fn(e : AstExpr) -> Option(String))({
+  if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(String).None);
+  });
+  parts := match(e, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
+  if(parts.len() != usize(2), {
+    return(Option(String).None);
+  });
+  recv := match(parts.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  memb := match(parts.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  if(!ast_expr_is_atom(recv) || !ast_expr_is_atom(memb), {
+    return(Option(String).None);
+  });
+  rname := ast_expr_token(recv).value.clone();
+  mname := ast_expr_token(memb).value.clone();
+  if((rname.len() == usize(0)) || (mname.len() == usize(0)), {
+    return(Option(String).None);
+  });
+  Option(String).Some(`${rname}.${mname}`)
+});
 evaluate_array_type :: (
   fn(
     expr : AstExpr,
@@ -246,17 +283,18 @@ evaluate_array_type :: (
   // compiled, so this was a silently-wrong-type class
   // (issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md).
   //
-  // Reject it instead, naming the limitation. The real feature — a value
-  // half for `substitute()`, so an associated constant can be rewritten in a
-  // type position — is designed in
-  // plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md step 2. Until then
-  // an error is strictly better than a wrong type.
-  if(len_is_var && !ast_expr_is_atom(length_expr), {
+  // A single associated-constant projection (`T.BYTES`) is now carried
+  // through as a projection and resolved during substitution, so it is no
+  // longer part of this rejection. Everything else with a variable in it —
+  // any COMPUTED length, `T.BYTES * 2` included — still has nowhere to go,
+  // and an error remains strictly better than a wrong type.
+  len_proj := _length_projection_text(length_expr);
+  if(len_is_var && !ast_expr_is_atom(length_expr) && len_proj.is_none(), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(length_expr),
-          `Array length is neither a compile-time constant nor a bare generic parameter:\n${ast_expr_to_string(length_expr)}\n\nAn associated constant or a computed expression in a LENGTH position needs value substitution, which the evaluator cannot express yet (plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md). Bind the length to a generic(N : usize) parameter and use that name directly, or write the type once per instantiation.`
+          `Array length is not a compile-time constant, a bare generic parameter, or an associated constant:\n${ast_expr_to_string(length_expr)}\n\nA COMPUTED length expression cannot be resolved in a type position. Bind the length to a generic(N : usize) parameter and use that name directly, write a single associated constant such as T.BYTES, or write the type once per instantiation.`
         )
       )
     );
@@ -264,6 +302,10 @@ evaluate_array_type :: (
   array_type := cond(
     (len_is_var && ast_expr_is_atom(length_expr)) =>
       t_array_var(child_type, ast_expr_token(length_expr).value.clone()),
+    // `Array(u8, T.BYTES)` — carry the projection; substitution resolves it
+    // once `T` is bound. See `_length_projection_text` above.
+    (len_is_var && len_proj.is_some()) =>
+      t_array_var(child_type, match(len_proj, .Some(pt) => pt, .None => String.new())),
     true => t_array(child_type, len_usize)
   );
   array_type_val := create_type_value(array_type);

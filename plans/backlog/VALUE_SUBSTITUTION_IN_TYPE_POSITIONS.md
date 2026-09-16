@@ -1,7 +1,22 @@
 # Value substitution in type positions (const generics that actually generalize)
 
-**Status:** BACKLOG — designed here, not started. Written 2026-09-10 after
-measuring exactly which half of the feature is missing.
+**Status:** STEPS 1-2 LANDED 2026-09-16; STEP 3 (std adoption) NOT STARTED,
+and seed-gated. Written 2026-09-10 after measuring which half of the feature
+was missing — an attribution that turned out to be wrong, corrected under
+"Root cause" below.
+
+What works as of 2026-09-16: a BARE associated-constant projection is a legal
+`Array` length, so `-> Array(u8, T.BYTES)` resolves per instantiation.
+Measured on the acceptance repro
+(`issues/repros/associated-constant-as-an-array-length-in-a-return-type.yo`
+prints `1 4`), with three rejections pinned in `tests/array.test.yo`: a
+computed length (`T.BYTES * 2`), an unresolvable projection (`T.NOPE`), and
+the lengths that already worked, unaffected.
+
+It stays in `backlog/` rather than moving, because what REMAINS — Step 3 — is
+still written-not-started, which is what this directory means. Step 3 cannot
+begin until a release ships the capability: the seed compiles `std/`, so
+`std/` cannot use it before then ([[yo-seed-gate-blocks-std-using-new-runtime-macros]]).
 
 ## The gap, measured
 
@@ -22,11 +37,32 @@ The third is this document's subject. It is the same gap recorded from the
 
 ## Root cause
 
-`substitute()` (`src/evaluator/values/impl.yo` and the type machinery it
-calls) maps **type parameters to types**. An `Array(T, N)` carries `N` as a
-VALUE, so a substitution has no channel to rewrite it. The unsubstituted
-length then degrades to 0 instead of erroring, which is how a signature ends
-up as `Array_uint8_t_0` while its body emits `Array_uint8_t_4`.
+**CORRECTED 2026-09-16, during implementation.** This section previously said
+`substitute()` maps only type parameters to types, so "a substitution has no
+channel to rewrite" a value. That is wrong, and it made the feature look
+several times larger than it is. `Substitution` has carried a value half for
+array lengths since #434 (`len_var_names`, `subst_add_len_var`,
+`subst_lookup_len_var` in `src/types/substitution.yo`), added so
+`derive(Eq/Ord/Clone/Hash)` over a fixed-size `Array` field could specialize.
+
+The channel exists; what was missing was narrower, in two places:
+
+1. **The RECORDER could only store a bare identifier.** `t_array_var`
+   (`src/evaluator/types/array.yo`) takes a name, so a length that is not an
+   atom — `T.BYTES` is a projection, not an identifier — had nothing to be
+   recorded as, and fell through to `Array(elem, 0, "")`. The degradation to 0
+   is a consequence of that, not of the map's shape.
+2. **`types/` cannot reach the impl registry.** Even with the projection
+   recorded, resolving `T.BYTES` means reading an associated constant off the
+   bound receiver, and `src/types/` is below the evaluator and cannot import
+   it.
+
+So the fix is additive rather than a refactor of the substitution map: carry
+the projection text through the existing length-variable slot, and inject the
+associated-constant lookup at evaluator init the same way
+`set_lookup_some_resolved_concrete` (`src/types/guards.yo`) already does. The
+unsubstituted-length-degrades-to-0 hazard is real and is what Step 1 fixed;
+the attribution above it was not.
 
 ## What it blocks
 
@@ -66,9 +102,10 @@ not the rest of this plan is ever done.
 `substitute()` needs a second map: value parameters → comptime values,
 threaded through the same call sites as the type map. Concretely:
 
-1. **The substitution map grows a value half.** Wherever a
-   `TypeParam → TypeValue` binding is recorded (generic impl matching,
-   specialization, `forall` binding), record `ValueParam → EvalValue` too.
+1. ~~**The substitution map grows a value half.**~~ **Not needed** — see the
+   corrected root cause above: the value half already exists (`len_var_names`,
+   since #434). What the length slot could not hold was a non-identifier, so
+   the work is in the recorder, not the map.
 2. **`Array(T, N)`'s `N` becomes substitutable.** The length is an expression
    in the type's stored form; substitution must walk it and replace value
    parameter references, then re-evaluate it at comptime. This is the same
@@ -88,9 +125,29 @@ threaded through the same call sites as the type map. Concretely:
 ### Step 3 — adopt in `std/`
 
 Behind a seed gate, as always ([[yo-seed-gate-blocks-std-using-new-runtime-macros]]):
-add `BYTES : usize` to the integer types beside `BITS`, collapse the four byte
-conversions to one blanket impl each, and give `usize`/`isize` the conversions
-they currently lack.
+collapse the four byte conversions to one blanket impl each, and give
+`usize`/`isize` the conversions they currently lack.
+
+**Declare `BYTES` as a TRAIT member, not inherently beside `BITS`** — measured
+2026-09-16 against a tree build of steps 1-2. An inherent associated constant
+(`impl(u8, BYTES : usize(1))`, which is exactly how `BITS` is written) does NOT
+resolve in a length position; a trait-declared one does. Writing `BYTES` the
+way `BITS` is written would therefore not work, which is the shape this step
+would naturally have reached for. See
+`issues/an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`
+— including a fix attempt that was implemented, measured to change nothing, and
+reverted.
+
+Verified as working for this step's actual needs:
+
+- `_W :: trait(BYTES : usize)` + `impl(u8, _W(BYTES : usize(1)))` → a blanket
+  `-> Array(u8, T.BYTES)` resolves per width.
+- the `usize`/`isize` case, where the width is target-dependent rather than a
+  literal, also resolves: `impl(usize, _W(BYTES : _CD))` with
+  `_CD :: cond((usize.MAX == usize(4294967295)) => usize(4), true => usize(8))`
+  gives 8 on a 64-bit box. This was the part the original plan flagged as the
+  reason `usize`/`isize` have no byte conversions at all, and it is not a
+  problem.
 
 ## Acceptance
 
