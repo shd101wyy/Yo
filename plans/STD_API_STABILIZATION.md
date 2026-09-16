@@ -94,7 +94,8 @@ Nothing is waiting on anyone here. Re-checked against the code 2026-09-12:
 | --- | --- |
 | private `ctrl`/`data`/`size` fields; `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `imm/*` internals | `plans/reference/MEMBER_VISIBILITY.md` (LANDED 2026-09-16 as the enforced `_` convention) |
 | `rand.thread_rng` | `plans/backlog/THREAD_LOCAL_STORAGE.md` |
-| the ten byte conversions; `usize`/`isize` byte conversions; `Array(T,N)` `Default` | `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` |
+| the ten byte conversions; `usize`/`isize` byte conversions | `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md` — UNBLOCKED by #714; written on `feat/std-byte-conversions`, awaiting the v0.2.35 seed bump |
+| `Array(T,N)` `Default` | **NOT value substitution** — `Array.fill` rejects a generic-dispatched comptime value and FTT-stubs: `issues/array-fill-rejects-a-generic-dispatched-comptime-value.md` |
 | `JsonValue` integer arms | deliberately deferred to a breaking window (§4, encoding) |
 
 ### The two engineering items — both landed 2026-09-12, both with a named residue
@@ -1795,7 +1796,8 @@ from the blocked call sites, in `plans/backlog/`:
 | waker-based `yield`/async `channel`/async `mutex`; `spawn_blocking` | a `Waker` + `park` primitive, so one task can be woken by another's progress | [`WAKER_BASED_SCHEDULING.md`](WAKER_BASED_SCHEDULING.md) |
 | `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `ctrl`/`data`/`size` private; `imm/*` internals | member visibility — LANDED 2026-09-16 as the compiler-enforced `_` prefix (scope = declaring module + same-directory siblings; the `priv` marker was rejected) | [`MEMBER_VISIBILITY.md`](reference/MEMBER_VISIBILITY.md) |
 | `TcpListener.incoming` | a `Stream` trait — the async analogue of `Iterator`. **Needs no compiler change** | [`ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) |
-| the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
+| the ten per-type byte conversions; `usize`/`isize` byte conversions at all | value substitution in a TYPE position — an associated constant as an `Array` length silently resolved to 0 (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`). **LANDED #714**; the std collapse is written on `feat/std-byte-conversions` and waits only on the v0.2.35 seed | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
+| `Array(T, N)`'s `Default` | **RE-ATTRIBUTED 2026-09-16 — not value substitution.** A bare generic `N` was always a legal length, and std already writes `Eq`/`Ord`/`Clone`/`Hash` over `Array(T, U)`. What is missing is producing N copies of a NON-LITERAL value: `Array.fill` takes `comptime(val)` and rejects a generic-dispatched `T.default()`, compiling rc=0 and aborting as an FTT stub | `issues/array-fill-rejects-a-generic-dispatched-comptime-value.md` |
 | `rand.thread_rng` | thread-local storage | [`THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) |
 
 `ErrorChain`/`root_cause` WAS a sixth blocker — a compiler DEFECT rather than
