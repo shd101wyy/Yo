@@ -69,6 +69,26 @@ yo check ./std   # 172/175, rc=1 — on the v0.2.34 seed
 
 Remove one filler line, or add a third, and it is 175/175 again.
 
+## Narrowed 2026-09-16 — it is the FIRST declaration, shifted by exactly two
+
+Position matters, and the bisect is monotone. Inserting two plain `//` lines at
+line N of `std/prelude.yo`, on a clean `develop` worktree with the seed:
+
+| N | verdict |
+| --- | --- |
+| 2, 29, 42, 43 | **FAIL** 172/175 |
+| 44, 45, 49, 56, 110, 219, 437, 873, 1745, 3488, 6975 | PASS 175/175 |
+
+The boundary is exact. Line 44 is `Comptime :: trait(` — the FIRST declaration
+in the prelude. Inserting *before* it fails; inserting one line later, inside
+its body, passes. So the trigger is not the doc block, not the comment style
+(plain `//` after the `//!` block fails identically), and not a total-count
+effect: it is **`Comptime`'s own position, shifted by exactly two lines**.
+Shift it by one, three or four and everything is green.
+
+One specific declaration at one specific shift is the signature of a
+COLLISION, not of an off-by-one.
+
 ## Where to look
 
 Comment lines are not AST nodes, but they ARE tokens, so +2 comment lines
@@ -77,8 +97,32 @@ fixed amount. A defect keyed on a node id — a collision in a table shared
 across modules, or an id reused where identity was assumed — would behave
 exactly like this: invisible at almost every shift, wrong at one particular
 one. `src/module_manager.yo`'s shared `ExprInfoTable` and the cached prelude
-env are the two places where prelude node ids outlive the prelude's own
-evaluation, so they are the first things to rule out.
+env are two places where prelude node ids outlive the prelude's own
+evaluation.
+
+**The stronger lead is TypeValue interning** (`src/types/intern.yo`), whose own
+header documents this failure mode and a previous instance of it:
+
+> CORRECTNESS: the key MUST NOT be coarser than codegen's type identity
+> (`_type_key_at` / `g_struct_cfid_keys` / `g_enum_sig_keys`), else interning
+> merges types codegen emits as distinct C types (the 2026-07-02 wrong-merge:
+> `EnumT` keyed by id alone merged generic instantiations differing in
+> `variant_fields` -> malformed C).
+
+A wrong-merge is exactly what "`Path` does not implement `ToString`" looks like
+from outside: the type reaching the bound check is not the `Path` the impl was
+registered against. And the key is not purely structural — the cycle breaker
+"renders id-only on re-encounter", so **type ids enter the key**, and ids come
+from assignment order, which a declaration shift perturbs. That is a mechanism
+for a collision that appears at one shift and vanishes at the next; a
+content-only key could not produce one.
+
+**The next experiment, and it costs one build:** unwrap the `intern_type` call
+in `substitute` (`src/types/substitution.yo`) and re-run the +2 case. Green
+means interning, and the work moves to the key; still red rules interning out
+and sends this back to node ids. The gate for any fix here is the differential
+corpus, NOT `check ./std` — `intern.yo`'s header says so twice, because `check`
+skips codegen and this is a codegen-identity invariant.
 
 The node-id-aliasing class already has precedent in this tree — a
 single-expression begin block sharing its node id with its tail expr
