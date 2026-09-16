@@ -1,6 +1,14 @@
 # LLM-friendly toolchain and syntax: truthful results, mechanical fixes, one meaning per brace
 
-**Status:** IMPLEMENTED 2026-09-17 except one item — written 2026-09-16 after
+> **CLOSED 2026-09-17 — every item implemented and gated.** Shipped as #718
+> (this document), #720 (slice 1), #724 (slice 2) and #727 (the last item).
+> Archived per `plans/README.md`: root holds active plans only. The decisions
+> recorded here stay authoritative — `struct(generic(T), …)` is REJECTED and
+> braces mean "record unless `;`" in every position — and the OUTCOME notes on
+> §1.3 and §2 record where this document's own proposals were measured WRONG,
+> which is the part to read before reviving anything from it.
+
+**Status:** COMPLETE 2026-09-17 — written 2026-09-16 after
 a two-agent day on the tree (member visibility #716/#717, FFI follow-ups #703,
 value substitution #714) as the answer to "what would you change about Yo as an
 LLM-targeted language", then implemented in two slices. Two decisions are made
@@ -15,22 +23,41 @@ compatibility explicitly NOT an input.
 | §1.2 hollow batch | was ALREADY CLOSED when the plan was written (the `__yo_user_main` marker gate); a failed batch now leads with `0 of N tests in this batch ran` | #720 |
 | §1.3 `check` forces specialized bodies | LANDED, **re-scoped by measurement**: generic fn and generic impl-method bodies were already checked. The real hole was the test-body trial swallowing every error, so `yo check --test-bodies` is the opt-in flag. Documented as a fast filter, not a gate | #724 |
 | §1.4 `main` returns `unit` | LANDED — rejected in `mm_eval_entry_exprs`, so `check` and `compile` cannot disagree | #720 |
-| §2 `yo fix` | LANDED **parse-level only**, and it says so rather than printing "nothing to fix". Diagnostics carry a structured `Repair`, and `--error-format json` emits it | #724 |
+| §2 `yo fix` | LANDED in two parts. Diagnostics carry a structured `Repair` and `--error-format json` emits it (#724, parse-level apply only, which it SAID rather than printing "nothing to fix"). Evaluator repairs now apply too: `yo fix` renames `countr` to `counter` end to end and the file then evaluates (#727) | #724 + #727 |
 | §3 generic "failed to evaluate" | LANDED — audited (**59 of 105** sites fire after an exn-less `evaluate_expression`) and fixed **once at the swallow** with an attempt-counter staleness guard, not at 59 sites | #720 + #724 |
 | §4.3 the `{ x }` footgun | LANDED — reported at the literal, narrow by construction (punned single field, expected type that can never be a record) | #724 |
 | §5 underscore surface | LANDED — `_( … )` is internal-only, 33 renaming imports converted. The discard rename was **already done** (a `_` binding is a fresh temp; `___` is an ordinary name) | #724 |
 | §6 | rejected sugar, no work | — |
 
-**The one item that remains**, now precisely scoped rather than vague: make
-`yo fix` able to apply **evaluator** repairs. It is blocked on
-`issues/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md`
-— the lazy-binding/def-time-trial path renders an evaluator error to TEXT and
-re-throws it as a plain error, so `downcast(err, YoError)` fails and the typed
-stash is empty (measured with `YO_DEBUG_FIX=1`: **1** diagnostic for a parse
-error, **0** for an undefined name). The fix is to carry `failure_diagnostics`
-on `PendingDef` and re-throw the `YoError`. That is its own PR with its own
-gates, since error paths are where the fixpoint is sensitive, and it also
-unblocks the LSP's typed channel, which reads the same empty stash.
+**The last item closed in #727**, and how it closed is worth more than that it
+did. `yo fix` could not apply the rename `--error-format json` already showed,
+because an error raised inside a definition body reached the typed stash as
+plain text. The issue filed with #724 blamed the lazy-binding /
+pending-definition path and prescribed carrying `failure_diagnostics` on
+`PendingDef`. **That diagnosis was wrong.** The measured cause is the DEF-TIME
+TRIAL (`evaluator/calls/function_type.yo`): its swallow handler renders the
+error with `_err.to_string()` and the re-raise throws that string. Implementing
+the prescription would have written plumbing for a path the reproducer never
+takes — `YO_DEBUG_LAZY` shows the definition is never forced at all.
+
+Found by instrumenting the channel (`YO_DEBUG_DIAGSTASH`, shipped) rather than
+by reading: one DROP and a TAKE of nothing proved the diagnostics were never
+STORED, then all eleven candidate flatten sites were instrumented at once and
+none fired. **The method note: probe before building, and when a probe is
+ambiguous, widen the probe instead of resuming reading.** Three further
+eliminations by inference were each sound and together cost two builds.
+
+Applying a repair also made `fix` take a second pass for the first time, which
+exposed a latent generation bug — `clear_module_cache()` does not clear the
+cached prelude env, so pass 2 re-minted std types and the id-comparing unify
+guard reported `"ArrayList(u8)"` against `"ArrayList(u8)"`. Fixed by pairing
+the prelude clear with the cache clear as the warm-compile path does; that is
+knowingly a half measure, with the owner-tagged registry purge in
+`INCREMENTAL_COMPILATION_ZIG_LESSONS.md` §7 step 1 as the real one.
+
+Full record: `issues/fixed/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md`,
+which keeps the wrong diagnosis in an appendix on purpose. The LSP's typed
+channel reads the same stash and is unblocked by the same change.
 
 Companion plans that this one does not duplicate:
 `INCREMENTAL_COMPILATION_ZIG_LESSONS.md` (edit-compile latency, resident
@@ -186,13 +213,16 @@ rule; `issues/repros` re-run through the repro gate.
 
 ## 2. P1 — `yo fix`: mechanical diagnostics repair themselves
 
-**OUTCOME (#724): shipped PARSE-LEVEL only.** Read the status table's last
-paragraph before extending it — the evaluator half is blocked on a
-flattening bug, not on missing `fix` machinery, and the shortcut of reading
-the §3 swallowed-cause stash was tried and REJECTED (a normal evaluation
-swallows many internal trial failures, so its latest entry is routinely
-unrelated: it offered a `std/prelude.yo` argument-matching failure for a
-file whose real error was an undefined name).
+**OUTCOME: shipped in two parts.** #724 built the repair channel and the
+command, applying parse-level repairs only and saying so. #727 made evaluator
+repairs apply by fixing where they were flattened — **not** where this plan and
+its issue predicted; see the status table's closing section. The shortcut of
+reading the §3 swallowed-cause stash was tried and REJECTED and should not be
+retried: a normal evaluation swallows many internal trial failures, so its
+latest entry is routinely unrelated (it offered a `std/prelude.yo`
+argument-matching failure for a file whose real error was an undefined name).
+The shipped fix keeps the diagnostics in LOCKSTEP with the text they replace,
+written and cleared by the same two functions, for exactly that reason.
 
 A model recovers from a compile error by re-reading the message and
 editing. For diagnostics whose fix is fully determined, that round trip is

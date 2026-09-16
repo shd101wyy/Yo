@@ -10,7 +10,7 @@ description: "Use when writing or editing Yo language code. Covers critical synt
 - A brace group is a **record unless it contains a `;`**, and that rule is the
   same in EVERY position — a value, the left of `::` / `:=` / `=`, and a
   `match` payload pattern (decided 2026-09-16,
-  `plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4, where the `.{ … }` and
+  `plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4, where the `.{ … }` and
   comma-decides alternatives are recorded as declined). Patterns and literals
   therefore never disagree about what a brace means.
 - `{ expr }` without semicolons creates an **anonymous struct value**, NOT a block!

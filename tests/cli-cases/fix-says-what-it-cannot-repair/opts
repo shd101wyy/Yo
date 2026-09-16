@@ -1,18 +1,19 @@
-# `yo fix` applies the repairs the compiler computed
-# (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2). This case pins the TRUTHFUL
-# half, which is the half that matters right now.
+# `yo fix` must SAY it could not repair a file rather than printing "nothing to
+# fix", which reads as "this file is clean" — the hollow-success shape
+# plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md exists to remove.
 #
-# `countr` is one deletion from `counter`, so the diagnostic carries a unique
-# rename — visible in `--error-format json` (see check-json-carries-the-repair).
-# `fix` cannot apply it yet: an error raised inside a definition's body is
-# rendered to text and re-thrown as a plain error by the lazy-binding path, so
-# the typed stash is EMPTY for evaluator errors (measured: 1 diagnostic for a
-# parse error, 0 for this one) —
-# issues/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md
+# The fixture is an E0003 (adjacent different operators need parentheses). It
+# reaches the typed stash and carries NO repair, because more than one edit
+# fixes it — `(1 && 2) && 3` and `1 && (2 && 3)` are both valid groupings, and
+# the compiler never guesses between alternatives.
 #
-# So the assertion is that `fix` SAYS it could not repair the file rather than
-# printing "nothing to fix", which would read as "this file is clean" — the
-# exact hollow-success shape this plan exists to remove. When the flattening
-# is fixed, this golden flips to the applied rename, and that diff is the proof.
+# This case used to carry an UNREPAIRABLE-BY-ACCIDENT fixture: an undefined
+# name whose unique rename the compiler had computed but `fix` could not see,
+# because the def-time trial flattened evaluator diagnostics to text. That is
+# fixed, and the rename is now asserted by fix-applies-an-evaluator-rename. So
+# this case keeps the truthfulness assertion with a fixture that genuinely has
+# no single correct repair, which is the case the message is FOR.
+#
+# rc is 1: `fix` exits non-zero while any file still does not evaluate.
 stdout_keep=^fix:
 timeout=180

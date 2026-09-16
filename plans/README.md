@@ -37,15 +37,6 @@ Active work (root) — **plans and handovers driving work right now, and nothing
 - [`THREAD_SAFETY.md`](THREAD_SAFETY.md) — 13 of 14 phases landed; Phase P
   (field visibility) was closed by `reference/MEMBER_VISIBILITY.md` (#716,
   2026-09-16): `_`-prefixed members are private, ENFORCED by the compiler.
-- [`LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md) —
-  what to change for a model-driven workflow, written 2026-09-16 after a
-  two-agent day: P0 a toolchain that never reports success for work it did
-  not do (transpile failure = error, no hollow batches, `check --bodies`,
-  a non-`unit` `main` is rejected), P1 `yo fix` plus a diagnosis of the
-  generic "failed to evaluate" messages, and the brace question DECIDED (§4: braces stay "record
-  unless `;`" in every position; `{ x }` gets a diagnostic + `yo fix`, not
-  a grammar change; `_` becomes the discard).
-  `struct(generic(T), …)` sugar REJECTED.
 - [`INCREMENTAL_COMPILATION_ZIG_LESSONS.md`](INCREMENTAL_COMPILATION_ZIG_LESSONS.md) —
   edit-compile-run latency: what Yo takes from Zig's incremental design
   (per-definition hashing + dependency edges, stable symbol identity, a
@@ -62,6 +53,20 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   switch-shaped plus a test-chain lowering for nested/literal/or/guard/range/
   string/tuple/struct patterns. P0 absorbs PR #661 and closes the
   exhaustiveness hole it leaves.
+
+The **LLM-friendly toolchain campaign** closed 2026-09-17:
+[`archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md)
+— every item implemented across #718/#720/#724/#727. What stays authoritative
+is the §4 brace DECISION (a brace group is a record unless it has a `;`, in
+every position, including destructuring and match arms; `{ x }` gets a
+diagnostic rather than a grammar change) and the REJECTION of
+`struct(generic(T), …)`. Shipped: a non-`unit` `main` is rejected, a failed
+test batch says `0 of N tests ran`, `yo check --test-bodies`, `yo fix` with
+structured `Repair`s carried by `--error-format json` and applied for both
+parse and evaluator errors, and the generic "failed to evaluate" messages
+fixed once at the swallow. Read its OUTCOME notes on §1.3 and §2 before
+reviving anything: two of the document's own proposals were measured WRONG,
+and so was the root cause in the issue it filed.
 
 Closed campaigns (`archive/`) — self-hosting is **finished**. The compiler has
 been self-hosting since 2026-08-03, the TypeScript compiler was retired

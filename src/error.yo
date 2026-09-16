@@ -7,7 +7,8 @@
 //! builders keep taking a `Token` (+ verbatim message), so the ~1000
 //! emission sites across the evaluator are untouched by the restructure.
 { String, Pattern } :: import("std/string");
-{ ToString } :: import("std/fmt");
+{ ToString, eprintln } :: import("std/fmt");
+{ env : err_dbg_env } :: import("std/env");
 { Error, AnyError } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Token } :: import("./token.yo");
@@ -247,7 +248,7 @@ format_error_message :: (fn(token : Token, error_message : String) -> YoError)(
 /// `replacement`. That is the right span for every name-level fix — a
 /// misspelled variable, a misspelled enum variant — because the token IS the
 /// thing to rewrite. `yo fix` applies it; `--error-format json` carries it
-/// (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
+/// (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 format_error_message_with_repair :: (
   fn(
     token : Token,
@@ -378,7 +379,7 @@ render_any_error :: (fn(err : AnyError) -> String)(
   ArrayList(Diagnostic)
 ).None;
 // ---------------------------------------------------------------------------
-// SWALLOWED-CAUSE CHANNEL (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §3)
+// SWALLOWED-CAUSE CHANNEL (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §3)
 // ---------------------------------------------------------------------------
 /// The exn-LESS `evaluate_expression` swallows its error and returns an error
 /// expr, so the caller sees only a MISSING `ExprInfo` and reports a generic
@@ -461,13 +462,35 @@ stash_error_diagnostics :: (fn(err : AnyError) -> unit)({
   match(
     downcast(err, YoError),
     .Some(ye) => {
+      if(err_dbg_env.get(`YO_DEBUG_DIAGSTASH`).is_some(), {
+        eprintln(`[diagstash] STORE ${ye.diagnostics.len().to_string()} diagnostic(s)`);
+      });
       g_last_error_diagnostics = Option(ArrayList(Diagnostic)).Some(ye.diagnostics);
     },
-    .None => ()
+    .None => {
+      // A NON-YoError reached the stash: something upstream flattened the
+      // diagnostics to text. This is the channel's only failure mode and it
+      // is silent by construction, so name it under the debug hook.
+      if(err_dbg_env.get(`YO_DEBUG_DIAGSTASH`).is_some(), {
+        eprintln(`[diagstash] DROP (not a YoError — already flattened to text): ${render_any_error(err)}`);
+      });
+    }
   );
 });
+/// Rebuild a `YoError` from diagnostics that were already computed — used
+/// where a swallowing trial handler captured them and a later site re-raises
+/// the failure. Re-raising the RENDERED TEXT is what made every evaluator
+/// diagnostic lose its code, span and repair on the way to the typed stash
+/// (issues/fixed/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md);
+/// this is the typed path back.
+yo_error_from_diagnostics :: (fn(entries : ArrayList(Diagnostic)) -> YoError)(
+  YoError(diagnostics : entries)
+);
 take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
   taken := g_last_error_diagnostics;
+  if(err_dbg_env.get(`YO_DEBUG_DIAGSTASH`).is_some(), {
+    eprintln(`[diagstash] TAKE ${match(taken, .Some(d) => d.len().to_string(), .None => String.from("none"))}`);
+  });
   g_last_error_diagnostics = Option(ArrayList(Diagnostic)).None;
   taken
 });
@@ -538,6 +561,7 @@ format_warning_messages :: (
   )
 });
 export(TokenAndError, TokenAndWarning, YoError);
+export(yo_error_from_diagnostics);
 export(format_error_message_with_repair);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —
 /// for `yo fix`, which runs after a whole file's evaluation and wants the
