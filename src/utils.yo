@@ -755,6 +755,11 @@ private_member_blocked :: (
   if(!is_private_member_name(label.clone()) || label.starts_with(String.from("___")), {
     return(false);
   });
+  // A synthesized token (`synthetic_token`, `placeholder_token`'s `"_"`) has
+  // no lexical module: compiler-generated accesses are never blocked.
+  if((access_module.len() == usize(0)) || (access_module == "_"), {
+    return(false);
+  });
   match(
     decl_module_opt,
     .Some(d) => !member_visible_from(d, access_module),
