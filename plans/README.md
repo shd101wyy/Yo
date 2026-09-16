@@ -42,9 +42,9 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   two-agent day: P0 a toolchain that never reports success for work it did
   not do (transpile failure = error, no hollow batches, `check --bodies`,
   a non-`unit` `main` is rejected), P1 `yo fix` + innermost-cause
-  diagnostics, and the brace design (§4, decided on principle with
-  compatibility explicitly not an input: `.{ … }` builds AND unbuilds a
-  record, bare braces are blocks, `_` becomes the discard).
+  diagnostics, and the brace question DECIDED (§4: braces stay "record
+  unless `;`" in every position; `{ x }` gets a diagnostic + `yo fix`, not
+  a grammar change; `_` becomes the discard).
   `struct(generic(T), …)` sugar REJECTED.
 - [`INCREMENTAL_COMPILATION_ZIG_LESSONS.md`](INCREMENTAL_COMPILATION_ZIG_LESSONS.md) —
   edit-compile-run latency: what Yo takes from Zig's incremental design

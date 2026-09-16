@@ -5,9 +5,9 @@
 as the answer to "what would you change about Yo as an LLM-targeted
 language". Nothing here is started. Two decisions are already made by the
 maintainer and recorded below so nobody re-opens them: **`struct(generic(T),
-…)` sugar is REJECTED**, and the brace question is decided on principle in §4 with compatibility
-explicitly NOT an input ("we don't need to worry about breaking changes; make the
-right decision for the future and make the syntax stable").
+…)` sugar is REJECTED**, and the brace question is DECIDED in §4 (keep "record unless `;`" in every
+position; handle `{ x }` with a diagnostic), weighed with compatibility
+explicitly NOT an input.
 
 Companion plans that this one does not duplicate:
 `INCREMENTAL_COMPILATION_ZIG_LESSONS.md` (edit-compile latency, resident
@@ -118,7 +118,7 @@ check diagnostic:
 | diagnostic | repair |
 | --- | --- |
 | E0003 adjacent different operators (the `=> a && b` case) | wrap the right-hand side in parentheses |
-| "`{ … }` without semicolons is parsed as a struct literal" | insert `;` after the last statement when the contents are statements, or a trailing `,` when they are fields (see §4) |
+| "`{ … }` without semicolons is parsed as a struct literal", and the §4 one-field-record note | insert `;` after the last statement when the contents are statements; rewrite `{ x }` to `x` when the expected type is not a struct |
 | E0401 name not found with a unique did-you-mean | replace the name |
 | the missing-import case (name exists in exactly one std module) | add the `{ name } :: import("…")` line |
 
@@ -139,134 +139,80 @@ classifier then sees the real code and `yo explain` names the real rule.
 Acceptance: `tests/internal/error.test.yo` gains a wrapped-cause case per
 wrapping site.
 
-## 4. Design — one meaning per brace, independent of position
+## 4. Design — braces: DECIDED, keep "record unless `;`", everywhere
 
-**Maintainer's framing (2026-09-16):** migration cost and backward
-compatibility are NOT inputs to this decision. The goal is the syntax Yo
-should have for good, chosen once, so that it can then be held stable. The
-measurements below are kept only so the execution can be scripted and
-checked; they do not weigh on the choice.
+**Decision (maintainer, 2026-09-16, after weighing the four options below
+with compatibility explicitly NOT an input):** the grammar does not change.
+A brace group without a semicolon is a record — `{ x, y }`, `{ name : v }`,
+`{}` and the punned one-field `{ x }` alike — and that meaning holds in every
+position: value, left of `::` / `:=` / `=`, and `match` payload. The
+footgun (`v => { v }` meaning a one-field record) is handled by a diagnostic
+and `yo fix`, not by a grammar rule. This section records why, so the
+question is not reopened.
 
-### 4.1 What braces mean today
+### 4.1 What braces mean today (and will keep meaning)
 
 `src/parser.yo` decides by separator: a semicolon-separated group is a
-`begin` block; a comma-separated or single-element group is an anonymous
-record literal desugared to `_( … )` (`BK_ANON_STRUCT`), with `{ x }` punned
-to `_(x : x)`. The same `_( … )` form is what destructuring consumes on the
-left of `::`, `:=`, `=` (2745 lines, most of them `{ Name } :: import(…)`),
-what `match` consumes as a variant payload pattern (`.Variant({ pos })`,
-≈140 sites), and what a renaming import spells out by hand
-(`_(env : dbg_env) :: import("std/env")`, 42 sites). On the value side there
-are ≈800 record literals (`build.executable({ name : … })`), 53 empty `{}`,
-and 3 sites that write `{ x }` for a one-field record.
+`begin` block; a comma-separated, colon-pair or single-element group is an
+anonymous record literal desugared to `_( … )` (`BK_ANON_STRUCT`), with
+`{ x }` punned to `_(x : x)`. A lone element that cannot be a field
+(`{ f(x) }`) is already a parse error with the message "use semicolons".
+The same `_( … )` form is what destructuring consumes on the left of a
+binding (2745 lines on develop `c5f137e7a`, most of them
+`{ Name } :: import(…)`), what `match` consumes as a variant payload
+(`.Variant({ pos })`, ≈140 sites), and what a renaming import spells out
+by hand (`_(env : dbg) :: import("std/env")`, 42 sites). On the value side:
+≈800 record literals, 53 empty `{}`, and 3 sites (all `tests/rc.test.yo`)
+that deliberately write `{ x }` for a one-field record.
 
-So one token shape, `{ … }`, means three things — run statements, build a
-record, take a record apart — and which one is decided by the separator
-inside and by the position outside. The single-identifier case `{ x }` is
-where the separator rule has nothing to go on, and it is exactly the shape a
-model writes when it means a block (`v => { v }`). The fix should remove the
-*rule*, not patch the case.
+The one ambiguous shape is therefore `{ ident }`: a one-field record by the
+rule, a one-expression block by every other language's prior. Everything
+else is classified by its punctuation.
 
-### 4.2 The principle to decide by
+### 4.2 The options weighed
 
-**A brace group must mean the same thing wherever it appears, and the reader
-must be able to tell which thing from its first token.** Two designs satisfy
-that; a third (a positional lint) does not and is dropped.
+| option | rule | why declined |
+| --- | --- | --- |
+| **B. Zig `.{ … }`** for records, bare braces always blocks, patterns dotted too (`.{ String } :: import(…)`, `.Variant(.{ pos })`) | first token classifies every group; leading dot means "structural literal, type from context" for variants and records alike | the dot is verbose exactly where Yo code is densest — imports and match payloads — and it fights the `{ k : v }` prior a model always reaches for |
+| **B′. dot on the value side only**, plain braces in patterns | records read distinctly; patterns unchanged | reintroduces a position rule (the same shape means different things by position), which is the property being removed |
+| **A. positional lint**: `{ ident }` is an error after `=>`, `:=`, `=`, as a body | closes the footgun with no migration | fixes a position-dependent rule by adding one |
+| **C. comma decides**: `{ x }` is a block, `{ x, }` a record, `;` never needed | `{ x }` gets its universal meaning | consistency forces `{ String, } :: import(…)` on the most common line in the tree; exempting patterns is option A again |
+| **S. status quo semantics** + a targeted diagnostic | one rule, one meaning per shape, in every position | — chosen |
 
-**B. Leading dot builds or unbuilds a record; bare braces run statements.**
+S wins because it is the only option under which a brace group means the
+same thing wherever it appears without a comma tax on patterns, and
+because the remaining trap is narrower than it looks: `{ f(x) }` is already
+loud, and `{ ident }` almost always meets a non-struct expected type and
+fails to type-check. What is bad today is only that the resulting message
+talks about records and never mentions the brace rule. The genuinely silent
+case, `y := { x }` with nothing constraining `y`, is rare (three deliberate
+sites) and is the language's rule working as stated.
 
-```rust
-{ a; b; c }                       // block — the only meaning of a bare brace
-{ v }                             // block of one expression (legal, redundant)
-.{ name : "app", root : "./src" } // record literal, type from context
-.{ x, y }                         // punned record: x : x, y : y
-.{}                               // empty record;  {} is an empty block
-.{ String } :: import("std/string")     // destructuring — same shape as building
-.{ env : dbg } :: import("std/env")     // renaming import (today's `_(env : dbg)`)
-.{ ... } :: import("std/prelude")       // glob
-.Variant(.{ pos }) => pos               // match payload pattern
-```
+### 4.3 What lands
 
-Why the dot is the right marker and not an arbitrary one: Yo already uses a
-leading dot for exactly this meaning. `.Some(x)` is "a variant whose enum
-type comes from context", and today's `_( … )` record is "a struct value
-whose nominal type comes from the expected type" (`src/evaluator/exprs/
-_expr.yo` coerces `BK_ANON_STRUCT` against `ctx.expected_type`). Zig chose
-`.{}` for the same reason. So after B the leading dot has ONE reading
-everywhere: *structural literal, type inferred from context* — variants and
-records alike — and a bare brace has ONE reading: a block. Patterns take the
-dotted shape too, because a pattern is the literal it matches, written on
-the other side of the binding; JavaScript and Rust both keep build and
-unbuild the same shape, and that symmetry is what lets a reader (or a model)
-learn one form instead of two.
-
-Consequences, all of them simplifications:
-
-- The internal `_( … )` call becomes what `.{ … }` desugars to and stops
-  being a user-facing spelling. That frees the identifier `_`.
-- The discard binding becomes `_` (today `___`, 77 sites), the spelling
-  every language a model has seen uses. `___` stays only as the
-  compiler-reserved prefix for synthesized members. Two of the three
-  underscore conventions in §5 collapse into the universal ones.
-- The parser has no separator heuristic: `.{` opens a record, `{` opens a
-  block, full stop. `{ a, b }` and `{ name : v }` become hard parse errors
-  with the one fix hint "a record needs a leading dot: `.{ … }`", which
-  `yo fix` (§2) applies. A forgotten dot is therefore always loud and always
-  repairable — that is what neutralises the JS/Rust `{ k: v }` prior a model
-  will keep reaching for.
-- `{}` is the empty block; the `{;}` spelling goes away.
-
-**A′. Bare braces for everything, but a lone bare expression is never a
-record.** Records need a comma or a colon (`{ x, }` for one field, like the
-`[x,]` array rule), blocks need a semicolon, and `{ x }` is a parse error in
-every position with a fix hint. Position-free and fully consistent with the
-array rule, and it keeps the `{ k : v }` prior. Its costs are permanent
-rather than one-off: `{ String, } :: import("std/string")` on the most common
-line in the tree, `.Variant({ pos, })` in every payload pattern, records that
-look like blocks until the reader finds the separator, and `_` still taken
-by the anonymous-record call so the discard stays `___`.
-
-**A (positional lint).** Reject `{ ident }` only after `=>`, `:=`, `=`, and
-as a function body. Cheapest, but it *adds* a position-dependent rule to fix
-a position-dependent rule, and it leaves `{ k : v }`, `{ x, y }` and
-`{ x } := s` all sharing a shape with blocks. Dropped under the maintainer's
-framing.
-
-### 4.3 Recommendation
-
-**B.** It is the only option under which every brace group is classified by
-its first token, the leading dot ends up meaning one thing across variants,
-records and patterns, blocks read the way every other language's blocks
-read, and the underscore is returned to the discard role models expect. A′
-is the fallback if the dotted glob import `.{ ... } :: import(…)` is judged
-too strange to live with; that is the one line of B I would look at twice.
-
-### 4.4 Execution (mechanical, not a reason to choose)
-
-Bootstrap sequencing is a physical constraint, not a compatibility one: std
-and src cannot be written in `.{` until a released compiler parses it. So:
-
-1. Release N: parser accepts BOTH `{ … }`-record and `.{ … }`; `{ x }` bare
-   single identifier already rejected in value position (so the footgun is
-   closed on day one); `_` accepted as discard alongside `___`. Docs and
-   cheatsheets teach only the new forms.
-2. After the seed bump: a scripted rewrite of std/src/tests/docs — the three
-   brace roles are syntactically classifiable, so the rewrite is a parser
-   pass, not a regex — with a golden diff and the byte-identity gate on the
-   emitted C (the change is spelling only).
-3. Release N+1: the old forms are parse errors with the fix hint; `_( … )`
-   is no longer user-writable; `___` as a discard is an error.
-
-The rewrite and the reject step land in the same PR as their cli-cases and
-the `yo fix` repair, so no green run ever depends on a form the compiler is
-about to remove.
+1. **Diagnostic.** The parser marks a punned single-identifier record
+   literal. When such a value is the cause of an E0601/E0605 mismatch, the
+   diagnostic carries one extra line: *"`{ x }` is a one-field record; write
+   `x` for the value or `{ x; }` for a block"*. `yo fix` (§2) applies the
+   `x` rewrite when the expected type is not a struct.
+2. **Cheatsheet and DESIGN wording.** State the rule as *record unless `;`,
+   uniformly, so patterns and literals never disagree*, with the reason.
+   `tests/sync/mutex.test.yo:76`'s warning comment becomes redundant.
+3. **`_` follow-on (independent of the brace rule).** The internal
+   `_( … )` call stops being user-facing syntax: the 42
+   `_(env : x) :: import(…)` sites become `{ env : x } :: import(…)`, which
+   already works, and `_` becomes the discard binding (today `___`, 77
+   sites; `___` stays only as the compiler-reserved prefix for synthesized
+   members). This is a spelling change with a byte-identical C gate, and it
+   is seed-gated only in the trivial sense that std/src adopt `_` after the
+   release that accepts it.
 
 ## 5. Underscore conventions after §4
 
-With B, `_` is the discard binding, `_name` on a member means private
+`_` is the discard binding, `_name` on a member means private
 (`reference/MEMBER_VISIBILITY.md`), `___name` is compiler-reserved, and
-`_0`/`_1` stay positional labels. That is the same set of meanings as Rust
-and Python for the first two, which is the point.
+`_0`/`_1` stay positional labels — the same set of meanings as Rust and
+Python for the first two.
 
 ## 6. Rejected
 
@@ -281,9 +227,9 @@ and Python for the first two, which is the point.
    behind the fixpoint and hollow-sweep gates, which are the only consumers
    of the old behaviour.
 2. §1.3 `check --bodies`, measured against the #716 pre-fix commit.
-3. §2 `yo fix` with §4 option A as one of its four repairs; §3 in the same
-   PR or the next.
-4. §4 option B only on an explicit go, on the next seed-gated release.
+3. §2 `yo fix` with the §4 diagnostic as one of its four repairs; §3 in
+   the same PR or the next.
+4. §4.3 item 3 (`_` as the discard) on the next seed-gated release.
 
 None of 1–3 touches `std/` source forms, so none is seed-gated. The only
 seed interaction is that a std module using a form the new compiler rejects
