@@ -1,108 +1,66 @@
-# Every assignment saves the old value, even when nothing will drop it — and into `MaybeUninit` storage that reads as indeterminate
+# The old-value save on a non-dropping assignment is dead code — and that is fine
 
-**Status:** OPEN. Found 2026-09-17 by reading the C emitted for
-`Array(T, U).default()` (#751), after the question "does `MaybeUninit` for an
-array allocate on the stack or the heap?".
+**Status:** NOTE, not a defect. Recorded 2026-09-17, **downgraded the same day**
+after review. No fix is planned and none is wanted; see "Why this is not worth
+fixing".
 
-**Not a correctness bug that has been observed.** It is dead code in the common
-case and a read of indeterminate storage in one specific case. Both are
-measured below; neither has been shown to miscompile anything.
+Found by reading the C emitted for `Array(T, U).default()` (#751), after the
+question "does `MaybeUninit` for an array allocate on the stack or the heap?"
+(it allocates on the **stack** — `MaybeUninit` is a zero-cost newtype over a
+by-value struct in an ordinary automatic local, no `malloc` in the function).
 
 ## What is emitted
 
 `src/codegen/exprs/assignment.yo:103-117` saves the LHS's old value into a temp
-before the store:
+before every store:
 
 ```c
 int32_t _file____priv_temp_… = a.data[i]; // Save old value for later use
 a.data[i] = 1;
 ```
 
-The comment above it says why: *"Save the old value into the result temp (for a
-deferred drop of it)"*. That is correct and necessary when the old value is
-reference-counted — the assignment overwrites the only handle, so the old one
-must be released.
+This is **by design**, and the design is right: the comment says *"Save the old
+value into the result temp (for a deferred drop of it)"*, and for a
+reference-counted old value the save is what the drop reads.
 
-The emission is gated on three things: the LHS is not a compile-time-only atom,
-its type is not `unit`, and `ei.variable_name` is `.Some(...)`. **It is not
-gated on whether the old value needs dropping at all.**
-
-## Measured
-
-| assignment | saved temp is | verdict |
+| assignment | the saved temp is | |
 | --- | --- | --- |
-| `(s : String) = …; s = …` | used **5 times**, feeding `__yo_decr_rc` | NECESSARY |
-| `a(i) = i32(1)` on an initialized `Array(i32, 4)` | declared once, **never used** | dead |
-| `i = (i + usize(1))` on a loop counter | declared once, **never used** | dead |
-| `(p.add(i)).* = T.default()` into `MaybeUninit` storage | declared once, **never used** | dead **and reads indeterminate memory** |
+| `(s : String) = …; s = …` | read **5 times**, feeding `__yo_decr_rc` | necessary |
+| `a(i) = i32(1)` | declared once, never read | dead |
+| `i = (i + usize(1))` | declared once, never read | dead |
 
-Eight `Save old value` lines appear in the C for a four-line program.
+## Why this is not worth fixing
 
-## The second row is the one that is more than untidy
+- **The dead saves cost nothing.** They are loads from a local whose address is
+  visible to the optimizer, never read afterwards, and clang removes them at
+  `-O2`. There is no runtime effect to recover.
+- **The fix is disproportionate and risky.** The saved temp is read by the
+  deferred-drop machinery, so gating the save means gating where the temp is
+  DECIDED (`attach_temp_variable_to_expr`), not where it is emitted.
+  Suppressing one without the other emits a reference to an undeclared temp —
+  the exact failure the `sm->` branch beside the save site was added to fix.
+  The change would touch every assignment in every program and need a
+  byte-identity corpus diff to land safely, to buy nothing at run time.
 
-`Array(T, U).default()` (std/prelude.yo, #751) obtains storage via
-`MaybeUninit(Self).new()` and writes each element through a pointer. The
-storage is deliberately uninitialized, so the save reads it **before anything
-has written it**:
+## The one nuance worth remembering
 
-```c
-static inline Array_int32_t_4 yo_id_…_ret_Array_i32__4_() {
-  __yo_t_… __yo_uninit_r6879c29_n0;                 // indeterminate
-  int32_t* p = ((int32_t*)((Array_int32_t_4*)(&(mu))));
-  while (…) {
-    int32_t _file____priv_temp_… = (*(p + i));      // <-- reads indeterminate memory
-    (*(p + i)) = yo_id_…();
-    …
-  }
-}
-```
+`Array(T, U).default()` writes into `MaybeUninit` storage, so its dead save
+reads memory before anything has written it. For most `T` that is an
+*unspecified value* rather than undefined behaviour, because the storage's
+address is taken.
 
-For `int32_t` this is benign in practice — no trap representations, and the
-load is dead so clang removes it at `-O2`. It is not benign as a general rule:
-the impl is bounded on `T <: Default`, so `T` may be any type with a `Default`,
-including one with padding or a representation where an indeterminate load is
-not free. It is also exactly what MemorySanitizer exists to flag.
+`bool` is the exception in principle: `Array(bool, U)` lowers to `bool data[N]`
+(C `_Bool`), and an indeterminate `_Bool` outside `{0, 1}` is a trap
+representation, which the standard does call UB — and clang does assume `_Bool`
+is 0 or 1. It remains a DEAD load that clang deletes, so nothing has been
+observed and nothing is expected; MemorySanitizer would flag it if it were ever
+run here.
 
-`std/sys/tty.yo` and `std/process/command.yo` use `MaybeUninit(Array(…))` too
-but write through a C call, not a Yo assignment, so they never hit this.
-`Array(T, U).default()` appears to be the first Yo-level element-wise write
-into uninitialized storage.
+**If this ever does need addressing**, the cheap and local option is to make
+`Array(T, U).default()` not read what it is about to write, rather than to
+change assignment codegen globally.
 
-## Reproducers
+## Reproducer
 
-```rust
-// dead save, ordinary array
-a := Array(i32, usize(4)).fill(i32(7));
-(i : usize) = usize(0);
-while(i < usize(4), { a(i) = i32(1); i = (i + usize(1)); });
-```
-
-```rust
-// dead save that READS uninitialized storage
-a := Array(i32, usize(4)).default();   // std/prelude's impl, via MaybeUninit
-```
-
-Inspect with `yo compile <file> --optimize 2 --emit-c --skip-c-compiler` and
-grep the `.c` for `Save old value`.
-
-## Fix shape, NOT yet measured
-
-Gate the save on the old value actually needing a drop, rather than on a temp
-having been attached. The predicate the evaluator already uses for this family
-is `type_contains_rc_type` (`src/types/utils.yo`).
-
-**The obvious version of that is not safe on its own.** The saved temp is read
-by the deferred-drop machinery, so suppressing the save without also
-suppressing the drop that reads it would emit a reference to an undeclared
-temp — which is the exact failure the `sm->` branch immediately below the save
-site was added to fix ("this branch previously emitted NOTHING, so the deferred
-drop either dropped calloc zero (silent leak) or referenced an undeclared
-temp"). The gate belongs wherever the temp is decided — `attach_temp_variable_to_expr`
-in the evaluator — not at the emission site alone.
-
-Before changing it: record the corpus C, apply, and diff. This is an
-"additive" codegen change in the sense of
-[[yo-byte-identity-gate-for-additive-codegen-change]] — every assignment in
-every program is affected, so byte-identity over the corpus modulo the removed
-lines is the acceptance test, and an RC assignment keeping its save is the
-canary that must not move.
+`issues/repros/assignment-saves-an-old-value-that-needs-no-drop.yo` — compile
+with `--emit-c --skip-c-compiler` and `grep -c 'Save old value'`.

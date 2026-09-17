@@ -1,17 +1,15 @@
 { println } :: import("std/fmt");
-// Every assignment emits a "Save old value for later use" temp before the
-// store, whether or not the old value will ever be dropped. Inspect with:
+// NOTE, not a defect — see the issue doc of the same name. Every assignment
+// emits a "Save old value for later use" temp before the store, which is BY
+// DESIGN: for a reference-counted old value that temp is what the deferred
+// drop reads. When the old value needs no drop the temp is dead, and clang
+// removes it at -O2, so there is nothing to recover at run time.
+//
+// Kept as a reproducer only so the shape is easy to re-inspect:
 //
 //   yo compile <this file> --optimize 2 --emit-c --skip-c-compiler
 //   grep -c 'Save old value' <out>.c        # 8, for the four lines below
 //
-// The saves below are all DEAD — each temp is declared once and never read.
-// For an RC type the same save IS used, feeding __yo_decr_rc, which is why it
-// exists; the gate on "does this old value need dropping" is what is missing.
-//
-// The sharper case is std/prelude's `Array(T, U).default()`, which writes into
-// MaybeUninit storage: there the dead save READS INDETERMINATE MEMORY.
-//   a := Array(i32, usize(4)).default();
 main :: (fn() -> unit)({
   a := Array(i32, usize(4)).fill(i32(7));
   (i : usize) = usize(0);
