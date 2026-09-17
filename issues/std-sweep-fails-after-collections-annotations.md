@@ -51,6 +51,30 @@ module's def-time fn trial. The escaped (unswallowed) throw at
 `_trial_eval_fn_body`'s handler — or the failure is before/at the trial's
 signature evaluation.
 
+## Attribution CONFIRMED (2026-09-17 late)
+
+Clean three-way discriminator, all on the v0.2.36 seed + `YO_STD=$PWD/std`:
+
+| tree | `yo check ./std` |
+| --- | --- |
+| `eb6d9a94f` (pure pre-#713 develop) | **176/176 GREEN (rc=0)** |
+| `eb6d9a94f` + #713's annotations (the rebase713 branch) | 175/176 FAIL |
+| task-3 branch (+#753 content) | 175/176 FAIL (same silent shape) |
+
+⇒ #713's annotations regress the sweep. (Separately observed, NOT this
+bug: a *demand-import* probe — `import("std/assert"); import("std/thread");`
+from a tmp module — also fails on the v0.2.35 seed; the demand-load path
+has its own latent issue with `thread.yo`'s def-time trial. The sweep bug
+uses direct-target loads and is 0.2.36-specific.)
+
+Bisection notes: the failing file varies per run (bench/term/thread) —
+state-accumulation-dependent; `array_list+hash_map+bench+thread` and even
+`assert+thread` demand-probes PASS, so the trigger needs the real sweep's
+breadth. Next step: bisect with DIRECT-target prefixes — a tmp dir of
+symlinks to the first N std files, `yo check tmp/prefix` — the check
+tool's own enumeration, growing N (and reordering) until the failure
+appears; then swap the last-added file to isolate the victim/polluter pair.
+
 ## Suggested attack
 
 1. Bisect the polluting module set: load the prelude + `std/collections/*`
