@@ -57,7 +57,8 @@ _md_doc :: (fn(d : String) -> String)({
   DocModule,
   DocModel,
   doc_item_kind_to_string,
-  doc_trait_kind_to_string
+  doc_trait_kind_to_string,
+  stability_level
 } :: import("./model.yo");
 // ── Private helpers ───────────────────────────────────────────────────────────
 // Find a DocFunction by name in an ArrayList; returns None if not found.
@@ -647,7 +648,17 @@ render_module_md :: (fn(mod : DocModule) -> String)({
     mod.stability,
     .None => (),
     .Some(st) => {
-      lines.push(`> **Stability: ${st}** — stable modules only change additively; this one may still change.`);
+      // LEVEL only — the full `## Stability` section is still in `mod.doc`
+      // and is rendered below, so repeating it here printed it twice.
+      lvl := stability_level(st);
+      if(!lvl.is_empty(), {
+        gloss := cond(
+          (lvl == `stable`) => String.from("changes additively from here."),
+          (lvl == `deprecated`) => String.from("scheduled for removal."),
+          true => String.from("may still change; see below.")
+        );
+        lines.push(`> **Stability: ${lvl}** — ${gloss}`);
+      });
       lines.push(``);
     }
   );
@@ -839,7 +850,7 @@ render_index_md :: (fn(model : DocModel) -> String)({
     badge_word := match(
       mod.stability,
       .None => ``,
-      .Some(st) => match(st.split(` `).get(usize(0)), .Some(w) => w.to_lowercase(), .None => st)
+      .Some(st) => stability_level(st)
     );
     badge := if(badge_word.is_empty(), ``, ` _(${badge_word})_`);
     lines.push(`- [\`${mod.path}\`](module/${mod.name}.md)${badge} (${item_count.to_string()} items)${summary}`);
