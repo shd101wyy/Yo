@@ -59,7 +59,8 @@ encode_sort :: (fn(s : VcSort) -> String)(
     .DataS(name) => name.clone(),
     .SeqS(elem) => `(Seq ${encode_sort(elem)})`,
     .FunS(domain, range) => `(Array ${encode_sort(domain)} ${encode_sort(range)})`,
-    .ArrS(elem, _) => `(Array (_ BitVec 64) ${encode_sort(elem)})`
+    .ArrS(elem, _) => `(Array (_ BitVec 64) ${encode_sort(elem)})`,
+    .Uninterpreted(name) => name.clone()
   )
 );
 // ============================================================================
@@ -132,7 +133,8 @@ _msof_key :: (fn(elem : VcSort) -> String)(
     .DataS(name) => name.clone(),
     .SeqS(e) => `seq_${_msof_key(e)}`,
     .FunS(d, r) => `arr_${_msof_key(d)}_${_msof_key(r)}`,
-    .ArrS(e, _) => `arr_${_msof_key(e)}`
+    .ArrS(e, _) => `arr_${_msof_key(e)}`,
+    .Uninterpreted(name) => name.clone()
   )
 );
 // ============================================================================
@@ -385,6 +387,25 @@ encode_content :: (fn(q : VcQuery) -> String)({
   // combined declare-datatypes covers mutual recursion without ordering
   // constraints). Deterministic order: the entries are pre-sorted by the
   // builder; a stable re-sort keeps the encoding reproducible regardless.
+  // V6 task 2: declared uninterpreted sorts (one `declare-sort` per
+  // abstractly verified generic parameter), deterministically ordered.
+  sort_entries := _sorted_lines(q.sorts);
+  if(sort_entries.len() > usize(0), {
+    (si : usize) = usize(0);
+    while(si < sort_entries.len(), {
+      match(
+        sort_entries.get(si),
+        .Some(name) => {
+          sb.write_str("(declare-sort ");
+          sb.write_string(name.clone());
+          sb.write_str(" 0)");
+          sb.write_str("\n");
+        },
+        .None => ()
+      );
+      si = (si + usize(1));
+    });
+  });
   dt_entries := _sorted_lines(q.datatypes);
   if(dt_entries.len() > usize(0), {
     sb.write_str("(declare-datatypes (");

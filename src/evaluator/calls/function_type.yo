@@ -103,6 +103,25 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 { analyze_ctfe_capability } :: import("../ctfe/ctfe_analysis.yo");
 { panic, assert } :: import("std/assert");
+
+// V6 task 2: the per-clause predicate-evaluation swallow flag (the
+// capture-free-handler pattern — the handler cannot close over locals, so
+// the outcome rides a module global; reset before each clause).
+(g_pred_eval_failed : bool) = false;
+
+_reset_pred_eval_failed :: (fn() -> unit)({
+  g_pred_eval_failed = false;
+
+  ()
+});
+
+_flag_pred_eval_failed :: (fn(_msg : String) -> unit)({
+  g_pred_eval_failed = true;
+
+  ()
+});
+
+_pred_eval_failed :: (fn() -> bool)(g_pred_eval_failed);
 /// Check if a generic function body returns a type incompatible with the
 /// declared generic return type.
 ///
@@ -1200,6 +1219,11 @@ Result type: ${type_to_string(result_box)}`
       if(_is_verify_target(tok.module_path.clone()), {
         vmode := resolve_verify_mode(tok.module_path.clone());
         is_assumed := has_func_assumed_body(fn_val_id.clone());
+        // V6 task 2: a DEFERRED (generic) CONTRACTED fn registers too —
+        // its body is verified ABSTRACTLY (type variables as opaque
+        // values), with per-clause soft predicate evaluation so a
+        // predicate that cannot resolve at definition time does not fail
+        // the load (the WALK reports the unevaluated predicate loudly).
         if(((vmode == "verify") || (vmode == "verify+")) &&
           !(result_is_comptime_only) &&
             (is_assumed || !(should_defer_ft)), {
@@ -1274,12 +1298,29 @@ Result type: ${type_to_string(result_box)}`
             );
             evd_reqs := ArrayList(AstExpr).new();
             raw_reqs := get_func_requires_exprs(fn_val_id.clone());
+            pred_soft_fail := false;
             (vr : usize) = usize(0);
             while(vr < raw_reqs.len(), {
               match(
                 raw_reqs.get(vr),
                 .Some(rp) => {
-                  evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, exn));
+                  if(should_defer_ft, {
+                    _reset_pred_eval_failed();
+                    soft_exn := Exception(
+                      throw : (
+                        (_err) -> {
+                          _flag_pred_eval_failed(_err.to_string());
+                          unwind(());
+                        }
+                      )
+                    );
+                    evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, soft_exn));
+                    if(_pred_eval_failed(), {
+                      pred_soft_fail = true;
+                    });
+                  }, {
+                    evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, exn));
+                  });
                 },
                 .None => ()
               );
@@ -1292,11 +1333,39 @@ Result type: ${type_to_string(result_box)}`
               match(
                 raw_enss.get(ve),
                 .Some(ep) => {
-                  evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, exn));
+                  if(should_defer_ft, {
+                    _reset_pred_eval_failed();
+                    soft_exn := Exception(
+                      throw : (
+                        (_err) -> {
+                          _flag_pred_eval_failed(_err.to_string());
+                          unwind(());
+                        }
+                      )
+                    );
+                    evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, soft_exn));
+                    if(_pred_eval_failed(), {
+                      pred_soft_fail = true;
+                    });
+                  }, {
+                    evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, exn));
+                  });
                 },
                 .None => ()
               );
               ve = (ve + usize(1));
+            });
+            // V6 task 2: the DIAGNOSTIC TRIAL of the deferred (generic)
+            // body — evaluate it once with the parameters bound to unknowns
+            // of their declared types so the body's nodes get ExprInfo for
+            // the abstract walk. Operator dispatch that cannot resolve over
+            // the type variable fails INSIDE the trial's swallow handler
+            // (those nodes stay hollow — the WALK reports them loudly as
+            // untyped, task 2's loud-failure scope).
+            if(should_defer_ft, {
+              dg_out := ArrayList(AstExpr).new();
+              _trial_eval_fn_body(body_expr_raw.clone(), pred_env, ctx, dg_out);
+              ();
             });
             register_verify_task(
               VerifyTask(

@@ -284,28 +284,45 @@ _measure_is_signed :: (fn(ctx : VcCtx, e : AstExpr) -> bool)(
     .None => true
   )
 );
+(g_uninterpreted_sorts : ArrayList(String)) = ArrayList(String).new();
 _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
-  match(
-    _int_width(t_refine_inner(t)),
-    .Some(w) => Option(VcSort).Some(VcSort.BvS(width : w)),
-    .None => cond(
-      _is_bool_type(t_refine_inner(t)) => Option(VcSort).Some(VcSort.BoolS),
-      // Fixed-length Array(T, N) (V5 task 6): a BV64-indexed SMT array;
-      // the length rides the sort for bounds/ms_of. A `length_var`
-      // (generic-length) array is outside the subset.
-      true => match(
-        t_refine_inner(t),
-        .Array(elem, len, lv) => cond(
-          ((lv.len() == usize(0)) && (len > usize(0))) => match(
-            _type_sort(elem),
-            .Some(es) => Option(VcSort).Some(VcSort.ArrS(elem : es, len : len)),
-            .None => Option(VcSort).None
+  cond(
+    // V6 task 2: a generic type parameter verifies as an UNINTERPRETED
+    // sort — values of it support equality and pass-through only (the
+    // binop path fails the subset loudly on anything else).
+    _is_some_t_type(t) => {
+      srt := _uninterpreted_sort_of(t);
+      match(
+        srt,
+        .Uninterpreted(nm) => {
+          _register_uninterpreted_sort(nm.clone());
+        },
+        _ => ()
+      );
+      Option(VcSort).Some(srt)
+    },
+    true => match(
+      _int_width(t_refine_inner(t)),
+      .Some(w) => Option(VcSort).Some(VcSort.BvS(width : w)),
+      .None => cond(
+        _is_bool_type(t_refine_inner(t)) => Option(VcSort).Some(VcSort.BoolS),
+        // Fixed-length Array(T, N) (V5 task 6): a BV64-indexed SMT array;
+        // the length rides the sort for bounds/ms_of. A `length_var`
+        // (generic-length) array is outside the subset.
+        true => match(
+          t_refine_inner(t),
+          .Array(elem, len, lv) => cond(
+            ((lv.len() == usize(0)) && (len > usize(0))) => match(
+              _type_sort(elem),
+              .Some(es) => Option(VcSort).Some(VcSort.ArrS(elem : es, len : len)),
+              .None => Option(VcSort).None
+            ),
+            true => Option(VcSort).None
           ),
-          true => Option(VcSort).None
-        ),
-        // Value enums: a declared datatype (V3). ref enums are heap handles —
-        // outside the verifiable subset's integer/bool/enum core.
-        _ => _enum_sort_or_none(t)
+          // Value enums: a declared datatype (V3). ref enums are heap handles —
+          // outside the verifiable subset's integer/bool/enum core.
+          _ => _enum_sort_or_none(t)
+        )
       )
     )
   )
@@ -324,6 +341,53 @@ _enum_sort_or_none :: (fn(t : TypeValue) -> Option(VcSort))(
 /// sanitized SMT identifier unique per declaration.
 _enum_dt_name :: (fn(enum_id : String) -> String)(
   `__yo_d${_smt_sanitize(enum_id.clone())}`
+);
+/// V6 task 2: the declared UNINTERPRETED sorts — one mangled name per
+/// generic type parameter encountered while walking an abstractly verified
+/// body. Module-global (like the query dedupe lists): the encoder renders
+/// one `(declare-sort <name> 0)` per entry, and z3 rejects a duplicate
+/// declaration, so the list dedups on insert.
+_register_uninterpreted_sort :: (fn(name : String) -> unit)({
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < g_uninterpreted_sorts.len()) && !found, {
+    match(
+      g_uninterpreted_sorts.get(i),
+      .Some(n) => {
+        if(n == name, {
+          found = true;
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(!found, {
+    g_uninterpreted_sorts.push(name);
+  });
+  ()
+});
+/// True when the TypeValue is a generic type parameter (SomeT).
+_is_some_t_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .SomeT(_, _, _, _, _, _, _, _, _, _, _) => true,
+    _ => false
+  )
+);
+/// The mangled uninterpreted sort for a generic type parameter: stable per
+/// SomeT declaration (name + id), so two generic functions' `T` are
+/// different sorts and one function's `T` is one sort across its body.
+/// SomeT patterns are FULL-ARITY positional (11 fields) — the id is field
+/// 1, the name field 2.
+_uninterpreted_sort_of :: (fn(t : TypeValue) -> VcSort)(
+  match(
+    t,
+    .SomeT(id, name, _, _, _, _, _, _, _, _, _) => VcSort.Uninterpreted(
+      name : `__yo_T_${_smt_sanitize(`${name}_${id}`)}`
+    ),
+    _ => VcSort.Uninterpreted(name : String.from("__yo_T_unknown"))
+  )
 );
 /// Map every non-[A-Za-z0-9_] rune of `s` to `_` (SMT identifier rules).
 _smt_sanitize :: (fn(s : String) -> String)({
@@ -687,6 +751,17 @@ _emit :: (
       .None => ()
     );
     dti = (dti + usize(1));
+  });
+  (usi : usize) = usize(0);
+  while(usi < g_uninterpreted_sorts.len(), {
+    match(
+      g_uninterpreted_sorts.get(usi),
+      .Some(name) => {
+        q.sorts.push(name.clone());
+      },
+      .None => ()
+    );
+    usi = (usi + usize(1));
   });
   ctx.obligations.push(VcObligation(name : `${ctx.fn_name}/${label}`, query : q));
   ()
@@ -2375,6 +2450,18 @@ _call_term :: (
     });
     bt := b_opt.unwrap();
     op := op0;
+    // V6 task 2: arithmetic/comparison over an OPAQUE type parameter is
+    // outside the abstract scope (only equality and pass-through are
+    // expressible) — fail the subset loudly instead of emitting an
+    // ill-typed SMT application.
+    if((op != VcOp.EqOp) && (op != VcOp.DistinctOp) && (op != VcOp.AndOp) && (op != VcOp.OrOp), {
+      a_uninterp := match(_term_sort(at), .Some(so) => match(so, .Uninterpreted(_) => true, _ => false), .None => false);
+      b_uninterp := match(_term_sort(bt), .Some(so) => match(so, .Uninterpreted(_) => true, _ => false), .None => false);
+      if(a_uninterp || b_uninterp, {
+        _fail_subset(ctx, String.from("operation over an opaque type parameter (task 2 abstract scope: equality only)"), e);
+        return(Option(VcTerm).None);
+      });
+    });
     // AoRTE: division/remainder divisor non-zero.
     if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
       _emit(ctx, String.from("divisor-nonzero"), ArrayList(VcTerm).new(), _nonzero_term(bt));
@@ -4004,6 +4091,18 @@ _nonzero_term :: (fn(t : VcTerm) -> VcTerm)(
   )
 );
 _lt_unsigned_term :: (fn(a : VcTerm, b : VcTerm) -> VcTerm)(_app2(VcOp.BvUlt, a, b));
+/// The sort of a term when it is directly carried (Var) or implied by a
+/// literal; `None` for compound terms (the callers only need the check on
+/// leaf operands).
+_term_sort :: (fn(t : VcTerm) -> Option(VcSort))(
+  match(
+    t,
+    .Var(_, sort) => Option(VcSort).Some(sort),
+    .BvLit(_, w) => Option(VcSort).Some(VcSort.BvS(width : w)),
+    .BoolLit(_) => Option(VcSort).Some(VcSort.BoolS),
+    _ => Option(VcSort).None
+  )
+);
 _term_width :: (fn(t : VcTerm) -> usize)(
   match(
     t,

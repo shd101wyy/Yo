@@ -1,0 +1,15 @@
+// V6 task 2 (FORMAL_VERIFICATION.md §680): the first ABSTRACT-VERIFICATION
+// fixture — a GENERIC function whose body is verified once at definition
+// with the type variable as an OPAQUE value. Only equality and
+// pass-through are expressible over T; every other operation over T is a
+// loud subset failure (task 2's loud-failure scope). The identity's
+// `ensures(result == x)` proves as `(= result x)` over the uninterpreted
+// `__yo_T_*` sort — no monomorphization needed, the proof covers ALL
+// instantiations.
+pragma(Pragma.Verify);
+
+identity :: (
+  fn(generic(T : Type), x : T, ensures(result == x)) -> (result : T)
+)(x);
+
+use_id :: (fn(v : i64) -> (r : i64))(identity(v));
