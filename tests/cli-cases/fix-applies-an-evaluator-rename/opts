@@ -1,0 +1,23 @@
+# `yo fix` APPLIES a repair the compiler computed for an EVALUATOR error
+# (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2 — the plan's last item).
+#
+# This is the flip of fix-says-what-it-cannot-repair, whose opts predicted it a
+# day before it worked: "when the flattening is fixed, this golden flips to the
+# applied rename, and that diff is the proof."
+#
+# `countr` is one deletion from `counter`, so the diagnostic carries a UNIQUE
+# rename. It used to be unreachable: the def-time trial in
+# evaluator/calls/function_type.yo rendered the error to text
+# (`_flag_trial_swallow(_err.to_string())`) and the re-raise threw that string,
+# so `downcast(err, YoError)` failed and the typed stash was empty for every
+# error raised inside a definition BODY. Measured with all eleven candidate
+# flatten sites instrumented: that trial is the only one that fires for this
+# shape.
+#
+# The expected_tree is the real assertion — it pins the REWRITTEN file, so this
+# case fails if `fix` reports success without editing, or edits the wrong span.
+# rc is 0 because the rewritten file then evaluates, which also exercises the
+# second pass: applying a repair is what makes pass 2 happen at all, and pass 2
+# is why the prelude env must be cleared alongside the module cache.
+stdout_keep=^fix:
+timeout=180

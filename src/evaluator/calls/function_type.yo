@@ -99,8 +99,9 @@ pragma(Pragma.AllowUnsafe);
 { register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
 { get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound } :: import("../../types/utils.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ format_error_message } :: import("../../error.yo");
-{ Exception } :: import("std/error");
+{ format_error_message, yo_error_from_diagnostics, YoError } :: import("../../error.yo");
+{ Diagnostic } :: import("../../diagnostics.yo");
+{ Exception, AnyError } :: import("std/error");
 { analyze_ctfe_capability } :: import("../ctfe/ctfe_analysis.yo");
 { panic, assert } :: import("std/assert");
 /// Check if a generic function body returns a type incompatible with the
@@ -173,16 +174,67 @@ PendingDefEval :: ref(
 // it after the trial returns (same pattern as flowability.yo's
 // flag_flow_violation). The dg and pending-re-run sites clear it and move on.
 (g_trial_swallow_msg : ArrayList(String)) = ArrayList(String).new();
+/// The swallowed error's STRUCTURED diagnostics, written and cleared in
+/// lockstep with the text above. The trial handler renders the error to text
+/// (`_err.to_string()`), and the re-raise below used to throw that string —
+/// so a body-level evaluator error reached the typed stash as a plain error,
+/// `downcast(err, YoError)` failed, and every structured consumer saw nothing.
+/// Measured 2026-09-17 with all eleven candidate flatten sites instrumented:
+/// THIS is the only one that fires for an error inside a definition body, and
+/// the reason `yo fix` could not apply a rename `--error-format json` already
+/// showed
+/// (issues/fixed/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md).
+///
+/// Kept in lockstep deliberately: a SEPARATE channel read independently is
+/// how a re-raise inherits an unrelated earlier failure's diagnostics, which
+/// is the staleness class §3's attempt counter exists to prevent.
+(g_trial_swallow_diags : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
 _flag_trial_swallow :: (fn(msg : String) -> unit)({
   g_trial_swallow_msg.clear();
   g_trial_swallow_msg.push(msg);
 });
+/// Record the swallowed error's diagnostics. A non-`YoError` (a plain string
+/// thrown by some other layer) carries none, and then every site below
+/// behaves exactly as it did before.
+_flag_trial_swallow_diags :: (fn(err : AnyError) -> unit)({
+  g_trial_swallow_diags.clear();
+  match(
+    downcast(err, YoError),
+    .Some(ye) => {
+      (dgi : usize) = usize(0);
+      while(dgi < ye.diagnostics.len(), {
+        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.push(d), .None => ());
+        dgi = (dgi + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
 _clear_trial_swallow :: (fn() -> unit)({
   g_trial_swallow_msg.clear();
+  g_trial_swallow_diags.clear();
 });
 _trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.len() > usize(0));
 _trial_swallow_message :: (fn() -> String)(
   match(g_trial_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
+);
+/// The swallowed diagnostics, or `.None` when the swallowed error carried
+/// none. Read BEFORE `_clear_trial_swallow()`, like `_trial_swallow_message`.
+_trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
+  cond(
+    (g_trial_swallow_diags.len() == usize(0)) => Option(ArrayList(Diagnostic)).None,
+    // Copied element-wise: `Diagnostic` is not `Clone`, so the list cannot be
+    // cloned wholesale.
+    true => {
+      tsd_out := ArrayList(Diagnostic).new();
+      (tsd_i : usize) = usize(0);
+      while(tsd_i < g_trial_swallow_diags.len(), {
+        match(g_trial_swallow_diags.get(tsd_i), .Some(tsd_d) => tsd_out.push(tsd_d), .None => ());
+        tsd_i = (tsd_i + usize(1));
+      });
+      Option(ArrayList(Diagnostic)).Some(tsd_out)
+    }
+  )
 );
 // P0 forward-reference diagnostic (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6):
 // the helpers live in context.yo (module-walk cell + binding-name scan),
@@ -219,6 +271,7 @@ _trial_eval_fn_body :: (
           eprintln(`[swallow] ${_err.to_string()}`);
         });
         _flag_trial_swallow(_err.to_string());
+        _flag_trial_swallow_diags(_err);
         unwind(());
       }
     )
@@ -1553,6 +1606,8 @@ Result type: ${type_to_string(result_box)}`
           // own handler flagged LAST, so the message is the outer error.
           if((_trial_swallow_pending() && (flow_out.len() == usize(0))) && !(has_fwd_comptime_fn_cap), {
             ts_fatal_msg := _trial_swallow_message();
+            // Read BEFORE the clear — the clear empties both channels.
+            ts_fatal_diags := _trial_swallow_diagnostics();
             _clear_trial_swallow();
             // An unbound name that an ORDERED later statement binds (a
             // runtime global, an import) gets the enriched
@@ -1562,6 +1617,17 @@ Result type: ${type_to_string(result_box)}`
               forward_ref_diagnostic(ts_fatal_msg.clone()),
               .Some(ts_fwd_msg) => {
                 exn.throw(dyn(format_error_message(ast_expr_token(fb), ts_fwd_msg)));
+              },
+              .None => ()
+            );
+            // Re-raise the STRUCTURED error when the trial captured one, so
+            // the code, span and repair survive to the typed stash. The text
+            // fallback below still covers a swallow that carried no
+            // diagnostics (a plain string thrown by another layer).
+            match(
+              ts_fatal_diags,
+              .Some(ts_ds) => {
+                exn.throw(dyn(yo_error_from_diagnostics(ts_ds)));
               },
               .None => ()
             );

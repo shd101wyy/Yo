@@ -1,7 +1,7 @@
 # A wrong cli-case golden reached `develop` through the gap between two gates
 
 **Status:** OPEN. Found 2026-09-17 while landing
-`plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` slice 2 (#724).
+`plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` slice 2 (#724).
 
 `develop` carried a golden that its own compiler contradicts:
 
