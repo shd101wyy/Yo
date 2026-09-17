@@ -1079,7 +1079,7 @@ ModuleLevelVarEntry :: struct(
   /// `thread_local(name : T) = init;`. Its storage is declared `_Thread_local`
   /// and it is NOT initialized by `__yo_main_module_init` — the initializer
   /// becomes the body of a per-variable lazy accessor instead, because every
-  /// thread needs its own first touch (plans/backlog/THREAD_LOCAL_STORAGE.md).
+  /// thread needs its own first touch (plans/reference/THREAD_LOCAL_STORAGE.md).
   is_thread_local : bool,
   /// The C type of the storage, kept so `generate_main_wrapper` can emit the
   /// accessor's return type without re-resolving the ExprInfo.
@@ -1268,7 +1268,7 @@ emit_module_level_variable_declarations :: (
 /// The accessor is where a thread-local's initializer lives: each thread must
 /// run it on ITS first touch, which is exactly what a module-init helper
 /// running once on the main thread cannot do
-/// (plans/backlog/THREAD_LOCAL_STORAGE.md).
+/// (plans/reference/THREAD_LOCAL_STORAGE.md).
 ///
 /// Emitted for library builds too — `generate_main_wrapper` is executable-only,
 /// so putting the bodies there would leave a `--static-library` archive with

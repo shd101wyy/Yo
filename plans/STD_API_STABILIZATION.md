@@ -7,6 +7,29 @@ The rows still marked "blocked on a language feature" are blocked on their own
 plan docs, not on this one — §0 lists them. Everything below stays as the
 campaign's record.
 
+**§0 update 2026-09-17.** Four of those five rows are now closed: member
+visibility (#716), the ten byte conversions (#722), and `rand.thread_rng`
+(#748, on the v0.2.36 seed). `JsonValue`'s integer arms are deliberately parked
+for a breaking window rather than outstanding. That leaves **`Array(T,N)`
+`Default`**, and it is a std API DESIGN choice rather than a blocked one.
+
+**DECIDED (user, 2026-09-17): `Array(i32, usize(3)).default()` exists and is a
+RUNTIME operation; `Array(T, U).fill` stays COMPTIME-ONLY.** So the two are
+separate operations with separate contracts, and neither is bent to serve the
+other — `fill` keeps the compile-time promise its name makes, and `Default`
+does the element-wise work at run time where a runtime `T.default()` is legal.
+
+That rules out the two options weighed earlier, and for the better reason: both
+existed only to make a COMPTIME default reachable so `fill` could consume it.
+A narrower `Array(T,U).zeros()` is unnecessary once `Default` itself works, and
+a `ComptimeDefault` trait would add permanent prelude surface to serve one row.
+A blanket `Default` refinement was never viable anyway — measured 2026-09-17,
+it compiles and is silently dead, losing to the 14 explicit primitive impls
+(filed as a trait-impl-overlap defect in #742).
+
+Measurements behind all of this:
+`issues/fixed/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md`.
+
 **Status was: ACTIVE.** Successor to the remaining rows of `plans/archive/STD_API_AUDIT.md`
 (whose §1–§3 decisions D1–D8 stay in force and are NOT re-litigated here). This
 document is the measured state of `std/` on 2026-09-06 — every finding below was
@@ -93,7 +116,7 @@ Nothing is waiting on anyone here. Re-checked against the code 2026-09-12:
 | blocked row | doc |
 | --- | --- |
 | private `ctrl`/`data`/`size` fields; `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `imm/*` internals | `plans/reference/MEMBER_VISIBILITY.md` (LANDED 2026-09-16 as the enforced `_` convention) |
-| `rand.thread_rng` | `plans/backlog/THREAD_LOCAL_STORAGE.md` |
+| `rand.thread_rng` | **DONE — LANDED 2026-09-17 in #748.** Unblocked by `thread_local` (#741) shipping in v0.2.36; `std/` is seed-compiled, so this needed the release first. `std/rand.yo`'s `Mutex(_GlobalRng)` is now a per-thread `_RngState` seeded from OS entropy on each thread's first draw — the `rand_*` functions keep their signatures and lose the lock, and the module doc's "this is NOT Rust's `thread_rng`" paragraph is gone. `plans/reference/THREAD_LOCAL_STORAGE.md` |
 | the ten byte conversions; `usize`/`isize` byte conversions | **DONE — LANDED 2026-09-17 in #722** (`fc9dfb9e6`). Unblocked by #714, shipped on the v0.2.35 seed. `std/prelude.yo` carries `ByteWidth :: trait(id := "ByteWidth", BYTES : usize)` with ten impls, and the 32 per-type byte methods collapsed to FOUR blanket methods over `where(T <: (Integer, ByteWidth))` returning `Array(u8, T.BYTES)`, all routed through `T.Unsigned`. The `feat/std-byte-conversions` branch is merged and deleted |
 | `Array(T,N)` `Default` | **NOT a compiler gap at all — RE-MEASURED 2026-09-17.** `fill` is comptime-only by construction and correctly so; `fill(T.default())` is a genuine user error that used to abort at run time instead of being reported (fixed: `issues/fixed/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md`). The row needs either a comptime-returning `Default` or a RUN-TIME element-wise initializer under its own name — two candidate shapes with a one-compile probe each, recorded in the issue; NOT a relaxation of `fill` |
 | `JsonValue` integer arms | deliberately deferred to a breaking window (§4, encoding) |
@@ -1798,7 +1821,7 @@ from the blocked call sites, in `plans/backlog/`:
 | `TcpListener.incoming` | a `Stream` trait — the async analogue of `Iterator`. **Needs no compiler change** | [`ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) |
 | the ten per-type byte conversions; `usize`/`isize` byte conversions at all | value substitution in a TYPE position — an associated constant as an `Array` length silently resolved to 0 (`issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md`). **LANDED #714**; the std collapse LANDED 2026-09-17 in #722 (`fc9dfb9e6`) on the v0.2.35 seed, and `feat/std-byte-conversions` is merged and deleted | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
 | `Array(T, N)`'s `Default` | **RE-MEASURED 2026-09-17 — neither value substitution nor a compiler gap.** A bare generic `N` was always a legal length, and std already writes `Eq`/`Ord`/`Clone`/`Hash` over `Array(T, U)`. Generics were never involved: `Array(i32, usize(3)).fill(i32.default())` fails with no generic anywhere, because `fill` is `comptime(val)` by construction and `default` is a plain run-time `fn`. That is a USER error, and the only defect was that it aborted at run time instead of being reported — now fixed. What the row needs is a RUN-TIME element-wise initializer (an `Array.repeat(v)` shape) under its own name; relaxing `fill` would hide a per-element loop behind a name that promises compile-time behaviour | `issues/fixed/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md` |
-| `rand.thread_rng` | thread-local storage | [`THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) |
+| `rand.thread_rng` | thread-local storage — **LANDED 2026-09-17**: `thread_local` in #741/v0.2.36, std adoption in #748 | [`THREAD_LOCAL_STORAGE.md`](reference/THREAD_LOCAL_STORAGE.md) |
 
 `ErrorChain`/`root_cause` WAS a sixth blocker — a compiler DEFECT rather than
 a missing feature — and it is **FIXED** (2026-09-14,

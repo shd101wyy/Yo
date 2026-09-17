@@ -391,7 +391,7 @@ every line as unverified.
 ### 7.3 Blocked, with the reason recorded
 
 - Member visibility (3 rows) → `plans/reference/MEMBER_VISIBILITY.md` (moved out of `backlog/` when it landed, 2026-09-16)
-- `rand.thread_rng` → `plans/backlog/THREAD_LOCAL_STORAGE.md`
+- `rand.thread_rng` → `plans/reference/THREAD_LOCAL_STORAGE.md`
 - `ErrorChain`/`root_cause` → #521, a compiler defect
 - `TcpListener.incoming` → §7.2 item 3 unblocks it
 - `JsonValue` integer arms → deliberately deferred to a breaking window

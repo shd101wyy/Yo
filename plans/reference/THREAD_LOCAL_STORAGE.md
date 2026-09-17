@@ -1,9 +1,18 @@
 # Thread-local storage
 
-**Status:** IMPLEMENTED 2026-09-17 (evaluator + codegen, Option 1), pending
-verification on a built compiler. Written 2026-09-10; the std row it blocks is
-`rand`'s missing `thread_rng`, which stays seed-gated — `std/rand.yo` cannot
-use the form until a release ships an evaluator that knows it.
+**Status:** LANDED 2026-09-17 — `thread_local` in #741 (with #746 fixing the
+wasm/emscripten storage class and #749 the effectful-initializer accessor),
+shipped in **v0.2.36**, and adopted by `std/rand.yo` in #748, which closes the
+`rand.thread_rng` row of `plans/STD_API_STABILIZATION.md`.
+
+Option 1 only: a thread-local may not hold a reference-counted value. Option 3
+(keyed storage with a generated destructor) branches on the same condition and
+is still unbuilt.
+
+Written 2026-09-10, when the std row it blocked was `rand`'s missing
+`thread_rng`. The seed gate it describes is now HISTORY rather than a
+constraint: the two-release sequencing played out exactly as written —
+`thread_local` shipped in v0.2.36, and `std/rand.yo` adopted it afterwards.
 
 ## What landed (2026-09-17)
 
