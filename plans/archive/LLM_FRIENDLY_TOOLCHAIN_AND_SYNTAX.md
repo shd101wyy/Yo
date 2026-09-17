@@ -1,7 +1,7 @@
 # LLM-friendly toolchain and syntax: truthful results, mechanical fixes, one meaning per brace
 
 > **CLOSED 2026-09-17 — every item implemented and gated.** Shipped as #718
-> (this document), #720 (slice 1), #724 (slice 2) and #727 (the last item).
+> (this document), #720 (slice 1), #724 (slice 2) and #733 (the last item).
 > Archived per `plans/README.md`: root holds active plans only. The decisions
 > recorded here stay authoritative — `struct(generic(T), …)` is REJECTED and
 > braces mean "record unless `;`" in every position — and the OUTCOME notes on
@@ -23,13 +23,13 @@ compatibility explicitly NOT an input.
 | §1.2 hollow batch | was ALREADY CLOSED when the plan was written (the `__yo_user_main` marker gate); a failed batch now leads with `0 of N tests in this batch ran` | #720 |
 | §1.3 `check` forces specialized bodies | LANDED, **re-scoped by measurement**: generic fn and generic impl-method bodies were already checked. The real hole was the test-body trial swallowing every error, so `yo check --test-bodies` is the opt-in flag. Documented as a fast filter, not a gate | #724 |
 | §1.4 `main` returns `unit` | LANDED — rejected in `mm_eval_entry_exprs`, so `check` and `compile` cannot disagree | #720 |
-| §2 `yo fix` | LANDED in two parts. Diagnostics carry a structured `Repair` and `--error-format json` emits it (#724, parse-level apply only, which it SAID rather than printing "nothing to fix"). Evaluator repairs now apply too: `yo fix` renames `countr` to `counter` end to end and the file then evaluates (#727) | #724 + #727 |
+| §2 `yo fix` | LANDED in two parts. Diagnostics carry a structured `Repair` and `--error-format json` emits it (#724, parse-level apply only, which it SAID rather than printing "nothing to fix"). Evaluator repairs now apply too: `yo fix` renames `countr` to `counter` end to end and the file then evaluates (#733) | #724 + #733 |
 | §3 generic "failed to evaluate" | LANDED — audited (**59 of 105** sites fire after an exn-less `evaluate_expression`) and fixed **once at the swallow** with an attempt-counter staleness guard, not at 59 sites | #720 + #724 |
 | §4.3 the `{ x }` footgun | LANDED — reported at the literal, narrow by construction (punned single field, expected type that can never be a record) | #724 |
 | §5 underscore surface | LANDED — `_( … )` is internal-only, 33 renaming imports converted. The discard rename was **already done** (a `_` binding is a fresh temp; `___` is an ordinary name) | #724 |
 | §6 | rejected sugar, no work | — |
 
-**The last item closed in #727**, and how it closed is worth more than that it
+**The last item closed in #733**, and how it closed is worth more than that it
 did. `yo fix` could not apply the rename `--error-format json` already showed,
 because an error raised inside a definition body reached the typed stash as
 plain text. The issue filed with #724 blamed the lazy-binding /
@@ -214,7 +214,7 @@ rule; `issues/repros` re-run through the repro gate.
 ## 2. P1 — `yo fix`: mechanical diagnostics repair themselves
 
 **OUTCOME: shipped in two parts.** #724 built the repair channel and the
-command, applying parse-level repairs only and saying so. #727 made evaluator
+command, applying parse-level repairs only and saying so. #733 made evaluator
 repairs apply by fixing where they were flattened — **not** where this plan and
 its issue predicted; see the status table's closing section. The shortcut of
 reading the §3 swallowed-cause stash was tried and REJECTED and should not be
