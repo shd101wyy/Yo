@@ -180,7 +180,7 @@ written from the std row that needs it, with the blocked call sites named):
   — an associated constant in a TYPE position (`Array(u8, T.BYTES)`) silently
   resolves to **0**. Blocks collapsing the ten per-type byte conversions, and
   `usize`/`isize` having them at all.
-- [`backlog/THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) — no
+- [`reference/THREAD_LOCAL_STORAGE.md`](reference/THREAD_LOCAL_STORAGE.md) — no
   thread-local storage, so `rand.thread_rng` is not expressible.
 
 Two things measured while writing these, both of which turned out to be
