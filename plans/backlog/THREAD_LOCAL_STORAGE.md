@@ -1,7 +1,50 @@
 # Thread-local storage
 
-**Status:** BACKLOG — designed here, not started. Written 2026-09-10; the std
-row it blocks is `rand`'s missing `thread_rng`.
+**Status:** IMPLEMENTED 2026-09-17 (evaluator + codegen, Option 1), pending
+verification on a built compiler. Written 2026-09-10; the std row it blocks is
+`rand`'s missing `thread_rng`, which stays seed-gated — `std/rand.yo` cannot
+use the form until a release ships an evaluator that knows it.
+
+## What landed (2026-09-17)
+
+Evaluator and codegen together behind one build, as the sequencing note below
+requires — neither half is independently testable.
+
+| file | change |
+| --- | --- |
+| `src/expr.yo` | `BK_THREAD_LOCAL` beside the other builtin-keyword strings |
+| `src/expr_info.yo` | `register_thread_local` / `is_thread_local`, a SUBSET of `g_module_level_globals` with the same key shape, so `module_global_c_suffix` names storage, flag and accessor identically; the `comptime_expect_error` rollback clears both |
+| `src/evaluator/exprs/assignment.yo` | the TYPED form `(thread_local(name) : T) = init`: strip the modifier from the `:` pair's name position and let the typed-binding path run unchanged, then validate module-level position and the RC-free restriction and register |
+| `src/evaluator/exprs/initialization_assignment.yo` | the INFERRED form `thread_local(name) := init`: the same strip beside the existing `given(name)` unwrap, with the same two checks and the registry call |
+| `src/codegen/functions/generation.yo` | per-thread storage + a per-thread `bool` init flag + an accessor prototype in the declarations section; thread-locals excluded from `__yo_main_module_init`; `emit_thread_local_accessors` emits the lazy accessor bodies. The storage class matches what `src/codegen/async/runtime_core.yo` already emits — `__declspec(thread)` on Windows, `_Thread_local` elsewhere, dropped entirely on wasm |
+| `src/codegen/codegen_c.yo` | calls the accessor emitter UNCONDITIONALLY — `generate_main_wrapper` is executable-only, so emitting the bodies there would leave a `--static-library` archive with declared-but-undefined accessors |
+| `src/codegen/utils/index.yo` | a thread-local read resolves to `(*name__tl_get())`. The dereference is an lvalue, so the same substitution is valid in write position, which is what lets the rest of codegen keep treating it as an ordinary module-level global |
+| `tests/thread.test.yo` | per-thread independence across two spawns, the main thread's instance surviving both, BOTH binding forms (they take different evaluator paths), and the two rejections |
+
+Two decisions worth recording because they are not obvious from the diff:
+
+- **`get_uses_tls` in `src/codegen/` is TRANSPORT-layer security**, not
+  thread-local storage — an unrelated use of the same three letters, and the
+  first thing that looks like existing machinery to reuse here. There was none.
+- **The init flag is set BEFORE the initializer runs.** An initializer that
+  reads the same thread-local then sees the zeroed storage and terminates,
+  rather than recursing until the stack is gone.
+- **The modifier spelling is what makes this cheap.** Wrapping the NAME means
+  the LHS stays an ordinary `:` pair (or an ordinary atom, for `:=`), so
+  stripping the modifier hands both paths a shape they already handle. The
+  first implementation wrapped the whole BINDING (`thread_local(x : T) = v`),
+  which put the type inside the modifier, matched none of the three existing
+  LHS shapes, and had no `:=` form at all.
+- **`thread_local(...)` in a binding NAME position is reserved.** A one-argument
+  `thread_local(...)` there must wrap an atom or it is an error, rather than
+  falling through — a typo'd declaration otherwise reports
+  `Variable "thread_local" not found`, which is exactly the confusing message
+  this feature exists to remove.
+- **The declaration site must NOT go through the read substitution.**
+  `get_variable_name_for_codegen` rewrites a thread-local read to the accessor
+  call, which is correct everywhere except where the name is being declared —
+  so `emit_module_level_variable_declarations` builds the declaration name
+  straight from the sanitized identifier plus the module suffix.
 
 ## The problem
 
@@ -41,8 +84,15 @@ mechanism is in the tree and proven. What is missing is a Yo-level spelling.
 A module-level binding marked thread-local, initialized lazily per thread:
 
 ```rust
-thread_local(rng : Rng) = Rng.from_entropy();
+(thread_local(rng) : Rng) = Rng.from_entropy();
+thread_local(counter) := i32(0);          // inferred form
 ```
+
+`thread_local` is a **modifier on the variable NAME**, the way `comptime(v) : i32`
+is on a parameter — it wraps the name, not the binding. Both binding forms take
+it. (Corrected 2026-09-17: the first implementation wrapped the whole binding,
+`thread_local(rng : Rng) = …`, which put the type inside the modifier and did
+not compose with `:=` at all.)
 
 - **Module-level only.** A thread-local inside a function has no meaning Yo
   needs, and restricting it keeps the lowering trivial.
@@ -113,12 +163,97 @@ accident.
 
 ## Implementation sketch
 
-1. **Parser** — `thread_local(name : T) = init;` as a module-level form, next
-   to where `(g : T) = v` runtime globals are parsed. A new `ExprInfo` flag
-   rather than a new node type, if the existing global path can carry it.
+1. ~~**Parser**~~ — **NO PARSER CHANGE IS NEEDED. Measured 2026-09-17.**
+
+   **(Spelling superseded 2026-09-17 — see the header. The finding survives it:
+   the adopted `(thread_local(x) : T) = v` and `thread_local(x) := v` are the
+   shapes `comptime(v) : T` and `given(x) := v` already use, so they need no
+   grammar change either. The probe below used the original spelling.)**
+
+   `thread_local(counter : i32) = 0;` at module level ALREADY parses on the
+   released v0.2.35 seed. It fails at NAME RESOLUTION, not at parse:
+
+   ```
+   error[E0401]: Variable "thread_local" not found.
+     --> tl_parse.yo:2:1
+     | thread_local(counter : i32) = 0;
+     | ^^^^^^^^^^^^
+   ```
+
+   The form is an ordinary assignment whose LHS is a call expression, which
+   the grammar already accepts — the same shape as `(g : T) = v` with a
+   named head. So the work is EVALUATOR recognition plus codegen, and the
+   parser is untouched.
+
+   **This changes the sequencing story materially.** A new parser form is the
+   hardest seed gate there is; this feature does not have one. `std/` adoption
+   is still two-release, because the SEED's evaluator must know
+   `thread_local` before `std/rand.yo` can use it — but the implementation
+   itself is smaller than the plan assumed, and nothing about the grammar has
+   to be designed, reviewed or frozen.
+
+   (Probed rather than assumed, which this document's own §4b advises: three
+   "Yo has no X" claims in `plans/STD_API_STABILIZATION.md` were measured and
+   found false the same way.)
+
+   **The open question here is now ANSWERED: the existing global path CAN
+   carry it, as a registry entry rather than a new node type** (surveyed
+   2026-09-17 against develop `987c2b420`). `src/expr_info.yo` already has the
+   whole mechanism:
+
+   - `register_module_level_global(module_path, name)` — the registry;
+   - `is_module_level_global(module_path, name)` — the predicate codegen asks;
+   - `module_global_c_suffix(module_path)` — `_m<hash>` appended to the C
+     name, hashing the CANONICAL path so the declaration and every read agree
+     regardless of which path spelling the resolved variable's token carries
+     (this is what closed the unmangled-global-name aliasing defect).
+
+   Codegen already consumes all three — `src/codegen/utils/index.yo:1772` and
+   `src/codegen/functions/generation.yo:1142` both append the suffix at a read
+   site. So a thread-local wants a SIBLING registry with the same shape
+   (`register_thread_local` / `is_thread_local`) reusing the same suffix
+   function, not a parallel naming scheme: the C name must stay identical
+   between the storage, the init flag and the accessor, and the suffix is what
+   already guarantees that.
+
+   That also bounds the codegen change: the read path is the two suffix sites
+   above, which is where the accessor call has to be substituted for a direct
+   read.
 2. **Evaluator** — treat it as a runtime global for typing and name
    resolution; reject a non-module-level declaration; under Option 1, reject
    a type that is not `Acyclic` and RC-free, naming the restriction.
+
+   **Interception point located 2026-09-17** (`src/evaluator/exprs/assignment.yo`,
+   `evaluate_assignment`, ~line 313). That function already branches three
+   ways on the LHS shape:
+
+   ```rust
+   is_atom_lhs           := ast_expr_is_atom(lhs);                                   // x = rhs
+   is_typed_binding_lhs  := ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2)));   // (x : T) = rhs
+   // else -> property/index LHS: x.a = rhs, arr(0) = rhs
+   ```
+
+   `thread_local(counter : i32) = 0` is a FnCall whose head atom is
+   `thread_local` with ONE argument that is itself a `BK_COLON` 2-arg call. It
+   matches neither of the first two, so it falls into the property/index
+   branch, which evaluates the head and produces the observed
+   `E0401 Variable "thread_local" not found`.
+
+   So the change is a fourth shape test beside those two — unwrap to the inner
+   colon pair, mark it thread-local, and reuse the existing typed-binding path
+   rather than duplicating it. The module-level registration those paths
+   already perform (`binding.yo:427`, `initialization_assignment.yo:1076`) is
+   where the sibling `register_thread_local` call goes.
+
+   **Sequencing note, and it decides the order of work.** The evaluator change
+   is NOT independently testable, even with a build: with no codegen there is
+   nothing to run, and `yo check` never evaluates bodies
+   ([[yo-check-src-std-are-a-filter-not-a-gate]]). So evaluator and codegen
+   want to land together behind one build, not as two separately "verified"
+   halves — writing the evaluator half alone buys no verification it would not
+   get later, and risks a plausible-but-wrong change that reviews as correct.
+   Four mechanisms in adjacent defects were refuted by measurement on
+   2026-09-16/17 for exactly that reason.
 3. **Codegen** — emit `_Thread_local` storage, the init flag and the accessor;
    route reads through the accessor. Single global on the WASM targets.
 4. **`std/rand.yo`** — `thread_rng()` returning a pointer/reference to this

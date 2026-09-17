@@ -1,6 +1,7 @@
 pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
 import("std/libc/stdio");
 { get_thread_id, Thread } :: import("std/thread");
 { yield } :: import("std/async");
@@ -299,4 +300,54 @@ test("Thread spawn relaying a generic callback's result at T = i32", {
     match(c.try_recv(), .Ok(v) => (v == i32(1234)), .Err(_) => false),
     "the i32 result reached the channel intact"
   );
+});
+// ---------------------------------------------------------------------------
+// Thread-local storage (plans/backlog/THREAD_LOCAL_STORAGE.md)
+//
+// `thread_local` is a MODIFIER on the variable name, like `comptime(v) : i32`
+// on a parameter — it wraps the name, not the binding. Both binding forms
+// take it: `(thread_local(x) : T) = init` and `thread_local(x) := init`.
+// One instance per thread, initialized lazily on that thread's first touch.
+// Declared HERE, at module level, because that is the only position it is
+// legal in — a per-thread instance of a function local has no meaning.
+// ---------------------------------------------------------------------------
+(thread_local(_tl_counter) : i32) = i32(0);
+// The INFERRED form, which takes a different evaluator path
+// (initialization_assignment.yo) and so needs its own coverage.
+thread_local(_tl_inferred) := i32(0);
+// A thread-local cannot hold a reference-counted value: the C11 thread-local
+// storage it lowers to has no destructor hook, so each thread's instance would
+// leak. The declaration is refused rather than silently leaked.
+comptime_expect_error((thread_local(_tl_rc) : String) = String.from("x"));
+test("Test a thread-local gives each thread its own instance", {
+  // First touch on the main thread runs the initializer.
+  assert(_tl_counter == i32(0), "the main thread's instance starts at the initializer");
+  _tl_counter = (_tl_counter + i32(5));
+  assert(_tl_counter == i32(5), "and the main thread can update its own instance");
+  t1 := Thread(unit).spawn(io => {
+    // A spawned thread's FIRST touch runs the initializer again, on its own
+    // instance — it must not observe the main thread's 5.
+    assert(_tl_counter == i32(0), "a spawned thread starts from the initializer");
+    _tl_counter = (_tl_counter + i32(100));
+    assert(_tl_counter == i32(100), "and updates only its own instance");
+  });
+  t1.join();
+  t2 := Thread(unit).spawn(io => {
+    assert(_tl_counter == i32(0), "a second thread is unaffected by the first");
+    _tl_counter = (_tl_counter + i32(7));
+    assert(_tl_counter == i32(7), "and keeps its own value");
+  });
+  t2.join();
+  assert(_tl_counter == i32(5), "the main thread's instance survived both spawns unchanged");
+  // The `:=` form must behave identically — same registry, same lowering.
+  assert(_tl_inferred == i32(0), "an inferred thread-local starts at its initializer");
+  _tl_inferred = (_tl_inferred + i32(3));
+  t3 := Thread(unit).spawn(io => {
+    assert(_tl_inferred == i32(0), "and a spawned thread gets its own instance of it too");
+  });
+  t3.join();
+  assert(_tl_inferred == i32(3), "and the main thread keeps its own");
+});
+test("Test a thread-local is rejected outside module level", {
+  comptime_expect_error((thread_local(_tl_inner) : i32) = i32(0));
 });

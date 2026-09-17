@@ -18,6 +18,47 @@ Key facts:
 - An expr-info whose value is `.None` means the value is a **runtime value**, not an `UnknownVal`.
 - `EvalValue.UnknownVal(ty, is_runtime_only)` is a compile-time value where we only know its type but not the real value.
 
+## A plausible mechanism is roughly a coin flip — probe before you fix
+
+Measured over 2026-09-16/17: **five** mechanisms that convincingly explained a
+symptom on this tree were refuted by a gated print, each after the reasoning
+behind it looked sound enough to start writing a fix.
+
+| defect | mechanism that "obviously" explained it | verdict |
+| --- | --- | --- |
+| prelude +2 lines breaks `check ./std` | TypeValue interning wrong-merge | refuted — identical with interning disabled |
+| same | a trait-id collision (two traits DO share an id) | refuted — breaking the collision changed nothing |
+| inherent assoc const not resolving as an `Array` length | lazy binding, fix with `force_in_flight_field` | refuted — that forcer returns false unless an impl is IN FLIGHT |
+| `Array.fill` rejects `T.default()` | the comptime-value specialization mint | refuted — traces byte-identical across failing and working cases |
+| evaluator diagnostics never reach the typed stash | the pending-definition path | refuted — every message on that path carries a note this error lacks |
+
+Each fix would have been written, reviewed and merged looking correct, and
+changed nothing. **A gated print costs one build. A wrong fix costs a review
+cycle and survives it.**
+
+Two rules follow, and the second is the one that actually gets missed:
+
+1. **Probe before you fix.** Add a print at the predicate you believe is
+   deciding, run it on BOTH a failing and a WORKING case, and compare. A trace
+   with no control is not evidence — three of the five above showed the
+   suspicious value in the working case too.
+2. **When a probe comes back ambiguous, WIDEN THE PROBE — do not resume
+   reading.** The expensive failure is not skipping the print, it is bisecting
+   by inference between prints. Eliminating candidate sites by reading can be
+   individually sound and still cost several builds without finding the site;
+   instrumenting every candidate at once costs one.
+
+Corollaries worth keeping:
+
+- **Do not count one signal twice.** "Unreachable by message" and "absent from
+  the agent list" are the same messaging layer observed twice, not two
+  independent confirmations — that pair nearly produced a wrong conclusion
+  about a peer session being dead.
+- **A successful send proves the transport, not agreement**, and a green exit
+  code can mean "nothing ran" rather than "nothing is wrong" — `yo compile`
+  exits 0 on an FTT stub that aborts at runtime, and `yo check` never
+  evaluates bodies at all.
+
 ## Swallowed definition-time errors (`YO_DEBUG_SWALLOW=1`)
 
 The evaluator evaluates function and closure bodies at DEFINITION time behind a

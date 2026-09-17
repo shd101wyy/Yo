@@ -31,6 +31,7 @@
   BK_INIT_ASSIGN,
   BK_GIVEN,
   BK_INOUT,
+  BK_THREAD_LOCAL,
   BF_DOT,
   ast_expr_is_atom_of
 } :: import("../../expr.yo");
@@ -42,7 +43,8 @@
   has_any_control_flow,
   path_collection_new,
   expr_info_set_runtime_destructurings,
-  register_module_level_global
+  register_module_level_global,
+  register_thread_local
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -540,6 +542,55 @@ evaluate_initialization_assignment :: (
       lhs,
       .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
+    );
+  });
+  // `thread_local(name) := init;` — the inferred form of a module-level
+  // thread-local. The modifier wraps the NAME, like `given(name)` directly
+  // above and like `comptime(v)` on a parameter; the typed form
+  // `(thread_local(name) : T) = init` is stripped in
+  // evaluator/exprs/assignment.yo.
+  //
+  // The AST is rewritten, not just `actual_lhs`: `anonymous_module.yo` records
+  // a module-level init expr only when the `:=` LHS is an ATOM, and
+  // `_module_init_var_atom` (codegen) resolves the declared atom the same way,
+  // so leaving the modifier in the tree emits reads through an accessor that
+  // nothing declares.
+  (is_thread_local_decl : bool) = false;
+  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_THREAD_LOCAL, .None), {
+    n_tl_args := match(lhs, .FnCall(_, _, targs, _, _) => targs.len(), .Atom(_, _) => usize(0));
+    if(n_tl_args != usize(1), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs),
+            `Expected exactly one argument for "thread_local", got ${n_tl_args.to_string()}`
+          )
+        )
+      );
+    });
+    tl_atom := match(
+      lhs,
+      .FnCall(_, _, targs, _, _) => match(targs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
+    );
+    if(!ast_expr_is_atom(tl_atom), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs),
+            `"thread_local" takes the variable NAME: write "thread_local(name) := init;" or "(thread_local(name) : T) = init;".`
+          )
+        )
+      );
+    });
+    is_thread_local_decl = true;
+    actual_lhs = tl_atom;
+    match(
+      expr,
+      .FnCall(_, _, ia_args, _, _) => {
+        ia_args(usize(0)) = tl_atom;
+      },
+      .Atom(_, _) => ()
     );
   });
   // Prevent declaring variable type using :: or :=.
@@ -1074,6 +1125,35 @@ Use \`::\` for compile-time definitions inside impl.`
         // g_module_level_globals).
         if(is_module_level, {
           register_module_level_global(actual_lhs_tok.module_path.clone(), var_name.clone());
+        });
+        // A thread-local is a module-level global PLUS the registry entry that
+        // tells codegen to route its reads through the lazy accessor. Option 1
+        // of plans/backlog/THREAD_LOCAL_STORAGE.md: refuse an RC type rather
+        // than leak one instance per thread, since C11 thread-local storage has
+        // no destructor hook. Refuse a non-module-level declaration too — a
+        // per-thread instance of a function local has no meaning.
+        if(is_thread_local_decl, {
+          if(!is_module_level, {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  actual_lhs_tok,
+                  `A thread-local must be declared at module level. "${var_name}" is declared inside a function body, where a per-thread instance has no meaning — use an ordinary local.`
+                )
+              )
+            );
+          });
+          if(type_contains_rc_type(final_lhs_type), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  actual_lhs_tok,
+                  `A thread-local cannot hold a reference-counted type, and "${var_name}" has type ${type_to_string(final_lhs_type)}. A thread's instance is released when the thread exits, and the C11 thread-local storage a thread-local lowers to has no hook to run that release — so the value would leak once per thread. Use a reference-counted value owned by the caller and passed in, or a plain (non-RC) type here.`
+                )
+              )
+            );
+          });
+          register_thread_local(actual_lhs_tok.module_path.clone(), var_name.clone());
         });
         variable_set_doc_comment(new_var, doc_comment_opt);
         // Set is_owning_the_same_rc_value_as when applicable.

@@ -919,6 +919,18 @@ is_extern_c_module_id :: (fn(sns_id : String) -> bool)(
 /// object identity, so every copy of the variable resolves consistently.
 /// See issues/fixed/module-global-c-names-are-not-namespaced.md.
 (g_module_level_globals : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Declared HERE, beside `g_module_level_globals` rather than beside its own
+/// accessors further down, because `rollback_module_level_globals_to` below
+/// clears BOTH and a `(g_x : T) = ...` runtime binding is order-dependent —
+/// only `::` definitions and `impl` registrations are not (E0906).
+/// The THREAD-LOCAL subset of `g_module_level_globals`, same key shape and
+/// the same `_mg_canon` canonicalization, so `module_global_c_suffix` names
+/// the storage, the init flag and the accessor identically
+/// (plans/backlog/THREAD_LOCAL_STORAGE.md). A thread-local is registered in
+/// BOTH registries: it IS a module-level global for name resolution and C
+/// naming, and this registry is only what tells codegen to route its reads
+/// through the accessor instead of reading the storage directly.
+(g_thread_locals : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Canonicalize a module path for the registry key. Token module paths
 /// carry TWO spellings of the same file — the CLI-arg spelling of the root
 /// module (`./tests/x.yo`) and the loader's canonical `file://` absolute
@@ -984,7 +996,13 @@ rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
     match(
       g_mg_recorded_keys.get(g_mg_recorded_keys.len() - usize(1)),
       .Some(k) => {
-        g_module_level_globals.remove(k);
+        g_module_level_globals.remove(k.clone());
+        // The thread-local registry is keyed identically and is a SUBSET, so
+        // the same rollback key clears both. Without this a thread-local
+        // declared inside a rejected `comptime_expect_error` would keep
+        // routing later same-named reads through an accessor that was never
+        // emitted.
+        g_thread_locals.remove(k);
         ()
       },
       .None => ()
@@ -1017,6 +1035,15 @@ module_global_c_suffix :: (fn(module_path : String) -> String)({
   cp := _mg_canon(module_path);
   `_m${hash_one(cp)}`
 });
+/// Record that module `module_path` declared the thread-local `name`.
+register_thread_local :: (fn(module_path : String, name : String) -> unit)({
+  g_thread_locals.insert(`${_mg_canon(module_path)}|#|${name}`, true);
+  ()
+});
+/// True if module `module_path` declared `name` as a thread-local.
+is_thread_local :: (fn(module_path : String, name : String) -> bool)(
+  g_thread_locals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
+);
 // Phase 5 (async/effects): the resolved CONCRETE type for a `SomeT`, keyed by the
 // SomeT's unique `id`. TS stores this as a mutable `SomeType.resolvedConcreteType`
 // field set during return-type resolution / synthesis; yo-self's `SomeT` has no
@@ -1496,6 +1523,7 @@ export(record_method_callee_value, lookup_method_callee_value);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
+export(register_thread_local, is_thread_local);
 export(module_global_recording_mark, rollback_module_level_globals_to);
 export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregister_some_resolved_concrete);
 export(

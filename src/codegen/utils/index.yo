@@ -79,7 +79,7 @@ mark_uses_tls :: (fn() -> unit)({
   g_uses_tls = true;
 });
 get_uses_tls :: (fn() -> bool)(g_uses_tls);
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
   BF_ADDRESS_OF,
@@ -1769,7 +1769,17 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
             });
           };
           if(!is_extern_c && !mg_any_param && is_module_level_global(variable.token.module_path, variable.name), {
-            return(`${var_name}${module_global_c_suffix(variable.token.module_path)}`);
+            mg_qualified := `${var_name}${module_global_c_suffix(variable.token.module_path)}`;
+            // A thread-local reads and writes through its lazy accessor, so
+            // the FIRST touch on each thread runs the initializer. The
+            // dereference is an lvalue, so this substitution is equally valid
+            // in read and write position — which is what lets the whole rest
+            // of codegen keep treating a thread-local as an ordinary
+            // module-level global (plans/backlog/THREAD_LOCAL_STORAGE.md).
+            if(is_thread_local(variable.token.module_path, variable.name), {
+              return(`(*${mg_qualified}__tl_get())`);
+            });
+            return(mg_qualified);
           });
           var_name
         },

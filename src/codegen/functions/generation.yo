@@ -26,12 +26,12 @@
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix } :: import("../../expr_info.yo");
+{ has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix, is_thread_local } :: import("../../expr_info.yo");
 { is_unit_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { function_param_mutation_mask, param_mutation_mask_hits } :: import("../../evaluator/effects/mutation_summary.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
-{ is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
+{ is_target_posix, is_target_linux, is_target_windows, is_target_wasm } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
 { get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
@@ -1075,7 +1075,15 @@ _main_call_args :: (fn(main_func_id : String, context : FunctionGenerationContex
 /// (generation.ts:786).
 ModuleLevelVarEntry :: struct(
   c_var_name : String,
-  rhs : AstExpr
+  rhs : AstExpr,
+  /// `thread_local(name : T) = init;`. Its storage is declared `_Thread_local`
+  /// and it is NOT initialized by `__yo_main_module_init` — the initializer
+  /// becomes the body of a per-variable lazy accessor instead, because every
+  /// thread needs its own first touch (plans/backlog/THREAD_LOCAL_STORAGE.md).
+  is_thread_local : bool,
+  /// The C type of the storage, kept so `generate_main_wrapper` can emit the
+  /// accessor's return type without re-resolving the ExprInfo.
+  c_type_str : String
 );
 /// Resolve the variable atom of a module-level init expr — for `x := v` the LHS
 /// atom, for `(x : T) = v` the binding's atom. Returns None for other shapes.
@@ -1138,8 +1146,17 @@ emit_module_level_variable_declarations :: (
             // registry using the declaration's own token
             // (issues/fixed/module-global-c-names-are-not-namespaced.md).
             mg_decl_path := ast_expr_token(var_atom).module_path;
-            if((c_var_name == sanitize_for_c_identifier(var_name.clone(), false)) && is_module_level_global(mg_decl_path.clone(), var_name), {
-              c_var_name = `${c_var_name}${module_global_c_suffix(mg_decl_path)}`;
+            // A thread-local's READS are rewritten to `(*name__tl_get())` by
+            // get_variable_name_for_codegen — correct everywhere except HERE,
+            // where the name is being DECLARED. Build the declaration name
+            // straight from the sanitized identifier plus the module suffix so
+            // the storage, the init flag and the accessor all agree on it.
+            if(is_thread_local(mg_decl_path.clone(), var_name.clone()), {
+              c_var_name = `${sanitize_for_c_identifier(var_name.clone(), false)}${module_global_c_suffix(mg_decl_path)}`;
+            }, {
+              if((c_var_name == sanitize_for_c_identifier(var_name.clone(), false)) && is_module_level_global(mg_decl_path.clone(), var_name), {
+                c_var_name = `${c_var_name}${module_global_c_suffix(mg_decl_path)}`;
+              });
             });
             // Dedup key includes the SOURCE TOKEN: the evaluator's multiple
             // passes record the same source init under several clone ids
@@ -1154,28 +1171,81 @@ emit_module_level_variable_declarations :: (
             dedup_key := `${c_var_name}#${ast_expr_token(init_expr).character.to_string()}`;
             if(!seen.contains(dedup_key.clone()), {
               seen.insert(dedup_key.clone());
+              mg_is_tl := is_thread_local(mg_decl_path.clone(), var_name.clone());
+              c_type_str := get_type_string(vi.ty, context.base);
               if(!seen.contains(c_var_name.clone()), {
                 seen.insert(c_var_name.clone());
-                c_type_str := get_type_string(vi.ty, context.base);
-                // Chunked emission: module-level vars are read/written from
-                // every chunk — one definition (chunk 0), extern in the header.
+                // A thread-local's storage carries a per-thread storage class
+                // and gains a per-thread init flag plus a lazy accessor
+                // (defined by emit_thread_local_accessors, which runs after the
+                // function bodies so the initializer can be generated). The
+                // accessor is PROTOTYPED here, in the declarations section,
+                // because its call sites are ordinary function bodies emitted
+                // before it.
+                //
+                // The storage class matches what the async runtime core
+                // already emits (src/codegen/async/runtime_core.yo):
+                // `__declspec(thread)` on Windows, `_Thread_local` elsewhere.
+                //
+                // WASM: `emcc` supports `_Thread_local` only with pthreads
+                // enabled and `wasm32-wasip1` is single-threaded in Yo's
+                // configuration, so the storage class is DROPPED there and the
+                // thread-local lowers to an ordinary global. That is correct
+                // rather than a degradation — one thread means the sole
+                // instance IS this thread's instance — and it is an explicit
+                // branch, not an accident.
+                //
+                // (Note `get_uses_tls` in this file is TRANSPORT-layer
+                // security, an unrelated use of the same three letters.)
+                tl_storage := if(
+                  !mg_is_tl,
+                  String.new(),
+                  cond(
+                    is_target_wasm(context.base.target_info) => String.new(),
+                    is_target_windows(context.base.target_info) => String.from("__declspec(thread) "),
+                    true => String.from("_Thread_local ")
+                  )
+                );
                 if(context.base.chunk_mode, {
                   em.emit_declaration_string_line(
-                    `extern ${c_type_str} ${c_var_name}; // module-level mutable variable`
+                    `extern ${tl_storage}${c_type_str} ${c_var_name}; // module-level mutable variable`
                   );
                   cgb := context.base;
                   cgb.chunk_globals.push_string(
-                    `${c_type_str} ${c_var_name};
+                    `${tl_storage}${c_type_str} ${c_var_name};
 `
                   );
+                  if(mg_is_tl, {
+                    em.emit_declaration_string_line(
+                      `extern ${tl_storage}bool ${c_var_name}__tl_init;`
+                    );
+                    em.emit_declaration_string_line(`${c_type_str}* ${c_var_name}__tl_get(void);`);
+                    cgb.chunk_globals.push_string(
+                      `${tl_storage}bool ${c_var_name}__tl_init = false;
+`
+                    );
+                  });
                 }, {
                   em.emit_declaration_string_line(
-                    `static ${c_type_str} ${c_var_name}; // module-level mutable variable`
+                    `static ${tl_storage}${c_type_str} ${c_var_name}; // module-level mutable variable`
                   );
+                  if(mg_is_tl, {
+                    em.emit_declaration_string_line(
+                      `static ${tl_storage}bool ${c_var_name}__tl_init = false;`
+                    );
+                    em.emit_declaration_string_line(`static ${c_type_str}* ${c_var_name}__tl_get(void);`);
+                  });
                 });
               });
               rhs := match(_args(init_expr).get(usize(1)), .Some(e) => e, .None => make_err_expr());
-              result.push(ModuleLevelVarEntry(c_var_name : c_var_name, rhs : rhs));
+              result.push(
+                ModuleLevelVarEntry(
+                  c_var_name : c_var_name,
+                  rhs : rhs,
+                  is_thread_local : mg_is_tl,
+                  c_type_str : c_type_str
+                )
+              );
             });
           }
         )
@@ -1184,6 +1254,69 @@ emit_module_level_variable_declarations :: (
     i = (i + usize(1));
   });
   result
+});
+/// Emit the lazy per-thread accessor for every thread-local in `module_vars`.
+///
+/// The accessor is where a thread-local's initializer lives: each thread must
+/// run it on ITS first touch, which is exactly what a module-init helper
+/// running once on the main thread cannot do
+/// (plans/backlog/THREAD_LOCAL_STORAGE.md).
+///
+/// Emitted for library builds too — `generate_main_wrapper` is executable-only,
+/// so putting the bodies there would leave a `--static-library` archive with
+/// declared-but-undefined accessors and a link error at the first user of the
+/// library.
+///
+/// The init flag is set BEFORE the initializer runs, so an initializer that
+/// (directly or transitively) reads the same thread-local sees the zeroed
+/// storage and terminates, rather than recursing until the stack is gone.
+emit_thread_local_accessors :: (
+  fn(context : FunctionGenerationContext, module_vars : ArrayList(ModuleLevelVarEntry)) -> unit
+)({
+  em := context.base.emitter;
+  (has_tl : bool) = false;
+  (tli : usize) = usize(0);
+  while(tli < module_vars.len(), {
+    match(
+      module_vars.get(tli),
+      .Some(mv) => if(mv.is_thread_local, {
+        has_tl = true;
+      }),
+      .None => ()
+    );
+    tli = (tli + usize(1));
+  });
+  if(!has_tl, {
+    return();
+  });
+  // Same deferred-drop reset as the module-init helper: the initializer's
+  // result is MOVED into the thread-local storage, never dropped.
+  saved_pending := context.pending_deferred_drops;
+  saved_consumed := context.consumed_var_pending_drops;
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+  context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+  em.emit_string(String.from("\n// Thread-local lazy accessors (one first touch per thread).\n"));
+  (ai : usize) = usize(0);
+  while(ai < module_vars.len(), {
+    match(
+      module_vars.get(ai),
+      .Some(mv) => if(mv.is_thread_local, {
+        linkage := if(context.base.chunk_mode, String.new(), String.from("static "));
+        em.emit_string_line(`${linkage}${mv.c_type_str}* ${mv.c_var_name}__tl_get(void) {`);
+        em.emit_string_line(`  if (!${mv.c_var_name}__tl_init) {`);
+        em.emit_string_line(`    ${mv.c_var_name}__tl_init = true;`);
+        rhs_code := _call_generate_expr(mv.rhs, String.from("    "), context);
+        em.emit_string_line(`    ${mv.c_var_name} = ${rhs_code};`);
+        em.emit_string_line(String.from("  }"));
+        em.emit_string_line(`  return &${mv.c_var_name};`);
+        em.emit_string_line(String.from("}"));
+      }),
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  context.pending_deferred_drops = saved_pending;
+  context.consumed_var_pending_drops = saved_consumed;
 });
 /// Generate the C `main()` wrapper that calls `__yo_user_main`. On POSIX the
 /// program body runs on a large-stack (1 GiB, YO_MAIN_STACK_MB-overridable)
@@ -1230,7 +1363,23 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
     return();
   });
   main_call_args := _main_call_args(main_func_id, context);
-  has_module_vars := (module_vars.len() > usize(0));
+  // Thread-locals are initialized lazily by their own accessor, never by
+  // `__yo_main_module_init` — so a program whose only module-level variables
+  // are thread-locals must not emit (or call) an empty init helper.
+  (has_module_vars : bool) = false;
+  {
+    (hmv_i : usize) = usize(0);
+    while(hmv_i < module_vars.len(), {
+      match(
+        module_vars.get(hmv_i),
+        .Some(hmv) => if(!hmv.is_thread_local, {
+          has_module_vars = true;
+        }),
+        .None => ()
+      );
+      hmv_i = (hmv_i + usize(1));
+    });
+  };
   // Emit the module-level variable initialization helper `__yo_main_module_init()`
   // directly (NOT into a detached string): an RC-returning initializer such as
   // `HashMap(K, V).new()` makes `_call_generate_expr` emit auxiliary temp
@@ -1253,10 +1402,10 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
     while(mvi < module_vars.len(), {
       match(
         module_vars.get(mvi),
-        .Some(mv) => {
+        .Some(mv) => if(!mv.is_thread_local, {
           rhs_code := _call_generate_expr(mv.rhs, String.from("  "), context);
           em.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);
-        },
+        }),
         .None => ()
       );
       mvi = (mvi + usize(1));
@@ -1385,4 +1534,4 @@ ${heap_report_call}  return 0;
   });
 });
 export(generate_function_body, generate_function, generate_all_functions, generate_main_wrapper);
-export(ModuleLevelVarEntry, emit_module_level_variable_declarations);
+export(ModuleLevelVarEntry, emit_module_level_variable_declarations, emit_thread_local_accessors);
