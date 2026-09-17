@@ -144,8 +144,26 @@ caller :: (fn(x : i32, requires(x != i32(0))) -> (r : i32))(safe_div(i32(7), x))
 状态 —— 一个坏的调用方不会污染被调方。不带谓词的 `refine(T)` 是无义务
 的裸别名。精化条件既可内联写在参数注解中，也可通过具名别名使用 ——
 `NonZeroI32 :: refine(i32, non_zero)` 然后写 `d : NonZeroI32`（别名
-绑定的就是精化类型本身；std/spec 的 `NonZero(i32)` 构造器将随该模块
-的翻新一同落地）。
+绑定的就是精化类型本身）。
+
+**std/spec 各族现在都是真正的精化类型。** `NonZero(T)`、
+`Bounded(T, lo, hi)`、`Positive(T)`、`Even(T)`……通过在别名体内书写
+谓词 ghost 来附着具体谓词 —— 别名的 comptime 参数（`T`、`lo`、`hi`）
+在 ghost 创建时就在作用域内，因此每次 `NonZero(i32)` 求值都会创建一个
+完全具体的谓词：
+
+```rust
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
+```
+
+组合 —— `refine(refine(T, p), q)` —— 表现为合取：验证器对链上每一条
+谓词进行假设/证明（类型本身保持嵌套可区分）。值经运行期闸门构造 ——
+`check_non_zero(x)` / `check_bounded(x, lo, hi)` 返回
+`Option(Refined)` —— 或经可信强转 `unchecked_non_zero(x)` /
+`unchecked(p, x)`（配合 `pragma(Pragma.AllowUnsafe)`）。返回 comptime
+的函数要求所有参数均为 comptime，因此通用包装器的谓词参数写作
+`comptime(p)`；而 comptime 谓词永远无法在运行期被*调用* —— 这正是各
+族闸门将谓词内联书写、而非以运行期值接收 ghost 的原因。
 
 ## 模式
 

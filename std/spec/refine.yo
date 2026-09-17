@@ -1,69 +1,140 @@
-// Phase 0 of plans/backlog/FORMAL_VERIFICATION.md task #7.
-//
-// `Refine`, `NonZero`, `Bounded` are comptime type constructors.
-// In Phase 0 they all return their underlying type unchanged —
-// effectively `Refine(T) = T`. The refinement predicate is
-// documented as a future parameter; the verifier (Phase 2) will
-// extend the surface to `Refine(T, predicate)` and enforce the
-// predicate at construction sites.
-//
-// Even without enforcement, these aliases serve as
-// human-and-LLM-readable signatures that signal intent. A function
-// taking `denom : NonZero(i32)` documents the precondition; callers
-// that want runtime enforcement can pair the alias with a
-// `requires(denom != i32(0))` clause until the verifier lands.
+//! **Refinement types** — the real `refine(T, p)` surface (V6 task 3,
+//! plans/backlog/FORMAL_VERIFICATION.md §7; breaking-change ledger entry 3).
 //!
-//! **EXPERIMENTAL — not covered by the std stability promise** (audit spec/
-//! verdict: FREEZE AS DOC). These are Phase 0 identity stubs from
-//! plans/backlog/FORMAL_VERIFICATION.md; refinement predicates arrive with the
-//! Phase 2+ verifier. Expect ANY change here, including removal.
+//! A refinement type is a `T` whose values additionally satisfy a
+//! compile-time-known predicate. Refinements are DISTINCT at the type level
+//! and erased at codegen — zero runtime cost. The verifier (`pragma(Pragma.Verify)`
+//! files) discharges them modularly: a callee ASSUMES `p(param)` at entry, a
+//! call site PROVES `refine#N` for each refined argument.
+//!
+//! ```rust
+//! { NonZero, check_non_zero } :: import("std/spec/refine");
+//!
+//! safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)(num / denom);
+//!
+//! // Construction paths — a plain `T` does not coerce silently:
+//! match(check_non_zero(i32(2)),        // runtime gate: Option(NonZero(i32))
+//!   .Some(d)  => safe_div(i32(10), d),
+//!   .None     => i32(0)
+//! );
+//! ```
 //!
 //! ## Stability
 //!
-//! unstable — Phase 0 identity stubs, outside the std stability promise
-//! entirely. Expect ANY change, including removal, when the Phase 2 verifier
-//! lands. The section exists so `yo doc` reports it: the warning above is
-//! prose, and a consumer keyed on the machine-readable stability channel read
-//! these two modules as frozen std surface.
-/// The base refinement constructor the other three are written in terms
-/// of — `Refine(T)` is intended to read as "a `T` that satisfies a
-/// compile-time predicate".
+//! unstable — outside the std stability promise entirely; the verification
+//! campaign is still shaping this surface (expect the `.check`/`.unchecked`
+//! spellings and the family set to move).
+/// The general refinement constructor — `Refine(T, p)` is "a `T` that
+/// satisfies the one-parameter ghost predicate `p`". The predicate is a
+/// COMPTIME value parameter (a one-parameter `ghost_fn` over `T` — plain
+/// functions are rejected: a type-level predicate must not carry runtime
+/// semantics).
 ///
-/// **In Phase 0 it IS `T`, exactly.** The body is `T`, so
-/// `Refine(i32)`, `NonZero(i32)`, `Bounded(i32, 0, 9)` and `i32` are one
-/// and the same type: nothing is checked, nothing is rejected, and a
-/// plain `i32(0)` passes wherever a `NonZero(i32)` is asked for. The
-/// annotation is a signature that documents a precondition to a human or
-/// an LLM reader, not one the compiler enforces — pair it with a
-/// `requires(...)` clause if you want the precondition checked before the
-/// Phase 2 verifier lands.
-///
-/// The predicate is not a parameter yet: Phase 2 widens the surface to
-/// `Refine(T, predicate)` and enforces it at construction sites, so code
-/// written against today's one-parameter spelling will have to name its
-/// predicate then.
-Refine :: (fn(comptime(T) : Type) -> comptime(Type))(T);
+/// Most call sites use the named families below (`NonZero(T)`, …), which
+/// keep their historical signatures; `Refine(T, p)` is the escape hatch for
+/// custom predicates.
+Refine :: (fn(comptime(T) : Type, comptime(p) : (fn(v : T) -> bool)) -> comptime(Type))(refine(T, p));
 export(Refine);
 
-/// `NonZero(T)` — values of `T` that are not zero. Phase 0 is a
-/// type alias for `T`; future phases will enforce via verification.
-NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
+/// `NonZero(T)` — values of `T` that are not zero. The predicate is a
+/// ghost spelled INSIDE this alias body: each `NonZero(i32)` evaluation
+/// binds `T := i32` there, creating a fully concrete predicate.
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
 export(NonZero);
 
-/// `Bounded(T, lo, hi)` — values of `T` in the closed range
-/// `[lo, hi]`. Phase 0 is a type alias for `T`. T must be `Comptime`
+/// `Bounded(T, lo, hi)` — values of `T` in the closed range `[lo, hi]`.
+/// The predicate captures this alias's comptime value parameters, so the
+/// bounds are compile-time-known at every use site. `T` must be `Comptime`
 /// so the bounds can be compile-time-known.
 Bounded :: (
   fn(
     comptime(T) : Type,
-    comptime(_lo) : T,
-    comptime(_hi) : T,
+    comptime(lo) : T,
+    comptime(hi) : T,
     where(T <: Comptime)
   ) -> comptime(Type)
-)(Refine(T));
+)(refine(T, ghost_fn((fn(x : T) -> bool)((x >= lo) && (x <= hi)))));
 export(Bounded);
-
-/// `NonEmpty(T)` — collection types with at least one element.
-/// Phase 0 is a type alias for `T`.
-NonEmpty :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
+/// `NonEmpty(T)` — a value of `T` that carries at least one element.
+///
+/// A generic `.len() > 0` predicate is not expressible for every `T` (an
+/// `i32` has no length), so this alias is the BARE refinement: attach your
+/// collection's predicate where the element check belongs —
+/// `Refine(ArrayList(T), your_pred)`. The Phase-0 spelling `NonEmpty(T)` is
+/// preserved as a signature; what changed (breaking, ledger entry 3) is
+/// that it now creates a distinct refinement type instead of aliasing `T`.
+NonEmpty :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T));
 export(NonEmpty);
+
+// ---------------------------------------------------------------------------
+// Construction paths
+// ---------------------------------------------------------------------------
+//
+// The generic `check(p, x)` spelling is NOT expressible today: computing
+// `Option(Refine(T, p))` needs `p` at comptime, but the runtime gate needs
+// to CALL `p` at runtime — and a comptime parameter has no runtime value.
+// The family gates below close the gap by spelling each family's predicate
+// inline (the verifier discharges the `Some` arm from the branch condition
+// either way); a predicate-parameterized check needs a comptime→runtime
+// predicate bridge and is tracked with the task-3 follow-ups.
+/// `unchecked(p, x)` — the TRUSTED cast: returns `x` as `Refine(T, p)`
+/// without any check and without any proof obligation. Callers take
+/// responsibility for `p(x)` holding; pair the call site with
+/// `pragma(Pragma.AllowUnsafe)`.
+unchecked :: (
+  fn(
+    generic(T : Type),
+    comptime(p) : (fn(v : T) -> bool),
+    x : T
+  ) -> Refine(T, p)
+)(x);
+export(unchecked);
+
+/// `check_non_zero(x)` — the `NonZero` family's runtime gate, spelled with
+/// the family's own predicate inline (the alias-created ghost is anonymous,
+/// so the family check restates it — the verifier proves `x != 0` on the
+/// `Some` arm's path either way).
+check_non_zero :: (
+  fn(generic(T : Type), x : T) -> Option(NonZero(T))
+)(
+  if(
+    x != T(0),
+    Option(NonZero(T)).Some(x),
+    Option(NonZero(T)).None
+  )
+);
+export(check_non_zero);
+
+/// `unchecked_non_zero(x)` — the `NonZero` family's trusted cast.
+unchecked_non_zero :: (
+  fn(generic(T : Type), x : T) -> NonZero(T)
+)(x);
+export(unchecked_non_zero);
+
+/// `check_bounded(x, lo, hi)` — the `Bounded` family's runtime gate.
+check_bounded :: (
+  fn(
+    generic(T : Type),
+    x : T,
+    comptime(lo) : T,
+    comptime(hi) : T
+  ) -> Option(Bounded(T, lo, hi))
+)(
+  if(
+    (x >= lo) && (x <= hi),
+    Option(Bounded(T, lo, hi)).Some(x),
+    Option(Bounded(T, lo, hi)).None
+  )
+);
+export(check_bounded);
+
+/// `unchecked_bounded(x, lo, hi)` — the `Bounded` family's trusted cast.
+unchecked_bounded :: (
+  fn(
+    generic(T : Type),
+    x : T,
+    comptime(lo) : T,
+    comptime(hi) : T
+  ) -> Bounded(T, lo, hi)
+)(x);
+export(unchecked_bounded);

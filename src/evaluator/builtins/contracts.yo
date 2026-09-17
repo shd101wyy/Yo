@@ -390,6 +390,24 @@ register_ghost_fn_def :: (fn(func_id : String, params : ArrayList(String), body 
 ghost_fn_def_of :: (fn(func_id : String) -> Option(GhostFnDef))(
   g_ghost_fn_defs.get(func_id)
 );
+/// The refinement CHAIN registry: an outer predicate's func_id → the
+/// predicates of the refinement it wraps (outermost inner first —
+/// refine(refine(refine(T, p0), p1), p2) registers p2 → [p1, p0]).
+/// Written only by evaluate_refine (below — its edges each match a real
+/// refine() evaluation); read by the verifier's assume/prove walks.
+(g_refine_pred_chains : HashMap(String, ArrayList(String))) =
+  HashMap(String, ArrayList(String)).new();
+register_refine_pred_chain :: (fn(outer_fid : String, chain : ArrayList(String)) -> unit)({
+  g_refine_pred_chains.insert(outer_fid.clone(), chain);
+  ()
+});
+refine_pred_chain_of :: (fn(outer_fid : String) -> ArrayList(String))(
+  match(
+    g_refine_pred_chains.get(outer_fid.clone()),
+    .Some(chain) => chain,
+    .None => ArrayList(String).new()
+  )
+);
 /// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — the refinement
 /// annotation. `T` is a type, `p` a one-parameter ghost_fn VALUE (the
 /// plan's predicate-as-value). The annotation evaluates to `T` (the
@@ -508,6 +526,34 @@ ${ast_expr_to_string(expr)}`
   // ERASURE happens at the binding (env.yo unwraps to `inner`) and in the
   // guards/tag/sizes, so runtime cost stays zero.
   refined := TypeValue.RefineT(inner : inner_ty, predicate_func_id : pred_fid.clone());
+  // Composition (FORMAL_VERIFICATION.md §7): refine(refine(T, p), q) acts
+  // as the CONJUNCTION p(x) && q(x). The nested shape stays distinct at the
+  // type level (no flattening — that would need a synthesized conjunction
+  // ghost); instead the INNER chain is recorded here, keyed by the OUTER
+  // predicate's func_id, and the verifier walks it at every assume/prove
+  // site. Each refine evaluation registers its own edge, so a chain is
+  // always consistent with the types that produced it.
+  match(
+    inner_ty,
+    .RefineT(_, inner_fid) => {
+      chain := ArrayList(String).new();
+      chain.push(inner_fid.clone());
+      (ci : usize) = usize(0);
+      inner_chain := refine_pred_chain_of(inner_fid.clone());
+      while(ci < inner_chain.len(), {
+        match(
+          inner_chain.get(ci),
+          .Some(cf) => {
+            chain.push(cf.clone());
+          },
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      register_refine_pred_chain(pred_fid.clone(), chain);
+    },
+    _ => ()
+  );
   out_info := new_expr_info(cur_env, t_type());
   out_info.value = Option(EvalValue).Some(EvalValue.TypeVal(refined));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -2611,7 +2657,7 @@ wrap_function_body_with_contracts :: (
   });
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
 });
-export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_assumed, evaluate_refine, evaluate_ghost);
+export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_assumed, evaluate_refine, evaluate_ghost, refine_pred_chain_of);
 export(evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
 export(wrap_function_body_with_contracts, _is_contract_assert_call);
 export(

@@ -1,0 +1,79 @@
+pragma(Pragma.Verify);
+
+// The std/spec rework shapes (task 3, ledger entry 3) — every comptime
+// alias below creates a REAL refined type via a ghost predicate spelled
+// INSIDE the alias body, with the alias's comptime parameters (T, lo, hi)
+// in scope at ghost creation. Each `Family(i32)` evaluation therefore
+// creates a fully concrete predicate — no generic predicates exist.
+// NonZero(T): the values of T that are not zero.
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
+
+// Positive(T): strictly greater than zero.
+Positive :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x > T(0)))));
+
+// Bounded(T, lo, hi): the values of T in the closed range [lo, hi] — the
+// predicate CAPTURES the alias's comptime value parameters.
+Bounded :: (
+  fn(
+    comptime(T) : Type,
+    comptime(lo) : T,
+    comptime(hi) : T,
+    where(T <: Comptime)
+  ) -> comptime(Type)
+)(refine(T, ghost_fn((fn(x : T) -> bool)((x >= lo) && (x <= hi)))));
+
+// Composition: refine(refine(T, p_inner), p_outer) — the chain acts as the
+// CONJUNCTION. The INNER leg (nonzero) is the load-bearing one for
+// `use_dbl`'s division: with one-level-only registration (the OUTER even
+// predicate), the divisor could be zero and the division REFUTES; with the
+// chain walked, the inner nonzero assumption discharges the AoRTE divisor
+// obligation.
+Doubly :: (fn(comptime(T) : Type) -> comptime(Type))(
+  refine(
+    refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))),
+    ghost_fn((fn(x : T) -> bool)((x % T(2)) == T(0)))
+  )
+);
+
+// The generic public wrapper from the plan's §7 sketch: Refine(T, p) takes
+// the predicate as a VALUE parameter (a one-parameter ghost_fn over T).
+Refine :: (fn(comptime(T) : Type, comptime(p) : (fn(v : T) -> bool)) -> comptime(Type))(refine(T, p));
+
+nz_i32_ghost :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+Wrapped :: Refine(i32, nz_i32_ghost);
+
+// ---------------------------------------------------------------------------
+// Instantiations
+// ---------------------------------------------------------------------------
+NzI32 :: NonZero(i32);
+Band :: Bounded(i32, i32(0), i32(100));
+Dbl :: Doubly(i32);
+
+// ---------------------------------------------------------------------------
+// Verified users
+// ---------------------------------------------------------------------------
+// The INNER chain leg (nonzero) discharges the divisor obligation.
+use_dbl :: (fn(v : Dbl) -> i32)(i32(100) / v);
+
+// The assumed [0, 100] band is all the callee needs.
+use_band :: (fn(x : Band) -> i32)(x);
+
+// The caller proves refine#1 (bounded(v)) from its own requires.
+band_caller :: (fn(v : i32, requires((v >= i32(0)) && (v <= i32(100)))) -> i32)(use_band(v));
+
+// The value-parameter wrapper path: a refinement created through a fn call
+// that passes the ghost predicate as an argument.
+use_wrapped :: (fn(w : Wrapped) -> i32)(i32(64) / w);
+
+// The .check entry path (E4: an ordinary runtime Option gate) — in verify
+// mode the body walks and the Some construction carries no hidden
+// obligation; the predicate spelled in the branch is ordinary runtime code.
+nz_check :: (fn(x : i32) -> Option(NzI32))(
+  if(x != i32(0), Option(NzI32).Some(x), Option(NzI32).None)
+);
+
+// The .unchecked entry path — a TRUSTED cast: the identity body returns the
+// plain value as refined, with no obligation (that is what unchecked means).
+nz_unchecked :: (fn(x : i32) -> NzI32)(x);
+
+export(band_caller);
