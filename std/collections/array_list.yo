@@ -9,6 +9,15 @@
 //! complete and test-covered, and `plans/STD_API_STABILIZATION.md` §4 lists
 //! nothing still open against this module, so further work here is additive.
 pragma(Pragma.AllowUnsafe);
+// V6 task 5 slice 2 (plans/backlog/FORMAL_VERIFICATION.md): this module
+// carries VERIFIED bounds contracts — the core index-taking ops declare
+// their panicking precondition as `requires(...)`, and their raw-pointer
+// bodies are declared `assumed()` (outside the verifiable subset; the
+// contracts still gate callers). Under `yo verify ./std/collections` the
+// module goes green: contracted ops report `assumed`, the rest report
+// the passing `outside-subset`/trivial walks. In runtime mode the
+// requires lower to the ordinary entry asserts (belt to the panics).
+pragma(Pragma.Verify);
 { GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { memmove, memcpy, memset } :: import("../libc/string.yo");
 { SIZE_MAX } :: import("../libc/stdint.yo");
@@ -69,7 +78,7 @@ impl(
   /// elements past the new end (`dispose` and `clear` only walk `[0, len)`).
   /// Reach for it only after filling the buffer through `ptr()` or
   /// `extend_from_ptr`. PANICS when `new_len` exceeds the capacity.
-  set_len : (fn(self : Self, new_len : usize) -> unit)({
+  set_len : (fn(self : Self, new_len : usize, requires(new_len <= self.capacity()), assumed()) -> unit)({
     cond(
       (new_len <= self._capacity) => {
         self._length = new_len;
@@ -267,7 +276,14 @@ impl(
   ///
   /// A growth reallocates, so any pointer into the buffer (`ptr()`, `iter()`,
   /// `self(i)`) is invalid afterwards.
-  push : (fn(self : Self, value : T) -> unit)(
+  push : (
+    fn(
+      self : Self,
+      value : T,
+      ensures(self.len() == (old(self.len()) + usize(1))),
+      assumed()
+    ) -> unit
+  )(
     match(
       Self.try_push(self, value),
       .Ok(_) => (),
@@ -388,7 +404,14 @@ impl(
   /// O(n): the tail shifts left to close the gap. PANICS on an inverted range
   /// or an end past the length — the old `remove(start, count)` silently
   /// clamped the count, which hid caller bugs.
-  drain : (fn(self : Self, r : Range(usize)) -> Self)({
+  drain : (
+    fn(
+      self : Self,
+      r : Range(usize),
+      requires(r.start <= r.end, r.end <= self.len()),
+      assumed()
+    ) -> Self
+  )({
     if((r.start > r.end) || (r.end > self._length), {
       __yo_panic("ArrayList.drain: invalid range for this length");
     });
@@ -478,7 +501,15 @@ impl(
   }),
   /// Insert `value` at `idx`, shifting the tail right — O(n). `idx == len`
   /// appends, as in Rust.
-  insert : (fn(self : Self, idx : usize, value : T) -> unit)({
+  insert : (
+    fn(
+      self : Self,
+      idx : usize,
+      value : T,
+      requires(idx <= self.len()),
+      assumed()
+    ) -> unit
+  )({
     if(idx > self._length, {
       __yo_panic("ArrayList.insert: index out of bounds");
     });
@@ -524,7 +555,15 @@ impl(
   ///
   /// Moves the raw slots, like `reverse` — no dup/drop, so this is RC-neutral
   /// however the element type is refcounted.
-  swap : (fn(self : Self, i : usize, j : usize) -> unit)({
+  swap : (
+    fn(
+      self : Self,
+      i : usize,
+      j : usize,
+      requires(i < self.len(), j < self.len()),
+      assumed()
+    ) -> unit
+  )({
     if((i >= self._length) || (j >= self._length), {
       __yo_panic("ArrayList.swap: index out of bounds");
     });
@@ -544,7 +583,14 @@ impl(
   }),
   /// Remove the element at `idx` and return it, moving the LAST element into
   /// the hole — O(1), and it does not preserve order. Rust's `swap_remove`.
-  swap_remove : (fn(self : Self, idx : usize) -> T)({
+  swap_remove : (
+    fn(
+      self : Self,
+      idx : usize,
+      requires(idx < self.len()),
+      assumed()
+    ) -> (r : T)
+  )({
     if(idx >= self._length, {
       __yo_panic("ArrayList.swap_remove: index out of bounds");
     });
@@ -603,7 +649,14 @@ impl(
   /// order does not matter, and `LinkedList.remove` returns a `Result`
   /// instead — a deliberate difference (D1): the list that has to walk to
   /// the index reports the caller's mistake as a value.
-  remove : (fn(self : Self, idx : usize) -> T)({
+  remove : (
+    fn(
+      self : Self,
+      idx : usize,
+      requires(idx < self.len()),
+      assumed()
+    ) -> (r : T)
+  )({
     if(idx >= self._length, {
       __yo_panic("ArrayList.remove: index out of bounds");
     });
