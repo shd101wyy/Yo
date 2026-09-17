@@ -1,0 +1,30 @@
+{ println } :: import("std/fmt");
+// `Array(T, N).fill(v)` where `N` is a FUNCTION generic parameter fails to
+// transpile: rc=0 from `yo compile`, then an abort stub at run time.
+//
+// The two arms below differ ONLY in the fill value — run-time in the first,
+// a compile-time literal in the second — and FAIL IDENTICALLY. So the variable
+// is the generic LENGTH, not the value. Without that control the obvious
+// reading is "a run-time fill value does not work", which points at `fill`'s
+// `comptime(val)` parameter and at the wrong fix entirely.
+repn :: (fn(generic(T : Type, N : usize), proto : Array(T, N), x : T) -> Array(T, N))(
+  Array(T, N).fill(x)
+);
+// An IMPL generic length is FINE — this is the form std/ already uses for
+// Eq/Ord/Clone/Hash over Array(T, U), and it compiles and runs.
+impl(
+  generic(T : Type, U : usize),
+  where(T <: Comptime),
+  Array(T, U),
+  zeros : (fn() -> Self)(Array(T, U).fill(T(0)))
+);
+main :: (fn() -> unit)({
+  // WORKS: impl-generic length.
+  ok := Array(i32, usize(4)).zeros();
+  println(`${ok.len()} ${ok(usize(3))}`);
+  // BROKEN (both arms). Uncomment either to reproduce the abort stub.
+  //   v := i32(0);
+  //   runtime_value  := repn(Array(i32, usize(4)).fill(i32(0)), v + i32(9));
+  //   comptime_value := repn(Array(i32, usize(4)).fill(i32(0)), i32(9));
+});
+export(main);
