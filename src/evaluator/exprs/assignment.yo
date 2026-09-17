@@ -344,6 +344,30 @@ evaluate_assignment :: (
     });
     is_thread_local_lhs = true;
     lhs = tl_inner;
+    // Rewrite the `=` node's LHS in the AST too, not just this local. Every
+    // DOWNSTREAM consumer matches on the shape and must see an ordinary
+    // `(name : T) = init` typed binding, with the registry alone carrying the
+    // thread-local-ness:
+    //
+    //   - `anonymous_module.yo` records a module-level init expr only when the
+    //     `=` LHS is a `:` pair, so without this the declaration is never
+    //     recorded;
+    //   - `_module_init_var_atom` (codegen/functions/generation.yo) resolves
+    //     the declared atom the same way, so the storage, the init flag and the
+    //     accessor are never EMITTED.
+    //
+    // Measured 2026-09-17: with only the local rebound, reads were substituted
+    // to `(*name__tl_get())` while nothing declared it — clang then reported
+    // "indirection requires pointer operand ('int' invalid)" against an
+    // implicitly-declared accessor. Rebinding one variable is not the same as
+    // rewriting the tree.
+    match(
+      expr,
+      .FnCall(_, _, tl_outer_args, _, _) => {
+        tl_outer_args(usize(0)) = tl_inner;
+      },
+      .Atom(_, _) => ()
+    );
   });
   is_atom_lhs := ast_expr_is_atom(lhs);
   is_typed_binding_lhs := (ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))));
