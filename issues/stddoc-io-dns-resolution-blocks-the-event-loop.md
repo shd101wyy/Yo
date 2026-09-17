@@ -63,7 +63,7 @@ resolver goroutine).
 Two shapes, in increasing order of work:
 
 1. **Run it on the thread pool that already exists.** `spawn_blocking` is
-   deliberately still open (`plans/STD_API_STABILIZATION.md` §4, Concurrency:
+   deliberately still open (`plans/archive/STD_API_STABILIZATION.md` §4, Concurrency:
    *"`spawn_blocking` is deliberately still open, and this is why…"*), and DNS
    is precisely its motivating case — the resolution belongs in whatever that
    decision produces, with the completion posted back to the loop.
@@ -73,7 +73,7 @@ Two shapes, in increasing order of work:
 
 Until one of those lands, the honest statement is the one now in the module
 doc: this is a BLOCKING call wearing an async signature. Prerequisite for
-either fix: `plans/STD_API_STABILIZATION.md`'s `spawn_blocking` decision.
+either fix: `plans/archive/STD_API_STABILIZATION.md`'s `spawn_blocking` decision.
 
 Note the wasm runtime is not affected because it has no resolver at all —
 `runtime_io_wasm.yo:716` returns `-ENOSYS`.

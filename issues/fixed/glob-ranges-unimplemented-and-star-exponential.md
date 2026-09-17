@@ -1,7 +1,7 @@
 # `glob`: `[a-z]` ranges were not implemented and `*` backtracked exponentially
 
 **Status: FIXED** (2026-09-06, `std/glob.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 10.
+`plans/archive/STD_API_STABILIZATION.md` §3 item 10.
 
 ## Symptoms
 

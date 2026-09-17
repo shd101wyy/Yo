@@ -1,7 +1,7 @@
 # `ArrayList(Dyn(Trait)).get()` fails to specialize — a list of trait objects cannot be read back
 
 **Status:** open
-**Found:** 2026-09-15, writing `error_chain` for `std/error` (plans/STD_API_STABILIZATION.md)
+**Found:** 2026-09-15, writing `error_chain` for `std/error` (plans/archive/STD_API_STABILIZATION.md)
 
 ## Symptom
 

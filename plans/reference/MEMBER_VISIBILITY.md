@@ -48,7 +48,7 @@ so `std/` adopts it without waiting for a seed release. What shipped:
   more sites in bodies `check` never specializes — the suite is the gate.
 
 Everything below is the design record as written on 2026-09-10 — three rows
-of `plans/STD_API_STABILIZATION.md` could not be closed without it, and the
+of `plans/archive/STD_API_STABILIZATION.md` could not be closed without it, and the
 convention standing in for it had grown to 752 sites in `std/` alone.
 
 ## The problem

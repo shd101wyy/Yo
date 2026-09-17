@@ -1,7 +1,7 @@
 # A call to a captured generic closure binds a `void` result to a `void*` temp
 
 **Found**: 2026-09-12, working D18b (`Thread(T).spawn` carrying its result,
-`plans/STD_API_STABILIZATION.md` §2 D18). **Class**: a codegen call site and
+`plans/archive/STD_API_STABILIZATION.md` §2 D18). **Class**: a codegen call site and
 the callee's own prototype disagreeing about the C return type. **Status**:
 FIXED 2026-09-12 — red-first regression test
 `tests/closure_param_forwarding.test.yo`, "Test a captured generic callback at
@@ -132,7 +132,7 @@ today: the site only keeps the erasure when `ei.ty` is unit, which is the
 
 ## Where it was found
 
-This is the first of the two walls `plans/STD_API_STABILIZATION.md` records
+This is the first of the two walls `plans/archive/STD_API_STABILIZATION.md` records
 against D18b. The other — `_capture_judgement_type` resolving a captured
 closure to its capture STRUCT and then rejecting it as not `Send` — is
 untouched by this, and D18b needs both.

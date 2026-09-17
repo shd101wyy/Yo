@@ -6,7 +6,7 @@ fixed now. See "FIXED 2026-09-13" below for what it actually was; the sections
 before it are the investigation record, kept because four of the attempts in it
 are measured NEGATIVES that are worth not repeating.
 **Found:** 2026-09-12, writing `spawn_blocking` for waker step 5
-(`plans/WAKER_BASED_SCHEDULING.md`).
+(`plans/archive/WAKER_BASED_SCHEDULING.md`).
 **Pre-existing:** reproduces identically on the published **v0.2.31**.
 
 ## Symptom
@@ -755,7 +755,7 @@ path in the evaluator, so an over-narrowed guard shows up there long before the
 suite.
 
 `std/thread.yo`'s `spawn_blocking` has exactly this shape, which is why waker
-step 5 (`plans/WAKER_BASED_SCHEDULING.md`) is not landed with it.
+step 5 (`plans/archive/WAKER_BASED_SCHEDULING.md`) is not landed with it.
 
 ## What is NOT the trigger
 

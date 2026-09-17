@@ -1,6 +1,6 @@
 # Handover — std API stabilization, P0 sweep nearly complete (2026-09-06, 17:30 CST)
 
-> **CLOSED 2026-09-07 — SUPERSEDED by `plans/HANDOVER_STD_AUDIT_2026-09-07.md`.**
+> **CLOSED 2026-09-07 — SUPERSEDED by `plans/archive/HANDOVER_STD_AUDIT_2026-09-07.md`.**
 >
 > Every PR this document tracks has since landed: #441, #442, #443, #449, #450,
 > #451, #452, #453, #454, #455 are all merged, and **v0.2.26 and v0.2.27
@@ -47,13 +47,13 @@ Constraints the maintainer stated in this session — follow them exactly:
   `.github/workflows/*` cannot be merged by an agent (#442 is blocked on this).
   The maintainer must run, in their terminal: `! gh auth refresh -h github.com -s workflow`.
 
-The authoritative plan is **`plans/STD_API_STABILIZATION.md`** (merged as
+The authoritative plan is **`plans/archive/STD_API_STABILIZATION.md`** (merged as
 #444). §3 is the P0 list (18 items, each with `file:line`); every fixed item is
 marked **FIXED yyyy-mm-dd** in place with its issue record (the marks for items
 still in open PRs live on those PR branches and land with them). §2 holds the
 decisions D9–D18 (made), §4 the P1 batteries, §5 the maintainer decisions
 still needed, §6 the phasing. Raw per-group findings:
-`plans/STD_API_STABILIZATION_FINDINGS.md`.
+`plans/archive/STD_API_STABILIZATION_FINDINGS.md`.
 
 ---
 
@@ -193,7 +193,7 @@ edits live on the branches that made them):
 
 ---
 
-## 4. §3 P0 scoreboard (plans/STD_API_STABILIZATION.md)
+## 4. §3 P0 scoreboard (plans/archive/STD_API_STABILIZATION.md)
 
 | item | subject | status |
 | --- | --- | --- |

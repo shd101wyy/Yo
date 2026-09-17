@@ -1,7 +1,7 @@
 # A deadline combinator usable from INSIDE a task — and the HTTP server keep-alive it blocks
 
 **Status: BACKLOG.** Written 2026-09-11 while landing the client-side HTTP
-connection pool (`plans/STD_API_STABILIZATION.md`, "HTTP keep-alive, the
+connection pool (`plans/archive/STD_API_STABILIZATION.md`, "HTTP keep-alive, the
 pooling client"). The client half needs no such thing; the SERVER half cannot
 be written without one, and this doc is the measured answer to "is it in
 reach today?".

@@ -1,7 +1,7 @@
 # `Array.fill` accepts a run-time value and turns it into an abort stub
 
 **Status:** OPEN. Found 2026-09-16 while trying to close the `Array(T, N)`
-`Default` row of `plans/STD_API_STABILIZATION.md`. The root cause below is
+`Default` row of `plans/archive/STD_API_STABILIZATION.md`. The root cause below is
 MEASURED; **two attempted fixes have been refuted, both recorded here.**
 
 > **The title and the whole diagnosis below were WRONG until 2026-09-17, and
@@ -325,7 +325,7 @@ to `(Default, Comptime)` does not help — the probe above already carries the
 
 ## This row is NOT blocked on value substitution — the plan mis-attributes it
 
-`plans/STD_API_STABILIZATION.md` lists `Array(T,N)` `Default` beside the byte
+`plans/archive/STD_API_STABILIZATION.md` lists `Array(T,N)` `Default` beside the byte
 conversions under
 `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`, on the reasoning that
 "a `default()` generic over `N` is the same substitution problem". It is not.

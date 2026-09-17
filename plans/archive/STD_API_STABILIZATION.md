@@ -5,7 +5,10 @@ exported and tested; the compiler defect that held it back is fixed
 (`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md`).
 The rows still marked "blocked on a language feature" are blocked on their own
 plan docs, not on this one — §0 lists them. Everything below stays as the
-campaign's record.
+campaign's record. **Archived to `plans/archive/` 2026-09-17 after its ~50
+inbound references were swept** — the condition the root listing stated; its
+raw per-module findings companion
+(`STD_API_STABILIZATION_FINDINGS.md`) is archived alongside.
 
 **§0 update 2026-09-17.** Four of those five rows are now closed: member
 visibility (#716), the ten byte conversions (#722), and `rand.thread_rng`
@@ -77,7 +80,7 @@ decisions are all made and implemented — nothing is waiting on anyone.
   collections, `imm`, encoding, I/O, net, the `## Stability` markers, and the
   documentation sweep. `yo doc ./std --format json` went 1554 → 1161
   undocumented of 3368.
-- **The waker campaign** (`plans/WAKER_BASED_SCHEDULING.md`) is complete
+- **The waker campaign** (`plans/archive/WAKER_BASED_SCHEDULING.md`) is complete
   through step 4 except for the shape note there, and step 5's RUNTIME landed
   2026-09-12 (#628) — only `spawn_blocking` is held back, on a compiler defect
   rather than on the runtime. Steps 1, 3a and 3b landed in
@@ -2730,5 +2733,5 @@ found while writing or measuring std, and each was silent.
    working.
 
 Per-group raw findings — every file:line, the Rust counterpart for each item,
-and the doc-coverage tables — are in `plans/STD_API_STABILIZATION_FINDINGS.md`.
+and the doc-coverage tables — are in `plans/archive/STD_API_STABILIZATION_FINDINGS.md`.
 This document keeps the decisions and the ranked list so it stays readable.

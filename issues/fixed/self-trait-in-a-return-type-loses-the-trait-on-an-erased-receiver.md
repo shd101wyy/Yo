@@ -24,7 +24,7 @@ change closes all three.
 **Still open, and NOT this defect:** `std`'s `ErrorChain`/`root_cause` cannot be
 written until a SEED carries this fix — `std/` is compiled by the seed during
 bootstrap, and the seed still rejects the walk. Two-release sequencing; see
-`plans/STD_API_STABILIZATION.md`.
+`plans/archive/STD_API_STABILIZATION.md`.
 
 ---
 
@@ -132,4 +132,4 @@ self-referential `Dyn` position.
 the result of `source()` as an `AnyError`. Rust's `Error::sources()` and
 `anyhow::root_cause` are the shapes wanted. Until this is fixed, a caller can
 only follow ONE link, and only to render it, never to test or re-throw it.
-Recorded against the Core row in `plans/STD_API_STABILIZATION.md`.
+Recorded against the Core row in `plans/archive/STD_API_STABILIZATION.md`.

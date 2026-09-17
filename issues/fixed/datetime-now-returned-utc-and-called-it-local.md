@@ -2,7 +2,7 @@
 
 **Status: FIXED** (2026-09-06, `std/time/datetime.yo`, `std/libc/time.yo`,
 `std/libc/windows.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 9.
+`plans/archive/STD_API_STABILIZATION.md` §3 item 9.
 
 ## Symptom
 

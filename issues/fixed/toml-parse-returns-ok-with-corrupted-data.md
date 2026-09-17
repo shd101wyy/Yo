@@ -210,7 +210,7 @@ it out in the release notes.
 ## Verification (2026-09-11)
 
 All five steps of the fix landed together, because the corruption fix and the
-value-model gap share the scanner (`plans/STD_API_STABILIZATION.md`, Encoding):
+value-model gap share the scanner (`plans/archive/STD_API_STABILIZATION.md`, Encoding):
 
 1. **Keys** — `_parse_simple_key` / `_parse_key_path`: bare, basic-quoted (with
    escape decoding), literal-quoted, dotted. A dotted key builds nested tables

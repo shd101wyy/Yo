@@ -2,7 +2,7 @@
 
 **Status: FIXED** (2026-09-06, `std/http/wire.yo`, `std/http/server.yo`,
 `std/http/http.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 18.
+`plans/archive/STD_API_STABILIZATION.md` §3 item 18.
 
 ## Symptom
 

@@ -22,28 +22,11 @@ writing dates — the banner is the authoritative summary.
 Active work (root) — **plans and handovers driving work right now, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
-- [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — **COMPLETE
-  2026-09-13**, kept in the root only until its ~50 inbound references are
-  swept to `archive/`. All eleven §2 decisions (D9–D19) landed, §4's P1
-  batteries are in, and §5's three maintainer decisions are made AND
-  implemented. The last open item was `spawn_blocking`, exported once the
-  four-layer compiler defect behind it was fixed. Rows still reading "blocked"
-  are blocked on their own language-feature plan docs, not on this one. Raw
-  per-module findings:
-  [`STD_API_STABILIZATION_FINDINGS.md`](STD_API_STABILIZATION_FINDINGS.md).
-- [`HANDOVER_STD_AUDIT_2026-09-07.md`](HANDOVER_STD_AUDIT_2026-09-07.md) — the
-  live handover: the PR stack and its verified merge order, what is still open
-  and why, and the rules that bit the last session.
-- [`THREAD_SAFETY.md`](THREAD_SAFETY.md) — 13 of 14 phases landed; Phase P
-  (field visibility) was closed by `reference/MEMBER_VISIBILITY.md` (#716,
-  2026-09-16): `_`-prefixed members are private, ENFORCED by the compiler.
 - [`INCREMENTAL_COMPILATION_ZIG_LESSONS.md`](INCREMENTAL_COMPILATION_ZIG_LESSONS.md) —
   edit-compile-run latency: what Yo takes from Zig's incremental design
   (per-definition hashing + dependency edges, stable symbol identity, a
   resident evaluator, per-module TUs) and what it does not (native
   backend, in-place patching). Phase 0 = instrumentation; nothing started.
-- [`PERF_BORROW_ELISION.md`](PERF_BORROW_ELISION.md) — cutting RC traffic in
-  the self-compile; in progress.
 - [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) —
   ACTIVE 2026-09-13: the `match` audit (value matching exists only on the
   primitive path; three silent wrong answers and three check-green/C-red
@@ -53,6 +36,15 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   switch-shaped plus a test-chain lowering for nested/literal/or/guard/range/
   string/tuple/struct patterns. P0 absorbs PR #661 and closes the
   exhaustiveness hole it leaves.
+
+The formal-verification campaign's live state lives in its plan, not in a
+handover: [`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md)
+carries the per-slice banners (V1–V5 complete; V6 task 5 slice 2, task 6,
+task 3 slice 2 and task 2's abstract half landed as #713/#726/#727/#745) and
+the open PR (#753, task 3 slice 3) is the frontier. Its two dated handovers
+([`HANDOVER_2026-09-14_FV_V6_TASK1.md`](archive/HANDOVER_2026-09-14_FV_V6_TASK1.md),
+[`HANDOVER_2026-09-15_FV_V6_REMAINING.md`](archive/HANDOVER_2026-09-15_FV_V6_REMAINING.md))
+closed 2026-09-17 once everything they handed over had landed.
 
 The **LLM-friendly toolchain campaign** closed 2026-09-17:
 [`archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md)
@@ -92,9 +84,19 @@ was driven by
 [`archive/HANDOVER_UNVENDOR_MARKDOWN_2026-09-13.md`](archive/HANDOVER_UNVENDOR_MARKDOWN_2026-09-13.md),
 archived alongside it.
 
-The **std API campaign's first half** closed 2026-09-07:
+The **std API campaign** closed 2026-09-13 with the second half too:
+[`archive/STD_API_STABILIZATION.md`](archive/STD_API_STABILIZATION.md)
+(COMPLETE 2026-09-13 — all eleven §2 decisions D9–D19 landed, §4's P1
+batteries are in, §5's three maintainer decisions are made AND implemented;
+`spawn_blocking` was the last open item, exported once the four-layer
+compiler defect behind it was fixed), with raw per-module findings
+[`archive/STD_API_STABILIZATION_FINDINGS.md`](archive/STD_API_STABILIZATION_FINDINGS.md)
+archived alongside. Its 2026-09-07 handover — the PR stack, the verified
+merge order, and the rules that bit the session — is
+[`archive/HANDOVER_STD_AUDIT_2026-09-07.md`](archive/HANDOVER_STD_AUDIT_2026-09-07.md),
+closed with the campaign. The first half:
 [`archive/STD_API_AUDIT.md`](archive/STD_API_AUDIT.md) (the 2026-08-22 audit —
-S0–S5 complete, superseded by `STD_API_STABILIZATION.md`), with its sub-plan
+S0–S5 complete, superseded by `archive/STD_API_STABILIZATION.md`), with its sub-plan
 [`archive/STD_API_AUDIT_D4_PLAN.md`](archive/STD_API_AUDIT_D4_PLAN.md)
 (byte-indexed strings) and method notes
 [`archive/STD_API_AUDIT_HANDOVER.md`](archive/STD_API_AUDIT_HANDOVER.md).
@@ -107,6 +109,33 @@ had landed, and worth reading for its §4 (three "Yo has no X" comments that
 were false, each having already produced a workaround);
 [`archive/D6_TLS_PLAN.md`](archive/D6_TLS_PLAN.md) closed with Windows
 Schannel TLS in v0.2.26.
+
+Two more campaign records closed 2026-09-17 after their last phase landed:
+
+- [`archive/THREAD_SAFETY.md`](archive/THREAD_SAFETY.md) — all 14 phases
+  implemented; Phase P (field visibility) landed as #716 (2026-09-16), the
+  compiler-enforced `_` prefix recorded in
+  [`reference/MEMBER_VISIBILITY.md`](reference/MEMBER_VISIBILITY.md).
+- [`archive/WAKER_BASED_SCHEDULING.md`](archive/WAKER_BASED_SCHEDULING.md) —
+  the async scheduling campaign (Waker + `park`, `yield`, `Mutex`, `Channel`,
+  the combinators' cancellation, cross-thread wake, `spawn_blocking`),
+  COMPLETE 2026-09-13.
+
+One-off plans closed 2026-09-17, each with a banner stating what landed:
+
+- [`archive/CI_RUNTIME_REDUCTION.md`](archive/CI_RUNTIME_REDUCTION.md) — the
+  118-minute test.yml critical path; change 1 (shard the long non-required
+  legs, `yo test --shard i/n`) landed widened in #707, change 2 (the Linux
+  legs consuming the shared stage-2 binary) did not.
+- [`archive/INOUT_LOCAL_BINDINGS_AUDIT.md`](archive/INOUT_LOCAL_BINDINGS_AUDIT.md)
+  — implemented (#473 Phase A; #476 Phases B–C + the borrowed `for`); its
+  deliberately-open follow-ups live in the banner.
+- [`archive/PERF_BORROW_ELISION.md`](archive/PERF_BORROW_ELISION.md) — the
+  RC-traffic perf plan, moot in its written form since the TS compiler was
+  retired; kept for its measurement method, remaining levers in
+  `issues/yo-self-compile-performance-rc-string-eq.md`.
+- [`archive/RELEASE_NOTES_v0.2.31_DRAFT.md`](archive/RELEASE_NOTES_v0.2.31_DRAFT.md)
+  — shipped as v0.2.31 (2026-09-12).
 
 Landed designs & decisions (`reference/`) — done but still true. Subsystem
 designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
@@ -136,6 +165,11 @@ designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
 private to the declaring module and its same-directory siblings, error
 E0405; the `priv` marker the doc recommended was rejected as seed-gated
 syntax),
+[`reference/C_INCLUDE_EXTERN_MODULE_VALUE.md`](reference/C_INCLUDE_EXTERN_MODULE_VALUE.md)
+(`c_include(...)`/`extern(...)` evaluate to module values, LANDED #698
+2026-09-15 — the bare statement form is parse-time sugar for the glob, the
+destructurer enforces no-shadowing, and `label : c_type("…")` spells a
+non-identifier C symbol),
 ….
 
 Backlog (`backlog/`) — written, not started. Recent additions:
@@ -162,26 +196,27 @@ of throwing it),
 (why `std/async`'s `timeout` cannot be used from inside a task, and the HTTP
 server keep-alive that blocks on it).
 
-**Language features the std campaign is blocked on** (added 2026-09-10, each
-written from the std row that needs it, with the blocked call sites named):
+**Language features the std campaign was blocked on** (added 2026-09-10, each
+written from the std row that needed it, with the blocked call sites named).
+As of 2026-09-17, three of the four have landed:
 
-- [`WAKER_BASED_SCHEDULING.md`](WAKER_BASED_SCHEDULING.md) — the largest one,
-  and **now active** (moved out of `backlog/` on 2026-09-11). Everything that
-  waits on a peer used to poll a **1 ms timer**, putting a millisecond floor
-  under every hand-off and making `spawn_blocking` inexpressible. The `Waker` +
-  `park` primitive and the async `Mutex` over it have landed; `yield` is
-  seed-gated, `Channel` is blocked on a tracer defect, and the combinators and
-  cross-thread wake are open — the doc's status table says which is which.
+- [`reference/THREAD_LOCAL_STORAGE.md`](reference/THREAD_LOCAL_STORAGE.md) —
+  LANDED 2026-09-17: `thread_local` in #741 (v0.2.36), adopted by
+  `std/rand.yo` in #748 as Rust's `thread_rng`.
+- [`archive/WAKER_BASED_SCHEDULING.md`](archive/WAKER_BASED_SCHEDULING.md) —
+  LANDED 2026-09-13 (the largest one): everything that waits on a peer used
+  to poll a **1 ms timer**, putting a millisecond floor under every hand-off
+  and making `spawn_blocking` inexpressible. The Waker + `park` primitive,
+  `yield`, the async `Mutex` and `Channel`, the combinator cancellation and
+  cross-thread wake + `spawn_blocking` all shipped.
 - [`backlog/ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) —
-  no async analogue of `Iterator`, so four std APIs have each invented their
-  own "value, later, repeatedly" shape. Blocks `TcpListener.incoming`. This
-  one needs **no compiler change**.
+  superseded by the landed
+  [`reference/ASYNC_ITERATION_STREAM.md`](reference/ASYNC_ITERATION_STREAM.md)
+  (the `Stream` trait, 2026-09-11).
 - [`backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md)
-  — an associated constant in a TYPE position (`Array(u8, T.BYTES)`) silently
-  resolves to **0**. Blocks collapsing the ten per-type byte conversions, and
-  `usize`/`isize` having them at all.
-- [`reference/THREAD_LOCAL_STORAGE.md`](reference/THREAD_LOCAL_STORAGE.md) — no
-  thread-local storage, so `rand.thread_rng` is not expressible.
+  — the one still open: an associated constant in a TYPE position
+  (`Array(u8, T.BYTES)`) silently resolves to **0**. Blocks collapsing the
+  ten per-type byte conversions, and `usize`/`isize` having them at all.
 
 Two things measured while writing these, both of which turned out to be
 features Yo already HAS despite comments in the tree saying otherwise:

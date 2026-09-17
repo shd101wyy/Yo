@@ -1,5 +1,10 @@
 # v0.2.31
 
+**SHIPPED 2026-09-12** — archived to `plans/archive/` on 2026-09-17 per the
+instruction below (executed; the GitHub release body is the authoritative
+copy). Renamed to the dotted spelling to match its archived siblings
+(`RELEASE_NOTES_v0.2.26_DRAFT.md`, `RELEASE_NOTES_v0.2.28_DRAFT.md`).
+
 **Draft.** The release workflow fills the GitHub body from the last commit
 message only, so these notes are edited in by hand from this file at publish
 time (same as v0.2.26–v0.2.30). Archive it to `plans/archive/` with a banner
@@ -129,7 +134,7 @@ is what `source` and the operator families were waiting on.
   still holds that operation until it completes: only timers have a cancel
   path so far.
 - `race`/`any` still poll rather than park —
-  `plans/WAKER_BASED_SCHEDULING.md` step 4.
+  `plans/archive/WAKER_BASED_SCHEDULING.md` step 4.
 - D18b (`Thread(T).join() -> T`) is still open. Its three blockers are now
   separately diagnosed and none of them is the spawn lowering that
   `issues/fixed/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`

@@ -1,7 +1,7 @@
 # `&param` inside a GENERIC function emits `/* skip generating value */`
 
 **Status:** OPEN
-**Found:** 2026-09-08, implementing `black_box` for `plans/STD_API_STABILIZATION.md` §4 Core.
+**Found:** 2026-09-08, implementing `black_box` for `plans/archive/STD_API_STABILIZATION.md` §4 Core.
 
 ## Reproducer (8 lines)
 

@@ -88,7 +88,7 @@ diagnostic at minimum.
 type, because the return type is `Array(u8, N)` with `N` the receiver's width.
 With this fixed they become one blanket impl over an associated
 `BYTES : usize`, and `usize`/`isize` can have them at all — today they
-deliberately do not, because (quoting `plans/STD_API_STABILIZATION.md`) "N
+deliberately do not, because (quoting `plans/archive/STD_API_STABILIZATION.md`) "N
 would be the target pointer width and a type-level size cannot be derived the
 way `_USIZE_BITS` derives a value, so hard-coding 8 would be silently wrong on
 wasm32".

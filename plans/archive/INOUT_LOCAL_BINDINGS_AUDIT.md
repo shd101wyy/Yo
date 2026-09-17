@@ -1,5 +1,17 @@
 # `inout` local bindings — feasibility audit
 
+**ARCHIVED 2026-09-17 — IMPLEMENTED, and nowhere else tracks the open
+follow-ups, so the list lives in this banner.** Phase A is PR #473 (merged
+2026-09-07); Phases B and C plus the borrowed `for` are #476 (merged
+2026-09-07) — `tests/ref_local_binding.test.yo` and
+`tests/ref_borrow_invalidation.test.yo` gate them. **Deliberately still
+open, in priority order:** the `Iterable` marker trait (also refuses plain
+`inout(e)` on maps/sets), the compile-time same-variable diagnostic (§8 C4),
+last-use live ranges, a user-facing codegen error channel (the async-body
+rejection still surfaces through `codegen_fatal`'s "internal compiler error"
+wrapper, like the await-position rules). Everything below is the frozen
+audit record.
+
 Status: **IMPLEMENTED 2026-09-07 (Phases A–C, D1, D3)** — decision in §7,
 implementation steps and landing notes in §8, soundness review in §9 (audit
 §1–§6 is the record the decision rests on). Phase A is PR #473; Phases B and
@@ -222,7 +234,7 @@ Two ways to cover (c):
    `__yo_borrow_assert_unborrowed(self)` (it is already a prelude builtin,
    `std/prelude.yo:98`). Precise, cheap (a same-cache-line load and a
    predicted branch), but a *missed* method is a silent UAF, and the std
-   audit (`plans/STD_API_STABILIZATION.md`) is exactly the kind of sweep
+   audit (`plans/archive/STD_API_STABILIZATION.md`) is exactly the kind of sweep
    that would have to enumerate them for eight collections.
 2. **compiler auto-emit from the may-mutate summary** — at entry of every
    method of a type that hands out interior borrows (any type with an
@@ -773,7 +785,7 @@ feature-carrying binary before that.
   reads stay free). Interim, if the auto-emit slips: explicit
   `__yo_borrow_assert_unborrowed(self)` calls at the top of every mutating
   method of the eight collections, enumerated from
-  `plans/STD_API_STABILIZATION.md`'s per-module inventories.
+  `plans/archive/STD_API_STABILIZATION.md`'s per-module inventories.
 - **C6 Tests.** `tests/for_macro_borrow.test.yo` revived for the borrowed
   form: struct elements mutated in place, RC elements with `rc()` constant
   across the loop (no per-element dup), element passed to an `inout` param,

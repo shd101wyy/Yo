@@ -1,7 +1,7 @@
 # Alias dup elision + base reassigned in a nested block = use-after-free (pre-existing, no `inout` involved)
 
 **Status: FIXED (2026-09-07, `inout` local-bindings PR).** Surfaced by the
-Phase B tests of `plans/INOUT_LOCAL_BINDINGS_AUDIT.md` (a pinned object field
+Phase B tests of `plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md` (a pinned object field
 read garbage after its handle was reassigned in an inner block); the minimal
 reproducer has no `inout` at all and crashes under the SEED compiler
 (`yo 0.2.27`).

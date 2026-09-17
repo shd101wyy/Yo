@@ -2,7 +2,7 @@
 
 **Status: FIXED** (2026-09-06, `std/encoding/base64.yo`,
 `std/encoding/error.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 10.
+`plans/archive/STD_API_STABILIZATION.md` §3 item 10.
 
 ## Symptom
 

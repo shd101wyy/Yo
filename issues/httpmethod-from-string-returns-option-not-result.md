@@ -35,4 +35,4 @@ call site in `std/http/http.yo:392` and callers get a reason. Keep the
 demonstrably wants it — the one in-tree caller does not.
 
 Related: the same D1/D12 sweep is still open for the rest of `std/http`
-(`StatusCode`, `HeaderMap` — `plans/STD_API_STABILIZATION.md` §4 I/O).
+(`StatusCode`, `HeaderMap` — `plans/archive/STD_API_STABILIZATION.md` §4 I/O).

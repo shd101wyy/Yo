@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 205 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 214 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -28,15 +28,15 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 13 | 0 |
-| Async / effects | 32 | 11 |
+| Async / effects | 31 | 9 |
 | Codegen / emitted C | 22 | 4 |
-| Evaluator / types | 39 | 8 |
-| Std library | 56 | 16 |
-| Tooling (fmt/doc/lsp) | 16 | 2 |
+| Evaluator / types | 37 | 7 |
+| Std library | 54 | 14 |
+| Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 19 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 5 | 1 |
-| **Total** | **205** | **44** |
+| Other | 20 | 5 |
+| **Total** | **214** | **42** |
 
 ## Cross-cutting buckets
 
@@ -109,12 +109,12 @@ stale reference there, and 'repairing' it reverts someone else's work.
 
 - [`yo-self-async-emission-cluster.md`](./yo-self-async-emission-cluster.md) — 40 KB
 - [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) — 27 KB
+- [`array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md`](./array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md) — 23 KB
 - [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) — 17 KB
 - [`calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md`](./calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md) — 17 KB
 - [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 16 KB
 - [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) — 16 KB
-- [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) — 13 KB
-- [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) — 12 KB
+- [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) — 15 KB
 
 ---
 
@@ -139,7 +139,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (32)
+### Async / effects (31)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -147,16 +147,15 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`](./a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md) | OPEN | — |
 | [`a-closure-typed-slot-never-releases-its-captures.md`](./a-closure-typed-slot-never-releases-its-captures.md) | PARTIALLY FIXED 2026-09-12 | yes |
 | [`a-ref-value-passed-to-an-async-future-is-never-released.md`](./a-ref-value-passed-to-an-async-future-is-never-released.md) | — | yes |
-| [`a-while-in-a-match-arm-with-spawns-still-runs-zero-iterations.md`](./a-while-in-a-match-arm-with-spawns-still-runs-zero-iterations.md) | OPEN — a SECOND defect in the same family, NO | yes |
 | [`async-abort-dispose-double-drops-moved-enum-payload.md`](./async-abort-dispose-double-drops-moved-enum-payload.md) | — | — |
 | [`async-await-nested-if-lost-continuation.md`](./async-await-nested-if-lost-continuation.md) | — | — |
 | [`async-capture-mode-argument-rendering-cluster.md`](./async-capture-mode-argument-rendering-cluster.md) | — | — |
-| [`async-cond-dispatch-skips-chained-sibling-arm.md`](./async-cond-dispatch-skips-chained-sibling-arm.md) | FIXED in the C33 change — `src/codegen/async/ | yes |
 | [`async-cond-value-with-await-arm-inside-while-yields-zero.md`](./async-cond-value-with-await-arm-inside-while-yields-zero.md) | — | — |
 | [`async-cond-value-with-throwing-arm-after-await-undeclared-temp.md`](./async-cond-value-with-throwing-arm-after-await-undeclared-temp.md) | — | — |
 | [`async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`](./async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md) | — | — |
 | [`async-nested-cond-await-duplicate-while-labels.md`](./async-nested-cond-await-duplicate-while-labels.md) | — | — |
 | [`async-postwhile-multiple-await-ifs.md`](./async-postwhile-multiple-await-ifs.md) | OPEN — std uses ONE post-cond awaiting `if` | — |
+| [`async-sm-fn-typed-local-across-suspension.md`](./async-sm-fn-typed-local-across-suspension.md) | — | — |
 | [`async-tail-match-return-hangs-state-machine.md`](./async-tail-match-return-hangs-state-machine.md) | OPEN — std avoids the shape (the | — |
 | [`closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`](./closure-argument-inside-an-io-async-body-loses-the-future-result-type.md) | — | yes |
 | [`command-stdin-windows-pipe-write-blocks-the-event-loop.md`](./command-stdin-windows-pipe-write-blocks-the-event-loop.md) | — | — |
@@ -203,7 +202,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (39)
+### Evaluator / types (37)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -227,7 +226,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`](./dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md) | OPEN | — |
 | [`dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md`](./dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md) | OPEN | — |
 | [`dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`](./dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md) | OPEN | — |
-| [`dyn-selftrait-payload-never-matches-the-named-trait.md`](./dyn-selftrait-payload-never-matches-the-named-trait.md) | OPEN | — |
 | [`env-sharing-live-frame-membership-leak.md`](./env-sharing-live-frame-membership-leak.md) | OPEN — found during the env-sharing implement | — |
 | [`equality-operator-without-an-eq-impl-evaluates-to-unit.md`](./equality-operator-without-an-eq-impl-evaluates-to-unit.md) | — | — |
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | OPEN | — |
@@ -242,12 +240,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`module-level-control-bound-binding-not-rejected.md`](./module-level-control-bound-binding-not-rejected.md) | — | — |
 | [`mutual-recursion-between-a-fn-and-a-trait-impl-body.md`](./mutual-recursion-between-a-fn-and-a-trait-impl-body.md) | — | yes |
 | [`same-operator-chain-of-four-or-more-is-not-left-associative.md`](./same-operator-chain-of-four-or-more-is-not-left-associative.md) | — | — |
-| [`self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`](./self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md) | — | yes |
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | OPEN (deliberate scope boundary, not regressi | — |
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (56)
+### Std library (54)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -257,7 +254,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`cli-repeated-option-yields-the-first-value-and-the-rest-are-unreachable.md`](./cli-repeated-option-yields-the-first-value-and-the-rest-are-unreachable.md) | OPEN | — |
 | [`cli-required-arg-field-is-declared-but-never-enforced.md`](./cli-required-arg-field-is-declared-but-never-enforced.md) | OPEN | — |
 | [`empty-path-redirect-location-drops-the-base-paths-last-segment.md`](./empty-path-redirect-location-drops-the-base-paths-last-segment.md) | — | — |
-| [`error-source-result-cannot-be-held-as-anyerror.md`](./error-source-result-cannot-be-held-as-anyerror.md) | OPEN — blocks `ErrorChain` / `root_cause` | yes |
 | [`file-from-fd-metadata-stats-the-current-directory.md`](./file-from-fd-metadata-stats-the-current-directory.md) | OPEN | — |
 | [`hash-container-capacity-overflow-guard-has-no-regression-test.md`](./hash-container-capacity-overflow-guard-has-no-regression-test.md) | OPEN | — |
 | [`http-client-omits-the-port-from-the-host-header.md`](./http-client-omits-the-port-from-the-host-header.md) | — | — |
@@ -302,20 +298,18 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`string-to-cstr-truncates-at-an-interior-nul.md`](./string-to-cstr-truncates-at-an-interior-nul.md) | OPEN | — |
 | [`sys-signals-macos-numbers-are-linux-values.md`](./sys-signals-macos-numbers-are-linux-values.md) | open | yes |
 | [`tempfile-dispose-and-file-pos-interaction.md`](./tempfile-dispose-and-file-pos-interaction.md) | — | — |
-| [`thread-safety-phase-p-never-landed-but-plan-says-complete.md`](./thread-safety-phase-p-never-landed-but-plan-says-complete.md) | Complete | yes |
 | [`tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md`](./tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md) | PARTIALLY FIXED 2026-09-05 — items 1 (`TlsErr | — |
 | [`url-origin-drops-userinfo-so-redirect-resolution-loses-credentials.md`](./url-origin-drops-userinfo-so-redirect-resolution-loses-credentials.md) | — | — |
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | — | — |
 
-### Tooling (fmt/doc/lsp) (16)
+### Tooling (fmt/doc/lsp) (15)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`](./collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md) | OPEN | — |
 | [`collection-test-names-still-use-pre-rename-method-spellings.md`](./collection-test-names-still-use-pre-rename-method-spellings.md) | OPEN | — |
 | [`diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md`](./diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md) | — | — |
-| [`fixed-async-cond-dispatch-doc-left-in-open-issues-root.md`](./fixed-async-cond-dispatch-doc-left-in-open-issues-root.md) | OPEN | yes |
 | [`fmt-not-idempotent-call-wrapped-match-in-block.md`](./fmt-not-idempotent-call-wrapped-match-in-block.md) | — | yes |
 | [`fmt-pointer-type-paren-verdict-is-context-dependent.md`](./fmt-pointer-type-paren-verdict-is-context-dependent.md) | OPEN | — |
 | [`fmt-reformats-parse-invalid-files.md`](./fmt-reformats-parse-invalid-files.md) | — | — |
@@ -361,12 +355,27 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (5)
+### Other (20)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md`](./fixed/main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md) | FIXED 2026-09-16 — non-`unit` `main` is rejected | cli-case |
+| [`a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md`](./a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md) | OPEN, and narrowed by measurement rather than | — |
+| [`a-function-generic-array-length-breaks-fill.md`](./a-function-generic-array-length-breaks-fill.md) | OPEN | yes |
+| [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
+| [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
+| [`a-two-line-comment-change-in-std-prelude-fails-check-std.md`](./a-two-line-comment-change-in-std-prelude-fails-check-std.md) | OPEN | — |
+| [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | OPEN | — |
+| [`an-extern-opaque-type-unifies-with-every-dyn.md`](./an-extern-opaque-type-unifies-with-every-dyn.md) | OPEN | yes |
+| [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | OPEN | — |
+| [`an-overlapping-blanket-trait-impl-is-silently-dead.md`](./an-overlapping-blanket-trait-impl-is-silently-dead.md) | OPEN | — |
+| [`array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md`](./array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md) | OPEN | yes |
+| [`arraylist-of-a-trait-object-cannot-be-indexed.md`](./arraylist-of-a-trait-object-cannot-be-indexed.md) | open | — |
+| [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
+| [`option-of-a-trait-object-never-emits-its-inherent-methods.md`](./option-of-a-trait-object-never-emits-its-inherent-methods.md) | OPEN | yes |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
 | [`per-def-dependent-trial-resolves-stale-callee.md`](./per-def-dependent-trial-resolves-stale-callee.md) | — | — |
+| [`trait-ids-omit-the-module-so-two-traits-can-share-one-id.md`](./trait-ids-omit-the-module-so-two-traits-can-share-one-id.md) | OPEN | — |
 | [`trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`](./trait-impl-method-contract-clauses-corrupt-operator-dispatch.md) | — | — |
-| [`verifier-decreases-nonneg-is-signed-for-unsigned-measures.md`](./verifier-decreases-nonneg-is-signed-for-unsigned-measures.md) | — | — |
+| [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
+| [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
+| [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | — | — |

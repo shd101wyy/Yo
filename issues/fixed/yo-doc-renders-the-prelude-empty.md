@@ -1,7 +1,7 @@
 # `yo doc` renders `std/prelude.yo` with ZERO members — and two classification defects underneath it
 
 **Found**: 2026-09-11, re-measuring the doc-coverage row of
-`plans/STD_API_STABILIZATION.md` after #589 (the re-export fix) took the
+`plans/archive/STD_API_STABILIZATION.md` after #589 (the re-export fix) took the
 published number from 1554 to 1293 undocumented of 3345. The residue was
 supposed to be trait-impl methods the inheritance pass could not reach; it is
 not. **Class**: a shipped CLI renders the most-read module in the language as
@@ -113,7 +113,7 @@ which is what every module whose evaluation fails renders with.
 Fixing (1) alone publishes 527 prelude members with no docs on 492 of them and
 still no trait donors. Fixing (2) and (3) without (1) changes nothing for
 `std/` — the prelude is the module they are about. The doc-coverage row of
-`plans/STD_API_STABILIZATION.md` is measured on the PUBLISHED number, and this
+`plans/archive/STD_API_STABILIZATION.md` is measured on the PUBLISHED number, and this
 is the gap between that number and the source.
 
 ## Root cause (4), found by measuring the fix: a DERIVED impl is invisible

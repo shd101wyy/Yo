@@ -137,7 +137,7 @@ _inout_place_chain :: (fn(place : AstExpr, hops : ArrayList(_InoutPlaceHop)) -> 
   )
 });
 /// `inout(name) := place;` — bind `name` as a second-class reference to the
-/// storage `place` names (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7, decision 1;
+/// storage `place` names (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7, decision 1;
 /// §8 Phase B).
 ///
 /// Accepted places (the parameter place rule, minus the cross-argument
@@ -516,7 +516,7 @@ evaluate_initialization_assignment :: (
   (is_implicit : bool) = false;
   (actual_lhs : AstExpr) = lhs;
   // `inout(name) := place` — a LOCAL second-class reference binding
-  // (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7–§8, Phase B). Variables and
+  // (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7–§8, Phase B). Variables and
   // field places only; element borrows go through the `for` macro.
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_INOUT, .None), {
     return(_evaluate_inout_local_binding(expr, lhs, rhs, is_compile_time_only, env, ctx, exn));

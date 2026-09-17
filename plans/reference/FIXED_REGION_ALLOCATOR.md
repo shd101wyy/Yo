@@ -62,7 +62,7 @@ globals are still being disposed.
 2. It gives the test suite a **deterministic out-of-memory oracle**. Today OOM is
    unreachable on desktop (overcommit) and untestable; a 256 KiB heap makes it
    an ordinary, reproducible input. This is what makes the std API decision
-   D9 (`push` infallible, `try_push` fallible — `plans/STD_API_STABILIZATION.md`)
+   D9 (`push` infallible, `try_push` fallible — `plans/archive/STD_API_STABILIZATION.md`)
    actually exercisable.
 3. It gives a **portable leak oracle**: an allocator that owns every block can
    report live bytes/blocks at exit, on every target, with no sanitizer. ASan
@@ -408,7 +408,7 @@ are known to be compatible with it.
 5. **std split.** The prelude and the collections need only
    `GlobalAllocator`; `std/libc/*`, `std/fs`, `std/net`, `std/process`,
    `std/env` need an OS. A `cfg(target_os = "none")` profile of std is the
-   large item; `plans/STD_API_STABILIZATION.md` owns the API it would freeze.
+   large item; `plans/archive/STD_API_STABILIZATION.md` owns the API it would freeze.
 6. **Panic output.** `assert`/`panic` and `__yo_alloc_fail` write to stderr
    via stdio; freestanding needs a `__yo_panic_write(const char*, size_t)`
    hook (the same weak-symbol mechanism as §2.5).
@@ -466,7 +466,7 @@ recorded per-file budget", the same ratchet shape as
   default.
 - `plans/reference/PORTABLE_C_DISTRIBUTION.md` — why nothing new joins the
   link line.
-- `plans/STD_API_STABILIZATION.md` — D9 (`push` / `try_push`), the fallible
+- `plans/archive/STD_API_STABILIZATION.md` — D9 (`push` / `try_push`), the fallible
   surface this allocator makes testable.
 - `plans/ROADMAP.md` Phase 5 (targets & ecosystem) — where an embedded target
   would be scheduled.

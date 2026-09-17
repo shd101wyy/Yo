@@ -1,7 +1,7 @@
 # std API audit — the road to a stable, batteries-included standard library
 
 > **CLOSED 2026-09-07 — COMPLETE, and superseded by
-> `plans/STD_API_STABILIZATION.md`.**
+> `plans/archive/STD_API_STABILIZATION.md`.**
 >
 > Every item this file's own status header listed as remaining is done, and was
 > re-verified on 2026-09-07 rather than taken on trust:
@@ -68,8 +68,8 @@ The audit found three kinds of work, in priority order:
 > **2026-09-06 — successor document.** The remaining rows of this audit were
 > re-measured against the code and against Rust; the result — eleven live bugs,
 > decisions D9–D18, the P1 "batteries" list per module group and the phasing to
-> a freeze — is `plans/STD_API_STABILIZATION.md` (raw findings:
-> `plans/STD_API_STABILIZATION_FINDINGS.md`). D1–D8 below remain in force.
+> a freeze — is `plans/archive/STD_API_STABILIZATION.md` (raw findings:
+> `plans/archive/STD_API_STABILIZATION_FINDINGS.md`). D1–D8 below remain in force.
 
 ## 1. Guiding principles (the stability contract)
 

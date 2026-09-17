@@ -70,7 +70,7 @@ exactly that case. Options:
 
 ## Not a blocker for `std/math`
 
-The Yo-level float constants that `plans/STD_API_STABILIZATION.md` §4 asks for
+The Yo-level float constants that `plans/archive/STD_API_STABILIZATION.md` §4 asks for
 (`f64.EPSILON`, `INFINITY`, `NAN`, `PI`) are better written as Yo literals
 anyway — comptime, no header dependency, and
 `issues/fixed/comptime-float-infinity-emits-invalid-c.md` made the non-finite

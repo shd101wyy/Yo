@@ -1,6 +1,10 @@
 # std API stabilization — raw findings by module group (2026-09-06)
 
-Companion to `plans/STD_API_STABILIZATION.md` (the decisions and the ranked list). Every item here was verified by reading the implementation; file:line references are as of develop `e27f253eb`. Known/filed issues were excluded by the auditors and are not repeated.
+**Archived to `plans/archive/` 2026-09-17 alongside its parent
+(`STD_API_STABILIZATION.md`, COMPLETE 2026-09-13).** File:line references
+below are as of develop `e27f253eb` — frozen at their writing date.
+
+Companion to `plans/archive/STD_API_STABILIZATION.md` (the decisions and the ranked list). Every item here was verified by reading the implementation; file:line references are as of develop `e27f253eb`. Known/filed issues were excluded by the auditors and are not repeated.
 
 ---
 
@@ -168,7 +172,7 @@ Companion to `plans/STD_API_STABILIZATION.md` (the decisions and the ranked list
 6. Async parks on 1ms timers: yield awaits IO_timer.sleep(1) unconditionally (async/index.yo:45-49); async/channel send/recv 1ms tick (channel.yo:65,95); async/mutex.lock (mutex.yo:53) → waker/ready-queue primitive (__yo_async_wake); yield = pure poll_step.
 7. async/mutex.with_lock doc claims awaits inside body allowed (mutex.yo:59-61) but body is sync Fn(inout(v) : T) -> R; zero tests for with_lock (tests/async/mutex.test.yo:27-57 only lock/unlock).
 8. Once.call holds raw lock across f() (once.yo:58-64,70-80) citing blocker issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md — FIXED (C20 2026-08-26) → rewrite via Mutex.with_lock.
-9. Raw lock surface public from safe code: Mutex._raw_lock/_raw_unlock/_raw_handle_ptr (mutex.yo:85-93); __YO_THREAD_SYNC_TYPE in export (:107); Phase P privacy never landed (issues/thread-safety-phase-p-never-landed-but-plan-says-complete.md).
+9. Raw lock surface public from safe code: Mutex._raw_lock/_raw_unlock/_raw_handle_ptr (mutex.yo:85-93); __YO_THREAD_SYNC_TYPE in export (:107); Phase P privacy never landed (issues/fixed/thread-safety-phase-p-never-landed-but-plan-says-complete.md).
 10. Missing: thread::scope, Thread current(), available_parallelism (get_hardware_threads), Mutex.try_lock (sync), Condvar wait_timeout/wait_while (cond.yo only wait/signal/broadcast), mpsc recv_timeout/iter/unbounded, RwLock try_read/try_write (only with_read/with_write), LazyLock, AtomicPtr/compare_exchange_weak/fetch_update (atomic.yo:1223-1237), Semaphore permit guard/with_permit, interval, spawn_blocking, select (race returns usize index). WaitGroup.add clamps negative (waitgroup.yo:56-60) vs Go panic.
 11. timeout -> Option(T) conflates timed-out/aborted/Some(None) (async/index.yo:128) → Result(T, Elapsed); consumes handle unlike race/any.
 12. race/any manual contract "await every handle" (index.yo:64-68, 87-90); JoinHandle bare struct(__future : *(T)) no Dispose (prelude.yo:10498-10503) → losers leak → Dispose aborting non-terminal task.

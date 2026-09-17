@@ -39,7 +39,7 @@ a statement about the runtime at all below ~16 ms.
 It had been passing because `yield` was a 1 ms timer: that timer woke the loop
 often enough, and early enough, that a turn frequently landed between the two
 completions. #608 removed the timer (step 2 of
-`plans/WAKER_BASED_SCHEDULING.md`), the extra wakeups went with it, and the
+`plans/archive/WAKER_BASED_SCHEDULING.md`), the extra wakeups went with it, and the
 latent assumption showed. The regression is real — the test genuinely went from
 green to red — but the defect was in the test's premise, not in the yield.
 

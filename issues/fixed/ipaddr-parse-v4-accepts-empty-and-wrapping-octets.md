@@ -1,7 +1,7 @@
 # `IpAddr.parse_v4` accepted empty octets, wrapping octets and leading zeros — three silent wrong values
 
 **Status: FIXED 2026-09-06** (`std/net/addr.yo`). Found by the std API
-stabilization audit (`plans/STD_API_STABILIZATION.md` §3 item 6).
+stabilization audit (`plans/archive/STD_API_STABILIZATION.md` §3 item 6).
 
 **Severity: wrong value.** Not an error that could be caught — a *different
 address*:

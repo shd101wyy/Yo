@@ -1,7 +1,7 @@
 # Handover — std API audit campaign, session ending 2026-09-02
 
 > **ARCHIVED 2026-09-07 — superseded.** Live handover:
-> `plans/HANDOVER_STD_AUDIT_2026-09-07.md`.
+> `plans/archive/HANDOVER_STD_AUDIT_2026-09-07.md`.
 
 Supersedes `plans/archive/HANDOVER_STD_AUDIT_2026-09-01.md` (whose §0/§0a/§0b addenda
 are the detailed log of 09-01 → 09-02 morning; keep it) and, for deep

@@ -1,7 +1,7 @@
 # `fmt.Writer.to_string` aliased the writer's live buffer
 
 **Status: FIXED** (2026-09-06, `std/fmt/writer.yo`). Found by the std API
-audit — `plans/STD_API_STABILIZATION.md` §3 item 12.
+audit — `plans/archive/STD_API_STABILIZATION.md` §3 item 12.
 
 ## Symptom
 

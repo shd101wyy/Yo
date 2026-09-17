@@ -2,7 +2,7 @@
 /// `for` macro runtime coverage — the value form `for(coll, (x) => body)`
 /// across `Array(T, N)`, `ArrayList(T)`, `String`, and range copies, and the
 /// BORROWED form `for(coll, inout(x) => body)` / `for(map, (k, inout(v)) => body)`
-/// (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7 decision 2): the collection is
+/// (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7 decision 2): the collection is
 /// pinned and its runtime borrow flag held for the loop; each element is an
 /// `inout` local into the collection's storage (no per-element dup, in-place
 /// mutation). A container operation that could invalidate the element
@@ -491,7 +491,7 @@ test("borrowed for: read-only methods with typed local declarations do not trip 
   assert(seen == i32(8), "a user method with a typed local inside the borrowed body");
 });
 // The invalidation assert is decided PER PARAMETER from where each mutated
-// value's storage lives (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §9, third pass):
+// value's storage lives (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §9, third pass):
 // a method that mutates only storage it allocated itself (`clone` pushing into
 // its result), or an iterator's own cursor while walking the collection, does
 // not mutate the collection and carries no assert. A method that makes fresh

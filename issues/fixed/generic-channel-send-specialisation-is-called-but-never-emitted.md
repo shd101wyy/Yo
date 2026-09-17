@@ -1,7 +1,7 @@
 # `Channel(T).send` at `T = unit` is CALLED from a spawn closure and never emitted
 
 **Found**: 2026-09-12, working D18b (`Thread(T).spawn` carrying its result,
-`plans/STD_API_STABILIZATION.md` §2 D18). **Class**: a specialization that the
+`plans/archive/STD_API_STABILIZATION.md` §2 D18). **Class**: a specialization that the
 call site emits a call to and the collector never registers, so the C has a
 call with no declaration. **Status**: **FIXED 2026-09-12.** Red-first regression tests in
 `tests/thread.test.yo` ("Thread spawn relaying a generic callback's result at
@@ -73,7 +73,7 @@ call site binding a `void`-returning closure call to a `void*` temp — is fixed
 and fixing it is what made this one legible: before, the argument was a
 `void*` temp of a broken declaration, and the call's shape said nothing.
 
-`plans/STD_API_STABILIZATION.md` D18b names a THIRD blocker, independent of
+`plans/archive/STD_API_STABILIZATION.md` D18b names a THIRD blocker, independent of
 both: `_capture_judgement_type` resolves a captured closure to its capture
 STRUCT and then rejects it as not `Send`. D18b needs all three.
 

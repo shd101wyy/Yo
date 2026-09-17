@@ -1,7 +1,7 @@
 # `ArrayList.retain` was O(n²) with an allocation per rejected element
 
 **Status: FIXED** (2026-09-06, `std/collections/array_list.yo`). Found by the
-std API audit — `plans/STD_API_STABILIZATION.md` §3 item 14.
+std API audit — `plans/archive/STD_API_STABILIZATION.md` §3 item 14.
 
 ## Symptom
 

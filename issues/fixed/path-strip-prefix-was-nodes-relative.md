@@ -1,7 +1,7 @@
 # `Path.strip_prefix` was node's `path.relative` under Rust's name
 
 **Status: FIXED** (2026-09-06, `std/path.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 8.
+`plans/archive/STD_API_STABILIZATION.md` §3 item 8.
 
 ## Symptom
 

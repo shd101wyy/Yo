@@ -1,7 +1,7 @@
 # `return(m)` of an `inout` parameter inside a nested block emits a self-dereferencing shadow
 
 **Status: FIXED (2026-09-07, `inout` local-bindings PR).** Surfaced by the
-Phase B tests of `plans/INOUT_LOCAL_BINDINGS_AUDIT.md`: the first `return`
+Phase B tests of `plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md`: the first `return`
 of an `inout` LOCAL from inside an `if` failed to compile, and the minimal
 reproducer showed an `inout` PARAMETER has had the same bug all along.
 

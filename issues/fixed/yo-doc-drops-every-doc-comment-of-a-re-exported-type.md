@@ -71,7 +71,7 @@ they have one because #579 inherits it from the `Format` TRAIT, not because
 their own comment was found.
 
 This also makes the campaign's docs row meaningless as written:
-`plans/STD_API_STABILIZATION.md` reports "479 undocumented members" from a
+`plans/archive/STD_API_STABILIZATION.md` reports "479 undocumented members" from a
 SOURCE grep for `///`, while what `yo doc` publishes is 1554 — the difference is
 almost entirely this bug, not missing comments. A doc sweep aimed at that 479
 would write comments that `yo doc` then discards.

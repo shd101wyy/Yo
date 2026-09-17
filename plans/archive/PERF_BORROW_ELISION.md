@@ -1,5 +1,19 @@
 # Perf: cutting RC traffic in the self-compile (the 55→15 min arc)
 
+**ARCHIVED 2026-09-17 — MOOT in its written form.** This plan predates the
+P2.5 retirement (2026-08-20): its two-compiler framing, its
+`match.ts`/`helper.ts:411` line references, its `yo-cli` /
+`compiler-utils.ts:96` / `scratchpad/` harness and its Guard Malloc gate all
+describe the deleted TS-compiler world, frozen at tag `src-attic-final`.
+Levers 1, 3 and 4 below landed before the retirement. The remaining levers —
+the `_attach_early_return_only_drop_to_returns` algorithmic fix and the
+allocation-churn/interning item — live on in
+`issues/yo-self-compile-performance-rc-string-eq.md` (still open) against the
+single self-hosted compiler, alongside the latency levers of
+`plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md`. Kept for the method notes:
+the RC-traffic attribution table and the patch-the-emitted-`.c` measurement
+loop. _The stale status line below is the frozen 2026-08-08 state._
+
 _Status: IN PROGRESS. Measurements + method:
 `issues/yo-self-compile-performance-rc-string-eq.md`._
 

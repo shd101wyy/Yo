@@ -1,11 +1,21 @@
 # Handover — 2026-09-15, FORMAL_VERIFICATION campaign: V6 tasks 1+2(slice)+4 LANDED; #695 + #697 OPEN (task 5 slice 1); tasks 2(abstract)/3/5(slice 2)/6 remain
 
-**Status: LIVE INSTRUCTIONS (updated at the session-3 handoff, 2026-09-15
+**Status: CLOSED 2026-09-17 — everything this handover handed over has
+landed.** §0's two open PRs merged the same day: #695 (2026-09-15 09:20 UTC)
+and #697 (2026-09-15 14:16 UTC). The frontier it called "remaining" resolved
+within a day: task 5 slice 2 (#713), task 6 (#726), task 3 slice 2 `RefineT`
+(#727) and task 2's abstract half (#745) are all merged; the live frontier is
+#753 (task 3 slice 3) plus the per-slice banners in
+`plans/backlog/FORMAL_VERIFICATION.md` — the campaign's authoritative record,
+which is where live state lives now. Everything below is the frozen
+2026-09-15 state.
+
+**Was: LIVE INSTRUCTIONS (updated at the session-3 handoff, 2026-09-15
 late).** Written for the agent taking over the
 `plans/backlog/FORMAL_VERIFICATION.md` campaign ("finish everything in
 the plan; document and fix surfaced bugs; no workarounds; stacked PRs fine").
 Everything below is measured or names the PR/run it came from; beliefs are
-labelled as such. Supersedes `plans/HANDOVER_2026-09-14_FV_V6_TASK1.md`
+labelled as such. Supersedes `plans/archive/HANDOVER_2026-09-14_FV_V6_TASK1.md`
 (marked SUPERSEDED in its header; its §3–§5 are historical).
 
 **The one-line state:** V1–V5 complete; V6 task 1 (trait variance +

@@ -3,7 +3,7 @@
 > **CLOSED 2026-09-07 — the campaign it hands over
 > (`plans/archive/STD_API_AUDIT.md`) is complete.** Its method notes — the
 > battery script, the measurement traps, the "re-measure before executing"
-> rule — were carried into `plans/HANDOVER_STD_AUDIT_2026-09-07.md`, which is
+> rule — were carried into `plans/archive/HANDOVER_STD_AUDIT_2026-09-07.md`, which is
 > the live handover.
 
 **Written 2026-08-26.** Hand-off of the `plans/archive/STD_API_AUDIT.md` campaign. Read

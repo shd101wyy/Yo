@@ -1,9 +1,22 @@
 # Thread Safety by Default
 
+**ARCHIVED 2026-09-17 — COMPLETE: all 14 phases landed.** The last one, Phase
+P (field visibility), landed 2026-09-16 as #716: `_`-prefixed fields AND
+methods are private to the declaring module and its same-directory siblings,
+ENFORCED by the compiler (E0405 `E_PRIVATE_MEMBER` in `src/diagnostics.yo`;
+`tests/field_visibility.test.yo`). The design record is
+`plans/reference/MEMBER_VISIBILITY.md` — the `priv` marker alternative was
+rejected as seed-gated syntax, and the sibling rule (module-private +
+same-directory siblings, not file-private) is what landed instead of this
+doc's file-private spelling. The "13 of 14 … Phase P NEVER LANDED" header
+below is the frozen 2026-08-25 state, and
+`issues/fixed/thread-safety-phase-p-never-landed-but-plan-says-complete.md`
+is its resolution record. Vector 27 is closed for real.
+
 **Status:** 13 of 14 phases implemented. **Phase P (field visibility) NEVER
 LANDED** — `_`-prefixed fields are file-private by CONVENTION ONLY, verified
 2026-08-25: a file outside `std/sync` reads `mutex._value` and `yo check` passes
-(issues/thread-safety-phase-p-never-landed-but-plan-says-complete.md, with a
+(issues/fixed/thread-safety-phase-p-never-landed-but-plan-says-complete.md, with a
 reproducer). This document previously said "Complete. All 14 phases
 implemented", and vector 27 below is still marked closed BY Phase P — it is
 open.
@@ -126,7 +139,7 @@ Every concrete way user or compiler-emitted code could cause a race, paired with
 | 24  | `extern "c"` function called from multiple threads (race in C code)                                                     | Out of user-code scope. Pragma'd `extern("c", ...)` carries the audit burden, same as memory-safety pass. **Phase G** doc note.                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 25  | Direct write to a field of an `atomic object` (`arc.* = ...`, `myarc._inner = ...`)                                     | **Phase O (new structural rule).** Yo today allows aliased object-field writes (share-by-reference semantics) — empirically verified: `arc.* = (arc.* + 1)` compiles and races at runtime. Phase O rejects any assignment whose LHS root is a value of `atomic object` type, in safe code. Forces composition with `AtomicX`/`Mutex`/`RwLock`. Pragma'd code bypasses (that's how `std/sync/mutex.yo` mutates internal Mutex state).                                                                                                      |
 | 26  | Passing an atomic-object field as `ref(T)` / `inout` to a function (callee writes through it)                           | **Phase O.** Same lexical rule extended to call sites: an argument expression whose root binding has `atomic object` type cannot be passed to a `ref(T)` / `inout` parameter in safe code. (Inside a `with_lock` closure body, the user's `v` parameter has type `ref(T)` whose root is `v`, not an atomic-object binding — so writes through `v` are allowed. The pragma'd primitive vouches that `v` points into a synchronized location.)                                                                                              |
-| 27  | **OPEN (2026-08-25)** — Unsynchronized **read** of an atomic-object's interior field (`mutex._value` racing with `with_lock`'s pragma'd writer). Phase P NEVER LANDED, so this row's "closed" verdict below never took effect; `_`-prefix is convention only and a safe user file can read the interior today. See issues/thread-safety-phase-p-never-landed-but-plan-says-complete.md. Original plan: | **Phase P** (field visibility). Closed by promoting `_`-prefix to enforced file-private: `mutex._value` in user code becomes a compile error because the field is defined in `std/sync/mutex.yo`, not the user's file. Pragma-audited Mutex methods (same file) still access `_value` freely after acquiring the lock. This is Yo's structural equivalent of Rust's private `value: UnsafeCell<T>` field on `Mutex<T>`. Phase O (the write rule) is uniform across all field names; Phase P is what closes the _read_ side of the bypass. |
+| 27  | **OPEN (2026-08-25)** — Unsynchronized **read** of an atomic-object's interior field (`mutex._value` racing with `with_lock`'s pragma'd writer). Phase P NEVER LANDED, so this row's "closed" verdict below never took effect; `_`-prefix is convention only and a safe user file can read the interior today. See issues/fixed/thread-safety-phase-p-never-landed-but-plan-says-complete.md. Original plan: | **Phase P** (field visibility). Closed by promoting `_`-prefix to enforced file-private: `mutex._value` in user code becomes a compile error because the field is defined in `std/sync/mutex.yo`, not the user's file. Pragma-audited Mutex methods (same file) still access `_value` freely after acquiring the lock. This is Yo's structural equivalent of Rust's private `value: UnsafeCell<T>` field on `Mutex<T>`. Phase O (the write rule) is uniform across all field names; Phase P is what closes the _read_ side of the bypass. |
 
 ## What's already in place (audit summary)
 
@@ -504,7 +517,7 @@ Four tightenings. The first three close the runtime/discipline risks listed in "
   // which atomically verifies rc == 1 before returning. If you add any new
   // method to Iso(T) that touches the inner T (map, peek, read, &self
   // borrow, etc.), this Send claim becomes unsound and must be revoked.
-  // See plans/THREAD_SAFETY.md "Iso(T) design notes — precedent and known
+  // See plans/archive/THREAD_SAFETY.md "Iso(T) design notes — precedent and known
   // risks" for the full argument.
   ```
 - Add a `tests/iso_api_surface.test.yo` pin test that uses `comptime_assert` to verify the exact set of `Iso(T)` public methods (constructor, `extract`, plus any others currently public). Any future PR that adds a method to Iso will fail this test, forcing the author to read the SAFETY block and consciously decide whether the addition preserves the invariant.

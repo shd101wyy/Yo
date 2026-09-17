@@ -42,7 +42,7 @@ test would have gone rather than leaving a silent hole.
 
 ## The same point, already in the plan
 
-`plans/STD_API_STABILIZATION.md` §4 Concurrency asks that
+`plans/archive/STD_API_STABILIZATION.md` §4 Concurrency asks that
 `async/mutex.with_lock` *"either takes an `io` (so its doc claim becomes true)
 or drops the claim"*. This is that item, generalised: it applies to the
 blocking `Mutex.with_lock` too, and to any future `with_*` helper taking a

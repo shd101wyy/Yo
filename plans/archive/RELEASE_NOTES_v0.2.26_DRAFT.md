@@ -33,7 +33,7 @@ made them look untestable turned out to be a blocking `accept()`.
   `malloc(0)` then `realloc(p, 0)` — which frees `p` and returns NULL on glibc
   and the Windows CRT.
 
-- **std API stabilization, P0 sweep** (`plans/STD_API_STABILIZATION.md`,
+- **std API stabilization, P0 sweep** (`plans/archive/STD_API_STABILIZATION.md`,
   #444–#456). These follow Rust's shapes and change signatures:
   - `Path.strip_prefix(base)` is now Rust's: `Option(Path)` — the remainder when
     `base` is a segment-wise prefix, `.None` otherwise. The old behaviour
