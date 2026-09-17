@@ -1310,11 +1310,26 @@ emit_thread_local_accessors :: (
       module_vars.get(ai),
       .Some(mv) => if(mv.is_thread_local, {
         linkage := if(context.base.chunk_mode, String.new(), String.from("static "));
+        // The initializer runs in its OWN `void` helper, exactly as
+        // `__yo_main_module_init` does and for exactly the same reason: an
+        // EFFECTFUL initializer emits a bare `return;`, which is valid in a
+        // void function and not in the accessor, which returns a pointer.
+        //
+        // Emitting it inline gave
+        //   error: non-void function '..._tl_get' should return a value
+        // the first time std used the feature with a function call in the
+        // initializer (std/rand's per-thread generator). The module-init path
+        // documents this constraint — "a `void` helper so an effectful
+        // initializer's `return;` is valid" — and the accessor was written
+        // from that code without carrying the reason across.
+        em.emit_string_line(`${linkage}void ${mv.c_var_name}__tl_init_fn(void) {`);
+        rhs_code := _call_generate_expr(mv.rhs, String.from("  "), context);
+        em.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);
+        em.emit_string_line(String.from("}"));
         em.emit_string_line(`${linkage}${mv.c_type_str}* ${mv.c_var_name}__tl_get(void) {`);
         em.emit_string_line(`  if (!${mv.c_var_name}__tl_init) {`);
         em.emit_string_line(`    ${mv.c_var_name}__tl_init = true;`);
-        rhs_code := _call_generate_expr(mv.rhs, String.from("    "), context);
-        em.emit_string_line(`    ${mv.c_var_name} = ${rhs_code};`);
+        em.emit_string_line(`    ${mv.c_var_name}__tl_init_fn();`);
         em.emit_string_line(String.from("  }"));
         em.emit_string_line(`  return &${mv.c_var_name};`);
         em.emit_string_line(String.from("}"));

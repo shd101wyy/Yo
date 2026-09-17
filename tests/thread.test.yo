@@ -315,6 +315,15 @@ test("Thread spawn relaying a generic callback's result at T = i32", {
 // The INFERRED form, which takes a different evaluator path
 // (initialization_assignment.yo) and so needs its own coverage.
 thread_local(_tl_inferred) := i32(0);
+// An EFFECTFUL initializer — a function call, not a literal. This is the case
+// that broke when std became the feature's first adopter: the initializer
+// became the body of the pointer-returning accessor, an effectful one emits a
+// bare `return;`, and clang rejected it with
+//   error: non-void function '..._tl_get' should return a value
+// The initializer now runs in its own `void` helper, as __yo_main_module_init
+// already did for the same reason.
+_tl_seed_value :: (fn() -> i32)(i32(20) + i32(2));
+thread_local(_tl_from_call) := _tl_seed_value();
 // A thread-local cannot hold a reference-counted value: the C11 thread-local
 // storage it lowers to has no destructor hook, so each thread's instance would
 // leak. The declaration is refused rather than silently leaked.
@@ -347,6 +356,14 @@ test("Test a thread-local gives each thread its own instance", {
   });
   t3.join();
   assert(_tl_inferred == i32(3), "and the main thread keeps its own");
+  // The effectful-initializer thread-local: same per-thread guarantee.
+  assert(_tl_from_call == i32(22), "an effectful initializer runs and yields its value");
+  _tl_from_call = (_tl_from_call + i32(1));
+  t4 := Thread(unit).spawn(io => {
+    assert(_tl_from_call == i32(22), "a spawned thread runs the initializer itself");
+  });
+  t4.join();
+  assert(_tl_from_call == i32(23), "and the main thread keeps its own instance");
 });
 test("Test a thread-local is rejected outside module level", {
   comptime_expect_error((thread_local(_tl_inner) : i32) = i32(0));
