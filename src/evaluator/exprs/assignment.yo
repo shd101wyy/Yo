@@ -312,62 +312,56 @@ evaluate_assignment :: (
   // -----------------------------------------------------------------------
   // Determine branch: atom LHS, typed-binding LHS, or property/index LHS
   // -----------------------------------------------------------------------
-  // `thread_local(name : T) = init;` — a module-level thread-local. This is
-  // NOT a new parser form: the grammar already accepts an assignment whose
-  // LHS is a call, so the declaration reaches here as a FnCall headed by the
-  // atom `thread_local` wrapping a single `:` pair. Unwrap it to that pair so
-  // it reuses the typed-binding path below EXACTLY — the only differences a
-  // thread-local has are the two checks and the registry call after the
-  // binding, and its codegen lowering
+  // `(thread_local(name) : T) = init;` — a module-level thread-local. The
+  // modifier wraps the NAME, exactly as `comptime(v) : i32` does for a
+  // parameter; it is not a wrapper around the whole binding.
+  //
+  // NOT a new parser form: the LHS is already an ordinary `:` pair whose name
+  // position happens to be a call, which the grammar accepts. So the work is
+  // to STRIP the modifier here and let the typed-binding path below run
+  // unchanged, with the registry alone carrying the thread-local-ness
   // (plans/backlog/THREAD_LOCAL_STORAGE.md).
   //
-  // Without the unwrap it matches neither `is_atom_lhs` nor
-  // `is_typed_binding_lhs`, falls into the property/index branch, and the
-  // head atom is evaluated — which is why the form reported
-  // `error[E0401]: Variable "thread_local" not found` before this existed.
+  // Stripping rewrites the AST, not just a local: `anonymous_module.yo`
+  // records a module-level init only when the `=` LHS is a `:` pair whose own
+  // LHS is an ATOM, and `_module_init_var_atom` (codegen) resolves the declared
+  // atom the same way. Measured 2026-09-17 on the earlier spelling: rebinding
+  // only the local left reads substituted to `(*name__tl_get())` with nothing
+  // declaring them, and clang reported "indirection requires pointer operand
+  // ('int' invalid)". Rebinding one variable is not the same as rewriting the
+  // tree.
   (is_thread_local_lhs : bool) = false;
-  if(ast_expr_is_fn_call_of(lhs, BK_THREAD_LOCAL, .Some(usize(1))), {
-    tl_inner := match(
+  if(ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))), {
+    tl_name_pos := match(
       lhs,
-      .FnCall(_, _, tl_args, _, _) => match(tl_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .FnCall(_, _, tl_cargs, _, _) => match(tl_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
-    if(!ast_expr_is_fn_call_of(tl_inner, BK_COLON, .Some(usize(2))), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(lhs),
-            `A thread-local declaration needs a typed binding and an initializer: "thread_local(name : T) = init;".`
+    if(ast_expr_is_fn_call_of(tl_name_pos, BK_THREAD_LOCAL, .Some(usize(1))), {
+      tl_atom := match(
+        tl_name_pos,
+        .FnCall(_, _, tl_margs, _, _) => match(tl_margs.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+        .Atom(_, _) => make_err_expr()
+      );
+      if(!ast_expr_is_atom(tl_atom), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(tl_name_pos),
+              `"thread_local" takes the variable NAME: write "(thread_local(name) : T) = init;" or "thread_local(name) := init;".`
+            )
           )
-        )
+        );
+      });
+      is_thread_local_lhs = true;
+      match(
+        lhs,
+        .FnCall(_, _, tl_cargs2, _, _) => {
+          tl_cargs2(usize(0)) = tl_atom;
+        },
+        .Atom(_, _) => ()
       );
     });
-    is_thread_local_lhs = true;
-    lhs = tl_inner;
-    // Rewrite the `=` node's LHS in the AST too, not just this local. Every
-    // DOWNSTREAM consumer matches on the shape and must see an ordinary
-    // `(name : T) = init` typed binding, with the registry alone carrying the
-    // thread-local-ness:
-    //
-    //   - `anonymous_module.yo` records a module-level init expr only when the
-    //     `=` LHS is a `:` pair, so without this the declaration is never
-    //     recorded;
-    //   - `_module_init_var_atom` (codegen/functions/generation.yo) resolves
-    //     the declared atom the same way, so the storage, the init flag and the
-    //     accessor are never EMITTED.
-    //
-    // Measured 2026-09-17: with only the local rebound, reads were substituted
-    // to `(*name__tl_get())` while nothing declared it — clang then reported
-    // "indirection requires pointer operand ('int' invalid)" against an
-    // implicitly-declared accessor. Rebinding one variable is not the same as
-    // rewriting the tree.
-    match(
-      expr,
-      .FnCall(_, _, tl_outer_args, _, _) => {
-        tl_outer_args(usize(0)) = tl_inner;
-      },
-      .Atom(_, _) => ()
-    );
   });
   is_atom_lhs := ast_expr_is_atom(lhs);
   is_typed_binding_lhs := (ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))));
