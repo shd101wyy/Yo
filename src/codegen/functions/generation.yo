@@ -883,6 +883,23 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         // former char-indexed `substring(0, stub_mark)` — stub_mark_b was taken
         // at the same buffer position.
         pb := em.code.as_bytes();
+        if(gen_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+          // The rewrite below TRUNCATES the body at the marker, destroying the
+          // evidence of WHICH expression failed — print a window AROUND the
+          // marker here (the warm in-process campaign's FTT triage probe).
+          mk_win := ArrayList(u8).new();
+          (mw : usize) = if(stub_mark_b > usize(80), stub_mark_b - usize(80), usize(0));
+          (mw_end : usize) = (stub_mark_b + usize(320));
+          while((mw < mw_end) && (mw < pb.len()), {
+            match(
+              pb.get(mw),
+              .Some(mwb) => mk_win.push(mwb),
+              .None => ()
+            );
+            mw = (mw + usize(1));
+          });
+          eprintln(`[fttstub] fn=${c_function_name.clone()} at=${stub_mark_b.to_string()} marker=${String.from_bytes(mk_win)}`);
+        });
         prefix_bytes := ArrayList(u8).new();
         (pi : usize) = usize(0);
         while(pi < stub_mark_b, {

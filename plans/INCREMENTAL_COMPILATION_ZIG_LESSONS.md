@@ -666,10 +666,22 @@ Design:
    trait registries. Gate: two consecutive in-process `run_compile`s of
    `src/main.yo` produce `cmp`-identical C with zero FTT markers — this is
    the 47-stub experiment re-run, and it must be zero, not "fewer".
+   **LANDED 2026-09-13..17 (#711, #723, #743, #747 + the §7-step-2 close):
+   the gate is `scripts/bootstrap/warm_compile_gate.sh` (three fixtures,
+   byte-identical, 0 FTT, must_pass ratchet) and it is green; the layered
+   fixes — emission/identity counter split, dispose-trio re-insertion,
+   the Self capture, the two universe wipes, the build-eval shared table —
+   are recorded in issues/warm-compile-selfcheck.md.**
 2. **`yo build --watch` compiles in-process.** Today each round shells out
    per artifact; after (1) the artifact compile is a function call against
    the warm module cache, and the Phase A stamp still decides whether an
    artifact needs it at all. The `cc` leg stays a child process.
+   **LANDED 2026-09-17 (the §7-step-2 close): watch rounds compile
+   artifacts in-process by default (no env gate); an edit round recompiles
+   with zero new module loads (measured on the watch probe); the `cc` leg
+   and non-watch builds keep the child-process spawn. The build-file
+   evaluation now shares mm's ExprInfoTable so its specializations are
+   emittable by the artifact compiles.**
 3. **`yo test` batches compile in-process under one evaluator.** This is
    the largest wall-clock consumer in the repo (22 min for
    `tests/internal`; every batch re-evaluates prelude + std). After (1)
