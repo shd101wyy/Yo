@@ -3087,7 +3087,19 @@ run_build :: (
       .None => ()
     );
     project_name := match(manifest_opt, .Some(m) => m.name.clone(), .None => String.new());
-    mm_reset();
+    // §7 step 2: a watch round's artifact compiles run IN PROCESS against
+    // this exact universe — the build-file evaluation's module cache, prelude
+    // env and shared ExprInfoTable are what they REUSE. Resetting here (the
+    // once-per-build hygiene for CHILD-process compiles and repeated
+    // in-process run_build calls) emptied the cache before every artifact
+    // compile: each one then re-imported and RE-EVALUATED the whole std
+    // closure (fresh struct shells that no longer unify with the surviving
+    // registries' instances — "Cannot unify incompatible struct types:
+    // struct_r28c4_n50 and ArrayList(u8)",
+    // issues/warm-compile-selfcheck.md failure-modes item 1).
+    if(!(options.watch_in_process), {
+      mm_reset();
+    });
     // Resolve system libraries per-artifact via pkg-config
     // (build-runner.ts:234-275). Each artifact only gets flags for libraries
     // it explicitly linked; wasm targets skip host pkg-config/vcpkg (paths

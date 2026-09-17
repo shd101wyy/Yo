@@ -129,3 +129,14 @@ and "ArrayList(u8)"` — item 1 of issues/warm-compile-selfcheck.md's
 failure-modes list (the type-intern/SomeT identity tables outliving the
 compile they were minted in). The un-gate of YO_BUILD_IN_PROCESS stays gated
 on that fix.
+
+**Postscript (same day):** the "next blocker" named above — the
+`struct_r28c4_n50` vs `ArrayList(u8)` unify — fell to the SAME root cause
+family, not to type-intern surgery: `run_build` called `mm_reset()` between
+the build-file evaluation and the artifact compiles, so each in-process
+compile re-evaluated the std closure from an empty cache. Gating that reset
+on `!(options.watch_in_process)` made the compile's imports all cache hits
+and the evaluation complete; the round now reaches the C compiler, where the
+current blocker is FTT stubs for specializations minted by the (codegen-less)
+build-file evaluation — see issues/warm-compile-selfcheck.md's CURRENT
+blocker note.
