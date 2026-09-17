@@ -407,3 +407,25 @@ test("Test the array lengths that DO work are unaffected", {
   assert(sum_all(Array(i32, usize(3))(1, 2, 3)) == 6, "a generic length parameter still binds");
   assert(sum_all(Array(i32, usize(2))(10, 20)) == 30, "at more than one width");
 });
+test("Test fill still accepts every compile-time known argument", {
+  // The NEGATIVE case — `fill(i32.default())` — is NOT tested here because it
+  // is not fixed: it compiles rc=0 and aborts at run time. Three candidate
+  // interception points have been measured and eliminated; see
+  // issues/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md.
+  // These positives exist so that whichever fix lands cannot be widened into
+  // the shapes that must keep working.
+  // The literal conversion that the rejection must not catch.
+  a := Array(i32, usize(3)).fill(i32(0));
+  assert(a.len() == 3, "a literal fill value still builds the array");
+  assert(a(usize(0)) == 0, "and the elements are the fill value");
+  // A named comptime constant.
+  k :: i32(7);
+  b := Array(i32, usize(2)).fill(k);
+  assert(b(usize(1)) == 7, "a comptime constant is a legal fill value");
+  // Through a generic, which is the path the def-time trial must keep soft:
+  // at trial time `T` is unbound, and the trial must not hard-fail.
+  g :: (fn(generic(T : Type), x : T, where(T <: Comptime)) -> Array(T, usize(3)))(
+    Array(T, usize(3)).fill(T(0))
+  );
+  assert(g(i32(1)).len() == 3, "a generic fill with a comptime value still specializes");
+});

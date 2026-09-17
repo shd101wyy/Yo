@@ -1,0 +1,35 @@
+{ println } :: import("std/fmt");
+// `Array(T, N).fill` is `fill : (fn(comptime(val) : T) -> comptime(Self))` — it
+// builds the whole array at COMPILE time, so its argument must be compile-time
+// known. `i32.default()` is an ordinary run-time call
+// (`impl(i32, Default(default : (fn() -> Self)(i32(0))))` declares a plain
+// `fn`), so passing it is a genuine user error.
+//
+// Before the fix that error was never reported: a run-time value arrives as
+// `.Some(UnknownVal)` rather than `.None`, sailing past the "compile-time
+// known" guard into the arm that manufactures an `UnknownVal` for the whole
+// array. The definition's evaluation was then swallowed and the program
+// aborted at RUN time out of a binary that compiled rc=0.
+//
+// Generics are NOT involved — that was the original mis-diagnosis. The
+// variable is literal-versus-call.
+// WORKS: a compile-time known fill value.
+ok :: (fn() -> Array(i32, usize(3)))(Array(i32, usize(3)).fill(i32(0)));
+// WORKS: a generic fill with a comptime value — the def-time trial sees an
+// unbound `T` here, so the rejection must stay SOFT inside a trial or this
+// stops specializing.
+ok_generic :: (fn(generic(T : Type), x : T, where(T <: Comptime)) -> Array(T, usize(3)))(
+  Array(T, usize(3)).fill(T(0))
+);
+// REJECTED (was: abort stub at run time). Uncomment to see the diagnostic.
+//   broken :: (fn() -> Array(i32, usize(3)))(Array(i32, usize(3)).fill(i32.default()));
+//
+// The same shape through a plain user function fails identically, which is
+// what shows the trait is irrelevant:
+//   z :: (fn() -> i32)(i32(0));
+//   broken2 :: (fn() -> Array(i32, usize(3)))(Array(i32, usize(3)).fill(z()));
+main :: (fn() -> unit)({
+  println(`${ok().len()}`);
+  println(`${ok_generic(i32(0)).len()}`);
+});
+export(main);
