@@ -1187,6 +1187,29 @@ ${ast_expr_to_string(actual_arg)}`
       .None => ()
     );
   });
+  // Instrumentation for issues/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md
+  // (and #735/#738): does an unknown argument bound to a `comptime(...)`
+  // parameter reach THIS site, for BOTH reproducers?
+  //
+  // ANSWERED 2026-09-17: NO, for either. `label=val` (fill's parameter) and
+  // `label=v` (the comptime-param case's) appear ZERO times in all four logs,
+  // the working controls included — so comptime parameters do not pass through
+  // this function at all, and this site is eliminated.
+  // `fill(i32.default())` (comptime-returning callee) and
+  // `c(i32.default())` where `c :: (fn(comptime(v) : i32) -> i32)` (ordinary
+  // callee) are known to diverge at the unknown-arg gate in comptime_fn.yo:
+  // `fill` reaches it, `c` does not (measured, empty set difference). If both
+  // reach this binding site the defect has ONE interception point; if only one
+  // does, they are two defects and need two.
+  // The LABEL is printed because the fid is not in scope here — `val` is
+  // fill's parameter and `v` is c's, so the label distinguishes them.
+  if(match(helper_dbg_env.get(`YO_DEBUG_CTPARAM`), .Some(cpd) => (cpd.len() > usize(0)), .None => false), {
+    cp_unknown := match(arg_value, .Some(av) => is_unknown_val(av), .None => false);
+    cp_none := arg_value.is_none();
+    eprintln(
+      `[ctparam] label=${param_label} ct_only=${is_ct_only.to_string()} arg_unknown=${cp_unknown.to_string()} arg_none=${cp_none.to_string()} trial=${in_def_time_trial().to_string()} ptype=${type_to_string(final_pt)} atype=${type_to_string(arg_type)}`
+    );
+  });
   CheckParamResult(
     callee_env : callee_env_r,
     caller_env : caller_env_r,

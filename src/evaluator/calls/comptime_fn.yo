@@ -861,6 +861,17 @@ evaluate_comptime_fn_call :: (
       uai = (uai + usize(1));
     });
   };
+  // Instrumentation for issues/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md
+  // (and #735/#738): which callee's comptime body is SKIPPED because an
+  // argument arrived as an UnknownVal. Read by set-differencing the fids
+  // against a literal control, so ambient std traffic cancels — a plain trace
+  // of the failing case alone shows ~10 hits and reads as confirmation.
+  // This is how `fill` was identified and how `c` was shown NOT to reach here.
+  if(ctfe_dbg_env.get(`YO_DEBUG_CTGATE`).is_some(), {
+    eprintln(
+      `[ctgate] any_arg_unknown=${any_arg_unknown.to_string()} nargs=${all_arg_vals.len().to_string()} fid=${func_id_str.clone()}`
+    );
+  });
   // TRIAL carve-out from the gate below: TS executes a TYPE-returning
   // constructor's body even with UnknownValue args (comptime-fn.ts has no
   // unknown-arg execution gate at all), so a def-time trial calling
