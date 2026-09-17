@@ -75,6 +75,27 @@ symlinks to the first N std files, `yo check tmp/prefix` — the check
 tool's own enumeration, growing N (and reordering) until the failure
 appears; then swap the last-added file to isolate the victim/polluter pair.
 
+## Fix (PR #760, 2026-09-18)
+
+The coverage failure was the per-file contract drain's strict
+missing-solver policy: `_run_contract_verification` returned false in
+solver-less environments for ANY file whose drain hit
+`resolve_solver_sync`'s Installable arm — and since #713 the annotated
+collections files ALWAYS hit it. (The earlier "varying victim"
+readings — bench/term/thread — were an output-interleaving artifact:
+the drain warning (stderr) glued onto whatever stdout line was
+flushed; the counter, not the progress log, names the failure.)
+
+Fix: `_run_contract_verification(strict_missing_solver)` — compile
+passes TRUE (ships binaries; verify-mode codegen without proofs is
+unsound), check passes FALSE (measures evaluator coverage; the loud
+install hint prints; the `yo verify` CI job with the pinned Z3 owns
+the proofs). The prefix bisection harness itself validated the N=19
+boundary: with a solver the sweep is 176/176; without it, exactly the
+annotated files' drains failed. Local seed-side `yo check` stays
+strict until the fix rides a release (generation split); CI's tier-1
+gate 3 runs the self-hosted binary and goes green on merge.
+
 ## Suggested attack
 
 1. Bisect the polluting module set: load the prelude + `std/collections/*`
