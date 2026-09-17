@@ -3269,7 +3269,7 @@ run_compile :: (
     fresh_local_counts_reset();
     ref_spill_counter_reset();
     closure_capture_counter_reset();
-    if(!warm_reuse, {
+    if((!warm_reuse && !(watch_mode)), {
       // Ids are mint-ordinal-shaped, so a COLD compile resets the counters
       // (fresh-process no-op; hygiene for multi-compile processes). A WARM
       // pass must NOT reset: its cached modules skip their mints, so the
@@ -3279,6 +3279,19 @@ run_compile :: (
       // got 3" — issues/warm-compile-selfcheck.md). Byte-identical warm
       // emission needs the id-keyed registries purged per compile instead —
       // the owner-tagged purge work of §7 step 1.
+      //
+      // `watch_mode` (the in-process compile of `build --watch`,
+      // YO_BUILD_IN_PROCESS): the whole POINT of the resident evaluator is
+      // that this compile REUSES the module universe the build-file
+      // evaluation populated. Clearing here re-loaded and RE-EVALUATED every
+      // std module a second time in one round (26 loads for 16 modules,
+      // duplicate impl registrations), and the re-evaluation degraded
+      // `Array(u8, usize(20)).fill` to a valueless callee — "No matching
+      // call found" at std/string/string_builder.yo:182
+      // (issues/fixed/warm-in-process-array-fill-call-stops-matching.md).
+      // Cache
+      // coherence in watch mode belongs to mm_revalidate_plan's per-def
+      // invalidation, not this blanket clear (mirrors the mm_reset gating).
       stable_occurrence_reset();
       clear_module_cache();
       mm_clear_prelude_env();
@@ -3288,7 +3301,12 @@ run_compile :: (
     // depfile naming a previous compile's inputs would over-invalidate.
     reset_input_files();
     (shared_info_table : ExprInfoTable) = expr_info_table_new();
-    if(warm_reuse, {
+    if((warm_reuse || watch_mode), {
+      // watch_mode: the artifact compile REUSES the resident universe (see
+      // the reset gating above), so it must also reuse mm's shared
+      // ExprInfoTable — a fresh table would orphan the cached modules' node
+      // infos (their bodies are not re-evaluated on a cache hit) and codegen
+      // would emit FTT stubs for them.
       match(
         mm_shared_expr_info_table(),
         .Some(t) => {

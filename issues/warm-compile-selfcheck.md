@@ -151,20 +151,24 @@ captures. Bisect: with (b1) disabled the original error returns; with it on,
 the round advances past std/string entirely.
 
 **The next blocker this exposed** (previously unreachable — every earlier
-round died at the ArrayList error first): the SAME watch round now fails at
+round died at the ArrayList error first): the SAME watch round then failed at
 `std/string/string_builder.yo:182` — `Array(u8, usize(20)).fill(u8(0))` →
-"No matching call found" — a warm-order degradation in the Array.fill /
-comptime-param call path (the area of
-issues/array-fill-rejects-a-generic-dispatched-comptime-value.md, #721/#725):
-the identical call RESOLVES in the same round's earlier evaluation of
-string_builder.yo (`[fmg-cand] method=fill recv=Array(u8, 20)
-spec=fn(val : u8) -> Array(u8, 20)`) and fails in a later one, with the
-candidate still produced but the call no longer matching. Cold builds of the
-same tree pass. Tracked in
-issues/warm-in-process-array-fill-call-stops-matching.md; the in-process path
-stays gated behind YO_BUILD_IN_PROCESS=1 (default = the proven child-process
-spawn) until it is fixed. Repro: `/home/yiyiwang/Workspace/yo-watch-probe`
-with YO_BUILD_IN_PROCESS=1, `yo build --watch --poll-ms 300`.
+"No matching call found". RESOLVED the same day, and its root cause was not
+fill at all: the #728 in-process slot never passed `--compile-watch-mode`, so
+every in-process artifact compile ran as a plain COLD compile and its hygiene
+block (`clear_module_cache` + `mm_clear_prelude_env` +
+`stable_occurrence_reset`) wiped the universe the build-file evaluation had
+just populated — every std module re-evaluated a second time (26 loads for 16
+modules), and the re-evaluation degraded the fill callee to valueless.
+Full mechanism + the three fixes (flag passing, reset gating + shared
+ExprInfoTable under watch_mode, failed-step exit gating so the watch loop
+survives) in issues/fixed/warm-in-process-array-fill-call-stops-matching.md.
+With those, the in-process path reaches the ORIGINAL warm blocker — item 1
+below ("Cannot unify incompatible struct types … struct_r28c4_n50 and
+ArrayList(u8)", the type-intern/SomeT identity staleness) — which is what now
+stands between §7 step 2 and un-gating YO_BUILD_IN_PROCESS. Repro:
+`/home/yiyiwang/Workspace/yo-watch-probe` with YO_BUILD_IN_PROCESS=1,
+`yo build --watch --poll-ms 300`.
 
 ## RESOLVED 2026-09-16 — the warm pass emits byte-identical C for the whole gate battery
 

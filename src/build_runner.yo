@@ -174,7 +174,13 @@ ExecutionContext :: ref(
     /// SLOT REF (a pointer) is stored, never the fn value itself: an
     /// fn-typed value materializing in an async state machine is the
     /// issues/async-sm-fn-typed-local-across-suspension.md bug.
-    in_process_compile_slot : InProcessCompileSlot
+    in_process_compile_slot : InProcessCompileSlot,
+    /// §7 step 2: true on `build --watch` rounds (`BuildOptions.
+    /// watch_in_process`, set by `_build_round_watch`). A failed step must
+    /// NOT `exit(1)` — the watch loop's contract is that a failing round is
+    /// reported and the loop continues (`unwind(false)` out of the round),
+    /// and a hard exit here killed the process on the first failed round.
+    watch_round : bool
   )
 );
 /// `git describe --tags --always` in the project dir, or `.None` when that fails
@@ -2010,6 +2016,17 @@ compile_artifact :: (
           });
         });
       });
+      // The watch-mode contract the child would have gotten from MAIN's flag
+      // parsing: run_compile must treat THIS compile as a warm resident-
+      // evaluator round (failure returns, no mm_reset, no module-cache/
+      // prelude-env clears, shared ExprInfoTable — §7 step 2). Without the
+      // flag the in-process compile ran as a plain COLD compile: it cleared
+      // the module universe the build-file evaluation had just populated
+      // (every std module re-evaluated a second time, duplicate impl
+      // registrations) and the re-evaluation degraded
+      // `Array(u8, usize(20)).fill` to a valueless callee — "No matching
+      // call found", issues/fixed/warm-in-process-array-fill-call-stops-matching.md.
+      filtered.push(String.from("--compile-watch-mode"));
       compile_ok = match(
         ctx.in_process_compile_slot.f,
         .Some(f) => f(filtered, e.io, e.exn),
@@ -2817,7 +2834,16 @@ execute_step :: (
       ri = (ri + usize(1));
     });
     if(any_failed, {
-      unsafe(exit(int(1)));
+      // `build --watch` rounds must NOT exit here: the watch loop's contract
+      // is that a failing round is reported (the "Compilation error: …" line
+      // and the summary above) and the loop polls on. A hard `exit(1)` killed
+      // the whole watch process on the first failed round — the §7 step 2
+      // resident-evaluator rounds still fail (see
+      // issues/warm-compile-selfcheck.md), so without this the watch driver
+      // could never survive long enough to observe a fix landing.
+      if(!(ctx.watch_round), {
+        unsafe(exit(int(1)));
+      });
     });
   })
 );
@@ -3155,7 +3181,8 @@ run_build :: (
       summary : options.summary,
       run_args : options.run_args,
       jobs : options.jobs,
-      in_process_compile_slot : g_in_process_compile_slot
+      in_process_compile_slot : g_in_process_compile_slot,
+      watch_round : options.watch_in_process
     );
     requested := if(options.steps.len() == usize(0), {
       defaults := ArrayList(String).new();

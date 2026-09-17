@@ -1,10 +1,9 @@
 # Warm in-process round: `Array(u8, N).fill(literal)` stops matching mid-round
 
-**Status:** OPEN. Found 2026-09-17, the moment the warm Self-mismatch fix
+**Status:** FIXED 2026-09-17. Found the moment the warm Self-mismatch fix
 (issues/warm-compile-selfcheck.md, RESOLVED section) let a `build --watch`
-round get past `std/string` for the first time. This is the NEW last blocker
-for the in-process artifact compile (§7 step 2,
-plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md).
+round get past `std/string` for the first time. The root cause was NOT the
+fill machinery at all — see RESOLVED below.
 
 ## Symptom
 
@@ -85,3 +84,48 @@ rm -rf yo-out
 YO_BUILD_IN_PROCESS=1 YO_DEBUG_WARM=1 YO_DEBUG_DISPATCH=1 \
   <yo> build --watch --poll-ms 300    # fails ~2 min in, at string_builder.yo:182
 ```
+
+## RESOLVED 2026-09-17 — the in-process compile never ran in watch mode at all
+
+Instrumenting the no-match throw site (`[vcall-throw]`, YO_DEBUG_CTFE — the
+callee resolved VALUELESS with `ty=unit`) and the property-access fallthrough
+(`[pa-fallthrough] prop=fill obj_ty=Type`) traced the degrade to a SECOND
+evaluation of the std/string chain inside one watch round:
+`[warmcache] register` fired 26 times for 16 distinct modules. The module
+cache is global and first-wins, so a second register means a full second
+EVALUATION — and the re-evaluation (a fresh prelude env, but evaluator
+registries surviving from pass 1) resolved `Array(u8, usize(20)).fill` to a
+valueless callee.
+
+The double evaluation was NOT a cache-coherence bug: the #728 skeleton's
+in-process slot built the child argv but NEVER ADDED
+`--compile-watch-mode`. `run_compile` therefore ran each artifact compile as
+a plain COLD compile — `watch_mode=false` — so its
+`if(!warm_reuse)` hygiene block fired `clear_module_cache()` +
+`mm_clear_prelude_env()` + `stable_occurrence_reset()`, wiping the universe
+the build-file evaluation had just populated. The compile then re-imported
+and re-evaluated every std module from scratch (the 26 registers).
+
+Fixes (this file's PR):
+
+1. `build_runner.yo`'s in-process branch pushes `--compile-watch-mode` onto
+   the filtered argv — the watch-mode contract (failure RETURNS, no mm_reset,
+   no module-cache/prelude clears, shared ExprInfoTable) finally applies.
+2. `main.yo`'s reset block additionally gates on `!(watch_mode)` (mirroring
+   #728's mm_reset gating — this site was missed) and shares mm's
+   ExprInfoTable under watch_mode (a fresh table would orphan the cached
+   modules' node infos — their bodies are not re-evaluated on a cache hit —
+   and codegen would emit FTT stubs).
+3. `build_runner.yo`: a failed step's `exit(1)` is gated on the new
+   `ExecutionContext.watch_round` — the watch loop's contract is that a
+   failing round is REPORTED and the loop keeps polling; the hard exit killed
+   the whole watch process on the first failed round.
+
+With these, the round's exe compile advances past string_builder entirely and
+the watch loop survives failures. The in-process path's next (and last known)
+blocker is the long-documented one — warm struct-identity staleness with the
+caches held: `Cannot unify incompatible struct types: "<struct:struct_r28c4_n50>"
+and "ArrayList(u8)"` — item 1 of issues/warm-compile-selfcheck.md's
+failure-modes list (the type-intern/SomeT identity tables outliving the
+compile they were minted in). The un-gate of YO_BUILD_IN_PROCESS stays gated
+on that fix.
