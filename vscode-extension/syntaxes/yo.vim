@@ -58,11 +58,13 @@ syn keyword yoKeyword export import extern c_include test thread_local
 " Parameter label modifiers, signature clauses, ghost/contract surface
 syn keyword yoKeyword comptime generic where using given own inout quote
 syn keyword yoKeyword forall exists ghost ghost_fn requires ensures invariant
+syn keyword yoKeyword decreases refine assumed old
 
 " Builtin functions and comptime surface
-syn keyword yoBuiltinFunction sizeof alignof typeid gensym consume dup drop rc the downcast
+syn keyword yoBuiltinFunction sizeof alignof typeid typeof gensym consume dup drop rc the downcast
 syn keyword yoBuiltinFunction derive derive_rule macro_expand comptime_assert comptime_expect_error
-syn keyword yoBuiltinFunction comptime_fn comptime_print comptime_read_file comptime_list
+syn keyword yoBuiltinFunction comptime_fn comptime_print comptime_eval comptime_read_file
+syn keyword yoBuiltinFunction comptime_json_parse comptime_toml_parse comptime_list
 syn keyword yoBuiltinFunction quote unquote unquote_splicing and or runtime
 syn keyword yoBuiltinFunction unsafe pragma asm global_asm va_start begin
 syn match yoBuiltinFunction /\<_\>/
