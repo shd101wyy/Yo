@@ -29,6 +29,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { t_str, t_unit, t_bool, t_void, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_type_1, t_expr_t, t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint, t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble } :: import("../../types/creators.yo");
 { is_some_type, is_function_type } :: import("../../types/guards.yo");
+{ type_key } :: import("../../types/type_key.yo");
 { is_type_hierarchy_type } :: import("../../types/guards.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_unknown_val }
 :: import("../../value.yo");
@@ -185,8 +186,15 @@ evaluate_identifier_and_operator :: (
     self_tv := match(self_type_opt, .Some(tv) => tv, .None => t_unit());
     resolved := if(is_some_type(self_tv), {
       bound := get_value_of_some_type_from_env(env, self_tv);
+      if(ident_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+        st_r := if(is_some_type(bound), String.from("<unresolved-some>"), type_key(bound));
+        eprintln(`[selfatom] path=ctx-some bound=${st_r} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+      });
       if(is_some_type(bound), self_tv, bound)
     }, self_tv);
+    if(ident_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+      eprintln(`[selfatom] resolved=${type_key(resolved)} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+    });
     ev := create_type_value(resolved);
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
@@ -221,6 +229,10 @@ evaluate_identifier_and_operator :: (
   // Variable lookup
   // ------------------------------------------------------------------
   identifier_string := token.value;
+  if((identifier == "Self") && ident_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+    env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
+    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+  });
   found_frame_idx_out := ArrayList(usize).new();
   variable := match(
     find_variable_in_env_at(env, identifier_string, found_frame_idx_out),

@@ -3138,6 +3138,7 @@ create_specialized_function_inline :: (
           // specializations, where each method's body must see its own receiver).
           prev_self_type_spec := ctx.self_type;
           (spec_self_set : bool) = false;
+          (spec_self_src : String) = String.from("c-inherited");
           // Prefer the actual RECEIVER ARGUMENT's type over the `self` param's
           // DECLARED type. During def-time signature eval the declared `Self` can
           // be a freshly-MINTED shell instance of the generic (e.g. a SECOND
@@ -3153,9 +3154,50 @@ create_specialized_function_inline :: (
                 .Some(rcv_ae) => {
                   ctx.self_type = Option(TypeValue).Some(rcv_ae.arg_type);
                   spec_self_set = true;
+                  spec_self_src = String.from("a-recv-arg");
                 },
                 .None => ()
               );
+            });
+          });
+          if(!(spec_self_set), {
+            // (b1) An impl member's FuncVal carries the matched CONCRETE
+            // receiver as a "Self" capture (impl.yo's _inject_forall_captures
+            // — the port of TS `substitutions.insert("Self", concreteType)`).
+            // A STATIC member (no `self` parameter) has no receiver argument,
+            // so its body's `Self` must resolve through that capture: CLEAR
+            // the ambient ctx.self_type — inherited from whatever evaluation
+            // forced this specialization, which is an UNRELATED receiver
+            // whenever the forcing nests inside another type's impl eval (a
+            // String impl field binding Self=String while
+            // ArrayList(String).new specializes from inside it: "Cannot
+            // construct String outside its declaring module",
+            // issues/warm-compile-selfcheck.md) — so the identifier
+            // env-lookup resolves the capture instead. Clearing is safe ONLY
+            // with the capture present: the def-time env of a plain generic
+            // has no `Self` variable, and an unconditional clear made every
+            // such body fail with E0401 "Variable Self not found" (same
+            // issue doc, the 2026-09-17 first attempt).
+            (spec_has_self_cap : bool) = false;
+            {
+              (hsc : usize) = usize(0);
+              while(hsc < cap_names.len(), {
+                match(
+                  cap_names.get(hsc),
+                  .Some(hn) => {
+                    if((hn == "Self"), {
+                      spec_has_self_cap = true;
+                    });
+                  },
+                  .None => ()
+                );
+                hsc = (hsc + usize(1));
+              });
+            };
+            if(spec_has_self_cap, {
+              ctx.self_type = Option(TypeValue).None;
+              spec_self_set = true;
+              spec_self_src = String.from("b1-self-capture");
             });
           });
           if(!(spec_self_set), {
@@ -3165,10 +3207,16 @@ create_specialized_function_inline :: (
                 spec_self_vars.get(spec_self_vars.len() - usize(1)),
                 .Some(spec_self_v) => {
                   ctx.self_type = Option(TypeValue).Some(spec_self_v.ty);
+                  spec_self_src = String.from("b-env-self");
                 },
                 .None => ()
               );
             });
+          });
+          if(helper_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+            st_dbg := match(ctx.self_type, .Some(t) => type_key(t), .None => String.from("<none>"));
+            st_prev := match(prev_self_type_spec, .Some(t) => type_key(t), .None => String.from("<none>"));
+            eprintln(`[specself] fid=${func_id.clone()} src=${spec_self_src} self=${st_dbg} prev=${st_prev}`);
           });
           // Evaluate the function body in the specialized environment.
           // Uses the already-built callee_env (which has all type params and

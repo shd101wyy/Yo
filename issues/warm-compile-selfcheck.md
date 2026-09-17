@@ -104,27 +104,67 @@ FIRST MECHANISMS FOUND (2026-09-16, for the purge PR):
 env, def registries) must KEEP being held — that holding is what made the
 strings re-import crash disappear.
 
-## OPEN (§7 step 2 remainder): warm re-specialization binds Self to the WRONG type
+## RESOLVED 2026-09-17 — warm re-specialization bound Self to the WRONG type (ambient ctx.self_type inheritance)
 
 With the in-process path ON (YO_BUILD_IN_PROCESS=1), a build --watch round's
-artifact compile fails at `std/collections/array_list.yo:83` — `Self(...)`,
+artifact compile failed at `std/collections/array_list.yo:83` — `Self(...)`,
 ArrayList's own constructor — with:
 
 ```
 Cannot construct String outside its declaring module: field "_bytes" is private
 ```
 
-The construct site is ArrayList's constructor, but the constructed type is
-**String** (String's `_bytes` field): `ctx.self_type` during the warm pass's
-re-specialization of `ArrayList(String)`'s method resolved to a DIFFERENT
-type's registry entry. This is the member-visibility check
-(`_reject_private_construction` → `type_decl_module(struct_id)` →
-`g_type_decl_modules`) correctly rejecting a genuinely wrong Self — the bug
-is upstream in the warm state's generic-impl/specialization resolution.
-The in-process path is gated behind YO_BUILD_IN_PROCESS=1 (default = the
-proven child-process spawn) until this is fixed. Repro:
-`/home/yiyiwang/Workspace/yo-watch-probe` with YO_BUILD_IN_PROCESS=1,
-`yo build --watch --poll-ms 300`.
+The construct site is ArrayList's constructor, but the constructed type was
+**String** (String's `_bytes` field): the member-visibility check
+(`_reject_private_construction`) was correctly rejecting a genuinely wrong
+Self — the bug was upstream, in how a STATIC generic member's specialization
+finds its Self at all.
+
+**Mechanism (proven with gated `[specself]`/`[selfatom]` traces under
+YO_DEBUG_WARM, cold vs in-process runs of the same probe).** A static member
+(`new : (fn() -> Self)`, no `self` parameter) gets its body's `Self` from
+whichever `ctx.self_type` happens to be LIVE when something forces its
+specialization — branch (c) of `create_specialized_function_inline`'s
+self-binding. `ctx.self_type` is process-global ambient state: when the
+forcing nests inside ANOTHER type's evaluation (string.yo's module eval holds
+`Self = String` while an `ArrayList(String)` member specializes from within
+it), the ArrayList constructor's `Self(` resolves to String. Cold compiles
+survive the same code by evaluation-order luck — the identical forcing
+inherited `ArrayList(String)` there because an ArrayList(String) receiver
+evaluation was live instead. Instrumented proof: the failing spec printed
+`src=c-inherited self=String prev=String`, the cold twin
+`src=c-inherited self=ArrayList(String) prev=ArrayList(String)`; branch (b)
+(env-`self`) never fired, and the body's `Self` atom at array_list.yo:82:4
+resolved `ctx-direct` to the inherited type in both runs.
+
+**Fix (the port of TS `substitutions.insert("Self", concreteType)`,
+impl.ts:2474).** `_inject_forall_captures` (evaluator/values/impl.yo) now
+appends a `Self` capture carrying the CONCRETE receiver the match resolved,
+and the spec path gained branch (b1): when the FuncVal carries that capture,
+the ambient `ctx.self_type` is CLEARED so the body's `Self` resolves through
+the callee env (the capture) — self-contained, order-independent. Clearing is
+conditional on the capture's presence: an unconditional clear was tried first
+and broke every plain generic's body with E0401 `Variable "Self" not found`
+(the def-time env of a plain generic has no `Self` variable) — cold builds
+included, which also proved the inheritance was load-bearing for fns WITHOUT
+captures. Bisect: with (b1) disabled the original error returns; with it on,
+the round advances past std/string entirely.
+
+**The next blocker this exposed** (previously unreachable — every earlier
+round died at the ArrayList error first): the SAME watch round now fails at
+`std/string/string_builder.yo:182` — `Array(u8, usize(20)).fill(u8(0))` →
+"No matching call found" — a warm-order degradation in the Array.fill /
+comptime-param call path (the area of
+issues/array-fill-rejects-a-generic-dispatched-comptime-value.md, #721/#725):
+the identical call RESOLVES in the same round's earlier evaluation of
+string_builder.yo (`[fmg-cand] method=fill recv=Array(u8, 20)
+spec=fn(val : u8) -> Array(u8, 20)`) and fails in a later one, with the
+candidate still produced but the call no longer matching. Cold builds of the
+same tree pass. Tracked in
+issues/warm-in-process-array-fill-call-stops-matching.md; the in-process path
+stays gated behind YO_BUILD_IN_PROCESS=1 (default = the proven child-process
+spawn) until it is fixed. Repro: `/home/yiyiwang/Workspace/yo-watch-probe`
+with YO_BUILD_IN_PROCESS=1, `yo build --watch --poll-ms 300`.
 
 ## RESOLVED 2026-09-16 — the warm pass emits byte-identical C for the whole gate battery
 
