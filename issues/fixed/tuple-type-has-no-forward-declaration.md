@@ -90,4 +90,4 @@ whole file fails to C-compile with two `unknown type name` errors.
 ## Found by
 
 Writing `Url.query_pairs() -> ArrayList(Tuple(String, String))`
-(`plans/STD_API_STABILIZATION.md` §4 Encoding).
+(`plans/archive/STD_API_STABILIZATION.md` §4 Encoding).

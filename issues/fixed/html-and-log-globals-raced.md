@@ -1,7 +1,7 @@
 # `std/encoding/html` lazy-initialised its tables through an unsynchronised flag; `std/log`'s setters wrote its globals outside the mutex
 
 **Status: FIXED** (2026-09-06, `std/encoding/html.yo`, `std/log.yo`). Found by
-the std API audit — `plans/STD_API_STABILIZATION.md` §3 item 5.
+the std API audit — `plans/archive/STD_API_STABILIZATION.md` §3 item 5.
 
 ## html
 

@@ -56,7 +56,7 @@ and it compiles — that one substitution is the whole difference.
 ## Why it matters
 
 It blocks `error_chain` (the "every link" half of the `ErrorChain`/`root_cause`
-row in plans/STD_API_STABILIZATION.md — `root_cause` itself needs no container
+row in plans/archive/STD_API_STABILIZATION.md — `root_cause` itself needs no container
 and LANDED). More broadly, **a std API cannot return or accept a collection of
 trait objects at all**, which is a real expressiveness limit rather than a
 formatting inconvenience.

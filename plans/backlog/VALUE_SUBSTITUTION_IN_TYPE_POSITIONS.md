@@ -70,13 +70,13 @@ the attribution above it was not.
   per-type copies in `std/prelude.yo`, because the result is `Array(u8, N)`
   with `N` the receiver's width. One blanket impl with this fixed.
 - **`usize`/`isize` byte conversions at all.** They are deliberately absent
-  today: `N` is the target pointer width, and `plans/STD_API_STABILIZATION.md`
+  today: `N` is the target pointer width, and `plans/archive/STD_API_STABILIZATION.md`
   records that "a type-level size cannot be derived the way `_USIZE_BITS`
   derives a value, so hard-coding 8 would be silently wrong on wasm32".
   `BYTES : usize` as an associated constant, set from the same
   target-dependent expression `_USIZE_BITS` uses, is exactly the derivation
   that is missing.
-- **`Array(T, N)`'s `Default`.** `plans/STD_API_STABILIZATION.md` records that
+- **`Array(T, N)`'s `Default`.** `plans/archive/STD_API_STABILIZATION.md` records that
   it "needs a runtime element-wise initializer Yo has no spelling for yet" —
   a `default()` generic over `N` is the same substitution problem.
 - **Any user API returning a fixed-size buffer whose size follows the type.**

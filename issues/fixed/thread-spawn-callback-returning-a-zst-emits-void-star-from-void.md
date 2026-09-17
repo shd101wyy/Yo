@@ -43,7 +43,7 @@ workaround does not land either".
 > the `Send` capture judgement.
 
 Found 2026-09-07 attempting **D18 part 2**
-(`plans/STD_API_STABILIZATION.md` §2: *"`Thread(T).spawn` carries its result and
+(`plans/archive/STD_API_STABILIZATION.md` §2: *"`Thread(T).spawn` carries its result and
 `join() -> T`"*).
 
 ## What fails

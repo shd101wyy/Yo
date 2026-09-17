@@ -5,7 +5,7 @@
 > `filter_map` / `take` / `skip` plus the consumers `for_each` / `collect`.
 > Implementors: `Watcher` (`std/fs/watch.yo` — its hand-rolled `next` BECAME
 > the trait method, unchanged), `TcpListener.incoming` (`std/net/tcp.yo` — the
-> deferred `plans/STD_API_STABILIZATION.md` row, now closed) and `Channel(T)`
+> deferred `plans/archive/STD_API_STABILIZATION.md` row, now closed) and `Channel(T)`
 > (`std/async/channel.yo` — `next` IS `recv`). Tests:
 > `tests/async/combinators.test.yo` (27), `tests/async/channel.test.yo` (8),
 > `tests/net/tcp.test.yo` (21), `tests/fs/watch.test.yo` (6) — every combinator
@@ -72,7 +72,7 @@ Four spellings of one concept, none composable: there is no `map`, no `filter`,
 no `take`, no `for`-equivalent over any of them, and no way to write a function
 generic over *"something that yields values asynchronously"*.
 
-`plans/STD_API_STABILIZATION.md` records the consequence at the point where it
+`plans/archive/STD_API_STABILIZATION.md` records the consequence at the point where it
 bites:
 
 > **`TcpListener.incoming` is deferred, and this is why.** Rust's `incoming()`

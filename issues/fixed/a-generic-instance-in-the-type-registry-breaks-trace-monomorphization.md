@@ -8,7 +8,7 @@ object — see "What the earlier report got wrong" below.
 
 ## Symptom
 
-Rewriting `std/async/channel.yo` over wakers (`plans/WAKER_BASED_SCHEDULING.md`
+Rewriting `std/async/channel.yo` over wakers (`plans/archive/WAKER_BASED_SCHEDULING.md`
 stage 3b) made `ArrayList(T)`'s `Trace` impl fail to evaluate, in a file the
 change never touched:
 

@@ -3,10 +3,10 @@
 **Status: COMPLETE 2026-09-13.** Steps 1, 2, 3a and 3b LANDED; step 4 landed
 except for a shape note recorded in its own row; step 5 — cross-thread wake and
 `spawn_blocking` — landed 2026-09-13. Written 2026-09-10. It was the largest
-remaining item in `plans/STD_API_STABILIZATION.md`'s concurrency group, and four
+remaining item in `plans/archive/STD_API_STABILIZATION.md`'s concurrency group, and four
 std modules' `## Stability` markers name it as the thing that would change under
-them. Still in `plans/` root rather than `archive/` only until its 24 inbound
-references are swept.
+them. **Archived to `plans/archive/` 2026-09-17 after its inbound references
+were swept** — the condition the root listing stated.
 
 > **Step 5's first real adopter found a use-after-free in step 1's own
 > mechanism** (`issues/fixed/a-waker-token-is-freed-while-back-on-the-inbox.md`).

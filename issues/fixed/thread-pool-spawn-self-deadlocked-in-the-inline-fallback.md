@@ -1,7 +1,7 @@
 # `spawn(pool, …)` self-deadlocked on a nested spawn in the runtime's inline fallback
 
 **Status: FIXED** (2026-09-06, `std/thread.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 3.
+`plans/archive/STD_API_STABILIZATION.md` §3 item 3.
 
 ## Symptom
 

@@ -116,5 +116,5 @@ as the runtime `FATAL: reached fn_… whose body failed to transpile`).
 ## Found by
 
 Writing `impl(unit, Default(...))` for the std `Default` sweep
-(`plans/STD_API_STABILIZATION.md` §4 Core) and trying to assert
+(`plans/archive/STD_API_STABILIZATION.md` §4 Core) and trying to assert
 `unit.default() == ()`.

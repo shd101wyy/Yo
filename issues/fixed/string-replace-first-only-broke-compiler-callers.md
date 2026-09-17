@@ -1,6 +1,6 @@
 # `String.replace` replaced only the FIRST occurrence, and four compiler call sites assumed otherwise
 
-**Status:** FIXED by D10 (`plans/STD_API_STABILIZATION.md` §2) — `String.replace`
+**Status:** FIXED by D10 (`plans/archive/STD_API_STABILIZATION.md` §2) — `String.replace`
 and `ImmString.replace` now replace EVERY occurrence, so these call sites became
 correct without being touched.
 

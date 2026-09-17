@@ -1,7 +1,7 @@
 # A blanket inherent method reached through a `Dyn` receiver is dispatched through the VTABLE
 
 **Status:** OPEN
-**Found:** 2026-09-08, designing `Error.is(T)` for `plans/STD_API_STABILIZATION.md` §4 Core.
+**Found:** 2026-09-08, designing `Error.is(T)` for `plans/archive/STD_API_STABILIZATION.md` §4 Core.
 
 ## Symptom
 

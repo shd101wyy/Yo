@@ -86,6 +86,6 @@ of the now-stale "Yo has no async iterator protocol".
 
 - `plans/reference/ASYNC_ITERATION_STREAM.md` — the trait and why its future
   is `Io`-only.
-- `plans/STD_API_STABILIZATION.md` §4 (I/O) — the std campaign's I/O section.
+- `plans/archive/STD_API_STABILIZATION.md` §4 (I/O) — the std campaign's I/O section.
 - `std/io/index.yo` — `Reader`/`Writer`; the `?=` default syntax this plan
   leans on is already used there twice.

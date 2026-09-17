@@ -2,7 +2,7 @@
 
 **Status: FIXED** (2026-09-06, `std/collections/btree_map.yo`,
 `std/collections/priority_queue.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 16.
+`plans/archive/STD_API_STABILIZATION.md` §3 item 16.
 
 ## Symptoms
 

@@ -20,8 +20,8 @@ Plus the codegen guard that was supposed to catch this whole class and turned
 out to be armed only at `-O0`.
 
 Read the breaking list: this is the batch that changes what your code compiles
-to. The campaign record is `plans/STD_API_STABILIZATION.md` §2; the borrow model
-is `plans/INOUT_LOCAL_BINDINGS_AUDIT.md` §7–§9.
+to. The campaign record is `plans/archive/STD_API_STABILIZATION.md` §2; the borrow model
+is `plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md` §7–§9.
 
 ## ⚠️ Breaking changes (patch-release policy)
 
@@ -77,7 +77,7 @@ it panics like Rust's; a bad key or a malformed string still returns `Result`.
 
 ## New — `inout` local bindings and the borrowed `for` (#476)
 
-`plans/INOUT_LOCAL_BINDINGS_AUDIT.md` §7–§8. No borrow checker, no lifetimes; the
+`plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md` §7–§8. No borrow checker, no lifetimes; the
 keyword stays `inout`.
 
 ```rust
@@ -188,7 +188,7 @@ asserts on it.
 - `.to_expr()` cannot parse a backtick template literal, and surfaces the failure as
   a misleading "derive rule must return(comptime(Expr))"
   (`issues/fixed/comptime-str-to-expr-cannot-parse-a-template-literal.md`).
-- `inout` follow-ups, tracked in `plans/INOUT_LOCAL_BINDINGS_AUDIT.md`'s status
+- `inout` follow-ups, tracked in `plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md`'s status
   banner: an `Iterable` marker trait (which would also refuse a plain `inout(e)`
   on maps/sets), a compile-time same-variable diagnostic, last-use live ranges,
   the borrowed `for` inside suspending async bodies, and a user-facing codegen

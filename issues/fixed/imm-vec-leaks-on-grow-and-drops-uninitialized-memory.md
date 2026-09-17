@@ -2,7 +2,7 @@
 
 **Status: FIXED 2026-09-06** (`std/imm/vec.yo`; `Deque._grow` got the same C35
 guard in the same change). Found by the std API stabilization audit
-(`plans/STD_API_STABILIZATION.md` §3 item 1).
+(`plans/archive/STD_API_STABILIZATION.md` §3 item 1).
 
 **Severity: memory safety.** Silent for every RC element type (`ImmString`, a
 nested imm `Vec`, any `Send + Acyclic` aggregate) — and invisible to the test

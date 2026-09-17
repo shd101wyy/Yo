@@ -1,11 +1,21 @@
-# `plans/THREAD_SAFETY.md` says "Complete. All 14 phases implemented" — Phase P never landed, and the hole it was to close is open
+# `plans/archive/THREAD_SAFETY.md` says "Complete. All 14 phases implemented" — Phase P never landed, and the hole it was to close is open
 
-**Status: OPEN.** Found 2026-08-25 by the STD_API_AUDIT D7 scoping survey and
+**RESOLVED 2026-09-16 — Phase P landed as #716**: `_`-prefixed fields and
+methods are private to the declaring module and its same-directory siblings,
+enforced by the compiler (E0405 `E_PRIVATE_MEMBER`,
+`tests/field_visibility.test.yo`). Design record:
+`plans/reference/MEMBER_VISIBILITY.md` (the landed rule is
+module+siblings-private, not this plan's file-private spelling). The plan's
+status line was corrected and the plan archived with a closing banner
+(`plans/archive/THREAD_SAFETY.md`). All three "What to do" items below are
+done. Everything below is the frozen 2026-08-25 finding.
+
+**Was: OPEN.** Found 2026-08-25 by the STD_API_AUDIT D7 scoping survey and
 verified empirically on `develop` at `340a9e735`.
 
 ## The claim
 
-`plans/THREAD_SAFETY.md:3`:
+`plans/archive/THREAD_SAFETY.md:3`:
 
 ```
 **Status:** Complete. All 14 phases implemented.
@@ -33,7 +43,7 @@ check: probe.yo — evaluator OK          (rc=0)
 
 Reproducer: `issues/repros/phase-p-field-privacy-not-enforced.yo`.
 Nothing in the document ever marks Phase P landed
-(`grep -n "Phase P" plans/THREAD_SAFETY.md` finds only its specification and
+(`grep -n "Phase P" plans/archive/THREAD_SAFETY.md` finds only its specification and
 the vectors that depend on it).
 
 ## Why it matters

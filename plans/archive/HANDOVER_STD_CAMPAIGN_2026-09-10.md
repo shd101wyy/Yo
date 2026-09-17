@@ -2,10 +2,10 @@
 > handover note for the agent picking up the std campaign on the morning of
 > 2026-09-11. Everything in §3 and §7.1 has landed, most of §7.2 with it, and
 > §7.4's three maintainer decisions were answered the same day
-> (`plans/STD_API_STABILIZATION.md` §5). It is kept as a record of that day's
+> (`plans/archive/STD_API_STABILIZATION.md` §5). It is kept as a record of that day's
 > state, not as live instructions — **the live plan is
-> `plans/STD_API_STABILIZATION.md`**, and the campaign's per-step waker status
-> is in `plans/WAKER_BASED_SCHEDULING.md`.
+> `plans/archive/STD_API_STABILIZATION.md`**, and the campaign's per-step waker status
+> is in `plans/archive/WAKER_BASED_SCHEDULING.md`.
 >
 > **Never committed until now.** It lived as an untracked file in the main
 > checkout for a day, one `git clean` from being lost; it is committed here so
@@ -51,7 +51,7 @@ the file, PR or log it came from — and is frozen at its writing date, as
 | file | why |
 | --- | --- |
 | `AGENTS.md` | the workflow rules; they are enforced, not advisory |
-| `plans/STD_API_STABILIZATION.md` | THE campaign document. §4b (new, added today) lists every language feature the campaign is blocked on |
+| `plans/archive/STD_API_STABILIZATION.md` | THE campaign document. §4b (new, added today) lists every language feature the campaign is blocked on |
 | `plans/README.md` | plan taxonomy + the new index of language-feature docs |
 | `.github/instructions/testing.instructions.md` | the gate battery, and the new GATE 8 note |
 
@@ -59,7 +59,7 @@ the file, PR or log it came from — and is frozen at its writing date, as
 
 ## 2. Where the campaign stands
 
-**Phase 4 of 5.** `plans/STD_API_STABILIZATION.md` §6 phasing:
+**Phase 4 of 5.** `plans/archive/STD_API_STABILIZATION.md` §6 phasing:
 
 1. P0 memory/UB/deadlock — **DONE**
 2. P0 wrong values + cliffs — **DONE**
@@ -137,7 +137,7 @@ Contents:
 `tests/int_checked_arithmetic` 38/38; gates_fast + `cli-diff-test.sh` full
 scorecard `PASS 92 GOLDEN-DIFF 0 NO-GOLDEN 0`; fixpoint **FIXPOINT_HOLDS**.
 
-**Next action:** rebase onto develop (the conflict is `plans/STD_API_STABILIZATION.md`
+**Next action:** rebase onto develop (the conflict is `plans/archive/STD_API_STABILIZATION.md`
 only — keep BOTH sides in landing order, recipe in §6.3), force-push, wait for
 CI, merge, delete branch.
 
@@ -208,7 +208,7 @@ it an error, not a 0) is small and worth doing on its own.**
 
 All in `plans/backlog/`, all written today from the blocked call sites, indexed
 in `plans/README.md`, cross-referenced from the new **§4b** of
-`plans/STD_API_STABILIZATION.md`. They ship in PR #548.
+`plans/archive/STD_API_STABILIZATION.md`. They ship in PR #548.
 
 | doc | blocks | note |
 | --- | --- | --- |
@@ -263,7 +263,7 @@ S1=/tmp/yo-s1-<name> P=<p> bash scripts/bootstrap/fixpoint_only.sh
   `install-scripts.yml` and `release.yml`. If you change the language, those
   count as call sites.
 
-### 6.3 Rebasing a PR that conflicts on `plans/STD_API_STABILIZATION.md`
+### 6.3 Rebasing a PR that conflicts on `plans/archive/STD_API_STABILIZATION.md`
 
 Every std PR appends to that file, so **every PR after the first conflicts**.
 This is expected and cheap:
@@ -275,7 +275,7 @@ git fetch origin && git rebase origin/develop
 # then each added its own record.
 #   -> Keep ONE summary paragraph naming BOTH facts,
 #   -> then BOTH records, in landing order (merged-first).
-git add plans/STD_API_STABILIZATION.md
+git add plans/archive/STD_API_STABILIZATION.md
 git rebase --continue
 git push --force-with-lease
 ```
@@ -365,12 +365,12 @@ It contains, all `yo fmt`-clean but otherwise unverified:
    answer. They abort **and await** every loser (aborting alone leaves the await
    outstanding, which is the same leak one step later). Plus 4 tests in
    `tests/async/combinators.test.yo`.
-3. **Plan corrections** in `plans/STD_API_STABILIZATION.md`: the two
+3. **Plan corrections** in `plans/archive/STD_API_STABILIZATION.md`: the two
    contradictory `JoinHandle Dispose` rows, the stale `try_recv` row, and the
    `OrderedMap.swap_remove` record.
 
 **To finish it:** run §6.2's checklist, then PR. Expect a
-`plans/STD_API_STABILIZATION.md` conflict (§6.3). I never compiled it — treat
+`plans/archive/STD_API_STABILIZATION.md` conflict (§6.3). I never compiled it — treat
 every line as unverified.
 
 ### 7.2 Actionable std work, in the order I would do it
@@ -399,7 +399,7 @@ every line as unverified.
 
 ### 7.4 Three MAINTAINER decisions gate the freeze (phase 5)
 
-From `plans/STD_API_STABILIZATION.md` §5 — these need the user, not an agent:
+From `plans/archive/STD_API_STABILIZATION.md` §5 — these need the user, not an agent:
 
 1. `imm/Vec`: implement structural sharing (RRB), or re-document as a flat COW
    array and accept O(n) on shared mutation?

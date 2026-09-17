@@ -86,7 +86,7 @@ behind a merge freeze that lifts when the release publishes.
 | file | why |
 | --- | --- |
 | `AGENTS.md` § "CI runs: cancelling, freezing, and what a battery actually covers" | three rules that WILL bite you; they landed today and each one fired once |
-| `plans/STD_API_STABILIZATION.md` § 0 | the campaign's state; §0 names the single remaining item |
+| `plans/archive/STD_API_STABILIZATION.md` § 0 | the campaign's state; §0 names the single remaining item |
 | `issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-a-second-t.md` | the remaining item's root cause, plus three disproven hypotheses |
 | `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` | the other active plan; P1 landed, §4.5.2–§4.5.4 next |
 
@@ -215,7 +215,7 @@ battery, and an already-open PR starts one on every push, draft or not).
 **Merge in this order once the release publishes:**
 
 1. **`plans/std-campaign-last-item-root-caused`** (mine, docs-only, 6 commits):
-   - the campaign's last item root-caused in `plans/STD_API_STABILIZATION.md`
+   - the campaign's last item root-caused in `plans/archive/STD_API_STABILIZATION.md`
    - the AGENTS.md three-rule block, grouped under one heading
    - `issues/fixed/the-published-windows-bundle-is-only-smoke-tested-with-yo-compile.md`
    - the v0.2.32 notes updated to carry #638
@@ -281,7 +281,7 @@ those would have surfaced from agreement.
 
 ## 5. THE remaining campaign item: `spawn_blocking`
 
-`plans/STD_API_STABILIZATION.md` §0 is explicit that this is the only thing
+`plans/archive/STD_API_STABILIZATION.md` §0 is explicit that this is the only thing
 left. `std/thread.yo`'s `spawn_blocking` is written, eager, measured working
 end to end, and left unexported. `std/net/dns.yo` still names it as the reason
 `lookup_host` blocks.

@@ -838,7 +838,7 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 /// declared by several `c_include` modules with DIFFERENT types — `stdout :
 /// *FILE` in one, `stdout : *(void)` in another; a last-wins slot made the
 /// other module's binding stop matching and get emitted under a mangled
-/// name — plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §4 follow-up).
+/// name — plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §4 follow-up).
 _push_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
   match(
     g_extern_c_globals.get(name.clone()),
@@ -854,7 +854,7 @@ _push_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
 });
 /// Yo binding name → C symbol name, for extern-C globals bound under a
 /// DIFFERENT name by a destructuring rename (`{ stdout : out } :: c_include(...)`,
-/// plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4). A name with no entry IS its
+/// plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4). A name with no entry IS its
 /// own C name. Functions and opaque types carry their C name on the type
 /// (`FuncMeta.extern_name`, the SomeT's name); a global's lived only in the
 /// variable name, so the rename has to be recorded somewhere codegen can read.

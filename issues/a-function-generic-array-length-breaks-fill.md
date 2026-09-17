@@ -1,7 +1,7 @@
 # `Array(T, N).fill(v)` fails when `N` is a FUNCTION generic (an impl generic is fine)
 
 **Status:** OPEN. Found 2026-09-17 while measuring how to close the
-`Array(T, N)` `Default` row of `plans/STD_API_STABILIZATION.md`.
+`Array(T, N)` `Default` row of `plans/archive/STD_API_STABILIZATION.md`.
 
 **How far this was taken: two compiles, and no further probing.** No
 instrumentation was run and no mechanism is proposed. What follows is what those

@@ -1,6 +1,20 @@
 # Cutting test.yml's wall clock
 
-**Status:** ACTIVE — measured 2026-09-15, not yet implemented.
+**ARCHIVED 2026-09-17 — CHANGE 1 LANDED in #707 (2026-09-16), WIDENED: BOTH
+long non-required legs are sharded 4-way** (`macos-26-intel` and
+`windows-11-arm`, via the new `yo test --shard i/n`), consuming a
+cross-emitted C artifact so the shards rebuild nothing. The shard suffix
+appears only on sharded legs, so the two REQUIRED status contexts kept their
+exact names and ruleset 13548862 needed no change — the §"Caution carried
+forward" trap, avoided. **Change 2 did NOT land**: the Linux `test` legs
+still build their own stage-1 + stage-2 (test.yml's stage-2 step —
+load-bearing per `issues/fixed/build-smoke-hangs-registry-perturbation.md`),
+so the post-shard wall clock is bounded by those legs, exactly as
+§"Expected result" predicted (~86 min). The §"Also worth doing"
+`compiler-internal-tests` rebalance was not part of #707. The frozen
+2026-09-15 measurement follows.
+
+**Was: ACTIVE — measured 2026-09-15, not yet implemented.**
 **Approved by the user 2026-09-14**, to land in its own PR after v0.2.33.
 
 ## The critical path, measured

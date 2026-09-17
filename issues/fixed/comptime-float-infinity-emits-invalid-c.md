@@ -1,7 +1,7 @@
 # A non-finite comptime float constant emits invalid C (`inf.0`)
 
 **Status:** FIXED 2026-09-08
-**Found:** 2026-09-08, while giving `f64` the constants `plans/STD_API_STABILIZATION.md` §4 asks for (`EPSILON`, `INFINITY`, `NAN`, …).
+**Found:** 2026-09-08, while giving `f64` the constants `plans/archive/STD_API_STABILIZATION.md` §4 asks for (`EPSILON`, `INFINITY`, `NAN`, …).
 
 ## Symptom
 

@@ -1,7 +1,7 @@
 # HANDOVER — std API audit campaign (2026-08-30)
 
 > **ARCHIVED 2026-09-07 — superseded.** Live handover:
-> `plans/HANDOVER_STD_AUDIT_2026-09-07.md`.
+> `plans/archive/HANDOVER_STD_AUDIT_2026-09-07.md`.
 
 The goal being handed over: **«Finish everything in plans/archive/STD_API_AUDIT.md.
 Make sure the std APIs are well designed and stable for the future. Document

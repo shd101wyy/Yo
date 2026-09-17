@@ -46,7 +46,7 @@ where it was fixed:
 ```
 
 `dedup` was listed in the same P0 row that fixed `reverse`
-(`plans/STD_API_STABILIZATION.md` §3 item 1,
+(`plans/archive/STD_API_STABILIZATION.md` §3 item 1,
 `issues/fixed/imm-vec-leaks-on-grow-and-drops-uninitialized-memory.md`), and
 its COPYING path was converted to `consume` correctly; the unique path's
 live-slot store was not part of that change.

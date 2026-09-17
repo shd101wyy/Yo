@@ -1,7 +1,7 @@
 # Interior `inout` args never acquire the runtime borrow flag — the documented backstop is dead code (live UAF)
 
 **Status: FIXED (2026-09-07, this PR).** Found the same day during the
-`inout` local-binding audit (`plans/INOUT_LOCAL_BINDINGS_AUDIT.md` §1.3).
+`inout` local-binding audit (`plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md` §1.3).
 Reproduced with `yo 0.2.27` against `develop` at `c787fdc45`.
 
 ## Symptom

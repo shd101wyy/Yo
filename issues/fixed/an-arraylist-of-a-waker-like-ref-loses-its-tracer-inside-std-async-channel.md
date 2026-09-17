@@ -12,7 +12,7 @@ Everything below is the original filing, kept as the record of the
 investigation.
 
 **Was: OPEN.** Found 2026-09-11 while rewriting the async `Channel` over
-wakers (`plans/WAKER_BASED_SCHEDULING.md` stage 3). It blocks that
+wakers (`plans/archive/WAKER_BASED_SCHEDULING.md` stage 3). It blocks that
 rewrite; the async `Mutex` half of the same stage landed, because the identical
 construction works there.
 
@@ -143,7 +143,7 @@ substitution" family. Two questions to answer first:
 
 ## Impact
 
-`plans/WAKER_BASED_SCHEDULING.md` stage 3's channel half, and
+`plans/archive/WAKER_BASED_SCHEDULING.md` stage 3's channel half, and
 therefore stage 4 (the combinators, which wait on channels). The async
 `Channel` keeps its 1 ms timer tick until this is fixed — a millisecond floor
 on every hand-off, capping a producer/consumer pair at ~1000 values/second.

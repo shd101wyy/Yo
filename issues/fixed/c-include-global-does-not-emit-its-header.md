@@ -1,7 +1,7 @@
 # A `c_include`d extern GLOBAL does not emit its header
 
 **Status:** FIXED 2026-09-08
-**Found:** 2026-09-08, while giving `f64` the constants `plans/STD_API_STABILIZATION.md` §4 asks for.
+**Found:** 2026-09-08, while giving `f64` the constants `plans/archive/STD_API_STABILIZATION.md` §4 asks for.
 
 ## Symptom
 

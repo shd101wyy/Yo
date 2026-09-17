@@ -1,7 +1,7 @@
 # `Rng.range(x, x)` and `Rng.next_below(0)` divided by zero
 
 **Status: FIXED** (2026-09-06, `std/rand.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 11.
+`plans/archive/STD_API_STABILIZATION.md` §3 item 11.
 
 ## Symptom
 

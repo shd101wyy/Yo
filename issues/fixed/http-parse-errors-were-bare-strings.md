@@ -1,7 +1,7 @@
 # `parse_request` / `parse_response` returned `Result(_, String)`
 
 **Status: FIXED** (2026-09-06, `std/http/http.yo`, `std/http/server.yo`,
-`std/http/client.yo`). The HTTP half of `plans/STD_API_STABILIZATION.md` §3
+`std/http/client.yo`). The HTTP half of `plans/archive/STD_API_STABILIZATION.md` §3
 item 15 (the `env` half — `cwd` / `current_exe` / `chdir` — is still open).
 
 ## Symptom

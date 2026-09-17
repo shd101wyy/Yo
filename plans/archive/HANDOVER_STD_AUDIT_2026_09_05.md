@@ -1,7 +1,7 @@
 # Handover — std API audit, the road to the freeze (post-v0.2.24, 2026-09-05)
 
 > **ARCHIVED 2026-09-07 — superseded.** Live handover:
-> `plans/HANDOVER_STD_AUDIT_2026-09-07.md`.
+> `plans/archive/HANDOVER_STD_AUDIT_2026-09-07.md`.
 
 **Supersedes `plans/archive/HANDOVER_STD_AUDIT_NEXT.md`**, which was measured wrong in
 eleven places. Every row below was RE-MEASURED against develop on 2026-09-04/05

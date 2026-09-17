@@ -1,5 +1,15 @@
 # Handover — std API stabilization, §2 decisions mostly landed (2026-09-07)
 
+**Status: CLOSED 2026-09-13 — the campaign it handed over is COMPLETE.** The
+nine §2 PRs merged in the stated order, v0.2.28 shipped with the breaking
+window called out, and everything §3 listed as open (D13 part 2, D15, D16,
+D18 part 2, the §4 batteries, the §5 maintainer decisions) landed afterwards —
+the closing record is
+[`plans/archive/STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md)
+(COMPLETE 2026-09-13). The §4 rules that bit that session are the reason
+several standing rules now live in `AGENTS.md`. Everything below is the
+frozen 2026-09-07 state.
+
 **For the agent taking over the std campaign.** Supersedes
 `plans/archive/HANDOVER_STD_AUDIT_2026-09-06.md`, whose PR stack has all
 merged. §0 below repeats the standing constraints verbatim because they are
@@ -9,7 +19,7 @@ still in force.
 
 ## 0. Standing goal and the maintainer's standing constraints
 
-Goal: finish `plans/STD_API_STABILIZATION.md`.
+Goal: finish `plans/archive/STD_API_STABILIZATION.md`.
 
 - At most **5 concurrent agents**.
 - **Do NOT use the `Workflow` tool.**

@@ -2,7 +2,7 @@
 
 **Status: FIXED** (2026-09-06, `src/evaluator/utils/closure.yo`,
 `src/evaluator/calls/closure_type.yo`, `src/evaluator/values/anonymous_function.yo`).
-Found by the std API audit — `plans/STD_API_STABILIZATION.md` §3 item 2.
+Found by the std API audit — `plans/archive/STD_API_STABILIZATION.md` §3 item 2.
 
 ## Symptom
 

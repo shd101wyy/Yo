@@ -2,7 +2,7 @@
 
 **Status:** open
 **Found:** 2026-09-12, writing `spawn_blocking` for waker step 5
-(`plans/WAKER_BASED_SCHEDULING.md`).
+(`plans/archive/WAKER_BASED_SCHEDULING.md`).
 **Reproducer:** `issues/repros/impl-fn-param-captured-by-an-async-block.yo`
 
 ## Symptom

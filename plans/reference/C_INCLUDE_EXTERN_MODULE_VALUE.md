@@ -1,6 +1,13 @@
 # `c_include(...)` and `extern(...)` are module values
 
-**Status:** ACTIVE 2026-09-15 — implemented on `feat/c-include-module-value`.
+**Status:** LANDED 2026-09-15 — #698 (`4f4f6ef58`: c_include/extern evaluate
+to module values; destructuring enforces no-shadowing), including the §4
+follow-ups (`label : c_type("...")` and the every-declaration registry). The
+seed gate is LIFTED: the v0.2.36 seed carries the desugar and `c_type`.
+Still pending as a std/ code flip: `std/libc/sys/stat.yo` keeps its
+commented-out `struct_stat : c_type("struct stat")` line and its stale
+SEED-GATED comment. The design below is the authoritative record.
+**Was: ACTIVE 2026-09-15 — implemented on `feat/c-include-module-value`.**
 **Owner:** compiler (evaluator + parser desugar + codegen name resolution).
 **Breaking:** yes, by decision (single user, no compatibility scaffolding). A
 patch release is cut once this lands.

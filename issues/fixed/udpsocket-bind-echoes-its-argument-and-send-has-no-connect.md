@@ -1,7 +1,7 @@
 # `UdpSocket.bind` echoed its argument (an ephemeral bind reported port 0) and `send`/`recv` required a `connect` that did not exist
 
 **Status: FIXED 2026-09-06** (`std/net/udp.yo`, `std/net/tcp.yo`). Found by the
-std API stabilization audit (`plans/STD_API_STABILIZATION.md` §3 item 7).
+std API stabilization audit (`plans/archive/STD_API_STABILIZATION.md` §3 item 7).
 
 ## Two defects
 

@@ -66,4 +66,4 @@ Landing only the first half would turn this into a hole in `Send` enforcement.
 
 - `issues/fixed/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md` — parent
 - `issues/fixed/send-was-not-enforced-at-spawn-boundaries.md` — the #451 enforcement this rides on
-- `plans/STD_API_STABILIZATION.md` — D18
+- `plans/archive/STD_API_STABILIZATION.md` — D18

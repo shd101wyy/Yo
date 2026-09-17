@@ -2,7 +2,7 @@
 
 **Status: FIXED** (2026-09-06, `std/collections/hash_map.yo`,
 `std/collections/hash_set.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 13.
+`plans/archive/STD_API_STABILIZATION.md` §3 item 13.
 
 ## Symptom
 

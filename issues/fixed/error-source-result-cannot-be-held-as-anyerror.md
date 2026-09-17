@@ -73,7 +73,7 @@ the impl-conformance check is laxer than assignment's.
   at all.
 
 This is the real reason "nothing in the tree overrides `source`", which
-`plans/STD_API_STABILIZATION.md` §4 records as an observation: the feature is
+`plans/archive/STD_API_STABILIZATION.md` §4 records as an observation: the feature is
 not merely unused, it is barely usable. `std/error.yo` ships `error_is` and
 `Context` (which DOES override `source`, and whose `to_string` renders the
 cause, so the message chain works even though the typed chain does not);

@@ -3,7 +3,7 @@
 **Status:** LANDED 2026-09-17 — `thread_local` in #741 (with #746 fixing the
 wasm/emscripten storage class and #749 the effectful-initializer accessor),
 shipped in **v0.2.36**, and adopted by `std/rand.yo` in #748, which closes the
-`rand.thread_rng` row of `plans/STD_API_STABILIZATION.md`.
+`rand.thread_rng` row of `plans/archive/STD_API_STABILIZATION.md`.
 
 Option 1 only: a thread-local may not hold a reference-counted value. Option 3
 (keyed storage with a generated destructor) branches on the same condition and
@@ -62,7 +62,7 @@ point where it bites (`std/rand.yo:225`):
 
 > **This is NOT Rust's `thread_rng`, and is deliberately not named that.**
 
-and `plans/STD_API_STABILIZATION.md`:
+and `plans/archive/STD_API_STABILIZATION.md`:
 
 > `thread_rng`: Yo has no thread-local storage, so per-thread generators are
 > not expressible; the doc says to take an own `Rng.from_entropy()` in a hot
@@ -223,7 +223,7 @@ accident.~~
    to be designed, reviewed or frozen.
 
    (Probed rather than assumed, which this document's own §4b advises: three
-   "Yo has no X" claims in `plans/STD_API_STABILIZATION.md` were measured and
+   "Yo has no X" claims in `plans/archive/STD_API_STABILIZATION.md` were measured and
    found false the same way.)
 
    **The open question here is now ANSWERED: the existing global path CAN

@@ -242,5 +242,5 @@ to the allocation count above.
 **Still open, deliberately.** Only timers have a `cancel_fn`. A task aborted
 while parked on a socket read, a `getaddrinfo`, or a waker still holds that
 operation until it completes on its own. The mechanism is now in place for
-each of them; `plans/WAKER_BASED_SCHEDULING.md` step 5 is where the rest
+each of them; `plans/archive/WAKER_BASED_SCHEDULING.md` step 5 is where the rest
 belongs.

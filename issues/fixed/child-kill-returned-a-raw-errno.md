@@ -1,7 +1,7 @@
 # `Child.kill -> i32` handed back a raw `-errno`
 
 **Status: FIXED** (2026-09-06, `std/process/command.yo`). Found by the std
-API audit — `plans/STD_API_STABILIZATION.md` §3 item 17.
+API audit — `plans/archive/STD_API_STABILIZATION.md` §3 item 17.
 
 ## Symptom
 

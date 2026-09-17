@@ -150,9 +150,9 @@ design constraint, not an accident:
    process/signal ergonomics — **largely landed** by the std API audit
    campaign (2026-08-23 → ongoing: the §2 correctness sweep, the conventions
    + breaking sweep, TLS, HTTP client/server, time/date, process —
-   [`STD_API_AUDIT.md`](STD_API_AUDIT.md)). Remaining: the §7 S4/P1 addition
-   tail and the §9 S5 stability freeze (additive-only std); keep
-   `public-safe-report` at zero findings.
+   [`archive/STD_API_AUDIT.md`](archive/STD_API_AUDIT.md), completed by
+   [`archive/STD_API_STABILIZATION.md`](archive/STD_API_STABILIZATION.md),
+   COMPLETE 2026-09-13).
 - **Debugging/observability** — after Phase 2.4, a `yo test --debug` story
   and sanitizer presets (ASan path exists).
 

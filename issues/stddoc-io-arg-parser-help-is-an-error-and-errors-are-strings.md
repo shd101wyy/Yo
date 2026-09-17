@@ -35,7 +35,7 @@ the rendered help screen as the payload. The other two failure payloads are
    as `.Err`, so the only way to tell them apart is to string-compare the
    payload against `parser.help_text()` — comparing a whole rendered screen to
    recover a boolean the parser already knew.
-2. **It is a D1 violation** (`plans/STD_API_STABILIZATION.md` §1 counts
+2. **It is a D1 violation** (`plans/archive/STD_API_STABILIZATION.md` §1 counts
    `Result(_, String)` in five exported APIs; this is a sixth site that is not
    on that list, so it has never been scheduled). The two listed pairs —
    `env.cwd`/`current_exe`/`chdir` and `http.parse_request`/`parse_response` —

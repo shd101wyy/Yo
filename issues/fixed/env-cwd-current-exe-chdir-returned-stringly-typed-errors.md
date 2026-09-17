@@ -1,7 +1,7 @@
 # `env.cwd` / `env.current_exe` / `env.chdir` returned `Result(_, String)`
 
 **Status: FIXED** (2026-09-06, `std/env.yo`). Found by the std API audit —
-`plans/STD_API_STABILIZATION.md` §3 item 15 (the `env` half; the
+`plans/archive/STD_API_STABILIZATION.md` §3 item 15 (the `env` half; the
 `http.parse_request` / `parse_response` half is PR #454).
 
 ## Symptom

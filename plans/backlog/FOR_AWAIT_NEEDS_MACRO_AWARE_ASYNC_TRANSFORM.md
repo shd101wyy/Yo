@@ -106,5 +106,5 @@ macro can deadlock silently.
   "Order of work" item 4 is what this doc parks.
 - `issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`
   — the defect.
-- `plans/STD_API_STABILIZATION.md` §4 (Concurrency) — where the async surface's
+- `plans/archive/STD_API_STABILIZATION.md` §4 (Concurrency) — where the async surface's
   open items are tracked.

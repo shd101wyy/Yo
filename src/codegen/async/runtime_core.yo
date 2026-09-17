@@ -72,7 +72,7 @@ static int __yo_io_wait(void);
 // call them. The thread-local state has to be DEFINED here rather than
 // declared, not merely declared: a static object has no forward-declaration
 // spelling in C.
-// See plans/WAKER_BASED_SCHEDULING.md.
+// See plans/archive/WAKER_BASED_SCHEDULING.md.
 // ---------------------------------------------------------------------------
 // The per-loop control block — the ONE piece of shared state in this runtime
 // ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ static int __yo_io_wait(void);
 // top of every tick and does the state change and the enqueue there. So
 // exactly one new piece of shared state exists, it is locked, and every
 // runtime variable stays single-threaded.
-// See plans/WAKER_BASED_SCHEDULING.md step 5.
+// See plans/archive/WAKER_BASED_SCHEDULING.md step 5.
 //
 // Nothing that crosses a thread boundary touches a REFERENCE COUNT. The park
 // future's refcount is non-atomic like every other runtime object's, so the
@@ -561,7 +561,7 @@ static __yo_yield_future_t __yo_async_yield(void) {
 // Waker / park — "resume THIS task"
 // ============================================================================
 // The primitive every peer-waiting primitive needs
-// (plans/WAKER_BASED_SCHEDULING.md). Without it, everything that waits
+// (plans/archive/WAKER_BASED_SCHEDULING.md). Without it, everything that waits
 // on ANOTHER TASK's progress — yield, a contended async Mutex, a blocked
 // Channel send/recv — polls a 1 ms timer, which puts a millisecond floor under
 // every hand-off.

@@ -2,7 +2,7 @@
 
 > **ARCHIVED 2026-09-07 — superseded.** Its §0 (the standing goal and the
 > maintainer's pre-authorizations) was carried forward verbatim into
-> `plans/HANDOVER_STD_AUDIT_2026-09-07.md`, which is the live handover.
+> `plans/archive/HANDOVER_STD_AUDIT_2026-09-07.md`, which is the live handover.
 
 **For the next agent picking up the std campaign.** Written at the v0.2.24
 release point. Everything here was verified against `origin/develop` at

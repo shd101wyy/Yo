@@ -6,7 +6,7 @@ only be used under the unsafe context?"* The answer is yes, and chasing why
 turned up something bigger than D14.
 
 **Scope:** this is a LANGUAGE-level question (how unsafety is granted), not a
-std API one. It is filed separately from `plans/STD_API_STABILIZATION.md` for
+std API one. It is filed separately from `plans/archive/STD_API_STABILIZATION.md` for
 that reason, and nothing in the D-batch is blocked on it.
 
 ---
@@ -47,7 +47,7 @@ always there and nobody had named it.
 proves the reference outlives nothing it shouldn't. Yo has no borrow checker,
 so its nearest expressible thing is a raw pointer. **D14 imports Rust's SHAPE
 without Rust's SAFETY** — that is the honest summary, and
-`plans/STD_API_STABILIZATION.md` §2 justified D14 purely on cross-collection
+`plans/archive/STD_API_STABILIZATION.md` §2 justified D14 purely on cross-collection
 consistency without weighing it. Rust's escape hatch is also a BLOCK
 (`unsafe { … }`), not a file.
 
@@ -104,7 +104,7 @@ to be a property of the std API surface rather than of the language.
 
 ## 5. Related
 
-- `plans/STD_API_STABILIZATION.md` §2 D14 (#461) — the decision that surfaced this.
+- `plans/archive/STD_API_STABILIZATION.md` §2 D14 (#461) — the decision that surfaced this.
 - `plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`, `plans/reference/MACRO_POLICY.md` —
   prior examples of a language-level policy decision recorded before implementation.
 - `.github/instructions/yo-design.instructions.md` "Unsafe operations" documents

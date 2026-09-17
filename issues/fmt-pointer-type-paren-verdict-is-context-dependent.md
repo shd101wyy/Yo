@@ -1,7 +1,7 @@
 # `yo fmt` gives two different verdicts for the SAME pointer-type spelling
 
 **Status:** OPEN. Observed 2026-09-07 while integrating the D-batch PRs
-(`plans/STD_API_STABILIZATION.md`). Not a blocker — the fix is to run `yo fmt`
+(`plans/archive/STD_API_STABILIZATION.md`). Not a blocker — the fix is to run `yo fmt`
 and take whatever it produces — but it makes `fmt --check` unpredictable when
 writing new code, and it cost a CI-visible failure on PR #461.
 

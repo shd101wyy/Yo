@@ -3,7 +3,7 @@
 **Found**: 2026-09-13, by exporting `spawn_blocking` (PR #667). **Fixed**: same
 day, in `src/codegen/async/runtime_core.yo`. **Class**: use-after-free in the
 cross-thread wake path — the mechanism
-`plans/WAKER_BASED_SCHEDULING.md` step 5 added. It has been in the tree since
+`plans/archive/WAKER_BASED_SCHEDULING.md` step 5 added. It has been in the tree since
 that landed; nothing exercised two concurrent foreign wakers until
 `tests/spawn_blocking.test.yo` went live.
 

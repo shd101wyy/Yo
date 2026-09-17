@@ -1,7 +1,7 @@
 # `unwind` from an `Exception` handler installed INSIDE an `io.async` body silently ends the program with rc 0
 
 **Status: OPEN.** Found 2026-09-06 while looking for a way to catch a framing
-error per connection in `HttpServer.serve` (`plans/STD_API_STABILIZATION.md`
+error per connection in `HttpServer.serve` (`plans/archive/STD_API_STABILIZATION.md`
 §3 item 18).
 
 ## Reproducer

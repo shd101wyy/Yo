@@ -43,7 +43,7 @@ noise, would drift from the trait's text, and would still leave every user
 crate's impls blank.
 
 The std doc sweep therefore deliberately left these undocumented (recorded in
-`plans/STD_API_STABILIZATION.md` §4) on the understanding that this is a doc-tool
+`plans/archive/STD_API_STABILIZATION.md` §4) on the understanding that this is a doc-tool
 gap.
 
 ## Fix

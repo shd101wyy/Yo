@@ -104,7 +104,7 @@ self-compile wall time (~6 min baseline) and the fast suite (~5.5 min baseline).
   BORROWING-branch sibling: when the parameter is NOT owning and the argument
   is an RC-typed **projection** (place chain rooted at a runtime variable —
   reuse the "place" predicate from the match-place dup elision,
-  plans/PERF_BORROW_ELISION.md §1, NOT a plain local atom), insert
+  plans/archive/PERF_BORROW_ELISION.md §1, NOT a plain local atom), insert
   `setExprAsNeedsToCallDup(evaluatedArgExpr, context)` plus the
   statement-temp drop (the same post-call arg-temp drop machinery codegen
   already flushes) — and do NOT consume.

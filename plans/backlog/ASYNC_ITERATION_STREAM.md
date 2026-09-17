@@ -24,7 +24,7 @@ Four spellings of one concept, none composable: there is no `map`, no `filter`,
 no `take`, no `for`-equivalent over any of them, and no way to write a function
 generic over *"something that yields values asynchronously"*.
 
-`plans/STD_API_STABILIZATION.md` records the consequence at the point where it
+`plans/archive/STD_API_STABILIZATION.md` records the consequence at the point where it
 bites:
 
 > **`TcpListener.incoming` is deferred, and this is why.** Rust's `incoming()`

@@ -2,7 +2,7 @@
 
 **Status:** FIXED 2026-09-12 (`fix/zst-closure-fn-result`, the D18b branch).
 **Found:** 2026-09-12, while making `Thread(T).spawn` generic for D18b
-(`plans/STD_API_STABILIZATION.md` §2 D18).
+(`plans/archive/STD_API_STABILIZATION.md` §2 D18).
 
 ## Symptom
 

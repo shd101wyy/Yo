@@ -145,7 +145,7 @@ _reject_private_destructure :: (
 /// user binding-introduction sites). Until 2026-09-15 the destructurer never
 /// ran it, so `{ a : b } :: m` onto an existing `b`, the same import twice,
 /// and a `c_include` re-declaring a Yo name were all silently accepted
-/// (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §1).
+/// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §1).
 _reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, exn : Exception) -> unit)({
   if(var_name == String.from("__yo_self"), {
     return(());
@@ -181,7 +181,7 @@ _reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, exn :
 /// type (`FuncMeta.extern_name`) and an opaque type on its SomeT, but a
 /// GLOBAL's C name lived only in the variable name — record the alias so
 /// codegen still emits `stdout` for `{ stdout : out } :: c_include(...)`
-/// (plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
+/// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
 _record_extern_c_alias :: (fn(rhs_type : TypeValue, label : String, var_name : String, ty : TypeValue) -> unit)({
   if(var_name == label, {
     return(());

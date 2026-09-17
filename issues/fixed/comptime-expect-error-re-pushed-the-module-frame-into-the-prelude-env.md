@@ -3,7 +3,7 @@
 **Status:** FIXED 2026-09-15 (`feat/c-include-module-value`).
 **Area:** evaluator — `src/evaluator/builtins/comptime_expect_error.yo` env restore.
 **Surfaced by:** the destructurer's new no-shadowing rule
-(plans/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.3): the fast suite went red at
+(plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.3): the fast suite went red at
 `tests/safe_code_structural_gates.test.yo` with
 
 ```

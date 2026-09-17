@@ -91,7 +91,7 @@ is caller-constructed spans that reach the hole.
 Option 2 or 1 is the real fix; option 3 alone would leave the same trap for the
 next unsigned consumer. This is the "signedness" open question named in
 `std/time/duration.yo`'s new `## Stability` section, and it belongs in the
-`plans/STD_API_STABILIZATION.md` decision list.
+`plans/archive/STD_API_STABILIZATION.md` decision list.
 
 ## Test to add with the fix
 
