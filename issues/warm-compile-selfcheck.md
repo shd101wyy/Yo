@@ -190,6 +190,33 @@ non-codegen evaluation. This is failure-modes item 3 escalated to the front
 of the queue. Repro: `/home/yiyiwang/Workspace/yo-watch-probe` with
 YO_BUILD_IN_PROCESS=1, `yo build --watch --poll-ms 300`.
 
+## RESOLVED 2026-09-17 (later the same day) — §7 STEP 2 CLOSED: the FTTs were the build eval's missing shared table; `build --watch` is warm by default
+
+The `[fttmark]` probe (hooked at the marker emitters, codegen/exprs/
+generation.yo — the stub rewrite had been TRUNCATING the evidence) named
+the failing expressions: `return(self._length)`, `Self(_ptr : .None, …)`,
+string.yo:207's match — the SPECIALIZED CLONES minted during the build-file
+evaluation. Their `ExprInfo` was written to SCRATCH tables: the build-file
+evaluation ran with NO shared ExprInfoTable set, so the demand loader gave
+every module its own per-ctx table, and the artifact compile — which
+REUSES the cached ModuleVals instead of re-evaluating — found no infos for
+those clones. (One real marker in the SHARED static-inline emitter buffer
+then cascaded: every subsequent inline function's marker scan found it and
+was truncated into a stub — why six functions fell to one missing info.)
+
+Fix: `_build_round_watch` sets mm's shared ExprInfoTable before evaluating
+the build file (create-if-absent), so the build eval's specializations land
+in the very table the in-process artifact compiles emit from.
+
+Measured end-to-end on the probe (NO env var): round 1 builds the exe and
+lib in-process and the exe RUNS; an edit to src/main.yo triggers round 2,
+which recompiles with ZERO new module loads (19 misses total, all round-1
+first-loads) and the rebuilt binary prints the new message. The env-var
+gate is REMOVED — `yo build --watch` compiles in-process by default
+(non-watch builds keep the child-process spawn). §7 steps 1+2 of
+plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md are closed; what remains of
+§7 is step 3 (test batching) and step 4 (the --max-rss-mb valve).
+
 ## RESOLVED 2026-09-16 — the warm pass emits byte-identical C for the whole gate battery
 
 The three fixes below closed the battery: trivial, alist AND strings all

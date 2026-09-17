@@ -5523,6 +5523,21 @@ _build_round_watch :: (fn(opts : BuildOptions, io : Io) -> bool)({
   // §7 step 2: this round's artifact compiles run IN PROCESS against the
   // warm universe (the flag rides on opts into run_build's context).
   opts.watch_in_process = true;
+  // §7 step 2: the build-file evaluation's SPECIALIZATIONS must land their
+  // ExprInfo in the SAME shared table the in-process artifact compiles emit
+  // from (mm's). Without this the build eval ran with no shared table set —
+  // the demand loader gave every module its own scratch table — and the
+  // artifact compile (which reuses the cached ModuleVals instead of
+  // re-evaluating) found NO infos for the spec clones minted during the
+  // build eval: every specialized method body degraded to an FTT stub
+  // ("return(self._length)", "Self(_ptr : .None, …)" — string.yo:207's
+  // match first, then the whole static-inline buffer cascaded),
+  // issues/warm-compile-selfcheck.md's CURRENT-blocker note.
+  match(
+    mm_shared_expr_info_table(),
+    .None => mm_set_shared_expr_info_table(expr_info_table_new()),
+    .Some(_) => ()
+  );
   eprintln(String.from("[watchdbg] flag set"));
   swallow := Exception(
     throw : (
@@ -5705,15 +5720,19 @@ run_build_cmd :: (
     );
     ai = (ai + usize(1));
   });
-  // §7 step 2 (EXPERIMENTAL — YO_BUILD_IN_PROCESS=1 opts in): watch rounds
-  // compile artifacts IN PROCESS against the warm evaluator universe (module
-  // cache, prelude env, shared ExprInfoTable persist across rounds). The
-  // wrapper converts run_compile's watch-mode failure flag into the bool the
-  // build runner expects. OFF by default: a warm pass still trips a
-  // module-privacy check when a cached std module is re-imported
-  // ("Cannot construct String outside its declaring module") — the next
-  // eval-state hardening layer, tracked in issues/warm-compile-selfcheck.md.
-  if(proc_env.get(`YO_BUILD_IN_PROCESS`).is_some(), {
+  // §7 step 2 (LANDED 2026-09-17): `build --watch` rounds compile artifacts
+  // IN PROCESS against the warm evaluator universe — the module cache, the
+  // prelude env and the shared ExprInfoTable persist across rounds, and an
+  // edit-triggered round re-validates (mm_revalidate_plan) and recompiles
+  // without re-importing a single unchanged module (measured on the watch
+  // probe: round 2 adds ZERO module loads). The wrapper converts
+  // run_compile's watch-mode failure flag into the bool the build runner
+  // expects. Non-watch builds keep the proven child-process spawn. The
+  // layered hardening this required — the Self capture, the watch-mode flag
+  // threading, the two universe wipes, the build-eval shared table — is
+  // recorded in issues/warm-compile-selfcheck.md and
+  // issues/fixed/warm-in-process-array-fill-call-stops-matching.md.
+  if(watch, {
     set_in_process_compile_fn(
       (fn(argv : ArrayList(String), io : Io, exn : Exception) -> bool)({
         g_compile_watch_failed = false;
