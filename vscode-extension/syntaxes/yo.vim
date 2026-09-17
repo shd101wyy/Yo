@@ -36,8 +36,9 @@ syn region yoTemplateInterp start=+\${+ end=+}+ contained contains=yoTemplateBra
 syn region yoTemplateBrace start=+{+ end=+}+ contained contains=yoTemplateBrace,@yoExpressions
 syn cluster yoExpressions contains=yoString,yoChar,yoTemplateString,yoNumber,yoNumberHex,yoNumberBin,yoNumberOct,yoOperator,yoKeyword,yoBuiltinFunction,yoAsync,yoSelf,yoTypeName,yoBuiltinType,yoBuiltinValues
 
-" Numbers — one number is one token; underscores only in decimal digits,
-" and a Float requires `.digit` (`1.foo` is `1` `.` `foo`).
+" Numbers — one number is one token; underscores only in decimal digits.
+" A Float needs `.digit` or an exponent (`1e5` is a Float); `1.foo` is
+" `1` `.` `foo`.
 syn match yoNumberHex /\v<0[xX][0-9a-fA-F]+>/
 syn match yoNumberBin /\v<0[bB][01]+>/
 syn match yoNumberOct /\v<0[oO][0-7]+>/

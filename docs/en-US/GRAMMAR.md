@@ -74,14 +74,16 @@ HexInteger     ::= '0' ('x' | 'X') HexDigit+
 BinaryInteger  ::= '0' ('b' | 'B') ('0' | '1')+
 OctalInteger   ::= '0' ('o' | 'O') OctalDigit+
 
-;; A Float token REQUIRES a fractional part: the '.' starts one only when the
-;; next char is a digit. `1.foo` lexes as `1` `.` `foo`; `1..2` as `1` `..` `2`.
+;; A Float token needs a fractional part OR an exponent — the C/Rust/Go
+;; rule: `1e5` is a Float (f64 100000.0). The '.' starts a fractional part
+;; only when the next char is a digit: `1.foo` lexes as `1` `.` `foo`;
+;; `1..2` as `1` `..` `2`.
 FloatLiteral ::= Digit (Digit | '_')* '.' Digit (Digit | '_')* Exponent?
+               | Digit (Digit | '_')* Exponent
 
-;; An exponent may also follow an integer (`1e5` lexes as ONE Integer token),
-;; but such a token fails to evaluate — write floats with the fractional
-;; part (`1.5e3`).
-Exponent       ::= ('e' | 'E') ('+' | '-')? Digit (Digit | '_')*
+Exponent     ::= ('e' | 'E') ('+' | '-')? Digit (Digit | '_')*
+;; A sign with no digit (`1e+`) is NOT an exponent: the token stays the
+;; Integer `1` and the `+` lexes as an operator.
 
 Digit          ::= '0'..'9'
 HexDigit       ::= '0'..'9' | 'a'..'f' | 'A'..'F'

@@ -71,13 +71,15 @@ HexInteger     ::= '0' ('x' | 'X') HexDigit+
 BinaryInteger  ::= '0' ('b' | 'B') ('0' | '1')+
 OctalInteger   ::= '0' ('o' | 'O') OctalDigit+
 
-;; Float token 必须有小数部分：只有当 '.' 后面是数字时才开始小数部分。
+;; Float token 需要小数部分或指数 —— C/Rust/Go 规则：`1e5` 是 Float
+;; （f64 100000.0）。只有当 '.' 后面是数字时才开始小数部分：
 ;; `1.foo` 词法分析为 `1` `.` `foo`；`1..2` 分析为 `1` `..` `2`。
 FloatLiteral ::= Digit (Digit | '_')* '.' Digit (Digit | '_')* Exponent?
+               | Digit (Digit | '_')* Exponent
 
-;; 指数也可以跟在整数后面（`1e5` 词法分析为一个 Integer token），
-;; 但这样的 token 无法求值 —— 浮点数请写小数部分（`1.5e3`）。
-Exponent       ::= ('e' | 'E') ('+' | '-')? Digit (Digit | '_')*
+Exponent     ::= ('e' | 'E') ('+' | '-')? Digit (Digit | '_')*
+;; 带符号但无数字（`1e+`）不是指数：token 保持为 Integer `1`，
+;; `+` 作为运算符进行词法分析。
 
 Digit          ::= '0'..'9'
 HexDigit       ::= '0'..'9' | 'a'..'f' | 'A'..'F'

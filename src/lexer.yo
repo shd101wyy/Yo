@@ -738,22 +738,29 @@ tokenize :: (
             });
           });
         });
-        // Exponent: e/E followed by optional +/- and digits
+        // Exponent: e/E followed by optional +/- and at least one digit.
+        // An exponent makes the token a FLOAT (`1e5` is f64 100000.0 — the
+        // C/Rust/Go rule). The evaluator's `parse_raw_float` is `atof`,
+        // which parses a dot-less exponent fine, while `parse_raw_int`
+        // rejects the text — pushing Integer here made `1e5` a guaranteed
+        // evaluation error (the retired TS lexer pushed Integer too, and
+        // its parseInt then silently read `1e10` as `1`). A sign with no
+        // digit (`1e+`) does NOT count: the exponent stays unconsumed and
+        // the `+` surfaces as an operator, because atof("1e+") would
+        // silently stop at 1.0.
         if(is_decimal, {
           exp_check := chars.get(j).unwrap_or(null_rune);
           if((exp_check.char == u32(0x65)) || (exp_check.char == u32(0x45)), {
             next_j := (j + usize(1));
             next_j_rune := chars.get(next_j).unwrap_or(null_rune);
-            has_exp_digits := cond(
-              (next_j >= n) => false,
-              ((next_j_rune.char == u32(0x2B)) || (next_j_rune.char == u32(0x2D))) => true,
-              true => next_j_rune.is_digit()
+            sign_j := cond(
+              ((next_j < n) && ((next_j_rune.char == u32(0x2B)) || (next_j_rune.char == u32(0x2D)))) => (next_j + usize(1)),
+              true => next_j
             );
-            // A bare exponent (`1e10`) does NOT make the token a Float: TS
-            // consumes the e-notation in the INTEGER branch and still pushes
-            // TokenType.Integer (lexer.ts:614-647). Only a decimal point sets
-            // is_float.
+            first_digit := chars.get(sign_j).unwrap_or(null_rune);
+            has_exp_digits := ((sign_j < n) && first_digit.is_digit());
             if(has_exp_digits, {
+              is_float = true;
               num_sb.write_rune(exp_check);
               j = next_j;
               sign_rune := chars.get(j).unwrap_or(null_rune);
