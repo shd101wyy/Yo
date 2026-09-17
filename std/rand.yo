@@ -12,7 +12,7 @@
 //! { Rng, rand_range } :: import("std/rand");
 //! rng := Rng.new(u64(42));
 //! d6 := rng.range(i64(1) .. i64(7));   // uniform in [1, 7), reproducible
-//! d20 := rand_range(i64(1) .. i64(21)); // the process-global generator
+//! d20 := rand_range(i64(1) .. i64(21)); // this thread's generator
 //! ```
 //!
 //! ## Stability
@@ -21,19 +21,20 @@
 //! test that pins `Rng.new(42)`'s first draws must keep passing, so the
 //! algorithm and its constants will not change under a patch release.
 { ArrayList } :: import("./collections/array_list");
-{ Mutex } :: import("./sync/mutex");
 { Exception } :: import("./error");
 { random_u64 } :: import("./crypto/random");
 
 _PCG_MULT :: u64(6364136223846793005);
-/// The raw PCG32 words — a plain VALUE struct, so it can live inside a
-/// `Mutex` (`Rng` itself cannot: it is a `ref` type whose refcount is not
-/// atomic, so it does not implement `Send`).
+/// The raw PCG32 words — a plain VALUE struct, so it can live in a
+/// thread-local (`Rng` itself cannot: it is a `ref` type, and a thread-local
+/// may not hold a reference-counted value — C11 thread-local storage has no
+/// destructor hook, so one instance would leak per thread. `Rng`'s refcount is
+/// not atomic either, so it does not implement `Send`).
 _RngState :: struct(state : u64, inc : u64);
 impl(
   _RngState,
   /// The next 32 uniformly random bits. THE algorithm — `Rng` and the
-  /// process-global generator both go through this one copy.
+  /// per-thread generator both go through this one copy.
   next_u32 : (fn(inout(self) : Self) -> u32)({
     old := self.state;
     self.state = ((old * _PCG_MULT) + self.inc);
@@ -189,7 +190,7 @@ impl(
 );
 export(Rng);
 // ============================================================================
-// The process-global generator
+// The per-thread generator
 // ============================================================================
 /// 64 bits from the OS entropy source, or a fixed fallback if it fails.
 ///
@@ -208,67 +209,87 @@ _entropy_u64 :: (fn() -> u64)({
   );
   random_u64(exn)
 });
-/// The process-global generator, and the `seeded` flag that makes its
-/// seeding lazy — an OS entropy read at module-init time would be paid by
-/// every program that merely LINKS `std/rand`.
-_GlobalRng :: struct(st : _RngState, seeded : bool);
-(_g_rng : Mutex(_GlobalRng)) = Mutex(_GlobalRng).new(
-  _GlobalRng(
-    st : _RngState(state : u64(0), inc : _inc_for_stream(_DEFAULT_STREAM)),
-    seeded : false
-  )
-);
-/// The only locked primitive: one 64-bit draw from the process-global
-/// generator, seeding it from OS entropy on the first call. Everything else
-/// in this section is arithmetic on top of it.
+/// The per-thread generator. Each thread gets its OWN `_RngState`, seeded from
+/// OS entropy on that thread's first draw — Rust's `thread_rng`, and what the
+/// `rand_*` functions below draw from.
 ///
-/// **This is NOT Rust's `thread_rng`, and is deliberately not named that.**
-/// Yo has no thread-local storage, so there is no way to give each thread its
-/// own generator; this is ONE generator serialized behind a mutex. That is
-/// correct under threads but it is a shared lock, so a hot loop should take
-/// its own `Rng.from_entropy()` and draw from that instead.
-_next_u64_global :: (fn() -> u64)(
-  _g_rng.with_lock(g => {
-    cond(
-      g.seeded => (),
-      true => {
-        g.st.state = u64(0);
-        g.st.inc = _inc_for_stream(_DEFAULT_STREAM);
-        _d1 := g.st.next_u32();
-        g.st.state = (g.st.state + _entropy_u64());
-        _d2 := g.st.next_u32();
-        g.seeded = true;
-      }
-    );
-    g.st.next_u64()
-  })
-);
-/// 32 uniformly random bits from the process-global generator.
-rand_u32 :: (fn() -> u32)(u32(_next_u64_global() & u64(4294967295)));
-/// 64 uniformly random bits from the process-global generator.
-rand_u64 :: (fn() -> u64)(_next_u64_global());
-/// A uniform float in `[0, 1)` from the process-global generator.
+/// `_RngState` rather than `Rng`, because `Rng` is `ref(struct(...))` and a
+/// thread-local may not hold a reference-counted value: C11 thread-local
+/// storage has no destructor hook, so one instance would leak per thread. The
+/// state is a plain two-`u64` struct, which is exactly the case thread-locals
+/// support (plans/backlog/THREAD_LOCAL_STORAGE.md, Option 1).
+///
+/// Seeding stays lazy: an OS entropy read at module-init time would be paid by
+/// every program that merely LINKS `std/rand`, and now by every thread that
+/// merely starts.
+///
+/// The initializer is LITERAL on purpose. A thread-local's initializer becomes
+/// the body of a generated accessor that returns a pointer, and an effectful
+/// initializer emits a bare `return;` there — which is valid in
+/// `__yo_main_module_init` (a `void` helper, by design) and NOT valid in the
+/// accessor. `_inc_for_stream(_DEFAULT_STREAM)` here produced
+/// "non-void function '_tl_state_..._tl_get' should return a value" when std
+/// became the feature's first adopter. `inc` is set from
+/// `_inc_for_stream(_DEFAULT_STREAM)` in the seeding branch below anyway, so
+/// the call here was redundant as well as fatal.
+/// Tracked as a codegen defect: the accessor should run an effectful
+/// initializer in a void helper, exactly as the module-init path does.
+(thread_local(_tl_state) : _RngState) = _RngState(state : u64(0), inc : u64(0));
+thread_local(_tl_seeded) := false;
+/// One 64-bit draw from THIS THREAD's generator, seeding it from OS entropy on
+/// this thread's first call. Everything else in this section is arithmetic on
+/// top of it.
+///
+/// This IS Rust's `thread_rng`. It was a process-global generator behind a
+/// `Mutex` until 2026-09-17, because Yo had no thread-local storage — so every
+/// draw from every thread serialized on one lock, and the module doc told
+/// callers in a hot loop to take their own `Rng.from_entropy()` instead. That
+/// advice is obsolete: there is no lock left to contend on.
+///
+/// Two threads get independent sequences because each seeds from its own OS
+/// entropy read, not because the streams differ — `_DEFAULT_STREAM` is shared,
+/// which is the same relationship two `Rng.from_entropy()` values have always
+/// had with each other.
+_next_u64_thread :: (fn() -> u64)({
+  cond(
+    _tl_seeded => (),
+    true => {
+      _tl_state.state = u64(0);
+      _tl_state.inc = _inc_for_stream(_DEFAULT_STREAM);
+      _d1 := _tl_state.next_u32();
+      _tl_state.state = (_tl_state.state + _entropy_u64());
+      _d2 := _tl_state.next_u32();
+      _tl_seeded = true;
+    }
+  );
+  _tl_state.next_u64()
+});
+/// 32 uniformly random bits from this thread's generator.
+rand_u32 :: (fn() -> u32)(u32(_next_u64_thread() & u64(4294967295)));
+/// 64 uniformly random bits from this thread's generator.
+rand_u64 :: (fn() -> u64)(_next_u64_thread());
+/// A uniform float in `[0, 1)` from this thread's generator.
 rand_f64 :: (fn() -> f64)(
-  f64(_next_u64_global() >> u64(11)) / f64(9007199254740992)
+  f64(_next_u64_thread() >> u64(11)) / f64(9007199254740992)
 );
-/// A fair coin from the process-global generator.
-rand_bool :: (fn() -> bool)((_next_u64_global() >> u64(63)) == u64(1));
-/// A uniform value below `bound` from the process-global generator,
+/// A fair coin from this thread's generator.
+rand_bool :: (fn() -> bool)((_next_u64_thread() >> u64(63)) == u64(1));
+/// A uniform value below `bound` from this thread's generator,
 /// rejection-sampled. Panics for `bound == 0`.
 rand_below :: (fn(bound : u64) -> u64)(
   cond(
     (bound == u64(0)) => __yo_panic("rand_below: bound must be non-zero"),
     true => {
       threshold := ((u64(0) - bound) % bound);
-      (r : u64) = _next_u64_global();
+      (r : u64) = _next_u64_thread();
       while(r < threshold, {
-        r = _next_u64_global();
+        r = _next_u64_thread();
       });
       r % bound
     }
   )
 );
-/// A uniform integer in the half-open range `r`, from the process-global
+/// A uniform integer in the half-open range `r`, from this thread's
 /// generator — `rand_range(i64(1) .. i64(7))`. Panics on an empty range.
 rand_range :: (fn(r : Range(i64)) -> i64)(
   cond(
@@ -276,7 +297,7 @@ rand_range :: (fn(r : Range(i64)) -> i64)(
     true => (r.start + i64(rand_below(u64(r.end) - u64(r.start))))
   )
 );
-/// A uniform integer in the INCLUSIVE range `r`, from the process-global
+/// A uniform integer in the INCLUSIVE range `r`, from this thread's
 /// generator — `rand_range_inclusive(i64(1) ..= i64(6))`. Panics on an empty
 /// range.
 rand_range_inclusive :: (fn(r : RangeInclusive(i64)) -> i64)(
