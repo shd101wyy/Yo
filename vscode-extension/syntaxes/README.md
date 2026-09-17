@@ -1,10 +1,12 @@
-# Yo Vim syntax
+# Yo syntax files
 
-This directory contains a minimal Vim/Neovim syntax file for the Yo language.
+This directory contains the editor syntax files for the Yo language.
 
 Files included
 
-- `yo.vim` — Vim syntax script (place in your Vim runtime `syntax/` directory).
+- `yo.tmLanguage.json` — the TextMate grammar the VS Code extension loads.
+- `yo.vim` — Vim syntax script mirroring the TextMate grammar (place in your
+  Vim runtime `syntax/` directory).
 
 Installation
 
@@ -42,7 +44,10 @@ augroup END
 
 Notes
 
-- This is a conservative conversion of the existing TextMate grammar. It highlights comments, keywords, types, builtin functions, strings, chars, operators and basic numbers.
+- The Vim file mirrors `yo.tmLanguage.json`; update both together when the
+  grammar changes. They highlight comments (including the `///` / `/**` doc
+  forms), keywords, types, builtin functions, strings, chars, template
+  strings and numbers (hex/binary/octal/decimal).
 - If you prefer to keep the file under this repository and add it to Vim's runtimepath, you can symlink the file or add this repo to your `runtimepath`.
 
 Troubleshooting
