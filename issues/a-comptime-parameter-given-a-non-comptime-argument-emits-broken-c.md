@@ -143,11 +143,26 @@ exactly. **Instrument the spec mint; do not fix from this paragraph.**
 
 ### Artifacts available
 
-Four reproducers with their literal controls, and the `[ctparam]` instrument (a
-gated print before `CheckParamResult`, UNMERGED, in the peer's
-`Yo-wt/fill-probe`). The set-difference method — trace the failing case against
-a literal control and compare — is what makes these negatives readable: a trace
-of the failing case alone shows hundreds of hits and looks like confirmation.
+**The two instruments are parked on a branch, not lost on a machine:**
+`probe/comptime-arg-instruments`, commit `673216063` — `YO_DEBUG_CTGATE`
+(`calls/comptime_fn.yo`, at the unknown-arg gate) and `YO_DEBUG_CTPARAM`
+(`calls/helper.yo`, before `CheckParamResult`). 34 added lines, purely
+additive, gated and behaviour-free, in the same style as the tree's existing
+`YO_DEBUG_PARAMCHECK` / `YO_DEBUG_CTFE` / `YO_DEBUG_BIND`. **Not for merge** —
+and deliberately a branch rather than a worktree path, because a bare branch
+push runs no CI and stays reachable from any machine.
+
+Also: four reproducers with their literal controls (each failing case paired
+with the same call using a LITERAL argument).
+
+**Read the instruments with the set-difference method, or they will mislead
+you.** A raw trace of the failing case ALONE is not evidence: ambient `std`
+traffic produces ~10 unknown-arg gate hits in any program whatsoever, so the
+trace reads as confirmation of whatever you already believe — which is exactly
+how interception point 1 was chosen and got a fix written into unreachable
+code. Trace the failing case AND the literal control, then diff the fid sets.
+That turned one ten-hit trace into "exactly one fid, and it is `fill`" and
+another into "empty — `c` never reaches this gate".
 
 ### SUPERSEDED hypothesis for the divergence (kept — it had the right shape but was a story)
 
