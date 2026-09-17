@@ -1,8 +1,17 @@
 # A `comptime(...)` parameter given a non-comptime argument emits BROKEN C instead of an error
 
-**Status:** OPEN. **Reported:** 2026-09-17 by the peer session (yo-12) while
-root-causing `Array(T, N).fill(T.default())`; handed over because it is the
-same family as the diagnostics-flattening work in #733.
+**Status:** OPEN, and narrowed by measurement rather than reasoning. **Reported:**
+2026-09-17 by the peer session (yo-12) while root-causing
+`Array(T, N).fill(T.default())`; handed over because it is the same family as
+the diagnostics-flattening work in #733, and handed BACK after three probes
+once the remaining work turned out to sit in the specialization machinery.
+
+**Read the "Why they diverge" section first.** Three candidate fix sites are
+eliminated by measurement, the divergence from the `Array.fill` defect is
+by-design with a code citation, and the next step is a named probe TARGET, not
+a mechanism to implement. Every claim below is marked measured or reasoned; two
+of this document's own earlier mechanisms were refuted and are kept under
+banners because how they failed is the instructive part.
 
 **Verification status:** the reproducer and the clang error below are the
 REPORTER's measurement, quoted as given. I have not independently reproduced
@@ -80,7 +89,67 @@ The set-difference method is what makes the negative readable: a trace of the
 failing case alone shows ten hits and looks like confirmation. The control
 turns ambient traffic into noise that cancels.
 
-### Hypothesis for the divergence (NOT measured)
+### Why they diverge: BY DESIGN, and the tree says so
+
+**No longer a hypothesis.** `src/evaluator/calls/helper.yo` (~line 7005) records
+that TS's `isFunctionTypeGeneric` **also counts COMPTIME PARAMS, excluding only
+comptime-RETURNING functions (those are CTFE'd)**. That is the whole split:
+
+| case | signature | classified as | path |
+| --- | --- | --- | --- |
+| `Array.fill` | `-> comptime(Self)` | comptime-RETURNING ⇒ CTFE'd | `comptime_fn.yo`, meets the unknown-arg gate, returns `_ctfe_unknown` ⇒ abort stub |
+| this issue's `c` | `(comptime(v) : i32) -> i32` | comptime PARAM, runtime return ⇒ GENERIC | specialization path; every call site is a distinct instantiation. Never reaches the gate |
+
+So the two are divergent **by design**, not by accident. They share a
+description and a user-visible cause — an `UnknownVal` argument bound to a
+`comptime(...)` parameter — and **they will need two fixes**.
+
+### Three interception points ELIMINATED (measured)
+
+1. **Inside `__yo_array_fill`** (`evaluator/builtins/array_fns.yo`) — a guard
+   there is unreachable: the unknown-arg gate returns `_ctfe_unknown` without
+   executing `fill`'s body. A fix here compiled rc=0 with the diagnostic absent.
+2. **The unknown-arg gate in `comptime_fn.yo`** — fires for `fill`, and the
+   set-difference for `c` is EMPTY (10 hits, all in the literal control). `c`
+   never reaches it.
+3. **`check_if_function_parameter_matches_argument`** (`calls/helper.yo`) —
+   instrumented at the comptime-parameter binding and run on both reproducers
+   with their literal controls:
+
+```
+pc_fill_bad  ctparam_lines=2291  ct_only=true total: 482
+pc_fill_ok   ctparam_lines=2291  ct_only=true total: 482
+pc_c_bad     ctparam_lines=5986  ct_only=true total: 486
+pc_c_ok      ctparam_lines=5986  ct_only=true total: 486
+SET DIFFERENCE (bad minus control), ct_only=true arg_unknown=true:
+--- fill ---   (empty)
+--- c ---      (empty)
+```
+
+   Identical counts between failing and working in both pairs, and the
+   decisive follow-up: `label=val` (fill's parameter) and `label=v` (c's)
+   appear **zero times in all four logs, controls included**. So this is not
+   "reaches the site with the flag false" — comptime parameters do not pass
+   through that function at all.
+
+### Next probe target for `c` (a TARGET, not a mechanism)
+
+The specialization path at `calls/helper.yo:2066`, where the comment says an
+explicit comptime param's argument VALUE joins the cache key. If that value is
+an `UnknownVal`, what does the minted specialization do with a parameter it
+cannot fold — does it keep the parameter in the runtime signature while the
+call site omits it? That would produce "too few arguments to function call"
+exactly. **Instrument the spec mint; do not fix from this paragraph.**
+
+### Artifacts available
+
+Four reproducers with their literal controls, and the `[ctparam]` instrument (a
+gated print before `CheckParamResult`, UNMERGED, in the peer's
+`Yo-wt/fill-probe`). The set-difference method — trace the failing case against
+a literal control and compare — is what makes these negatives readable: a trace
+of the failing case alone shows hundreds of hits and looks like confirmation.
+
+### SUPERSEDED hypothesis for the divergence (kept — it had the right shape but was a story)
 
 `fill` is `-> comptime(Self)`, a comptime-RETURNING function, so it routes
 through `comptime_fn.yo` and meets the gate. `c` is `-> i32` with a
@@ -90,7 +159,7 @@ argument the specialization apparently yields a callee still expecting the
 parameter while the call site omits it, which would explain "too few arguments"
 exactly. Nothing here is measured.
 
-### Next step: instrument, do not fix
+### SUPERSEDED next step (this site is now ELIMINATED — see above)
 
 The shared upstream, IF there is one, is the moment an argument is bound to a
 parameter flagged comptime —
