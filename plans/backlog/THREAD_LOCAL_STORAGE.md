@@ -16,7 +16,7 @@ requires — neither half is independently testable.
 | `src/expr_info.yo` | `register_thread_local` / `is_thread_local`, a SUBSET of `g_module_level_globals` with the same key shape, so `module_global_c_suffix` names storage, flag and accessor identically; the `comptime_expect_error` rollback clears both |
 | `src/evaluator/exprs/assignment.yo` | the TYPED form `(thread_local(name) : T) = init`: strip the modifier from the `:` pair's name position and let the typed-binding path run unchanged, then validate module-level position and the RC-free restriction and register |
 | `src/evaluator/exprs/initialization_assignment.yo` | the INFERRED form `thread_local(name) := init`: the same strip beside the existing `given(name)` unwrap, with the same two checks and the registry call |
-| `src/codegen/functions/generation.yo` | per-thread storage + a per-thread `bool` init flag + an accessor prototype in the declarations section; thread-locals excluded from `__yo_main_module_init`; `emit_thread_local_accessors` emits the lazy accessor bodies. The storage class matches what `src/codegen/async/runtime_core.yo` already emits — `__declspec(thread)` on Windows, `_Thread_local` elsewhere, dropped entirely on wasm |
+| `src/codegen/functions/generation.yo` | per-thread storage + a per-thread `bool` init flag + an accessor prototype in the declarations section; thread-locals excluded from `__yo_main_module_init`; `emit_thread_local_accessors` emits the lazy accessor bodies. The storage class matches what `src/codegen/async/runtime_core.yo` already emits — `__declspec(thread)` on Windows, `_Thread_local` everywhere else INCLUDING wasm. An earlier revision dropped it on wasm; `wasm32-unknown-emscripten` has pthreads and CI caught every thread sharing one instance |
 | `src/codegen/codegen_c.yo` | calls the accessor emitter UNCONDITIONALLY — `generate_main_wrapper` is executable-only, so emitting the bodies there would leave a `--static-library` archive with declared-but-undefined accessors |
 | `src/codegen/utils/index.yo` | a thread-local read resolves to `(*name__tl_get())`. The dereference is an lvalue, so the same substitution is valid in write position, which is what lets the rest of codegen keep treating it as an ordinary module-level global |
 | `tests/thread.test.yo` | per-thread independence across two spawns, the main thread's instance surviving both, BOTH binding forms (they take different evaluator paths), and the two rejections |
@@ -155,11 +155,32 @@ the first is not wasted work.
 
 ### WASM
 
-`emscripten` supports `_Thread_local` only with pthreads enabled;
+> **This section was WRONG, and the implementation believed it. Corrected
+> 2026-09-17 after CI caught it.** It is kept because it is a clean example of
+> an unverified claim in a plan doc propagating straight into code: the design
+> asserted a conclusion, the implementation encoded it as "an explicit branch
+> with a comment, not an accident", and nobody measured it until
+> `test-wasm32_emscripten` failed with *"a spawned thread starts from the
+> initializer"*.
+>
+> **What is actually true.** `wasm32-unknown-emscripten` **has pthreads** — Yo
+> spawns real threads there, which is why `tests/thread.test.yo` runs on that
+> target and only `wasm32-wasip1` carries `pragma(Pragma.SkipWasm32Wasi)`.
+> Lowering a thread-local to an ordinary global there makes every thread share
+> one instance, which is the exact bug a thread-local exists to prevent — and
+> it fails silently anywhere a test does not look.
+>
+> The tree had already answered the question: `src/codegen/async/runtime_core.yo`
+> emits `_Thread_local` for wasm **unconditionally**, and the async I/O runtime
+> depends on it. So there is no wasm carve-out: `__declspec(thread)` on
+> Windows, `_Thread_local` everywhere else. One branch fewer than the wrong
+> version.
+
+~~`emscripten` supports `_Thread_local` only with pthreads enabled;
 `wasm32-wasip1` is single-threaded in Yo's configuration. On both, a
 thread-local can lower to an ordinary global — correct, because there is one
 thread. That must be an explicit branch in codegen with a comment, not an
-accident.
+accident.~~
 
 ## Implementation sketch
 
@@ -255,7 +276,8 @@ accident.
    Four mechanisms in adjacent defects were refuted by measurement on
    2026-09-16/17 for exactly that reason.
 3. **Codegen** — emit `_Thread_local` storage, the init flag and the accessor;
-   route reads through the accessor. Single global on the WASM targets.
+   route reads through the accessor. ~~Single global on the WASM targets.~~
+   (No wasm carve-out — see the WASM section above.)
 4. **`std/rand.yo`** — `thread_rng()` returning a pointer/reference to this
    thread's generator, and the module doc's "deliberately not named that"
    paragraph replaced by the real thing.

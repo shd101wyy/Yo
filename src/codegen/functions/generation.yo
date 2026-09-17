@@ -31,7 +31,7 @@
 { function_param_mutation_mask, param_mutation_mask_hits } :: import("../../evaluator/effects/mutation_summary.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
-{ is_target_posix, is_target_linux, is_target_windows, is_target_wasm } :: import("../../target.yo");
+{ is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
 { get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
@@ -1187,13 +1187,22 @@ emit_module_level_variable_declarations :: (
                 // already emits (src/codegen/async/runtime_core.yo):
                 // `__declspec(thread)` on Windows, `_Thread_local` elsewhere.
                 //
-                // WASM: `emcc` supports `_Thread_local` only with pthreads
-                // enabled and `wasm32-wasip1` is single-threaded in Yo's
-                // configuration, so the storage class is DROPPED there and the
-                // thread-local lowers to an ordinary global. That is correct
-                // rather than a degradation — one thread means the sole
-                // instance IS this thread's instance — and it is an explicit
-                // branch, not an accident.
+                // NO wasm carve-out. An earlier revision dropped the storage
+                // class on every wasm target, reasoning that wasm is
+                // single-threaded so one global IS that thread's instance.
+                // That was wrong for `wasm32-unknown-emscripten`, which has
+                // pthreads: CI caught it as
+                // "a spawned thread starts from the initializer" failing —
+                // every thread shared one instance, which is the exact bug a
+                // thread-local exists to prevent, and it failed silently
+                // everywhere the test did not look.
+                //
+                // The tree already answered this: runtime_core.yo emits
+                // `_Thread_local` for wasm unconditionally, and the async I/O
+                // runtime relies on it. Matching that is both correct and one
+                // branch smaller. `wasm32-wasip1` is genuinely single-threaded,
+                // but emitting the storage class there is harmless — clang
+                // accepts it and there is one thread to be local to.
                 //
                 // (Note `get_uses_tls` in this file is TRANSPORT-layer
                 // security, an unrelated use of the same three letters.)
@@ -1201,7 +1210,6 @@ emit_module_level_variable_declarations :: (
                   !mg_is_tl,
                   String.new(),
                   cond(
-                    is_target_wasm(context.base.target_info) => String.new(),
                     is_target_windows(context.base.target_info) => String.from("__declspec(thread) "),
                     true => String.from("_Thread_local ")
                   )
