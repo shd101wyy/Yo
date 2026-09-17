@@ -6849,6 +6849,45 @@ impl(generic(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
 impl(generic(T : Type, U : usize), Array(T, U), Acyclic());
 impl(generic(T : Type, U : usize), where(T <: Comptime), Array(T, U), Comptime());
 impl(generic(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
+/// `Array(T, U)`'s `Default` — N copies of `T.default()`, built at RUN TIME.
+///
+/// DELIBERATELY runtime, and deliberately not built on `fill`
+/// (decided 2026-09-17). `fill` takes `comptime(val)` and builds the whole
+/// array at compile time; `Default.default` is an ordinary `fn`, so
+/// `T.default()` is a run-time value and `fill(T.default())` is a type error
+/// the compiler now reports
+/// (issues/fixed/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md).
+/// Relaxing `fill` to accept it would hide a per-element loop behind a name
+/// that promises compile-time behaviour, so the two stay separate operations
+/// with separate contracts.
+///
+/// The element-wise write goes through `MaybeUninit`, the same idiom
+/// `std/sys/tty.yo` and `std/process/command.yo` already use for an
+/// `Array`-shaped out-parameter: there is no other way to obtain an
+/// `Array(T, U)` to write into without first having a `T` value to seed it
+/// with, which is the problem being solved.
+///
+/// Bounded on `T <: Default` ONLY — no `Comptime` bound, which is what lets
+/// this cover types a compile-time approach cannot. `Array(bool, U).default()`
+/// works here and would not through `fill`, because `bool(0)` is not a legal
+/// conversion.
+impl(
+  generic(T : Type, U : usize),
+  where(T <: Default),
+  Array(T, U),
+  Default(
+    default : (fn() -> Self)({
+      mu := MaybeUninit(Self).new();
+      p := (*T)(mu.as_ptr());
+      (i : usize) = usize(0);
+      while(i < U, {
+        (p.add(i)).* = T.default();
+        i = (i + usize(1));
+      });
+      mu.assume_init()
+    })
+  )
+);
 impl(
   generic(T : Type, U : usize),
   Array(T, U),

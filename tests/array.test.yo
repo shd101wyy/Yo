@@ -429,3 +429,33 @@ test("Test fill still accepts every compile-time known argument", {
   );
   assert(g(i32(1)).len() == 3, "a generic fill with a comptime value still specializes");
 });
+test("Test Array(T, N).default() builds N copies at RUN TIME", {
+  // DECIDED 2026-09-17: `Default` for arrays is a RUNTIME operation, and
+  // `fill` stays comptime-only. `fill(T.default())` is a type error the
+  // compiler reports, because `Default.default` is an ordinary `fn` and `fill`
+  // takes `comptime(val)` — so these are two operations with two contracts,
+  // not one bent to serve the other.
+  a := Array(i32, usize(3)).default();
+  assert(a.len() == 3, "the length comes from the type");
+  assert(a(usize(0)) == 0, "first element is T.default()");
+  assert(a(usize(2)) == 0, "and so is the last");
+  b := Array(f64, usize(2)).default();
+  assert(b(usize(1)) == 0.0, "floats default too");
+  // `bool` is the case a COMPILE-TIME approach could not reach: `fill(T(0))`
+  // needs `bool(0)`, which is not a legal conversion. The runtime impl is
+  // bounded on `T <: Default` alone, so it covers everything with a Default.
+  c := Array(bool, usize(2)).default();
+  assert(c(usize(0)) == false, "bools default, which fill(T(0)) cannot express");
+  // Distinct calls must not alias: each builds its own array.
+  d := Array(i32, usize(2)).default();
+  e := Array(i32, usize(2)).default();
+  assert((d(usize(0)) == 0) && (e(usize(0)) == 0), "two defaults are both zeroed");
+});
+// NOT tested here: that `fill(i32.default())` is REJECTED. It still is not —
+// it compiles rc=0 and aborts at run time, which is the open defect in
+// issues/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md (three
+// candidate fixes measured and refuted). Asserting the rejection would fail,
+// and asserting nothing is honest. The positive battery above is what pins
+// `fill`'s contract in the meantime: adding a RUNTIME `Default` must not have
+// relaxed `fill` into accepting runtime values, and every shape that must keep
+// working still does.
