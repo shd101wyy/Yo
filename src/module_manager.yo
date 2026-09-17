@@ -1543,6 +1543,9 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   if(module_cache_has(abs.clone()), {
     return(Option(String).None);
   });
+  if(env_mod.env.get(`YO_DEBUG_WARM`).is_some(), {
+    eprintln(`[warmload] MISS path=${abs.clone()}`);
+  });
   std_path := match(g_loader_std_path, .Some(s) => s, .None => String.from(""));
   exn := match(g_loader_exn, .Some(e) => e, .None => return(Option(String).None));
   fs_path := abs.replace(String.from("file://"), String.new());
