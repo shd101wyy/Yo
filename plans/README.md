@@ -56,7 +56,7 @@ Active work (root) — **plans and handovers driving work right now, and nothing
 
 The **LLM-friendly toolchain campaign** closed 2026-09-17:
 [`archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md)
-— every item implemented across #718/#720/#724/#727. What stays authoritative
+— every item implemented across #718/#720/#724/#733. What stays authoritative
 is the §4 brace DECISION (a brace group is a record unless it has a `;`, in
 every position, including destructuring and match arms; `{ x }` gets a
 diagnostic rather than a grammar change) and the REJECTION of
