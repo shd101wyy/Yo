@@ -116,11 +116,14 @@ test("Test Array fill method", {
     return(Array(i32, n).fill(10));
   });
   return_array_2 :: (fn(comptime(n) : usize) -> [i32 ; n])(Array(i32, n).fill(20));
+  // `comptime_fill` because the RESULT is declared `comptime([i32 ; n])`.
+  // Plain `fill` builds the array at run time, which cannot satisfy that.
   comptime_return_array :: (fn(comptime(n) : usize) -> comptime([i32 ; n]))({
-    return(Array(i32, n).fill(30));
+    return(Array(i32, n).comptime_fill(30));
   });
-  comptime_return_array_2 :: (fn(comptime(n) : usize) -> comptime([i32 ; n]))(Array(i32, n).fill(40));
-  arr :: Array(i32, 6).fill(8);
+  comptime_return_array_2 :: (fn(comptime(n) : usize) -> comptime([i32 ; n]))(Array(i32, n).comptime_fill(40));
+  // `::` is a COMPILE-TIME binding, so the array itself must be one.
+  arr :: Array(i32, 6).comptime_fill(8);
   arr2 := return_array(5);
   assert(arr2.len() == 5);
   assert(arr2(0) == 10);
