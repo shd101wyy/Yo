@@ -25,6 +25,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   BK_COLON,
   BK_ASSIGN,
+  BK_THREAD_LOCAL,
   BK_COND,
   BK_MATCH,
   BK_BEGIN,
@@ -43,7 +44,8 @@ pragma(Pragma.AllowUnsafe);
   has_dominating_branch_init,
   lookup_some_resolved_concrete,
   expr_info_paths_for_write,
-  expr_info_set_converted_runtime_type
+  expr_info_set_converted_runtime_type,
+  register_thread_local
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -310,6 +312,39 @@ evaluate_assignment :: (
   // -----------------------------------------------------------------------
   // Determine branch: atom LHS, typed-binding LHS, or property/index LHS
   // -----------------------------------------------------------------------
+  // `thread_local(name : T) = init;` — a module-level thread-local. This is
+  // NOT a new parser form: the grammar already accepts an assignment whose
+  // LHS is a call, so the declaration reaches here as a FnCall headed by the
+  // atom `thread_local` wrapping a single `:` pair. Unwrap it to that pair so
+  // it reuses the typed-binding path below EXACTLY — the only differences a
+  // thread-local has are the two checks and the registry call after the
+  // binding, and its codegen lowering
+  // (plans/backlog/THREAD_LOCAL_STORAGE.md).
+  //
+  // Without the unwrap it matches neither `is_atom_lhs` nor
+  // `is_typed_binding_lhs`, falls into the property/index branch, and the
+  // head atom is evaluated — which is why the form reported
+  // `error[E0401]: Variable "thread_local" not found` before this existed.
+  (is_thread_local_lhs : bool) = false;
+  if(ast_expr_is_fn_call_of(lhs, BK_THREAD_LOCAL, .Some(usize(1))), {
+    tl_inner := match(
+      lhs,
+      .FnCall(_, _, tl_args, _, _) => match(tl_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+      .Atom(_, _) => make_err_expr()
+    );
+    if(!ast_expr_is_fn_call_of(tl_inner, BK_COLON, .Some(usize(2))), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(lhs),
+            `A thread-local declaration needs a typed binding and an initializer: "thread_local(name : T) = init;".`
+          )
+        )
+      );
+    });
+    is_thread_local_lhs = true;
+    lhs = tl_inner;
+  });
   is_atom_lhs := ast_expr_is_atom(lhs);
   is_typed_binding_lhs := (ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))));
   // -----------------------------------------------------------------------
@@ -773,6 +808,60 @@ evaluate_assignment :: (
       lhs_resolved = binding.variable_expr;
     }
   );
+  // -----------------------------------------------------------------------
+  // Thread-local: validate and register. Runs AFTER the binding so the
+  // declared type is resolved and the variable exists in the env.
+  //
+  // The type restriction is Option 1 of plans/backlog/THREAD_LOCAL_STORAGE.md:
+  // C11 `_Thread_local` has NO destructor hook, so an RC value stored in one
+  // is never released and every spawned thread leaks its instance. Rather
+  // than leak silently, refuse the declaration and name the restriction. The
+  // eventual Option 3 (keyed storage with a generated destructor for exactly
+  // this case) branches on the SAME condition, so this check is the shape it
+  // will reuse, not a temporary shim.
+  // -----------------------------------------------------------------------
+  if(is_thread_local_lhs, {
+    tl_tok := ast_expr_token(lhs_resolved);
+    tl_vars := get_variables_from_env(env, variable_name.clone());
+    if(tl_vars.len() == usize(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tl_tok,
+            `Failed to declare thread-local "${variable_name}".`
+          )
+        )
+      );
+    });
+    // `len() - 1` is only safe past the emptiness throw above — usize
+    // underflows.
+    (tl_var : Variable) = match(
+      tl_vars.get(tl_vars.len() - usize(1)),
+      .Some(v) => v,
+      .None => make_err_variable(env)
+    );
+    if(!tl_var.is_module_level, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tl_tok,
+            `A thread-local must be declared at module level. "${variable_name}" is declared inside a function body, where a per-thread instance has no meaning — use an ordinary local.`
+          )
+        )
+      );
+    });
+    if(type_contains_rc_type(tl_var.ty), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tl_tok,
+            `A thread-local cannot hold a reference-counted type, and "${variable_name}" has type ${type_to_string(tl_var.ty)}. A thread's instance is released when the thread exits, and the C11 thread-local storage a thread-local lowers to has no hook to run that release — so the value would leak once per thread. Use a reference-counted value owned by the caller and passed in, or a plain (non-RC) type here.`
+          )
+        )
+      );
+    });
+    register_thread_local(tl_tok.module_path.clone(), variable_name.clone());
+  });
   // Disallow reassignment to "_"
   if(variable_name == "_", {
     exn.throw(

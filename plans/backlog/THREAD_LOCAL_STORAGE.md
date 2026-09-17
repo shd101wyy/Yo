@@ -1,7 +1,46 @@
 # Thread-local storage
 
-**Status:** BACKLOG — designed here, not started. Written 2026-09-10; the std
-row it blocks is `rand`'s missing `thread_rng`.
+**Status:** IMPLEMENTED 2026-09-17 (evaluator + codegen, Option 1), pending
+verification on a built compiler. Written 2026-09-10; the std row it blocks is
+`rand`'s missing `thread_rng`, which stays seed-gated — `std/rand.yo` cannot
+use the form until a release ships an evaluator that knows it.
+
+## What landed (2026-09-17)
+
+Evaluator and codegen together behind one build, as the sequencing note below
+requires — neither half is independently testable.
+
+| file | change |
+| --- | --- |
+| `src/expr.yo` | `BK_THREAD_LOCAL` beside the other builtin-keyword strings |
+| `src/expr_info.yo` | `register_thread_local` / `is_thread_local`, a SUBSET of `g_module_level_globals` with the same key shape, so `module_global_c_suffix` names storage, flag and accessor identically; the `comptime_expect_error` rollback clears both |
+| `src/evaluator/exprs/assignment.yo` | a FOURTH LHS shape beside atom / typed-binding / property-index: unwrap `thread_local(name : T)` to its inner `:` pair and reuse the typed-binding path unchanged, then validate module-level position and the RC-free restriction and register |
+| `src/codegen/functions/generation.yo` | per-thread storage + a per-thread `bool` init flag + an accessor prototype in the declarations section; thread-locals excluded from `__yo_main_module_init`; `emit_thread_local_accessors` emits the lazy accessor bodies. The storage class matches what `src/codegen/async/runtime_core.yo` already emits — `__declspec(thread)` on Windows, `_Thread_local` elsewhere, dropped entirely on wasm |
+| `src/codegen/codegen_c.yo` | calls the accessor emitter UNCONDITIONALLY — `generate_main_wrapper` is executable-only, so emitting the bodies there would leave a `--static-library` archive with declared-but-undefined accessors |
+| `src/codegen/utils/index.yo` | a thread-local read resolves to `(*name__tl_get())`. The dereference is an lvalue, so the same substitution is valid in write position, which is what lets the rest of codegen keep treating it as an ordinary module-level global |
+| `tests/thread.test.yo` | per-thread independence across two spawns, the main thread's instance surviving both, and the two rejections |
+
+Two decisions worth recording because they are not obvious from the diff:
+
+- **`get_uses_tls` in `src/codegen/` is TRANSPORT-layer security**, not
+  thread-local storage — an unrelated use of the same three letters, and the
+  first thing that looks like existing machinery to reuse here. There was none.
+- **The init flag is set BEFORE the initializer runs.** An initializer that
+  reads the same thread-local then sees the zeroed storage and terminates,
+  rather than recursing until the stack is gone.
+- **`thread_local` is now a RESERVED assignment head.** The interception fires
+  on any `thread_local(<one arg>) = rhs`, and throws when that argument is not
+  a `:` pair. A user with their own one-argument `thread_local` callable on an
+  assignment LHS therefore gets the declaration diagnostic rather than an index
+  write. That is deliberate: falling through instead would make a typo'd
+  declaration (`thread_local(name) = init`, no type) report
+  `Variable "thread_local" not found`, which is precisely the confusing message
+  this feature exists to remove.
+- **The declaration site must NOT go through the read substitution.**
+  `get_variable_name_for_codegen` rewrites a thread-local read to the accessor
+  call, which is correct everywhere except where the name is being declared —
+  so `emit_module_level_variable_declarations` builds the declaration name
+  straight from the sanitized identifier plus the module suffix.
 
 ## The problem
 
