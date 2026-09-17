@@ -1322,8 +1322,16 @@ become real; the stdlib starts carrying executable specifications.
 > (the fn-type evaluation and the splice re-read those tables by that
 > id) — plant under the FuncVal id instead, which nothing re-reads. The
 > fixtures use the two-step spelling (named fn + reference from the impl
-> entry); the inline clause-carrying spelling stays blocked by that
-> OPEN issue. Remaining for V6: tasks 2–6 below.
+> entry); the inline clause-carrying spelling stayed blocked by that
+> issue until 2026-09-17, when the ROOT CAUSE was found and FIXED: the
+> trait entry's expected fn type leaked into the def-time body trial, and
+> the spliced contract guard's operator call unified its `bool` return
+> against it at try_to_call's Step 10 — the fix (helper.yo) skips the
+> return-vs-expected synth when the expected is a fn type the call does
+> not itself return. The issue moved to `issues/fixed/`; the INLINE
+> spelling now loads AND its variance task proves (regression test in
+> `verifier_trait_variance.test.yo` + fixture
+> `valid/trait_impl_clauses.yo`). Remaining for V6: tasks 2–6 below.
 >
 > **Status: TASK 2 SLICE 1 — contracted generic callees at monomorphized
 > call sites (2026-09-14).** Two fixes, both probe-driven: (1) the

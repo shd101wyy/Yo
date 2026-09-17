@@ -691,12 +691,13 @@ safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / de
   (contravariant: may weaken, never strengthen) and `impl.ensures ⇒
   trait.ensures` (covariant: may strengthen, never weaken). A clause-less
   impl method INHERITS the trait's contracts (its body must prove the
-  trait's ensures under the trait's requires). PITFALL: an impl method
-  whose fn-type carries clauses INLINE inside the trait entry trips a
-  known evaluator defect
-  (`issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`)
-  — write it as a named fn referenced from the impl entry (the two-step
-  spelling below):
+  trait's ensures under the trait's requires). Both the INLINE spelling
+  (clauses on the fn-type inside the impl entry) and the two-step spelling
+  work — the former used to trip
+  `issues/fixed/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
+  (FIXED: the trait entry's expected fn type no longer reaches the body's
+  contract-guard operators); the two-step form below is still the
+  battle-tested spelling:
 
 ```rust
 ClampBound :: trait(

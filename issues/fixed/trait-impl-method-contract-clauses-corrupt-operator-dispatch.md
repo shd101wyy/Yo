@@ -146,3 +146,32 @@ Two new data points for whoever fixes it:
    DROPPED from compiled binaries. The `_name := (fn() -> bool)({...})();`
    runtime-binding shape (the `_trait_checking_init` precedent) is the
    form that survives both.
+
+## Fixed 2026-09-17 (rides PR #753's branch)
+
+Root cause found by instrumented driver (YO_DEBUG_PARAMCHECK probes at the
+param check's Step 6 and at try_to_call_function_with_arguments' Step 10,
+plus a per-site expected-setter tag): the trait entry evaluates each impl
+method's value WITH the trait field's (Self-substituted) fn type on
+`ctx.expected_type` (values/impl.yo). That expected copied into the def-time
+body trial's context (create_function_body_evaluation_context), and the
+SPLICED BODY's runtime contract guard — the `i >= i32(0)` inside
+`requires(...)` lowered to `cond(begin(runtime(pred)) ...)` — dispatched the
+operator through try_to_call's Step 10, which unifies the call's return
+against the expected: `bool` vs the fn type → the hard throw. The backtrace
+frames named the prelude impl trials because the guard's operator dispatch
+enters the prelude's operator impls — their frames were innocent; the
+EXPECTED was the leak.
+
+Fix (src/evaluator/calls/helper.yo, try_to_call Step 10): skip the
+return-vs-expected synthesis when the expected is a fn type the call does
+not itself return — a fn-type expectation belongs to fn-expression
+positions and can never be satisfied by an ordinary inner call. Clearing the
+expected at the trial sites was tried first and REVERTED: bodies legitimately
+infer from the ambient expected (prelude trait-default `.None` shorthands
+broke — the trial must keep it).
+
+Regression test: `tests/internal/verifier_trait_variance.test.yo` "the
+INLINE clause spelling loads and proves" + fixture
+`tests/spec/fixtures/valid/trait_impl_clauses.yo` — 4/4 green locally (the
+fixture's own variance task now PROVES: `impl-variance@…:m=ok`).
