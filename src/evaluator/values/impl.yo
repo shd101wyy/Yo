@@ -1492,7 +1492,8 @@ _inject_forall_captures :: (
     method_val : Option(EvalValue),
     forall_names : ArrayList(String),
     bindings : ArrayList(TypeValue),
-    binding_vals : ArrayList(EvalValue)
+    binding_vals : ArrayList(EvalValue),
+    self_receiver : Option(TypeValue)
   ) -> Option(EvalValue)
 )(
   match(
@@ -1534,6 +1535,18 @@ _inject_forall_captures :: (
             );
             mk_v = (mk_v + usize(1));
           });
+          // The Self receiver participates in the key: an impl with NO
+          // forall params (or one whose bindings coincide) matched against
+          // DIFFERENT receivers must not share a cached injection — the
+          // "Self" capture below bakes the receiver in.
+          match(
+            self_receiver,
+            .Some(sr) => {
+              memo_key.push_str("|S=");
+              memo_key.push_string(type_key(sr));
+            },
+            .None => ()
+          );
         };
         match(
           g_ifc_memo.get(memo_key.clone()),
@@ -1610,6 +1623,39 @@ _inject_forall_captures :: (
               });
               fi2 = (fi2 + usize(1));
             });
+            // The matched CONCRETE receiver as a "Self" capture — the port
+            // of TS `substitutions.insert("Self", concreteType)`
+            // (impl.ts:2474, consumed by reEvaluateFunctionType(...,
+            // SelfType)). A STATIC member (no `self` parameter) has no
+            // receiver argument at its specialization, so its body's `Self`
+            // would otherwise resolve from whatever ambient ctx.self_type
+            // the FORCING evaluation left live — order-dependent state, and
+            // wrong the moment an unrelated evaluation forces the
+            // specialization (a String impl field eval binding Self=String
+            // while ArrayList(String).new specializes inside it: "Cannot
+            // construct String outside its declaring module",
+            // issues/warm-compile-selfcheck.md). The spec path clears the
+            // ambient binding when it sees this capture, and the body
+            // resolves `Self` through the callee env instead.
+            match(
+              self_receiver,
+              .Some(sr) => {
+                new_cns.push(String.from("Self"));
+                new_cts.push(t_type());
+                new_cvs.push(EvalValue.TypeVal(sr.clone()));
+                if(ifc_have_vars, {
+                  new_cvars.push(
+                    make_capture_variable(
+                      String.from("Self"),
+                      t_type(),
+                      Option(EvalValue).Some(EvalValue.TypeVal(sr.clone())),
+                      String.from("")
+                    )
+                  );
+                });
+              },
+              .None => ()
+            );
             if(ifc_have_vars, {
               ifc_env_key = mint_funcval_env_key();
               register_funcval_cap_vars(ifc_env_key, new_cvars);
@@ -1841,7 +1887,13 @@ find_methods_from_generic_impls :: (
               results.push(
                 MethodCandidate(
                   method_type : fmg_spec_ty,
-                  method_value : _inject_forall_captures(fvalue, entry.forall_names, match_bindings, match_binding_vals),
+                  method_value : _inject_forall_captures(
+                    fvalue,
+                    entry.forall_names,
+                    match_bindings,
+                    match_binding_vals,
+                    Option(TypeValue).Some(resolved.clone())
+                  ),
                   source_trait_id : entry.trait_key.clone(),
                   owner : fmg_owner.clone()
                 )
