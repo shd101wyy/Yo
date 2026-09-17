@@ -50,7 +50,61 @@ This one is worse in shape. The array case at least ends in a loud
 simply wrong, and a C compiler that happened to accept it would have shipped a
 call with a missing argument.
 
-## 2026-09-17 UPDATE: this and the `Array.fill` defect are probably ONE defect
+## 2026-09-17 CORRECTION: they are TWO defects, MEASURED
+
+**The one-defect claim below is REFUTED.** Do not implement a single
+interception point for both.
+
+The open question the previous update left in front of any implementation —
+does the unknown-arg gate fire for THIS document's `c1` case, or only for
+`fill`? — was answered by the same set-difference method the `fill` probe used:
+trace `c(i32.default())` against the literal control `c(i32(0))` and compare
+the fids that hit `any_arg_unknown=true`.
+
+| case | fids in the difference |
+| --- | --- |
+| `Array(i32,3).fill(i32.default())` | **1** — and it names `fill` |
+| `c(i32.default())` | **0 — EMPTY** (10 hits, every one also in the control) |
+
+So `c` **never reaches the unknown-arg gate at all**, and the ten hits in its
+trace are ambient std traffic. The symptoms predicted this: `c1` reaches clang,
+which means codegen ran to completion, and that is not what happens downstream
+of a gate returning an unknown without executing the body.
+
+**Consequence:** a fix at that gate would have repaired `fill`, left this
+document's case untouched, and closed an issue claiming both. The two share a
+DESCRIPTION — an `UnknownVal` argument bound to a `comptime(...)` parameter —
+and do not share a fix site.
+
+The set-difference method is what makes the negative readable: a trace of the
+failing case alone shows ten hits and looks like confirmation. The control
+turns ambient traffic into noise that cancels.
+
+### Hypothesis for the divergence (NOT measured)
+
+`fill` is `-> comptime(Self)`, a comptime-RETURNING function, so it routes
+through `comptime_fn.yo` and meets the gate. `c` is `-> i32` with a
+`comptime(v)` parameter — an ordinary runtime function on the normal call path,
+where the comptime parameter is meant to be specialized away; with an unknown
+argument the specialization apparently yields a callee still expecting the
+parameter while the call site omits it, which would explain "too few arguments"
+exactly. Nothing here is measured.
+
+### Next step: instrument, do not fix
+
+The shared upstream, IF there is one, is the moment an argument is bound to a
+parameter flagged comptime —
+`check_if_function_parameter_matches_argument` (`calls/helper.yo`), already one
+of the four `get_func_param_comptime` consumers. Print (fid, param index,
+param-is-comptime, arg-is-unknown, in-trial) at every comptime-parameter
+binding and run BOTH reproducers against their literal controls. Print the fid
+and parameter INDEX, not just booleans: two cases reaching the same function
+at different parameter indices read as "same site" in a boolean-only trace.
+
+- both light up at the same site ⇒ one interception point, measured;
+- only one does ⇒ two fix sites, and this document must say so.
+
+## SUPERSEDED: the "probably ONE defect" update
 
 The reporter's fix for the sibling `Array.fill` issue **did not work**, and the
 refutation unified the two. Built on `d126e2c90`, the negative case compiled
