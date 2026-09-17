@@ -6,6 +6,7 @@ import("std/libc/stdio");
 { get_thread_id, Thread } :: import("std/thread");
 { yield } :: import("std/async");
 { Channel } :: import("std/sync/channel");
+{ rand_u64 } :: import("std/rand");
 { AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
 log :: import("std/log");
@@ -350,4 +351,41 @@ test("Test a thread-local gives each thread its own instance", {
 });
 test("Test a thread-local is rejected outside module level", {
   comptime_expect_error((thread_local(_tl_inner) : i32) = i32(0));
+});
+test("Test rand draws from a PER-THREAD generator, not a shared locked one", {
+  // std/rand's `rand_*` functions used to serialize on one Mutex-guarded
+  // process-global generator; since thread_local landed they draw from a
+  // per-thread `_RngState`. Two threads must therefore produce independent
+  // sequences, and neither may observe the other's state.
+  //
+  // This asserts INDEPENDENCE, not specific values — the generator is seeded
+  // from OS entropy, so the sequences are not reproducible and a value test
+  // would be flaky by construction.
+  c := Channel(u64).new(usize(4));
+  t1 := Thread(unit).spawn(io => {
+    c.send(rand_u64());
+    c.send(rand_u64());
+  });
+  t1.join();
+  t2 := Thread(unit).spawn(io => {
+    c.send(rand_u64());
+    c.send(rand_u64());
+  });
+  t2.join();
+  a1 := match(c.try_recv(), .Ok(v) => v, .Err(_) => u64(0));
+  a2 := match(c.try_recv(), .Ok(v) => v, .Err(_) => u64(0));
+  b1 := match(c.try_recv(), .Ok(v) => v, .Err(_) => u64(0));
+  b2 := match(c.try_recv(), .Ok(v) => v, .Err(_) => u64(0));
+  // Each thread's own two draws differ: its generator advanced.
+  assert(a1 != a2, "a thread's generator advances between draws");
+  assert(b1 != b2, "and so does the second thread's");
+  // The two threads did not share one sequence. If they had, the second
+  // thread's first draw would continue the first thread's, and a fresh
+  // per-thread generator would be impossible to distinguish from that only
+  // by luck — which is why both pairs are checked rather than one value.
+  assert((a1 != b1) || (a2 != b2), "two threads draw from independent generators");
+  // The main thread has its own instance too, untouched by either spawn.
+  m1 := rand_u64();
+  m2 := rand_u64();
+  assert(m1 != m2, "the main thread's generator advances independently");
 });
