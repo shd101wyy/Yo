@@ -239,3 +239,39 @@ export(
   DocModule,
   DocModel
 );
+/// The stability LEVEL word for a marker — the badge's CSS class and label.
+///
+/// The marker itself is ordinary prose, so its first word is not a clean
+/// token: std alone writes `unstable`, `unstable,`, `unstable.`, `stable`,
+/// `stable.`, `Stable.` and `**stable` (measured 2026-09-17 across 174
+/// markers). Feeding that straight into a class name produced
+/// `stability-unstable,` and `stability-**stable`, which match no rule in the
+/// stylesheet — so the badge lost its colour for exactly the markers whose
+/// authors added punctuation.
+///
+/// Strips markdown emphasis and trailing punctuation, lowercases, and returns
+/// `""` when the result is not a level the renderers know — a marker opening
+/// with prose ("close to freezing", "The shapes are…") has no level, and an
+/// unrecognised word must not become a class.
+stability_level :: (fn(marker : String) -> String)({
+  first := match(marker.trim().split(` `).get(usize(0)), .Some(w) => w, .None => String.new());
+  (cleaned : String) = String.new();
+  (i : usize) = usize(0);
+  while(i < first.len(), {
+    ch := first.substring(i, i + usize(1));
+    keep := !((ch == `*`) || (ch == `_`) || (ch == "`") || (ch == `,`) || (ch == `.`) || (ch == `:`) || (ch == `;`) || (ch == `!`));
+    if(keep, {
+      cleaned.push_string(ch);
+    });
+    i = (i + usize(1));
+  });
+  lower := cleaned.to_lowercase();
+  cond(
+    (lower == `stable`) => lower,
+    (lower == `unstable`) => lower,
+    (lower == `deprecated`) => lower,
+    (lower == `experimental`) => lower,
+    true => String.new()
+  )
+});
+export(stability_level);

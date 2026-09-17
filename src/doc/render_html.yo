@@ -35,7 +35,8 @@ import("std/fmt");
   DocAssociatedType,
   DocImpl,
   doc_item_kind_to_string,
-  doc_trait_kind_to_string
+  doc_trait_kind_to_string,
+  stability_level
 } :: import("./model.yo");
 { generate_css, generate_search_js, generate_highlight_js } :: import("./render_html_assets.yo");
 { markdown_to_html, Options, default_options } :: import("markdown_yo");
@@ -1530,8 +1531,21 @@ render_module_content_html :: (
     m.stability,
     .None => (),
     .Some(st) => {
-      level := match(st.split(` `).get(usize(0)), .Some(w) => w.to_lowercase(), .None => st.to_lowercase());
-      html.push_string(`<div class="stability stability-${_escape_html(level)}"><strong>Stability: ${_escape_html(st)}</strong> — stable modules only change additively; this one may still change.</div>`);
+      // The badge carries the LEVEL only. `m.stability` is the whole
+      // `## Stability` section collapsed to one line, and that section is
+      // still in `m.doc`, which `_render_doc` emits below — so putting the
+      // text here printed it twice, and printed it HTML-ESCAPED, so its
+      // markdown showed as literal backticks and asterisks in a one-line
+      // badge meant for a single word.
+      level := stability_level(st);
+      if(!level.is_empty(), {
+        gloss := cond(
+          (level == `stable`) => String.from(" — changes additively from here."),
+          (level == `deprecated`) => String.from(" — scheduled for removal."),
+          true => String.from(" — may still change; see below.")
+        );
+        html.push_string(`<div class="stability stability-${_escape_html(level)}"><strong>Stability: ${_escape_html(level)}</strong>${_escape_html(gloss)}</div>`);
+      });
     }
   );
   html.push_string(_render_doc(m.doc));
