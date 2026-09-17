@@ -42,7 +42,15 @@ VcSort :: ref(
     /// value (V5 task 6). The SMT sort ignores `len` (SMT arrays are
     /// unbounded); `len` is the compile-time element count the WALK uses
     /// for index-bounds obligations and `ms_of` folding.
-    ArrS(elem : Self, len : usize)
+    ArrS(elem : Self, len : usize),
+    /// V6 task 2 (FORMAL_VERIFICATION.md §680): an UNINTERPRETED sort —
+    /// the placeholder for a generic type parameter in an abstractly
+    /// verified body. Values of the sort support only equality and
+    /// pass-through; every other operation is a loud subset failure
+    /// (task 2's "type variables used opaquely" scope). The name is the
+    /// mangled SomeT identity, declared once per query via
+    /// `VcQuery.sorts` (`(declare-sort <name> 0)`).
+    Uninterpreted(name : String)
   )
 );
 derive(VcSort, Eq(VcSort));
@@ -57,7 +65,8 @@ impl(
         .DataS(name) => name.clone(),
         .SeqS(_) => String.from("seq"),
         .FunS(_, _) => String.from("array"),
-        .ArrS(_, _) => String.from("array")
+        .ArrS(_, _) => String.from("array"),
+        .Uninterpreted(name) => name.clone()
       )
     )
   )
@@ -203,6 +212,10 @@ VcQuery :: ref(
     /// terms (the per-array `ms_of` definitions, with `:pattern` triggers)
     /// asserted ahead of the path assumptions.
     axioms : ArrayList(VcTerm),
+    /// Declared UNINTERPRETED sorts (V6 task 2) — one mangled name per
+    /// abstractly verified generic parameter. Rendered as
+    /// `(declare-sort <name> 0)` lines before the datatypes.
+    sorts : ArrayList(String),
     /// Datatype declaration BLOCK CONTENT — one entry per datatype, the
     /// `(name 0)` arity pair plus its constructors. Rendered as ONE
     /// combined `declare-datatypes` before the constants so mutually
@@ -237,6 +250,7 @@ new_vc_query :: (fn(name : String) -> VcQuery)(
     goal : VcTerm.BoolLit(true),
     fundecls : ArrayList(VcSort).new(),
     axioms : ArrayList(VcTerm).new(),
+    sorts : ArrayList(String).new(),
     datatypes : ArrayList(String).new()
   )
 );
