@@ -17,7 +17,6 @@ pragma(Pragma.AllowUnsafe);
   BK_TUPLE,
   BK_TUPLE_TYPE,
   BK_ARRAY,
-  BK_SLICE,
   BK_ARRAY_VAL,
   BK_BEGIN,
   BK_IMPORT,
@@ -897,21 +896,24 @@ impl(
       args.push(arg_pr.expr);
       idx = arg_pr.index;
     });
-    // [T; N] → Array(T, N), [T] or [T;] → Slice(T), [a, b] → array(a, b)
-    is_array_or_slice_type := match(
+    // [T; N] → Array(T, N), [a, b] → array(a, b). The old [T] / [T;]
+    // slice-type form is a parse error: the builtin Slice type is deleted
+    // (plans/archive/SLICE_REWORK.md) and RawSlice(T) is the ptr+len view.
+    is_array_type_form := match(
       separator_is_comma,
       .None => true,
       .Some(__sb) => ((__sb) == false)
     );
     n_args := args.len();
-    if(is_array_or_slice_type && (n_args > usize(2)), {
-      exn.throw(dyn(make_parse_error(tok, `expected at most 2 arguments for Array type, or 1 for Slice type`)));
+    if(is_array_type_form && (n_args == usize(1)), {
+      exn.throw(dyn(make_parse_error(tok, `[T] slice type syntax has been removed; write RawSlice(T) for the pointer+length view`)));
     });
-    is_array_type := (is_array_or_slice_type && (n_args == usize(2)));
-    is_slice_type := (is_array_or_slice_type && (n_args == usize(1)));
+    if(is_array_type_form && (n_args > usize(2)), {
+      exn.throw(dyn(make_parse_error(tok, `expected 2 expressions for Array type [T; N]`)));
+    });
+    is_array_type := (is_array_type_form && (n_args == usize(2)));
     kw := cond(
       is_array_type => BK_ARRAY,
-      is_slice_type => BK_SLICE,
       true => BK_ARRAY_VAL
     );
     func_tok := Token(

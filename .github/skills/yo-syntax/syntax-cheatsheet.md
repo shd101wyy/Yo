@@ -913,10 +913,10 @@ Variable :: ref(struct(name : String, ty : TypeValue));
 
 ### 1-element array literals require a trailing comma
 
-`[expr]` without a trailing comma is **parsed as a slice-type form** (now an error — the builtin Slice type is deleted, so it surfaces "Variable \"Slice\" not found"), not an array literal. To create a 1-element array value, add a trailing comma:
+`[expr]` without a trailing comma **is a parse error** — the old slice-type form was removed along with the builtin Slice type (`plans/archive/SLICE_REWORK.md`); the parser rejects `[expr]` and `[T;]` and points at `RawSlice(T)`. To create a 1-element array value, add a trailing comma:
 
 ```rust
-// WRONG — parsed as Slice type, not array literal:
+// WRONG — removed slice-type form, now a parse error:
 arr := [i32(42)];
 
 // CORRECT — trailing comma makes it an array literal:

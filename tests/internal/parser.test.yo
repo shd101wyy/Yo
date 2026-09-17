@@ -363,18 +363,30 @@ test("Parse array value [1, 2, 3]", {
   assert(ast_expr_is_fn_call(e), "expected FnCall");
   assert_str_eq(ast_expr_to_string(e), `array(1, 2, 3)`, "array value");
 });
-test("Parse Slice type [T]", {
+test("Reject removed slice type [T]", {
   exn := Exception(
     throw : (
       err -> {
-        assert(false, "unexpected parse error");
         unwind(());
       }
     )
   );
-  prog := parse(`[T]`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `Slice(T)`, "slice type");
+  // The [T] / [T;] slice-type form was removed with the builtin Slice type
+  // (plans/archive/SLICE_REWORK.md); it is a parse error pointing at
+  // RawSlice(T), not an evaluation-time `Variable "Slice" not found`.
+  parse(`[T]`, `test.yo`, exn);
+  assert(false, "expected removed [T] slice type parse error");
+});
+test("Reject removed slice type [T;]", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  parse(`[T;]`, `test.yo`, exn);
+  assert(false, "expected removed [T;] slice type parse error");
 });
 test("Parse Array type [T; N]", {
   exn := Exception(
