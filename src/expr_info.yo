@@ -919,6 +919,18 @@ is_extern_c_module_id :: (fn(sns_id : String) -> bool)(
 /// object identity, so every copy of the variable resolves consistently.
 /// See issues/fixed/module-global-c-names-are-not-namespaced.md.
 (g_module_level_globals : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Declared HERE, beside `g_module_level_globals` rather than beside its own
+/// accessors further down, because `rollback_module_level_globals_to` below
+/// clears BOTH and a `(g_x : T) = ...` runtime binding is order-dependent —
+/// only `::` definitions and `impl` registrations are not (E0906).
+/// The THREAD-LOCAL subset of `g_module_level_globals`, same key shape and
+/// the same `_mg_canon` canonicalization, so `module_global_c_suffix` names
+/// the storage, the init flag and the accessor identically
+/// (plans/backlog/THREAD_LOCAL_STORAGE.md). A thread-local is registered in
+/// BOTH registries: it IS a module-level global for name resolution and C
+/// naming, and this registry is only what tells codegen to route its reads
+/// through the accessor instead of reading the storage directly.
+(g_thread_locals : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Canonicalize a module path for the registry key. Token module paths
 /// carry TWO spellings of the same file — the CLI-arg spelling of the root
 /// module (`./tests/x.yo`) and the loader's canonical `file://` absolute
@@ -1023,14 +1035,6 @@ module_global_c_suffix :: (fn(module_path : String) -> String)({
   cp := _mg_canon(module_path);
   `_m${hash_one(cp)}`
 });
-/// The THREAD-LOCAL subset of `g_module_level_globals`, same key shape and
-/// the same `_mg_canon` canonicalization, so `module_global_c_suffix` names
-/// the storage, the init flag and the accessor identically
-/// (plans/backlog/THREAD_LOCAL_STORAGE.md). A thread-local is registered in
-/// BOTH registries: it IS a module-level global for name resolution and C
-/// naming, and this registry is only what tells codegen to route its reads
-/// through the accessor instead of reading the storage directly.
-(g_thread_locals : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Record that module `module_path` declared the thread-local `name`.
 register_thread_local :: (fn(module_path : String, name : String) -> unit)({
   g_thread_locals.insert(`${_mg_canon(module_path)}|#|${name}`, true);
