@@ -145,6 +145,14 @@ env:
   # DETERMINISTIC, so each retry re-fetches the same bad file.
   # See issues/fixed/ci-apt-update-fails-on-an-unused-third-party-source.md.
   APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
+  # The pinned solver. TWO jobs need it now: the formal-verification job runs
+  # the real-solver obligations, and the tier-1 gates job runs GATE 3
+  # `check ./std`, which since the ArrayList bounds contracts landed refuses to
+  # pass without a solver (verify-mode contracts have their runtime asserts
+  # stripped, so "no solver" means neither proofs nor asserts — src/main.yo
+  # _run_contract_verification). Kept here rather than per-job so the pin
+  # consistency guard below has ONE value to check against src/verifier/z3.yo.
+  Z3_VERSION: "5.1.0"
 
 jobs:
   # The VS Code extension is npm-native BY DESIGN (its one devDependency is
@@ -451,7 +459,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      Z3_VERSION: "5.1.0"
       YO_TEST_Z3: "1"
       # discover_z3() resolves YO_Z3_PATH then the solvers cache — it never
       # searches PATH, so the /usr/local/bin install above must be named here.
@@ -1655,12 +1662,38 @@ jobs:
           YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
           cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
 
+      # GATE 3 is `check ./std`, and std now carries verify-mode contracts
+      # (std/collections/array_list.yo). A file with such contracts fails
+      # `check` outright when no solver can be resolved — deliberately, because
+      # its runtime asserts have been stripped, so without a solver it would
+      # get neither proofs nor checks. Every obligation in std is `assumed()`
+      # today, so Z3 is never actually invoked to prove anything; it only has
+      # to EXIST. Without this step the gate fails with
+      # "check: 175/176 file(s) passed".
+      - name: Install the pinned Z3 (GATE 3 `check ./std` needs a resolvable solver)
+        run: |
+          set -euo pipefail
+          # The runner image ships unzip; only reach for apt if it ever stops
+          # doing so, because apt here is the flaky step (see APT_OPTS).
+          command -v unzip >/dev/null || {
+            sudo apt-get $APT_OPTS update
+            sudo apt-get $APT_OPTS install -y unzip
+          }
+          curl -fsSL -o /tmp/z3.zip \
+            "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
+          unzip -o /tmp/z3.zip -d /tmp/z3-install
+          sudo cp "/tmp/z3-install/z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
+          z3 --version
+
       # YO_MAIN_STACK_MB: compiled Yo programs run main on a worker thread whose
       # stack defaults to 1 GiB; the self-hosted compiler's deep comptime
       # recursion needs more headroom (see the stack-ceiling note in AGENTS.md).
       - name: "Tier-1 gates via the self-hosted binary (`test` + corpus + check)"
         env:
           YO_MAIN_STACK_MB: "4096"
+          # discover_z3() resolves YO_Z3_PATH then the solvers cache — it never
+          # searches PATH, so the /usr/local/bin install above must be named here.
+          YO_Z3_PATH: /usr/local/bin/z3
           # STAGING RATCHET: the runner's LeakSanitizer verdicts (P2.5 step 4,
           # TS parity) exposed pre-existing self-hosted-emit leak debt — 50
           # corpus files leak (closure captures et al.;

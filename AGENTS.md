@@ -237,6 +237,17 @@ yo test ./std --bail
 # "`io.await` in a cond condition must BE the first condition" — are enforced in
 # CODEGEN, so `check` passes over them. Use `compile src/main.yo
 # --skip-c-compiler` (~3 min) to catch that class before pushing.
+#
+# GATE 3 (`check ./std`) NEEDS A Z3 ON THE BOX since std gained verify-mode
+# contracts (std/collections/array_list.yo). A file carrying them fails `check`
+# outright when no solver resolves — deliberately: their runtime asserts are
+# stripped, so no solver would mean neither proofs nor checks. Without one the
+# gate reports `check: 175/176 file(s) passed` and nothing names the cause but
+# a single `verify: no Z3 solver found` line. Install it once with
+# `yo verify std/collections/array_list.yo` (auto-installs the pinned Z3 into
+# ~/.cache/yo/solvers) or point YO_Z3_PATH at your own. Every std obligation is
+# `assumed()` today, so Z3 is never asked to prove anything — it only has to
+# EXIST.
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/gates_fast.sh
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
 

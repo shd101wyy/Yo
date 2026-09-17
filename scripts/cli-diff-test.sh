@@ -172,6 +172,15 @@ strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 # comparable to a golden recorded on another machine: sandbox roots, the repo
 # root, wall-clock durations and byte counts. Order matters — the sandbox paths
 # are longest and must go first.
+#
+# <PRELUDE_EXPRS> is not environment-specific, it is TREE-specific: `check` prints
+# the prelude's own top-level expression count, so every PR that adds or removes a
+# top-level expr in std/prelude.yo turned two unrelated cases (check-watch-once,
+# check-forward-ref-async-body) red and demanded a re-record that carried no
+# information. The count is incidental to what those cases test. Only the line
+# DIRECTLY AFTER the prelude's own `parsing` line is rewritten, so a fixture's
+# `parsed N top-level exprs` — which is exactly what those cases DO test — is
+# still compared exactly.
 # $1 = project dir, $2 = home dir
 normalize_stream() {
   local proj="$1" home="$2"
@@ -183,6 +192,7 @@ normalize_stream() {
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{40}([^A-Za-z0-9_]|$)/\1<SHA1>\2/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{64}([^A-Za-z0-9_]|$)/\1<SHA256>\2/g' \
              -e 's/(^|[^A-Za-z0-9_])(aarch64|arm64|x86_64|i686)-(apple-|unknown-|pc-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)([^A-Za-z0-9_]|$)/\1<TARGET>\5/g' \
+    | sed -E -e '\|^check: parsing .*std/prelude\.yo$|{n; s/^check: parsed [0-9]+ top-level exprs$/check: parsed <PRELUDE_EXPRS> top-level exprs/;}' \
     | refit_lsp_frames
 }
 
