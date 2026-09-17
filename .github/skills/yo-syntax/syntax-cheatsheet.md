@@ -678,8 +678,9 @@ get :: (
   `requires`) and each call site PROVES `refine#N` for the argument —
   an unprovable argument refutes with a counter-example while the
   callee stays verified. `refine(T)` without a predicate is a bare
-  alias. Attach it INLINE in the parameter annotation (named aliases
-  over refinements arrive with the `std/spec` surface).
+  alias. Works both INLINE in the parameter annotation and through a
+  NAMED alias — `NonZeroI32 :: refine(i32, non_zero)` then
+  `d : NonZeroI32` (the alias binds the refinement type itself).
 
 ```rust
 non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
@@ -1314,7 +1315,7 @@ my_fn :: (fn(x : i32) -> i32)({
 ### A brace group is a RECORD unless it has a `;` — in every position
 
 The rule is uniform and decided (2026-09-16,
-`plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4): a value, the left of
+`plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` §4): a value, the left of
 `::` / `:=` / `=`, and a `match` payload pattern all read braces the same way,
 so patterns and literals can never disagree. No leading dot, no comma tax.
 

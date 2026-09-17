@@ -108,6 +108,7 @@ json :: import("std/encoding/json");
   mm_shared_expr_info_table,
   mm_reset,
   mm_resolve_entry_abs,
+  mm_invalidate_document,
   mm_eval_entry_exprs,
   mm_load_file,
   mm_preload_prelude,
@@ -865,7 +866,7 @@ _apply_fixes_to_file :: (
   applied
 });
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
-/// already computed (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
+/// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
 /// A repair is only ever attached where exactly ONE edit fixes the
 /// diagnostic, so this never guesses between alternatives. Evaluation stops at
@@ -934,15 +935,40 @@ run_fix :: (
   // Files that still fail at the END of the last pass. `fix` exits non-zero
   // when any remain: "I applied what I could and the tree is STILL broken" is
   // not a success, and an rc=0 there is the hollow shape this plan exists to
-  // remove (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §0).
+  // remove (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §0).
   (still_failing : usize) = usize(0);
   while(progress && (pass < usize(10)), {
     progress = false;
     pass = (pass + usize(1));
     still_failing = usize(0);
-    // Per pass, not per file: a previous pass may have rewritten a file, and
-    // a cached module would hide the edit.
-    clear_module_cache();
+    // NO cache clear here. Clearing the whole module cache between passes
+    // is what made `fix` lie about its own success, and the story is worth
+    // keeping because two sessions agreed on the WRONG fix for it first.
+    //
+    // A cleared cache means pass 2 re-evaluates `std/string/string.yo` from
+    // source and mints a FRESH `ArrayList(u8)` struct id, while state that
+    // SURVIVES the clear still holds pass 1's. The unify guard
+    // (types/synthesizer.yo) compares IDS, never names, so the pass failed
+    // with `Cannot unify incompatible struct types: "ArrayList(u8)" and
+    // "ArrayList(u8)"` — identical names on both sides, the signature of an
+    // id/era split rather than a real mismatch. `fix` applied the rename
+    // correctly and then reported the file still broken, with rc=1.
+    //
+    // The first attempt paired `mm_clear_prelude_env()` + a re-preload with
+    // the clear, as the warm-compile path does. MEASURED: it did not work.
+    // The prelude env is the biggest thing surviving `clear_module_cache()`
+    // but far from the only one — the struct-field and func registries and
+    // the id-keyed expr_info tables survive it too — so resetting more state
+    // around the problem was never going to be enough.
+    //
+    // So do not re-evaluate what did not change. Only a REWRITTEN file needs
+    // to be re-read, and `mm_invalidate_document` (built for the LSP, Phase
+    // B1/B2) drops exactly that file plus its transitive dependents AND
+    // purges their registry entries by owner — the owner-tagged purge that
+    // issues/warm-compile-selfcheck.md names as the real answer. Everything
+    // else stays cached, so nothing is re-minted and there is no era to split.
+    // It is called at the rewrite site below, which also makes the invariant
+    // local: the only module that leaves the cache is one whose bytes changed.
     (fi : usize) = usize(0);
     while(fi < files.len(), {
       file := match(files.get(fi), .Some(f) => f, .None => String.new());
@@ -1012,13 +1038,18 @@ run_fix :: (
         );
         pi = (pi + usize(1));
       });
-      // TRUTHFULNESS. A file can fail with diagnostics that carry no repair,
-      // and — today — an evaluator error reaches this point with NO typed
-      // diagnostics at all, because the lazy-binding/def-time-trial path
-      // flattens it to a rendered string before the typed stash sees it
-      // (issues/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md).
-      // Say so rather than reporting "nothing to fix", which would read as
-      // "this file is clean".
+      // TRUTHFULNESS. A file can fail with diagnostics that carry no repair —
+      // an E0003 operator-adjacency error is the honest case, because more
+      // than one grouping fixes it and the compiler never guesses between
+      // alternatives. Say so rather than reporting "nothing to fix", which
+      // would read as "this file is clean".
+      //
+      // This used to fire for EVERY evaluator error, because the def-time
+      // trial flattened the diagnostics to text before the typed stash saw
+      // them (fixed: evaluator/calls/function_type.yo now re-raises the typed
+      // error; issues/fixed/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md).
+      // Both paths are pinned: fix-applies-an-evaluator-rename asserts the
+      // repair lands, fix-says-what-it-cannot-repair asserts this message.
       if(pending.len() == usize(0), {
         println(
           `fix: ${file} has errors, but no machine-applicable repair was available — run \`yo check ${file}\` for the diagnostics`
@@ -1029,6 +1060,12 @@ run_fix :: (
         if(n_applied > usize(0), {
           total_applied = (total_applied + n_applied);
           progress = true;
+          // The bytes changed, so this module and everything that imported it
+          // must leave the cache — and nothing else may. See the note at the
+          // top of the pass loop for why a full clear is wrong here.
+          mm_invalidate_document(
+            mm_resolve_entry_abs(file.clone(), std_path.clone()).replace(String.from("file://"), String.new())
+          );
           fmt_argv := ArrayList(String).new();
           fmt_argv.push(String.from("yo"));
           fmt_argv.push(String.from("fmt"));
@@ -1120,7 +1157,7 @@ run_check :: (
   // different generic-inference path than the real `main` wrapper —
   // src/evaluator/exprs/test.yo), but with the swallow a `.test.yo` whose body
   // references an undefined name reports "evaluator OK", so only the
-  // ~30-minute suite finds out. plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.3.
+  // ~30-minute suite finds out. plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.3.
   set_strict_test_bodies(test_bodies);
   std_path := resolve_std_path();
   // Reset the per-module loader cache for this run. Keys are absolute
@@ -4787,7 +4824,7 @@ run_test :: (
           // fact that matters is that none of this file's tests in this batch
           // executed, which is the same shape as the hollow batch the
           // `__yo_user_main` marker gate catches
-          // (plans/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.2).
+          // (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.2).
           exn.throw(
             dyn(
               `test: ${file} — 0 of ${(batch_end - batch_start).to_string()} tests in this batch ran: the batch failed to compile (exit ${bst.code().unwrap_or(i32(-1)).to_string()}). The generated batch is ${tmp_yo} (keep it with YO_KEEP_BATCH=1).`

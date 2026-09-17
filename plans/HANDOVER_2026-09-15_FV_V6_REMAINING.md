@@ -117,6 +117,76 @@ into current develop.
   battery (same concurrency group) — finish a branch's battery before
   touching the branch.
 
+## 0.5 WINDOW STATE — 2026-09-16 (session 4 final: task 3 slice 1, splice fix, task 6 MERGED; slice-2 annotations gated)
+
+- **v0.2.34 cut** carrying #697's `assumed()`; **v0.2.35 cut** from
+  develop WITHOUT #710 (it was still open) — so the seed still has the
+  OLD contract splice; the annotations draft (#713) stays gated on the
+  NEXT release. Local seed: v0.2.35 installed (nested tarball dir).
+- **MERGED:** #727 (task 3 slice 2 - the TYPE-LEVEL RefineT variant + named aliases; be3afea92; the 213-error cascade was ONE creators.yo match + 2 renderers)
+- **MERGED:** #705 (task 3 slice 1 — `refine(T, p)` side-table
+  annotations + modular VCs; the safe_div flagship proves with no
+  manual requires; rebased onto the v0.2.35 pin with the cheatsheet
+  conflict resolved — merged cheatsheet sha f1d3fc1a…), #710 (the
+  dependency-free contract splice — see below), #726 (task 6 — the
+  worked example re-based onto `Array(T, N)` + a refined index;
+  `s(i)`'s AoRTE bound discharges from the assumed refinement;
+  verifier_refine 5/5). #712 was superseded by #726 (the deleted base
+  branch blocked reopen — retarget-by-new-PR pattern).
+- **SURFACE BUG FIXED (#710): the runtime contract splice was not
+  dependency-free.** The splice called `import("std/assert").assert` —
+  a load-time dependency; std/assert imports std/string imports
+  std/collections, so a contract clause in std/collections was an
+  IMPORT CYCLE (array_list half-loaded, E0403 "Module field assert not
+  found", every downstream import cascaded). Std contracts were
+  structurally impossible. The splice is now
+  `cond(begin(runtime(pred)) => (), true => { __yo_panic(msg); () })` —
+  builtins resolve without imports; runtime() tolerates unknown
+  predicates at the def-time trial; the begin wrapper matches the
+  parser's paren-condition AST; the panic arm is sequenced with `()`
+  so evaluate_panic's stand-in type unifies as unit; the verify+ strip
+  recognizer (now EXPORTED and used by the strip test directly — the
+  test-side mirror counted zero after the shape change, caught by CI
+  differential shard 1) descends into the begin-wrapped panic arm.
+  Same panic text; the location now points at the CONTRACT SITE (the
+  predicate's operator token) instead of std/assert — the three
+  contracts-runtime cli-case goldens re-recorded
+  (`src/main.yo:1:44`/`1:40` — the predicate operator columns).
+  Synthesis gotchas that each cost a cycle: `_synth_atom` takes
+  `String` (wrap BK_/BF_ constants in String.from — a raw `str`
+  compiles to a far-away C type error); the `true` arm test is
+  TokenKind.Bool (an Identifier "true" var-misses); non-atom cond
+  conditions must be begin-wrapped; expected-type contamination breaks
+  arm unification.
+- **TASK 5 SLICE 2 = two PRs:** #710 (the fix, MERGED) + **#713/DRAFT**
+  (the annotations: pragma(Verify) on array_list/hash_map; bounds
+  requires + assumed() on insert/remove/swap/swap_remove/drain/
+  set_len; push's len ensures; total ops join as outside-subset).
+  #713's CI is red BY DESIGN until a release carries #710 (the
+  v0.2.35 seed's old splice cycles on annotated std at batch-compile —
+  even the test harness's batch compile evaluates std). When
+  v0.2.36 cuts: un-draft #713, re-run CI, merge, and the
+  `yo verify ./std/collections` exit-criterion step goes green with it
+  (the step is already in #713's CI wiring).
+- **Local check status:** `yo check ./src` gets reaper-killed past
+  ~9 min when the machine is loaded (multiple 143s; even disowned
+  nohup runs SIGKILLed). The per-test batch compiles compile the whole
+  evaluator tree and CI runs check ./src — rely on those.
+- **TASK 2 ENTRY POINT FILED (issue merged via #731):** a contracted
+  GENERIC fn registers no verify task (deferred bodies are skipped) —
+  the body is never checked and nothing reports the gap. The issue
+  (`issues/verifier-contracted-generic-fn-is-silently-unverified.md`)
+  carries the measured obstacles and the first-slice sketch (opaque T
+  only; `==` supported; loud subset fails on arithmetic over T; the
+  identity fixture). The minimal honest improvement until then: a loud
+  `unsupported: generic body` report instead of silence — with the
+  exit-policy decision made explicitly.
+- **Remaining after the open PRs land:** task 3's type-level variant
+- **Remaining after the open PRs land:** task 3's type-level variant
+  (213 exhaustive matches — the mountain), std/spec rework (.check/
+  .unchecked, composition, named aliases), task 2 abstract generic
+  bodies, V7 productization, the trait-impl clause corruption issue.
+
 ## 1. Campaign ledger (what landed, with SHAs)
 
 | Phase | State | Merge |

@@ -162,9 +162,11 @@ caller :: (fn(x : i32, requires(x != i32(0))) -> (r : i32))(safe_div(i32(7), x))
 A caller that cannot prove the predicate is refuted with a
 counter-example (`d = 0`), while the callee stays verified — one bad
 caller does not poison the callee. `refine(T)` with no predicate is a
-bare alias carrying no obligation. The refinement attaches to the
-`refine(...)` annotation itself; named aliases over refinements
-(`NonZero(i32)`) arrive with the `std/spec` refinement surface.
+bare alias carrying no obligation. The refinement can be spelled
+inline in the parameter annotation or through a NAMED alias —
+`NonZeroI32 :: refine(i32, non_zero)` then `d : NonZeroI32` (the alias
+binds the refinement type itself; the std/spec `NonZero(i32)`
+constructor arrives with that module's rework).
 
 ## Modes
 

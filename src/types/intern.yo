@@ -575,6 +575,15 @@ _intern_key_into :: (
         sb.write_str("|");
         _append_bools(sb, ftesp);
         sb.write_str("]");
+      },
+      // V6 task 3: the intern key distinguishes predicates — two
+      // refinements over the same inner are DIFFERENT types at the type
+      // level, so the key carries the predicate's func_id.
+      .RefineT(inner, pfid) => {
+        sb.write_str("R:");
+        recur(inner, sb, depth + usize(1), visited);
+        sb.write_str("|");
+        sb.write_string(pfid);
       }
     )
   )

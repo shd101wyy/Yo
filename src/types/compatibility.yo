@@ -13,7 +13,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("./definitions.yo");
+{ TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, trial_flag_get } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_extern_type_name } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types } :: import("./utils.yo");
@@ -1308,13 +1308,19 @@ _compat_impl :: (
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+// V6 task 3: the entries erase refinements before dispatch —
+// `refine(T, p)` is assignable both ways with `T` (the erasure rule plus
+// the plan's T -> Refine coercion, whose PROOF is the verifier's
+// `refine#N` obligation at the construction/call site, not a unifier
+// decision). Two predicates over the same inner likewise unify as that
+// inner: dispatch keys off the erased type everywhere.
 are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
-  _compat_impl(actual, expected, false, ArrayList(String).new())
+  _compat_impl(t_refine_inner(actual), t_refine_inner(expected), false, ArrayList(String).new())
 );
 are_types_compatible_exact :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
-  _compat_impl(actual, expected, true, ArrayList(String).new())
+  _compat_impl(t_refine_inner(actual), t_refine_inner(expected), true, ArrayList(String).new())
 );
 are_function_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
-  _compat_impl(actual, expected, false, ArrayList(String).new())
+  _compat_impl(t_refine_inner(actual), t_refine_inner(expected), false, ArrayList(String).new())
 );
 export(are_types_compatible, are_types_compatible_exact, are_function_types_compatible, set_compat_type_implements_trait_fn, set_compat_lookup_some_resolved_fn);

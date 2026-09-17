@@ -4421,16 +4421,21 @@ evaluate_function_type :: (
   // the verifier can read them by the FuncVal id.
   refined_preds := ArrayList(String).new();
   (rp2_i : usize) = usize(0);
-  while(rp2_i < param_type_exprs.len(), {
+  while(rp2_i < params_result.params.len(), {
     pred_here := String.from("");
+    // V6 task 3: the refinement rides the RESOLVED param type — both
+    // inline `refine(i32, p)` annotations and NAMED aliases
+    // (`NonZeroI32 :: refine(i32, p)`) put `RefineT` in `FuncParam.ty`,
+    // so both spellings gate callers. (The node-id annotation registry
+    // only ever saw the inline spelling.)
     match(
-      param_type_exprs.get(rp2_i),
-      .Some(te_opt) => match(
-        te_opt,
-        .Some(te) => {
-          pred_here = refine_annotation_pred(ast_expr_id(te));
+      params_result.params.get(rp2_i),
+      .Some(fp) => match(
+        fp.ty,
+        .RefineT(_, pred_fid) => {
+          pred_here = pred_fid;
         },
-        .None => ()
+        _ => ()
       ),
       .None => ()
     );
