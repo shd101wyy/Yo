@@ -419,9 +419,14 @@ _enum_ctor_name :: (fn(enum_id : String, variant : String) -> String)(
 VcObligation :: ref(
   struct(
     name : String,
-    query : VcQuery
+    query : VcQuery,
+    /// Literal-construction CTFE folding: the goal constant-folded to a
+    /// BoolLit, so the verdict is known WITHOUT an SMT call (`_emit`).
+    (pre : Option(VcPreVerdict)) ?= Option(VcPreVerdict).None
   )
 );
+/// The pre-resolved verdict for a constant-folded obligation.
+VcPreVerdict :: enum(PreProved, PreRefuted);
 /// Why a function could not be verified (subset gate).
 VcSubsetError :: ref(
   struct(
@@ -561,6 +566,300 @@ _fail_subset :: (fn(inout(ctx) : VcCtx, construct : String, at : AstExpr) -> uni
   );
   ()
 });
+/// V6 task 3 (literal-construction CTFE folding): the width mask for a
+/// bitvector literal of `w` bits.
+_fold_mask :: (fn(w : usize) -> u64)(
+  cond(
+    // The all-ones literal: `u64(0) - u64(1)` would trip the compile-time
+    // arithmetic folder's underflow check even in runtime code.
+    (w >= usize(64)) => u64(18446744073709551615),
+    true => ((u64(1) << u64(w)) - u64(1))
+  )
+);
+/// V6 task 3: signed comparison via the sign-bit rule — pure unsigned
+/// arithmetic, no i64 casts (a 64-bit INT_MIN pattern has no i64
+/// absolute form).
+_fold_scmp :: (fn(op : VcOp, a : u64, b : u64, w : usize) -> bool)({
+  sa := ((a >> u64(w - usize(1))) & u64(1));
+  sb := ((b >> u64(w - usize(1))) & u64(1));
+  cond(
+    (sa != sb) => match(
+      op,
+      .BvSlt => (sa == u64(1)),
+      .BvSle => (sa == u64(1)),
+      .BvSgt => (sb == u64(1)),
+      .BvSge => (sb == u64(1)),
+      _ => false
+    ),
+    true => match(
+      op,
+      .BvSlt => (a < b),
+      .BvSle => (a <= b),
+      .BvSgt => (a > b),
+      .BvSge => (a >= b),
+      _ => false
+    )
+  )
+});
+/// Two-argument boolean connective over literal bools.
+_fold_bool2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
+  ab := match(a, .BoolLit(x) => x, _ => false);
+  a_is := match(a, .BoolLit(_) => true, _ => false);
+  bb := match(b, .BoolLit(x) => x, _ => false);
+  b_is := match(b, .BoolLit(_) => true, _ => false);
+  if(!a_is || !b_is, {
+    return(Option(VcTerm).None);
+  });
+  match(
+    op,
+    .AndOp => Option(VcTerm).Some(VcTerm.BoolLit(ab && bb)),
+    .OrOp => Option(VcTerm).Some(VcTerm.BoolLit(ab || bb)),
+    .ImpOp => Option(VcTerm).Some(VcTerm.BoolLit(!ab || bb)),
+    _ => Option(VcTerm).None
+  )
+});
+/// Eq / Distinct over literal bools or equal-width bitvector literals.
+_fold_eq :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
+  a_bool := match(a, .BoolLit(_) => true, _ => false);
+  b_bool := match(b, .BoolLit(_) => true, _ => false);
+  if(a_bool && b_bool, {
+    ab := match(a, .BoolLit(x) => x, _ => false);
+    bb := match(b, .BoolLit(x) => x, _ => false);
+    match(
+      op,
+      .EqOp => Option(VcTerm).Some(VcTerm.BoolLit(ab == bb)),
+      .DistinctOp => Option(VcTerm).Some(VcTerm.BoolLit(ab != bb)),
+      _ => Option(VcTerm).None
+    );
+  });
+  av := match(a, .BvLit(v, _) => v, _ => u64(0));
+  bv := match(b, .BvLit(v, _) => v, _ => u64(0));
+  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+  bw := match(b, .BvLit(_, w) => w, _ => usize(0));
+  if((aw == usize(0)) || (aw != bw), {
+    return(Option(VcTerm).None);
+  });
+  match(
+    op,
+    .EqOp => Option(VcTerm).Some(VcTerm.BoolLit(av == bv)),
+    .DistinctOp => Option(VcTerm).Some(VcTerm.BoolLit(av != bv)),
+    _ => Option(VcTerm).None
+  )
+});
+/// Signed/unsigned comparisons over equal-width bitvector literals.
+_fold_cmp :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
+  av := match(a, .BvLit(v, _) => v, _ => u64(0));
+  bv := match(b, .BvLit(v, _) => v, _ => u64(0));
+  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+  bw := match(b, .BvLit(_, w) => w, _ => usize(0));
+  if((aw == usize(0)) || (aw != bw), {
+    return(Option(VcTerm).None);
+  });
+  match(
+    op,
+    .BvUlt => Option(VcTerm).Some(VcTerm.BoolLit(av < bv)),
+    .BvUle => Option(VcTerm).Some(VcTerm.BoolLit(av <= bv)),
+    .BvUgt => Option(VcTerm).Some(VcTerm.BoolLit(av > bv)),
+    .BvUge => Option(VcTerm).Some(VcTerm.BoolLit(av >= bv)),
+    .BvSlt => Option(VcTerm).Some(VcTerm.BoolLit(_fold_scmp(op, av, bv, aw))),
+    .BvSle => Option(VcTerm).Some(VcTerm.BoolLit(_fold_scmp(op, av, bv, aw))),
+    .BvSgt => Option(VcTerm).Some(VcTerm.BoolLit(_fold_scmp(op, av, bv, aw))),
+    .BvSge => Option(VcTerm).Some(VcTerm.BoolLit(_fold_scmp(op, av, bv, aw))),
+    _ => Option(VcTerm).None
+  )
+});
+/// Two-argument wrapping bitvector arithmetic / bitwise over equal-width
+/// literals. Division and remainder are DELIBERATELY NOT folded: a zero
+/// divisor is the AoRTE obligation itself (symbolic by design) and the
+/// SMT division semantics for zero/INT_MIN are what the proof talks about.
+_fold_bv2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
+  av := match(a, .BvLit(v, _) => v, _ => u64(0));
+  bv := match(b, .BvLit(v, _) => v, _ => u64(0));
+  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+  bw := match(b, .BvLit(_, w) => w, _ => usize(0));
+  if((aw == usize(0)) || (aw != bw), {
+    return(Option(VcTerm).None);
+  });
+  m := _fold_mask(aw);
+  match(
+    op,
+    .BvAdd => Option(VcTerm).Some(VcTerm.BvLit((av + bv) & m, aw)),
+    // a - b ≡ a + (~b + 1) — a literal subtraction would trip the
+    // compile-time arithmetic folder's underflow check (see _fold_mask).
+    .BvSub => Option(VcTerm).Some(VcTerm.BvLit((av + (~bv + u64(1))) & m, aw)),
+    .BvMul => Option(VcTerm).Some(VcTerm.BvLit((av * bv) & m, aw)),
+    .BvAndOp => Option(VcTerm).Some(VcTerm.BvLit(av & bv, aw)),
+    .BvOrOp => Option(VcTerm).Some(VcTerm.BvLit(av | bv, aw)),
+    .BvXorOp => Option(VcTerm).Some(VcTerm.BvLit(av ^ bv, aw)),
+    _ => Option(VcTerm).None
+  )
+});
+/// One-argument bitvector folds: negation and bitwise not (wrapping).
+_fold_bv1 :: (fn(op : VcOp, a : VcTerm) -> Option(VcTerm))({
+  av := match(a, .BvLit(v, _) => v, _ => u64(0));
+  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+  if(aw == usize(0), {
+    return(Option(VcTerm).None);
+  });
+  m := _fold_mask(aw);
+  match(
+    op,
+    .BvNeg => Option(VcTerm).Some(VcTerm.BvLit((~av + u64(1)) & m, aw)),
+    .BvNotOp => Option(VcTerm).Some(VcTerm.BvLit(~av & m, aw)),
+    _ => Option(VcTerm).None
+  )
+});
+/// Width-changing folds: sign/zero extend and extract (all u64-safe; a
+/// widened width past 64 stays symbolic).
+_fold_width :: (fn(op : VcOp, a : VcTerm) -> Option(VcTerm))(
+  match(
+    op,
+    .SignExtendOp(k) => {
+      av := match(a, .BvLit(v, _) => v, _ => u64(0));
+      aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+      if(((aw + k) > usize(64)) || (aw == usize(0)), {
+        return(Option(VcTerm).None);
+      });
+      sign := ((av >> u64(aw - usize(1))) & u64(1));
+      m := _fold_mask(aw);
+      hi := (_fold_mask(aw + k) & ~m & _fold_mask(aw + k));
+      ext := cond(
+        (sign == u64(1)) => (av | hi),
+        true => av
+      );
+      Option(VcTerm).Some(VcTerm.BvLit(ext, aw + k))
+    },
+    .ZeroExtendOp(k) => {
+      av := match(a, .BvLit(v, _) => v, _ => u64(0));
+      aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+      if(((aw + k) > usize(64)) || (aw == usize(0)), {
+        return(Option(VcTerm).None);
+      });
+      Option(VcTerm).Some(VcTerm.BvLit(av, aw + k))
+    },
+    .ExtractOp(
+      hi,
+      lo
+    ) => {
+      av := match(a, .BvLit(v, _) => v, _ => u64(0));
+      aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+      if((aw == usize(0)) || (lo > hi) || (hi >= aw), {
+        return(Option(VcTerm).None);
+      });
+      w_out := ((hi - lo) + usize(1));
+      Option(VcTerm).Some(VcTerm.BvLit((av >> u64(lo)) & _fold_mask(w_out), w_out))
+    },
+    _ => Option(VcTerm).None
+  )
+);
+/// V6 task 3 (literal-construction CTFE folding — FORMAL_VERIFICATION.md
+/// §7 "literal construction (CTFE discharges when the value is known)"):
+/// constant-fold a TERM bottom-up. A predicate over literal arguments —
+/// `use_nz(i32(5))`'s `refine#1` being `5 != 0` — folds to a BoolLit, so
+/// `_emit` records the verdict WITHOUT an SMT call. Folding is
+/// deliberately CONSERVATIVE: division/remainder (a zero divisor is the
+/// AoRTE obligation itself) and shifts >= width stay symbolic.
+_fold_term :: (fn(t : VcTerm) -> VcTerm)(
+  match(
+    t,
+    .App(op, args) => {
+      folded := ArrayList(VcTerm).new();
+      (all_lit : bool) = true;
+      (ai : usize) = usize(0);
+      while(ai < args.len(), {
+        match(
+          args.get(ai),
+          .Some(a) => {
+            f := _fold_term(a);
+            folded.push(f);
+            match(
+              f,
+              .BvLit(_, _) => (),
+              .BoolLit(_) => (),
+              _ => {
+                all_lit = false;
+              }
+            );
+          },
+          .None => {
+            all_lit = false;
+          }
+        );
+        ai = (ai + usize(1));
+      });
+      if(all_lit && (args.len() == usize(2)), {
+        a0 := match(folded.get(usize(0)), .Some(x) => x, .None => t);
+        a1 := match(folded.get(usize(1)), .Some(x) => x, .None => t);
+        match(
+          _fold_bool2(op, a0, a1),
+          .Some(r) => {
+            return(r);
+          },
+          .None => ()
+        );
+        match(
+          _fold_eq(op, a0, a1),
+          .Some(r) => {
+            return(r);
+          },
+          .None => ()
+        );
+        match(
+          _fold_cmp(op, a0, a1),
+          .Some(r) => {
+            return(r);
+          },
+          .None => ()
+        );
+        match(
+          _fold_bv2(op, a0, a1),
+          .Some(r) => {
+            return(r);
+          },
+          .None => ()
+        );
+      });
+      if(all_lit && (args.len() == usize(1)), {
+        a0 := match(folded.get(usize(0)), .Some(x) => x, .None => t);
+        match(
+          _fold_bv1(op, a0),
+          .Some(r) => {
+            return(r);
+          },
+          .None => ()
+        );
+        match(
+          _fold_width(op, a0),
+          .Some(r) => {
+            return(r);
+          },
+          .None => ()
+        );
+      });
+      if(all_lit && (args.len() == usize(3)), {
+        c0 := match(folded.get(usize(0)), .Some(x) => x, .None => t);
+        match(
+          c0,
+          .BoolLit(cb) => match(
+            op,
+            .IteOp => {
+              t1 := match(folded.get(usize(1)), .Some(x) => x, .None => t);
+              t2 := match(folded.get(usize(2)), .Some(x) => x, .None => t);
+              if(cb, {
+                return(_fold_term(t1));
+              });
+              return(_fold_term(t2));
+            },
+            _ => ()
+          ),
+          _ => ()
+        );
+      });
+      VcTerm.App(op, folded)
+    },
+    _ => t
+  )
+);
 /// Emit one obligation: prove `Φ ∧ assumptions ⇒ goal`.
 _emit :: (
   fn(
@@ -763,7 +1062,20 @@ _emit :: (
     );
     usi = (usi + usize(1));
   });
-  ctx.obligations.push(VcObligation(name : `${ctx.fn_name}/${label}`, query : q));
+  // Literal-construction CTFE folding: a goal whose terms are all
+  // literals (e.g. `refine#1` = `5 != 0` at `use_nz(i32(5))`) folds to a
+  // BoolLit — record the verdict directly and let the driver skip the
+  // solver for it.
+  pre := match(
+    _fold_term(q.goal),
+    .BoolLit(v) => if(
+      v,
+      Option(VcPreVerdict).Some(VcPreVerdict.PreProved),
+      Option(VcPreVerdict).Some(VcPreVerdict.PreRefuted)
+    ),
+    _ => Option(VcPreVerdict).None
+  );
+  ctx.obligations.push(VcObligation(name : `${ctx.fn_name}/${label}`, query : q, pre : pre));
   ()
 });
 /// Sort a small string list into a FRESH list (deterministic declaration
