@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
   forcing_depths,
   truncate_forcing_depths
 } :: import("../context.yo");
-{ stable_func_id } :: import("../../utils.yo");
+{ stable_func_id, display_module_path } :: import("../../utils.yo");
 { register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
 { get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound } :: import("../../types/utils.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
@@ -1283,7 +1283,7 @@ Result type: ${type_to_string(result_box)}`
           if(is_assumed, {
             register_verify_task(
               VerifyTask(
-                fn_id : `fn@${tok.module_path}:${tok.row.to_string()}`,
+                fn_id : `fn@${display_module_path(tok.module_path.clone())}:${tok.row.to_string()}`,
                 func_id : fn_val_id.clone(),
                 module_path : tok.module_path.clone(),
                 body : body_expr_raw.clone(),
@@ -1422,7 +1422,7 @@ Result type: ${type_to_string(result_box)}`
             });
             register_verify_task(
               VerifyTask(
-                fn_id : `fn@${tok.module_path}:${tok.row.to_string()}`,
+                fn_id : `fn@${display_module_path(tok.module_path.clone())}:${tok.row.to_string()}`,
                 func_id : fn_val_id.clone(),
                 module_path : tok.module_path.clone(),
                 body : body_expr_raw.clone(),
@@ -1602,7 +1602,7 @@ Result type: ${type_to_string(result_box)}`
           // task anyway.
           if(_trial_swallow_pending() && (flow_out.len() == usize(0)) && _is_verify_target(tok.module_path.clone()), {
             record_verify_task_def_eval_failure(
-              `fn@${tok.module_path}:${tok.row.to_string()}`,
+              `fn@${display_module_path(tok.module_path.clone())}:${tok.row.to_string()}`,
               _trial_swallow_message()
             );
           });

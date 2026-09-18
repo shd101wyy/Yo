@@ -42,7 +42,7 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   M1 the semantic kernel, M2 the front end, M3 the verifier itself, M4
   `yo verify --strict ./src` green, M5 proved passes). Measured start:
   4,049 fns, 57 `ok`, 2 with a discharged obligation, 90% blocked at the
-  parameter gate; the census shows 47% of signatures take reference enums
+  parameter gate; the census shows 44% of signatures take reference enums
   that are never written through (datatypes, no heap model needed), and the
   mutable heap is confined to `EvalContext`/`Environment`/globals/collections.
   Levers L1–L9 (strings, exceptions as exit paths, immutable refs as

@@ -13,7 +13,9 @@
 { VcSort, VcOp, VcTerm, VcQuantKind, VcQuery, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_imp, vc_distinct } :: import("../../src/verifier/terms.yo");
 { mangle_vc_name, encode_sort, encode_term, encode_content, encode_script, encode_fundecl, default_encode_options } :: import("../../src/verifier/encode.yo");
 { Z3Sexpr, parse_z3_sexprs, z3_sexpr_to_string, z3_check_sat_of, z3_unsat_core_of, z3_value_pairs_of, run_z3_script, ensure_z3 } :: import("../../src/verifier/z3.yo");
-{ default_verify_run_config, verify_cache_key, verdict_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test } :: import("../../src/verifier/driver.yo");
+{ default_verify_run_config, verify_cache_key, verdict_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test, VerifyFnReport, VerifyFnObligation, verify_report_is_vacuous } :: import("../../src/verifier/driver.yo");
+{ display_module_path, canonical_module_path } :: import("../../src/utils.yo");
+{ cwd } :: import("std/env");
 // ---------------------------------------------------------------------------
 // Small term-construction helpers (shared by the golden tests below)
 // ---------------------------------------------------------------------------
@@ -405,4 +407,72 @@ test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
       .None => ()
     );
   });
+});
+
+// ---------------------------------------------------------------------------
+// M0 (plans/SELF_VERIFICATION.md): the report must be honest and portable
+// ---------------------------------------------------------------------------
+// `display_module_path` collapses the TWO spellings of one module — the entry
+// module's path as typed, and a demand-loaded module's `file://<abs>` cache
+// key — into one id. That id is not only printed: it is the SMT mangling
+// prefix, so it reaches the query text and the verification cache key
+// (issues/fixed/verify-report-fn-id-carries-file-scheme-absolute-path.md).
+test("display_module_path: file:// and absolute spellings collapse to the relative one", {
+  here := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.new());
+  assert(here.len() > usize(0), "cwd must resolve for this test");
+  typed := String.from("src/types/utils.yo");
+  absolute := `${here}/src/types/utils.yo`;
+  scheme := `file://${here}/src/types/utils.yo`;
+  assert(display_module_path(typed.clone()) == "src/types/utils.yo", "a typed relative path stays itself");
+  assert(display_module_path(absolute.clone()) == "src/types/utils.yo", "an absolute path under cwd goes relative");
+  assert(display_module_path(scheme.clone()) == "src/types/utils.yo", "a file:// cache key goes relative");
+  assert(
+    display_module_path(typed.clone()) == display_module_path(scheme.clone()),
+    "the two spellings of one module must render identically"
+  );
+});
+test("display_module_path: a path outside the working directory keeps its canonical spelling", {
+  outside := String.from("/definitely/not/under/cwd/mod.yo");
+  assert(display_module_path(outside.clone()) == canonical_module_path(outside.clone()), "no relativization outside cwd");
+});
+// An `ok` that discharged NOTHING proved nothing. Both renderers and the
+// self-verification ratchet ask this one predicate
+// (issues/fixed/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md).
+test("verify_report_is_vacuous: ok with no obligations is not a proof", {
+  empty := ArrayList(VerifyFnObligation).new();
+  vacuous := VerifyFnReport(
+    fn_id : String.from("fn@src/x.yo:1"),
+    mode : String.from("verify"),
+    outcome : String.from("ok"),
+    obligations : empty,
+    subset_construct : String.new(),
+    subset_source : String.new()
+  );
+  assert(verify_report_is_vacuous(vacuous), "ok + zero obligations is vacuous");
+  with_obl := ArrayList(VerifyFnObligation).new();
+  with_obl.push(
+    VerifyFnObligation(
+      name : String.from("fn@src/x.yo:1/aorte#0"),
+      verdict : VerifyVerdict.Proved(ArrayList(String).new()),
+      cached : false
+    )
+  );
+  real := VerifyFnReport(
+    fn_id : String.from("fn@src/x.yo:1"),
+    mode : String.from("verify"),
+    outcome : String.from("ok"),
+    obligations : with_obl,
+    subset_construct : String.new(),
+    subset_source : String.new()
+  );
+  assert(!verify_report_is_vacuous(real), "ok + a discharged obligation is a real proof");
+  outside := VerifyFnReport(
+    fn_id : String.from("fn@src/x.yo:2"),
+    mode : String.from("verify"),
+    outcome : String.from("outside-subset"),
+    obligations : ArrayList(VerifyFnObligation).new(),
+    subset_construct : String.from("parameter outside the integer/bool/array subset"),
+    subset_source : String.new()
+  );
+  assert(!verify_report_is_vacuous(outside), "only `ok` can be vacuous");
 });

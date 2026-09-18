@@ -746,6 +746,34 @@ canonical_module_path :: (fn(p : String) -> String)({
   });
   Path.new(abs).normalize().to_string()
 });
+/// The module path as an ID / DIAGNOSTIC spelling: `file://` stripped and,
+/// when the module lives under the working directory, relative to it.
+///
+/// Two spellings of one module coexist (AGENTS.md): the ENTRY module's tokens
+/// carry the path as typed on the command line, a demand-loaded module's carry
+/// the `file://<abs>` cache key. A `VerifyTask.fn_id` built from the raw
+/// `module_path` therefore renders one module two ways — and that id is not
+/// only printed: it is the SMT mangling prefix (`mangle_vc_name`), so it
+/// reaches the query text and through it the verification cache key. An
+/// absolute path there makes every cached verdict machine-specific.
+/// See `issues/fixed/verify-report-fn-id-carries-file-scheme-absolute-path.md`.
+display_module_path :: (fn(p : String) -> String)({
+  canon := canonical_module_path(p);
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.new());
+  if(cwd_str.len() == usize(0), {
+    return(canon);
+  });
+  match(
+    Path.new(canon.clone()).strip_prefix(Path.new(cwd_str)),
+    .Some(rel) => {
+      rel_str := rel.to_string();
+      // An empty remainder means the path IS the cwd — keep the canonical
+      // spelling rather than rendering it as nothing.
+      if(rel_str.len() == usize(0), canon, rel_str)
+    },
+    .None => canon
+  )
+});
 /// The directory a module path lives in (canonical spelling).
 canonical_module_dir :: (fn(p : String) -> String)(
   match(Path.new(canonical_module_path(p)).parent(), .Some(d) => d.to_string(), .None => String.new())
@@ -817,4 +845,4 @@ private_member_blocked :: (
     .None => false
   )
 });
-export(canonical_module_path, canonical_module_dir, is_private_member_name, member_visible_from, private_member_blocked);
+export(canonical_module_path, canonical_module_dir, display_module_path, is_private_member_name, member_visible_from, private_member_blocked);

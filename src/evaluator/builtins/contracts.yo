@@ -66,6 +66,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
+{ display_module_path } :: import("../../utils.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
@@ -2142,7 +2143,7 @@ register_impl_variance_task :: (
   pred_env.pop_frame();
   register_verify_task(
     VerifyTask(
-      fn_id : `impl-variance@${name_tok.module_path}:${name_tok.row.to_string()}:${label}`,
+      fn_id : `impl-variance@${display_module_path(name_tok.module_path.clone())}:${name_tok.row.to_string()}:${label}`,
       func_id : func_id.clone(),
       module_path : name_tok.module_path.clone(),
       body : body_ev,

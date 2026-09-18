@@ -576,6 +576,82 @@ jobs:
             verify-collections.json
           retention-days: 7
 
+  # The SELF-VERIFICATION sweep (plans/SELF_VERIFICATION.md, milestone M0):
+  # `yo verify` over the whole compiler tree, scored into outcomes.tsv and
+  # ratcheted against scripts/bootstrap/verify-src-baseline.tsv. It fails on a
+  # DROP in the number of functions that discharge at least one obligation, and
+  # on any refutation; a rise is reported and re-recorded deliberately.
+  #
+  # A separate job from `verify` on purpose: that one gates the verifier's own
+  # test suite, this one measures the compiler as a verified program, and a
+  # campaign metric must never be able to block an unrelated PR. NOT a required
+  # check — add it to branch protection only after it has been green for a week
+  # (the required-check list is maintained by hand).
+  #
+  # It runs the SEED compiler, like every other step in the verify job: the
+  # numbers therefore reflect the seed's verifier reading the PR's source. A
+  # verifier improvement (a subset lever) only moves them after the next seed
+  # bump; a SOURCE annotation moves them immediately, which is what the ratchet
+  # is for.
+  verify-src:
+    name: Self-verification sweep (yo verify ./src, ratcheted)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      YO_Z3_PATH: /usr/local/bin/z3
+      YO_STD: ${{ github.workspace }}/std
+      YO_SKILLS: ${{ github.workspace }}/.github/skills
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install the pinned Z3
+        run: |
+          set -euo pipefail
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y unzip
+          curl -fsSL -o /tmp/z3.zip \
+            "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
+          unzip -o /tmp/z3.zip -d /tmp/z3-install
+          sudo cp "/tmp/z3-install/z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
+          z3 --version
+
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+
+      - name: Install the seed compiler
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+
+      - name: Signature census (which lever unblocks how much)
+        run: python3 scripts/verify_src_census.py
+
+      - name: Sweep ./src and ratchet
+        run: bash scripts/verify-src-sweep.sh
+
+      - name: Upload the sweep
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-src-sweep
+          path: |
+            yo-out/verify-sweep/outcomes.tsv
+            yo-out/verify-sweep/report.json
+          retention-days: 7
+
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true'
