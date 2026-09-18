@@ -197,9 +197,10 @@ new `ok`-with-obligations count in its PR description.
   parameter like a global. Recommendation: (b) for `EvalContext` and
   `Environment` first (measure how much of the 14% it covers), (a) for the
   rest. FV Open Question 1 is decided here, for the compiler's shapes.
-- **L7 Invariant inference.** An interval/octagon abstract interpretation
-  over the verified body proposes candidate invariants per loop (bounds
-  on the loop counter, `len` relations, monotone indices); Houdini-style
+- **L7 Invariant inference.** An interval + zone (difference-bound)
+  abstract interpretation over the verified body proposes candidate
+  invariants per loop (bounds on the loop counter, `len` relations,
+  monotone indices; D3); Houdini-style
   elimination keeps the inductive subset; the SMT verifier proves the
   result as if the user had written it, and `--explain` shows the inferred
   clauses. The user-written `invariant(...)` stays authoritative when
@@ -240,10 +241,14 @@ generation split; only `law` (B1) does.
 
 ### M1 — The semantic kernel (4–6 weeks)
 
-1. Comptime integer arithmetic in `src/evaluator/` (every op, width and
-   signedness; the `parse_i64`/`parse_raw_int` family; narrowing and
-   widening casts): `ensures` stating the bitvector result; module under
-   `Pragma.Verify`; zero `assumed()`. A refutation here is a silent
+1. Comptime integer arithmetic (`src/evaluator/builtins/comptime_numeric_fns.yo`;
+   D4): first the refactor that hands the pure carrier helpers
+   `(bits : u8, signed : bool)` instead of a `TypeValue`, then `ensures`
+   stating the bitvector result per op for every width and signedness
+   (`apply_bounds` = the wrap, division/modulo/shift by signedness,
+   `check_int_overflow`, `bit_not_int`, the `parse_i64`/`parse_raw_int`
+   family, narrowing and widening casts); module under `Pragma.Verify`;
+   zero `assumed()`. A refutation here is a silent
    miscompile of a constant expression — file it as an issue with the
    counter-example.
 2. Struct layout (`src/target.yo` + codegen size/align/offset helpers):
@@ -298,7 +303,9 @@ dogfooding did); each is an issue + regression test.
 
 **Exit:** `yo verify --strict ./src` green; the `assumed()` list is
 exactly the FFI / raw-pointer boundary and is published; M4's sentence
-goes on the README.
+goes on the README. Gate inside M4 (D2): after L3+L4+L5 and the singleton
+treatment, re-run the census; flat heaps are built only if more than 5%
+of signatures remain outside the subset for heap reasons.
 
 ### M5 — Proved passes (open-ended)
 
@@ -314,27 +321,19 @@ idempotence. Each is a `law` or an `ensures`, each a separate PR.
   templates; verifying Z3; verifying the async state machines (FV Open
   Question 7); verifying `Io`-taking functions (they are the effect
   boundary by design).
+- An external oracle for the self-verification claim (D5).
 - Making `Pragma.Verify` mandatory for contributors' *user* code. `src/`
   opts in module by module; `runtime` stays the default for everyone else.
 
-## Open questions
+## Decisions (2026-09-18 — the maintainer asked for the recommended call on each open question)
 
-1. **`verify` vs `verify+` for `src/`.** `verify` is the claim ("verified");
-   `verify+` keeps the build green while a module is being annotated. Use
-   `verify+` during a module's annotation PRs and flip to `verify` in the
-   PR that finishes it; the ratchet counts only `verify` modules.
-2. **L6 choice** (flat heaps vs singleton `inout` objects) — decide after
-   L3/L4 land and the remaining 14% is measured against both.
-3. **L7 scope**: intervals only, or octagons? Start with intervals plus
-   `len`-relations (the AoRTE shapes); measure how many loops close.
-4. **Where the comptime operator implementations live** (per op/width
-   functions vs a generic over the width) — decides whether M1 task 1 is
-   ~50 contracts or ~5 abstract ones (V6 task 2 verifies generic bodies
-   abstractly).
-5. **The external oracle.** M4's sentence is checked by the compiler about
-   itself. The only independent check is a third-party semantics (the
-   parked K idea) or proof certificates; decide whether either is worth
-   research-collaboration cost once M3 is real.
+| # | Question | Decision | Consequence in the plan |
+| --- | --- | --- | --- |
+| D1 | `verify` vs `verify+` for `src/` modules | **`verify+` while a module is being annotated, flipped to `verify` in the PR that finishes it.** The ratchet counts only `verify` modules; a `verify+` module contributes nothing to any claim on the ladder | M2–M4 module PRs come in pairs: "annotate under `verify+`" (build stays green, refutations are still errors) and "flip to `verify`" (the claim) |
+| D2 | L6 heap model: flat per-type heaps vs singleton `inout` objects | **Singleton `inout` treatment first** for `EvalContext`, `Environment` and `Variable` cells (one live instance per verified call, modeled exactly like a global under L5), **then measure**: if the signatures still outside the subset after L3+L4+L5+singletons exceed 5% of the census, add Burstall-Bornat flat heaps for the remainder; otherwise flat heaps are not built | L6 in M4 starts as an extension of L5, not a new model; the 5% trigger is written into the M4 exit criteria |
+| D3 | L7 inference domain | **Zones (difference-bound constraints) plus interval bounds and `len` relations** — the AoRTE shapes are `0 <= i < len(a)` and `j <= i`, which zones capture at O(n²) cost; full octagons are not built unless the measured closure rate on the M2 front-end loops is below 80% | L7 = intervals + zones + Houdini; the 80% number is measured on the M2 modules before M4 starts |
+| D4 | Where the comptime operator implementations live | **Fact, not a choice** (looked up): one width-generic core in `src/evaluator/builtins/comptime_numeric_fns.yo` — `apply_bounds(n : i64, ty : TypeValue)` wraps to the width, `check_int_overflow`, `bit_not_int`, `make_int_val`, dispatched by `evaluate_yo_comptime_numeric_functions` over the op name and the `TypeValue`. So M1 task 1 is ~5–10 contracts on the carrier helpers, quantified over width and signedness, **after a small refactor**: the dispatcher extracts `(bits : u8, signed : bool)` from the `TypeValue` once and the pure helpers take those integers, so they verify before L3 exists | M1 task 1 gains the refactor as its first step; the `TypeValue` → `(bits, signed)` extraction is itself contracted (`ensures` bits ∈ {8,16,32,64}) |
+| D5 | An external oracle for the M4 claim (K semantics or proof certificates) | **Not in this campaign.** The checks are the verification fixpoint (seed vs tree), the M3 consistency laws between CTFE and the encoding, and the bugged-twin discipline. Revisit only if a certification customer needs independent assurance; if so, Z3 proof logs + a checker written and verified in Yo is the cheaper route (`MATCHING_LOGIC_RESEARCH.md` §8) | Removed from the milestone list; kept as a sentence in Non-goals so nobody re-opens it without a customer |
 
 ## References
 
