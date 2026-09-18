@@ -248,6 +248,26 @@ generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, con
       if(is_newtype && (field_types.len() == usize(1)), {
         underlying := match(field_types.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
         uts := get_type_string(underlying, context);
+        // `get_type_string` renders a type that has no C form as the LINE
+        // COMMENT `// Unknown type: …` (utils/index.yo). Interpolated into
+        // `typedef ${uts} ${c_name};` that comment swallows the rest of the
+        // line AND the declaration after it, so the C compiler rejects the
+        // file — with an error pointing at innocent code far below.
+        //
+        // It reaches here for an UNSPECIALIZED generic newtype: an
+        // `Array(T, U)` whose length is still the variable `U` has no C
+        // rendering, so `MaybeUninit(Array(T, U))` emitted
+        // `typedef // Unknown type: Array(T : (Comptime), U) __yo_t_…;`.
+        // An unspecialized type cannot be referenced by any emitted code —
+        // measured: that typedef name occurs exactly ONCE in a 138 MB
+        // self-emit, in this declaration alone — so emitting nothing is the
+        // correct lowering, not a suppression.
+        //
+        // Only the unknown-type fallback is unemittable. An unresolved SomeT
+        // legitimately renders as `void*` and must keep its typedef.
+        if(uts.starts_with("// Unknown type:"), {
+          return(());
+        });
         context.emitter.emit_declaration_string_line(`typedef ${uts} ${c_name}; // ${name} : ${type_to_string(struct_type)} (newtype - zero-cost abstraction)`);
         context.emitter.emit_declaration_line("");
         return(());

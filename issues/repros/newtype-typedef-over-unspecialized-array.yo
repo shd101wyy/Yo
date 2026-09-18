@@ -1,0 +1,35 @@
+//! Repro: a newtype over an UNSPECIALIZED generic array emitted a `typedef`
+//! whose type was a LINE COMMENT, which ate the declaration after it.
+//!
+//! Before the fix the emitted C carried, in the declarations section:
+//!
+//!   typedef // Unknown type: Array(T : (Comptime), U) __yo_t_6010983213113916395; ...
+//!
+//! `yo compile` exits 0 — only the C compiler sees it, and it blames innocent
+//! code far below. Check the EMITTED C, not the exit code:
+//!
+//!   yo compile issues/repros/newtype-typedef-over-unspecialized-array.yo \
+//!     --optimize 2 --emit-c --skip-c-compiler -o /tmp/r
+//!   grep -nE '^[^"]*[^/"[:space:]][^"]*// Unknown type:' /tmp/r.c   # must be empty
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+impl(
+  generic(T : Type, U : usize),
+  where(T <: Comptime),
+  Array(T, U),
+  repro_fill : (fn(val : T, where(T <: Comptime)) -> Self)({
+    mu := MaybeUninit(Self).new();
+    p := (*T)(mu.as_ptr());
+    (i : usize) = usize(0);
+    while(i < U, {
+      (p.add(i)).* = val;
+      i = (i + usize(1));
+    });
+    mu.assume_init()
+  })
+);
+main :: (fn() -> unit)({
+  a := Array(i32, usize(3)).repro_fill(i32(7));
+  println(`${a(usize(0)).to_string()} ${a(usize(2)).to_string()}`);
+});
+export(main);
