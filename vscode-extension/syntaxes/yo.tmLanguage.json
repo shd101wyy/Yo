@@ -1,6 +1,11 @@
 {
   "my_comments": [
-    "Referenec: https://github.com/microsoft/vscode/blob/main/extensions/typescript-basics/syntaxes/TypeScript.tmLanguage.json"
+    "Reference: https://github.com/microsoft/vscode/blob/main/extensions/typescript-basics/syntaxes/TypeScript.tmLanguage.json",
+    "Keyword/builtin vocabulary mirrors the CURRENT language as implemented in",
+    "src/lexer.yo, src/token.yo, src/parser.yo and src/evaluator/ — keep it in",
+    "sync when the grammar changes. Yo has NO reserved keywords in the lexer",
+    "(only `true`/`false` are special-cased); everything below highlights names",
+    "the evaluator or parser recognizes."
   ],
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "Yo",
@@ -14,31 +19,27 @@
   ],
   "repository": {
     "shebang": {
-      "name": "comment.line.shebang.ts",
+      "name": "comment.line.shebang.yo",
       "match": "\\A(#!).*(?=$)",
       "captures": {
         "1": {
-          "name": "punctuation.definition.comment.ts"
+          "name": "punctuation.definition.comment.yo"
         }
       }
     },
     "statements": {
       "patterns": [
         { "include": "#comment" },
+        { "include": "#numbers" },
         { "include": "#keywords" },
         { "include": "#operators" },
         { "include": "#type-declaration" },
         { "include": "#type-kind" },
-        { "include": "#permissions" },
+        { "include": "#parameters-and-clauses" },
         { "include": "#self-reference" },
-        { "include": "#defer" },
-        { "include": "#condition" },
-        { "include": "#clause" },
         { "include": "#imports" },
-        { "include": "#try-with" },
         { "include": "#builtin-functions" },
         { "include": "#async-await" },
-        { "include": "#infix-precedence" },
         { "include": "#strings" },
         { "include": "#chars" },
         { "include": "#template-strings" },
@@ -49,8 +50,22 @@
     "comment": {
       "patterns": [
         {
+          "name": "comment.line.documentation.yo",
+          "match": "///[^/].*$|///$"
+        },
+        {
+          "name": "comment.line.inner-doc.yo",
+          "match": "//!(.).*$|//!$"
+        },
+        {
           "name": "comment.line.double-slash.yo",
           "match": "//.*"
+        },
+        {
+          "include": "#comment-block-doc"
+        },
+        {
+          "include": "#comment-block-inner-doc"
         },
         {
           "include": "#comment-block"
@@ -67,71 +82,106 @@
         }
       ]
     },
+    "comment-block-doc": {
+      "name": "comment.block.documentation.yo",
+      "begin": "/\\*(?=\\*[^/]|\\*$)",
+      "end": "\\*/",
+      "patterns": [
+        {
+          "include": "#comment-block-doc"
+        }
+      ]
+    },
+    "comment-block-inner-doc": {
+      "name": "comment.block.inner-doc.yo",
+      "begin": "/\\*!",
+      "end": "\\*/",
+      "patterns": [
+        {
+          "include": "#comment-block-inner-doc"
+        }
+      ]
+    },
+    "numbers": {
+      "comment": "One number is one token. Underscores only in DECIMAL digits; hex/binary/octal take bare digits. A Float needs `.digit` or an exponent (`1e5` is a Float) — `1.foo` is `1` `.` `foo`.",
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.yo",
+          "match": "\\b0[xX][0-9a-fA-F]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.yo",
+          "match": "\\b0[bB][01]+\\b"
+        },
+        {
+          "name": "constant.numeric.octal.yo",
+          "match": "\\b0[oO][0-7]+\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.yo",
+          "match": "\\b\\d[\\d_]*(\\.\\d[\\d_]*)?([eE][+-]?\\d[\\d_]*)?\\b"
+        }
+      ]
+    },
     "keywords": {
+      "comment": "Control-flow heads. All are ordinary calls in the grammar; the evaluator (or the parse-time if->cond desugar) recognizes them.",
       "patterns": [
         {
           "name": "keyword.control.yo",
-          "match": "\\b(let|var|while|for|select|generic|mut|const|in|out|inout|ref|break|continue|pass|return|unwind|pure|recur|use|borrow|comptime|runt|resume|shift|reset|abort|panic|assert|test|thread_local|atomic)\\b"
+          "match": "\\b(if|cond|match|while|for|return|unwind|recur|break|continue)\\b"
         }
       ]
     },
     "operators": {
       "patterns": [
         {
-          "name": "keyword.control.yo",
-          "match": "[=+\\-\\*/<>@$~&%|!?^.:\\\\#∀]+"
+          "name": "keyword.operator.yo",
+          "match": "[=+\\-*/<>@$~&%|!?^.:\\\\#]+"
         }
       ]
     },
     "type-declaration": {
       "name": "storage.type.yo",
-      "match": "\\b(type|fn|ctl|macro|enum|struct|newtype|union|object|actor|ref|impl|dyn|derive|derive_rule|box|chan|static)\\b"
+      "match": "\\b(fn|ctl|unsafe_fn|type|struct|union|enum|newtype|trait|impl|ref|atomic|box|dyn|export|import|extern|c_include|test|thread_local)\\b"
     },
     "type-kind": {
-      "name": "entity.name.type",
-      "match": "\\b(Type|Var|Trait|Self|SelfTrait|This|Dyn|Impl|Future|Concrete|Fn|FnOnce|Io|Send|Copy|Acyclic|Comptime|Runtime)\\b"
+      "name": "entity.name.type.yo",
+      "match": "\\b(Type|Trait|Self|SelfTrait|Fn|Impl|Future|Io|Send|Dyn|Acyclic|Comptime|Runtime|Expr|Iso|Concrete)\\b"
     },
-    "permissions": {
-      "name": "keyword.control.yo",
-      "match": "\\b(read|write|own|move|copy|control)\\b"
+    "parameters-and-clauses": {
+      "comment": "Parameter label modifiers, fn-signature clause heads, and the ghost/contract surface (forall/exists are the ghost-only quantifiers).",
+      "patterns": [
+        {
+          "name": "keyword.control.yo",
+          "match": "\\b(comptime|generic|where|using|given|own|inout|quote|forall|exists|ghost|ghost_fn|requires|ensures|invariant|decreases|refine|assumed|old)\\b"
+        }
+      ]
     },
     "self-reference": {
-      "name": "variable.language.this.yo",
-      "match": "\\b(self|this)\\b"
-    },
-    "defer": {
-      "name": "keyword.control.yo",
-      "match": "\\b(defer|abortdefer)\\b"
-    },
-    "condition": {
-      "name": "keyword.control.yo",
-      "match": "\\b(if|cond|then|else|switch|case|default|match)\\b"
-    },
-    "clause": {
-      "name": "keyword.control.yo",
-      "match": "\\b(open|exists|where)\\b"
+      "patterns": [
+        {
+          "name": "variable.language.this.yo",
+          "match": "\\b(self)\\b"
+        }
+      ]
     },
     "imports": {
-      "name": "keyword.control.yo",
-      "match": "\\b(import|export|from|as|extern|trait|c_include)\\b"
-    },
-    "try-with": {
-      "name": "keyword.control.yo",
-      "match": "\\b(try|with)\\b"
+      "patterns": [
+        {
+          "name": "keyword.control.import.yo",
+          "match": "\\b(import|export)\\b"
+        }
+      ]
     },
     "builtin-functions": {
       "name": "entity.name.function.yo",
-      "match": "\\b(sizeof|alignof|typeof|gensym|consume|rc|take|drop|clone|dup|quote|unquote|unquote_splicing|comptime_expect_error|comptime_assert|downcast|comptime_fn|array|tuple|comptime_list|begin|and|or|not|_|the|macro_expand|runtime|unsafe|asm|global_asm|pragma)\\b"
+      "match": "\\b(sizeof|alignof|typeid|typeof|gensym|consume|dup|drop|rc|the|downcast|derive|derive_rule|macro_expand|comptime_assert|comptime_expect_error|comptime_fn|comptime_print|comptime_eval|comptime_read_file|comptime_json_parse|comptime_toml_parse|comptime_list|quote|unquote|unquote_splicing|and|or|runtime|unsafe|pragma|asm|global_asm|va_start|begin|_)\\b"
     },
     "async-await": {
       "patterns": [
-        { "name": "keyword.control.yo", "match": "\\b(async|await|spawn)\\b" },
-        { "name": "entity.name.type", "match": "\\b(Promise)\\b" }
+        { "name": "keyword.control.async.yo", "match": "\\b(async)\\b" },
+        { "name": "keyword.control.await.yo", "match": "\\b(await)\\b" }
       ]
-    },
-    "infix-precedence": {
-      "name": "keyword.control",
-      "match": "\\b(infix|infixl|infixr)\\b"
     },
     "strings": {
       "name": "string.quoted.double.yo",
@@ -165,6 +215,7 @@
           "match": "\\\\."
         },
         {
+          "comment": "Interpolation; nested braces inside the expression are tracked, mirroring the lexer's brace-depth counting.",
           "name": "meta.template.expression.yo",
           "begin": "\\$\\{",
           "end": "\\}",
@@ -176,17 +227,29 @@
           "endCaptures": {
             "0": { "name": "punctuation.definition.template-expression.end.yo" }
           },
-          "patterns": [{ "include": "#statements" }]
+          "patterns": [
+            { "include": "#template-braces" },
+            { "include": "#statements" }
+          ]
         }
       ]
     },
+    "template-braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        { "include": "#template-braces" },
+        { "include": "#statements" }
+      ]
+    },
     "builtin-types": {
+      "comment": "Builtin scalar type names (resolve_primitive_identifier in src/evaluator/exprs/identifer_and_operator.yo) plus common prelude type constructors.",
       "name": "support.type.yo",
-      "match": "\\b(unit|usize|isize|u8|i8|u16|i16|u32|i32|u64|i64|f16|f32|f64|bool|char|symbol|any|voidptr|void|comptime_int|comptime_float|comptime_string|str|Array|Slice|Tuple|Expr|ComptimeList|ExprList|Iso|Arc|anyopaque|char|short|ushort|int|uint|long|ulong|longlong|ulonglong|longdouble)\\b"
+      "match": "\\b(comptime_int|comptime_float|comptime_str|longdouble|longlong|ulonglong|unit|usize|isize|u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|bool|char|str|void|ushort|ulong|uint|short|long|int|Array|RawSlice|ComptimeList|String|Option|Result|Box|Arc|ArrayList|HashMap|HashSet|Ordering|Range|RangeInclusive)\\b"
     },
     "builtin-values": {
       "name": "constant.language.yo",
-      "match": "\\b(true|false|null|undefined)\\b"
+      "match": "\\b(true|false)\\b"
     }
   },
   "scopeName": "source.yo"

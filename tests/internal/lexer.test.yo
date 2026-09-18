@@ -199,10 +199,11 @@ test("Float with decimal point", {
     }
   );
 });
-test("Bare exponent stays Integer (TS parity)", {
-  // TS consumes e-notation in the INTEGER branch and still pushes
-  // TokenType.Integer for a dot-less literal (src/lexer.ts:614-647):
-  // `1e10` is Integer("1e10"); only a decimal point makes a Float.
+test("Bare exponent is a Float (1e5)", {
+  // An exponent makes the token a Float — the C/Rust/Go rule. The retired
+  // TS lexer pushed Integer here, and its evaluator then failed to parse
+  // the text (`Failed to parse integer literal: 1e5`), so the old shape
+  // was a guaranteed error, never a working spelling to preserve.
   exn := Exception(
     throw : (
       err -> {
@@ -217,8 +218,50 @@ test("Bare exponent stays Integer (TS parity)", {
     toks.get(usize(0)),
     .None => assert(false, "no token"),
     .Some(tok) => {
-      assert(tok.kind == TokenKind.Integer, "expected Integer (TS lexes bare exponent as Integer)");
+      assert(tok.kind == TokenKind.Float, "expected Float (exponent makes the literal a float)");
       assert(tok.value == `1e10`, "value must be '1e10'");
+    }
+  );
+});
+test("Hex digits are not an exponent (0x1E5 stays Integer)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`0x1E5`, exn));
+  assert(toks.len() == usize(1), "expected 1 token");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Integer, "expected Integer (hex scan, no exponent branch)");
+      assert(tok.value == `0x1E5`, "value must be '0x1E5'");
+    }
+  );
+});
+test("Sign with no exponent digit leaves the token Integer", {
+  // `1e+` must NOT become Float: the exponent stays unconsumed and the `+`
+  // surfaces as an operator — atof("1e+") would silently stop at 1.0.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`1e+`, exn));
+  assert(toks.len() == usize(3), "expected Integer, +, Integer tokens");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Integer, "expected Integer for '1'");
+      assert(tok.value == `1`, "value must be '1'");
     }
   );
 });

@@ -913,10 +913,10 @@ Variable :: ref(struct(name : String, ty : TypeValue));
 
 ### 1-element array literals require a trailing comma
 
-`[expr]` without a trailing comma is **parsed as a slice-type form** (now an error — the builtin Slice type is deleted, so it surfaces "Variable \"Slice\" not found"), not an array literal. To create a 1-element array value, add a trailing comma:
+`[expr]` without a trailing comma **is a parse error** — the old slice-type form was removed along with the builtin Slice type (`plans/archive/SLICE_REWORK.md`); the parser rejects `[expr]` and `[T;]` and points at `RawSlice(T)`. To create a 1-element array value, add a trailing comma:
 
 ```rust
-// WRONG — parsed as Slice type, not array literal:
+// WRONG — removed slice-type form, now a parse error:
 arr := [i32(42)];
 
 // CORRECT — trailing comma makes it an array literal:
@@ -1952,17 +1952,17 @@ the scrutinee: `(first : Option(usize)) = sep.index_in(self, usize(0));` then
   fine unparenthesized).
 - Module-level bindings use `::`; `name : (fn(...))` at module level parses as a
   CALL of the type value.
-- `1e-12`-style exponent float literals do not lex — spell the mantissa out
-  (`f64(0.000000000001)`).
+- Exponent float literals lex AND evaluate: `1e-12` is an f64 (the exponent
+  makes the token a Float; the mantissa may be dot-less, and a sign with no
+  digit — `1e+` — is not an exponent).
 
 ## Tuples: semicolon TYPE, comma VALUE, `.0` access, no destructuring patterns
 
 `(A; B)` is the tuple TYPE (semicolons); `(a, b)` is the tuple VALUE (commas).
-Field access is by integer index: `p.0`, `p.1`. (The comment at
-src/parser.yo's tuple branch states the mapping backwards —
-tests/internal/parser.test.yo "Parse tuple value (a, b)" / "Parse Tuple type
-(a; b)" are the truth.) Match patterns CANNOT destructure tuples: write
-`.Some(p) => p.0`, never `.Some((k, v))`. The first std API returning one is
+Field access is by integer index: `p.0`, `p.1`. (tests/internal/parser.test.yo
+"Parse tuple value (a, b)" / "Parse Tuple type (a; b)" pin the mapping.) Match
+patterns CANNOT destructure tuples: write `.Some(p) => p.0`, never
+`.Some((k, v))`. The first std API returning one is
 `String.split_once -> Option((String; String))`.
 
 **`Tuple(A, B)` is a TYPE spelling only — it is not a value constructor.**
