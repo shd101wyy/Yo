@@ -565,6 +565,16 @@ jobs:
         run: |
           yo verify ./tests/spec/verify_straight_line.test.yo --format json | tee verify-battery.json
 
+      # B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): `--strict`
+      # makes `assumed`, `outside-subset` and `unproven` hard failures, so a
+      # run cannot go green because every contract was `assumed()` away. The
+      # straight-line battery proves everything it declares, so it must pass
+      # STRICT — that is what keeps the flag honest. The std/collections step
+      # above stays non-strict on purpose: dogfooding uses `assumed()`.
+      - name: yo verify --strict (the laws gate, on a battery that proves everything)
+        run: |
+          yo verify ./tests/spec/verify_straight_line.test.yo --strict
+
       - name: Upload the verify report
         if: always()
         uses: actions/upload-artifact@v4

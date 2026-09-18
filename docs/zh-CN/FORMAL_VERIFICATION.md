@@ -179,6 +179,37 @@ NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x :
 存在时以 pragma 为准。模式效果只作用于被验证的文件 —— 被导入的文件
 （标准库、`std/`）保持原有运行期行为不变。
 
+## 严格模式：不会悄悄变绿的门禁
+
+普通的 `yo verify` 在函数报告 `assumed`（契约已声明，函数体从未被走查）
+或 `outside-subset`（它没有承诺任何东西，走查也进不去）时仍然通过。对于
+渐进式采用验证，这是对的；但作为门禁就错了：改代码的智能体可以加上
+`assumed()`、删掉 `ensures`，或者把函数体推出子集，而运行依旧全绿，没有
+任何信号。
+
+`--strict` 把这些结果变成失败：
+
+```bash
+yo verify ./spec --strict          # 等价于 --deny assumed,outside-subset,unproven
+yo verify ./spec --deny assumed    # 也可以自己指定
+```
+
+结果名的取值为 `ok`、`assumed`、`outside-subset`、`unproven`、`refuted`、
+`solver-error`、`subset-error`；`--deny` 中出现未知名称会报用法错误并列出
+全部取值。被拒绝的结果在**所有**模式下都算失败，因此 `--strict` 下的
+`unproven` 即使在 `verify+` 中也会失败，而不会退回运行时断言。
+
+每次运行都会以一行汇总结尾 —— 七种结果的计数（包含 0，便于 grep）、其中
+有多少 `ok` 是**空洞的**（完全没有讨还任何义务）、求解器查询数、命中缓存
+的数量，以及墙上时间：
+
+```
+verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 1 queries, 0 cached, 46 ms
+```
+
+`--format json` 在 `summary` 对象中给出同样的数字，另外还有 `strict` 和
+`denied` 列表。
+
 ## 自动义务（AoRTE）
 
 在 verify 模式下，验证器会对每个函数证明**契约没有要求**的东西：
@@ -195,8 +226,8 @@ divide_bugged :: (fn(x : i32, y : i32) -> (r : i32))(x / y);
 ```
 
 ```
-refuted  fn@/abs/path.yo:8 [verify]
-    fn@/abs/path.yo:8/divisor-nonzero: REFUTED  counter-example: y = #x00000000
+refuted  fn@src/math.yo:8 [verify]
+    fn@src/math.yo:8/divisor-nonzero: REFUTED  counter-example: y = #x00000000
 ```
 
 ## 可验证子集（当前状态）

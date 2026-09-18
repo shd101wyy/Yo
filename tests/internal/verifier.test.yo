@@ -13,7 +13,7 @@
 { VcSort, VcOp, VcTerm, VcQuantKind, VcQuery, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_imp, vc_distinct } :: import("../../src/verifier/terms.yo");
 { mangle_vc_name, encode_sort, encode_term, encode_content, encode_script, encode_fundecl, default_encode_options } :: import("../../src/verifier/encode.yo");
 { Z3Sexpr, parse_z3_sexprs, z3_sexpr_to_string, z3_check_sat_of, z3_unsat_core_of, z3_value_pairs_of, run_z3_script, ensure_z3 } :: import("../../src/verifier/z3.yo");
-{ default_verify_run_config, verify_cache_key, verdict_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test, VerifyFnReport, VerifyFnObligation, verify_report_is_vacuous } :: import("../../src/verifier/driver.yo");
+{ default_verify_run_config, verify_cache_key, verdict_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test, VerifyFnReport, VerifyFnObligation, verify_report_is_vacuous, verify_outcome_names, is_verify_outcome_name, verify_report_is_failure, verify_report_is_degraded, summarize_verify_reports, verify_summary_count } :: import("../../src/verifier/driver.yo");
 { display_module_path, canonical_module_path } :: import("../../src/utils.yo");
 { cwd } :: import("std/env");
 // ---------------------------------------------------------------------------
@@ -475,4 +475,82 @@ test("verify_report_is_vacuous: ok with no obligations is not a proof", {
     subset_source : String.new()
   );
   assert(!verify_report_is_vacuous(outside), "only `ok` can be vacuous");
+});
+
+// ---------------------------------------------------------------------------
+// B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): the honest gate
+// ---------------------------------------------------------------------------
+_rp :: (fn(outcome : String, mode : String, obligations : usize) -> VerifyFnReport)({
+  obls := ArrayList(VerifyFnObligation).new();
+  (i : usize) = usize(0);
+  while(i < obligations, {
+    obls.push(
+      VerifyFnObligation(
+        name : `fn@src/x.yo:1/aorte#${i.to_string()}`,
+        verdict : VerifyVerdict.Proved(ArrayList(String).new()),
+        cached : (i == usize(0))
+      )
+    );
+    i = (i + usize(1));
+  });
+  VerifyFnReport(
+    fn_id : String.from("fn@src/x.yo:1"),
+    mode : mode,
+    outcome : outcome,
+    obligations : obls,
+    subset_construct : String.new(),
+    subset_source : String.new()
+  )
+});
+test("verify outcome vocabulary: every outcome the driver can emit is nameable", {
+  names := verify_outcome_names();
+  assert(names.len() == usize(7), "seven outcomes");
+  assert(is_verify_outcome_name(String.from("ok")), "ok");
+  assert(is_verify_outcome_name(String.from("outside-subset")), "outside-subset");
+  assert(is_verify_outcome_name(String.from("solver-error")), "solver-error");
+  assert(!is_verify_outcome_name(String.from("nonsense")), "an unknown name is rejected — the --deny usage error lists the set");
+});
+test("verify_report_is_failure: with no deny set this is the historical rule", {
+  none := ArrayList(String).new();
+  assert(!verify_report_is_failure(_rp(String.from("ok"), String.from("verify"), usize(1)), none.clone()), "ok passes");
+  assert(!verify_report_is_failure(_rp(String.from("assumed"), String.from("verify"), usize(0)), none.clone()), "assumed passes by default");
+  assert(!verify_report_is_failure(_rp(String.from("outside-subset"), String.from("verify"), usize(0)), none.clone()), "outside-subset passes by default");
+  assert(verify_report_is_failure(_rp(String.from("refuted"), String.from("verify+"), usize(1)), none.clone()), "a refutation fails even in verify+");
+  assert(verify_report_is_failure(_rp(String.from("unproven"), String.from("verify"), usize(1)), none.clone()), "unproven fails in verify");
+  assert(!verify_report_is_failure(_rp(String.from("unproven"), String.from("verify+"), usize(1)), none.clone()), "unproven degrades in verify+");
+  assert(verify_report_is_degraded(_rp(String.from("unproven"), String.from("verify+"), usize(1)), none.clone()), "...and that degradation is reported");
+});
+test("verify_report_is_failure: --strict turns the passing outcomes into failures", {
+  strict := ArrayList(String).new();
+  strict.push(String.from("assumed"));
+  strict.push(String.from("outside-subset"));
+  strict.push(String.from("unproven"));
+  assert(verify_report_is_failure(_rp(String.from("assumed"), String.from("verify"), usize(0)), strict.clone()), "assumed fails under --strict");
+  assert(verify_report_is_failure(_rp(String.from("outside-subset"), String.from("verify"), usize(0)), strict.clone()), "outside-subset fails under --strict");
+  assert(
+    verify_report_is_failure(_rp(String.from("unproven"), String.from("verify+"), usize(1)), strict.clone()),
+    "unproven fails under --strict even in verify+ — the deny set outranks the mode"
+  );
+  assert(!verify_report_is_failure(_rp(String.from("ok"), String.from("verify"), usize(1)), strict.clone()), "a real proof still passes");
+  assert(
+    !verify_report_is_degraded(_rp(String.from("unproven"), String.from("verify+"), usize(1)), strict.clone()),
+    "a denied outcome is a failure, never a degradation"
+  );
+});
+test("summarize_verify_reports: counts, vacuous, queries and cache hits", {
+  reports := ArrayList(VerifyFnReport).new();
+  reports.push(_rp(String.from("ok"), String.from("verify"), usize(2)));
+  reports.push(_rp(String.from("ok"), String.from("verify"), usize(0)));
+  reports.push(_rp(String.from("assumed"), String.from("verify"), usize(0)));
+  reports.push(_rp(String.from("refuted"), String.from("verify"), usize(1)));
+  sum := summarize_verify_reports(reports);
+  assert(sum.total == usize(4), "four reports");
+  assert(verify_summary_count(sum, String.from("ok")) == usize(2), "two ok");
+  assert(verify_summary_count(sum, String.from("assumed")) == usize(1), "one assumed");
+  assert(verify_summary_count(sum, String.from("refuted")) == usize(1), "one refuted");
+  assert(verify_summary_count(sum, String.from("unproven")) == usize(0), "zero counts are still reported");
+  assert(sum.vacuous == usize(1), "the ok with no obligations is vacuous");
+  assert(sum.queries == usize(3), "three obligations went through the pipeline");
+  assert(sum.cached == usize(2), "two of them came from the cache");
+  assert(verify_summary_count(sum, String.from("nonsense")) == usize(0), "an unknown outcome name counts zero");
 });

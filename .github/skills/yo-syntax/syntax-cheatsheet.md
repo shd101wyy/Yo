@@ -669,6 +669,15 @@ get :: (
   fn(self : Self, index : usize, requires(index < self.len()), assumed()) -> (result : Option(T))
 )(/* raw-pointer reads */);
 ```
+  **`assumed` passes a plain `yo verify` run** — that is what makes
+  gradual adoption possible, and it also means a green run is NOT
+  "everything proved". Gate a specification directory with
+  `yo verify <path> --strict` (= `--deny assumed,outside-subset,unproven`),
+  which makes those outcomes hard failures in every mode. The run's last
+  line is a summary with all seven outcome counts, how many `ok` results
+  were VACUOUS (discharged nothing), the query count, cache hits and the
+  wall time; `--format json` carries it under `summary`.
+
 - **`refine(T, p)` (V6 task 3):** a refinement annotation — "a `T`
   satisfying the predicate `p`", where `p` is a ONE-parameter `ghost_fn`
   value. The annotation evaluates to `T` (erasure: zero runtime cost;

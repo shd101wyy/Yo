@@ -87,7 +87,14 @@ pragma(Pragma.AllowUnsafe);
   verify_and_strip_tasks,
   VerifyResult,
   VerifyFnReport,
-  verify_report_is_vacuous
+  verify_report_is_vacuous,
+  verify_outcome_names,
+  is_verify_outcome_name,
+  verify_report_is_failure,
+  verify_report_is_degraded,
+  VerifySummary,
+  summarize_verify_reports,
+  verify_summary_count
 } :: import("./verifier/driver.yo");
 { set_verify_mode_override, set_verify_target_paths, take_verify_tasks } :: import("./evaluator/builtins/contracts.yo");
 { ensure_z3 } :: import("./verifier/z3.yo");
@@ -725,14 +732,14 @@ _run_contract_verification :: (
       reports.get(ri),
       .Some(rp) => {
         _print_verify_fn_report(rp, false);
-        // `assumed` passes like `ok` (V6 task 5): the fn's contracts gate
-        // callers; its body is declared outside the verifiable subset.
-        // `outside-subset` too: a CONTRACT-LESS fn whose body failed the
-        // subset walk (infrastructure — nothing was promised).
-        if(!((rp.outcome == "ok") || (rp.outcome == "assumed") || (rp.outcome == "outside-subset")), {
-          if((rp.outcome == "refuted") || (rp.mode == "verify"), {
-            all_ok = false;
-          }, {
+        // The pass/fail rule lives in the driver so this site, `yo verify`
+        // and the self-verification sweep cannot disagree. `check`/`compile`
+        // pass no deny set: `--strict` belongs to `yo verify`, and silently
+        // hardening every build would change what today's code compiles.
+        if(verify_report_is_failure(rp, ArrayList(String).new()), {
+          all_ok = false;
+        }, {
+          if(verify_report_is_degraded(rp, ArrayList(String).new()), {
             eprintln(`           (verify+ fallback: the runtime assert stays)`);
           });
         });
@@ -1252,6 +1259,10 @@ run_verify_cmd :: (
   (format_json : bool) = false;
   (no_cache : bool) = false;
   (explain_fn : Option(String)) = Option(String).None;
+  // B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): the outcomes
+  // that FAIL the run on top of the default rule. Empty = today's behavior.
+  (denied : ArrayList(String)) = ArrayList(String).new();
+  (strict : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
@@ -1311,6 +1322,40 @@ run_verify_cmd :: (
         no_cache = true;
         ai = (ai + usize(1));
       },
+      // `--strict` is the laws gate: a run must not pass because every
+      // contract was `assumed()` away, or because a body quietly fell out of
+      // the verifiable subset. It is exactly `--deny assumed,outside-subset,unproven`.
+      (a_name == "--strict") => {
+        strict = true;
+        denied.push(String.from("assumed"));
+        denied.push(String.from("outside-subset"));
+        denied.push(String.from("unproven"));
+        ai = (ai + usize(1));
+      },
+      (a_name == "--deny") => {
+        v4 := _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        (start : usize) = usize(0);
+        (di : usize) = usize(0);
+        while(di <= v4.len(), {
+          at_end := (di == v4.len());
+          if(at_end || (v4.byte_at(di) == u8(44)), {
+            piece := v4.substring(start, di).trim();
+            if(piece.len() > usize(0), {
+              if(!is_verify_outcome_name(piece.clone()), {
+                exn.throw(
+                  dyn(
+                    `verify: --deny does not know the outcome '${piece}' — expected one of ${_verify_join_strs(verify_outcome_names(), String.from(", "))}`
+                  )
+                );
+              });
+              denied.push(piece);
+            });
+            start = (di + usize(1));
+          });
+          di = (di + usize(1));
+        });
+        ai = (ai + _opt_step(a_val));
+      },
       (a_name == "--explain") => {
         explain_fn = Option(String).Some(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
         ai = (ai + _opt_step(a_val));
@@ -1318,7 +1363,7 @@ run_verify_cmd :: (
       a.starts_with(String.from("-")) => {
         exn.throw(
           dyn(
-            `verify: unknown option '${a}'. Usage: yo verify [path] [--verify-mode runtime|verify|verify+] [--solver-path PATH] [--rlimit N] [--format text|json] [--explain FN] [--no-cache]`
+            `verify: unknown option '${a}'. Usage: yo verify [path] [--verify-mode runtime|verify|verify+] [--solver-path PATH] [--rlimit N] [--format text|json] [--explain FN] [--no-cache] [--strict] [--deny <outcomes>]`
           )
         );
       },
@@ -1466,7 +1511,12 @@ run_verify_cmd :: (
   if(eval_failed > usize(0), {
     exn.throw(dyn(`verify: ${eval_failed.to_string()} file(s) failed evaluation`));
   });
+  // D4 (BEND_LAWS_AND_AGENT_LOOP_LESSONS.md): the summary reports wall time
+  // and query count, so checker speed is a number the campaign can improve
+  // rather than a claim. Timed around the solving, not the evaluation.
+  verify_t0 := Instant.now();
   all_reports := verify_registered_functions(cfg, binary.clone());
+  verify_elapsed_ms := verify_t0.elapsed().as_millis();
   // `--explain FN` narrows the report to functions whose id matches
   // (substring, so a bare name or a `file:line` both work) and forces the
   // detailed rendering.
@@ -1501,9 +1551,8 @@ run_verify_cmd :: (
     match(
       reports.get(ri3),
       .Some(rp) => {
-        // `assumed`/`outside-subset` pass like `ok` (V6 task 5): contracts
-        // assumed, or a contract-less body outside the verifiable subset.
-        if(!((rp.outcome == "ok") || (rp.outcome == "assumed") || (rp.outcome == "outside-subset")), {
+        // Same driver-side rule, now consulting `--deny` / `--strict`.
+        if(verify_report_is_failure(rp, denied.clone()), {
           bad = (bad + usize(1));
           if(rp.outcome == "refuted", {
             refuted_n = (refuted_n + usize(1));
@@ -1533,6 +1582,7 @@ run_verify_cmd :: (
     ks2.push(String.from("mode"));
     ks2.push(String.from("harness_ok"));
     ks2.push(String.from("self_test"));
+    ks2.push(String.from("summary"));
     ks2.push(String.from("functions"));
     vs2 := ArrayList(JsonValue).new();
     vs2.push(JsonValue.Str(binary.clone()));
@@ -1540,6 +1590,14 @@ run_verify_cmd :: (
     vs2.push(JsonValue.Str(mode_str.clone()));
     vs2.push(JsonValue.Bool(harness_ok));
     vs2.push(JsonValue.Array(_verify_self_test_json(results)));
+    vs2.push(
+      _verify_summary_json(
+        summarize_verify_reports(reports),
+        strict,
+        denied.clone(),
+        verify_elapsed_ms
+      )
+    );
     vs2.push(JsonValue.Array(fn_entries));
     println(json.stringify(JsonValue.Object(keys : ks2, values : vs2)));
   }, {
@@ -1566,6 +1624,15 @@ run_verify_cmd :: (
         )
       );
     });
+    println(_verify_summary_line(summarize_verify_reports(reports), verify_elapsed_ms));
+    if(strict, {
+      println(
+        tr(
+          String.from("verify: strict — assumed, outside-subset and unproven count as failures"),
+          String.from("verify：strict —— assumed、outside-subset 与 unproven 均视为失败")
+        )
+      );
+    });
     println(
       cond(
         harness_ok => tr(String.from("verify: harness OK"), String.from("verify：自检通过")),
@@ -1583,6 +1650,70 @@ run_verify_cmd :: (
       )
     );
   });
+});
+/// The one-line run summary. Every count is printed even when zero so the
+/// line is greppable, and it carries the wall time and query count that make
+/// checker speed measurable (D4,
+/// plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md).
+_verify_summary_line :: (fn(sum : VerifySummary, elapsed_ms : i64) -> String)({
+  names := verify_outcome_names();
+  sb := StringBuilder.new();
+  sb.write_string(String.from("verify: "));
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    match(
+      names.get(i),
+      .Some(nm) => {
+        if(i > usize(0), {
+          sb.write_string(String.from(", "));
+        });
+        sb.write_string(verify_summary_count(sum, nm.clone()).to_string());
+        sb.write_string(String.from(" "));
+        sb.write_string(nm);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb.write_string(
+    ` (${sum.vacuous.to_string()} of the ok vacuous) — ${sum.queries.to_string()} queries, ${sum.cached.to_string()} cached, ${elapsed_ms.to_string()} ms`
+  );
+  sb.to_string()
+});
+/// The same numbers as JSON, plus what the deny set was.
+_verify_summary_json :: (
+  fn(sum : VerifySummary, strict : bool, denied : ArrayList(String), elapsed_ms : i64) -> JsonValue
+)({
+  names := verify_outcome_names();
+  ks := ArrayList(String).new();
+  vs := ArrayList(JsonValue).new();
+  ks.push(String.from("total"));
+  vs.push(JsonValue.Int(i64(sum.total)));
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    match(
+      names.get(i),
+      .Some(nm) => {
+        ks.push(nm.clone());
+        vs.push(JsonValue.Int(i64(verify_summary_count(sum, nm.clone()))));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  ks.push(String.from("vacuous"));
+  vs.push(JsonValue.Int(i64(sum.vacuous)));
+  ks.push(String.from("queries"));
+  vs.push(JsonValue.Int(i64(sum.queries)));
+  ks.push(String.from("cached"));
+  vs.push(JsonValue.Int(i64(sum.cached)));
+  ks.push(String.from("elapsed_ms"));
+  vs.push(JsonValue.Int(elapsed_ms));
+  ks.push(String.from("strict"));
+  vs.push(JsonValue.Bool(strict));
+  ks.push(String.from("denied"));
+  vs.push(_verify_json_strs(denied));
+  JsonValue.Object(keys : ks, values : vs)
 });
 /// One function report as JSON (the verify subcommand's V3 shape).
 _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
@@ -7052,10 +7183,19 @@ Options:
   --explain <fn>            Print the full obligation detail for functions
                             whose id matches <fn> (substring)
   --no-cache                Skip the verification cache
+  --strict                  Fail on assumed, outside-subset and unproven too
+                            (= --deny assumed,outside-subset,unproven). Without
+                            it a run passes even when every contract was
+                            assumed() away — use it as the gate for a spec/
+                            directory.
+  --deny <outcomes>         Comma-separated outcomes that fail the run, from
+                            ok, assumed, outside-subset, unproven, refuted,
+                            solver-error, subset-error
 
 Examples:
   $ yo verify ./src
   $ yo verify --solver-path /usr/bin/z3 --format json
+  $ yo verify ./spec --strict
   $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`,
         `用法：yo verify [路径] [选项]
 
@@ -7076,10 +7216,18 @@ plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每
   --format <text|json>     输出格式（默认 text）
   --explain <函数名>       打印 id 匹配（子串）的函数的完整义务明细
   --no-cache               跳过验证缓存
+  --strict                 assumed、outside-subset 与 unproven 也算失败
+                           （等价于 --deny assumed,outside-subset,unproven）。
+                           不加此选项时，即使所有契约都被 assumed() 掉，
+                           运行仍会通过 —— 用它作为 spec/ 目录的门禁。
+  --deny <结果>            以逗号分隔、视为失败的结果名，取值来自
+                           ok、assumed、outside-subset、unproven、refuted、
+                           solver-error、subset-error
 
 示例：
   $ yo verify ./src
   $ yo verify --solver-path /usr/bin/z3 --format json
+  $ yo verify ./spec --strict
   $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`
       )
     ),

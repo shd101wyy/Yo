@@ -477,6 +477,163 @@ VerifyFnReport :: ref(
 verify_report_is_vacuous :: (fn(rp : VerifyFnReport) -> bool)(
   (rp.outcome == "ok") && (rp.obligations.len() == usize(0))
 );
+/// The outcome vocabulary, in report order. `--deny` validates against this
+/// and the usage error lists it, so the CLI can never drift from the set of
+/// outcomes `verify_and_strip_tasks` actually produces.
+verify_outcome_names :: (fn() -> ArrayList(String))({
+  out := ArrayList(String).new();
+  out.push(String.from("ok"));
+  out.push(String.from("assumed"));
+  out.push(String.from("outside-subset"));
+  out.push(String.from("unproven"));
+  out.push(String.from("refuted"));
+  out.push(String.from("solver-error"));
+  out.push(String.from("subset-error"));
+  out
+});
+/// True when `name` is one of the outcomes above.
+is_verify_outcome_name :: (fn(name : String) -> bool)(
+  _str_list_contains(verify_outcome_names(), name)
+);
+_str_list_contains :: (fn(xs : ArrayList(String), needle : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    match(
+      xs.get(i),
+      .Some(x) => {
+        if(x == needle, {
+          return(true);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
+/// The outcomes that pass WITHOUT being denied: a proof, contracts the author
+/// declared `assumed()`, and a contract-less body the walk could not enter
+/// (infrastructure — nothing was promised). Everything else is a finding.
+_verify_outcome_passes_by_default :: (fn(outcome : String) -> bool)(
+  (outcome == "ok") || (outcome == "assumed") || (outcome == "outside-subset")
+);
+/// Does this report FAIL the run, given the `--deny` set?
+///
+/// With an empty deny set this is exactly the historical rule: refuted always
+/// fails, the other findings fail in `verify` and degrade to a runtime assert
+/// in `verify+`, and the three outcomes above pass. `--deny` (and its alias
+/// `--strict`) turns named outcomes into hard failures in EVERY mode — which
+/// is the point of a laws gate: a run must not go green because every contract
+/// was `assumed()` away
+/// (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1/B0).
+verify_report_is_failure :: (fn(rp : VerifyFnReport, denied : ArrayList(String)) -> bool)({
+  if(_str_list_contains(denied, rp.outcome.clone()), {
+    return(true);
+  });
+  if(_verify_outcome_passes_by_default(rp.outcome.clone()), {
+    return(false);
+  });
+  (rp.outcome == "refuted") || (rp.mode == "verify")
+});
+/// True when the report is a finding that `verify+` degraded to a runtime
+/// assert rather than a failure — the case that prints the fallback note.
+verify_report_is_degraded :: (fn(rp : VerifyFnReport, denied : ArrayList(String)) -> bool)(
+  !verify_report_is_failure(rp, denied) && !_verify_outcome_passes_by_default(rp.outcome.clone())
+);
+/// Per-outcome counts over a report list, in `verify_outcome_names()` order,
+/// plus the derived tallies the summary line prints. Counting lives here so
+/// the text summary, the JSON summary and the self-verification sweep cannot
+/// disagree about what a run contained.
+VerifySummary :: ref(
+  struct(
+    total : usize,
+    /// Parallel to `verify_outcome_names()`.
+    counts : ArrayList(usize),
+    /// `ok` reports that discharged nothing (see `verify_report_is_vacuous`).
+    vacuous : usize,
+    /// Obligations put through the cache → encode → solve pipeline, and how
+    /// many of those were answered from the verification cache.
+    queries : usize,
+    cached : usize
+  )
+);
+summarize_verify_reports :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifySummary)({
+  names := verify_outcome_names();
+  counts := ArrayList(usize).new();
+  (ni : usize) = usize(0);
+  while(ni < names.len(), {
+    counts.push(usize(0));
+    ni = (ni + usize(1));
+  });
+  (vacuous : usize) = usize(0);
+  (queries : usize) = usize(0);
+  (cached : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        (ci : usize) = usize(0);
+        while(ci < names.len(), {
+          match(
+            names.get(ci),
+            .Some(nm) => {
+              if(nm == rp.outcome, {
+                counts(ci) = (match(counts.get(ci), .Some(c) => c, .None => usize(0)) + usize(1));
+              });
+            },
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        if(verify_report_is_vacuous(rp), {
+          vacuous = (vacuous + usize(1));
+        });
+        (oi : usize) = usize(0);
+        while(oi < rp.obligations.len(), {
+          queries = (queries + usize(1));
+          match(
+            rp.obligations.get(oi),
+            .Some(obl) => {
+              if(obl.cached, {
+                cached = (cached + usize(1));
+              });
+            },
+            .None => ()
+          );
+          oi = (oi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  VerifySummary(
+    total : reports.len(),
+    counts : counts,
+    vacuous : vacuous,
+    queries : queries,
+    cached : cached
+  )
+});
+/// The count recorded for `outcome` in a summary ("" / unknown name -> 0).
+verify_summary_count :: (fn(sum : VerifySummary, outcome : String) -> usize)({
+  names := verify_outcome_names();
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    match(
+      names.get(i),
+      .Some(nm) => {
+        if(nm == outcome, {
+          return(match(sum.counts.get(i), .Some(c) => c, .None => usize(0)));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  usize(0)
+});
 /// Verify every task the evaluator recorded (drains the registry). Each
 /// task symbolically executes once (`verify_function_body`), then every
 /// obligation runs through the same cache → encode → spawn → parse
@@ -793,6 +950,13 @@ export(
   VerifyFnObligation,
   VerifyFnReport,
   verify_report_is_vacuous,
+  verify_outcome_names,
+  is_verify_outcome_name,
+  verify_report_is_failure,
+  verify_report_is_degraded,
+  VerifySummary,
+  summarize_verify_reports,
+  verify_summary_count,
   verify_registered_functions,
   verify_and_strip_tasks,
   unmangle_for_display

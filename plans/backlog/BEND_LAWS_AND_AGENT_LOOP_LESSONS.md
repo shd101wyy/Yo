@@ -314,6 +314,31 @@ generation split in `FORMAL_VERIFICATION.md` V6 task 3 is the precedent).
 
 ### B0 — `yo verify --strict` (the honest gate)
 
+> **Status: LANDED 2026-09-18.** `--strict` / `--deny <outcomes>` in
+> `src/main.yo`; the pass/fail rule moved into the driver
+> (`verify_report_is_failure` / `verify_report_is_degraded`,
+> `src/verifier/driver.yo`) so `check`, `compile`, `yo verify` and the
+> self-verification sweep cannot disagree — with an empty deny set the
+> behavior is byte-identical to before. The outcome vocabulary is the
+> driver's own list (`verify_outcome_names`), so the `--deny` usage error
+> can never drift from the outcomes the verifier emits. Summary line +
+> JSON `summary` carry all seven counts, the vacuous count, queries,
+> cache hits and wall time (D4). Tests: four hermetic unit tests in
+> `tests/internal/verifier.test.yo`, the solver-free
+> `tests/cli-cases/verify-deny-unknown-outcome` case, and a CI step
+> running `--strict` over the straight-line battery (which proves
+> everything it declares, so it must pass strict). Docs en+zh,
+> cheatsheet, and a `yo-design.instructions.md` section.
+>
+> **Deviation from the plan (recorded):** the planned
+> `tests/cli-cases/verify-strict-assumed` case is NOT what landed. A
+> `yo verify` case runs in a sandbox with its own `HOME`, so asserting
+> the strict exit code there would make the case download Z3 or depend on
+> a machine-specific solver path. The landed case asserts the `--deny`
+> usage error instead, which is validated during option parsing and is
+> therefore genuinely solver-free; the strict exit code is gated by the
+> unit tests and the CI step, both of which have a real solver.
+
 **Scope.** A flag that makes `assumed`, `outside-subset` and `unproven`
 outcomes fail the run, and summaries that always count them.
 
