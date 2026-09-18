@@ -1884,6 +1884,9 @@ find_methods_from_generic_impls :: (
               if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
                 eprintln(`[fmg-cand] method=${method_name} recv=${type_to_string(resolved)} raw=${type_to_string(ftype)} spec=${type_to_string(fmg_spec_ty)} trial=${in_def_time_trial().to_string()}`);
               });
+              if(impl_dbg_env.get(`YO_DEBUG_WARM`).is_some() && (method_name == "get"), {
+                eprintln(`[fmg-get] recv_key=${type_key(resolved)} spec_key=${type_key(fmg_spec_ty)} pattern=${type_key(entry.receiver_type_pattern)}`);
+              });
               results.push(
                 MethodCandidate(
                   method_type : fmg_spec_ty,

@@ -32,6 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
 { env : synth_dbg_env } :: import("std/env");
+{ type_key } :: import("../../types/type_key.yo");
 { in_def_time_trial } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -1564,6 +1565,11 @@ _synthesize_types_impl :: (
       });
     });
     if(((exp_id3 != giv_id3) && !same_constructor3) && !same_shape3, {
+      if(synth_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+        eprintln(
+          `[unify-struct] exp_id=${exp_id3.clone()} giv_id=${giv_id3.clone()} exp_cfid=${exp_eff_cfid.clone()} giv_cfid=${giv_eff_cfid.clone()} exp_key=${type_key(expected_ty)} giv_key=${type_key(given_ty)} mod=${ee.module_path}`
+        );
+      });
       exn.throw(
         dyn(
           format_error_message(
