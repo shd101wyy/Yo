@@ -1676,10 +1676,19 @@ _verify_summary_line :: (fn(sum : VerifySummary, elapsed_ms : i64) -> String)({
     i = (i + usize(1));
   });
   sb.write_string(
-    ` (${sum.vacuous.to_string()} of the ok vacuous) — ${sum.queries.to_string()} queries, ${sum.cached.to_string()} cached, ${elapsed_ms.to_string()} ms`
+    ` (${sum.vacuous.to_string()} of the ok vacuous) — ${sum.queries.to_string()} queries, ${sum.cached.to_string()} cached${_verify_hit_rate(sum)}, ${sum.folded.to_string()} folded, ${elapsed_ms.to_string()} ms`
   );
   sb.to_string()
 });
+/// `(NN%)` cache hit rate for the summary line — empty when nothing was
+/// queried, so a fully-folded or empty run does not print `(0%)`.
+_verify_hit_rate :: (fn(sum : VerifySummary) -> String)(
+  if(
+    sum.queries > usize(0),
+    ` (${((sum.cached * usize(100)) / sum.queries).to_string()}%)`,
+    String.new()
+  )
+);
 /// The same numbers as JSON, plus what the deny set was.
 _verify_summary_json :: (
   fn(sum : VerifySummary, strict : bool, denied : ArrayList(String), elapsed_ms : i64) -> JsonValue
@@ -1707,6 +1716,8 @@ _verify_summary_json :: (
   vs.push(JsonValue.Int(i64(sum.queries)));
   ks.push(String.from("cached"));
   vs.push(JsonValue.Int(i64(sum.cached)));
+  ks.push(String.from("folded"));
+  vs.push(JsonValue.Int(i64(sum.folded)));
   ks.push(String.from("elapsed_ms"));
   vs.push(JsonValue.Int(elapsed_ms));
   ks.push(String.from("strict"));
@@ -1739,11 +1750,15 @@ _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
         ks.push(String.from("name"));
         ks.push(String.from("verdict"));
         ks.push(String.from("cached"));
+        ks.push(String.from("folded"));
+        ks.push(String.from("goal"));
         ks.push(String.from("model"));
         vs := ArrayList(JsonValue).new();
         vs.push(JsonValue.Str(obl.name.clone()));
         vs.push(JsonValue.Str(verdict_str));
         vs.push(JsonValue.Bool(obl.cached));
+        vs.push(JsonValue.Bool(obl.folded));
+        vs.push(JsonValue.Str(obl.goal.clone()));
         vs.push(model);
         obl_entries.push(JsonValue.Object(keys : ks, values : vs));
       },
@@ -1832,7 +1847,11 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
       println(`  ok       ${rp.fn_id} [${rp.mode}] — no obligations`);
       ()
     },
-    (rp.outcome == "ok") => {
+    // A non-detailed `ok` gets the one-liner; with `--explain` it falls
+    // through to the listing below so the VC set of a VERIFIED function
+    // is inspectable too — the detail loop used to be reachable only
+    // from non-ok outcomes, the exact case that never needed it.
+    ((rp.outcome == "ok") && (!detailed)) => {
       println(
         `  ok       ${rp.fn_id} [${rp.mode}] — ${rp.obligations.len().to_string()} obligation(s) proved`
       );
@@ -1859,7 +1878,13 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
                 .SolverError(msg) => `SOLVER-ERROR  ${msg}`
               );
               cached_mark := if(obl.cached, String.from(" (cached)"), String.new());
-              println(`    ${obl.name}: ${detail}${cached_mark}`);
+              folded_mark := if(obl.folded, String.from(" (folded)"), String.new());
+              println(`    ${obl.name}: ${detail}${cached_mark}${folded_mark}`);
+              // The VC itself, as the solver saw it (`--explain`'s "VC
+              // set": what the obligation asks, not just its name).
+              if(detailed && (obl.goal.len() > usize(0)), {
+                println(`      goal: ${obl.goal}`);
+              });
             });
           },
           .None => ()
