@@ -6876,16 +6876,10 @@ impl(
   where(T <: Default),
   Array(T, U),
   Default(
-    default : (fn() -> Self)({
-      mu := MaybeUninit(Self).new();
-      p := (*T)(mu.as_ptr());
-      (i : usize) = usize(0);
-      while(i < U, {
-        (p.add(i)).* = T.default();
-        i = (i + usize(1));
-      });
-      mu.assume_init()
-    })
+    // Now that `fill` is a RUN-TIME operation this is just a fill. It was an
+    // open-coded MaybeUninit loop only because `fill` demanded a comptime
+    // value and `T.default()` is an ordinary call.
+    default : (fn() -> Self)(Array(T, U).fill(T.default()))
   )
 );
 impl(
@@ -6904,12 +6898,68 @@ impl(
   export fill;
   */
 );
+/// `comptime_fill` — N copies of a COMPILE-TIME value, as a compile-time array.
+///
+/// The compile-time counterpart of `fill`, and the only way to build an array
+/// that is itself a comptime value (a `::` binding, a type-level position).
+/// Its argument must be compile-time known: a literal, or a `comptime`
+/// expression. An ordinary `fn` call is a run-time value and belongs in `fill`.
+///
+/// Renamed from `fill` on 2026-09-17: the plain name went to the run-time
+/// operation, which is what nearly every call site wants. The comptime users
+/// are the ones that need the array to BE a comptime value — a `::` binding or
+/// a `comptime(...)` result type — and they are a small minority
+/// (`tests/array.test.yo` has the three in this repo).
 impl(
   generic(T : Type, U : usize),
   where(T <: Comptime),
   Array(T, U),
-  fill : (fn(comptime(val) : T) -> comptime(Self))({
+  comptime_fill : (fn(comptime(val) : T) -> comptime(Self))({
     return(__yo_array_fill(Self, val));
+  })
+);
+/// `fill` — N copies of a value, built at RUN TIME.
+///
+/// Takes an ordinary value, so `Array(i32, usize(3)).fill(f())` works for any
+/// `f`, and `Array(u8, N).fill(b)` works for a `b` that is only known at run
+/// time. Use `comptime_fill` when the ARRAY itself must be a compile-time
+/// value.
+///
+/// Emits a loop rather than an initializer list, which is also why the emitted
+/// C shrinks: `Array(u8, usize(128)).fill(u8(0))` used to spell out 128
+/// elements inline; clang collapses the loop to a `memset`.
+///
+/// `MaybeUninit` is how the storage is obtained — there is no way to get an
+/// `Array(T, U)` to write into without already having a `T` to seed it, which
+/// is the problem being solved. Same idiom as `std/sys/tty.yo`.
+///
+/// `T <: Comptime` is the bound the comptime `fill` already carried, so no
+/// existing caller loses anything, and the new capability is unaffected:
+/// `i32` is `Comptime` even when the VALUE is a run-time one.
+impl(
+  generic(T : Type, U : usize),
+  where(T <: Comptime),
+  Array(T, U),
+  // The bound is repeated ON THE METHOD, not left to the impl's where-clause.
+  // Measured 2026-09-17: an impl-level `where` is NOT enforced at the call
+  // site — `String` provably fails `T <: Comptime` in a bounded free fn
+  // (E0602), yet it sailed past the impl bound — while a FUNCTION-level one
+  // is. That is the defect `fix/type-impls-honours-where-clauses` names.
+  //
+  // It is load-bearing: the element write goes through a raw pointer, which
+  // bypasses the evaluator's dup machinery, so a reference-counted `T` would
+  // put N handles on ONE refcount. Without this the RC case compiled rc=0 and
+  // died with SIGTRAP before printing anything, where the comptime-only `fill`
+  // it replaces had refused the same program at COMPILE time.
+  fill : (fn(val : T, where(T <: Comptime)) -> Self)({
+    mu := MaybeUninit(Self).new();
+    p := (*T)(mu.as_ptr());
+    (i : usize) = usize(0);
+    while(i < U, {
+      (p.add(i)).* = val;
+      i = (i + usize(1));
+    });
+    mu.assume_init()
   })
 );
 /// Array Index impls

@@ -1,6 +1,13 @@
 # `Array(T, N).fill(v)` fails when `N` is a FUNCTION generic (an impl generic is fine)
 
-**Status:** OPEN. Found 2026-09-17 while measuring how to close the
+**Status: FIXED 2026-09-18.** Not fixed by anything aimed at this defect — the
+run-time `fill` (user decision, 2026-09-18) emits a loop over `MaybeUninit`
+storage rather than an `__yo_array_fill` initializer list, and that lowering
+does not care whether `N` came from a function generic or an impl generic.
+Measured on the fix: the `repn` reproducer below prints `4 9`, where it
+previously aborted out of an rc=0 compile.
+
+**Status when written:** OPEN. Found 2026-09-17 while measuring how to close the
 `Array(T, N)` `Default` row of `plans/archive/STD_API_STABILIZATION.md`.
 
 **How far this was taken: two compiles, and no further probing.** No

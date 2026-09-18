@@ -1,6 +1,13 @@
 # `Array.fill` accepts a run-time value and turns it into an abort stub
 
-**Status:** OPEN. Found 2026-09-16 while trying to close the `Array(T, N)`
+**Status: FIXED 2026-09-18.** `fill` is now a RUN-TIME operation (user
+decision, 2026-09-18): it takes an ordinary value and builds the array with a
+loop, so `Array(i32, usize(3)).fill(i32.default())` compiles and runs instead
+of producing an abort stub. The compile-time operation kept its contract under
+the name `comptime_fill`. Measured on the fix: the reproducer below prints
+`3 0` rather than aborting.
+
+**Status when written:** OPEN. Found 2026-09-16 while trying to close the `Array(T, N)`
 `Default` row of `plans/archive/STD_API_STABILIZATION.md`. The root cause below is
 MEASURED; **two attempted fixes have been refuted, both recorded here.**
 
