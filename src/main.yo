@@ -55,6 +55,9 @@ pragma(Pragma.AllowUnsafe);
 } :: import("./utils.yo");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
+{ environ, execve } :: import("std/libc/unistd");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
@@ -4193,6 +4196,24 @@ TestDecl :: struct(name : String, body_src : String);
 /// Tests are compiled in batches of `TEST_BATCH_SIZE`, mirroring TS's
 /// `DEFAULT_TEST_BATCH_SIZE` (src/test-runner.ts:54).
 TEST_BATCH_SIZE :: usize(100);
+/// §7 items 3+4 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): this
+/// process's resident set in MB, from `/proc/self/statm` field 2 (resident
+/// pages × 4 KiB). Returns 0 when the read or parse fails — callers treat
+/// that as "no valve", never as "reset".
+_current_rss_mb :: (fn() -> usize)({
+  swallow := Exception(throw : ((_err) -> unwind(usize(0))));
+  statm_bytes := read_file_sync(String.from("/proc/self/statm"), swallow);
+  fields := String.from_bytes(statm_bytes).split(String.from(" "));
+  match(
+    fields.get(usize(1)),
+    .Some(resident_pages) => match(
+      resident_pages.trim().parse_u64(),
+      .Some(pages) => usize((pages * u64(4096)) / u64(1048576)),
+      .None => usize(0)
+    ),
+    .None => usize(0)
+  )
+});
 run_test :: (
   fn(
     argv : ArrayList(String),
@@ -4234,6 +4255,14 @@ run_test :: (
   (batch_size : usize) = TEST_BATCH_SIZE;
   // `--exclude <path>` (repeatable), same semantics as `check --exclude`.
   excludes := ArrayList(String).new();
+  // §7 items 3+4: the RSS valve's self-restart state (see the parse arms).
+  (resume_from : usize) = usize(0);
+  (accum_passed : usize) = usize(0);
+  (accum_failed : usize) = usize(0);
+  // §7 step 3: YO_TEST_IN_PROCESS=1 opts the batch loop into in-process
+  // compiles + the exec-restart RSS valve (see the gate note at the batch
+  // site); the default is the proven child-process spawn.
+  (test_in_process : bool) = proc_env.get(`YO_TEST_IN_PROCESS`).is_some();
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
@@ -4314,6 +4343,22 @@ run_test :: (
       (a == "--profile") => {
         test_profile = true;
         ai = (ai + usize(1));
+      },
+      // §7 items 3+4: the RSS valve's self-restart plumbing (never
+      // user-facing). `--resume-from N` drops the first N collected files
+      // (already run by the previous process); `--accum-passed/-failed`
+      // forward its counts so the final summary covers the whole run.
+      (a == "--resume-from") => {
+        resume_from = match(_arg_val(argv, ai).parse_u64(), .Some(n) => usize(n), .None => usize(0));
+        ai = (ai + usize(2));
+      },
+      (a == "--accum-passed") => {
+        accum_passed = match(_arg_val(argv, ai).parse_u64(), .Some(n) => usize(n), .None => usize(0));
+        ai = (ai + usize(2));
+      },
+      (a == "--accum-failed") => {
+        accum_failed = match(_arg_val(argv, ai).parse_u64(), .Some(n) => usize(n), .None => usize(0));
+        ai = (ai + usize(2));
       },
       (a == "--shard") => {
         spec := _arg_val_req(argv, ai, a.clone(), exn);
@@ -4402,6 +4447,20 @@ run_test :: (
   if(test_debug_heap && (test_allocator != "fixed"), {
     exn.throw(dyn(String.from("test: --debug-heap requires --allocator fixed")));
   });
+  // §7 step 3 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): the batch
+  // compiles run IN PROCESS under this one evaluator — prelude and std
+  // evaluate once and every later batch's import closure is a cache hit
+  // (the 22-minute tests/internal wall is mostly per-child re-evaluation).
+  // Same prerequisite as build --watch's rounds: the shared ExprInfoTable
+  // must exist before the FIRST evaluation so every batch's specializations
+  // land in the one table all of them emit from (the 2026-08-05
+  // 47-marker FTT was this table being per-compile — cured at the source in
+  // #723/#756, see issues/warm-compile-selfcheck.md).
+  match(
+    mm_shared_expr_info_table(),
+    .None => mm_set_shared_expr_info_table(expr_info_table_new()),
+    .Some(_) => ()
+  );
   // §4.6: `--workspace` runs every member's tests in ONE run, rather than one
   // summary per member. The members are resolved from the nearest `[workspace]`
   // manifest above the cwd and their directories replace the positional path;
@@ -4436,6 +4495,17 @@ run_test :: (
       pi = (pi + usize(1));
     });
     picked
+  });
+  // §7 items 3+4: the RSS valve restarted at file `resume_from` — drop the
+  // files the previous process already ran and adopt its counts.
+  if(resume_from > usize(0), {
+    resumed := ArrayList(String).new();
+    (rfi : usize) = resume_from;
+    while(rfi < files.len(), {
+      match(files.get(rfi), .Some(rf) => resumed.push(rf.clone()), .None => ());
+      rfi = (rfi + usize(1));
+    });
+    files = resumed;
   });
   // `Pragma.SkipWasm` pre-scan for wasm targets (hasSkipDirectiveForTarget,
   // src/test-runner.ts:152-170 + its filter loop at :1425-1453): a file whose
@@ -4560,8 +4630,10 @@ run_test :: (
     println(String.from("No test files found."));
     return(());
   });
-  (passed : usize) = usize(0);
-  (failed : usize) = usize(0);
+  // §7 items 3+4: the counts START from the restart's forwarded totals when
+  // the RSS valve resumed this process (see --resume-from).
+  (passed : usize) = accum_passed;
+  (failed : usize) = accum_failed;
   (bailed : bool) = false;
   (fi : usize) = usize(0);
   (profile_t0 : Instant) = Instant.now();
@@ -4691,64 +4763,67 @@ run_test :: (
         // aborts the rest of the cleanup with it.
         tmp_c := if(run_is_wasi || run_is_emcc, `${batch_base}.c`, `${tmp_bin}.c`);
         io.await(write_string(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
-        // Compile the batch in a CHILD PROCESS, not in-process.
-        //
-        // WHY: `run_compile` creates a fresh ExprInfoTable, but compiler state lives
-        // in module-level globals (func-type registry, specialization caches, impl
-        // registry, module cache, prelude env, ...) that OUTLIVE it. A second
-        // in-process compile therefore reused cached std ASTs whose ExprInfo was in
-        // the first batch's discarded table, and codegen emitted
-        // `// Failed to transpile` for std internals (ArrayList._length,
-        // String._bytes, Option.unwrap, std/env getenv). MEASURED 2026-08-05: 47
-        // markers on `test ./tests/string` — five ORDINARY language tests — and 59
-        // on tests/internal, while every one of those files passed ALONE. Batch 1
-        // and batch 2 had an IDENTICAL import list, so the trigger was purely
-        // "second compile in one process".
-        //
-        // TS gets fresh state per batch by construction: `src/test-runner.ts:503`
-        // does `moduleManager = new ModuleManager()`. yo-self has no instance to
-        // re-create, so a fresh PROCESS is the faithful equivalent — and it
-        // reproduces EXACTLY the standalone path, which is the verified-green one
-        // (all 58 tests/internal and all 187 ./tests files pass standalone).
-        //
-        // Uses argv(0), so the binary must be invoked by a usable path. CI and every
-        // gate script invoke it by explicit path (/tmp/yo-stage1,
-        // ./src/yo-self-bin). See issues/fixed/yo-self-second-batch-in-process-ftt.md.
+        // HISTORICAL (2026-08-05 → 2026-09-17): batches compiled in CHILD
+        // processes because a second in-process compile emitted 47 FTT
+        // markers (issues/fixed/yo-self-second-batch-in-process-ftt.md) —
+        // the per-compile ExprInfoTable against process-global evaluator
+        // state. That disease is what §7 steps 1–2 cured (the warm_compile_
+        // gate's byte-identical two-pass battery); the batch loop now runs
+        // on the same machinery.
         self_exe := argv(usize(0));
-        ccmd := Command.new(self_exe.clone());
-        ccmd.arg(String.from("compile"));
-        ccmd.arg(tmp_yo.clone());
-        ccmd.arg(String.from("-o"));
-        ccmd.arg(tmp_bin.clone());
+        // §7 step 3 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): with
+        // YO_TEST_IN_PROCESS=1 the batch compiles IN PROCESS against the
+        // runner's resident evaluator — prelude + std evaluate once, later
+        // batches' imports are cache hits, the specializations land in the
+        // ONE shared ExprInfoTable the prologue created, and the RSS valve
+        // exec-restarts the runner when the accumulated universe exceeds
+        // YO_TEST_MAX_RSS_MB (default 4096). GATED because cross-file
+        // sharing still has a measured breaker — doc_stability's warm
+        // compile dies at impl.yo:1376 ("Cannot unify incompatible struct
+        // types: GenericImplEntry and DocParam"; passes standalone; see
+        // issues/warm-test-batches-doc-stability-genericimplentry.md) —
+        // the collect/eval-against-the-accumulated-universe class that
+        // needs owner-tagged registry purges. The DEFAULT stays the proven
+        // child-process spawn until that lands. Declared at the prologue so
+        // the RSS valve at the file boundary reads the same flag.
+        cargv := ArrayList(String).new();
+        cargv.push(self_exe.clone());
+        cargv.push(String.from("compile"));
+        if(test_in_process, {
+          cargv.push(String.from("--compile-watch-mode"));
+        });
+        cargv.push(tmp_yo.clone());
+        cargv.push(String.from("-o"));
+        cargv.push(tmp_bin.clone());
         // Forward the runner's compiler/target choices to the child compile
         // (previously consumed-and-dropped — `yo test --cc gcc` silently
         // compiled with clang; P2.5 step 5).
         if(test_cc != "", {
-          ccmd.arg(String.from("--c-compiler"));
-          ccmd.arg(test_cc.clone());
+          cargv.push(String.from("--c-compiler"));
+          cargv.push(test_cc.clone());
         });
         if(test_target != "", {
-          ccmd.arg(String.from("--target"));
-          ccmd.arg(test_target.clone());
+          cargv.push(String.from("--target"));
+          cargv.push(test_target.clone());
         });
         // Forward the allocator choice (and its two fixed-only companions)
         // to the batch compile — the same forwarding --cc/--target get.
         if(test_allocator != "", {
-          ccmd.arg(String.from("--allocator"));
-          ccmd.arg(test_allocator.clone());
+          cargv.push(String.from("--allocator"));
+          cargv.push(test_allocator.clone());
         });
         if(test_allocator == "fixed", {
-          ccmd.arg(String.from("--heap-size"));
-          ccmd.arg(test_heap_size.to_string());
+          cargv.push(String.from("--heap-size"));
+          cargv.push(test_heap_size.to_string());
           if(test_debug_heap, {
-            ccmd.arg(String.from("--debug-heap"));
+            cargv.push(String.from("--debug-heap"));
           });
         });
         // Forward the error format so a batch-compile failure renders per
         // --error-format (P3 threading).
         if(!(error_format() == "human"), {
-          ccmd.arg(String.from("--error-format"));
-          ccmd.arg(error_format());
+          cargv.push(String.from("--error-format"));
+          cargv.push(error_format());
         });
         // `--std-path` is a GLOBAL flag: main strips it from argv before
         // subcommand dispatch and stashes it with the module manager, so the
@@ -4760,8 +4835,8 @@ run_test :: (
         match(
           get_std_path_override(),
           .Some(sp) => {
-            ccmd.arg(String.from("--std-path"));
-            ccmd.arg(sp);
+            cargv.push(String.from("--std-path"));
+            cargv.push(sp);
           },
           .None => ()
         );
@@ -4770,8 +4845,8 @@ run_test :: (
         match(
           get_imports_file_override(),
           .Some(imf) => {
-            ccmd.arg(String.from("--imports"));
-            ccmd.arg(imf);
+            cargv.push(String.from("--imports"));
+            cargv.push(imf);
           },
           .None => ()
         );
@@ -4781,19 +4856,19 @@ run_test :: (
         // runaway comptime loop in one batch now fails THAT batch with a
         // named error instead of hanging until the CI job timeout with no
         // indication of which file was responsible.
-        ccmd.arg(String.from("--compile-timeout-ms"));
-        ccmd.arg(String.from("600000"));
+        cargv.push(String.from("--compile-timeout-ms"));
+        cargv.push(String.from("600000"));
         // The runner's --profile rides along: the child prints its own
         // per-phase table (stderr is inherited).
         if(test_profile, {
-          ccmd.arg(String.from("--profile"));
+          cargv.push(String.from("--profile"));
         });
         // The test runner is a RUNTIME harness: verification is a static
         // gate (yo check / yo compile / yo verify), and legs without Z3
         // could not run verify-pragma fixtures at all if the batch compile
         // armed their targets (the splice suppression would leave the
         // binary unasserted AND unsolvable). Opt the batch out.
-        ccmd.arg(String.from("--no-verify"));
+        cargv.push(String.from("--no-verify"));
         // WASI batch binaries embed the whole evaluator, whose `evaluate()`
         // has 693+ locals; emcc's defaults (64 KB stack, 16 MB initial
         // memory) cannot hold a frame that size. TS applies these in the TEST
@@ -4801,8 +4876,8 @@ run_test :: (
         // they travel as --cflags rather than becoming a compile-wide default
         // for every WASI build.
         if(run_is_wasi, {
-          ccmd.arg(String.from("--cflags"));
-          ccmd.arg(String.from("-sSTACK_SIZE=16777216 -sINITIAL_MEMORY=134217728"));
+          cargv.push(String.from("--cflags"));
+          cargv.push(String.from("-sSTACK_SIZE=16777216 -sINITIAL_MEMORY=134217728"));
         });
         // TS's test runner compiles emcc batches at -O2, everything else at
         // -O0 (test-runner.ts:606, `isEmcc ? "-O2" : "-O0"`). This is
@@ -4813,8 +4888,8 @@ run_test :: (
         // only runs at -O1+. emcc 4 squeaked under; CI's emcc 6 overflowed on
         // tests/sys/path.test.yo ("Stack overflow detected", realpath test).
         if(run_is_wasi || run_is_emcc, {
-          ccmd.arg(String.from("--optimize"));
-          ccmd.arg(String.from("2"));
+          cargv.push(String.from("--optimize"));
+          cargv.push(String.from("2"));
         });
         // Default sanitizer is "address"; YO_TEST_SANITIZE overrides (e.g.
         // "thread" for the TSan CI leg) and --disable-sanitize turns it off.
@@ -4832,11 +4907,34 @@ run_test :: (
         // to hand `-fsanitize=address` to emcc. TS never does, because it
         // resolves the cc first and reads `isEmcc` off the RESULT.
         if((!(no_sanitize)) && ((test_cc != "emcc") && !(run_is_wasi)), {
-          ccmd.arg(String.from("--sanitize"));
-          ccmd.arg(san_choice.clone());
+          cargv.push(String.from("--sanitize"));
+          cargv.push(san_choice.clone());
         });
-        bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
-        if(bst.raw != i32(0), {
+        (batch_failed : bool) = false;
+        if(test_in_process, {
+          g_compile_watch_failed = false;
+          run_compile(cargv, io, exn);
+          batch_failed = g_compile_watch_failed;
+        }, {
+          // DEFAULT: the proven child-process spawn — one fresh evaluator
+          // per batch, no shared state (see the gate note above).
+          ccmd := Command.new(self_exe.clone());
+          (cai : usize) = usize(1);
+          while(cai < cargv.len(), {
+            match(
+              cargv.get(cai),
+              .Some(ca_arg) => {
+                ccmd.arg(ca_arg.clone());
+                ()
+              },
+              .None => ()
+            );
+            cai = (cai + usize(1));
+          });
+          cst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
+          batch_failed = (cst.raw != i32(0));
+        });
+        if(batch_failed, {
           // Say how many tests DID NOT RUN, not just that a compile failed.
           // "batch compile failed" reads like an infrastructure hiccup; the
           // fact that matters is that none of this file's tests in this batch
@@ -4845,7 +4943,7 @@ run_test :: (
           // (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.2).
           exn.throw(
             dyn(
-              `test: ${file} — 0 of ${(batch_end - batch_start).to_string()} tests in this batch ran: the batch failed to compile (exit ${bst.code().unwrap_or(i32(-1)).to_string()}). The generated batch is ${tmp_yo} (keep it with YO_KEEP_BATCH=1).`
+              `test: ${file} — 0 of ${(batch_end - batch_start).to_string()} tests in this batch ran: the batch failed to compile (${if(test_in_process, String.from("in-process"), String.from("exit != 0"))}). The generated batch is ${tmp_yo} (keep it with YO_KEEP_BATCH=1).`
             )
           );
         });
@@ -5030,8 +5128,107 @@ run_test :: (
         bi = (bi + usize(1));
       });
     });
+    // §7 items 3+4: the RSS valve, as a clean GENERATION RESTART. Cross-file
+    // in-process sharing accumulates the whole evaluator universe, and an
+    // in-process mm_reset is NOT a generation boundary — it drops the module
+    // cache but not the spec/type registries, and the next file's fresh
+    // imports then fail to unify with the survivors ("Cannot unify
+    // incompatible struct types … ArrayList(u8)", measured 2026-09-18 — the
+    // split-universe disease of issues/warm-compile-selfcheck.md item 1).
+    // Only a fresh PROCESS is a clean reset (no ModuleManager instance to
+    // re-create), so past YO_TEST_MAX_RSS_MB (default 4096) the runner
+    // RE-EXECS itself with a resume marker and the accumulated counts —
+    // the plan's "counter-triggered self-restart valve". Sharing resumes
+    // from scratch in the child.
+    max_rss_mb_restart := match(
+      proc_env.get(`YO_TEST_MAX_RSS_MB`),
+      .Some(v) => match(
+        v.parse_u64(),
+        .Some(n) => usize(n),
+        .None => usize(4096)
+      ),
+      .None => usize(4096)
+    );
+    rss_at_boundary := _current_rss_mb();
+    // The resume marker is the GLOBAL file index: this process's list was
+    // sliced to [resume_from..] at entry, so `resume_from + fi` names the
+    // next file in the ORIGINAL collection. Passing the LOCAL `fi` alone
+    // restarted every child at the SAME file — an infinite chain of
+    // waiting processes, each holding its own evaluator universe, that
+    // took the whole WSL VM down twice (2026-09-18) before the arithmetic
+    // was measured out. The no-progress guard below is the belt to that
+    // suspenders: a restart that would not advance past the index we
+    // ENTERED with continues in-process instead of looping.
+    next_global := (resume_from + fi);
+    (restart_ok : bool) = ((test_in_process && (rss_at_boundary > usize(0))) && (rss_at_boundary > max_rss_mb_restart));
+    restart_ok = ((restart_ok && (next_global > resume_from)) && (next_global < all_files.len()));
+    if(restart_ok, {
+      eprintln(`test: resident ${rss_at_boundary.to_string()} MB exceeds YO_TEST_MAX_RSS_MB=${max_rss_mb_restart.to_string()} — exec-restarting the runner at file ${next_global.to_string()} of ${all_files.len().to_string()} (the next image re-warms)`);
+      // TRUE execve, not spawn-and-wait: a waiting parent RETAINS its whole
+      // evaluator universe, and a chain of them took 25 GB across three
+      // processes (measured 2026-09-18, the second WSL crash's shape).
+      // Replacing the image releases every byte of it, keeps the SAME pid
+      // (so the caller still watches one process and gets the final exit
+      // code), and inherits the open stdio. execve only ever RETURNS on
+      // failure — fall back to a hard exit so the failure is loud.
+      exec_argv := ArrayList(ArrayList(u8)).new();
+      (xei : usize) = usize(0);
+      while(xei < argv.len(), {
+        match(
+          argv.get(xei),
+          .Some(xa) => exec_argv.push(xa.clone().to_cstr()),
+          .None => ()
+        );
+        xei = (xei + usize(1));
+      });
+      exec_argv.push(String.from("--resume-from").to_cstr());
+      exec_argv.push(next_global.to_string().to_cstr());
+      exec_argv.push(String.from("--accum-passed").to_cstr());
+      exec_argv.push(passed.to_string().to_cstr());
+      exec_argv.push(String.from("--accum-failed").to_cstr());
+      exec_argv.push(failed.to_string().to_cstr());
+      argc := exec_argv.len();
+      argv_bytes := (sizeof(?*u8) * (argc + usize(1)));
+      argv_raw := valve_malloc(argv_bytes).unwrap();
+      exec_argv_buf := (*?*u8)(argv_raw);
+      (xj : usize) = usize(0);
+      while(xj < argc, {
+        match(
+          exec_argv.get(xj),
+          .Some(cs) => match(
+            cs.ptr(),
+            .Some(p) => {
+              (exec_argv_buf.add(xj)).* = .Some(p);
+            },
+            .None => {
+              (exec_argv_buf.add(xj)).* = .None;
+            }
+          ),
+          .None => {
+            (exec_argv_buf.add(xj)).* = .None;
+          }
+        );
+        xj = (xj + usize(1));
+      });
+      (exec_argv_buf.add(argc)).* = .None;
+      prog_slot := (exec_argv_buf.add(usize(0))).*;
+      match(
+        prog_slot,
+        .Some(prog) => {
+          envp_c := (**char)(environ);
+          argv_c := (**char)(exec_argv_buf);
+          prog_c := (*char)(prog);
+          rc := unsafe(execve(prog_c, argv_c, envp_c));
+          eprintln(`test: execve failed rc=${rc.to_string()} — exiting instead`);
+          unsafe(exit(int(1)));
+        },
+        .None => {
+          unsafe(exit(int(1)));
+        }
+      );
+    });
     if(test_profile, {
-      eprintln(`profile: file ${file} ${_fmt_profile_ms(file_t0.elapsed().as_nanos())}`);
+      eprintln(`profile: file ${file} ${_fmt_profile_ms(file_t0.elapsed().as_nanos())} rss=${_current_rss_mb().to_string()}MB`);
     });
   });
   if(test_profile, {

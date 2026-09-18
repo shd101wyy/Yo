@@ -691,6 +691,20 @@ Design:
    after, in this doc; the hollow-batch check (`__yo_user_main` is a real
    body, not a "Failed to transpile" comment) stays mandatory because an
    in-process regression would present exactly as hollow batches.
+   **IN PROGRESS 2026-09-18, GATED (YO_TEST_IN_PROCESS=1; default = child
+   spawn): the machinery is landed and verdict-identical (path 89/89,
+   async_await 20/190 both modes — the WSL2 LSan class), with a TRUE
+   execve RSS valve at file boundaries (YO_TEST_MAX_RSS_MB, default 4096;
+   same pid, image replaced, --resume-from/--accum-* forwarding) — the
+   plan's item-4 valve, whose design ate two laptop crashes to find (46 GB
+   unbounded accumulation; a spawn-and-wait chain holding 25 GB across
+   three parents; see issues/warm-compile-selfcheck.md's step-3 section).
+   The gate's reason: doc_stability's WARM compile dies unifying
+   GenericImplEntry with DocParam (passes standalone;
+   issues/warm-test-batches-doc-stability-genericimplentry.md) — un-gating
+   needs per-batch reachability (owner-tagged registry purges / per-
+   compile emission scoping). Measured before the blocker ended the run:
+   31:35 wall through file ~20 of 92, peak 14.7 GB, 10 restarts.**
 4. **Memory is the constraint Zig does not have.** A self-build's
    evaluator peaks at 11–20 GB (`yo-one-heavy-job-at-a-time`,
    `YO_SELF_ENV_SHARING.md`). A resident process that accumulates
