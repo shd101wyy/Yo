@@ -204,6 +204,40 @@ pragma is the source of truth when present. Mode effects apply only to
 the files being verified — imported files (the standard library, `std/`)
 keep their runtime behavior untouched.
 
+## Strict mode: a gate that cannot go quietly green
+
+A plain `yo verify` run passes when a function reports `assumed` (its
+contracts were declared, its body was never walked) or `outside-subset`
+(it promised nothing and the walk could not enter it). That is right for
+adopting verification gradually, and wrong for a gate: an agent editing
+the code can add `assumed()`, drop an `ensures`, or push a body out of
+the subset, and the run stays green with no signal.
+
+`--strict` turns those outcomes into failures:
+
+```bash
+yo verify ./spec --strict          # = --deny assumed,outside-subset,unproven
+yo verify ./spec --deny assumed    # or name the outcomes yourself
+```
+
+The outcome vocabulary is `ok`, `assumed`, `outside-subset`, `unproven`,
+`refuted`, `solver-error`, `subset-error`; an unknown name in `--deny` is
+a usage error that lists the set. A denied outcome fails in **every**
+mode, so `unproven` under `--strict` fails even in `verify+`, where it
+would otherwise fall back to a runtime assert.
+
+Every run ends with a summary line — counts for all seven outcomes (zeros
+included, so it is greppable), how many of the `ok` results were
+*vacuous* (they discharged no obligation at all), the number of solver
+queries, how many came from the cache, and the wall time:
+
+```
+verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 1 queries, 0 cached, 46 ms
+```
+
+`--format json` carries the same numbers under a `summary` object, plus
+`strict` and the `denied` list.
+
 ## Automatic obligations (AoRTE)
 
 In verify modes the verifier proves things **no contract asked for**, on
@@ -221,8 +255,8 @@ divide_bugged :: (fn(x : i32, y : i32) -> (r : i32))(x / y);
 ```
 
 ```
-refuted  fn@/abs/path.yo:8 [verify]
-    fn@/abs/path.yo:8/divisor-nonzero: REFUTED  counter-example: y = #x00000000
+refuted  fn@src/math.yo:8 [verify]
+    fn@src/math.yo:8/divisor-nonzero: REFUTED  counter-example: y = #x00000000
 ```
 
 ## The verifiable subset (current state)

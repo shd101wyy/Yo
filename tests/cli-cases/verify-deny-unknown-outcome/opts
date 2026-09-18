@@ -1,0 +1,13 @@
+# B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): `--deny` names
+# the outcomes that fail a run, and an unknown name must be a usage error that
+# LISTS the vocabulary rather than being silently ignored — a typo'd deny list
+# that quietly denies nothing is exactly the "green because nothing was
+# checked" failure the flag exists to prevent.
+#
+# This case is deliberately solver-free: the deny list is validated while the
+# option loop runs, before any file is loaded or Z3 resolved, so it asserts a
+# real CLI contract on a machine with no solver. The rc behavior of `--strict`
+# itself needs obligations and therefore a solver, so it is gated in CI's
+# `verify` job (which installs the pinned Z3) and by the hermetic unit tests in
+# tests/internal/verifier.test.yo.
+stdout_keep_match=--deny does not know the outcome .*

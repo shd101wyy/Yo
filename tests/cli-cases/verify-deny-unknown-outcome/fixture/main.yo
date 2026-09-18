@@ -1,0 +1,9 @@
+// A verify-mode file for the `--deny` usage check. The run never reaches the
+// solver: `--deny` validates its outcome names while parsing the option list,
+// so this case asserts the CLI contract with no Z3 on the machine.
+pragma(Pragma.Verify);
+
+abs_value :: (fn(x : i32, ensures(r >= i32(0))) -> (r : i32))(
+  cond(x >= i32(0) => x, true => -(x))
+);
+export(abs_value);

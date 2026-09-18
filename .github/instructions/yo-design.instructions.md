@@ -144,6 +144,26 @@ AF_INET6 :: cond(
 
 Current goal: make Yo work on Linux, macOS, and Windows.
 
+## Verification: a green `yo verify` is not "everything proved"
+
+`assumed` (contracts declared, body never walked) and `outside-subset` (the
+function promised nothing and the walk could not enter it) PASS a plain
+`yo verify` run. That is deliberate — it is what makes gradual adoption and
+the `std/collections` dogfooding possible — but it means the run's exit code
+alone says nothing about coverage. Two consequences when you write or review
+verification work:
+
+- Gate a specification directory with `yo verify <path> --strict`
+  (= `--deny assumed,outside-subset,unproven`), which makes those outcomes
+  hard failures in every mode, including `verify+`. Adding `assumed()` to
+  silence a finding is then a visible change, not an invisible one.
+- Read the summary line, not just the exit code: it prints all seven outcome
+  counts and how many `ok` results were VACUOUS — an `ok` that discharged no
+  obligation proved nothing at all. `--format json` carries the same under
+  `summary`. The self-verification campaign
+  (`plans/SELF_VERIFICATION.md`) ratchets on the non-vacuous count for
+  exactly this reason.
+
 ## API stability: the language may still break, `std` may not
 
 Yo the LANGUAGE is still evolving — language-level breaking changes are acceptable when the design calls for them. The STANDARD LIBRARY closed its breaking window with the S2 sweep (`plans/archive/STD_API_AUDIT.md` §1, §5–§6): every `std` module is **stable** unless its module doc carries a `## Stability` section, and stable modules change **additively only**:
