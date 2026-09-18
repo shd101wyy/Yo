@@ -259,12 +259,17 @@ explain_golden_tree_diff() {
 # LINES, stdout_keep_match keeps only the matched SUBSTRINGS (grep -oE).
 apply_stdout_filters() {
   local f="$1"
+  # `-e` is required, not stylistic: a pattern that begins with a dash — which
+  # any case asserting a CLI FLAG in a diagnostic must use, e.g.
+  # `--deny does not know the outcome` — is otherwise parsed by grep as an
+  # option, the match silently yields nothing, and the case scores
+  # "matched nothing — vacuous" instead of failing for the real reason.
   if [[ -n "$stdout_keep" ]]; then
-    grep -E "$stdout_keep" "$f" > "$f.kept" || true
+    grep -E -e "$stdout_keep" "$f" > "$f.kept" || true
     mv "$f.kept" "$f"
   fi
   if [[ -n "$stdout_keep_match" ]]; then
-    grep -oE "$stdout_keep_match" "$f" > "$f.kept" || true
+    grep -oE -e "$stdout_keep_match" "$f" > "$f.kept" || true
     mv "$f.kept" "$f"
   fi
 }

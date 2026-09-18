@@ -567,13 +567,27 @@ jobs:
 
       # B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): `--strict`
       # makes `assumed`, `outside-subset` and `unproven` hard failures, so a
-      # run cannot go green because every contract was `assumed()` away. The
-      # straight-line battery proves everything it declares, so it must pass
-      # STRICT — that is what keeps the flag honest. The std/collections step
-      # above stays non-strict on purpose: dogfooding uses `assumed()`.
-      - name: yo verify --strict (the laws gate, on a battery that proves everything)
-        run: |
-          yo verify ./tests/spec/verify_straight_line.test.yo --strict
+      # run cannot go green because every contract was `assumed()` away.
+      #
+      # THE CLI STEP IS SEED-GATED AND DELIBERATELY ABSENT. Every step in this
+      # job runs the SEED compiler (there is no `yo build` here), and a seed
+      # that predates B0 rejects the flag outright — `unknown option
+      # '--strict'`, rc 1 — so the step would fail for a reason that has
+      # nothing to do with the tree under test. What DOES gate the behavior
+      # meanwhile is `tests/internal/verifier.test.yo`, run by the step above:
+      # the seed COMPILES the PR's own `src/verifier/driver.yo`, so the four
+      # strict/deny unit tests exercise this PR's pass-fail rule, not the
+      # seed's. Only the option plumbing is unproven in CI until the seed
+      # carries it. Add this step when SEED_VERSION reaches a release with
+      # `--strict` (plans/backlog/SEED_VERSION_AUTOMATION.md):
+      #
+      #   - name: yo verify --strict (the laws gate)
+      #     run: yo verify ./tests/spec/verify_straight_line.test.yo --strict
+      #
+      # Verified locally on a tree-built binary: 7 ok, 0 vacuous, rc 0 — the
+      # battery proves everything it declares, which is what makes it a valid
+      # strict gate. The std/collections step above stays non-strict on
+      # purpose: dogfooding uses `assumed()`.
 
       - name: Upload the verify report
         if: always()
