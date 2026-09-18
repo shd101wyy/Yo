@@ -276,3 +276,38 @@ cmp-identical C with zero FTT — the 47-stub experiment re-run, and it must
 be zero, not fewer". The harness makes that a one-command, fixture-table
 oracle instead of a bespoke experiment, and the ratchet lets each fixed
 failure mode become an enforced expectation in the same PR that fixes it.
+
+## §7 STEP 3 (2026-09-18): `yo test` batches compile in-process — GATED behind YO_TEST_IN_PROCESS=1
+
+The batch loop runs on the §7 step 1/2 machinery when `YO_TEST_IN_PROCESS=1`
+(default: the proven child-process spawn — identical verdicts measured both
+modes: path 89/89, async_await 20/190 both, the 190 being the WSL2
+LeakSanitizer class). The runner's prologue creates mm's shared
+ExprInfoTable; batches compile via run_compile with --compile-watch-mode.
+
+**The memory story (two laptop crashes, both postmortemed in code
+comments):** cross-file sharing ACCUMULATES the evaluator universe — 46 GB
+on file 3 of 92 unbounded (crash 1). The valve's first cut (mm_reset at a
+file boundary) SPLITS the universe — module cache dropped, spec/type
+registries surviving — and resurrected failure-modes item 1; its second cut
+(spawn-and-wait restart) left every waiting parent HOLDING its universe (25
+GB across three processes, crash 2) and an index bug made the chain
+infinite. The LANDED shape is a TRUE execve restart at a file boundary:
+same pid, image replaced (every byte of the old universe released), the
+caller still gets the final exit code, and the child resumes from
+`--resume-from N` with `--accum-passed/-failed` forwarding (a no-progress
+guard refuses restarts that would not advance). Proven: 3 tiny files with a
+1 MB threshold — exactly 2 exec restarts, 6/6 forwarded, single process
+throughout.
+
+Measured on the full `tests/internal` (before the blocker below ended the
+run at file ~20): 31:35 wall, peak 14.7 GB (the worst single file's working
+set — bounded), 10 exec restarts, single process at a time.
+
+**THE GATE'S REASON (open):** doc_stability's warm batch compile dies at
+impl.yo:1376 — "Cannot unify incompatible struct types: GenericImplEntry and
+DocParam" — while passing STANDALONE. Cross-file eval/collect against the
+accumulated universe; the test-runner twin of #756's build-side FTT cascade.
+Tracked in issues/warm-test-batches-doc-stability-genericimplentry.md;
+un-gating needs per-batch reachability (owner-tagged registry purges /
+per-compile emission scoping) — the §7 item-1 residue.
