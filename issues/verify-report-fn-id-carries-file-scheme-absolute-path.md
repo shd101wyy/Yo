@@ -1,7 +1,7 @@
 # `yo verify` reports demand-loaded functions as `fn@file:///<absolute path>/...`
 
 **Status:** OPEN. **Found:** 2026-09-18, running `yo verify ./src --format json`
-for `plans/backlog/SELF_VERIFICATION.md`'s baseline.
+for `plans/SELF_VERIFICATION.md`'s baseline.
 **Severity:** report ids are machine-specific; goldens, ratchets and any
 per-fn cache keyed on the id cannot be shared across checkouts.
 

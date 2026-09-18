@@ -1,7 +1,7 @@
 # `yo verify` reports `ok` for a function that generated zero obligations
 
 **Status:** OPEN. **Found:** 2026-09-18, running `yo verify ./src --format json`
-for `plans/backlog/SELF_VERIFICATION.md`'s baseline.
+for `plans/SELF_VERIFICATION.md`'s baseline.
 **Severity:** a vacuous pass reads exactly like a proof; counts of "verified
 functions" overstate coverage.
 
@@ -15,7 +15,7 @@ functions that discharged real obligations.
 
 ## Why it matters
 
-The self-verification sweep (`SELF_VERIFICATION.md` S0) ratchets on the number
+The self-verification sweep (`plans/SELF_VERIFICATION.md` M0) ratchets on the number
 of verified functions; the Bend-lessons plan's `--strict` gate (B0) decides
 pass/fail per outcome. Both need to tell "proved" from "nothing to prove".
 This is the verifier-side twin of the hollow-green test pitfall (a batch that
