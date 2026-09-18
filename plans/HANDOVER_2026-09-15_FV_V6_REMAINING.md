@@ -586,8 +586,23 @@ resolution edits the file again (cost one tier-1 cycle).
 
 **Open:**
 - V7 productization (LSP contract hover, --stats, docs completion,
-  release notes) and the task-3 literal-construction CTFE folding
-  follow-up — the last FORMAL_VERIFICATION.md frontiers.
+  release notes) — the last FORMAL_VERIFICATION.md frontier. NOTE for
+  --stats: the SELF_VERIFICATION B0 milestone already ships cache
+  telemetry (queries, cache hits, wall time) in the run summary + the
+  JSON summary object — V7 must STABILIZE that shape, not build a
+  parallel one; V7's JSON-stabilize and docs-rewrite tasks touch
+  B0-edited files as ordinary text merges.
+- **DONE 2026-09-18: the task-3 literal-construction CTFE folding —
+  PR #770** (feat/fv-ctfe-fold): `_fold_term`/`_fold_*` fold obligation
+  terms bottom-up in `_emit`; a literal-argument refine#N records
+  `VcObligation.pre` (PreProved/PreRefuted) and the driver honors it,
+  skipping the solver. Conservative: div/rem (zero divisor IS the AoRTE
+  obligation), shifts >= width stay symbolic; sign-bit rule for signed
+  compares; `a + (~b + 1)` forms because a literal `u64(0) - u64(1)`
+  trips E1102 even in runtime code. Solver-free proof:
+  verifier_refine's no-solver test passes a NONEXISTENT solver binary
+  and the refine_literal fixture still proves 5 != 0 / refutes 0 != 0.
+  Serialized battery 10/10 files green. WITH THIS, V6 IS COMPLETE.
 - The handover §7 itself lands on develop via THIS branch (docs-only;
   opened as a PR only after #753's post-merge battery completes, per
   the docs-freeze rule).
@@ -604,6 +619,8 @@ resolution edits the file again (cost one tier-1 cycle).
   verifier_spec_refine 3/3 (11-report inventory, 2/2 refutations,
   runtime smoke).
 
-**Remaining after those:** V7 productization (LSP contract hover,
---stats, release notes); the trait-impl clause corruption issue; the
-refine literal-construction CTFE folding follow-up.
+**Remaining after those:** V7 productization only (LSP contract hover,
+--stats stabilizing B0's telemetry shape, release notes); the
+trait-impl clause corruption issue was FIXED in #753 (issue moved to
+issues/fixed/) and the refine literal-construction CTFE folding landed
+as #770 — the campaign's remaining work is V7.
