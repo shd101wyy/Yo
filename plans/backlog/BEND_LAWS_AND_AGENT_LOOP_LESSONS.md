@@ -86,7 +86,7 @@ Same property class, both repos, 2026-09-18:
 | --- | --- | --- |
 | Property proved | the leaves' **sum** is preserved by `mix` and `sort` (not sortedness, not permutation) | **sortedness of the result AND multiset permutation** vs `old(s)` |
 | Spec text | 2 laws, ~20 lines (`LAWS.bend`) | 2 `ensures` predicates, 4 lines |
-| Proof text | `PROOF.bend`: ~100 lines — 7 hand-written lemmas (`add_zero`, `add_succ`, `add_comm`, `add_swap`, `add_regroup`, `mix_leaf`, `sum_flow`) chained with explicit rewrites | ~40 lines of loop invariants; Z3 does the per-iteration induction |
+| Proof text | `PROOF.bend`: 102 lines — 7 hand-written lemmas (`add_zero`, `add_succ`, `add_comm`, `add_swap`, `add_regroup`, `mix_leaf`, `sum_flow`) chained with explicit rewrites | ~40 lines of loop invariants; Z3 does the per-iteration induction |
 | Who does the induction | the author (each recursive call is an IH the author must place) | the solver, over the loop's havoc/invariant rule (V4) |
 
 Two readings, both true. Per-function functional specs over arrays and
@@ -188,22 +188,49 @@ Two builtins, one mechanism:
   shape (`evaluate_ghost` already runs the argument in ghost context).
   Dafny's `lemma` with no new syntax.
 
-  ```rust
-  // LEMMA: a step from a safe cell lands on a safe cell.
-  step_safe :: ghost_fn((fn(
-    g : Game, m : Move,
-    requires(safe(g)),
-    ensures(safe(step(g, m))),
-  ) -> unit)(()));
+  The piece that makes lemmas *useful* — and that the verifier lacks today —
+  is **definitional unfolding of recursive spec functions**. A recursive
+  `ghost_fn` cannot be inlined (the inlining stack rejects a spec function
+  that reaches itself), and the verifier never opens a callee's body, so a
+  claim like `sum_from(a, i) >= 0` has nothing to reason from. Dafny's
+  answer, adopted here: a contracted `ghost_fn` gets an SMT **function
+  symbol** (`declare-fun`, the shape `__yo_msof_<elem>` already uses in
+  `src/verifier/encode.yo` ~L117) and, at every call, the walk asserts the
+  **definitional axiom instance** `f(args) == body[args]` with **fuel 1**:
+  the body's own inner `f(...)` calls stay opaque applications of the
+  symbol. One level of unfolding plus the induction hypothesis is exactly
+  what a structural proof step needs; the fuel bound keeps the encoding
+  finite and the budget deterministic.
 
-  // LAW: no move sequence wins (fixed-length move arrays; N is comptime).
+  ```rust
+  // A recursive SPEC function over a fixed array (comptime N).
+  sum_from :: ghost_fn((fn(a : Array(i64, 8), i : i64, decreases(i64(8) - i)) -> (s : i64))(
+    cond((i >= i64(8)) => i64(0), true => (a(i) + sum_from(a, i + i64(1))))
+  ));
+
+  // LEMMA: a non-negative array has non-negative suffix sums — by induction on i.
+  sum_from_nonneg :: ghost_fn((fn(
+    a : Array(i64, 8), i : i64,
+    requires(forall(p : i64, ((p >= i64(0)) && (p < i64(8))) ==> (a(p) >= i64(0)))),
+    ensures(sum_from(a, i) >= i64(0)),
+    decreases(i64(8) - i),
+  ) -> unit)(cond((i >= i64(8)) => (), true => ghost(sum_from_nonneg(a, i + i64(1))))));
+  ```
+
+  Bend's flagship *"you can't win"* law needs **no lemma** in Yo — that is
+  the point of the SMT bet: `step` is a runtime fn with `requires(safe(g))`
+  / `ensures(safe(r))` proved inside its own body, `replay` is a loop with
+  `invariant(safe(g))` proved from `step`'s contract, `safe`/`won` are
+  plain (inlined) ghost fns, and the law
+
+  ```rust
   never_wins :: law(fn(moves : Array(Move, 64), ensures(!(won(replay(start(), moves))))) -> unit);
   ```
 
-  `replay` is an ordinary loop with `invariant(safe(g))` calling
-  `ghost(step_safe(g, moves(i)))` per iteration; `won(g) ==> !safe(g)` is a
-  second lemma. That is Bend's flagship demo in Yo's idiom, with Z3 closing
-  every step.
+  closes from `replay`'s `ensures` plus the inlined definitions. It is a B1
+  fixture. Lemmas are for the properties Bend's `pure_par_sort` proof is
+  made of — facts about *recursive spec functions* (`sum`, `count`,
+  `sorted_from`) that no runtime contract states.
 
 ### A3 — The agent loop as a shipped surface
 
@@ -376,6 +403,11 @@ existing contracted `insertion_sort` shape — prove sortedness from its
 counter-example), `negative/law_uncontracted_callee.yo` (subset error + the
 hint), `negative/law_no_ensures.yo`, `negative/law_nonunit.yo`; a runtime-mode
 twin proving erasure (`--emit-c` contains no trace of the law);
+`valid/law_game_never_wins.yo` (Bend's flagship demo in Yo's idiom — see
+§A2: contracted `step`, `replay` with `invariant(safe(g))`, inlined ghost
+`safe`/`won`, no lemma) with `negative/law_game_wraps.yo` (the torus wrap
+that let the player reach the flag — refutes with a move sequence as the
+counter-example);
 `tests/internal/verifier_law.test.yo` driving them (the
 `verifier_refine.test.yo` shape: subprocess `yo verify`, assert outcome
 strings and counter-example text).
@@ -388,65 +420,80 @@ law proves); cheatsheet + docs updated.
 
 ### B2 — Lemmas: contracted `ghost_fn`s verified by induction
 
-**Scope.** Dispatch change in the call rule, task registration for ghost
-fns, the `ghost(call)` statement in the walk, and the Bend-flagship fixture.
+**Scope.** Dispatch change in the call rule, SMT function symbols +
+definitional unfolding (fuel 1) for contracted spec functions, task
+registration for ghost fns, the `ghost(call)` statement in the walk.
 
 Tasks:
 
 1. **Probe first** (30 min, `tmp/fixme.yo`): does a `ghost_fn` whose
    signature carries `ensures` already register a `VerifyTask` under
-   `Pragma.Verify`? (The fn-type evaluator registers tasks at ~L1548 for
-   any fn with a runtime param; `evaluate_ghost_fn` wraps a normal fn value,
-   so it plausibly does.) Record the answer in this section's banner; it
-   decides whether task 3 is "confirm" or "add".
+   `Pragma.Verify`? (The fn-type evaluator registers tasks at ~L1548 of
+   `contracts.yo` for contracted fns; `evaluate_ghost_fn` wraps a normal fn
+   value, so it plausibly does.) Record the answer in this section's
+   banner; it decides whether task 4 is "confirm" or "add".
 2. `src/verifier/vc.yo` call rule (~L3778): **before** the
-   `is_ghost_fn ⇒ inline` branch, check
-   `get_func_ensures_exprs(fid).len() > 0 || get_func_requires_exprs(fid).len() > 0`
-   → fall through to the contracted-callee path (prove `requires`, assume
-   `ensures`, self/clique recursion needs `decreases` exactly as for
-   runtime fns). Uncontracted ghost fns keep inlining. The inlining-stack
-   error message stays for the uncontracted recursive case, with the added
-   hint "give the spec function `ensures(...)` + `decreases(...)` to prove
-   it by induction".
-3. Ghost-fn verify tasks: ensure a contracted `ghost_fn` is a task
-   (`fn_id` prefix `ghost@` for the report) and that its body is walked with
-   its own `ensures` as obligations. The return label binds as for any fn
-   (`-> (r : bool)` is the common lemma shape; `-> unit` for pure facts).
-4. `ghost(<call>)` as a statement in a verified body: `evaluate_ghost`
+   `is_ghost_fn ⇒ inline` branch, check whether the callee carries any
+   contract (`get_func_requires_exprs` / `get_func_ensures_exprs` /
+   `get_func_decreases_expr` non-empty) → fall through to the
+   contracted-callee path (prove `requires`, assume `ensures`; self/clique
+   recursion needs `decreases` exactly as for runtime fns). Uncontracted
+   ghost fns keep inlining. The inlining-stack error keeps its message for
+   the uncontracted recursive case, plus the hint "give the spec function
+   `ensures(...)` + `decreases(...)` to prove it by induction".
+3. **Function symbols + unfolding.** A contracted `ghost_fn` with a
+   non-`unit` return gets one `declare-fun __yo_gf_<func_id>` over its
+   parameter sorts (register in the query's declaration set the way
+   `__yo_msof_<elem>` is, `encode.yo` ~L117–L124; `VcTerm` needs an
+   application node — reuse the msof application shape or add
+   `VcTerm.App(name, args)`). At each call: the call's value term is the
+   application; the walk asserts (a) the callee's `ensures` with the label
+   bound to the application, and (b) **the definitional instance**
+   `app == body[params := args]` walked with **fuel 1**: inside that one
+   body walk, a further call to the same symbol is the bare application
+   (no second unfolding), and `requires` of the callee is proved at the
+   outer call only. Record the fuel constant next to the rlimit default;
+   it is part of the cache key.
+4. Ghost-fn verify tasks: a contracted `ghost_fn` is a task (`fn_id`
+   prefix `ghost@` for the report) whose body is walked with its own
+   `ensures` as obligations; the return label binds as for any fn. The
+   `-> unit` lemma shape (pure facts, body made of `ghost(...)` calls and
+   `cond` splits) needs no function symbol.
+5. `ghost(<call>)` as a statement in a verified body: `evaluate_ghost`
    already runs the argument in ghost context; the walk's `ghost` branch
    (~L2550 handles only `ghost(x := e)`) gains the call shape: prove the
-   callee's `requires`, assume its `ensures` under the current path,
-   produce `unit`. Codegen already erases `ghost(...)` (V5 ledger entry 2)
-   — confirm with `--emit-c` on the fixture.
-5. Lemma *instantiation* from a `law`: a law's synthesized body may contain
-   `ghost(lemma(args))` statements before its asserts — i.e. `law(fn(...,
-   ensures(...)) -> unit)` stays body-less, but a law may name lemmas in a
-   `requires`-like zone? **Decision for the implementer:** keep laws
-   body-less and let lemma facts enter through the callee's `ensures`
-   (call `lemma(args)` inside the law's predicate where a `bool` is needed,
-   or make the lemma's `ensures` universally quantified so the law's
-   predicate can use it directly). Do not add a body to `law`. If a real
-   fixture cannot be expressed this way, write the case down in Open
-   Questions rather than growing the surface.
-6. Docs: "Lemmas" subsection after "Laws" in both languages; cheatsheet.
+   callee's `requires`, assume its `ensures` (and its definitional
+   instance, task 3) under the current path, produce `unit`. Codegen
+   already erases `ghost(...)` (V5 ledger entry 2) — confirm with
+   `--emit-c` on the fixture.
+6. Laws stay body-less. A law that needs a lemma's fact states it through
+   the lemma's `ensures` (call the lemma where a `bool` is needed, or give
+   the lemma a universally quantified `ensures` the law's predicate can
+   use). If a real fixture cannot be written this way, record it under
+   Open Questions rather than adding a body to `law`.
+7. Docs: "Lemmas" subsection after "Laws" in both languages; cheatsheet;
+   the subset table row "recursive spec functions" moves from *out* to
+   *fuel-1 unfolding*.
 
-Tests: `valid/lemma_add_comm.yo` (Bend's `add_comm` over a recursive ghost
-fn on a bounded `i64` with `decreases`; proves with the IH), `valid/
-lemma_step_safe_game.yo` (the "you can't win" shape: `Game` struct, `Move`
-enum, `step`, `replay` over `Array(Move, 64)` with `invariant(safe(g))` and
-`ghost(step_safe(g, moves(i)))`, the law `never_wins`), `negative/
-lemma_false.yo` (a wrong lemma refutes at the lemma, and the law that used
-it is *not* reported proved — pins that the lemma is an obligation, not an
-axiom), `negative/lemma_no_decreases.yo` (recursive contracted ghost fn
-without `decreases` is a subset error with the hint);
+Tests: `valid/lemma_sum_from_nonneg.yo` (the §A2 pair: recursive spec
+`sum_from` + the inductive lemma; proves with the IH and one unfolding),
+`valid/lemma_used_by_law.yo` (a law whose proof needs the lemma's
+`ensures`), `negative/lemma_false.yo` (drop the `requires` → the lemma
+refutes with a concrete array, and the law that used it is *not* reported
+proved — pins that a lemma is an obligation, not an axiom),
+`negative/lemma_no_decreases.yo` (recursive contracted ghost fn without
+`decreases` is a subset error with the hint), `negative/lemma_fuel.yo` (a
+fact that needs two unfoldings is `unproven`, not `refuted` — pins the fuel
+bound and its message "needs a lemma for the inner step");
 `tests/internal/verifier_lemma.test.yo`.
 
-**Exit:** the game fixture proves end-to-end with `yo verify --strict`;
-`lemma_false.yo` refutes; the `PROOF.bend` sum-preservation demo re-expressed
-as `ensures(sum(sort(t)) == sum(t))` proves through lemmas without opening
-`sort`'s body.
+**Exit:** the five fixtures behave as named under `yo verify --strict`;
+Bend's `sum_flow`-style fact (`sum` of a spec `mix`/`flow` over a fixed tree
+is preserved) is expressible as a lemma over recursive ghost fns and proves
+through one unfolding + the IH, without opening any runtime body.
 
-**Estimate:** 2 weeks. Seed gate applies to `std/`/`src/` use only.
+**Estimate:** 2–3 weeks (task 3 is the substance). Seed gate applies to
+`std/`/`src/` use only.
 
 ### B3 — `yo guide`, `yo std`, and the `AGENTS.md` recipe
 
@@ -586,14 +633,14 @@ banner; B3–B6 report their outcome in this file's header.
 
 ## Open questions
 
-1. **Laws over recursive datatypes.** B2's game fixture uses a fixed-length
+1. **Laws over recursive datatypes.** B1's game fixture uses a fixed-length
    `Array(Move, N)`; Bend's ranges over `List<Move>`. A law over an
    `ArrayList(Move)` needs either the ghost `Seq(T)` view of a runtime
    collection (V5 task 5 gives `Seq` but no `seq_of(list)` bridge) or
    `object`/heap support (plan Open Question 1). Decide in B2 whether
    `seq_of(ArrayList)` is a small V5-style builtin or waits for the heap
    model.
-2. **Lemma instantiation in laws** (B2 task 5): body-less laws vs. a
+2. **Lemma instantiation in laws** (B2 task 6): body-less laws vs. a
    `using(lemma(args), ...)` zone. Default is body-less; revisit only with a
    fixture that cannot be written.
 3. **Human ownership of `spec/`.** CODEOWNERS is a GitHub convention, not a

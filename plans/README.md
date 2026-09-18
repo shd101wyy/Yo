@@ -185,7 +185,14 @@ generalize) and
 (PROPOSED 2026-09-18: what Yo takes from Bend 2 — `law(...)` claims outside
 the code, lemmas as contracted `ghost_fn`s proved by induction, a
 `yo verify --strict` gate that fails on `assumed()`, `yo guide`/`yo std`, an
-evals corpus — with implementation phases B0–B6 another agent can pick up). Three landed 2026-09-11
+evals corpus — with implementation phases B0–B6 another agent can pick up),
+and [`backlog/SELF_VERIFICATION.md`](backlog/SELF_VERIFICATION.md)
+(PROPOSED 2026-09-18: can the compiler be verified by itself? Measured
+baseline `yo verify ./src`: 4,049 fns, 57 `ok`, 2 with any obligation, 90%
+blocked at the parameter-type gate; semantic preservation is a non-goal, the
+plan is S0 measure/ratchet → S1 subset growth driven by the compiler's own
+blockers → S2 the semantic kernel (comptime arithmetic vs the bitvector model,
+struct layout) → S3 a verification fixpoint → S4 pipeline invariants). Three landed 2026-09-11
 alongside `reference/ASYNC_ITERATION_STREAM.md`, each parking a piece of it
 with the blocker measured:
 [`backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`](backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md)
