@@ -672,11 +672,22 @@ collect_check_files :: (
 /// `verify+` strip pass. Prints one line per function report; the
 /// failure policy per the plan's verdict table: REFUTED is always a
 /// failure; unproven/solver-error/subset fail in `verify` mode and
-/// degrade to warnings in `verify+` (the runtime asserts stay). A
-/// missing solver is a FAILURE, not a skip: verify-mode codegen carries
-/// NO runtime asserts (the splice was suppressed), so shipping without
-/// the proofs would be unsound.
-_run_contract_verification :: (fn(io : Io, exn : Exception) -> bool)({
+/// degrade to warnings in `verify+` (the runtime asserts stay).
+///
+/// `strict_missing_solver` splits the two callers: `compile` ships
+/// binaries and verify-mode codegen carries NO runtime asserts (the
+/// splice was suppressed), so compiling without the proofs would be
+/// unsound — a missing solver FAILS the build. `check` ships nothing
+/// and measures evaluator coverage: a verify-mode file whose proofs
+/// cannot run because the environment has no solver passes with the
+/// loud install hint, and the dedicated `yo verify` CI job (which
+/// always has the pinned Z3) owns the proofs
+/// (issues/std-sweep-fails-after-collections-annotations.md: the
+/// annotated std/collections made every tier-1 `check ./std` red in
+/// solver-less environments).
+_run_contract_verification :: (
+  fn(io : Io, exn : Exception, strict_missing_solver : bool) -> bool
+)({
   tasks := take_verify_tasks();
   if((tasks.len() == usize(0)), {
     return(true);
@@ -687,13 +698,19 @@ _run_contract_verification :: (fn(io : Io, exn : Exception) -> bool)({
     .Resolved(p) => p,
     .InvalidPath(p) => {
       eprintln(`verify: solver path '${p}' does not exist`);
-      return(false);
+      if(strict_missing_solver, {
+        return(false);
+      });
+      return(true);
     },
     .Installable => {
       eprintln(
         `verify: no Z3 solver found — this file's verify-mode contracts need proofs (their runtime asserts are suppressed). Run 'yo verify <file>' once to auto-install the pinned Z3, or point YO_Z3_PATH at one.`
       );
-      return(false);
+      if(strict_missing_solver, {
+        return(false);
+      });
+      return(true);
     }
   );
   reports := verify_and_strip_tasks(cfg, binary, tasks);
@@ -751,7 +768,9 @@ check_single_file :: (
     );
     return(false);
   });
-  _run_contract_verification(io, exn)
+  // check measures evaluator coverage — solver-less environments pass the
+  // verify-mode files with the loud hint (see the header comment).
+  _run_contract_verification(io, exn, false)
 });
 /// The argv entry following index `i` (the value of a `--flag value` pair), or
 /// "" if `i` is the last argument. Used by the `compile` flag parser.
@@ -3401,7 +3420,7 @@ run_compile :: (
     // rewrites function bodies in place); a failure exits 1 — the
     // per-function lines are already printed by the helper.
     prof_verify_t0 := Instant.now();
-    if(!(_run_contract_verification(io, exn)), {
+    if(!(_run_contract_verification(io, exn, true)), {
       _compile_fail(watch_mode, int(1));
       return(());
     });
