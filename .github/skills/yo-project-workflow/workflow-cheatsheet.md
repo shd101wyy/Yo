@@ -110,6 +110,23 @@ yo test ./tests/main.test.yo --bail --verbose --parallel 1
 - Use `--test-batch-size N` if a large `.test.yo` file generates C that compiles slowly or looks stuck
 - Use `yo build test` when the repository's main test workflow is defined in `build.yo`
 
+## Verification patterns (formal proofs)
+
+```bash
+yo verify ./src                     # prove every verify-mode function
+yo verify ./src --explain my_fn     # one function's VC set (goals as SMT-LIB)
+yo verify ./src --format json       # machine-readable: summary + obligations
+yo verify ./src --strict            # gate: assumed/outside-subset/unproven fail
+```
+
+- `refuted` obligations carry `model:` bindings — the counter-example inputs
+- The summary counts `queries`/`cached`/`folded` (folded = discharged by
+  constant folding, no solver) and wall time
+- The solver (pinned Z3) resolves automatically; verdicts cache per obligation
+- Contracts (`requires`/`ensures`/`decreases`/`refine`/`assumed`) and modes
+  (`pragma(Pragma.Verify);` …) are documented in
+  `docs/en-US/FORMAL_VERIFICATION.md`
+
 ## Formatting
 
 ```bash
