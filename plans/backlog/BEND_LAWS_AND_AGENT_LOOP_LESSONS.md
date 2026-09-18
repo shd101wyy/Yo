@@ -328,9 +328,10 @@ Tasks:
    of the hard-coded `ok || assumed || outside-subset`. Keep the default
    behavior byte-identical.
 3. Text summary: after the per-fn report, one line
-   `verify: N ok, A assumed, O outside-subset, U unproven, R refuted` (zero
-   counts included — stable for greps). JSON (`--format json`): a top-level
-   `summary` object with the same counts and a `strict : bool` field. Update
+   `verify: N ok, A assumed, O outside-subset, U unproven, R refuted — Q queries, T ms`
+   (zero counts included — stable for greps; D4). JSON (`--format json`): a
+   top-level `summary` object with the same counts, `queries`, `elapsed_ms`
+   and a `strict : bool` field. Update
    the `--help` text (`src/main.yo` ~L6768) and `cli_lang.yo` strings.
 4. `.github/workflows/test.yml` `verify` job (~L455): keep the
    `std/collections` step non-strict (dogfooding uses `assumed()`), add a
@@ -513,7 +514,9 @@ Tasks:
    comments only, no bodies. Reuse `src/doc_command.yo`'s `format ==
    "markdown"` path; add a name filter.
 3. `src/init.yo` `AGENTS.md` template (~L186): add the four-line recipe
-   under the build commands — `yo guide` to learn the language, keep laws in
+   under the build commands, and scaffold `spec/README.md` (D3: the
+   claims/proofs wall in two paragraphs plus the CODEOWNERS line to add)
+   — `yo guide` to learn the language, keep laws in
    `spec/`, `yo verify --strict ./spec` before committing, `yo check` after
    every edit. Re-record the `init-*` and `skills-install*` cli-case goldens
    (the `AGENTS.md` hash is in `expected_tree`; skills edits re-record
@@ -631,27 +634,14 @@ When B0–B2 land, fold them into `FORMAL_VERIFICATION.md` as a phase (V8
 "Laws and lemmas") and move this document to `plans/reference/` with a
 banner; B3–B6 report their outcome in this file's header.
 
-## Open questions
+## Decisions (2026-09-18 — the maintainer asked for the recommended call on each open question)
 
-1. **Laws over recursive datatypes.** B1's game fixture uses a fixed-length
-   `Array(Move, N)`; Bend's ranges over `List<Move>`. A law over an
-   `ArrayList(Move)` needs either the ghost `Seq(T)` view of a runtime
-   collection (V5 task 5 gives `Seq` but no `seq_of(list)` bridge) or
-   `object`/heap support (plan Open Question 1). Decide in B2 whether
-   `seq_of(ArrayList)` is a small V5-style builtin or waits for the heap
-   model.
-2. **Lemma instantiation in laws** (B2 task 6): body-less laws vs. a
-   `using(lemma(args), ...)` zone. Default is body-less; revisit only with a
-   fixture that cannot be written.
-3. **Human ownership of `spec/`.** CODEOWNERS is a GitHub convention, not a
-   compiler one. Should `yo verify --strict` refuse a `spec/` file that
-   contains a non-law definition (so the wall is structural), or is that
-   the project's business? Default: the project's business; document the
-   convention only.
-4. **Checker speed as a product number.** Bend leads with "checks in under a
-   second". `yo verify` spawns one Z3 per query with a cache; nobody has
-   measured a warm `yo verify ./std/collections`. B0 should print wall time
-   in the summary so there is a number to improve.
+| # | Question | Decision | Consequence in the plan |
+| --- | --- | --- | --- |
+| D1 | Laws over recursive datatypes (`ArrayList(Move)` instead of a fixed `Array(Move, N)`) | **No separate `seq_of` builtin.** `SELF_VERIFICATION.md` lever L4 models an `ArrayList(T)` value as `(Seq T)` through the std contracts, so a law quantifying over an `ArrayList` gets its `Seq` view for free once L4 lands | B1 ships the fixed-length game fixture; a second fixture over `ArrayList(Move)` is added by L4's PR, not by B1 |
+| D2 | Lemma instantiation in laws (body-less vs a `using(...)` zone) | **Laws stay body-less.** A law states a claim; facts it needs enter through the lemma's `ensures` (call the lemma where a `bool` is needed, or quantify the lemma's `ensures` universally). A fixture that cannot be written this way is filed as an issue with the shape, not solved by growing the surface | B2 task 6 stands as written |
+| D3 | Human ownership of `spec/` — compiler-enforced or convention | **Convention, documented; no compiler rule.** `yo init` scaffolds `spec/README.md` stating the wall (claims here, written by the human; proofs are the contracts and invariants in the code) and the CODEOWNERS line to add; `yo verify --strict ./spec` is the gate. The compiler does not know what a "law file" is | B3 task 3 gains the `spec/README.md` scaffold; B1 docs describe the convention |
+| D4 | Checker speed as a product number | **Yes: B0's summary line prints wall time and the number of solver queries**, in text and JSON (`elapsed_ms`, `queries`), so `yo verify` has a number to improve and the self-verification sweep can chart it | B0 task 3 amended |
 
 ## References
 
