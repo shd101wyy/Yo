@@ -26,11 +26,13 @@
   BF_DECREASES,
   BF_REFINE,
   BF_ASSUMED,
+  BF_LAW,
   BF_GHOST,
   BF_GHOST_FN,
   BF_OLD,
   BK_BEGIN,
   BK_TUPLE,
+  BK_FN,
   BF_COMPTIME_ASSERT,
   BF_PANIC,
   BF_RUNTIME,
@@ -2659,7 +2661,257 @@ wrap_function_body_with_contracts :: (
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
 });
 export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_assumed, evaluate_refine, evaluate_ghost, refine_pred_chain_of);
-export(evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
+/// Reject a signature clause a law cannot honour. `assumed()` would make the
+/// task report the PASSING outcome `assumed` with zero obligations, and
+/// `decreases(...)` has nothing to recurse on — both would be silently ignored,
+/// which is the one thing a claim must never be.
+_reject_law_clause :: (
+  fn(fn_head : AstExpr, clause : str, at : Token, exn : Exception) -> unit
+)({
+  args := match(
+    fn_head,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    match(
+      args.get(i),
+      .Some(c) => {
+        if(ast_expr_is_fn_call_of(c, clause, Option(usize).None), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                at,
+                `'law(...)' rejects the '${clause}(...)' clause — a law is a claim to be PROVED, and '${clause}(...)' would let it pass without proving anything.`
+              )
+            )
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// `law(fn(..., requires(P), ensures(Q)) -> unit)` — a standalone CLAIM
+/// (B1, plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A2).
+///
+/// The argument is a function TYPE with contract clauses and NO body: the
+/// `ensures` predicates are the obligations, the `requires` are assumed on
+/// entry. It evaluates to `unit`, so `name :: law(...)` binds unit and codegen
+/// emits nothing.
+///
+/// Registers ONE synthetic VerifyTask (verify / verify+ targets only) whose
+/// body is an evaluated unit literal and whose obligations ride
+/// `ensures_exprs`. Putting them there rather than in the body as asserts is
+/// load-bearing: `verify_and_strip_tasks` treats a task with no contracts as
+/// `contract_less` and DEGRADES its subset failures to the passing outcome
+/// `outside-subset`, so a body-asserts law would report green when its claim
+/// could not even be walked.
+evaluate_law :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  law_tok := ast_expr_token(expr);
+  if(!ast_expr_is_fn_call_of(expr, BF_LAW, Option(usize).Some(usize(1))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          law_tok,
+          `'law(...)' takes exactly one argument — a function type: 'law(fn(x : T, ensures(Q)) -> unit)'. Got:\n${ast_expr_to_string(expr)}`
+        )
+      )
+    );
+  });
+  args := match(
+    expr,
+    .FnCall(_, _, a, _, _) => a,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  arg := match(args.get(usize(0)), .Some(x) => x, .None => make_err_expr());
+  // The argument must be a fn-type LITERAL. An alias would hide its clauses
+  // from the scan below — there is no side-table hook for `assumed`/`decreases`.
+  fn_head := match(
+    arg,
+    .FnCall(_, _, a2, _, _) => match(a2.get(usize(0)), .Some(h) => h, .None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
+  );
+  arrow_ok := ast_expr_is_fn_call_of(arg, "->", Option(usize).Some(usize(2)));
+  fn_ok := ast_expr_is_fn_call_of(fn_head, BK_FN, Option(usize).None);
+  if(!(arrow_ok && fn_ok), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          law_tok,
+          `'law(...)' takes a function TYPE written out in place, not a name: 'law(fn(x : T, ensures(Q)) -> unit)'.`
+        )
+      )
+    );
+  });
+  _reject_law_clause(fn_head, BF_ASSUMED, law_tok, exn);
+  _reject_law_clause(fn_head, BF_DECREASES, law_tok, exn);
+  // Evaluate the signature through the ORDINARY path: a contract-marker
+  // evaluation would soft-swallow unbound names in it.
+  evaluated := evaluate_expression_raw(arg, env, ctx, exn);
+  // The law node itself is unit — the value the `::` binding takes.
+  out_info := new_expr_info(env, t_unit());
+  out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  ft := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(info) => match(
+      info.value,
+      .Some(v) => match(v, .TypeVal(t) => t, _ => t_unit()),
+      .None => t_unit()
+    ),
+    .None => t_unit()
+  );
+  (p_names : ArrayList(String)) = ArrayList(String).new();
+  (p_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  (ret_is_unit : bool) = false;
+  (key : String) = ast_expr_id(evaluated).to_string();
+  (is_func : bool) = false;
+  match(
+    ft,
+    .Func({ meta : __lm, param_types : __lpt, result : __lres }) => {
+      is_func = true;
+      (pi : usize) = usize(0);
+      while(pi < __lpt.len(), {
+        match(
+          __lpt.get(pi),
+          .Some(t) => {
+            p_types.push(t.clone());
+            p_names.push(
+              match(__lm.*.param_labels.get(pi), .Some(l) => l.clone(), .None => String.new())
+            );
+          },
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+      ret_is_unit = match(__lres, .Unit => true, _ => false);
+      match(
+        __lm.*.origin_id,
+        .Some(oid) => {
+          key = oid.clone();
+        },
+        .None => ()
+      );
+    },
+    _ => ()
+  );
+  if(!is_func, {
+    exn.throw(
+      dyn(
+        format_error_message(law_tok, `'law(...)' expects a function type; its argument did not evaluate to one.`)
+      )
+    );
+  });
+  if(!ret_is_unit, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          law_tok,
+          `A law has no value: 'law(...)' requires a '-> unit' function type. Constrain the parameters in 'ensures(...)' instead.`
+        )
+      )
+    );
+  });
+  raw_reqs := hook_func_requires(key.clone());
+  raw_enss := hook_func_ensures(key.clone());
+  if(raw_enss.len() == usize(0), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          law_tok,
+          `A law must claim something: 'law(...)' requires at least one 'ensures(...)' predicate.`
+        )
+      )
+    );
+  });
+  // Validation above runs in EVERY mode; registration only for a verify
+  // target. `--verify-mode` is global, so resolve_verify_mode alone would arm
+  // every law in std/ and in every dependency.
+  if(!_is_verify_target(law_tok.module_path.clone()), {
+    return(expr);
+  });
+  law_mode := resolve_verify_mode(law_tok.module_path.clone());
+  if((law_mode != "verify") && (law_mode != "verify+"), {
+    return(expr);
+  });
+  pred_env := env;
+  pred_env.push_frame(false);
+  (bi : usize) = usize(0);
+  while(bi < p_names.len(), {
+    pn := match(p_names.get(bi), .Some(x) => x, .None => String.new());
+    pt := match(p_types.get(bi), .Some(x) => x, .None => t_unit());
+    if(pn.len() > usize(0), {
+      add_variable_to_env(
+        pred_env,
+        pn.clone(),
+        pt.clone(),
+        Option(EvalValue).Some(create_unknown_val(pt.clone())),
+        false,
+        false,
+        false,
+        false,
+        law_tok.clone()
+      );
+    });
+    bi = (bi + usize(1));
+  });
+  ev_reqs := ArrayList(AstExpr).new();
+  (ri : usize) = usize(0);
+  while(ri < raw_reqs.len(), {
+    match(
+      raw_reqs.get(ri),
+      .Some(pr) => ev_reqs.push(evaluated_for_verify(clone_expr_fresh_ids(pr.clone()), pred_env, ctx, exn)),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  ev_enss := ArrayList(AstExpr).new();
+  (si : usize) = usize(0);
+  while(si < raw_enss.len(), {
+    match(
+      raw_enss.get(si),
+      .Some(pe) => ev_enss.push(evaluated_for_verify(clone_expr_fresh_ids(pe.clone()), pred_env, ctx, exn)),
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  // The body is a synthetic unit literal: a law has no code. It must be the
+  // parser's zero-arg `tuple()` call rather than a bare "()" atom, which would
+  // go down identifier lookup and die on `Variable "()" not found`.
+  body := AstExpr.FnCall(
+    alloc_global_expr_id(),
+    _synth_atom(String.from(BK_TUPLE), TokenKind.Identifier, law_tok.clone()),
+    ArrayList(AstExpr).new(),
+    false,
+    law_tok.clone()
+  );
+  body_ev := evaluated_for_verify(body, pred_env, ctx, exn);
+  pred_env.pop_frame();
+  register_verify_task(
+    VerifyTask(
+      // Column disambiguates: register_verify_task is first-wins on fn_id, and
+      // row alone collides for two laws written on one line.
+      fn_id : `law@${display_module_path(law_tok.module_path.clone())}:${law_tok.row.to_string()}:${law_tok.column.to_string()}`,
+      func_id : key.clone(),
+      module_path : law_tok.module_path.clone(),
+      body : body_ev,
+      param_names : p_names,
+      param_types : p_types,
+      result_type : t_unit(),
+      requires_exprs : ev_reqs,
+      ensures_exprs : ev_enss,
+      return_label : Option(String).None,
+      table : ctx.expr_info_table,
+      mode : law_mode.clone(),
+      func_val : EvalValue.UnitVal
+    )
+  );
+  expr
+});
+export(evaluate_law, evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
 export(wrap_function_body_with_contracts, _is_contract_assert_call);
 export(
   VerifyTask,

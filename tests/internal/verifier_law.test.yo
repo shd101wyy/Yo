@@ -1,0 +1,238 @@
+//! B1 — `law(fn-type)`: standalone claims
+//! (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A2).
+//!
+//! A law states a property OUTSIDE the code it is about, and the verifier must
+//! prove it from that code's CONTRACT alone — never by opening its body. Two
+//! gates, the same split as `verifier_negative.test.yo`:
+//!
+//!  - REJECTION tests need no solver: the signature is refused during
+//!    evaluation, before any obligation exists. Those always run.
+//!  - PROOF / REFUTATION tests need real Z3, gated on `YO_TEST_Z3=1`.
+//!
+//! The load-bearing design point, measured while building this: a law's
+//! predicates ride `VerifyTask.ensures_exprs`, NOT a synthesized body of
+//! asserts. A task carrying no contracts is `contract_less` in
+//! `verify_and_strip_tasks`, which DEGRADES its subset failures to the passing
+//! outcome `outside-subset` — so a body-asserts law would report green exactly
+//! when its claim could not be walked.
+{ String } :: import("std/string");
+{ Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_registered_functions,
+  VerifyFnReport
+} :: import("../../src/verifier/driver.yo");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+_join :: (fn(xs : ArrayList(String), sep : String) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    if(i > usize(0), {
+      out.push_string(sep.clone());
+    });
+    out.push_string(match(xs.get(i), .Some(x) => x, .None => String.new()));
+    i = (i + usize(1));
+  });
+  out
+});
+_arm :: (fn(rel_path : String, std_path : String) -> unit)({
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  take_verify_tasks();
+  set_verify_mode_override(Option(String).Some(String.from("verify")));
+  set_verify_target_paths(targets);
+  clear_module_cache();
+});
+/// Evaluate a fixture that must LOAD CLEANLY, then run the verify pass.
+_verify_fixture :: (fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport))({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_law: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  _arm(rel_path.clone(), std_path.clone());
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(outcome.ok, `fixture ${rel_path} must evaluate cleanly:\n${rendered}`);
+    },
+    .None => {
+      assert(outcome.ok, `fixture ${rel_path} must evaluate cleanly`);
+    }
+  );
+  cfg := default_verify_run_config();
+  binary := match(resolve_solver_sync(cfg), .Resolved(p) => p, _ => String.new());
+  verify_registered_functions(cfg, binary)
+});
+/// Evaluate a fixture that must be REJECTED, and assert the diagnostic says
+/// why. Returns nothing: the assertion IS the test.
+/// Evaluate a fixture that must be REJECTED, and assert the diagnostic says
+/// why. The rendered diagnostic arrives through `_take_load_error()` — an
+/// `Exception` handler is a capture-free `->` function and cannot record into a
+/// local, which the evaluator enforces.
+_expect_rejected :: (fn(rel_path : String, needle : String, io : Io) -> unit)({
+  exn := Exception(throw : (err -> ()));
+  std_path := resolve_std_path();
+  _arm(rel_path.clone(), std_path.clone());
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  rendered := match(_take_load_error(), .Some(r) => r, .None => String.new());
+  assert(
+    !outcome.ok,
+    `fixture ${rel_path} must be REJECTED, but it evaluated cleanly — a law accepted here proves nothing`
+  );
+  assert(
+    rendered.contains(needle.clone()),
+    `fixture ${rel_path}: the diagnostic must explain the rejection (looking for '${needle}'), got:\n${rendered}`
+  );
+  take_verify_tasks();
+});
+_count_outcome :: (fn(reports : ArrayList(VerifyFnReport), want : String) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => if(rp.outcome == want, {
+        n = (n + usize(1));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  n
+});
+/// The first report whose fn_id names a LAW (the `law@` prefix).
+_first_law :: (fn(reports : ArrayList(VerifyFnReport)) -> Option(VerifyFnReport))({
+  (found : Option(VerifyFnReport)) = Option(VerifyFnReport).None;
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => if(rp.fn_id.contains(String.from("law@")) && found.is_none(), {
+        found = Option(VerifyFnReport).Some(rp);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+// ---------------------------------------------------------------------------
+// Rejections — no solver needed
+// ---------------------------------------------------------------------------
+test("law: a non-unit return is rejected — a law has no value", {
+  _expect_rejected(
+    String.from("./tests/spec/fixtures/negative/law_nonunit_return.yo"),
+    String.from("A law has no value"),
+    io
+  );
+});
+test("law: a law with no ensures is rejected — it would claim nothing", {
+  _expect_rejected(
+    String.from("./tests/spec/fixtures/negative/law_no_ensures.yo"),
+    String.from("A law must claim something"),
+    io
+  );
+});
+test("law: assumed() is rejected — it would pass without proving", {
+  _expect_rejected(
+    String.from("./tests/spec/fixtures/negative/law_assumed_clause.yo"),
+    String.from("rejects the 'assumed(...)' clause"),
+    io
+  );
+});
+test("law: an aliased function type is rejected — its clauses cannot be scanned", {
+  _expect_rejected(
+    String.from("./tests/spec/fixtures/negative/law_not_literal.yo"),
+    String.from("written out in place"),
+    io
+  );
+});
+// ---------------------------------------------------------------------------
+// Proof and refutation — real solver
+// ---------------------------------------------------------------------------
+test("law: a true law PROVES from the callee's contract alone", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/law_abs_nonneg.yo"), io);
+  assert(_count_outcome(reports, String.from("refuted")) == usize(0), "nothing may refute");
+  match(
+    _first_law(reports),
+    .Some(rp) => {
+      assert(rp.outcome == "ok", `the law must prove, got '${rp.outcome}'`);
+      // Three obligations, not one: the claim itself plus the two call-site
+      // `requires` discharges for `abs_value`. That count is the evidence the
+      // law is verified MODULARLY — through the callee's contract, not its body.
+      assert(
+        rp.obligations.len() == usize(3),
+        `the law must discharge 3 obligations (claim + 2 call-site requires), got ${rp.obligations.len().to_string()}`
+      );
+    },
+    .None => assert(false, "no law@ report was produced — the law did not register")
+  );
+});
+test("law: a false law REFUTES with a counter-example", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/law_false.yo"), io);
+  match(
+    _first_law(reports),
+    .Some(rp) => {
+      assert(rp.outcome == "refuted", `the false law must refute, got '${rp.outcome}'`);
+      (named : bool) = false;
+      (i : usize) = usize(0);
+      while(i < rp.obligations.len(), {
+        match(
+          rp.obligations.get(i),
+          .Some(obl) => match(
+            obl.verdict,
+            .Refuted(ce) => {
+              // x = 0 is where "abs is strictly positive" fails.
+              if(_join(ce, String.from("; ")).contains(String.from("x = #x0000000000000000")), {
+                named = true;
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      assert(named, "the counter-example must name x = 0 — a refutation without one is not actionable");
+    },
+    .None => assert(false, "no law@ report was produced — the law did not register")
+  );
+});

@@ -1,0 +1,22 @@
+// B1: a FALSE law must REFUTE with a counter-example. `abs_value` promises only
+// non-negativity, so claiming strict positivity is false at x = 0 — and the
+// counter-example names it.
+pragma(Pragma.Verify);
+
+abs_value :: (
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((r >= i64(0)) && (r < i64(1000)))
+  ) -> (r : i64)
+)(cond((x >= i64(0)) => x, true => -x));
+
+// LAW (FALSE): abs is strictly positive — refuted at x = 0.
+abs_is_positive :: law(
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures(abs_value(x) > i64(0))
+  ) -> unit
+);
+export(abs_value);

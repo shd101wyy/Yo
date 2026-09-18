@@ -99,6 +99,7 @@
   BF_ENSURES,
   BF_INVARIANT,
   BF_GHOST,
+  BF_LAW,
   BF_YO_ARRAY_INDEX,
   ast_expr_id,
   ast_expr_is_atom
@@ -602,6 +603,8 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BF_ENSURES, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_GHOST, Option(usize).None), return(String.from("")));
+  // B1: a `law(...)` is a CLAIM, not code — erased entirely.
+  if(ast_expr_is_fn_call_of(expr, BF_LAW, Option(usize).None), return(String.from("")));
   // DO NOT hoist the structural `begin` / `cond` / `match` dispatches above this
   // lookup. It is tempting — none of those generators takes an ExprInfo — and it
   // does make the "Failed to transpile" marker disappear for the hollow test

@@ -1,0 +1,8 @@
+// B1: the argument must be a function-type LITERAL. Behind an alias the
+// signature's clauses cannot be scanned, so an `assumed()` or `decreases(...)`
+// hidden in the alias would be silently ignored rather than rejected.
+pragma(Pragma.Verify);
+
+AliasTy :: (fn(x : i64, ensures(x >= i64(0))) -> unit);
+
+bad_law :: law(AliasTy);
