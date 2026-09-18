@@ -1,49 +1,141 @@
-// Phase 0 of plans/backlog/FORMAL_VERIFICATION.md task #7/#8.
-//
-// Smoke tests for the Refine / NonZero / Bounded / Positive
-// comptime type constructors from std/spec/. Phase 0 implementations
-// are type aliases (predicate ignored); the verifier (Phase 2+) will
-// attach concrete predicates and enforce them.
+//! The `std/spec` refinement surface — V6 task 3 rework
+//! (plans/backlog/FORMAL_VERIFICATION.md §7, breaking-change ledger entry 3).
+//!
+//! The aliases are REAL refinement types now (distinct at the type level,
+//! erased at codegen). Construction goes through the runtime gates
+//! (`check*` returning `Option(...)`) or the trusted casts (`unchecked*`).
+//!
+//! NOTE: this file runs under the seed's evaluator, so it needs a seed that
+//! dispatches the `refine` builtin (v0.2.36+); under older seeds the import
+//! E0401s (the generation split).
 { assert } :: import("std/assert");
-{ Refine, NonZero, Bounded, NonEmpty } :: import("std/spec/refine");
-{ Positive, Negative, NonNegative, Even, Odd } :: import("std/spec/numeric");
+{
+  Refine,
+  NonZero,
+  Bounded,
+  NonEmpty,
+  check_non_zero,
+  check_bounded,
+  unchecked,
+  unchecked_non_zero
+} :: import("std/spec/refine");
+{
+  Positive,
+  Negative,
+  NonNegative,
+  Even,
+  Odd,
+  check_positive,
+  check_negative,
+  check_non_negative,
+  check_even,
+  check_odd
+} :: import("std/spec/numeric");
 
-test("NonZero(T) is a usable parameter type for runtime functions", {
+test("NonZero(i32) is a usable parameter type; check_non_zero is the runtime gate", {
   safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)(num / denom);
-  assert(safe_div(i32(10), i32(2)) == i32(5), "10/2 == 5");
+  match(
+    check_non_zero(i32(2)),
+    .Some(d) => assert(safe_div(i32(10), d) == i32(5), "10/2 == 5 through the gate"),
+    .None => assert(false, "2 is nonzero — the gate must pass it")
+  );
+  match(
+    check_non_zero(i32(0)),
+    .Some(_) => assert(false, "0 must NOT pass the NonZero gate"),
+    .None => assert(true, "the gate rejects 0")
+  );
 });
 
-test("Bounded(T, lo, hi) accepts compile-time bounds", {
+test("Bounded(T, lo, hi) gates both ends at runtime", {
   in_range :: (fn(x : Bounded(i32, i32(0), i32(100))) -> i32)(x);
-  assert(in_range(i32(50)) == i32(50), "50 in [0,100]");
+  match(
+    check_bounded(i32(50), i32(0), i32(100)),
+    .Some(v) => assert(in_range(v) == i32(50), "50 in [0,100]"),
+    .None => assert(false, "50 is in [0,100]")
+  );
+  match(
+    check_bounded(i32(150), i32(0), i32(100)),
+    .Some(_) => assert(false, "150 must NOT pass the [0,100] gate"),
+    .None => assert(true, "the gate rejects 150")
+  );
 });
 
-test("Positive / Negative aliases compile and pass values through", {
+test("Positive / Negative / NonNegative gates pass and reject correctly", {
   pos :: (fn(x : Positive(i32)) -> i32)(x);
   neg :: (fn(x : Negative(i32)) -> i32)(x);
-  assert(pos(i32(7)) == i32(7), "Positive(i32) passthrough");
-  assert(neg(i32(-3)) == i32(-3), "Negative(i32) passthrough");
+  nn :: (fn(x : NonNegative(i32)) -> i32)(x);
+  match(
+    check_positive(i32(7)),
+    .Some(v) => assert(pos(v) == i32(7), "Positive(i32) passthrough"),
+    .None => assert(false, "7 is positive")
+  );
+  match(
+    check_negative(i32(-3)),
+    .Some(v) => assert(neg(v) == i32(-3), "Negative(i32) passthrough"),
+    .None => assert(false, "-3 is negative")
+  );
+  match(
+    check_non_negative(i32(0)),
+    .Some(v) => assert(nn(v) == i32(0), "NonNegative(i32) admits 0"),
+    .None => assert(false, "0 is non-negative")
+  );
+  match(
+    check_positive(i32(0)),
+    .Some(_) => assert(false, "0 must NOT pass the Positive gate"),
+    .None => assert(true, "the gate rejects 0")
+  );
 });
 
-test("Even / Odd / NonNegative aliases compile", {
+test("Even / Odd gates partition the integers", {
   e :: (fn(x : Even(i32)) -> i32)(x);
   o :: (fn(x : Odd(i32)) -> i32)(x);
-  nn :: (fn(x : NonNegative(i32)) -> i32)(x);
-  assert(e(i32(4)) == i32(4), "Even(i32) passthrough");
-  assert(o(i32(3)) == i32(3), "Odd(i32) passthrough");
-  assert(nn(i32(0)) == i32(0), "NonNegative(i32) passthrough");
+  match(
+    check_even(i32(4)),
+    .Some(v) => assert(e(v) == i32(4), "Even(i32) passthrough"),
+    .None => assert(false, "4 is even")
+  );
+  match(
+    check_odd(i32(3)),
+    .Some(v) => assert(o(v) == i32(3), "Odd(i32) passthrough"),
+    .None => assert(false, "3 is odd")
+  );
+  match(
+    check_even(i32(3)),
+    .Some(_) => assert(false, "3 must NOT pass the Even gate"),
+    .None => assert(true, "the gate rejects 3")
+  );
 });
 
-test("NonEmpty(T) compiles for any T (Phase 0: alias for T)", {
-  // Phase 0: NonEmpty(T) = T. We just check the alias is usable
-  // in a parameter position.
+test("NonEmpty(T) is the bare refinement (no predicate) usable in parameter position", {
+  // Phase 0 note kept: a bare refinement erases to T, so any value passes
+  // through; attach a collection predicate via Refine(T, p) for real
+  // element checks.
   echo :: (fn(x : NonEmpty(i32)) -> i32)(x);
   assert(echo(i32(42)) == i32(42), "NonEmpty(i32) passthrough");
 });
 
-test("Refine(T) is composable with itself", {
-  // Refine(Refine(T)) should still be T in Phase 0
-  Doubly :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(Refine(T)));
-  f :: (fn(x : Doubly(i32)) -> i32)(x);
-  assert(f(i32(42)) == i32(42), "doubly-refined i32 is still i32");
+test("Refine(T, p) is the general constructor and composes over a refinement", {
+  odd_i32 :: ghost_fn((fn(x : i32) -> bool)((x % i32(2)) == i32(1)));
+
+  // refine over a refinement: the composed TYPE evaluates (its erasure is
+  // the inner type), and a doubly-gated value passes through it. The
+  // verifier-side chain semantics (the nested predicates act as the
+  // conjunction) are proven in tests/internal/verifier_spec_refine.test.yo.
+  OddNonZero :: Refine(NonZero(i32), odd_i32);
+  gated :: (fn(x : Refine(i32, odd_i32)) -> i32)(x);
+  match(
+    check_non_zero(i32(3)),
+    .Some(nz3) => {
+      doubly := unchecked(odd_i32, nz3);
+      assert(gated(doubly) == i32(3), "the composed refinement carries the value through");
+    },
+    .None => assert(false, "3 is nonzero")
+  );
+});
+
+test("unchecked is the trusted cast (no gate, no proof)", {
+  non_zero_i32 :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+  blind := unchecked(non_zero_i32, i32(9));
+  use :: (fn(x : NonZero(i32)) -> i32)(i32(81) / x);
+  assert(use(blind) == i32(9), "9/9 == 1 — the caller vouches for the predicate");
 });

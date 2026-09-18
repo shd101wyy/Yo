@@ -1,43 +1,120 @@
-// Phase 0 of plans/backlog/FORMAL_VERIFICATION.md task #7.
-//
-// Numeric refinement aliases. All Phase 0 implementations are
-// type aliases; the verifier (Phase 2+) will attach concrete
-// predicates and enforce them.
+//! **Numeric refinement families** — real predicates over the
+//! `refine(T, p)` surface (V6 task 3, plans/backlog/FORMAL_VERIFICATION.md
+//! §7; breaking-change ledger entry 3). Each family is a comptime alias
+//! whose predicate ghost is spelled INSIDE the alias body: the alias's
+//! comptime `T` is in scope at ghost creation, so every `Positive(i32)`
+//! evaluation creates a fully concrete predicate.
 //!
-//! **EXPERIMENTAL — not covered by the std stability promise** (audit spec/
-//! verdict: FREEZE AS DOC). These are Phase 0 identity stubs from
-//! plans/backlog/FORMAL_VERIFICATION.md; refinement predicates arrive with the
-//! Phase 2+ verifier. Expect ANY change here, including removal.
+//! ```rust
+//! { Positive, check_positive } :: import("std/spec/numeric");
+//!
+//! recipl :: (fn(x : Positive(i32)) -> i32)(i32(1) / x);   // p assumed at entry
+//!
+//! match(check_positive(i32(3)),        // runtime gate: Option(Positive(i32))
+//!   .Some(v) => recipl(v),
+//!   .None    => i32(0)
+//! );
+//! ```
 //!
 //! ## Stability
 //!
-//! unstable — Phase 0 identity stubs, outside the std stability promise
-//! entirely. Expect ANY change, including removal, when the Phase 2 verifier
-//! lands. The section exists so `yo doc` reports it: the warning above is
-//! prose, and a consumer keyed on the machine-readable stability channel read
-//! these two modules as frozen std surface.
-{ Refine } :: import("./refine.yo");
-
-/// Even integer.
-Even :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
-export(Even);
-
-/// Odd integer.
-Odd :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
-export(Odd);
-
-/// Strictly positive value (> 0).
-Positive :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
+//! unstable — outside the std stability promise entirely; the verification
+//! campaign is still shaping this surface.
+/// `Positive(T)` — strictly greater than zero.
+Positive :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x > T(0)))));
 export(Positive);
 
-/// Strictly negative value (< 0).
-Negative :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
+/// `Negative(T)` — strictly less than zero.
+Negative :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x < T(0)))));
 export(Negative);
 
-/// Non-negative value (>= 0).
-NonNegative :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
+/// `NonNegative(T)` — greater than or equal to zero.
+NonNegative :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x >= T(0)))));
 export(NonNegative);
 
-/// Non-positive value (<= 0).
-NonPositive :: (fn(comptime(T) : Type) -> comptime(Type))(Refine(T));
+/// `NonPositive(T)` — less than or equal to zero.
+NonPositive :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x <= T(0)))));
 export(NonPositive);
+
+/// `Even(T)` — divisible by two.
+Even :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)((x % T(2)) == T(0)))));
+export(Even);
+
+/// `Odd(T)` — not divisible by two.
+Odd :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)((x % T(2)) == T(1)))));
+export(Odd);
+
+// ---------------------------------------------------------------------------
+// Construction paths
+// ---------------------------------------------------------------------------
+/// `check_positive(x)` — the `Positive` family's runtime gate.
+check_positive :: (
+  fn(generic(T : Type), x : T) -> Option(Positive(T))
+)(
+  if(
+    x > T(0),
+    Option(Positive(T)).Some(x),
+    Option(Positive(T)).None
+  )
+);
+export(check_positive);
+
+/// `check_negative(x)` — the `Negative` family's runtime gate.
+check_negative :: (
+  fn(generic(T : Type), x : T) -> Option(Negative(T))
+)(
+  if(
+    x < T(0),
+    Option(Negative(T)).Some(x),
+    Option(Negative(T)).None
+  )
+);
+export(check_negative);
+
+/// `check_non_negative(x)` — the `NonNegative` family's runtime gate.
+check_non_negative :: (
+  fn(generic(T : Type), x : T) -> Option(NonNegative(T))
+)(
+  if(
+    x >= T(0),
+    Option(NonNegative(T)).Some(x),
+    Option(NonNegative(T)).None
+  )
+);
+export(check_non_negative);
+
+/// `check_non_positive(x)` — the `NonPositive` family's runtime gate.
+check_non_positive :: (
+  fn(generic(T : Type), x : T) -> Option(NonPositive(T))
+)(
+  if(
+    x <= T(0),
+    Option(NonPositive(T)).Some(x),
+    Option(NonPositive(T)).None
+  )
+);
+export(check_non_positive);
+
+/// `check_even(x)` — the `Even` family's runtime gate.
+check_even :: (
+  fn(generic(T : Type), x : T) -> Option(Even(T))
+)(
+  if(
+    (x % T(2)) == T(0),
+    Option(Even(T)).Some(x),
+    Option(Even(T)).None
+  )
+);
+export(check_even);
+
+/// `check_odd(x)` — the `Odd` family's runtime gate.
+check_odd :: (
+  fn(generic(T : Type), x : T) -> Option(Odd(T))
+)(
+  if(
+    (x % T(2)) == T(1),
+    Option(Odd(T)).Some(x),
+    Option(Odd(T)).None
+  )
+);
+export(check_odd);

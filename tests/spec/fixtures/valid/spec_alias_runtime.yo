@@ -1,0 +1,17 @@
+// The RUNTIME twin of valid/spec_alias_generic.yo: the same alias-created
+// refinements, the same .check/.unchecked entry paths — in a file WITHOUT a
+// verify pragma. Everything erases: the module loads, computes and
+// registers no verify tasks; the refinements exist only at the type level.
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
+
+NzI32 :: NonZero(i32);
+
+nz_check :: (fn(x : i32) -> Option(NzI32))(
+  if(x != i32(0), Option(NzI32).Some(x), Option(NzI32).None)
+);
+
+nz_unchecked :: (fn(x : i32) -> NzI32)(x);
+
+use_nz :: (fn(d : NzI32) -> i32)(i32(100) / d);
+
+export(use_nz);

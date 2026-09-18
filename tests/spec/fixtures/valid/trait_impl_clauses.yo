@@ -1,0 +1,19 @@
+pragma(Pragma.Verify);
+{ println } :: import("std/fmt");
+T1 :: trait(
+  m : (fn(self : Self, i : i32, requires(i >= i32(0)), ensures(result >= i)) -> (result : i32))
+);
+impl(
+  i32,
+  T1(
+    m : (
+      fn(self : i32, i : i32, requires(i >= i32(0)), ensures(result == i)) -> (result : i32)
+    )(
+      i
+    )
+  )
+);
+main :: (fn() -> unit)({
+  println(`x`);
+});
+export(main);

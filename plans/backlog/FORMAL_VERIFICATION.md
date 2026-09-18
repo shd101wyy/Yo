@@ -1322,8 +1322,16 @@ become real; the stdlib starts carrying executable specifications.
 > (the fn-type evaluation and the splice re-read those tables by that
 > id) — plant under the FuncVal id instead, which nothing re-reads. The
 > fixtures use the two-step spelling (named fn + reference from the impl
-> entry); the inline clause-carrying spelling stays blocked by that
-> OPEN issue. Remaining for V6: tasks 2–6 below.
+> entry); the inline clause-carrying spelling stayed blocked by that
+> issue until 2026-09-17, when the ROOT CAUSE was found and FIXED: the
+> trait entry's expected fn type leaked into the def-time body trial, and
+> the spliced contract guard's operator call unified its `bool` return
+> against it at try_to_call's Step 10 — the fix (helper.yo) skips the
+> return-vs-expected synth when the expected is a fn type the call does
+> not itself return. The issue moved to `issues/fixed/`; the INLINE
+> spelling now loads AND its variance task proves (regression test in
+> `verifier_trait_variance.test.yo` + fixture
+> `valid/trait_impl_clauses.yo`). Remaining for V6: tasks 2–6 below.
 >
 > **Status: TASK 2 SLICE 1 — contracted generic callees at monomorphized
 > call sites (2026-09-14).** Two fixes, both probe-driven: (1) the
@@ -1438,6 +1446,43 @@ become real; the stdlib starts carrying executable specifications.
 > policies treat `assumed` and `outside-subset` as passing in both
 > `yo verify` and the check/compile integration. Tasks 3, 6, and task 5
 > slice 2 (the std annotations) remain.
+>
+> **Status: TASK 3 SLICE 3 — the std/spec REWORK + composition (2026-09-17).**
+> The remaining task-3 surface landed: (1) **alias-body predicates** — the
+> std/spec families (`NonZero`, `Bounded`, `Positive`, `Even`, …) attach
+> real predicates by spelling the ghost INSIDE the alias body, with the
+> alias's comptime parameters in scope at ghost creation (each
+> `NonZero(i32)` evaluation creates a fully concrete predicate — no
+> generic predicates exist; `T(0)`-style conversions through a comptime
+> binding work); `Bounded`'s predicate CAPTURES its comptime `lo`/`hi`;
+> (2) **composition** — `refine(refine(T, p), q)` acts as the conjunction:
+> `evaluate_refine` records the inner chain keyed by the outer predicate's
+> func_id (`g_refine_pred_chains`, contracts.yo) and the verifier's
+> assume/prove walks inline every chain leg (`_refine_pred_chain_term`,
+> vc.yo) — the use_dbl fixture proves `100/v` ONLY through the inner
+> nonzero leg, and its even-only single-refutation twin guards against a
+> false chain assumption; (3) **entry paths** — `check_*` runtime gates
+> return `Option(Refined)` (E4's ordinary-runtime-gate) and
+> `unchecked(p, x)` / `unchecked_*` are trusted casts; the generic
+> `check(p, x)` is NOT expressible (computing `Option(Refine(T, p))`
+> needs comptime `p`, the gate needs to call `p` at runtime — a comptime
+> param has no runtime value), so family gates spell predicates inline;
+> `runtime(ghost_call)` is REJECTED in ordinary code by the V5 ghost gate,
+> closing off the single-source spelling. TWO REAL DEFECTS found and
+> fixed en route: a wrapper whose predicate param wasn't `comptime(p)`
+> hard-errors ("Expected all parameters to be compile time only…"), and
+> **`get_type_string` had no `.RefineT` arm** — refined-parameter
+> signatures emitted `// Unknown type:` INSIDE prototypes (malformed C;
+> `issues/refined-param-signatures-emit-malformed-c.md`) — invisible to
+> the in-process harness (mm_load evaluates, never emits C) until the
+> seed-path batch compile. SEED GATES: the rework evaluates under seeds
+> ≥ v0.2.36 (which carries #705/#727/#710); the CODEGEN fix rides the
+> NEXT release — `tests/spec/refine_types.test.yo` (rewritten for the new
+> surface) is red on seed-based CI legs until then and green on the
+> self-hosted legs. Tests: `tests/internal/verifier_spec_refine.test.yo`
+> (valid 11 reports = 10 ok + 1 outside-subset degrade; negative twins
+> refute 2/2; runtime smoke 0 tasks) + fixtures
+> `spec_alias_generic/spec_alias_negative/spec_alias_runtime`.
 >
 > **Status: TASK 3 SLICE 1 — `refine(T, p)` annotations with modular VCs
 > (2026-09-15).** The refinement MECHANISM lands without a new

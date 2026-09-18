@@ -1,0 +1,24 @@
+pragma(Pragma.Verify);
+
+// The deliberately-wrong twin of valid/spec_alias_generic.yo: a SINGLE
+// (non-chain) refinement whose predicate does NOT imply nonzero must NOT
+// discharge a division by the refined value — `use_even` refutes at v = 0
+// (zero IS even). This is the guard against a false chain proof: if the
+// verifier ever assumed MORE than the declared predicates, this file would
+// flip to ok.
+EvenI32 :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)((x % T(2)) == T(0)))));
+
+Ev :: EvenI32(i32);
+
+use_even :: (fn(v : Ev) -> i32)(i32(100) / v);
+
+// The same band shape as the valid fixture, self-contained: an
+// under-constrained caller refutes at refine#1 (nothing bounds v into
+// the [0, 100] band).
+Band :: (fn(comptime(T) : Type, comptime(lo) : T, comptime(hi) : T) -> comptime(Type))(
+  refine(T, ghost_fn((fn(x : T) -> bool)((x >= lo) && (x <= hi))))
+)(i32, i32(0), i32(100));
+
+use_band :: (fn(x : Band) -> i32)(x);
+
+band_caller_bad :: (fn(v : i32) -> i32)(use_band(v));

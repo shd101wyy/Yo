@@ -190,3 +190,45 @@ test("trait contract INHERITANCE: the impl's own proof needs the trait's require
     i = (i + usize(1));
   });
 });
+
+// ---------------------------------------------------------------------------
+// The INLINE spelling — an impl method whose fn-type carries its clauses
+// inline inside the trait entry — used to hard-throw "Cannot unify bool and
+// fn(...)" at check time (issues/trait-impl-method-contract-clauses-corrupt-
+// operator-dispatch.md: the trait entry's propagated expected fn type leaked
+// into the method body trial, and the spliced contract guard's operator call
+// unified its bool return against it at Step 10). The Step-10 skip now
+// clears the blocker: the fixture loads, the method's own task and its
+// variance task both run, and both prove.
+// ---------------------------------------------------------------------------
+test("trait variance: the INLINE clause spelling loads and proves (was the clause-corruption blocker)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/trait_impl_clauses.yo"),
+    io,
+    true
+  );
+  assert(reports.len() == usize(3), `the method task + the impl-variance task + main, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  (ok_n : usize) = usize(0);
+  (variance_ok : bool) = false;
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        if(rp.outcome == "ok", {
+          ok_n = (ok_n + usize(1));
+        });
+        if(rp.fn_id.contains(String.from("impl-variance")), {
+          variance_ok = (rp.outcome == "ok");
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(ok_n == usize(2), `the method and its variance task must prove (main passes as the outside-subset degrade), got: [${_reports_dump(reports)}]`);
+  assert(variance_ok, `the impl-variance task must prove for the inline-spelled method, got: [${_reports_dump(reports)}]`);
+});

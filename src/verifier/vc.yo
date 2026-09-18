@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val } :: import("../value.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
-{ is_ghost_fn, ghost_fn_def_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
+{ is_ghost_fn, ghost_fn_def_of, refine_pred_chain_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
 
 /// V5 task 3 slice 2: the ghost_fn inlining stack (see
 /// `_ghost_fn_inline_term`). Declared at module top so it is initialized
@@ -3633,6 +3633,44 @@ _refine_pred_term :: (
   );
   out
 });
+/// V6 task 3 composition: a NESTED refinement acts as the conjunction of
+/// its chain — refine(refine(T, p_inner), p_outer) assumes/proves
+/// p_outer(v) && p_inner(v) && …. The inner predicate ids come from the
+/// chain registry (contracts.yo, written by evaluate_refine); each leg is
+/// inlined over the SAME value term. A leg that fails the subset drops
+/// only itself (the same partial-assume direction the single-predicate
+/// walk has: assuming less is the sound direction).
+_refine_pred_chain_term :: (
+  fn(inout(ctx) : VcCtx, at : AstExpr, vt : VcTerm, pred_fid : String) -> Option(VcTerm)
+)({
+  out := _refine_pred_term(ctx, at, vt, pred_fid.clone());
+  chain := refine_pred_chain_of(pred_fid.clone());
+  (ci : usize) = usize(0);
+  while((ci < chain.len()) && out.is_some(), {
+    match(
+      chain.get(ci),
+      .Some(cf) => {
+        next := _refine_pred_term(ctx, at, vt, cf.clone());
+        match(
+          next,
+          .Some(nt) => {
+            out = match(
+              out,
+              .Some(ot) => Option(VcTerm).Some(_app2(VcOp.AndOp, ot, nt)),
+              .None => Option(VcTerm).None
+            );
+          },
+          .None => {
+            out = Option(VcTerm).None;
+          }
+        );
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  out
+});
 _ghost_fn_inline_term :: (
   fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
 )({
@@ -3991,7 +4029,7 @@ _callee_call_term :: (
             arg_terms.get(ri2),
             .Some(at_term) => {
               match(
-                _refine_pred_term(ctx, at2, at_term, pred_fid.clone()),
+                _refine_pred_chain_term(ctx, at2, at_term, pred_fid.clone()),
                 .Some(rterm) => {
                   _emit(ctx, `refine#${ri2.to_string()}`, ArrayList(VcTerm).new(), rterm);
                 },
@@ -4189,7 +4227,7 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
                         ptm,
                         .Some(pv) => {
                           match(
-                            _refine_pred_term(ctx, input.body, pv, pred_fid.clone()),
+                            _refine_pred_chain_term(ctx, input.body, pv, pred_fid.clone()),
                             .Some(rt) => {
                               ctx.path.push(rt);
                             },

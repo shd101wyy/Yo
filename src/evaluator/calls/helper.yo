@@ -6754,25 +6754,52 @@ try_to_call_function_with_arguments :: (
           ctx.expected_type,
           .Some(et) => {
             checked_ret := ArrayList(TypePair).new();
+            // A fn-type EXPECTED belongs to a fn-expression position — a
+            // trait entry propagating the trait field's (Self-substituted)
+            // type over an impl method's definition (values/impl.yo). An
+            // ORDINARY call inside that scope — an impl-method body's
+            // spliced contract-guard operator (`i >= i32(0)` inside a
+            // `requires(...)` lowered to a runtime guard) — can never
+            // satisfy a fn-type expectation: its `bool` return would
+            // hard-throw "Cannot unify bool and fn(...)" at the synth below
+            // (issues/trait-impl-method-contract-clauses-corrupt-operator-
+            // dispatch.md). Skip the return-vs-expected synthesis when the
+            // expected is a fn type the call does not itself return.
+            st10_skip := match(
+              et.ty,
+              .Func(_, _, _, _, _, _, _) => !(is_function_type(return_type)),
+              _ => false
+            );
             // The CALL's token anchors a return-type-vs-expected unification
             // failure at the call expression (see Step 6's note).
             (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(
               SynthesizeOptions(set_resolved_concrete_type : false, token : Option(Token).Some(ast_expr_token(expr)))
             );
-            synth_ret := synthesize_types(
-              return_type,
-              callee_env_m,
-              et.ty,
-              et.env,
-              checked_ret,
-              synth_ret_opts,
-              exn
+            synth_ret := cond(
+              st10_skip => Option(SynthesizeResult).None,
+              true => Option(SynthesizeResult).Some(
+                synthesize_types(
+                  return_type,
+                  callee_env_m,
+                  et.ty,
+                  et.env,
+                  checked_ret,
+                  synth_ret_opts,
+                  exn
+                )
+              )
             );
-            callee_env_m = synth_ret.expected_env;
-            return_type = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
-            if(s9_dbg, {
-              eprintln(`[s10-synth] ret=${type_to_string(return_type)} expected=${type_to_string(et.ty)}`);
-            });
+            match(
+              synth_ret,
+              .Some(sr) => {
+                callee_env_m = sr.expected_env;
+                return_type = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
+                if(s9_dbg, {
+                  eprintln(`[s10-synth] ret=${type_to_string(return_type)} expected=${type_to_string(et.ty)}`);
+                });
+              },
+              .None => ()
+            );
             // When the (re-evaluated) return type is compatible with the
             // caller's expected type and the expected type is fully concrete,
             // ADOPT the expected type as the call's return type. Mirrors TS

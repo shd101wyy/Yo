@@ -691,12 +691,13 @@ safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / de
   (contravariant: may weaken, never strengthen) and `impl.ensures ⇒
   trait.ensures` (covariant: may strengthen, never weaken). A clause-less
   impl method INHERITS the trait's contracts (its body must prove the
-  trait's ensures under the trait's requires). PITFALL: an impl method
-  whose fn-type carries clauses INLINE inside the trait entry trips a
-  known evaluator defect
-  (`issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`)
-  — write it as a named fn referenced from the impl entry (the two-step
-  spelling below):
+  trait's ensures under the trait's requires). Both the INLINE spelling
+  (clauses on the fn-type inside the impl entry) and the two-step spelling
+  work — the former used to trip
+  `issues/fixed/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
+  (FIXED: the trait entry's expected fn type no longer reaches the body's
+  contract-guard operators); the two-step form below is still the
+  battle-tested spelling:
 
 ```rust
 ClampBound :: trait(
@@ -719,8 +720,29 @@ impl(i32, ClampBound(get : get_impl));
   the label, the return value is not nameable in `ensures(...)`.
 - `pragma(Pragma.NoContracts);` erases contracts; `pragma(Pragma.Verify);`
   parses but warns "verify mode not implemented".
-- `std/spec/` exposes refinement aliases (`NonZero`, `Bounded`,
-  `Positive`, …) — Phase 0 they are plain aliases for the base type.
+- **`std/spec/` refinement families (V6 task 3 rework):** `NonZero(T)`,
+  `Bounded(T, lo, hi)`, `Positive(T)`, `Even(T)`, … are REAL refinement
+  types now — each alias spells its predicate ghost INSIDE the alias body,
+  with the alias's comptime `T` (and `lo`/`hi`) in scope at ghost creation,
+  so every `NonZero(i32)` evaluation creates a fully concrete predicate.
+  That alias-body shape is the generic-refinement pattern:
+
+```rust
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
+NzI32 :: NonZero(i32);
+safe_div :: (fn(num : i32, denom : NzI32) -> i32)(i32(100) / denom);
+```
+
+  Composition (`refine(refine(T, p), q)`) acts as the CONJUNCTION — the
+  verifier assumes/proves every predicate in the chain; the type stays
+  nested-distinct. Construction goes through the runtime gates
+  (`check_non_zero(x)` / `check_bounded(x, lo, hi)` return
+  `Option(Refined)`) or the trusted casts (`unchecked_non_zero(x)`,
+  `unchecked(p, x)` under `pragma(Pragma.AllowUnsafe)`). PITFALL: a
+  comptime-returning function needs ALL parameters comptime — the
+  wrapper's predicate parameter is `comptime(p)`; and a comptime `p` can
+  never be CALLED at runtime, which is why the family gates spell their
+  predicates inline instead of taking the ghost as a value.
 
 ## Common pitfalls
 

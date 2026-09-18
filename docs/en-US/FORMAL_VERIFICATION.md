@@ -165,8 +165,29 @@ caller does not poison the callee. `refine(T)` with no predicate is a
 bare alias carrying no obligation. The refinement can be spelled
 inline in the parameter annotation or through a NAMED alias —
 `NonZeroI32 :: refine(i32, non_zero)` then `d : NonZeroI32` (the alias
-binds the refinement type itself; the std/spec `NonZero(i32)`
-constructor arrives with that module's rework).
+binds the refinement type itself).
+
+**The std/spec families are real refinements.** `NonZero(T)`,
+`Bounded(T, lo, hi)`, `Positive(T)`, `Even(T)`, … attach concrete
+predicates by spelling the predicate ghost INSIDE the alias body — the
+alias's comptime parameters are in scope at ghost creation, so each
+`NonZero(i32)` evaluation creates a fully concrete predicate:
+
+```rust
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
+```
+
+Composition — `refine(refine(T, p), q)` — acts as the conjunction: the
+verifier assumes/proves every predicate in the chain (the type itself
+stays nested-distinct). Values are constructed through the runtime
+gates — `check_non_zero(x)` / `check_bounded(x, lo, hi)` return
+`Option(Refined)` — or the trusted casts `unchecked_non_zero(x)` /
+`unchecked(p, x)` (pair with `pragma(Pragma.AllowUnsafe)`). A
+comptime-returning function requires all parameters comptime, so the
+general wrapper spells its predicate parameter `comptime(p)`; a
+comptime predicate can never be *called* at runtime, which is why the
+family gates spell their predicates inline rather than taking the ghost
+as a runtime value.
 
 ## Modes
 
