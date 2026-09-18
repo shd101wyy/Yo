@@ -466,6 +466,17 @@ VerifyFnReport :: ref(
     subset_source : String
   )
 );
+/// True when a report passed WITHOUT proving anything: outcome `ok` and an
+/// empty obligation list means the body generated no obligation at all (no
+/// index, no division, no shift, no assert, no contract), not that a proof
+/// succeeded. Both renderers ask this one function so the text and the JSON
+/// can never disagree, and so the self-verification ratchet
+/// (plans/SELF_VERIFICATION.md) counts only functions that discharged
+/// something. See
+/// `issues/fixed/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md`.
+verify_report_is_vacuous :: (fn(rp : VerifyFnReport) -> bool)(
+  (rp.outcome == "ok") && (rp.obligations.len() == usize(0))
+);
 /// Verify every task the evaluator recorded (drains the registry). Each
 /// task symbolically executes once (`verify_function_body`), then every
 /// obligation runs through the same cache → encode → spawn → parse
@@ -781,6 +792,7 @@ export(
   verifier_harness_self_test,
   VerifyFnObligation,
   VerifyFnReport,
+  verify_report_is_vacuous,
   verify_registered_functions,
   verify_and_strip_tasks,
   unmangle_for_display

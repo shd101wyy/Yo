@@ -64,26 +64,66 @@ First blocking construct per function:
 | 26 | field/method access |
 | 7 | `while` without a leading `invariant(...)` |
 
+**Re-measured by M0's own sweep** (`scripts/verify-src-sweep.sh`, the
+tree-built binary `0.2.36-16-gc4fa8b4b8` rather than the seed): 3,673 functions,
+52 `ok` of which **50 are vacuous**, 2 proved, 196 s. The proved count — the one
+the ratchet tracks — is identical; the task count differs because the tree is 16
+commits ahead of the seed that produced the first table. Read the numbers as a
+pair: the seed's view and the tree's view of the same source.
+
 Two report defects found by the sweep, filed and fixed in M0:
-`issues/verify-report-fn-id-carries-file-scheme-absolute-path.md` (48 of
+`issues/fixed/verify-report-fn-id-carries-file-scheme-absolute-path.md` (48 of
 57 `ok` ids print as `fn@file:///<abs>/…`) and
-`issues/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md`
+`issues/fixed/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md`
 (55 of 57 `ok` are vacuous).
+
+### Verifying the compiler is memory-bound — measured 2026-09-18 (M0)
+
+| scope | peak RSS | wall |
+| --- | --- | --- |
+| whole tree (`./src`) | **9.33 GB** | 195 s |
+| `./src/verifier` | 8.18 GB | 50 s |
+| `./src/types` | 6.72 GB | 37 s |
+| front end (5 modules, chunked) | **1.88 GB** | 23 s |
+| one module (`./src/lexer.yo`) | 1.58 GB | 5 s |
+
+This is a campaign-shaping constraint, found the hard way: M0's first CI run
+of the whole-tree sweep died at 11 minutes with `exit code 143` and *"The
+runner has received a shutdown signal"* — a hosted runner cannot hold 9.3 GB.
+
+**Chunking is not a cure by itself.** A chunk pays for its whole import
+closure, so `src/verifier` alone is still 8.2 GB; only the front end, whose
+closure is small, is cheap. So:
+
+- **CI sweeps the modules being annotated** (today the front end, M2's target),
+  and the scope widens as the campaign climbs. The ratchet compares only
+  modules the sweep actually covered, so narrowing the scope can never fake a
+  regression, and `--record` merges rather than truncating.
+- **The whole-tree number is taken deliberately** — locally or on a big
+  machine — with `scripts/verify-src-sweep.sh` (no `--path`).
+- **Lever L8 (incremental `yo verify`) is re-ranked.** It was filed as a speed
+  lever for M3; it is really what makes verifying the whole compiler possible
+  in CI at all. The per-function skip must avoid holding every function's
+  state at once, not merely avoid re-solving.
+- Open question 1 (`verify` vs `verify+` for `src/`) now has a second axis:
+  whichever mode `src/` adopts, `yo check ./src` must not pay 9.3 GB.
 
 ## What the compiler needs from the verifier — the census
 
-A regex census of the 3,798 `fn(...)` signatures in `src/` (a function is
-counted once per kind it needs; 19% need none of them):
+`scripts/verify_src_census.py` (M0) over the 3,799 `fn(...)` signatures in
+`src/` — a function counts once per kind it needs; 19.4% need none of them.
+The numbers below are the tool's, so they are reproducible and re-measurable
+after every lever:
 
 | Share | Signatures that take | Verifier work it implies |
 | --- | --- | --- |
-| 43% | `str` / `String` | strings as first-class subset values (Seq of bytes) — lever L1 |
-| 47% | `AstExpr` / `ExprInfo` / `TypeValue` / `EvalValue` (`ref(enum)`) | **immutable reference types as datatypes** — lever L3 |
-| 20% | `ArrayList` / `HashMap` / `HashSet` (`ref(struct)` over raw buffers) | collections through their std contracts — lever L4 |
-| 14% | `EvalContext` / `Environment` (`ref(struct)`, mutated in place at 646 sites) | the mutable-heap model — lever L6 |
-| 14% | `Exception` (1,413 `exn.throw` sites) | exceptions as exit paths — lever L2 |
-| 5% | `Io` | not verified, by design (effects are the frame rule) |
-| 3% / 1% | `own`/`inout` params / closures | already in the subset / stays out |
+| 43.5% | `str` / `String` | strings as first-class subset values (Seq of bytes) — lever L1 |
+| 43.8% | `AstExpr` / `ExprInfo` / `TypeValue` / `EvalValue` (`ref(enum)`) | **immutable reference types as datatypes** — lever L3 |
+| 20.1% | `ArrayList` / `HashMap` / `HashSet` (`ref(struct)` over raw buffers) | collections through their std contracts — lever L4 |
+| 14.0% | `EvalContext` / `Environment` (`ref(struct)`, mutated in place at 646 sites) | the mutable-heap model — lever L6 |
+| 13.7% | `Exception` (1,413 `exn.throw` sites) | exceptions as exit paths — lever L2 |
+| 4.6% | `Io` | not verified, by design (effects are the frame rule) |
+| 2.9% / 0.6% | `own`/`inout` params / closures | already in the subset / stays out |
 
 Other sizes that shape the plan: **3,382 `while` loops** (each needs an
 invariant in `verify` mode), **285 module-level mutable registries**
@@ -206,8 +246,9 @@ new `ok`-with-obligations count in its PR description.
   clauses. The user-written `invariant(...)` stays authoritative when
   present. Without L7, M4 is 3,382 hand-written invariants; with it, the
   hand-written ones are the interesting few.
-- **L8 Incremental `yo verify`.** The cache is per query; add a per-function
-  skip keyed on the function's source hash + callee contract set +
+- **L8 Incremental `yo verify`** (re-ranked by M0's memory measurement above:
+  this is a feasibility lever, not only a speed one). The cache is per query;
+  add a per-function skip keyed on the function's source hash + callee contract set +
   solver pin (the `INCREMENTAL_COMPILATION_ZIG_LESSONS.md` per-definition
   hash), so `yo check ./src` under `Pragma.Verify` pays only for edited
   functions. Needed before any `src/` module opts in by default.

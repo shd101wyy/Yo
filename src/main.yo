@@ -86,7 +86,8 @@ pragma(Pragma.AllowUnsafe);
   verify_registered_functions,
   verify_and_strip_tasks,
   VerifyResult,
-  VerifyFnReport
+  VerifyFnReport,
+  verify_report_is_vacuous
 } :: import("./verifier/driver.yo");
 { set_verify_mode_override, set_verify_target_paths, take_verify_tasks } :: import("./evaluator/builtins/contracts.yo");
 { ensure_z3 } :: import("./verifier/z3.yo");
@@ -1623,6 +1624,7 @@ _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
   ks2.push(String.from("fn_id"));
   ks2.push(String.from("mode"));
   ks2.push(String.from("outcome"));
+  ks2.push(String.from("vacuous"));
   ks2.push(String.from("obligations"));
   ks2.push(String.from("subset_construct"));
   ks2.push(String.from("subset_source"));
@@ -1630,6 +1632,11 @@ _verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
   vs2.push(JsonValue.Str(rp.fn_id.clone()));
   vs2.push(JsonValue.Str(rp.mode.clone()));
   vs2.push(JsonValue.Str(rp.outcome.clone()));
+  // An `ok` that discharged NOTHING proved nothing — it only means the body
+  // generated no obligation. Derived rather than stored so it cannot drift
+  // from the obligation list
+  // (issues/fixed/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md).
+  vs2.push(JsonValue.Bool(verify_report_is_vacuous(rp)));
   vs2.push(JsonValue.Array(obl_entries));
   vs2.push(JsonValue.Str(rp.subset_construct.clone()));
   vs2.push(JsonValue.Str(rp.subset_source.clone()));
@@ -1688,6 +1695,10 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
       println(
         `  n/a      ${rp.fn_id} [${rp.mode}] — no contracts; body outside the verifiable subset: ${rp.subset_construct}`
       );
+      ()
+    },
+    verify_report_is_vacuous(rp) => {
+      println(`  ok       ${rp.fn_id} [${rp.mode}] — no obligations`);
       ()
     },
     (rp.outcome == "ok") => {

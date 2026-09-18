@@ -1,0 +1,12 @@
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+
+Verdict :: enum(Proved(core : ArrayList(String)), Nope);
+
+main :: (fn() -> unit)({
+  // The declared payload is ArrayList(String); a String is passed instead.
+  v := Verdict.Proved(String.from("unsat"));
+  match(v, .Proved(_) => println(`proved`), .Nope => println(`nope`));
+});
+export(main);
