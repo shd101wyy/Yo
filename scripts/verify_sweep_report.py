@@ -153,7 +153,17 @@ def main() -> int:
             current[r["module"]] += 1
 
     if args.record:
-        write_baseline(args.baseline, dict(current))
+        # Merge: a partial sweep records what it measured and leaves every
+        # module it did not sweep untouched.
+        merged = read_baseline(args.baseline)
+        swept_now = {r["module"] for r in rows}
+        for module in swept_now:
+            count = current.get(module, 0)
+            if count:
+                merged[module] = count
+            else:
+                merged.pop(module, None)
+        write_baseline(args.baseline, merged)
         print(f"\n  recorded baseline -> {args.baseline} ({proved} proved)")
         return 0
 
@@ -162,13 +172,20 @@ def main() -> int:
 
     refuted = [r for r in rows if r["outcome"] == "refuted"]
     baseline = read_baseline(args.baseline)
+    # A module absent from THIS report was not swept (the sweep may cover one
+    # subtree — verifying the whole tree peaks at ~9.3 GB, see
+    # plans/SELF_VERIFICATION.md). Comparing it against the baseline would
+    # report a regression for work that simply was not measured.
+    swept = {r["module"] for r in rows}
     regressions = []
     for module, was in sorted(baseline.items()):
+        if module not in swept:
+            continue
         now = current.get(module, 0)
         if now < was:
             regressions.append((module, was, now))
     gains = []
-    for module in sorted(set(current) | set(baseline)):
+    for module in sorted(swept):
         was, now = baseline.get(module, 0), current.get(module, 0)
         if now > was:
             gains.append((module, was, now))
@@ -191,7 +208,8 @@ def main() -> int:
 
     if failed:
         return 1
-    print(f"\n  ratchet OK ({proved} proved, baseline {sum(baseline.values())})")
+    covered = sum(v for m, v in baseline.items() if m in swept)
+    print(f"\n  ratchet OK ({proved} proved; baseline {covered} over the {len(swept)} module(s) swept)")
     return 0
 
 

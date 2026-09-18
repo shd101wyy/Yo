@@ -593,8 +593,20 @@ jobs:
   # verifier improvement (a subset lever) only moves them after the next seed
   # bump; a SOURCE annotation moves them immediately, which is what the ratchet
   # is for.
+  #
+  # SCOPE — why this is not `./src`. Verifying the whole compiler in one
+  # process peaks at 9.3 GB (measured 2026-09-18; src/verifier alone is 8.2 GB,
+  # so chunking is not a cure — a chunk pays for its whole import closure).
+  # A hosted runner cannot hold that: the first run of this job died at 11
+  # minutes with "The runner has received a shutdown signal" and exit 143.
+  # CI therefore sweeps the FRONT END (~1.9 GB, seconds), which is exactly the
+  # set milestone M2 annotates; the whole-tree number is taken deliberately,
+  # locally or on a bigger machine, with `scripts/verify-src-sweep.sh`. The
+  # ratchet only compares modules the sweep actually covered, so narrowing the
+  # scope can never fake a regression. Widening this list is what makes the
+  # campaign's later milestones gate themselves.
   verify-src:
-    name: Self-verification sweep (yo verify ./src, ratcheted)
+    name: Self-verification sweep (front end, ratcheted)
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
@@ -639,8 +651,14 @@ jobs:
       - name: Signature census (which lever unblocks how much)
         run: python3 scripts/verify_src_census.py
 
-      - name: Sweep ./src and ratchet
-        run: bash scripts/verify-src-sweep.sh
+      - name: Sweep the front end and ratchet
+        run: |
+          bash scripts/verify-src-sweep.sh \
+            --path ./src/lexer.yo \
+            --path ./src/token.yo \
+            --path ./src/parser.yo \
+            --path ./src/expr.yo \
+            --path ./src/formatter.yo
 
       - name: Upload the sweep
         if: always()

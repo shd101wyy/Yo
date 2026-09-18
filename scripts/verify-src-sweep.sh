@@ -26,7 +26,7 @@ cd "$ROOT" || exit 2
 YO="${YO:-yo}"
 OUT="${OUT:-yo-out/verify-sweep}"
 BASELINE="${BASELINE:-scripts/bootstrap/verify-src-baseline.tsv}"
-TARGET="./src"
+PATHS=()
 RECORD=0
 RATCHET=1
 
@@ -34,30 +34,42 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --record) RECORD=1; shift ;;
     --no-ratchet) RATCHET=0; shift ;;
-    --path) TARGET="$2"; shift 2 ;;
+    --path) PATHS+=("$2"); shift 2 ;;
     --baseline) BASELINE="$2"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "verify-src-sweep: unknown option '$1'" >&2; exit 2 ;;
   esac
 done
 
+[ ${#PATHS[@]} -eq 0 ] && PATHS=("./src")
+
 mkdir -p "$OUT"
 RAW="$OUT/report.json"
 TSV="$OUT/outcomes.tsv"
 
-echo "verify-src-sweep: $YO verify $TARGET  (out: $OUT)"
+# One `yo verify` process per path, merged. Verifying the WHOLE tree in one
+# process peaks at ~9.3 GB (measured 2026-09-18 — see
+# plans/SELF_VERIFICATION.md), which no hosted CI runner can hold, so the
+# sweep is chunkable and CI sweeps the modules being annotated. Chunking is
+# not a memory cure by itself: a chunk pays for its whole import closure
+# (src/verifier alone peaks at 8.2 GB), but the front end is ~1.9 GB.
+echo "verify-src-sweep: $YO verify ${PATHS[*]}  (out: $OUT)"
 START=$(date +%s)
-# `yo verify` prints check progress on stdout before the JSON object; the
-# extractor below takes the report from the first `{"solver"` onward.
-"$YO" verify "$TARGET" --format json --std-path ./std > "$RAW" 2>"$OUT/stderr.log"
-RC=$?
+: > "$OUT/stderr.log"
+PARTS=()
+for p in "${PATHS[@]}"; do
+  part="$OUT/report.$(echo "$p" | tr '/.' '__').json"
+  "$YO" verify "$p" --format json --std-path ./std > "$part" 2>>"$OUT/stderr.log"
+  rc=$?
+  if ! grep -q '{"solver"' "$part"; then
+    echo "verify-src-sweep: FAILED — no JSON report for '$p' (rc=$rc)" >&2
+    tail -20 "$OUT/stderr.log" >&2
+    exit 2
+  fi
+  PARTS+=("$part")
+done
 ELAPSED=$(( $(date +%s) - START ))
-
-if ! grep -q '{"solver"' "$RAW"; then
-  echo "verify-src-sweep: FAILED — no JSON report in $RAW (rc=$RC)" >&2
-  tail -20 "$OUT/stderr.log" >&2
-  exit 2
-fi
+python3 scripts/verify_sweep_merge.py --out "$RAW" "${PARTS[@]}"
 
 python3 scripts/verify_sweep_report.py \
   --report "$RAW" --tsv "$TSV" --baseline "$BASELINE" \

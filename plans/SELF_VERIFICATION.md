@@ -77,6 +77,37 @@ Two report defects found by the sweep, filed and fixed in M0:
 `issues/fixed/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md`
 (55 of 57 `ok` are vacuous).
 
+### Verifying the compiler is memory-bound — measured 2026-09-18 (M0)
+
+| scope | peak RSS | wall |
+| --- | --- | --- |
+| whole tree (`./src`) | **9.33 GB** | 195 s |
+| `./src/verifier` | 8.18 GB | 50 s |
+| `./src/types` | 6.72 GB | 37 s |
+| front end (5 modules, chunked) | **1.88 GB** | 23 s |
+| one module (`./src/lexer.yo`) | 1.58 GB | 5 s |
+
+This is a campaign-shaping constraint, found the hard way: M0's first CI run
+of the whole-tree sweep died at 11 minutes with `exit code 143` and *"The
+runner has received a shutdown signal"* — a hosted runner cannot hold 9.3 GB.
+
+**Chunking is not a cure by itself.** A chunk pays for its whole import
+closure, so `src/verifier` alone is still 8.2 GB; only the front end, whose
+closure is small, is cheap. So:
+
+- **CI sweeps the modules being annotated** (today the front end, M2's target),
+  and the scope widens as the campaign climbs. The ratchet compares only
+  modules the sweep actually covered, so narrowing the scope can never fake a
+  regression, and `--record` merges rather than truncating.
+- **The whole-tree number is taken deliberately** — locally or on a big
+  machine — with `scripts/verify-src-sweep.sh` (no `--path`).
+- **Lever L8 (incremental `yo verify`) is re-ranked.** It was filed as a speed
+  lever for M3; it is really what makes verifying the whole compiler possible
+  in CI at all. The per-function skip must avoid holding every function's
+  state at once, not merely avoid re-solving.
+- Open question 1 (`verify` vs `verify+` for `src/`) now has a second axis:
+  whichever mode `src/` adopts, `yo check ./src` must not pay 9.3 GB.
+
 ## What the compiler needs from the verifier — the census
 
 `scripts/verify_src_census.py` (M0) over the 3,799 `fn(...)` signatures in
@@ -215,8 +246,9 @@ new `ok`-with-obligations count in its PR description.
   clauses. The user-written `invariant(...)` stays authoritative when
   present. Without L7, M4 is 3,382 hand-written invariants; with it, the
   hand-written ones are the interesting few.
-- **L8 Incremental `yo verify`.** The cache is per query; add a per-function
-  skip keyed on the function's source hash + callee contract set +
+- **L8 Incremental `yo verify`** (re-ranked by M0's memory measurement above:
+  this is a feasibility lever, not only a speed one). The cache is per query;
+  add a per-function skip keyed on the function's source hash + callee contract set +
   solver pin (the `INCREMENTAL_COMPILATION_ZIG_LESSONS.md` per-definition
   hash), so `yo check ./src` under `Pragma.Verify` pays only for edited
   functions. Needed before any `src/` module opts in by default.
