@@ -180,7 +180,12 @@ expensive — with probes and a Rust/Swift comparison),
 mechanism was built and rejected twice; kept because the failure modes
 generalize) and
 [`backlog/ZEROLANG_AGENT_FIRST_LESSONS.md`](backlog/ZEROLANG_AGENT_FIRST_LESSONS.md)
-(a keep/reject audit, explicitly not a commitment). Three landed 2026-09-11
+(a keep/reject audit, explicitly not a commitment) and its sibling
+[`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
+(PROPOSED 2026-09-18: what Yo takes from Bend 2 — `law(...)` claims outside
+the code, lemmas as contracted `ghost_fn`s proved by induction, a
+`yo verify --strict` gate that fails on `assumed()`, `yo guide`/`yo std`, an
+evals corpus — with implementation phases B0–B6 another agent can pick up). Three landed 2026-09-11
 alongside `reference/ASYNC_ITERATION_STREAM.md`, each parking a piece of it
 with the blocker measured:
 [`backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`](backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md)
