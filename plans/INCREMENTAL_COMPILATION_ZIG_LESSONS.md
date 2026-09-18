@@ -713,6 +713,19 @@ Design:
    that restarts the process cleanly when exceeded (the "counter-triggered
    self-restart valve" already noted as the fallback in
    `INCREMENTAL_COMPILATION.md`). Report RSS per round under `--profile`.
+   **LANDED 2026-09-18: the valve is a TRUE execve restart — the test
+   runner's fires at file boundaries past YO_TEST_MAX_RSS_MB (default
+   4096, `--resume-from`/`--accum-*` forwarding, #765), and
+   `yo build --watch --max-rss-mb N` arms the same at EDIT-round
+   boundaries (round 1 is the baseline, not accumulation — a check there
+   thrashes; measured 41 restarts in 120 s before the scoping). RSS per
+   round is reported under `--profile` in BOTH loops (`profile: watch
+   round N <wall> rss=…MB` / the test runner's per-file lines). The
+   engine is `_exec_argv` (main.yo): execve, same pid, image replaced —
+   the only CLEAN generation boundary yo-self has (an in-process mm_reset
+   splits the universe; a spawn-and-wait chain holds every parent).
+   What remains of "purge, not just invalidate" is the owner-tagged
+   registry purge work — also what un-gating step 3 needs.**
 5. **No daemon yet.** A background `yo` server that ordinary `yo build`
    invocations talk to is the Zig-adjacent endgame (and what an IDE build
    integration wants), but it adds a protocol, lifecycle and a staleness

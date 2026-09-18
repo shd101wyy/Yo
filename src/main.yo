@@ -4244,6 +4244,52 @@ _current_rss_mb :: (fn() -> usize)({
     .None => usize(0)
   )
 });
+/// §7 item 4: replace THIS process's image with `argv` via execve — the
+/// clean generation boundary (a waiting parent RETAINS its evaluator
+/// universe; only a fresh image releases it). Same pid, stdio inherited,
+/// callers keep watching one process and get the final exit code. Only ever
+/// RETURNS on execve failure, and then exits 1 loudly. The argv C-string
+/// storage is deliberately leaked — it must outlive execve, and on the
+/// failure path the process is about to die anyway. The argument is the
+/// C-string storage (one `to_cstr()` ArrayList per arg, in order).
+_exec_argv :: (fn(exec_cstrs : ArrayList(ArrayList(u8))) -> unit)({
+  argc := exec_cstrs.len();
+  argv_bytes := (sizeof(?*u8) * (argc + usize(1)));
+  argv_raw := valve_malloc(argv_bytes).unwrap();
+  exec_buf := (*?*u8)(argv_raw);
+  (xj : usize) = usize(0);
+  while(xj < argc, {
+    match(
+      exec_cstrs.get(xj),
+      .Some(cs) => match(
+        cs.ptr(),
+        .Some(p) => {
+          (exec_buf.add(xj)).* = .Some(p);
+        },
+        .None => {
+          (exec_buf.add(xj)).* = .None;
+        }
+      ),
+      .None => {
+        (exec_buf.add(xj)).* = .None;
+      }
+    );
+    xj = (xj + usize(1));
+  });
+  (exec_buf.add(argc)).* = .None;
+  prog_slot := (exec_buf.add(usize(0))).*;
+  match(
+    prog_slot,
+    .Some(prog) => {
+      rc := unsafe(execve((*char)(prog), (**char)(exec_buf), (**char)(environ)));
+      eprintln(`exec-restart: execve failed rc=${rc.to_string()} — exiting instead`);
+      unsafe(exit(int(1)));
+    },
+    .None => {
+      unsafe(exit(int(1)));
+    }
+  );
+});
 run_test :: (
   fn(
     argv : ArrayList(String),
@@ -5199,63 +5245,24 @@ run_test :: (
       // processes (measured 2026-09-18, the second WSL crash's shape).
       // Replacing the image releases every byte of it, keeps the SAME pid
       // (so the caller still watches one process and gets the final exit
-      // code), and inherits the open stdio. execve only ever RETURNS on
-      // failure — fall back to a hard exit so the failure is loud.
-      exec_argv := ArrayList(ArrayList(u8)).new();
+      // code), and inherits the open stdio — see _exec_argv.
+      exec_cstrs := ArrayList(ArrayList(u8)).new();
       (xei : usize) = usize(0);
       while(xei < argv.len(), {
         match(
           argv.get(xei),
-          .Some(xa) => exec_argv.push(xa.clone().to_cstr()),
+          .Some(xa) => exec_cstrs.push(xa.clone().to_cstr()),
           .None => ()
         );
         xei = (xei + usize(1));
       });
-      exec_argv.push(String.from("--resume-from").to_cstr());
-      exec_argv.push(next_global.to_string().to_cstr());
-      exec_argv.push(String.from("--accum-passed").to_cstr());
-      exec_argv.push(passed.to_string().to_cstr());
-      exec_argv.push(String.from("--accum-failed").to_cstr());
-      exec_argv.push(failed.to_string().to_cstr());
-      argc := exec_argv.len();
-      argv_bytes := (sizeof(?*u8) * (argc + usize(1)));
-      argv_raw := valve_malloc(argv_bytes).unwrap();
-      exec_argv_buf := (*?*u8)(argv_raw);
-      (xj : usize) = usize(0);
-      while(xj < argc, {
-        match(
-          exec_argv.get(xj),
-          .Some(cs) => match(
-            cs.ptr(),
-            .Some(p) => {
-              (exec_argv_buf.add(xj)).* = .Some(p);
-            },
-            .None => {
-              (exec_argv_buf.add(xj)).* = .None;
-            }
-          ),
-          .None => {
-            (exec_argv_buf.add(xj)).* = .None;
-          }
-        );
-        xj = (xj + usize(1));
-      });
-      (exec_argv_buf.add(argc)).* = .None;
-      prog_slot := (exec_argv_buf.add(usize(0))).*;
-      match(
-        prog_slot,
-        .Some(prog) => {
-          envp_c := (**char)(environ);
-          argv_c := (**char)(exec_argv_buf);
-          prog_c := (*char)(prog);
-          rc := unsafe(execve(prog_c, argv_c, envp_c));
-          eprintln(`test: execve failed rc=${rc.to_string()} — exiting instead`);
-          unsafe(exit(int(1)));
-        },
-        .None => {
-          unsafe(exit(int(1)));
-        }
-      );
+      exec_cstrs.push(String.from("--resume-from").to_cstr());
+      exec_cstrs.push(next_global.to_string().to_cstr());
+      exec_cstrs.push(String.from("--accum-passed").to_cstr());
+      exec_cstrs.push(passed.to_string().to_cstr());
+      exec_cstrs.push(String.from("--accum-failed").to_cstr());
+      exec_cstrs.push(failed.to_string().to_cstr());
+      _exec_argv(exec_cstrs);
     });
     if(test_profile, {
       eprintln(`profile: file ${file} ${_fmt_profile_ms(file_t0.elapsed().as_nanos())} rss=${_current_rss_mb().to_string()}MB`);
@@ -5823,6 +5830,10 @@ run_build_cmd :: (
   (locked : bool) = false;
   (offline : bool) = false;
   (watch : bool) = false;
+  // §7 item 4: --max-rss-mb N arms the watch-round valve (0 = off).
+  (max_rss_mb : usize) = usize(0);
+  // --profile: per-round wall + RSS lines in the watch loop.
+  (profile : bool) = false;
   (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
@@ -5890,6 +5901,9 @@ run_build_cmd :: (
       ((arg == "--verbose") || (arg == "-v")) => {
         verbose = true;
       },
+      (arg == "--profile") => {
+        profile = true;
+      },
       (arg == "--summary") => {
         summary = true;
       },
@@ -5919,6 +5933,18 @@ run_build_cmd :: (
       },
       (arg == "--watch") => {
         watch = true;
+      },
+      // §7 item 4: the watch-round RSS valve. `--max-rss-mb N` re-execs the
+      // whole watch process at a round boundary once its resident set
+      // exceeds N MB — the same clean generation boundary the test runner's
+      // valve uses (see _exec_argv). A watch process ACCUMULATES every
+      // round's evaluator universe against the shared registries; the
+      // artifact cache makes the fresh image's first round cheap (unchanged
+      // artifacts are inputs-sha256 hits). Default 0 = off (opt-in).
+      (arg == "--max-rss-mb") => {
+        mv := _arg_val_req(argv, ai, String.from("--max-rss-mb"), exn);
+        max_rss_mb = match(mv.parse_u64(), .Some(n) => usize(n), .None => usize(0));
+        ai = (ai + usize(1));
       },
       (arg == "--poll-ms") => {
         pv := _arg_val_req(argv, ai, String.from("--poll-ms"), exn);
@@ -5999,6 +6025,18 @@ run_build_cmd :: (
   // compile) is exactly what a warm parent would violate. A failing round
   // does not exit the loop.
   _first := _build_round_watch(opts, io);
+  // §7 item 4, applied at the EDIT-ROUND boundaries: report RSS per round
+  // under --profile, and past --max-rss-mb re-exec the whole watch process
+  // (see the flag's parse arm). Round 1's universe is the BASELINE, not
+  // accumulation — a valve check there thrashes (a fresh image rebuilds the
+  // same universe and is instantly over again, measured with a 1 MB
+  // threshold: 41 restarts in 120 s, none productive). The valve therefore
+  // fires only after an EDIT-triggered round, when the growth being bounded
+  // actually happened.
+  (round_no : usize) = usize(1);
+  if(profile, {
+    eprintln(`profile: watch round 1 rss=${_current_rss_mb().to_string()}MB`);
+  });
   watch_files := collect_check_files(String.from("."), ArrayList(String).new(), io, exn);
   stats := HashMap(String, String).new();
   watch_snapshot(watch_files, stats, io);
@@ -6006,7 +6044,26 @@ run_build_cmd :: (
   while(true, {
     changed := wait_for_change(watch_files, stats, poll_ms, io);
     println(`build: ${changed.len().to_string()} file(s) changed — rebuilding`);
+    round_t0 := Instant.now();
     _ok := _build_round_watch(opts, io);
+    round_no = (round_no + usize(1));
+    if(profile, {
+      eprintln(`profile: watch round ${round_no.to_string()} ${_fmt_profile_ms(round_t0.elapsed().as_nanos())} rss=${_current_rss_mb().to_string()}MB`);
+    });
+    if((max_rss_mb > usize(0)) && (_current_rss_mb() > max_rss_mb), {
+      eprintln(`build: resident ${_current_rss_mb().to_string()} MB exceeds --max-rss-mb ${max_rss_mb.to_string()} — exec-restarting the watcher`);
+      watch_cstrs2 := ArrayList(ArrayList(u8)).new();
+      (wcj : usize) = usize(0);
+      while(wcj < argv.len(), {
+        match(
+          argv.get(wcj),
+          .Some(wb) => watch_cstrs2.push(wb.clone().to_cstr()),
+          .None => ()
+        );
+        wcj = (wcj + usize(1));
+      });
+      _exec_argv(watch_cstrs2);
+    });
     ()
   });
 });
