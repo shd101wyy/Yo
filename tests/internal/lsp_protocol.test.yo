@@ -12,11 +12,15 @@
 //!     (issues/fixed/lsp-completion-lists-compiler-temporaries.md);
 //!   - `analyze_document` keeps the parsed program and the partial ExprInfo
 //!     when evaluation fails, and reports `parsed == false` when parsing fails
-//!     (issues/fixed/lsp-analysis-state-lost-on-parse-and-eval-errors.md).
+//!     (issues/fixed/lsp-analysis-state-lost-on-parse-and-eval-errors.md);
+//!   - hover renders a contracted function's requires/ensures/return label
+//!     and the file's verification mode, and marks ghost_fn predicates
+//!     spec-only (FORMAL_VERIFICATION.md V7 task 1).
 { rune, String } :: import("std/string");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { assert, assert_eq } :: import("std/assert");
+{ JsonValue } :: import("std/encoding/json");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
@@ -145,5 +149,164 @@ test("analysis state survives evaluation and parse errors", {
       assert_eq(pe.exprs.len(), usize(0), "parse error: no program");
     },
     .None => assert(false, "parse error: no outcome")
+  );
+});
+
+// ---------------------------------------------------------------------------
+// V7 task 1 (FORMAL_VERIFICATION.md): hover on a contract-bearing function
+// shows its contracts + verification status.
+// ---------------------------------------------------------------------------
+_CONTRACT_DOC :: "pragma(Pragma.Verify);\n\nnon_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));\n\nsafe_div :: (fn(num : i32, requires(num > i32(0)), ensures(r > i32(0))) -> (r : i32))(num);\n\ntakes_nz :: (fn(d : refine(i32, non_zero)) -> i32)(d);\n\nmain :: (fn() -> i32)(safe_div(takes_nz(i32(3))));\n";
+
+/// The markdown `value` string out of a hover response
+/// ({contents: {kind, value}, range}). Matched one enum level at a time —
+/// nested patterns like `.Some(.Object(...))` do not parse.
+_hover_text :: (fn(h : Option(JsonValue)) -> String)({
+  (out : String) = String.new();
+  root := match(
+    h,
+    .Some(x) => x,
+    .None => {
+      return(out);
+    }
+  );
+  contents := match(
+    root,
+    .Object(ks, vs) => {
+      (found : Option(JsonValue)) = Option(JsonValue).None;
+      (i : usize) = usize(0);
+      while(i < ks.len(), {
+        match(
+          ks.get(i),
+          .Some(k) => {
+            if(k == String.from("contents"), {
+              match(
+                vs.get(i),
+                .Some(cv) => {
+                  found = Option(JsonValue).Some(cv);
+                },
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      match(
+        found,
+        .Some(f) => f,
+        .None => {
+          return(out);
+        }
+      )
+    },
+    _ => {
+      return(out);
+    }
+  );
+  match(
+    contents,
+    .Object(ks2, vs2) => {
+      (j : usize) = usize(0);
+      while(j < ks2.len(), {
+        match(
+          ks2.get(j),
+          .Some(k2) => {
+            if(k2 == String.from("value"), {
+              match(
+                vs2.get(j),
+                .Some(vv) => {
+                  match(
+                    vv,
+                    .Str(s) => {
+                      out = s.clone();
+                    },
+                    _ => ()
+                  );
+                },
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+        j = (j + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+
+test("hover shows contracts + verification status for a contracted function", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_CONTRACT_DOC), io), ioexn);
+  std_path := resolve_std_path();
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_CONTRACT_DOC), std_path.clone(), io),
+    .Some(oc) => {
+      assert(oc.ok && oc.parsed, "the contracted document analyzes ok");
+      lines := String.from(_CONTRACT_DOC).split(String.from("\n"));
+      // The call site `safe_div(` on the main line (row 8; the callee name
+      // starts at column 22).
+      hv := handle_hover(
+        String.from(_CONTRACT_DOC),
+        doc_path.clone(),
+        lines,
+        oc.exprs,
+        oc.info_table,
+        usize(8),
+        usize(22)
+      );
+      assert(hv.is_some(), "hover answers on a contracted callee");
+      text := _hover_text(hv);
+      assert(
+        text.contains(String.from("requires: num > i32(0)")),
+        `hover renders the requires clause, got: ${text}`
+      );
+      assert(
+        text.contains(String.from("ensures: r > i32(0)")),
+        `hover renders the ensures clause, got: ${text}`
+      );
+      assert(
+        text.contains(String.from("returns r")),
+        `hover renders the return label, got: ${text}`
+      );
+      assert(
+        text.contains(String.from("verification mode: verify")),
+        `hover names the file's verification mode (pragma(Verify)), got: ${text}`
+      );
+      // The ghost_fn predicate referenced by the refinement (row 6; the
+      // `non_zero` inside refine(i32, ...) starts at column 32).
+      hg := handle_hover(
+        String.from(_CONTRACT_DOC),
+        doc_path.clone(),
+        lines,
+        oc.exprs,
+        oc.info_table,
+        usize(6),
+        usize(32)
+      );
+      assert(hg.is_some(), "hover answers on a ghost_fn reference");
+      gtext := _hover_text(hg);
+      assert(
+        gtext.contains(String.from("ghost_fn (spec-only")),
+        `hover marks the ghost_fn as spec-only, got: ${gtext}`
+      );
+    },
+    .None => assert(false, "contracted document: no outcome")
   );
 });
