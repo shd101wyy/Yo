@@ -36,6 +36,20 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   switch-shaped plus a test-chain lowering for nested/literal/or/guard/range/
   string/tuple/struct patterns. P0 absorbs PR #661 and closes the
   exhaustiveness hole it leaves.
+- [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) —
+  ACTIVE 2026-09-18: **Yo verifies Yo.** The compiler as the verifier's
+  flagship user, as a ladder of claims true at every rung (M0 measure/ratchet,
+  M1 the semantic kernel, M2 the front end, M3 the verifier itself, M4
+  `yo verify --strict ./src` green, M5 proved passes). Measured start:
+  4,049 fns, 57 `ok`, 2 with a discharged obligation, 90% blocked at the
+  parameter gate; the census shows 47% of signatures take reference enums
+  that are never written through (datatypes, no heap model needed), and the
+  mutable heap is confined to `EvalContext`/`Environment`/globals/collections.
+  Levers L1–L9 (strings, exceptions as exit paths, immutable refs as
+  datatypes, collections via std contracts, globals as implicit state, the
+  mutable-heap model, invariant inference, incremental verify, laws). SMT
+  stays the backend; the foundations section answers "why not dependent
+  types / matching logic / abstract interpretation" per alternative.
 
 The formal-verification campaign's live state lives in its plan, not in a
 handover: [`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md)
@@ -180,7 +194,12 @@ expensive — with probes and a Rust/Swift comparison),
 mechanism was built and rejected twice; kept because the failure modes
 generalize) and
 [`backlog/ZEROLANG_AGENT_FIRST_LESSONS.md`](backlog/ZEROLANG_AGENT_FIRST_LESSONS.md)
-(a keep/reject audit, explicitly not a commitment). Three landed 2026-09-11
+(a keep/reject audit, explicitly not a commitment) and its sibling
+[`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
+(PROPOSED 2026-09-18: what Yo takes from Bend 2 — `law(...)` claims outside
+the code, lemmas as contracted `ghost_fn`s proved by induction, a
+`yo verify --strict` gate that fails on `assumed()`, `yo guide`/`yo std`, an
+evals corpus — with implementation phases B0–B6 another agent can pick up). Three landed 2026-09-11
 alongside `reference/ASYNC_ITERATION_STREAM.md`, each parking a piece of it
 with the blocker measured:
 [`backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`](backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md)

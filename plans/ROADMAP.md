@@ -73,6 +73,13 @@ Dafny-inspired, but built on assets Dafny lacks:
   model; `inout` params verify as pre/post value pairs (no separation logic
   needed for the mode-based borrows).
 - Design doc: extend `plans/backlog/FORMAL_VERIFICATION.md`.
+- **Yo verifies Yo** — ACTIVE 2026-09-18, [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md):
+  the compiler as the verifier's flagship user, on a ladder of claims that
+  is true at every rung (M1 the semantic kernel, M2 the front end, M3 the
+  verifier itself, M4 `yo verify --strict ./src` green modulo the listed
+  FFI boundary). Measured start: 4,049 fns, 2 with a discharged obligation.
+  Semantic preservation stays a non-goal; "verified" means what it means
+  for Dafny/SPARK programs.
 
 ## Phase 2 — Iteration speed (multiplies everything)
 

@@ -4,38 +4,6 @@ mode: agent
 
 You are a programming language and compiler expert.
 
-> **Translation note — `src/` means TWO different compilers depending on the era.
-> Read this before trusting any path in `plans/` or `issues/`.**
->
-> | you are reading | `src/` means | the Yo compiler is called |
-> | --- | --- | --- |
-> | live code, this file, `docs/`, `.github/` | **the Yo compiler** (current) | `src/` |
-> | `plans/`, `issues/`, `code-reviews/` | the **retired TypeScript** compiler | `yo-self/` |
->
-> The TypeScript compiler that lived in `src/`, with the whole bun/node root toolchain
-> (`package.json`, `bun.lock`, `tsconfig.json`, the `yo-cli` / `yo-cli.ps1` shims, …),
-> was **retired and deleted in P2.5** (`plans/archive/P2_RETIRE_SRC.md` item 2.5,
-> `plans/archive/P2_5_RETIRE_EXECUTION.md` — **LANDED**). It is frozen at the git tag
-> **`src-attic-final`**; check that tag out to read the old reference implementation.
->
-> The self-hosted compiler then **moved into the freed name**: `yo-self/` → `src/`
-> (P2.5 Group F, 2026-08-20). So a historical document saying "`src/evaluator/eval.ts`"
-> means the DELETED compiler, while "`yo-self/evaluator/eval.yo`" means what is now
-> `src/evaluator/eval.yo`. Those documents are **historical records and are not
-> rewritten** — translate as you read, using the table above.
->
-> **The file extension disambiguates, always.** The deleted compiler was TypeScript
-> and the current one is Yo, so `src/**.ts` is ALWAYS the retired implementation
-> (~276 live docs still cite it — cleaning those is P2.5 step 30, the docs sweep)
-> and `src/**.yo` is ALWAYS the current one. When a path's era is unclear, look at
-> the extension before anything else.
->
-> **"yo-self" survives as a NAME, not a path.** It still names the self-hosted compiler
-> in prose, in two REQUIRED CI check names ("Bootstrap fixpoint (yo-self self-compile)",
-> "Self-hosted `test` subcommand (yo-self tier-1 gates)") and in artifact names like
-> `/tmp/yo-self-bin`. Renaming those check names would remove two required status
-> checks and block every PR in the repository, so they are deliberately left alone.
-
 Detailed instructions for specific areas are in `.github/instructions/`. Always read and follow the relevant file before working in that area.
 
 | Area                             | Instruction file                                     |
@@ -47,536 +15,232 @@ Detailed instructions for specific areas are in `.github/instructions/`. Always 
 | Yo syntax rules                  | `.github/instructions/yo-syntax.instructions.md`     |
 | Documentation                    | `.github/instructions/documentation.instructions.md` |
 
+## Reading historical documents
+
+`plans/`, `issues/` and `code-reviews/` are historical records and are not rewritten. Translate as you read:
+
+- `src/**.ts` (and `bun`, `package.json`, `./yo-cli`) is the **retired TypeScript compiler**, deleted 2026-08-20 and frozen at the git tag `src-attic-final`. `src/**.yo` is always the current compiler. The file extension disambiguates.
+- `yo-self/` is today's `src/`; `yo-self/tests/` is today's `tests/internal/`; `./yo-cli <args>` is `yo <args>`; `src/tests/fixme.yo` is `tmp/fixme.yo`.
+- `open(...)` is pre-2026-09-10 spelling: a glob import is `{ ... } :: import("m")`, a module value destructures as `{ a, b } :: SomeModule`, a struct as `{ x, y } := s` (`plans/reference/REMOVE_OPEN_BUILTIN.md`).
+- `escape` is the old name of `unwind`; the `phase6*` test files were renamed to `quote_macro_eval`, `macro_expansion`, `ast_reflection`, `macro_helpers`.
+- "yo-self" survives as a NAME in two REQUIRED CI check names ("Bootstrap fixpoint (yo-self self-compile)", "Self-hosted `test` subcommand (yo-self tier-1 gates)") and in artifact names like `/tmp/yo-self-bin`. Renaming those checks would block every PR; leave them alone.
+
 ---
 
 ## Architecture
 
-The Yo compiler is **written in Yo**, lives in `src/`, and is self-hosting — the `yo` binary that compiles this tree was itself compiled from this tree. It compiles Yo source code to C11 via several pipeline stages, then hands the C to a system C compiler:
+The Yo compiler is **written in Yo**, lives in `src/`, and is self-hosting: the `yo` binary that compiles this tree was itself compiled from this tree. It compiles Yo to C11 and hands the C to a system C compiler:
 
 ```
 Yo source → Lexer → Parser → AST (expr.yo)
                                   ↓
                              Evaluator   ← compile-time evaluation, type checking, CTFE
                                   ↓
+                             Verifier    ← optional: Z3-backed contract proofs (src/verifier/)
+                                  ↓
                              Codegen     ← emits C11 code
                                   ↓
                           C compiler (clang/gcc/zig)
 ```
 
-Because it is self-hosting, building it needs an existing `yo`. That comes from a **seed
-release** — the published bundle of a previous version compiles the current tree — or, with
-no binary at all, from the published single-file `yo.c` (`scripts/make-portable-c.sh`,
-`plans/reference/PORTABLE_C_DISTRIBUTION.md`). `plans/archive/BOOTSTRAPPING.md` is the campaign record;
-`scripts/install.sh` installs a bundle; `build.yo` at the repo root is how the compiler
-builds itself (`yo build`).
+Building it needs an existing `yo`: a **seed release** (the previous published version) or, with no binary at all, the published single-file `yo.c` (`scripts/make-portable-c.sh`). `scripts/install.sh` installs a bundle; `build.yo` at the repo root is how the compiler builds itself (`yo build`). Record: `plans/archive/BOOTSTRAPPING.md`.
 
 ### Key directories
 
-| Path                                         | Role                                                                                                                                                                                                          |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/`                                   | **The Yo compiler**, written in Yo — the only compiler in this repo (bootstrap COMPLETE: full suite green, stage-2/stage-3 FIXPOINT HOLDS, CI-gated — record: `plans/archive/BOOTSTRAPPING.md`)                       |
-| `src/README.md`                          | Bootstrap status, layout, and test instructions                                                                                                                                                               |
-| `src/main.yo`                            | CLI entry point — the `yo` binary's argument parsing and subcommand dispatch                                                                                                                                  |
-| `src/lexer.yo`, `src/token.yo`       | Tokenizes Yo source into tokens                                                                                                                                                                               |
-| `src/parser.yo`                          | Parses tokens → AST                                                                                                                                                                                           |
-| `src/expr.yo`                            | Core AST node types (`Expr`, `ControlFlowKind`, `BuiltinKeywords`, …)                                                                                                                                         |
-| `src/expr_info.yo`                       | `ExprInfo` — the per-expression annotation side table the evaluator fills in and codegen reads                                                                                                                |
-| `src/evaluator/`                         | Compile-time evaluator — type checking, CTFE, trait resolution                                                                                                                                                |
-| `src/evaluator/exprs/`                   | Per-node evaluation logic (`begin.yo`, `cond.yo`, `unwind.yo`, …)                                                                                                                                             |
-| `src/evaluator/calls/`                   | Function call specialization and dispatch                                                                                                                                                                     |
-| `src/evaluator/effects/`                 | Algebraic effects analysis                                                                                                                                                                                    |
-| `src/codegen/`                           | C11 code generation                                                                                                                                                                                           |
-| `src/codegen/exprs/`                     | Per-node C emitter (`generation.yo`, `return.yo`, `async.yo`, …)                                                                                                                                              |
-| `src/codegen/async/`                     | Async/effect state-machine C emitter + the per-platform async I/O runtimes                                                                                                                                    |
-| `src/codegen/functions/`                 | Function-level C emitters                                                                                                                                                                                     |
-| `src/codegen/parallelism/`               | Parallelism runtime emitter                                                                                                                                                                                   |
-| `src/emitter.yo`                         | Core C emitter — the headers / declarations / code buffers everything writes into                                                                                                                             |
-| `src/types/`                             | Type value definitions and compatibility helpers                                                                                                                                                              |
-| `src/module_manager.yo`                  | "Evaluate a `.yo` file and read its exports" service — used by build/fetch/install/doc/test-runner/codegen; the demand module loader, cached prelude env, shared codegen `ExprInfoTable`, std-path resolution |
-| `src/formatter.yo`                       | `yo fmt` — the source formatter and its directory walker                                                                                                                                                      |
-| `src/build_runner.yo`                    | `yo build` — build execution engine, including the build DAG and its level-based scheduler, plus artifact compilation                                                                                         |
-| `src/manifest.yo`                        | `yo.toml` — the package manifest: parser, discovery (nearest manifest above a file), and the `import("name")` closure every command resolves through (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1/§4.5.1) |
-| `src/toml_edit.yo`                       | Comment-preserving `key = value` edits in a named TOML table — what `yo add`/`yo remove` write `yo.toml` with                                                                                       |
-| `src/install_command.yo`                 | `yo add` / `yo remove` / `yo install` / `yo update` CLI — package specifiers, the in-place `yo.toml` edit, `--locked`/`--offline`, `update --latest`; runs the resolver                                    |
-| `src/resolver.yo`                        | The dependency resolver (plan §4.2/§4.3): semver + Cargo range grammar, `git ls-remote` queries, per-package requirement unification (`choose_ref`), lock reuse, the graph walk that fetches and writes `yo.lock` v2 |
-| `src/fetch.yo`                           | Store primitives: `fetch_package` (commit decision, store reuse by `integrity`, bare-mirror fetch, extract, hash, land), content hashing, the `ls-remote --tags` index, the store `flock`, the projects registry, `yo cache gc` |
-| `src/lock_file.yo`                       | `yo.lock` v2 (`version = 2`, `[[package]]` graph with `source`/`commit`/`integrity`/`dependencies`) parse/write/compare                                                                                       |
-| `src/cache.yo`                           | Cache root + layout: `store/sha256/<hash>` trees (+ `.verified` markers), `git/<sha256(url)>.git` mirrors, `index/<sha256(url)>.tags`, `store.lock`, `projects`; version cache helpers |
-| `src/init.yo`                            | `yo init` — project scaffolding                                                                                                                                                                               |
-| `src/skills_command.yo`                  | `yo skills install` — copy bundled agent skills into the project's agent config dirs (restored from the TS-era `src/skills-command.ts`)                                                                        |
-| `src/cli_lang.yo`                        | CLI output language (`--lang` / `YO_LANG`, en + zh-CN) — `tr(en, zh)` selector used by help texts and command output                                                                                           |
-| `src/version.yo`                         | `.yo-version` discovery, parsing, validation                                                                                                                                                                  |
-| `src/version_cache.yo`                   | Release-bundle download from GitHub Releases, cache management, runtime detection                                                                                                                             |
-| `src/doc_command.yo`                     | `yo doc` CLI — documentation generation                                                                                                                                                                       |
-| `src/doc/`                               | Doc pipeline: extractor, builder, model, renderers                                                                                                                                                            |
-| `src/pkg_config.yo`                      | pkg-config integration for system libraries                                                                                                                                                                   |
-| `std/`                                       | Yo standard library (`.yo` source)                                                                                                                                                                            |
-| `std/build.yo`                               | Build system API (Project, Step, Executable, etc.)                                                                                                                                                            |
-| `build.yo`                                   | Repo-root build file — `yo build` compiles the compiler with itself into `yo-out/<target>/bin/yo`                                                                                                             |
-| `tests/`                                     | Integration test files (`*.test.yo`)                                                                                                                                                                          |
-| `tests/internal/`                            | Tests for the compiler itself (65 files; **was `yo-self/tests/` until 2026-08-05** — translate that path in older docs; see `src/README.md` for tiers & heavy files)                                      |
-| `scripts/cli-diff-test.sh`                   | Harness for CLI SUBCOMMANDS — runs a case in an isolated sandbox (own project dir, own `HOME`), comparing rc + stdout + both trees. With the TypeScript tree gone it scores against recorded goldens (`--record`)          |
-| `tests/cli-cases/`                           | The CLI corpus consumed by `scripts/cli-diff-test.sh`. Every case under it is live — there is no `pending/` holding area                                                                                              |
-| `plans/reference/BUILD_SYSTEM.md`                      | Build system design document                                                                                                                                                                                  |
-| `plans/reference/DEPENDENCY_MANAGEMENT.md`             | Dependency management design                                                                                                                                                                                  |
-| `plans/reference/VERSION_MANAGEMENT.md`                | `.yo-version` pinning and version cache design                                                                                                                                                                |
-| `plans/reference/HIGHER_KINDED_TYPES.md`               | HKT design & implementation (TypeApplication, partial application)                                                                                                                                            |
-| `plans/reference/FUNCTOR_APPLICATIVE_MONAD.md`         | Option/Result functional combinators plan                                                                                                                                                                     |
-| `plans/archive/BOOTSTRAPPING.md`                     | Bootstrap campaign record (GOAL ACHIEVED — fixpoint holds, suite green); umbrella over the CLOSED per-slice docs                                                                                              |
-| `plans/archive/SELF_HOSTING_COMPLETION.md`           | The self-hosting roadmap: P1 CLI parity (**COMPLETE**), P2 retire `src/`+bun (**COMPLETE**), P3 release bundles + install scripts (Koka model), P4 LSP + VS Code (**FEATURE-COMPLETE 2026-08-22**)                                              |
-| `plans/archive/P1_CLI_PARITY.md`                     | P1 record — full subcommand parity in `yo-self` (COMPLETE 2026-08-10); the method notes are still the reference for CLI-parity work                                                                           |
-| `plans/archive/P2_RETIRE_SRC.md`                     | P2 record — seed release, repo-root `build.yo`, CI migration, TS-only tests re-expressed in Yo, and the `src/` retirement itself (**LANDED**)                                                                 |
-| `plans/archive/P2_5_RETIRE_EXECUTION.md`             | The measured execution plan for the deletion — the audit, the nine prerequisites, and the step-by-step record (**LANDED**)                                                                                    |
-| `plans/archive/P3_DISTRIBUTION.md`                   | Release bundles, install scripts, `yo version` against GitHub Releases                                                                                                                                        |
-| `plans/archive/P4_LSP.md`                            | The LSP + VS Code phase — **FEATURE-COMPLETE 2026-08-22**: `yo lsp` serves stdio LSP with diagnostics at exact ranges, hover, definition, symbols, references, folding, rename, formatting, signature help and completion (`src/lsp/`, one module per feature); the extension carries a plain-JS client (`yo.binPath`). Remaining quality items (typed diagnostics channel, doc-comment plumbing) are listed in the plan header |
-| `plans/reference/MACRO_POLICY.md`                      | Macro keep-vs-delete audit + decision (LANDED 2026-08-21): keep macros, gate definitions behind `Pragma.AllowMacroDef`, remove std `try`, desugar `if`→`cond` at parse time (prelude `if` kept as seed fallback) |
-| `plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`      | Closed operator token set (fixes `**i32` maximal-munch ambiguity) + reserved-operator list; no-precedence stance AFFIRMED 2026-08-21, consensus-core alternative documented as deferred                        |
-| `plans/archive/FMT_PAREN_CANONICALIZATION.md` | REJECTED fmt paren removal (2026-08-21): fmt stays paren-preserving like gofmt; "don't write unnecessary parens" is authoring guidance in yo-syntax.instructions.md instead                                |
-| `plans/archive/YO_SELF_EXPRINFO_PRUNE.md`    | REJECTED `yo-self` memory lever: pruning the process-lifetime `ExprInfoTable` (built, measured, refuted)                                                                                                      |
-| `plans/backlog/YO_SELF_ENV_SHARING.md`       | The real `yo-self` memory root cause: def-time body envs COPY what TS SHARES (7.4 M live `Variable`s), plus the remaining ranked levers                                                                       |
-| `plans/backlog/RC_POLICY_MECHANISM_SPLIT.md` | RC dup/drop architecture: policy (evaluator) vs mechanism (codegen), the codegen-side policy-patch inventory, and why full evaluator-only generation is impossible                                            |
-| `plans/backlog/SEED_VERSION_AUTOMATION.md`  | BACKLOG (2026-08-21): SEED_VERSION consistency guard across the 3 workflows + release-time direct bump push via RELEASE_PAT (no [skip ci], so the new seed is exercised immediately); scheduling point for seed-gated follow-ups |
-| `plans/reference/FIXED_REGION_ALLOCATOR.md`  | LANDED 2026-09-10 (P0–P3; P4 library mode deferred): third `--allocator` choice `fixed` — a hand-written TLSF general-purpose allocator over ONE static `.bss` region sized by `--heap-size` (64K..4G, fixed-only), emitted by `src/codegen/c/allocator_fixed.yo` (impl in the CODE section — chunk 0 owns the single copy; NEVER move the state into the header section); P0 routes every unchecked runtime `__yo_malloc` (134 sites) through `__yo_rc_alloc` → `__yo_alloc_fail` panic; `--debug-heap` (fixed-only) live-at-exit leak oracle; §6 lists the remaining embedded/freestanding blockers it composes with |
-| `plans/reference/FUNCTION_OVERLOADING_POLICY.md`      | No function overloading (Rust stance, 2026-08-21): exported `Call` tuples of ≥2 candidates are prelude-only (the runtime/comptime operator pairs); single-function `Call` (callable module) stays; audit of every overloading channel |
-| `plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md` | BACKLOG (2026-08-21): reject duplicate inherent method impls (today silently accepted, first-wins/arity-dispatch — issues/fixed/duplicate-inherent-method-impls-not-rejected.md); keyed on defining-expr identity so loader re-registration stays legal |
-| `plans/reference/TARGET_TRIPLES.md`                  | LANDED 2026-08-28: the compiler's `--target` vocabulary IS the canonical Rust triple (`aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `wasm32-wasip1`); no aliases — retired spellings error with a did-you-mean; `CompilationTarget` keys renamed to match; cfg names (`macos`, `x86`) vs triple words (`apple-darwin`, `i686`) split explicitly in `src/target.yo` |
-| `plans/reference/REMOVE_OPEN_BUILTIN.md` | LANDED 2026-09-10: the `open(...)` builtin is GONE. A glob import is `{ ... } :: import("m")`, a module value destructures as `{ a, b } :: SomeModule`, a struct as `{ x, y } := s`; prefer a NAMED import (`{ String } :: import("std/string")`) — an open whose names were all unused became a bare `import("m")`, which still registers the module's impls. Every `open(...)` in `plans/`, `issues/*.md` and other historical docs is pre-2026-09-10 spelling |
-| `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` | LANDED 2026-09-05 (P0–P5): order-independent `::` definitions and `impl` registration within a module — pending entries forced on a lookup MISS (two-phase fn forcing, cycle errors, error attribution notes); the impl-block forward shells/thunks retired in favour of the same forcing (P3); seed gate lifted, `std/`/`src/` use forward refs (P5); user docs `docs/*/DEFINITION_ORDER.md` |
-| `plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` | ACTIVE 2026-09-09: compile-speed plan after the landed chunked-emission + `check --watch` work — the evaluator is 85% of a warm rebuild and `yo_id_N` symbol names churn every chunk per edit. Zig's lessons that apply (per-definition source hashes + dependency edges recorded at `force_pending`, content-stable C names, resident evaluator for `build`/`test`, per-module TUs) vs those that do not (its 5× claim is the self-hosted x86_64 backend not the C backend; in-place binary patching needs a linker we do not own). Phase 0 = make `--profile` real |
-| `plans/archive/STD_API_STABILIZATION.md`          | CLOSED (COMPLETE 2026-09-13, archived 2026-09-17 after the reference sweep): the std API audit re-measured against the CODE and against Rust — 11 live bugs (imm/vec leaks + drop-of-uninit, unenforced `Send` at spawn, pool self-deadlock, double `pthread_join`, hash tombstones never reclaimed, …), decisions D9–D18 (infallible `push` + `try_push`, `replace` = all, max-heap `PriorityQueue`, `FromStr` parsing → `Result`, `Debug` split from `ToString`, `HashSet := HashMap(T, unit)`, stable `sort`, `timeout -> Result`), P1 batteries per module group, phasing — all landed; the last §0 row (`Array(T,N) Default`) decided 2026-09-17 and shipped in #751. Raw per-group findings: `plans/archive/STD_API_STABILIZATION_FINDINGS.md` |
-| `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` | ARCHIVED 2026-09-13 — LANDED, every phase delivered (P0, P1, P2 §5.1/§5.2/§5.4, P3 §4.6/§4.8/§4.9): `yo.toml` manifest, `yo add/remove/install/update`, manifest-driven `import("dep")` in every command, the graph resolver with version unification, `yo.lock` v2 + integrity, `--locked/--offline/--frozen`, `yo update --latest`, the content-addressed store (`store/sha256/<hash>`, bare mirrors, tag index, `yo cache gc`), `build.manifest`, dependency `build.yo` evaluation, workspaces, parallel DAG levels, depfile stamps — closed by the dogfooding milestone (#654: `vendor/markdown_yo` un-vendored, the compiler resolving its own dependency through the store). Its closing banner lists the six deliberate deferrals; P4 (registry + `yo publish`) is designed and unscheduled. Build + dependency audit and redesign. Audit verdicts: the dependency system is FETCH-ONLY (`import("<dep>")` never resolves — `resolve_module_path` has no dependency rule and the child `yo compile` receives no import mapping; `add_import_list`/`dep.artifact()` are decorative), `Step.link` does not link, `SharedLibrary` compiles as an executable, `build.yo` errors are swallowed, `yo install user/repo@tag` writes `ref: ""`. Design: `yo.toml` manifest — declarative data read WITHOUT the evaluator and edited in place by a comment-preserving `toml_edit` (a Yo data literal was weighed and TOML chosen 2026-09-11), semver ranges over git tags + Cargo-style resolver, `yo.lock` v2 with graph + integrity, content-addressed store, `--imports` file to the child compile, dependency `build.yo` evaluated in an isolated registry, parallel DAG levels, depfile stamps, workspaces. Comptime inputs: `comptime_read_file` (package-root-bounded) and `comptime_json_parse`/`comptime_toml_parse` (a comptime-only `ComptimeValue` enum, builtin parsers) YES; `comptime_fetch` NO (network belongs to the package manager; fixed-output `build.fetch` if ever); `build.env` only under `yo build`, stamped. No backward-compat scaffolding (single user): `deps.yo`, `yo fetch`, `yo install <spec>` are removed outright |
-| `plans/MATCH_PATTERN_MATCHING.md` | ACTIVE 2026-09-13: `match` audit + real pattern matching. Measured: value matching exists ONLY on the primitive path (`evaluate_primitive_match`: int/bool/char literals, comptime `::` constants compare, `|(a, b)` or-patterns, C `switch`); the enum path takes `.V`, `.V(binders)`, `_` and nothing else. Three silent wrong answers (comptime `.Some(0)` picks the first same-variant arm; `_` before a literal arm on a primitive is order-insensitive; labeled/curly bindings in an await-carrying arm read zeroed SM fields — `issues/fixed/async-match-arm-labeled-destructure-binds-nothing.md`), three check-green/C-red shapes (float `switch`, runtime literal payload, duplicate variant arm). Design: patterns stay expressions (no parser change; every infix pattern operator needs its own parens), ONE compiled `Pattern` IR read by evaluator + sync emitter + async emitter (+ verifier later), usefulness-based exhaustiveness/unreachability, `switch` kept byte-identical when switch-shaped + an ordered test-chain lowering otherwise. New forms: literal payloads, nested variants, `str`/`String` arms (401 `== "lit"` cond arms in src+std), variant or-patterns, identifier catch-all, guards `(p && (g))`, whole-value binding `(x := p)`, ranges `(1..=5)`, tuple/struct scrutinees. Phases P0 (stop the bleeding; absorbs #661 + its exhaustiveness hole) … P6 (verifier). New forms in src/std only after the seed carries them |
+| Path                              | Role                                                                                                                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/`                            | The Yo compiler. `src/README.md` has the layout and test instructions                                                                                |
+| `src/main.yo`                     | CLI entry point: argument parsing and subcommand dispatch                                                                                            |
+| `src/lexer.yo`, `src/token.yo`, `src/parser.yo`, `src/expr.yo` | Tokens → AST; `expr.yo` holds the core node types and the builtin keyword constants                                                     |
+| `src/expr_info.yo`                | `ExprInfo`: the per-expression annotation side table the evaluator fills in and codegen reads                                                        |
+| `src/evaluator/`                  | Type checking, CTFE, trait resolution; `exprs/` per node, `calls/` specialization and dispatch, `effects/` algebraic-effects analysis, `builtins/`     |
+| `src/verifier/`                   | The formal verifier: `terms.yo` (VC IR), `vc.yo` (symbolic walk), `encode.yo` (SMT-LIB 2), `z3.yo` (solver harness), `driver.yo`. Plan: `plans/backlog/FORMAL_VERIFICATION.md` |
+| `src/codegen/`                    | C11 emission; `exprs/` per node, `async/` state machines + per-platform I/O runtimes, `functions/`, `parallelism/`, `c/allocator_fixed.yo` (TLSF allocator) |
+| `src/emitter.yo`                  | The header / declaration / code buffers everything writes into                                                                                       |
+| `src/types/`                      | Type values and compatibility helpers                                                                                                                |
+| `src/module_manager.yo`           | "Evaluate a `.yo` file and read its exports": demand loader, cached prelude env, shared codegen `ExprInfoTable`, std-path resolution                  |
+| `src/manifest.yo`, `src/resolver.yo`, `src/fetch.yo`, `src/lock_file.yo`, `src/cache.yo`, `src/install_command.yo`, `src/toml_edit.yo` | `yo.toml` / `yo.lock` v2 / the content-addressed store / `yo add\|remove\|install\|update` / `yo cache` |
+| `src/build_runner.yo`             | `yo build`: the build DAG, its level-based scheduler, artifact compilation                                                                            |
+| `src/formatter.yo`, `src/lsp/`, `src/doc/`, `src/doc_command.yo` | `yo fmt`, `yo lsp` (one module per feature), `yo doc`                                                                                    |
+| `src/init.yo`, `src/skills_command.yo`, `src/cli_lang.yo`, `src/version.yo`, `src/version_cache.yo`, `src/pkg_config.yo`, `src/target.yo` | `yo init`, `yo skills install`, `--lang`/`YO_LANG` (en + zh-CN), `.yo-version`, release-bundle cache, pkg-config, target triples |
+| `std/`                            | The standard library; `std/build.yo` is the build API; `std/spec/` the verification vocabulary                                                        |
+| `tests/`                          | Language tests (`*.test.yo`); `tests/spec/` the verifier's; `tests/internal/` the compiler's own (heavy: each file compiles the compiler)              |
+| `tests/cli-cases/`, `scripts/cli-diff-test.sh` | CLI subcommand goldens: each case runs in a sandbox (own project dir, own `HOME`) comparing rc + stdout + trees; `--record` writes goldens |
+| `scripts/bootstrap/`              | Gate batteries: `gates_fast.sh`, `fixpoint_only.sh`, `hollow_sweep69.sh`, `known-failing.tsv`                                                        |
+| `plans/`                          | Design docs. Root = active, `reference/` = landed decisions (authoritative), `backlog/` = written-not-started, `archive/` = closed. Index: `plans/README.md`; roadmap: `plans/ROADMAP.md` |
+| `issues/`                         | Root = open bugs; `fixed/`, `retired/`, `repros/`, `patches/` (see `issues/README.md`)                                                               |
+| `docs/en-US/`, `docs/zh-CN/`      | User docs, always in both languages                                                                                                                  |
 
-**Renamed 2026-08-06 — translate these in older docs.** The `phase6*` prefix named an
-internal porting-plan phase and meant nothing to a reader, so the four macro/reflection
-test files (and the test names inside them) were renamed to say what they cover:
+### Design decisions you must know before writing Yo
 
-| old                             | new                        |
-| ------------------------------- | -------------------------- |
-| `phase6_verify.test.yo`         | `quote_macro_eval.test.yo` |
-| `phase6c_macro.test.yo`         | `macro_expansion.test.yo`  |
-| `phase6d_reflection.test.yo`    | `ast_reflection.test.yo`   |
-| `phase6f_macro_helpers.test.yo` | `macro_helpers.test.yo`    |
+One line each; the linked doc is authoritative.
+
+- **No function overloading** (`plans/reference/FUNCTION_OVERLOADING_POLICY.md`); the prelude's operator pairs are the only exported multi-candidate `Call` tuples.
+- **No operator precedence**: parenthesize every infix chain (`plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`). `yo fmt` preserves parens.
+- **Macros kept but gated**: definitions need `Pragma.AllowMacroDef`; `if(...)` is desugared to `cond(...)` at parse time (`plans/reference/MACRO_POLICY.md`).
+- **`::` definitions and `impl` registration are order-independent within a module** (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`).
+- **`--target` is the canonical Rust triple**, no aliases (`plans/reference/TARGET_TRIPLES.md`).
+- **`--allocator fixed`** is a TLSF allocator over one static region sized by `--heap-size` (`plans/reference/FIXED_REGION_ALLOCATOR.md`).
+- **Dependencies live in `yo.toml`, not `build.yo`**; `import("dep")` resolves through the nearest manifest in every command; only `yo build` fetches, so every other command needs `yo install` first on a fresh clone (`plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`).
+- **No runtime dependent types**; runtime properties go through the verifier (`plans/backlog/DEPENDENT_TYPES_POSITION.md`, `plans/backlog/FORMAL_VERIFICATION.md`).
+- **`match` is being redesigned** (`plans/MATCH_PATTERN_MATCHING.md`, active): today value matching exists only on the primitive path.
+- **No backward-compatibility scaffolding** (single user): no deprecation windows, aliases or shims; the only gate is the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 ### Algebraic effects model
 
 - `return(expr)` inside an effect handler **resumes** the continuation.
-- `unwind(expr)` inside an effect handler **discards** the continuation and exits the enclosing `fn`. (Was previously named `escape` — renamed in commit `a3510d20`.)
-- When an async task is unwound, the Future enters `FutureState.Aborted` (state = -2).
-- C's `abort()` (process termination on panic) is a **different thing** — never confuse the two.
+- `unwind(expr)` inside an effect handler **discards** the continuation and exits the enclosing `fn`. An unwound async task enters `FutureState.Aborted` (state = -2).
+- C's `abort()` (process termination on panic) is a different thing. Never confuse the two.
 
 ### Async/await threading model
 
-Yo's async/await is **single-threaded** (like C#). All I/O submissions and completions run on one event loop thread. Do not add mutexes or atomics to async runtime variables. The parallelism runtime (`src/codegen/parallelism/`) is a separate multi-threaded concern.
+Yo's async/await is **single-threaded** (like C#): all I/O submissions and completions run on one event loop thread. Do not add mutexes or atomics to async runtime variables. The parallelism runtime (`src/codegen/parallelism/`) is a separate multi-threaded concern.
 
 ---
 
 ## Build & Test Commands
 
-The compiler is the `yo` binary on your PATH (install it with `scripts/install.sh`, or
-build one from this tree with `yo build` — see below). There is no `./yo-cli` shim and no
-`bun run build` step any more: **every `./yo-cli <args>` in older docs is `yo <args>`.**
-
-On Windows, `scripts/install.ps1` installs to `%LOCALAPPDATA%\Yo\bin\yo.cmd`. PowerShell
-and cmd resolve `yo` automatically, but Git Bash does not do PATHEXT resolution — there
-the binary is only reachable as `yo.cmd` (e.g. `"$LOCALAPPDATA/Yo/bin/yo.cmd" --version`).
+The compiler is the `yo` binary on your PATH (install with `scripts/install.sh`; on Windows `scripts/install.ps1`, where Git Bash needs `yo.cmd`).
 
 ```bash
-# Build the compiler with itself (repo-root build.yo) → yo-out/<target>/bin/yo
-yo build
+yo build                      # build the compiler with itself → yo-out/<target>/bin/yo
+yo check ./src                # type-check the whole compiler tree (evaluator-only) — run this FIRST
+yo check ./std                # needs a Z3 on the box (std carries verify-mode contracts); `yo verify std/collections/array_list.yo` installs the pinned one
+yo compile src/main.yo --skip-c-compiler   # ~3 min; catches async state-machine rules `check` cannot see (they fire in codegen)
 
-# Type-check the whole compiler tree — this is the error check you run before
-# anything else (evaluator-only, no codegen)
-yo check ./src
-
-# Build-system tests. The old `bun test src/tests/build-system.test.ts` was
-# re-expressed in Yo under tests/internal/ (P2 item 2.4); its siblings there
-# cover the rest of the CLI subsystems — fetch, lock_file, install_command,
-# cache, init, version, pkg_config.
-yo test ./tests/internal/build_runner.test.yo --parallel 1
-
-# C codegen tests — specific file (always use --parallel 1 for single files)
-yo test ./tests/algebraic_effects.test.yo --bail -v --parallel 1
-
-# C codegen tests — specific test by name
+# Language tests. --parallel 1 for single files. Always save verbose output to a file.
+yo test ./tests/algebraic_effects.test.yo --bail -v --parallel 1 &> output.txt
 yo test ./tests/algebraic_effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1
 
-# Compiler internal tests (tests/internal — was yo-self/tests until 2026-08-05).
-# Run the file(s) covering what you changed.
-# Files importing evaluator internals take 1–10 min each (big Yo-compile).
-# MEASURED 2026-08-05 (58 files, --parallel 1): 22.2 min for the whole directory.
-# The old "~90 min" figure was pessimistic — it dated from the retired TS
-# compiler, which took 40.5 min for the same set.
-# Run ONE FILE AT A TIME: macro_expansion alone needs 6.52 GB, so two concurrent
-# children on a 16 GB machine swap, and the swapping trips the runner's own
-# 600 s evaluator deadline — MANUFACTURING failures that do not reproduce in
-# isolation. Note the runner ignores --parallel anyway
-# (src/main.yo: "Accepted for CLI compatibility; v1 runs sequentially").
-yo test ./tests/internal/lexer.test.yo --parallel 1
-yo test ./tests/internal/parser.test.yo --parallel 1
-yo test ./tests/internal --parallel 1
-
-# Fast language suite (~30 min on Mac Mini M4, safe to run locally). The
-# tests/internal exclude is what keeps it fast — it compiles the compiler 58
-# times. The tests/cli-cases exclude is CORRECTNESS, not speed: cli-case
-# fixture trees contain .test.yo files that are harness inputs, including one
-# that MUST fail (build-test-exclude's "must never run"), so without it the
-# suite reports ~4 false failures. This mirrors CI (test.yml).
+# Fast language suite (~30 min on a Mac Mini M4; mirrors CI). Both excludes matter:
+# tests/internal compiles the compiler ~60 times; tests/cli-cases fixtures contain
+# .test.yo harness inputs, one of which MUST fail — without the exclude ~4 false failures.
 yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
 
-# std/'s OWN tests: sibling files (`std/**/*.test.yo`) and in-file
-# `test(...)` declarations inside a module — the way private `_` members
-# get tested (plans/reference/MEMBER_VISIBILITY.md). CI runs this too.
+# std's own tests (sibling *.test.yo files + in-file test(...) declarations)
 yo test ./std --bail
 
-# Self-hosted gate battery (needs a built yo-self binary in $S1). GATE 4 is
-# `check ./src`, which type-checks the whole tree rather than one import
-# closure. (It USED to be the only thing covering build_runner.yo and
-# version_cache.yo — no longer true as of 2026-08-16: main.yo imports both.)
-# NOTE `check` is evaluator-only. The async state-machine restrictions — e.g.
-# "`io.await` in a cond condition must BE the first condition" — are enforced in
-# CODEGEN, so `check` passes over them. Use `compile src/main.yo
-# --skip-c-compiler` (~3 min) to catch that class before pushing.
-#
-# GATE 3 (`check ./std`) NEEDS A Z3 ON THE BOX since std gained verify-mode
-# contracts (std/collections/array_list.yo). A file carrying them fails `check`
-# outright when no solver resolves — deliberately: their runtime asserts are
-# stripped, so no solver would mean neither proofs nor checks. Without one the
-# gate reports `check: 175/176 file(s) passed` and nothing names the cause but
-# a single `verify: no Z3 solver found` line. Install it once with
-# `yo verify std/collections/array_list.yo` (auto-installs the pinned Z3 into
-# ~/.cache/yo/solvers) or point YO_Z3_PATH at your own. Every std obligation is
-# `assumed()` today, so Z3 is never asked to prove anything — it only has to
-# EXIST.
+# Compiler-internal tests: ONE FILE AT A TIME (macro_expansion alone needs 6.5 GB;
+# two concurrent children swap and trip the runner's 600 s deadline, manufacturing
+# failures). The whole directory takes ~22 min.
+yo test ./tests/internal/parser.test.yo --parallel 1
+
+# Verifier
+yo verify ./tests/spec --format json
+
+# Self-hosted gate batteries (need a built binary in $S1)
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/gates_fast.sh
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
+BIN=/tmp/yo-s1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh   # every language test through the self-hosted binary, ratcheted against scripts/bootstrap/known-failing.tsv
 
-# Full-corpus hollow sweep: every language test file through the SELF-HOSTED
-# binary, scored honestly (a batch `__yo_user_main` that is a "Failed to
-# transpile" comment reports "N passed" while running nothing). Resumable via
-# $OUT/results.txt. Gated as a ratchet against scripts/bootstrap/known-failing.tsv
-# (<path> <verdict> pairs, HOLLOW and RED), so it fails on any NEW regression, on a
-# stale allowlist entry, and on a file that merely CHANGES verdict.
-BIN=/tmp/yo-s1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh
-
-# Evaluator-only check (fast, no codegen — useful for type-check iteration during refactors)
-yo check ./std
+# Single-file iteration (tmp/fixme.yo is the scratch file; tmp* is gitignored)
 yo check ./tmp/fixme.yo
-
-# Emit C only (inspect generated code)
-yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2
-
-# Full compile + run
+yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2      # inspect the C
 yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out
-
-# Compile with AddressSanitizer
 yo compile tmp/fixme.yo --optimize 2 --sanitize address --allocator system -o test && ./test
 ```
 
-Always save verbose output to a file to avoid terminal truncation:
+`yo compile` cannot be used on `*.test.yo` files: extract the failing case into a standalone `.yo` file with a `main` function and `export(main);`.
+
+Build-system and CLI subsystems (`build_runner`, `fetch`, `lock_file`, `install_command`, `cache`, `init`, `version`, `pkg_config`, …) are tested under `tests/internal/`.
+
+### Project commands
 
 ```bash
-yo test file.yo --bail -v &> output.txt
-yo compile tmp/fixme.yo --optimize 2 &> compile_output.txt
-```
-
-### Build system commands
-
-```bash
-# Initialize a new project
 yo init [dir] --name my-project
-
-# Build project (default: install step)
-yo build
-yo build run          # Build and run
-yo build test         # Run tests
-yo build --list-steps # List available steps
-yo build -Dname=value # Pass build options
-
-# Generate documentation
-yo doc ./std           # Generate docs for directory
-yo doc -o ./yo-out/doc # Custom output directory
-yo doc --format json   # Output as JSON (default: html)
-
-# Dependency management
-yo add user/repo      # Declare a dependency in yo.toml (latest release tag, as version = "^X.Y.Z") and fetch it
-yo add user/repo@^1.2 # Semver range; user/repo@v1.0.0 pins a tag; --branch/--rev/--path/--name/--dev
-yo add ./path         # Local path dependency
-yo remove name        # Delete a dependency from yo.toml and yo.lock
-yo install            # Fetch everything yo.toml declares, write yo.lock (no network when the lock is complete)
-yo update [name...]   # Re-resolve within the ranges / to branch tips
-yo cache path         # Print global cache directory
-yo cache clean        # Remove the dependency store (store/, git/, index/); cached Yo versions stay
-yo cache gc           # Drop store trees / mirrors / tag lists no recorded project's yo.lock references
-
-# Version management
-yo version            # Show current + pinned version
-yo version pin        # Pin project to current Yo version
-yo version pin 0.2.4 # Pin to specific version
-yo version install 0.2.9  # Pre-download a version
-yo version list       # List cached versions
-yo version list --remote   # List published releases (GitHub Releases; npm publishing stopped at v0.2.0)
-yo version clean      # Remove all cached versions
+yo build [run|test] [--list-steps] [-Dname=value]
+yo doc ./std [-o dir] [--format html|markdown|json]
+yo add user/repo[@^1.2] | yo add ./path      # declare + fetch a dependency in yo.toml
+yo remove name | yo install [--locked|--offline] | yo update [name...] [--latest]
+yo cache path|clean|gc
+yo version [pin [X.Y.Z] | install X.Y.Z | list [--remote] | clean]
+yo skills install                            # copy the bundled agent skills into the project
+yo explain E0xxx | yo fix <path>             # diagnostics registry / structured repairs
 ```
 
 ---
 
-## Universal Workflow Rules
+## Workflow Rules
 
-- **Always use the LATEST published seed version of Yo** — `yo --version` must be the newest release tag (check GitHub Releases when in doubt). A current tree can require runtime symbols only the newest seed emits, so building it with an older seed fails at link time or silently emits the older runtime. When the installed seed is behind, install the latest yourself: `bash scripts/install.sh` (it resolves the latest release; pass `--no-deps` on boxes whose toolchain comes from nix).
-- Always run `yo check ./src` to ensure the compiler tree still type-checks before running longer `yo` commands. (This replaced `bun run build` when the TypeScript `src/` retired — there is nothing to transpile any more.)
-- **There is no JavaScript runtime at the repo root** — no bun, no npm, no node, no `package.json`. Do not add one, and do not reach for `npm install` to "fix" something here. **The one exception is `vscode-extension/`, which is a deliberate npm-only island** (`npm ci`, `npm run package`), with `package-lock.json` committed and no `bun.lock`. It is a VS Code client and `vsce` is npm-native; `npm version` is what bumps its version at release time. Since 2026-08-22 it carries a plain-JS LSP client (no build step) spawning `yo lsp`; before that it was syntax-only (P2.5 B2 interim). The wasm CI legs also install node, because `emcc` is itself a node program; that is not a repo-root toolchain.
-- Make sure commands run successfully. Don't ask the user to run — run them yourself. Don't end the conversation until the command succeeds.
-- Never hardcode any Yo when solving a problem. Always go with a proper implementation. No shortcuts. Don't simplify the problem.
-- While implementing the evaluator or codegen, no shortcuts or simplifications!
-- Do not create new `.yo` files unless told to do so.
-- When asked to refactor, refactor everything. Don't miss any lines. Don't put placeholders or TODOs.
-- Never skip bugs discovered during implementation.
-- After fixing a bug, verify uncommitted changes for leftover or unused code.
-- Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
-- **Git worktrees live under `~/Workspace/Yo-wt/<name>` (or another durable path), NEVER under `/private/tmp` or `/tmp`, and every step of work is committed AND pushed before the next heavy step starts.** macOS clears `/private/tmp` on reboot: on 2026-09-15 a reboot deleted a `/private/tmp` worktree holding a full uncommitted implementation (compiler edits, tests, docs, plan) plus 26 other agents' worktrees, and the work had to be replayed from the conversation. A worktree is not a backup — only a pushed commit is. Create one with `git worktree add -b <branch> ~/Workspace/Yo-wt/<name> origin/develop` (then `git -c protocol.file.allow=always submodule update --init`), commit as soon as a coherent slice exists (WIP commits are fine — the PR is squash-merged), and `git push -u origin <branch>` right after the first commit so later pushes are one command. The main checkout `/Users/yiyiwang/Workspace/Yo` is shared with other sessions: never `checkout -b` or edit there. Removing a worktree afterwards needs `git worktree remove --force <path>`: every worktree here contains the `vendor/` submodules, and plain `remove` refuses with "working trees containing submodules cannot be moved or removed".
-- **Always squash-merge a PR AND delete its branch**: `gh pr merge <n> --squash --delete-branch`. A squash merge replays the work as ONE new commit on `develop`, so the source branch is dead the moment it lands — leaving it behind accumulates stale refs that later `git worktree`/branch work trips over, and makes `git ls-remote` unreadable. **When `--delete-branch` fails, VERIFY — it can leave the REMOTE branch alive too.** MEASURED twice on 2026-09-13 (#654, #668): after either error the remote ref was still there, and `git push origin --delete <name>` reported `- [deleted]`, which it can only do for a ref that still exists. Both spellings behave this way — `cannot delete branch '<name>' used by worktree at ...`, and `fatal: '<base>' is already used by worktree at ...` (the second bites whenever another worktree holds the base branch, which in this repo the main checkout usually does). This bullet previously asserted the opposite, that only the local branch survived; that is wrong, and believing it is how stale remote refs accumulate while you think you cleaned up. The likely EXPLANATION — inferred, not measured — is that `gh` deletes the local branch first and stops when that step fails, so the remote delete never runs; treat the outcome as the rule and the ordering as a guess. **`git ls-remote --heads origin <name>` is the oracle**: empty output means gone. After ANY `--delete-branch` error, check it, then finish both sides by hand — `git push origin --delete <name>`, plus `git worktree remove <path>` and `git branch -D <name>`.
-### CI runs: cancelling, freezing, and what a battery actually covers
+### Before, during, after a change
 
-**The next three rules are ONE rule seen from three angles, and applying any of
-them alone is how you destroy a battery you needed.** Cancelling superseded runs
-and refusing a docs merge are hygiene; they exist so that the third — the
-cut-time diff — has a meaningful answer. The diff is the only one of the three
-you can check at the moment you act. All three fired in a single session on
-2026-09-13, in different directions: the cancel rule said cancel, the freeze
-said do not, and the diff said wait. Each was right, because each answers a
-different question about the same object.
+- **Use the LATEST published seed** (`yo --version` = newest GitHub release). A current tree can need runtime symbols only the newest seed emits. Update with `bash scripts/install.sh` (`--no-deps` on nix boxes).
+- Run `yo check ./src` before any longer command. `check` is evaluator-only: async state-machine rules are enforced in codegen, so gate those with `yo compile src/main.yo --skip-c-compiler`.
+- Make commands succeed yourself. Do not ask the user to run them, and do not end the conversation until they pass.
+- No hardcoding, no shortcuts, no simplifications in the evaluator or codegen. When asked to refactor, refactor everything: no placeholders, no TODOs.
+- Do not create new `.yo` files unless told to.
+- Never skip a bug discovered during implementation. Every bug gets an `issues/` entry and a test that fails before the fix and passes after, added to `tests/`.
+- **Run `yo fmt <file.yo>` on every `.yo` file you create or modify** (`yo fmt --check` verifies). There is no pre-commit hook.
+- Review `git diff` before considering work done: leftover debug code, unused imports, consistency across files.
+- After any change, check whether instruction files (`.github/instructions/`), skill files (`.github/skills/`), plans or docs need updating. **Whenever you learn something about Yo syntax, semantics or pitfalls by trial and error, update the cheatsheets and instruction files immediately.**
+- Plans go in `plans/` (taxonomy in `plans/README.md`); bugs in `issues/` (taxonomy in `issues/README.md`). Docs under `docs/` are written in both `docs/en-US/` and `docs/zh-CN/`. Use ` ```rust ` for Yo code blocks in Markdown.
+- There is no JavaScript runtime at the repo root. The one exception is `vscode-extension/`, a deliberate npm-only island (`npm ci`, `npm run package`).
+- If you have not modified code, do not re-run commands.
 
-- **Then CANCEL the runs that merge made pointless.** A merged PR's branch runs keep going — and a squash-merged branch's run can never gate anything again, because the commit it is testing no longer exists on any branch. The same applies to a superseded `develop` push run once a newer tip has queued. Cancelling is not tidiness: this repo's battery is ~28 jobs across six platforms, and on 2026-09-13 a backlog of runs on already-merged branches held every runner long enough that `develop`'s battery could not start for hours — the first full battery to finish in that window was the one that finally caught four red gates. Leaving them running actively delays the run whose verdict you are waiting for.
+### Git: worktrees, branches, merges
+
+- **The main checkout `$HOME/Workspace/Yo` is shared with other sessions: never `checkout -b`, `pull`, `stash` or edit there.**
+- **Worktrees live under `$HOME/Workspace/Yo-wt/<name>` (or another durable path), never under `/tmp` or `/private/tmp`** (macOS clears them on reboot; one reboot deleted 27 agents' uncommitted worktrees). Create with `git worktree add -b <branch> $HOME/Workspace/Yo-wt/<name> origin/develop`, then `git -c protocol.file.allow=always submodule update --init`. Remove with `git worktree remove --force <path>` (the `vendor/` submodules make plain `remove` refuse).
+- **Commit and push before every heavy step.** WIP commits are fine (PRs are squash-merged); `git push -u origin <branch>` right after the first commit. A worktree is not a backup; only a pushed commit is.
+- **Squash-merge and delete the branch**: `gh pr merge <n> --squash --delete-branch`. If `--delete-branch` errors (`used by worktree at ...` / `'<base>' is already used by worktree`), the REMOTE branch usually survives too: check with `git ls-remote --heads origin <name>` (empty = gone) and finish by hand with `git push origin --delete <name>`, `git worktree remove <path>`, `git branch -D <name>`.
+- Set `GIT_TERMINAL_PROMPT=0` when running `git ls-remote` against possibly non-existent repos.
+
+### CI runs: cancelling, freezing, and what a battery covers
+
+Three views of one rule: the only question is "does the battery I am about to trust cover the code I am about to act on".
+
+- **Cancel runs a merge made pointless.** A squash-merged branch's run gates nothing (its commit no longer exists on any branch), and a backlog of such runs has held every runner for hours. Keep every open PR's runs and the newest running `develop` battery; cancel the rest:
 
   ```bash
-  # Everything still moving, with its branch:
   gh run list --limit 30 --json databaseId,headBranch,status \
     --jq '.[]|select(.status=="queued" or .status=="in_progress" or .status=="pending")|"\(.databaseId) \(.status) \(.headBranch)"'
-  # The branches that still MATTER — every open PR's head:
   gh pr list --state open --limit 50 --json headRefName --jq '[.[].headRefName]|join(" ")'
-  gh run cancel <id>   # for each run whose branch is not in that list
+  gh run cancel <id>   # for each run whose branch is not an open PR's head
   ```
 
-  **KEEP**: every open PR's runs, and the newest `develop` run that is actually
-  RUNNING THE BATTERY. **CANCEL**: runs on branches with no open PR (i.e. merged
-  or abandoned), and older `develop` runs superseded by a newer tip that runs the
-  battery.
-
-  **CLOSED for `develop` by #683 (2026-09-14) — the history is kept because the
-  shape recurs elsewhere.** The trap, walked into within minutes of writing this
-  rule, was: a docs-only tip takes the fast path, SKIPS 15 of 18 jobs and reports
-  `success`; cancel the older `develop` run because that newer tip queued and you
-  have destroyed the only real verification of the code, replacing it with a green
-  tick that compiled nothing. **`test.yml`'s fast path is now PR-ONLY** — a push to
-  `develop` classifies nothing and always runs the full battery — so a newer
-  `develop` tip can no longer be a run that compiled nothing, and cancelling a
-  superseded `develop` run needs no such check.
-
-  It still applies verbatim **to PR runs**, where the fast path remains and earns
-  its keep. A docs-only tip is code-identical to its parent, so the parent's
-  battery is the valid verdict, and `gh run rerun <older-id>` gets it back if it
-  was already cancelled.
-
-  **A skip count alone does not tell you which reducer fired — there are TWO,
-  and they mean opposite things.** `test.yml` narrows a battery by two
-  independent outputs of the `changes` job:
-
-  | output | fires when | meaning |
-  | --- | --- | --- |
-  | `code=false` | the diff is only `*.md` / `docs/*` | the docs-only FAST PATH — the trap; a run that compiled nothing |
-  | `full=false` | a PR whose base is **not `develop`** (a STACKED PR) | deliberate and fine — keeps the ASan leg + tier-1 gates, and the retarget-to-develop fires a full run before it can merge |
-
-  So "15 skipped" is not a diagnosis. Measured 2026-09-14: ONE commit, opened
-  twice — stacked on its parent branch it skipped 15 jobs, and reopened against
-  `develop` with identical content it ran the full battery. Nothing about the
-  diff changed; only the base did. Read the `changes` job's log, which states
-  both verdicts outright (`classification: code=…` and `battery: FULL|REDUCED`),
-  rather than inferring from a count — and note the numbers differ between the
-  two reducers anyway, so matching `15` is wrong even for the case it came from.
-
-  When in doubt about someone else's branch, leave it — the cost of one extra
-  run is small next to cancelling work a teammate is waiting on. Cancellation is
-  asynchronous, so a job may still read `in_progress` for a minute afterwards;
-  re-list rather than cancelling twice.
-
-- **Never merge a docs-only PR to `develop` while a battery you are waiting on is
-  in flight** — a release gate, or any run whose verdict you intend to act on.
-  A push to `develop` starts a new run, and `test.yml`'s concurrency keeps only
-  ONE pending run per group, so the run you were waiting on is superseded. When
-  the replacement is docs-only it takes the fast path, **skips 15 of 18 jobs and
-  reports `success`** (18 is the docs-only total — skipped matrix jobs never
-  expand, so a FULL battery reports 28; measured on run `34731551580`) — so a real battery is replaced by a green tick that
-  compiled nothing, and at the check level you see green where you had green.
-  That is strictly worse than superseding with a code merge, where at least the
-  replacement battery is real. There is no error to notice; the only tell is
-  that the tip changed.
-
-  A related edge with the same cause: **back-to-back merges mean the earlier
-  merge's `develop` battery never completes**, so the gate quietly becomes
-  "whatever the LAST merge triggered" rather than "the battery for the commit I
-  watched". Measured 2026-09-13: #614 (a real evaluator change) landed, and a
-  docs+reproducer merge minutes later superseded its pending battery.
-
-  **Parking work under a freeze is free and durable: push the branch, do not
-  open the PR.** `test.yml`'s push trigger is `develop`-only, so a bare branch
-  push runs nothing; it is the PR that starts a battery — and an ALREADY-OPEN
-  PR starts one on every push, draft or not. Holding the work locally instead
-  risks losing it when a session ends.
-- **Before cutting a release, re-run the code-directory diff — do not reason
-  from run ordering.** The question is only ever "does the battery I am about to
-  trust cover the code I am about to tag", and this answers it directly:
+  Cancellation is asynchronous; re-list rather than cancelling twice. When in doubt about someone else's branch, leave it.
+- **A push to `develop` always runs the full battery (28 jobs)**; `test.yml`'s docs-only fast path (`code=false`: 18 jobs with 15 skipped, reporting `success` having compiled nothing) is **PR-only**. A stacked PR (base not `develop`) runs a deliberately REDUCED battery (`full=false`). A skip count is not a diagnosis: read the `changes` job's log (`classification: code=…`, `battery: FULL|REDUCED`).
+- **Never merge a docs-only PR to `develop` while a battery you are waiting on is in flight.** The push supersedes the pending run (one pending run per concurrency group), so the verdict you wanted never arrives. Back-to-back merges have the same effect: the gate becomes "whatever the LAST merge triggered". Park work under a freeze by pushing the branch without opening the PR (a bare branch push runs nothing; an open PR runs on every push, draft or not).
+- **Before cutting a release, diff the code directories against the battery's head; do not reason from run ordering:**
 
   ```bash
   git diff --stat <battery-head-sha>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo
   ```
 
-  Empty ⇒ the battery gates the tip; tag it. Non-empty ⇒ wait for a battery on
-  the new tip. Docs commits landing mid-battery never invalidate it, so they
-  cost nothing; a code commit stops the diff being empty and tells you
-  immediately. Measured 2026-09-13: a battery at 18 green / 0 failed looked like
-  a perfect gate right until the diff showed #614's ~490 insertions across
-  `src/evaluator/context.yo` and `src/module_manager.yo` had landed after it.
-
-  **Why a release tip cannot be a fast-path run any more — and what it cost to
-  learn.** The docs-only trap above is written about a docs-only push destroying
-  someone ELSE's in-flight battery, which you notice because the tip changed under
-  you. It also arrives from a direction that rule does not describe: the
-  docs-shaped commit being the battery you are *gating the tag on*. There is
-  nothing to notice — the run is green, it is on the right SHA, and it ran 18 jobs
-  instead of 28. Care about *when* to merge docs cannot prevent it, because the
-  docs commit is not competing with the gate; it IS the gate.
-
-  `classify` diffs `github.event.before...github.sha` for a push, so the LAST
-  MERGE ALONE decided the scope, never the release's contents. Measured
-  2026-09-14: v0.2.33's tip was a relicensing, almost entirely `*.md`, and it
-  classified `code=true` only because it also touched `yo.toml` and
-  `vscode-extension/package.json`, which do not match `*.md|docs/*`. **Two
-  non-markdown files were the margin between a 28-job gate and a green tick that
-  compiled nothing.** #683 closed it by making a push to `develop` skip
-  classification entirely; the fast path is now PR-only. The cost is small
-  precisely because docs-only pushes to `develop` are rare — a docs-only PR cannot
-  merge here without `--admin`, and the practice is to fold docs into a code PR.
-
-### Everything else
-
-- **Always run `yo fmt <file.yo>` on every `.yo` file you create or modify, before committing.** Use `yo fmt --check` to verify. Do not commit unformatted `.yo` files. (There is no pre-commit hook any more — `.husky/` went with the node toolchain, so this is on you.)
-- Always check if there is need to create/update existing instructions & rules & skill files, design/plan docs after implementing a change.
-- **Whenever you learn something new about Yo syntax, semantics, or common pitfalls — especially from trial and error — immediately update the relevant skill files** (`.github/skills/yo-syntax/syntax-cheatsheet.md`, `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`, etc.) **and instruction files** (`.github/instructions/yo-syntax.instructions.md`, `.github/instructions/yo-design.instructions.md`). This keeps the institutional knowledge accurate for future sessions.
-- Always put design/plan documents in `plans/` directory (e.g., `plans/FEATURE_NAME.md`). Completed/superseded plans get a closing banner and move to `plans/archive/` (see `plans/README.md`).
-- Always put the issues or bugs you found in `issues/` directory (root = open). Verified fixes move to `issues/fixed/`; snapshots made moot by later events move to `issues/retired/`; reproducers and patches go in `issues/repros/` and `issues/patches/` (see `issues/README.md`). Update references when moving (`grep -rn "issues/<name>.md"`).
-- Always add test cases for any bug you found, and verify they fail before fixing the bug. After fixing, verify the new test cases pass and add them to `tests/` test set.
-- The full test suite (`yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. For faster iteration, run targeted test files instead.
-- If you haven't modified the code, don't ask to run commands repeatedly.
-- `outdated/` is retired (its contents were triaged into `plans/` on 2026-09-04). Follow the plans taxonomy in `plans/README.md`: root = active plans only, `plans/reference/` = landed designs & decision records (authoritative), `plans/backlog/` = written-not-started, `plans/archive/` = closed/refuted/superseded records.
-- `tmp/fixme.yo` is the scratch file for experimentation (`.gitignore` covers `tmp*`, so it is never committed). There is no need to restore its contents after modifying it. It replaced `src/tests/fixme.yo`, which older docs still name.
-- When creating or updating docs in `docs/`, always write both English (`docs/en-US/`) and Chinese (`docs/zh-CN/`) versions.
-- Use ` ```rust ` (not ` ```yo `) for Yo language code blocks in Markdown files — Rust highlighting renders better on GitHub.
+  Empty ⇒ the battery gates the tip. Non-empty ⇒ wait for a battery on the new tip.
+- A `cancelled` PR run with no newer run on that branch means the PR has no verdict: `gh run rerun <id>`. A PR with `mergeable=CONFLICTING` gets no runs at all: rebase and force-push. Branch protection's required-check list is manual: add every new CI job by hand.
 
 ---
 
 ## Common Pitfalls
 
-- **An `ExprInfo.value` of `.None`** means the value is a runtime value (not `UnknownVal`). `EvalValue.UnknownVal` means the type is known but the value itself is not. (TS-era docs write this as `expr.$.value == undefined` / `UnknownValue`.)
-- **`yo compile` cannot be used on `*.test.yo` files.** Extract the failing test case into a standalone `.yo` file with a `main` function and `export(main);` (the bare `export main;` form older docs show does not parse).
-- **Algebraic effect `unwind` vs C `abort()`**: They are completely different. The Yo keyword `unwind` discards a continuation; C's `abort()` terminates the process. (`unwind` was previously named `escape`, renamed in commit `a3510d20`.)
-- **The VS Code extension bundles an LSP client since 2026-08-22** (plain JS, no build step): it spawns `yo lsp` (configurable via `yo.binPath`), which serves the FULL feature set — diagnostics, hover, definition, symbols, references, folding, rename, formatting, signature help, completion (P4 feature-complete 2026-08-22, `plans/archive/P4_LSP.md`). With `yo.lsp.enabled: false` (or no yo binary) it degrades to syntax highlighting.
-- **Plans docs state their status up top.** `plans/archive/` docs are CLOSED records — each banner names the outcome (implemented, refuted, superseded) and freezes historical numbers at their writing dates; don't use them as live designs. `plans/reference/` docs are landed designs/decisions that stay authoritative.
-- **`yo install` auto-prunes stale lock entries; the store is content-addressed and reclaimed by `yo cache gc`.** When a dep is removed from `yo.toml` (`yo remove`), the next `yo install` drops it from `yo.lock`. A fetched tree lives at `<cache>/store/sha256/<integrity hash>` — the lock's `integrity` IS its address, so `manifest.yo` resolves `import("dep")` from the lock alone — and is never removed by an install; `yo cache gc` removes what no recorded project's lock references (every `yo install` records its project in `<cache>/projects`). A tree without its `.verified` sibling is re-hashed before it is trusted. Local `git = "./x.git"` paths are made absolute against the manifest directory before git sees them (git resolves relative remotes against the child's cwd), and every git child runs with `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS=echo`.
-- **Dependencies live in `yo.toml`, not in `build.yo`.** `build.dependency("name")` only REFERENCES a manifest entry (the runner rejects an undeclared name); `deps.yo`, the struct forms `build.dependency({…})`/`build.path_dependency({…})`, `add_import`/`add_import_list`, `yo fetch` and `yo install <spec>` are gone (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1, landed 2026-09-12). `import("dep")` resolves in EVERY command through the nearest `yo.toml` above the file (`src/manifest.yo`), so `yo check`/`yo test`/LSP need no build.
-- **Resolving is not fetching: only `yo build` materializes a dependency.** `yo build` fetches on its own — `install_dependencies` runs inside `resolve_build_import_roots` before the graph is built, so a build into an EMPTY store re-fetches from `yo.lock` (measured 2026-09-13 with `YO_CACHE_DIR` pointed at an empty dir). Every other command — `yo compile`, `check`, `test`, `doc`, `lsp` — resolves import roots but never fetches, so on a fresh clone they fail at the import site with ``git dependency "<name>" is not in the store (<path>) — run `yo install` ``. That is why CI needs an explicit `yo install` (`.github/actions/install-deps`, `--locked`) in every job that runs `yo` against this tree, while a job that only calls `yo build` needs nothing. It is NOT on-demand because import-root resolution is synchronous and pre-`Io` by construction (`src/manifest.yo` says so at the top) and on-demand fetching there would make the LSP reach the network; Cargo's `cargo check`-fetches-too convergence is written up as a follow-up in `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`, not done.
-- **A new build builtin in `std/build.yo`: what breaks under the seed depends on the BINDING SHAPE** (measured 2026-09-13). A module-level `::` VALUE binding is forced by its own `export(...)`, so an older compiler fails the WHOLE module (`error[E0401]: Variable "__yo_build_x" not found`) — that is the `build.manifest` case, and it genuinely needs the generation-A/B split recorded in `plans/backlog/SEED_VERSION_AUTOMATION.md`. A FUNCTION wrapper (`env :: (fn(comptime(name) : comptime_str) -> comptime(str))(__yo_build_env(name))`) does NOT: its body is deferred, the seed evaluates `std/build.yo` cleanly, and the wrapper can land in the SAME release as the builtin. What still fails is a build file that CALLS it under the seed — so the wrapper is safe to ship, and the repository's OWN `build.yo` must not use it until `SEED_VERSION` carries the builtin (`fixpoint-arm64.yml` bootstraps gen-1 by running `yo build` with the seed). Verify the distinction the same way every time: `<seed> check std/build.yo` for the definition, and a fixture build file calling it for the use. Worse, a pre-v0.2.31 seed does not REPORT the failure: it still swallows build-file evaluation errors and prints `No build steps defined.`, so a broken `std/build.yo` looks like an empty build.
-- **`GIT_TERMINAL_PROMPT=0`** must be set when running `git ls-remote` on potentially non-existent repos to prevent interactive credential prompts.
-- **A "move" of a named local into a struct/enum field is NOT a consumption in the evaluator.** `set_expr_as_consumed` (`src/evaluator/utils.yo`) only fires for owning temps and `own` parameters; a named local passed to a struct literal gets a deferred `___dup` (copy semantics), and the move you see in the emitted C is manufactured by the **dup/drop pair optimizer** (`_optimize_dup_drop_pairs` in `src/evaluator/exprs/begin.yo`) cancelling that dup against the scope-end drop. So a missing drop in the C is an optimizer bug, not a consumption-marking bug — and any tree walk in that optimizer family must follow `ExprInfo.macro_expansion` for macro calls (`for`, collection literals, user macros — their calls keep the macro head in the AST; the expansion is where branch structure is visible). `if(...)` no longer needs this: since 2026-08-21 it is desugared to `cond(...)` at parse time (`desugar_if_calls`, plans/reference/MACRO_POLICY.md), so passes see the real `cond` node. See `issues/fixed/where-constraints-arraylist-96b-leak.md`.
-- **Cancelling a dup/drop pair is only sound when the container OUTLIVES the local, and the optimizer does not check that.** Two consequences, one fixed and one open. (a) A CLOSURE DEFINITION's `deferred_dup_expressions` are its capture-STRUCT field initializers, and that struct is moved into the closure value and released by whatever owns it — a spawn wrapper, an async future, a stored `FuncVal` — possibly before the capturing scope ends. `_search_dup_calls` therefore skips a node whose `ExprInfo.is_anonymous_function_definition` is `Some(true)` and that carries deferred dups; the `io.async` special case it used to have was one instance of that rule. Without it, `shared := arc(i32(42))` captured by a `Thread.spawn` closure read back as `0` after `join()` (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`). (b) The same unsoundness is still LIVE for an ordinary container in an INNER scope — `{ holder := H(sink : sink); }; sink.count()` is a use-after-free, masked into a correct-looking answer on the non-atomic path because a cycle-capable `ref` is GC-TRACKED and `__yo_decr_rc` defers the free (`issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md`). Any change here needs the dup/drop emit-diff gate plus an OVER-cancellation canary: the same-scope case must keep its cancellation, or every struct store costs a dup/drop pair again.
-- **A single-expression begin block SHARES the AST node id with its tail expr — fields the begin epilogue "owns" CLOBBER the tail's.** The epilogue (`evaluate_begin_expression`, `src/evaluator/exprs/begin.yo`) once replaced `deferred_drop_expressions` wholesale with the begin's scope-end drops, silently discarding Stage-0's balancing `___drop` for a bare-tail projection-by-value call (the dup survives on a different channel) — a whole-RC-group leak at every fn-body/match-arm bare tail (`issues/fixed/ref-local-scope-drop-missing-after-value-call.md`). When touching that epilogue: preserve/concat the tail's deferred lists, and remember the codegen side flushes a shared node from SEVERAL points (post-call flush + arm/body flush) with **no removal-on-emit** — node-list membership is the pending path's "the node's own flush handles it" signal (`generate_pending_deferred_drops`'s `already`), so idempotence comes from `FunctionGenerationContext.emitted_deferred_drop_ids`, never from list removal.
-- **A parameter is bound in THREE places, and only the def-time one used to carry `own`.** `own(name) : T` transfers a reference to the callee, and the callee's release is scheduled by `begin.yo`'s parameters-frame pass (`_schedule_scope_end_drops(..., params_only : true)`), whose gate is `Variable.is_owning_the_rc_value`. That flag is set by whichever binder created the parameter: `_build_def_time_body_env` (`src/evaluator/calls/function_type.yo`), `_evaluate_funcval_runtime_call` (`src/evaluator/calls/function.yo`) and `check_if_function_parameter_matches_argument` (`src/evaluator/calls/helper.yo`). **A function with `generic(...)` parameters DEFERS its body evaluation** (`should_defer_ft`), so its body is never evaluated against the def-time env — only against a call-time binding. The two call-time binders hardcoded `false`, so every `own` param of every generic function lost its scope-end drop while the body's store still emitted the balancing `___dup`: a net +1 per call, and `box`/`dyn`/`AnyError` ride on exactly that (`issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md`). When adding a parameter-binding site, mirror the def-time binder's flags — and when a leak only reproduces through a GENERIC callee, suspect the deferred-body/call-time-binding split before anything in codegen.
-- **Two spellings of a module path coexist — never compare them with `==`.** A demand-loaded module's tokens carry the `file://<abs>` cache key, but the ENTRY module's tokens carry the path exactly as typed on the command line (`src/lib.yo`, so diagnostics stay relative — `mm_load_file` parses with `input_path`, `_load_module_at_abs` with the key), while `env.module_path` is always the key. Codegen's "is this function defined in the entry module?" test (plain-named library exports, `src/codegen/functions/collection.yo`) silently never matched for exactly this reason, so `--static-library` archives exported no symbols (`issues/fixed/static-library-exports-no-symbols.md`). Canonicalize both sides (`_canonical_module_path`: strip `file://`, absolutize against cwd, `normalize()`) before comparing.
-- **A `-O0` binary that SIGSEGVs (rc=139) on deep recursion is stack exhaustion, NOT heap corruption — don't chase ASan/malloc.** Compiled Yo programs run `main` on a worker thread whose stack defaults to 1 GiB (`__yo_main_stack` in `src/codegen/functions/generation.yo`) and is overridable at runtime via the `YO_MAIN_STACK_MB` env var. At `-O0` (the default, non-`--optimize 2` build) clang gives every temporary its own stack slot, so the big evaluator functions (`evaluate_match` ~9 MB, `evaluate_function_call` ~8 MB) have multi-MB frames; deep compile-time recursion — e.g. `derive(Eq)` over a ~46-variant enum unrolling `__yo_comptime_fold_range` once per variant — then exhausts a 1 GiB stack at ~45 levels (≈22 MB/level). This is why `check ./src` crashed under `is_executing`. **`--optimize 2` (-O2, `src/main.yo`) shrinks frames ~100× via LLVM stack coloring (only runs at `-O1`+), needing <1 MB/level — it handles 1000+ levels on 1 GiB and never hits this.** So: validate the self-hosted compiler under deep recursion either with `--optimize 2`, or keep the fast `-O0` loop and bump the stack: `YO_MAIN_STACK_MB=4096 <binary> check ./src`. Diagnose this class of crash by rc=139 with no ASan output + a sharp deterministic depth threshold (it scales linearly with the stack size). The default is kept at 1 GiB (reserved lazily) so CI runners are not asked to reserve gigabytes.
+- **`ExprInfo.value` of `.None`** means a runtime value; `EvalValue.UnknownVal` means the type is known but the value is not.
+- **`assumed()` and `outside-subset` pass `yo verify`** by design (std dogfooding); a green `yo verify` is not "everything proved". Read the per-fn outcomes.
+- **Two spellings of a module path coexist; never compare them with `==`.** Entry-module tokens carry the path as typed; demand-loaded ones carry the `file://<abs>` cache key. Canonicalize (`_canonical_module_path`) before comparing (`issues/fixed/static-library-exports-no-symbols.md`).
+- **A `-O0` binary that SIGSEGVs (rc=139) on deep recursion is stack exhaustion, not heap corruption.** `main` runs on a worker thread with a 1 GiB stack (`YO_MAIN_STACK_MB` overrides); `-O0` frames of the big evaluator functions are multi-MB. Validate deep recursion with `--optimize 2`, or `YO_MAIN_STACK_MB=4096 <binary> check ./src`.
+- **A "move" of a named local into a struct/enum field is NOT a consumption in the evaluator.** The move you see in the C is manufactured by the dup/drop pair optimizer (`_optimize_dup_drop_pairs`, `src/evaluator/exprs/begin.yo`), so a missing drop is an optimizer bug. Any tree walk in that family must follow `ExprInfo.macro_expansion` for macro calls (`issues/fixed/where-constraints-arraylist-96b-leak.md`).
+- **Cancelling a dup/drop pair is only sound when the container outlives the local, and the optimizer does not check that.** Closure definitions with deferred dups are skipped for this reason (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`); the inner-scope container case is documented in `issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md`. Any change here needs the dup/drop emit-diff gate plus an over-cancellation canary.
+- **A single-expression begin block shares its AST node id with its tail expr**: the begin epilogue must concat, not replace, the tail's deferred lists; idempotence of drop emission comes from `FunctionGenerationContext.emitted_deferred_drop_ids`, never from list removal (`issues/fixed/ref-local-scope-drop-missing-after-value-call.md`).
+- **A parameter is bound in three places** (`_build_def_time_body_env`, `_evaluate_funcval_runtime_call`, `check_if_function_parameter_matches_argument`); a function with `generic(...)` params defers its body to call time, so a new binding site must mirror the def-time binder's `own` flags (`issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md`). A leak that only reproduces through a generic callee is this before it is codegen.
+- **A new build builtin in `std/build.yo`**: a module-level `::` VALUE binding breaks the whole module under the seed (E0401); a FUNCTION wrapper does not, and only a build file that CALLS it fails. The repository's own `build.yo` must not use a builtin until `SEED_VERSION` carries it. Pre-v0.2.31 seeds swallow build-file errors and print `No build steps defined.`.
+- **`yo install` auto-prunes stale lock entries; the store is content-addressed** (`<cache>/store/sha256/<integrity>`), reclaimed only by `yo cache gc`. Every git child runs with `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS=echo`.
+- **The VS Code extension bundles a plain-JS LSP client** spawning `yo lsp` (`yo.binPath`); with `yo.lsp.enabled: false` it degrades to syntax highlighting.
+- **Plans state their status up top.** `plans/archive/` docs are closed records with frozen numbers; `plans/reference/` docs are authoritative.
 
 ## Debugging codegen / C compilation issues
 
-When you encounter a C compilation error from `yo compile`, follow this
-workflow:
-
-1. **Document the issue** in `issues/<name>.md` with:
-   - The error message (verbatim)
-   - A **minimal `.yo` reproducer** (use `tmp/fixme.yo`)
-   - The root cause analysis
-2. **Create the minimal repro** — a tiny `.yo` file that triggers the same
-   error. This isolates the bug from the noise of a full build.
-3. **Fix the codegen** in `src/codegen/`.
-4. **Verify** by compiling the repro (should succeed) and the full project
-   (error count should decrease).
-5. **Move the doc** to `issues/fixed/` and commit.
+1. Document the issue in `issues/<name>.md`: the verbatim error, a minimal `.yo` reproducer (use `tmp/fixme.yo`), the root cause.
+2. Fix the codegen in `src/codegen/`.
+3. Verify: the repro compiles, the full project's error count decreases.
+4. Move the doc to `issues/fixed/` and commit.
 
 ---
 
-## Karpathy‑Inspired Coding Guidelines
+## Karpathy-Inspired Coding Guidelines
 
-Behavioral guidelines to reduce common LLM coding mistakes. (Source: [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills))
+Behavioral guidelines to reduce common LLM coding mistakes (source: [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)). They bias toward caution over speed; for trivial tasks, use judgment.
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-
-### 1. Think Before Coding
-
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-
-Before implementing:
-
-- State assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them — don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-### 2. Simplicity First
-
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-### 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it — don't delete it.
-
-When your changes create orphans:
-
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-### 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+1. **Think before coding.** State assumptions; if several interpretations exist, present them instead of picking silently; if a simpler approach exists, say so; if something is unclear, stop and ask.
+2. **Simplicity first.** Minimum code that solves the problem: no speculative features, no abstractions for single-use code, no unrequested configurability, no error handling for impossible cases. If 200 lines could be 50, rewrite.
+3. **Surgical changes.** Touch only what you must; match existing style; do not "improve" adjacent code; mention unrelated dead code instead of deleting it. Remove imports/variables your change orphaned. Every changed line should trace to the request.
+4. **Goal-driven execution.** Turn tasks into verifiable goals ("fix the bug" → "write a failing test, make it pass"; "refactor X" → "tests pass before and after"), state a short plan with a check per step, and loop until verified.
