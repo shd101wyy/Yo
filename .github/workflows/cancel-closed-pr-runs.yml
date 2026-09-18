@@ -1,0 +1,107 @@
+# Cancel CI still queued or running for a pull request that has just closed.
+#
+# WHY NOT `concurrency:`. A concurrency group only cancels when a NEW run
+# ENTERS it. Closing a PR produces no new run, so its queued battery survives
+# with nothing left to gate — a squash-merged branch's run scores a merge
+# commit that exists on no branch, so it can never gate anything again.
+#
+# WHY IT MATTERS HERE, measured rather than theoretical: the battery is ~28
+# jobs across six platforms, so a few dead runs saturate the runners.
+# `test.yml`'s own concurrency comment already names the consequence and
+# prescribes this sweep BY HAND —
+#
+#   "If nothing on develop is finishing at all, suspect runner starvation first
+#    (a backlog of runs on already-merged PR branches will sit in front of it —
+#    cancel those) rather than this block."
+#
+# On 2026-09-17 four dead runs on merged/closed branches sat in front of the
+# develop battery: it reached 0 started jobs twice and was cancelled once by a
+# newer tip before a single job ran.
+#
+# SAFE AGAINST REOPENING. `test.yml`'s `pull_request:` sets no `types:`, so it
+# keeps the default `opened, synchronize, reopened` — reopening a closed PR
+# starts a fresh run, so cancelling on close loses nothing recoverable.
+#
+# Uses `gh` in a `run:` step, which is how every other workflow here talks to
+# the API (release.yml, test.yml). Deliberately NOT `actions/github-script`:
+# that would add a third-party action this repo does not otherwise use, and its
+# `paginate` has to unwrap `{total_count, workflow_runs}` — if that unwrapping
+# ever failed the sweep would cancel nothing and log a cheerful "0 run(s)".
+name: Cancel runs for closed PRs
+
+on:
+  pull_request:
+    types: [closed]
+
+# Only the ability to cancel a run and read PR metadata. Nothing here reads or
+# writes repository content.
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    # A fork PR's token is read-only, so the cancel would ERROR rather than
+    # no-op. Skip cleanly instead of failing on every fork PR close.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Cancel live runs on the closed PR's head branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          THIS_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          # GUARD 1 — never touch a long-lived branch. A PR opened FROM develop
+          # would otherwise cancel develop's own battery, the one run this repo
+          # most needs to finish and which test.yml deliberately leaves
+          # uncancelled.
+          case "$HEAD_REF" in
+            develop|main|master)
+              echo "head ref '$HEAD_REF' is a long-lived branch — nothing cancelled"
+              exit 0
+              ;;
+          esac
+
+          # GUARD 2 — the branch may still head ANOTHER open PR (retargeted or
+          # reopened elsewhere); those runs are live. The jq reads the values
+          # from the environment rather than interpolating them into the
+          # program, so a branch name cannot inject.
+          others=$(gh pr list --repo "$REPO" --state open --limit 100 \
+            --json number,headRefName \
+            --jq '[.[] | select(.headRefName == env.HEAD_REF and (.number|tostring) != env.PR_NUMBER) | .number] | join(",")')
+          if [ -n "$others" ]; then
+            echo "'$HEAD_REF' still heads open PR(s) $others — nothing cancelled"
+            exit 0
+          fi
+
+          # `-f branch=...` rather than a hand-built query string, so a branch
+          # name containing `/` is encoded correctly.
+          ids=$(gh api -X GET "repos/$REPO/actions/runs" \
+            -f branch="$HEAD_REF" -f per_page=100 \
+            --jq '.workflow_runs[] | select(.status != "completed") | .id')
+
+          n=0
+          for id in $ids; do
+            # GUARD 3 — never cancel this very run. (`[ ... ] && continue`
+            # would also be safe here: bash's `set -e` exempts a failing
+            # command that is not last in an `&&` list, verified rather than
+            # assumed. if/fi is used because it states the intent directly.)
+            if [ "$id" = "$THIS_RUN" ]; then
+              continue
+            fi
+            if gh api -X POST "repos/$REPO/actions/runs/$id/cancel" >/dev/null 2>&1; then
+              echo "cancelled run $id"
+              n=$((n + 1))
+            else
+              # A run that completed between the list and the cancel returns
+              # 409. That is a race, not a failure.
+              echo "could not cancel run $id (already finished?)"
+            fi
+          done
+          echo "PR #$PR_NUMBER ($HEAD_REF) closed — cancelled $n run(s)"
