@@ -60,3 +60,39 @@ Passes standalone: `yo test ./tests/internal/doc_stability.test.yo`.
 The §7 item-1 residue: per-batch reachability for eval/collect — owner-tagged
 registry purges or per-compile emission scoping — so a warm batch never
 unifies against entries minted for a different batch's import graph.
+
+## NARROWED 2026-09-18 (evening): minimal pair + the decoded unify
+
+Minimal repro: **{doc_render_markdown, doc_stability}** alone in a directory
+inside the repo (so `../../src` imports resolve — e.g. a scratch
+`tests/internal-bisect/`), run with YO_TEST_IN_PROCESS=1. Two light files,
+~1 min. Neither file alone fails; doc_builder/extractor/reexport_docs +
+check_watch + module_invalidation are all NOT poisoners.
+
+New probes (both YO_DEBUG_WARM-gated, kept in the tree):
+- `[unify-struct]` at the struct-unify throw (types/synthesizer.yo) —
+  prints both sides' struct ids, ctor fids and FULL type_keys.
+- `[fmg-get]` at find_methods_from_generic_impls' candidate push for
+  method_name == "get" — receiver/pattern/spec keys.
+
+The fatal unify decoded (bisect logs):
+- expected = `GenericImplEntry` (`struct_decl_values__impl_r202c20`,
+  instantiated), given = `DocParam` (`struct_decl_doc__model_r66c12`) —
+  and **BOTH ctor fids EMPTY** (the structural fallback that would save
+  this pair is scoped to in_def_time_trial(), which is false here).
+- The last `.get` dispatch before the throw IS on the impl registry's own
+  receiver: `HashMap(String, ArrayList(GenericImplEntry))` — the
+  type_key RENDER of that receiver is CORRECT (the arg resolves to
+  GenericImplEntry), yet the match binds the pattern's V slot to
+  DocParam, so the spec's `-> ?(V)` lands as `Option(ArrayList(DocParam))`
+  and the annotated assignment at impl.yo:1376 throws.
+
+**Working hypothesis (next dig):** the receiver's ArrayList T-arg is a
+SomeT with a RESOLUTION-CELL CHAIN; type_key resolves the chain through
+`_tk_resolve_arg_slot` (→ GenericImplEntry) while `try_match_generic_impl`'s
+slot unify follows a different resolution (→ DocParam, minted during
+doc/model's own HashMap usage in doc_render_markdown's pass). Shared
+mutable cell state diverging by reader — the same disease class as the
+closure-F slot repairs in type_key.yo's `_tk_resolve_arg_slot` comment.
+Start: impl.yo's try_match_generic_impl slot walk (~lines 910–1350) vs
+type_key.yo's `_tk_resolve_arg_slot`.
