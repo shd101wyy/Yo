@@ -54,23 +54,69 @@ to be re-run against a clean build before it could be trusted, and the earlier
 predated the rebase. Any CI job or contributor workflow that builds and then
 tests inherits the same exposure.
 
-## Analysis — not yet root-caused
+## Root cause — CONFIRMED
 
-Known from the reproduction:
+`compile_artifact` (`src/build_runner.yo`) computes the artifact's input stamp
+**twice**:
 
-- the freshness check is **content-based** (step 4: `touch` does not invalidate);
-- it is **not** keyed on the git version string (step 3: the version changed and
-  the cache still hit);
-- it misses at least `src/main.yo`, which is the build's own entry module — so
-  this is not merely a missing-transitive-dependency bug.
+1. **Before** launching the child compile, as the cache decision (the
+   comparison that prints `(cached: inputs unchanged, skipping compile)`).
+2. **After** the child exits — `post_stamp` — and it is *that* one that is
+   written to `<output>.inputs-sha256`.
 
-That combination points at the stamp/depfile the build writes into `yo-out/`
-being compared against something other than the current sources, or being
-written before the inputs it claims to cover. The artifact cache lives in
-`src/build_runner.yo` (`plans/reference/INCREMENTAL_COMPILATION.md` Phase A, the
-build-runner artifact cache; `plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`
-describes depfile stamps). Root-causing is in progress; this doc is filed first
-so the reproduction is not lost.
+`_artifact_input_stamp` builds its digest by **re-reading each input from disk
+and hashing its current contents**. So the recorded stamp describes the tree as
+it is **when the compile ends**, not the bytes the compile actually consumed.
+Any write to an input between the child reading it and that post-compile
+re-hash is recorded as "this is what the artifact was built from"; every later
+build's decision stamp then matches it, and the stale artifact is served
+forever.
+
+The window is the whole compile — measured at ~8 minutes for the compiler's own
+build in this worktree.
+
+The post-compile choice is deliberate and commented in the source (§4.9):
+recording the *pre*-compile stamp would cost one guaranteed extra compile per
+artifact, because a first build has no depfile and stamps the whole-tree walk
+while the next build stamps the much smaller depfile set. The comment simply
+never considers a write arriving *during* the compile.
+
+Two observations in the reproduction are red herrings, and are kept here so
+nobody re-chases them: `touch` is inert because the stamp is content-keyed
+(correct behavior), and the `v0.2.36-24-g<sha>` string comes from `git describe`
+for the *printed line only* — the key's version component is the hardcoded
+`CURRENT_YO_VERSION`. **Ordinary edits between builds do invalidate correctly.
+Only mid-compile writes are absorbed.**
+
+### Correction to step 5 of the reproduction
+
+The byte comparison in step 5 is **confounded** and does not by itself prove
+staleness: `src/main.yo` was edited again (a help-text addition) between the
+cached build and the clean rebuild, so the two binaries would differ anyway.
+What the control experiment *does* establish is that clean builds are
+reproducible, which rules out nondeterminism as an explanation for a difference.
+The proof of the defect is the code path above, not that comparison.
+
+### What actually triggered it here
+
+The cached build's predecessor was still compiling while its own inputs were
+being edited — `src/main.yo`'s help text was changed during that compile. The
+predecessor's post-compile stamp therefore recorded the edited file, and the
+next build compared the edited tree against that stamp and matched. This is the
+mechanism behind the repo's existing rule of thumb that editing sources during
+a background build yields an untrustworthy binary; this issue is *why*.
+
+## Adjacent holes found while root-causing
+
+Filed here so they are not lost; each deserves its own fix:
+
+1. **Warm in-process compiles under-record.** Both module-read record sites sit
+   *after* a module-cache early return, so a warm artifact compile
+   (`build --watch`) writes a depfile naming only the modules it re-read. That
+   under-invalidates today, and would under-invalidate *permanently* once the
+   recorded stamp becomes authoritative.
+2. **The compiling binary's identity is absent from the key.** Two different
+   builds of the same release number cache-hit each other.
 
 ## Fix constraints
 
