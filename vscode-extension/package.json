@@ -70,6 +70,48 @@
         "command": "yo.restartLanguageServer",
         "title": "Yo: Restart Language Server"
       }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "yo",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "verify",
+              "check",
+              "test"
+            ],
+            "description": "The yo subcommand to run."
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "yo",
+        "owner": "yo",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
+        "severity": "error",
+        "pattern": [
+          {
+            "regexp": "^error(\\[[^\\]]+\\])?: (.*)$",
+            "message": 2
+          },
+          {
+            "regexp": "^\\s*-->\\s+(.+):(\\d+):(\\d+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3
+          }
+        ]
+      }
     ]
   },
   "engines": {
@@ -81,7 +123,8 @@
   "main": "./extension.js",
   "activationEvents": [
     "onLanguage:yo",
-    "onCommand:yo.restartLanguageServer"
+    "onCommand:yo.restartLanguageServer",
+    "onTaskType:yo"
   ],
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
