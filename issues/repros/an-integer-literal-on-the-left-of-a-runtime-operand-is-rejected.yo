@@ -1,0 +1,36 @@
+// Repro — a bare integer literal on the LEFT of a binary operator whose right
+// operand is a runtime integer is rejected, while the mirror image is accepted.
+//
+//   yo check issues/repros/an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.yo
+//
+// Expected: evaluator OK, and `yo compile ... && ./a.out` prints
+//   0 1 2 3 4
+//   true
+//   6
+//
+// Was (2026-09-19, yo 0.2.36, tree 49d75c665, --std-path ./std):
+//   error: Cannot assign runtime argument to compile-time parameter "end"
+//     --> (the `0..n` line)
+// and, with that line removed, the same text for parameter "rhs" at `3 == n`
+// and again at `1 + n`. Every mirror-image spelling below (`n..usize(9)`,
+// `n == 3`, `n + 1`) is accepted, so the literal converts to `usize` as an
+// ARGUMENT but never as the RECEIVER that picks the operator impl.
+{ print, println } :: import("std/fmt");
+{ String } :: import("std/string");
+main :: (fn() -> unit)({
+  n := usize(5);
+  // 1. literal LHS of `..` — the first loop any author writes.
+  for(0 .. n, i => {
+    print(`${i} `);
+  });
+  println(``);
+  // 2. literal LHS of `==`.
+  println(`${(3 == n)}`);
+  // 3. literal LHS of `+`.
+  println(`${(1 + n)}`);
+  // Mirror images — all accepted today.
+  r := (n .. usize(9));
+  b := (n == 3);
+  m := (n + 1);
+});
+export(main);
