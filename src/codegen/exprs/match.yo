@@ -1,16 +1,15 @@
-//! Match-expression emitter — mirrors `src/codegen/exprs/match.ts`. COMPLETE.
+//! Match-expression emitter.
 //!
 //! generate_match_expression dispatches all enum paths after the header
 //! (result-temp decl, subject materialization, isPrimitiveMatch delegation,
 //! ptr/ref-semantics deref): primitive (int/bool → C switch), nullable-pointer
 //! (if/else), simple-enum (tag switch), and tagged-union (tag switch with
 //! `.data.<Variant>.<field>` destructuring — labeled + positional, via the EnumT
-//! parallel arrays variant_names/variant_field_labels/variant_fields, since
-//! yo-self EnumT has no `.variants[].fields[]` objects). Per-arm bodies via
+//! parallel arrays variant_names/variant_field_labels/variant_fields; EnumT has
+//! no `.variants[].fields[]` objects). Per-arm bodies via
 //! generate_case_body; comptime-eliminated arms (case_executed) are skipped.
 //!
-//! DEFERRED (documented, not hit by the no-RC/no-async corpus): the deferred-dup
-//! rewrite of a begin-block final expression in generate_case_body (Phase 4);
+//! DEFERRED (documented, not hit by the no-RC/no-async corpus):
 //! state-machine storage of destructured variables (Phase 5, gated on in_async).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -96,8 +95,7 @@ _emit_pattern_binding_decl :: (
   })
 });
 /// True when position `idx` lies INSIDE a double-quoted C string literal in
-/// `s` (parity walk with `\\`-escape skipping). Mirrors the TS fix
-/// (codeContainsReturnStatement, src/codegen/utils/index.ts): the word
+/// `s` (parity walk with `\\`-escape skipping): the word
 /// `return` inside a GENERATED STRING LITERAL (e.g. a Yo source literal
 /// "...before early return") is NOT a return statement — treating it as one
 /// skipped the arm's result-temp assignment and left the temp uninitialized
@@ -153,7 +151,7 @@ _byte_index_of :: (fn(s : String, word : String, from : usize) -> Option(usize))
   });
   Option(usize).None
 });
-/// Whether `s` contains "return" as a whole word (the TS `\breturn\b` regex).
+/// Whether `s` contains "return" as a whole word (a `\breturn\b`-style match).
 _contains_word_return :: (fn(s : String) -> bool)({
   word := String.from("return");
   wlen := usize(6);
@@ -181,7 +179,6 @@ _contains_word_return :: (fn(s : String) -> bool)({
   false
 });
 /// Whether generated code is control flow that must NOT be assigned to a temp.
-/// Mirrors `isControlFlowCode`.
 _is_control_flow_code :: (fn(code : String) -> bool)(
   (code.len() == usize(0)) || ((code == "break") || ((code == "continue") || (code.starts_with("goto") || _contains_word_return(code))))
 );
@@ -189,11 +186,11 @@ _is_control_flow_code :: (fn(code : String) -> bool)(
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
-/// True if `expr` is an or-pattern `a | b`. Mirrors `isOrPattern`.
+/// True if `expr` is an or-pattern `a | b`.
 _is_or_pattern :: (fn(expr : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(expr, "|", Option(usize).Some(usize(2)))
 );
-/// Flatten an or-pattern into its individual patterns. Mirrors `flattenOrPattern`.
+/// Flatten an or-pattern into its individual patterns.
 _flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))(
   if(!_is_or_pattern(expr), {
     out := ArrayList(AstExpr).new();
@@ -243,7 +240,7 @@ _flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))(
     out
   })
 );
-/// A C literal for a compile-time value (number / bool). Mirrors `getCLiteralFromValue`.
+/// A C literal for a compile-time value (number / bool).
 _c_literal_from_value :: (fn(value : EvalValue) -> Option(String))(
   match(value, .IntLit(r) => Option(String).Some(r), .FloatLit(r) => Option(String).Some(r), .BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
 );
@@ -289,7 +286,7 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
   out
 });
 /// Generate a match/cond case body (begin blocks inline their statements and
-/// yield the final expression). Mirrors `generateCaseBody`. (The begin-final
+/// yield the final expression). (The begin-final
 /// deferred-dup rewrite is Phase 4 — empty for the no-RC corpus.)
 generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
@@ -367,8 +364,8 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_drops, prev_pending));
     context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_consumed, prev_consumed));
     // When the arm value carries deferred `___dup`s (returning a borrowed
-    // value out of the arm — e.g. `.Some(e) => e.ty`), mirror
-    // match.ts:105-150 exactly (see arm_value_with_dups in drop_dup.yo).
+    // value out of the arm — e.g. `.Some(e) => e.ty`),
+    // see arm_value_with_dups in drop_dup.yo.
     code := match(
       arm_value_with_dups(body_expr, indent.clone(), context),
       .Some(fc) => fc,
@@ -566,8 +563,7 @@ _generate_float_primitive_match :: (fn(expr : AstExpr, indent : String, context 
   context.base.inside_match = saved;
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
-/// Generate a primitive (int/bool) match as a C switch. Mirrors
-/// `generatePrimitiveMatchExpression`.
+/// Generate a primitive (int/bool) match as a C switch.
 generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, match_value_type : TypeValue, temp_var_opt : Option(String), is_unit : bool) -> String)({
   // A float scrutinee cannot lower to a switch (C forbids `switch` on
   // double) — take the ordered == chain (audit B1).
@@ -704,7 +700,6 @@ _variant_name :: (fn(case_value : AstExpr) -> String)(
   match(case_value, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(v) => ast_expr_token(v).value, .None => String.from("")), .Atom(_, _) => String.from(""))
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
-/// Mirrors the `nullablePointerType` branch of `generateMatchExpression`.
 /// Add a name to the function's local-shadowed-variables set (creating it if
 /// absent). A shadowed name resolves in `generate_atom` to its sanitized
 /// SOURCE name (the arm-block C declaration), not the evaluator's temp.
@@ -1003,8 +998,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
   em.emit_string_line(close);
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
-/// Simple (fieldless) enum match → C switch on the tag. Mirrors the
-/// `simpleEnumOptimizable` branch of `generateMatchExpression`.
+/// Simple (fieldless) enum match → C switch on the tag.
 _gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, enum_type : TypeValue, deref_star : String, temp_var_opt : Option(String), is_unit : bool) -> String)({
   em := context.base.emitter;
   saved := context.base.inside_match;
@@ -1320,7 +1314,6 @@ _emit_variant_arm_body :: (
   });
 });
 /// Tagged-union enum match → C switch on the tag with per-arm destructuring.
-/// Mirrors the final (default) branch of `generateMatchExpression`.
 _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, match_value_type : TypeValue, enum_type : TypeValue, is_ref_or_ptr : bool, temp_var_opt : Option(String), is_unit : bool) -> String)({
   em := context.base.emitter;
   saved := context.base.inside_match;
@@ -1523,7 +1516,7 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
-
+<< << << < ours
 // ---------------------------------------------------------------------------
 // General lowering — an ordered test chain (plans/MATCH_PATTERN_MATCHING.md
 // §4.8). Taken whenever an arm is not one of the classic switch shapes: a
@@ -1989,121 +1982,122 @@ _gen_general_match :: (fn(expr : AstExpr, arms : ArrayList(Arm), indent : String
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 /// Generate a match expression. Mirrors `generateMatchExpression`.
-generate_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
-  temp_var_opt := ei.variable_name;
-  value_type := ei.ty;
-  is_unit := is_unit_type(value_type);
-  em := context.base.emitter;
-  if(
-    !is_unit,
+== == == =
+  /// Generate a match expression.
+  >> >> >> > theirs generate_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+    ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
+    temp_var_opt := ei.variable_name;
+    value_type := ei.ty;
+    is_unit := is_unit_type(value_type);
+    em := context.base.emitter;
+    if(
+      !is_unit,
+      match(
+        temp_var_opt,
+        .Some(tv) => {
+          d := indent.clone();
+          d.push_string(get_type_string(value_type, context.base));
+          d.push_str(" ");
+          d.push_string(tv.clone());
+          d.push_str(";");
+          em.emit_string_line(d);
+        },
+        .None => ()
+      )
+    );
+    args := _args(expr);
+    subject := match(args.get(usize(0)), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a subject"))));
+    subject_ei := match(context.base.get_expr_info(subject), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a valid type"))));
+    match_value_type := subject_ei.ty;
+    (matched_value_code : String) = _call_generate_expr(subject, indent.clone(), context);
+    // Materialize the subject into its temp var when the evaluator assigned one
+    // — for a NON-atom subject (a call, a field read) whose value the arms then
+    // destructure. An ATOM subject is never materialized: its code already
+    // denotes the variable's storage — the plain C name, `(*name)` for a
+    // `ref`/`inout` parameter (a same-named local would shadow the pointer
+    // parameter: C redefinition), or an async body's `sm->var_N` slot — and a
+    // copy named after the variable is emitted ONCE PER MATCH, so two matches on
+    // the same local in one state-machine block were a C redefinition
+    // (`__yo_tN parsed = sm->var_N;` twice;
+    // issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
+    // Same atom guard as begin.yo's subject materialization, widened to every
+    // atom.
     match(
-      temp_var_opt,
-      .Some(tv) => {
-        d := indent.clone();
-        d.push_string(get_type_string(value_type, context.base));
-        d.push_str(" ");
-        d.push_string(tv.clone());
-        d.push_str(";");
-        em.emit_string_line(d);
+      subject_ei.variable_name,
+      .Some(svn) => {
+        subject_var_name := get_variable_name_for_codegen(svn, Option(Environment).Some(subject_ei.env));
+        if(!ast_expr_is_atom(subject) && !(matched_value_code == subject_var_name), {
+          _emit_pattern_binding_decl(
+            context,
+            indent.clone(),
+            subject_var_name.clone(),
+            match_value_type,
+            matched_value_code.clone()
+          );
+          context.base.declared_c_var_names.insert(subject_var_name.clone());
+          matched_value_code = subject_var_name;
+        });
+        // The SUBJECT may carry a deferred `___dup` (begin-wrapped non-atom
+        // scrutinee returning a borrowed read — e.g. merge_and_check_envs'
+        // `match(base_var.consumed_at_token, ...)`: the Option value's temp is
+        // dropped at scope end while the FIELD still holds the Box payload).
+        // Emit the dup here on the DECLARED subject temp —
+        // drift-safe (never trust the recorded atom name; see
+        // generate_case_body / cond.yo _emit_value_arm).
+        match(
+          subject_ei.deferred_dup_expressions,
+          .Some(sdups) => if(sdups.len() > usize(0), {
+            sdline := indent.clone();
+            sdline.push_string(generate_dup_code_for_value(matched_value_code.clone(), match_value_type, context));
+            sdline.push_str(";");
+            em.emit_string_line(sdline);
+          }),
+          .None => ()
+        );
       },
       .None => ()
-    )
-  );
-  args := _args(expr);
-  subject := match(args.get(usize(0)), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a subject"))));
-  subject_ei := match(context.base.get_expr_info(subject), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a valid type"))));
-  match_value_type := subject_ei.ty;
-  (matched_value_code : String) = _call_generate_expr(subject, indent.clone(), context);
-  // Materialize the subject into its temp var when the evaluator assigned one
-  // — for a NON-atom subject (a call, a field read) whose value the arms then
-  // destructure. An ATOM subject is never materialized: its code already
-  // denotes the variable's storage — the plain C name, `(*name)` for a
-  // `ref`/`inout` parameter (a same-named local would shadow the pointer
-  // parameter: C redefinition), or an async body's `sm->var_N` slot — and a
-  // copy named after the variable is emitted ONCE PER MATCH, so two matches on
-  // the same local in one state-machine block were a C redefinition
-  // (`__yo_tN parsed = sm->var_N;` twice;
-  // issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
-  // Mirrors the isInoutAtom guard in match.ts (and begin.ts), widened to every
-  // atom.
-  match(
-    subject_ei.variable_name,
-    .Some(svn) => {
-      subject_var_name := get_variable_name_for_codegen(svn, Option(Environment).Some(subject_ei.env));
-      if(!ast_expr_is_atom(subject) && !(matched_value_code == subject_var_name), {
-        _emit_pattern_binding_decl(
-          context,
-          indent.clone(),
-          subject_var_name.clone(),
-          match_value_type,
-          matched_value_code.clone()
-        );
-        context.base.declared_c_var_names.insert(subject_var_name.clone());
-        matched_value_code = subject_var_name;
-      });
-      // The SUBJECT may carry a deferred `___dup` (begin-wrapped non-atom
-      // scrutinee returning a borrowed read — e.g. merge_and_check_envs'
-      // `match(base_var.consumed_at_token, ...)`: the Option value's temp is
-      // dropped at scope end while the FIELD still holds the Box payload).
-      // TS emits the dup right after the read via the begin tail
-      // (s1-ref-v3.c:253470); emit it here on the DECLARED subject temp —
-      // drift-safe (never trust the recorded atom name; see
-      // generate_case_body / cond.yo _emit_value_arm).
-      match(
-        subject_ei.deferred_dup_expressions,
-        .Some(sdups) => if(sdups.len() > usize(0), {
-          sdline := indent.clone();
-          sdline.push_string(generate_dup_code_for_value(matched_value_code.clone(), match_value_type, context));
-          sdline.push_str(";");
-          em.emit_string_line(sdline);
-        }),
-        .None => ()
-      );
-    },
-    .None => ()
-  );
-  // Primitive (int/bool) match.
-  if(match(expr_info_is_primitive_match(ei), .Some(b) => b, .None => false), {
-    return(generate_primitive_match_expression(expr, indent.clone(), context, matched_value_code, match_value_type, temp_var_opt, is_unit));
+    );
+    // Primitive (int/bool) match.
+    if(match(expr_info_is_primitive_match(ei), .Some(b) => b, .None => false), {
+      return(generate_primitive_match_expression(expr, indent.clone(), context, matched_value_code, match_value_type, temp_var_opt, is_unit));
+    });
+    // Dereference pointer / ref-semantics one level to the enum type.
+    is_ptr := is_pointer_type(match_value_type);
+    is_ref_sem := (!is_ptr && (is_reference_struct_type(match_value_type) || is_reference_enum_type(match_value_type)));
+    enum_type0 := if(is_ptr, match(match_value_type, .Pointer(p) => p, _ => match_value_type), match_value_type);
+    // The general test-chain lowering: any arm outside the classic switch
+    // shapes, or a scrutinee that is neither a primitive nor an enum (a string
+    // matched against literals).
+    match(
+      lookup_match_arms(ast_expr_id(expr)),
+      .Some(arms) => {
+        if(!_arms_all_classic(arms) || !is_enum_type(resolve_enum_shell(enum_type0)), {
+          return(_gen_general_match(expr, arms, indent.clone(), context, matched_value_code, match_value_type, temp_var_opt, is_unit));
+        });
+      },
+      .None => ()
+    );
+    // Resolve a leaked recursive-enum SELF-SHELL to its finalized form. A shell
+    // keeps `variant_names` (so the tag emits) but has EMPTY `variant_fields`/
+    // `variant_field_labels`, so `_emit_destructure_binds`'s positional loop
+    // (`limit = min(np, labels.len())` = 0) drops every payload binding →
+    // `case X: { _result = binding; }` with the binding UNDECLARED (the dominant
+    // stage-2 self-compile miscompile: `.TypeVal(tv_box)` → undeclared `tv_box`).
+    // The evaluator already resolves shells before reading variants; codegen must
+    // too (same resolve_enum_shell use as _type_key_at / get_type_string).
+    enum_type := resolve_enum_shell(enum_type0);
+    if(!is_enum_type(enum_type), {
+      return(codegen_fatal_expr(String.from("\"match\" expression requires an enum type")));
+    });
+    match(context.base.get_type_c_name(type_key(enum_type)), .None => return(codegen_fatal_expr(String.from("\"match\" expression enum type has no C name"))), .Some(_) => ());
+    deref_star := if(is_ptr, String.from("*"), String.from(""));
+    // Nullable-pointer optimization.
+    match(can_optimize_as_nullable_pointer(enum_type), .Some(nullable_inner) => return(_gen_nullable_ptr_match(expr, indent.clone(), context, matched_value_code, nullable_inner, is_ptr, temp_var_opt, is_unit)), .None => ());
+    // Simple (fieldless) enum.
+    if(can_optimize_as_simple_enum(enum_type), {
+      return(_gen_simple_enum_match(expr, indent.clone(), context, matched_value_code, enum_type, deref_star, temp_var_opt, is_unit));
+    });
+    // Tagged-union destructuring.
+    _gen_tagged_union_match(expr, indent.clone(), context, matched_value_code, match_value_type, enum_type, is_ptr || is_ref_sem, temp_var_opt, is_unit)
   });
-  // Dereference pointer / ref-semantics one level to the enum type.
-  is_ptr := is_pointer_type(match_value_type);
-  is_ref_sem := (!is_ptr && (is_reference_struct_type(match_value_type) || is_reference_enum_type(match_value_type)));
-  enum_type0 := if(is_ptr, match(match_value_type, .Pointer(p) => p, _ => match_value_type), match_value_type);
-  // The general test-chain lowering: any arm outside the classic switch
-  // shapes, or a scrutinee that is neither a primitive nor an enum (a string
-  // matched against literals).
-  match(
-    lookup_match_arms(ast_expr_id(expr)),
-    .Some(arms) => {
-      if(!_arms_all_classic(arms) || !is_enum_type(resolve_enum_shell(enum_type0)), {
-        return(_gen_general_match(expr, arms, indent.clone(), context, matched_value_code, match_value_type, temp_var_opt, is_unit));
-      });
-    },
-    .None => ()
-  );
-  // Resolve a leaked recursive-enum SELF-SHELL to its finalized form. A shell
-  // keeps `variant_names` (so the tag emits) but has EMPTY `variant_fields`/
-  // `variant_field_labels`, so `_emit_destructure_binds`'s positional loop
-  // (`limit = min(np, labels.len())` = 0) drops every payload binding →
-  // `case X: { _result = binding; }` with the binding UNDECLARED (the dominant
-  // stage-2 self-compile miscompile: `.TypeVal(tv_box)` → undeclared `tv_box`).
-  // The evaluator already resolves shells before reading variants; codegen must
-  // too. Mirrors the resolve_enum_shell use in _type_key_at / get_type_string.
-  enum_type := resolve_enum_shell(enum_type0);
-  if(!is_enum_type(enum_type), {
-    return(codegen_fatal_expr(String.from("\"match\" expression requires an enum type")));
-  });
-  match(context.base.get_type_c_name(type_key(enum_type)), .None => return(codegen_fatal_expr(String.from("\"match\" expression enum type has no C name"))), .Some(_) => ());
-  deref_star := if(is_ptr, String.from("*"), String.from(""));
-  // Nullable-pointer optimization.
-  match(can_optimize_as_nullable_pointer(enum_type), .Some(nullable_inner) => return(_gen_nullable_ptr_match(expr, indent.clone(), context, matched_value_code, nullable_inner, is_ptr, temp_var_opt, is_unit)), .None => ());
-  // Simple (fieldless) enum.
-  if(can_optimize_as_simple_enum(enum_type), {
-    return(_gen_simple_enum_match(expr, indent.clone(), context, matched_value_code, enum_type, deref_star, temp_var_opt, is_unit));
-  });
-  // Tagged-union destructuring.
-  _gen_tagged_union_match(expr, indent.clone(), context, matched_value_code, match_value_type, enum_type, is_ptr || is_ref_sem, temp_var_opt, is_unit)
-});
 export(generate_case_body, generate_primitive_match_expression, generate_match_expression, _emit_pattern_binding_decl);

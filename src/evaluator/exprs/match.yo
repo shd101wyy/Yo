@@ -192,8 +192,7 @@ _is_literal_val :: (fn(v : EvalValue) -> bool)(
     _ => false
   )
 );
-/// Compute the GADT-refined expected type for a match branch (port of
-/// match.ts:93 getGadtRefinedExpectedType). If the expected type is the
+/// Compute the GADT-refined expected type for a match branch. If the expected type is the
 /// SAME SomeT as one of the enum's type-constructor args, the branch
 /// refines it to the variant's `-> recur(...)` arg at that position
 /// (e.g. expected `T`, tca `[T]`, variant args `[i32]` → `i32`).
@@ -368,11 +367,11 @@ evaluate_match :: (
     true => matched_type
   );
   en_id := match(matched_type, .EnumT(eid, _, _, _, _, _, _, _, _) => eid, _ => String.new());
-  // GADT match detection (match.ts:354-360): the enum is a GADT, an expected
+  // GADT match detection: the enum is a GADT, an expected
   // type exists to refine against, and this instantiation recorded its
   // type-constructor args. The entry expected type is CAPTURED here — the arm
   // loop overwrites ctx.expected_type with the running result type, so the
-  // refinement (and the final stamp, match.ts:1278) must read the original.
+  // refinement (and the final stamp) must read the original.
   gadt_va_em := cond(scrutinee_is_enum => get_gadt_variant_args(en_id), true => Option(ArrayList(ArrayList(TypeValue))).None);
   gadt_tca_em := {
     tca_resolved_em := ArrayList(TypeValue).new();
@@ -653,7 +652,7 @@ evaluate_match :: (
       old_executing := ctx.is_executing;
       ctx.is_executing = is_arm_executing;
       // Running-result-type as expected type (bare `.None`/`.Variant` inference);
-      // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+      // (`expectedType: resultType ?? context.expectedType`).
       old_expected := ctx.expected_type;
       match(
         result_type_em,
@@ -764,7 +763,7 @@ evaluate_match :: (
       // Result type consistency
       if(!(has_any_control_flow(body_info.control_flow)), {
         if(is_gadt_match_em, {
-          // GADT match (match.ts:646-676): verify each branch body against
+          // GADT match: verify each branch body against
           // its GADT-REFINED expected type instead of cross-branch
           // consistency, and pin the result to the unrefined expected type.
           gadt_gra := match(
@@ -972,7 +971,7 @@ evaluate_match :: (
       // A match over a RUNTIME-ONLY scrutinee is a runtime result — mark it
       // runtime-only so a comptime-only parameter cannot be filled with it
       // (TS: a runtime match has NO `$.value` at all; a plain UnknownVal is
-      // yo-self's CTFE-analysis placeholder and would slip past helper.yo's
+      // the CTFE-analysis placeholder and would slip past helper.yo's
       // Step-5 check).
       match(scrutinee_val_opt, .Some(sv_ro2) => is_runtime_only_unknown_val(sv_ro2), .None => false) =>
         Option(EvalValue).Some(EvalValue.UnknownVal(rt_em.clone(), true)),
@@ -980,7 +979,7 @@ evaluate_match :: (
     );
     result_ty_final_em := cond(
       // GADT match: the result IS the (unrefined) expected type even though
-      // it contains SomeT (match.ts:1275-1279).
+      // it contains SomeT.
       is_gadt_match_em => match(gadt_exp_em, .Some(ge_fin) => ge_fin.ty, .None => rt_em),
       true => _arm_result_type(ctx, rt_em)
     );
