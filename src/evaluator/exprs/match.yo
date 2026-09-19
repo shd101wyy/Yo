@@ -606,7 +606,15 @@ evaluate_match :: (
         },
         _ => scrutinee_type
       );
-      mae_info := new_expr_info(env, variable_type);
+      // Reuse the pattern node's ExprInfo when the compiler already stamped
+      // one: for a top-level constant arm the pattern node IS the literal
+      // inside its synthesized `==` test, and replacing its (value-carrying)
+      // info made codegen render `"a"` as an identifier.
+      mae_info := match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(pattern_ast)),
+        .Some(existing) => existing,
+        .None => new_expr_info(env, variable_type)
+      );
       expr_info_set_case_executed(mae_info, Option(bool).Some(true));
       // The constant/range tests are synthesized nodes outside the source
       // AST. Codegen's collectors (functions, types) follow a node's
