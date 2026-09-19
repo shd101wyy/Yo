@@ -302,25 +302,42 @@ _next_subject :: (fn(pc : PatternCtx) -> String)({
   pc.counter = (pc.counter + usize(1));
   name
 });
-/// Compile a constant pattern from an already-evaluated expression.
-_make_const :: (
+/// Build the `(subject == src)` test for a constant pattern, bind the hidden
+/// subject and evaluate the test. Returns `(subject, test)`.
+_make_const_test :: (
   fn(
     src : AstExpr,
-    value : EvalValue,
-    const_ty : TypeValue,
     position_ty : TypeValue,
     value_opt : Option(EvalValue),
     pc : PatternCtx,
     env : Environment,
     ctx : EvalContext,
     exn : Exception
-  ) -> Pattern
+  ) -> AstExpr
 )({
-  // A fieldless enum VALUE (`Color.Red`, `RED :: Color.Red`) is a variant
-  // pattern: it lowers to a tag test and counts toward exhaustiveness.
+  subject := _next_subject(pc);
+  tok := ast_expr_token(src);
+  test := _synth_infix(tok, "==", _synth_atom(tok, TokenKind.Identifier, subject.clone()), src);
+  _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, test, src, pc, env, ctx, exn);
+  test
+});
+/// The hidden subject name a test was built for (its left operand).
+_test_subject :: (fn(test : AstExpr) -> String)(
+  match(
+    _args_of(test).get(usize(0)),
+    .Some(lhs) => _atom_name(lhs),
+    .None => String.new()
+  )
+);
+/// A fieldless enum VALUE (`Color.Red`, `RED :: Color.Red`) as a variant
+/// pattern: it lowers to a tag test and counts toward exhaustiveness.
+_enum_const_to_variant :: (fn(value : EvalValue, position_ty : TypeValue) -> Option(Pattern))(
   match(
     value,
-    .EnumVal(vname, vfields) => {
+    .EnumVal(
+      vname,
+      vfields
+    ) => {
       if(is_enum_type(position_ty) && (vfields.len() == usize(0)), {
         vns := _enum_variant_names(position_ty);
         (vi : usize) = usize(0);
@@ -328,53 +345,29 @@ _make_const :: (
           cand := match(vns.get(vi), .Some(n) => n, .None => String.new());
           if(_variant_name_eq(vname.clone(), cand.clone()), {
             return(
-              Pattern.Variant(
-                name : cand.clone(),
-                idx : vi,
-                field_idx : ArrayList(usize).new(),
-                subs : ArrayList(Pattern).new(),
-                enum_ty : position_ty,
-                through_ptr : false,
-                arity : variant_field_types(position_ty, vi).len()
+              Option(Pattern).Some(
+                Pattern.Variant(
+                  name : cand.clone(),
+                  idx : vi,
+                  field_idx : ArrayList(usize).new(),
+                  subs : ArrayList(Pattern).new(),
+                  enum_ty : position_ty,
+                  through_ptr : false,
+                  arity : variant_field_types(position_ty, vi).len()
+                )
               )
             );
           });
           vi = (vi + usize(1));
         });
       });
+      Option(Pattern).None
     },
-    _ => ()
-  );
-  // No type-compatibility pre-check: the synthesized `==` below is the
-  // arbiter, which is what lets a `str` literal match a `String` position
-  // (`impl(String, Eq(str))`) and a user `Eq` impl match its own type.
-  subject := _next_subject(pc);
-  tok := ast_expr_token(src);
-  test := _synth_infix(tok, "==", _synth_atom(tok, TokenKind.Identifier, subject.clone()), src);
-  _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, test, src, pc, env, ctx, exn);
-  Pattern.Const(value : value, ty : const_ty, src : src, subject : subject, test : test)
-});
-/// Evaluate `e` as a pattern constant against `position_ty`; error unless it
-/// folds to a compile-time value.
-_compile_const_expr :: (
-  fn(
-    e : AstExpr,
-    position_ty : TypeValue,
-    value_opt : Option(EvalValue),
-    pc : PatternCtx,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
-  ) -> Pattern
-)({
-  // Evaluated BARE (no expected type): the synthesized `==` types the
-  // constant against the position when it evaluates the test. Coercing it
-  // here (a `str` literal where a `String` is expected) materialized a temp
-  // whose `variable_name` made codegen emit the literal as an identifier.
-  old_expected := ctx.expected_type;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
-  evaluated := evaluate_expression(e, env, ctx);
-  ctx.expected_type = old_expected;
+    _ => Option(Pattern).None
+  )
+);
+/// Read the compile-time value the evaluation of `e` produced, or throw.
+_const_value_of :: (fn(e : AstExpr, evaluated : AstExpr, ctx : EvalContext, exn : Exception) -> EvalValue)({
   info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(i) => i,
@@ -388,10 +381,10 @@ Supported patterns: _, a binding name, a compile-time constant, .Variant, .Varia
           )
         )
       );
-      return(Pattern.Wildcard);
+      return(EvalValue.UnitVal);
     }
   );
-  value := match(
+  match(
     info.value,
     .Some(v) => {
       if(is_unknown_val(v), {
@@ -403,7 +396,7 @@ Supported patterns: _, a binding name, a compile-time constant, .Variant, .Varia
             )
           )
         );
-        return(Pattern.Wildcard);
+        return(EvalValue.UnitVal);
       });
       v
     },
@@ -416,10 +409,52 @@ Supported patterns: _, a binding name, a compile-time constant, .Variant, .Varia
           )
         )
       );
-      return(Pattern.Wildcard);
+      EvalValue.UnitVal
     }
-  );
-  _make_const(e, value, info.ty, position_ty, value_opt, pc, env, ctx, exn)
+  )
+});
+/// Compile a constant pattern.
+///
+/// A named constant (`TEN`, `RED`) or a `Type.Variant` access is evaluated
+/// bare first, so a fieldless enum value becomes a variant pattern without
+/// ever needing `Eq` on the enum. Every other constant (literals, `-1`,
+/// `i32(5)`, strings) is evaluated ONLY inside its synthesized `==` test:
+/// a bare pre-evaluation left a temp `variable_name` on the literal node and
+/// codegen then emitted the literal as an identifier (measured on
+/// `match(s, "a" => …)`).
+_compile_const_expr :: (
+  fn(
+    e : AstExpr,
+    position_ty : TypeValue,
+    value_opt : Option(EvalValue),
+    pc : PatternCtx,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Pattern
+)({
+  is_named := ((ast_expr_is_atom(e) && !_is_literal_atom(e)) || ast_expr_is_fn_call_of(e, ".", Option(usize).Some(usize(2))));
+  if(is_named, {
+    old_expected := ctx.expected_type;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
+    evaluated := evaluate_expression(e, env, ctx);
+    ctx.expected_type = old_expected;
+    value := _const_value_of(e, evaluated, ctx, exn);
+    match(
+      _enum_const_to_variant(value, norm_position_type(position_ty)),
+      .Some(vp) => {
+        return(vp);
+      },
+      .None => ()
+    );
+    const_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)), .Some(i) => i.ty, .None => position_ty);
+    test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
+    return(Pattern.Const(value : value, ty : const_ty, src : e, subject : _test_subject(test), test : test));
+  });
+  test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
+  value := _const_value_of(e, e, ctx, exn);
+  const_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)), .Some(i) => i.ty, .None => position_ty);
+  Pattern.Const(value : value, ty : const_ty, src : e, subject : _test_subject(test), test : test)
 });
 /// Compile a range pattern `(lo..hi)` / `(lo..=hi)`.
 _compile_range :: (
