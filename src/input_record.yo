@@ -30,6 +30,27 @@
 { ArrayList } :: import("std/collections/array_list");
 { cwd } :: import("std/env");
 (g_input_files : ArrayList(String)) = ArrayList(String).new();
+/// Parallel to `g_input_files`: the sha256 of each input's bytes AS READ.
+///
+/// This is the whole point of recording a hash here rather than re-reading the
+/// file later. The build runner used to compute the artifact's recorded stamp
+/// AFTER the child compile exited, by re-hashing every input from disk — so an
+/// edit landing during the compile (the window is minutes for a large artifact)
+/// was recorded as though it had been compiled, and every later build matched
+/// that stamp and served the stale artifact forever
+/// (issues/yo-build-artifact-cache-serves-a-stale-binary.md). Only the reader
+/// knows what it read, so the reader records it.
+///
+/// Empty string when hashing is off — see `set_input_hashing`.
+(g_input_hashes : ArrayList(String)) = ArrayList(String).new();
+/// Hashing is OFF unless a consumer of the depfile turns it on. `yo build`'s
+/// child compiles pass `--emit-deps` and enable it; `yo check`, `yo test` and
+/// the LSP never pay for it.
+(g_input_hashing : bool) = false;
+set_input_hashing :: (fn(enabled : bool) -> unit)({
+  g_input_hashing = enabled;
+});
+input_hashing_enabled :: (fn() -> bool)(g_input_hashing);
 /// Absolutize against the cwd (when relative) and fold `.`/`..` LEXICALLY —
 /// the same treatment the std path gets. Lexical only: this runs inside the
 /// module loader, which is synchronous, and symlink resolution is not.
@@ -46,9 +67,14 @@ _canonicalize :: (fn(p : String) -> String)({
   });
   path.normalize().to_string()
 });
-/// Record `path` as an input of this compile. A repeat is ignored, so the list
-/// is the SET of inputs in first-open order.
-record_input_file :: (fn(path : String) -> unit)({
+/// Record `path` as an input of this compile, together with the sha256 of the
+/// bytes the caller just read. A repeat is ignored, so the list is the SET of
+/// inputs in first-open order.
+///
+/// `content_sha256` must be the hash of the bytes THIS COMPILE CONSUMED — the
+/// disk bytes, never an editor overlay applied on top of them, because the next
+/// build hashes the disk. Pass `""` when hashing is disabled.
+record_input_file :: (fn(path : String, content_sha256 : String) -> unit)({
   fs := _canonicalize(path.replace(String.from("file://"), String.new()));
   if(fs.len() == usize(0), {
     return(());
@@ -65,14 +91,37 @@ record_input_file :: (fn(path : String) -> unit)({
     i = (i + usize(1));
   });
   g_input_files.push(fs);
+  g_input_hashes.push(content_sha256);
 });
 /// Start a fresh record. `yo compile` calls this before evaluating, so a
 /// long-lived process (the LSP, `check --watch`) does not accumulate.
 reset_input_files :: (fn() -> unit)({
   g_input_files = ArrayList(String).new();
+  g_input_hashes = ArrayList(String).new();
 });
 /// The files read so far, in first-open order.
 input_files :: (fn() -> ArrayList(String))(g_input_files);
+/// The inputs as `<sha256> <absolute path>` lines, in first-open order — the
+/// depfile's format. The hash comes FIRST so a path containing spaces still
+/// parses by splitting at the first space.
+///
+/// An entry whose hash is empty (hashing was off) is emitted with a `-`
+/// placeholder, which the build runner treats as "unusable, recompile".
+input_file_entries :: (fn() -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < g_input_files.len(), {
+    path := match(g_input_files.get(i), .Some(p) => p, .None => String.new());
+    h := match(g_input_hashes.get(i), .Some(x) => x, .None => String.new());
+    marker := cond(
+      (h.len() > usize(0)) => h,
+      true => String.from("-")
+    );
+    out.push(`${marker} ${path}`);
+    i = (i + usize(1));
+  });
+  out
+});
 // ── Environment reads (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §5.4)
 //
 // `build.env` lets a build file branch on the invoking shell, which makes the
@@ -102,4 +151,13 @@ record_env_read :: (fn(name : String, rendered : String) -> unit)({
 });
 /// The environment reads so far, as `name=value` lines in first-read order.
 env_reads :: (fn() -> ArrayList(String))(g_env_reads);
-export(record_input_file, reset_input_files, input_files, record_env_read, env_reads);
+export(
+  record_input_file,
+  reset_input_files,
+  input_files,
+  input_file_entries,
+  set_input_hashing,
+  input_hashing_enabled,
+  record_env_read,
+  env_reads
+);

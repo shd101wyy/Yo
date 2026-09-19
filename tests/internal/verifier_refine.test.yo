@@ -31,7 +31,8 @@
   default_verify_run_config,
   resolve_solver_sync,
   verify_and_strip_tasks,
-  VerifyFnReport
+  VerifyFnReport,
+  summarize_verify_reports
 } :: import("../../src/verifier/driver.yo");
 
 _have_z3 :: (fn() -> bool)(
@@ -365,5 +366,43 @@ test("refine#N with LITERAL arguments folds — proves and refutes with NO solve
   assert(
     lit_proved && lit_refuted,
     `the literal caller must prove and the literal-zero caller must refute — WITHOUT a solver (both obligations constant-fold): [${_reports_dump(reports)}]`
+  );
+  // V7 telemetry honesty: the folded obligations are NOT solver queries.
+  // The whole fixture folded (a bogus solver path proved everything), so
+  // the summary must read queries=0 / folded=2 — a fold-heavy run must
+  // never read as solver load — and each folded obligation carries its
+  // rendered goal (`--explain`'s VC display).
+  sum := summarize_verify_reports(reports);
+  assert(
+    (sum.queries == usize(0)) && (sum.folded == usize(2)),
+    `summary must count the two folded refine#N obligations as folded, not queries: queries=${sum.queries.to_string()} folded=${sum.folded.to_string()}`
+  );
+  (goal_ok : bool) = true;
+  (gi : usize) = usize(0);
+  while(gi < reports.len(), {
+    match(
+      reports.get(gi),
+      .Some(rp) => {
+        (oi : usize) = usize(0);
+        while(oi < rp.obligations.len(), {
+          match(
+            rp.obligations.get(oi),
+            .Some(obl) => {
+              if(obl.folded && (obl.goal.len() == usize(0)), {
+                goal_ok = false;
+              });
+            },
+            .None => ()
+          );
+          oi = (oi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    gi = (gi + usize(1));
+  });
+  assert(
+    goal_ok,
+    `every folded obligation carries its rendered goal (the VC display), got: [${_reports_dump(reports)}]`
   );
 });

@@ -793,9 +793,13 @@ _bind_forall_from_type_args :: (
         // specialized `_find_bucket` with `key : unit` under the HashMap
         // Clone-impl trial and the sibling `set` re-eval swallowed
         // ("Cannot unify u64 and unit", hash_map:714 of the corpus family).
-        .Some(ct) => if(!is_some_type(ct) && !match(ct, .Unit => true, _ => false), {
+        .Some(ct) => if(!is_some_type(ct) && !match(ct,
+        .Unit => true,
+        _ => false),
+        {
           return(Option(TypeValue).Some(ct));
-        }, {
+        },
+        {
           // Trial-scoped abstract acceptance — same contract as
           // _resolve_one_forall_binding: inside a definition-time body
           // trial a DIFFERENT-id SomeT type argument IS the binding
@@ -863,6 +867,26 @@ _bind_forall_from_type_args :: (
               );
             });
             if(!is_some_type(cell_cur) && !match(cell_cur, .Unit => true, _ => false), {
+              if(impl_dbg_env.get(`YO_DEBUG_WARM`).is_some(),
+              {
+                cw_res := type_to_string(cell_cur);
+                if((cw_res.index_of(String.from("Doc")) != .None) || (cw_res.index_of(String.from("GenericImplEntry")) != .None), {
+                  (cw_ids : String) = String.from("");
+                  (cwi : usize) = usize(0);
+                  while(cwi < cell_seen.len(), {
+                    match(
+                      cell_seen.get(cwi),
+                      .Some(cs) => {
+                        cw_ids.push_string(cs);
+                        cw_ids.push_str(">");
+                      },
+                      .None => ()
+                    );
+                    cwi = (cwi + usize(1));
+                  });
+                  eprintln(`[cellwalk] fa=${fa_name} walked=${cw_ids} res=${cw_res}`);
+                };
+              });
               return(Option(TypeValue).Some(cell_cur));
             });
           };
@@ -885,9 +909,9 @@ _bind_forall_from_type_args :: (
             _ => ()
           );
         }),
-        .None => ()
-      );
-    });
+        .None => ());
+      }
+    );
     j = (j + usize(1));
   });
   Option(TypeValue).None

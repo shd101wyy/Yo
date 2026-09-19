@@ -1429,13 +1429,94 @@ _stamp_push_str :: (fn(dst : ArrayList(u8), s2 : String) -> unit)({
   });
   dst.push(u8(10));
 });
+/// Split a depfile line `<sha256> <path>` at the FIRST space. Returns
+/// `("", line)` when the line has no hash prefix — a legacy or malformed
+/// depfile, which the record pass treats as unusable.
+_DepEntry :: struct(hash : String, path : String);
+_split_dep_entry :: (fn(line : String) -> _DepEntry)({
+  (at : usize) = usize(0);
+  (found : bool) = false;
+  while((at < line.len()) && !found, {
+    if(line.byte_at(at) == u8(32), {
+      found = true;
+    }, {
+      at = (at + usize(1));
+    });
+  });
+  if(!found, {
+    return(_DepEntry(hash : String.new(), path : line.clone()));
+  });
+  h := line.substring(usize(0), at);
+  p := line.substring(at + usize(1), line.len());
+  // A hash is 64 hex characters; anything else (notably the `-` placeholder
+  // written when hashing was off) is not usable as a recorded hash.
+  if(h.len() != usize(64), {
+    return(_DepEntry(hash : String.new(), path : p));
+  });
+  _DepEntry(hash : h, path : p)
+});
+/// `yo.toml` / `yo.lock` as stamp entries (`<path> <sha256>`), skipping either
+/// when absent — both are legitimately optional. Hashed ONCE before the child
+/// compile and shared by both stamp passes, so a manifest edit during the
+/// compile cannot be absorbed into the recorded stamp.
+_manifest_stamp_entries :: (
+  fn(project_dir : String, io : Io) -> Impl(Future(ArrayList(String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    out := ArrayList(String).new();
+    names := ArrayList(String).new();
+    names.push(String.from("yo.toml"));
+    names.push(String.from("yo.lock"));
+    (i : usize) = usize(0);
+    while(i < names.len(), {
+      p := Path.new(project_dir.clone()).join(Path.new(names(i))).to_string();
+      // Bind the awaited value FIRST. An `io.await` inline in a match
+      // SCRUTINEE inside an `io.async` body emits `switch (.tag)` with no
+      // scrutinee — invalid C, caught only by the C compiler
+      // (.github/instructions/debugging.instructions.md; the same rule the
+      // per-file loop below follows).
+      bytes_opt := e.io.await(_cache_read_file(p.clone(), e.io), e);
+      match(
+        bytes_opt,
+        .Some(bytes) => {
+          out.push(`${p} ${sha256_hex(bytes)}`);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    out
+  })
+);
 /// The artifact's input stamp, or "" when stamping failed or the cache is off.
+///
+/// Two modes, and the difference is the whole point of
+/// `issues/yo-build-artifact-cache-serves-a-stale-binary.md`:
+///
+///   - DECISION (`use_recorded_hashes == false`), run BEFORE the child compile:
+///     hash each input's CURRENT disk contents. That is the right question to
+///     ask of the tree as it is now — "do the inputs still look like what the
+///     artifact was built from?".
+///   - RECORD (`use_recorded_hashes == true`), run AFTER the child exits:
+///     take the hashes the CHILD recorded as it read each file, straight from
+///     the depfile, and never touch the disk. Re-reading here is what made the
+///     recorded stamp describe the tree at the END of a minutes-long compile
+///     instead of the bytes the compile consumed, so an edit landing during the
+///     compile was absorbed and the stale artifact served forever.
+///
+/// `manifest_entries` carries `yo.toml` / `yo.lock` already hashed. They are
+/// resolution inputs no depfile names, and they have the same mid-compile
+/// window, so the caller hashes them ONCE before the compile and passes the
+/// same values to both passes. Empty means "compute them from disk" (the
+/// decision pass's own call).
 _artifact_input_stamp :: (
   fn(
     argv : ArrayList(String),
     project_dir : String,
     depfile_path : String,
     cache_enabled : bool,
+    use_recorded_hashes : bool,
+    manifest_entries : ArrayList(String),
     io : Io
   ) -> Impl(Future(String, IoExn))
 )(
@@ -1457,6 +1538,38 @@ _artifact_input_stamp :: (
       match(reads.get(ei), .Some(r) => _stamp_push_str(acc, `env ${r}`), .None => ());
       ei = (ei + usize(1));
     });
+    // RECORD pass: the child just wrote the depfile, and its hashes are the
+    // bytes it read. Consume them verbatim — no disk reads at all, which is
+    // also strictly cheaper than the re-hash this replaces.
+    if(use_recorded_hashes, {
+      recorded := e.io.await(_read_depfile(depfile_path.clone(), e.io), e);
+      if(recorded.len() == usize(0), {
+        // The child wrote no depfile (it died early, or --emit-deps was not
+        // passed). Nothing sound to record; leave the cache off for this
+        // artifact so the next build recompiles.
+        return(String.new());
+      });
+      (ri : usize) = usize(0);
+      while(ri < recorded.len(), {
+        line := recorded(ri);
+        pair := _split_dep_entry(line.clone());
+        h := pair.hash;
+        pth := pair.path;
+        if(h.len() == usize(0), {
+          // Legacy or hash-less depfile: refuse to record a stamp we cannot
+          // trust. One recompile follows and rewrites it in the new format.
+          return(String.new());
+        });
+        _stamp_push_str(acc, `${pth} ${h}`);
+        ri = (ri + usize(1));
+      });
+      (mi : usize) = usize(0);
+      while(mi < manifest_entries.len(), {
+        _stamp_push_str(acc, manifest_entries(mi));
+        mi = (mi + usize(1));
+      });
+      return(sha256_hex(acc));
+    });
     files := ArrayList(String).new();
     // §4.9: the PREVIOUS build's `--emit-deps` list is exactly what the
     // evaluation opened — every `.yo` module it reached, and nothing else. The
@@ -1466,9 +1579,15 @@ _artifact_input_stamp :: (
     // without an OLD input changing: something has to import it, and that
     // importer is on the list. Conversely a file that left the closure only
     // over-invalidates once, and the next build's depfile no longer names it.
-    listed := e.io.await(_read_depfile(depfile_path.clone(), e.io), e);
-    have_depfile := (listed.len() > usize(0));
-    _push_all_strings(files, listed);
+    listed_raw := e.io.await(_read_depfile(depfile_path.clone(), e.io), e);
+    have_depfile := (listed_raw.len() > usize(0));
+    // Lines are `<sha256> <path>`; the DECISION pass wants the paths only — it
+    // re-hashes them from disk, which is exactly the question it is asking.
+    (li : usize) = usize(0);
+    while(li < listed_raw.len(), {
+      files.push(_split_dep_entry(listed_raw(li)).path);
+      li = (li + usize(1));
+    });
     // No depfile yet — hash every `.yo` under the project and the whole std
     // tree, which is what every build used to do, per artifact (audit B10).
     if(!have_depfile, {
@@ -1483,12 +1602,12 @@ _artifact_input_stamp :: (
     });
     // The manifest and the lock are inputs to RESOLUTION, not to evaluation, so
     // no depfile names them — but changing either changes what `import("dep")`
-    // means. Both are optional; `_cache_read_file` treats an absent one as the
-    // exception below allows.
-    manifest_path := Path.new(project_dir.clone()).join(Path.new(String.from("yo.toml"))).to_string();
-    files.push(manifest_path);
-    lock_path := Path.new(project_dir.clone()).join(Path.new(String.from("yo.lock"))).to_string();
-    files.push(lock_path);
+    // means. They arrive PRE-HASHED from the caller (shared with the record
+    // pass); an empty list means this call is responsible for them itself.
+    (shared_manifest : ArrayList(String)) = manifest_entries.clone();
+    if(shared_manifest.len() == usize(0), {
+      shared_manifest = e.io.await(_manifest_stamp_entries(project_dir.clone(), e.io), e);
+    });
     (fi : usize) = usize(0);
     while(fi < files.len(), {
       fpath := files(fi);
@@ -1509,6 +1628,11 @@ _artifact_input_stamp :: (
         }
       );
       fi = (fi + usize(1));
+    });
+    (smi : usize) = usize(0);
+    while(smi < shared_manifest.len(), {
+      _stamp_push_str(acc, shared_manifest(smi));
+      smi = (smi + usize(1));
     });
     sha256_hex(acc)
   })
@@ -1954,7 +2078,24 @@ compile_artifact :: (
     // reads it. Sits beside `.imports` and `.inputs-sha256` in the output dir,
     // so `yo build --clean` takes it with the rest.
     depfile_path := `${output_path.to_string()}.deps`;
-    stamp_raw := e.io.await(_artifact_input_stamp(stamp_inputs, ctx.project_dir.clone(), depfile_path.clone(), cache_enabled, e.io), e);
+    // `yo.toml` / `yo.lock` are resolution inputs that no depfile names, and
+    // they have the same mid-compile window as the sources. Hash them ONCE,
+    // here, before the child runs, and give the same values to both the
+    // decision pass and the record pass
+    // (issues/yo-build-artifact-cache-serves-a-stale-binary.md).
+    manifest_entries := e.io.await(_manifest_stamp_entries(ctx.project_dir.clone(), e.io), e);
+    stamp_raw := e.io.await(
+      _artifact_input_stamp(
+        stamp_inputs,
+        ctx.project_dir.clone(),
+        depfile_path.clone(),
+        cache_enabled,
+        false,
+        manifest_entries.clone(),
+        e.io
+      ),
+      e
+    );
     stamp := cond(
       cache_enabled => stamp_raw,
       true => String.new()
@@ -2027,17 +2168,33 @@ compile_artifact :: (
         fail_code = st.code().unwrap_or(i32(-1));
       });
     });
-    // §4.9: RE-stamp from the depfile the child just wrote, rather than
-    // recording the stamp computed before it ran.
+    // §4.9: record from the depfile the child just wrote, rather than the
+    // stamp computed before it ran.
     //
     // Those two are not the same basis. A first build has no depfile and stamps
     // the whole-tree walk; the NEXT build finds a depfile and stamps that much
     // smaller set — so a stamp recorded from the walk can never match, and
-    // every artifact paid one guaranteed extra compile after its first. Taken
-    // here, the recorded stamp always describes the inputs the compile actually
-    // read, which is what the next build will hash. Cost is re-hashing the
-    // depfile's entries, ~20 files for a small program.
-    post_stamp := e.io.await(_artifact_input_stamp(stamp_inputs, ctx.project_dir.clone(), depfile_path.clone(), cache_enabled, e.io), e);
+    // every artifact paid one guaranteed extra compile after its first.
+    //
+    // This pass takes the hashes the CHILD recorded as it read each file and
+    // does not touch the disk. It used to RE-READ and re-hash every input here,
+    // which meant the recorded stamp described the tree at the END of a compile
+    // that can run for minutes — so an edit landing during the compile was
+    // recorded as though it had been compiled, the next build matched, and the
+    // stale artifact was served forever
+    // (issues/yo-build-artifact-cache-serves-a-stale-binary.md).
+    post_stamp := e.io.await(
+      _artifact_input_stamp(
+        stamp_inputs,
+        ctx.project_dir.clone(),
+        depfile_path.clone(),
+        cache_enabled,
+        true,
+        manifest_entries.clone(),
+        e.io
+      ),
+      e
+    );
     // The write decision is DATA, not a branch: an empty stamp (cache off or
     // stamping failed) is written as-is and truncates — see _write_stamp.
     stamp_to_write := cond(

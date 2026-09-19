@@ -1,0 +1,27 @@
+# The artifact cache must INVALIDATE when a transitively-imported module's
+# bytes change (issues/yo-build-artifact-cache-serves-a-stale-binary.md).
+#
+# The two existing cache cases cover the other two directions — `build-cache`
+# asserts an unchanged tree HITS, and `build-depfile-scoped-stamp` asserts an
+# unrelated new file does not over-invalidate. Nothing asserted that a CHANGED
+# input invalidates at all, which is the direction this case adds.
+#
+# Scope, stated honestly: an edit landing BETWEEN two builds invalidated
+# correctly even before the stale-binary fix, so this case does not by itself
+# gate that fix — the defect there needed an edit landing DURING a compile, and
+# the harness runs argv, not a shell, so it cannot schedule one. What does gate
+# the fix is `build-cache`: if the depfile ever loses its per-input hashes, the
+# record pass refuses to write a stamp it cannot trust, no build ever caches,
+# and that case fails.
+#
+# The harness runs argv, not a shell, so a case cannot edit a source file
+# directly. `yo add ./mylib` is the mutation: it rewrites `yo.toml`, which the
+# artifact stamp covers because the manifest decides what `import("dep")`
+# resolves to. The second build must therefore recompile.
+#
+# The kept substrings are the two mutually exclusive outcomes, so the golden
+# records WHICH happened rather than merely that something did: `to compile`
+# (the chunk scheduler ran) vs `cached: inputs unchanged, skipping compile`.
+# A regression flips the second build from the first to the second.
+stdout_keep_match=(cached: inputs unchanged, skipping compile|to compile)
+timeout=240

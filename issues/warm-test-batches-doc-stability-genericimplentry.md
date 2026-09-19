@@ -141,3 +141,169 @@ generation-keying `g_some_resolved_concrete` so a stale registration can't
 satisfy a later read. (c) is the smallest sound step: stamp registrations
 with the match/eval generation and ignore reads from a later generation
 unless re-registered.
+
+## THE CURE — design for per-call SomeT minting (chosen 2026-09-19, not yet implemented)
+
+The chosen fix is TS parity at the binder sites: a call NEVER binds the
+shared signature's SomeT objects; it mints FRESH clones (same name, same
+frame_level, same trait constraints — NEW id) and binds THOSE. The shared
+signature's slots stay pristine forever, so stored values (registry
+entries, captured types, memoized instances) can never observe another
+call's registrations — killing the entire cross-call contamination class,
+including the unregister_some_resolved_concrete dance.
+
+**Mint helper** (types/creators.yo, next to t_some_t):
+`clone_some_fresh(s : TypeValue) -> TypeValue` — match the SomeT arm,
+rebuild with `generate_some_type_id()` for the id, everything else copied
+verbatim.
+
+**Binder sites to convert** (each currently binds `sg_st`/the signature's
+SomeT into the callee env):
+1. `try_to_call`'s Step-6 marker loop (helper.yo ~5355–5421): the
+   `add_variable_to_env(..., create_type_value(sg_st))` marker + second
+   self-binding — bind `clone_some_fresh(sg_st)` instead. NOTE the
+   self-only/dup exclusion machinery above it keys on IDs — re-derive from
+   the ORIGINAL sig ids (the exclusions decide WHICH to mint, not what to
+   bind).
+2. The Type-kinded forall placeholder (~5442+): "Uses the SIG MARKER
+   instance so synthesis keeps one SomeT identity" — that comment is the
+   disease in miniature; bind the fresh clone (the callee body resolves T
+   by (name, frame_level), which the clone preserves).
+3. `create_specialized_function_inline`'s equivalent generic-binding loop
+   (search `add_variable_to_env` with `create_type_value` of signature
+   SomeTs in calls/helper.yo) and `_evaluate_funcval_runtime_call`'s.
+4. `_inject_forall_captures` (impl.yo): the injected T/Self captures carry
+   the CONCRETE types already — no SomeTs — untouched.
+
+**Invariant to enforce:** after conversion, NO code path may call
+`register_some_resolved_concrete(shared_sig_id, …)` — grep the ~16
+register sites and confirm each now sees only fresh ids (the synthesizer's
+unify-time registrations at synthesizer.yo:1341/1428 register the ids the
+env lookup hands them — which become fresh per call once the markers are
+fresh).
+
+**Test plan:** the minimal pair passes in-process
+(YO_TEST_IN_PROCESS=1, tests/internal-bisect/ pattern); `unregister`-dance
+tests if any; the full gates; then un-gate YO_TEST_IN_PROCESS in main.yo
+and re-run everything (the un-gating diff is: `test_in_process` becomes
+always-true — one line + comment).
+
+**Estimated size:** one helper + three binder-site conversions + the
+invariant grep. Mechanically small; semantically load-bearing — every
+generic call's env changes identity. Budget a full session.
+
+## MEASURED REFINEMENT 2026-09-19 (later): binder-only minting is refuted — the cure is a per-call SIGNATURE clone
+
+Implemented and measured: `clone_some_fresh` (types/creators.yo, KEPT —
+exported, unused-by-default) + minting at the Step-6 marker loop and the
+Type-kinded forall placeholder. Results:
+
+- The warm doc_stability unify DISAPPEARED (0 GenericImplEntry hits on the
+  minimal pair) — the mechanism diagnosis was right; the call binders WERE
+  the poisoning writers.
+- But COLD compiles broke: `*(T).add`'s body died with "expected T, got
+  *(u8)" (prelude:6801, `__yo_ptr_add(self, count)`) — for BOTH sites, and
+  for either site alone. The shared signature's SomeT and the env binding
+  cohere THROUGH the shared id: the call's resolution is stamped on the
+  shared SomeT (register_some_resolved_concrete / the cell), and every
+  later read of the SIGNATURE'S OWN types — builtin param checks, the
+  return-type re-eval, the occurrence-substitution (the "Gap-6 lineage
+  split" machinery at helper.yo's zret block) — resolves through it.
+  Severing id coherence at any one binder strands the signature's copy
+  permanently abstract.
+
+**The cure's correct shape (supersedes the binder-site design):** at call
+entry, when func_type carries SomeTs, CLONE THE WHOLE SIGNATURE — mint one
+fresh SomeT per distinct shared id, substitute them through the ENTIRE
+func_type (params, result, where/implicit lists, trait carriers), and bind
+THOSE same fresh clones in the callee env. Signature and env then share
+the FRESH ids (coherence preserved) while the stored/shared signature
+stays pristine (contamination severed). The substitution is the existing
+`substitute()` with an id-rewriting map (a new subst kind or a dedicated
+walk — SomeT arms rewrite by map, everything else recurses). Cost: one
+substitute() per generic call — measurable, but bounded by the same class
+of work the spec paths already do.
+
+Entry point: try_to_call's Step-6 area — build the map from
+sig_some_types, clone func_type once, use the CLONE everywhere below
+(func_type uses in the rest of the fn) and bind the map's values in
+callee_env. create_specialized_function_inline receives func_type by
+parameter — thread the clone.
+
+## SESSION MAP 2026-09-19 (evening) — signature clone implemented; the remaining channel is now isolated to three candidates
+
+The per-call SIGNATURE CLONE was implemented and measured (then reverted
+from the tree; the knowledge below is the record):
+
+- **Cold: green.** A thin wrapper (`_sig_clone_fresh_ids` +
+  `_try_to_call_function_with_arguments_impl`) clones func_type per call —
+  pairwise (name, frame_level) uniqueness guard falls back to the shared
+  path — and unregisters the fresh ids after the call (bounded table
+  growth; unwind paths leak a failure-bounded residue). Self-build green,
+  path.test.yo 89/89. The Step-6 marker loop reads the CLONE automatically
+  (it collects from func_type), so coherence is preserved by construction.
+- **Warm pair: still red** — same GenericImplEntry vs DocParam at
+  impl.yo:1459. So the call-binder channel is now closed AND the poison
+  persists ⇒ the stamping writer is elsewhere. Eliminated this session:
+  - `g_some_resolved_concrete` cross-file residue: a
+    `clear_some_resolved_registry()` at the runner's file boundary did NOT
+    fix the pair ⇒ the read is NOT table-backed.
+  - The synthesizer's opts-gated cell stamping (synthesizer.yo 1340-1356 /
+    1427+): **dead code** — every SynthesizeOptions constructor passes
+    `set_resolved_concrete_type : false` (verified by grep).
+  - `_with_resolved_concrete` (function.yo:1371): rebuilds the SomeT with
+    the SAME id but a FRESH seeded cell — does NOT touch the original's
+    shared cell (benign for this channel).
+
+**The three remaining candidates, in probe order:**
+1. THE READER (prime suspect): `_bind_forall_from_type_args`'s "Resolution
+   channel 1" CELL-CHAIN WALK (impl.yo ~841-880) — the receiver's stored
+   type_arguments slot resolves through its `resolved_concrete` cell. Probe:
+   print (YO_DEBUG_WARM) the walked cell's [id, cell contents] when the
+   walk yields a Doc*-flavored type during file 2.
+2. The cell's stamper: whoever seeded that stored slot's cell during
+   file 1 — `t_resolved_cell` callers and any remaining direct
+   `cell.drain/push` sites (grep beyond the dead synthesizer arms; the
+   io/async freshener is already per-call).
+3. The env variables' own slots in the registry instance's construction
+   (impl.yo's registration) — the slots may be minted pre-resolved from a
+   file-1 context.
+
+Next session: probe (1) first — it names the stamper directly.
+
+## NARROWED TO THE BIND EVENT 2026-09-19 (night 2): `[bindsome]` names the exact moment
+
+New probe (kept, gated): `[bindsome]` in `_bind_some_type` (synthesizer.yo)
+prints when the bound type renders Doc*/GenericImplEntry-flavored. On the
+minimal pair, the last events before the fatal unify:
+
+```
+[bindsome] name=T src_id=1784 ty=GenericImplEntry          ← correct bind (registry match)
+...
+[bindsome] name=T src_id=1152  ty=ArrayList(DocParam)      ← the poisoning precursor
+[bindsome] name=T src_id=1784  ty=ArrayList(DocParam)      ← THE WRONG BIND (id 1784 = ArrayList's forall T)
+fatal: Cannot unify GenericImplEntry and DocParam
+```
+
+Reading: **1784 is the inherent ArrayList impl's SHARED forall T** (the
+registry entry's own SomeT — one id for every ArrayList match). In file 2's
+fatal match the pattern `ArrayList(T@1784)` is unified against a receiver
+whose ELEMENT (the inner `ArrayList(GenericImplEntry)` instance) resolves
+to `ArrayList(DocParam)` — the GIVEN-side slot resolution returns the stale
+DocParam. The receiver itself renders correctly through type_key (cell
+chains), so the divergence is the ENV-channel: the given-side SomeT is
+resolved via `get_value_of_some_type_from_env` against file 2's env stack,
+whose frame at the slot's recorded `frame_level` is a DRIFTED frame (the
+warm stack is deeper than impl.yo's module-eval stack) holding a live
+`T := DocParam`. The #774 fast-path liveness check cannot catch this — in
+the drifted stack the stale binding IS the last `T` at that level.
+
+**Fix direction (next session, one probe to confirm first):** the given
+(receiver) side of a generic-impl synthesis must not resolve stored slots
+through the AMBIENT env's frame-level addressing at all — candidates:
+(a) skip given-side SomeT env-resolution in `_synthesize_types_impl` (TS
+never has slots on a concrete receiver), or (b) verify frame identity via
+the marker Variable's synthetic token module_path (the binding at the
+SomeT's true def frame carries the minting module's path; a drifted
+frame's T does not). Probe: print the given slot's id + frame_level and
+the env frame count at the bind — the drift becomes arithmetic.
