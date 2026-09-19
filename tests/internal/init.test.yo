@@ -12,8 +12,7 @@ import("std/fmt");
   generate_yo_toml,
   generate_gitignore,
   generate_readme,
-  generate_agents_md,
-  generate_claude_md
+  generate_agents_md
 } :: import("../../src/init.yo");
 { SkillEntry, description_from_frontmatter } :: import("../../src/skills_command.yo");
 // ---------------------------------------------------------------------------
@@ -111,7 +110,7 @@ test("generate_gitignore: contains yo-out/", {
   assert(s.contains(String.from("yo-out/")), "gitignore excludes yo-out/");
 });
 // ---------------------------------------------------------------------------
-// generate_agents_md / generate_claude_md
+// generate_agents_md
 // ---------------------------------------------------------------------------
 _make_skills :: (fn() -> ArrayList(SkillEntry))({
   skills := ArrayList(SkillEntry).new();
@@ -123,10 +122,6 @@ _make_one_target :: (fn() -> ArrayList(String))({
   targets := ArrayList(String).new();
   targets.push(String.from(".agents"));
   targets
-});
-test("generate_claude_md: one-line pointer at AGENTS.md", {
-  s := String.from(generate_claude_md());
-  assert(s == "@AGENTS.md\n", "CLAUDE.md points at AGENTS.md");
 });
 test("generate_agents_md: lists skill names and descriptions", {
   md := generate_agents_md(_make_skills(), _make_one_target());
