@@ -1692,6 +1692,12 @@ _emit_pattern_chain :: (
     ty : TypeValue,
     fail_label : String,
     assign_binds : bool,
+    /// False for the LAST arm of an exhaustive match: control reaching it
+    /// means it matches, so its tests are skipped (a dead
+    /// `if (…) goto end;` would leave the result temp uninitialized on a path
+    /// C cannot prove dead). Or-patterns keep their tests — they pick the
+    /// alternative that binds.
+    emit_tests : bool,
     indent : String,
     labels : _MatchLabels,
     shadows : ArrayList(String),
@@ -1720,44 +1726,50 @@ _emit_pattern_chain :: (
       });
     },
     .Const(_, _, _, subject, test) => {
-      cname := sanitize_for_c_identifier(subject.clone(), false);
-      _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
-      _shadow_add(context, cname.clone());
-      shadows.push(cname);
-      test_code := _call_generate_expr(test, indent.clone(), context);
-      line := indent.clone();
-      line.push_str("if (!(");
-      line.push_string(test_code);
-      line.push_str(")) goto ");
-      line.push_string(fail_label.clone());
-      line.push_str(";");
-      em.emit_string_line(line);
+      if(emit_tests, {
+        cname := sanitize_for_c_identifier(subject.clone(), false);
+        _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
+        _shadow_add(context, cname.clone());
+        shadows.push(cname);
+        test_code := _call_generate_expr(test, indent.clone(), context);
+        line := indent.clone();
+        line.push_str("if (!(");
+        line.push_string(test_code);
+        line.push_str(")) goto ");
+        line.push_string(fail_label.clone());
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
     },
     .Range(_, subject, test, _) => {
-      cname := sanitize_for_c_identifier(subject.clone(), false);
-      _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
-      _shadow_add(context, cname.clone());
-      shadows.push(cname);
-      test_code := _call_generate_expr(test, indent.clone(), context);
-      line := indent.clone();
-      line.push_str("if (!(");
-      line.push_string(test_code);
-      line.push_str(")) goto ");
-      line.push_string(fail_label.clone());
-      line.push_str(";");
-      em.emit_string_line(line);
+      if(emit_tests, {
+        cname := sanitize_for_c_identifier(subject.clone(), false);
+        _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
+        _shadow_add(context, cname.clone());
+        shadows.push(cname);
+        test_code := _call_generate_expr(test, indent.clone(), context);
+        line := indent.clone();
+        line.push_str("if (!(");
+        line.push_string(test_code);
+        line.push_str(")) goto ");
+        line.push_string(fail_label.clone());
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
     },
     .Variant(vname, vidx, field_idx, subs, enum_ty0, _, _) => {
       enum_ty := resolve_enum_shell(enum_ty0);
       is_raw_ptr := is_pointer_type(ty);
       ptrish := _position_is_ptrish(ty);
-      line := indent.clone();
-      line.push_str("if (!");
-      line.push_string(_variant_test_code(enum_ty, vidx, vname.clone(), path.clone(), ptrish, is_raw_ptr, context));
-      line.push_str(") goto ");
-      line.push_string(fail_label.clone());
-      line.push_str(";");
-      em.emit_string_line(line);
+      if(emit_tests, {
+        line := indent.clone();
+        line.push_str("if (!");
+        line.push_string(_variant_test_code(enum_ty, vidx, vname.clone(), path.clone(), ptrish, is_raw_ptr, context));
+        line.push_str(") goto ");
+        line.push_string(fail_label.clone());
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
       labels_v := match(enum_ty, .EnumT({ variant_field_labels : vfls }) => match(vfls.get(vidx), .Some(l) => l, .None => ArrayList(String).new()), _ => ArrayList(String).new());
       ftys := match(enum_ty, .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       (i : usize) = usize(0);
@@ -1769,7 +1781,7 @@ _emit_pattern_chain :: (
         match(
           subs.get(i),
           .Some(sub) => {
-            recur(sub, fcode, fty, fail_label.clone(), assign_binds, indent.clone(), labels, shadows, context);
+            recur(sub, fcode, fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context);
           },
           .None => ()
         );
@@ -1816,7 +1828,7 @@ _emit_pattern_chain :: (
         match(
           alts.get(ai),
           .Some(alt) => {
-            recur(alt, path.clone(), ty, alt_fail.clone(), true, inner_indent.clone(), labels, shadows, context);
+            recur(alt, path.clone(), ty, alt_fail.clone(), true, true, inner_indent.clone(), labels, shadows, context);
           },
           .None => ()
         );
@@ -1860,7 +1872,7 @@ _emit_pattern_chain :: (
         _shadow_add(context, cname.clone());
         shadows.push(cname);
       });
-      recur(sub, path, ty, fail_label, assign_binds, indent, labels, shadows, context);
+      recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
     }
   );
 });
@@ -1901,7 +1913,9 @@ _gen_general_match :: (fn(expr : AstExpr, arms : ArrayList(Arm), indent : String
           open.push_str("{");
           em.emit_string_line(open);
           shadows := ArrayList(String).new();
-          _emit_pattern_chain(arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, body_indent.clone(), labels, shadows, context);
+          // The last unguarded arm of an exhaustive match needs no tests.
+          is_last := ((k + usize(1)) == n);
+          _emit_pattern_chain(arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), labels, shadows, context);
           match(
             arm.guard,
             .Some(g) => {

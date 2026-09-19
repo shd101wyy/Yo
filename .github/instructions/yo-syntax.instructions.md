@@ -859,27 +859,39 @@ raw_bytes : (fn(self: Self) -> RawSlice(u8))(
 )
 ```
 
-## Nested destructuring patterns are NOT supported
+## Pattern forms in `match` (real pattern matching, 2026-09-19)
 
-Yo does not support nested pattern matching like `.Ok(.Some(value))`. Use multi-level matching instead:
+Patterns are ordinary expressions the parser already produces; the evaluator
+compiles them into a pattern IR (`src/pattern.yo`, plans/MATCH_PATTERN_MATCHING.md).
+Every infix pattern needs its own parentheses (no operator precedence):
 
-```rust
-// WRONG — nested destructuring:
-match(result,
-  .Ok(.Some(s)) => printf("got: %s\n", s),
-  .Ok(.None) => printf("none\n"),
-  .Err(e) => printf("error\n")
-)
+| form | example | meaning |
+| --- | --- | --- |
+| `_` | `_ => …` | wildcard |
+| identifier | `other => (other + 1)` | binds the value — unless the name is a `::` constant in scope holding a literal or enum value, which is then COMPARED (`TEN => …`, `RED => …`) |
+| constant | `0`, `-1`, `true`, `'a'`, `"lit"`, `i32(5)`, `Color.Red` | compared with the language's own `==`; a `str` literal matches a `String` or `str` scrutinee |
+| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })` | sub-patterns may be ANY pattern, at any depth: `.Ok(.Some(v))`, `.Tag("a")`, `.Of((48..=57))` |
+| or | `(.Red \| .Green) => …`, `(1 \| 2) => …`, `.Some((.A \| .B))` | alternatives must bind the same names |
+| range | `(0..10) => …`, `(10..=19) => …` | compile-time bounds; half-open / inclusive |
+| whole-value binding | `(whole := .Some(v)) => …` | binds the value AND matches the sub-pattern |
+| guard | `(.Some(v) && (v > i32(100))) => …` | the arm runs when the pattern matches and the guard (which sees the bindings) is true |
 
-// CORRECT — two-level matching:
-match(result,
-  .Ok(inner) => match(inner,
-    .Some(s) => printf("got: %s\n", s),
-    .None => printf("none\n")
-  ),
-  .Err(e) => printf("error\n")
-)
-```
+Rules that follow:
+
+- **Exhaustiveness is structural** (usefulness check): `.Some(true), .None`
+  is rejected with `Missing case: .Some(false)`; integers, floats and strings
+  need a `_` or binding arm; a guarded arm never counts as covering.
+- **An unreachable arm is an error** (`E0608`): a duplicate variant or
+  literal, or any arm after a catch-all. A trailing `_` after complete
+  coverage is tolerated.
+- **Diagnostic codes:** `E0607` not exhaustive, `E0608` unreachable arm,
+  `E0609` invalid pattern (`yo explain E0607`).
+- **Inside an `io.async` arm that awaits**, only the classic shapes (`_`,
+  `.V`, `.V(binders / numeric literals)`, labeled/curly binders) are lowered
+  today; the new forms fail loudly at codegen. Bind the payload and match
+  again inside the arm, or move the await out of the arm.
+- Struct/tuple scrutinees and patterns through `Box(...)` payloads are not
+  supported yet (P4).
 
 ## Match destructuring forms
 
@@ -925,7 +937,7 @@ Curly destructuring rules:
   need `.Variant(_, _, …)`. (Intentionally more permissive than Rust.)
   `tests/match_bind_nothing.test.yo` is the spec.
 - Bare `_` (e.g., `{_}`) is rejected — use `{label: _}` to ignore a specific field.
-- Nested curly `.Foo({a: {b}})` is rejected — destructure in the body instead.
+- Nested curly `.Foo({a: {b}})` is rejected (struct patterns are not supported yet) — but a nested VARIANT pattern in a curly slot is fine: `.Foo({ a : .Some(x) })`.
 
 The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)` pairs at parse time, so internally curly form is just a labeled-destructuring pattern wrapped in `_(...)`. The match evaluator unwraps that wrapper.
 

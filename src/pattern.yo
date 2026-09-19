@@ -1062,27 +1062,84 @@ match_missing_witness :: (fn(arms : ArrayList(Arm), scrutinee_ty : TypeValue) ->
     .None => Option(String).None
   )
 });
-/// True when arm `i` can never run: every value its pattern matches is
-/// already matched by an unguarded arm above it. Or-alternatives are checked
-/// one by one so a partly-redundant or-pattern is reported too.
+/// True when arm `i` can never run because ONE earlier unguarded arm alone
+/// already matches everything it matches: a duplicate variant or literal,
+/// any arm after `_` or a binding, an or-alternative repeated. An arm that
+/// is redundant only COLLECTIVELY (`.Some(_)` after `.Some(true)` and
+/// `.Some(false)`, a trailing `_` after every variant) is tolerated: it is the
+/// defensive idiom the tree is full of, Rust only warns about it, and Yo has
+/// no warnings channel yet (plans/MATCH_PATTERN_MATCHING.md §4.6, adjusted
+/// 2026-09-19 after the tree-wide measurement).
 arm_is_unreachable :: (fn(arms : ArrayList(Arm), i : usize, scrutinee_ty : TypeValue) -> bool)({
   arm := match(arms.get(i), .Some(a) => a, .None => return(false));
-  // A TRAILING catch-all (`_` or a binding, last arm, no guard) after
-  // complete coverage is tolerated, not reported: it is the defensive idiom
-  // (`.InvalidUtf8(c) => …, _ => …` over a one-variant enum) and costs
-  // nothing. Every other redundant arm — a duplicate variant or literal, an
-  // arm AFTER the catch-all — is an error.
-  if(((i + usize(1)) == arms.len()) && arm.guard.is_none(), {
-    if(match(arm.pattern, .Wildcard => true, .Bind(_, _) => true, _ => false), {
-      return(false);
-    });
-  });
-  rows := _coverage_rows(arms, i);
   tys := ArrayList(TypeValue).new();
   tys.push(scrutinee_ty);
-  _useful(rows, _row_of(arm.pattern), tys).is_none()
+  (j : usize) = usize(0);
+  while(j < i, {
+    match(
+      arms.get(j),
+      .Some(earlier) => {
+        if(earlier.guard.is_none(), {
+          one := ArrayList(ArrayList(Pattern)).new();
+          one.push(_row_of(earlier.pattern));
+          if(_useful(one, _row_of(arm.pattern), tys).is_none(), {
+            return(true);
+          });
+        });
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  false
+});
+/// The synthesized test expressions (`subject == lit`, range compares) of a
+/// pattern, in pre-order — codegen's collectors must see them (they are not
+/// in the source AST), so the evaluator hangs them off the arm's pattern node
+/// as its `macro_expansion`.
+pattern_test_exprs :: (fn(p : Pattern, out : ArrayList(AstExpr)) -> unit)({
+  match(
+    p,
+    .Wildcard => (),
+    .Bind(_, _) => (),
+    .Const(_, _, _, _, test) => {
+      out.push(test);
+    },
+    .Range(_, _, test, _) => {
+      out.push(test);
+    },
+    .Variant(_, _, _, subs, _, _, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(
+          subs.get(i),
+          .Some(s) => {
+            recur(s, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Or(alts) => {
+      (i : usize) = usize(0);
+      while(i < alts.len(), {
+        match(
+          alts.get(i),
+          .Some(a) => {
+            recur(a, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .At(_, _, sub) => {
+      recur(sub, out);
+    }
+  );
 });
 export(Pattern, Arm, register_match_arms, lookup_match_arms);
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
-export(match_missing_witness, arm_is_unreachable);
+export(match_missing_witness, arm_is_unreachable, pattern_test_exprs);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, variant_field_types);

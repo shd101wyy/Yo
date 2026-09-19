@@ -23,7 +23,9 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_MATCH
+  alloc_global_expr_id,
+  BK_MATCH,
+  BK_BEGIN
 } :: import("../../expr.yo");
 {
   new_expr_info,
@@ -38,6 +40,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_primitive_pattern_values
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame } :: import("../../env.yo");
+{ Token, TokenKind } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
@@ -76,6 +79,7 @@ pragma(Pragma.AllowUnsafe);
   register_match_arms,
   match_missing_witness,
   arm_is_unreachable,
+  pattern_test_exprs,
   pattern_to_string,
   gadt_branch_reachable,
   gadt_resolve_tca_entry
@@ -604,6 +608,19 @@ evaluate_match :: (
       );
       mae_info := new_expr_info(env, variable_type);
       expr_info_set_case_executed(mae_info, Option(bool).Some(true));
+      // The constant/range tests are synthesized nodes outside the source
+      // AST. Codegen's collectors (functions, types) follow a node's
+      // `macro_expansion`, so an arm the general lowering will emit hangs its
+      // tests off the pattern node as a `begin(...)` of them.
+      if(!(classic), {
+        tests := ArrayList(AstExpr).new();
+        pattern_test_exprs(pat, tests);
+        if(tests.len() > usize(0), {
+          ptok := ast_expr_token(pattern_ast);
+          begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : String.from(BK_BEGIN), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : ptok.module_path.clone(), input : ptok.input.clone()));
+          mae_info.macro_expansion = Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, tests, false, ptok));
+        });
+      });
       if(scrutinee_is_primitive && classic, {
         pvals := pattern_const_values(pat);
         if(pvals.len() > usize(0), {
