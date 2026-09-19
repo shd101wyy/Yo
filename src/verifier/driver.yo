@@ -16,7 +16,7 @@ json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
 { sha256_hex } :: import("std/crypto/sha256");
 { VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
-{ encode_content, encode_script, EncodeOptions, default_encode_options } :: import("./encode.yo");
+{ encode_content, encode_script, encode_term, EncodeOptions, default_encode_options } :: import("./encode.yo");
 { VerifyFnInput, verify_function_body, register_recursion_cliques } :: import("./vc.yo");
 { take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure } :: import("../evaluator/builtins/contracts.yo");
 {
@@ -449,7 +449,15 @@ VerifyFnObligation :: ref(
   struct(
     name : String,
     verdict : VerifyVerdict,
-    cached : bool
+    cached : bool,
+    /// Discharged by the literal-construction CTFE folding in `_emit` —
+    /// answered WITHOUT the cache → encode → solve pipeline, so summary
+    /// telemetry counts it as `folded`, never as a solver `query`.
+    (folded : bool) ?= false,
+    /// The obligation's goal term rendered as SMT-LIB (`--explain`'s VC
+    /// display; the JSON report's `goal` field). Empty only if the
+    /// rendering was never requested.
+    (goal : String) ?= String.new()
   )
 );
 /// The verification report for one function.
@@ -554,7 +562,12 @@ VerifySummary :: ref(
     /// Obligations put through the cache → encode → solve pipeline, and how
     /// many of those were answered from the verification cache.
     queries : usize,
-    cached : usize
+    cached : usize,
+    /// Obligations discharged by the literal-construction CTFE folding
+    /// (`VcObligation.pre`) — never sent to the pipeline, so they are
+    /// counted separately from `queries`: a fold-heavy run must not read
+    /// as solver load.
+    folded : usize
   )
 );
 summarize_verify_reports :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifySummary)({
@@ -568,6 +581,7 @@ summarize_verify_reports :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifySu
   (vacuous : usize) = usize(0);
   (queries : usize) = usize(0);
   (cached : usize) = usize(0);
+  (folded : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < reports.len(), {
     match(
@@ -591,10 +605,14 @@ summarize_verify_reports :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifySu
         });
         (oi : usize) = usize(0);
         while(oi < rp.obligations.len(), {
-          queries = (queries + usize(1));
           match(
             rp.obligations.get(oi),
             .Some(obl) => {
+              if(obl.folded, {
+                folded = (folded + usize(1));
+              }, {
+                queries = (queries + usize(1));
+              });
               if(obl.cached, {
                 cached = (cached + usize(1));
               });
@@ -613,7 +631,8 @@ summarize_verify_reports :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifySu
     counts : counts,
     vacuous : vacuous,
     queries : queries,
-    cached : cached
+    cached : cached,
+    folded : folded
   )
 });
 /// The count recorded for `outcome` in a summary ("" / unknown name -> 0).
@@ -833,7 +852,9 @@ verify_and_strip_tasks :: (
                       VerifyFnObligation(
                         name : obl.name.clone(),
                         verdict : pre_verdict,
-                        cached : false
+                        cached : false,
+                        folded : true,
+                        goal : encode_term(obl.query.goal)
                       )
                     );
                     rank := if(pre_is_proved, usize(0), usize(3));
@@ -858,7 +879,8 @@ verify_and_strip_tasks :: (
                       VerifyFnObligation(
                         name : r.query_name.clone(),
                         verdict : clean_verdict,
-                        cached : r.cached
+                        cached : r.cached,
+                        goal : encode_term(obl.query.goal)
                       )
                     );
                     // 0 ok < 1 unproven < 2 solver-error < 3 refuted
