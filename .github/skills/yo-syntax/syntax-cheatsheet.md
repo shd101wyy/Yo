@@ -678,6 +678,33 @@ get :: (
   were VACUOUS (discharged nothing), the query count, cache hits and the
   wall time; `--format json` carries it under `summary`.
 
+- **`law(fn-type)` (B1):** a standalone CLAIM about code that lives
+  elsewhere — the argument is a function TYPE with contract clauses and NO
+  body. Its `ensures` predicates are the obligations; its `requires` are
+  assumed on entry and discharge the callees' own `requires` at each call
+  site. Evaluates to `unit` (codegen emits nothing), so a law is written as a
+  module-level binding. Proved from the callee's CONTRACT, never its body —
+  a law that will not prove is usually telling you the contract is weaker
+  than you thought.
+
+```rust
+// spec/math_laws.yo — the claims; the implementation does not touch this file.
+pragma(Pragma.Verify);
+{ abs_value } :: import("../src/math.yo");
+
+abs_doubles_nonneg :: law(
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((abs_value(x) + abs_value(x)) >= i64(0))
+  ) -> unit
+);
+```
+  Each of these is a compile error, not a silent pass: a non-`unit` return
+  (a law has no value), no `ensures(...)` (it would claim nothing),
+  `assumed()` or `decreases(...)`, and a named alias in place of a written-out
+  `fn(...)` type (its clauses could not be scanned). Gate a spec directory
+  with `yo verify ./spec --strict`.
 - **`refine(T, p)` (V6 task 3):** a refinement annotation — "a `T`
   satisfying the predicate `p`", where `p` is a ONE-parameter `ghost_fn`
   value. The annotation evaluates to `T` (erasure: zero runtime cost;

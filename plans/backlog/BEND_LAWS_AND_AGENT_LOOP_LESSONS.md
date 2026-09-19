@@ -377,6 +377,47 @@ the summary; CI verify job green.
 
 ### B1 — `law(fn-type)`: standalone claims
 
+> **Status: LANDED 2026-09-19.** `BF_LAW` + dispatch (`src/expr.yo`,
+> `src/evaluator/exprs/_expr.yo`), `evaluate_law` +
+> `_reject_law_clause` (`src/evaluator/builtins/contracts.yo`), codegen
+> erasure (`src/codegen/exprs/generation.yo`). Fixtures
+> `valid/law_abs_nonneg.yo`, `negative/law_false.yo` and four rejection
+> fixtures; `tests/internal/verifier_law.test.yo` 6/6. Docs en+zh,
+> cheatsheet.
+>
+> **Design corrections the probe made, all load-bearing:**
+> 1. The predicates ride `ensures_exprs`, NOT a synthesized body of asserts.
+>    A task with no contracts is `contract_less` in `verify_and_strip_tasks`,
+>    which DEGRADES subset failures to the passing outcome `outside-subset` —
+>    a body-asserts law would report green exactly when its claim could not be
+>    walked. This was measured against real tasks, not reasoned about.
+> 2. `get_func_{requires,ensures}_exprs` cannot be called from `contracts.yo`
+>    (import cycle); the `hook_func_*` indirections are the supported path.
+> 3. The argument must be a fn-type LITERAL, so the `assumed()`/`decreases()`
+>    scan is complete — behind an alias those clauses are invisible and would
+>    be silently ignored.
+>
+> **Found while implementing:** `evaluate_law` cannot sit beside the other
+> contract builtins. Its registration gate reads a module-level MUTABLE
+> (`g_verify_mode_override`) bound ~900 lines lower, and those are
+> order-dependent even though `::` definitions are not; the evaluator rejects
+> the forward reference by name. It sits below the globals it reads.
+>
+> **The fixtures found two real bugs in their own first draft**, both correct
+> refutations: `abs` over `i64` refutes at `i64::MIN` (negation wraps), and a
+> law summing two values known only to be non-negative refutes on overflow.
+> Both were fixed by strengthening the contract, which is the honest version
+> of the claim — and a better demonstration than a fixture that passed first
+> try.
+>
+> **Deferred to B2, recorded so it is not lost:** refinement predicates are
+> inlined through a SECOND ghost-fn path (`_refine_pred_term` /
+> `_refine_pred_chain_term` in `vc.yo`, called with no call AST node). If B2
+> rewrites only the call rule to uninterpreted symbols, one query ends up with
+> two encodings of the same ghost function and a law about `p` cannot
+> discharge an obligation that arrived as an inlined `p` — silent
+> incompleteness, not a conflict.
+
 **Scope.** The builtin, its verify task, its diagnostics, its erasure.
 
 Tasks:

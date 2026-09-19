@@ -1,0 +1,29 @@
+// B1 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A2): a LAW — a claim
+// stated OUTSIDE the code it is about, proved from that code's CONTRACT alone.
+//
+// The bounds are not decoration. A law sees only what the callee's `ensures`
+// states, so `ensures(r >= 0)` by itself does NOT let `r + r` be proved
+// non-negative: two unbounded non-negatives overflow. The upper bound is what
+// makes the sum provable. (Writing this fixture without it, the verifier
+// refuted it with a counter-example — and separately refuted `abs_value`
+// itself at i64::MIN, where negation wraps to a negative. Both were real.)
+pragma(Pragma.Verify);
+
+abs_value :: (
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((r >= i64(0)) && (r < i64(1000)))
+  ) -> (r : i64)
+)(cond((x >= i64(0)) => x, true => -x));
+
+// LAW: doubling an absolute value over the contracted domain stays non-negative.
+// The law's own `requires` is what discharges `abs_value`'s at each call site.
+abs_doubles_nonneg :: law(
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((abs_value(x) + abs_value(x)) >= i64(0))
+  ) -> unit
+);
+export(abs_value);

@@ -204,6 +204,74 @@ pragma is the source of truth when present. Mode effects apply only to
 the files being verified — imported files (the standard library, `std/`)
 keep their runtime behavior untouched.
 
+## Laws: claims stated outside the code
+
+A contract lives in the function it constrains, which means the code's author
+also owns its specification. A **law** is the other half: a claim written
+*about* code, in a file the implementation does not touch.
+
+```rust
+pragma(Pragma.Verify);
+
+{ abs_value } :: import("./math.yo");
+
+// LAW: doubling an absolute value over the contracted domain stays non-negative.
+abs_doubles_nonneg :: law(
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((abs_value(x) + abs_value(x)) >= i64(0))
+  ) -> unit
+);
+```
+
+The argument is a function **type** with contract clauses and no body. Its
+`ensures` predicates are the obligations; its `requires` are assumed on entry
+and are what discharge the callees' own `requires` at each call site. A law
+evaluates to `unit`, so `name :: law(...)` binds unit and codegen emits nothing.
+
+**A law is proved from the callee's contract, never from its body.** That is the
+point, and it is also the constraint: if `abs_value` promises only
+`ensures(r >= 0)`, the law above cannot be proved, because two values known only
+to be non-negative can overflow when added. The upper bound in the callee's
+`ensures` is what makes the claim provable. A law failing this way is usually
+telling you the contract is weaker than you thought.
+
+Rules, each of which is a compile error rather than a silent pass:
+
+| rejected | why |
+| --- | --- |
+| a non-`unit` return | a law has no value; its claim belongs in `ensures(...)` |
+| no `ensures(...)` | a law that claims nothing would report a vacuous pass |
+| `assumed()` | it would let the claim pass without being proved |
+| `decreases(...)` | a law has no recursion to measure |
+| a named alias instead of a written-out `fn(...)` type | its clauses cannot be scanned, so a hidden `assumed()` would be ignored |
+
+Laws are reported under their own `law@<file>:<row>:<column>` id, so two laws on
+one line stay distinct:
+
+```
+  ok       law@spec/math_laws.yo:8:21 [verify] — 3 obligation(s) proved
+  refuted  law@spec/math_laws.yo:16:19 [verify]
+    law@spec/math_laws.yo:16:19/ensures#0: REFUTED  counter-example: x = #x0000000000000000
+```
+
+### The convention: a `spec/` directory the humans own
+
+Nothing in the compiler knows what a "law file" is — this is a convention, and
+it is the point of the feature:
+
+1. Keep laws in `spec/`, written by the people who decide what the software must
+   do. The implementation may not edit them.
+2. Gate them with `yo verify ./spec --strict`, so a run cannot pass because a
+   contract was `assumed()` away.
+3. Add `spec/` to CODEOWNERS if your host supports it.
+
+In runtime mode (no verify pragma) a law is an accepted no-op marker, so
+specification text never breaks an ordinary build. Note the consequence: a law's
+predicates are only name-resolved under verification, so a law referring to
+something that does not exist is caught by `yo verify`, not by `yo check`.
+
 ## Strict mode: a gate that cannot go quietly green
 
 A plain `yo verify` run passes when a function reports `assumed` (its
