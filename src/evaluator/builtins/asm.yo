@@ -1,14 +1,7 @@
 //! evaluator/builtins/asm — evaluate_asm and evaluate_global_asm.
 //!
-//! 1:1 port of `src/evaluator/builtins/asm.ts`.
-//!
-//! Yo-port notes:
-//!   - TS string-Set membership → `_str_in(list, s)` over ArrayList literals.
-//!   - `AsmOperand` interface → ref struct with Option fields.
-//!   - TS's placeholder regex `/\{([^}:]+)(?::[^}]*)?\}/g` → a hand-rolled
-//!     scanner over the joined template (`_validate_template_placeholders`).
-//!   - Helpers that throw report through `exn` and return a sentinel; the
-//!     caller checks a validity flag (established builtins idiom).
+//! Helpers that throw report through `exn` and return a sentinel; the
+//! caller checks a validity flag (established builtins idiom).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -27,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
-// Name sets (TS Set constants)
+// Name sets
 // ---------------------------------------------------------------------------
 _str_in :: (fn(names : ArrayList(String), s : String) -> bool)({
   (i : usize) = usize(0);
@@ -77,7 +70,7 @@ _asm_option_flags :: (fn() -> ArrayList(String))({
   l
 });
 // ---------------------------------------------------------------------------
-// AsmOperand (TS interface)
+// AsmOperand
 // ---------------------------------------------------------------------------
 AsmOperand :: ref(
   struct(
@@ -117,7 +110,7 @@ _is_discard_atom :: (fn(e : AstExpr) -> bool)(
 _fn_call_args_of :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, args, _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
 );
-/// Strip the surrounding `"` delimiters that yo-self's StrLit convention
+/// Strip the surrounding `"` delimiters that the StrLit convention
 /// keeps (see evaluator/values/string.yo — raw stores the QUOTED token).
 _strip_delims :: (fn(s : String) -> String)({
   b := s.as_bytes();
@@ -160,7 +153,7 @@ _eval_comptime_str :: (
   )
 });
 /// Evaluate a constraint argument (register class atom, explicit register
-/// string, or raw("constraint")). Mirrors evaluateConstraint.
+/// string, or raw("constraint")).
 _evaluate_constraint :: (
   fn(constraint_expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> String
 )({
@@ -198,7 +191,7 @@ _evaluate_constraint :: (
   );
   String.from("")
 });
-/// Parse const_val/sym operands. Mirrors parseSpecialOperand.
+/// Parse const_val/sym operands.
 _parse_special_operand :: (
   fn(operand_expr : AstExpr, env : Environment, ctx : EvalContext, kind : String, exn : Exception) -> AsmOperand
 )({
@@ -238,7 +231,7 @@ _parse_special_operand :: (
     discarded : false
   )
 });
-/// Parse a single operand sub-call. Mirrors parseOperand.
+/// Parse a single operand sub-call.
 _parse_operand :: (
   fn(operand_expr : AstExpr, env : Environment, ctx : EvalContext, kind_in : String, exn : Exception) -> AsmOperand
 )({
@@ -498,7 +491,7 @@ _parse_operand :: (
     discarded : false
   )
 });
-/// Parse asm_options(...) flags. Mirrors parseAsmOptions.
+/// Parse asm_options(...) flags.
 /// Returns the `noreturn` flag (the only one the evaluator consumes).
 _parse_asm_options :: (
   fn(option_expr : AstExpr, exn : Exception) -> bool
@@ -539,7 +532,6 @@ _parse_asm_options :: (
   noreturn
 });
 /// Validate template placeholders `{N}` / `{name}` against the operand list.
-/// Hand-rolled port of the TS regex scan.
 _validate_template_placeholders :: (
   fn(template : String, operands : ArrayList(AsmOperand), tok : Token, exn : Exception) -> unit
 )({
@@ -663,7 +655,7 @@ _validate_template_placeholders :: (
   });
   ()
 });
-/// Mirrors evaluateAsm.
+/// Evaluate the `asm(...)` builtin.
 evaluate_asm :: (
   fn(
     expr : AstExpr,
@@ -973,7 +965,7 @@ evaluate_asm :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-/// Mirrors evaluateGlobalAsm.
+/// Evaluate the `global_asm(...)` builtin.
 evaluate_global_asm :: (
   fn(
     expr : AstExpr,

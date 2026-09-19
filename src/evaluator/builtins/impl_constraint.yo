@@ -1,7 +1,5 @@
 //! evaluator/builtins/impl_constraint — implements evaluate_impl_constraint.
 //!
-//! 1:1 port of `src/evaluator/builtins/impl-constraint.ts`.
-//!
 //! Evaluates `Impl(Trait1, Trait2, ...)` — creates a SomeType whose trait
 //! constraints contain the given traits. Supports negated traits via
 //! `!(Trait)` syntax. `Concrete(T)` support is a stub (returns false).
@@ -65,8 +63,7 @@ evaluate_impl_constraint :: (
   negative_trait_types := ArrayList(TypeValue).new();
   negative_trait_levels := ArrayList(usize).new();
   // `Concrete(T)` specifier — extracted from the marker trait and stamped as
-  // the SomeT's resolved-concrete instead of joining required_trait_types
-  // (TS impl-constraint.ts:104-114, 131-133).
+  // the SomeT's resolved-concrete instead of joining required_trait_types.
   (concrete_type : Option(TypeValue)) = Option(TypeValue).None;
   (cur_env : Environment) = env;
   (i : usize) = usize(0);
@@ -187,8 +184,7 @@ evaluate_impl_constraint :: (
     false => usize(0)
   );
   // Create the SomeT with required and negative trait constraints. A
-  // `Concrete(T)` specifier seeds the resolved-concrete cell with T (TS:
-  // `someType.resolvedConcreteType = concreteType`).
+  // `Concrete(T)` specifier seeds the resolved-concrete cell with T.
   some_type := TypeValue.SomeT(
     generate_some_type_id(),
     String.from("Impl"),

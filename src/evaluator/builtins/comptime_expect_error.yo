@@ -1,7 +1,5 @@
 //! evaluator/builtins/comptime_expect_error — evaluate_comptime_expect_error.
 //!
-//! 1:1 port of `src/evaluator/builtins/comptime-expect-error.ts`.
-//!
 //! Evaluates `comptime_expect_error(expr)` — expects the argument to produce a
 //! compile-time error.  If the argument evaluates without error, this builtin
 //! throws "Expected compile error, but the expression was evaluated successfully".
@@ -45,8 +43,7 @@
 /// `try_populate_expr_info_table` (main.yo) pattern — a local unwinding exn that
 /// does NOT capture outer params, so it sidesteps the codegen limitation that
 /// disabled the original inline handler. It restores the error-DETECTION
-/// `comptime_expect_error` needs (TS uses a plain `try/catch`,
-/// comptime-expect-error.ts:23-42; yo-self can't try/catch + continue in one
+/// `comptime_expect_error` needs (there is no try/catch + continue in one
 /// frame, hence the bool-returning helper).
 _comptime_expect_error_arg_threw :: (
   fn(arg_expr : AstExpr, env : Environment, ctx : EvalContext) -> bool
@@ -87,10 +84,9 @@ evaluate_comptime_expect_error :: (
       return(expr);
     }
   );
-  // Evaluate the argument (a CLONE — TS `cloneExpr`s it, comptime-expect-error.ts:20
-  // — so a partial/aborted eval doesn't pollute the original expr's ExprInfo); if
+  // Evaluate the argument (a CLONE, so a partial/aborted eval doesn't pollute
+  // the original expr's ExprInfo); if
   // it throws a compile error, that's EXPECTED — set unit and return successfully.
-  // Mirrors TS `comptime-expect-error.ts:23-42`.
   //
   // Enable "propagate all def-time body-eval errors" mode for the duration of the
   // argument eval: many rejected forms (e.g. an unwrapped `extern "c"` call) throw
@@ -100,9 +96,7 @@ evaluate_comptime_expect_error :: (
   // is cleared unconditionally on return (the helper's local-unwinding exn returns
   // control here), so no other def-time eval is affected.
   // Snapshot the mutable evaluation state the EXPECTED throw will strand.
-  // TS needs no restore here: its envs are persistent (addVariableToEnv
-  // returns a new env) and its contexts are spread-copied per call, so a
-  // thrown-through eval cannot leave either dirty. yo-self's single mutable
+  // The single mutable
   // Environment/EvalContext use push/mutate + restore-on-return, and the
   // propagating throw UNWINDS PAST those restores — e.g. the expected-error
   // handler's parameter frame stayed pushed on the module env, so a LATER
@@ -135,8 +129,6 @@ evaluate_comptime_expect_error :: (
   // `comptime_expect_error` was lost and the rest of the file could not see
   // it ("Variable "assert" not found" from a later `test(...)` arm, which
   // then hollowed the whole batch — tests/safe_code_structural_gates.test.yo).
-  // TS needs no equivalent: its envs are persistent values, so the rejected
-  // eval's env is simply discarded and the caller keeps the original.
   saved_frames := ArrayList(Frame).new();
   {
     (sf_i : usize) = usize(0);
@@ -153,9 +145,9 @@ evaluate_comptime_expect_error :: (
   };
   // Per-frame variable counts: an EXPECTED throw can strand a half-made
   // binding in a surviving frame (e.g. `cee((z : Point1) := (3, 4))` adds
-  // `z` before the type-mismatch throw). TS's persistent envs discard the
-  // rejected child env wholesale; yo-self must truncate each surviving
-  // frame's variable list back, or the leftover shadows the NEXT `(z : T)`
+  // `z` before the type-mismatch throw); each surviving
+  // frame's variable list must be truncated
+  // back, or the leftover shadows the NEXT `(z : T)`
   // binding and mis-types every later use of the name.
   saved_frame_var_counts := ArrayList(usize).new();
   {

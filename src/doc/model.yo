@@ -1,7 +1,5 @@
 //! Documentation model types for the Yo compiler.
 //!
-//! Mirrors `src/doc/model.ts` — 1:1 port.
-//!
 //! Represents the structured documentation IR produced by combining doc
 //! comment extraction with evaluator type information.
 { String } :: import("std/string");
@@ -9,7 +7,6 @@
 // ---------------------------------------------------------------------------
 // DocItemKind — discriminates the kind of a documented item
 // ---------------------------------------------------------------------------
-//! Mirrors the `DocItemKind` string union in TypeScript.
 DocItemKind :: enum(
   Function,
   Struct,
@@ -177,10 +174,9 @@ DocConstant :: struct(
   type_ : String,
   value : Option(String),
   deprecated : Option(String),
-  /// TS's `DocConstant` interface has no `examples`, but both builder paths
-  /// spread `...extractDocSections(doc)` into the literal, so the RUNTIME
-  /// object (and its JSON) carries one whenever the doc has an `## Examples`
-  /// section. Modeled explicitly for render_json byte parity.
+  /// Both builder paths populate this from the doc's `## Examples` section,
+  /// so the model (and its JSON) carries one whenever such a section exists —
+  /// kept explicit for render_json parity.
   examples : Option(String)
 );
 // ---------------------------------------------------------------------------

@@ -1,19 +1,16 @@
 //! suspension_codegen — shared codegen utilities for state-machine generation.
-//! 1:1 port of `src/codegen/shared/suspension-codegen.ts`.
 //!
 //! Both async/await and algebraic-effect state machines split function bodies at
-//! suspension points and need tree-containment checks. TS is generic over the
-//! suspension-point type (`P extends SuspensionPoint`); yo-self collapses the
-//! generic to the concrete `SuspensionPoint` base (the system-specific
-//! `AwaitPoint` / `EffectCallPoint` embed it). The `should_skip_body` predicate is
-//! REQUIRED here (TS makes it optional) — callers that don't skip pass
-//! `(e : AstExpr) => false`.
+//! suspension points and need tree-containment checks. Both work over the
+//! concrete `SuspensionPoint` base (the system-specific `AwaitPoint` /
+//! `EffectCallPoint` embed it). The `should_skip_body` predicate is
+//! REQUIRED — callers that don't skip pass `(e : AstExpr) => false`.
 import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_atom_of, ast_expr_is_fn_call_of } :: import("../../expr.yo");
 { lookup_macro_expansion } :: import("../../expr_info.yo");
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-/// A code segment between suspension points. (TS `SuspensionSegment<P>`.)
+/// A code segment between suspension points.
 SuspensionSegment :: ref(
   struct(
     /// The state number this segment represents (0-based).
@@ -25,7 +22,7 @@ SuspensionSegment :: ref(
   )
 );
 /// Checks if an expression tree contains a specific target expression (by
-/// reference identity — yo-self compares `ast_expr_id`). `should_skip_body`
+/// reference identity — compared through `ast_expr_id`). `should_skip_body`
 /// skips subtrees (e.g. nested async blocks with their own state-machine
 /// analysis).
 contains_suspension_expr :: (
@@ -55,10 +52,9 @@ contains_suspension_expr :: (
       });
       i = (i + usize(1));
     });
-    // A macro call (`if(...)`) keeps its macro head in the AST; yo-self's
-    // expansion CLONES the subtrees with fresh ExprIds (TS shares node
-    // identity, so its raw-arg walk suffices). A suspension point found by
-    // walking the expansion (suspension_analysis.yo's `if` case) is therefore
+    // A macro call (`if(...)`) keeps its macro head in the AST; macro
+    // expansion CLONES the subtrees with fresh ExprIds, so a suspension point
+    // found by walking the expansion (suspension_analysis.yo's `if` case) is
     // invisible to the raw-arg walk above — follow the durable expansion
     // side-table so containment sees through the macro.
     match(
@@ -74,7 +70,7 @@ contains_suspension_expr :: (
   false
 });
 /// Index of the first suspension point whose expression is contained in `expr`,
-/// or `.None`. (TS returns -1; yo-self `.None`).
+/// or `.None`.
 find_suspension_in_expr :: (
   fn(
     expr : AstExpr,
@@ -168,9 +164,8 @@ _split_begin_body_into :: (
 /// Splits a function body at suspension points into sequential segments. For a
 /// `begin(e1, ..., eN)` block, partitions the expressions into segments; each
 /// segment's expressions run in one state and the suspension at the end triggers
-/// a state transition. Non-begin bodies return a single segment. Mirrors
-/// `splitBodyAtSuspensionPoints` (the `SplitOptions` bundle is passed as explicit
-/// params: `handle_return_statements` async-only; `handle_sequential_suspensions`
+/// a state transition. Non-begin bodies return a single segment
+/// (`handle_return_statements` and `handle_sequential_suspensions` are
 /// async-only).
 split_body_at_suspension_points :: (
   fn(
@@ -201,10 +196,9 @@ split_body_at_suspension_points :: (
     );
     segments.push(SuspensionSegment(state_number : usize(0), expressions : single_exprs, suspension_point : sp));
     // Sequential suspensions in the single body expression: one empty segment
-    // per additional contained suspension, carrying THAT point. TS never hits
-    // this path for closures (its single-expression closure bodies are
-    // begin-wrapped, so the begin path's handleSequentialSuspensions covers
-    // them); yo-self closure bodies arrive as the BARE expression. Without
+    // per additional contained suspension, carrying THAT point. Closure
+    // bodies arrive as the BARE expression (not begin-wrapped), so the begin
+    // path's handleSequentialSuspensions does not cover them. Without
     // this, a bare-cond body with TWO awaits in one branch produced only one
     // await boundary — the continuation's `has_additional` gate (the segment
     // await point's is_inside_cond) stayed false and the second await

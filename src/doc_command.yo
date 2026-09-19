@@ -61,7 +61,7 @@ _resolve_path :: (fn(p : String, exn : Exception) -> String)({
   base.join(path).normalize().to_string()
 });
 /// One `git -C <dir> <args...>` invocation → trimmed stdout, or `.None` on
-/// failure/empty (mirrors `git(...)`'s catch in detectGitVersion).
+/// failure/empty (mirrors `detect_git_version`'s catch).
 _run_git :: (
   fn(
     dir : String,
@@ -268,8 +268,7 @@ _scan_quoted_value_after :: (fn(content : String, marker : String, connector : S
   result
 });
 /// Derive the project name from `yo.toml`, then package.json, build.yo, or the
-/// directory name. Extends `inferProjectName`, which
-/// predates the manifest.
+/// directory name. Extends `_infer_project_name`, which predates the manifest.
 ///
 /// `[package] name` wins because since P1.3 it IS the project's name — the one
 /// every other command reads, validated (non-empty, no path separator) by the

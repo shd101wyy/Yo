@@ -1,7 +1,5 @@
 //! Shared tree-walking analysis for suspension points.
 //!
-//! Mirrors `src/evaluator/shared/suspension-analysis.ts` — 1:1 port.
-//!
 //! Both async/await and algebraic effects use the same algorithm to:
 //!  1. Capture local variables that persist across suspension points.
 //!  2. Handle while loop nesting.
@@ -11,30 +9,29 @@
 //! The only difference is *what constitutes a suspension point*, which is
 //! injected via the `SuspensionPointDetector` callback object.
 //!
-//! Key design decisions vs the TypeScript source:
+//! Design decisions:
 //!
-//! * `SuspensionPointDetector<P extends SuspensionPoint>` (TypeScript generic interface) →
-//!   `SuspensionPointDetector :: object(detect : Dyn(...), should_skip_body : Dyn(...))`.
+//! * `SuspensionPointDetector :: object(detect : Dyn(...), should_skip_body : Dyn(...))`.
 //!   Yo does not support generic object fields; `Dyn(Fn)` replaces `Impl(Fn)` in fields.
 //!   The typed side-channel (e.g. ArrayList(AwaitPoint)) is maintained INSIDE the detect
 //!   closure by the caller. See issues/suspension-analysis-typed-side-channel.md for the
 //!   reconstruction strategy required in Phase 2m/2n.
 //!
-//! * `walkExpr<P>(..., points: P[])` generic → `walk_expr_` with
-//!   `points : ArrayList(SuspensionPoint)` (base type). The detect closure pushes base
-//!   SuspensionPoint objects; callers reconstruct typed lists post-analysis.
+//! * `walk_expr_` carries `points : ArrayList(SuspensionPoint)` (base type). The
+//!   detect closure pushes base SuspensionPoint objects; callers reconstruct typed
+//!   lists post-analysis.
 //!
 //! * `handleBranchingExpr` is inlined into `walk_expr_` because mutual top-level
 //!   `recur` across two functions is not supported in Yo.
 //!
-//! * `analyzeSuspensionPoints` takes an extra `get_info` parameter (Yo's equivalent of
-//!   `expr.$` — the per-expression evaluation annotation set by the TypeScript evaluator).
+//! * `analyze_suspension_points` takes a `get_info` parameter — the
+//!   per-expression evaluation annotation lookup.
 //!   See issues/suspension-analysis-get-info-identity.md for the structural vs.
 //!   identity-based lookup strategy required in Phase 3.
 //!
-//! * `capturedVariables` is a `HashMap(String, SuspensionCapturedVariable)` for O(1) dedup;
+//! * `captured_variables` is a `HashMap(String, SuspensionCapturedVariable)` for O(1) dedup;
 //!   `captured_variable_ids_in_order` is a parallel `ArrayList(String)` that preserves
-//!   first-seen insertion order (TypeScript `Map` is insertion-ordered, Yo `HashMap` is not).
+//!   first-seen insertion order (Yo `HashMap` is not insertion-ordered).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -54,9 +51,6 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 /// Callback object for detecting system-specific suspension points.
 /// Async and effect detectors provide concrete implementations.
-///
-/// Mirrors `SuspensionPointDetector<P extends SuspensionPoint>` in
-/// `src/evaluator/shared/suspension-analysis.ts`.
 ///
 /// Design note: `Impl(Fn)` is rejected in object/struct/enum fields in Yo;
 /// `Dyn(Fn)` is the correct approach. Construct with `dyn(closure_expr)`.
@@ -87,9 +81,6 @@ SuspensionPointDetector :: ref(
 // ---------------------------------------------------------------------------
 /// Extracts the target variable ID from a parent `:=` assignment expression.
 /// Shared by both async and effect suspension point detection.
-///
-/// in
-/// `src/evaluator/shared/suspension-analysis.ts`.
 extract_target_variable_id :: (
   fn(
     parent_expr : Option(AstExpr),
@@ -142,8 +133,7 @@ extract_target_variable_id :: (
   var_name := tok.value;
   // Resolve through the `:=` node's OWN recorded env FIRST: it is stamped
   // post-binding, so it always contains the freshly-bound target (and under
-  // shadowing resolves to the NEW binding, matching TS where the LHS atom's
-  // env is stamped after the binding). yo-self's LHS atom env PREDATES the
+  // shadowing resolves to the NEW binding). The LHS atom's env PREDATES the
   // binding — it only sees the target through retroactive shared-Frame
   // mutation, which breaks across match/cond arm frames (the sys/timer FSM
   // `result := io.await(...)` extracted no target and the await result was
@@ -196,9 +186,8 @@ extract_target_variable_id :: (
 /// otherwise a normal capture. This is the Atom-case capture cascade of
 /// `walk_expr_`, factored out so the `:=` binding-target case can run the SAME
 /// logic through the `:=` node's own (post-binding) env — the LHS atom's
-/// recorded env predates the binding in yo-self, so the Atom walk alone misses
-/// freshly-bound targets (TS's walker sees them because TS stamps LHS envs
-/// post-binding). `ty_override` is the captured type when the caller has a
+/// recorded env predates the binding, so the Atom walk alone misses
+/// freshly-bound targets. `ty_override` is the captured type when the caller has a
 /// better source than the variable's own declared type (the Atom case passes
 /// its ExprInfo type, preserving the original behavior exactly).
 _capture_env_variable :: (
@@ -374,8 +363,7 @@ walk_expr_ :: (
       // variable — an await/suspension result target then never gets an SM
       // struct field, and the result extraction writes to a non-member
       // (`sm->var_<id> = sm->await_future_N->result` — the fs/file flag-on
-      // clang error). TS's Atom walk covers this because TS stamps LHS envs
-      // post-binding.
+      // clang error).
       if(ast_expr_is_fn_call_of(expr_cloned.clone(), ":=", Option(usize).None), {
         match(
           args.get(usize(0)),
@@ -420,10 +408,9 @@ walk_expr_ :: (
       // `if` is a macro over `cond`. Its branch structure only exists in the
       // expansion, so walk that instead — otherwise its suspension points never
       // get the merged indices and `cond_branch` fields that codegen (which
-      // does follow the expansion) goes on to reference. Mirrors the `if` case
-      // in `walkExpr`. TS reads
-      // `expr.$.macroExpansion`; the per-pass ExprInfo can lose it here, so use
-      // the durable side-table first (the state_code_gen.yo pattern).
+      // does follow the expansion) goes on to reference. The per-pass ExprInfo
+      // can lose the macro expansion here, so use the durable side-table first
+      // (the state_code_gen.yo pattern).
       if(ast_expr_is_fn_call_of(expr_cloned.clone(), "if", Option(usize).None), {
         expansion := match(
           lookup_macro_expansion(ast_expr_id(expr_cloned.clone())),
@@ -793,11 +780,7 @@ walk_expr_ :: (
 // ---------------------------------------------------------------------------
 /// Analyzes a function body to find all suspension points and captured variables.
 ///
-/// in
-/// `src/evaluator/shared/suspension-analysis.ts`.
-///
-/// Takes an extra `get_info` parameter: Yo's equivalent of `expr.$` —
-/// the per-expression evaluation annotation set by the TypeScript evaluator.
+/// Takes `get_info`: the per-expression evaluation annotation lookup.
 analyze_suspension_points :: (
   fn(
     body : AstExpr,

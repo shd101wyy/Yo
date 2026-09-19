@@ -1,7 +1,5 @@
 //! evaluator/builtins/process — implements evaluate_yo_process_functions.
 //!
-//! 1:1 port of `src/evaluator/builtins/process.ts`.
-//!
 //! Handles: `__yo_process_platform`, `__yo_process_arch`, `__yo_pointer_size_bits`.
 { String } :: import("std/string");
 {
@@ -40,7 +38,7 @@ evaluate_yo_process_functions :: (
   ) -> AstExpr
 )({
   // __yo_process_platform — returns the target OS as a comptime string.
-  // TARGET, not host (TS: `getCurrentTarget()`, builtins/process.ts:41).
+  // TARGET, not host.
   // Answering from the host made every `cond(platform == ...)` in std/ fold
   // for the emitting machine, so `--target` produced host constants —
   // AT_FDCWD=-2 in a linux emission, and the Linux `getrandom` arm of
@@ -65,9 +63,8 @@ evaluate_yo_process_functions :: (
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
     return(expr);
   });
-  // TS uses `getTargetPointerSizeBits()` here, which
-  // is likewise target-derived — wasm32 is 32-bit while the emitting host is
-  // 64-bit, so the host answer was wrong by a factor of two.
+  // The pointer size is likewise target-derived — wasm32 is 32-bit while the
+  // emitting host is 64-bit, so a host answer would be wrong by a factor of two.
   if(ast_expr_is_fn_call_of(expr, BF_YO_POINTER_SIZE_BITS, .Some(usize(0))), {
     tgt := get_current_target();
     bits := pointer_size_for_arch(tgt.arch);

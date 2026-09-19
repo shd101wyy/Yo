@@ -1,13 +1,12 @@
 //! lsp/hover — textDocument/hover (plans/archive/P4_LSP.md slice 3), plus the
 //! position/match helpers every other feature module shares.
 //!
-//! Port of the retired TypeScript `src/lsp/hover.ts` + the position/match
-//! helpers from `src/lsp/utils.ts` (src-attic-final). The algorithm:
+//! The algorithm:
 //! find the token under the cursor, collect the Atom expressions whose
 //! token matches it by (value, row, column), pick the best candidate,
 //! then read its `ExprInfo` (type / value / env / doc comment), refining
 //! through the env's variable list when several bindings share the name.
-//! Renders the same markdown shape TS produced:
+//! Renders this markdown shape:
 //!
 //!   ```
 //!   name
@@ -115,7 +114,7 @@ _best_candidate :: (
   cands.get(usize(0))
 });
 
-/// TS selectBestVariableAtPosition, faithfully: exact-position match first,
+/// Exact-position match first,
 /// then the LATEST declaration visible at (and same module as) the target.
 _select_best_variable :: (
   fn(vars : ArrayList(Variable), target : Token) -> Option(Variable)
@@ -472,7 +471,7 @@ handle_hover :: (
       );
       doc_opt = info.doc_comment;
       // Env refinement: several bindings can share the name; pick the one
-      // declared at/nearest the cursor (mirrors TS's env pass). NOT for a
+      // declared at/nearest the cursor. NOT for a
       // member — `p.x` is the field, never the local `x` in scope.
       if(!is_member, {
         vars := get_variables_from_env(info.env, target.value.clone());

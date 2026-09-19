@@ -1,12 +1,12 @@
 //! evaluator/builtins/derive — evaluate_derive.
 //!
-//! Phase 3 implementation. 1:1 port of `src/evaluator/builtins/derive.ts`.
+//! Phase 3 implementation.
 //!
 //! Supports:
 //!   derive([generic(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
 //!
-//! Key difference from TypeScript: we use the global g_derive_rules registry
-//! (from derive_rule.yo) instead of deriveRule fields on FunctionValue/TraitType.
+//! Derive rules live in the global g_derive_rules registry
+//! (from derive_rule.yo) rather than in fields on FunctionValue/TraitType.
 //! Trait args are resolved by expression-level name (not by evaluating the trait arg).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
@@ -128,8 +128,8 @@ _derive_strip_error_prefix :: (fn(raw_msg : String) -> String)({
 // Returns the env after evaluating the generated impl expression.
 //
 // ---------------------------------------------------------------------------
-// Bind a comptime-only variable (mirrors TS `addComptimeVar`:
-// isCompileTimeOnly=true, isOwningTheRcValue=false).
+// Bind a comptime-only variable
+// (isCompileTimeOnly=true, isOwningTheRcValue=false).
 add_comptime_var :: (
   fn(env : Environment, name : String, ty : TypeValue, value : EvalValue) -> unit
 )({
@@ -149,7 +149,7 @@ add_comptime_var :: (
 // Build + bind an `Option(Expr)` comptime var for a generic/where argument and
 // return its variable name. Evaluates a generated `((tmp : Option(Expr)) =
 // .Some(inner))` / `.None` so the bound value carries the real Option(Expr)
-// type (mirrors TS callRegisteredDeriveRule step 4).
+// type.
 _derive_bind_opt :: (
   fn(
     env : Environment,
@@ -186,8 +186,7 @@ _derive_bind_opt :: (
 // ---------------------------------------------------------------------------
 // call_registered_derive_rule
 //
-// Faithful 1:1 port of `callRegisteredDeriveRule` in
-// `src/evaluator/builtins/derive.ts`: bind the target type, rule fn, target
+// Bind the target type, rule fn, target
 // Expr, generic/where options, DeriveContext value and trait-params list as
 // comptime vars on a pushed temp frame, then evaluate a GENERATED call
 // `ruleFn(type, ctx, tps)` (so the rule runs through the normal call path with
@@ -232,7 +231,7 @@ call_registered_derive_rule :: (
   // Push a temp frame; all bindings below are comptime vars on it.
   _pf := push_env_frame(caller_env, false);
   // The DeriveContext / comptime_list / rule-call evaluations below must
-  // resolve the comptime bindings (TS passes `forceCompileTimeBindings: true`).
+  // resolve the comptime bindings.
   old_force_ct := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
   // 1. target type.
@@ -352,7 +351,7 @@ call_registered_derive_rule :: (
     }
   );
   // Pop the temp frame, then evaluate the returned impl Expr in the caller env
-  // (TS uses `forceCompileTimeBindings: false` for this final evaluation).
+  // (comptime bindings no longer forced).
   ctx.force_compile_time_bindings = old_force_ct;
   pop_env_frame(caller_env);
   // Desugar `if(...)` calls in the rule-built impl Expr (quote templates
@@ -544,8 +543,7 @@ evaluate_derive :: (
         )
       );
       if(fp_name.len() > usize(0), {
-        // Mirror TS `createUnknownValue(createType0(), { variableName })`: a
-        // Type-universe slot promotes to `TypeVal(SomeType(name))` so the target
+        // A Type-universe slot promotes to `TypeVal(SomeType(name))` so the target
         // type expression (e.g. `DRPair(T1, T2)`) instantiates a real struct
         // instead of failing on a bare `UnknownVal(Type)`.
         unknown_val := create_unknown_val_with_name(TypeValue.TypeUni(usize(0)), fp_name);

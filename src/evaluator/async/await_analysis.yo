@@ -1,29 +1,23 @@
 //! Async function body analysis — await point detection.
 //!
-//! Mirrors `src/evaluator/async/await-analysis.ts` — 1:1 port.
-//!
 //! Analyzes async function bodies to identify await points and local variables
 //! that need to be captured in state machine structs.
 //!
 //! This is a thin wrapper around the shared suspension-point analysis,
 //! providing the async-specific suspension point detection (io.await/io.spawn).
 //!
-//! Key design decisions vs the TypeScript source:
+//! Design notes:
 //!
-//! * `analyzeAwaitPoints(body)` → `analyze_await_points(body, get_info)`:
-//!   the extra `get_info` parameter is Yo's equivalent of `expr.$` (the per-
-//!   expression evaluation annotation). No `ioBuiltin` type marker exists in Yo,
-//!   so Io calls are identified structurally by matching `io.await` / `io.async`
-//!   dot-access patterns.
+//! * `analyze_await_points(body, get_info)`: the extra `get_info` parameter
+//!   provides the per-expression evaluation annotations. No `ioBuiltin` type
+//!   marker exists in Yo, so Io calls are identified structurally by matching
+//!   `io.await` / `io.async` dot-access patterns.
 //!
-//! * `SuspensionPointDetector<AwaitPoint>` (TypeScript generic) → untyped base
-//!   `SuspensionPointDetector`. A typed side-channel `HashMap(String, AwaitPointExtra)`
+//! * The shared `SuspensionPointDetector` is untyped (base `SuspensionPoint`
+//!   only); a typed side-channel `HashMap(String, AwaitPointExtra)`
 //!   keyed by `expr.token.character` carries the async-specific fields. After
 //!   `analyze_suspension_points` returns, the base `SuspensionPoint` list is
 //!   zipped with the extras to produce `ArrayList(AwaitPoint)`.
-//!
-//! * `collectVariableBindings(expr, variables, seen)` → extra `get_info`
-//!   parameter; `seen: Set<string>` → `HashMap(String, bool)`.
 //!
 //! * `dyn(closure)` captures outer variables by reference (C pointer), so
 //!   `get_info` can be both captured in `detect_fn` and passed separately to
@@ -79,9 +73,6 @@ AwaitPointExtra :: ref(
 /// Io builtin calls like `io.await(task, io)` parse as:
 ///   FnCall(func=FnCall(func=Atom(dot), args=[Atom("io"), Atom("await")],
 ///                      is_infix=true), args=[Atom("task")])
-///
-/// This replaces the TypeScript `expr.func.$?.type?.ioBuiltin` marker which
-/// is not available in the Yo self-hosted type system.
 _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool)(
   match(
     expr,
@@ -106,12 +97,10 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
                   // `<recv>.io.await(...)` — the receiver is itself a dot
                   // access whose MEMBER is the object name (e.g. the effect
                   // bundle's IO field: `e.io.await(...)`, std/fs/metadata.yo).
-                  // TS's `ioBuiltin` type marker matches these semantically
-                  // (the field's type IS the IO module); the bare-atom-only
-                  // syntactic check missed them, so `e.io.await(statx(...))`
-                  // emitted NO await sequence at all — downstream reads of the
-                  // result produced empty operands `(() < ())` (stage-2
-                  // expected-expression cluster).
+                  // The bare-atom-only syntactic check missed these, so
+                  // `e.io.await(statx(...))` emitted NO await sequence at all
+                  // — downstream reads of the result produced empty operands
+                  // `(() < ())` (stage-2 expected-expression cluster).
                   .FnCall(_, inner_fb, inner_args, inner_infix, _) => cond(
                     (inner_infix == false) => false,
                     (inner_args.len() != usize(2)) => false,
@@ -158,12 +147,10 @@ _is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool
 // Io builtin structural checks
 // ---------------------------------------------------------------------------
 /// SEMANTIC io-builtin check: true iff this call's recorded io-builtin marker
-/// equals `marker`. TS classifies io builtins by the callee TYPE's `ioBuiltin`
-/// marker (`expr.func.$?.type?.ioBuiltin`, await-analysis.ts:137-167) — set
-/// from the extern field label (`__yo_io_await` etc., extern.ts:143-158) and
-/// propagated onto the Io struct's field types at construction
-/// — so ANY receiver variable of type `Io`
-/// classifies, not just one literally named `io`. yo-self resolves the marker
+/// equals `marker`. The marker is set from the extern field label
+/// (`__yo_io_await` etc.) and propagated onto the Io struct's field types at
+/// construction, so ANY receiver variable of type `Io`
+/// classifies, not just one literally named `io`. The marker is resolved
 /// once at evaluate_function_call's dispatch choke point (calls/function.yo)
 /// into the `g_io_builtin_calls` side-table read here. The name-based
 /// `_is_dot_access` checks below remain as the fast path (and cover
@@ -178,39 +165,28 @@ _callee_io_builtin_is :: (fn(expr : AstExpr, marker : String) -> bool)(
   )
 );
 /// Checks if an expression is an io.async(closure) call.
-///
-///
 is_io_async_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "async") || _callee_io_builtin_is(expr, String.from("__yo_io_async"))
 );
 /// Checks if an expression is an io.await(future, io) call.
-///
-///
 is_io_await_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "await") || _callee_io_builtin_is(expr, String.from("__yo_io_await"))
 );
 /// Checks if an expression is an io.state(future) call.
-///
-///
 is_io_state_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "state") || _callee_io_builtin_is(expr, String.from("__yo_io_state"))
 );
 /// Checks if an expression is an io.spawn(future) call.
-///
-///
 is_io_spawn_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "spawn") || _callee_io_builtin_is(expr, String.from("__yo_io_spawn"))
 );
 /// Checks if an expression is a JoinHandle.await(io, JoinHandle) call.
 /// Structurally: any `x.await(..., x)` where x is NOT "io".
-///
-///
 is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
   // Check if this is any X.await(..., X) method call. Match `expr` directly —
   // a read-only structural match does NOT consume it (the sibling
   // `_is_dot_access` matches the same shape without cloning, and `expr` is still
-  // used below in `is_io_await_call(expr)`). The previous `expr.clone()` was an
-  // unfaithful divergence (TS `isJoinHandleAwaitCall` does no clone) that
+  // used below in `is_io_await_call(expr)`). The previous `expr.clone()`
   // deep-cloned the whole AST on EVERY generate_func_call — a large allocation
   // source and a suspected trigger for the intermittent RC freelist corruption.
   is_method_await := match(
@@ -252,8 +228,6 @@ is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
 // ---------------------------------------------------------------------------
 /// If `await_arg` is an identifier that refers to a named future variable,
 /// returns the variable ID (or its RC-owner's ID). Otherwise returns None.
-///
-/// Mirrors the inline variable-lookup logic inside `detect` in the TypeScript.
 get_future_variable_id_ :: (
   fn(
     await_arg : AstExpr,
@@ -401,10 +375,7 @@ detect_await_expr_ :: (
 // ---------------------------------------------------------------------------
 /// Analyzes an async function body to find all await expressions.
 ///
-///
-///
-/// The extra `get_info` parameter provides per-expression type/env information
-/// (Yo's equivalent of TypeScript's `expr.$`).
+/// The extra `get_info` parameter provides per-expression type/env information.
 analyze_await_points :: (
   fn(
     body : AstExpr,
@@ -429,7 +400,6 @@ analyze_await_points :: (
   // linear-await "result unused" optimization must not drop its value — the
   // resume stores `sm->await_result_N` and the completion segment assigns it
   // to `sm->result` (see split_into_state_segments in codegen).
-  // Mirrors the tail-marking block in analyzeAwaitPoints.
   {
     (tail : AstExpr) = body.clone();
     (unwrapping : bool) = true;
@@ -681,7 +651,7 @@ get_local_variables_from_body :: (
 // Closure await-analysis side-table (func_id → AwaitAnalysisResult)
 // ---------------------------------------------------------------------------
 /// The await analysis for an io.async closure, keyed by the closure's `func_id`.
-/// yo-self records `await_analysis` on the def-evaluated body CLONE (an
+/// The evaluator records `await_analysis` on the def-evaluated body CLONE (an
 /// inaccessible expr distinct from the FuncVal body and from the codegen-read
 /// clone), so the codegen cannot reach it via ExprInfo. The closure's `func_id`,
 /// however, IS what codegen resolves (via the closure value's FuncVal), so the

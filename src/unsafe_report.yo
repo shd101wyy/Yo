@@ -124,8 +124,7 @@ _strip_comments_and_strings :: (fn(line : String) -> ArrayList(u8))({
   out
 });
 /// Index of the matching `)` for the `(` at `open_idx` in `src_bytes`, or
-/// `.None` if unmatched. Skips string-literal contents. Mirrors
-/// `findMatchingClose`.
+/// `.None` if unmatched. Skips string-literal contents.
 _find_matching_close :: (fn(src_bytes : ArrayList(u8), open_idx : usize) -> Option(usize))({
   n := src_bytes.len();
   if((open_idx >= n) || (src_bytes(open_idx) != u8(40)), {
@@ -196,8 +195,7 @@ _ident_at :: (fn(src : ArrayList(u8), i : usize) -> String)({
 /// sources: find `c_include(` / `extern("c",` block headers (with a
 /// non-identifier byte before, or line start), bound the block with paren
 /// matching, and collect each `name :` field whose RHS (skipping whitespace
-/// and optional `(`s) starts with `fn(`. Mirrors
-/// `harvestExternCFunctionNames`.
+/// and optional `(`s) starts with `fn(`.
 _harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
   names := HashSet(String).new();
   (si : usize) = usize(0);
@@ -546,8 +544,7 @@ _walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exc
     ()
   })
 );
-/// Generate the report for every .yo file under `root_path`. Mirrors
-/// `generateUnsafeReport`.
+/// Generate the report for every .yo file under `root_path`.
 generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> Impl(Future(UnsafeReport, IoExn)))(
   io.async((e : IoExn) => {
     yo_files := ArrayList(String).new();

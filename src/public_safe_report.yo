@@ -131,13 +131,12 @@ _psr_skip_string_or_comment :: (fn(src : ArrayList(u8), i : usize) -> usize)({
   });
   i
 });
-/// Names whose raw pointer is part of the contract, not a leak. Mirrors
-/// `RAW_POINTER_API_PATTERNS`.
+/// Names whose raw pointer is part of the contract, not a leak.
 _name_is_raw_pointer_api :: (fn(name : String) -> bool)(
   ((((name.ends_with(`_cstr`) || (name == "from_cstr")) || ((name == "from_raw_parts") || (name == "as_ptr"))) || ((name == "from_raw") || name.ends_with(`_raw`))) || (name.starts_with(`raw_`) || name.ends_with(`_ptr`))) || ((name == "argv") || (name == "argc"))
 );
-/// Directories whose files are FFI by construction. Mirrors `FFI_DIR_NAMES`
-/// + the `.test.yo` exemption of `shouldSkipFile`.
+/// Directories whose files are FFI by construction, plus the `.test.yo`
+/// exemption.
 _should_skip_file :: (fn(file : String) -> bool)({
   if(file.ends_with(`.test.yo`), {
     return(true);

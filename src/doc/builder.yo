@@ -1,12 +1,10 @@
 //! Doc model builder — combines doc comment extraction with evaluator type
 //! info to produce structured documentation.
 //!
-//! Mirrors `src/doc/builder.ts` — 1:1 port.
-//!
-//! This file currently holds the TOKEN-SCANNING half (everything reachable
+//! This file holds the TOKEN-SCANNING half (everything reachable
 //! from tokens alone: trait-impl extraction, impl-info extraction, the
 //! token-only fallback builder, and cross-references). The evaluator half
-//! (`buildDocModule`) follows in the same file as the port proceeds — see
+//! (`build_doc_module`) follows in the same file — see
 //! plans/archive/P1_CLI_PARITY.md §5's worksheet.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -56,7 +54,6 @@ DocSections :: struct(
   examples : Option(String)
 );
 /// Per-type info extracted from `impl(...)` token scanning.
-/// Mirrors the `extractImplInfoFromTokens` map value.
 TokenImplInfo :: struct(
   trait_impls : ArrayList(String),
   impls : ArrayList(DocImpl),
@@ -147,7 +144,7 @@ build_doc_lookup :: (fn(extraction : DocExtractionResult) -> HashMap(String, Str
 // ---------------------------------------------------------------------------
 // Method / trait-name merging
 // ---------------------------------------------------------------------------
-///: secondary entries whose name a
+/// Merge two method lists — secondary entries whose name a
 /// primary entry already has are dropped.
 merge_methods :: (
   fn(primary : ArrayList(DocFunction), secondary : ArrayList(DocFunction)) -> ArrayList(DocFunction)
@@ -180,8 +177,7 @@ merge_methods :: (
   });
   merged
 });
-///: `[...new Set([...a, ...b])]`
-/// — dedup preserving first-occurrence order.
+/// Merge two trait-impl name lists — dedup preserving first-occurrence order.
 merge_trait_impl_names :: (
   fn(primary : ArrayList(String), secondary : ArrayList(String)) -> ArrayList(String)
 )({
@@ -329,8 +325,7 @@ _skip_delimited_argument :: (fn(toks : ArrayList(Token), start : usize) -> usize
   });
   index
 });
-/// First identifier token's text in [start, end], or "". Mirrors
-/// `extractReceiverTypeName`.
+/// First identifier token's text in [start, end], or "".
 _extract_receiver_type_name :: (
   fn(toks : ArrayList(Token), start : usize, end : usize) -> String
 )({
@@ -556,8 +551,7 @@ _parse_source_param :: (
 /// verbatim in `signature` but are deliberately NOT emitted as `parameters`
 /// or `type_params` entries — the generic clause already carries each type
 /// parameter, and duplicating the constraint into the tables would desync
-/// them from the evaluator-derived tables used everywhere else. Mirrors
-/// `parseSourceFnSignature`.
+/// them from the evaluator-derived tables used everywhere else.
 _parse_source_fn_signature :: (
   fn(toks : ArrayList(Token), type_start : usize) -> Option(SourceSignatureInfo)
 )({
@@ -709,8 +703,7 @@ _parse_source_fn_signature :: (
 /// Scan the module's tokens for top-level `name :: (fn(...) -> Ret)(...)`
 /// declarations and map each name to its source-derived signature info.
 /// Nested declarations always live inside parens, so skipping every balanced
-/// paren group keeps the scan at the top level. Mirrors
-/// `extractTopLevelFnSignatures`.
+/// paren group keeps the scan at the top level.
 _extract_top_level_fn_signatures :: (
   fn(tokens : ArrayList(Token)) -> HashMap(String, SourceSignatureInfo)
 )({
@@ -782,8 +775,7 @@ _extract_top_level_fn_signatures :: (
   });
   result
 });
-/// Clone `params` with each entry's `doc` filled from `doc_lookup`. Mirrors
-/// the `sourceInfo.parameters.map(...)` doc fill in `buildDocFunction`
+/// Clone `params` with each entry's `doc` filled from `doc_lookup`.
 _with_param_docs :: (
   fn(params : ArrayList(DocParam), doc_lookup : Option(HashMap(String, String))) -> ArrayList(DocParam)
 )({
@@ -864,8 +856,7 @@ _strip_doc_line_prefix :: (fn(text : String) -> String)(
   )
 );
 /// Strip a `/** ... */` block comment to its content, removing per-line
-/// leading ` * ` gutters. Mirrors the block branch of
-/// `collectDocCommentBefore`.
+/// leading ` * ` gutters.
 _strip_doc_block_comment :: (fn(text : String) -> String)({
   (t : String) = text.clone();
   if(t.starts_with(String.from("/**")), {
@@ -924,7 +915,7 @@ _collect_doc_comment_before :: (
     return(Option(String).None);
   });
   // Walk backwards from idx-1 collecting doc comments (skipping whitespace),
-  // then reverse — TS `unshift`s into the front.
+  // then reverse into order.
   collected_rev := ArrayList(String).new();
   (bi : isize) = (idx - isize(1));
   (stop : bool) = false;
@@ -1109,7 +1100,7 @@ extract_trait_impls_from_tokens :: (
 /// Extract method names, associated types, and full method info from a trait
 /// impl body.
 /// `full_tokens` is the trivia-INCLUDED array for doc-comment recovery; pass
-/// an empty list to skip doc extraction (TS `fullTokens === undefined`).
+/// an empty list to skip doc extraction.
 _extract_trait_body_members :: (
   fn(
     toks : ArrayList(Token),
@@ -1196,8 +1187,7 @@ _extract_trait_body_members :: (
               );
               (advanced : bool) = false;
               if(param_name.len() > usize(0), {
-                // TS: `if (paramName !== "self" || params.length === 0)` —
-                // a later `self` is treated as an ordinary name.
+                // A later `self` is treated as an ordinary name.
                 if((param_name != `self`) || (params.len() == usize(0)), {
                   has_colon := (
                     ((p + usize(1)) < (param_end - usize(1))) && match(
@@ -1392,8 +1382,7 @@ extract_impl_info_from_tokens :: (
       }),
       .None => ()
     );
-    // `where(...)` AFTER the receiver — inserted before it in the signature
-    // (TS splices before the last element).
+    // `where(...)` AFTER the receiver — inserted before it in the signature.
     is_where2 := match(
       toks.get(current),
       .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `where`)),
@@ -1514,7 +1503,7 @@ extract_impl_info_from_tokens :: (
             );
           });
           // Add extracted trait methods to the entry's method list, stamped
-          // with the receiver type (TS mutates `m.selfType`).
+          // with the receiver type.
           (tmi : usize) = usize(0);
           while(tmi < trait_methods.len(), {
             match(
@@ -1638,9 +1627,8 @@ build_doc_module_from_tokens :: (
       trait_impl_map.get(decl_name.clone()),
       .Some(trait_impls) => {
         // Likely a type — add as a type with trait impls. The doc comment is
-        // the one `sections` was just extracted from, so dropping it (as the
-        // TS literal did, builder.ts:1509) rendered every declaration of a
-        // module that failed to evaluate bare
+        // the one `sections` was just extracted from, so dropping it rendered
+        // every declaration of a module that failed to evaluate bare
         // (issues/fixed/yo-doc-renders-the-prelude-empty.md, root cause 3).
         types.push(
           DocType(
@@ -1691,7 +1679,7 @@ build_doc_module_from_tokens :: (
 /// — mutates in place.
 build_cross_references :: (fn(modules : ArrayList(DocModule)) -> unit)({
   // Collect all trait → implementor relationships (insertion-ordered,
-  // deduplicated — TS uses a Set).
+  // deduplicated).
   trait_names := ArrayList(String).new();
   trait_implementors := ArrayList(ArrayList(String)).new();
   (mi : usize) = usize(0);
@@ -1741,7 +1729,7 @@ build_cross_references :: (fn(modules : ArrayList(DocModule)) -> unit)({
     });
     mi = (mi + usize(1));
   });
-  // Fill in implementors on traits (sorted — TS `Array.from(set).sort()`).
+  // Fill in implementors on traits (sorted).
   (mj : usize) = usize(0);
   while(mj < modules.len(), {
     m := match(
@@ -2297,11 +2285,10 @@ _resolve_inner_type :: (fn(field_type : TypeValue, value : EvalValue) -> TypeVal
   });
   field_type
 });
-/// Convert a Func type's value parameters to DocParams. Mirrors
-/// `functionParamsToDocParams`. Per-param comptime flags and
-/// defaults ride the func-id side tables (evaluator/types/function.yo) keyed
-/// by `meta.origin_id`; TS stores the default EXPR (`String(defaultValueExpr)`)
-/// while yo-self side-tables the default VALUE, so `value_to_string` stands in.
+/// Convert a Func type's value parameters to DocParams. Per-param comptime
+/// flags and defaults ride the func-id side tables (evaluator/types/function.yo)
+/// keyed by `meta.origin_id`; the default VALUE is side-tabled, so
+/// `value_to_string` stands in.
 _function_params_to_doc_params :: (
   fn(func_type : TypeValue, doc_lookup : Option(HashMap(String, String))) -> ArrayList(DocParam)
 )({
@@ -2362,8 +2349,8 @@ _function_params_to_doc_params :: (
   );
   out
 });
-/// Convert a Func type's generic (forall) parameters to DocParams. Mirrors
-/// `forallParamsToDocParams` — always comptime, no defaults.
+/// Convert a Func type's generic (forall) parameters to DocParams — always
+/// comptime, no defaults.
 _forall_params_to_doc_params :: (
   fn(func_type : TypeValue, doc_lookup : Option(HashMap(String, String))) -> ArrayList(DocParam)
 )({
@@ -2417,11 +2404,10 @@ build_doc_function :: (
     is_method : bool,
     self_type : Option(String),
     doc_lookup : Option(HashMap(String, String)),
-    /// TS's typeToString prints `(Receiver) fn(...)` when the FunctionType
-    /// carries a `SelfType`. yo-self's Func has no
-    /// such field, so the registry-method path passes the receiver name here;
-    /// "" = no prefix (trait/module/token/generic-impl methods, which TS also
-    /// prints unprefixed).
+    /// Prepended as `(Receiver) fn(...)` in the signature: Func has no
+    /// self-type field, so the registry-method path passes the receiver name
+    /// here; "" = no prefix (trait/module/token/generic-impl methods render
+    /// unprefixed).
     signature_prefix : String,
     /// A source-derived signature (top-level `name :: (fn ...)(...)`
     /// declarations only) is the canonical form: it preserves
@@ -2506,9 +2492,8 @@ _doc_type_name :: (fn(t : TypeValue) -> String)(
     _ => String.new()
   )
 );
-/// Extract a type's methods. —
-/// TS walks `structType.trait.fields`; yo-self attaches nothing to the type,
-/// so the same members live in the type_trait_methods registry keyed by the
+/// Extract a type's methods. Members are not attached to the type itself;
+/// they live in the type_trait_methods registry keyed by the
 /// type's id. `___`-prefixed (compiler-generated) members are skipped.
 _extract_methods :: (
   fn(type_id : String, type_name : String, doc_lookup : HashMap(String, String)) -> ArrayList(DocFunction)
@@ -2557,10 +2542,10 @@ _extract_methods :: (
   });
   methods
 });
-///: the registry's matched
-/// entries as DocFunctions + DocImpls + trait names. TS's DocImpl entries keep
-/// an extra `methods` array of raw FunctionTypes; the declared DocImpl model
-/// has no such field, so yo-self emits the declared shape.
+/// Extract generic-impl info: the registry's matched
+/// entries as DocFunctions + DocImpls + trait names. DocImpl entries emit the
+/// declared DocImpl shape — the model carries no extra raw-FunctionType
+/// `methods` array.
 _extract_generic_impl_info :: (
   fn(
     concrete_type : TypeValue,
@@ -2654,7 +2639,7 @@ _get_type_kind :: (fn(t : TypeValue) -> DocItemKind)({
     true => DocItemKind.TypeAlias
   )
 });
-/// yo-self's Struct/Union
+/// Struct/Union
 /// TypeValues carry no per-field default values (they live in func-id side
 /// tables that do not apply to type fields), so `default_value` is `.None`.
 _type_fields_to_doc_fields :: (
@@ -2688,10 +2673,10 @@ _type_fields_to_doc_fields :: (
   });
   out
 });
-/// TS assigns a
-/// discriminant to EVERY variant (auto-numbered when not explicit), so the
+/// Every variant carries a
+/// discriminant (auto-numbered when not explicit), so the
 /// always-populated `variant_discriminants` matches. A payload-free variant
-/// (empty field list) gets `.None` fields, matching TS's `undefined`.
+/// (empty field list) gets `.None` fields.
 _enum_variants_to_doc_variants :: (
   fn(enum_type : TypeValue, doc_lookup : HashMap(String, String)) -> ArrayList(DocVariant)
 )({
@@ -2731,8 +2716,8 @@ _enum_variants_to_doc_variants :: (
   );
   out
 });
-///: the generic params of
-/// a type-constructor field, from forall params or comptime value params.
+/// Extract the generic params of a type-constructor field, from forall
+/// params or comptime value params.
 _get_type_constructor_params :: (fn(field_type : TypeValue) -> Option(ArrayList(DocParam)))({
   if(!(is_function_type(field_type) && is_function_type_and_is_type_function(field_type)), {
     return(Option(ArrayList(DocParam)).None);
@@ -2776,8 +2761,8 @@ _doc_type_id :: (fn(t : TypeValue) -> String)(
 );
 /// Build a DocModule from evaluator output and extracted doc comments.
 /// `module_value`/`module_type`
-/// come from module_manager's load outcome (TS: `moduleValue: StructValue`,
-/// whose `.type` yo-self carries separately since FuncVals are untyped).
+/// come from module_manager's load outcome (the type is carried separately
+/// since FuncVals are untyped).
 /// Is `field_name` a compiler-internal module field rather than public API?
 ///
 /// Three shapes, none of which may reach a page, a sidebar link or the search
@@ -3477,10 +3462,8 @@ build_doc_module :: (
             );
           },
           true => {
-            // TS distinguishes `comptime(Trait)` / `comptime(Module)` returns
-            // via TypeHierarchyType.baseType; yo-self's TypeUni carries no
-            // baseType, so a level >= 1 return classifies as trait-function
-            // (TS's `!retType.baseType` case) and anything else falls through
+            // TypeUni carries no baseType, so a level >= 1 return classifies
+            // as trait-function and anything else falls through
             // to the unresolvable generic type constructor.
             is_hierarchy := match(
               field_type,

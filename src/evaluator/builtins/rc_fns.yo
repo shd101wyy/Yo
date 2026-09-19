@@ -1,6 +1,4 @@
 //! evaluator/builtins/rc_fns — RC reference-counting builtin evaluators.
-//!
-//! 1:1 port of `src/evaluator/builtins/rc_fns.ts`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -33,9 +31,8 @@ create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
   variant_fields.push(some_fields);
   none_labels := ArrayList(String).new();
   some_labels := ArrayList(String).new();
-  // "value" — MUST match prelude Option's `Some(value : T)` label: TS's
-  // createOptionType calls the real env Option constructor, so its label is
-  // always "value". The enum-signature dedup collapses this synthesized
+  // "value" — MUST match prelude Option's `Some(value : T)` label: the
+  // enum-signature dedup collapses this synthesized
   // rendition with real Option instances into ONE C type (labels are not in
   // the sig), and the downcast/await emitters hardcode `.Some = { .value =`
   // — a "val"-labelled winner made the field designator miss (the lexer
@@ -275,7 +272,7 @@ evaluate_yo_iso_extract :: (
       )
     );
   });
-  // Phase H (mirrors TS evaluateYoIsoExtract): extract() returns T DIRECTLY (it
+  // Phase H: extract() returns T DIRECTLY (it
   // panics at runtime on failure), NOT Option(T). The prelude method is
   // `extract : (fn(self) -> T)(__yo_iso_extract(self))`, so wrapping the builtin's
   // result in Option(T) here made the method body's type (Option(T)) mismatch its

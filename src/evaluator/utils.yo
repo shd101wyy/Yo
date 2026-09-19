@@ -1,47 +1,14 @@
 //! evaluator/utils — shared helpers used by multiple evaluator handlers.
 //!
-//! In `src/`, the helpers in this file are split across **three** TS
-//! modules: `src/evaluator/utils.ts`, `src/expr.ts`, and `src/value.ts`.
-//! yo-self can't reproduce that split because the eager destructuring of
-//! `import("…")` would turn `expr.yo` ↔ `env.yo` ↔ `value.yo` (the natural
-//! homes for the env-aware helpers) into a hard import cycle. TypeScript
-//! tolerates the same shape only because module loading is lazy.
-//!
-//! As a result, this file is an **acceptable divergence** from src/: it
-//! consolidates helpers that should structurally live in three different
-//! files but cannot in yo-self today. The mapping is recorded here for
-//! reference.
-//!
-//! Ports (by src/ home):
-//!
-//!   `src/evaluator/utils.ts`:
-//!     - is_valid_variable_name
-//!     - find_rc_value_owner_relationship
-//!     - throw_expr_is_implicit_variable_error
-//!
-//!   `src/expr.ts` (would create expr.yo ↔ env.yo ↔ value.yo cycle):
-//!     - attach_temp_variable_to_expr
-//!     - require_expr_not_consumed
-//!     - set_expr_as_consumed
-//!     - set_expr_as_needs_to_call_dup
-//!     - expect_expr_to_have_been_evaluated
-//!     - merge_and_check_envs
-//!     - consume_case_body_temp_var
-//!
-//!   `src/value.ts` (would create value.yo ↔ env.yo cycle):
-//!     - are_values_equal (+ private helpers `_try_resolve_last_var`,
-//!       `_get_last_var_type`)
-//!
-//!   yo-self-only (no src/ counterpart — TS inlines this at evaluation
-//!   sites in `src/evaluator/exprs/_expr.ts`):
-//!     - parse_raw_int, parse_raw_float, `_digit_value`, `_parse_prefixed_int`
-//!     - new_expr_info_placeholder_for_unreachable_
-//!     - doc_comment_lookup_key_from_token
+//! The env-aware helpers in this file structurally belong in `expr.yo`,
+//! `env.yo` and `value.yo`, but the eager destructuring of `import("…")`
+//! would turn `expr.yo` ↔ `env.yo` ↔ `value.yo` into a hard import cycle, so
+//! they are consolidated in this one module instead.
 //!
 //! Phase A.4.1: top-level utilities (`generate_new_temp_variable_name`,
 //! `is_temp_variable_name`, `random_id`, `generate_temp_variable_name_prefix`)
-//! were relocated to `src/utils.yo` (mirroring `src/utils.ts`) — that
-//! split was safe because those helpers have no env/value dependencies.
+//! were relocated to `src/utils.yo` — that split was safe because those
+//! helpers have no env/value dependencies.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -111,13 +78,13 @@ pragma(Pragma.AllowUnsafe);
 { panic, assert } :: import("std/assert");
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
-// were relocated to `src/utils.yo` (mirroring src/utils.ts).
+// were relocated to `src/utils.yo`.
 // ---------------------------------------------------------------------------
 // attach_temp_variable_to_expr
 // ---------------------------------------------------------------------------
 /// Attach a generated temp variable to `expr`'s ExprInfo for RC drop-tracking.
 ///
-/// Steps (mirrors ):
+/// Steps:
 ///  1. Look up ExprInfo from `ctx.expr_info_table` by `ast_expr_id(expr)`.
 ///  2. Choose effective type: use `capture_type` when present and RC-containing
 ///     and `is_owning_the_rc_value` is true (closure capture struct semantics).
@@ -125,8 +92,6 @@ pragma(Pragma.AllowUnsafe);
 ///  4. If `ExprInfo.variable_name` already set: update the existing variable.
 ///  5. Otherwise: generate a fresh temp name, add to nearest begin-block frame,
 ///     store name + updated env back in the ExprInfo table.
-///
-///
 attach_temp_variable_to_expr :: (
   fn(
     expr : AstExpr,
@@ -151,10 +116,9 @@ attach_temp_variable_to_expr :: (
       // Only mark as owning if the effective type actually contains RC.
       _is_owning_rc := (is_owning_the_rc_value && type_contains_rc_type(effective_ty));
       // Compute compile-time-only flag and value: owning RC vars are always runtime.
-      // yo-self runtime results are `Some(UnknownVal)` where TS uses `undefined`
-      // (same convention note as set_expr_as_needs_to_call_dup) — TS
-      // `isCompileTimeOnly: Boolean(value)` must therefore read UnknownVal as
-      // NO value, or a non-owning runtime temp (e.g. the index-trait element)
+      // Runtime results are `Some(UnknownVal)` (NOT "no value"), so
+      // "has an inlinable value" must read UnknownVal as NO value, or a
+      // non-owning runtime temp (e.g. the index-trait element)
       // gets marked compile-time-only and codegen never declares it.
       has_inlinable_value := match(
         info.value,
@@ -242,27 +206,26 @@ attach_temp_variable_to_expr :: (
   );
 });
 // ---------------------------------------------------------------------------
+// is_valid_variable_name
+// ---------------------------------------------------------------------------
+/// True iff `expr` has a valid binding-LHS shape for `name := rhs`
+/// — either an `Identifier` atom or any expression whose token is an
+/// `Operator` (e.g. infix `+` defined as a function).
+///
+/// Note: the atom branch requires an `Identifier` token, while the operator
+/// branch applies to both Atom and FnCall shapes.
+is_valid_variable_name :: (fn(expr : AstExpr) -> bool)({
+  tok := ast_expr_token(expr);
+  (ast_expr_is_atom(expr) && (tok.kind == TokenKind.Identifier)) ||
+    (tok.kind == TokenKind.Operator)
+  });
+// ---------------------------------------------------------------------------
 // find_rc_value_owner_relationship
 // ---------------------------------------------------------------------------
 /// Follow the `is_owning_the_same_rc_value_as` chain to find the root owning
 /// variable for the value named in `rhs`'s ExprInfo.
 ///
 /// Returns `.None` if no owner is found or if the chain cycles.
-///
-///
-/// True iff `expr` has a valid binding-LHS shape for `name := rhs`
-/// — either an `Identifier` atom or any expression whose token is an
-/// `Operator` (e.g. infix `+` defined as a function). Mirrors TS
-/// 
-///
-/// Note: the TS check is `(exprIsAtom(e) && token === Identifier) ||
-/// token === Operator` — the operator branch applies to both Atom
-/// and FnCall shapes. The yo-self port preserves that asymmetry.
-is_valid_variable_name :: (fn(expr : AstExpr) -> bool)({
-  tok := ast_expr_token(expr);
-  (ast_expr_is_atom(expr) && (tok.kind == TokenKind.Identifier)) ||
-    (tok.kind == TokenKind.Operator)
-  });
 find_rc_value_owner_relationship :: (
   fn(
     rhs : AstExpr,
@@ -440,13 +403,10 @@ require_expr_not_consumed :: (
         .Some(consumed_tok) => {
           // RE-EVALUATION exemption: when the recorded move site IS this very
           // token, the "move" came from an earlier evaluation of the SAME
-          // expression node (yo-self re-evaluates a call node when it becomes
-          // the receiver/argument of an enclosing call; TS's immutable env
-          // threading means its re-evaluations read the PRE-consumption env —
-          // its ownership block even carries the note "Allow to consume again
-          // here is necessary"). A genuine use-after-move always has a
-          // DIFFERENT move site, which TS distinguishes the same way its
-          // error output does. Without this, `v1_copy.concat(v2).len()`
+          // expression node (a call node is re-evaluated when it becomes
+          // the receiver/argument of an enclosing call). A genuine
+          // use-after-move always has a
+          // DIFFERENT move site. Without this, `v1_copy.concat(v2).len()`
           // reported 'use of moved value' with BOTH carets on the same
           // token (tests/imm_vec arms 14/17, surfaced by the Step-4a port).
           same_site := (
@@ -487,11 +447,7 @@ new_expr_info_placeholder_for_unreachable_ :: (fn(_expr : AstExpr) -> ExprInfo)(
 );
 /// Throw if `expr` has no `ExprInfo` attached — i.e. the evaluator
 /// has not yet processed this expression. Returns the `ExprInfo` on
-/// success.
-///
-/// Mirrors TS  The
-/// TS version returns `expr.$` (the side-table entry). The yo-self
-/// version takes a custom `error_message` (empty string ⇒ use the
+/// success. Takes a custom `error_message` (empty string ⇒ use the
 /// default) and reads the ExprInfo from `ctx.expr_info_table`.
 expect_expr_to_have_been_evaluated :: (
   fn(
@@ -523,8 +479,7 @@ expect_expr_to_have_been_evaluated :: (
 // ---------------------------------------------------------------------------
 // set_expr_as_consumed
 // ---------------------------------------------------------------------------
-/// Mark the variable backing `expr` as consumed in `env`. Mirrors
-/// TS :
+/// Mark the variable backing `expr` as consumed in `env`:
 ///
 ///   1. If `expr.$.value` is a `TypeVal`, type values are reusable —
 ///      return without marking.
@@ -650,17 +605,15 @@ set_expr_as_consumed :: (
 /// stores it in `rhs`'s `deferred_dup_expressions` (codegen emits it and uses the
 /// dup-result temp), and consumes that dup-result temp.
 ///
-/// yo-self note: `Variable`/`ExprInfo` are RC objects, so `consumed_at_token` and
-/// `deferred_dup_expressions` are mutated in place (mirroring
-/// `consume_case_body_temp_var`); the TS `updateExistingVariable`/`expr.$.env =`
-/// reassignments are implicit because the underlying objects are shared.
-/// `exn` is threaded because yo-self's `generate_expr_from_code` /
-/// `evaluate_expression_raw` require an explicit exception handler (TS throws).
+/// `Variable`/`ExprInfo` are RC objects, so `consumed_at_token` and
+/// `deferred_dup_expressions` are mutated in place (same as
+/// `consume_case_body_temp_var`).
+/// `exn` is threaded because `generate_expr_from_code` /
+/// `evaluate_expression_raw` require an explicit exception handler.
 ///
 /// Side-table: evaluated `___dup` call expr id → the USE SITE's source token
-/// (the token of the rhs whose dup it is). Mirrors TS's ad-hoc `__useSiteToken`
-/// property: the dup expr itself is built from generated
-/// code (auto-generated token, not comparable with source tokens); the begin
+/// (the token of the rhs whose dup it is). The dup expr itself is built from
+/// generated code (auto-generated token, not comparable with source tokens); the begin
 /// block's dup/drop pair optimizer needs the real source position of the
 /// ownership transfer to record an accurate consumed_at_token (early returns
 /// AFTER the transfer must not re-drop the moved value).
@@ -691,9 +644,9 @@ set_expr_as_needs_to_call_dup :: (
         .Some(info) => info,
         .None => new_expr_info_placeholder_for_unreachable_(rhs)
       );
-      // --- Compile-time value handling (mirrors `if (expr.$.value)`). ---
-      // yo-self runtime results are `Some(UnknownVal)` where TS uses
-      // `undefined` — treat UnknownVal as NO value here, or a runtime PARAM
+      // --- Compile-time value handling ---
+      // Runtime results are `Some(UnknownVal)` — treat UnknownVal as NO
+      // value here, or a runtime PARAM
       // bound by create_specialized_function_inline's Some(UnknownVal) rebind
       // early-returns WITHOUT the dup (a non-temp name skips the
       // needs_dup_for_non_owning_rc_temp fallthrough): ArrayList.push's
@@ -707,13 +660,12 @@ set_expr_as_needs_to_call_dup :: (
       // NOT inlinable — codegen falls back to the variable NAME, so the C
       // variable DOES exist and skipping the dup here loses the borrowed-
       // return +1 (every `return(expr)` of a borrowed AstExpr param emitted
-      // bare while TS dups — the round-2 stage-2 UAF: the eval-dispatch chain
+      // bare instead of duped — the round-2 stage-2 UAF: the eval-dispatch chain
       // under-counts each evaluated node by one, killing AST children read
       // back later, e.g. evaluate_function_parameter's args.get(1); see
-      // issues/fixed/yo-self-dyn-throw-double-drop.md). TS's textual gate is the
-      // same (`if (expr.$.value)`), but its last-before-codegen pass carries
-      // no concrete values for runtime params; yo-self's def-time trial
-      // passes do, so the gate must also require inlinability.
+      // issues/fixed/yo-self-dyn-throw-double-drop.md). Def-time trial
+      // passes carry concrete values for runtime params, so the gate must
+      // also require inlinability.
       has_concrete_value := match(
         ei.value,
         .Some(cv) => (!is_unknown_val(cv) && !type_contains_rc_type(ei.ty)),
@@ -789,15 +741,13 @@ set_expr_as_needs_to_call_dup :: (
           });
         }
       );
-      // Stamp the USE SITE's source token for the dup/drop pair optimizer
-      // (mirrors TS `__useSiteToken`, expr.ts:2577-2579).
+      // Stamp the USE SITE's source token for the dup/drop pair optimizer.
       g_dup_use_site_tokens.insert(ast_expr_id(evaluated_dup), ast_expr_token(rhs));
       // Stash the deferred dup expression on the rhs's ExprInfo (codegen emits it).
       dup_list := ArrayList(AstExpr).new();
       dup_list.push(evaluated_dup);
       ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(dup_list);
-      // Propagate the dup call's env onto the rhs's ExprInfo (mirrors TS
-      // `expr.$.env = evaluatedDupCallExpr.$!.env` in expr.ts:2581). The dup
+      // Propagate the dup call's env onto the rhs's ExprInfo. The dup
       // eval added the `___dup` temp to that env; the deferred-dup codegen in
       // begin/match resolves the dup temp's C name via the rhs ExprInfo's env,
       // so without this the temp is unresolved and the balancing incr is
@@ -816,8 +766,7 @@ set_expr_as_needs_to_call_dup :: (
 });
 /// Aliasing Stage 0 (issues/borrowed-arg-invalidated-by-aliased-container-mutation.md):
 /// dup an RC-typed PROJECTION argument passed to a BORROWING parameter,
-/// keeping the +1 in the CALLER. Mirrors TS
-/// `setExprAsNeedsToCallDupForBorrowedProjection`.
+/// keeping the +1 in the CALLER.
 ///
 /// Unlike `set_expr_as_needs_to_call_dup` above (the own-param path, whose
 /// dup RESULT temp is consumed because the callee drops the transferred +1),
@@ -878,9 +827,8 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
           // scope-end drop is the balancing -1; the pair optimizer cannot
           // cancel dup-of-SOURCE against drop-of-RESULT), and stamp the dup
           // node + its arg atom with the ExprInfo codegen's deferred-dup
-          // emitter reads (dei.variable_name / target atom env). Deliberate
-          // mechanism divergence from TS (which evaluates the dup): the
-          // nested eval is unsound in yo-self's def-time contexts.
+          // emitter reads (dei.variable_name / target atom env); the
+          // nested eval is unsound in def-time contexts.
           dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
           // Phase 2: no source position exists for the synthesized dup — key
           // the occurrence by module + the variable being duped.
@@ -902,7 +850,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
           // CONSUME the dup temp immediately: the balancing -1 is the
           // EXPLICIT `___drop` returned below, attached by the caller to the
           // CALL node's deferred drops (single post-call emission). Leaving
-          // the temp unconsumed-owning let yo-self's multi-exit cleanup
+          // the temp unconsumed-owning lets the multi-exit cleanup
           // machinery (match-arm exits + escape paths + scope end) emit its
           // drop on NON-exclusive paths — the stage-2 binary over-released
           // context.base and corrupted the whole emit (FIXPOINT_BROKEN,
@@ -958,8 +906,8 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
           // rhs ExprInfo (unlike set_expr_as_needs_to_call_dup above). The
           // dup temp was added IN PLACE to ei.env's current frame, so the
           // rhs env already resolves it — and REPLACING ei.env here leaked a
-          // def-time BODY env into the enclosing statement flow: yo-self
-          // threads env through statement infos, so a module-level derive's
+          // def-time BODY env into the enclosing statement flow: the
+          // evaluator threads env through statement infos, so a module-level derive's
           // generated-body eval replaced the MODULE env mid-module
           // ("Variable Tok not found" on the impl FOLLOWING derive(Eq) of a
           // String-field ref struct — the tok_i minimal repro).
@@ -973,8 +921,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
 /// rooted at a RUNTIME variable — a PROJECTION place. A bare atom is NOT a
 /// projection (the caller's binding keeps a plain local alive for the call,
 /// +0). A method call (`x.f()`) is not a 2-arg dot call — its `func` is the
-/// dot — and produces an owned temp anyway. Mirrors TS helper.ts
-/// `exprIsRcProjectionPlace`.
+/// dot — and produces an owned temp anyway.
 /// True when walking `e`'s dot chain reaches an ATOM bound to a RUNTIME
 /// variable — the root of a place expression. Shared by the field and index
 /// forms of `arg_is_rc_projection_place`.
@@ -1044,8 +991,8 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
 // ---------------------------------------------------------------------------
 /// Build the doc-comment lookup key for a token.
 ///
-/// Matches the format produced by `getDocCommentLookupKey` in
-/// `src/doc/extractor.ts`: `"<module_path>:<row>:<column>"`.
+/// Matches the format produced by `get_doc_comment_lookup_key` in
+/// `doc/extractor.yo`: `"<module_path>:<row>:<column>"`.
 doc_comment_lookup_key_from_token :: (fn(tok : Token) -> String)(
   `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`
 );
@@ -1056,10 +1003,7 @@ doc_comment_lookup_key_from_token :: (fn(tok : Token) -> String)(
 /// consumed at the expression's token.  Only acts if the variable name was
 /// generated by `generate_new_temp_variable_name` (i.e. is a temp name).
 ///
-/// In TypeScript this returns a new env (immutable snapshot); in yo-self the
-/// `Variable` is an RC object so we mutate `consumed_at_token` in-place.
-///
-///
+/// The `Variable` is an RC object, so `consumed_at_token` is mutated in-place.
 consume_case_body_temp_var :: (
   fn(
     evaluated_body : AstExpr,
@@ -1105,11 +1049,9 @@ consume_case_body_temp_var :: (
 /// - Throws a compile-time error if branches partially consume/initialize or
 ///   if frame layouts are inconsistent.
 ///
-/// In yo-self, Variable is an object (RC reference); mutations propagate
+/// `Variable` is an RC reference; mutations propagate
 /// automatically to all holders. `update_existing_variable` is used for
 /// the is_owning_the_rc_value update (since it also zeros out is_owning_the_same_rc_value_as).
-///
-///
 merge_and_check_envs :: (
   fn(
     env : Environment,
@@ -1124,8 +1066,7 @@ merge_and_check_envs :: (
   // Zero-frame env guard: `frames.len() - 1` UNDERFLOWS to 2^64-1 and the
   // per-frame loop below spins (effectively) forever calling
   // `frames.get(i)` → `.None` → continue (std/glob.yo never finished one
-  // check). TS's `for (let i = 0; i <= envs.length - 1; ...)` simply does
-  // not run when the env has no frames — mirror that.
+  // check). An env with no frames must simply do nothing here.
   if(env.frames.len() == usize(0), {
     return(env);
   });
@@ -1154,11 +1095,9 @@ merge_and_check_envs :: (
     );
     bi = (bi + usize(1));
   });
-  // Verify that every case env has the SAME frame depth as the others.
+  // Verify that every case env has a compatible frame depth.
   //
-  // TS compares each `caseEnv.frames.length-1` to `maxFrameLevel` (the OUTER
-  // env's), because in TS an arm body's `.$.env` sits at the outer frame level.
-  // In yo-self each cond/match arm body is evaluated under a per-arm
+  // Each cond/match arm body is evaluated under a per-arm
   // `push_frame` (cond.yo / match.yo), and the recorded-`ExprInfo.env` SNAPSHOT
   // (issues/fixed/yo-self-recorded-env-aliasing.md) is taken DURING the arm eval, so
   // every arm env is one frame DEEPER than the outer env — uniformly. Comparing
@@ -1173,10 +1112,9 @@ merge_and_check_envs :: (
   // per-arm frame.
   // Each arm env must CONTAIN the outer frames (indices 0..max_frame_level) that
   // the per-frame ownership merge below scans — but arms need NOT have identical
-  // TOTAL depth. yo-self evaluates each arm under a per-arm `push_frame`, and a
+  // TOTAL depth. Each arm is evaluated under a per-arm `push_frame`, and a
   // `begin`-block arm pushes a SECOND (binding) frame while a simple-expr arm
-  // does not, so requiring exact depth equality (TS's `frames.length-1 ===
-  // maxFrameLevel`, which holds in TS because arm envs sit at the outer level)
+  // does not, so requiring exact depth equality
   // spuriously rejected a cond/match that MIXES begin and non-begin arms — e.g.
   // naming_checker's `index_of`: `cond(… => .Some(i), true => begin(…))`. The
   // transient per-arm / begin frames sit ABOVE max_frame_level and are NOT
@@ -1235,12 +1173,11 @@ merge_and_check_envs :: (
                 // Adopt extra TEMP variables into the base env frame (adopted
                 // temps must NOT own RC values — each branch handles its own
                 // drops); SKIP extra non-temp variables instead of rejecting.
-                // A non-temp extra is an ARM-LOCAL binding that yo-self's
+                // A non-temp extra is an ARM-LOCAL binding that the
                 // per-arm frame accounting placed in a non-innermost frame —
-                // sibling arms legitimately don't have it, and TS has no such
-                // count check at all (case locals pop with their frames). The
+                // sibling arms legitimately don't have it. The
                 // previous all-or-nothing throw ("Frame level N has different
-                // number of values for different cases", no TS counterpart)
+                // number of values for different cases")
                 // rejected big match-bodied fns during def-eval and left their
                 // WHOLE bodies unstamped (the 16-FTT stage-2 cluster in
                 // yo_id_264770/yo_id_360923). Third relaxation of this merge —
@@ -1267,9 +1204,7 @@ merge_and_check_envs :: (
               //       the grown base appears short (the missing vars are exactly
               //       the adopted, non-owning temps);
               //   (2) a trivial arm (`.None => .None`) records no copy of an
-              //       enclosing binding the base + destructuring siblings carry
-              //       — a yo-self recorded-env divergence from TS (TS arm envs
-              //       sit at the outer level with enclosing bindings intact).
+              //       enclosing binding the base + destructuring siblings carry.
               // A genuine inconsistency (an arm missing a NON-temp binding the
               // others bound, or a consume/init split) is still caught by the
               // names check (:828) and the per-column consume/init merge (:889+).
@@ -1287,8 +1222,7 @@ merge_and_check_envs :: (
             // A case env may be SHORTER than the base at this frame: a trivial
             // match arm (e.g. `.None => .None`) records no copy of an enclosing
             // binding (`self_al`) that the base and destructuring sibling arms
-            // carry — a yo-self recorded-env divergence (TS arm envs keep the
-            // enclosing bindings). Such a binding was initialized BEFORE the
+            // carry. Such a binding was initialized BEFORE the
             // match, so an arm that simply doesn't re-bind it "retains the base
             // state" — treat a missing case var as the base var rather than a
             // mismatch. (Mirrored in the per-column merge below.) See
@@ -1355,7 +1289,7 @@ merge_and_check_envs :: (
           n_cases := case_envs.len();
           // ---- Cross-branch type checks ----
           // Per-branch assigned types come from the branch-init LOG (see
-          // expr_info.yo BranchInitRecord) — yo-self's shared mutable
+          // expr_info.yo BranchInitRecord) — the shared mutable
           // Variable cannot carry them. Each body's [start,end) window was
           // registered by the arm evaluator; records matching this
           // variable's id give the per-branch (ty, capture).
@@ -1420,8 +1354,8 @@ merge_and_check_envs :: (
                       // Capture structs are NOMINAL per closure: two
                       // different closures' captures are different concrete
                       // types even when structurally identical (both
-                      // capture one i32) — compare struct IDs; yo-self's
-                      // structural compat wrongly accepts them.
+                      // capture one i32) — compare struct IDs; the
+                      // structural compat check wrongly accepts them.
                       cb_id_conflict := match(
                         cb_fc,
                         .Struct({ id : cb_fid2 }) => match(
@@ -1683,8 +1617,6 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
 /// Private helper: try to get the concrete (non-runtime) EvalValue from the
 /// last entry in a variable lookup list.  Returns .None when the list is
 /// empty or the last variable has no compile-time value.
-///
-/// Mirrors the inline resolution logic in 
 _try_resolve_last_var :: (fn(vars : ArrayList(Variable)) -> Option(EvalValue))(
   cond(
     (vars.len() == usize(0)) => Option(EvalValue).None,
@@ -1717,16 +1649,14 @@ _get_last_var_type :: (fn(vars : ArrayList(Variable)) -> Option(TypeValue))(
 /// Compare two evaluated values for equality, resolving runtime VarRef values
 /// through their respective environments.
 ///
-/// - For `VarRef` (= TypeScript `UnknownValue` with `variableName`): looks up
+/// - For `VarRef` (a runtime value with a variable name): looks up
 ///   the most recent binding in the environment and recurses on the resolved
 ///   value.  When neither side can be resolved, falls back to type
 ///   compatibility.
-/// - For `UnknownVal` (= TypeScript `UnknownValue` without `variableName`):
+/// - For `UnknownVal` (a runtime value without a variable name):
 ///   compares the declared types with `are_types_compatible`.
 /// - For all other concrete value pairs: delegates to structural `==` (which
 ///   is backed by `eval_value_eq`).
-///
-///
 are_values_equal :: (
   fn(
     val1 : EvalValue,
@@ -1795,10 +1725,9 @@ are_values_equal :: (
       // val2 is UnknownVal: not equal to a concrete value.
       .UnknownVal(_, _) => false,
       // Two TYPE values compare by EXACT type compatibility, not structurally
-      // (TS value.ts:699-705: `areTypesCompatible(expected, given, /* exact */
-      // true)`; val1 is the expected side, and yo-self's argument order is
+      // (val1 is the expected side; the compat argument order is
       // (actual, expected)). Overload selection on `= <value>` type
-      // parameters relies on this branch (helper.ts:481-497 → calls/helper.yo
+      // parameters relies on this branch (calls/helper.yo
       // Step 5b): `TryInto(i32).try_into` vs `TryInto(i64).try_into` differ
       // ONLY in the assigned `_To` value.
       .TypeVal(ty2) => match(

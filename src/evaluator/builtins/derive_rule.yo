@@ -1,10 +1,10 @@
 //! evaluator/builtins/derive_rule — evaluate_derive_rule and derive rule registry.
 //!
-//! Phase 3 implementation. 1:1 port of `src/evaluator/builtins/derive_rule.ts`.
+//! Phase 3 implementation.
 //!
-//! Key difference from TypeScript: TypeScript stores the derive rule directly on
-//! FunctionValue/TraitType objects. In yo-self, types are immutable enums, so we
-//! use a global HashMap(String, EvalValue) registry instead.
+//! Types are immutable enums, so derive rules live in a global
+//! HashMap(String, EvalValue) registry rather than on FunctionValue/TraitType
+//! values.
 //! The key is the expression-level name of the trait constructor.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
@@ -25,15 +25,13 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
-/// Global registry: trait name → derive rule FuncVal EvalValue.
-/// / `TraitType.deriveRule` from TypeScript,
-/// but stored globally since yo-self types are immutable enums.
+/// Global registry: trait name → derive rule FuncVal EvalValue, stored
+/// globally because types are immutable enums.
 (g_derive_rules : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
 /// Parallel registry: trait name → derive rule FuncVal's Func TYPE. Needed so
 /// `call_registered_derive_rule` can bind the rule fn with its real type (the
 /// call path dispatches on the callee variable's declared type, so a
-/// value-only binding evaluates to `<unknown: unit>`). TS carries this on
-/// `FunctionValue.type`.
+/// value-only binding evaluates to `<unknown: unit>`).
 /// Stored as `EvalValue.TypeVal` (reusing `HashMap(String, EvalValue)` — the
 /// SAME instantiation as `g_derive_rules` — avoids a distinct `HashMap(String,
 /// TypeValue)` codegen type).

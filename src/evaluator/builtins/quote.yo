@@ -1,7 +1,5 @@
 //! evaluator/builtins/quote — implements evaluate_quote and process_unquotes_in_expr.
 //!
-//! 1:1 port of `src/evaluator/builtins/quote.ts`.
-//!
 //! `quote(expr)` lifts an expression as a first-class compile-time value of
 //! type `Expr`.  Inside a quoted expression, `unquote(x)` (or `#(x)`)
 //! evaluates `x` at compile time and splices the resulting `Expr` value back
@@ -103,8 +101,8 @@ process_unquotes_in_expr :: (
     .FnCall(id, func_box, args, is_infix, tok) => {
       // Case 1: the NODE ITSELF is `unquote(x)` — evaluate the single
       // argument and return the expression it contains. NOTE: the test is
-      // on `expr`, NOT on `func_box` — TS checks `exprIsAtomOf(func,
-      // unquote)`, i.e. the CALLEE ATOM; testing the
+      // on `expr`, NOT on `func_box` — the test must be
+      // is-the-NODE-an-unquote-call; testing the
       // callee with `_is_unquote` (is-the-callee-an-unquote-CALL) never
       // matched, so unquotes were silently left UNSPLICED in every
       // expansion and only "worked" when the unexpanded node happened to
@@ -295,9 +293,8 @@ evaluate_quote :: (
   // call; a derived (id-preserving) clone makes every expansion share
   // ExprInfo-table keys with the template AND with every other expansion
   // of the same macro — table writes then drop values other holders still
-  // reference (intermittent allocator SIGTRAPs). TS's cloneExpr creates
-  // new objects (fresh `$` slots); `clone_expr_fresh_ids` is its faithful
-  // mirror under the id-keyed table.
+  // reference (intermittent allocator SIGTRAPs). `clone_expr_fresh_ids`
+  // gives every expansion fresh ids under the id-keyed table.
   quoted := process_unquotes_in_expr(clone_expr_fresh_ids(arg), env, ctx, exn);
   // Wrap result in ExprVal and register ExprInfo.
   val := EvalValue.ExprVal(quoted);

@@ -1,15 +1,12 @@
 //! JSON documentation renderer — serializes a DocModel to JSON.
 //!
-//! Mirrors `src/doc/render-json.ts`, whose whole body is
-//! `JSON.stringify(model, null, 2)` — so the real contract this file ports is
-//! JSON.stringify's semantics over the builder's object literals:
+//! The output format is a frozen JSON.stringify-style contract over the
+//! model:
 //!
-//!   - keys appear in OBJECT-LITERAL INSERTION ORDER (one canonical order per
-//!     model type — the literals in builder.ts / doc-command.ts);
+//!   - keys appear in INSERTION ORDER (one canonical order per model type);
 //!   - `undefined`-valued keys are OMITTED (every `Option.None` here);
-//!   - `effects` is always undefined in TS's buildDocFunction, so it is never
-//!     emitted; `DocParam.is_implicit` exists only in the yo model and is
-//!     never emitted.
+//!   - `effects` is never emitted; `DocParam.is_implicit` exists only in the
+//!     model and is never emitted.
 //!
 //! Rendering is PURE (model → JSON string) like render_markdown.yo; the
 //! output-directory write lives in the doc command, where Io is available.
@@ -88,7 +85,7 @@ _str_array :: (fn(items : ArrayList(String)) -> JsonValue)({
   JsonValue.Array(items : vals)
 });
 // ---------------------------------------------------------------------------
-// Per-model-type converters (key order = the TS literal's insertion order)
+// Per-model-type converters (one canonical key order per model type)
 // ---------------------------------------------------------------------------
 /// DocParam → {name, type, isComptime, defaultValue?, doc?}.
 _param_to_json :: (fn(p : DocParam) -> JsonValue)({
@@ -358,8 +355,7 @@ _trait_to_json :: (fn(t : DocTrait) -> JsonValue)({
   JsonValue.Object(keys : keys, values : vals)
 });
 /// DocConstant → {name, doc?, type, value?, deprecated?, examples?}.
-/// (`examples` rides the `...extractDocSections(doc)` spread in TS — see
-/// model.yo.)
+/// (for `examples`, see model.yo.)
 _constant_to_json :: (fn(c : DocConstant) -> JsonValue)({
   keys := ArrayList(String).new();
   vals := ArrayList(JsonValue).new();
@@ -435,7 +431,7 @@ _module_to_json :: (fn(m : DocModule) -> JsonValue)({
   _obj_add(keys, vals, String.from("submodules"), JsonValue.Array(items : s_vals));
   JsonValue.Object(keys : keys, values : vals)
 });
-/// DocModel → {name, modules, version?} (the literal in doc-command.ts:304).
+/// DocModel → {name, modules, version?}.
 _model_to_json :: (fn(model : DocModel) -> JsonValue)({
   keys := ArrayList(String).new();
   vals := ArrayList(JsonValue).new();

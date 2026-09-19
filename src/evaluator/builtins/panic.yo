@@ -1,7 +1,5 @@
 //! evaluator/builtins/panic — implements evaluate_panic for __yo_panic.
 //!
-//! 1:1 port of `src/evaluator/builtins/panic.ts`.
-//!
 //! `__yo_panic(msg)` validates the argument type (str, comptime_str, or *(u8))
 //! and annotates the call with the surrounding function's return type (__yo_panic diverges).
 pragma(Pragma.AllowUnsafe);
@@ -65,7 +63,7 @@ evaluate_panic :: (
       )
     );
   });
-  // Determine the divergent panic's stand-in type (mirrors panic.ts:57-66):
+  // Determine the divergent panic's stand-in type:
   //   1. the propagated expected type (a match arm's sibling-arm type, a
   //      cond arm, an assignment RHS) when present;
   //   2. else the enclosing function's return type — wrapped in `*(T)` when
@@ -135,8 +133,7 @@ evaluate_panic :: (
         // "Failed to transpile cond(...)" in codegen.
         is_str := is_str_type(msg_type);
         // comptime_str: StrLit value, or an UNKNOWN value whose type is
-        // comptime_str — mirrors TS panic.ts:91-93
-        // (`isUnknownValue(msgValue) && isComptimeStringType(msgValue.type)`).
+        // comptime_str.
         // Under def-time body evaluation a `comptime_str` parameter binds
         // as a typed unknown; dropping it to `false` made `panic(msg)` the
         // single largest propagated def-eval failure (96 std files).

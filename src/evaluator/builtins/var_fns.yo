@@ -1,7 +1,5 @@
 //! evaluator/builtins/var_fns — variable introspection builtin functions.
 //!
-//! 1:1 port of `src/evaluator/builtins/var-fns.ts`.
-//!
 //! Implements:
 //!   __yo_var_print_info(var)           — print debug info about a variable (no-op in self-hosted)
 //!   __yo_var_is_owning_the_rc_value(v) — returns bool: is var the RC owner?
@@ -55,7 +53,6 @@ evaluate_yo_var_print_info :: (
   var_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_var_arg));
   (cur_env : Environment) = match(var_info_opt, .Some(i) => i.env, .None => env);
   // Note: debug printing of variable info is a no-op in the self-hosted compiler.
-  // The TS version calls console.log(getVariableInfo(variable)).
   out_info := new_expr_info(cur_env, t_unit());
   out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

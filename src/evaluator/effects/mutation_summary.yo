@@ -1,8 +1,7 @@
 //! Aliasing Stage 1 — per-callee MUTATION SUMMARIES.
 //!
-//! Port of `src/evaluator/effects/mutation-summary.ts` (see that file and
-//! issues/borrowed-arg-invalidated-by-aliased-container-mutation.md for the
-//! full design rationale).
+//! See issues/borrowed-arg-invalidated-by-aliased-container-mutation.md for
+//! the full design rationale.
 //!
 //! Answers: "may a call to this function (transitively) mutate RC container
 //! storage reachable from its parameters, captures, or globals?" A borrowed
@@ -15,7 +14,7 @@
 //! ExprInfo value (plain calls) or the method-callee side-table (method
 //! calls). It is a MAY-analysis: anything unresolvable answers "mutates".
 //!
-//! Cycle handling mirrors TS: a call edge back into a function currently
+//! Cycle handling: a call edge back into a function currently
 //! being walked contributes nothing (least-fixpoint optimism — sound because
 //! every SCC member's complete body is walked once from the entry point).
 //! Verdicts that depended on an in-progress walk are NOT memoized unless
@@ -66,19 +65,16 @@
 } :: import("../async/await_analysis.yo");
 /// func_id → may-mutate verdict (true = may mutate).
 ///
-/// Process-global and never invalidated, which is safe HERE but is NOT safe
-/// in the TS twin: `utils.ts randomId` is a PER-MODULE counter that the test
-/// and build runners reset between compilations, so ids are reused for
-/// unrelated functions and the TS cache has to drop its memo whenever the id
-/// generation moves. yo-self's `random_id` (utils.yo) is a single
-/// process-global counter that only ever increments and has no reset — ids
-/// are unique for the life of the process, so no generation guard is needed.
-/// If that generator ever gains a reset, this cache must gain the guard.
+/// Process-global and never invalidated. This is safe because `random_id`
+/// (utils.yo) is a single process-global counter that only ever increments
+/// and has no reset — ids are unique for the life of the process, so no
+/// generation guard is needed. If that generator ever gains a reset, this
+/// cache must gain the guard.
 (g_ms_summary_by_fid : HashMap(String, bool)) = HashMap(String, bool).new();
 /// func_ids whose bodies are currently being walked (cycle guard).
 (g_ms_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Builtin heads that are pure structure/control flow: walk the arguments,
-/// the head itself mutates nothing. Mirrors TS `SAFE_RECURSE_HEADS`.
+/// the head itself mutates nothing.
 _ms_head_is_safe_recurse :: (fn(h : String) -> bool)(
   (((((((h == "begin") || (h == "cond")) || ((h == "while") || (h == "if"))) || (((h == "&&") || (h == "||")) || ((h == "return") || (h == "break")))) || ((((h == "continue") || (h == "clone")) || ((h == "%") || (h == "unwind"))) || (((h == "recur") || (h == "dyn")) || ((h == "runtime") || (h == "quote"))))) || ((((h == ":") || (h == "consume")) || ((h == "the") || (h == "as"))) || (((h == ".") || (h == "=>")) || ((h == "->") || (h == "tuple"))))) || (((h == "array") || (h == "___dup")) || (h == "unsafe"))) || (h == "__yo_borrow_check")
 );
@@ -95,8 +91,7 @@ _ms_head_is_rc_decrement :: (fn(h : String) -> bool)(
   ((((h == "___drop") || (h == "___dispose")) || ((h == "dispose") || (h == "__yo_decr_rc"))) || (((h == "__yo_decr_rc_atomic") || (h == "__yo_dyn_drop")) || ((h == "__yo_sometype_drop") || (h == "__yo_drop_array_element")))) || ((h == "__yo_drop_tuple_element") || (h == "__yo_iso_dispose"))
 );
 /// Primitive builtin heads that are pure computations, reads, comptime-only
-/// reflection, or process aborts. Mirrors TS `PURE_BUILTIN_HEADS` +
-/// `PURE_BUILTIN_HEAD_PREFIXES`. Deliberately NOT safe: __yo_ptr_set,
+/// reflection, or process aborts. Deliberately NOT safe: __yo_ptr_set,
 /// __yo_array_fill, __yo_drop_array_element / __yo_drop_tuple_element (drop
 /// a CONTAINER-held reference — exactly the aliasing hole), buffer writers,
 /// __yo_iso_*, __yo_gc_collect.
@@ -279,7 +274,7 @@ impl(
   }),
   /// Resolve the callee FuncVal of a call: the func node's ExprInfo value
   /// (plain calls), falling back to the method-callee side-table (method
-  /// calls — yo-self does not stamp the dot node with the resolved FuncVal).
+  /// calls — the dot node is not stamped with the resolved FuncVal).
   callee_value : (
     fn(call_expr : AstExpr, func_expr : AstExpr, table : ExprInfoTable) -> Option(EvalValue)
   )({
@@ -304,8 +299,8 @@ impl(
     lookup_method_callee_value(ast_expr_id(call_expr))
   }),
   /// True when this call is an io builtin (yields to the event loop — other
-  /// tasks run mid-call). yo-self detects these structurally (no ioBuiltin
-  /// type marker).
+  /// tasks run mid-call). Detected structurally, via the shape checks in
+  /// async/await_analysis.yo.
   is_io_builtin_call : (fn(e : AstExpr) -> bool)(
     (((is_io_async_call(e) || is_io_await_call(e)) || is_io_state_call(e)) || is_io_spawn_call(e)) || is_join_handle_await_call(e)
   ),
@@ -610,7 +605,7 @@ impl(
 );
 /// Public entry: may the function `fid` (with evaluated `body`)
 /// transitively mutate RC container storage reachable from its parameters,
-/// captures, or globals? Mirrors TS `functionMayMutateRcStorage`.
+/// captures, or globals?
 function_may_mutate_rc_storage :: (
   fn(fid : String, body : AstExpr, ctx : EvalContext) -> bool
 )({
@@ -754,7 +749,7 @@ param_mutation_mask_is_empty :: (fn(m : ParamMutationMask) -> bool)({
   true
 });
 /// Does a value of this type contain a raw pointer (which may point into
-/// parameter storage)? Mirrors `_type_contains_rc_inner`'s shape.
+/// parameter storage)? Same shape as `_type_contains_rc_inner`.
 _msp_type_contains_pointer_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(

@@ -1,17 +1,15 @@
-//! Pragma handling for yo-self.
+//! Pragma handling.
 //!
-//! The TS side runs a `preScanForSkipPrelude` pass before the
+//! A SkipPrelude pre-scan runs before the
 //! prelude is auto-loaded, so a file declaring
 //! `pragma(Pragma.SkipPrelude);` at the top can opt out of the
-//! implicit prelude import. src/evaluator/index.yo used to scan
-//! for `// @skip_prelude` comment directives instead; this module
-//! ports the AST-based scan so the two evaluators stay aligned.
+//! implicit prelude import.
 //!
 //! Scope: the SkipPrelude pre-scan that must run before the prelude
 //! loads, plus the eval-time `evaluate_pragma` handler with the full
 //! Phase-G argument validation (the argument is evaluated and must
 //! yield a `Pragma` enum variant — typos, non-Pragma enums and
-//! non-enum values are compile errors, mirroring TS).
+//! non-enum values are compile errors).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -29,9 +27,8 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 // Pragma kinds use the prelude's `Pragma` enum (auto-loaded), not a separate
-// internal type — yo-self is self-hosted, so the compiler reuses the
-// language's own `Pragma`. (TS keeps a distinct `Pragma` in
-// `src/evaluator/memory-safety.ts`; here that collapses to `Pragma`.)
+// internal type — the compiler is self-hosted, so it reuses the
+// language's own `Pragma`.
 /// Map a `Pragma.X` variant name (as a `str`) to the corresponding
 /// `Pragma`. Returns `.None` when the name doesn't match any
 /// known variant — typo handling for full evaluation belongs in
@@ -48,7 +45,7 @@ pragma_kind_from_variant_name :: (fn(name : String) -> Option(Pragma))(
     // Formal-verification pragmas (Phase 0 of plans/backlog/FORMAL_VERIFICATION.md).
     // `NoContracts` is read by `wrap_function_body_with_contracts`;
     // `Verify`/`VerifyOrAssert` are registered only (the SMT verifier is a
-    // later phase). Mirrors src/evaluator/builtins/pragma.ts:174-183.
+    // later phase).
     (name == "Verify") => Option(Pragma).Some(.Verify),
     (name == "VerifyOrAssert") => Option(Pragma).Some(.VerifyOrAssert),
     (name == "NoContracts") => Option(Pragma).Some(.NoContracts),
@@ -62,10 +59,7 @@ pragma_kind_from_variant_name :: (fn(name : String) -> Option(Pragma))(
 /// Returns `.None` when the argument isn't of the expected
 /// `Pragma.<variant>` form. The pre-scan is intentionally narrow:
 /// no identifier resolution, no aliased imports. That's fine — full
-/// evaluation in `evaluatePragma` handles the general case.
-///
-/// in
-/// `src/evaluator/builtins/pragma.ts`.
+/// evaluation in `evaluate_pragma` handles the general case.
 recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
   match(
     arg,
@@ -105,9 +99,6 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
 /// decide whether to inject the prelude. Pragma calls nested inside
 /// function bodies or blocks are not pre-scanned (they couldn't
 /// affect prelude loading anyway).
-///
-/// in
-/// `src/evaluator/builtins/pragma.ts`.
 pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
   found := false;
   i := usize(0);
@@ -148,8 +139,7 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
 /// RETIRED with V3: the verifier pass honors `Pragma.Verify` /
 /// `Pragma.VerifyOrAssert` (mode dispatch + task registration in
 /// evaluator/builtins/contracts.yo).
-/// Eval-time `pragma(...)` handler.
-/// (`src/evaluator/builtins/pragma.ts`): the `SkipPrelude` AST shape
+/// Eval-time `pragma(...)` handler: the `SkipPrelude` AST shape
 /// short-circuits (the file may not have `Pragma` in scope — that is exactly
 /// what SkipPrelude implies); every other argument is EVALUATED and must
 /// yield a `Pragma` enum variant, which catches typos

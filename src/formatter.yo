@@ -1,4 +1,4 @@
-//! Source formatter for Yo — 1-to-1 port of `src/formatter.ts`.
+//! Source formatter for Yo.
 //!
 //! Entry points:
 //!   * `format_yo_source(input, module_path) -> String` — pure formatter.
@@ -25,17 +25,15 @@ import("std/fmt");
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-/// Number of spaces per indentation level. Mirrors `INDENT_SIZE` in
-/// `src/formatter.ts`.
+/// Number of spaces per indentation level.
 INDENT_SIZE :: usize(2);
 // ---------------------------------------------------------------------------
 // Token-kind classifiers
 // ---------------------------------------------------------------------------
-// In TypeScript these are `Set<TokenType>` constants tested with `.has(...)`.
-// In yo-self the variant kinds are an enum, so a simple predicate is more
+// The variant kinds are an enum, so a simple predicate is more
 // idiomatic than a HashSet of enum values.
 /// True iff `kind` is any comment token (single-line, block, doc-line,
-/// inner-doc-line, doc-block, inner-doc-block). Mirrors `COMMENT_TOKEN_TYPES`.
+/// inner-doc-line, doc-block, inner-doc-block).
 is_comment_token :: (fn(kind : TokenKind) -> bool)(
   cond(
     (kind == TokenKind.SingleLineComment) => true,
@@ -47,8 +45,7 @@ is_comment_token :: (fn(kind : TokenKind) -> bool)(
     true => false
   )
 );
-/// True iff `kind` is a single-line comment variant. Mirrors
-/// `LINE_COMMENT_TOKEN_TYPES`.
+/// True iff `kind` is a single-line comment variant.
 is_line_comment_token :: (fn(kind : TokenKind) -> bool)(
   cond(
     (kind == TokenKind.SingleLineComment) => true,
@@ -58,7 +55,7 @@ is_line_comment_token :: (fn(kind : TokenKind) -> bool)(
   )
 );
 /// True iff `kind` is an atom-like token (Identifier / Integer / Float /
-/// Bool / StringLit / CharLit / TemplateString). Mirrors `ATOM_LIKE_TOKEN_TYPES`.
+/// Bool / StringLit / CharLit / TemplateString).
 is_atom_like_token :: (fn(kind : TokenKind) -> bool)(
   cond(
     (kind == TokenKind.Identifier) => true,
@@ -72,7 +69,7 @@ is_atom_like_token :: (fn(kind : TokenKind) -> bool)(
   )
 );
 /// True iff `name` is a directory the formatter should skip when walking
-/// `format_yo_files`. Mirrors `IGNORED_FORMAT_DIRS`.
+/// `format_yo_files`.
 is_ignored_format_dir :: (fn(name : String) -> bool)(
   cond(
     (name == ".git") => true,
@@ -86,8 +83,7 @@ is_ignored_format_dir :: (fn(name : String) -> bool)(
 // ---------------------------------------------------------------------------
 // Public option / result records
 // ---------------------------------------------------------------------------
-/// Options passed to `format_yo_files`. in
-/// `src/formatter.ts`. `check` = true switches to dry-run mode (no writes,
+/// Options passed to `format_yo_files`. `check` = true switches to dry-run mode (no writes,
 /// `changed` lists files that WOULD be rewritten). `cwd` is the directory
 /// from which relative paths are resolved.
 FormatYoFilesOptions :: struct(
@@ -95,18 +91,16 @@ FormatYoFilesOptions :: struct(
   cwd : String
 );
 /// Result of `format_yo_files`. `files` is every file visited, `changed` is
-/// the subset that was rewritten (or would be in `check` mode). Mirrors
-/// 
+/// the subset that was rewritten (or would be in `check` mode).
 FormatYoFilesResult :: struct(
   files : ArrayList(String),
   changed : ArrayList(String)
 );
 // ---------------------------------------------------------------------------
-// Small helpers (mostly from src/formatter.ts lines 1093-1334)
+// Small helpers
 // ---------------------------------------------------------------------------
 /// True iff `previous` (the token immediately before `(`) makes the paren a
-/// call delimiter — i.e. the paren follows an rvalue-end. Mirrors
-/// `parenIsCallDelimiter`.
+/// call delimiter — i.e. the paren follows an rvalue-end.
 paren_is_call_delimiter :: (fn(previous : Option(Token)) -> bool)(
   match(
     previous,
@@ -238,8 +232,7 @@ _trim_trailing_h_ws :: (fn(s : String) -> String)({
     true => s.substring(usize(0), s.len() - k)
   )
 });
-/// Count the leading `[ \t]*` characters of `line`. Mirrors
-/// `leadingWhitespaceLength`.
+/// Count the leading `[ \t]*` characters of `line`.
 leading_whitespace_length :: (fn(line : String) -> usize)({
   n := line.len();
   (i : usize) = usize(0);
@@ -264,8 +257,7 @@ leading_whitespace_length :: (fn(line : String) -> usize)({
 // Token-iteration helpers
 // ---------------------------------------------------------------------------
 /// Walk past comment tokens (anything matching `is_comment_token`) before
-/// `index`, returning the nearest non-comment predecessor. Mirrors
-/// `previousMeaningfulToken`.
+/// `index`, returning the nearest non-comment predecessor.
 previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Option(Token))({
   if(index == usize(0), {
     return(Option(Token).None);
@@ -623,8 +615,7 @@ find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_cur
 // ---------------------------------------------------------------------------
 /// True iff `previous` is an Operator AND the paren range
 /// `(left_index, right_index)` contains a top-level curly. In that case
-/// the operator's RHS must render as a block (multiline). Mirrors
-/// `shouldForceOperatorRhsBlock`.
+/// the operator's RHS must render as a block (multiline).
 should_force_operator_rhs_block :: (
   fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, previous : Option(Token)) -> bool
 )(
@@ -718,8 +709,7 @@ has_top_level_curly_argument :: (
   found
 });
 /// True iff the paren range contains a top-level `:` operator (a struct-
-/// field-style label) followed by a top-level curly. Mirrors
-/// `hasTopLevelFieldBlock`.
+/// field-style label) followed by a top-level curly.
 has_top_level_field_block :: (
   fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )({
@@ -1562,9 +1552,8 @@ is_redundant_grouping_paren :: (
 );
 /// True iff removing the redundant grouping paren at `(left_index,
 /// right_index)` would expose the inner operator to a surrounding
-/// operator that would then re-parse the meaning incorrectly. Mirrors
-/// `parenRemovalWouldExposeOperatorRhsInfix`, with the content test
-/// upgraded to infix-awareness (plans/archive/FMT_PAREN_ELISION.md): a LEADING
+/// operator that would then re-parse the meaning incorrectly. The content
+/// test is infix-aware (plans/archive/FMT_PAREN_ELISION.md): a LEADING
 /// prefix run (`(-x)`, `(?*(x))`) is a single operand, not an exposed
 /// chain — only a top-level INFIX operator inside the group exposes.
 paren_removal_would_expose_operator_rhs_infix :: (
@@ -1946,8 +1935,7 @@ is_tightly_bound_operator :: (
   )
 });
 /// Split a block-comment string by newlines and trim trailing whitespace.
-/// If indented continuation lines share a common indent, strip it. Mirrors
-/// `normalizeMultilineBlockComment`.
+/// If indented continuation lines share a common indent, strip it.
 normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
   // Split raw on '\n', trim each line's trailing horizontal whitespace.
   lines := ArrayList(String).new();
@@ -2252,7 +2240,7 @@ raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize)
 /// bytes per call in tests/internal/formatter.test.yo), while the module
 /// globals pattern (`g_loader_std_path` family) is allocation-free.
 (g_fmt_elided_tokens : usize) = usize(0);
-/// 1-to-1 port of  Throws via the
+/// The formatting pipeline proper. Throws via the
 /// implicit `Exception` handler on lexer/parser errors.
 ///
 /// Algorithm summary:
@@ -3010,22 +2998,18 @@ _format_yo_source_impl :: (
                     );
                   },
                   (token.kind == TokenKind.Dot) => {
-                    // Mirrors formatter.ts:381-385 — `trimTrailingHorizontalWhitespace(); write(".")`.
-                    // TS routes EVERY emit through `write()`, which calls
-                    // `writeIndentIfNeeded()` first; yo-self inlines that helper at each
-                    // site and this one was missed, so a line-leading dot was pushed
-                    // BEFORE the pending indent and left `at_line_start` set. The next
-                    // token then wrote the indent after it, formatting every match arm as
-                    // `.    Some(v) =>` instead of `    .Some(v) =>`.
+                    // `trimTrailingHorizontalWhitespace(); write(".")` — the pending
+                    // indent (when at line start) must be emitted BEFORE the dot:
+                    // a line-leading dot pushed first leaves `at_line_start` set, and
+                    // the next token then writes the indent after it, formatting
+                    // every match arm as `.    Some(v) =>` instead of `    .Some(v) =>`.
                     //
                     // The trim is for MEMBER ACCESS only — a dot WITH a left operand
                     // binds tight to it (`str. len()` → `str.len()`). A PREFIX dot
                     // (`.Some`) has no left operand: it follows a comma or an operator
                     // whose handler just established a space, and trimming ate it,
-                    // emitting `,.Some` / `=.Some` / `=>.Err` / `:.Some`. Both
-                    // formatters carried this bug identically (measured: given either
-                    // spelling as input, both normalized to tight), so both change
-                    // together. `needs_space_before_atom` is exactly the "has a left
+                    // emitting `,.Some` / `=.Some` / `=>.Err` / `:.Some`.
+                    // `needs_space_before_atom` is exactly the "has a left
                     // operand" predicate — false after a comma, an operator, or `(`,
                     // so `(.Some` stays tight while `, .Some` keeps its space.
                     // See plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md.
@@ -3044,7 +3028,6 @@ _format_yo_source_impl :: (
                     result.push_str(".");
                   },
                   (token.kind == TokenKind.Operator) => {
-                    // Operator-handling cascade matches TS lines 386-426
                     is_colon_in_inline_curly := ((token.value == ":") && (inline_curly_depth > usize(0)));
                     cond(
                       is_colon_in_inline_curly => {
@@ -3301,10 +3284,8 @@ collect_yo_files :: (
 });
 /// Resolve `input_paths` to a list of `.yo` file paths. If `input_paths` is
 /// empty, defaults to ["."]. Each input is resolved against `fmt_cwd` unless
-/// already absolute (TS: `path.resolve(cwd, inputPath)`, formatter.ts:484).
-/// Throws via `exn` if any input path does not exist. The result is sorted
-/// with adjacent duplicates dropped — TS collects into a `Set` and returns
-/// `[...files].sort()` (formatter.ts:481, :491).
+/// already absolute. Throws via `exn` if any input path does not exist. The
+/// result is sorted with adjacent duplicates dropped.
 find_yo_format_files :: (
   fn(
     input_paths : ArrayList(String),

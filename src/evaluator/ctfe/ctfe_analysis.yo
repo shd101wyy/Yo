@@ -1,7 +1,6 @@
 //! evaluator/ctfe/ctfe_analysis — CTFE (Compile-Time Function Evaluation) analysis.
 //!
-//! 1:1 port of `src/evaluator/ctfe/ctfe-analysis.ts`, which exports
-//! `createComptimeFunctionType` and `analyzeCtfeCapability`.
+//! Exports `create_comptime_function_type` and `analyze_ctfe_capability`.
 //!
 //! Analyse whether a function can be evaluated at compile time by building a
 //! comptime version of its type (all params + return `isCompileTimeOnly`) and
@@ -9,12 +8,12 @@
 //! becomes a candidate during call resolution.
 //!
 //! WHY THIS FILE EXISTS AS ITS OWN MODULE (2026-08-05): it used to be a stub,
-//! with the analysis living privately inside `evaluator/builtins/comptime_fn.yo`.
-//! TS calls `analyzeCtfeCapability` from THREE sites and yo-self reached it from
-//! only one, so nested functions met during a CTFE analysis were never analysed
-//! — see `issues/yo-self-ctfe-nested-fn-analysis-gap.md`. The other two callers
+//! with the analysis living privately inside `evaluator/builtins/comptime_fn.yo`
+//! and reached from only one call site, so nested functions met during a CTFE
+//! analysis were never analysed (see
+//! `issues/yo-self-ctfe-nested-fn-analysis-gap.md`). The other callers
 //! (`calls/function_type.yo`, `values/anonymous_function.yo`) cannot import the
-//! builtin without a cycle, which is exactly why TS keeps this in its own module.
+//! builtin without a cycle, hence this separate module.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
@@ -53,9 +52,8 @@ pragma(Pragma.AllowUnsafe);
 { type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { Exception } :: import("std/error");
-/// The result of a successful CTFE analysis. TS returns a single
-/// `FunctionValue` whose `.type` carries the comptime type; yo-self keeps value
-/// and type separate, so both come back together.
+/// The result of a successful CTFE analysis. Value and type are kept
+/// separate, so both come back together.
 CtfeComptimeFn :: struct(value : EvalValue, ty : TypeValue);
 // ---------------------------------------------------------------------------
 // _to_comptime_type
@@ -63,8 +61,6 @@ CtfeComptimeFn :: struct(value : EvalValue, ty : TypeValue);
 /// Convert a runtime TypeValue to its comptime equivalent.
 /// Returns `.Some(comptime_ty)`, or `.None` if the type cannot be promoted to
 /// comptime (e.g. structs, pointers, bools).
-///
-/// Mirrors the return-type portion of `createComptimeFunctionType`.
 _to_comptime_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty,
@@ -224,9 +220,8 @@ _eval_body_for_ctfe :: (
   ctx_p.force_compile_time_bindings = true;
   ctx_p.is_executing = true;
   // `evaluate_recur` DOES read func_type (recur.yo:128 hard-errors on .None),
-  // so it must carry the function type — TS ctfe-analysis.ts:183-188 sets
-  // `type: comptimeFunctionType` here for exactly that reason ("Use the
-  // compile-time function value for recur").
+  // so it must carry the comptime function type — recur must resolve against
+  // the compile-time function value.
   ctx_p.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
@@ -235,15 +230,13 @@ _eval_body_for_ctfe :: (
       eval_env : snapshot_env(ctfe_env)
     )
   );
-  // Evaluate a FRESH-ID CLONE of the body, mirroring TS's
-  // `cloneExpr(functionValue.body)`. This is LOAD-BEARING, not
-  // hygiene: yo-self's ExprInfo table is keyed by expr id, so analysing the
+  // Evaluate a FRESH-ID CLONE of the body. This is LOAD-BEARING, not
+  // hygiene: the ExprInfo table is keyed by expr id, so analysing the
   // ORIGINAL tree overwrites the annotations the RUNTIME evaluation of the same
   // nodes produced. With the nested-function call site wired up, that clobbered a
   // nested `fn`'s info with the comptime clone — which is marked UNEMITTABLE — and
   // the enclosing runtime function then emitted
-  // `// Failed to transpile helper(x)`. TS is immune because its per-node `expr.$`
-  // annotations land on the clone. Same reasoning as calls/comptime_fn.yo:913-919.
+  // `// Failed to transpile helper(x)`. Same reasoning as calls/comptime_fn.yo:913-919.
   body_expr := clone_expr_fresh_ids(body_box);
   evaled := evaluate_begin_expression(
     body_expr,
@@ -269,9 +262,8 @@ _eval_body_for_ctfe :: (
 // ---------------------------------------------------------------------------
 // _try_eval_body_swallowing
 // ---------------------------------------------------------------------------
-/// `_eval_body_for_ctfe` under a SWALLOWING exception handler — this is yo-self's
-/// spelling of TS's `try { … } catch (e) { return undefined }`
-/// (`ctfe-analysis.ts:206-209`). A function that cannot be CTFE'd must leave the
+/// `_eval_body_for_ctfe` under a SWALLOWING exception handler: a function
+/// that cannot be CTFE'd must leave the
 /// caller untouched rather than fail the whole compile, which matters most at the
 /// nested-function call sites: an ordinary runtime helper defined inside a
 /// comptime-executing body is expected to fail this analysis.
@@ -282,8 +274,7 @@ _eval_body_for_ctfe :: (
 /// comes back through `out`, which stays EMPTY when the analysis was swallowed.
 /// `unwind(())` is valid only because THIS function returns `unit`.
 ///
-/// `YO_DEBUG_CTFE_ANALYZE=1` prints every swallowed error, mirroring the TS
-/// module's own `YO_DEBUG_CTFE_ANALYZE` instrumentation.
+/// `YO_DEBUG_CTFE_ANALYZE=1` prints every swallowed error.
 _try_eval_body_swallowing :: (
   fn(
     func_value : EvalValue,
@@ -362,8 +353,8 @@ _build_comptime_clone :: (
     );
     register_func_type(ct_new_id.clone(), comptime_func_type.clone());
     mark_fn_unemittable(ct_new_id.clone());
-    // yo-self keys the per-fn metadata in SIDE TABLES by fid (TS carries it
-    // inline on the FunctionValue) — the comptime clone needs the full set or
+    // Per-fn metadata lives in SIDE TABLES keyed by fid — the comptime clone
+    // needs the full set or
     // evaluate_comptime_fn_call executes it as a metadata-less fn (params not
     // comptime-flagged, no return-type expr, …) and the CTFE result degrades to
     // a runtime UnknownVal (fn arm 11 layer 3).
@@ -387,16 +378,14 @@ _build_comptime_clone :: (
 /// Analyse whether `func_value` can be evaluated at compile time; on success
 /// return its comptime function value + type, otherwise `.None`.
 ///
-///
-/// INCLUDING its `try { … } catch { return undefined }`: a function that cannot
-/// be CTFE'd must leave the caller untouched rather than fail the compile. yo-self
-/// spells the catch as a capture-free `->` Exception handler that `unwind`s (the
+/// Swallow-failure semantics: a function that cannot be CTFE'd must leave the
+/// caller untouched rather than fail the compile. The catch is spelled as a
+/// capture-free `->` Exception handler that `unwind`s (the
 /// same swallow idiom as `_trial_eval_fn_body` in `calls/function_type.yo`), so
 /// the result is collected through an out-list — `unwind` discards the
 /// continuation, so a swallowed analysis simply leaves the list empty.
 ///
-/// `YO_DEBUG_CTFE_ANALYZE=1` prints each swallowed analysis error, mirroring the
-/// TS module's own `YO_DEBUG_CTFE_ANALYZE` instrumentation.
+/// `YO_DEBUG_CTFE_ANALYZE=1` prints each swallowed analysis error.
 analyze_ctfe_capability :: (
   fn(
     func_value : EvalValue,

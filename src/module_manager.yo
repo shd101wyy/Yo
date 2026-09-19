@@ -1,29 +1,17 @@
 //! `module_manager.yo` — the shared "evaluate a `.yo` file and read its
-//! exports" service. Port of `src/module-manager.ts`.
+//! exports" service, used by `build`, `fetch`, `install`, `doc`, the test
+//! runner and codegen: load the module for its registry effects, then reset.
 //!
-//! TS's `ModuleManager` is what `build`, `fetch`, `install`, `doc`, the test
-//! runner and codegen all import; the pattern at every one of those call sites
-//! is the same three lines:
-//!
-//! ```ts
-//! const moduleManager = new ModuleManager();
-//! moduleManager.loadModule(modulePath);   // evaluate for its registry effects
-//! moduleManager.resetAllState();
-//! ```
-//!
-//! This module is the yo-self counterpart of exactly that. It owns the
+//! It owns the
 //! demand-driven module loader (previously inline in `main.yo`), the cached
 //! prelude environment, the shared codegen `ExprInfoTable`, and the std-path
 //! resolution — so a subcommand that needs to evaluate a `.yo` file calls
 //! `mm_load_yo_file` instead of growing its own half-copy of the loader.
 //!
-//! Structural note: TS keys its cache off the module path and stores per-module
-//! annotations ON the AST node (`expr.$`), so its `ModuleManager` can hold a map
-//! of live `Evaluator` instances. yo-self keys a SIDE table by expr id and holds
-//! the module cache in `evaluator/module_loader.yo`, so the state that TS keeps
-//! in instance fields lives here as module-level globals. The API is the same
-//! service; the storage is not, and a literal port of the class would have been
-//! wrong (plans/archive/P1_CLI_PARITY.md §7).
+//! Structural note: annotations live in a SIDE table keyed by expr id and the
+//! module cache lives in `evaluator/module_loader.yo`, so state that would
+//! otherwise be instance fields lives here as module-level globals
+//! (plans/archive/P1_CLI_PARITY.md §7).
 // `resolve_std_path` reads `YO_STD` through libc `getenv`, which needs a raw
 // `*(char)` — same reason `main.yo` carries this pragma.
 pragma(Pragma.AllowUnsafe);
@@ -139,16 +127,15 @@ env_mod :: import("std/env");
 /// surfacing it as `LoadModuleResult.module_error`. That routes a failed
 /// `import("…")` back through the CALLER's exn at the import site
 /// (`evaluate_import` rethrows `module_error`), where `comptime_expect_error`
-/// can catch it — TS parity: a module whose top-level eval throws inside
+/// can catch it — a module whose top-level eval throws inside
 /// `comptime_expect_error(import("…"))` is an EXPECTED error, not a
 /// driver-fatal one (tests/circular_import.test.yo's circular_error fixture).
 (g_load_module_error : Option(String)) = Option(String).None;
 /// Outcome of evaluating one `.yo` file: `ok` plus the module value/type when
-/// the evaluation succeeded. This is yo-self's `{ moduleValue, moduleError }`.
+/// the evaluation succeeded.
 ///
-/// `env` and `ctx` are carried too. TS keeps the live `Evaluator` in
-/// `ModuleManager.modules`, and `doc-command.ts` reaches through it for the
-/// module's environment; codegen needs both. Dropping them here would force
+/// `env` and `ctx` are carried too: `doc_command.yo` needs the module's
+/// environment, and codegen needs both. Dropping them here would force
 /// every such caller to re-run the load with its own copy of the loader setup.
 ModuleLoadOutcome :: struct(
   ok : bool,
@@ -171,20 +158,17 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
   )
 );
 // ---------------------------------------------------------------------------
-// std path resolution — TS `findStdDirectory` / `ModuleManager.stdPath`
+// std path resolution
 // ---------------------------------------------------------------------------
 /// The `--std-path` CLI override (highest-precedence std root). `main.yo`
 /// strips the flag from argv before subcommand dispatch and stashes the
-/// value here — the TS counterpart is the root-level yargs option +
-/// `setStdPathOverride` middleware in `yo-cli.ts`.
+/// value here.
 (g_std_path_override : Option(String)) = Option(String).None;
 set_std_path_override :: (fn(path : String) -> unit)({
   g_std_path_override = Option(String).Some(path);
 });
 /// The stashed `--std-path` override, if any. `build_runner.yo` forwards it
-/// to child `compile`/`test` processes — TS needs no equivalent because its
-/// build runner compiles artifacts in-process, where the override already
-/// applies.
+/// to child `compile`/`test` processes.
 get_std_path_override :: (fn() -> Option(String))({
   return(g_std_path_override.clone());
 });
@@ -217,7 +201,7 @@ _std_canonicalize :: (fn(p : String) -> String)({
   });
   path.normalize().to_string()
 });
-/// Lookup order (mirrors TS `module-manager.ts` `findStdDirectory`):
+/// Lookup order:
 ///   1. The `--std-path` CLI flag (stashed via `set_std_path_override`).
 ///   2. `YO_STD` env var, if set and non-empty.
 ///   3. A `std` directory next to — or in any ancestor of — the running
@@ -1333,7 +1317,7 @@ mm_revalidate_apply :: (
     revalidated : revalidated
   )
 });
-/// TS `ModuleManager.resetAllState()`. Drops the module cache, the cached
+/// Drops the module cache, the cached
 /// prelude env, the shared ExprInfoTable and the loader context, so the next
 /// load starts from a clean evaluator universe.
 mm_reset :: (fn() -> unit)({
@@ -1911,9 +1895,8 @@ _prelude_load_outcome :: (fn(input_path : String, std_path : String) -> ModuleLo
 /// error via a local exception handler so a directory walk keeps going across
 /// files. `verbose` prints the `check: …` progress chatter.
 ///
-/// This is TS `ModuleManager.loadModule` — with the prelude bootstrap folded in,
-/// because unlike TS (where the prelude is just another cached module) yo-self
-/// clones a cached prelude env into every file.
+/// The prelude bootstrap is folded in: a cached prelude env is cloned into
+/// every file.
 mm_load_file :: (
   fn(
     input_path : String,
@@ -1939,8 +1922,7 @@ mm_load_file :: (
   );
   _load_imports_file(exn);
   _register_manifest_import_roots(mm_resolve_entry_abs(input_path.clone(), std_path.clone()).replace(String.from("file://"), String.new()), exn);
-  // A prelude that is already cached is a HIT — never re-evaluate it (TS
-  // parity: a checked prelude is a module-cache hit in `loadModule`). The env
+  // A prelude that is already cached is a HIT — never re-evaluate it. The env
   // cache below is populate-once, but before this guard the prelude BODY was
   // still re-evaluated, registering every impl a second time into the
   // process-wide registries under fresh type identities — which corrupts
@@ -1952,10 +1934,10 @@ mm_load_file :: (
     });
     return(_prelude_load_outcome(input_path.clone(), std_path.clone()));
   });
-  // ANY already-cached module is a HIT — never re-evaluate it (TS parity:
-  // `check`'s CodeGenerator reuse makes a file already loaded as a DEPENDENCY
-  // of an earlier file "a cache hit on the second pass; we still re-run the
-  // 'evaluator OK' report … but no real work happens", yo-cli.ts). The guard
+  // ANY already-cached module is a HIT — never re-evaluate it: a file already
+  // loaded as a DEPENDENCY of an earlier file is a cache hit on the second
+  // pass; only the 'evaluator OK' report is re-run, no real work happens. The
+  // guard
   // above covered only the prelude; every other cached module was
   // re-evaluated, re-registering its impls under fresh type identities — the
   // re-check of std/string/string.yo then def-evaled its `Eq(String)` impl's
@@ -2075,9 +2057,8 @@ mm_preload_prelude :: (
   ok
 });
 /// The front door for a subcommand that just needs a `.yo` file evaluated for
-/// its exports / registry side effects — TS's three-line
-/// `new ModuleManager(); loadModule(path); resetAllState();` pattern, minus the
-/// reset (callers that want a clean universe afterwards call `mm_reset`).
+/// its exports / registry side effects (callers that want a clean universe
+/// afterwards call `mm_reset`).
 ///
 /// Resolves the std path itself, so callers do not each re-derive it.
 mm_load_yo_file :: (

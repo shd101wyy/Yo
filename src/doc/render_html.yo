@@ -1,19 +1,15 @@
 //! doc/render_html — render a DocModel to a self-contained static HTML site.
-//! 1:1 port of `src/doc/render-html.ts`.
 //!
-//! Markdown→HTML goes through `markdown_yo` — the TS side loads its npm WASM
-//! build (`createRenderer(null, {html: true, fullFeatures: true})`); this port
-//! imports the library's SOURCE as an ordinary dependency — `yo.toml` pins
-//! `markdown_yo` by rev and `yo install` puts it in the store, so the name
-//! resolves through Yo's own package management — and builds the equivalent
-//! `Options`: `default_options()` + `html` + every
-//! `fullFeatures` flag the npm loader sets (see npm/index.js `buildFlags`:
-//! subscript, superscript, mark, math, emoji, wikilink, critic, abbr,
-//! deflist, admonition, callout, footnote — NOT typographer/breaks/xhtml/
-//! sourceMap/commonmark).
+//! Markdown→HTML goes through `markdown_yo`, imported as an ordinary
+//! dependency — `yo.toml` pins `markdown_yo` by rev and `yo install` puts it
+//! in the store, so the name resolves through Yo's own package management.
+//! The Options (see `_doc_md_options`) are `default_options()` + `html` +
+//! the library's full-features set: subscript, superscript, mark, math,
+//! emoji, wikilink, critic, abbr, deflist, admonition, callout, footnote —
+//! NOT typographer/breaks/xhtml/sourceMap/commonmark.
 //!
 //! The static CSS / search JS / highlight JS live in
-//! `render_html_assets.yo`, extracted verbatim from the TS templates.
+//! `render_html_assets.yo`.
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -41,7 +37,8 @@ import("std/fmt");
 { generate_css, generate_search_js, generate_highlight_js } :: import("./render_html_assets.yo");
 { markdown_to_html, Options, default_options } :: import("markdown_yo");
 // ── Markdown rendering ───────────────────────────────────────────────
-/// The Options the TS renderer runs with ({html: true, fullFeatures: true}).
+/// The markdown Options doc rendering runs with: `default_options()` +
+/// `html` plus every full-features flag.
 _doc_md_options :: (fn() -> Options)({
   (o : Options) = default_options();
   o.html = true;
@@ -334,12 +331,11 @@ _search_entry_json :: (
 // ── firstSentence ────────────────────────────────────────────────────
 /// First line trimmed, cut at the first `.!?` that is followed (after any
 /// closers `` ` " ' ’ ” ) ] } > ``) by whitespace or end; capped at 120.
-/// Mirrors the TS regex `^.*?[.!?](?=(?:[`"'’”)\]}>]*)(?:\s|$))`.
 _first_sentence :: (fn(text : String) -> String)({
   trimmed := text.trim();
   first_line := match(trimmed.split(String.from("\n")).get(usize(0)), .Some(l) => l, .None => String.new());
   line := first_line.trim();
-  // Strip a trailing \r (the TS split is /\r?\n/).
+  // Strip a trailing \r (CRLF line endings).
   lb := line.as_bytes();
   (ln : usize) = lb.len();
   if((ln > usize(0)) && (match(lb.get(ln - usize(1)), .Some(x) => x, .None => u8(0)) == u8(13)), {
@@ -402,7 +398,7 @@ _first_sentence :: (fn(text : String) -> String)({
     });
     i = (i + usize(1));
   });
-  // Cap at 120 CHARS (TS slice(0,120) is UTF-16 units; doc text is ASCII-ish).
+  // Cap at 120 CHARS, not bytes (doc text is ASCII-ish).
   // Doc text is arbitrary human prose, so the cut must land on a rune
   // boundary — a fixed byte cut would emit invalid UTF-8 into the search
   // index (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S6).
@@ -418,9 +414,9 @@ _first_sentence :: (fn(text : String) -> String)({
 _first_sentence_opt :: (fn(doc : Option(String)) -> Option(String))(
   match(doc, .Some(d) => Option(String).Some(_first_sentence(d)), .None => Option(String).None)
 );
-/// Build the search index as ORDERED JSON entry strings (the TS entries are
-/// serialized with JSON.stringify in wrapPage; entries here are pre-encoded
-/// but href rewriting for module pages needs the raw href, so keep pairs).
+/// Build the search index as ORDERED JSON entry strings — entries are
+/// pre-encoded, but href rewriting for module pages needs the raw href, so
+/// keep pairs.
 SearchEntry :: struct(
   name : String,
   kind : String,

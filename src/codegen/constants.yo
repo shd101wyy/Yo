@@ -1,22 +1,17 @@
-//! C codegen constants — mirrors `src/codegen/constants.ts`.
+//! C codegen constants.
 //!
 //! Two exported predicates drive emitter decisions:
 //!   * `is_builtin_yo_inline_function` — membership in the flat list of
 //!     builtin function names codegen emits INLINE (C operators, pointer ops,
 //!     `str` ops, casts, intrinsics) rather than as ordinary C function calls.
-//!     (a `string[]`).
 //!   * `is_primitive_type_tag` — membership in the set of `TypeTag`s that
 //!     lower to a primitive C scalar.
-//!     (a `Set<TypeTag>`).
 //!
-//! LANGUAGE-FORCED DIVERGENCE: Yo `export(...)` requires compile-time values,
-//! so the runtime-built `string[]` / `Set<TypeTag>` collections cannot be
-//! exported directly. They live as module-level globals (read-only after
-//! init) and are exposed through membership predicates. The TS call sites
-//! (`exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)`,
-//! `BuiltinYoInlineFunctions.includes(name)`, `PrimitiveTypeTags.has(tag)`)
-//! all reduce to these predicates. Names are stored as `String` to match the
-//! AST token-value type the callers compare against.
+//! `export(...)` requires compile-time values, so the runtime-built
+//! collections cannot be exported directly. They live as module-level
+//! globals (read-only after init) and are exposed through membership
+//! predicates. Names are stored as `String` to match the AST token-value
+//! type the callers compare against.
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -168,12 +163,10 @@ _build_primitive_type_tags :: (fn() -> HashSet(TypeTag))({
 });
 PrimitiveTypeTags := _build_primitive_type_tags();
 /// True if `name` is a builtin function that codegen emits inline.
-/// Mirrors `BuiltinYoInlineFunctions.includes(name)`.
 is_builtin_yo_inline_function :: (fn(name : String) -> bool)(
   BuiltinYoInlineFunctions.contains(name)
 );
 /// True if `t` lowers to a primitive C scalar.
-/// Mirrors `PrimitiveTypeTags.has(t)`.
 is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
   PrimitiveTypeTags.contains(t)
 );
@@ -184,11 +177,9 @@ is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
 /// The exception handler codegen fatals are routed through — registered by
 /// `compile_module` (codegen_c.yo) at entry, exactly like the
 /// `set_evaluate_expression_fn` global-pointer pattern in
-/// `evaluator/exprs/expr.yo`. TS throws from deep inside the emitters and the
-/// CLI's top-level catch turns that into a clean rc=1; yo-self's emitters do
-/// not thread `exn`, so before this slot existed they had to `__yo_panic`
-/// (SIGABRT, rc=134) — a raw abort where TS reports a compile error. See the
-/// await-position cli-cases.
+/// `evaluator/exprs/expr.yo`. Emitters do not thread `exn`, so without this
+/// slot a fatal would have to `__yo_panic` (SIGABRT, rc=134) instead of
+/// exiting with a clean rc=1. See the await-position cli-cases.
 (g_codegen_fatal_exn : Option(Exception)) = Option(Exception).None;
 /// Register the handler fatal codegen errors unwind through.
 set_codegen_fatal_exn :: (fn(exn : Exception) -> unit)({

@@ -1,16 +1,16 @@
-//! C include-header collection + emission — mirrors `src/codegen/c/collection.ts`.
+//! C include-header collection + emission.
 //!
-//! NOTE (issues/retired/codegen-port-type-model-gaps.md): TS reads `type.cInclude`
-//! off each collected type. yo-self's TypeValue carries no general cInclude,
-//! so the include is stored on the registry ENTRY (CodegenTypeEntry /
-//! CodegenExternFnEntry, supplied at registration) and read from there here.
+//! NOTE (issues/retired/codegen-port-type-model-gaps.md): `TypeValue` carries
+//! no general C-include field, so the include is stored on the registry ENTRY
+//! (CodegenTypeEntry / CodegenExternFnEntry, supplied at registration) and
+//! read from there here.
 { String } :: import("std/string");
 { CodeGenContext } :: import("../utils/index.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 { emit_fixed_allocator_defines, emit_fixed_allocator_impl } :: import("./allocator_fixed.yo");
 /// Collect C include headers from the collected types and extern functions.
 collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
-  // Collect cIncludes from all collected types. (Loop via a flag, NOT
+  // Collect C includes from all collected types. (Loop via a flag, NOT
   // `return(())` — a bare return would exit the whole function and skip the
   // extern-function pass below.)
   type_vals := context.types.values();
@@ -30,7 +30,7 @@ collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
       }
     );
   });
-  // Collect cIncludes from all extern functions.
+  // Collect C includes from all extern functions.
   fn_vals := context.extern_functions.values();
   (go_fns : bool) = true;
   while(go_fns, {

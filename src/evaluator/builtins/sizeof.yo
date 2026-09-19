@@ -1,7 +1,5 @@
 //! evaluator/builtins/sizeof — implements evaluate_size_of.
 //!
-//! 1:1 port of `src/evaluator/builtins/sizeof.ts`.
-//!
 //! `sizeof(T)` evaluates the argument expression, resolves it to a type,
 //! and returns the size of that type in bytes as a `usize` value.
 //! If the size is not statically known, returns an unknown `usize`.
@@ -98,8 +96,7 @@ evaluate_size_of :: (
       out_info.value = .Some(EvalValue.IntLit(bytes.to_string()));
     },
     .None => {
-      // Unknown size (e.g. `sizeof(T)` with T a SomeT at def-eval): TS
-      // returns `createUnknownValue(usize)` — a
+      // Unknown size (e.g. `sizeof(T)` with T a SomeT at def-eval): return a
       // comptime-acceptable typed unknown — NOT a value-less runtime
       // result. Leaving `.None` here made `type_size :: sizeof(T)` reject
       // with "Expected compile-time value" and cascaded 64 std files

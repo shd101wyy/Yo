@@ -1,7 +1,5 @@
 //! evaluator/builtins/alignof — implements evaluate_align_of.
 //!
-//! 1:1 port of `src/evaluator/builtins/alignof.ts`.
-//!
 //! `alignof(T)` evaluates the argument expression, resolves it to a type,
 //! and returns the alignment of that type in bytes as a `usize` value.
 //! If the alignment is not statically known, returns an unknown `usize`.
@@ -97,11 +95,11 @@ evaluate_align_of :: (
       out_info.value = .Some(EvalValue.IntLit(bytes.to_string()));
     },
     .None => {
-      // Unknown alignment (e.g. `alignof(T)` with T a SomeT at def-eval): TS
-      // returns `createUnknownValue(usize)` — a comptime-acceptable
+      // Unknown alignment (e.g. `alignof(T)` with T a SomeT at def-eval):
+      // produce a comptime-acceptable
       // typed unknown, NOT a value-less result. Leaving `.None` here made the
-      // def-time body eval throw "Incompatible types" downstream (mirrors the
-      // sizeof.yo:104-112 fix).
+      // def-time body eval throw "Incompatible types" downstream (same fix as
+      // sizeof.yo:104-112).
       out_info.value = .Some(create_unknown_val(t_usize()));
     }
   );

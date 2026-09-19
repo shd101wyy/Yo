@@ -1,8 +1,5 @@
 //! evaluator/builtins/consume — implements evaluate_consume and set_variable_as_consumed.
 //!
-//! 1:1 port of `src/evaluator/builtins/consume.ts` (for evaluate_consume) and
-//! the `setExprAsConsumed` helper from `src/expr.ts`.
-//!
 //! `set_variable_as_consumed` is also exported for use by drop.yo and dup.yo.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -34,9 +31,9 @@
 /// If the variable is already consumed and `allow_consume_again` is false, throws.
 /// If `is_type_val` is true, skips consumption (type values are always reusable).
 ///
-/// This is the core of , split to allow
-/// callers in yo-self to pass the ExprInfo fields explicitly (since yo-self stores
-/// ExprInfo in a separate table rather than inline on the AST node).
+/// Split into a standalone helper so callers can pass the ExprInfo fields
+/// explicitly (ExprInfo is stored
+/// in a separate table rather than inline on the AST node).
 set_variable_as_consumed :: (
   fn(
     variable_name : String,
@@ -94,10 +91,9 @@ set_variable_as_consumed :: (
       // Set the variable as consumed. `variable` IS the env's Variable object
       // (get_variables_from_env returns refs; Variable is reference-semantics),
       // so the field write below mutates it in place — no update_existing_variable
-      // write-back scan needed. TS needs the write-back because its `{...variable}`
-      // spread makes a COPY; the alias-then-scan port of that was a pure no-op
-      // that dominated evaluation (88% of a heavy `check` sat in this scan's
-      // String-id compares under scope-end drop scheduling).
+      // write-back scan needed. An earlier alias-then-scan version was a pure
+      // no-op that dominated evaluation: 88% of a heavy `check` sat in that
+      // scan's String-id compares under scope-end drop scheduling.
       variable.consumed_at_token = Option(Box(Token)).Some(box(token.clone()));
     }
   );

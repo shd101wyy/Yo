@@ -1,7 +1,5 @@
 //! evaluator/builtins/drop — implements evaluate_drop.
 //!
-//! 1:1 port of `src/evaluator/builtins/drop.ts`.
-//!
 //! NOTE: The RC-owning paths (tuple drop, array drop, struct ___drop()) require
 //! `type_contains_rc_type` to return true and `generate_expr_from_code` to exist.
 //! Since `type_contains_rc_type` is currently a stub returning `false`, those
@@ -93,7 +91,7 @@ evaluate_drop :: (
     .None => ()
   );
   out_info := new_expr_info(cur_env, t_unit());
-  // value is None (runtime) — mirrors `value: undefined` in TS for the non-RC path
+  // value is None (runtime) for the non-RC path
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

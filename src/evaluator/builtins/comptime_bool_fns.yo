@@ -1,7 +1,5 @@
 //! evaluator/builtins/comptime_bool_fns — implements evaluate_yo_comptime_boolean_functions.
 //!
-//! 1:1 port of `src/evaluator/builtins/comptime-bool-fns.ts`.
-//!
 //! Handles all compile-time boolean operations:
 //!   __yo_comptime_bool_not, __yo_comptime_bool_to_comptime_string (unary)
 //!   __yo_comptime_bool_and, __yo_comptime_bool_or, __yo_comptime_bool_eq,
@@ -136,8 +134,7 @@ evaluate_yo_comptime_boolean_functions :: (
         EvalValue.UnitVal
       }
     );
-    // Result type from the VALUE'S TYPE (mirrors TS `type: value.type`,
-    // comptime-bool-fns.ts:91), NOT the value tag: `to_comptime_string` on an
+    // Result type from the VALUE'S TYPE, NOT the value tag: `to_comptime_string` on an
     // unknown bool builds `UnknownVal(comptime_str)`, which a tag-based match
     // (UnknownVal ≠ StrLit) wrongly typed `bool`.
     result_ty := type_of_eval_value(result_val);
