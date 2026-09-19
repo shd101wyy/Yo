@@ -32,7 +32,8 @@
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { file_exists_sync, read_file_sync, find_manifest } :: import("../../manifest.yo");
-{ record_input_file } :: import("../../input_record.yo");
+{ record_input_file, input_hashing_enabled } :: import("../../input_record.yo");
+{ sha256_hex } :: import("std/crypto/sha256");
 { Exception } :: import("std/error");
 /// Absolutize against `base` (when relative) and fold `.`/`..` LEXICALLY.
 /// Lexical on purpose: the boundary check below compares prefixes, and a
@@ -176,12 +177,21 @@ evaluate_comptime_read_file :: (
         )
       );
     });
-    content = String.from_bytes(read_file_sync(resolved.clone(), exn));
+    data_bytes := read_file_sync(resolved.clone(), exn);
+    content = String.from_bytes(data_bytes);
     // The read is an INPUT EDGE (§4.9): `--emit-deps` lists this path, so the
     // build runner's stamp invalidates the artifact when the data file changes.
     // Recorded only on a REAL read — a trial's path is computed from
-    // placeholder arguments and would poison the list.
-    record_input_file(resolved.clone());
+    // placeholder arguments and would poison the list. The hash is of the bytes
+    // just read, so a mid-compile edit cannot be absorbed
+    // (issues/yo-build-artifact-cache-serves-a-stale-binary.md).
+    record_input_file(
+      resolved.clone(),
+      cond(
+        input_hashing_enabled() => sha256_hex(data_bytes),
+        true => String.new()
+      )
+    );
   });
   info := new_expr_info(env, t_comptime_string());
   info.value = if(

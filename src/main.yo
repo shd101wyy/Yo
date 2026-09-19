@@ -125,7 +125,7 @@ json :: import("std/encoding/json");
   mm_preload_prelude,
   _take_load_error
 } :: import("./module_manager.yo");
-{ record_input_file, reset_input_files, input_files } :: import("./input_record.yo");
+{ record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, render_any_error, take_error_diagnostics } :: import("./error.yo");
 { Diagnostic } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
@@ -2717,6 +2717,8 @@ _print_compile_profile :: (
 /// line, in first-open order, newline-terminated. Deliberately NOT make's
 /// `target: dep dep` syntax — nothing here feeds `make`, and a bare list needs
 /// no escaping for the spaces and colons a real path contains.
+/// Write the depfile: one `<sha256> <absolute path>` line per input, in
+/// first-open order. `files` is `input_file_entries()`, already formatted.
 _write_depfile :: (
   fn(path : String, files : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn))
 )(
@@ -3092,12 +3094,20 @@ run_compile :: (
         emit_c = true;
         ai = (ai + usize(1));
       },
-      // `--emit-deps <path>`: the evaluation's input list, one path per line.
-      // Written once the module evaluates; a compile that dies earlier leaves
-      // no depfile, and the next build then falls back to the whole-tree walk
-      // — conservative, which is the safe direction for a cache.
+      // `--emit-deps <path>`: the evaluation's input list, one
+      // `<sha256> <absolute path>` line per input. Written once the module
+      // evaluates; a compile that dies earlier leaves no depfile, and the next
+      // build then falls back to the whole-tree walk — conservative, which is
+      // the safe direction for a cache.
+      //
+      // The hash is recorded AS EACH FILE IS READ (input_record.yo), which is
+      // what makes the build runner's recorded stamp describe the bytes this
+      // compile consumed rather than whatever is on disk when it finishes
+      // (issues/yo-build-artifact-cache-serves-a-stale-binary.md). Hashing is
+      // enabled only here, so `check`, `test` and the LSP never pay for it.
       (a_name == "--emit-deps") => {
         emit_deps_to = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        set_input_hashing(true);
         ai = (ai + _opt_step(a_val));
       },
       // `--emit-c-to <path>` REDIRECTS the sidecar (it does not add a second
@@ -3526,7 +3536,13 @@ run_compile :: (
     // The entry is read HERE, not through `mm_load_file`, so it reports its own
     // open — otherwise the depfile would omit the one file the artifact is
     // named after.
-    record_input_file(input_path.clone());
+    record_input_file(
+      input_path.clone(),
+      cond(
+        input_hashing_enabled() => sha256_hex(src_bytes),
+        true => String.new()
+      )
+    );
     src := String.from_bytes(src_bytes);
     exprs := parse(src, input_path.clone(), exn);
     profile_record_phase(String.from("read+parse entry"), prof_parse_t0.elapsed().as_nanos());
@@ -3584,7 +3600,7 @@ run_compile :: (
     // Written before codegen so `--skip-codegen` and `--skip-c-compiler`
     // callers get a depfile too.
     if(emit_deps_to.len() > usize(0), {
-      io.await(_write_depfile(emit_deps_to.clone(), input_files(), io, exn), IoExn(io : io, exn : exn));
+      io.await(_write_depfile(emit_deps_to.clone(), input_file_entries(), io, exn), IoExn(io : io, exn : exn));
     });
     // V3: contract verification runs BEFORE codegen (the verify+ strip
     // rewrites function bodies in place); a failure exits 1 — the

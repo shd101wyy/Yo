@@ -486,13 +486,26 @@ YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record lsp-member-def
 Check the diff says only that the line numbers moved. A changed URI, a changed
 character column, or a missing result is a real regression.
 
-## Editing ANY file under `.github/skills/` re-records two cli-cases
+## Editing ANY file under `.github/skills/` re-records SEVEN cli-cases
 
 `yo skills install` (restored in #412) copies the skill tree into a project, and
-the `skills-install` / `skills-install-zh` cases record the **content hash of
-every installed file** in their `expected_tree`. So a one-line edit to, say,
-`.github/skills/yo-syntax/syntax-cheatsheet.md` — the file this repo asks you to
-update whenever you learn a Yo lesson — turns the tier-1 CLI gate red with
+`yo init` runs it — so the **content hash of every installed file** is recorded
+in the `expected_tree` of SEVEN cases, not two:
+
+```
+build-stamp-dotted-dir  init  init-build-test  init-cwd  init-existing
+skills-install  skills-install-zh
+```
+
+(This section said "two" until 2026-09-19. The under-count is not harmless: it
+landed on develop twice in one session — once from a `yo-syntax` cheatsheet
+edit that shipped with no re-record at all, and once from a `yo-async-effects`
+edit where re-recording only the two obvious cases would still have left five
+red.)
+
+So a one-line edit to, say, `.github/skills/yo-syntax/syntax-cheatsheet.md` —
+the file this repo asks you to update whenever you learn a Yo lesson — turns
+the tier-1 CLI gate red with
 
 ```
 ── GOLDEN-DIFF  skills-install  (rc=0; tree)
@@ -503,9 +516,16 @@ roughly 25 minutes into a PR's `Self-hosted \`test\` subcommand` job. The fix is
 a re-record, not a revert:
 
 ```bash
-YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record skills-install skills-install-zh
+YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record \
+  build-stamp-dotted-dir init init-build-test init-cwd init-existing \
+  skills-install skills-install-zh
 YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh          # re-score, expect a clean card
 ```
+
+**Run the WHOLE corpus before opening the PR, not just the cases you re-recorded.**
+That is what turns this from a red required check into a two-minute re-record:
+`check` + `fmt` + unit tests is an INCOMPLETE gate for any change touching
+`.github/skills/`, and the corpus is the only thing that says so.
 
 Review the diff before committing: it should be exactly one changed hash line
 per case per edited skill file. Anything else means the install copied

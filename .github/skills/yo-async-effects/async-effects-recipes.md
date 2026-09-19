@@ -193,6 +193,23 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
 - Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions. If you need to use a `ctl` handler from inside a closure body, pass it in as an explicit parameter instead of capturing it.
 - Pointers and references to `ctl` types (or structs containing them) are rejected.
 - **`recur` inside `io.async` calls the lambda, not the outer function** — use an iterative worklist for async recursion.
+- **`io.await` must not appear in a `match` SCRUTINEE inside `io.async` — bind
+  it first.** The state-machine emitter splits the body at the await, and the
+  scrutinee slot is left empty, so codegen writes `switch (.tag)` and
+  `.data.Some.value` with nothing in front of them. Nothing rejects it: `check`
+  passes, `--emit-c` writes the file, and the C COMPILER is what fails, with
+  `error: expected expression` at a line number in a multi-million-line
+  generated file. Cost measured 2026-09-19: one full compiler build.
+
+  ```rust
+  match(io.await(read_file(p, io), io), .Some(b) => …, .None => …);   // ✗ invalid C
+  bytes := io.await(read_file(p, io), io);                            // ✓
+  match(bytes, .Some(b) => …, .None => …);
+  ```
+
+  The same shape is safe outside `io.async`. Related, already filed:
+  `issues/fixed/async-await-in-nested-match-arms.md`,
+  `issues/fixed/async-tail-match-return-hangs-state-machine.md`.
 - **`io.await` in a branch condition must BE the condition, not nested in it.**
   Supported directly inside `io.async`:
 
