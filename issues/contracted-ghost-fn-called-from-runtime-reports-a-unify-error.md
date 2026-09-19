@@ -13,10 +13,10 @@ yo check issues/repros/contracted-ghost-fn-runtime-call.yo --std-path ./std
 
 ```
 error: Cannot unify incompatible types: "unit" and "i32"
-   --> issues/repros/contracted-ghost-fn-runtime-call.yo:18:41
+   --> issues/repros/contracted-ghost-fn-runtime-call.yo:22:29
    |
-18 | g :: ghost_fn((fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
-   |                                         ^^^
+22 |   (fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
+   |                             ^^^
 ```
 
 The caret is on the `i32` inside the definition's **own `requires` clause**. Nothing
@@ -60,28 +60,54 @@ from a non-ghost body.** Either factor alone is fine.
 
 - **It is an evaluator bug, not a verifier bug.** Plain `yo check` fails identically;
   it does not need the solver.
+- **It needs `pragma(Pragma.Verify)`.** Remove the pragma and the same file reports
+  the intended ghost-context error at the call. So it is the clause processing that
+  Verify mode turns on — not the `ghost_fn` wrapper by itself — that diverts control.
 - **The failure is in the DEFINITION, forced by the call.** The anchor is the
   definition's clause while the call is elsewhere in the file, and the file
-  evaluates cleanly when the call is removed. Consistent with lazy top-level
-  bindings (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`): the runtime call forces `g`,
-  and the forcing is what fails.
-- **It is not about which context forces the def first.** Adding an earlier
-  *ghost* use (another fn's `ensures(... g(n))`, which forces `g` in ghost
-  context) does not change the error — the later runtime call still fails.
-  So this is not a first-force-wins ordering effect.
+  evaluates cleanly when the call is removed.
+- **It is not about which context forces the def first.** Adding an earlier *ghost*
+  use (another fn's `ensures(... g(n))`, which forces `g` in ghost context) does not
+  change the error — the later runtime call still fails. Nor is it about definition
+  order: moving `g` below its caller gives the same error.
+- **It is not about the inline function-type expression, nor the named result.**
+  `g :: ghost_fn(gimpl)` over a separately named contracted `gimpl` fails the same
+  way (anchored at `gimpl`'s clause), and so does a `-> i32` signature with no
+  `(result : …)` name.
 - **The ghost guard is never reached.** The guard at `function.yo:4693` sits before
-  the arity check in the `.FuncVal` arm, yet a *wrong-arity* contracted call
-  reports the unify error rather than either the ghost error or an arity error.
-  So control does not get as far as that arm with `is_ghost_fn` true.
+  the arity check in the `.FuncVal` arm, yet a *wrong-arity* contracted call reports
+  the unify error rather than either the ghost error or an arity error. Control does
+  not get that far.
 
-**Leading hypothesis, NOT yet confirmed:** `evaluate_ghost_fn`
-(`src/evaluator/builtins/contracts.yo:571`) registers the callee by reading the inner
-expression's `ExprInfo.value` and matching `.FuncVal(gfvd, _)`. If a *contracted*
-fn does not present a plain `.FuncVal` there, `register_ghost_fn` never runs,
-`is_ghost_fn` is false, the guard cannot fire, and the call proceeds down the
-ordinary runtime-call path — where the signature's clause entries are what fails
-to unify. This needs confirming against the code before any fix; the alternative
-is that registration succeeds and the divergence is further down the call path.
+### A hypothesis that was tested and REFUTED
+
+The obvious first guess was that `evaluate_ghost_fn`
+(`src/evaluator/builtins/contracts.yo:571`) fails to register a *contracted* fn,
+because it registers by reading the inner expression's `ExprInfo.value` and
+matching `.FuncVal(gfvd, _)` — leaving `is_ghost_fn` false so the guard cannot fire.
+
+That is wrong. `register_ghost_fn` and `register_ghost_fn_def` sit in the same match
+arm, and the def table is what lets the verifier INLINE a ghost fn
+(`src/verifier/vc.yo:3817`). In the probe where a caller's contract says
+`ensures(result >= g(n))` with `result = n`, the caller verifies `ok` — which needs
+`n >= g(n)`, provable only from the inlined body (`g(n) = n`), not from `g`'s own
+`ensures` (`result > 0`) treated as an uninterpreted contracted callee. So
+registration does happen for contracted ghost fns.
+
+### The current, better-supported hypothesis
+
+The message is `Cannot unify incompatible types: "unit" and "i32"` with the caret on
+the `i32` of `i32(0)` inside `requires(x > i32(0))` — that is, *expected* `unit`,
+*given* `i32`, at the right-hand operand of the comparison. The reading that fits the
+caret is that **`x` is bound to `unit`** when the clause is re-evaluated, so `x >
+i32(0)` unifies `unit` against `i32`. A parameter binding going to `unit` is what a
+call-time re-binding with no arguments would produce — and `ghost_fn`s legitimately
+have no runtime arguments to pass.
+
+This is still a hypothesis. It has not been confirmed against the code, and the
+previous one looked at least as good before it was tested. Confirm it — by finding
+which binder re-binds the callee's parameters on this path and what it binds `x` to
+— before writing any fix.
 
 ## Why it matters
 

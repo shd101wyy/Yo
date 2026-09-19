@@ -7,18 +7,23 @@
 //   yo check issues/repros/contracted-ghost-fn-runtime-call.yo --std-path ./std
 //
 // Expected: error "a ghost_fn is callable only from ghost context ...",
-//           anchored at the CALL (line 24).
+//           anchored at the CALL (line 29).
 // Actual:   error "Cannot unify incompatible types: \"unit\" and \"i32\"",
-//           anchored at the DEFINITION's requires clause (line 18).
+//           anchored at the DEFINITION's requires clause (line 22).
 //
-// Drop the two clauses from `g` and the intended error appears, so the
-// clauses — not the ghost_fn wrapper alone — are what diverts the path.
+// Two one-line discriminators, both verified:
+//   - drop the two clauses from `g`      -> the intended error appears
+//   - drop the `pragma(Pragma.Verify)`   -> the intended error appears
+// So it takes the conjunction: Verify-mode clause processing AND the ghost_fn
+// wrapper AND a call from a non-ghost body. Any one removed and it is fine.
 pragma(Pragma.Verify);
 
-g :: ghost_fn((fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
-  y := x;
-  y
-}));
+g :: ghost_fn(
+  (fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
+    y := x;
+    y
+  })
+);
 
 use_it :: (fn(n : i32) -> (result : i32))({
   r := g(n);
