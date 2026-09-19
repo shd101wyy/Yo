@@ -1072,6 +1072,15 @@ match_missing_witness :: (fn(arms : ArrayList(Arm), scrutinee_ty : TypeValue) ->
 /// 2026-09-19 after the tree-wide measurement).
 arm_is_unreachable :: (fn(arms : ArrayList(Arm), i : usize, scrutinee_ty : TypeValue) -> bool)({
   arm := match(arms.get(i), .Some(a) => a, .None => return(false));
+  // A TRAILING catch-all (`_` or a binding, last arm, no guard) is never
+  // reported, even when a single earlier arm covers it — over a one-variant
+  // enum (`.InvalidUtf8(c) => …, _ => …`, std/encoding/percent.yo) the
+  // defensive arm is subsumed by one arm and is still the idiom to keep.
+  if(((i + usize(1)) == arms.len()) && arm.guard.is_none(), {
+    if(match(arm.pattern, .Wildcard => true, .Bind(_, _) => true, _ => false), {
+      return(false);
+    });
+  });
   tys := ArrayList(TypeValue).new();
   tys.push(scrutinee_ty);
   (j : usize) = usize(0);
