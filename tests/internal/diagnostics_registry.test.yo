@@ -41,7 +41,10 @@ import("std/fmt");
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
-  E_COMPTIME_OVERFLOW
+  E_COMPTIME_OVERFLOW,
+  E_MATCH_NOT_EXHAUSTIVE,
+  E_MATCH_UNREACHABLE_ARM,
+  E_INVALID_PATTERN
 } :: import("../../src/diagnostics.yo");
 _check_entry :: (fn(e : Explain, label : String) -> unit)({
   assert(e.title.len() > usize(0), `${label}: English title empty`);
@@ -83,6 +86,9 @@ test("every code the classifier emits has a registry entry", {
   codes.push(String.from(E_FORWARD_REFERENCE));
   codes.push(String.from(E_COMPTIME_ARGUMENT));
   codes.push(String.from(E_COMPTIME_OVERFLOW));
+  codes.push(String.from(E_MATCH_NOT_EXHAUSTIVE));
+  codes.push(String.from(E_MATCH_UNREACHABLE_ARM));
+  codes.push(String.from(E_INVALID_PATTERN));
   (i : usize) = usize(0);
   while(i < codes.len(), {
     c := match(
