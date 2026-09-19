@@ -2050,12 +2050,24 @@ jobs:
       # Emit-only: no C compiler runs here, so the host's glibc never enters
       # the artifact. --std-path ./std is load-bearing (the seed would
       # otherwise use its OWN bundled std).
+      #
+      # `> /dev/null` is diagnosability, not noise-hiding: `--emit-c` also
+      # prints the whole translation unit to stdout, which for the compiler
+      # itself is ~230 MB / 2.3 M lines. GitHub truncates the job log, and it
+      # truncates it BEFORE the later steps — so when the Alpine link step
+      # below fails, `gh run view --log` ends minutes short of the error and
+      # the real message cannot be read at all (measured 2026-09-19 triaging
+      # PR #773: the failing step had to be recovered from the jobs API, and
+      # its output was simply gone). release.yml already redirects all three
+      # of its equivalent emits; this one was the straggler. The `.c` sidecar
+      # that the next step compiles is written by `-o`, not by stdout, so
+      # nothing downstream changes.
       - name: "Stage 1 (Yo -> C only, on the glibc host)"
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
           yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std \
-            --emit-c --skip-c-compiler -o yo-musl
+            --emit-c --skip-c-compiler -o yo-musl > /dev/null
           ls -la yo-musl.c
 
       - name: "C -> static binary, inside Alpine (musl + static liburing)"
