@@ -31,7 +31,8 @@ my-project/
 │   ├── main.yo           ← 可执行文件入口
 │   └── lib.yo            ← 库代码
 ├── tests/
-│   └── main.test.yo      ← 测试文件
+│   ├── main.test.yo      ← 可执行文件的测试
+│   └── lib.test.yo       ← 库的测试
 ├── .gitignore
 ├── AGENTS.md             ← AI 编码代理的指引（列出各技能）
 ├── .agents/skills/       ← 捆绑的 agent 技能文件（见 yo skills install）
