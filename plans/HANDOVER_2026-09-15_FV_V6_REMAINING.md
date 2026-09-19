@@ -624,3 +624,47 @@ resolution edits the file again (cost one tier-1 cycle).
 trait-impl clause corruption issue was FIXED in #753 (issue moved to
 issues/fixed/) and the refine literal-construction CTFE folding landed
 as #770 — the campaign's remaining work is V7.
+
+---
+
+## 8. CAMPAIGN COMPLETE — 2026-09-19
+
+**V7 landed as five PRs, and with it the whole FORMAL_VERIFICATION
+campaign (V1–V7) is finished.** Develop tip at close: `28608fcfe`.
+
+- **#770** — the literal-construction CTFE folding (V6's final item;
+  see §7 above).
+- **#775** — V7 slice 1, the verify surface: folded obligations count
+  as `folded`, never as solver `queries`; the summary line gains the
+  cache hit rate; `--explain` shows the VC set of a VERIFIED function
+  too (goal terms as SMT-LIB); the JSON obligations carry
+  `folded`/`goal`.
+- **#776** — V7 task 1, LSP contract hover (requires/ensures, return
+  label, ghost_fn marker, verification mode — from the FRESH sources,
+  not the first-wins task registry). Surfaced and fixed a real bug: the
+  per-file pragma registry compared module paths raw, so the LSP's
+  `file://`-keyed registration never matched a plain-path reader
+  (`issues/fixed/pragma-registry-lookups-are-module-path-spelling-sensitive.md`).
+- **#777** — V7 tasks 3+4: the en+zh docs completed (CTFE folding,
+  editor integration, the shipped summary-line + JSON schema,
+  `--explain`) and the agentic verification loop in the
+  yo-project-workflow skill. The init goldens' AGENTS.md re-recorded —
+  `generate_agents_md` embeds the skill descriptions, so a SKILL.md
+  description edit changes every `yo init` scaffold.
+- **#778** — V7 task 6: `yo verify`/`check`/`test` as VS Code
+  workspace tasks + the `yo` problem matcher.
+- **#785** — the V7 COMPLETE banner in FORMAL_VERIFICATION.md +
+  Formal Verification in both READMEs' feature lists.
+
+V7's two deliberate non-builds are recorded in the banner: the
+counter-example inline lens (needs per-keystroke solver latency or
+stale decoration — counter-examples already flow as diagnostics) and a
+`--stats` flag (B0's always-on summary + #775's honesty supersede it).
+(#779 was the banner PR before #778's merge auto-closed it; #785 is
+its replacement.)
+
+The campaign's exit criterion holds: a user (human or LLM) can go from
+zero to a verified module using only the shipped docs
+(`docs/en-US/FORMAL_VERIFICATION.md` + the yo-project-workflow skill's
+agentic loop), and CI runs verification on std fixtures as a required
+check. This handover is now a closed record.
