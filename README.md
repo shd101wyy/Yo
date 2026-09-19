@@ -56,6 +56,7 @@ Below is a non-exhaustive list of features that Yo supports:
 - `ref(struct(...))` and `ref(enum(...))` types with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/en-US/CYCLE_COLLECTION.md).
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
 - Thread-per-core parallelism model (see [PARALLELISM.md](./docs/en-US/PARALLELISM.md)).
+- [Formal verification](./docs/en-US/FORMAL_VERIFICATION.md) — contracts (`requires`/`ensures`/`decreases`), refinement types (`refine(T, p)`), and ghost/quantifier specs prove at compile time against a pinned Z3 (`yo verify`): counter-examples at refuted obligations, cache telemetry, `--strict` gating, JSON reports, and LSP contract hover.
 - [Declarative build system](./docs/en-US/BUILD_SYSTEM.md) inspired by Zig and Nix (`yo build`, `yo init`, WASM targets).
 - **C** interop.
 - etc.
