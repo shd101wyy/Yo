@@ -3,11 +3,10 @@
 //! friendly output for memory-safety review (Phase E of
 //! plans/reference/MEMORY_SAFETY.md).
 //!
-//! 1:1 port of `src/unsafe-report.ts`. Scanning is TEXT-based — no parser or
-//! evaluator involvement, deliberately so ("auditable by grep-style review").
-//! The TS regexes are hand-rolled here as byte scanners; columns are byte
-//! positions where TS reports UTF-16 units — identical on ASCII source lines,
-//! which is what code lines are in practice.
+//! Scanning is TEXT-based — no parser or evaluator involvement, deliberately
+//! so ("auditable by grep-style review"). The patterns are hand-rolled byte
+//! scanners; columns are byte positions (identical to UTF-16 units on ASCII
+//! source lines, which is what code lines are in practice).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { StringBuilder } :: import("std/fmt");
@@ -23,8 +22,8 @@ fs_walker :: import("std/fs/walker");
 { Exception, IoExn } :: import("std/error");
 { cwd : env_cwd } :: import("std/env");
 /// Sub-classification for `unsafe(...)` sites: "extern-call", "deref",
-/// "arith", "addr-of", or "other". Mirrors `UnsafeSubKind` (a string union in
-/// TS; plain `String` here so the JSON serialization is literal).
+/// "arith", "addr-of", or "other". Plain `String` here so the JSON
+/// serialization is literal.
 UnsafeFinding :: ref(
   struct(
     file : String,
@@ -86,9 +85,7 @@ _is_ws_byte :: (fn(b : u8) -> bool)(
 /// contents with spaces) so keyword scans don't fire inside `"unsafe(x)"` or
 /// `// unsafe(...)`. The stripped line is byte-for-byte positionally aligned
 /// with the original (escapes become two spaces), so a byte index in the
-/// stripped line IS the original byte index — TS keeps an explicit map, but
-/// its map is also the identity for everything it emits. Mirrors
-/// `stripCommentsAndStrings`.
+/// stripped line IS the original byte index.
 _strip_comments_and_strings :: (fn(line : String) -> ArrayList(u8))({
   bytes := line.as_bytes();
   out := ArrayList(u8).new();
@@ -365,9 +362,9 @@ _classify_unsafe_body :: (
   )
 });
 /// Scan one line for the four patterns (`unsafe(`, `asm(`, `extern(`,
-/// `pragma(Pragma.AllowUnsafe)`), with identifier-boundary checks matching
-/// the TS regexes, SAFETY: scan-back for unsafe sites, and full-source body
-/// classification for multi-line wraps. Mirrors `scanLine`.
+/// `pragma(Pragma.AllowUnsafe)`), with identifier-boundary checks, SAFETY:
+/// scan-back for unsafe sites, and full-source body classification for
+/// multi-line wraps.
 _scan_line :: (
   fn(
     file : String,
@@ -386,8 +383,8 @@ _scan_line :: (
   while(i < n, {
     (kind : String) = String.new();
     (kw_len : usize) = usize(0);
-    // `\bunsafe\(` — TS's \b means an identifier boundary on BOTH sides;
-    // the `(` already bounds the right side.
+    // `unsafe(` must start at an identifier boundary; the `(` already
+    // bounds the right side.
     boundary_ok := if(i == usize(0), true, !(_is_ident_byte(stripped(i - usize(1)))));
     if(boundary_ok, {
       cond(
@@ -479,25 +476,23 @@ _scan_line :: (
 });
 /// Recursively collect .yo files under `p`, skipping node_modules/.git/dist/
 /// yo-out/build and every dot-directory (but not a `.`/`..` root argument).
-/// Mirrors `walkYoFiles`.
 _walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
     // Built on std/fs/walker (its stack loop is the proven async-while
-    // shape) with post-filtering instead of TS's descend-time pruning: an
-    // entry is dropped when ANY path segment below the root matches the
-    // skip set (node_modules/.git/dist/yo-out/build or a dot-directory).
-    // Same result set as `walkYoFiles`; the walk simply also reads the
-    // skipped directories' names.
+    // shape) with post-filtering: an entry is dropped when ANY path segment
+    // below the root matches the skip set (node_modules/.git/dist/yo-out/
+    // build or a dot-directory); the walk simply also reads the skipped
+    // directories' names.
     //
     // `.` needs care twice over: Path.new(".") normalizes to the EMPTY path
-    // (every fs call on it fails), and TS's path.join(".", x) yields bare
-    // `x` — so walk the CWD by absolute path but label entries with the
-    // TS-join shape (no `./` prefix).
+    // (every fs call on it fails), and entries must be labeled bare (no
+    // `./` prefix) — so walk the CWD by absolute path but label entries
+    // with their path-join shape.
     is_dot := (root == ".");
     walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
     exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!(exists), {
-      // Mirrors the TS statSync try/catch: unreadable/missing → skip.
+      // Unreadable/missing root → skip.
       return(());
     });
     md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
@@ -531,16 +526,16 @@ _walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exc
           si = (si + usize(1));
         });
         if(ok, {
-          // Label with TS's path.join(root, rel) shape: bare `rel` for `.`.
+          // Label with the path.join(root, rel) shape: bare `rel` for `.`.
           collected.push(if(is_dot, rel.clone(), p.clone()));
         });
       });
       i = (i + usize(1));
     });
-    // Sort for determinism (TS's readdirSync order is name-sorted; the
-    // walker returns raw directory order). NOTE: this is full-path
-    // lexicographic, which can diverge from TS's preorder-with-sorted-
-    // children when a directory name collides with a file-name prefix
+    // Sort for determinism (the walker returns raw directory order).
+    // NOTE: this is full-path
+    // lexicographic, which can diverge from a preorder-with-sorted-
+    // children walk when a directory name collides with a file-name prefix
     // (e.g. `b/` vs `b.yo`) — acceptable for an audit listing.
     collected.sort();
     (ci : usize) = usize(0);
@@ -661,7 +656,7 @@ generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> I
       ci = (ci + usize(1));
     });
     // Sort callees by count descending; STABLE on the first-seen order for
-    // ties (TS sorts the insertion-ordered entries). Stable selection sort:
+    // ties. Stable selection sort:
     // repeatedly take the FIRST remaining entry with the maximum count.
     top := ArrayList(ExternCallee).new();
     remaining := ArrayList(String).new();
@@ -775,8 +770,8 @@ format_unsafe_report :: (fn(report : UnsafeReport) -> String)({
     });
   });
   (s : String) = out.to_string();
-  // TS joins with \n and never ends with a newline; strip the trailing ones
-  // the per-line writes above accumulate.
+  // The report joins with \n and never ends with a newline; strip the
+  // trailing ones the per-line writes above accumulate.
   while(runtime(s.ends_with(`\n`)), {
     s = s.substring(usize(0), s.len() - usize(1));
   });
@@ -813,10 +808,9 @@ _json_str :: (fn(text : String) -> String)({
   out.push_str("\"");
   out
 });
-/// Machine-readable report — byte-for-byte `JSON.stringify(report, null, 2)`
-/// of the TS shape: camelCase keys in declaration order, optional fields
-/// OMITTED when absent (undefined never serializes). Mirrors the `--json`
-/// arm of the `unsafe-report` subcommand.
+/// Machine-readable report for the `--json` arm of the `unsafe-report`
+/// subcommand: camelCase keys in declaration order, optional fields OMITTED
+/// when absent.
 unsafe_report_to_json :: (fn(report : UnsafeReport) -> String)({
   out := StringBuilder.new();
   out.write_str("{\n  \"privilegedFiles\": [");
