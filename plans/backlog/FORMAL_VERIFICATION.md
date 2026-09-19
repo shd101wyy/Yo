@@ -1617,6 +1617,36 @@ bounds contracts; the worked example below verifies end-to-end;
 
 ### Phase V7 — Productization
 
+> **Status: V7 COMPLETE (2026-09-19), landing as four stacked slices.**
+> Slice 1 (verify surface): folded obligations count as `folded`, never
+> as solver `queries` (a fold-heavy run must not read as solver load);
+> the summary line gains the cache hit rate; `--explain` shows the VC
+> set of a VERIFIED function too (the detail loop was reachable only
+> from non-ok outcomes) with every obligation's goal rendered as
+> SMT-LIB; the JSON obligations carry `folded` + `goal`. Slice 2 (LSP
+> hover, task 1): a function-valued hover appends its contracts —
+> requires/ensures, the return label, a `ghost_fn` marker, the file's
+> verification mode — read from the FRESH sources (the fn-type side
+> tables + `resolve_verify_mode`); the verify-task registry is
+> first-wins and would serve stale entries in the LSP's long-lived
+> process. Surfaced and fixed en route: the per-file pragma registry
+> compared module paths raw, so the LSP's `file://`-keyed registration
+> never matched a plain-path reader
+> (`issues/fixed/pragma-registry-lookups-are-module-path-spelling-sensitive.md`).
+> The "counter-example inline lens" is deliberately NOT shipped: lenses
+> would need per-keystroke solver latency or stale decoration —
+> counter-examples already surface as ordinary diagnostics. Slice 3
+> (tasks 3+4): the en+zh docs completed (CTFE folding, editor
+> integration, the shipped summary-line + JSON schema, `--explain`'s
+> goal display) and the agentic verification-loop recipe added to the
+> yo-project-workflow skill (cheatsheet goldens re-recorded). Slice 4
+> (task 6): `yo verify`/`check`/`test` as VS Code workspace tasks with
+> the `yo` problem matcher. Task 5 (`--stats`) is satisfied by the
+> ALWAYS-ON summary B0 shipped plus slice 1's honesty — a redundant
+> `--stats` flag would add nothing and is not built. Task 6's
+> "solver pin management" documentation lives in the docs' "The
+> solver" section (pin, `YO_Z3_PATH`, auto-download, verdict cache).
+
 **Scope:** make verification a first-class product surface.
 
 Tasks:

@@ -55,6 +55,7 @@ Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 - 带有 [非原子引用计数与线程本地循环回收](./CYCLE_COLLECTION.md) 的引用语义类型（`ref(struct(...))`/`ref(enum(...))`）。
 - [基于所有权和生命周期分析的编译时引用计数](./COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md)。
 - 每核并行模型（详见 [PARALLELISM.md](./PARALLELISM.md)）。
+- [形式化验证](./FORMAL_VERIFICATION.md) —— 契约（`requires`/`ensures`/`decreases`）、精化类型（`refine(T, p)`）与 ghost/量词规格在编译期经固定版本的 Z3 证明（`yo verify`）：被驳倒的义务给出反例，附带缓存遥测、`--strict` 门禁、JSON 报告与 LSP 契约悬停。
 - 受 Zig 和 Nix 启发的[声明式构建系统](./BUILD_SYSTEM.md)（`yo build`、`yo init`、WASM 目标）。
 - **C** 语言互操作。
 - 等等。
