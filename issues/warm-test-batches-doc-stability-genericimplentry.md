@@ -141,3 +141,53 @@ generation-keying `g_some_resolved_concrete` so a stale registration can't
 satisfy a later read. (c) is the smallest sound step: stamp registrations
 with the match/eval generation and ignore reads from a later generation
 unless re-registered.
+
+## THE CURE — design for per-call SomeT minting (chosen 2026-09-19, not yet implemented)
+
+The chosen fix is TS parity at the binder sites: a call NEVER binds the
+shared signature's SomeT objects; it mints FRESH clones (same name, same
+frame_level, same trait constraints — NEW id) and binds THOSE. The shared
+signature's slots stay pristine forever, so stored values (registry
+entries, captured types, memoized instances) can never observe another
+call's registrations — killing the entire cross-call contamination class,
+including the unregister_some_resolved_concrete dance.
+
+**Mint helper** (types/creators.yo, next to t_some_t):
+`clone_some_fresh(s : TypeValue) -> TypeValue` — match the SomeT arm,
+rebuild with `generate_some_type_id()` for the id, everything else copied
+verbatim.
+
+**Binder sites to convert** (each currently binds `sg_st`/the signature's
+SomeT into the callee env):
+1. `try_to_call`'s Step-6 marker loop (helper.yo ~5355–5421): the
+   `add_variable_to_env(..., create_type_value(sg_st))` marker + second
+   self-binding — bind `clone_some_fresh(sg_st)` instead. NOTE the
+   self-only/dup exclusion machinery above it keys on IDs — re-derive from
+   the ORIGINAL sig ids (the exclusions decide WHICH to mint, not what to
+   bind).
+2. The Type-kinded forall placeholder (~5442+): "Uses the SIG MARKER
+   instance so synthesis keeps one SomeT identity" — that comment is the
+   disease in miniature; bind the fresh clone (the callee body resolves T
+   by (name, frame_level), which the clone preserves).
+3. `create_specialized_function_inline`'s equivalent generic-binding loop
+   (search `add_variable_to_env` with `create_type_value` of signature
+   SomeTs in calls/helper.yo) and `_evaluate_funcval_runtime_call`'s.
+4. `_inject_forall_captures` (impl.yo): the injected T/Self captures carry
+   the CONCRETE types already — no SomeTs — untouched.
+
+**Invariant to enforce:** after conversion, NO code path may call
+`register_some_resolved_concrete(shared_sig_id, …)` — grep the ~16
+register sites and confirm each now sees only fresh ids (the synthesizer's
+unify-time registrations at synthesizer.yo:1341/1428 register the ids the
+env lookup hands them — which become fresh per call once the markers are
+fresh).
+
+**Test plan:** the minimal pair passes in-process
+(YO_TEST_IN_PROCESS=1, tests/internal-bisect/ pattern); `unregister`-dance
+tests if any; the full gates; then un-gate YO_TEST_IN_PROCESS in main.yo
+and re-run everything (the un-gating diff is: `test_in_process` becomes
+always-true — one line + comment).
+
+**Estimated size:** one helper + three binder-site conversions + the
+invariant grep. Mechanically small; semantically load-bearing — every
+generic call's env changes identity. Budget a full session.
