@@ -1,0 +1,24 @@
+// A CONTRACTED ghost_fn called from a runtime body. The call is illegal —
+// a ghost_fn has no runtime semantics — and the evaluator has always thrown
+// the right diagnostic for it. What it did NOT do is let that diagnostic out:
+// the throw lands inside the def-time trial swallow, so the rejection was
+// discarded and evaluation limped on until a downstream node failed with
+// `Cannot unify incompatible types: "unit" and "i32"`, anchored at the
+// ghost fn's own `requires` clause — a line the author wrote correctly.
+//
+// The UNCONTRACTED twin never had the bug (nothing def-time-evaluates around
+// it), which is why this fixture is specifically contracted.
+// issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md
+pragma(Pragma.Verify);
+
+g :: ghost_fn(
+  (fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
+    y := x;
+    y
+  })
+);
+
+use_it :: (fn(n : i32) -> (result : i32))({
+  r := g(n);
+  r
+});

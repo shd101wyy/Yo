@@ -78,6 +78,30 @@ _load_reports :: (
   );
   verify_and_strip_tasks(cfg, binary, take_verify_tasks())
 });
+_load_error :: (fn(rel_path : String, io : Io) -> String)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_ghost: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  assert(
+    !outcome.ok,
+    `fixture ${rel_path} was expected to FAIL to load, but it loaded cleanly`
+  );
+  match(_take_load_error(), .Some(rendered) => rendered, .None => String.from(""))
+});
 _reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
   (i : usize) = usize(0);
@@ -149,5 +173,66 @@ test("reading a ghost binding from ordinary code is a LOUD gate (solver-free)", 
   assert(
     rp.subset_construct.contains(String.from("ghost")),
     `the report names the ghost escape, got: ${rp.subset_construct}`
+  );
+});
+
+// A contracted ghost_fn called from a RUNTIME body. The evaluator always threw
+// the right error here; what it did not do was let it out. The throw lands in
+// the def-time trial swallow, and `prepare_callsite_contracts` then ran on that
+// hollow body and raised a DERIVED unify failure through the real exn — which,
+// being raised first, was the one the user saw, blaming a `requires` clause
+// they wrote correctly.
+// issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md
+test("a contracted ghost_fn called from runtime names the GHOST rule (solver-free)", {
+  msg := _load_error(
+    String.from("./tests/spec/fixtures/negative/ghost_fn_contracted_runtime_call.yo"),
+    io
+  );
+  assert(
+    msg.contains(String.from("ghost context")),
+    `the load error must name the ghost-context rule, got: ${msg}`
+  );
+  assert(
+    !msg.contains(String.from("Cannot unify")),
+    `the derived unify error must not mask the real cause, got: ${msg}`
+  );
+});
+
+// The literal-free twin. This shape reported correctly even BEFORE the fix,
+// because `requires(a > b)` compares two equally-unbound parameters and so
+// produced no mismatch for the derived evaluation to trip over. It is here to
+// catch a fix that repairs the noisy path by disturbing the quiet one.
+test("the literal-free twin names the GHOST rule too (canary)", {
+  msg := _load_error(
+    String.from("./tests/spec/fixtures/negative/ghost_fn_contracted_runtime_call_quiet.yo"),
+    io
+  );
+  assert(
+    msg.contains(String.from("ghost context")),
+    `the literal-free shape must report the same rule, got: ${msg}`
+  );
+});
+
+// Over-rejection canary: rejecting the runtime call must not close the LEGAL
+// ghost-context path. Both the lemma and its caller must still verify, which
+// also proves the call-site contract stash still runs for bodies that DID
+// evaluate — the thing the fix skips only when the trial failed.
+test("the same contracted ghost_fn still verifies from ghost context", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/valid/ghost_fn_contracted_ghost_call.yo"),
+    io,
+    true
+  );
+  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(
+    _first(reports).outcome == "ok",
+    `the lemma proves, got: [${_reports_dump(reports)}]`
+  );
+  assert(
+    _second(reports).outcome == "ok",
+    `the caller proves, got: [${_reports_dump(reports)}]`
   );
 });
