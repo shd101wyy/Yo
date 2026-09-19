@@ -1589,7 +1589,30 @@ Result type: ${type_to_string(result_box)}`
           // concrete types — see CallsiteContracts in contracts.yo and the
           // `_callee_call_term` consult.
           __cs_mode := resolve_verify_mode(tok.module_path.clone());
-          if((_is_verify_target(tok.module_path.clone()) && ((__cs_mode == "verify") || (__cs_mode == "verify+"))), {
+          // ... but NOT when the trial above swallowed. That body is hollow —
+          // the call-site ExprInfo the stash reads (argument types, callee
+          // FuncVal) is exactly what the failed trial did not stamp — so the
+          // stash evaluates a contracted callee's predicates against unbound
+          // parameters and raises a SECOND, DERIVED error. It is raised through
+          // the real `exn`, here, BEFORE the fatal re-raise below, so the
+          // derived error is the one the user sees and the real cause is lost.
+          //
+          // Measured: a contracted `ghost_fn` called from a runtime body
+          // correctly threw "a ghost_fn is callable only from ghost context",
+          // the trial swallowed it as designed, and then this stash reported
+          // `Cannot unify incompatible types: "unit" and "i32"` pointed at the
+          // ghost fn's own `requires` clause — a line the author wrote
+          // correctly. Only clauses carrying a literal misreported, because a
+          // clause like `requires(x > x)` compares two equally-unbound
+          // parameters and produces no mismatch to trip over
+          // (issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md).
+          //
+          // The guard reuses the same "trial failed" test the def-eval-failure
+          // recorder above already computes; skipping the stash costs nothing
+          // there, since a body that did not evaluate has no call sites worth
+          // stashing.
+          __cs_trial_failed := (_trial_swallow_pending() && (flow_out.len() == usize(0)));
+          if((_is_verify_target(tok.module_path.clone()) && ((__cs_mode == "verify") || (__cs_mode == "verify+"))) && !(__cs_trial_failed), {
             prepare_callsite_contracts(body_expr_raw.clone(), caller_env, ctx, exn);
           });
           if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {

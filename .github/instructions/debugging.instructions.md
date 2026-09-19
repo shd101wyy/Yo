@@ -90,6 +90,39 @@ YO_DEBUG_SWALLOW=1 yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize
 grep -n 'swallow' swallow.txt | tail
 ```
 
+### A swallowed error can be MASKED by a derived one — the reported error is not always the first
+
+`YO_DEBUG_SWALLOW` shows you the swallow. It does **not** tell you whether the
+error you were shown is that swallow's consequence. When a body's trial fails,
+the caller keeps going, and a LATER pass over the same (now hollow) body can
+raise its own error through the REAL `exn`. That derived error is raised before
+the fatal re-raise, so it is what reaches the user — pointed at whatever node it
+happened to fail on, which is usually code the author wrote correctly.
+
+Measured (`issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md`):
+a contracted `ghost_fn` called from a runtime body correctly threw "callable only
+from ghost context"; the trial swallowed it; `prepare_callsite_contracts` then ran
+on the hollow body, evaluated the callee's predicates against unbound parameters,
+and reported `Cannot unify incompatible types: "unit" and "i32"` at the ghost
+fn's own `requires` clause.
+
+Two tells, both cheap:
+
+- **A `[swallow]` whose message is a deliberate REJECTION** (a rule the compiler
+  means to enforce), followed by an unrelated error. The rejection is the real
+  answer; whatever came after is fallout.
+- **A missing post-trial marker.** Each trial site prints something after the
+  call returns (`[flow-post]` for the `function_type.yo` flow site). A `[trial]`
+  with no matching post-line means control left between them — i.e. something
+  after the trial threw for real. That is where to look, not inside the body.
+
+When several call sites could be the one, **tag them all in one build** rather
+than bisecting: four `_trial_eval_fn_body` sites, four distinct `eprintln`
+markers, one rebuild. Guessing which site runs cost four wrong hypotheses on the
+bug above (missing registration; empty `param_types`; a suppressed
+flow-violation flag; a silent-acceptance case that did not exist), each argued
+from symptoms and each plausible. The tagged build settled it in one run.
+
 Sibling channels, same shape: `YO_DEBUG_CTFE` / `YO_DEBUG_CTFE2` (CTFE call
 failures), `YO_DEBUG_DISPATCH` (method dispatch), `YO_DEBUG_BIND=<name>`
 (type-variable binding), `YO_DEBUG_RRE` (return-type re-evaluation),

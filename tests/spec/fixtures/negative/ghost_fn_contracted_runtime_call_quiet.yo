@@ -1,0 +1,24 @@
+// The LITERAL-FREE twin of ghost_fn_contracted_runtime_call, and the canary
+// that keeps a fix honest.
+//
+// Both files make the same illegal call, and both must report the same thing.
+// They differ only in whether the clause mentions a literal, and that decides
+// which message came out before the fix: with a literal the swallowed
+// rejection was replaced by a downstream `Cannot unify` failure, while this
+// shape reported the ghost-context error correctly all along. So this file
+// pins behaviour that ALREADY worked — it is here to catch a fix that repairs
+// the noisy path by disturbing the quiet one.
+// issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md
+pragma(Pragma.Verify);
+
+g :: ghost_fn(
+  (fn(a : i32, b : i32, requires(a > b)) -> (result : i32))({
+    y := a;
+    y
+  })
+);
+
+use_it :: (fn(n : i32) -> (result : i32))({
+  r := g(n, n);
+  r
+});
