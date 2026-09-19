@@ -78,6 +78,43 @@ async function restartClient() {
   }
 }
 
+// V7 task 6 (plans/backlog/FORMAL_VERIFICATION.md): `yo verify` in the task
+// list. Static tasks for verify/check/test, run with the workspace root as
+// the target; failures parse into the Problems panel through the "yo"
+// problem matcher declared in package.json (the compiler's two-line
+// `error[Exxxx]: message` + `--> path:line:col` shape).
+const YO_TASK_COMMANDS = ["verify", "check", "test"];
+
+function yoBinPath() {
+  const config = vscode.workspace.getConfiguration("yo");
+  return (config.get("binPath") || "yo").trim() || "yo";
+}
+
+function makeYoTask(command) {
+  const definition = { type: "yo", command };
+  const execution = new vscode.ShellExecution(yoBinPath(), [command, "."]);
+  const task = new vscode.Task(
+    definition,
+    vscode.TaskScope.Workspace,
+    `yo ${command}`,
+    "yo",
+    execution,
+    "$yo"
+  );
+  if (command === "check") {
+    task.group = vscode.TaskGroup.Build;
+  } else {
+    task.group = vscode.TaskGroup.Test;
+  }
+  task.detail =
+    command === "verify"
+      ? "Formal verification: prove every verify-mode function (pinned Z3)"
+      : command === "check"
+        ? "Type-check the workspace (evaluator only, no codegen)"
+        : "Run the test suite";
+  return task;
+}
+
 function activate(context) {
   const config = vscode.workspace.getConfiguration("yo");
   if (config.get("lsp.enabled") !== false) {
@@ -90,6 +127,23 @@ function activate(context) {
       if (client) {
         vscode.window.setStatusBarMessage("Yo: language server restarted", 3000);
       }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.tasks.registerTaskProvider("yo", {
+      provideTasks() {
+        return YO_TASK_COMMANDS.map(makeYoTask);
+      },
+      resolveTask(task) {
+        // Tasks authored in tasks.json with `"type": "yo"` — re-bind the
+        // execution so the configured binary and the matcher apply.
+        const command = task.definition && task.definition.command;
+        if (YO_TASK_COMMANDS.includes(command)) {
+          return makeYoTask(command);
+        }
+        return undefined;
+      },
     })
   );
 
