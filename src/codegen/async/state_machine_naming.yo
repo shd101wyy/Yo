@@ -1,20 +1,19 @@
 //! state_machine_naming — the `get_state_machine_field_name` helper, extracted to
 //! a leaf module to break the `state_machine.yo` ↔ `state_code_gen.yo` import
 //! cycle (both need it: state_machine.yo for the resume generator,
-//! state_code_gen.yo for match-with-await destructuring). TS keeps it in
-//! state-machine.ts — ES-module cycles link lazily there — but yo-self's loader
+//! state_code_gen.yo for match-with-await destructuring). The loader
 //! rejects the destructuring import cycle, so the shared helper lives here (same
-//! structural necessity as `_fsm.yo` for the emitter mutual recursion). Mirrors
-//! `getStateMachineFieldName`.
+//! structural necessity as `_fsm.yo` for the emitter mutual recursion).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { sanitize_for_c_identifier } :: import("../utils/index.yo");
 { fnv1a64 } :: import("../../utils.yo");
-/// Phase 2 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the C field
+/// The C field
 /// name for a LOCAL state-machine capture is derived from the variable's
-/// NAME and declaration site, not its evaluator id. The id comes from a
+/// NAME and declaration site, not its evaluator id (per
+/// plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5). The id comes from a
 /// global allocation counter, so naming fields `var_<id>` renamed every SM
 /// struct in the program whenever any binding was added anywhere; the name
 /// only moves when THIS function's captured binding set moves. Keyed by the

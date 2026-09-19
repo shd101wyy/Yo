@@ -1,16 +1,15 @@
 //! evaluate_unwind — handles the `unwind(value)` builtin.
 //!
-//! 1:1 port of `src/evaluator/exprs/unwind.ts`.
-//!
 //! `unwind(value)` (or bare `unwind()`) returns from the **enclosing**
 //! function with `value` (or `unit`), discarding the current continuation.
 //!
-//! NOTE: TS `evaluateUnwind` does NOT itself check that we are in a `given`
+//! NOTE: this evaluator does NOT itself check that we are in a `given`
 //! handler — that constraint is enforced at the FunctionValue-creation sites
-//! (anonymous-function.ts / function-type.ts), which yo-self DOES port (the §4
-//! rule-1 post-eval gate keyed on `is_control`). So this evaluator does NOT gate
-//! on `ctx.is_inside_given_handler` (a former yo-self compensating control that
-//! wrongly threw during definition-time body eval of plain-`:=` handlers).
+//! (the §4 rule-1 post-eval gate keyed on `is_control`, in
+//! values/anonymous_function.yo and calls/function_type.yo). It must not
+//! gate on `ctx.is_inside_given_handler` either: a former compensating
+//! control there wrongly threw during definition-time body eval of
+//! plain-`:=` handlers.
 { String } :: import("std/string");
 import("std/fmt");
 {
@@ -79,7 +78,7 @@ evaluate_unwind :: (
     .Some(t) => t,
     .None => t_i32()
   );
-  // `unwind` accepts at most one argument (mirrors unwind.ts:34-39).
+  // `unwind` accepts at most one argument.
   n_args := match(expr, .FnCall(_, _, args, _, _) => args.len(), .Atom(_, _) => usize(0));
   if(n_args > usize(1), {
     exn.throw(
@@ -91,16 +90,16 @@ evaluate_unwind :: (
       )
     );
   });
-  // (No `is_inside_given_handler` gate — matches TS `evaluateUnwind`,
-  // which only checks for an enclosing function. TS enforces "unwind is valid only in a
-  // `ctl(...)` body" at the FunctionValue CREATION site, which yo-self ALSO ports: the §4
-  // rule-1 post-eval gate keyed on `is_control` (anonymous_function.yo:999 /
-  // function_type.yo). The old compensating gate threw during DEFINITION-TIME body eval of a
+  // (No `is_inside_given_handler` gate: only the enclosing-function check
+  // happens here. "unwind is valid only in a `ctl(...)` body" is enforced at
+  // the FunctionValue CREATION site — the §4 rule-1 post-eval gate keyed on
+  // `is_control` (values/anonymous_function.yo / calls/function_type.yo). A
+  // former compensating gate here threw during DEFINITION-TIME body eval of a
   // plain `exn := Exception(throw : (err) -> unwind(...))` handler — where
   // `is_inside_given_handler` is false (only set for `given(exn) :=`) — aborting before the
   // `unwind` expr's ExprInfo was stamped, so codegen emitted "// Failed to transpile
   // unwind(...)".)
-  // No-argument form `unwind()` — type unit (mirrors unwind.ts:42-68).
+  // No-argument form `unwind()` — type unit.
   if(n_args == usize(0), {
     if(!is_some_type(enclosing_ret) && !are_types_compatible(t_unit(), enclosing_ret), {
       exn.throw(
@@ -128,7 +127,7 @@ evaluate_unwind :: (
     .Atom(_, _) => make_err_expr()
   );
   // Recursively evaluate the argument with the enclosing return type as the
-  // expected type (mirrors unwind.ts:70-80).
+  // expected type.
   saved_expected := ctx.expected_type;
   ctx.expected_type = .Some(ExpectedTypeCtx(ty : enclosing_ret, env : env));
   evaluated := evaluate_expression(arg_expr, env, ctx);
@@ -153,7 +152,7 @@ evaluate_unwind :: (
     .Some(i) => i,
     .None => new_expr_info(env, t_i32())
   );
-  // Type-check (skip when enclosing_ret is a SomeType, mirrors TS).
+  // Type-check (skip when enclosing_ret is a SomeType).
   if(!is_some_type(enclosing_ret) && !are_types_compatible(arg_info.ty, enclosing_ret), {
     exn.throw(
       dyn(

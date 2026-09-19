@@ -1,5 +1,4 @@
-//! await — io.await / io.state / JoinHandle.await codegen (Phase 5). 1:1 port of
-//! `src/codegen/exprs/await.ts` (835 LOC).
+//! await — io.await / io.state / JoinHandle.await codegen (Phase 5).
 //!
 //! `generate_await` emits a synchronous blocking wait for an `io.await` OUTSIDE a
 //! state machine (cold-start the future, poll the event loop until completed /
@@ -7,13 +6,12 @@
 //! resume generator handles the suspension). `generate_state` reads a Future's
 //! raw state. `generate_join_handle_await` polls a spawned task → Option(T).
 //!
-//! Representation adaptations vs TS: yo-self's `FutureTraitT` carries effect
-//! ARRAYS rather than TS's single `isFuture.effect`, so the effect is read via
-//! `_first_future_effect` (index 0); `isSourceNamespaceType` → `is_module_type`;
-//! the module-level `effectInjectionTmpCounter` becomes `random_id` (yo-self can
-//! not reassign module-level mutable counters from inside a fn); the
-//! `inEffectStateMachine` context check is omitted (effects-SM not yet modeled);
-//! `Variable.value` is a single `Option(EvalValue)` (not a history array).
+//! Data-model notes: `FutureTraitT` carries effect
+//! ARRAYS, so the effect is read via `_first_future_effect` (index 0);
+//! effect-injection temp names use `random_id` (module-level
+//! mutable counters can not be reassigned from inside a fn); the
+//! effects-state-machine context check is not modeled;
+//! `Variable.value` is a single `Option(EvalValue)`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -53,8 +51,8 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_pending_deferred_drops } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-/// One effect on a Future trait (the first, mirroring TS's single
-/// `isFuture.effect`). yo-self's FutureTraitT carries effect arrays.
+/// One effect on a Future trait (the first — `FutureTraitT` carries effect
+/// arrays).
 _FutureEffect :: ref(struct(label : String, ty : TypeValue));
 /// The first effect of a Future trait type, if any.
 _first_future_effect :: (fn(ft : TypeValue) -> Option(_FutureEffect))(
@@ -118,8 +116,8 @@ resolve_effect_field_from_scope :: (fn(field_label : String, context : FunctionG
   Option(String).None
 });
 /// Resolve an effect record field (e.g. "throw" from Exception) from `given`
-/// bindings in the call environment.
-///. yo-self StructVal carries field names + values directly.
+/// bindings in the call environment. StructVal carries field names + values
+/// directly.
 resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context : FunctionGenerationContext, expr : AstExpr) -> Option(String))({
   call_env := match(
     context.base.get_expr_info(expr),
@@ -175,8 +173,6 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context 
 /// Inject struct-record effect fields (e.g. Exception.throw) into a Future's
 /// capture struct. Resolves each fn field from SM captures, caller evidence
 /// params, or `given` bindings.
-/// (The TS `usingArgValue` path is dropped — `using(...)` is gone in explicit
-/// effects, so all call sites pass `undefined`.)
 emit_effect_record_injection :: (fn(source_namespace_type : TypeValue, future_type : TypeValue, future_var : String, indent : String, context : FunctionGenerationContext, expr : AstExpr) -> unit)({
   field_labels := match(source_namespace_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
   field_types := match(source_namespace_type, .Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
@@ -280,8 +276,8 @@ emit_io_spawn_effect_injection :: (fn(expr : AstExpr, future_var : String, inden
   em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
   em.emit_string_line(`${indent.clone()}if (${future_var.clone()}->__yo_set_effect_fn) ${future_var.clone()}->__yo_set_effect_fn((void*)${future_var.clone()}, "__bundle", (void*)&${tmp_name});`);
 });
-/// Generate effect-injection code for an `io.await` cold-start. Mirrors
-/// `emitEffectInjectionForAwait`. Early-returns when the future has
+/// Generate effect-injection code for an `io.await` cold-start.
+/// Early-returns when the future has
 /// no effect (the BASELINE no-effect case).
 emit_effect_injection_for_await :: (fn(expr : AstExpr, future_var : String, indent : String, context : FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return());
@@ -305,10 +301,8 @@ emit_effect_injection_for_await :: (fn(expr : AstExpr, future_var : String, inde
         // an anonymous record literal (`{ io, raise }`) lowers to its OWN C
         // struct while the future's declared effect type is the NAMED twin
         // (`Ctx`) — initializing across the pair is a clang type error even
-        // though the layouts are identical. TS has ONE type object for both
-        // (the record literal adopts the expected struct), so `${effect_c}
-        // bundle = temp;` type-checks there; matching the arg's type here
-        // reproduces that consistency. Fall back to the effect type when the
+        // though the layouts are identical. Matching the arg's type keeps
+        // both sides consistent; fall back to the effect type when the
         // arg's type is not a concrete struct/module.
         bundle_cast_ty := match(
           context.base.get_expr_info(bundle_arg),
@@ -341,8 +335,7 @@ emit_effect_injection_for_await :: (fn(expr : AstExpr, future_var : String, inde
 });
 /// True when the current function is the handler-installation point for an
 /// algebraic effect that could cause a Future abort (the effect is locally
-/// installed, not forwarded via evidence params). Mirrors
-/// `isAwaitUnwindHandlerInstallation`.
+/// installed, not forwarded via evidence params).
 is_await_unwind_handler_installation :: (fn(future_trait_type : TypeValue, context : FunctionGenerationContext) -> bool)({
   effect := match(_first_future_effect(future_trait_type), .Some(e) => e, .None => return(false));
   if(is_function_type(effect.ty), {
@@ -384,8 +377,7 @@ is_await_unwind_handler_installation :: (fn(future_trait_type : TypeValue, conte
 });
 /// `await` — extract a value from a Future. Inside a state machine, returns "" (the
 /// FSM resume generator handles the suspension). For `io.await` outside a state
-/// machine, emits a synchronous blocking wait (cold-start, poll, extract). Faithful
-/// port of `generateAwait`.
+/// machine, emits a synchronous blocking wait (cold-start, poll, extract).
 generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
@@ -419,10 +411,9 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   expr_type := expr_ei.ty;
   future_code := _call_generate_expr(future_arg, indent.clone(), context);
   future_type_name := get_type_string(future_type, context.base);
-  // Result type (resolve SomeType to concrete). Mirrors await.ts:82-95: TS
-  // reads the PER-CALL cloned SomeT's `resolvedConcreteType`, then the await
+  // Result type (resolve SomeType to concrete): read the await
   // expr's own recorded type, then that type's resolution — never a global.
-  // yo-self's resolution cell is per-LINEAGE (the declaration's clones share
+  // The resolution cell is per-LINEAGE (the declaration's clones share
   // the handle, so a sibling io.async call site can re-resolve it — the
   // cross-call poisoning family, issues/yo-self-async-emission-cluster.md
   // item 6), and the bare-sid global has the same cross-call hazard. The
@@ -590,17 +581,15 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
         match(
           get_dup_function_for_type(result_type, context),
           .Some(dup_fn) => em.emit_string_line(`${indent.clone()}  ${result_var.clone()} = ${dup_fn}(${sync_future_var.clone()}->result);`),
-          // INLINE dup, not a bare copy. TS reaches its `else` here only in
-          // theory: `getDupFunctionForType` always succeeds for it because
-          // `addRcFunctionsToStructType` registers a `___dup` METHOD per RC type.
-          // yo-self synthesizes no such methods (see drop_dup.yo), so `.None` is
+          // INLINE dup, not a bare copy. No `___dup` methods are
+          // synthesized (see drop_dup.yo), so `.None` is
           // the ONLY path — and a bare copy hands out a second owner with no
           // increment, while the scope-end pass still emits a decrement per
           // binding. Awaiting one RC-result future twice therefore over-released
           // it: heap corruption (SIGTRAP on macOS, tcache corruption on glibc).
           // That was the Linux-only failure of
           // tests/async_await.test.yo "Test await future multiple times returns
-          // same result". Use the same inline generator every other yo-self dup
+          // same result". Use the same inline generator every other dup
           // site uses.
           .None => {
             dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, result_type, context);
@@ -633,8 +622,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   String.from("")
 });
 /// `io.state` — read a Future's raw state, mapped to the FutureState enum
-/// (Pending=0, Running=1, Completed=-1, Aborted=-2). Faithful port of
-/// `generateState`.
+/// (Pending=0, Running=1, Completed=-1, Aborted=-2).
 generate_state :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
@@ -740,7 +728,7 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
         get_dup_function_for_type(rt, context),
         .Some(dup_fn) => em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .Some = { .value = ${dup_fn}(${header_var.clone()}->result) } } };`),
         // INLINE dup, not a bare copy — same trap as generate_await's sync
-        // path above: yo-self synthesizes no ___dup methods, so `.None` is
+        // path above: no ___dup methods are synthesized, so `.None` is
         // the ONLY path here, and the bare copy handed out a BORROWED
         // reference to the spawned future's result. While futures leaked
         // their results that borrow lived forever; once the dispose really

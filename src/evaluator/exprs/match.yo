@@ -1,5 +1,4 @@
 //! evaluate_match — evaluates `match(...)` expressions.
-//! 1:1 port of `src/evaluator/exprs/match.ts` (Phase 2ae-main).
 //!
 //! Exported symbols: evaluate_match
 pragma(Pragma.AllowUnsafe);
@@ -263,7 +262,6 @@ is_or_pattern :: (fn(expr : AstExpr) -> bool)(
 );
 /// True for a *place* expression: a plain variable (Atom) or a bare
 /// field-access chain rooted at one (`self._bytes`, `a.b.c`).
-/// Port of `exprIsPlaceExpression`.
 ///
 /// A place is already owned by the enclosing scope for the whole duration of
 /// the match, so — exactly like the Atom case — it must NOT be wrapped in an
@@ -485,7 +483,7 @@ evaluate_primitive_match :: (
       ctx.is_executing = is_arm_executing_wc;
       // Pass the running unified result type as the arm body's expected type so a
       // bare `.None` / `.Variant` (shorthand enum construction) in this arm can
-      // infer its enum type from earlier arms. Mirrors TS match.ts:471
+      // infer its enum type from earlier arms
       // (`expectedType: resultType ?? context.expectedType`).
       old_expected_wc := ctx.expected_type;
       match(
@@ -668,9 +666,9 @@ evaluate_primitive_match :: (
           return(expr);
         });
         fp_info := match(fp_info_opt, .Some(fi) => fi, .None => new_expr_info(case_env, scrutinee_type));
-        // Argument ROLES: yo-self's are_types_compatible is (actual, expected)
+        // Argument ROLES: are_types_compatible is (actual, expected)
         // — the PATTERN's type is the actual/given and the SCRUTINEE type is
-        // the expected (TS match.ts:1650-1656 passes expected=scrutineeType,
+        // the expected (expected=scrutineeType,
         // given=evaluatedPattern). With the roles swapped, a COMPTIME-CONST
         // identifier pattern (`TEN => 1`, TEN :: 10) asked "is runtime i32
         // acceptable where comptime_int is expected" → false → the whole
@@ -763,7 +761,7 @@ evaluate_primitive_match :: (
       old_executing_lit := ctx.is_executing;
       ctx.is_executing = matches_at_ct;
       // Running-result-type as expected type (bare `.None`/`.Variant` inference);
-      // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+      // (`expectedType: resultType ?? context.expectedType`).
       old_expected_lit := ctx.expected_type;
       match(
         result_type_pm,
@@ -997,8 +995,8 @@ evaluate_primitive_match :: (
       scrutinee_val_opt.is_none() => Option(EvalValue).None,
       // A match over a RUNTIME-ONLY scrutinee is a runtime result — mark it
       // runtime-only so a comptime-only parameter cannot be filled with it
-      // (TS: a runtime match has NO `$.value` at all; a plain UnknownVal is
-      // yo-self's CTFE-analysis placeholder and would slip past helper.yo's
+      // (a plain UnknownVal is
+      // the CTFE-analysis placeholder and would slip past helper.yo's
       // Step-5 check — `!(match(param_ct_flags.get(i), ...))` then stamped
       // comptime_not and the stage2 self-compile called an unemitted C fn,
       // the FIXPOINT_BROKEN shape from the comptime-overload gate removal).
@@ -1198,17 +1196,15 @@ evaluate_primitive_match :: (
 /// Evaluate a `match(...)` expression.
 ///
 ///
-/// GADT branch reachability — mirrors `isGadtBranchReachable`
-///. A variant is UNREACHABLE when the
+/// GADT branch reachability: a variant is UNREACHABLE when the
 /// enum is instantiated with concrete type args that don't match the
 /// variant's `-> recur(...)` return-type args (e.g. `Value(i32).BoolVal`
 /// is unreachable because `BoolVal -> recur(bool)` and `bool != i32`).
 /// Non-GADT enums and SomeT (unrefined) instantiation args make every
 /// branch reachable. `variant_idx` indexes the enum's variant order.
 /// Resolve a GADT type-constructor arg through the SomeT resolution channel
-/// (lineage cell first, then the id-keyed registry). TS substitutes
-/// `EnumType.typeConstructorArgs` ON the type object when a generic fn is
-/// specialized; yo-self's side-registry keys by enum id — which `substitute`
+/// (lineage cell first, then the id-keyed registry). The side-registry
+/// keys by enum id — which `substitute`
 /// PRESERVES — so the substituted instance still maps to the tca recorded at
 /// def-instantiation time ([SomeT T], not [i32]). Reading each entry through
 /// the resolution channel recovers the specialization's concrete binding.
@@ -1227,8 +1223,8 @@ _gadt_resolve_tca_entry :: (fn(t : TypeValue) -> TypeValue)(
     _ => t
   )
 );
-/// Compute the GADT-refined expected type for a match branch (port of
-/// match.ts:93 getGadtRefinedExpectedType). If the expected type is the
+/// Compute the GADT-refined expected type for a match branch.
+/// If the expected type is the
 /// SAME SomeT as one of the enum's type-constructor args, the branch
 /// refines it to the variant's `-> recur(...)` arg at that position
 /// (e.g. expected `T`, tca `[T]`, variant args `[i32]` → `i32`).
@@ -1279,7 +1275,7 @@ _is_gadt_branch_reachable :: (
         while((k < tca.len()) && reachable, {
           tk := _gadt_resolve_tca_entry(match(tca.get(k), .Some(t) => t, .None => TypeValue.Unit));
           gk := match(gra.get(k), .Some(g) => g, .None => TypeValue.Unit);
-          // Skip unrefined (SomeT) instantiation args — TS `!isSomeType(tca)`.
+          // Skip unrefined (SomeT) instantiation args (`!isSomeType(tca)`).
           if(!(is_some_type(tk)), {
             if(!(are_types_compatible(tk, gk)), {
               reachable = false;
@@ -1426,7 +1422,7 @@ evaluate_match :: (
   // where `func : Box(Self)` is two levels into AstExpr — surfaces the raw shell
   // here. Without this, the variant lookup throws "variant not found in
   // <enum:..._self_shell>" (the def-time body-eval of `is_function_boundary_arrow`
-  // swallowed exactly that). Mirrors the resolve_enum_shell use sites in
+  // swallowed exactly that). Same resolve_enum_shell idiom as in
   // synthesizer.yo / property_access.yo.
   matched_type = resolve_enum_shell(matched_type);
   // Dispatch to primitive match
@@ -1455,7 +1451,7 @@ evaluate_match :: (
   // type exists to refine against, and this instantiation recorded its
   // type-constructor args. The entry expected type is CAPTURED here — the arm
   // loop overwrites ctx.expected_type with the running result type, so the
-  // refinement (and the final stamp, match.ts:1278) must read the original.
+  // refinement (and the final stamp) must read the original.
   gadt_va_em := get_gadt_variant_args(en_id);
   gadt_tca_em := {
     tca_resolved_em := ArrayList(TypeValue).new();
@@ -1616,7 +1612,7 @@ evaluate_match :: (
       }, {
         checked_variant_names.push(variant_name_fl.clone());
       });
-      // Skip unreachable GADT branches (match.ts:459: e.g. BoolVal when
+      // Skip unreachable GADT branches (e.g. BoolVal when
       // matching Value(i32) — BoolVal -> recur(bool) and bool != i32).
       gadt_reachable_fl := match(
         variant_idx_fl_opt,
@@ -1658,7 +1654,7 @@ evaluate_match :: (
         // Set ExprInfo for variantNameExpr (BEFORE push_frame)
         vne_fl_info := new_expr_info(env, new_enum_type_fl);
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(variant_name_expr), vne_fl_info);
-        // Save pre-arm frame count for cleanup (mirrors with-fields branch).
+        // Save pre-arm frame count for cleanup (as in the with-fields branch).
         base_frame_count_fl := env.frames.len();
         // Push frame for this arm
         env.push_frame(false);
@@ -1681,7 +1677,7 @@ evaluate_match :: (
         old_executing_fl := ctx.is_executing;
         ctx.is_executing = is_arm_executing_fl;
         // Running-result-type as expected type (bare `.None`/`.Variant` inference);
-        // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+        // (`expectedType: resultType ?? context.expectedType`).
         old_expected_fl := ctx.expected_type;
         match(
           result_type_em,
@@ -1976,7 +1972,7 @@ evaluate_match :: (
             checked_variant_names.push(variant_name_wf.clone());
           });
         });
-        // Skip unreachable GADT branches (match.ts:747: e.g. BoolVal when
+        // Skip unreachable GADT branches (e.g. BoolVal when
         // matching Value(i32) — BoolVal -> recur(bool) and bool != i32).
         gadt_reachable_wf := _is_gadt_branch_reachable(en_id.clone(), variant_idx_wf);
         // Skip if concrete CT scrutinee doesn't match this variant
@@ -2116,10 +2112,9 @@ evaluate_match :: (
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(fb_vne), vne_wf_info);
           // Pre-arm frame count: the shared `env` must be restored to EXACTLY this
           // depth after evaluating the arm body, so each arm (and the post-loop
-          // env merge) sees the same clean base. TS keeps the shared env untouched
-          // entirely — it pushes the arm frame into a LOCAL `caseEnv` copy
-          // (match.ts:343/445) and never pops. yo-self mutates the shared `env`, so
-          // it must restore it here. A single `pop_frame()` is NOT enough: when the
+          // env merge) sees the same clean base. This evaluator mutates the shared
+          // `env` (arm frames are pushed into it, not into a local caseEnv copy),
+          // so it must restore it here. A single `pop_frame()` is NOT enough: when the
           // arm body is a begin-block whose tail `return`s, evaluate_begin_expression
           // leaves `env` one frame deep (it threads `env.frames` to the returning
           // statement's recorded snapshot, which still carries the begin frame), so a
@@ -2354,7 +2349,7 @@ evaluate_match :: (
           old_executing_wf := ctx.is_executing;
           ctx.is_executing = is_arm_executing_wf;
           // Running-result-type as expected type (bare `.None`/`.Variant` inference);
-          // mirrors TS match.ts:471 (`expectedType: resultType ?? context.expectedType`).
+          // (`expectedType: resultType ?? context.expectedType`).
           old_expected_wf := ctx.expected_type;
           match(
             result_type_em,
@@ -2579,8 +2574,8 @@ Supported patterns:
           en_vnames.get(vn_i),
           .Some(vname) => {
             // GADT-unreachable variants (e.g. BoolVal when matching
-            // Value(i32)) need not be covered — mirrors TS skipping them
-            // in the exhaustiveness scan.
+            // Value(i32)) need not be covered — the exhaustiveness scan
+            // skips them.
             if((!(contains_str_in_list(checked_variant_names, vname.clone()))) && _is_gadt_branch_reachable(en_id.clone(), vn_i), {
               missing_em.push(vname);
             });

@@ -1,6 +1,4 @@
-//! Object (reference-semantics struct) constructor emission — mirrors
-//! `generateRefStructConstructorFunctions` in
-//! `src/codegen/functions/generation.ts`.
+//! Object (reference-semantics struct) constructor emission.
 //!
 //! For each concrete `object(...)` type, emit `__yo_new_<cName>(...)`: malloc
 //! the struct, initialize the RC header (ref_count = 1, borrow_count = 0), stamp
@@ -12,9 +10,8 @@
 //! dispose_fn function-pointer form, the `__yo_traverse_<cName>` pointer, and
 //! `__yo_gc_register(obj)`) are emitted only when needs_cycle_gc is true (i.e.
 //! some reference-semantics type can form an RC cycle). The traversal-function
-//! bodies they reference are emitted by `generate_ref_struct_traversal_functions`
-//! (mirrors `generateRefStructTraversalFunctions`), called from
-//! `generate_ref_struct_constructor_functions` on the cyclic-GC path.
+//! bodies they reference are emitted by `generate_ref_struct_traversal_functions`,
+//! called from `generate_ref_struct_constructor_functions` on the cyclic-GC path.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -168,15 +165,14 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
 /// counted child reachable at the C lvalue `access`, descending INLINE through
 /// value structs / value enums (incl. `Option`) / tuples / inline arrays, but
 /// STOPPING at managed handles (each is one graph edge; the collector calls the
-/// handle's own traverse_fn). Atomic (Iso) handles never participate. Mirrors
-/// `emitTraverseValue` in src/codegen/functions/generation.ts.
+/// handle's own traverse_fn). Atomic (Iso) handles never participate.
 // The visit-callback expression for the CURRENT traversal emission (`visit`
 // for auto-derived traverse fns; the GcTracer expr for explicit Trace). It is
 // held in a module GLOBAL rather than threaded as a `visit_expr : String`
 // parameter through `_traverse_value`'s recursion, and callers set it before
 // calling. WHY (task #54, issues/retired/yo-self-binary-codegen-state.md): threading a
-// `String` param through the nested `cond`/`while`/`match` recursion hit a
-// TS-codegen RC-lifetime bug — the param's heap buffer was freed at a scope
+// `String` param through the nested `cond`/`while`/`match` recursion hit an
+// RC-lifetime bug — the param's heap buffer was freed at a scope
 // boundary before its last use, and the sibling `switch (${access}.tag){`
 // literal allocation reused the freed address, so `visit_expr` read back as
 // "  switch (" → malformed `((void(*)(void*))  switch ()(…)`. A global lives in
@@ -309,8 +305,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
     // and the element access must go through `.data`. Subscripting the wrapper
     // directly produced "subscripted value is not an array, pointer, or
     // vector" for any ref struct with an `Array(Box(T), N)` field — the first
-    // shape that ever needed a generated tracer. Mirrors the same fix in
-    // src/codegen/functions/generation.ts.
+    // shape that ever needed a generated tracer.
     is_array_type(ty) => match(
       ty,
       .Array({ element }) => {
@@ -326,8 +321,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
 /// Emit the cycle-GC traversal function for ONE reference-semantics struct
 /// (`object`/`ref(struct(…))`). Per-field traversal is delegated to the
 /// compositional `_traverse_value` (so `Option(Self)`, nested value-enums, tuples,
-/// and inline arrays are traced, not just direct handle fields). Mirrors
-/// `generateRefStructTraversalFunctions`.
+/// and inline arrays are traced, not just direct handle fields).
 _generate_one_ref_struct_traversal :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   runtime_fields := get_runtime_struct_fields(type);
@@ -342,7 +336,7 @@ _generate_one_ref_struct_traversal :: (fn(type : TypeValue, c_name : String, con
   // malloc'd buffer a field walk can't reach): delegate to its monomorphized
   // `trace`. `(void*)visit` becomes the GcTracer newtype (uint8_t*) implicitly;
   // the impl iterates its buffer and re-enters tracing per element slot via
-  // `tracer.visit` (__yo_gc_trace_child). Mirrors generateRefStructTraversalFunctions.
+  // `tracer.visit` (__yo_gc_trace_child).
   match(
     get_trace_function_for_type(type, context),
     .Some(trace_c_name) => {
@@ -389,9 +383,8 @@ generate_ref_struct_traversal_functions :: (fn(context : FunctionGenerationConte
     );
   });
 });
-/// Generate constructor implementations for every concrete object type. Mirrors
-/// `generateRefStructConstructorFunctions`: emits the cycle-GC traversal
-/// functions first (when needed), then the constructors.
+/// Generate constructor implementations for every concrete object type: emits
+/// the cycle-GC traversal functions first (when needed), then the constructors.
 generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   // Only generate traversal functions when cycle GC is needed.
   if(context.base.needs_cycle_gc, {
@@ -414,7 +407,7 @@ generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationCon
 /// Emit the cycle-GC traversal function for ONE reference-semantics enum.
 /// `__yo_traverse_<cName>` switches on the active variant's tag and `visit()`s
 /// each reference-semantics field of that variant (accessed through the handle
-/// pointer). Mirrors the per-type body of `generateRefEnumTraversalFunctions`.
+/// pointer).
 _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*)) {`);
@@ -422,7 +415,6 @@ _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, conte
   // the handle is `${c_name}*` — cast accordingly (matches the ref-struct path).
   em.emit_string_line(`  ${c_name}* obj = (${c_name}*)ptr;`);
   // A ref-enum with an explicit Trace impl — delegate to it (same as structs).
-  // Mirrors generateRefEnumTraversalFunctions's traceCName branch.
   match(
     get_trace_function_for_type(type, context),
     .Some(trace_c_name) => {
@@ -510,8 +502,7 @@ generate_ref_enum_traversal_functions :: (fn(context : FunctionGenerationContext
 /// Each `__yo_new_<cName>_<variant>(fields…)` heap-allocates the RC handle,
 /// initializes the reference-count header (and GC fields / dispose dispatch,
 /// mirroring the object path), sets the tag and the active variant's data, and
-/// returns the pointer. Mirrors the per-type body of
-/// `generateRefEnumConstructorFunctions`.
+/// returns the pointer.
 _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Skip generic enums that still contain SomeType parameters.
@@ -538,8 +529,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
         // RC edge that could close a cycle — instances of it can be pointed
         // AT but can never be cycle MEMBERS, so they skip GC tracking. Keeps
         // hot leaf variants (EvalValue.IntLit/BoolVal, TypeValue primitive
-        // leaves, …) out of the tracked list. Mirrors the TS per-variant
-        // `typeCanFormCyclicRcReference` gate in generateRefEnumConstructorFunctions.
+        // leaves, …) out of the tracked list.
         (variant_registers_with_gc : bool) = false;
         if(registers_with_gc, {
           (ci : usize) = usize(0);
@@ -639,8 +629,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
   )
 });
 /// Generate per-variant constructor implementations for every concrete
-/// reference-semantics enum (`ref(enum(…))`). Mirrors
-/// `generateRefEnumConstructorFunctions`: emits the cycle-GC traversal
+/// reference-semantics enum (`ref(enum(…))`): emits the cycle-GC traversal
 /// functions first (when needed), then the constructors.
 generate_ref_enum_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   if(context.base.needs_cycle_gc, {
@@ -662,8 +651,7 @@ generate_ref_enum_constructor_functions :: (fn(context : FunctionGenerationConte
 });
 /// Generate constructor implementations for closures and their Rc functions.
 /// No-op: Impl(Fn(...)) closures use concrete capture structs + direct calls,
-/// and Dyn(Fn(...)) uses dyn constructors generated elsewhere. Faithful port of
-/// `generateClosureConstructorFunctions` (which is likewise a no-op).
+/// and Dyn(Fn(...)) uses dyn constructors generated elsewhere.
 generate_closure_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)(
   ()
 );

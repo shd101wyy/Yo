@@ -1,4 +1,4 @@
-//! Substitution engine for `yo-self` type system (Phase 2b).
+//! Substitution engine for the type system.
 //!
 //! A `Substitution` maps `SomeT` type-variables (identified by name +
 //! frame-level) to concrete `TypeValue`s.  `substitute` recursively walks a
@@ -30,7 +30,7 @@ Substitution :: ref(
     // recorded, `substitute` returns that TraitT unchanged rather than
     // re-descending into its (already-bound) method types.
     visited_trait_ids : ArrayList(String),
-    /// TS `substitutions.insert("Self", concreteType)`, applied by
+    /// A `Self → concreteType` binding applied by
     /// this same walk. 0 or 1 element each; empty = no Self binding.
     self_from : ArrayList(TypeValue),
     self_to : ArrayList(TypeValue),
@@ -186,16 +186,14 @@ subst_lookup_len_var :: (fn(s : Substitution, name : String) -> Option(usize))({
   });
   Option(usize).None
 });
-/// Bind `Self` — port of TS `substitutions.insert("Self", concreteType)`
-///, consumed by
-/// `reEvaluateFunctionType(..., SelfType)`. TS re-evaluates
-/// the stored type EXPRESSIONS; yo-self's `TypeValue.Func` stores none
-/// (types/definitions.yo:135-146), so the binding is applied as a type-level
+/// Bind `Self`, consumed by
+/// the same walk. `TypeValue.Func` stores no type
+/// EXPRESSIONS (types/definitions.yo), so the binding is applied as a type-level
 /// replacement keyed on EXACT identity with the impl's own receiver pattern —
 /// i.e. literally `Self`. Without it `substitute` maps only the generic params
 /// and a `fn(self : Self) -> T` keeps the PATTERN's nominal id with a concrete
-/// payload, the case TS flags at impl.ts:1451 ("types in Yo are nominal, so we
-/// can't just substitute structurally").
+/// payload — and types are nominal, so they cannot just be substituted
+/// structurally.
 subst_set_self :: (fn(s : Substitution, from : TypeValue, to : TypeValue) -> unit)({
   s.self_from.push(from);
   s.self_to.push(to);
@@ -280,13 +278,12 @@ _is_self_pattern :: (fn(s : Substitution, ty : TypeValue) -> bool)({
 /// Capture-avoiding mask for a nested `Func`'s OWN forall binders: a
 /// substitution entry whose NAME is one of the Func's own `forall_labels`
 /// must not apply inside that Func — occurrences of that name there are
-/// BOUND by the Func, not free. TS is immune natively: it substitutes by
-/// re-evaluating the type EXPRESSION in an env, and a nested `fn(generic(T,
-/// E), …)` type expr re-binds its own `T`/`E` fresh, shadowing any outer
-/// binding of the same name (name-keyed env lookup — hence a NAME mask, not
+/// BOUND by the Func, not free. A nested `fn(generic(T,
+/// E), …)` re-binds its own `T`/`E` fresh, shadowing any outer
+/// binding of the same name (name-keyed lookup — hence a NAME mask, not
 /// a (name, level) one; `Func.forall_types` stores declared KINDS, and the
-/// bound occurrences' recorded levels vary per instantiation era). yo-self's
-/// value-space walk had no shadowing, so a generic impl's `T := usize`
+/// bound occurrences' recorded levels vary per instantiation era). A plain
+/// value-space walk has no shadowing, so a generic impl's `T := usize`
 /// (find_methods_from_generic_impls substitutes every same-NAME occurrence
 /// at its own recorded level) rewrote the UNRELATED `T` binder inside a
 /// param struct's field — `Io.async : fn(generic(T, E), …)` became
@@ -380,9 +377,8 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
   // codegen identity (plans/backlog/TYPEVALUE_HASH_CONSING.md). Gate: corpus 96/96.
   if(
     (s.self_from.len() > usize(0)) && _is_self_pattern(s, ty),
-    // This node IS `Self` — hand back the concrete receiver, as TS's
-    // re-evaluation of the `Self` identifier yields `context.SelfType`
-    //. Interned like
+    // This node IS `Self` — hand back the concrete receiver.
+    // Interned like
     // every other arm; the hash-consing invariant is load-bearing for codegen
     // identity.
     intern_type(match(s.self_to.get(usize(0)), .Some(st) => st, .None => ty)),

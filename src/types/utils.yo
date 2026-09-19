@@ -1,7 +1,6 @@
-//! Type utilities — port of `src/types/utils.ts`.
+//! Type utilities.
 //!
-//! Most of the TS exports are now landed. The handful that remain
-//! deferred do so for one of three reasons:
+//! A few helpers live elsewhere or stay deferred:
 //!
 //!   * `is_comptime_only_type` / `is_runtime_only_type` (env-aware
 //!     versions): live in `evaluator/trait_checking.yo` as
@@ -9,14 +8,14 @@
 //!     they depend on the env-aware `type_implements_comptime`. The
 //!     tag-only fast path is still here as `type_is_comptime_only`.
 //!   * `type_contains_self_type_for_dynamic_dispatch_check` — needs
-//!     `SomeType.resolved_concrete_type` which yo-self's `SomeT` does
-//!     not yet carry.
+//!     a `resolved_concrete_type` slot on `SomeT`, which it does not
+//!     yet carry.
 //!   * `function_parameter_to_string` / `tuple_field_to_string` —
-//!     depend on the TS `FunctionParameter` / `TupleElement` shapes
-//!     that yo-self models via parallel `ArrayList` fields rather
-//!     than per-field objects.
+//!     not implemented: function parameters and tuple fields are
+//!     modeled via parallel `ArrayList` fields rather than
+//!     per-field objects.
 //!
-//! Ported (full): set_target_pointer_size,
+//! Provides: set_target_pointer_size,
 //! get_target_pointer_size_{bits,bytes}, get_integer_type_bits,
 //! get_integer_type_range, can_comptime_{int,float}_cast_to,
 //! create_str_type, convert_comptime_type_to_runtime_type (+
@@ -25,9 +24,9 @@
 //! type_implements_runtime_builtin, type_implements_runtime,
 //! type_contains_rc_type (recursive, with depth-limit cycle guard),
 //! can_type_form_rc_cycle (full structural DFS with an id-keyed visited set;
-//! omits only the env-gated `typeImplementsAcyclic` short-circuit — codegen
-//! call sites carry no env — which is conservative, not a stub),
-//! type_requires_inference (`false` — yo-self Array length is always
+//! omits only the env-gated `Acyclic` short-circuit — codegen call sites
+//! carry no env — which is conservative, not a stub),
+//! type_requires_inference (`false` — Array length is always
 //! concretely known), type_contains_some_type (top-level only;
 //! recursive descent in `_collect_some_types_into`), get_all_some_types,
 //! get_size_of_type / get_alignment_of_type (full: primitive/pointer/array
@@ -58,7 +57,7 @@ import("std/fmt");
 { format_error_message, YoError } :: import("../error.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
-// Target pointer size — mirrors `let targetPointerSizeBits = 64` in utils.ts
+// Target pointer size
 // ---------------------------------------------------------------------------
 (g_target_pointer_size_bits : u32) = u32(64);
 /// Set the target pointer size in bits. Must be positive and divisible by 8.
@@ -83,7 +82,6 @@ get_target_pointer_size_bytes :: (fn() -> u32)(
 // Integer range result type
 // ---------------------------------------------------------------------------
 /// Integer value range: `min` (signed) and `max` (unsigned).
-/// Mirrors `{ min: bigint; max: bigint }` from `getIntegerTypeRange` in utils.ts.
 IntRange :: ref(struct(min : i64, max : u64));
 // ---------------------------------------------------------------------------
 // Integer utilities
@@ -146,7 +144,7 @@ can_comptime_float_cast_to :: (fn(target_type : TypeValue) -> bool)(
 // cycle and lets `env.yo` import `type_contains_rc_type` from here
 // for `get_variables_needing_drop`.
 // ---------------------------------------------------------------------------
-// Phase 2u additions — mirrors functions from src/types/utils.ts
+// Availability checks
 // ---------------------------------------------------------------------------
 /// Throw if `ty` is the `Void` type.
 ///
@@ -166,15 +164,12 @@ prohibit_void_type :: (fn(ty : TypeValue, token : Token, exn : Exception) -> uni
     _ => ()
   )
 );
-/// Best-effort `typeIsComptimeOnly`. The TS implementation also walks
-/// the type recursively for compound types; here we use the tag-only
-/// fast path. Returns true only when we *know* the type is
-/// comptime-only.
+/// Tag-only fast path. Unlike the env-aware full walk (which recurses
+/// into compound types), this never recurses. Returns true only when
+/// we *know* the type is comptime-only.
 ///
-/// Divergence:
-/// TS takes an `env` argument (for Runtime-trait lookups in compound
-/// types) but the tag-only fast-path here never reads it; the
-/// parameter is dropped to keep `types/utils.yo` free of any
+/// No `env` parameter: Runtime-trait lookups in compound types would
+/// need one, and it is dropped to keep `types/utils.yo` free of any
 /// dependency on `env.yo` (see top of file for the cycle context).
 type_is_comptime_only :: (fn(ty : TypeValue) -> bool)(
   match(
@@ -198,13 +193,11 @@ type_is_comptime_only :: (fn(ty : TypeValue) -> bool)(
 type_requires_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
   // Compound arms: a tuple/array containing a comptime-only member can
   // never be a runtime value, so binding it without `comptime` must be
-  // rejected. TS reaches the same verdict through the tuple/array type
-  // OBJECT's registered availability traits (utils.ts:85-96 →
-  // typeImplementsComptime/Runtime; registered by
-  // autoDeriveRuntimeForTupleType) — a per-object channel yo-self's
-  // nominal-id registry cannot key, so the structural recursion here is
-  // the faithful stand-in (basic arm 24: `Pair :: Tuple(x : comptime_int,
-  // …)` and `[comptime_int ; 2]` runtime bindings were ACCEPTED).
+  // rejected. Availability is decided by structural recursion, not by
+  // a registered per-object trait (the nominal-id trait registry
+  // cannot key tuple/array availability) — basic arm 24: `Pair :: Tuple(x :
+  // comptime_int, …)` and `[comptime_int ; 2]` runtime bindings were
+  // ACCEPTED.
   match(
     ty,
     .Tuple(_, rcm_fts) => {
@@ -253,22 +246,16 @@ type_prohibits_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
     _ => false
   )
 );
-/// Tag-only fast path mirroring `typeImplementsRuntimeBuiltin` in
-/// `src/evaluator/trait-checking.ts`. Returns:
+/// Tag-only fast path. Returns:
 ///   * `Some(true)`  — type definitely implements Runtime
 ///   * `Some(false)` — type definitely does NOT implement Runtime
 ///   * `.None`       — undecided at the tag level (caller must check the
 ///                     `Runtime` trait in the env, which is Phase 3 work)
 ///
-/// Note: `TStruct` with reference semantics ("object types") would also
-/// return `Some(true)` in TS but we don't yet carry that flag on
-/// `Struct` in yo-self — it falls into the undecided bucket here.
 type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
-  // Object types (reference semantics) are always runtime types — mirrors
-  // TS trait-checking.ts:169-171 (the stale note below about the missing
-  // flag predates Struct.is_reference_semantics). Module structs (source
-  // namespaces) are comptime-only (TS :174-176); the TModule tag arm below
-  // already covers them.
+  // Object types (reference semantics) are always runtime types. Module
+  // structs (source namespaces) are comptime-only; the TModule tag arm
+  // below already covers them.
   match(
     ty,
     .Struct({ is_reference_semantics : rb_ref, is_source_namespace : rb_ns }) => if(rb_ref && !rb_ns, {
@@ -276,13 +263,12 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
     }),
     _ => ()
   );
-  // ADAPTATION: a pointer's availability follows its POINTEE
+  // A pointer's availability follows its POINTEE
   // (`*(comptime_int)` is comptime-only, `*(Box(i32))` is runtime-only,
-  // `*(i32)` is both — tests/basic arms 10/11). TS reaches the same verdict
-  // through the pointer type OBJECT's `.trait` store — a per-object channel
-  // yo-self's nominal-id trait registry cannot key (type_id_or_empty has no
-  // Pointer case), so the registry fallback returned false and
-  // `validate_type_availability` false-fired on every pointer-fielded
+  // `*(i32)` is both — tests/basic arms 10/11). The nominal-id trait
+  // registry cannot key pointers (type_id_or_empty has no Pointer case),
+  // so a registry-only lookup would return false and
+  // `validate_type_availability` would false-fire on every pointer-fielded
   // struct (GcTracer :: newtype(_callback : *(u8))). Unwrap pointer chains
   // and decide from the base type's tag.
   (rb_base : TypeValue) = ty;
@@ -361,10 +347,10 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
     _ => .None
   )
 });
-/// Best-effort `typeImplementsRuntime`. Uses the tag fast path; for
+/// Conservative `type_implements_runtime`. Uses the tag fast path; for
 /// undecided cases it conservatively returns `false` (Phase 3 will
-/// consult the `Runtime` trait in `env`). Mirrors the contract of
-/// 
+/// consult the `Runtime` trait in `env`).
+///
 /// `env` param dropped (was unused on the tag-only path).
 type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
   match(
@@ -481,11 +467,9 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
       },
       // Iso — check child type
       .IsoT(child : child) => recur(child, depth + u32(1)),
-      // SomeT — follow the resolved concrete type if present (mirrors TS
-      // `typeContainsRcType` utils.ts:187-192: `if (resolvedConcreteType)
-      // return typeContainsRcType(resolvedConcreteType); else return true`).
-      // The Future carve-out (TS `typeImplementsFuture`) is already handled by
-      // `is_rc_type(ty)` above (line ~307). Without this follow-through a
+      // SomeT — follow the resolved concrete type if present; an unresolved
+      // SomeType is treated as RC. The Future carve-out is already handled
+      // by `is_rc_type(ty)` above (line ~307). Without this follow-through a
       // SomeType resolved to a NON-RC concrete (e.g. a plain struct returned by
       // a comptime call) was reported RC → its result temp was marked owning →
       // the return-tail dup was skipped → stage-2 comptime_list evaluated_arg
@@ -511,8 +495,8 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
 type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
   _type_contains_rc_inner(ty, u32(0))
 );
-/// Depth-limited inner walk for `type_is_control_bound`. A depth cap (not a
-/// checkedTypes identity set, which yo-self's value-typed `TypeValue` can't do
+/// Depth-limited inner walk for `type_is_control_bound`. A depth cap (not an
+/// object-identity visited set, which the value-semantic `TypeValue` can't do
 /// cheaply) guards self-referential types — same approach as
 /// `_type_contains_rc_inner`.
 _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
@@ -523,7 +507,7 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       // Only a `ctl(...) -> ret` function value is itself control-bound. A
       // regular `fn(...)` is a plain fn pointer — even if its params/return
       // reference `ctl`, the value does not carry a CF (it merely calls one
-      // the caller provides). Mirrors function.ts: `return isControl === true`.
+      // the caller provides).
       .Func({ meta : __fm1 }) => __fm1.*.is_control,
       // Aggregates — control-bound iff any field is.
       .Struct({ field_types : fields }) => {
@@ -600,8 +584,8 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       // control-bound — `*(Raise)` must be rejected).
       .Array(element : elem, length : _, length_var : _) => recur(elem, depth + u32(1)),
       .Pointer(pointee : p) => recur(p, depth + u32(1)),
-      // SomeT carries no resolved concrete type in yo-self → conservatively
-      // false (mirrors TS returning false when `resolvedConcreteType` is unset).
+      // SomeT — conservatively false (no resolved concrete type to follow
+      // on this path).
       _ => false
     )
   )
@@ -633,8 +617,8 @@ _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
   found
 });
 /// Walker for `can_type_form_rc_cycle`: does `ty` (a field type reached from the
-/// root ref-struct `original_id`) reference back to a cyclic RC object? Mirrors
-///  `visited` holds the
+/// root ref-struct `original_id`) reference back to a cyclic RC object?
+/// `visited` holds the
 /// ids of the RC structs / enums already on the current path (id-keyed cycle
 /// guard — sound now that ref types carry stable ids). A different RC struct
 /// re-roots the search inline (recur with its id as the new `original_id` and
@@ -642,9 +626,9 @@ _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
 /// needed. The enum branch carries the same visited guard the struct path has
 /// (a recursive `ref(enum(… Self …))` would otherwise loop forever).
 /// Extract the element type a container holds behind its `?(*(E))` heap buffer field
-/// — the pointee `E` of the Option-wrapped pointer. in
-/// src/types/utils.ts. Used to see through a container to its elements both for
-/// cycle detection and for the Acyclic auto-derive. A bare `*(E)` is intentionally
+/// — the pointee `E` of the Option-wrapped pointer. Used to see through a
+/// container to its elements both for cycle detection and for the Acyclic
+/// auto-derive. A bare `*(E)` is intentionally
 /// NOT matched (non-owning raw pointer; doesn't participate in ARC cycles).
 buffer_element_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
@@ -689,8 +673,8 @@ _type_refs_back_to_cyclic :: (
     .Struct({ id : sid, field_types : sfields, is_reference_semantics : sref }) => cond(
       // Direct self-reference back to the current root.
       (sid == original_id) => true,
-      // A different RC object — re-root the search at it (TS:
-      // `canTypeFormRcCycle(type, new Set(visitedTypes))`).
+      // A different RC object — re-root the search at it, with a fresh
+      // visited set seeded from the current path.
       sref => cond(
         _id_already_visited(visited, sid) => true,
         true => {
@@ -784,8 +768,8 @@ _type_refs_back_to_cyclic :: (
         found
       }
     ),
-    // A SomeType could resolve to anything — be conservative (TS returns true
-    // when there is no `resolvedConcreteType`, which yo-self's `SomeT` lacks).
+    // A SomeType could resolve to anything — be conservative (its
+    // resolution, if any, is not followed here).
     .SomeT(name : _) => true,
     .Array({ element : el }) => recur(el, original_id, visited),
     .Tuple({ field_types : tf }) => {
@@ -826,10 +810,9 @@ _type_refs_back_to_cyclic :: (
 );
 /// Return `true` if `ty` can form an RC reference cycle — used to decide which
 /// reference-semantics types need cycle-collecting GC. Structural DFS with an
-/// id-keyed visited set.
-/// EXCEPT the `typeImplementsAcyclic` short-circuit: that needs an `Environment`
-/// (to look up the `Acyclic` trait), which yo-self's codegen call sites do not
-/// carry — yo-self `TypeValue` stores no `env` like TS `type.env`. Omitting it
+/// id-keyed visited set, EXCEPT an `Acyclic`-trait short-circuit: that needs an
+/// `Environment` (to look up the `Acyclic` trait), which codegen call sites do
+/// not carry — `TypeValue` stores no `env`. Omitting it
 /// is conservative (an explicitly-`Acyclic`-marked but structurally-cyclic type
 /// is still GC-tracked — safe, just not optimized away) and keeps the evaluator
 /// and codegen call sites consistent.
@@ -914,8 +897,8 @@ can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
   )
 );
 /// Whether a reference-semantics type uses the SMALL RC header
-/// (`__yo_ref_header_small_t`, 16 B) instead of the full 56 B one. Mirrors
-/// TS `typeUsesSmallRcHeader`: cycle-INCAPABLE, non-atomic
+/// (`__yo_ref_header_small_t`, 16 B) instead of the full 56 B one:
+/// cycle-INCAPABLE, non-atomic
 /// types in a cycle-GC program — exactly the ones whose constructors never
 /// `__yo_gc_register`. Call sites are already inside reference-semantics
 /// branches and pass their own atomicity, so this reduces to the predicate
@@ -931,39 +914,34 @@ type_uses_small_rc_header :: (
 );
 /// Return `true` if the type needs type-inference to resolve fully
 /// — specifically when an `Array(T, length)` carries an unknown
-/// `length` that the evaluator must compute. Mirrors
-/// 
+/// `length` that the evaluator must compute.
 ///
-/// **Stub returning `false`** — yo-self's `Array(element, length)`
+/// **Stub returning `false`** — `Array(element, length)`
 /// stores `length` as a plain `usize`, which is always concretely
-/// known. The TS evaluator can defer array-length inference for
-/// types like `[T; ?]` where the size is a runtime expression; yo-self
-/// rejects unknown array lengths at parse time. Once yo-self gains
-/// the same deferred-length mechanism this stub should walk
+/// known: unknown array lengths are rejected at parse time. Should a
+/// deferred-length mechanism ever be added, this stub should walk
 /// `Array.length` and recurse on `Array.element` /
 /// tuple/struct/enum field types.
 type_requires_inference :: (fn(_ty : TypeValue) -> bool)(false);
 /// Return `true` if `ty` contains any unresolved generic type variable
 /// (`SomeT` / `TypeAppT`).
 ///
-/// Phase 2 partial port: checks top-level variant only.
-/// Full recursive traversal is Phase 3.
-///
+/// Checks the top-level variant only; the full recursive traversal lives
+/// in `_collect_some_types_into`.
 ///
 type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    // Mirrors TS typeContainsSomeType: a SomeType that
+    // A SomeType that
     // implements Fn or Future — or carries a per-object resolved concrete —
     // is CONCRETE at codegen time (closures lower to their capture struct /
     // FnTraitT; futures to state-machine structs). Without this carve-out the
     // contains-SomeT gates skip emitting Box(Impl(Fn)) constructors and drop
     // Impl(Fn)-typed capture fields (the get_info cluster).
     .SomeT({ name : cst_name, required_trait_types : cst_rtt, resolved_concrete : cst_rc }) => cond(
-      // TS typeContainsSomeType returns false for an EXTERN
-      // type: `extern("c", atomic_bool : Type)` is a SomeType but is CONCRETE
-      // at codegen time. TS carries `isExtern` on the base Type
-      //; yo-self's TypeValue enum has no such slot on
+      // An EXTERN type returns false: `extern("c", atomic_bool : Type)` is a
+      // SomeType but is CONCRETE
+      // at codegen time. `TypeValue` has no extern slot on
       // SomeT, so extern-ness lives in the `g_extern_type_names` side table
       // that extern.yo registers into — same semantics, different mechanism.
       // Without this, `atomic(ref(struct((*) : atomic_bool)))` counts as
@@ -1123,12 +1101,11 @@ get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
 /// True when a field-type list mixes a COMPTIME-ONLY member with a
 /// RUNTIME-ONLY member — the availability intersection is then empty and the
 /// containing struct/enum can exist in NO evaluation context. Structural,
-/// tag-level port of the semantics behind TS's validateTypeAvailability
-/// TS consults the per-object trait store,
-/// which yo-self's nominal-id registry cannot reproduce for pointers (it
-/// false-fired on every pointer-fielded prelude newtype when tried) — the
-/// direct field scan decides exactly the definitive cases and stays silent
-/// on anything undecided (generic fields, plain value structs).
+/// tag-level scan: the nominal-id trait registry cannot key per-object
+/// availability for pointers (it false-fired on every pointer-fielded
+/// prelude newtype when tried), so the direct field scan decides exactly the
+/// definitive cases and stays silent on anything undecided (generic fields,
+/// plain value structs).
 fields_have_incompatible_contexts :: (fn(fts : ArrayList(TypeValue)) -> bool)({
   (has_ct_only : bool) = false;
   (has_rt_only : bool) = false;
@@ -1272,14 +1249,14 @@ type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
 /// STRUCTURALLY RECURSIVE "contains a codegen SomeType" test.
 ///
 /// `type_contains_some_type` above is TOP-LEVEL ONLY (see this module's header):
-/// it inspects `ty` itself and returns `false` for every composite. TS's
-/// `typeContainsSomeType` instead walks the whole type
+/// it inspects `ty` itself and returns `false` for every composite. This
+/// variant instead walks the whole type
 /// structure, so a SomeT nested under `Option`/`Ptr`/a field is detected.
 ///
 /// That difference is not cosmetic: an `ArrayList(E)` left generic has field
 /// `?(*(E))`, which the top-level test calls concrete. `compute_needs_cycle_gc`
 /// then accepts the generic ArrayList as a CYCLE ROOT and switches the whole
-/// program to the heavy Bacon-Rajan runtime, where TS stays on the lightweight
+/// program to the heavy Bacon-Rajan runtime instead of the lightweight
 /// RC path — which in turn stamps `dispose_fn` with a bare generic id that is
 /// never emitted ("use of undeclared identifier"). Repro:
 /// `issues/repros/toplevel-some-type-check-forces-cycle-gc.yo`.
@@ -1292,7 +1269,7 @@ type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
 /// Deliberately NOT swapped in for `type_contains_some_type` everywhere: that
 /// predicate gates constructor emission and specialization decisions, and
 /// making it strictly more conservative would REMOVE constructors that are
-/// currently emitted. Used only where TS's recursive semantics are required.
+/// currently emitted. Used only where the recursive semantics are required.
 type_contains_some_type_deep :: (fn(ty : TypeValue) -> bool)({
   if(type_contains_some_type(ty), {
     return(true);
@@ -1316,13 +1293,6 @@ type_contains_some_type_deep :: (fn(ty : TypeValue) -> bool)({
 // ---------------------------------------------------------------------------
 // Size and alignment utilities
 // ---------------------------------------------------------------------------
-//
-// and 
-//
-// Phase 2ao partial port: primitive and pointer types are fully handled.
-// Complex types (Struct, EnumT, Union) return `.None` because
-// `Struct.isReferenceSemantics` and `Struct.isNewtype` are not yet in
-// yo-self's TypeValue representation (deferred to Phase 3).
 //
 // Return values:
 //   get_size_of_type      → size in **bits** (`.None` = unknown)
@@ -1386,9 +1356,8 @@ _max_field_alignment :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
   cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
 });
 /// Aggregate size (in BITS) of a sequence of fields laid out with C-style
-/// alignment padding, then padded to the aggregate's own alignment. Mirrors
-/// the body of TS `getStructTypeSize` / `getTupleTypeSize`. `.None` if any
-/// field size/alignment is unknown. Recurses via the size/alignment slots.
+/// alignment padding, then padded to the aggregate's own alignment. `.None` if
+/// any field size/alignment is unknown. Recurses via the size/alignment slots.
 _aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
   (offset_bytes : usize) = usize(0);
   (max_align : usize) = usize(1);
@@ -1537,7 +1506,7 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
     .Union({ field_types : ufts }) => _max_field_alignment(ufts),
     // Enum: reference-semantics (`ref(enum(…))`) → pointer-aligned (it is a heap
     // handle); otherwise the max alignment across all variants' fields. The
-    // `e_ref` short-circuit mirrors the struct branch and prevents an infinite
+    // `e_ref` short-circuit matches the struct branch and prevents an infinite
     // walk of a recursive ref-enum whose variant field is typed `Self`.
     .EnumT({ variant_fields : evf, is_reference_semantics : e_ref }) => cond(
       e_ref => Option(usize).Some(usize(get_target_pointer_size_bytes())),
@@ -1565,12 +1534,12 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
           // — a C enum, 4 bytes / 4-aligned on every supported target), so a
           // value-semantics enum is at least 4-aligned REGARDLESS of its
           // payload alignments. The size arm below already assumes this
-          // (`struct_align_bits = max(32, …)`). DELIBERATE DIVERGENCE from
-          // TS: getAlignmentOfType (attic utils.ts:1789) omits the tag, so an
-          // enum whose payloads align below 4 (e.g. Array(u16, 8) → 2)
-          // reported alignment 2, a struct embedding it skipped C's tail
+          // (`struct_align_bits = max(32, …)`). DELIBERATE tag inclusion:
+          // an alignment walk that omits the tag makes an enum whose
+          // payloads align below 4 (e.g. Array(u16, 8) → 2)
+          // report alignment 2, a struct embedding it then skips C's tail
           // padding (evaluator 22 B vs C 24 B), and every sizeof-based buffer
-          // walk over such structs corrupted the heap —
+          // walk over such structs corrupts the heap —
           // issues/fixed/enum-alignment-ignores-tag-heap-corruption.md.
           true => Option(usize).Some(_max_usize(acc, usize(4)))
         )
@@ -1651,8 +1620,8 @@ _enum_value_size :: (fn(evf : ArrayList(ArrayList(TypeValue))) -> Option(usize))
 });
 get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   // A recursive struct/enum reference inside a type graph is a value-copied
-  // SHELL (empty fields/variant names) under yo-self's value semantics — TS
-  // never sees one here because its type objects are shared by identity. An
+  // SHELL (empty fields/variant names) — TypeValue is value-semantic, so a
+  // reference site does not carry the full definition. An
   // empty shell walks to size 0, so `sizeof(T)` on a recursive enum folded to
   // 0 and ArrayList.push allocated `0 * new_capacity` bytes → heap
   // corruption (the recursive_enum / encoding/json crashes). Resolve to the
@@ -1776,10 +1745,9 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
     },
     // Enum: reference-semantics (`ref(enum(…))`) → pointer-sized (it is a heap
     // RC handle); otherwise tag (sized by variant count) + the largest variant
-    // payload, with alignment. The `e_ref` short-circuit mirrors the struct
-    // branch and the TS `getSizeOfType` fix — without it the variant-field walk
+    // payload, with alignment. The `e_ref` short-circuit matches the struct
+    // branch — without it the variant-field walk
     // recurses forever on a recursive ref-enum (variant field typed `Self`).
-    // Mirrors TS `getSizeOfType`/`getEnumTypeSize`.
     .EnumT({ id : e_sz_id, variant_fields : evf, is_reference_semantics : e_ref }) => cond(
       e_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
       // Cycle backstop (issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md):
@@ -1806,8 +1774,8 @@ g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 // ---------------------------------------------------------------------------
 /// Internal: does `ty`'s representation transitively contain a raw pointer
 /// (`Ptr`)? `object`/`Dyn` short-circuit to `false` (Rc keeps their
-/// buffer alive across a value return). `depth` caps recursion in place of TS's
-/// object-identity `checkedTypes` set (yo-self `TypeValue` is value-semantic).
+/// buffer alive across a value return). `depth` caps recursion in place of an
+/// object-identity visited set (`TypeValue` is value-semantic).
 /// Field loops are inlined (via `recur`) to avoid a mutual forward reference.
 ///
 _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
@@ -1819,7 +1787,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
       ty,
       .Pointer(_) => true,
       // str is the builtin view of STATIC string bytes (immortal backing) —
-      // it carries a pointer, but never a dangling one (TS utils.ts Str arm).
+      // it carries a pointer, but never a dangling one.
       .Str => false,
       .Struct({ field_types : fts }) => {
         (i : usize) = usize(0);

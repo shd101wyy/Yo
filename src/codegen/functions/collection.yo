@@ -1,4 +1,4 @@
-//! Reachable-function collection — mirrors `src/codegen/functions/collection.ts`.
+//! Reachable-function collection.
 //!
 //! Mutual recursion (find_function_calls_in_expr ↔ collect_effect_record_members
 //! ↔ collect_required_functions) cannot be expressed by ordering alone (Yo has
@@ -6,11 +6,11 @@
 //! module-global function pointer (set by register_find_function_calls_in_expr),
 //! mirroring the evaluator's set_evaluate_expression_fn pattern.
 //!
-//! DEFERRED (Phase-3, fields absent on yo-self FuncVal / branches don't fire
-//! for the supported corpus — is_function_specializable is a `false` stub):
-//! specializedType / specializedFunctionCaches / isFunctionTypeHardGeneric /
-//! resolvedConcreteType branches; collectDisposeMethodsFromGenericImpls
-//! (needs findMethodsFromGenericImpls). See issues/retired/codegen-port-type-model-gaps.md.
+//! DEFERRED (branches that never fire for the supported corpus —
+//! is_function_specializable is a `false` stub): specialization caches,
+//! hard-generic checks, resolved-concrete lookups; and the
+//! dispose-methods-from-generic-impls collection.
+//! See issues/retired/codegen-port-type-model-gaps.md.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { env : warm_dbg_env } :: import("std/env");
@@ -27,10 +27,11 @@ pragma(Pragma.AllowUnsafe);
 { CodeGenContext, DynImplEntry, type_key, sanitize_for_c_identifier, function_c_name, extern_c_global_matches } :: import("../utils/index.yo");
 { is_target_wasm } :: import("../../target.yo");
 { canonical_module_path } :: import("../../utils.yo");
-// Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): yo-self
-// has no codegen-time monomorphizer, so the trace collector drives the evaluator's
-// create_specialized_function_inline. These are the normal codegen->evaluator
-// direction (the evaluator is codegen-free, so no import cycle).
+// Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): the
+// compiler has no codegen-time monomorphizer, so the trace collector drives the
+// evaluator's create_specialized_function_inline. These are the normal
+// codegen->evaluator direction (the evaluator is codegen-free, so no import
+// cycle).
 { Exception } :: import("std/error");
 { Environment, clone_env, add_variable_to_env, synthetic_token, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ArgValues, ArgEntry, VarArgEntry } :: import("../../evaluator/context.yo");
@@ -40,8 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { get_c_include_for_extern, get_c_includes_for_extern } :: import("../../evaluator/exprs/c_include.yo");
 // Auto-derived ___dispose synthesis (collect_dispose_methods): synthesize the
 // recursive RC-field-drop function from the struct's fields, parse + evaluate it,
-// register it as the type's ___dispose method. Mirrors TS evaluator/types/utils.ts
-// addRcFunctionsToStructType / generateDisposeFunctionCodeForStructType. parser.yo
+// register it as the type's ___dispose method. parser.yo
 // is upstream; exprs/expr.yo is the cycle-free evaluate dispatcher (no import cycle).
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../../evaluator/exprs/expr.yo");
@@ -83,8 +83,7 @@ _type_is_extern :: (fn(t : TypeValue) -> bool)(
 );
 /// Whether an expression's evaluated value is an UnknownValue (not fully
 /// evaluated), recursing through calls / macro expansions / deferred drops.
-/// An extern-fn-typed or unit-typed unknown is treated as known. Mirrors
-/// `exprContainsUnknownValue`.
+/// An extern-fn-typed or unit-typed unknown is treated as known.
 expr_contains_unknown_value :: (fn(expr : AstExpr, info : ExprInfoTable) -> bool)({
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   match(
@@ -199,11 +198,9 @@ expr_contains_unknown_value :: (fn(expr : AstExpr, info : ExprInfoTable) -> bool
 /// Recursively collect function values from a struct namespace (and nested
 /// records), marking them effect-record members so they compile standalone.
 ///
-/// MODULE-NAMESPACE records are excluded from the fn-field marking: in TS the
-/// module record's fn fields are the SAME FunctionValue objects the regular
-/// collection already registered, so the `!context.functions[funcId]` guard
-/// makes the walk a no-op for them — module fns are NEVER effect-record
-/// members in TS. yo-self re-evaluation mints per-reference FuncVal
+/// MODULE-NAMESPACE records are excluded from the fn-field marking: module
+/// fns must NEVER be effect-record members, and the `!context.functions[funcId]`
+/// guard cannot enforce that here — re-evaluation mints per-reference FuncVal
 /// GENERATIONS with fresh func_ids, so the id-keyed guard misses and every
 /// module fn referenced through a `mod.member(...)` receiver atom was wrongly
 /// marked (its body then stripped at declaration time → generic
@@ -231,7 +228,6 @@ collect_effect_record_members :: (fn(mv : EvalValue, context : CodeGenContext, i
                 body := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr());
                 _call_find_function_calls_in_expr(body, context, info);
               });
-              // specializedFunctionCaches: deferred (Phase 3).
             },
             is_struct_val(fv) => {
               recur(fv, context, info);
@@ -255,8 +251,7 @@ _callee_token_value :: (fn(expr : AstExpr) -> String)(
   )
 );
 /// Register the callee as an extern "c"/"yo" function when its type carries
-/// the FFI marker. Mirrors TS `collection.ts:504-536` — the `else if
-/// (functionType.isExtern === ...)` chain, which TS reaches whenever the
+/// the FFI marker. This must fire whenever the
 /// callee VALUE is not a function value: c_include/extern symbols hold an
 /// UnknownValue, so this must fire from BOTH the `.Some(non-func)` and
 /// `.None` callee-value arms (routing only `.None` here left
@@ -285,8 +280,8 @@ _register_extern_fn_callee :: (
             }
           );
           // The header this symbol was `c_include`d under, from the
-          // evaluator's side-table (the port of TS reading `type.cInclude`
-          // off the extern function type). None for plain `extern("c", ...)`
+          // evaluator's side-table (the extern function type itself carries
+          // no include). None for plain `extern("c", ...)`
           // declarations.
           //
           // Keyed by the C NAME, not by `type_key`: two externs of the same
@@ -393,11 +388,10 @@ _any_expr_param :: (fn(tys : ArrayList(TypeValue)) -> bool)({
 /// UNSPECIALIZED function (registered Func type still carries `generic` params —
 /// unresolved SomeTs crash get_type_string) OR a MACRO (has an `Expr`-typed
 /// param). Codegen skips it and emits only the monomorphizations / macro
-/// expansions the evaluator records. Mirrors TS isFunctionSpecializable &&
-/// !specializedType (+ macros are never emitted).
+/// expansions the evaluator records.
 _is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
-  // A function with any `comptime(...)` param is generic-unspecialized too
-  // (TS guards.ts:466 hasCompileTimeParams): its ORIGINAL can never be a
+  // A function with any `comptime(...)` param is generic-unspecialized too:
+  // its ORIGINAL can never be a
   // valid C function — a `comptime(K) : Type` param renders
   // `// Unknown type: Type K` in the prototype ("invalid storage class
   // specifier" clang errors — the imm_map/imm_set family). Specializations
@@ -425,8 +419,7 @@ _is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
       // TYPE-level half of the same rule: a param whose TYPE is the type
       // universe (`comptime(K) : Type` whose comptime flag never reached
       // the sparse side table — e.g. a nested helper minted during
-      // instantiation) renders `// Unknown type: Type K` in C. Same
-      // classification as TS hasCompileTimeParams.
+      // instantiation) renders `// Unknown type: Type K` in C.
       (has_type_param : bool) = false;
       (tp_i : usize) = usize(0);
       while(tp_i < param_types.len(), {
@@ -462,10 +455,10 @@ _is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
 /// `expr_contains_unknown_value` collection skip: a SPECIALIZED function has
 /// fully concrete params (e.g. a closure param lowered to its capture struct),
 /// so its runtime-unknown body (`cb(x)` → UnknownVal) must NOT be skipped — it is
-/// real code to emit. yo-self records UnknownVal for runtime call results where
-/// TS leaves them undefined, so without this gate the specialized wrapper body
-/// would be wrongly dropped (undeclared symbol). Mirrors TS's net behavior
-/// (concrete-signature functions are emitted).
+/// real code to emit: runtime call results are recorded as UnknownVal, so
+/// without this gate the specialized wrapper body
+/// would be wrongly dropped (undeclared symbol). Concrete-signature functions
+/// are emitted.
 _func_has_some_param :: (fn(fid : String) -> bool)(
   match(
     get_func_type(fid),
@@ -507,7 +500,7 @@ _is_entry_module_path :: (fn(token_path : String, entry_path : String) -> bool)(
 );
 /// Register one module field as a reachable function if it is a FuncVal,
 /// applying the main / library / executable C-naming rules, then collect the
-/// functions its body calls. Mirrors the per-field body of collectRequiredFunctions.
+/// functions its body calls.
 _collect_required_function_field :: (
   fn(label : String, value : EvalValue, context : CodeGenContext, info : ExprInfoTable, is_top_level_export : bool) -> unit
 )({
@@ -531,8 +524,8 @@ _collect_required_function_field :: (
       // mangled names: a plain `read`/`open`/`free` export would collide with
       // libc at the C level and nothing consumes those symbols. "Entry module"
       // is decided by the defining token's module path — Yo func ids
-      // (`fn_yo_id_<N>`) carry no module component, so TS's `fn_<module-id>_`
-      // prefix test could never match (issues/fixed/static-library-exports-no-symbols.md).
+      // (`fn_yo_id_<N>`) carry no module component to test against
+      // (issues/fixed/static-library-exports-no-symbols.md).
       // A plain name that collides with an already-registered C name falls
       // back to the mangled one.
       wants_plain_exports := (context.is_library || is_target_wasm(context.target_info));
@@ -695,7 +688,8 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
       // so the callee-collection below can't find the method FuncVal. Resolve it
       // via the type_trait_methods registry (receiver type + method name) and
       // collect it (+ recurse its body), so codegen's concrete-method dispatch
-      // gets a C name. Mirrors how the dyn path collects trait-value methods.
+      // gets a C name (the same collection the dyn path does for
+      // trait-value methods).
       if(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
         cdot_args := match(callee, .FnCall(_, _, da, _, _) => da, .Atom(_, _) => ArrayList(AstExpr).new());
         recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(r)), .Some(ri) => ri.ty, .None => TypeValue.Unit), .None => TypeValue.Unit);
@@ -705,8 +699,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         // is the metatype `Type`, not the receiver type P — `type_id_or_empty`
         // on it misses P's static methods in the registry, leaving the callee
         // uncollected ("call to undeclared function"). Prefer the WRAPPED type's
-        // id from the receiver's TypeVal value. Mirrors TS collecting the type
-        // directly on `isTypeValue(value)`.
+        // id from the receiver's TypeVal value.
         recv_static_id := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(r)), .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(t) => type_id_or_empty(t), _ => String.from("")), .None => String.from("")), .None => String.from("")), .None => String.from(""));
         // A POINTER receiver (`self : *(Self)`) carries its methods on the
         // POINTEE type. `type_id_or_empty` has no Pointer case, so it returns ""
@@ -718,7 +711,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         // REAL evaluated func id, but the real func lives only in the registry
         // entry (updated in place at impl.yo:2322) and is never otherwise
         // collected → "call to undeclared function". Deref to the pointee for the
-        // id. Mirrors the match.yo:1153 / property_access.yo:524 deref idiom.
+        // id, the same deref idiom as match.yo:1153 / property_access.yo:524.
         recv_ty_for_id := match(recv_ty, .Pointer(inner) => inner, _ => recv_ty);
         ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(recv_ty_for_id));
         if((ctid.len() > usize(0)) && (cmname.len() > usize(0)), {
@@ -744,9 +737,8 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
             mmi = (mmi + usize(1));
           });
         });
-        // Module-namespace member call `mod.fn(args)`: yo-self's dot-access
-        // callee node has no ExprInfo (TS registers the callee from the
-        // property-access node's `$.value` at this point in the walk), so a
+        // Module-namespace member call `mod.fn(args)`: the dot-access
+        // callee node has no ExprInfo, so a
         // module-member callee stays unregistered here — and when the walk
         // then descends into the RECEIVER atom, collect_effect_record_members
         // sees the module's StructVal and wrongly marks the member an
@@ -754,7 +746,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         // time → generic `__yo_io_future_t*` prototype vs concrete SM-struct
         // definition: the fs/* "conflicting types" class). Resolve the member
         // FuncVal from the receiver's module StructVal by label and register
-        // it as a REGULAR function first, restoring TS's registration order.
+        // it as a REGULAR function first, before the receiver walk.
         if(cmname.len() > usize(0), {
           recv_mod_val := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(r)), .Some(ri) => ri.value, .None => Option(EvalValue).None), .None => Option(EvalValue).None);
           match(
@@ -835,8 +827,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
               ),
               // Callee value present but not a function value (UnknownVal —
               // a c_include/extern symbol): register as an extern function,
-              // exactly like the no-value arm below (TS reaches its extern
-              // else-if in both cases).
+              // exactly like the no-value arm below.
               true => _register_extern_fn_callee(cei.ty, expr, context)
             ),
             // No callee value → extern "c"/"yo": register as an extern function.
@@ -863,8 +854,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
       .Some(v) => if(is_func_val(v) && is_function_type(ei.ty), {
         // A control function (ctl handler) used as a fn-pointer value must be a
         // standalone C function marked an effect-record member so `unwind(v)`
-        // stashes into __yo_unwind_value. Mirrors collection.ts:555
-        // (functionValue.isControlFunction). The control-fn side-table can miss
+        // stashes into __yo_unwind_value. The control-fn side-table can miss
         // the codegen'd func_id (fresh-id churn across def/codegen evals), so we
         // also read the ground truth: the func's own registered type and the
         // use-site type carrying `is_control`.
@@ -941,8 +931,8 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
             match(tvs.get(ti), .Some(tv) => collect_required_functions(tv, context, info, false), .None => ());
             ti = (ti + usize(1));
           });
-          // Register the dyn impl during collection (mirrors collection.ts
-          // 328-364) so __yo_dyn_box_<concrete> TYPES are generated BEFORE
+          // Register the dyn impl during collection so __yo_dyn_box_<concrete>
+          // TYPES are generated BEFORE
           // function bodies. Keyed by ids; fixup_dyn_impl_keys rewrites to C
           // names. NOTE: type_key on a cyclic dyn (Dyn(Error)) could loop — the
           // corpus's Dyn(Speak) is acyclic so this is corpus-safe; a cycle-safe
@@ -1107,7 +1097,7 @@ _specialize_and_register_trace :: (
         // appears nowhere in the module's own type graph (only in this method),
         // so without this its C typedef is never emitted. Uses the collect_type
         // indirection (a direct import of types/collection would cycle — that
-        // module already imports this one). Mirrors collectTypesFromFunctionType.
+        // module already imports this one).
         (cti : usize) = usize(0);
         while(cti < p_types.len(), {
           match(p_types.get(cti), .Some(pt) => _call_collect_type(pt, base), .None => ());
@@ -1144,11 +1134,11 @@ _specialize_and_register_trace :: (
 });
 /// Cycle-GC: monomorphize each cyclable container's generic `trace` method (the
 /// Trace trait) and register it under the CONCRETE container type id, so the
-/// traversal generators' `get_trace_function_for_type` delegation resolves. yo-self
-/// specializes impl methods LAZILY at call sites, but `trace` has no call site — so
-/// this pass force-specializes it. Mirrors TS `collectTraceMethodsFromGenericImpls`;
-/// but because yo-self's `find_methods_from_generic_impls` returns a generic
-/// (non-emittable) FuncVal where TS returns a specialized one, it additionally drives
+/// traversal generators' `get_trace_function_for_type` delegation resolves. The
+/// compiler specializes impl methods LAZILY at call sites, but `trace` has no
+/// call site — so this pass force-specializes it.
+/// `find_methods_from_generic_impls` returns a generic
+/// (non-emittable) FuncVal, so it additionally drives
 /// `create_specialized_function_inline` (re-evaluating the body with the element type
 /// bound). Needs the live ctx/exn/module env — codegen has none of its own — threaded
 /// from run_compile. Run only when needs_cycle_gc is set.
@@ -1217,8 +1207,8 @@ collect_trace_methods_from_generic_impls :: (
   });
 });
 /// True if `s` is a valid Yo identifier (letter/underscore start, then letters,
-/// digits, underscores). Mirrors TS evaluator/types/utils.ts `isValidIdentifier`:
-/// an auto-derived destructuring label that is NOT a valid identifier (e.g. the
+/// digits, underscores). An auto-derived destructuring label that is NOT a valid
+/// identifier (e.g. the
 /// newtype/box `*` field) must be paren-aliased — `{ (*) : a } := self` — rather
 /// than written bare — `{ * : a } := self` — which fails to parse.
 _is_valid_yo_identifier :: (fn(s : String) -> bool)({
@@ -1247,8 +1237,7 @@ _is_valid_yo_identifier :: (fn(s : String) -> bool)({
   ok
 });
 /// The destructuring-label fragment for `lbl`, paren-aliasing it when it is not a
-/// valid identifier (`*` → `(*)`). Mirrors the per-label branch of TS's
-/// `generateDestructuringAndCalls`.
+/// valid identifier (`*` → `(*)`).
 _destructuring_label_fragment :: (fn(lbl : String) -> String)(
   if(_is_valid_yo_identifier(lbl.clone()), lbl.clone(), {
     out := String.from("(");
@@ -1261,8 +1250,7 @@ _destructuring_label_fragment :: (fn(lbl : String) -> String)(
 /// `Self` bound to `ct`, then register the resulting FuncVal both as a codegen function
 /// (so it gets emitted + its calls collected) and as `ct`'s `method_label` trait method
 /// (so get_drop/dispose_function_for_type resolves it). Shared by the struct-`___dispose`
-/// and value-enum-`___drop` synthesizers. Mirrors the registration half of TS's
-/// addRcFunctionsTo{Struct,Enum}Type.
+/// and value-enum-`___drop` synthesizers.
 _eval_and_register_rc_method :: (
   fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue, code : String, method_label : String) -> unit
 )({
@@ -1290,8 +1278,8 @@ _eval_and_register_rc_method :: (
             // generic structs share one eval id across instantiations, so a
             // struct-id key would collapse all instantiations onto one ___dispose
             // (built for the first-seen V) — the HashMap(usize,bool) vs
-            // HashMap(usize,EvalValue) crash. Mirrors get_dispose_function_for_type's
-            // type_key lookup + the Trace path. This fn is ___dispose-only (see its
+            // HashMap(usize,EvalValue) crash. Same type_key lookup as
+            // get_dispose_function_for_type + the Trace path. This fn is ___dispose-only (see its
             // sole caller), so ___drop/___dup keying is unaffected.
             type_key(ct),
             MethodEntry(
@@ -1314,8 +1302,7 @@ _eval_and_register_rc_method :: (
 /// concrete RC struct that has RC runtime fields and no ___dispose yet. Builds
 /// `(fn(self : Self) -> unit)({ { f : a, … } := self; (___drop)(a); … () })` over the
 /// RC fields, evaluates it Self-bound, registers it as the type's ___dispose method, and
-/// collects it for codegen. Mirrors TS evaluator/types/utils.ts generateDisposeFunction
-/// CodeForStructType + addRcFunctionsToStructType. Then the constructor's dispose_fn
+/// collects it for codegen. Then the constructor's dispose_fn
 /// (constructors.yo) resolves via get_dispose_function_for_type, and the runtime drops the
 /// fields on free (gc_runtime.yo:341/658).
 _synthesize_and_register_dispose :: (
@@ -1328,8 +1315,9 @@ _synthesize_and_register_dispose :: (
   // dispose (specialized for the first-seen V) and make every other instantiation
   // reuse it — dropping a `bool` map's slot value as if it were the first V's
   // reference-counted value → `__yo_decr_rc(0x1)` crash. type_key gives each
-  // instantiation its own dispose. Mirrors the Trace path (register/lookup under
-  // type_key — see _specialize_and_register_trace + get_trace_function_for_type)
+  // instantiation its own dispose, the same register/lookup-under-type_key scheme
+  // as the Trace path
+  // (see _specialize_and_register_trace + get_trace_function_for_type)
   // and the #30 fix. See issues/fixed/yo-self-container-dispose-not-wired.md.
   existing := get_type_trait_methods_by_name(type_key(ct), String.from("___dispose"));
   if(existing.len() > usize(0), {
@@ -1373,11 +1361,9 @@ _synthesize_and_register_dispose :: (
   // `impl(generic(T), ArrayList(T), Dispose(...))`, or a direct impl). Without wiring
   // that into the type's ___dispose, freeing such a container TRANSITIVELY (as an RC
   // field of another object whose dispose merely `decr_rc`s it) leaks ALL its
-  // elements — the dominant self-compile leak (Environment→frames→variables). Mirror
-  // TS: `collectDisposeMethodsFromGenericImpls` +
-  // `findUserDisposeMethodForType` emitting a call at the top of ___dispose
-  //. The `self.dispose()` call in the synthesized body IS
-  // that call site: evaluating it lazily specializes the user dispose for `ct` (so a
+  // elements — the dominant self-compile leak (Environment→frames→variables). The
+  // `self.dispose()` call at the top of the synthesized body lazily
+  // specializes the user dispose for `ct` (so a
   // `bool`-valued map correctly skips the element drop via its own
   // `Type.contains_rc_type(V)` comptime guard), and `_eval_and_register_rc_method`'s
   // `find_function_calls_in_expr` collects it for emission.
@@ -1417,8 +1403,8 @@ _synthesize_and_register_dispose :: (
   if(!(any) && !(has_user_dispose), {
     return(());
   });
-  // Synthesize the ___dispose body: call the user destructor first (if any — mirrors
-  // TS emitting it at the top of the ___dispose body), then drop the RC fields.
+  // Synthesize the ___dispose body: call the user destructor first (if any),
+  // then drop the RC fields.
   body := String.from("");
   if(has_user_dispose, {
     body.push_str("self.dispose(); ");
@@ -1441,7 +1427,7 @@ _synthesize_and_register_dispose :: (
 /// over the variants with RC-containing fields, evaluates it Self-bound, and registers
 /// it as the type's ___dispose. Without it the ref-enum constructor stamps
 /// `type_id = 0` (no dispose dispatch) and the active variant's RC fields leak on
-/// free. Mirrors TS generateDisposeFunctionCodeForEnumType + addRcFunctionsToEnumType.
+/// free.
 _synthesize_and_register_enum_dispose :: (
   fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue) -> unit
 )({
@@ -1479,9 +1465,9 @@ _synthesize_and_register_enum_dispose :: (
     });
     return(());
   });
-  // User `impl Dispose` destructor: TS emits the call at the top of the ___dispose
-  // C body for ANY SelfType — enums included. The
-  // `self.dispose()` call in the synthesized body is that call site here.
+  // User `impl Dispose` destructor: the call goes at the top of the ___dispose
+  // body for ANY SelfType — enums included (the
+  // `self.dispose()` call in the synthesized body is that call site).
   has_user_dispose := (
     (find_methods_from_generic_impls(ct, String.from("dispose"), module_env).len() > usize(0))
     || (get_type_trait_methods_by_name(type_id_or_empty(ct), String.from("dispose")).len() > usize(0))
@@ -1490,7 +1476,7 @@ _synthesize_and_register_enum_dispose :: (
   variant_fields := match(ct, .EnumT({ variant_fields : vf }) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
   // One match arm per variant with RC-containing fields: bind every field
   // positionally under an index alias (labels may not be valid identifiers),
-  // drop the RC-containing ones. Mirrors the TS generator's arms.
+  // drop the RC-containing ones.
   arms := String.from("");
   nv := variant_names.len();
   (rc_variants : usize) = usize(0);
@@ -1570,8 +1556,8 @@ _synthesize_and_register_enum_dispose :: (
 /// Codegen pass: auto-derive + register the `___dispose` method for every concrete RC
 /// struct and ref-enum type that lacks one, so freeing such a value recursively drops its RC fields
 /// (the runtime invokes header.dispose_fn — gc_runtime.yo:341 normal free / :658 collector).
-/// yo-self defers the RC-function synthesis (evaluator/types/utils.yo:19), so it runs here
-/// with the live ctx/exn threaded from run_compile, mirroring
+/// The RC-function synthesis is deferred to this pass (evaluator/types/utils.yo:19), so it
+/// runs here with the live ctx/exn threaded from run_compile, as in
 /// collect_trace_methods_from_generic_impls. Must run before constructor emission so
 /// get_dispose_function_for_type resolves.
 collect_dispose_methods :: (
@@ -1590,11 +1576,8 @@ collect_dispose_methods :: (
   while(go, {
     match(
       vals.next(),
-      // Skip GENERIC (SomeT-bearing) RC struct types. TS never lets them reach
-      // codegen at all — `typeContainsSomeType` is
-      // RECURSIVE (Struct fields at :534, Ptr at :559, …), so
-      // src/codegen/types/collection.ts:404 keeps `BTreeMap(K, V)` out of
-      // `context.types` entirely. yo-self's `type_contains_some_type` is only
+      // Skip GENERIC (SomeT-bearing) RC struct types. `type_contains_some_type`
+      // is only
       // SHALLOW (types/utils.yo:860-907 — SomeT and TypeAppT arms, no struct
       // recursion), so the generic type IS registered here and gets a
       // synthesized `___dispose` with a c_name. The constructor then mints a

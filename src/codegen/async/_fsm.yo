@@ -1,11 +1,11 @@
 //! FSM emitter dispatch indirection — supports the mutually-recursive
-//! state-machine branch emitters in `src/codegen/async/state-code-gen.ts`.
+//! state-machine branch emitters in `state_code_gen.yo`.
 //!
-//! TS calls `generateCondWithAwait` / `generateMatchWithAwait` /
-//! `generateWhileWithAwait` directly, but they form a cycle with their branch
-//! helpers (`generateCondBranchWithAwait` / `generateWhileBodyWithAwait` /
-//! `generatePrimitiveMatchWithAwait` call back into the three `*_with_await`
-//! entries). yo-self has no forward references, so — exactly as `_expr.yo` does
+//! `generate_cond_with_await` / `generate_match_with_await` /
+//! `generate_while_with_await` form a cycle with their branch
+//! helpers (`generate_cond_branch_with_await` / `generate_while_body_with_await` /
+//! `generate_primitive_match_with_await` call back into the three `*_with_await`
+//! entries). Yo has no forward references, so — exactly as `_expr.yo` does
 //! for the main dispatch — the three `*_with_await` entries are reached through
 //! module-global function pointers: the branch helpers call `_call_*` from here
 //! (no cycle), and `state_code_gen.yo` registers the real implementations via
@@ -15,8 +15,8 @@
 { AwaitPoint } :: import("../../evaluator/async/await_analysis_types.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { panic, assert } :: import("std/assert");
-/// `generateCondWithAwait(condExpr, awaitPoint, indent, context,
-/// targetVariableId?, targetAssignmentCode?)`.
+/// Signature of `generate_cond_with_await(cond_expr, await_point, indent,
+/// context, target_variable_id?, target_assignment_code?)`.
 GenerateCondWithAwaitFn :: (
   fn(
     cond_expr : AstExpr,
@@ -27,8 +27,8 @@ GenerateCondWithAwaitFn :: (
     target_assignment_code : Option(String)
   ) -> unit
 );
-/// `generateMatchWithAwait(matchExpr, awaitPoint, indent, context,
-/// targetVariableId?, targetAssignmentCode?)`.
+/// Signature of `generate_match_with_await(match_expr, await_point, indent,
+/// context, target_variable_id?, target_assignment_code?)`.
 GenerateMatchWithAwaitFn :: (
   fn(
     match_expr : AstExpr,
@@ -39,7 +39,7 @@ GenerateMatchWithAwaitFn :: (
     target_assignment_code : Option(String)
   ) -> unit
 );
-/// `generateWhileWithAwait(whileExpr, awaitPoint, indent, context)`.
+/// Signature of `generate_while_with_await(while_expr, await_point, indent, context)`.
 GenerateWhileWithAwaitFn :: (
   fn(while_expr : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
 );

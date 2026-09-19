@@ -1,15 +1,5 @@
 //! evaluate_begin_expression — evaluates `begin(...)` blocks.
 //!
-//! 1:1 port of `src/evaluator/exprs/begin.ts` (Phase 2aa).
-//!
-//! Complex optimization passes are stubbed as no-ops:
-//!   - OPTIMIZE_DUP_AND_DROP_PAIRS block — no-op (type_contains_rc_type = false)
-//!   - generateDeferredDropExpressions   — returns empty list
-//!   - getVariablesNeedingDrop           — returns empty list
-//!   - collectDupCallsConservatively     — returns empty DupCallsResult
-//!   - consumeCaseBodyTempVar            — no-op
-//!   - optimizeLoopTraversalBorrowChain  — no-op
-//!
 //! Exported symbols:
 //!   DupCallsResult, is_unit_value_expression,
 //!   collect_dup_calls_conservatively, evaluate_begin_expression
@@ -86,7 +76,6 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // DupCallsResult — result type for collect_dup_calls_conservatively.
-// Mirrors TS `DupCallsResult`.
 // ---------------------------------------------------------------------------
 DupCallsResult :: ref(
   struct(
@@ -94,9 +83,8 @@ DupCallsResult :: ref(
     dup_calls : HashMap(String, ArrayList(AstExpr)),
     /// Variable ids that have dups in some branches but not all (conservative).
     vars_with_partial_branch_dups : ArrayList(String),
-    /// Insertion-ordered key list for `dup_calls` (yo-self addition: avoids
-    /// HashMap key iteration at the branch-merge and application sites; TS
-    /// iterates Map.keys() directly).
+    /// Insertion-ordered key list for `dup_calls`: avoids HashMap key
+    /// iteration at the branch-merge and application sites.
     dup_call_var_ids : ArrayList(String)
   )
 );
@@ -133,8 +121,8 @@ _ids_list_contains :: (fn(lst : ArrayList(String), s : String) -> bool)({
   found
 });
 /// If `e` is an evaluated `___dup` call, return the duped variable's NAME.
-/// Matches BOTH shapes: the method-resolved `(x.___dup)()` (the shape TS
-/// detects, begin.ts:377-404) and the bare `___dup(x)` builtin call (the shape
+/// Matches BOTH shapes: the method-resolved `(x.___dup)()` and the bare
+/// `___dup(x)` builtin call (the shape
 /// set_expr_as_needs_to_call_dup mints via generate_expr_from_code).
 _dup_call_target_name :: (fn(e : AstExpr) -> Option(String))(
   match(
@@ -175,8 +163,7 @@ _dup_call_target_name :: (fn(e : AstExpr) -> Option(String))(
     .Atom(_, _) => Option(String).None
   )
 );
-/// Record a dup call for `var_id`, deduplicating by expr id (mirrors the
-/// `existingDups.includes(dupExpr)` guard, begin.ts:1850).
+/// Record a dup call for `var_id`, deduplicating by expr id.
 _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> unit)({
   match(
     res.dup_calls.get(var_id.clone()),
@@ -205,13 +192,10 @@ _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> uni
     }
   );
 });
-/// Recursive dup-call search with conservative cross-branch analysis.
-/// + its nested `handleBranchingExpression`
-///. The branching arm is inlined (branch bodies recurse via
-/// `recur` into FRESH result containers — exactly TS's
-/// `collectDupCallsConservatively(branchBody)`). Follows a recorded
-/// `macro_expansion` INSTEAD of the raw macro-call args (added to TS
-/// 2026-08-06, same shape as `exprTreeContainsReturn`): the expansion is where
+/// Recursive dup-call search with conservative cross-branch analysis
+/// (the branching arm is inlined; branch bodies recurse via
+/// `recur` into FRESH result containers). Follows a recorded
+/// `macro_expansion` INSTEAD of the raw macro-call args: the expansion is where
 /// branching structure (cond/match) is visible, so a dup inside an `if(...)`
 /// arm routes through the branch-aware handler and is flagged partial instead
 /// of being collected as an unconditional dup and wrongly cancelled — which
@@ -319,8 +303,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
     },
     .None => ()
   );
-  // While loops execute multiple times — never optimize across them
-  //.
+  // While loops execute multiple times — never optimize across them.
   if(ast_expr_is_fn_call_of(expr, "while", Option(usize).None), {
     return(());
   });
@@ -366,8 +349,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
       );
       bi = (bi + usize(1));
     });
-    // Union of var ids with dups in ANY branch; merge nested partials
-    //.
+    // Union of var ids with dups in ANY branch; merge nested partials.
     all_vars := ArrayList(String).new();
     (bri : usize) = usize(0);
     while(bri < branch_results.len(), {
@@ -501,11 +483,10 @@ collect_dup_calls_conservatively :: (fn(expr : AstExpr, ctx : EvalContext) -> Du
 // _try_synthesize_return_type
 // ---------------------------------------------------------------------------
 /// Trial-run `synthesize_types(expected, given)` for the begin return-type
-/// check (begin.ts:1607-1618 / 1646-1657 wrap the call in try/catch). Returns
+/// check (the call is wrapped in a try/catch). Returns
 /// `false` when synthesis threw, so the caller can run the compatibility
 /// fallback. With a SomeT expected, a successful synthesis BINDS the type
-/// variable's name in the env (synthesizer.yo, mirroring synthesizer.ts:
-/// 457-490).
+/// variable's name in the env (synthesizer.yo).
 _try_synthesize_return_type :: (
   fn(
     expected_ty : TypeValue,
@@ -635,9 +616,8 @@ _name_matches_opt :: (fn(name : String, opt : Option(String)) -> bool)(
 );
 /// M1 (plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md): schedule scope-end `___drop` expressions
 /// for owning named-local bindings declared in `frame`, so a begin block's owning
-/// locals are reclaimed at scope exit. yo-self previously emitted NO scope-end drops
-/// for named locals (it leaked every one). Mirrors the normal scope-exit path of
-/// `begin.ts:2065-2231` + the predicate `begin.ts:242-257`.
+/// locals are reclaimed at scope exit (previously NO scope-end drops were
+/// emitted for named locals — every one leaked).
 ///
 /// M1 CONSERVATIVE SAFETY: skips the ENTIRE block if it contains any field/index-write
 /// assignment (a non-atom assignment LHS). Such a write may store an RC value WITHOUT a
@@ -650,9 +630,8 @@ _name_matches_opt :: (fn(name : String, opt : Option(String)) -> bool)(
 // ---------------------------------------------------------------------------
 // M3 (early-return-only drops) — evaluator-local token-order primitives + var
 // predicates. The token primitives are copies of the codegen ones in
-// return.yo (the evaluator must not import codegen). Mirror tokenIsAtOrBefore /
-// tokenIsBefore / getLastComparableTokenInExpr and variableCanNeedDrop*/
-// variableIsCapturedByCurrentFunction. (Used by the M3 walker + driver.)
+// return.yo (the evaluator must not import codegen). (Used by the M3
+// walker + driver.)
 // ---------------------------------------------------------------------------
 _m3_tokens_comparable :: (fn(left : Token, right : Token) -> bool)(
   (left.module_path == right.module_path) && (left.input == right.input)
@@ -692,8 +671,7 @@ _m3_last_comparable_token_in_expr :: (fn(expr : AstExpr, reference : Token) -> T
   init2 := if(!_m3_tokens_comparable(init, reference), reference, init);
   _m3_max_comparable_token(expr, reference, init2)
 });
-/// A local that CAN need a scope-end drop, ignoring consumed status. Mirrors
-/// `variableCanNeedDropIgnoringConsumed`.
+/// A local that CAN need a scope-end drop, ignoring consumed status.
 _variable_can_need_drop_ignoring_consumed :: (fn(v : Variable) -> bool)({
   if(!v.is_owning_the_rc_value, {
     return(false);
@@ -711,14 +689,13 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : Variable) -> bool)({
   );
   !some_undroppable
 });
-/// True iff `v` is captured by the current function/closure. Mirrors
-/// `variableIsCapturedByCurrentFunction`.
+/// True iff `v` is captured by the current function/closure.
 _variable_is_captured_by_current_function :: (fn(v : Variable, ctx : EvalContext) -> bool)(
   match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false)
 );
 /// True iff `expr` is a nested function-definition boundary — recursion for
 /// early-return drops must stop here.
-///. (The TypeValue-fn-callee boundary sub-checks are omitted: they
+/// (The TypeValue-fn-callee boundary sub-checks are omitted: they
 /// guard the rare case of a return value that is itself a function-type call;
 /// the token-position gate in `_attach_if_cleanup_needs_drop` already prevents a
 /// wrong attach there.)
@@ -729,8 +706,8 @@ _is_function_boundary_for_early_drop :: (fn(expr : AstExpr, _ctx : EvalContext) 
   // PARTS, not the arm node). So treat any arrow as a boundary and STOP: an
   // enclosing block's early-return drop must never attach to a `return`/`unwind`
   // inside a nested function body (a different C function scope → undeclared temp).
-  // Broader than TS's is_anon/FuncVal check, but sound here: yo-self sets those
-  // markers only after closure specialization, LATER than this def-time walk, so a
+  // Broader than an is_anon/FuncVal check, but sound here: those
+  // markers are set only after closure specialization, LATER than this def-time walk, so a
   // narrow check misses the handler and the walker cross-attaches (the
   // dyn_error_throw_ioerror SELF-FAIL). Also stop at fn/ctl/unsafe_fn/Fn callees.
   is_arrow := (ast_expr_is_fn_call_of(expr, "->", Option(usize).None) || ast_expr_is_fn_call_of(expr, "=>", Option(usize).None));
@@ -751,8 +728,7 @@ _is_function_boundary_for_early_drop :: (fn(expr : AstExpr, _ctx : EvalContext) 
 /// If `variable` is still initialized at `cleanup_point` on the `expr`
 /// return/unwind path, and its init is at-or-before that point which is strictly
 /// before its consumption, attach `drop_expr` to `expr`'s
-/// early_return_only_deferred_drop_expressions. Mirrors the inner
-/// `attachIfCleanupPointNeedsDrop`.
+/// early_return_only_deferred_drop_expressions.
 _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, variable : Variable, drop_expr : AstExpr, init_tok : Token, consumed_tok : Token, ctx : EvalContext) -> unit)({
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
@@ -787,8 +763,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
   );
 });
 /// Recursively attach `drop_expr` (for `variable`) to every return/unwind in
-/// `expr` where the variable is live-but-not-yet-consumed. Mirrors
-/// `attachEarlyReturnOnlyDropExpressionToReturns`.
+/// `expr` where the variable is live-but-not-yet-consumed.
 _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Variable, drop_expr : AstExpr, ctx : EvalContext) -> unit)({
   init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
   consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb.*, .None => return(()));
@@ -851,9 +826,8 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Vari
   )
 });
 /// Macro-aware `expr_tree_contains_return` for the optimizer's earliest-return
-/// detection. TS's `exprTreeContainsReturn` checks
-/// `expr.$.macroExpansion`; yo-self's expr_traversal.yo baseline cannot (no
-/// ctx). An `if(cond, { ... return(...) })` statement hides its return in the
+/// detection. The expr_traversal.yo baseline cannot check
+/// `macro_expansion` (no ctx). An `if(cond, { ... return(...) })` statement hides its return in the
 /// recorded expansion — missing it left `earliest_ret` unset, the
 /// return-before-dup guard never fired, and a later child's dup+drop pair was
 /// wrongly cancelled while the if's early return still needed the scope-exit
@@ -896,12 +870,6 @@ _contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
     .Atom(_, _) => false
   )
 });
-/// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
-/// tree. TS reaches
-/// expansion-internal dup lists through the raw args because its expansions
-/// SHARE the spliced arg nodes; yo-self expansions are fresh-id clones, so the
-/// walk must follow `macro_expansion` explicitly — the same reachability the
-/// collector uses, or a cancelled dup would survive in the emitted tree.
 /// Does `e` (following `macro_expansion`) contain an assignment `name = …`?
 /// Used by `_optimize_dup_drop_pairs`: the alias-binding dup elision
 /// (`h2 := h` sharing ONE count, the alias marked consumed so the base keeps
@@ -965,6 +933,11 @@ _subtree_assigns_variable :: (fn(e : AstExpr, name : String, ctx : EvalContext) 
     ) => false
   )
 );
+/// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
+/// tree. Expansions are fresh-id clones (they do not share the spliced arg
+/// nodes), so the walk must follow `macro_expansion` explicitly — the same
+/// reachability the collector uses, or a cancelled dup would survive in the
+/// emitted tree.
 _remove_dup_calls_from_tree :: (fn(expr : AstExpr, remove_ids : HashSet(usize), ctx : EvalContext) -> unit)({
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
@@ -1017,13 +990,13 @@ _remove_dup_calls_from_tree :: (fn(expr : AstExpr, remove_ids : HashSet(usize), 
     .Atom(_, _) => ()
   );
 });
-/// OPTIMIZE_DUP_AND_DROP_PAIRS (port of begin.ts:1787-2062): cancel a
+/// OPTIMIZE_DUP_AND_DROP_PAIRS: cancel a
 /// candidate local's single runtime dup against its scope-end drop — a MOVE.
 /// Marks each winner CONSUMED (at the dup's use-site token when unambiguous)
 /// and strips its dups from the tree. Runs BEFORE _schedule_scope_end_drops,
 /// whose e5 consumed-gate then skips the winner's drop; the M3 driver in
 /// evaluate_begin_expression attaches early-return-only drops for the
-/// [init, consume) window automatically (TS does the same at 2068-2122).
+/// [init, consume) window automatically.
 _optimize_dup_drop_pairs :: (
   fn(
     frame : Frame,
@@ -1135,8 +1108,8 @@ _optimize_dup_drop_pairs :: (
     );
     cdi = (cdi + usize(1));
   });
-  // 3. Pair each drop-eligible frame local with its collected dups
-  //   . Eligibility mirrors _schedule_scope_end_drops'
+  // 3. Pair each drop-eligible frame local with its collected dups.
+  //    Eligibility matches _schedule_scope_end_drops'
   //    e1-e7 gates plus the captured filter so only
   //    variables the scheduler WOULD drop are optimized.
   remove_ids := HashSet(usize).new();
@@ -1147,10 +1120,9 @@ _optimize_dup_drop_pairs :: (
   // the base's only dup IS the alias binding, and moving it into the alias
   // while the alias keeps its own count would over- or under-release.
   protected_bases := HashSet(String).new();
-  // Walk the frame in REVERSE declaration order. TS iterates
-  // `getVariablesNeedingDrop(env)` (begin.ts:1889, 1997), and that helper
-  // returns its list ALREADY REVERSED (env.ts:2304-2305, "Return in reverse
-  // order (end to start) for proper drop order"). Order is not cosmetic here:
+  // Walk the frame in REVERSE declaration order —
+  // "Return in reverse
+  // order (end to start) for proper drop order". Order is not cosmetic here:
   // when several variables share one base — `a := Holder(...); b := a;` — the
   // single collected dup can cancel the scope-end drop of EITHER of them, and
   // whichever the loop reaches first wins. Walking forwards picked `a`, leaving
@@ -1183,8 +1155,7 @@ _optimize_dup_drop_pairs :: (
         e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
         e8 := (e7 && !_variable_is_captured_by_current_function(v, ctx));
         if(e8, {
-          // Follow the ownership-alias chain to the root base variable
-          //.
+          // Follow the ownership-alias chain to the root base variable.
           (base : Variable) = v;
           (walking : bool) = true;
           while(walking, {
@@ -1326,8 +1297,7 @@ _optimize_dup_drop_pairs :: (
               });
               gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && !base_consumed)))));
               if(gates_ok, {
-                // Count RUNTIME dups — every collected dup counts
-                //.
+                // Count RUNTIME dups — every collected dup counts.
                 (runtime_count : usize) = usize(0);
                 (single_regular : Option(AstExpr)) = Option(AstExpr).None;
                 (rci : usize) = usize(0);
@@ -1343,8 +1313,7 @@ _optimize_dup_drop_pairs :: (
                   rci = (rci + usize(1));
                 });
                 if(runtime_count <= usize(1), {
-                  // Cancel: remove the dup and mark the variable consumed
-                  //.
+                  // Cancel: remove the dup and mark the variable consumed.
                   (rmi : usize) = usize(0);
                   while(rmi < dups.len(), {
                     match(
@@ -1356,7 +1325,7 @@ _optimize_dup_drop_pairs :: (
                     );
                     rmi = (rmi + usize(1));
                   });
-                  // Clear the list (begin.ts:2108-2109, `dupCalls.length = 0`).
+                  // Clear the list.
                   // REQUIRED, not tidying: `dups` is the live ArrayList held in
                   // `merged.dup_calls`, so emptying it means a LATER variable
                   // sharing this same base sees no dups and therefore keeps its
@@ -1426,8 +1395,8 @@ _schedule_scope_end_drops :: (
   // contains either:
   //  (a) a field/index-write assignment (`x.f = …`, `x(i) = …` — a non-atom assign
   //      LHS): the dup-on-reassign balance isn't ported (M2), so dropping would UAF.
-  //  (b) a control-flow EXIT (`return`/`unwind`/`break`/`continue`): yo-self has no
-  //      init-position-filtered early-return drops yet (TS begin.ts:2068-2122 — M3),
+  //  (b) a control-flow EXIT (`return`/`unwind`/`break`/`continue`): no
+  //      init-position-filtered early-return drops existed yet (pre-M3),
   //      and the returned value's temp isn't excluded as moved-out (consume — M2),
   //      so scheduling drops on a control-flow block crashes codegen when it emits a
   //      drop for a not-yet-live / moved-out local. (See plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.)
@@ -1450,7 +1419,7 @@ _schedule_scope_end_drops :: (
     match(
       fvars.get(vi),
       .Some(v) => {
-        // Mirrors TS getVariablesNeedingDrop: any owning local
+        // Any owning local
         // whose type CONTAINS an RC-managed type needs a scope-end drop —
         // including value-structs with RC fields (e.g. MapEntry(K, V) locals in
         // HashMap.set; their ___drop decrements the field). The earlier "M1"
@@ -1463,8 +1432,8 @@ _schedule_scope_end_drops :: (
         e2 := (e1 && !v.is_module_level);
         e3 := (e2 && !v.is_ref);
         // Skip only UNRESOLVED SomeTypes with no required traits (no concrete
-        // drop possible). Bounded/resolved SomeTypes keep their drop — mirrors
-        // TS getVariablesNeedingDrop's resolvedConcreteType/requiredTraits check.
+        // drop possible). Bounded/resolved SomeTypes keep their drop — matching
+        // the resolvedConcreteType/requiredTraits check.
         some_undroppable := match(
           v.ty,
           .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
@@ -1485,16 +1454,14 @@ _schedule_scope_end_drops :: (
   if(to_drop.len() == usize(0), {
     return(Option(ArrayList(AstExpr)).None);
   });
-  // Build + evaluate `___drop(name)` per var — mirrors the proven eval-side builder
-  // calls/helper.yo:234 (and begin.ts:273-334).
+  // Build + evaluate `___drop(name)` per var — the proven eval-side builder is
+  // calls/helper.yo:234.
   deferred := ArrayList(AstExpr).new();
-  // REVERSE declaration order — last declared is dropped FIRST. Faithful port
-  // of TS `getVariablesNeedingDrop`, which ends with
-  //     // Return in reverse order (end to start) for proper drop order
-  //     return variables.reverse();
-  //. `to_drop` is collected in FORWARD frame order and
-  // this loop consumed it forward too, so yo-self dropped scope locals in
-  // exactly the opposite order from TS. That matters whenever one local is
+  // REVERSE declaration order — last declared is dropped FIRST ("Return in
+  // reverse order (end to start) for proper drop order").
+  // `to_drop` is collected in FORWARD frame order and
+  // a forward loop would drop scope locals in exactly the opposite order.
+  // That matters whenever one local is
   // derived from an earlier one: dropping the earlier binding first can
   // release storage the later one still refers to.
   (di : usize) = to_drop.len();
@@ -1529,8 +1496,7 @@ evaluate_begin_expression :: (
   // If `expr` is NOT a `begin(...)` call (e.g. a function body like
   // `struct(value : T)` invoked via the comptime-fn caller), treat it
   // as a single-expression begin block by wrapping it in a 1-element
-  // arg list. Mirrors TS `evaluateBeginExpression`
-  // which synthesises a
+  // arg list — synthesising a
   // `begin(expr)` wrapper when the input is not already a begin call.
   // Without this, the naive `FnCall` arg unwrap below would treat the
   // struct call's fields (`value : T`) as top-level statements and
@@ -1605,9 +1571,9 @@ evaluate_begin_expression :: (
     is_return_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, BK_RETURN));
     is_return_call := ast_expr_is_fn_call_of(expr_to_eval, BK_RETURN, .None);
     is_return_expr := (is_return_atom || is_return_call);
-    // `return` (atom) AND `return()` (zero-arg call) are BOTH unit returns.
-    // Mirrors TS begin.ts:1122-1124 (`exprIsAtom(e) || (exprIsFunctionCall(e)
-    // && e.args.length === 0)`). Without the zero-arg case, `return()` fell to
+    // `return` (atom) AND `return()` (zero-arg call) are BOTH unit returns
+    // (`exprIsAtom(e) || (exprIsFunctionCall(e) && e.args.length === 0)`).
+    // Without the zero-arg case, `return()` fell to
     // the `return(val)` branch, where `args.get(0)` is `.None` → `make_err_expr()`
     // → evaluating that error expr poisons the def-time return-type inference
     // ("Return type mismatch ... got fn(T : Type) -> Type"), the dominant
@@ -1656,7 +1622,7 @@ evaluate_begin_expression :: (
             .Atom(_, _) => make_err_expr()
           );
           // Pass the function-body's return type as the expected type for the
-          // return argument — mirrors TS begin.ts:1148-1163: for a
+          // return argument: for a
           // FunctionBody context, `expectedType = { type:
           // functionType.return.type, env }`; for async blocks / other
           // contexts, keep the current expected type. Without this,
@@ -1760,8 +1726,7 @@ evaluate_begin_expression :: (
           // a fn whose declared return is an `Impl(...)`
           // SomeType uses STATIC dispatch, so every `return(...)` must produce
           // the same concrete type. The first return's concrete type is
-          // recorded in `ctx.function_return_impl_concrete_type` (the TS
-          // `functionReturnImplConcreteType` array — seeded FRESH per
+          // recorded in `ctx.function_return_impl_concrete_type` (seeded FRESH per
           // body/specialization eval by create_function_body_evaluation_context
           // and the helper.yo / comptime_fn.yo save-restore sites); each later
           // return must be compatible with it.
@@ -2096,10 +2061,10 @@ evaluate_begin_expression :: (
   // -------------------------------------------------------------------------
   // Return-type compatibility check
   // -------------------------------------------------------------------------
-  // TS FIRST tries `synthesizeTypes(expected, given)` —
+  // FIRST try `synthesize_types(expected, given)` —
   // with a SomeT expected this BINDS the type variable's name in the env
-  //; handles shapes like [i32; n] vs [i32; 5]. Only
-  // when synthesis THROWS does TS fall back to the raw compatibility check +
+  // and handles shapes like [i32; n] vs [i32; 5]. Only
+  // when synthesis THROWS is there a fallback to the raw compatibility check +
   // the mismatch error. NOTE: this alone does NOT fix the io.async
   // `return(<binop>)` void-result bug — there the GIVEN side is already the
   // same bare SomeT (see issues/fixed/yo-self-io-async-return-binop-void.md).
@@ -2142,7 +2107,7 @@ evaluate_begin_expression :: (
             );
           },
           .AsyncBlock => {
-            // begin.ts:1642-1680 — async-block kind synthesizes against the
+            // Async-block kind synthesizes against the
             // surrounding EXPECTED type instead of a declared fn return.
             match(
               ctx.expected_type,
@@ -2217,7 +2182,7 @@ evaluate_begin_expression :: (
   // would drop the begin frame from THAT snapshot too, hiding begin-local
   // bindings from any later consumer of the recorded env (e.g. the flowability
   // check). See issues/fixed/yo-self-recorded-env-aliasing.md.
-  // Simplified begin-tail ownership (mirrors begin.ts:1705-1778): when the
+  // Simplified begin-tail ownership: when the
   // block's result is a bare local, an OWNING local from the CURRENT frame
   // (or an `own(...)` parameter of the enclosing function) transfers
   // ownership out — mark it consumed so the scope-end scheduler skips it.
@@ -2257,8 +2222,7 @@ evaluate_begin_expression :: (
         // The tail's recorded temp name is NOT visible in the live begin env
         // (snapshot env threading can drop an inline field-read's temp
         // registration on a bare-expression body — e.g. `(fn(p : Pair) ->
-        // Krate)(p.inner)`). TS's persistent env always finds it and takes
-        // the non-owning → dup branch. Delegate to set_expr_as_needs_to_call_dup,
+        // Krate)(p.inner)`). Delegate to set_expr_as_needs_to_call_dup,
         // which re-checks ownership/consumption against the RECORDED ei.env
         // (where the temp does exist): owning temps still consume, non-RC and
         // inlinable-concrete values still decline — only the borrowed case
@@ -2278,7 +2242,7 @@ evaluate_begin_expression :: (
             if(ty_ok, {
               // `own(name) : T` parameters in the parameter frame also transfer
               // ownership directly when returned from ANY nested begin block —
-              // mirrors begin.ts `isOwnParamReturn` (matched by label against
+              // the own-param-return case (matched by label against
               // the enclosing function's parameter list).
               is_own_param_return := (
                 rv.is_owning_the_rc_value && rv.consumed_at_token.is_none() && match(
@@ -2347,13 +2311,13 @@ evaluate_begin_expression :: (
   // For the FUNCTION-BODY begin block, also schedule drops for the
   // PARAMETERS frame (one level below) — `own(name) : T` params carry a
   // reference the caller transferred in (helper.yo's own-arg move/dup) and
-  // the callee must release it at scope end. Mirrors TS begin.ts:1894-1906
-  // (getVariablesNeedingDrop over the parameters frame, appended AFTER the
+  // the callee must release it at scope end (drops over the parameters
+  // frame, appended AFTER the
   // locals so params drop last). Borrow params are excluded by the
   // scheduler's owning gate, inout by is_ref, returned own params by the
   // consumed mark the own-param-return transfer sets above. Without this,
   // an own param that the body moved into a local was never released —
-  // rc() stayed +1 where TS releases (the yo-self arm of
+  // rc() stayed +1 (the arm of
   // issues/fixed/own-param-discard-leak.md, caught by
   // tests/ref_field_borrow.test.yo under the self-hosted runner).
   if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
@@ -2427,9 +2391,8 @@ evaluate_begin_expression :: (
   //
   // A SINGLE-expression begin block (`expr` was not a real `begin(...)` call,
   // so it was wrapped in a 1-element list at the top) has its result node
-  // EQUAL to the inner expression node — yo-self reuses `expr`'s id rather
-  // than clone+mutate-into-begin like TS (begin.ts:1016-1045, which clones
-  // the inner expr so its `$` lives on a separate node). Codegen then reads
+  // EQUAL to the inner expression node — `expr`'s id is reused rather
+  // than cloned into a separate begin node. Codegen then reads
   // this ONE id in BOTH roles: the inner expression's shape (the match/call/
   // address-of emitters) and the begin block (scope-end drops). A fresh info
   // here therefore CLOBBERED every inner field codegen needs unless it was on

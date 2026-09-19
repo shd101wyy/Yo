@@ -1,9 +1,9 @@
-//! Expression-emitter dispatch indirection — supports `src/codegen/exprs/
-//! generation.ts` `generateExpr` / `_generateExpr`.
+//! Expression-emitter dispatch indirection — supports the expression dispatch
+//! (`_generate_expr` / `generate_func_call` in generation.yo).
 //!
-//! TS emitters import `generateExpr` directly; yo-self's per-node emitters and
-//! the dispatch are mutually recursive ACROSS FILES (generateExpr →
-//! generateFuncCall → … → generateExpr), which the circular-import loader
+//! The per-node emitters and
+//! the dispatch are mutually recursive ACROSS FILES (generate_expr →
+//! generate_func_call → … → generate_expr), which the circular-import loader
 //! cannot resolve via destructuring imports. So — exactly as the evaluator
 //! does with `set_evaluate_expression_fn` (src/evaluator/...) — the
 //! dispatch is reached through a module-global function pointer: per-node
@@ -15,8 +15,7 @@
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { panic, assert } :: import("std/assert");
 /// The expression-emitter dispatch signature: emit C for `expr` at `indent`,
-/// returning the C expression/statement text. Mirrors `generateExpr(expr,
-/// indent, context)`.
+/// returning the C expression/statement text.
 GenerateExprFn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String);
 /// Module-global dispatch pointer — set once at codegen init.
 (g_generate_expr : Option(GenerateExprFn)) = Option(GenerateExprFn).None;

@@ -1,10 +1,10 @@
-//! Atom expression emission — mirrors `src/codegen/exprs/atom.ts` (`generateAtom`).
+//! Atom expression emission (`generate_atom`).
 //!
-//! PORT STATUS (incremental). The corpus path is ported: control-flow keywords
+//! Handles control-flow keywords
 //! (continue/break/return) with loop-body drop emission, unit, comptime-only
 //! constant inlining, closure-captured access, and variable-name resolution.
 //!
-//! DEFERRED / gated branches (documented divergences):
+//! Gated branches (documented):
 //!   * Async/effect state-machine variable resolution (the `sm->var_<id>` /
 //!     `sm->__capture` block, and the async-completion `return`) — Phase 5;
 //!     gated by `in_async_state_machine` (false for the corpus) and replaced
@@ -38,8 +38,7 @@
 { panic, assert } :: import("std/assert");
 /// Emit the state-machine while-body drops (only those resolving to `sm->`
 /// fields — plain locals live in the resume frame and are dropped by the
-/// regular scope machinery). Mirrors the `smWhileBodyDrops` loops in
-/// atom.ts:127-138 / :169-181.
+/// regular scope machinery).
 _emit_sm_while_body_drops :: (fn(context : FunctionGenerationContext, indent : String) -> unit)(
   match(
     context.sm_while_body_drops,
@@ -67,7 +66,6 @@ _emit_sm_while_body_drops :: (fn(context : FunctionGenerationContext, indent : S
 /// Async/effect state-machine variable resolution — the `sm->var_<id>` /
 /// `sm->__capture.<name>` mapping. Returns `.None` when the atom is not an
 /// SM-resolvable variable (the caller falls through to the regular path).
-/// Faithful port of atom.ts:258-460.
 _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String))({
   // Locally-shadowed (match-arm destructure) → the local C variable.
   if(match(context.local_shadowed_variables, .Some(s) => s.contains(var_name.clone()), .None => false), {
@@ -431,8 +429,7 @@ _is_captured_here :: (fn(name : String, env_opt : Option(Environment), context :
 );
 /// Resolve a plain identifier read to its C code: the variable's C name, wrapped
 /// in `(*name)` when the binding is a by-`ref` borrow (`inout(name) : T` param — at
-/// the C level `name` is `T*`, so a read dereferences). Mirrors TS generateAtom
-///. The deref here means a by-ref RECEIVER passed/used as a value
+/// the C level `name` is `T*`, so a read dereferences). The deref here means a by-ref RECEIVER passed/used as a value
 /// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
 _var_read_code :: (fn(tv : String, env_opt : Option(Environment)) -> String)({
   vn := get_variable_name_for_codegen(tv.clone(), env_opt);
@@ -484,7 +481,6 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
     );
     // State-machine while-loop body: `continue` must goto the loop label
     // (plain `continue` doesn't work inside a switch / goto-based loop).
-    // Mirrors atom.ts:124-152.
     match(
       context.sm_while_continue_info,
       .Some(sci) => {
@@ -526,7 +522,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
     );
     // State-machine while-loop body: `break` emits body drops + goto the
     // after-loop label (plain `break` only exits a C switch, not the
-    // goto-based SM loop). Mirrors atom.ts:166-194.
+    // goto-based SM loop).
     match(
       context.sm_while_break_info,
       .Some(sbi) => {
@@ -552,7 +548,6 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
   if(tv == "return", {
     // Async state machine: early `return` completes the result Future
     // (sm->state = -1 + continuation dispatch) instead of a C return.
-    // Mirrors atom.ts:197-245.
     match(
       context.in_async_state_machine,
       .Some(iasm) => {
@@ -641,9 +636,8 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
     }),
     .None => ()
   );
-  // --- async/effect SM variable resolution. TS also gates
-  // on inEffectStateMachine; yo-self has not modeled that flag yet (effect
-  // SMs unported) — async-only until then. ---
+  // --- async/effect SM variable resolution. The
+  // effects-state-machine flag is not modeled — async-only until then. ---
   if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
     match(
       _generate_sm_atom(expr, tv.clone(), context),
@@ -658,8 +652,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       env_opt := Option(Environment).Some(ei.env);
       // Locally-shadowed variable (a match-arm destructured field, declared in
       // the arm's C block under its SOURCE name): resolve to that source name,
-      // not the evaluator's temp `variable_name`. Mirrors TS
-      // `localShadowedVariables` (the destructure bind declares `<T> v = ...`
+      // not the evaluator's temp `variable_name` (the destructure bind declares `<T> v = ...`
       // and the body must reference `v`, not the temp). Keyed by the source
       // TOKEN; the matching declaration uses the same sanitized source name.
       if(match(context.local_shadowed_variables, .Some(s) => s.contains(tv.clone()), .None => false), {
@@ -703,8 +696,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
           // (issues/fixed/captured-variable-as-a-cond-arm-value-emits-a-bare-identifier.md).
           if(!_is_captured_here(tv.clone(), env_opt, context), {
             // Resolve a plain identifier by its SOURCE TOKEN, not the recorded
-            // `variable_name`. Mirrors TS generateAtom (atom.ts:262 uses
-            // `expr.token.value`). yo-self's attach_temp_variable_to_expr can
+            // `variable_name`: attach_temp_variable_to_expr can
             // stamp a SPURIOUS temp `variable_name` onto a bare reference used as
             // a cond/match arm value (e.g. `(cap == 0) => min_cap`); emitting that
             // temp yields an undeclared identifier. The token resolves via env

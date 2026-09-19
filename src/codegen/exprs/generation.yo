@@ -1,17 +1,7 @@
-//! Expression-dispatch body — mirrors `src/codegen/exprs/generation.ts`
-//! (`_generateExpr` / `generateFuncCall`). Routes a node to its emitter and is
+//! Expression-dispatch body (`_generate_expr` / `generate_func_call`).
+//! Routes a node to its emitter and is
 //! registered as the target of the `_call_generate_expr` indirection
 //! (set_generate_expr_fn) so every emitter's recursive calls land here.
-//!
-//! DEFERRED (documented — emitted as `/* TODO[codegen-port] */` so the
-//! differential harness surfaces them): match, other-fn-call
-//! (other-fn-call.ts — the call/method/trait dispatcher, the real blocker for
-//! any program with calls), async/await/spawn/state/JoinHandle (Phase 5), asm/
-//! global_asm, unwind (Phase 5 effects), closure-CONSTRUCTION with captures
-//! (closures.ts generateClosureConstruction), Index-trait dispatch, the
-//! SomeType-Future ___drop/___dup fast path (Phase 5), thread_set_maximum_threads
-//! (Phase 5 parallelism). Simple closure/anon-fn VALUES route to
-//! generate_comptime_value (the FuncVal), which IS ported.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { env : ceg_dbg_env } :: import("std/env");
@@ -176,8 +166,8 @@ _operator_inline_name :: (fn(op : String) -> Option(String))(
     (op == "%") => Option(String).Some(String.from(BF_YO_OP_MOD)),
     (op == "==") => Option(String).Some(String.from(BF_YO_OP_EQ)),
     (op == "!=") => Option(String).Some(String.from(BF_YO_OP_NEQ)),
-    // UNARY. `inline_fns.yo:135` already lowers BF_YO_OP_NOT to `(!(x))` (a
-    // faithful port of src/codegen/exprs/inline-fns.ts:71), but without this
+    // UNARY. `inline_fns.yo:135` already lowers BF_YO_OP_NOT to `(!(x))`, but
+    // without this
     // mapping the symbol callee `!` never resolved to that name, so the unary
     // inline path was unreachable. See `_is_primitive_unary_operator`.
     (op == "!") => Option(String).Some(String.from(BF_YO_OP_NOT)),
@@ -368,7 +358,7 @@ _anon_fn_value :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   match(context.base.get_expr_info(expr), .Some(ei) => match(ei.value, .Some(v) => if(is_func_val(v), generate_comptime_value(v, ei.ty, context.base), codegen_fatal_expr(String.from(err))), .None => codegen_fatal_expr(String.from(err))), .None => codegen_fatal_expr(String.from(err)))
 );
 /// `io.spawn(future)` — start a cold Future and return a JoinHandle (non-owning
-/// view). Faithful port of the inline io.spawn block in `generateFuncCall`
+/// view).
 _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
@@ -380,8 +370,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   name_suffix := match(expr_ei, .Some(ei) => match(ei.variable_name, .Some(n) => n, .None => String.from("")), .None => String.from(""));
   // Statement-level spawns (no bound variable) still need UNIQUE temp names:
   // two unbound `io.spawn(...)` statements in one C scope redefine
-  // `__spawn_future`. TS never hits this (its evaluator attaches a temp
-  // variableName to every spawn); yo-self's variable_name is absent there, so
+  // `__spawn_future`. `variable_name` is absent for unbound spawns, so
   // fall back to the deterministic ast expr id
   // (issues/yo-self-async-emission-cluster.md item 1).
   spawn_suffix := if(name_suffix.len() > usize(0), name_suffix.clone(), `expr_${ast_expr_id(expr).to_string()}`);
@@ -486,8 +475,8 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
   // The receiver argument is its address (`&callee`): the specialized index
   // method's `inout(self) : Self` lowers to a `Self*` C param (for an RC object
   // type Self, a `Self*` is a pointer-to-handle), and the method body
-  // dereferences it via the param's is_ref flag (`(*self)->field`). Mirrors
-  // generation.ts, which always passes `&calleeCode`.
+  // dereferences it via the param's is_ref flag (`(*self)->field`). Always
+  // pass `&callee` here.
   recv_arg := `&${callee_code.clone()}`;
   // Inline builtin (`__yo_array_index` → `&((&recv)->data[idx])`) vs by-name call.
   call_code := match(
@@ -525,9 +514,6 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
 /// Non-allocating comptime values (numbers, string literals, value-enum
 /// compound literals like `Color.Red`) carry no owning temp and are returned
 /// unchanged.
-///
-/// in
-/// `src/codegen/exprs/generation.ts`.
 _materialize_owned_rc_comptime_value :: (
   fn(
     ei : ExprInfo,
@@ -590,7 +576,6 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // WHOLE `match` dispatch, so every sibling test arm was silently lost too.
   // tests/index.test.yo reported "49 passed" while running nothing; 31 of its
   // arms are ordinary runtime tests that were collateral.
-  // TS checks the same list without needing ExprInfo.
   // See issues/fixed/yo-self-hollow-language-test-files.md.
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, Option(usize).None), return(String.from("")));
@@ -619,7 +604,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     .Some(e) => e,
     .None => {
       // Emit the marker; do NOT halt here. Halting at this site was tried and
-      // REVERTED — it breaks yo-self's degrade architecture, which consumes this
+      // REVERTED — it breaks the degrade architecture, which consumes this
       // marker as an IN-BAND signal:
       //
       //   * seven guards (`inline_fns.yo` `_binop`, `assignment.yo` x2,
@@ -629,7 +614,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       //     syntactically valid instead of splicing a comment mid-expression;
       //   * `functions/generation.yo` then REWRITES a superseded generic
       //     original's body to an `abort()` stub when its emitted body carries
-      //     this marker — dead code TS never emits at all.
+      //     this marker — a stub that would otherwise never be emitted.
       //
       // So the marker has to exist for the rewrite to find it. Making it fatal
       // turned tests/fn.test.yo and tests/algebraic_effects.test.yo red, whose
@@ -641,9 +626,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       // harmful case (`main`'s body silently loses a statement, which is how an
       // undefined call became a runnable no-op binary,
       // issues/fixed/self-hosted-compile-swallows-undefined-call.md) and it is also
-      // exactly what the hollow-sweep detector defines as HOLLOW. TS needs none
-      // of this: it never drops an emission, so it has no degrade chain and its
-      // counterpart simply throws.
+      // exactly what the hollow-sweep detector defines as HOLLOW.
       out := String.from("// Failed to transpile ");
       out.push_string(ast_expr_to_string(expr));
       if(ceg_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
@@ -655,11 +638,10 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   );
   // RC drop/dup builtins are lowered by their dedicated generators (generate_drop /
   // generate_dup), which resolve the operation from the value's TYPE and are
-  // authoritative — they must never be diverted through a macro_expansion. yo-self
-  // keeps `(___drop)(x)` / `(___dup)(x)` as builtin calls (TS instead rewrites them to
-  // `(x).___drop()` method calls in evaluate_drop, so TS's original builtin expr never
-  // reaches codegen — see the stub note in evaluator/builtins/drop.yo). Because the
-  // builtin expr DOES survive here, a stale id-keyed side-table entry (from a colliding
+  // authoritative — they must never be diverted through a macro_expansion.
+  // `(___drop)(x)` / `(___dup)(x)` stay builtin calls all the way to codegen
+  // (see the stub note in evaluator/builtins/drop.yo). Because the
+  // builtin expr survives here, a stale id-keyed side-table entry (from a colliding
   // expr id) could otherwise mis-route it and double-emit `f(x)(x)`. Route them first.
   if(ast_expr_is_fn_call_of(expr, BF_DROP, Option(usize).None), return(generate_drop(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_DUP, Option(usize).None), return(generate_dup(expr, indent.clone(), context)));
@@ -678,8 +660,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   );
   // (SomeType-Future ___drop/___dup fast path — Phase 5, omitted.)
   // Closure construction: `(x) => body` used as a value/arg — emit the capture
-  // struct construction + register the impl-closure-call mapping. Mirrors the
-  // isClosureConstruction branch in generateFuncCall.
+  // struct construction + register the impl-closure-call mapping.
   if(is_closure_construction(expr, context), return(generate_closure_construction(expr, indent.clone(), context)));
   // RC builtins.
   if(ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, Option(usize).None), return(generate_yo_decr_rc(expr, indent.clone(), context)));
@@ -720,7 +701,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     // reads are destructive moves — a re-read inside generate_async_block
     // would find the value consumed) and pass both through; when either is
     // missing, fall through to the sync path rather than emitting a broken
-    // FSM body whose SM struct is never defined. (Mirrors TS: closures WITH
+    // FSM body whose SM struct is never defined. (Closures WITH
     // await analysis get the state machine; closures without it get the
     // lazy sync future.)
     io_async_analysis := io_async_await_analysis(expr, context);
@@ -748,9 +729,8 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   //
   // EXCEPTION: a value-struct/newtype CONSTRUCTOR call with runtime field args
   // (e.g. `Self(v : n)` in a method body) carries a `StructVal` shell value AND
-  // a non-empty `runtime_arg_exprs_in_order`. TS produces an UnknownValue here
-  // (so its `!isUnknownValue` guard fails and it falls through to the call
-  // path); yo-self's evaluator produces a `StructVal` with runtime holes, which
+  // a non-empty `runtime_arg_exprs_in_order`: a `StructVal` with runtime holes,
+  // which
   // `generate_comptime_value` cannot fill (its field values are unknown → it
   // emits `/* skip generating value */`). Detect this and fall through to
   // `generate_other_function_call`'s value-struct constructor branch, which
@@ -760,7 +740,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // runtime): the evaluator carries an `EnumVal` shell with runtime holes, which
   // generate_comptime_value can't fill (emits `/* skip generating value */`).
   // Fall through to generate_other_function_call's runtime enum-construction
-  // branch. Mirrors other-fn-call.ts:2500 (the isEnumType construction case).
+  // branch.
   ctor_has_runtime_args := match(ei.runtime_arg_exprs_in_order, .Some(ra) => (ra.len() > usize(0)), .None => false);
   match(
     ei.value,
@@ -772,15 +752,15 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
         // A struct/enum value whose rendering carries an UNFILLABLE HOLE
         // (`/* skip generating value */` from a nested UnknownVal payload)
         // must fall through to the expression emitters, exactly like the
-        // runtime-args ctor exception above — the third yo-self value shape
-        // TS never produces: a comptime-DECIDED `cond(platform == …)` folds
+        // runtime-args ctor exception above — a third value shape: a
+        // comptime-DECIDED `cond(platform == …)` folds
         // the taken arm's `.Err(<template with ${platform}>)` to an EnumVal
         // whose payload template stays Unknown, with NO runtime_arg_exprs.
         // Returning the hole put a bare comment inside a C initializer
         // ("error: expected expression" — std/env.yo current_exe on the
         // wasm legs, issues/repros/wasm-current-exe-skip.yo); the expression
         // path re-generates the arm (cond → ctor → template) as the same
-        // runtime string-building TS emits.
+        // runtime string-building.
         skip_hole := ((is_struct_val(v) || is_enum_val(v)) && comptime_code.contains(String.from("/* skip generating value */")));
         if(!skip_hole, {
           return(_materialize_owned_rc_comptime_value(ei, v, comptime_code, indent.clone(), context));
@@ -801,8 +781,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // no such head, so route it by SHAPE: an array-typed call carrying runtime
   // argument expressions and no compile-time value. `generate_anonymous_array`
   // is head-agnostic, so both forms share one emitter. A fully compile-time
-  // array keeps its value and is emitted as a constant elsewhere. Mirrors the
-  // same dispatch in src/codegen/exprs/generation.ts.
+  // array keeps its value and is emitted as a constant elsewhere.
   // The CALLEE must be the array TYPE itself. Matching on the result type
   // alone was far too broad: any ordinary function RETURNING an array
   // (`md5(data) -> Array(u8, 16)`) also has an array type and runtime args,
@@ -850,7 +829,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // the ExprInfo lookup.)
   // Index trait dispatch: `value(i)` → `*index_fn(&value, i)`. The evaluator
   // stamps the specialized `index()` method FuncVal + pointer-return type on the
-  // ExprInfo (function.yo's index branch). Mirrors generation.ts:991. (Fixed-array
+  // ExprInfo (function.yo's index branch). (Fixed-array
   // `a(i)` resolves to a comptime ref instead and never reaches here.)
   if(ei.index_trait_ptr_type.is_some() && ei.index_method_type.is_some(), return(_generate_index_trait_call(expr, ei, indent.clone(), context)));
   // Primitive infix operator (`x + y`, `a == b`, …): lower directly to the
@@ -883,7 +862,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     }
   )
 });
-/// Top-level expression dispatch. Mirrors `_generateExpr`.
+/// Top-level expression dispatch.
 _generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   match(expr, .FnCall(_, _, _, _, _) => generate_func_call(expr, indent, context), .Atom(_, _) => generate_atom(expr, context, indent))
 );

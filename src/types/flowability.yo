@@ -1,6 +1,6 @@
 //! Flowability check for `inout(T)`-yielding expressions.
 //!
-//! 1:1 port of `src/types/flowability.ts`. Implements the structural soundness
+//! Implements the structural soundness
 //! rule from `plans/archive/ITERATOR_REDESIGN.md`: an expression is "flowable" iff it
 //! roots back to a `ref`-bound parameter (or another `ref`-bound local with a
 //! flowable initializer) along a projection-respecting chain.
@@ -12,14 +12,13 @@
 //!        AND every `ref`-typed argument it receives is itself flowable.
 //!   R4.  `cond` / `match` arms each return-flow independently.
 //!
-//! yo-self adaptations of the TS shape:
-//!   * The evaluated `ExprInfo` (TS `expr.$`) is looked up in
+//! Representation notes:
+//!   * The evaluated `ExprInfo` is looked up in
 //!     `ctx.expr_info_table` by expr id, so this takes an `EvalContext`.
-//!   * TS resolves the callee `FunctionType` from `call.func.$.value`
-//!     (a `FunctionValue.type`) or `call.func.$.type`. yo-self's `FuncVal`
-//!     carries no type, but the callee expr's `ExprInfo.ty` holds the `Func`
-//!     type in both the direct-call and method-call cases, so we read that.
-//!   * Options are passed as a `FlowOptions` object (TS used an options bag).
+//!   * The callee `FuncVal` carries no type; the callee expr's `ExprInfo.ty`
+//!     holds the `Func` type in both the direct-call and method-call cases,
+//!     so we read that.
+//!   * Options are passed as a `FlowOptions` object.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -55,11 +54,10 @@
 /// handlers are capture-free `->` functions), so instead: the binding-site
 /// flags the violation before throwing; the throw is swallowed as usual; then
 /// the def-time CALLER re-raises it via the real `exn` after the trial eval
-/// returns. TS reaches the same rejection because its def-time body eval
-/// propagates errors. An `ArrayList` mutated only inside the top-level
-/// `flag_/clear_` fns is used rather than a reassignable global, so yo-self can
-/// check this very source (which forbids reassigning a module-level global from
-/// inside a closure).
+/// returns. An `ArrayList` mutated only inside the top-level
+/// `flag_/clear_` fns is used rather than a reassignable global, because this
+/// very source forbids reassigning a module-level global from
+/// inside a closure.
 (g_flow_violation_box : ArrayList(bool)) = ArrayList(bool).new();
 /// Parallel 1-element box holding the rejection's message, so the def-time
 /// caller re-raises the SAME diagnostic the swallowed throw would have.
@@ -89,16 +87,15 @@ flow_violation_message :: (fn() -> String)(
 );
 /// "Propagate all def-time body-eval errors" mode. Normally `_trial_eval_fn_body`
 /// SWALLOWS any error thrown while evaluating a function body at definition time
-/// (the def-eval wall: it masks yo-self's own porting-gap false-positives so
+/// (the def-eval wall: it masks def-time body-eval errors so
 /// `check` stays green). But `comptime_expect_error(expr)` must OBSERVE such an
-/// error — TS uses a plain `try { evaluate(expr) } catch { ok }`
-/// and the def-time body eval propagates there.
+/// error.
 /// While this flag is set (only around a `comptime_expect_error` argument eval),
 /// the def-time caller re-raises a swallowed body error via the real `exn` so it
 /// reaches the `comptime_expect_error` catch. The flag is a global box (not a
 /// ctx field) for the same reason as `g_flow_violation_box`: it must survive the
-/// child-context construction at each call frame, and yo-self forbids reassigning
-/// a module-level global from inside a closure. comptime_expect_error sets it
+/// child-context construction at each call frame, and the language forbids
+/// reassigning a module-level global from inside a closure. comptime_expect_error sets it
 /// false again deterministically (the eval's local-unwinding exn returns control
 /// to the caller, which clears it), so no non-expect-error path is affected.
 (g_propagate_def_time_errors_box : ArrayList(bool)) = ArrayList(bool).new();
@@ -117,8 +114,7 @@ set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
 /// cee's local exn — cee then wrongly threw "Expected compile error..."
 /// through the OUTER exn, abandoning the enclosing begin. The wrapper sets
 /// this flag instead (only in propagate mode); the cee helper counts a set
-/// flag as an observed throw. TS needs none of this: it has no swallowing
-/// wrapper — JS exceptions propagate to the cee try/catch natively.
+/// flag as an observed throw.
 (g_cee_observed_error_box : ArrayList(bool)) = ArrayList(bool).new();
 set_cee_observed_error :: (fn() -> unit)({
   g_cee_observed_error_box.clear();
@@ -133,7 +129,7 @@ cee_observed_error :: (fn() -> bool)(
 propagate_def_time_errors :: (fn() -> bool)(
   match(g_propagate_def_time_errors_box.get(usize(0)), .Some(v) => v, .None => false)
 );
-/// Options refining the base R1–R4 rule. Mirrors the TS options bag.
+/// Options refining the base R1–R4 rule.
 FlowOptions :: ref(
   struct(
     /// Accept a same-frame (non-module) local (the assignment-target checks).
@@ -178,18 +174,17 @@ _unwrap_begin_blocks :: (fn(expr : AstExpr) -> AstExpr)({
   });
   current
 });
-/// Look up the evaluated `ExprInfo` for `expr` (TS `expr.$`).
+/// Look up the evaluated `ExprInfo` for `expr`.
 _info :: (fn(ctx : EvalContext, expr : AstExpr) -> Option(ExprInfo))(
   expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr))
 );
 /// Walk `expr` and return `true` iff it satisfies R1–R4. `expr` must already be
-/// evaluated (so its `ExprInfo` and bindings are available). Mirrors
-/// 
+/// evaluated (so its `ExprInfo` and bindings are available).
 is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions) -> bool)({
   expr := _unwrap_begin_blocks(expr_in);
   // Strip a `label : value` wrapper — labeled arguments (constructor fields
   // `Identifier(name : "x")`, named call args) are transparent for flow
-  // purposes; the VALUE side is what flows. Mirrors flowability.ts.
+  // purposes; the VALUE side is what flows.
   if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":", .Some(usize(2))), {
     labeled_args := match(expr, .FnCall(_, _, la, _, _) => la, _ => ArrayList(AstExpr).new());
     match(
@@ -295,7 +290,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     );
     // A `.`/2 whose receiver evaluates to a TYPE is a no-argument qualified
     // variant constructor (`Option(str).None`), NOT a field projection — it
-    // carries no smuggled pointer, so it is flowable. Mirrors flowability.ts.
+    // carries no smuggled pointer, so it is flowable.
     base_is_type := match(
       _info(ctx, base),
       .Some(bi) => match(bi.value, .Some(bv) => is_type_val(bv), .None => false),
@@ -394,7 +389,6 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   // (`Option(str).Some("a")`): `call.func` is a `.`/2 selector whose receiver
   // evaluates to a TYPE. Its selector node carries no resolved constructor Func
   // type, so the R3 path below can't resolve it; detect it here and check args.
-  // Mirrors flowability.ts.
   is_qualified_variant_ctor := cond(
     (ast_expr_is_fn_call(call_func) && ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(2)))) => {
       qrecv := match(
@@ -413,8 +407,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   // Plain struct/type constructor: the CALLEE itself evaluates to a TYPE
   // value (`Identifier(name : "x")` where `Identifier :: struct(name : str)`).
   // Same reasoning as the variant-ctor forms: a freshly constructed value can
-  // only carry a raw pointer through its arguments. Mirrors flowability.ts
-  // `isTypeCtorCall`.
+  // only carry a raw pointer through its arguments.
   is_type_ctor_call := match(
     _info(ctx, call_func),
     .Some(cfi) => match(cfi.value, .Some(cfv) => is_type_val(cfv), .None => false),
@@ -433,7 +426,6 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
       // carry no ExprInfo type of its own, which would silently SKIP the
       // check and accept a constructor smuggling a local-backed slice
       // (`SliceWrapper(s : local_slice)`). The VALUE side is what flows.
-      // Mirrors flowability.ts.
       if(ast_expr_is_fn_call(a) && ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
         a = match(
           a,
@@ -452,7 +444,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   // Tuple construction `(e0, e1, …)` (a `tuple(...)` call): flowable iff every
   // element whose representation carries a raw pointer is flowable. Needed for
-  // destructuring-assignment RHS `(a, b) = (seed, 1)`. Mirrors flowability.ts.
+  // destructuring-assignment RHS `(a, b) = (seed, 1)`.
   if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), {
     (ti : usize) = usize(0);
     while(ti < call_args.len(), {
@@ -474,14 +466,14 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
     return(true);
   });
   // R3: regular function call. Resolve the callee `Func` type from the callee
-  // expr's ExprInfo.ty (holds the Func type for both direct + method calls in
-  // yo-self). The receiver of a method call (`call_func` args[0]) is the
+  // expr's ExprInfo.ty (holds the Func type for both direct + method calls).
+  // The receiver of a method call (`call_func` args[0]) is the
   // implicit first argument.
   is_method_call := ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(2)));
   // The callee's Func type comes from its ExprInfo (set for direct calls). For
   // a METHOD call the `.`/2 callee sub-expr has no Func-typed ExprInfo, so fall
   // back to the method-callee side-table (keyed by this CALL's expr id,
-  // populated during method dispatch). Mirrors TS `call.func.$.type`.
+  // populated during method dispatch).
   callee_ty_opt := match(
     _info(ctx, call_func),
     .Some(inf) => Option(TypeValue).Some(inf.ty),
@@ -556,9 +548,9 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   all_ok
 });
-///: follow
+/// Follow
 /// `is_owning_the_same_rc_value_as` links to the primary owner's id
-/// (step-capped in place of TS's identity-set cycle guard).
+/// (step-capped instead of an identity-set cycle guard).
 alias_group_root :: (fn(variable : Variable) -> String)({
   (cur : Variable) = variable;
   (root_id : String) = variable.id.to_string();
@@ -586,8 +578,7 @@ alias_group_root :: (fn(variable : Variable) -> String)({
 /// borrowed storage cannot be freed during the call. Whole variables are
 /// stable slots; field chains may not hop through an intermediate OBJECT
 /// (its handle lives in a replaceable slot) and may not root at a
-/// module-level variable (a callee could reassign the global). Mirrors
-/// `requireValidRefArgumentPlaces` in src/evaluator/types/flowability.ts.
+/// module-level variable (a callee could reassign the global).
 /// Call AFTER argument evaluation (the chain types must be resolved).
 /// Walk a field chain (`h.s`, `a.b.c`) to its base atom; deref hops are
 /// part of the chain. Returns None when the chain roots in a non-atom.
@@ -617,7 +608,6 @@ _place_root_atom :: (fn(expr_in : AstExpr) -> Option(AstExpr))({
 /// Holder)` moves the caller's count into the callee, which can release
 /// it while `x` still points into the object — a use-after-free no
 /// same-scope gate can see. Non-`own` (by-value) overlap is safe.
-/// Mirrors TS `requireRefOwnArgumentExclusivity`.
 require_ref_own_argument_exclusivity :: (
   fn(
     param_labels : ArrayList(String),
@@ -748,8 +738,8 @@ require_ref_own_argument_exclusivity :: (
 /// during the call: (a) the container is module-level or aliases a
 /// module-level variable; (b) any OTHER argument could hold a handle to it
 /// — an object, a closure (may have captured it), or a pointer-carrier.
-/// Pure value/scalar other-args cannot reach it. Mirrors the TS
-/// `rejectIfContainerReachable`. `kind` is "index" or "object-hop".
+/// Pure value/scalar other-args cannot reach it.
+/// `kind` is "index" or "object-hop".
 _reject_if_container_reachable :: (
   fn(
     container_atom : AstExpr,
@@ -824,12 +814,11 @@ _reject_if_container_reachable :: (
       could_reach := match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(other)),
         .Some(oi) => {
-          // TS: `otherExpr.$?.closureFunctionValue !== undefined`. yo-self's
-          // anonymous-fn eval does NOT set closure_function_value (documented
-          // Phase-3 convention in anonymous_function.yo — downstream must fall
-          // back). TS stamps captureType and closureFunctionValue under the
-          // SAME isCreatingClosure gate, so on an anon-fn ExprInfo
-          // capture_type-is-set is the faithful equivalent.
+          // The anonymous-fn eval does NOT set closure_function_value (documented
+          // convention in anonymous_function.yo — downstream must fall
+          // back); capture_type and closure_function_value are stamped
+          // under the SAME closure-creation gate, so on an anon-fn ExprInfo
+          // capture_type-is-set is the equivalent signal.
           is_closure := match(
             expr_info_closure_function_value(oi),
             .Some(_) => true,

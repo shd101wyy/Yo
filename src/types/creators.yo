@@ -1,6 +1,6 @@
 //! Type-value constructors and tag accessor.
 //!
-//! Mirrors `src/types/creators.ts`. Provides:
+//! Provides:
 //!   * `generate_some_type_id` — global counter for fresh SomeType IDs
 //!   * `t_unit` / `t_bool` / `t_i32` / … — primitive constructors
 //!   * `t_ptr` / `t_array` — pointer/array constructors
@@ -11,9 +11,8 @@
 //!   * `t_future_trait` / `t_future_trait_simple`
 //!   * `type_value_tag` — extract the `TypeTag` discriminator from a TypeValue
 //!
-//! Phase A.3.3: this file was split out of the former monolithic `type.yo`,
-//! so that yo-self mirrors src/'s split between `definitions.ts` (just the
-//! TypeValue enum) and `creators.ts` (constructors).
+//! Split of the former monolithic `type.yo` (Phase A.3.3): `definitions.yo`
+//! holds the TypeValue enum, this file the constructors.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -21,7 +20,6 @@
 { TypeTag } :: import("./tags.yo");
 // ---------------------------------------------------------------------------
 // Global counter for generating unique SomeType IDs.
-// Mirrors the `IdMap` counter in `src/utils.ts:generateVarialeId`.
 // ---------------------------------------------------------------------------
 (g_some_type_id_counter : usize) = usize(0);
 generate_some_type_id :: (fn() -> String)({
@@ -73,7 +71,7 @@ generate_some_type_id :: (fn() -> String)({
 (g_t_c_ulonglong : TypeValue) = TypeValue.CULongLong;
 (g_t_c_longdouble : TypeValue) = TypeValue.CLongDouble;
 t_unit :: (fn() -> TypeValue)(g_t_unit);
-/// `str` — the builtin static string view (mirrors TS TypeTag.Str: a
+/// `str` — the builtin static string view (a
 /// dedicated fieldless tag; impl registry keys it by id "str").
 t_str :: (fn() -> TypeValue)(g_t_str);
 t_bool :: (fn() -> TypeValue)(g_t_bool);
@@ -113,8 +111,7 @@ t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
 );
 /// Array type whose LENGTH is an unresolved generic variable (`Array(T, U)`
 /// with `U : usize` in a generic list). `length` is a placeholder 0; the
-/// synthesizer binds `length_var` to the concrete count during matching
-/// (mirrors TS ArrayType.length being an UnknownValue with variableName).
+/// synthesizer binds `length_var` to the concrete count during matching.
 t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)(
   .Array(element, usize(0), length_var)
 );
@@ -184,8 +181,8 @@ t_module :: (
     field_types : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  // Source-namespace STRUCT — TS has no module type (SourceNamespaceType,
-  // src/types/definitions.ts:514). plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
+  // Source-namespace STRUCT — there is no separate module type.
+  // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
   .Struct(String.from(""), name, field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
 );
 /// Create a named module type with no fields.
@@ -283,8 +280,8 @@ t_resolved_cell :: (fn(t : TypeValue) -> ArrayList(TypeValue))({
 });
 /// Create a SomeType with a `kind_function_type` set — represents a
 /// higher-kinded type variable like `F : (fn(T : Type) -> Type)`.
-/// `kind` must be a `Func` TypeValue. Mirrors TS's `SomeType.kindFunctionType`
-/// path; used by `evaluate_function_parameter` when binding HKT-kinded
+/// `kind` must be a `Func` TypeValue. Used by `evaluate_function_parameter`
+/// when binding HKT-kinded
 /// generic params so `F(A)` can later be evaluated as a TypeApplication.
 t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) -> TypeValue)(
   .SomeT(
@@ -349,8 +346,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .Array(_, _, _) => TypeTag.TArray,
     .Tuple(_, _) => TypeTag.TTuple,
     .Func({ result : _ }) => TypeTag.TFunction,
-    // Source-namespace structs keep the TModule tag (yo-self TypeTag is
-    // internal; TS has no module tag at all).
+    // Source-namespace structs keep the TModule tag (TypeTag is internal).
     .Struct({ is_source_namespace : sns_tag }) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
     .EnumT(_, _, _, _, _, _, _, _, _) => TypeTag.TEnum,
     .Union(_, _, _) => TypeTag.TUnion,
@@ -487,7 +483,7 @@ _patch_self_shell_guarded :: (
       ((id == shell_id) && (variant_names.len() == usize(0))) => final_ty,
       // Recurse into every variant field so a shell nested inside a generic
       // enum instantiation (e.g. `Option(Self)` / `Result(Self, E)`) is patched
-      // too. Mirrors the `.Struct` branch below — EnumT has no separate
+      // too. Same as the `.Struct` branch below — EnumT has no separate
       // type_arguments list, the instantiated element types live in the variant
       // fields. Without this, the shell inside `Option(Self)` stays an empty
       // placeholder and `can_type_form_rc_cycle` never reaches back to the root.
@@ -563,14 +559,13 @@ _patch_self_shell :: (
 );
 // Enum finalization side-table: `enum_id -> finalized EnumT`. During an
 // enum's own definition, `Self` is bound to a PRELIMINARY empty-variant
-// shell (enum.yo). TS mutates one object in place, so anything that
-// captured `Self` sees the populated fields later;
-// yo-self TypeValues are value-typed snapshots, so leaked shells keep 0
+// shell (enum.yo). TypeValues are value-typed snapshots, so leaked shells
+// keep 0
 // variants forever (e.g. `ArrayList(Self)` instantiations CACHED with the
 // shell element — "Cannot unify incompatible enum types" with a 0-variant
 // side, std/encoding/json.yo). The registry lets use sites swap a shell
-// for its final form BY ID — the faithful value-semantics mirror of TS's
-// object identity.
+// for its final form BY ID — the value-semantics stand-in for mutating one
+// shared object in place.
 EnumFinalEntry :: struct(enum_id : String, ty : TypeValue);
 (g_enum_finals : ArrayList(EnumFinalEntry)) = ArrayList(EnumFinalEntry).new();
 register_enum_final :: (fn(enum_id : String, ty : TypeValue) -> unit)({
@@ -611,10 +606,10 @@ resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
 // which uses a distinct `__self_shell` id). The shell is distinguished from
 // the final purely by its EMPTY field list, so id-based comparisons treat
 // shell and final as one type for free and only FIELD-reading sites must
-// resolve. yo-self TypeValues are value-typed snapshots, so a leaked shell
+// resolve. TypeValues are value-typed snapshots, so a leaked shell
 // keeps 0 fields forever (`box.*.field` on recursive structs like Variable
 // degenerates to unit); the registry lets field-read sites swap a 0-field
-// shell for its final form BY ID — the value-semantics mirror of TS's
+// shell for its final form BY ID — the value-semantics stand-in for
 // in-place object mutation.
 StructFinalEntry :: struct(struct_id : String, ty : TypeValue);
 (g_struct_finals : ArrayList(StructFinalEntry)) = ArrayList(StructFinalEntry).new();

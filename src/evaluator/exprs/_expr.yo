@@ -1,9 +1,6 @@
 //! _evaluate_expression — main expression dispatch function.
 //!
-//! 1:1 port of `src/evaluator/exprs/_expr.ts`.
-//!
 //! Dispatches every AstExpr node kind to the appropriate sub-evaluator.
-//! The profiler instrumentation from the TypeScript version is omitted (Node.js-specific).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { note_def_time_swallow } :: import("../../types/flowability.yo");
@@ -454,7 +451,6 @@ ast_expr_get_arg0 :: (fn(e : AstExpr) -> AstExpr)(
   )
 );
 /// True if `e` is a FnCall whose function name starts with a comptime numeric prefix.
-/// Mirrors the `__yo_comptime_*` prefix check in `_expr.ts`.
 is_comptime_numeric_fn_call :: (fn(e : AstExpr) -> bool)(
   match(
     e,
@@ -484,7 +480,7 @@ is_comptime_numeric_fn_call :: (fn(e : AstExpr) -> bool)(
 );
 // ---------------------------------------------------------------------------
 // Cooperative evaluation deadline — test-RUNNER infrastructure, not language
-// semantics. 1:1 port of `src/evaluator/exprs/_expr.ts:199-237`.
+// semantics.
 //
 // A comptime hang (runaway recursion, a non-converging fixpoint) cannot be
 // interrupted from outside the thread. The runner arms a wall-clock budget
@@ -494,14 +490,12 @@ is_comptime_numeric_fn_call :: (fn(e : AstExpr) -> bool)(
 // 16384 dispatches, so the compile unwinds to completion (as a compile error)
 // instead of hanging forever.
 //
-// DIVERGENCE FROM TS, and why: TS compiles IN-PROCESS, so `src/test-runner.ts`
-// arms the deadline directly around its own compile call. yo-self shells out
-// (`main.yo` spawns `self compile` per batch), so the budget has to travel to
-// the child on the command line — `--compile-timeout-ms`, the same adaptation
-// `--emcc-environment` needed. The clock is MONOTONIC here where TS used
-// `Date.now()`; a wall-clock jump must not fail a compile.
+// The compile runs as a CHILD PROCESS (`main.yo` spawns `self compile` per
+// batch), so the budget has to travel to the child on the command line —
+// `--compile-timeout-ms`, the same adaptation `--emcc-environment` needed.
+// The clock is MONOTONIC; a wall-clock jump must not fail a compile.
 //
-// SCOPE, same as TS's: this bounds EVALUATION only. A hang in codegen or a
+// SCOPE: this bounds EVALUATION only. A hang in codegen or a
 // stuck C compiler is not covered by it (see plans/archive/P2_5_RETIRE_EXECUTION.md).
 (_g_eval_deadline_ns : i64) = i64(0);
 (_g_eval_deadline_counter : u64) = u64(0);
@@ -760,29 +754,17 @@ _evaluate_expression :: (
         // `_(...)` literal with an expected ANONYMOUS struct type is a
         // constructor call OF THAT TYPE — no fresh anonymous struct id is
         // minted, so the value unifies (and C-types) as the expected struct.
-        // Mirrors TS function.ts:418-439 (`_` callee with concrete
-        // expectedType: `functions = [{type: typeOfType(expected), value:
-        // createTypeValue(expected)}]`); yo-self passes the TypeVal callee via
+        // The TypeVal callee is passed via
         // `given_value` (the same shortcut evaluate_recur uses). Without this,
         // `list.push({ ... })` against `ArrayList(struct(...))` minted a fresh
         // struct id and the struct-struct unify threw — swallowed into
         // "0 entries" under io.async closures (std/fs/walker) and a C-level
         // undeclared-identifier bail in plain fns.
-        //
-        // SCOPE: gated to UNNAMED expected structs — narrower than TS, which
-        // reroutes for EVERY concrete expected type. The broad rule changes
-        // the emitted construction of every named-struct literal site in
-        // yo-self itself (e.g. types/utils.yo IntRange `{min,max}`), and the
-        // stage-2 self-emission of that path currently miscompiles (s2
-        // SIGSEGV in the dup/drop optimizer at prelude eval — see
-        // issues/fixed/yo-self-anon-struct-literal-expected-type-ctor.md). Named
-        // expecteds keep the anonymous-struct path until that downstream gap
-        // is fixed.
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT, .None)) => match(
           ctx.expected_type,
           .Some(et) => {
             et_ty := et.ty;
-            // TS-faithful scope: reroute for EVERY
+            // Scope: reroute for EVERY
             // concrete expected STRUCT — named or anonymous — not just
             // unnamed ones. The named-struct narrowing existed for two
             // downstream gaps that are both fixed now: `Self(x : 0)`
@@ -797,8 +779,7 @@ _evaluate_expression :: (
               .Struct({ is_source_namespace : et_sns }) => !et_sns,
               // Patch D: an expected FUNC type reroutes too — `is_even =
               // _(cond(...))` under `comptime(is_even) : (fn(n : i32) ->
-              // bool)` is a function DEFINITION call (TS's reroute covers
-              // every concrete expected type; fn arm 14).
+              // bool)` is a function DEFINITION call (fn arm 14).
               .Func(_, _, _, _, _, _, _) => true,
               _ => false
             );
@@ -810,10 +791,10 @@ _evaluate_expression :: (
             // def-time body eval runs while `is_odd` is still valueless
             // (forward ref), the call records no FuncVal, and codegen's
             // fn-pointer fallback emits the raw identifier
-            // (`use of undeclared identifier 'is_odd'`). TS survives because
-            // its env snapshots SHARE mutable Variable objects — the later
-            // `is_odd = _(...)` fills the value the recorded env already
-            // points at; yo-self's def-time body env is a fresh COPY
+            // (`use of undeclared identifier 'is_odd'`). Shared mutable
+            // Variable objects would fix it — the later
+            // `is_odd = _(...)` would fill the value the recorded env already
+            // points at — but the def-time body env is a fresh COPY
             // (_build_def_time_body_env), so the recorded env stays stale.
             // Land patch D together with either shared-Variable def-env
             // threading or a deferred re-eval of comptime fn bodies at
@@ -1280,8 +1261,7 @@ _evaluate_expression :: (
         ) => {
           // Pre-evaluate args before dispatching — the build builtins read
           // each arg's resolved comptime value from the expr-info table.
-          // Mirrors the for-loop before `evaluateYoBuildFunctions` in TS
-          // `_expr.ts`. Mutating the args ArrayList in place updates
+          // Mutating the args ArrayList in place updates
           // `expr.args` (FnCall holds it by reference).
           build_call_args := match(
             expr,
@@ -1328,14 +1308,13 @@ _evaluate_expression :: (
 /// in `src/main.yo` and the new `run_check` subcommand both
 /// go through that path so they can surface or swallow errors as
 /// appropriate.)
-/// Codegen-metadata bridge: yo-self's evaluator records ExprInfo PIECEMEAL (each
+/// Codegen-metadata bridge: the evaluator records ExprInfo PIECEMEAL (each
 /// sub-evaluator sets it for the node IT handles, often the evaluated/result node,
 /// not the original sub-expression). Codegen, however, walks the ORIGINAL function
 /// body AST (stored on the FuncVal) and looks up ExprInfo by the original node's
 /// id — so a call/operator child of a recorded binding (`_y := double(1)`) had no
 /// entry → "Failed to transpile". This central bridge fills a MISSING original-id
-/// entry from the (correct) result-node entry produced by evaluating it. It is
-/// the yo-self analogue of TS attaching `expr.$` to every node.
+/// entry from the (correct) result-node entry produced by evaluating it.
 ///
 /// GUARDED for safety (prior unguarded ExprInfo changes regressed std/tests):
 /// only acts when the ids DIFFER, only FILLS a missing original entry, and NEVER

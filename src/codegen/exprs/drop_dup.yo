@@ -1,10 +1,8 @@
-//! Drop / dup code generation — mirrors `src/codegen/exprs/drop-dup.ts`.
+//! Drop / dup code generation.
 //!
 //! `get_drop_function_for_type` / `get_dup_function_for_type` resolve a type's
-//! `___drop` / `___dup` C function. TS reads `type.trait.fields[].assignedValue`;
-//! yo-self Struct/EnumT carry NO `.trait` field, so this routes through the
-//! type-trait-method REGISTRY (`evaluator/values/type_trait_methods.yo`) — the
-//! faithful equivalent (resolves Gap 9 for the RC layer).
+//! `___drop` / `___dup` C function through the type-trait-method REGISTRY
+//! (`evaluator/values/type_trait_methods.yo`).
 //!
 //! `generate_drop_code_for_value` / `generate_dup_code_for_value` recurse through
 //! arrays/tuples and emit RC decr/incr (or the type's drop/dup fn) for
@@ -12,8 +10,8 @@
 //! emit the evaluator-deferred RC ops (closure-capture + short-circuit-handled
 //! skips).
 //!
-//! DEFERRED (documented): `SomeType.resolvedConcreteType` (Gap 6) — yo-self
-//! SomeT carries no resolved concrete type, so `concrete_type := value_type`.
+//! KNOWN LIMITATION: `SomeType.resolvedConcreteType` (Gap 6) — SomeT carries no
+//! resolved concrete type, so `concrete_type := value_type`.
 //! For the monomorphized corpus the value type is already concrete, so this is
 //! a no-op; unresolved-SomeT params (Phase-3 generics) need Gap-6 resolution.
 { String } :: import("std/string");
@@ -42,13 +40,11 @@ _method_c_name :: (fn(type : TypeValue, method_name : str, context : FunctionGen
   methods := get_type_trait_methods_by_name(type_id_or_empty(type), String.from(method_name));
   match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
 });
-/// The C name of `type`'s `___drop` function, if any. Mirrors
-/// `getDropFunctionForType`.
+/// The C name of `type`'s `___drop` function, if any.
 get_drop_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
   _method_c_name(type, BF_DROP, context)
 );
-/// The C name of `type`'s `___dup` function, if any. Mirrors
-/// `getDupFunctionForType`.
+/// The C name of `type`'s `___dup` function, if any.
 get_dup_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
   _method_c_name(type, BF_DUP, context)
 );
@@ -60,7 +56,7 @@ get_dup_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationC
 /// for EVERY instantiation — e.g. HashMap(usize, bool) resolving the
 /// HashMap(usize, EvalValue) dispose and dropping its `bool` slot as a reference-
 /// counted value (`__yo_decr_rc(0x1)` crash). `_synthesize_and_register_dispose`
-/// registers under type_key to match; mirrors `get_trace_function_for_type`.
+/// registers under type_key to match (same keying as `get_trace_function_for_type`).
 get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))({
   if(!(is_struct_type(type) || (is_enum_type(type) || (is_dyn_type(type) || (is_some_type(type) || is_iso_type(type))))), {
     return(Option(String).None);
@@ -88,9 +84,9 @@ get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerat
 /// Used by the cycle-GC traversal generators: a container whose elements live in a
 /// malloc'd buffer (which the auto-derived field walk can't reach) carries an
 /// explicit Trace impl, and its `traverse_fn` delegates to this `trace`. Returns
-/// None for types that use the auto-derived field-walk traversal. Mirrors the
-/// registry-lookup half of `findUserTraceMethodForType` (the specialized `trace`
-/// is registered under the concrete type id by `collect_trace_methods_from_generic_impls`).
+/// None for types that use the auto-derived field-walk traversal. The
+/// specialized `trace` is registered under the concrete type key by
+/// collection.yo's `_specialize_and_register_trace`.
 get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))({
   // trace is registered under type_key(type) (instantiation-precise), not the
   // raw shared struct id — see collection.yo _specialize_and_register_trace.
@@ -130,9 +126,9 @@ get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGeneratio
   )
 });
 /// If `value_arg` is a generic-typed (SomeType) parameter atom, recover its
-/// concrete parameter type from the enclosing function signature. Mirrors
-/// `resolveSomeTypeParamType` (the SomeType.resolvedConcreteType branches are
-/// Gap-6-deferred — yo-self has no such field).
+/// concrete parameter type from the enclosing function signature (the
+/// SomeType.resolvedConcreteType branches are
+/// Gap-6-deferred — no such field exists).
 resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue, context : FunctionGenerationContext) -> TypeValue)({
   if(!is_some_type(value_type), {
     return(value_type);
@@ -170,8 +166,7 @@ resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue,
   value_type
 });
 /// Generate drop code for a value of any type (recursive for arrays/tuples).
-/// Note: emits at column 0 (no indent),
-/// faithful to the TS emitLine calls.
+/// Note: emits at column 0 (no indent).
 generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue, context : FunctionGenerationContext) -> String)({
   // Resolve recursive-type SHELLS to their registered finals first (same
   // convention as type_key / get_size_of_type): a shell enum has EMPTY
@@ -185,11 +180,8 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
   em := context.base.emitter;
   cond(
     // Impl(Future(…)) SomeT — a heap-backed, ref-counted state machine handle:
-    // decrement its refcount (NULL-checked; the SM frees itself at 0). TS never
-    // reaches its generateDropCodeForValue with this type — its EVALUATOR lowers
-    // a SomeType ___drop to `__yo_sometype_drop(x)` (types/utils.ts
-    // addRcFunctionsToSomeType), which codegen handles in generateYoSomeTypeDrop
-    // with exactly this emission. yo-self's evaluate_drop keeps the
+    // decrement its refcount (NULL-checked; the SM frees itself at 0).
+    // evaluate_drop keeps the
     // generic `___drop(x)` (no synthesized SomeType methods), so the Future arm
     // must live here — without it a sync-await's future temp fell through to the
     // `true => ""` no-op and its deferred drop was silently skipped everywhere
@@ -280,10 +272,9 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
       out
     },
     // Reference-semantics enums (`ref(enum(…))`) are RC handles — decrement the
-    // ref-count directly, exactly like reference-semantics structs above. (TS
-    // routes ref-enum ___drop through an evaluator-synthesized method; yo-self
-    // stores trait methods in a side-registry, not on the type, so it lowers RC
-    // the same direct way it already does for ref-structs — identical effect.)
+    // ref-count directly, exactly like reference-semantics structs above (trait
+    // methods live in a side-registry, not on the type, so RC lowers the
+    // same direct way it already does for ref-structs — identical effect.)
     is_atomic_reference_enum_type(concrete_type) => {
       out := String.from("__yo_decr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
@@ -296,11 +287,12 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
       out.push_str("))");
       out
     },
-    // Value enum carrying RC fields: drop the active variant's RC fields INLINE — yo-self
-    // lowers RC operations directly rather than via a side-registry method (same rationale
-    // as the reference-enum branch above; registering a ___drop method instead makes
-    // `(___drop)(x)` resolve via method dispatch, which mis-lowers). Mirrors the per-variant
-    // walk in generateRefEnumTraversalFunctions, adapted to a value (not a handle).
+    // Value enum carrying RC fields: drop the active variant's RC fields INLINE —
+    // RC operations lower directly rather than via a side-registry method (same
+    // rationale as the reference-enum branch above; registering a ___drop method
+    // instead makes
+    // `(___drop)(x)` resolve via method dispatch, which mis-lowers). Per-variant
+    // walk over a value (not a handle).
     is_enum_type(concrete_type) => match(
       can_optimize_as_nullable_pointer(concrete_type),
       // Nullable-pointer enum: the value IS the inner pointer (NULL = the empty variant).
@@ -378,7 +370,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
     // Newtype (`newtype(_f : Inner)`): a TRANSPARENT typedef to `Inner` at
     // the C ABI (no struct wrapper, no `._f` member) — drop the inner value
     // by recursing on the inner field's type with the SAME value_code.
-    // Mirrors the newtype arm of generate_dup_code_for_value below.
+    // Same as the newtype arm of generate_dup_code_for_value below.
     is_newtype_type(concrete_type) => {
       nt_rfs := get_runtime_struct_fields(concrete_type);
       match(
@@ -392,9 +384,9 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
     },
     // Value struct carrying RC fields: drop via its registered ___drop method
     // when one exists (specialized generic impls), else drop each RC field
-    // INLINE — the same rationale as the value-enum arm above (yo-self lowers
-    // RC ops directly instead of synthesizing per-type ___drop methods; TS
-    // calls the synthesized fn_..___drop here). Previously the missing-method
+    // INLINE — the same rationale as the value-enum arm above (RC ops lower
+    // directly; no per-type ___drop methods are synthesized).
+    // Previously the missing-method
     // case silently emitted NOTHING, so value-struct locals (e.g. MapEntry(K, V)
     // in HashMap.set) never released their RC fields at scope end.
     is_struct_type(concrete_type) => match(
@@ -442,7 +434,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
   cond(
     // Impl(Future(…)) SomeT — increment the state machine handle's refcount.
     // The dup twin of the Future drop arm in generate_drop_code_for_value
-    // above (mirrors TS generateYoSomeTypeDup, rc-fns.ts); required for
+    // above; required for
     // balance now that the drop arm fires — a future copied into a second
     // owner gets TWO scope-end drops, so the copy must carry its +1.
     (is_some_type(concrete_type) && type_implements_future(concrete_type)) => {
@@ -593,8 +585,8 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
     // it by recursing on the inner field's type with the SAME value_code (NOT
     // the per-field `temp._f = …` path below, which emits an invalid member
     // access — e.g. `String._bytes` on the typedef'd `Option(ArrayList(u8))`).
-    // Faithful inline equivalent of TS calling the newtype's auto-derived
-    // ___dup, which dups the underlying value.
+    // The inline equivalent of calling the newtype's auto-derived ___dup,
+    // which dups the underlying value.
     is_newtype_type(concrete_type) => {
       rfs := get_runtime_struct_fields(concrete_type);
       match(
@@ -608,9 +600,8 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
     },
     // Value struct (reference structs handled above): dup is a per-field dup —
     // materialize a copy temp, dup each RC runtime field IN PLACE, return the temp.
-    // Mirrors the tuple-dup case + TS generateDupFunctionCodeForStructType (value-with-RC
-    // branch); yo-self lowers it inline (no ___dup method), exactly as it lowers the
-    // value-enum drop inline. Without this, copying a value struct that holds an RC field
+    // Lowered inline (no ___dup method), like the tuple-dup case above and
+    // exactly as the value-enum drop lowers inline. Without this, copying a value struct that holds an RC field
     // (e.g. `bucket := (data_ptr &+ i).*` in HashMap.get) did not dup the field, so the
     // RC was unbalanced (the auto-derived field walk could not see the buffer copy). A
     // value struct with no RC field falls through to a bare value copy.
@@ -672,7 +663,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
         out.push_str(")");
         out
       },
-      // No registered ___dup method (yo-self synthesizes none): dup the value
+      // No registered ___dup method (none are synthesized): dup the value
       // enum INLINE — the dup mirror of the inline value-enum DROP arm above.
       // Previously this fell through to a NO-OP, so every dup of a value enum
       // carrying RC fields (e.g. String's underlying Option(ArrayList(u8)) via
@@ -796,7 +787,7 @@ _dd_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
 /// emission points may emit them. Expression-level flushes (a call/match
 /// statement's post-emit flush) pass `skip_param_drops = true`: on a
 /// SINGLE-EXPRESSION body the fn-body node IS the tail expression node
-/// (yo-self shares the id where TS clones a begin wrapper), so an unfiltered
+/// (the id is shared; no begin wrapper is cloned), so an unfiltered
 /// expression-level flush emitted the own-param drop a SECOND time next to the
 /// function-level one — the use_and_sink double-free glibc caught in CI
 /// (tcache "unaligned chunk", tests/ref_field_borrow.test.yo).
@@ -917,8 +908,7 @@ generate_deferred_drop_expressions :: (
     .None => ()
   )
 );
-/// Emit the evaluator-deferred dup expressions for `expr`. Mirrors
-/// `generateDeferredDupExpressions`.
+/// Emit the evaluator-deferred dup expressions for `expr`.
 generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
   match(
     context.base.get_expr_info(expr),
@@ -998,7 +988,6 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
 /// dup-result temp's C name (so the dup'd copy is what gets stored/passed);
 /// otherwise return `fallback_code` unchanged. Shared by the codegen
 /// dup-on-store sites (init-assignment RHS, ref-struct ctor args, ...).
-/// Mirrors the `deferredDupExpressions` blocks in `src/codegen/exprs/*`.
 emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent : String, context : FunctionGenerationContext) -> String)(
   match(
     context.base.get_expr_info(expr),
@@ -1006,8 +995,8 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
       ei.deferred_dup_expressions,
       .Some(dups) => if(dups.len() > usize(0), {
         em := context.base.emitter;
-        // TS declare-first (assignment.ts:184-199, other-fn-call.ts:2277-2292):
-        // when the SOURCE expr carries its own temp variable name that the
+        // Declare-first rule: when the SOURCE expr carries its own temp
+        // variable name that the
         // fallback code did not already declare (e.g. an index-trait element
         // `xs(i)` whose C form is the raw `(*index(...))` call), declare
         // `T <temp> = <fallback>;` first — via get_variable_type_string, the
@@ -1015,8 +1004,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         // real local instead of being suppressed by the undeclared-temp gate
         // (`.Some(values(i))` returned an element with NO +1 — the json
         // object-parse UAF). Closure constructions are excluded (their
-        // deferred dups are capture dups emitted by the closure emitters;
-        // TS's rhsIsClosureConstruction guard).
+        // deferred dups are capture dups emitted by the closure emitters).
         src_is_closure_ctor := (
           expr_info_closure_function_value(ei).is_some() ||
             (match(ei.is_anonymous_function_definition, .Some(b) => b, .None => false) && ei.capture_type.is_some())
@@ -1095,8 +1083,8 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         // field access (`x.f`): the dup's argument is the source's temp variableName,
         // which codegen never declares (the field read is inlined at the use site), so
         // `incr_rc(<temp>)` references an undeclared identifier — e.g. HashMap.get's
-        // `Some(bucket.value)`. Materialize the field value once into that temp (exactly
-        // TS's materialize-then-dup), so the dup references a real local and the temp is
+        // `Some(bucket.value)`. Materialize the field value once into that temp
+        // (materialize-then-dup), so the dup references a real local and the temp is
         // the dup'd value the caller uses. Safe: the field access is evaluated once.
         dup_target := match(dups.get(usize(0)), .Some(de) => get_deferred_dup_target_atom_name(de), .None => Option(String).None);
         t_name := sanitize_for_c_identifier(match(dup_target, .Some(s) => s, .None => String.from("")), false);
@@ -1136,7 +1124,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
     .None => fallback_code
   )
 );
-/// Arm-value deferred-dup rewrite (mirror of match.ts:105-150): when `e`
+/// Arm-value deferred-dup rewrite: when `e`
 /// carries deferred `___dup`s (a borrowed value leaving the arm), declare the
 /// eval temp, emit the balancing dup, and return `.Some(<result C name>)`.
 /// `.None` when `e` has no dups (caller emits it plainly). Used for BOTH the

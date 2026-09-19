@@ -67,22 +67,18 @@ _tts_seen :: (fn(xs : ArrayList(String), s : String) -> bool)({
 ///
 /// `visited` = ids of named types already expanded in THIS top-level render
 /// (fresh per `type_to_string` call). A re-encounter renders an id-only
-/// placeholder instead of expanding again. Ports the cycle guard TS carries on
-/// `typeToString` (src/types/utils.ts:1210-1233 — "Check for circular
-/// references using type ID"), which yo-self lacked entirely; the depth cap
+/// placeholder instead of expanding again (the cycle guard checks for
+/// circular references by type ID); the depth cap
 /// alone does NOT bound it, because the cost is fanout^depth, not depth.
 ///
 /// MEASURED (2026-07-26, tests/collections/priority_queue.test.yo): without
 /// this guard 100% of samples sat in ONE `_tts` render reached from
 /// `_impl_type_captures_sig` → `value_to_signature_string`, at 6.8 GB RSS and
 /// climbing after 7 minutes — the file is one of the six cluster-A "stalls".
-/// TS never hits this: it has no `_impl_type_captures_sig` (each generic-impl
-/// instantiation gets a unique funcId, impl.ts:1551), and its own
-/// `typeToString` peaks at 44 characters over the whole file.
 ///
-/// The set is MONOTONIC (never popped) rather than path-scoped like TS's,
+/// The set is MONOTONIC (never popped) rather than path-scoped,
 /// which bounds a shared-but-acyclic type graph too — the same deliberate
-/// divergence, for the same measured reason, as yo-self's two sibling key
+/// choice, for the same measured reason, as the two sibling key
 /// functions: `type_intern_key` (types/intern.yo, "Never-pop keeps rendering
 /// deterministic (=> injective)") and `_type_key_at` (types/type_key.yo,
 /// whose `g_tk_visited` header records the identical pathology: multi-MB key
@@ -247,8 +243,8 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
       .EnumT(id, name, _, _, _, _, _, _, _) => if(name.len() > usize(0), name, match(type_display_name(id.clone()), .Some(d) => d, .None => `<enum:${id}>`)),
       .Union(name, _, _) => if(name.len() > usize(0), name, `<union>`),
       .TraitT(id : t_id, name : n, field_labels : fls, field_types : fts) => {
-        // Prefer the trait's NAME whenever it has one (mirrors TS
-        // typeToString printing "Send", not the trait's field dump) — the
+        // Prefer the trait's NAME whenever it has one (print "Send", not the
+        // trait's field dump) — the
         // field dump is the fallback for genuinely anonymous traits only.
         if(n.len() > usize(0), {
           return(n);
@@ -421,8 +417,8 @@ type_to_string :: (fn(t : TypeValue) -> String)(
 /// full `type_to_string` (depth 40) does when called O(n) times over a large or
 /// deep type with a growing `checked` list (the O(n²) string-building that
 /// hangs recursive-type synthesis). For shallow types it's identical to
-/// `type_to_string`; only deep types are truncated. (TS uses O(1) object
-/// identity for `checkedTypePairs`; this is the value-semantic proxy.)
+/// `type_to_string`; only deep types are truncated. (A value-semantic proxy
+/// for object-identity memoization, at some extra cost.)
 type_to_string_key :: (fn(t : TypeValue) -> String)(
   _tts(t, usize(36), ArrayList(String).new())
 );

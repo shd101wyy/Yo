@@ -1,5 +1,4 @@
-//! Codegen for Thread/Worker spawn calls — 1-to-1 port of
-//! `src/codegen/exprs/parallelism.ts`.
+//! Codegen for Thread/Worker spawn calls.
 //!
 //! `Thread(unit).spawn(cb)` / `std/thread`'s `spawn(pool, cb)` lower (via the `__yo_thread_spawn` /
 //! `__yo_worker_spawn` extern "yo" symbols) to: heap-copy the closure's capture
@@ -7,12 +6,11 @@
 //! RC refs), and call the raw spawn primitive with a generated WRAPPER that runs
 //! the closure, drops the capture struct, and frees it.
 //!
-//! DIVERGENCE from TS: TS reads the closure fn + capture type + `consumedCaptures`
-//! from `implClosureCallMap`; yo-self has no such map, so (like `async.yo`) it
-//! resolves the closure C function from the cb arg's `closure_function_value`
-//! ExprInfo and the capture struct from `capture_type`. `consumedCaptures` (the
-//! `own(self)`-consumed capture fields the wrapper must NULL before dropping) is
-//! NOT tracked in yo-self, so the NULLing is omitted — correct for closures that
+//! The closure C function is resolved from the cb arg's `closure_function_value`
+//! ExprInfo and the capture struct from `capture_type` (like `async.yo`).
+//! The `own(self)`-consumed capture fields the wrapper would have to NULL
+//! before dropping are NOT tracked, so the NULLing is omitted — correct for
+//! closures that
 //! do not consume a captured RC value via `own(self)` (a consuming spawn closure
 //! would double-free; documented in
 //! issues/fixed/yo-self-parallelism-emitter-gated-on-closure-codegen.md).
@@ -87,8 +85,8 @@ _closure_fid :: (fn(cb_ei_value : Option(EvalValue), cb_closure_fn_val : Option(
   match(fv_opt, .Some(fv) => match(fv, .FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()), .None => String.new())
 });
 /// `, (<cType>){0}, …` — zero-inits for the closure's runtime params (e.g. the
-/// `io : Io` of a `Thread.spawn` callback). Mirrors the `runtimeParamArgs` build
-/// in generateSpawnWrapper. yo-self's Func param_types already exclude comptime
+/// `io : Io` of a `Thread.spawn` callback), as the spawn wrapper builds them.
+/// Func param_types already exclude comptime
 /// params, so every entry is a runtime param.
 _closure_runtime_arg_zeroinits :: (fn(closure_fid : String, context : FunctionGenerationContext) -> String)({
   out := String.from("");

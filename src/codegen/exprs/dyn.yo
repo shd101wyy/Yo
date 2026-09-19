@@ -1,4 +1,4 @@
-//! `dyn(...)` constructor emitter — mirrors `src/codegen/exprs/dyn.ts`.
+//! `dyn(...)` constructor emitter.
 //!
 //! Builds the fat-pointer literal `(<DynT>){ .data = <value>, .vtable =
 //! &__yo_vtable_<implKey> }` into the result temp, and registers the
@@ -6,11 +6,9 @@
 //! must be an object type (value types use `box()`); the inner value is dup'd
 //! so both the Dyn wrapper's drop and the scope-exit drop can each decrement RC.
 //!
-//! DEFERRED (documented, not hit by the no-RC/no-async corpus): Box-type unwrap
-//! (is_boxed_type ≡ false — Box not modeled); state-machine `sm->var_N` field
-//! routing (Phase 5, gated on in_async_state_machine = .Some).
-//! SomeType.resolvedConcreteType (Gap 6) is now PORTED for the impl KEY: see
-//! the resolve_some_type_to_concrete call in generate_dyn_call.
+//! Box-type unwrap is limited (is_boxed_type ≡ false — Box not modeled);
+//! state-machine `sm->var_N` field routing is Phase 5, gated on
+//! in_async_state_machine = .Some.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -30,8 +28,7 @@
 { expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
 /// For a BOXED dyn payload (`Box(Sq)`), the impl concrete type is the UNDERLYING
 /// type (`Sq`, the box's single `*` field) while the runtime data type stays
-/// `Box(Sq)`. Mirrors TS `dyn.ts:66` (`concreteType = isBoxedType(v) ?
-/// v.fields[0].type : v`). Keeps the dyn-box / vtable / impl_key keyed on the
+/// `Box(Sq)`. Keeps the dyn-box / vtable / impl_key keyed on the
 /// concrete type consistently; a non-boxed value passes through unchanged.
 _unwrap_box_concrete :: (fn(t : TypeValue) -> TypeValue)({
   (result : TypeValue) = t;
@@ -100,21 +97,21 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   value_ei := match(context.base.get_expr_info(value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
   value_type := value_ei.ty;
   // dyn() requires an object type (value types must use box()). Box is not
-  // modeled in yo-self (is_boxed_type ≡ false), so the Box branch is dead.
+  // modeled (is_boxed_type ≡ false), so the Box branch is dead.
   if(!is_reference_struct_type(value_type) && !is_boxed_type(value_type), {
     return(String.from("/* Error: dyn() requires an object type (use box() for value types) */"));
   });
   // Unwrap a boxed payload: impl concrete type = underlying (`Sq`), runtime data
-  // type = `Box(Sq)`. Mirrors TS dyn.ts:66 / :95-96.
+  // type = `Box(Sq)`.
   concrete_type := _unwrap_box_concrete(value_type);
   // Resolve a SomeType (`Impl(Fn(...))` for a boxed closure) to its concrete
-  // type BEFORE deriving the impl KEY — TS dyn.ts:70-74 (resolvedConcreteType).
+  // type BEFORE deriving the impl KEY.
   // The key is the wrapper/vtable dedup unit: unresolved, every same-signature
   // closure keys on the SHARED Fn-shape (`unknown_<shape id>`), the last
   // register_dyn_impl wins, and every dyn box dispatches into the single
   // surviving closure's wrapper (suspension_analysis: the detect_all detector
   // silently ran the noop detector's body → 0 suspension points). The ENTRY
-  // still stores the raw concrete_type, exactly like TS — the
+  // still stores the raw concrete_type — the
   // box-ctor/typedef passes do their own resolution (functions/dyn.yo:121,
   // types/generation.yo:1068).
   resolved_concrete_type := resolve_some_type_to_concrete(concrete_type.clone());
@@ -131,8 +128,7 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   // splicing the FTT comment into `<type> <tmp> = <comment>;` and then
   // building a fat pointer over the missing temp breaks the whole batch C.
   // Emit the comment and degrade the dyn expression itself to the same
-  // FTT marker — same convention as the return/tail/assignment degrades;
-  // TS never reaches this state.
+  // FTT marker — same convention as the return/tail/assignment degrades.
   if(value_code.starts_with("// Failed to transpile"), {
     ftl := indent.clone();
     ftl.push_string(value_code);

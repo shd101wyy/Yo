@@ -1,4 +1,4 @@
-//! Port of `src/types/hierarchy.ts`
+//! Type-universe (meta-type) helpers.
 //!
 //! Provides:
 //!   - `type_of_type(ty)` — get the meta-type (type universe) of a type value.
@@ -8,12 +8,11 @@
 //!     recursive. To avoid a forward-reference in Yo, we use the same function-
 //!     pointer pattern as `eval.yo` (g_type_of_type_visited_fn).
 //!   * Cycle detection uses a `visited_names` list (struct/enum/union names on
-//!     the current recursion stack). This mirrors the TypeScript `includes(element)`
-//!     check but uses name identity instead of reference identity.
-//!   * Variants not yet in the self-hosted `TypeValue` enum (Dyn, ExprType,
-//!     FnTrait, Iso, FutureTrait, EffectsRow, ComptimeList) fall through to the
-//!     wildcard arm and return `TypeUni(0)` as a safe fallback.
-//!   * `getFunctionParameterToken` is deferred to Phase 3 (requires FunctionParameter.exprs).
+//!     the current recursion stack), keyed by name identity instead of
+//!     reference identity.
+//!   * Variants without a dedicated arm (Dyn, Expr, Iso, EffectsRow,
+//!     ComptimeList, ...) fall through to the wildcard arm and return
+//!     `TypeUni(0)` as a safe fallback.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -51,7 +50,6 @@ _max_usize :: (fn(a : usize, b : usize) -> usize)(
 );
 // ---------------------------------------------------------------------------
 // _determine_type_universe
-//   Mirrors TypeScript `determineTypeUniverse`.
 //   Iterates `field_types`, recursively calling `type_of_type_with_visited`
 //   via the function pointer, and returns the maximum TypeUni level found.
 // ---------------------------------------------------------------------------
@@ -82,7 +80,6 @@ _determine_type_universe :: (
 });
 // ---------------------------------------------------------------------------
 // type_of_type_with_visited — the recursive core
-//   Mirrors TypeScript `typeOfType(type, checkedTupleElements)`.
 // ---------------------------------------------------------------------------
 type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) -> TypeValue)(
   match(
@@ -125,7 +122,7 @@ type_of_type_with_visited :: (fn(ty : TypeValue, visited : ArrayList(String)) ->
     .Func({ result : _ }) => TypeValue.TypeUni(usize(0)),
     // Struct: recurse into fields, guard against cycles by name.
     // Source-namespace structs (anonymous modules / imports) are
-    // type-level-1, like traits (TS: modules ARE structs; the namespace
+    // type-level-1, like traits (modules ARE structs; the namespace
     // itself is a comptime entity).
     .Struct({ name : sname, field_types : ftypes, is_source_namespace : s_sns }) =>
       cond(
@@ -196,5 +193,4 @@ g_type_of_type_visited_fn =
 type_of_type :: (fn(ty : TypeValue) -> TypeValue)(
   type_of_type_with_visited(ty, ArrayList(String).new())
 );
-// get_function_parameter_token — TODO Phase 3: needs FunctionParameter.exprs (AST data)
 export(type_of_type);

@@ -1,5 +1,4 @@
-//! Initialization-assignment emitter — mirrors
-//! `src/codegen/exprs/initialization-assignment.ts`.
+//! Initialization-assignment emitter.
 //!
 //! Handles `x := v` initializations: compile-time variables (skipped),
 //! destructuring binds (`{x, y} := p` → one `T x = p.x;` per field, with
@@ -7,12 +6,6 @@
 //! struct copy), and ordinary scalar initialization (declare + assign, spilling
 //! an Rc/temp RHS into its temp variable first). Module-level globals and
 //! compile-time variables are skipped (declared elsewhere / no runtime form).
-//!
-//! DEFERRED (documented, not hit by the no-RC/no-async corpus): RHS
-//! deferred-dup rewrite + closure-capture access (Phase 4); state-machine
-//! `sm->var_N` routing + async-block struct-type inference + `inout(name) :=`
-//! `T*` storage shaping (Phase 5 / Variable has no is_ref). These branches are
-//! gated dead (in_async_state_machine = .None for the corpus).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BK_INOUT, BF_DOT } :: import("../../expr.yo");
@@ -86,7 +79,7 @@ _tuple_index_of :: (fn(rhs_type : TypeValue, label : String) -> Option(usize))(
 _newtype_single_label :: (fn(rhs_type : TypeValue) -> Option(String))(
   if(is_newtype_type(rhs_type), match(rhs_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
 );
-/// Emit destructuring binds for `{x, y} := rhs`. Mirrors the runtimeDestructurings branch.
+/// Emit destructuring binds for `{x, y} := rhs`.
 _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rhs : AstExpr, rhs_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   rhs_code := _call_generate_expr(rhs, indent.clone(), context);
@@ -304,8 +297,8 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
       .None => return(
         // NOT fatal: the MISSING-ExprInfo class, which multi-pass emission
         // legitimately reaches (a comptime `while` unrolls its body once per
-        // iteration and a discarded pass has no type info). Kept a comment to
-        // match TS; the harmful case is the `__yo_user_main` gate in
+        // iteration and a discarded pass has no type info). Kept a comment,
+        // not an error; the harmful case is the `__yo_user_main` gate in
         // codegen/functions/generation.yo.
         Option(String).Some(`// Error: No type information for variable ${ast_expr_token(lhs).value}`)
       )
@@ -328,10 +321,9 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     // State-machine variable binding: a local captured in the SM struct is
     // ASSIGNED to its `sm->` field, never declared locally (a local decl in
     // one state's C block is invisible to later states — the FSM `a := 20`
-    // class). Mirrors initialization-assignment.ts:175-201 + the
-    // isStateMachineVar assignment branch. The lookup goes through the `:=`
+    // class). The lookup goes through the `:=`
     // node's OWN recorded env (`ei.env`, stamped post-binding) — the LHS
-    // atom's env predates the binding in yo-self and misses the variable.
+    // atom's env predates the binding and misses the variable.
     if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
       sm_bind_vars := get_variables_from_env(ei.env, var_name.clone());
       if(sm_bind_vars.len() > usize(0), {
@@ -370,10 +362,9 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
                 .None => sm_local_field_name(sm_bind_id.clone())
               );
               // The RHS must go through the deferred-dup chain before it lands
-              // in the slot. TS has no early return here: it computes ONE
-              // `rhsCode` through all four dup-emitting arms and only then
-              // picks `sm->field` as the destination
-              //. Returning early with
+              // in the slot: compute ONE `rhsCode` through all four
+              // dup-emitting arms and only then pick `sm->field` as the
+              // destination. Returning early with
               // the raw expression skipped the +1 while the slot's drop was
               // still emitted, so `element := list(i)` inside an async loop
               // freed the element out from under the live list.
@@ -521,22 +512,20 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
               emit_deferred_dup_or_code(rhs, temp_var_name, indent.clone(), context)
             })
           },
-          // No temp variable name on the RHS — TS's `else` arm
-          // STILL emits the RHS's
-          // deferred dups here ("Handle deferred dup expressions for RHS
-          // without temp variable"), so the drop this binding will get has a
+          // No temp variable name on the RHS — STILL emit the RHS's
+          // deferred dups here, so the drop this binding will get has a
           // matching +1. This arm is unreachable for state-machine bindings
-          // (those return early above); it is ported for parity with the three
+          // (those return early above); it exists for parity with the three
           // sibling arms, which all already route through this helper.
           .None => emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context)
         ),
-        // No ExprInfo at all — no deferred dups can exist (TS guards on `rhs.$?`).
+        // No ExprInfo at all — no deferred dups can exist.
         .None => _call_generate_expr(rhs, indent.clone(), context)
       );
       // Raw-pointer-deref RHS (`(p &+ i).*` / `p.*`) of an RC-carrying type:
-      // TS dups the copy AT THE DEREF SITE (stage1-ref.c: `temp2 =
-      // Bucket___dup(temp);`) so the local's scope/early-return drops are
-      // balanced. yo-self's eval dup mark for this shape is pass-fragile
+      // dup the copy AT THE DEREF SITE (`temp2 = Bucket___dup(temp);`) so the
+      // local's scope/early-return drops are
+      // balanced. The eval dup mark for this shape is pass-fragile
       // (`.*` PA branches can re-set the table entry without re-marking), so
       // when NO deferred dup exists on the RHS, apply the struct dup to the
       // fresh copy after the declaration below (HashMap._find_bucket stole

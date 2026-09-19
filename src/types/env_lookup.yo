@@ -1,16 +1,14 @@
 //! Functions for looking up types from the environment.
 //!
-//! Mirrors `src/types/env-lookup.ts` — 1:1 port.
-//!
-//! Key design decisions vs the TypeScript source:
-//! * `TypeValue` is the Yo equivalent of TypeScript `Type`/`TypeValue`.
-//! * TypeScript `isTypeValue(val)` (checks `val.tag === ValueTag.Type`) →
-//!   Yo pattern-match on `EvalValue.TypeVal(...)`.
-//! * TypeScript `SomeType.id` → `TypeValue.SomeT.id` field (added in Phase 2d).
-//! * TypeScript `SomeType.definitionFrameLevel` → `TypeValue.SomeT.frame_level`.
-//! * TypeScript `visited: Set<SomeType>` cycle detection → `ArrayList(String)`
+//! Representation notes:
+//! * A type value is an `EvalValue.TypeVal(...)` (pattern-matched, no tag
+//!   check).
+//! * `SomeT.id` is the identity field; `SomeT.frame_level` is the frame it
+//!   was defined at.
+//! * Cycle detection over SomeTypes uses an `ArrayList(String)`
 //!   storing visited SomeType IDs (linear scan, fine for small chains).
-//! * TypeScript reference-equality `===` on SomeType → ID equality (`id_a == id_b`).
+//! * SomeType identity is ID equality (`id_a == id_b`), not reference
+//!   equality.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -171,15 +169,15 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
       )
   )
 });
-/// TS fallback: after `synthesize_types` replaces a
+/// Fallback: after `synthesize_types` replaces a
 /// SomeType's binding with a concrete type, the self-referential marker
 /// (`T = SomeT(T)`) that `_was_self_bound` looks for no longer exists. Verify
 /// ownership instead via the SomeType's definition frame level: if the
 /// variable named `name` at `env.frames[frame_level]` holds a concrete
 /// TypeVal equal to what the normal name-search found, the binding is FOR
-/// this SomeType (definition frame level + name is unique). TS compares with
-/// object identity (`defTypeVal.value === someTypeValue.value`); yo-self's
-/// value-type stand-in is rendered-type equality.
+/// this SomeType (definition frame level + name is unique). There is no
+/// object identity to compare; the value-type stand-in is rendered-type
+/// equality.
 _def_frame_confirms_binding :: (
   fn(env : Environment, some_ty : TypeValue, resolved_tv : TypeValue) -> bool
 )({
@@ -364,7 +362,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           // Concrete type
                           true => {
                             (was_bound : bool) = _was_self_bound(env, cur_name, cur_id);
-                            // TS fallback: the
+                            // Fallback: the
                             // self-referential marker is gone once
                             // `synthesize_types` rebinds the variable to the
                             // concrete type — confirm ownership via the
@@ -440,7 +438,7 @@ _is_type_eval_value_or_empty :: (fn(var : Variable) -> bool)(
 /// falls back to the full iterative loop in `_do_chain_resolve`.
 _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayList(String)) -> TypeValue)({
   // --- Fast-path: try definitionFrameLevel lookup first ---
-  // Mirrors the `if (definitionFrameLevel !== undefined && >= 0)` branch.
+  // Only when the level is known and >= 0.
   fast_result := match(
     start,
     .SomeT(
@@ -458,8 +456,8 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
         .Some(tv) =>
           cond(
             // Self-bound (SomeType binding to itself) at its own definition
-            // frame → UNBOUND, definitively. TS returns
-            // `someType` here without running the normal search; falling
+            // frame → UNBOUND, definitively. Return
+            // `start` here without running the normal search; falling
             // through to the name-keyed last-binding-wins scan lets a sibling
             // call's same-named SomeT hijack the resolution (the mutable-env
             // name-collision class).
@@ -469,8 +467,8 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
             // Concrete binding → trust it ONLY if the def frame still holds
             // the LIVE (last) binding of the name. (frame_level, name)
             // addressing is only meaningful inside the env stack the level
-            // was measured in — TS's per-ModuleManager env is instance-
-            // scoped, yo-self's warm in-process universe is not: a RESIDENT
+            // was measured in — a fresh per-compile env would scope it, the
+            // warm in-process universe does not: a RESIDENT
             // env (build --watch rounds, the in-process test batches) can
             // have an UNRELATED frame at this level legitimately holding
             // `name` (doc/model's own `V := ArrayList(DocParam)` under
@@ -516,7 +514,7 @@ get_value_of_some_type_from_env :: (fn(env : Environment, some_type : TypeValue)
   )
 );
 /// Look up the prelude `str` type in the given environment.
-/// Mirrors `createStrType(env)` in `src/types/creators.ts`. Returns
+/// Returns
 /// `t_i32()` as a fallback when the prelude `str` binding has not
 /// been loaded — should never happen at compile time once the prelude
 /// is in scope, but keeps the function total instead of throwing.
@@ -542,12 +540,10 @@ _pointer_target_is_byte :: (fn(ty : TypeValue) -> bool)(
   )
 );
 /// `convert_comptime_type_to_runtime_type` plus an optional
-/// `expected_type` hint. When the input is `comptime_str`, TS
-/// special-cases `*(u8)` / `*(char)` / `Slice(T)` expected types and
-/// returns the expected type instead of `str`. Mirrors the full
-/// signature of TS `convertComptimeTypeToRuntimeType`. The TS-side
-/// `expr` parameter (which mutates `expr.$.convertedRuntimeType`) is
-/// not threaded through here — yo-self callers that need the side-
+/// `expected_type` hint. When the input is `comptime_str`,
+/// special-case `*(u8)` / `*(char)` / `Slice(T)` expected types and
+/// return the expected type instead of `str`. No `expr` parameter is
+/// threaded through here — callers that need the side-
 /// table update will assign through `ExprInfo.converted_runtime_type`
 /// directly.
 convert_comptime_type_to_runtime_type_with_expected :: (

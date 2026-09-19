@@ -1,10 +1,10 @@
-//! Reference-counting builtin emitters — mirrors `src/codegen/exprs/rc-fns.ts`.
+//! Reference-counting builtin emitters.
 //!
 //! The `__yo_*_rc` / `___drop` / `___dup` / element-wise / dyn / sometype / `rc`
 //! builtins. Element drop/dup and `___drop`/`___dup` route through the
 //! drop_dup layer (get_drop/dup_function_for_type + generate_drop/dup_code_for_value).
 //!
-//! DEFERRED (documented): SomeType.resolvedConcreteType (Gap 6) — yo-self SomeT
+//! KNOWN LIMITATION: SomeType.resolvedConcreteType (Gap 6) — SomeT
 //! has no such field, so the element/sometype concrete-type resolution uses the
 //! type as-is. For the monomorphized corpus the element type is already
 //! concrete; `__yo_sometype_drop`/`_dup`'s non-Future resolvedConcreteType
@@ -262,9 +262,8 @@ generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : 
       out
     },
     .None => {
-      // No trait ___dup function — yo-self synthesizes none for ref structs
-      // (RC is lowered directly in codegen, unlike TS's
-      // addRcFunctionSignaturesToStructType). Fall back to the direct
+      // No trait ___dup function — none are synthesized for ref structs
+      // (RC is lowered directly in codegen). Fall back to the direct
       // lowering (`(cast)__yo_incr_rc(x)` for ref types), the same helper
       // the nested-array branch above uses for its children.
       direct_ref := String.from("(");
@@ -347,8 +346,8 @@ generate_yo_dup_tuple_element :: (fn(expr : AstExpr, indent : String, context : 
         out
       },
       // No trait ___dup function — fall back to the direct RC lowering
-      // (`(cast)__yo_incr_rc(x)` for ref types); yo-self synthesizes no
-      // evaluator-side ___dup methods for ref structs (see
+      // (`(cast)__yo_incr_rc(x)` for ref types); no
+      // evaluator-side ___dup methods are synthesized for ref structs (see
       // generate_yo_dup_array_element's twin fallback).
       .None => generate_dup_code_for_value(access.clone(), element_type, context)
     )
@@ -410,7 +409,6 @@ generate_rc_call :: (fn(expr : AstExpr, indent : String, context : FunctionGener
       // Linux (libatomic is not linked) — the tier-1 `imm_string` failure. On macOS
       // it linked and merely read garbage in the high bits, so every
       // `rc(self) == 1` copy-on-write check in `std/imm/*` silently went false.
-      // Mirrors src/codegen/exprs/rc-fns.ts:549.
       out := String.from("atomic_load_explicit((_Atomic uint32_t*)&((__yo_ref_header_t*)(");
       out.push_string(arg_code);
       out.push_str("))->ref_count, memory_order_acquire)");

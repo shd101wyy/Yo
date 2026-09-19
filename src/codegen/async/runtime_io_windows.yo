@@ -1,13 +1,12 @@
 //! runtime_io_windows -- Windows platform sync helpers + IOCP async I/O runtime.
-//! 1:1 port of `src/codegen/async/runtime-io-windows.ts`. The C bodies are
+//! The C bodies are
 //! verbatim (extracted, not hand-transcribed) -- pure C, no interpolations.
-//! Phase 5 #4 (platform I/O backend). Wired by generate_async_runtime
+//! Wired by generate_async_runtime
 //! (runtime.yo dispatcher) + generate_platform_sys_runtime (runtime_io_common)
 //! into codegen_c for Windows targets.
 import("std/string");
 { Emitter } :: import("../../emitter.yo");
-/// Emit Windows platform-specific SYNC helpers. Mirrors
-/// `generatePlatformSysRuntimeWindows`.
+/// Emit Windows platform-specific SYNC helpers.
 generate_platform_sys_runtime_windows :: (fn(emitter : Emitter) -> unit)({
   emitter.emit_string_line(
     `
@@ -2016,8 +2015,7 @@ static int32_t __yo_isatty(int32_t fd) { return _isatty(fd) ? 1 : 0; }
 `
   );
 });
-/// Emit the Windows IOCP-based async I/O runtime. Mirrors
-/// `generateAsyncRuntimeIOWindows`.
+/// Emit the Windows IOCP-based async I/O runtime.
 generate_async_runtime_io_windows :: (fn(emitter : Emitter) -> unit)({
   emitter.emit_string_line(
     `

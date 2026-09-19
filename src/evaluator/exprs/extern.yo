@@ -5,15 +5,12 @@
 //! write it as a bare statement, which the parser desugars to the glob
 //! `{ ... } :: extern(...)`. plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md.
 //!
-//! 1:1 port of `src/evaluator/exprs/extern.ts` (201 lines).
-//!
-//! Phase 2av: fully ported — calls `evaluate_module_field` and adds fields to
-//! the environment.  The `is_extern`/`externName` markers ARE ported (onto the
-//! `Func` variant): the extern-call `unsafe(...)` gate in `calls/function.yo`
-//! reads them to require FFI call sites be wrapped in `unsafe(...)`
-//! (plans/archive/EXTERN_UNSAFE_WRAP.md). The earlier port dropped them as
-//! "codegen-only" — wrong, the gate lives in the evaluator. Only `ioBuiltin`
-//! (a pure codegen concern) stays skipped.
+//! Calls `evaluate_module_field` and adds the fields to the environment.
+//! The `is_extern`/`externName` markers are set on the `Func` variant: the
+//! extern-call `unsafe(...)` gate in `calls/function.yo` reads them to
+//! require FFI call sites be wrapped in `unsafe(...)`
+//! (plans/archive/EXTERN_UNSAFE_WRAP.md). Only `ioBuiltin` (a pure
+//! codegen concern) stays skipped.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 {
@@ -61,7 +58,7 @@ evaluate_extern :: (
   // Phase C privilege gate: extern fn declarations are FFI; they bind
   // names to symbols outside the type system's reach. Only files with
   // `pragma(Pragma.AllowUnsafe);` can declare them. User code calls
-  // stdlib wrappers instead. Mirrors `extern.ts:46-66`.
+  // stdlib wrappers instead.
   if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())), {
     exn.throw(
       dyn(
@@ -201,10 +198,8 @@ User code should normally call stdlib wrappers (e.g. functions in
     });
     // Stamp the FFI language tag + symbol name onto function field types so
     // the extern-call `unsafe(...)` gate (calls/function.yo) can identify
-    // calls to this symbol. Mirrors `extern.ts:138-161` (the
-    // `isFunctionType(field.type)` branch sets both `isExtern` and
-    // `externName`). Non-`Func` field types (e.g. `__yo_argc : i32`) carry no
-    // `is_extern` slot in yo-self's `TypeValue` and are never called, so the
+    // calls to this symbol. Non-`Func` field types (e.g. `__yo_argc : i32`)
+    // carry no `is_extern` slot in `TypeValue` and are never called, so the
     // gate does not need them. `ioBuiltin` is codegen-only and stays skipped.
     field_ty_with_extern := match(
       result.field_type,
@@ -271,7 +266,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     // An `extern("Yo", X : Type)` member declares an opaque FFI type whose value
     // is a SomeT placeholder named X. Record X so the codegen-generic checks
     // (type_contains_some_type_for_codegen_param) don't treat it as a blocking
-    // generic (it lowers to a concrete C type). Mirrors TS `SomeType.isExtern`.
+    // generic (it lowers to a concrete C type).
     if(is_type_hierarchy_type(result.field_type), {
       register_extern_type_name(result.label.clone());
     });

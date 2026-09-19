@@ -1,11 +1,10 @@
-//! C type-declaration emission — mirrors `src/codegen/types/generation.ts`.
+//! C type-declaration emission.
 //!
-//! PORT STATUS (incremental, plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 3): this
-//! file currently carries the self-contained per-type DECLARATION emitters
-//! (str / array-wrapper / struct / tuple / union / enum). The big
-//! `generateTypeDeclarations` driver (runtime preamble: GC headers, atomics,
-//! thread-sync macros, __yo_ref_header_t, future types — then the type-walk),
-//! the Iso/closure/future declarations, and the dyn re-exports are pending.
+//! Carries the per-type DECLARATION emitters (str / array-wrapper /
+//! struct / tuple / union / enum / future / iso) and the
+//! `generate_type_declarations` driver (runtime preamble: GC headers,
+//! atomics, thread-sync macros, __yo_ref_header_t, future types — then the
+//! type-walk).
 { String } :: import("std/string");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -43,10 +42,9 @@ _array_wrapper_name_lt :: (fn(a : String, b : String) -> bool)(
   )
 );
 /// Generate the array-wrapper struct typedefs collected during type lowering.
-/// TS iterates an
-/// insertion-ordered Map whose lazy registration recurses into the element
-/// FIRST, so inner wrappers always precede the outer
-/// ones that embed them by value. yo-self's `array_struct_types` is a
+/// Lazy registration recurses into the element
+/// FIRST, so inner wrappers must precede the outer
+/// ones that embed them by value. `array_struct_types` is a
 /// HashMap — key iteration is HASH order — so a nested wrapper could be
 /// emitted before its child's typedef (`n := [m,]` over 4 levels: the
 /// 4-level wrapper referenced the 3-level type above its definition —
@@ -503,8 +501,9 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
       // Tagged-union struct. A reference-semantics enum (`ref(enum(…))`) is a
       // heap-allocated, RC-managed handle (like a reference-semantics struct):
       // prepend the reference-count header, and the `${c_name}` typedef is a
-      // pointer to this struct (get_type_string returns `${c_name}*`). Mirrors
-      // the struct reference-semantics layout. plans/reference/REF_REFERENCE_SEMANTICS.md.
+      // pointer to this struct (get_type_string returns `${c_name}*`) — the
+      // same layout as the struct reference-semantics branch.
+      // plans/reference/REF_REFERENCE_SEMANTICS.md.
       if(is_reference_semantics, {
         atomic_tag := if(is_atomic_rc, String.from("atomic "), String.from(""));
         header_tag := if(is_atomic_rc, String.from("Atomic r"), String.from("R"));
@@ -533,12 +532,12 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
     _ => ()
   )
 );
-/// Emit the runtime preamble that opens `generateTypeDeclarations`: the GC debug
-/// macros + mark/flags, the target-specific thread-synchronization types/macros,
-/// the atomic wrappers, mutex/cond constructors, the `__yo_ref_header_t` (chosen
-/// by needs_cycle_gc), and the generic Future / I/O Future struct types. Mirrors
-/// the fixed-template head of `generateTypeDeclarations` (src lines 104-469).
-/// The type-walk (forward decls + topological emission) is the next increment.
+/// Emit the runtime preamble that opens `generate_type_declarations`: the GC
+/// debug macros + mark/flags, the target-specific thread-synchronization
+/// types/macros, the atomic wrappers, mutex/cond constructors, the
+/// `__yo_ref_header_t` (chosen by needs_cycle_gc), and the generic Future /
+/// I/O Future struct types — a fixed-template head; the type-walk (forward
+/// decls + topological emission) follows it.
 _emit_type_runtime_preamble :: (fn(context : CodeGenContext) -> unit)({
   em := context.emitter;
   debug_gc_define := if(context.debug_gc, String.from("#define __YO_DEBUG_GC 1"), String.from("// #define __YO_DEBUG_GC 1"));
@@ -1045,7 +1044,7 @@ typedef struct __yo_io_future_t {
   );
 });
 // ---------------------------------------------------------------------------
-// generateTypeDeclarations type-walk (src/codegen/types/generation.ts 471-968)
+// generate_type_declarations type-walk
 // ---------------------------------------------------------------------------
 /// True if a struct's SomeType content is only inside function-typed fields.
 /// Replicated from types/collection.yo (`_struct_some_type_is_only_in_function_fields`)
@@ -1163,7 +1162,7 @@ _walk_add_dep :: (fn(deps_set : HashSet(String), dep_ty : TypeValue, self_type_i
 });
 /// Add by-value dependencies for a single field type. `guard_nullable` is true
 /// for struct fields (an enum field optimized as a nullable pointer is NOT a
-/// by-value dep there); enum/tuple fields pass false. Mirrors the shared
+/// by-value dep there); enum/tuple fields pass false. Shared by the
 /// enum/newtype/value-struct/tuple by-value dependency chain.
 _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_id : String, guard_nullable : bool, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)(
   cond(
@@ -1281,8 +1280,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
   });
 });
 /// The vtable member line for one trait field (None for Self / reserved /
-/// already-processed / non-`self`-first methods). Mirrors the per-field body of
-/// generateDynDeclaration. RETURNS the line rather than
+/// already-processed / non-`self`-first methods). RETURNS the line rather than
 /// emitting it: `get_type_string` on a member's return/param types may emit an
 /// on-demand typedef (a method returning `Impl(Future(..))` mints the Future
 /// struct right there), which must land BEFORE the vtable typedef opens — the
@@ -1447,16 +1445,14 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
     match(
       context.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
-        // resolvedConcreteType: a SomeT with a resolved concrete falls through
-        // to that concrete (codegen-side yo-self has no resolvedConcreteType,
-        // so the concrete_type is used directly).
+        // A SomeT with a resolved concrete falls through
+        // to that concrete (the expr_info resolved-concrete side-table
+        // carries the resolution).
         // Resolve a SomeT concrete through the resolved-concrete side-table
         // BEFORE keying: `get_type_c_name(type_key(SomeT))` misses (the key is
         // the SomeT id) while `get_type_string` resolves — the ctor then
         // referenced `__yo_dyn_box_unknown_<id>` with no typedef (the
-        // suspension_analysis batch "unknown type name"). Mirrors TS
-        // resolvedConcreteType (the stale "yo-self has no resolvedConcreteType"
-        // note predates the expr_info side-table).
+        // suspension_analysis batch "unknown type name").
         concrete := resolve_some_type_to_concrete(impl_entry.concrete_type);
         concrete_c_name := match(context.get_type_c_name(type_key(concrete)), .Some(cn) => cn, .None => `unknown_${type_key(concrete)}`);
         box_name := `__yo_dyn_box_${concrete_c_name}`;
@@ -1508,12 +1504,10 @@ generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, cont
   em.emit_declaration_string_line(String.from("};"));
   em.emit_declaration_string_line(String.from(""));
 });
-/// Generate Iso struct types + constructor declarations. DEFERRED (Phase-3 iso,
-/// generateIsoTypeDeclarations) — no iso types in the corpus.
-/// Emit Iso struct type declarations + create/extract/dispose helper decls and
-/// impls. Mirrors TS `generateIsoTypeDeclarations` (src/codegen/types/
-/// generation.ts:1047). `iso_types` is populated during collect_required_types
-/// (collection.yo:324 get_type_string side-effect), so it is filled by the time
+/// Generate Iso struct types + constructor declarations:
+/// Iso struct type declarations + create/extract/dispose helper decls and
+/// impls. `iso_types` is populated during collect_required_types
+/// (collection.yo get_type_string side-effect), so it is filled by the time
 /// this runs at the end of the declaration phase. The inner-value drop is
 /// `__yo_decr_rc` — every Iso child is a reference-counted value, so decrementing
 /// its RC (which disposes at 0) is the correct release for all children.
@@ -1826,8 +1820,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
   // C name (e.g. an enum reached both directly and via a path whose key was
   // registered separately). One C name MUST have exactly one definition —
   // emitting the block twice is a clang "redefinition of enumerator"/type
-  // error. TS cannot hit this (numeric `type.id` → 1:1 cName), so the guard is
-  // yo-self-only plumbing, not a semantic divergence.
+  // error.
   emitted_decl_cnames := HashSet(String).new();
   // First pass: simple-enum declarations (leaf types).
   skeys := context.types.keys();

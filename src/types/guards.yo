@@ -1,12 +1,5 @@
 //! Type guard predicates.
 //!
-//! Mirrors `src/types/guards.ts` — 1:1 port of every exported guard.
-//!
-//! Functions that require TypeValue variants or per-parameter flags not yet
-//! present in Phase 2a are stubbed to return `false` with a `// Phase 2b`
-//! comment. The full implementations will be added once the relevant TypeValue
-//! variants and field flags are wired in.
-//!
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -18,9 +11,8 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Extern opaque-Type registry. `extern("Yo", X : Type)` declares an opaque type
 // whose value is a SomeT PLACEHOLDER (e.g. `__yo_thread_t`); codegen emits a
-// concrete C type for it, so it is NOT a codegen-blocking generic. TS marks
-// these via `SomeType.isExtern`; yo-self's SomeT has no
-// such field, so the extern declaration records the type NAME here (extern.yo)
+// concrete C type for it, so it is NOT a codegen-blocking generic. SomeT has
+// no extern field, so the extern declaration records the type NAME here (extern.yo)
 // and the codegen-generic checks (type_contains_some_type_for_codegen_param)
 // exclude a SomeT whose name is registered. Empty during pure evaluation.
 // ---------------------------------------------------------------------------
@@ -83,8 +75,7 @@ type_decl_module :: (fn(type_id : String) -> Option(String))(
 // name (`Color`, not `__yo_t7`) and must NOT emit a competing definition — the
 // only way a C struct can cross the ABI BY VALUE.
 //
-// TS carries this on the type itself (`type.isExtern` + `type.externName`,
-// src/types/utils.ts); yo-self's `TypeValue` has no such field, so this registry
+// `TypeValue` has no extern-name field, so this registry
 // stands in — the same stand-in shape as `g_extern_type_names` above, and the
 // "Gap 3: extern-C names not modelled generally" note in
 // `codegen/types/collection.yo` is what it closes.
@@ -124,8 +115,8 @@ get_adopted_extern_c_type :: (fn(t : TypeValue) -> Option(AdoptedExternCType))(
   )
 );
 // ---------------------------------------------------------------------------
-// Resolved-concrete bridge indirection (mirrors TS reading
-// `someType.resolvedConcreteType`). guards.yo is low-level and cannot import
+// Resolved-concrete bridge indirection (reads a SomeT's resolved concrete
+// type). guards.yo is low-level and cannot import
 // expr_info.yo's `lookup_some_resolved_concrete` (would cycle), so the lookup is
 // injected at codegen init via `set_lookup_some_resolved_concrete` — the same
 // indirection pattern as `set_collect_type_fn` in codegen/functions/collection.yo.
@@ -143,7 +134,7 @@ _some_param_has_resolved_concrete :: (fn(some_id : String) -> bool)(
 );
 // ---------------------------------------------------------------------------
 // Variant-shape predicates — were in `type.yo` before Phase A.3.2; relocated
-// here to mirror `src/types/guards.ts`. These are one-line wrappers around a
+// here. These are one-line wrappers around a
 // `match` on the TypeValue variant, used pervasively by callers that want a
 // boolean test rather than a tag enum comparison.
 // ---------------------------------------------------------------------------
@@ -197,13 +188,13 @@ is_trait_type :: (fn(t : TypeValue) -> bool)(
   )
 );
 /// True for source-namespace structs (anonymous modules / imports).
-/// Mirrors TS `isSourceNamespaceType` — TS has no module
-/// type; the legacy name is kept for the existing call sites.
+/// There is no separate module type; the legacy name is kept for the
+/// existing call sites.
 is_module_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .Struct({ is_source_namespace : sns }) => sns, _ => false)
 );
-/// Mirrors TS `isStructType`: EXCLUDES source-namespace
-/// structs, exactly as TS does.
+/// True for structs EXCLUDING source-namespace
+/// structs.
 is_struct_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .Struct({ is_source_namespace : sns }) => !sns, _ => false)
 );
@@ -308,13 +299,11 @@ is_tuple_type :: (fn(t : TypeValue) -> bool)(
 is_union_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .Union(_, _, _) => true, _ => false)
 );
-/// Reference-semantics struct: `ref(struct(...))`. Mirrors
-/// 
+/// Reference-semantics struct: `ref(struct(...))`.
 is_reference_struct_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .Struct({ is_reference_semantics : is_ref }) => is_ref, _ => false)
 );
-// Atomic reference-semantics struct: `atomic(ref(struct(...)))`.
-// which
+// Atomic reference-semantics struct: `atomic(ref(struct(...)))`, which
 // requires BOTH `is_reference_semantics` AND `is_atomic_rc`. A
 // value-semantics struct with `is_atomic_rc = true` is malformed but should
 // not pass.
@@ -326,13 +315,11 @@ is_atomic_reference_struct_type :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
-/// Reference-semantics enum: `ref(enum(...))`. Mirrors
-/// 
+/// Reference-semantics enum: `ref(enum(...))`.
 is_reference_enum_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .EnumT({ is_reference_semantics : is_ref }) => is_ref, _ => false)
 );
-/// Atomic reference-semantics enum: `atomic(ref(enum(...)))`. Mirrors
-/// 
+/// Atomic reference-semantics enum: `atomic(ref(enum(...)))`.
 is_atomic_reference_enum_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
@@ -384,7 +371,7 @@ is_function_type_and_is_type_function :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_is_macro_function :: (fn(t : TypeValue) -> bool)(false);
 /// Check if a TypeValue is comptime-only (never a runtime type).
 ///
-/// Mirrors the subset of `typeImplementsComptimeBuiltin` that returns definitively
+/// The tag-level subset that returns definitively
 /// `true` for comptime-only types. Primitives like `i32`, `bool`, and `unit` are
 /// NOT comptime-only because they also implement runtime.
 is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
@@ -411,7 +398,7 @@ is_comptime_only_type_simple :: (fn(t : TypeValue) -> bool)(
 is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    // TS reads the RETURN SPEC FLAG (`functionType.return.isCompileTimeOnly`),
+    // Reads the RETURN SPEC FLAG (`FuncMeta.result_is_comptime_only`),
     // not a property of the result type: `-> comptime(unit)` has a plain unit
     // result type with the comptime-ness carried in the meta flag. The
     // type-based test alone made every "runtime binding in a comptime-only
@@ -423,7 +410,7 @@ is_function_type_and_returns_comptime_value :: (fn(t : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 // Type universe guards
 // ---------------------------------------------------------------------------
-/// Corresponds to `isTypeHierarchyType` — the `Type`, `Type(1)`, … universe.
+/// The `Type`, `Type(1)`, … universe.
 is_type_hierarchy_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .TypeUni(_) => true, _ => false)
 );
@@ -508,8 +495,7 @@ is_future_trait_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .FutureTraitT(base_name : _) => true, _ => false)
 );
 /// `true` when `t` is a `Concrete(T)` trait type (its `is_concrete` marker is
-/// `.Some`). Mirrors TS `isConcreteTraitType` (`isTraitType(t) && t.isConcrete
-/// !== undefined`). The `TraitT` variant carries `is_concrete :
+/// `.Some`). The `TraitT` variant carries `is_concrete :
 /// Option(Box(Self))`; this was a `=> false` stub until the async-Future type
 /// plumbing (Phase 5) needed it (`is_io_future_type`).
 is_concrete_trait_type :: (fn(t : TypeValue) -> bool)(
@@ -535,7 +521,8 @@ is_rc_type :: (fn(t : TypeValue) -> bool)(
     // specializing ArrayList(EvalValue).push, producing a push that stores
     // WITHOUT +1 (the stage-2 t1.yo rc=138 UAF: impl method registry read a
     // method value freed by the pusher's scope-end drop). Same shell-resolve
-    // pattern as type_key / eval-match (yo-self-recursive-enum-self-shell).
+    // pattern as type_key / eval-match
+    // (issues/fixed/yo-self-codegen-recursive-enum-self-shell.md).
     .Struct({ is_reference_semantics : is_ref }) => match(
       resolve_struct_shell(t),
       .Struct({ is_reference_semantics : r_res }) => r_res,
@@ -589,15 +576,12 @@ is_c_compatible_type :: (fn(t : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 // Function genericity guards
 // ---------------------------------------------------------------------------
-/// Check if a function type has generic parameters requiring specialization.
+/// Check if a function type has generic parameters requiring specialization:
+/// detects generic parameters and implicit (using/effect) parameters from the
+/// TypeValue.Func variant fields.
 ///
-/// Partial Phase 2a implementation: detects generic parameters and implicit
-/// (using/effect) parameters from the TypeValue.Func variant fields.
-///
-/// Phase 2b: extend to also check per-parameter `isCompileTimeOnly` flags,
-/// variadic `isQuote` flags, and non-Future SomeType parameters.
-/// Structural port of TS `typeImplementsFuture` for the SomeType-parameter
-/// exemption in BOTH generic guards (guards.ts:474 and :510): true iff the
+/// Helper for the SomeType-parameter
+/// exemption in BOTH generic guards: true iff the
 /// SomeT's required traits contain a `FutureTraitT`. A future-typed parameter
 /// (`task : Impl(Future(T, E))`) is NOT generic for codegen — it lowers to the
 /// generic future-trait struct pointer, and the call site casts the concrete
@@ -631,7 +615,7 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
       cond(
         (__fm1.*.forall_labels.len() > usize(0)) => true,
         (__fm1.*.implicit_labels.len() > usize(0)) => true,
-        // Partial: check if any param is SomeT (Phase 2b: exclude Future SomeType)
+        // Check if any param is SomeT; Future-implementing SomeTs are exempt.
         true => {
           found := false;
           i := usize(0);
@@ -641,8 +625,7 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
               pts.get(i),
               .Some(pt) => match(
                 pt,
-                // Future-implementing SomeT params are exempt — mirrors TS
-                // `!typeImplementsFuture(p.type)`.
+                // Future-implementing SomeT params are exempt.
                 .SomeT(name : _) => if(!_some_type_implements_future(pt), {
                   found = true;
                 }),
@@ -662,13 +645,8 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
   )
 );
 /// Check if a function type has "hard" generic parameters that make the
-/// unspecialized form invalid for C codegen.
-///
-/// Partial Phase 2a implementation: detects generic parameters and SomeType
+/// unspecialized form invalid for C codegen: generic parameters and SomeType
 /// parameters without a resolved concrete type.
-///
-/// Phase 2b: extend to check per-parameter `isCompileTimeOnly` flags and
-/// `resolvedConcreteType` on SomeType parameters.
 is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
   match(
     t,
@@ -678,7 +656,7 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
         // A SomeType param makes the unspecialized form hard-generic — UNLESS it
         // has a resolved concrete type, in which case codegen can lower it via the
         // concrete (e.g. a closure-typed param `cb : Impl(Fn(...))` resolved to its
-        // capture struct). Mirrors TS guards.ts:490 (`!p.type.resolvedConcreteType`).
+        // capture struct).
         true => {
           found := false;
           i := usize(0);
@@ -689,8 +667,8 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
               .Some(pt) => match(
                 pt,
                 .SomeT(id : sid, name : _) => {
-                  // Future-implementing SomeT params are exempt — mirrors TS
-                  // `!typeImplementsFuture(p.type)`: they
+                  // Future-implementing SomeT params are exempt:
+                  // they
                   // lower to the future-trait struct pointer, so the
                   // unspecialized form IS valid C.
                   if(!_some_type_implements_future(pt) && !_some_param_has_resolved_concrete(sid), {
@@ -700,8 +678,7 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
                 // A `comptime(K) : Type` param (the type UNIVERSE) can never
                 // be a runtime C parameter — the prototype renders
                 // `// Unknown type: Type K` ("invalid storage class
-                // specifier", the imm_map/imm_set family). Same
-                // classification as TS guards.ts:466 hasCompileTimeParams.
+                // specifier", the imm_map/imm_set family).
                 .TypeUni(_) => {
                   found = true;
                 },
@@ -709,8 +686,8 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
                 // (`Array(i32, n)` — value-generic length) has no valid C
                 // rendering either: the prototype printed
                 // `// Unknown type: Array(i32, n)` and ate the line
-                // (array.test batch clang errors). Same classification as
-                // TS guards.ts hasCompileTimeParams reaching the length.
+                // (array.test batch clang errors). Same hard-generic
+                // classification as the comptime `Type` param above.
                 .Array(_, _, hg_lvar) => if(hg_lvar.len() > usize(0), {
                   found = true;
                 }),

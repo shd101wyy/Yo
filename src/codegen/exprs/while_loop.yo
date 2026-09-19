@@ -1,4 +1,4 @@
-//! While-loop emitter — mirrors `src/codegen/exprs/while.ts`.
+//! While-loop emitter.
 //!
 //! Supports `while(cond, body)` (→ C `while(true){ if(!cond)break; body; }`)
 //! and `while(cond, step, body)` (→ + continue-label + step), plus
@@ -29,8 +29,7 @@ _strip_comptime :: (fn(e : AstExpr) -> AstExpr)(
   if(ast_expr_is_fn_call_of(e, BK_COMPTIME, .Some(usize(1))), match(_args(e).get(usize(0)), .Some(inner) => inner, .None => e), e)
 );
 /// Generate the step expression of a 3-arg while: `lhs = rhs` (single), comma-
-/// joined assignments (begin block), or a plain expression. Mirrors
-/// `generateStepExpression`.
+/// joined assignments (begin block), or a plain expression.
 generate_step_expression :: (fn(step_expr : AstExpr, context : FunctionGenerationContext) -> String)(
   cond(
     ast_expr_is_fn_call_of(step_expr, BK_BEGIN, .None) => {
@@ -127,7 +126,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
       context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_drops, prev_pending));
       context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_consumed, prev_consumed));
       em := context.base.emitter;
-      // Scope-marker: C block for begin-local variables (mirrors begin.yo:137).
+      // Scope-marker: C block for begin-local variables (as in begin.yo:137).
       // Required so deferred drops of locals declared here scope-clean.
       hdr := indent.clone();
       hdr.push_str("{ // begin block (loop body)");
@@ -194,8 +193,8 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
                 if(!undeclared_temp, {
                   // Skip a drop already emitted inside a short-circuit
                   // conditional branch (and_or.yo) — same guard as begin.yo's
-                  // scope-end pass. Without it (and TS while.ts before the
-                  // paired fix) an owned temp created in a `||`/`&&` RHS in a
+                  // scope-end pass. Without it
+                  // an owned temp created in a `||`/`&&` RHS in a
                   // loop body was re-dropped at the loop scope end:
                   // issues/fixed/ts-while-loop-body-drops-missing-guards.md.
                   sc_skip := match(

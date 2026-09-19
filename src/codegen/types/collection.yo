@@ -1,21 +1,16 @@
-//! Reachable-type collection — mirrors `src/codegen/types/collection.ts`.
+//! Reachable-type collection.
 //!
-//! PORT STATUS (incremental, plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 1): this
-//! file currently carries the TYPE-structural collectors (collect_type +
-//! collect_types_from_function_type + the SomeType-in-fn-fields helpers). The
-//! EXPR walkers (collect_types_from_expr / collect_required_types) are
-//! deferred: they thread the ExprInfoTable and mutually import
-//! functions/collection (findFunctionCallsInExpr) — added with that cluster.
+//! The TYPE-structural collectors (collect_type +
+//! collect_types_from_function_type + the SomeType-in-fn-fields helpers) and
+//! the EXPR walkers (collect_types_from_expr / collect_required_types), which
+//! thread the ExprInfoTable and reach functions/collection through the
+//! call-through indirection (see the import below).
 //!
-//! DIVERGENCES (issues/retired/codegen-port-type-model-gaps.md):
-//!   * Gap 6: yo-self `SomeT` has no resolvedConcreteType, so collect_type
-//!     conservatively SKIPS SomeTypes (generic — monomorphized before codegen
-//!     in the supported corpus); the TS Fn/Future/resolvedConcreteType
-//!     branches are pending the env+substitute re-architecting.
-//!   * Gap 3: extern-C type names (`type.externName`) aren't modelled
-//!     generally, so C names are `sanitize(__yo_<type_key>)`.
-//!   * SourceNamespace/Trait field-FUNCTION collection (TS `field.assignedValue`)
-//!     is deferred — yo-self types carry no field values; those functions are
+//! Known limitations (issues/retired/codegen-port-type-model-gaps.md):
+//!   * collect_type conservatively SKIPS SomeTypes (generic — monomorphized
+//!     before codegen in the supported corpus).
+//!   * SourceNamespace/Trait field-FUNCTION collection is not type-driven —
+//!     types carry no field values; those functions are
 //!     reached from the module StructVal via the expr walker instead.
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
@@ -59,12 +54,12 @@
 // runtime-set global, so it does not reference find_function_calls_in_expr at
 // import time). The circular-import loader resolves the top-level exports.
 { _call_find_function_calls_in_expr, set_collect_type_fn } :: import("../functions/collection.yo");
-/// Intern map for generated C type names. yo-self's `TypeValue` has no numeric
-/// `.id` (TS's `type.id` → short stable `context.types[id].cName`,
-/// getTypeString utils/index.ts:521), so the codegen C name was historically the
+/// Intern map for generated C type names. `TypeValue` has no numeric `.id` to
+/// derive a short stable `context.types[id].cName` from, so the codegen C name
+/// was historically the
 /// FULL structural `type_key` (`__yo_<type_key>`). For the compiler's own deeply
 /// recursive enums (`TypeValue`/`AstExpr`) `type_key` expands through `Struct`
-/// wrappers to 200 KB+ identifiers → stage-2 C blew up to ~10× TS's size (497 MB
+/// wrappers to 200 KB+ identifiers → stage-2 C blew up to ~10× size (497 MB
 /// vs 51.7 MB for the same source) and a few contexts hit clang identifier
 /// limits. Intern each distinct `type_key` to a short, stable `__yo_t<N>` name.
 /// This is a pure content-addressed RENAME: the registry is still keyed by the
@@ -187,8 +182,7 @@ _enum_some_type_is_only_in_function_fields :: (
   )
 );
 /// Collect a single type if it's a user-defined / structural type, registering
-/// it in `context.types` and recursing into its component types. Mirrors
-/// `collectType` (TYPE-structural portion; see header for deferred branches).
+/// it in `context.types` and recursing into its component types.
 // stable_type_identity → the FIRST type_key a type registered under. A
 // type_key render EVOLVES over a compile (g_struct_cfid_keys
 // first-registration/poison transitions), so one type can reach
@@ -212,9 +206,9 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   if(context.get_type_entry(type_key(type)).is_some(), {
     return(()); // Already collected this type
   });
-  // Gap 6: SomeTypes (generic) — conservatively skip (monomorphized before
-  // codegen in the supported corpus). The TS Fn/Future/resolvedConcreteType
-  // branches need env+substitute resolution.
+  // SomeTypes (generic) — conservatively skip (monomorphized before
+  // codegen in the supported corpus). Fn/Future/resolved-concrete branches
+  // would need env+substitute resolution.
   if(is_some_type(type), {
     return(());
   });
@@ -234,7 +228,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   // value/body references the type — which is AFTER generate_array_struct_
   // declarations runs in the type-decl phase. Register it here, during
   // collection, so the typedef is emitted before any reference; also collect
-  // the element type. (Mirrors the Iso side-effect registration below.)
+  // the element type. (Same side-effect registration as the Iso arm below.)
   if(is_array_type(type), {
     match(type, .Array({ element }) => recur(element, context), _ => ());
     _gs := get_type_string(type, context);
@@ -243,9 +237,8 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   is_registerable := (
     (
       ((is_struct_type(type) || is_union_type(type)) || (is_enum_type(type) || is_tuple_type(type)))
-      // FutureTraitT: the generic Future trait-object interface struct — TS's
-      // FutureTraitType is a TraitType subtype so `isTraitType` covers it
-      //; yo-self models it as a SEPARATE variant, so it
+      // FutureTraitT: the generic Future trait-object interface struct — a
+      // SEPARATE variant (not a TraitT subtype), so it
       // needs its own clause. Registered so a future-typed parameter's
       // `__yo_future_trait_*` interface struct gets a C name + declaration
       // (generation.yo's is_future_trait_type declaration pass).
@@ -286,9 +279,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
       // name and the header: `collect_c_includes` then emits the `#include`,
       // and the declaration passes skip every forward declaration and body for
       // an entry whose `c_include` is set, so the emitted C uses the header's
-      // struct and passes it BY VALUE across the real ABI. This is what the
-      // "Gap 3: extern-C names not modelled generally" note below refers to
-      // (TS reads `type.isExtern` / `type.externName` off the type itself).
+      // struct and passes it BY VALUE across the real ABI.
       match(
         get_adopted_extern_c_type(type),
         .Some(adopted) => {
@@ -301,8 +292,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
       );
     });
     // Future trait interface: collect the OUTPUT type (T in Future(T)) — its
-    // C name appears as the interface struct's `result` field. Mirrors TS
-    // collecting `futureModule.isFuture.outputType`.
+    // C name appears as the interface struct's `result` field.
     match(
       type,
       .FutureTraitT({ output : ftc_out }) => if(!(is_some_type(ftc_out)), {
@@ -474,8 +464,8 @@ _collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit
 /// before lowering" panic. Running as a SEPARATE pass (not inline in collect_type)
 /// leaves the MAIN collection ORDER untouched, so it cannot perturb the
 /// order-sensitive lazy array-struct registration. Fixpoint loop handles
-/// transitive container nesting. DIVERGENCE from collection.ts (no such pass) —
-/// see issues/fixed/yo-self-p1-uncollected-pointee.md.
+/// transitive container nesting. See
+/// issues/fixed/yo-self-p1-uncollected-pointee.md.
 collect_pointer_pointees :: (fn(context : CodeGenContext) -> unit)({
   (changed : bool) = true;
   while(changed, {
@@ -558,11 +548,10 @@ _fv_body :: (fn(v : EvalValue) -> AstExpr)(
 /// value it resolves to, deferred drops, macro expansion, runtime
 /// destructurings, capture struct, and recursively its sub-expressions).
 ///
-/// DIVERGENCES: the per-function SIGNATURE-type collection
-/// (collectTypesFromFunctionType(functionValue.type)) is omitted — yo-self's
-/// FuncVal carries no Func type (Gap 2); signature types are picked up by
-/// walking the body. The SomeType-Future-resolvedConcrete skip (Gap 6) and the
-/// captureType.trait function-collection are also omitted (corpus-safe).
+/// The per-function SIGNATURE-type collection is omitted — `FuncVal` carries
+/// no Func type; signature types are picked up by walking the body. The
+/// SomeType-Future-resolved-concrete skip and the captureType.trait
+/// function-collection are also omitted (corpus-safe).
 collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : ExprInfoTable) -> unit)({
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   match(
@@ -661,9 +650,7 @@ collect_types_from_expr :: (fn(expr : AstExpr, context : CodeGenContext, info : 
 });
 /// Collect all user-defined types reachable from a module value: from each
 /// exported function's body, from module-level non-function fields, and then
-/// (fixpoint) from every function discovered along the way. Mirrors
-/// `collectRequiredTypes`. (Signature-type collection omitted — Gap 2; the
-/// moduleLevelInitExprs pass is deferred until the context carries them.)
+/// (fixpoint) from every function discovered along the way.
 collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext, info : ExprInfoTable) -> unit)({
   match(
     module_value,
@@ -678,8 +665,9 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
               // Collect the function's SIGNATURE types (param + return), not just
               // its body — a param type used only in the signature (e.g. a
               // non-async `main(io : Io)` whose body never mentions Io) would
-              // otherwise never be collected. Bridges Gap 2 via the get_func_type
-              // side-table. Mirrors collectTypesFromFunctionType.
+              // otherwise never be collected. Bridges the missing Func type on
+              // FuncVal via the get_func_type
+              // side-table.
               collect_types_from_function_type(get_func_type(_fv_id(value)), context);
               collect_types_from_expr(_fv_body(value), context, info);
             },
@@ -700,7 +688,7 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
   // Collect types from module-level mutable variable init expressions — these
   // may reference types from imported modules not otherwise reachable (e.g. a
   // `(g_map : HashMap(K, V)) = HashMap(K, V).new()` global whose HashMap
-  // instantiation is used nowhere else). Mirrors collection.ts:138-144.
+  // instantiation is used nowhere else).
   mlv_inits := get_module_level_init_exprs();
   (mli : usize) = usize(0);
   while(mli < mlv_inits.len(), {
@@ -742,7 +730,7 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
           context.get_function_entry(key.clone()),
           .Some(entry) => {
             // Signature types (param + return) in addition to the body — see the
-            // module-level branch above. Mirrors collectTypesFromFunctionType.
+            // module-level branch above.
             collect_types_from_function_type(get_func_type(key.clone()), context);
             collect_types_from_expr(_fv_body(entry.value), context, info);
           },

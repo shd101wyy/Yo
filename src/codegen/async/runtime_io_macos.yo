@@ -1,8 +1,7 @@
 //! runtime_io_macos — macOS platform sync helpers + kqueue async I/O runtime.
-//! 1:1 port of `src/codegen/async/runtime-io-macos.ts`. The C bodies are
+//! The C bodies are
 //! verbatim (extracted, not hand-transcribed) — pure C, no interpolations.
-//! Phase 5 #4 (platform I/O backend). Inert until generate_async_runtime
-//! (runtime.yo dispatcher) wires it into codegen_c.
+//! Wired by generate_async_runtime (runtime.yo dispatcher) into codegen_c.
 import("std/string");
 { Emitter } :: import("../../emitter.yo");
 /// Emit macOS platform-specific SYNC helpers (pipe/dup/lseek/fcntl/flock/readv/
@@ -592,8 +591,7 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
 `
   );
 });
-/// Emit the macOS kqueue-based async I/O runtime. Mirrors
-/// `generateAsyncRuntimeIOMacOS`.
+/// Emit the macOS kqueue-based async I/O runtime.
 generate_async_runtime_io_macos :: (fn(emitter : Emitter) -> unit)({
   emitter.emit_string_line(
     `
