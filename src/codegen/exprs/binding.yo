@@ -6,7 +6,7 @@
 { get_variable_type_string } :: import("../utils/index.yo");
 /// Emit the C declaration `<type> <name>;` for a binding's left-hand side
 /// (the value is assigned separately). Compile-time bindings emit nothing.
-/// Returns "" (statement). Mirrors `generateBinding`.
+/// Returns "" (statement).
 generate_binding :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   lhs := match(expr, .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.from(""))), .Atom(_, _) => return(String.from("")));
   // Compile-time variable (`comptime(x)`) → no C declaration.

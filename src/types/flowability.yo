@@ -160,7 +160,7 @@ flow_options_default :: (fn() -> FlowOptions)(
   )
 );
 /// Strip outer `begin(...)` wrapper(s) — single-expression bodies after
-/// evaluation often appear as `begin((expr))`. Mirrors `unwrapBeginBlocks`.
+/// evaluation often appear as `begin((expr))`.
 _unwrap_begin_blocks :: (fn(expr : AstExpr) -> AstExpr)({
   (current : AstExpr) = expr;
   (go : bool) = true;
@@ -184,7 +184,7 @@ _info :: (fn(ctx : EvalContext, expr : AstExpr) -> Option(ExprInfo))(
 );
 /// Walk `expr` and return `true` iff it satisfies R1–R4. `expr` must already be
 /// evaluated (so its `ExprInfo` and bindings are available). Mirrors
-/// `isFlowableExpr` in `src/types/flowability.ts`.
+/// 
 is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions) -> bool)({
   expr := _unwrap_begin_blocks(expr_in);
   // Strip a `label : value` wrapper — labeled arguments (constructor fields
@@ -556,7 +556,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   });
   all_ok
 });
-/// Mirrors `aliasGroupRoot`: follow
+///: follow
 /// `is_owning_the_same_rc_value_as` links to the primary owner's id
 /// (step-capped in place of TS's identity-set cycle guard).
 alias_group_root :: (fn(variable : Variable) -> String)({

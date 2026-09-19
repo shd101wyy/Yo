@@ -113,7 +113,7 @@ _new_dup_calls_result :: (fn() -> DupCallsResult)(
 /// Returns `true` if `expr` is the empty-tuple literal `()`, i.e. a
 /// zero-argument `tuple()` function call.
 ///
-/// Mirrors `isUnitValueExpression` in `src/evaluator/exprs/begin.ts`.
+///
 is_unit_value_expression :: (fn(expr : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(expr, BK_TUPLE, .Some(usize(0)))
 );
@@ -206,7 +206,7 @@ _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> uni
   );
 });
 /// Recursive dup-call search with conservative cross-branch analysis.
-/// Mirrors `searchRecursively` + its nested `handleBranchingExpression`
+/// + its nested `handleBranchingExpression`
 ///. The branching arm is inlined (branch bodies recurse via
 /// `recur` into FRESH result containers — exactly TS's
 /// `collectDupCallsConservatively(branchBody)`). Follows a recorded
@@ -569,7 +569,7 @@ _check_keyword_position :: (
 // ---------------------------------------------------------------------------
 /// Evaluate a `begin(...)` block expression.
 ///
-/// Mirrors `evaluateBeginExpression` in `src/evaluator/exprs/begin.ts`.
+///
 ///
 /// Parameters:
 ///   - `expr`                    The begin expression to evaluate.
@@ -717,7 +717,7 @@ _variable_is_captured_by_current_function :: (fn(v : Variable, ctx : EvalContext
   match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false)
 );
 /// True iff `expr` is a nested function-definition boundary — recursion for
-/// early-return drops must stop here. Mirrors `isFunctionBoundaryForEarlyDrop`
+/// early-return drops must stop here.
 ///. (The TypeValue-fn-callee boundary sub-checks are omitted: they
 /// guard the rare case of a return value that is itself a function-type call;
 /// the token-position gate in `_attach_if_cleanup_needs_drop` already prevents a
@@ -897,7 +897,7 @@ _contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
   )
 });
 /// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
-/// tree. Mirrors `removeDupCallsFromExpr`. TS reaches
+/// tree. TS reaches
 /// expansion-internal dup lists through the raw args because its expansions
 /// SHARE the spliced arg nodes; yo-self expansions are fresh-id clones, so the
 /// walk must follow `macro_expansion` explicitly — the same reachability the

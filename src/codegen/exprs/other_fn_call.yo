@@ -43,7 +43,6 @@
 /// unique per generated C function body, not per call's arg index — two
 /// separate calls in one function both spilling arg 0 would otherwise collide
 /// on `__yo_ref_spill_0`. Mirrors TS module-level `refSpillCounter`
-///.
 (g_ref_spill_counter : usize) = usize(0);
 /// Reset the ref-spill counter — per-EMISSION state (each emitted C file is
 /// self-contained), so every compile of one process must start at 0 or the
@@ -108,7 +107,7 @@ _byte_slice :: (fn(s : String, from : usize, to : usize) -> String)({
   String.from_bytes(out)
 });
 /// Whether `code` is an lvalue C expression whose address can be taken (a
-/// deref, or an identifier head + `.`/`->`/`[]` chain). Mirrors `isAddressableCExpr`.
+/// deref, or an identifier head + `.`/`->`/`[]` chain).
 _is_addressable_c_expr :: (fn(code : String) -> bool)({
   (s : String) = code.trim();
   // Strip balanced fully-enclosing parens. BYTE indices throughout — the
@@ -305,7 +304,7 @@ _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : St
   );
 });
 /// The container-pointer C code for an interior `ref` argument (an Index-trait
-/// expression), or `.None`. Mirrors `getInteriorRefContainerCode`.
+/// expression), or `.None`.
 _get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool, indent : String, context : FunctionGenerationContext) -> Option(String))(
   if(
     !(param_is_ref),
@@ -348,7 +347,7 @@ _get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool,
   )
 );
 /// Emit `__yo_borrow_acquire` for each interior-ref arg's container; returns the
-/// acquired container codes (caller emits releases). Mirrors `emitBorrowAcquires`.
+/// acquired container codes (caller emits releases).
 _emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_param_is_ref : ArrayList(bool), indent : String, context : FunctionGenerationContext) -> ArrayList(String))({
   containers := ArrayList(String).new();
   em := context.base.emitter;
@@ -378,7 +377,7 @@ _emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_par
   });
   containers
 });
-/// Emit `__yo_borrow_release` (LIFO) for acquired containers. Mirrors `emitBorrowReleases`.
+/// Emit `__yo_borrow_release` (LIFO) for acquired containers.
 _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   n := containers.len();
@@ -406,7 +405,7 @@ _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, co
   });
 });
 /// Whether the current function is a method of an RC-managed object type
-/// (`self` parameter of object type). Mirrors `isInsideObjectMethod`.
+/// (`self` parameter of object type).
 _is_inside_object_method :: (fn(context : FunctionGenerationContext) -> bool)(
   match(context.current_function_type, .Some(ft) => match(ft, .Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)), .Some(l) => if(l == "self", match(pts.get(usize(0)), .Some(t) => is_reference_struct_type(t), .None => false), false), .None => false)), _ => false), .None => false)
 );
@@ -417,7 +416,7 @@ _current_self_param_is_ref :: (fn(context : FunctionGenerationContext) -> bool)(
   match(context.current_function_type, .Some(ft) => match(ft, .Func({ meta : __fm1 }) => match(__fm1.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
 );
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
-/// inside an RC-managed object method. Mirrors `maybeEmitAutoBorrowAssert`.
+/// inside an RC-managed object method.
 _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String, context : FunctionGenerationContext) -> unit)(
   if(((extern_func_name == "__yo_realloc") || (extern_func_name == "__yo_free")) && _is_inside_object_method(context), {
     em := context.base.emitter;
@@ -1000,7 +999,7 @@ _future_init_cast :: (fn(ty : TypeValue, context : FunctionGenerationContext) ->
   fic_ct := get_type_string(ty, context.base);
   if(fic_ct.ends_with("*"), `(${fic_ct})`, String.new())
 });
-/// The call/method/trait-dispatch emitter. Mirrors `generateOtherFunctionCall`
+/// The call/method/trait-dispatch emitter.
 /// (corpus path). Returns `.None` to fall through (unhandled shape).
 ///
 /// DEFERRED (documented, gated dead for the no-RC/no-async/no-effect corpus):

@@ -369,7 +369,6 @@ _anon_fn_value :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
 );
 /// `io.spawn(future)` — start a cold Future and return a JoinHandle (non-owning
 /// view). Faithful port of the inline io.spawn block in `generateFuncCall`
-///.
 _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
@@ -445,7 +444,7 @@ _index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, i
   )
 });
 /// Generate C for Index-trait dispatch: `value(i)` → `*index_fn(&value, i)`.
-/// Mirrors `generateIndexTraitCall`. The evaluator stamps the
+/// The evaluator stamps the
 /// specialized `index()` method FuncVal on `ei.index_method_value` and the
 /// pointer-return type on `ei.index_trait_ptr_type`; collection.yo registers the
 /// method for emission. We emit `&receiver`, call the method, and auto-deref the
@@ -527,7 +526,7 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
 /// compound literals like `Color.Red`) carry no owning temp and are returned
 /// unchanged.
 ///
-/// Mirrors `materializeOwnedRcComptimeValue` in
+/// in
 /// `src/codegen/exprs/generation.ts`.
 _materialize_owned_rc_comptime_value :: (
   fn(
@@ -561,7 +560,7 @@ _materialize_owned_rc_comptime_value :: (
   _store_temp_var_to_state_machine_if_needed(var_name.clone(), indent.clone(), context);
   c_name
 });
-/// Generate a function-call expression. Mirrors `generateFuncCall`.
+/// Generate a function-call expression.
 generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   // The unit value `()` is a 0-arg BK_TUPLE call (parser make_unit_call). The
   // parser-appended begin terminator has NO ExprInfo, so handle it before the

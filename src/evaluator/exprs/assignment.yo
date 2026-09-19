@@ -108,7 +108,7 @@ pragma(Pragma.AllowUnsafe);
 /// Throw a descriptive error when the RHS of an assignment unconditionally
 /// transfers control flow (return / unwind / break / continue).
 ///
-/// Mirrors `throwRhsContainsControlFlowExpressionError` in
+/// in
 /// `src/evaluator/exprs/assignment.ts`.
 throw_rhs_contains_control_flow_expression_error :: (
   fn(
@@ -145,7 +145,7 @@ throw_rhs_contains_control_flow_expression_error :: (
 /// In yo-self all array lengths are concrete, so the full TS logic is not
 /// needed here.  Returns `ty` unchanged.
 ///
-/// Mirrors `resolveUnknownValuesAndSomeTypeInType` in
+/// in
 /// `src/evaluator/exprs/assignment.ts`.
 resolve_unknown_values_and_some_type_in_type :: (
   fn(
@@ -223,7 +223,7 @@ make_variable_with_value :: (
 // ---------------------------------------------------------------------------
 /// Walk a chained field/index access down to its root atom.
 /// For `a.b.c`, returns the `a` atom. For a bare atom `x`, returns it
-/// unchanged. Mirrors `getRootExprOfFieldAccess` in `src/evaluator/utils.ts`.
+/// unchanged.
 get_root_expr_of_field_access :: (fn(expr : AstExpr) -> AstExpr)(
   if(
     ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (match(expr, .FnCall(_, _, args, _, _) => args.len(), .Atom(_, _) => usize(0)) >= usize(2)),
@@ -238,7 +238,7 @@ get_root_expr_of_field_access :: (fn(expr : AstExpr) -> AstExpr)(
 /// `atomic object` type, writes through it are forbidden in safe code.
 /// Returns the root type if it's an atomic object, `None` otherwise.
 /// Resolves SomeType (e.g. `Self`) to concrete types before checking.
-/// Mirrors `getAtomicObjectRootType` in `src/evaluator/utils.ts`.
+///
 get_atomic_object_root_type :: (
   fn(root_expr : AstExpr, env : Environment) -> Option(TypeValue)
 )({
@@ -278,7 +278,7 @@ get_atomic_object_root_type :: (
 ///   - typed-binding LHS:  `(x : T) = rhs`
 ///   - property/index LHS: `x.a = rhs`, `arr(0) = rhs`
 ///
-/// Mirrors `evaluateAssignment` in `src/evaluator/exprs/assignment.ts`.
+///
 evaluate_assignment :: (
   fn(
     expr : AstExpr,

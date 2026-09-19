@@ -562,8 +562,7 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
 /// body-wrapping lowering in `evaluator/builtins/contracts.yo`.
 (g_func_requires_exprs : HashMap(String, ArrayList(AstExpr))) =
   HashMap(String, ArrayList(AstExpr)).new();
-/// Same, for `ensures(...)`. Mirrors `FunctionType.ensuresExprs`
-///.
+/// Same, for `ensures(...)`.
 (g_func_ensures_exprs : HashMap(String, ArrayList(AstExpr))) =
   HashMap(String, ArrayList(AstExpr)).new();
 /// Phase V4 `decreases(M)` termination measure (at most one per fn).
@@ -1121,7 +1120,7 @@ _atom_name_occurs :: (fn(e : AstExpr, name : String) -> bool)(
 /// reference type), we can mutate it in-place. The mutation is visible everywhere
 /// the same ArrayList is referenced, including in the Variable stored in the env.
 ///
-/// Mirrors `addWhereClauseConstraintToEnv` from TypeScript, but using in-place
+/// from TypeScript, but using in-place
 /// mutation instead of env-frame constraint map (yo-self's SomeT stores constraints
 /// directly in required_trait_types / negative_trait_types ArrayLists).
 /// The identity TS compares trait bounds by (`traitType.id`). Restated here
@@ -1204,7 +1203,7 @@ _make_token :: (fn(tok : Token) -> Token)(tok);
 /// Return (name, type_expr, token) for `comptime(name) : Type` and variants.
 /// Returns None if the expression is not a comptime parameter.
 ///
-/// Mirrors `extractComptimeParameterInfo` from function.ts lines 91-133.
+/// from function.ts lines 91-133.
 ExtractComptimeResult :: struct(
   name : String,
   type_expr : AstExpr,
@@ -1267,7 +1266,7 @@ extract_comptime_parameter_info :: (
 // ---------------------------------------------------------------------------
 /// Evaluate a single function parameter expression.
 ///
-/// Mirrors `evaluateFunctionParameter` from function.ts lines 140-734.
+/// from function.ts lines 140-734.
 evaluate_function_parameter :: (
   fn(
     expr : AstExpr,
@@ -2028,7 +2027,7 @@ use_id :: (fn(generic(T : Type),
 // validate_concrete_type_constraints
 // ---------------------------------------------------------------------------
 /// Validate that a concrete type satisfies all trait constraints from a where clause.
-/// Mirrors `validateConcreteTypeConstraints` from function.ts lines 1466-1564.
+/// from function.ts lines 1466-1564.
 validate_concrete_type_constraints :: (
   fn(
     concrete_type : TypeValue,
@@ -2215,7 +2214,7 @@ validate_concrete_type_constraints :: (
 /// Try to apply a single trait constraint to a SomeType.
 /// Returns true if the trait was successfully applied, false if it failed (retry later).
 ///
-/// Mirrors `applySingleTraitConstraint` from function.ts lines 953-1104.
+/// from function.ts lines 953-1104.
 apply_single_trait_constraint :: (
   fn(
     lhs_expr : AstExpr,
@@ -2356,7 +2355,7 @@ apply_single_trait_constraint :: (
 /// Parse where clause constraint expressions and apply them.
 /// If collect_pending is true, failed individual traits are collected for retry.
 ///
-/// Mirrors `parseWhereClauseConstraints` from function.ts lines 1115-1433.
+/// from function.ts lines 1115-1433.
 parse_where_clause_constraints :: (
   fn(
     constraint_exprs : ArrayList(AstExpr),
@@ -2662,7 +2661,7 @@ parse_where_clause_constraints :: (
 /// Apply where-clause constraints in the current environment frame.
 /// Used when evaluating a function body to re-attach constraints.
 ///
-/// Mirrors `applyWhereClauseConstraints` from function.ts lines 1440-1461.
+/// from function.ts lines 1440-1461.
 apply_where_clause_constraints :: (
   fn(
     constraint_exprs : ArrayList(AstExpr),
@@ -2682,7 +2681,7 @@ apply_where_clause_constraints :: (
 /// First pass of where clause processing: scan LHS variables, create SomeTypes,
 /// and try to evaluate constraints. Returns pending constraints.
 ///
-/// Mirrors `prepareWhereClauseVariables` from function.ts lines 751-831.
+/// from function.ts lines 751-831.
 prepare_where_clause_variables :: (
   fn(
     constraint_exprs : ArrayList(AstExpr),
@@ -2766,7 +2765,7 @@ prepare_where_clause_variables :: (
 // ---------------------------------------------------------------------------
 /// Retry pending trait constraints. Returns still-pending constraints.
 ///
-/// Mirrors `retryPendingConstraints` from function.ts lines 837-866.
+/// from function.ts lines 837-866.
 retry_pending_constraints :: (
   fn(
     pending : ArrayList(PendingConstraint),
@@ -2809,7 +2808,7 @@ retry_pending_constraints :: (
 ///       The caller (evaluate_function_type) must pop the frame after evaluating
 ///       the return type.
 ///
-/// Mirrors `evaluateFunctionParameters` from function.ts lines 1570-2358.
+/// from function.ts lines 1570-2358.
 evaluate_function_parameters :: (
   fn(
     param_exprs : ArrayList(AstExpr),
@@ -3924,7 +3923,7 @@ param_exprs_for_error :: (fn(arg_list : ArrayList(AstExpr), idx : usize) -> Opti
 // ---------------------------------------------------------------------------
 /// Evaluate a `fn(...) -> ReturnType` expression.
 ///
-/// Mirrors `evaluateFunctionType` from function.ts lines 2366-2694.
+/// from function.ts lines 2366-2694.
 evaluate_function_type :: (
   fn(
     expr : AstExpr,
@@ -4960,7 +4959,7 @@ _resolve_some_types_deep :: (
 ///   `callee_env`  — callee-side environment (has generic bindings)
 /// Output: the resolved parameter type (concrete if a SomeT was bound, else unchanged)
 ///
-/// Mirrors `evaluateFunctionParameterTypeAgain` in
+/// in
 /// `src/evaluator/types/function.ts`.
 evaluate_function_parameter_type_again :: (
   fn(
@@ -5162,7 +5161,7 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
 ///   `callee_env`  — callee-side environment (has generic bindings)
 /// Output: the resolved return type
 ///
-/// Mirrors `evaluateFunctionReturnTypeAgain` in
+/// in
 /// `src/evaluator/types/function.ts`.
 evaluate_function_return_type_again :: (
   fn(

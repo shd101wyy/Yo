@@ -62,7 +62,7 @@ import("std/fmt");
 // ---------------------------------------------------------------------------
 (g_target_pointer_size_bits : u32) = u32(64);
 /// Set the target pointer size in bits. Must be positive and divisible by 8.
-/// Mirrors `setTargetPointerSize` in `src/types/utils.ts`.
+///
 set_target_pointer_size :: (fn(bits : u32) -> unit)(
   if((bits == u32(0)) || !((bits % u32(8)) == u32(0)), (), // invalid pointer size: silently ignore
   {
@@ -70,12 +70,12 @@ set_target_pointer_size :: (fn(bits : u32) -> unit)(
   })
 );
 /// Return the configured target pointer size in bits (default: 64).
-/// Mirrors `getTargetPointerSizeBits` in `src/types/utils.ts`.
+///
 get_target_pointer_size_bits :: (fn() -> u32)(
   g_target_pointer_size_bits
 );
 /// Return the configured target pointer size in bytes (default: 8).
-/// Mirrors `getTargetPointerSizeBytes` in `src/types/utils.ts`.
+///
 get_target_pointer_size_bytes :: (fn() -> u32)(
   g_target_pointer_size_bits / u32(8)
 );
@@ -90,7 +90,7 @@ IntRange :: ref(struct(min : i64, max : u64));
 // ---------------------------------------------------------------------------
 /// Return the bit-width of an integer type.
 /// Returns `.None` for non-integer types.
-/// Mirrors `getIntegerTypeBits` in `src/types/utils.ts`.
+///
 get_integer_type_bits :: (fn(ty : TypeValue) -> Option(u32))(
   match(
     ty,
@@ -103,7 +103,7 @@ get_integer_type_bits :: (fn(ty : TypeValue) -> Option(u32))(
 /// Return the value range of an integer type as an `IntRange`.
 /// Returns `.None` for non-integer types.
 /// Uses a precomputed table to avoid overflow from runtime bit-shifts.
-/// Mirrors `getIntegerTypeRange` in `src/types/utils.ts`.
+///
 get_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
   match(
     ty,
@@ -129,12 +129,12 @@ get_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
 // Comptime cast checks
 // ---------------------------------------------------------------------------
 /// Check whether a `comptime_int` value can be cast to `target_type`.
-/// Mirrors `canComptimeIntCastTo` in `src/types/utils.ts`.
+///
 can_comptime_int_cast_to :: (fn(target_type : TypeValue) -> bool)(
   is_integer_type(target_type) || is_comptime_int_type(target_type)
 );
 /// Check whether a `comptime_float` value can be cast to `target_type`.
-/// Mirrors `canComptimeFloatCastTo` in `src/types/utils.ts`.
+///
 can_comptime_float_cast_to :: (fn(target_type : TypeValue) -> bool)(
   is_float_type(target_type) || is_comptime_float_type(target_type)
 );
@@ -149,7 +149,7 @@ can_comptime_float_cast_to :: (fn(target_type : TypeValue) -> bool)(
 // Phase 2u additions — mirrors functions from src/types/utils.ts
 // ---------------------------------------------------------------------------
 /// Throw if `ty` is the `Void` type.
-/// Mirrors `prohibitVoidType` in `src/types/utils.ts`.
+///
 prohibit_void_type :: (fn(ty : TypeValue, token : Token, exn : Exception) -> unit)(
   match(
     ty,
@@ -171,7 +171,7 @@ prohibit_void_type :: (fn(ty : TypeValue, token : Token, exn : Exception) -> uni
 /// fast path. Returns true only when we *know* the type is
 /// comptime-only.
 ///
-/// Mirrors `isComptimeOnlyType` in `src/types/utils.ts`. Divergence:
+/// Divergence:
 /// TS takes an `env` argument (for Runtime-trait lookups in compound
 /// types) but the tag-only fast-path here never reads it; the
 /// parameter is dropped to keep `types/utils.yo` free of any
@@ -193,7 +193,7 @@ type_is_comptime_only :: (fn(ty : TypeValue) -> bool)(
 /// Return `true` if the type requires a `comptime` modifier.
 /// A type requires comptime when it is comptime-only (never runtime).
 ///
-/// Mirrors `typeRequiresComptimeModifier` in `src/types/utils.ts`.
+///
 /// `env` param dropped (was unused on the tag-only path).
 type_requires_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
   // Compound arms: a tuple/array containing a comptime-only member can
@@ -229,7 +229,7 @@ type_requires_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
 /// Return `true` if the type prohibits a `comptime` modifier.
 /// A type prohibits comptime when it is runtime-only (never comptime).
 ///
-/// Mirrors `typeProhibitsComptimeModifier` in `src/types/utils.ts`.
+///
 /// `env` param dropped (was unused on the tag-only path).
 type_prohibits_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
   // A type is runtime-only when it implements Runtime but NOT Comptime.
@@ -364,7 +364,7 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
 /// Best-effort `typeImplementsRuntime`. Uses the tag fast path; for
 /// undecided cases it conservatively returns `false` (Phase 3 will
 /// consult the `Runtime` trait in `env`). Mirrors the contract of
-/// `typeImplementsRuntime` in `src/evaluator/trait-checking.ts`.
+/// 
 /// `env` param dropped (was unused on the tag-only path).
 type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
   match(
@@ -374,7 +374,7 @@ type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
   )
 );
 /// Private depth-limited recursive helper for type_contains_rc_type.
-/// Mirrors `typeContainsRcType` in `src/types/utils.ts`.
+///
 /// Uses a depth limit instead of a checkedTypes set to prevent infinite
 /// recursion on self-referential types (e.g. recursive enums).
 _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
@@ -507,7 +507,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
 /// Recursively checks compound types (Array, Tuple, Union, Struct, Enum).
 /// Uses a depth limit to handle self-referential types safely.
 ///
-/// Mirrors `typeContainsRcType` in `src/types/utils.ts`.
+///
 type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
   _type_contains_rc_inner(ty, u32(0))
 );
@@ -611,7 +611,7 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
 /// frame-bound (its body may `unwind` out of the install frame), so it must
 /// not escape: be bound at module level, captured by a closure, or have a
 /// pointer formed to it (the §4 escape-boundary / ctl rules in the algebraic
-/// effects analysis). Mirrors `typeIsControlBound` in `src/types/utils.ts`.
+/// effects analysis).
 type_is_control_bound :: (fn(ty : TypeValue) -> bool)(
   _type_is_control_bound_inner(ty, u32(0))
 );
@@ -634,7 +634,7 @@ _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
 });
 /// Walker for `can_type_form_rc_cycle`: does `ty` (a field type reached from the
 /// root ref-struct `original_id`) reference back to a cyclic RC object? Mirrors
-/// `typeCanFormCyclicRcReference` in `src/types/utils.ts`. `visited` holds the
+///  `visited` holds the
 /// ids of the RC structs / enums already on the current path (id-keyed cycle
 /// guard — sound now that ref types carry stable ids). A different RC struct
 /// re-roots the search inline (recur with its id as the new `original_id` and
@@ -642,7 +642,7 @@ _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
 /// needed. The enum branch carries the same visited guard the struct path has
 /// (a recursive `ref(enum(… Self …))` would otherwise loop forever).
 /// Extract the element type a container holds behind its `?(*(E))` heap buffer field
-/// — the pointee `E` of the Option-wrapped pointer. Mirrors `bufferElementType` in
+/// — the pointee `E` of the Option-wrapped pointer. in
 /// src/types/utils.ts. Used to see through a container to its elements both for
 /// cycle detection and for the Acyclic auto-derive. A bare `*(E)` is intentionally
 /// NOT matched (non-owning raw pointer; doesn't participate in ARC cycles).
@@ -826,7 +826,7 @@ _type_refs_back_to_cyclic :: (
 );
 /// Return `true` if `ty` can form an RC reference cycle — used to decide which
 /// reference-semantics types need cycle-collecting GC. Structural DFS with an
-/// id-keyed visited set. Mirrors `canTypeFormRcCycle` in `src/types/utils.ts`,
+/// id-keyed visited set.
 /// EXCEPT the `typeImplementsAcyclic` short-circuit: that needs an `Environment`
 /// (to look up the `Acyclic` trait), which yo-self's codegen call sites do not
 /// carry — yo-self `TypeValue` stores no `env` like TS `type.env`. Omitting it
@@ -932,7 +932,7 @@ type_uses_small_rc_header :: (
 /// Return `true` if the type needs type-inference to resolve fully
 /// — specifically when an `Array(T, length)` carries an unknown
 /// `length` that the evaluator must compute. Mirrors
-/// `typeRequiresInference` in `src/types/utils.ts`.
+/// 
 ///
 /// **Stub returning `false`** — yo-self's `Array(element, length)`
 /// stores `length` as a plain `usize`, which is always concretely
@@ -949,7 +949,7 @@ type_requires_inference :: (fn(_ty : TypeValue) -> bool)(false);
 /// Phase 2 partial port: checks top-level variant only.
 /// Full recursive traversal is Phase 3.
 ///
-/// Mirrors `typeContainsSomeType` in `src/types/utils.ts`.
+///
 type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
@@ -1113,7 +1113,7 @@ _collect_some_types_into :: (
 /// Collect all SomeT (generic type variable) instances found anywhere in `ty`.
 /// Returns an ArrayList containing each SomeT found (in pre-order traversal).
 /// Phase 3: does not track visited types (safe for acyclic TypeValue trees).
-/// Mirrors `getAllSomeTypes` in `src/types/utils.ts`.
+///
 get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
   acc := ArrayList(TypeValue).new();
   visited_ids := ArrayList(String).new();
@@ -1317,7 +1317,7 @@ type_contains_some_type_deep :: (fn(ty : TypeValue) -> bool)({
 // Size and alignment utilities
 // ---------------------------------------------------------------------------
 //
-// Mirrors `getSizeOfType` and `getAlignmentOfType` in `src/types/utils.ts`.
+// and 
 //
 // Phase 2ao partial port: primitive and pointer types are fully handled.
 // Complex types (Struct, EnumT, Union) return `.None` because
@@ -1477,7 +1477,7 @@ _variant_storage_field_types :: (fn(fts : ArrayList(TypeValue)) -> ArrayList(Typ
   kept
 });
 /// Return the alignment of `ty` in bytes, or `.None` if not statically known.
-/// Mirrors `getAlignmentOfType` in `src/types/utils.ts`. Recurses into itself
+/// Recurses into itself
 /// via `recur` and into the field helpers defined just above.
 get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   // Resolve recursive-type SHELLS to their registered finals first — same
@@ -1580,7 +1580,7 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   )
 });
 /// Return the size of `ty` in bits, or `.None` if not statically known.
-/// Mirrors `getSizeOfType` in `src/types/utils.ts`.
+///
 // The cycle backstop's walk stack: named types currently being sized. A
 // re-entry means an infinite-size VALUE cycle — the definition-time check in
 // evaluator/types/enum.yo rejects those, so seeing one here means that check
@@ -1809,7 +1809,7 @@ g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 /// buffer alive across a value return). `depth` caps recursion in place of TS's
 /// object-identity `checkedTypes` set (yo-self `TypeValue` is value-semantic).
 /// Field loops are inlined (via `recur`) to avoid a mutual forward reference.
-/// Mirrors `typeRepresentationContainsRawPtr` in `src/types/utils.ts`.
+///
 _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
   cond(
     (depth == usize(0)) => false,
@@ -1886,7 +1886,7 @@ type_representation_contains_raw_ptr :: (fn(ty : TypeValue) -> bool)(
 );
 /// Internal: sibling of `_type_repr_contains_raw_ptr` that ALSO treats
 /// `object`/`Dyn` as a "yes" leaf — used by the slice-flowability arg-source
-/// check. Mirrors `typeMayProvideSliceSource` in `src/types/utils.ts`.
+/// check.
 _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
   cond(
     (depth == usize(0)) => false,

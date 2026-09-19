@@ -92,7 +92,7 @@ _expr_may_have_side_effects :: (fn(expr : AstExpr, context : FunctionGenerationC
 });
 /// Collect the variable names newly CREATED by an expression tree (temps from
 /// function-call results). For nested `&&`/`||`, only the first (unconditional)
-/// arg is descended into. Mirrors `collectCreatedVarNamesFromExpr`.
+/// arg is descended into.
 _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(String), context : FunctionGenerationContext) -> unit)(
   match(
     expr,
@@ -271,7 +271,7 @@ _emit_node_list_drops :: (
 /// only). Emissions from either source insert into the emitted-once guard
 /// and the short-circuit handled set, so begin-opened shapes (where the
 /// same drops are reachable through BOTH sources) emit exactly once.
-/// Mirrors `emitDropsForConditionalBranch` (the node source is Yo-only).
+/// (the node source is Yo-only).
 _emit_drops_for_conditional_branch :: (
   fn(
     var_names : HashSet(String),
@@ -367,7 +367,7 @@ _emit_drops_for_conditional_branch :: (
     );
   })
 );
-/// `&&` operator with short-circuit evaluation. Mirrors `generateOpAnd`.
+/// `&&` operator with short-circuit evaluation.
 generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
@@ -521,7 +521,7 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   context.short_circuit_root_node = prev_sc_root;
   sc_var
 });
-/// `||` operator with short-circuit evaluation. Mirrors `generateOpOr`.
+/// `||` operator with short-circuit evaluation.
 generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {

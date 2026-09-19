@@ -86,7 +86,7 @@ is_ignored_format_dir :: (fn(name : String) -> bool)(
 // ---------------------------------------------------------------------------
 // Public option / result records
 // ---------------------------------------------------------------------------
-/// Options passed to `format_yo_files`. Mirrors `FormatYoFilesOptions` in
+/// Options passed to `format_yo_files`. in
 /// `src/formatter.ts`. `check` = true switches to dry-run mode (no writes,
 /// `changed` lists files that WOULD be rewritten). `cwd` is the directory
 /// from which relative paths are resolved.
@@ -96,7 +96,7 @@ FormatYoFilesOptions :: struct(
 );
 /// Result of `format_yo_files`. `files` is every file visited, `changed` is
 /// the subset that was rewritten (or would be in `check` mode). Mirrors
-/// `FormatYoFilesResult` in `src/formatter.ts`.
+/// 
 FormatYoFilesResult :: struct(
   files : ArrayList(String),
   changed : ArrayList(String)
@@ -121,7 +121,7 @@ paren_is_call_delimiter :: (fn(previous : Option(Token)) -> bool)(
   )
 );
 /// True iff `value` is one of the function-type keywords (`fn` or
-/// `unsafe_fn`). Mirrors `isFunctionTypeKeyword`.
+/// `unsafe_fn`).
 is_function_type_keyword :: (fn(value : String) -> bool)(
   cond(
     (value == "fn") => true,
@@ -130,7 +130,7 @@ is_function_type_keyword :: (fn(value : String) -> bool)(
   )
 );
 /// True iff inserting an atom right after `previous` requires a leading
-/// space (so the tokens don't run together). Mirrors `needsSpaceBeforeAtom`.
+/// space (so the tokens don't run together).
 needs_space_before_atom :: (fn(previous : Option(Token)) -> bool)(
   match(
     previous,
@@ -159,7 +159,7 @@ needs_space_before_atom :: (fn(previous : Option(Token)) -> bool)(
 ///     corrupt `x & *p` into `x &*p`.
 ///   * Exception: `...` followed by `#` does not need a space.
 ///
-/// Mirrors `prefixOperatorNeedsLeadingSpace` (the unconditional
+/// (the unconditional
 /// after-any-operator rule dated from the retired maximal-munch lexer,
 /// where any operator pair could merge).
 prefix_operator_needs_leading_space :: (
@@ -202,7 +202,7 @@ prefix_operator_needs_leading_space :: (
 /// Strip trailing space / tab characters from `s` and return the trimmed
 /// string. Newlines and other whitespace are preserved.
 ///
-/// Mirrors `trimTrailingHorizontalWhitespace` in `src/formatter.ts` (which
+/// (which
 /// mutates `result` via `replace(/[ \t]+$/u, "")`). Used before emitting
 /// closing delimiters and statement terminators to absorb the placeholder
 /// space added by `ensureSpace`-style helpers.
@@ -299,7 +299,7 @@ previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Op
 });
 /// Walk past comment tokens (anything matching `is_comment_token`) after
 /// `index`, returning the nearest non-comment successor within
-/// `[index+1, end_exclusive)`. Mirrors `nextMeaningfulToken`.
+/// `[index+1, end_exclusive)`.
 next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclusive : usize) -> Option(Token))({
   (i : usize) = (index + usize(1));
   (result : Option(Token)) = Option(Token).None;
@@ -339,7 +339,7 @@ token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usiz
   found
 });
 /// True iff any token in `(left_index, right_index)` (exclusive both ends)
-/// has the given kind. No bracket nesting awareness. Mirrors `hasAnyToken`.
+/// has the given kind. No bracket nesting awareness.
 has_any_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
   (i : usize) = (left_index + usize(1));
   (found : bool) = false;
@@ -402,7 +402,7 @@ has_top_level_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_
 // Set/Map computation helpers
 // ---------------------------------------------------------------------------
 /// Walk past tokens whose index is in `skipped_indices`, returning the
-/// nearest non-skipped successor. Mirrors `nextToken`.
+/// nearest non-skipped successor.
 next_token :: (fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize), index : usize) -> Option(Token))({
   n := tokens.len();
   (next_index : usize) = (index + usize(1));
@@ -449,7 +449,7 @@ find_matching_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, 
   pairs
 });
 /// Build a map of each inner `LParen` index → its parent `LParen` index.
-/// Top-level parens are absent. Mirrors `findParentParenIndices`.
+/// Top-level parens are absent.
 find_parent_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, usize))({
   parents := HashMap(usize, usize).new();
   stack := ArrayList(usize).new();
@@ -481,7 +481,7 @@ find_parent_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, us
 });
 /// Compute the set of `LCurlyBracket` and matching `RCurlyBracket` indices
 /// that should render on a single line (no top-level semicolons inside).
-/// Mirrors `findInlineCurlyIndices`. Stack frames track per-frame
+/// Stack frames track per-frame
 /// `paren_depth` / `bracket_depth` so semicolons inside nested calls don't
 /// trigger multiline mode for the enclosing curly.
 find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
@@ -552,7 +552,7 @@ find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
   inline_indices
 });
 /// Compute indices of `LBracket` / `RBracket` pairs that span multiple
-/// source rows. Mirrors `findMultilineBracketIndices`.
+/// source rows.
 find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
   multiline_indices := HashSet(usize).new();
   stack := ArrayList(usize).new();
@@ -586,7 +586,7 @@ find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usiz
 });
 /// Compute indices of `LCurlyBracket` / `RCurlyBracket` pairs that are
 /// marked inline-eligible (by `find_inline_curly_indices`) but actually
-/// span multiple rows in the source. Mirrors `findMultilineInlineCurlyIndices`.
+/// span multiple rows in the source.
 find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_curly_indices : HashSet(usize)) -> HashSet(usize))({
   multiline_indices := HashSet(usize).new();
   stack := ArrayList(usize).new();
@@ -639,7 +639,7 @@ should_force_operator_rhs_block :: (
 );
 /// True iff the paren follows a control-flow identifier (`cond`, `if`,
 /// `match`) and contains a top-level curly. Forces the paren range to
-/// render multiline. Mirrors `shouldForceControlFlowMultiline`.
+/// render multiline.
 should_force_control_flow_multiline :: (
   fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, previous : Option(Token)) -> bool
 )(
@@ -777,7 +777,7 @@ has_top_level_field_block :: (
 /// True iff the paren range contains a top-level closure (anything that
 /// matches `(...) => body` or `(...) -> body` at the paren's top level)
 /// followed by a curly. Used to detect `xs.iter(x => { ... })`-style
-/// calls so they're rendered inline. Mirrors `hasDirectTopLevelClosureArgument`.
+/// calls so they're rendered inline.
 has_direct_top_level_closure_argument :: (
   fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, previous : Option(Token)) -> bool
 )({
@@ -860,7 +860,7 @@ has_direct_top_level_closure_argument :: (
   )
 });
 /// True iff the paren range is `(.X)` (a parenthesised dot-dereference,
-/// e.g. `ptr.*(x)`). Mirrors `isParenthesizedDotDeref`.
+/// e.g. `ptr.*(x)`).
 is_parenthesized_dot_deref :: (
   fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )({
@@ -1617,7 +1617,7 @@ paren_removal_would_expose_operator_rhs_infix :: (
   )
 });
 /// Compute the set of paren indices that should be elided as redundant
-/// grouping parens. Mirrors `findRedundantGroupingParenIndices`.
+/// grouping parens.
 find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
   skipped_indices := HashSet(usize).new();
   matching_parens := find_matching_paren_indices(tokens);
@@ -1786,7 +1786,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : ArrayList(Token)) -> ArrayList(
   )
 });
 /// Compute the set of paren indices that should render on multiple
-/// lines. Mirrors `findMultilineParenIndices`.
+/// lines.
 find_multiline_paren_indices :: (
   fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize)) -> HashSet(usize)
 )({
@@ -1853,7 +1853,7 @@ find_multiline_paren_indices :: (
 // ---------------------------------------------------------------------------
 /// True iff `token` (an Operator like `*`, `!`, `?`) is tightly bound to a
 /// following `(` — i.e. should render as a prefix operator without a space
-/// before the paren (e.g. `*(T)`, `!(x)`). Mirrors `isTightlyBoundOperator`.
+/// before the paren (e.g. `*(T)`, `!(x)`).
 is_tightly_bound_operator :: (
   fn(token : Token, previous : Option(Token), prev_prev : Option(Token), next : Option(Token)) -> bool
 )({
@@ -2252,7 +2252,7 @@ raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize)
 /// bytes per call in tests/internal/formatter.test.yo), while the module
 /// globals pattern (`g_loader_std_path` family) is allocation-free.
 (g_fmt_elided_tokens : usize) = usize(0);
-/// 1-to-1 port of `formatYoSource` in `src/formatter.ts`. Throws via the
+/// 1-to-1 port of  Throws via the
 /// implicit `Exception` handler on lexer/parser errors.
 ///
 /// Algorithm summary:
@@ -3253,7 +3253,7 @@ format_yo_source :: (fn(input : String, module_path : String, exn : Exception) -
 // Directory walking + batch formatting
 // ---------------------------------------------------------------------------
 /// Recursively collect every `*.yo` file under `target_path` into `files`.
-/// Skips directories named in `is_ignored_format_dir`. Mirrors `collectYoFiles`.
+/// Skips directories named in `is_ignored_format_dir`.
 collect_yo_files :: (
   fn(
     target_path : Path,
@@ -3304,7 +3304,7 @@ collect_yo_files :: (
 /// already absolute (TS: `path.resolve(cwd, inputPath)`, formatter.ts:484).
 /// Throws via `exn` if any input path does not exist. The result is sorted
 /// with adjacent duplicates dropped — TS collects into a `Set` and returns
-/// `[...files].sort()` (formatter.ts:481, :491). Mirrors `findYoFormatFiles`.
+/// `[...files].sort()` (formatter.ts:481, :491).
 find_yo_format_files :: (
   fn(
     input_paths : ArrayList(String),
@@ -3370,7 +3370,7 @@ find_yo_format_files :: (
 });
 /// Format every `.yo` file found under `input_paths`. Returns the list of
 /// files visited and the subset whose content would change. In `check` mode
-/// no file is written. Mirrors `formatYoFiles`.
+/// no file is written.
 format_yo_files :: (
   fn(
     input_paths : ArrayList(String),

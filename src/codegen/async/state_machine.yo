@@ -34,8 +34,7 @@
 { Emitter } :: import("../../emitter.yo");
 { emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
-/// Information about a generated state machine. Mirrors `StateMachineInfo`
-///.
+/// Information about a generated state machine.
 StateMachineInfo :: ref(
   struct(
     /// The C struct name for this state machine.
@@ -127,7 +126,7 @@ CLEANUP_SEGMENT :: usize.MAX;
 /// Collect the IDs of all runtime variables referenced in `expr` into `refs`,
 /// resolving SSA remapping and RC-ownership aliasing. Skips nested async-block
 /// bodies (their refs belong to the inner state machine) but still walks their
-/// deferred dup expressions. Mirrors `collectVariableRefsInExpr`
+/// deferred dup expressions.
 ///. yo-self threads `context` because the ExprInfo (env +
 /// deferred expressions) lives in the codegen side-table, not on the expr.
 collect_variable_refs_in_expr :: (
@@ -358,7 +357,7 @@ collect_variable_refs_in_expr :: (
     );
   });
 });
-/// Result of cross-boundary variable analysis. Mirrors `CrossBoundaryResult`
+/// Result of cross-boundary variable analysis.
 ///. `variable_segments` maps each variable id to the set
 /// of segment indices it is referenced in (`CLEANUP_SEGMENT` = body-level drops).
 CrossBoundaryResult :: ref(
@@ -651,7 +650,7 @@ compute_cross_boundary_variables :: (
 /// A variable's live range `[min_segment, max_segment]` over numbered segments.
 _SlotRange :: ref(struct(min : usize, max : usize));
 /// An overlapping storage slot shared by ≥2 non-RC value vars with disjoint live
-/// ranges. Mirrors `OverlappingSlot`.
+/// ranges.
 OverlappingSlot :: ref(
   struct(
     /// The struct field name, e.g. `slot_0`.
@@ -662,8 +661,7 @@ OverlappingSlot :: ref(
     variable_names : ArrayList(String)
   )
 );
-/// Result of overlapping storage analysis. Mirrors `OverlappingStorageResult`
-///.
+/// Result of overlapping storage analysis.
 OverlappingStorageResult :: ref(
   struct(
     /// Maps variable IDs to their aliased slot field name.
@@ -692,7 +690,7 @@ _find_captured_by_id :: (
 });
 /// Compute overlapping storage slots for cross-boundary variables: same-C-type
 /// non-RC value vars whose live ranges don't overlap can share one struct field
-/// (greedy graph coloring per type group). Mirrors `computeOverlappingSlots`
+/// (greedy graph coloring per type group).
 ///. NOTE: yo-self HashMap is not insertion-ordered, so
 /// type/var iteration is driven off the ordered `eligible`/`ordered_c_types`
 /// lists to keep slot assignment deterministic (any valid coloring is correct —
@@ -912,7 +910,7 @@ compute_overlapping_slots :: (
   });
   OverlappingStorageResult(slot_aliases : slot_aliases, slots : slots)
 });
-/// True when an expression contains a `return`. Mirrors `exprContainsReturn`
+/// True when an expression contains a `return`.
 /// — the resume generator's local copy (TS keeps a
 /// duplicate of `exprContainsReturnStatement` in this file).
 expr_contains_return :: (fn(expr : AstExpr) -> bool)({
@@ -938,7 +936,7 @@ expr_contains_return :: (fn(expr : AstExpr) -> bool)({
 /// True when `future_type` must be driven through the GENERIC Future vtable
 /// (`__yo_set_effect_fn` etc.) rather than a concrete capture struct — i.e. it is
 /// a Future SomeType with no concrete C type registered (nor a registered
-/// resolved-concrete). Mirrors `usesGenericFutureInterface`.
+/// resolved-concrete).
 uses_generic_future_interface :: (fn(future_type : TypeValue, context : FunctionGenerationContext) -> bool)({
   if(!(is_some_type(future_type) && type_implements_future(future_type)), {
     return(false);
@@ -1185,8 +1183,7 @@ find_bundle_field_name :: (
 /// Inject each function-typed member of a struct/source-namespace effect bundle
 /// into the awaited future (resolving the member's C code from SM captures /
 /// the using-arg value / evidence params / env given-bindings), via the generic
-/// vtable or a direct capture store. Mirrors `emitEffectRecordInjectionForSM`
-///.
+/// vtable or a direct capture store.
 emit_effect_record_injection_for_sm :: (
   fn(
     source_namespace_type : TypeValue,
@@ -1353,7 +1350,7 @@ emit_effect_record_injection_for_sm :: (
 /// Inject effect handlers into an awaited future inside a state machine: for each
 /// effect on the future's trait, a function-type effect resolves its handler from
 /// the SM scope; a struct/source-namespace effect forwards the outer bundle field
-/// (or injects each member). Mirrors `emitEffectInjectionForSM`
+/// (or injects each member).
 ///. yo-self iterates the `FutureTraitT` effect arrays
 /// (TS models a single `effect`).
 emit_effect_injection_for_sm :: (
@@ -1987,8 +1984,7 @@ _emit_last_segment_completion :: (
 /// skipping the store is what the no-target path already does.
 ///
 /// Aliased ids still have storage (an `await_future_N` or an overlapping slot),
-/// so they count as present. Mirrors `awaitTargetHasStructField`
-///.
+/// so they count as present.
 /// True when the state-machine variable `target_variable_id` has the same C type
 /// as `result_type`. Distinguishes an arm's binding for THIS await point from a
 /// binding for a SECOND await inside the same arm, which suspends into a later
@@ -3284,7 +3280,6 @@ _emit_chained_arm_binding :: (
 /// Branch codes start at 1 (_alloc_cond_branch_codes), so the calloc-zeroed
 /// field of a never-taken cond cannot match a case here. Mirrors the
 /// post-guard chained processing in `generateAsyncBlockResumeFunction`
-///.
 _emit_outer_chained_branch_layers :: (
   fn(
     prev_await : AwaitPoint,

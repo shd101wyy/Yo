@@ -182,7 +182,7 @@ is_type_registered_as_trait :: (fn(type_id : String, query_trait : TypeValue, en
 /// Return type of `type_implements_trait`.
 ///
 /// Mirrors the `{ implemented: boolean; env: Environment }` return type of
-/// `typeImplementsTrait` in `src/evaluator/trait-checking.ts`.
+/// 
 TraitCheckResult :: struct(
   implemented : bool,
   env : Environment
@@ -306,7 +306,7 @@ _type_id_for_trait_check :: (fn(ty : TypeValue) -> String)(
 ///   * `Some(false)` — type definitely does NOT implement Comptime
 ///   * `.None`       — undecided (caller must check the `Comptime` trait in env)
 ///
-/// Mirrors `typeImplementsComptimeBuiltin` in `src/evaluator/trait-checking.ts`.
+///
 type_implements_comptime_builtin :: (fn(ty : TypeValue) -> Option(bool))(
   match(
     ty,
@@ -439,7 +439,7 @@ _find_matching_generic_impl :: (fn(target : TypeValue, trait_ty : TypeValue, env
 /// types — e.g. `impl(TreeNode, Clone(...))` whose function bodies
 /// validate `TreeNode <: Clone` before the impl is formally registered.
 ///
-/// Mirrors `isConcreteImplBeingRegistered` in
+/// in
 /// `src/evaluator/values/impl.ts:825-832`.
 _is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> bool)(
   is_concrete_impl_being_registered(type_id, trait_id)
@@ -527,7 +527,7 @@ resolve_assoc_type_for_target :: (
 /// matching constraint types against resolved associated types (`Item := A`
 /// against `Item = i32` binds `A := i32` via `synthesize_types`).
 ///
-/// Mirrors `checkAssociatedTypeConstraints` in `src/evaluator/trait-checking.ts:240`.
+/// in `src/evaluator/trait-checking.ts:240`.
 ///
 /// Adaptation: TS step 1 reads `targetType.trait.fields` (concrete trait VALUES
 /// attached to the type). yo-self's concrete registry (`g_type_trait_registry`)
@@ -645,7 +645,7 @@ _check_associated_type_constraints :: (
 ///
 /// Use `type_implements_trait_bool` when only the boolean result is needed.
 ///
-/// Mirrors `typeImplementsTrait` in `src/evaluator/trait-checking.ts`.
+///
 type_implements_trait :: (
   fn(
     target_type : TypeValue,
@@ -1120,7 +1120,7 @@ type_implements_trait :: (
     target = resolved;
   });
   // 7.5. Concrete impl currently being registered (recursive types).
-  // Mirrors `currentlyRegisteringConcreteImpls` lookup in TS.
+  // lookup in TS.
   if(_is_concrete_impl_being_registered(
     _trait_type_id(target),
     _trait_type_id(trait_type)
@@ -1181,7 +1181,7 @@ type_implements_trait :: (
 // ---------------------------------------------------------------------------
 /// Boolean wrapper around `type_implements_trait`.
 ///
-/// Mirrors `typeImplementsTraitBool` in `src/evaluator/trait-checking.ts`.
+///
 type_implements_trait_bool :: (
   fn(
     target_type : TypeValue,
@@ -1269,7 +1269,7 @@ check_self_constraints_violation_msg :: (
 /// Check that a type satisfies all positive and negative selfConstraints on a
 /// trait. Throws if any constraint is not satisfied.
 ///
-/// Mirrors `checkTypeImplementsSelfConstraints` in
+/// in
 /// `src/evaluator/trait-checking.ts`.
 check_type_implements_self_constraints :: (
   fn(
@@ -1291,7 +1291,7 @@ check_type_implements_self_constraints :: (
 // ---------------------------------------------------------------------------
 /// Check if a type implements the Comptime trait.
 ///
-/// Mirrors `typeImplementsComptime` in `src/evaluator/trait-checking.ts`.
+///
 type_implements_comptime :: (fn(ty : TypeValue, env : Environment) -> bool)({
   match(
     type_implements_comptime_builtin(ty),
@@ -1311,7 +1311,7 @@ type_implements_comptime :: (fn(ty : TypeValue, env : Environment) -> bool)({
 // ---------------------------------------------------------------------------
 /// Check if a type implements the Runtime trait (full env-aware version).
 ///
-/// Mirrors `typeImplementsRuntime` in `src/evaluator/trait-checking.ts`.
+///
 type_implements_runtime_full :: (fn(ty : TypeValue, env : Environment) -> bool)({
   match(
     type_implements_runtime_builtin(ty),
@@ -1331,13 +1331,13 @@ type_implements_runtime_full :: (fn(ty : TypeValue, env : Environment) -> bool)(
 // ---------------------------------------------------------------------------
 /// Mark a type as currently undergoing Send auto-derivation.
 ///
-/// Mirrors `beginSendDerivation` in `src/evaluator/trait-checking.ts`.
+///
 begin_send_derivation :: (fn(type_id : String) -> unit)({
   g_send_derivation_in_progress.push(type_id);
 });
 /// Remove a type from the Send auto-derivation in-progress set.
 ///
-/// Mirrors `endSendDerivation` in `src/evaluator/trait-checking.ts`.
+///
 end_send_derivation :: (fn(type_id : String) -> unit)({
   n := g_send_derivation_in_progress.len();
   (i : usize) = usize(0);
@@ -1369,7 +1369,7 @@ end_send_derivation :: (fn(type_id : String) -> unit)({
 // ---------------------------------------------------------------------------
 /// Check if a type implements the Send trait.
 ///
-/// Mirrors `typeImplementsSend` in `src/evaluator/trait-checking.ts`.
+///
 type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)({
   // Cycle break: if this type is currently being checked for Send derivation,
   // optimistically assume it implements Send.
@@ -1405,7 +1405,7 @@ type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)({
 // ---------------------------------------------------------------------------
 /// Check if a type implements the Dispose trait.
 ///
-/// Mirrors `typeImplementsDispose` in `src/evaluator/trait-checking.ts`.
+///
 type_implements_dispose :: (fn(ty : TypeValue, env : Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from("Dispose")),
@@ -1418,7 +1418,7 @@ type_implements_dispose :: (fn(ty : TypeValue, env : Environment) -> bool)(
 // ---------------------------------------------------------------------------
 /// Check if a type implements the Acyclic trait.
 ///
-/// Mirrors `typeImplementsAcyclic` in `src/evaluator/trait-checking.ts`.
+///
 type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from("Acyclic")),
@@ -1431,7 +1431,7 @@ type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
 // ---------------------------------------------------------------------------
 /// Check if a type implements Fn (is a function-like type).
 ///
-/// Mirrors `typeImplementsFn` in `src/evaluator/trait-checking.ts`.
+///
 ///
 /// Note: the `resolvedConcreteType` chain walk from TypeScript is Phase 3
 /// (SomeType.resolvedConcreteType is not yet in yo-self's SomeT).
@@ -1488,7 +1488,7 @@ type_implements_fn :: (fn(ty : TypeValue) -> bool)(
 ///
 /// Note: `resolvedConcreteType` chain (TypeScript step 2b) is Phase 3.
 ///
-/// Mirrors `extractFnTraitFromType` in `src/evaluator/trait-checking.ts`.
+///
 extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty,
@@ -1668,7 +1668,7 @@ or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 // ---------------------------------------------------------------------------
 /// Check if a type implements Future (is a future-like type).
 ///
-/// Mirrors `typeImplementsFuture` in `src/evaluator/trait-checking.ts`.
+///
 type_implements_future :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
@@ -1892,7 +1892,7 @@ type_contains_some_type_for_codegen_param :: (
 // ---------------------------------------------------------------------------
 /// Extract FutureTraitT from a type.
 ///
-/// Mirrors `extractFutureTraitFromType` in `src/evaluator/trait-checking.ts`.
+///
 extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
@@ -1951,13 +1951,13 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
 // ---------------------------------------------------------------------------
 /// Check if a type is comptime-only (comptime && !runtime).
 ///
-/// Mirrors `typeIsComptimeOnly` in `src/evaluator/trait-checking.ts`.
+///
 type_is_comptime_only_full :: (fn(ty : TypeValue, env : Environment) -> bool)(
   type_implements_comptime(ty, env) && !(type_implements_runtime_full(ty, env))
 );
 /// Check if a type is runtime-only (!comptime && runtime).
 ///
-/// Mirrors `typeIsRuntimeOnly` in `src/evaluator/trait-checking.ts`.
+///
 type_is_runtime_only :: (fn(ty : TypeValue, env : Environment) -> bool)(
   !(type_implements_comptime(ty, env)) && type_implements_runtime_full(ty, env)
 );
@@ -1968,7 +1968,7 @@ type_is_runtime_only :: (fn(ty : TypeValue, env : Environment) -> bool)(
 /// (comptime or runtime). Throws an error if the type is incompatible in all
 /// contexts.
 ///
-/// Mirrors `validateTypeAvailability` in `src/evaluator/trait-checking.ts`.
+///
 validate_type_availability :: (
   fn(
     ty : TypeValue,
@@ -1992,7 +1992,7 @@ validate_type_availability :: (
 /// Returns None if all SomeTypes have the constraint, or if the type is
 /// concretely comptime or concretely not comptime.
 ///
-/// Mirrors `findSomeTypeMissingComptimeConstraint` in
+/// in
 /// `src/evaluator/trait-checking.ts`.
 find_some_type_missing_comptime_constraint :: (
   fn(

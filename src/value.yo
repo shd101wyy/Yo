@@ -60,7 +60,7 @@ EvalValue :: ref(
     /// For TemplateString tokens the delimiters are stripped by the lexer.
     StrLit(raw : String),
     /// Runtime variable reference: type is known from the environment, but the
-    /// value is only available at runtime.  Mirrors `UnknownValue` in the TS
+    /// value is only available at runtime.  in the TS
     /// evaluator for non-comptime bindings.
     VarRef(name : String),
     /// A compile-time known enum variant value.
@@ -557,7 +557,7 @@ impl(
 // ---------------------------------------------------------------------------
 { type_to_string } :: import("./types/string.yo");
 /// Convert an `EvalValue` to a human-readable string for debugging.
-/// Mirrors `valueToString` in `src/value.ts`.
+///
 value_to_string :: (fn(v : EvalValue) -> String)(
   match(
     v,
@@ -835,28 +835,28 @@ is_runtime_only_unknown_val :: (fn(v : EvalValue) -> bool)(
   match(v, .UnknownVal(_, ro) => ro, _ => false)
 );
 /// Check if `v` is a numeric literal (int or float). Mirrors TS
-/// `isNumberValue` in `src/value.ts`, which covers all numeric
+/// , which covers all numeric
 /// variants. yo-self stores numerics as `IntLit` / `FloatLit` raw
 /// text; this helper is the disjunction of those two checks.
 is_number_val :: (fn(v : EvalValue) -> bool)(
   match(v, .IntLit(_) => true, .FloatLit(_) => true, _ => false)
 );
 /// Check if `v` is a compile-time integer literal (`IntLit`).
-/// Mirrors TS `isComptimeIntValue` in `src/value.ts`. yo-self stores
+/// Mirrors TS  yo-self stores
 /// integer literals as raw text in `IntLit(raw)`; this helper is the
 /// canonical-named alias of `is_int_lit`.
 is_comptime_int_value :: (fn(v : EvalValue) -> bool)(
   match(v, .IntLit(_) => true, _ => false)
 );
 /// Check if `v` is a compile-time float literal (`FloatLit`).
-/// Mirrors TS `isComptimeFloatValue` in `src/value.ts`. yo-self
+/// Mirrors TS  yo-self
 /// stores float literals as raw text in `FloatLit(raw)`; this helper
 /// is the canonical-named alias of `is_float_lit`.
 is_comptime_float_value :: (fn(v : EvalValue) -> bool)(
   match(v, .FloatLit(_) => true, _ => false)
 );
 /// Check if `v` is a compile-time string literal (`StrLit`). Mirrors
-/// TS `isComptimeStringValue` in `src/value.ts`. yo-self does not
+/// TS  yo-self does not
 /// distinguish runtime-`str` from comptime-string at the EvalValue
 /// level — the lexer-stored `StrLit(raw)` is the comptime-string
 /// representation; runtime `str` values are constructed via
@@ -874,7 +874,7 @@ is_type_value :: (fn(opt : Option(EvalValue)) -> bool)(
   )
 );
 /// Create a compile-time unknown placeholder for type `ty`.
-/// Mirrors `createUnknownValue` in `src/value.ts` for the common (non-SomeType) case.
+/// for the common (non-SomeType) case.
 /// For type-level unknowns (`TypeUni(0)`), prefer `create_unknown_val_with_name`
 /// which builds a `TypeVal(SomeType)` — required for extern/c_include fields whose
 /// declared type is `Type` so that later expressions can use the name as a type
@@ -929,7 +929,7 @@ EvalResult :: ref(
 eval_result :: (fn(value : EvalValue, ty : TypeValue) -> EvalResult)(
   EvalResult(value : value, ty : ty)
 );
-/// Wrap a TypeValue as a TypeVal EvalValue. Mirrors `createTypeValue` in
+/// Wrap a TypeValue as a TypeVal EvalValue. in
 /// `src/value.ts`. The "meta type" (TypeUni) is computed separately via
 /// `type_of_type` at call sites that need it.
 create_type_value :: (fn(ty : TypeValue) -> EvalValue)(

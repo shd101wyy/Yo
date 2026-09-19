@@ -17,7 +17,7 @@
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 /// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
 /// when the array has a result variable name. Returns `.None` when the node is
-/// not a typed array call (fall-through). Mirrors `generateAnonymousArray`.
+/// not a typed array call (fall-through).
 generate_anonymous_array :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   array_type := ei.ty;
@@ -109,7 +109,7 @@ generate_anonymous_array :: (fn(expr : AstExpr, indent : String, context : Funct
   )
 });
 /// `__yo_array_fill(ArrayType, value)` builtin — declares an array and fills it
-/// with `value` via a C `for` loop. Mirrors `generateYoArrayFill`.
+/// with `value` via a C `for` loop.
 generate_yo_array_fill :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: __yo_array_fill has no evaluation info */")));
   array_type_arg := match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */"))), .Atom(_, _) => return(String.from("/* ERROR: __yo_array_fill requires 2 arguments */")));

@@ -231,7 +231,7 @@ _emit_capture_drop_lines :: (
   });
 });
 /// Emit a spawn-wrapper function (RC cleanup for the heap-copied capture struct)
-/// to the declaration section and return its C name. Mirrors `generateSpawnWrapper`.
+/// to the declaration section and return its C name.
 _generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name : String, capture_type : TypeValue, runtime_args : String, context : FunctionGenerationContext) -> String)({
   // Phase 2: the wrapper is a file-scope fn — its name embeds the CLOSURE's
   // C name (unique per closure) plus a per-closure occurrence digit, so the
@@ -396,11 +396,11 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
     Option(String).Some(tv)
   })
 });
-/// `__yo_thread_spawn(cb)` — spawn a dedicated OS thread. Mirrors `generateThreadSpawnCall`.
+/// `__yo_thread_spawn(cb)` — spawn a dedicated OS thread.
 generate_thread_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))(
   _generate_spawn_call(expr, indent, context, false)
 );
-/// `__yo_worker_spawn(cb)` — spawn a task on the worker pool. Mirrors `generateWorkerSpawnCall`.
+/// `__yo_worker_spawn(cb)` — spawn a task on the worker pool.
 generate_worker_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))(
   _generate_spawn_call(expr, indent, context, true)
 );

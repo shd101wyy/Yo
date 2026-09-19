@@ -87,7 +87,7 @@ _concrete_c_name :: (fn(concrete_type : TypeValue, context : FunctionGenerationC
     )
   )
 );
-/// Generate C code for a `dyn()` constructor call. Mirrors `generateDynCall`.
+/// Generate C code for a `dyn()` constructor call.
 generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() not evaluated */")));
   trait_values := match(expr_info_dyn_call_trait_values(ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));

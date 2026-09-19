@@ -266,7 +266,7 @@ _tuple_field_access :: (fn(object_type : TypeValue, object_code : String, field_
   ))
 );
 /// Generate field access for structs, objects, enums, pointers, tuples, dyn,
-/// newtypes, and module namespaces. Mirrors `generateFieldAccess`.
+/// newtypes, and module namespaces.
 generate_field_access :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());

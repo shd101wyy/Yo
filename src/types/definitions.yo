@@ -39,24 +39,24 @@ FuncMeta :: struct(
   // implicit (`using`) parameter labels (parallel to Func.implicit_types)
   implicit_spreads : ArrayList(bool),
   // isEffectRowSpread flags
-  /// Mirrors `FunctionType.return.isCompileTimeOnly`:
+  ///:
   /// true when the declared return is `comptime(...)`. `helper.ts:1731` gates
   /// CTFE on this; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
   /// `should_cache` use it to route type-constructor calls through memoization.
   result_is_comptime_only : bool,
   /// Per-parameter `ref` flags (parallel to param labels/types). `inout(name):T`
-  /// = by-reference borrow. Mirrors `FunctionParameter.isRef`. Used by
+  /// = by-reference borrow. Used by
   /// `is_flowable_expr` (the `inout(T)`-flow soundness check).
   param_is_ref : ArrayList(bool),
   /// Per-parameter `own` flags. `own(name):T` = callee takes ownership of the
-  /// Rc value. Mirrors `FunctionParameter.isOwningTheRcValue`. Used by
+  /// Rc value. Used by
   /// `require_ref_own_argument_exclusivity`.
   param_is_owning : ArrayList(bool),
   /// True when the return was declared `-> inout(T)`. Mirrors
   /// `FunctionType.return.isRef`. `is_flowable_expr` requires a flowable return.
   result_is_ref : bool,
   /// True when the param list ends with a `...` variadic marker (C-style
-  /// variadic externs). Mirrors `FunctionType.variadicParameter` presence; the
+  /// variadic externs). presence; the
   /// call-site arg-count check is skipped when set.
   has_variadic : bool,
   /// FFI language tag (`extern "c"`/`"yo"` / `c_include`). `Some("c")` etc. for
@@ -74,7 +74,7 @@ FuncMeta :: struct(
   /// by `type_is_control_bound` + the §4 escape-boundary checks.
   is_control : bool,
   /// The variadic parameter's BINDING NAME (`...(xs : T)` → "xs"), when the
-  /// fn type has one. Mirrors `FunctionType.variadicParameter.label`. The
+  /// fn type has one. The
   /// variadic TYPE cannot live here (FuncMeta is declared before TypeValue —
   /// no forward references) — it rides in `Func.variadic_types` (0-or-1).
   /// TypeInfo.Function reads both (type-fns.ts:1134 appends the variadic to
@@ -171,7 +171,7 @@ TypeValue :: ref(
       meta : Box(FuncMeta),
       /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
       /// poor man's Option(Self) since Self-typed Options are unavailable in
-      /// a variant position). Mirrors `FunctionType.variadicParameter.type`;
+      /// a variant position).
       /// the label/comptime flags live in `FuncMeta.variadic_label` /
       /// `variadic_comptime` (FuncMeta cannot reference TypeValue).
       variadic_types : ArrayList(Self)
@@ -221,12 +221,12 @@ TypeValue :: ref(
     /// Each variant has a name and an `ArrayList` of field types (possibly empty).
     /// `selected_variant_name` is set when the type has been narrowed to a specific
     /// variant (e.g. after pattern matching or destructuring).
-    /// Mirrors `EnumType.selectedVariantName` in `src/types/definitions.ts`.
+    ///
     /// `variant_field_labels` holds the per-variant label names in declaration
     /// order — used by labeled destructuring and match (Phase 2ae+).
     /// `id` uniquely identifies this enum definition (mirrors `EnumType.id`).
     /// `variant_discriminants` holds one discriminant value per variant (in order).
-    /// Mirrors `EnumVariant.discriminant` in `src/types/definitions.ts`.
+    ///
     /// `is_reference_semantics` = true for `ref(enum(...))`, false for `enum(...)`.
     /// `is_atomic_rc` = true for `atomic(ref(enum(...)))`. Mirror
     /// `EnumType.isReferenceSemantics` / `EnumType.isAtomicRc` in
@@ -300,7 +300,7 @@ TypeValue :: ref(
       // When present, this SomeT represents a higher-kinded type variable
       // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
       // captures the kind so `F(A)` can be evaluated as a TypeApplication.
-      // Mirrors `SomeType.kindFunctionType` in `src/types/definitions.ts:238`.
+      // in `src/types/definitions.ts:238`.
       kind_function_type : Option(Self),
       // The resolved concrete type for this SomeType, carried as a SHARED
       // MUTABLE CELL (a one-element ArrayList used as a ref-semantics box:

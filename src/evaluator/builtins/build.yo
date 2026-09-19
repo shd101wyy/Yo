@@ -469,7 +469,7 @@ impl(
     self.doc_configs.push(config);
   }),
   /// Attach a system library to a registered module. No-op when the module is
-  /// unknown or the library is already attached. Mirrors `registerModuleLink`.
+  /// unknown or the library is already attached.
   register_module_link : (fn(inout(self) : Self, module_name : String, system_library_name : String) -> unit)({
     i := usize(0);
     n := self.modules.len();
@@ -689,7 +689,7 @@ get_build_registry :: (fn() -> BuildRegistry)(
     }
   )
 );
-/// Empty the global registry and drop it. Mirrors `clearBuildRegistry`.
+/// Empty the global registry and drop it.
 clear_build_registry :: (fn() -> unit)({
   match(
     g_build_registry,
@@ -728,7 +728,7 @@ _build_arg_value :: (
 );
 /// True when any argument's value is missing or `UnknownVal` — i.e. this
 /// is a function-definition type-check ("trial") run rather than a real
-/// call with concrete comptime args. Mirrors `isTrialEvaluation` in
+/// call with concrete comptime args. in
 /// `build.ts`. During `check`, build calls inside function bodies are
 /// always trial (their comptime params are `UnknownVal`).
 _build_is_trial :: (
@@ -754,7 +754,7 @@ _build_is_trial :: (
   });
   trial
 });
-/// Set the expr's result to `unit`. Mirrors `makeUnitResult`.
+/// Set the expr's result to `unit`.
 _build_unit_result :: (
   fn(expr : AstExpr, env : Environment, ctx : EvalContext) -> AstExpr
 )({
@@ -764,7 +764,7 @@ _build_unit_result :: (
   expr
 });
 /// Set the expr's result to a `comptime_str` carrying `value`.
-/// Mirrors `makeComptimeStringResult`. `StrLit` stores the quoted source
+/// `StrLit` stores the quoted source
 /// form (see `builtins/process.yo`), so `value` is wrapped in quotes.
 /// A comptime BOOL result, the `_build_string_result` counterpart.
 _build_bool_result :: (

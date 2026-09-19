@@ -1,16 +1,13 @@
 //! evaluate_char_literal — evaluates character literal expressions.
 //!
-//! 1:1 port of `src/evaluator/values/char.ts`.
-//!
 //! Char literals produce an IntLit(raw) with type u32. The raw field stores
 //! the decimal string of the Unicode code point (e.g., `'a'` → `"97"`).
 //!
-//! NOTE on the `Invalid char literal` throw: TS measures the inner
-//! length in UTF-16 code units, so a BMP multibyte char like `'é'` has length 1
-//! and is accepted. yo-self uses a BYTE model (it reads `bytes(1)`), under which
-//! `'é'` would have inner byte-length 2 and a naive length check would wrongly
-//! reject it. To avoid that regression, the invalid-length throw is intentionally
-//! NOT ported; the unknown-escape throw IS ported faithfully below.
+//! NOTE on the `Invalid char literal` throw: this reader uses a BYTE model
+//! (`bytes(1)`), under which a BMP multibyte char like `'é'` has inner
+//! byte-length 2, so a naive length check would wrongly reject it. For that
+//! reason there is no invalid-length throw here; the unknown-escape throw
+//! below is the only validation.
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -55,8 +52,7 @@ parse_char_literal :: (fn(tok_value : String, tok : Token, exn : Exception) -> u
         // \f form feed
         (b2 == u8(118)) => u32(11),
         // \v vertical tab
-        // Unknown escape sequence — mirrors `char.ts:64`
-        // (`throw new Error("Unknown escape sequence: \\X")`).
+        // Unknown escape sequence — throws below.
         true => {
           esc_bytes := ArrayList(u8).new();
           esc_bytes.push(b2);

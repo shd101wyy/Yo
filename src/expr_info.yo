@@ -81,7 +81,7 @@ path_collection_new :: (fn() -> PathCollection)(
 // ---------------------------------------------------------------------------
 /// True if `path1` starts with all segments of `path2` (prefix check).
 ///
-/// Mirrors `pathContainsPath` in `src/expr.ts`.
+///
 ///
 ///   path_contains_path(["x"], ["x", "a"])     => false
 ///   path_contains_path(["x", "a"], ["x"])     => true
@@ -106,13 +106,13 @@ path_contains_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) 
 });
 /// True if `path1` and `path2` are in conflict: one is a prefix of the other.
 ///
-/// Mirrors `pathConflictsWithPath` in `src/expr.ts`.
+///
 path_conflicts_with_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) -> bool)(
   path_contains_path(path2, path1) || path_contains_path(path1, path2)
 );
 /// True if any path in `c1` conflicts with any path in `c2`.
 ///
-/// Mirrors `pathCollectionConflictsWithPathCollection` in `src/expr.ts`.
+///
 path_collection_conflicts_with_path_collection :: (
   fn(
     c1 : ArrayList(ArrayList(String)),
@@ -150,7 +150,7 @@ derive(ControlFlowKind, Clone, Eq(ControlFlowKind), ToString);
 /// Multiple flags can be simultaneously true (e.g., a cond where some branches
 /// return and others unwind).
 ///
-/// Mirrors `ControlFlowFlags` in `src/expr.ts`.
+///
 /// All fields use `bool` rather than `Option(bool)` because `false` and
 /// TypeScript's `undefined` are semantically equivalent for flag fields.
 ControlFlowFlags :: struct(
@@ -162,7 +162,7 @@ ControlFlowFlags :: struct(
 derive(ControlFlowFlags, Clone, Eq(ControlFlowFlags));
 /// Create a ControlFlowFlags with exactly one flag set.
 ///
-/// Mirrors `controlFlowOf` in `src/expr.ts`.
+///
 ///
 /// Note: uses mutable flag variables rather than struct literals directly
 /// in match arms due to a codegen bug (see issues/fixed/struct-literal-in-match-arm-not-assigned.md).
@@ -190,7 +190,7 @@ control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)({
 });
 /// True if `cf` has the given flag set.
 ///
-/// Mirrors `hasControlFlow` in `src/expr.ts`.
+///
 ///
 /// Note: uses early-return pattern instead of struct literal in match arm
 /// due to codegen bug (see issues/fixed/struct-literal-in-match-arm-not-assigned.md).
@@ -212,7 +212,7 @@ has_control_flow :: (fn(cf : Option(ControlFlowFlags), kind : ControlFlowKind) -
 });
 /// True if `cf` has any flag set.
 ///
-/// Mirrors `hasAnyControlFlow` in `src/expr.ts`.
+///
 has_any_control_flow :: (fn(cf : Option(ControlFlowFlags)) -> bool)({
   f := match(
     cf,
@@ -225,7 +225,7 @@ has_any_control_flow :: (fn(cf : Option(ControlFlowFlags)) -> bool)({
 });
 /// Union multiple ControlFlowFlags into one (OR of all flags).
 ///
-/// Mirrors `mergeControlFlows` in `src/expr.ts`.
+///
 merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFlags)({
   r := false;
   e := false;
@@ -257,7 +257,7 @@ merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFl
 });
 /// Format ControlFlowFlags as a `+`-joined string for error messages.
 ///
-/// Mirrors `controlFlowToString` in `src/expr.ts`.
+///
 control_flow_to_string :: (fn(cf : ControlFlowFlags) -> String)({
   parts := ArrayList(String).new();
   if(cf.return_flag, {
@@ -304,7 +304,7 @@ ComptimeRef :: enum(
 /// Runtime destructuring binding produced during evaluation of
 /// `{ x, y : another_y } := some_point`.
 ///
-/// Mirrors `RuntimeDestructuring` in `src/expr.ts`.
+///
 RuntimeDestructuring :: struct(
   label : String,
   ty : TypeValue,

@@ -43,7 +43,7 @@ _array_wrapper_name_lt :: (fn(a : String, b : String) -> bool)(
   )
 );
 /// Generate the array-wrapper struct typedefs collected during type lowering.
-/// Mirrors `generateArrayStructDeclarations`. TS iterates an
+/// TS iterates an
 /// insertion-ordered Map whose lazy registration recurses into the element
 /// FIRST, so inner wrappers always precede the outer
 /// ones that embed them by value. yo-self's `array_struct_types` is a
@@ -162,7 +162,7 @@ _drain_ready_array_wrappers :: (
     });
   });
 });
-/// Generate the builtin `str` type declaration. Mirrors `generateStrTypeDeclaration`.
+/// Generate the builtin `str` type declaration.
 generate_str_type_declaration :: (fn(context : CodeGenContext) -> unit)({
   context.emitter.emit_declaration_line("typedef struct { // str: builtin static string view");
   context.emitter.emit_declaration_line("  const uint8_t* ptr;");
@@ -239,7 +239,7 @@ _emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : Co
   emitted
 });
 /// Generate a struct/object declaration. Newtypes lower to a typedef;
-/// reference-semantics structs carry the RC header. Mirrors `generateStructDeclaration`.
+/// reference-semantics structs carry the RC header.
 generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
   match(
     struct_type,
@@ -302,7 +302,7 @@ generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, con
   )
 );
 /// Generate a tuple declaration (numeric `_0`, `_1`, … fields; unit tuple gets
-/// a dummy byte). Mirrors `generateTupleDeclaration`.
+/// a dummy byte).
 generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
   match(
     tuple_type,
@@ -343,7 +343,7 @@ generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, conte
     _ => ()
   )
 );
-/// Generate a (C, untagged) union declaration. Mirrors `generateUnionDeclaration`.
+/// Generate a (C, untagged) union declaration.
 generate_union_declaration :: (fn(union_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
   match(
     union_type,
@@ -394,7 +394,7 @@ _emit_enum_tags :: (fn(c_name : String, variant_names : ArrayList(String), varia
   });
 });
 /// Generate an enum declaration: a nullable-pointer typedef, a simple C enum,
-/// or a tag-enum + data-union + tagged-union struct. Mirrors `generateEnumDeclaration`.
+/// or a tag-enum + data-union + tagged-union struct.
 generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
   match(
     enum_type,
@@ -1231,13 +1231,13 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
 /// A type collected for topological ordering: (typeId, type, cName, kind).
 _TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, kind : String));
 /// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
-/// dispose are generated separately). Mirrors `reservedDynMethodLabels`.
+/// dispose are generated separately).
 _is_reserved_dyn_method :: (fn(label : String) -> bool)(
   (label == BF_DUP) || (label == BF_DROP) || ((label == "___dispose") || (label == "dispose"))
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain
-/// Dyn by value. Mirrors `generateDynForwardDeclarations`.
+/// Dyn by value.
 generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
   em := context.emitter;
   keys := ArrayList(String).new();
@@ -1336,7 +1336,7 @@ _dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed :
 });
 /// Generate a Dyn vtable declaration (the Dyn struct is forward-declared). The
 /// vtable has __yo_type_id + a function pointer per trait method (FnTrait → a
-/// `call` pointer). Mirrors `generateDynDeclaration`.
+/// `call` pointer).
 generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
   em := context.emitter;
   vtable_name := `${c_name}_vtable`;
@@ -1415,8 +1415,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
   em.emit_declaration_line("");
 });
 /// Generate box types (RC-header-wrapped value structs) + their ctor/dispose
-/// declarations for every dyn() implementation. Mirrors `generateDynBoxTypes`
-///.
+/// declarations for every dyn() implementation.
 generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
   if(context.dyn_impls.is_empty(), {
     return(());
@@ -1483,7 +1482,7 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
 /// Generate a Future-trait declaration. DEFERRED (Phase-5 async,
 /// generateFutureTraitDeclaration) — not exercised by the corpus.
 /// Emit the generic Future trait-object interface struct for a
-/// `FutureTraitT`. Faithful port of `generateFutureTraitDeclaration`
+/// `FutureTraitT`.
 ///. Every async state-machine
 /// struct begins with this exact prefix (header/state/cancel_pending_fn/result/continuation_fn/
 /// continuation_sm/__yo_resume_fn/__yo_set_effect_fn), so a concrete SM
@@ -1731,7 +1730,7 @@ _deferred_decl_cnames :: (
 });
 /// Emit all C type declarations: runtime preamble, forward declarations, then the
 /// types in dependency (topological) order, then nullable-pointer enums and the
-/// dyn/union/future pass. Mirrors `generateTypeDeclarations` (src 90-968).
+/// dyn/union/future pass. (src 90-968).
 ///
 /// DEFERRED (documented): Gap-6 SomeType.resolvedConcreteType field-type
 /// resolution in the dependency analysis is skipped (the corpus is monomorphized

@@ -90,11 +90,11 @@ _get_deferred_drop_target_variable :: (fn(drop_expr : AstExpr, context : Functio
     .None => Option(Variable).None
   )
 );
-/// Two tokens come from the same source location stream. Mirrors `tokensAreComparable`.
+/// Two tokens come from the same source location stream.
 _tokens_are_comparable :: (fn(left : Token, right : Token) -> bool)(
   (left.module_path == right.module_path) && (left.input == right.input)
 );
-/// `left` is at or before `right` (same stream). Mirrors `tokenIsAtOrBefore`.
+/// `left` is at or before `right` (same stream).
 _token_is_at_or_before :: (fn(left : Token, right : Token) -> bool)(
   if(!_tokens_are_comparable(left, right), false, left.character <= right.character)
 );
@@ -304,7 +304,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   )
 });
 /// Generate pending deferred drops from enclosing scopes before an early
-/// return. Mirrors `generatePendingDeferredDrops` (the effect-SM consumed-arg
+/// return. (the effect-SM consumed-arg
 /// clause is Phase 5 and omitted).
 /// `escaped_result` is the C name of the result temp of a call that just
 /// unwound. On that path the callee discarded its continuation instead of
@@ -492,7 +492,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : String, context : Functio
   )
 );
 /// Emit the early-return-only deferred drops attached to `expr` (a return/unwind
-/// node) — M3. Mirrors `generateEarlyReturnOnlyDeferredDropExpressions`
+/// node) — M3.
 /// skip closure-capture drops, emit the rest.
 generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
   match(
@@ -547,7 +547,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
     .None => ()
   )
 );
-/// Deferred-dup handling for an atom return value. Mirrors `handleAtomDeferredDup`.
+/// Deferred-dup handling for an atom return value.
 handle_atom_deferred_dup :: (fn(expr : AstExpr, atom_code : String, indent : String, context : FunctionGenerationContext) -> String)(
   match(
     context.base.get_expr_info(expr),
@@ -562,7 +562,7 @@ handle_atom_deferred_dup :: (fn(expr : AstExpr, atom_code : String, indent : Str
     .None => atom_code
   )
 );
-/// Deferred-dup handling for a function-call return value. Mirrors `handleFuncCallDeferredDup`.
+/// Deferred-dup handling for a function-call return value.
 handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(_call_generate_expr(expr, indent.clone(), context)));
   match(
@@ -636,7 +636,7 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
     .None => _call_generate_expr(expr, indent.clone(), context)
   )
 });
-/// Generate a `return` statement. Mirrors `generateReturn`.
+/// Generate a `return` statement.
 generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("return expression missing metadata"))));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -1077,7 +1077,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     }
   )
 });
-/// Generate an implicit function-body return. Mirrors `generateImplicitReturnStatement`.
+/// Generate an implicit function-body return.
 generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   match(
@@ -1169,7 +1169,7 @@ _unwind_dummy_return :: (fn(indent : String, context : FunctionGenerationContext
   String.from("")
 });
 /// Emit an unwind check after calling a function that may set
-/// `__yo_effect_escaped`. Faithful port of `emitEffectUnwindCheck`
+/// `__yo_effect_escaped`.
 ///. At a handler-installation point
 /// (`is_handler_installation = true`) it clears the flag and extracts the
 /// unwound value from `__yo_unwind_value` as the call result; at a transitive
@@ -1235,7 +1235,7 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
   em.emit_string_line(`${indent.clone()}}`);
 });
 /// `unwind(expr)` — discard the continuation and exit the enclosing control
-/// function. Faithful port of `generateUnwind`, minus the
+/// function., minus the
 /// nested-resume-handler `continuationVariables` branch (yo-self has no such
 /// context field). Async-state-machine context routes through
 /// `emit_async_future_escape` (Future aborted). Synchronous effect handlers set

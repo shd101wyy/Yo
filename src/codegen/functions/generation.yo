@@ -506,7 +506,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
   // this unreachable, which is legal C.
   _emit_erm_unit_resume_tail(function_type, indent.clone(), context);
 });
-/// Generate a single function (signature + linkage + body). Mirrors `generateFunction`.
+/// Generate a single function (signature + linkage + body).
 /// Law of Exclusivity, the compiler-emitted half (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md
 /// §8 C5): at the entry of every function, for every RC-object PARAMETER whose
 /// reachable storage the body may mutate (`function_param_mutation_mask` — a
@@ -967,7 +967,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
     _ => ()
   )
 );
-/// Generate all collected functions. Mirrors `generateAllFunctions` (the
+/// Generate all collected functions. (the
 /// runtime prelude is the deferred next subsystem — see file header).
 generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
@@ -1089,7 +1089,6 @@ _main_call_args :: (fn(main_func_id : String, context : FunctionGenerationContex
 /// its initializer RHS. Returned by `emit_module_level_variable_declarations` so
 /// `generate_main_wrapper` can emit the initialization. Mirrors the
 /// `{cVarName, cTypeStr, rhs}` triples in TS `emitModuleLevelVariableDeclarations`
-///.
 ModuleLevelVarEntry :: struct(
   c_var_name : String,
   rhs : AstExpr,
@@ -1360,7 +1359,7 @@ emit_thread_local_accessors :: (
 });
 /// Generate the C `main()` wrapper that calls `__yo_user_main`. On POSIX the
 /// program body runs on a large-stack (1 GiB, YO_MAIN_STACK_MB-overridable)
-/// worker thread; Windows/WASM call directly. Mirrors `generateMainWrapper`.
+/// worker thread; Windows/WASM call directly.
 ///
 /// `module_vars` (from emit_module_level_variable_declarations) are initialized
 /// first, in a dedicated `__yo_main_module_init()` helper on the worker path

@@ -69,7 +69,7 @@ SmWhileContinueInfo :: ref(
   )
 );
 /// Marks that code is being generated inside an async state machine; carries
-/// the future type (a SomeType or DynType). Mirrors `inAsyncStateMachine`.
+/// the future type (a SomeType or DynType).
 InAsyncStateMachine :: ref(struct(future_type : TypeValue));
 /// An effect-evidence parameter threaded into a function for explicit-effects
 /// dispatch — the implicit-record label, the field label/path within it, the
@@ -120,7 +120,7 @@ CondBranchPostWhileExprs :: ref(
 /// the correct split point. Drops merge the same way. The `sm->cond_branch_N`
 /// guard can only test one field, so when the layers disagree fall back to
 /// `skip_cond_branch_check` (sound: after_while_loop_N is only reachable from
-/// the branch that ran the loop). Mirrors `mergeCondBranchPostWhileExprs`
+/// the branch that ran the loop).
 /// — placed here because Yo's import DAG has no
 /// state_machine ← state_code_gen edge.
 merge_cond_branch_post_while_exprs :: (
@@ -509,7 +509,7 @@ FunctionGenerationContext :: ref(
     async_next_while_loop_index : Option(usize),
     /// Cond/match-with-await branch info, keyed by await-point index. Written by
     /// `generate_cond_with_await` / `generate_match_with_await`, read by the resume
-    /// generator. Mirrors `asyncCondBranchInfo`.
+    /// generator.
     async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)),
     /// Monotonic counter handing out DISTINCT `sm->cond_branch_N` dispatch codes
     /// to each awaiting arm of each cond/match in this function. Arm indices
@@ -538,7 +538,7 @@ FunctionGenerationContext :: ref(
     /// `CondBranch.owner` / `AsyncCondBranchInfo.nested_owner`.
     nested_cond_records : ArrayList(AsyncCondBranchInfo),
     /// Effect-evidence parameters in scope (implicit label → evidence param), for
-    /// explicit-effects dispatch / effect injection. Mirrors `currentEvidenceParams`.
+    /// explicit-effects dispatch / effect injection.
     current_evidence_params : Option(HashMap(String, EvidenceParameter)),
     /// Async blocks deferred to after all regular functions are generated. Mirrors
     /// `deferredAsyncBlocks`.
@@ -627,7 +627,7 @@ impl(
 /// Lives here rather than in `exprs/other_fn_call.yo` (its TS home) because
 /// `return.yo` needs it too and `other_fn_call.yo` already imports `return.yo`
 /// — yo-self's loader rejects the destructuring import cycle. Same structural
-/// necessity as `state_machine_naming.yo`. Mirrors `resolveVarNameInContext`.
+/// necessity as `state_machine_naming.yo`.
 resolve_var_name_in_context :: (
   fn(var_name : String, context : FunctionGenerationContext) -> String
 )({

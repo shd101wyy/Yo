@@ -41,7 +41,7 @@ _last_is_compile_time_only :: (fn(env : Environment, name : String) -> bool)({
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });
-/// Generate an assignment / initialization. Mirrors `generateAssignment`.
+/// Generate an assignment / initialization.
 generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   // Compile-time-only assignment (e.g. `p.* = v` where `p` is comptime).

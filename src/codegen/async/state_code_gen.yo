@@ -33,7 +33,7 @@
 { generate_comptime_value } :: import("../exprs/comptime_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
-/// `__yo_io_future_t`). Mirrors `isIoFutureType`.
+/// `__yo_io_future_t`).
 ///
 /// TS has TWO signals:
 ///   (1) `resolvedConcreteType` is itself an EXTERN SomeType — an extern C type
@@ -422,7 +422,7 @@ cond_branch_future_access :: (
   )
 });
 /// A contiguous run of body expressions that execute in one FSM state, ending
-/// at an await (or the final segment). Mirrors `StateSegment`
+/// at an await (or the final segment).
 ///. yo-self's `split_body_at_suspension_points` collapses
 /// the TS generic to the concrete `SuspensionPoint` base, so the owning
 /// `AwaitPoint` is recovered by matching `base.index`.
@@ -592,7 +592,7 @@ contains_await_expr :: (fn(expr : AstExpr, await_expr : AstExpr) -> bool)(
 /// assignment whose value awaits (or is a cond/match with await), or a bare
 /// cond/match/while with await. The actual suspend/resume happens at the state
 /// transition; this stores the awaited Future into its field (or delegates to the
-/// branch emitters). Mirrors `generateAwaitExpression`.
+/// branch emitters).
 /// The macro expansion of a macro call (`if` -> `cond`). Read from the durable
 /// side-table rather than this call's per-pass ExprInfo, which can lose
 /// `macro_expansion` (see codegen/types/collection.yo:557).
@@ -690,7 +690,7 @@ await_is_in_non_splittable_position :: (fn(expr : AstExpr, await_point : AwaitPo
 /// Used both by codegen (to pick the condition-await loop layout) and by the
 /// state-struct emitter, which must allocate `await_result_N` for it — that
 /// field is otherwise reserved for cond awaits, and the layout reads it to test
-/// the loop condition. Mirrors `awaitIsWhileCondition`.
+/// the loop condition.
 await_is_while_condition :: (fn(await_point : AwaitPoint) -> bool)({
   we := match(await_point.base.enclosing_while_expr, .Some(w) => w, .None => return(false));
   if(!(ast_expr_is_fn_call(we) && ast_expr_is_fn_call_of(we, BK_WHILE, Option(usize).None)), {
@@ -868,7 +868,7 @@ emit_hoisted_await_future_store :: (
 });
 
 /// True when a cond/match branch expression contains an `io.await` call (recurses
-/// through FnCall args). Mirrors `branchHasAwait`.
+/// through FnCall args).
 branch_has_await :: (fn(expr : AstExpr) -> bool)({
   if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
     return(true);
@@ -927,8 +927,7 @@ expr_contains_return_statement :: (fn(expr : AstExpr) -> bool)({
   });
   false
 });
-/// True when `expr` is an or-pattern `a | b`. Mirrors `isOrPatternExpr`
-///.
+/// True when `expr` is an or-pattern `a | b`.
 is_or_pattern_expr :: (fn(expr : AstExpr) -> bool)({
   if(!(ast_expr_is_fn_call(expr)), {
     return(false);
@@ -1334,8 +1333,7 @@ _register_await_substitutions :: (
 /// Emit C for a single FSM state segment: each expression runs normally, except
 /// the one containing this segment's await (handled by `generate_await_expression`)
 /// and, in the final segment when `capture_last_expr_result`, the last expression
-/// is captured into `sm->result`. Mirrors `generateStateSegmentCode`
-///.
+/// is captured into `sm->result`.
 generate_state_segment_code :: (
   fn(segment : StateSegment, indent : String, context : FunctionGenerationContext, capture_last_expr_result : bool) -> unit
 )({
@@ -1500,8 +1498,7 @@ _collect_exprs_from :: (
 /// Emit a while-loop body up to its first await (in FSM state 0, using labels
 /// rather than a real C loop), then store the awaited Future / delegate to the
 /// nested cond/match/while emitter. Returns the body expressions AFTER the await
-/// (executed in the resume state). Mirrors `generateWhileBodyWithAwait`
-///.
+/// (executed in the resume state).
 generate_while_body_with_await :: (
   fn(
     body_expr : AstExpr,
@@ -1949,7 +1946,7 @@ _emit_nested_cond_or_match :: (
 /// Emit a single cond/match branch body (a `begin` block) up to its first await:
 /// pre-await expressions emit normally, the await stores its Future (or delegates
 /// to a nested cond/match/while), and post-await expressions are returned for the
-/// resume state. Mirrors `generateCondBranchWithAwait`.
+/// resume state.
 generate_cond_branch_with_await :: (
   fn(branch_value : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> BranchEmission
 )({
@@ -2564,7 +2561,6 @@ _make_cond_branch :: (
 /// target_variable_id would also trigger the post-switch "assign await result
 /// now" copy, overwriting the branch value. Mirrors
 /// `registrationTargetAssignment` / `condRegistrationTargetAssignment`
-///.
 _registration_target_assignment :: (
   fn(
     cond_or_match_expr : AstExpr,
@@ -2742,7 +2738,7 @@ _union_cond_branches :: (fn(into : ArrayList(CondBranch), incoming : ArrayList(C
 /// both numbering their arms from 0 emitted `case 0:` twice and `case 1:` three
 /// times — C rejects the function outright ("duplicate case value"). It takes an
 /// OUTER match whose arms each contain an inner match with an await to trigger.
-/// Mirrors `allocCondBranchCodes` in `src/codegen/async/state-code-gen.ts`.
+///
 /// See issues/fixed/async-await-in-nested-match-arms.md.
 _alloc_cond_branch_codes :: (
   fn(context : FunctionGenerationContext, count : usize) -> usize
@@ -3224,7 +3220,7 @@ _find_sm_var_id_by_name :: (fn(context : FunctionGenerationContext, name : Strin
 /// resolve by id to this arm's field, which stays calloc-zeroed (NULL for a
 /// ref type). When env resolution succeeds but the id is not a state-machine
 /// variable, the binding is a local and must NOT fall through to the name scan.
-/// Mirrors `resolvePatternBindingStateMachineField`. See
+/// See
 /// issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md.
 /// Destructure ONE match-arm pattern inside an async state machine: bind
 /// variant fields into their SM slots (`sm->var_...`) when the binding was
@@ -3497,8 +3493,7 @@ _emit_match_case_await_or_value :: (
 /// enums → NULL check), or a general `switch (value.tag)` — recording the taken
 /// branch in `sm->cond_branch_N`, binding destructured fields (into SM fields or
 /// C locals), and storing each awaited Future / delegating to
-/// `generate_cond_branch_with_await`. Mirrors `generateMatchWithAwait`
-///.
+/// `generate_cond_branch_with_await`.
 _generate_match_with_await_impl :: (
   fn(
     match_expr : AstExpr,

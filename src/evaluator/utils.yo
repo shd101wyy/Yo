@@ -117,7 +117,7 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 /// Attach a generated temp variable to `expr`'s ExprInfo for RC drop-tracking.
 ///
-/// Steps (mirrors `attachTempVariableToExpr` in `src/expr.ts`):
+/// Steps (mirrors ):
 ///  1. Look up ExprInfo from `ctx.expr_info_table` by `ast_expr_id(expr)`.
 ///  2. Choose effective type: use `capture_type` when present and RC-containing
 ///     and `is_owning_the_rc_value` is true (closure capture struct semantics).
@@ -126,7 +126,7 @@ pragma(Pragma.AllowUnsafe);
 ///  5. Otherwise: generate a fresh temp name, add to nearest begin-block frame,
 ///     store name + updated env back in the ExprInfo table.
 ///
-/// Mirrors `attachTempVariableToExpr` in `src/expr.ts`.
+///
 attach_temp_variable_to_expr :: (
   fn(
     expr : AstExpr,
@@ -249,11 +249,11 @@ attach_temp_variable_to_expr :: (
 ///
 /// Returns `.None` if no owner is found or if the chain cycles.
 ///
-/// Mirrors `findRcValueOwnerRelationship` in `src/evaluator/utils.ts`.
+///
 /// True iff `expr` has a valid binding-LHS shape for `name := rhs`
 /// — either an `Identifier` atom or any expression whose token is an
 /// `Operator` (e.g. infix `+` defined as a function). Mirrors TS
-/// `isValidVariableName` in `src/evaluator/utils.ts`.
+/// 
 ///
 /// Note: the TS check is `(exprIsAtom(e) && token === Identifier) ||
 /// token === Operator` — the operator branch applies to both Atom
@@ -330,7 +330,7 @@ find_rc_value_owner_relationship :: (
 /// Implicit variables must be passed via `` parameters, not captured
 /// through regular assignments.
 ///
-/// Mirrors `throwExprIsImplicitVariableError` in `src/evaluator/utils.ts`.
+///
 throw_expr_is_implicit_variable_error :: (
   fn(
     rhs : AstExpr,
@@ -399,7 +399,7 @@ throw_expr_is_implicit_variable_error :: (
 /// Throw if the variable named by `rhs`'s ExprInfo has already been consumed
 /// (moved).
 ///
-/// Mirrors `requireExprNotConsumed` in `src/expr.ts`.
+///
 require_expr_not_consumed :: (
   fn(
     rhs : AstExpr,
@@ -489,7 +489,7 @@ new_expr_info_placeholder_for_unreachable_ :: (fn(_expr : AstExpr) -> ExprInfo)(
 /// has not yet processed this expression. Returns the `ExprInfo` on
 /// success.
 ///
-/// Mirrors TS `expectExprToHaveBeenEvaluated` in `src/expr.ts`. The
+/// Mirrors TS  The
 /// TS version returns `expr.$` (the side-table entry). The yo-self
 /// version takes a custom `error_message` (empty string ⇒ use the
 /// default) and reads the ExprInfo from `ctx.expr_info_table`.
@@ -524,7 +524,7 @@ expect_expr_to_have_been_evaluated :: (
 // set_expr_as_consumed
 // ---------------------------------------------------------------------------
 /// Mark the variable backing `expr` as consumed in `env`. Mirrors
-/// TS `setExprAsConsumed` in `src/expr.ts`:
+/// TS :
 ///
 ///   1. If `expr.$.value` is a `TypeVal`, type values are reusable —
 ///      return without marking.
@@ -666,7 +666,7 @@ set_expr_as_consumed :: (
 /// AFTER the transfer must not re-drop the moved value).
 (g_dup_use_site_tokens : HashMap(usize, Token)) = HashMap(usize, Token).new();
 get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_tokens.get(id));
-/// Mirrors `setExprAsNeedsToCallDup` in `src/expr.ts`.
+///
 set_expr_as_needs_to_call_dup :: (
   fn(
     rhs : AstExpr,
@@ -1059,7 +1059,7 @@ doc_comment_lookup_key_from_token :: (fn(tok : Token) -> String)(
 /// In TypeScript this returns a new env (immutable snapshot); in yo-self the
 /// `Variable` is an RC object so we mutate `consumed_at_token` in-place.
 ///
-/// Mirrors `consumeCaseBodyTempVar` in `src/expr.ts`.
+///
 consume_case_body_temp_var :: (
   fn(
     evaluated_body : AstExpr,
@@ -1109,7 +1109,7 @@ consume_case_body_temp_var :: (
 /// automatically to all holders. `update_existing_variable` is used for
 /// the is_owning_the_rc_value update (since it also zeros out is_owning_the_same_rc_value_as).
 ///
-/// Mirrors `mergeAndCheckEnvs` in `src/expr.ts`.
+///
 merge_and_check_envs :: (
   fn(
     env : Environment,
@@ -1684,7 +1684,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
 /// last entry in a variable lookup list.  Returns .None when the list is
 /// empty or the last variable has no compile-time value.
 ///
-/// Mirrors the inline resolution logic in `areValuesEqual` from `src/value.ts`.
+/// Mirrors the inline resolution logic in 
 _try_resolve_last_var :: (fn(vars : ArrayList(Variable)) -> Option(EvalValue))(
   cond(
     (vars.len() == usize(0)) => Option(EvalValue).None,
@@ -1726,7 +1726,7 @@ _get_last_var_type :: (fn(vars : ArrayList(Variable)) -> Option(TypeValue))(
 /// - For all other concrete value pairs: delegates to structural `==` (which
 ///   is backed by `eval_value_eq`).
 ///
-/// Mirrors `areValuesEqual` from `src/value.ts`.
+///
 are_values_equal :: (
   fn(
     val1 : EvalValue,

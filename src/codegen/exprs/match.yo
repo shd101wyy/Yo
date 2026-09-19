@@ -187,11 +187,11 @@ _is_control_flow_code :: (fn(code : String) -> bool)(
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
-/// True if `expr` is an or-pattern `a | b`. Mirrors `isOrPattern`.
+/// True if `expr` is an or-pattern `a | b`.
 _is_or_pattern :: (fn(expr : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(expr, "|", Option(usize).Some(usize(2)))
 );
-/// Flatten an or-pattern into its individual patterns. Mirrors `flattenOrPattern`.
+/// Flatten an or-pattern into its individual patterns.
 _flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))(
   if(!_is_or_pattern(expr), {
     out := ArrayList(AstExpr).new();
@@ -241,7 +241,7 @@ _flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))(
     out
   })
 );
-/// A C literal for a compile-time value (number / bool). Mirrors `getCLiteralFromValue`.
+/// A C literal for a compile-time value (number / bool).
 _c_literal_from_value :: (fn(value : EvalValue) -> Option(String))(
   match(value, .IntLit(r) => Option(String).Some(r), .FloatLit(r) => Option(String).Some(r), .BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
 );
@@ -287,7 +287,7 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
   out
 });
 /// Generate a match/cond case body (begin blocks inline their statements and
-/// yield the final expression). Mirrors `generateCaseBody`. (The begin-final
+/// yield the final expression). (The begin-final
 /// deferred-dup rewrite is Phase 4 — empty for the no-RC corpus.)
 generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
@@ -1521,7 +1521,7 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
-/// Generate a match expression. Mirrors `generateMatchExpression`.
+/// Generate a match expression.
 generate_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
   temp_var_opt := ei.variable_name;

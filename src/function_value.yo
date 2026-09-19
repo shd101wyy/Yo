@@ -51,12 +51,11 @@ is_control_fn :: (fn(func_id : String) -> bool)(
 // isClosure side-table
 // ---------------------------------------------------------------------------
 /// Global map from `func_id` → `true` (only entries for closure functions exist).
-/// Mirrors `FunctionType.isClosure` in TS — yo-self's flattened `Func` variant has
+/// in TS — yo-self's flattened `Func` variant has
 /// no such field, so the marker is side-tabled by id (same pattern as the
 /// control-fn / default-args / func-type registries). Set when an anon-fn is typed
 /// as a closure (`evaluator/calls/closure_type.yo`); read by the codegen
 /// function-emission driver to prepend the `void* closure_context` capture param
-///.
 (g_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by `func_id`) as a closure. Idempotent.
 mark_as_closure_fn :: (fn(func_id : String) -> unit)({
@@ -236,7 +235,7 @@ mark_as_effect_record_member :: (fn(func_id : String) -> unit)({
 /// emitted by the STATE-MACHINE resume function (the deferred async block
 /// system) — their standalone C closure fn must NOT also be emitted, or the
 /// body exists twice and the SM resume references temps declared only in the
-/// standalone copy. Mirrors `closureFnValue.isIoAsyncStateMachineClosure`
+/// standalone copy.
 /// (TS function.ts:2222 set site; declarations.ts:172 / generation.ts:690
 /// skips). Populated when the closure has await analysis
 /// (io_async_await_analysis hit).

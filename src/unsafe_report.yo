@@ -287,7 +287,7 @@ _harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
 /// Classify the body of an `unsafe(...)` wrap. Heuristics in priority order:
 /// leading `<harvested-ident>(` → extern-call; `.*` not followed by an
 /// identifier byte → deref; `&+`/`&-`/`&/` → arith; `&(` → addr-of; else
-/// other. Mirrors `classifyUnsafeBody`.
+/// other.
 _classify_unsafe_body :: (
   fn(src : ArrayList(u8), body_start : usize, body_end : usize, extern_c_fns : HashSet(String)) -> UnsafeFinding
 )({
@@ -699,7 +699,7 @@ generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> I
     )
   })
 );
-/// Format the report for human consumption. Mirrors `formatUnsafeReport`
+/// Format the report for human consumption.
 /// line for line.
 format_unsafe_report :: (fn(report : UnsafeReport) -> String)({
   out := StringBuilder.new();

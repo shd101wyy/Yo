@@ -154,7 +154,7 @@ _should_skip_file :: (fn(file : String) -> bool)({
   false
 });
 /// Byte spans of `extern(...)` declarations — pointer types inside them are
-/// FFI signatures by design. Mirrors `findExternSpans`.
+/// FFI signatures by design.
 _find_extern_spans :: (fn(src : ArrayList(u8)) -> ArrayList(_Span))({
   spans := ArrayList(_Span).new();
   n := src.len();
@@ -220,7 +220,7 @@ _psr_ident_byte :: (fn(c : u8) -> bool)(
   ) || (c == u8(95))
 );
 /// Every pointer-type occurrence in `text` with its offset, skipping string
-/// literals and line comments. Mirrors `findPointerTypes`, extended for the
+/// literals and line comments. extended for the
 /// bare prefix spelling (plans/archive/FMT_PAREN_ELISION.md D3): `*(u8)` AND `*u8`
 /// / `**T` / tight call operands (`*List(i32)`). The slices handed here are
 /// parameter/return TYPE text, so a `*` before an identifier is a pointer
@@ -330,7 +330,7 @@ _find_pointer_types :: (fn(text : ArrayList(u8)) -> ArrayList(_PtrHit))({
   out
 });
 /// (line, column) of `offset` in `src` — 1-based, column from the previous
-/// newline. Mirrors `offsetToLineCol`.
+/// newline.
 _offset_to_line_col :: (fn(src : ArrayList(u8), offset : usize) -> _LineCol)({
   (line : usize) = usize(1);
   (last_nl : i64) = i64(-(1));
@@ -369,7 +369,7 @@ _short_snippet :: (fn(text : ArrayList(u8), offset : usize) -> String)({
 /// Extract every top-level `name :: (fn(<params>) -> <return>)` declaration.
 /// The anchor is the canonical formatted shape at a LINE START (no indent):
 /// `name :: (` then optional whitespace then `fn` then optional whitespace
-/// then `(`. Mirrors `extractTopLevelFnDecls` (its `^name :: \(\s*fn\s*\(`
+/// then `(`. (its `^name :: \(\s*fn\s*\(`
 /// anchored regex).
 _extract_top_level_fn_decls :: (fn(src : ArrayList(u8)) -> ArrayList(_FnDecl))({
   decls := ArrayList(_FnDecl).new();

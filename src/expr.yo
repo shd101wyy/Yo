@@ -18,7 +18,7 @@ BK_IMPORT :: "import";
 BK_ANON_STRUCT :: "_";
 BK_EXPORT :: "export";
 /// Builtin function name strings used by evaluator handlers.
-/// Mirrors `BuiltinFunctions` in `src/expr.ts`.
+///
 BF_TYPEOF :: "typeof";
 BF_SIZEOF :: "sizeof";
 BF_ALIGNOF :: "alignof";
@@ -61,7 +61,7 @@ BF_VA_START :: "va_start";
 /// `requires`/`ensures` in a function SIGNATURE are extracted + lowered to
 /// runtime asserts by the function-type evaluator; these handlers fire when the
 /// builtins appear in EXPRESSION position. `ghost_fn`/`old` are transparent
-/// pass-throughs. Mirrors `BuiltinFunctions` in `src/expr.ts:1321`.
+/// pass-throughs. in `src/expr.ts:1321`.
 BF_REQUIRES :: "requires";
 BF_ENSURES :: "ensures";
 BF_INVARIANT :: "invariant";
@@ -626,7 +626,7 @@ ast_expr_is_atom_of_any :: (fn(e : AstExpr, values : ArrayList(str)) -> bool)(
 );
 /// True if `e` is a FnCall whose func is an Atom equal to `func_name`,
 /// and whose argument count equals `arg_count` (if `.Some`).
-/// Mirrors `exprIsFunctionCallOf` in `src/expr.ts`.
+///
 ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(usize)) -> bool)(
   match(
     e,
@@ -691,7 +691,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_
 /// Atoms are equal if their token values are equal.
 /// FnCalls are equal if their func and all args are recursively equal.
 ///
-/// Mirrors `exprsAreEqual` in `src/expr.ts`.
+///
 exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
   match(
     e1,
@@ -732,7 +732,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
 /// True if `expr` introduces a new function/closure boundary and should NOT
 /// be recursed into when scanning for unwind/return/await.
 ///
-/// Mirrors `isFunctionBoundaryArrow` in `src/expr-traversal.ts`.
+///
 /// A simplified port: checks for `->`, `=>`, `=>>` operators, and the
 /// `(fn(...) -> T)({body})` pattern (outer FnCall whose func is a fn-type call).
 is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
@@ -818,7 +818,7 @@ export(BF_COMPTIME_STRING_SLICE, BF_COMPTIME_STRING_INDEX, BF_COMPTIME_STRING_IN
 export(BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE);
 export(BF_COMPTIME_ARRAY_INDEX);
 /// Throws if `expr` is not a FnCall of `func_name` with an optional exact `arg_count`.
-/// Mirrors `expectExprToBeFunctionCallOf` in `src/expr.ts`.
+///
 expect_expr_to_be_fn_call_of :: (
   fn(
     expr : AstExpr,
@@ -870,7 +870,7 @@ expect_expr_to_be_fn_call_of :: (
   )
 });
 /// Throws if `expr` is not a FnCall of one of `func_names` with an optional exact `arg_count`.
-/// Mirrors the list variant of `expectExprToBeFunctionCallOf` in `src/expr.ts`.
+/// Mirrors the list variant of 
 expect_expr_to_be_fn_call_of_any :: (
   fn(
     expr : AstExpr,

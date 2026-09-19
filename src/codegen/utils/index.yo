@@ -608,7 +608,7 @@ impl(
 /// that codegen consumes (`.label` / `.type`).
 RuntimeStructField :: ref(struct(label : String, ty : TypeValue));
 /// The runtime (non-comptime-only) fields of a struct type, in declaration
-/// order. Mirrors `getRuntimeStructFields`. Non-struct types yield an empty
+/// order. Non-struct types yield an empty
 /// list. A struct with no registered comptime-flags is treated as all-runtime.
 get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeStructField))(
   match(
@@ -893,7 +893,7 @@ function_c_name :: (fn(func_id : String) -> String)(
 /// not `[a-zA-Z0-9_]` with `_u<byte>_` (ASCII byte value — operators in
 /// identifiers are ASCII, so this matches TS `charCodeAt` for the cases that
 /// occur). If the result is a C reserved word/macro and not extern-C, it is
-/// prefixed with `__yo_c_reserved_`. Mirrors `sanitizeForCIdentifier`.
+/// prefixed with `__yo_c_reserved_`.
 /// True when a binding named `name` with resolved type `ty` IS one of the
 /// extern-C globals declared under that name: the registry is name-keyed and
 /// holds EVERY declaration's type, so a local that merely shares the name
@@ -1075,7 +1075,7 @@ _inline_body_passes_params_through :: (fn(call : AstExpr, fv : EvalValue) -> boo
 /// a single-expression `begin`) AND passes its own parameters straight through
 /// to it. Returns the operator name, or `.None`.
 /// `__yo_as` casts are excluded (they need real call handling).
-/// Mirrors `isFunctionValueWithOnlyBuiltinYoInlineFunctionCall`, plus the
+/// plus the
 /// pass-through requirement TS also lacks (see
 /// `_inline_body_passes_params_through`).
 is_function_value_with_only_builtin_yo_inline_function_call :: (
@@ -1254,7 +1254,7 @@ _lookup_named_c_type :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     }
   )
 );
-/// Convert a Yo type to its C type string. Mirrors `getTypeString`.
+/// Convert a Yo type to its C type string.
 ///
 /// PORT STATUS: the Phase-1/2 cases (primitives, C-compat scalars, str,
 /// pointer, array, tuple/struct/union/enum) are ported. The
@@ -1646,7 +1646,7 @@ scope_stack_contains :: (fn(stack : ArrayList(String), cn : String) -> bool)({
   found
 });
 /// C type string for a variable declaration (`<type> <name>`), sanitizing the
-/// variable name to avoid C reserved words/macros. Mirrors `getVariableTypeString`.
+/// variable name to avoid C reserved words/macros.
 get_variable_type_string :: (
   fn(t : TypeValue, var_name : String, context : CodeGenContext) -> String
 )({
@@ -1660,7 +1660,7 @@ get_variable_type_string :: (
   result
 });
 /// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both
-/// upper-cased). Mirrors `getEnumVariantCName`.
+/// upper-cased).
 get_enum_variant_c_name :: (
   fn(enum_type : TypeValue, variant_name : String, context : CodeGenContext) -> String
 )(
@@ -1690,7 +1690,7 @@ get_enum_variant_c_name :: (
 /// The variable name to use in generated C code: the actual binding name
 /// (sanitized), not a parameter alias. If the env lookup returns a generated
 /// `fn_*` C name (a module-level function shadowing a local), prefer the
-/// original name. Mirrors `getVariableNameForCodegen`.
+/// original name.
 ///
 /// DIVERGENCE (Gap 3): TS checks `variable.type.isExtern === "c"` for the
 /// extern-C sanitize flag; yo-self models is_extern only on the Func variant,
@@ -1880,7 +1880,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String)
   )
 );
 /// True if a deferred drop targets a variable captured by the current
-/// closure. Mirrors `isDeferredDropForClosureCapture`.
+/// closure.
 is_deferred_drop_for_closure_capture :: (
   fn(drop_expr : AstExpr, current_closure_captures : Option(ArrayList(String))) -> bool
 )({

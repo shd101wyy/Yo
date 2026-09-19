@@ -56,7 +56,7 @@
 /// One effect on a Future trait (the first, mirroring TS's single
 /// `isFuture.effect`). yo-self's FutureTraitT carries effect arrays.
 _FutureEffect :: ref(struct(label : String, ty : TypeValue));
-/// The first effect of a Future trait type, if any. Mirrors `futureTraitType.isFuture.effect`.
+/// The first effect of a Future trait type, if any.
 _first_future_effect :: (fn(ft : TypeValue) -> Option(_FutureEffect))(
   match(
     ft,
@@ -69,7 +69,7 @@ _first_future_effect :: (fn(ft : TypeValue) -> Option(_FutureEffect))(
   )
 );
 /// Resolve a function-type effect field from scope (caller evidence params, then
-/// SM capture variables). Mirrors `resolveEffectFieldFromScope`.
+/// SM capture variables).
 resolve_effect_field_from_scope :: (fn(field_label : String, context : FunctionGenerationContext) -> Option(String))({
   match(
     context.current_evidence_params,
@@ -118,7 +118,7 @@ resolve_effect_field_from_scope :: (fn(field_label : String, context : FunctionG
   Option(String).None
 });
 /// Resolve an effect record field (e.g. "throw" from Exception) from `given`
-/// bindings in the call environment. Mirrors `resolveEvidenceFieldFromGivenBindings`
+/// bindings in the call environment.
 ///. yo-self StructVal carries field names + values directly.
 resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context : FunctionGenerationContext, expr : AstExpr) -> Option(String))({
   call_env := match(
@@ -174,7 +174,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context 
 });
 /// Inject struct-record effect fields (e.g. Exception.throw) into a Future's
 /// capture struct. Resolves each fn field from SM captures, caller evidence
-/// params, or `given` bindings. Mirrors `emitEffectRecordInjection`.
+/// params, or `given` bindings.
 /// (The TS `usingArgValue` path is dropped — `using(...)` is gone in explicit
 /// effects, so all call sites pass `undefined`.)
 emit_effect_record_injection :: (fn(source_namespace_type : TypeValue, future_type : TypeValue, future_var : String, indent : String, context : FunctionGenerationContext, expr : AstExpr) -> unit)({
@@ -250,8 +250,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : TypeValue, future_ty
   });
 });
 /// Inject the effect bundle from `io.spawn(future, bundle)` into the future's SM
-/// via the set_effect("__bundle", ...) callback. Mirrors `emitIoSpawnEffectInjection`
-///.
+/// via the set_effect("__bundle", ...) callback.
 emit_io_spawn_effect_injection :: (fn(expr : AstExpr, future_var : String, indent : String, context : FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
@@ -676,8 +675,7 @@ _option_some_field_type :: (fn(option_type : TypeValue) -> Option(TypeValue))(
 );
 /// `JoinHandle.await(io)` — poll a spawned task, return Option(T). Casts the
 /// handle's void* future to a common header layout, polls until completed/aborted,
-/// and builds .Some(result)/.None. Faithful port of `generateJoinHandleAwait`
-///.
+/// and builds .Some(result)/.None.
 generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   em := context.base.emitter;
   // Method call: expr.func is `.`(handle, "await"); self (JoinHandle) is func.args[0].

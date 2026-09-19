@@ -1,24 +1,18 @@
 //! type_trait_methods.yo — per-type trait-method registry.
 //!
-//! In TS, every concrete type carries a `trait?: TraitType` field
-//! (see `src/types/definitions.ts:70`). When you write
-//! `impl(Foo, SomeTrait(...))`, the evaluator merges the new
-//! methods into `Foo.trait.fields` so later `getTypeTraitMethodsByName`
-//! calls can find them without a separate lookup table.
-//!
-//! yo-self's `TypeValue` is a flat sum type with no per-variant
-//! mutable `trait` slot. Following the same pattern as
+//! `TypeValue` is a flat sum type with no per-variant mutable `trait`
+//! slot, so when you write `impl(Foo, SomeTrait(...))` the evaluator
+//! records the new methods here instead. Following the same pattern as
 //! `evaluator/values/generic_impl_registry.yo`, we keep the
 //! per-type trait fields in a module-level registry keyed by the
 //! type's id string.
 //!
 //! ## What's stored
 //!
-//! `MethodEntry` mirrors a TS `TraitField`:
+//! Each entry is a `MethodEntry`:
 //!
 //!   - `label` — method or property name (`""` for inline-imported
-//!     trait values, matching TS's `field.label === ""` impl-trait
-//!     marker — see `src/env.ts:1112-1138`).
+//!     trait values, the impl-trait marker).
 //!   - `ty` — the field's `TypeValue` (typically a `Func(...)`).
 //!   - `value` — the assigned `EvalValue` (the concrete
 //!     `FuncVal`/`TraitVal` produced by the `impl(...)` block).
@@ -52,8 +46,7 @@
 /// Extract the unique `id` string from a `TypeValue` variant that
 /// carries one (Struct / EnumT / TraitT / SomeT). Returns
 /// the empty string for variants that don't — method lookup is
-/// meaningless for them, mirroring TS's early-return-`[]` path when
-/// the type has no `.trait`. Lives here (rather than on env.yo or
+/// meaningless for them. Lives here (rather than on env.yo or
 /// types/utils.yo) so it's reachable from `impl.yo` registration
 /// callers and from `env.yo` lookup callers without re-creating
 /// the env ↔ impl cycle.
@@ -70,18 +63,15 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     // both the registration and the lookup side. Without this arm the id was
     // empty, so `impl(<union>, …)` registered NOTHING and every union method —
     // static or instance — was unresolvable (tests/basic.test.yo arm 14), while
-    // the identical struct form worked. TS has no such gap: `UnionType extends
-    // Type` so it carries an `id` like every other type
-    //.
+    // the identical struct form worked.
     .Union({ name : un_id }) => un_id,
     // Primitive types get stable synthetic ids so `impl(usize, ...)`,
     // `impl(i32, ...)`, etc. can register `MAX`/`MIN`/operator methods
     // in the trait-methods registry — without an id the registration
     // is silently skipped and property access (`usize.MAX`) fails.
     .Unit => String.from("__yo_t_unit"),
-    // str keeps the id "str" — impl(str, ...) methods were historically
-    // registered under the singleton struct id "str" (TS: StrType.id =
-    // TypeTag.Str = "str").
+    // str keeps the id "str" — impl(str, ...) methods are registered
+    // under the singleton struct id "str".
     .Str => String.from("str"),
     .BoolT => String.from("__yo_t_bool"),
     .Void => String.from("__yo_t_void"),
@@ -105,14 +95,13 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     .CLongLong => String.from("__yo_t_c_longlong"),
     .CULongLong => String.from("__yo_t_c_ulonglong"),
     .CLongDouble => String.from("__yo_t_c_longdouble"),
-    /// The Expr reflection type. Mirrors the TS ExprType singleton carrying
-    /// a trait slot — `impl(Expr, is_atom : ...)` must register and
-    /// `expr.is_atom()` dispatch must resolve (same class of gap as the
+    /// The Expr reflection type — `impl(Expr, is_atom : ...)` must register
+    /// and `expr.is_atom()` dispatch must resolve (same class of gap as the
     /// TypeUni id below; without it every Expr method soft-fell to unit).
     .ExprT => String.from("__yo_t_expr"),
-    // The type universe (`Type`). Mirrors TS `createTypeHierarchy`, which
-    // gives the cached singleton `id: "Type(${level})"`
-    // and a trait slot — so `impl(Type, get_info : ...)` registers and
+    // The type universe (`Type`). The cached singleton carries
+    // `id: "Type(${level})"` and a trait slot — so
+    // `impl(Type, get_info : ...)` registers and
     // `Type.get_info(...)` dispatch resolves. Without this id the prelude's
     // `impl(Type, ...)` registration was silently skipped and every
     // `Type.*` reflection method soft-fell to `unit` under check.
@@ -121,15 +110,12 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
   )
 );
 /// A single trait method or property attached to a concrete type.
-/// Mirrors TS `TraitField` (an extension of `TypeField`).
 ///
 /// Stored as an `object` so the registry can hand back the same
 /// shared reference to multiple call sites without paying for
-/// repeated cloning, matching the way TS's `field` records
-/// transitively share through `type.trait.fields`.
+/// repeated cloning.
 ///
-/// `needs_pointer_conversion` mirrors TS's
-/// `needsPointerConversion?: boolean` flag on
+/// `needs_pointer_conversion` is the flag on
 /// `getReceiverMethodsByNameFromEnv`'s return record. It's set
 /// by `_filter_receiver_methods` (in env.yo) when the method's
 /// first parameter is `*(T)` and the receiver is `T` — codegen
@@ -137,14 +123,11 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
 /// `&receiver` automatically. Defaults to `false` at every
 /// registration site.
 ///
-/// `self_type` mirrors TS's
-/// `specializedMethodType.SelfType = dereferencedReceiverType`
-///. Set on the SomeT / Dyn / TypeApplication
-/// trait-walk paths to the dereferenced receiver so that
-/// codegen can resolve `Self` references inside the method's
-/// signature to the concrete receiver type. Direct-on-type
-/// registry hits leave it `.None` (TS doesn't need it there —
-/// the method's `Self` is already the concrete type).
+/// `self_type` carries the dereferenced receiver. Set on the SomeT /
+/// Dyn / TypeApplication trait-walk paths so that codegen can
+/// resolve `Self` references inside the method's signature to the
+/// concrete receiver type. Direct-on-type registry hits leave it
+/// `.None` (the method's `Self` is already the concrete type).
 MethodEntry :: ref(
   struct(
     label : String,
@@ -286,20 +269,19 @@ get_type_trait_methods_for_type :: (
     .None => ArrayList(MethodEntry).new()
   )
 );
-/// PROVISIONAL (in-flight) trait-method entries: the yo-self port of TS's
-/// receiver-trait splice in `tryToImplementTraitWithArgumentsByTraitType`
-///. TS mutates `receiverType.trait.fields` BEFORE
-/// evaluating the impl's member expressions, so a member body that calls back
-/// into the impl's own methods (recursive types — `TreeNode` with
-/// `Box(Self)` fields under `derive(TreeNode, Clone)`: the derived clone
-/// validates `Box(TreeNode).clone`, whose body calls `TreeNode.clone`) finds
-/// the method TYPE from the trait signature while the real `FuncVal` is still
-/// being built. yo-self's value-semantics TypeValue can't be mutated in
+/// PROVISIONAL (in-flight) trait-method entries. While
+/// `try_to_implement_trait_with_arguments_by_trait_type` evaluates an impl's
+/// member expressions, a member body that calls back into the impl's own
+/// methods (recursive types — `TreeNode` with `Box(Self)` fields under
+/// `derive(TreeNode, Clone)`: the derived clone validates `Box(TreeNode).clone`,
+/// whose body calls `TreeNode.clone`) must find the method TYPE from the trait
+/// signature while the real `FuncVal` is still being built. The value-semantics
+/// `TypeValue` can't be mutated in
 /// place, so the in-flight signatures live here, keyed by receiver type id,
 /// and are consulted FIRST by `get_receiver_methods_by_name_from_env`
-/// (mirroring TS splicing them AHEAD of existing fields). Entries carry
-/// `value : None` (TS: `assignedValue` still undefined during the window) and
-/// `self_type : Some(receiver)` (TS: `SelfType: receiverType` substitution).
+/// (ahead of the regular entries). Entries carry
+/// `value : None` (the real value is still being built) and
+/// `self_type : Some(receiver)`.
 /// They are cleared when the member-evaluation loop finishes — the real
 /// registration (`register_type_trait_method`, with the concrete `FuncVal`)
 /// happens after `try_to_implement_trait_with_arguments_by_trait_type`
@@ -350,9 +332,7 @@ get_provisional_trait_methods_by_name :: (
 clear_provisional_trait_methods :: (fn(type_id : String) -> unit)({
   _provisional_trait_methods.remove(type_id);
 });
-/// Return only the method entries whose `label` matches
-/// `method_name`. Mirrors the inner `.find` / `.filter` calls inside
-/// TS `getTypeTraitMethodsByNameFromEnv`.
+/// Return only the method entries whose `label` matches `method_name`.
 get_type_trait_methods_by_name :: (
   fn(type_id : String, method_name : String) -> ArrayList(MethodEntry)
 )({
@@ -386,7 +366,7 @@ get_type_trait_methods_by_name :: (
 /// never participate.
 (_inherent_method_sites : HashMap(String, String)) = HashMap(String, String).new();
 /// Drop all registered methods. Used by test harnesses to reset
-/// global state between runs. Mirrors the cleanup helpers in
+/// global state between runs. Same pattern as the cleanup helpers in
 /// `evaluator/values/impl.yo` for the generic-impl registry.
 clear_type_trait_methods :: (fn() -> unit)({
   fresh := HashMap(String, ArrayList(MethodEntry)).new();
@@ -414,8 +394,8 @@ note_inherent_method_site :: (
     }
   )
 });
-/// Trait-method DEFAULT values (`?=` defaults). yo-self's `TraitT` does not store
-/// per-field default values (divergence — trait_type.yo:6-8), so the trait
+/// Trait-method DEFAULT values (`?=` defaults). `TraitT` does not store
+/// per-field default values (see trait_type.yo:6-8), so the trait
 /// evaluator records each defaulted method's FuncVal here, keyed by
 /// `${trait_id}::${label}`. Consumers (`_resolve_dyn_trait_values`, method
 /// dispatch) fall back to this when a concrete type implements the trait WITHOUT

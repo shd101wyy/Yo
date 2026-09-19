@@ -53,14 +53,14 @@ pragma(Pragma.AllowUnsafe);
 /// Return the numeric bounds `[min, max]` for `type_val`, or `.None` if the type
 /// has no fixed bounds (floats, ComptimeInt, non-numeric types).
 ///
-/// Mirrors `getNumericBounds` in `src/evaluator/calls/numeric-type.ts`.
+///
 /// Note: returns `.None` for `ComptimeInt` (unbounded) — callers skip bounds checking.
 get_numeric_bounds :: (fn(type_val : TypeValue) -> Option(IntRange))(
   get_integer_type_range(type_val)
 );
 /// Return `true` if `type_val` supports the `type(value)` numeric-cast syntax.
 ///
-/// Mirrors `isConvertibleNumericType` in `src/evaluator/calls/numeric-type.ts`.
+///
 /// Covers: all integer types (Int, Usize, Isize, ComptimeInt), Float, ComptimeFloat,
 /// and all C-compatible types.
 is_convertible_numeric_type :: (fn(type_val : TypeValue) -> bool)(
@@ -84,7 +84,7 @@ is_convertible_numeric_type :: (fn(type_val : TypeValue) -> bool)(
 /// `variant_names` in `EnumT` stores `"Some"` (without leading dot).
 /// Strips the leading dot before comparison.
 ///
-/// Mirrors `getEnumDiscriminant` in `src/evaluator/calls/numeric-type.ts`.
+///
 _get_enum_discriminant :: (
   fn(
     variant : String,
@@ -170,7 +170,7 @@ _int_raw_in_range :: (fn(raw : String, range : IntRange) -> bool)({
 });
 /// Create an `ExprInfo` with a comptime numeric value of the target type from a raw string.
 /// `raw` is the decimal representation of the integer/float.
-/// Mirrors `createComptimeValueOfType` in `src/evaluator/calls/numeric-type.ts`.
+///
 _make_comptime_info :: (
   fn(
     raw : String,
@@ -239,7 +239,7 @@ _make_yo_as_node :: (
 /// Returns `.None` if `target_type` is not a convertible numeric type.
 /// Returns `.Some(result_expr)` on success.
 ///
-/// Mirrors `tryToConvertToNumericType` in `src/evaluator/calls/numeric-type.ts`.
+///
 try_to_convert_to_numeric_type :: (
   fn(
     target_type : TypeValue,

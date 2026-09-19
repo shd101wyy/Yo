@@ -1,18 +1,15 @@
 //! clone_value — deep-clone a compile-time `EvalValue`.
 //!
-//! Phase 3d: full structural deep-clone implementation.
-//!
 //! `preserve_pointer_refs = true` (the common case): `PtrVal`
 //! is returned unchanged to preserve reference semantics.
 //! `preserve_pointer_refs = false` (CTFE checking): all compound types
 //! including pointers are recursively cloned so that mutations to the clone
 //! do not affect the original environment.
 //!
-//! The TypeScript `targetValueMapping` (to maintain aliasing between cloned
-//! pointers inside the same environment) is not yet ported — each Box gets an
-//! independent clone, which is sufficient for Phase 3 bootstrap purposes.
+//! Cloned pointers do not maintain aliasing between themselves inside the
+//! same environment — each Box gets an independent clone, which suffices for
+//! CTFE-check isolation.
 //!
-//! Mirrors `cloneValue` in `src/evaluator/values/clone-value.ts`.
 pragma(Pragma.AllowUnsafe);
 import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -23,7 +20,7 @@ import("std/string");
 /// is returned unchanged to preserve reference semantics.
 /// When `false`, every node is recursively cloned (used in CTFE checking).
 ///
-/// Mirrors `cloneValue` in `src/evaluator/values/clone-value.ts`.
+///
 clone_value :: (fn(v : EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
   match(
     v,
@@ -45,9 +42,9 @@ clone_value :: (fn(v : EvalValue, preserve_pointer_refs : bool) -> EvalValue)(
       EvalValue.ReturnVal(val : recur(val_box, preserve_pointer_refs), ty : ty.clone()),
     // PtrVal — preserve or deep-clone depending on flag. Preserving keeps
     // the SAME cell (reference semantics); cloning mints a FRESH 1-elem cell
-    // around the cloned pointee (TS clone-value.ts:90-120, minus the
-    // targetValueMapping dedup — yo-self has no identity-keyed map for
-    // ArrayList cells; CTFE-check isolation only needs the copy).
+    // around the cloned pointee (no aliasing dedup between cloned cells —
+    // there is no identity-keyed map for ArrayList cells, and CTFE-check
+    // isolation only needs the copy).
     .PtrVal(target_value : tgt_cell, target_index : idx) =>
       cond(
         preserve_pointer_refs => v,

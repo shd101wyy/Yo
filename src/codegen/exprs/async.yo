@@ -111,7 +111,7 @@
 /// Mirrors the `{ effectLabel, accessPath }` records in `async.ts`.
 EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
 /// True if the extern name is defined in the async runtime (poll / fs_event /
-/// async prefixes). Mirrors `isAsyncRuntimeExternName`.
+/// async prefixes).
 is_async_runtime_extern_name :: (fn(name : String) -> bool)(
   (name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_")) || name.starts_with("__yo_async_")
 );
@@ -588,7 +588,7 @@ _join_dotted :: (fn(parts : ArrayList(String)) -> String)({
   out
 });
 /// Emit the C `struct <name>_struct { ... }` definition for one async-block state
-/// machine. Faithful port of `emitAsyncBlockStructDefinition`:
+/// machine.:
 /// RC header → state → result → continuation/resume/set_effect fn ptrs → capture
 /// struct → closure-param slots → cross-boundary local fields → overlapping slots
 /// → await-result temporaries → await-future fields → cond_branch fields →
@@ -1018,8 +1018,7 @@ _build_deferred_deps :: (
 });
 /// Emit struct definitions for all deferred async blocks in dependency order
 /// (Kahn's topological sort over by-value embedding edges; falls back to input
-/// order on cycles). Faithful port of `emitDeferredAsyncBlockStructDefinitions`
-///.
+/// order on cycles).
 emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGenerationContext) -> unit)({
   blocks := match(context.deferred_async_blocks, .Some(b) => b, .None => return());
   if(blocks.len() == usize(0), return());
@@ -1821,7 +1820,7 @@ flatten_nested_await_blocks :: (fn(expr : AstExpr, context : FunctionGenerationC
 /// type, emits forward declarations, records a deferred-generation request (resume
 /// /constructor/dispose emitted after all regular functions), and emits the cold
 /// constructor call. Returns the C expression for the resulting (cold) future.
-/// Faithful port of `generateAsyncBlock`.
+///.
 /// Extract the io.async(closure) body for the state-machine path: the closure
 /// FuncVal's body, read from the runtime-arg's ExprInfo — `closure_function_value`
 /// first, falling back to `cei.value` when it is None (evaluate_anonymous_function
@@ -2451,7 +2450,7 @@ _called_extern_name :: (fn(expr : AstExpr, context : FunctionGenerationContext) 
 });
 /// Recursively search `expr` for async blocks and pre-register their state-machine
 /// types (forward-declared struct typedefs), and flag uses_async / uses_parallelism.
-/// Faithful port of `preRegisterAsyncBlocksInExpr`.
+///.
 preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> unit)({
   is_fn_call := match(expr, .FnCall(_, _, _, _, _) => true, _ => false);
   if(!(is_fn_call), return());
@@ -2570,7 +2569,7 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
 });
 /// Pre-register every function body's async-block state-machine types before
 /// function declarations are generated, so prototypes see the right struct names.
-/// Faithful port of `preRegisterAsyncBlockTypes`.
+///.
 preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> unit)({
   vals := context.base.functions.values();
   (go : bool) = true;
@@ -2591,7 +2590,7 @@ preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> uni
 /// Generate C for `io.async(closure)` as a LAZY synchronous future (no await
 /// points). The closure is NOT called at io.async time; its function pointer +
 /// capture live in the future struct, and io.await's resume call executes it.
-/// Faithful port of `generateIoAsyncSyncCall`.
+///.
 /// DIVERGENCE: the closure's C function name comes from the closure-arg's
 /// `closure_function_value` FuncVal func_id (via get_function_entry) rather than
 /// TS's implClosureCallMap (absent in yo-self); the closure's runtime params +

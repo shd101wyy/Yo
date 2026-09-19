@@ -22,7 +22,7 @@ _strip_panic_quotes :: (fn(raw : String) -> String)({
 });
 /// `panic(...)`: emit a stderr message (if any) + abort(), then return an
 /// unreachable type-correct dummy value (`*(T*)NULL`) so the C compiles
-/// (panic never returns). Mirrors `generatePanic`.
+/// (panic never returns).
 generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
   return_type := match(ei_opt, .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("panic() missing type information"))));

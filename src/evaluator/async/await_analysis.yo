@@ -179,32 +179,32 @@ _callee_io_builtin_is :: (fn(expr : AstExpr, marker : String) -> bool)(
 );
 /// Checks if an expression is an io.async(closure) call.
 ///
-/// Mirrors `isIoAsyncCall` in `src/evaluator/async/await-analysis.ts`.
+///
 is_io_async_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "async") || _callee_io_builtin_is(expr, String.from("__yo_io_async"))
 );
 /// Checks if an expression is an io.await(future, io) call.
 ///
-/// Mirrors `isIoAwaitCall` in `src/evaluator/async/await-analysis.ts`.
+///
 is_io_await_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "await") || _callee_io_builtin_is(expr, String.from("__yo_io_await"))
 );
 /// Checks if an expression is an io.state(future) call.
 ///
-/// Mirrors `isIoStateCall` in `src/evaluator/async/await-analysis.ts`.
+///
 is_io_state_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "state") || _callee_io_builtin_is(expr, String.from("__yo_io_state"))
 );
 /// Checks if an expression is an io.spawn(future) call.
 ///
-/// Mirrors `isIoSpawnCall` in `src/evaluator/async/await-analysis.ts`.
+///
 is_io_spawn_call :: (fn(expr : AstExpr) -> bool)(
   _is_dot_access(expr, "io", "spawn") || _callee_io_builtin_is(expr, String.from("__yo_io_spawn"))
 );
 /// Checks if an expression is a JoinHandle.await(io, JoinHandle) call.
 /// Structurally: any `x.await(..., x)` where x is NOT "io".
 ///
-/// Mirrors `isJoinHandleAwaitCall` in `src/evaluator/async/await-analysis.ts`.
+///
 is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
   // Check if this is any X.await(..., X) method call. Match `expr` directly —
   // a read-only structural match does NOT consume it (the sibling
@@ -401,7 +401,7 @@ detect_await_expr_ :: (
 // ---------------------------------------------------------------------------
 /// Analyzes an async function body to find all await expressions.
 ///
-/// Mirrors `analyzeAwaitPoints` in `src/evaluator/async/await-analysis.ts`.
+///
 ///
 /// The extra `get_info` parameter provides per-expression type/env information
 /// (Yo's equivalent of TypeScript's `expr.$`).
@@ -536,7 +536,7 @@ analyze_await_points :: (
 /// Used by `get_local_variables_from_body` to discover all locals for
 /// async state machine generation.
 ///
-/// Mirrors `collectVariableBindings` in `src/evaluator/async/await-analysis.ts`.
+///
 ///
 /// Note: does NOT use early `return` for the binding check — control must
 /// always reach the recursive calls at the bottom of the FnCall arm.
@@ -662,7 +662,7 @@ collect_variable_bindings_ :: (
 /// Gets the local variable declarations from a function body.
 /// Used by async codegen to determine which variables need state-machine fields.
 ///
-/// Mirrors `getLocalVariablesFromBody` in `src/evaluator/async/await-analysis.ts`.
+///
 get_local_variables_from_body :: (
   fn(
     body : AstExpr,

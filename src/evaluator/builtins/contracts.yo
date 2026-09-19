@@ -73,7 +73,7 @@
 /// Evaluate any of the no-op contract markers (`requires` / `ensures` /
 /// `invariant` / `ghost` in expression position). Each argument is evaluated
 /// (so expression-level errors surface), but the call itself returns `unit`.
-/// Mirrors `evaluateContractMarker` in `src/evaluator/builtins/contracts.ts`.
+///
 _evaluate_contract_marker :: (
   fn(
     expr : AstExpr,
@@ -188,7 +188,7 @@ evaluate_ensures :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, ex
   _evaluate_contract_marker(expr, env, ctx, exn)
 });
 /// `invariant(...)` — no-op marker (loop placement checked in `while`; SMT
-/// discharge is a later phase). Mirrors `evaluateInvariant`.
+/// discharge is a later phase).
 evaluate_invariant :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
@@ -264,7 +264,7 @@ is_ghost_binding_name :: (fn(name : String) -> bool)(
 /// runtime-mode assert reading a ghost binding emitted an UNDECLARED C
 /// identifier — the evaluator resolved the name (Phase 0's marker bound it)
 /// while codegen erased the binding. Other `ghost(...)` shapes keep the
-/// transparent no-op marker. Mirrors `evaluateGhost`.
+/// transparent no-op marker.
 evaluate_ghost :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
   args0 := match(
     expr,
@@ -969,7 +969,7 @@ evaluate_implies :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, ex
   expr
 });
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
-/// by the wrapper; transparent pass-through elsewhere). Mirrors `evaluateOld`.
+/// by the wrapper; transparent pass-through elsewhere).
 evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(expr, BF_OLD, .Some(usize(1))), {
     exn.throw(
@@ -1034,7 +1034,7 @@ _note_unlabeled_ensures_atoms :: (fn(e : AstExpr) -> unit)(
   )
 );
 /// Build a synthetic atom borrowing `src_tok`'s source position so diagnostics
-/// point at the user's contract clause. Mirrors `synthAtom`.
+/// point at the user's contract clause.
 _synth_atom :: (fn(value : String, kind : TokenKind, src_tok : Token) -> AstExpr)(
   AstExpr.Atom(
     alloc_global_expr_id(),
@@ -1096,7 +1096,7 @@ _synth_string_token_value :: (fn(s : String) -> String)({
 /// `std/assert` (explicit import), so a bare `assert` identifier no longer
 /// resolves in user files that never import it. Synthesize
 /// `import("std/assert").assert` instead — self-contained and immune to local
-/// shadowing. Mirrors `buildAssertCallee`.
+/// shadowing.
 /// Build the runtime check for one contract predicate. `label_pred`
 /// supplies the human-readable message text; `pred` is what actually gets
 /// checked (it may have had `old(...)` rewritten to snapshot references).

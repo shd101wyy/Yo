@@ -183,7 +183,7 @@ pragma(Pragma.AllowUnsafe);
 /// Extract a FuncVal from an optional EvalValue.
 /// Closures are runtime-only and have no FuncVal at compile time.
 ///
-/// Mirrors `extractFunctionValue` in `src/evaluator/calls/helper.ts`.
+///
 extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
   match(
     value,
@@ -201,7 +201,7 @@ extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
 /// Return true if any field of `module_type` is a "control function"
 /// (one that uses `unwind` to control the continuation).
 ///
-/// Mirrors `moduleTypeContainsCtlField` in `src/evaluator/calls/helper.ts`.
+///
 /// Uses the global control-function registry since FuncVal has no isControlFunction flag.
 _module_type_contains_ctl_field :: (
   fn(
@@ -285,7 +285,7 @@ _module_type_contains_ctl_field :: (
 /// Phase 3: returns `None` (no variables qualify with the current stub for
 /// `type_contains_rc_type`).
 ///
-/// Mirrors `generateDeferredDropExpressions` in `src/evaluator/calls/helper.ts`.
+///
 generate_deferred_drop_expressions :: (
   fn(
     variables_to_drop : ArrayList(Variable),
@@ -332,7 +332,7 @@ generate_deferred_drop_expressions :: (
 /// Throws an Exception if a SomeType is found in the return type that has no
 /// corresponding variable in the env AND is not a Future/Fn impl type.
 ///
-/// Mirrors `validateFunctionReturnType` in `src/evaluator/calls/helper.ts`.
+///
 validate_function_return_type :: (
   fn(
     return_type : TypeValue,
@@ -1203,7 +1203,7 @@ ${ast_expr_to_string(actual_arg)}`
 /// Replace all non-alphanumeric bytes in `s` with underscores.
 ///
 /// Used to make compile-time signature strings safe as C identifier suffixes.
-/// Mirrors `sanitizeForCIdentifier` in `src/codegen/utils/index.ts` but only
+/// but only
 /// handles the character-replacement aspect (no C keyword avoidance needed
 /// here since the signature is a suffix appended to a valid func_id).
 sanitize_for_sig :: (fn(s : String) -> String)({
@@ -1244,7 +1244,7 @@ sanitize_for_sig :: (fn(s : String) -> String)({
 /// For function values, returns `fn_<func_id>`.
 /// For other values, falls back to value_to_string.
 ///
-/// Mirrors `valueToSignatureString` in `src/evaluator/calls/helper.ts`.
+///
 value_to_signature_string :: (fn(value : EvalValue) -> String)(
   match(
     value,
@@ -1279,7 +1279,7 @@ value_to_signature_string :: (fn(value : EvalValue) -> String)(
 ///
 /// Used as the suffix for `specializedFuncId = funcId + "_" + signature`.
 ///
-/// Mirrors `computeCompileTimeSignature` in `src/evaluator/calls/helper.ts`.
+///
 compute_compile_time_signature :: (
   fn(
     func_type : TypeValue,
@@ -4087,7 +4087,7 @@ create_specialized_function_inline :: (
 /// because the concrete type comes from the CALL SITE's enclosing function return
 /// type (not from the arguments).
 ///
-/// Mirrors `evaluateCtlFunctionBodyInline` in `src/evaluator/calls/helper.ts`
+///
 /// (lines 3616–3790).
 evaluate_ctl_function_body_inline :: (
   fn(
