@@ -110,7 +110,12 @@ _synth_infix :: (fn(base : Token, op : str, lhs : AstExpr, rhs : AstExpr) -> Ast
   args := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
-  AstExpr.FnCall(alloc_global_expr_id(), _synth_atom(base, TokenKind.Operator, String.from(op)), args, true, base)
+  // The call node carries the OPERATOR token, exactly as the parser builds
+  // `a == b` (`.FnCall(id, .Atom(id, op_tok), args, true, op_tok)`); the
+  // operator emitters key on it, and with the literal's token here the call
+  // took the generic path and rendered `"a"` as an identifier.
+  op_tok := _synth_token(base, TokenKind.Operator, String.from(op));
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), op_tok), args, true, op_tok)
 });
 /// True for an atom whose token is a literal kind (compared, never bound).
 _is_literal_atom :: (fn(e : AstExpr) -> bool)(
