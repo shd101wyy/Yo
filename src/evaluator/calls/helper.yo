@@ -3870,7 +3870,7 @@ create_specialized_function_inline :: (
                 // binding itself is an unresolved SomeT (e.g. box's V bound
                 // to the Impl-Fn wrapper), the loop above harvests nothing,
                 // but a declared param that IS that bare SomeT (`own(value)
-                // : V`) pairs positionally with the spec's CONCRETE param
+                // V`) pairs positionally with the spec's CONCRETE param
                 // type (the closure capture struct resolved above). In TS
                 // the same information flows through object identity: the
                 // wrapper SomeType's resolvedConcreteType is set once and
@@ -4116,7 +4116,7 @@ evaluate_ctl_function_body_inline :: (
   // Mirrors:
   //   context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
   //     ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
-  //     : functionType.return.type
+  // functionType.return.type
   // -------------------------------------------------------------------------
   (concrete_type_for_forall : TypeValue) = match(
     ctx.is_evaluating_function_body_or_async_block,
@@ -5956,7 +5956,7 @@ try_to_call_function_with_arguments :: (
                 // before the argument loop (yo-self's mutable push/pop envs;
                 // TS keeps the binding via the returned env chain,
                 // helper.ts:1397-1405). For every applied `lhs <: Trait(assoc
-                // := X)` whose X forall is STILL not concretely bound, resolve
+                // = X)` whose X forall is STILL not concretely bound, resolve
                 // the assoc from the lhs's concrete target through the same
                 // registry channels the check used, and bind X here in the
                 // callee env's own frame (`.filter(p).fold(init, f)`: fold's

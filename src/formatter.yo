@@ -323,7 +323,6 @@ next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclu
   result
 });
 /// True iff any token in `[start_inclusive, end_exclusive)` is a comment.
-/// Mirrors `tokenRangeHasComment`.
 token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usize, end_exclusive : usize) -> bool)({
   (i : usize) = start_inclusive;
   (found : bool) = false;
@@ -359,7 +358,6 @@ has_any_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index 
 /// True iff there is a top-level (no nesting) token of `kind` in
 /// `(left_index, right_index)`. Skips comments and tracks paren / bracket /
 /// curly depth so e.g. a comma inside an inner paren doesn't count.
-/// Mirrors `hasTopLevelToken`.
 has_top_level_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
   (paren_depth : usize) = usize(0);
   (bracket_depth : usize) = usize(0);
@@ -423,7 +421,6 @@ next_token :: (fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize), i
   result
 });
 /// Build a map of each `LParen` index → its matching `RParen` index.
-/// Mirrors `findMatchingParenIndices`.
 find_matching_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, usize))({
   pairs := HashMap(usize, usize).new();
   stack := ArrayList(usize).new();
@@ -661,7 +658,6 @@ should_force_control_flow_multiline :: (
 );
 /// True iff the paren range contains a top-level curly that follows a
 /// top-level comma (i.e. a curly-bracketed argument like `f(x, { … })`).
-/// Mirrors `hasTopLevelCurlyArgument`.
 has_top_level_curly_argument :: (
   fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )({
@@ -1464,7 +1460,6 @@ is_callee_prefix_call_paren :: (
 );
 /// True iff the paren range is a redundant grouping paren (e.g.
 /// `(x)` around a single sub-expression that doesn't need protection).
-/// Mirrors `isRedundantGroupingParen`.
 is_redundant_grouping_paren :: (
   fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )(
@@ -2156,7 +2151,6 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
 });
 /// Read a backtick template-string starting at byte offset `start` in `input`,
 /// returning the literal slice from `` ` `` to the matching closing `` ` ``.
-/// Mirrors `readRawTemplateString`.
 /// `start` is a BYTE offset into `input` — pass `Token.byte_offset`, never
 /// `Token.character`.
 ///
@@ -2239,7 +2233,6 @@ read_raw_template_string :: (fn(input : String, start : usize) -> String)({
 });
 /// Return the raw source text for token `tokens[index]`. For template strings
 /// this re-reads from `input` (the lexer normalises template-string `value`s).
-/// Mirrors `rawTokenValue`.
 raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize) -> String)(
   match(
     tokens.get(index),

@@ -607,7 +607,6 @@ _await_macro_expansion :: (fn(expr : AstExpr) -> Option(AstExpr))(
 /// expression (`!(io.await(f, io))`) asks codegen for helper specialisations the
 /// collection pass never saw, and the C then calls undeclared functions. Awaits
 /// nested inside a bigger expression are unsupported everywhere.
-/// Mirrors `exprIsBareAwait`.
 expr_is_bare_await :: (fn(expr_opt : Option(AstExpr), await_point : AwaitPoint) -> bool)({
   cur := match(expr_opt, .Some(e) => e, .None => return(false));
   (current : AstExpr) = cur;
@@ -646,7 +645,6 @@ expr_is_bare_await :: (fn(expr_opt : Option(AstExpr), await_point : AwaitPoint) 
 /// evaluates conditions lazily, in order, so hoisting a LATER condition would
 /// evaluate its await even when an earlier branch matches — a silent change of
 /// meaning, not just of timing. The first condition is always evaluated.
-/// Mirrors `awaitIsInFirstCondPosition`.
 await_is_in_first_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint) -> bool)({
   if(!(ast_expr_is_fn_call(cond_expr) && ast_expr_is_fn_call_of(cond_expr, BK_COND, Option(usize).None)), {
     return(false);
@@ -661,7 +659,6 @@ await_is_in_first_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitP
 });
 /// True when this await sits somewhere in `expr` that the state machine cannot
 /// split at: a `cond`/`if` branch condition, or a `match` scrutinee.
-/// Mirrors `awaitIsInNonSplittablePosition`.
 await_is_in_non_splittable_position :: (fn(expr : AstExpr, await_point : AwaitPoint) -> bool)({
   if(!(ast_expr_is_fn_call(expr)), {
     return(false);
@@ -717,7 +714,6 @@ await_is_while_condition :: (fn(await_point : AwaitPoint) -> bool)({
 /// So the await point stays on segment N (its future store and state transition
 /// are unchanged) and the enclosing expression moves to the front of segment
 /// N+1, where `sm->await_result_N` is live.
-/// Mirrors `hoistNonSplittableAwaits`.
 hoist_non_splittable_awaits :: (fn(segments : ArrayList(StateSegment)) -> unit)({
   (i : usize) = usize(0);
   n := segments.len();
@@ -844,7 +840,6 @@ emit_await_future_store :: (
 /// The enclosing expression now lives in the next segment, so this segment ends
 /// with just the store — the state transition the caller appends reads
 /// `sm->await_future_N` exactly as it would for any other await.
-/// Mirrors `emitHoistedAwaitFutureStore`.
 emit_hoisted_await_future_store :: (
   fn(await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
 )({
@@ -1042,7 +1037,6 @@ _extract_target_var_id :: (
 /// True when this await sits in a branch CONDITION of `cond_expr` (rather than
 /// in a branch value, which is what the splitter supports). `cond_expr` must be
 /// a `cond` — for an `if`, pass its macro expansion.
-/// Mirrors `awaitIsInCondPosition`.
 _await_is_in_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint) -> bool)({
   if(!(ast_expr_is_fn_call(cond_expr) && ast_expr_is_fn_call_of(cond_expr, BK_COND, Option(usize).None)), {
     return(false);
@@ -1076,7 +1070,6 @@ _await_is_in_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint)
 ///    needs a state per condition, which the FSM does not model. Fix: hoist.
 ///  - `if` BODY (`if(c, { await f })`): `if` is a macro over `cond`, and only
 ///    `cond` carries the branch structure the splitter needs. Fix: write `cond`.
-/// Mirrors `unsupportedAwaitMessage`.
 _unsupported_await_message :: (fn(expr : AstExpr, is_if : bool, in_cond_pos : bool) -> String)({
   t := ast_expr_token(expr);
   where := `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}: `;
@@ -1669,7 +1662,6 @@ generate_while_body_with_await :: (
 /// Emit a `while` body that contains no await, in the label/goto form state 0
 /// uses. Only needed when the loop's await is in the STEP: the body still has
 /// to run before it, but there is nothing to split.
-/// Mirrors `generateWholeWhileBody`.
 generate_whole_while_body :: (
   fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext, while_loop_index : usize) -> unit
 )({
@@ -2457,7 +2449,6 @@ _attach_cond_branch_post_while :: (
 /// Mirrors `extract_target_variable_id`'s contract: the target only exists when
 /// the await call is the direct RHS of a `:=`. Does not descend into a nested
 /// `io.async` body — those awaits belong to that block's own state machine.
-/// Mirrors `findBranchAwaitTargetVariableId`.
 _find_branch_await_target_variable_id :: (
   fn(expr : AstExpr, context : FunctionGenerationContext) -> Option(String)
 )({

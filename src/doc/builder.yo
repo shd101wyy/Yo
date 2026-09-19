@@ -51,7 +51,6 @@
 // Shared small types
 // ---------------------------------------------------------------------------
 /// Parsed section fields shared by DocType, DocTrait, and DocConstant.
-/// Mirrors `DocSections`.
 DocSections :: struct(
   deprecated : Option(String),
   examples : Option(String)
@@ -63,7 +62,6 @@ TokenImplInfo :: struct(
   impls : ArrayList(DocImpl),
   methods : ArrayList(DocFunction)
 );
-/// Mirrors `TraitBodyExtraction`.
 TraitBodyExtraction :: struct(
   method_names : ArrayList(String),
   associated_types : ArrayList(DocImplAssocType),
@@ -130,7 +128,6 @@ module_stability :: (fn(doc : Option(String)) -> Option(String))(
   )
 );
 /// Build a lookup map from declaration name → doc comment content.
-/// Mirrors `buildDocLookup`.
 build_doc_lookup :: (fn(extraction : DocExtractionResult) -> HashMap(String, String))({
   lookup := HashMap(String, String).new();
   (i : usize) = usize(0);
@@ -216,12 +213,10 @@ merge_trait_impl_names :: (
 // ---------------------------------------------------------------------------
 // Token-scanning primitives
 // ---------------------------------------------------------------------------
-/// Mirrors `isTriviaToken`.
 _is_trivia_token :: (fn(token : Token) -> bool)(
   (token.kind == TokenKind.Whitespace) || (token.kind == TokenKind.SingleLineComment) || (token.kind == TokenKind.MultiLineComment) || (token.kind == TokenKind.DocLineComment) || (token.kind == TokenKind.InnerDocLineComment) || (token.kind == TokenKind.DocBlockComment) || (token.kind == TokenKind.InnerDocBlockComment)
 );
 /// Skip past balanced parentheses starting at `(`. Returns index after `)`.
-/// Mirrors `skipBalancedParens`.
 _skip_balanced_parens :: (fn(toks : ArrayList(Token), start : usize) -> usize)({
   at_lparen := match(
     toks.get(start),
@@ -252,7 +247,6 @@ _skip_balanced_parens :: (fn(toks : ArrayList(Token), start : usize) -> usize)({
   j
 });
 /// The source text spanned by tokens [start_index, end_index], trimmed.
-/// Mirrors `sliceTokenText`.
 _slice_token_text :: (
   fn(toks : ArrayList(Token), start_index : usize, end_index : usize) -> String
 )({
@@ -913,7 +907,6 @@ _strip_doc_block_comment :: (fn(text : String) -> String)({
 });
 /// Collect `///` / `/** */` doc comment lines immediately preceding the token
 /// at (row, character) in the FULL (trivia-included) token array.
-/// Mirrors `collectDocCommentBefore`.
 _collect_doc_comment_before :: (
   fn(full_tokens : ArrayList(Token), row : usize, character : usize) -> Option(String)
 )({
@@ -970,7 +963,6 @@ _collect_doc_comment_before :: (
 // impl(...) token scanning
 // ---------------------------------------------------------------------------
 /// Extract trait implementation names per type from the token stream.
-/// Mirrors `extractTraitImplsFromTokens`.
 ///
 /// `derive(Type, Trait(...))` counts as well as `impl(Type, Trait(...))`: the
 /// two spell the same relationship with the same argument shape, so one walk
@@ -1611,7 +1603,6 @@ extract_impl_info_from_tokens :: (
 // Token-only fallback builder + cross references
 // ---------------------------------------------------------------------------
 /// Build a minimal DocModule from token extraction only (no evaluator).
-/// Mirrors `buildDocModuleFromTokens`.
 build_doc_module_from_tokens :: (
   fn(
     name : String,
@@ -2645,7 +2636,6 @@ _extract_generic_impl_info :: (
   });
   GenericImplInfo(methods : methods, impls : impls, trait_impls : trait_impls)
 });
-/// Mirrors `getTypeKind`.
 _get_type_kind :: (fn(t : TypeValue) -> DocItemKind)({
   if(is_struct_type(t), {
     return(

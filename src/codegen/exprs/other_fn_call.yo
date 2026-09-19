@@ -184,7 +184,6 @@ _is_addressable_c_expr :: (fn(code : String) -> bool)({
   true
 });
 /// Split a C arg list at top-level commas, respecting ()/[]/{} nesting.
-/// Mirrors `splitTopLevelArgsList`.
 _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
   out := ArrayList(String).new();
   (depth : usize) = usize(0);
@@ -1764,7 +1763,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         // arguments (e.g. `Self(v : n)` in a method body) reaches here — emit
         // either a newtype zero-cost cast `((cName)(arg))` or a C99 compound
         // literal `(cName){ .field = arg, ... }`. Mirrors other-fn-call.ts
-        // :2235-2420 (the newtype + value-struct branches).
+        // 2235-2420 (the newtype + value-struct branches).
         if(is_struct_type(wrapped) && !(is_reference_struct_type(wrapped)), {
           vs_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
           vs_is_newtype := match(wrapped, .Struct({ is_newtype : nt }) => nt, _ => false);

@@ -941,7 +941,6 @@ sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
 });
 /// Check if a type should avoid the `const` qualifier even when not mutable.
 /// Object types need this so reference-counting operations remain legal.
-/// Mirrors `shouldAvoidConst`.
 should_avoid_const :: (fn(t : TypeValue) -> bool)(
   is_reference_struct_type(t)
 );
@@ -1117,7 +1116,6 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// Check if an enum can be optimized as a nullable pointer. Returns the
 /// pointer variant's field type if so, `.None` otherwise. Requires exactly
 /// two variants: one fieldless and one carrying a single pointer field.
-/// Mirrors `canOptimizeAsNullablePointer`.
 can_optimize_as_nullable_pointer :: (fn(t : TypeValue) -> Option(TypeValue))(
   match(
     t,
@@ -1796,7 +1794,6 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
 /// Extract the target atom name from a deferred dup expression.
 ///   Form 1: `___dup(varName)` — pre-evaluation form (first arg atom).
 ///   Form 2: `(varName.___dup)()` — post-evaluation method-style form.
-/// Mirrors `getDeferredDupTargetAtomName`.
 get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
   match(
     dup_expr,
@@ -1841,7 +1838,6 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
 /// Extract the target atom name from a deferred drop expression.
 ///   Form A: `varName.drop()` (method-call syntax).
 ///   Form B: `___drop(varName)`.
-/// Mirrors `getDeferredDropTargetAtomName`.
 get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String))(
   match(
     drop_expr,
@@ -1902,7 +1898,6 @@ is_deferred_drop_for_closure_capture :: (
 /// Find the first async block in an expression that might be returned.
 /// For functions returning `Impl(Future(T))`, any async block in the body
 /// could be the return value, so the first one found is returned.
-/// Mirrors `findReturnedAsyncBlock`.
 find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
   match(
     expr,

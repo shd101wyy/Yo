@@ -1490,7 +1490,7 @@ find_matching_generic_impl :: (
   false
 });
 /// Negative generic impl registry. Mirrors TS `negativeGenericImplRegistry`
-///: holds `impl(generic(...), Pattern, !(Trait))` entries (reusing
+/// holds `impl(generic(...), Pattern, !(Trait))` entries (reusing
 /// `GenericImplEntry`, with empty field_* lists — negative impls carry no
 /// methods). Checked as step 0 of `type_implements_trait` so a matching negative
 /// generic impl overrides auto-derive (e.g. `impl(generic(T), Container(T),
@@ -1502,7 +1502,7 @@ register_negative_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
 });
 /// Returns true if some registered negative generic impl for `trait_type`
 /// matches `concrete_type`. Mirrors TS `findMatchingNegativeGenericImpl`
-///: filter by trait key, then `try_match_generic_impl`.
+/// filter by trait key, then `try_match_generic_impl`.
 find_matching_negative_generic_impl :: (
   fn(concrete_type : TypeValue, trait_type : TypeValue, env : Environment) -> bool
 )({
@@ -1879,7 +1879,7 @@ find_methods_from_generic_impls :: (
               fvalue := entry.field_values.get(fi);
               // Specialize the method TYPE with the impl's generic bindings —
               // mirrors TS `reEvaluateFunctionType` in `findMethodsFromGenericImpls`
-              //: the returned candidate's param/return types must
+              // the returned candidate's param/return types must
               // be concrete (e.g. `self : ComptimeList(comptime_str)`, not
               // `ComptimeList(T)`) so the call-site parameter check compares
               // concrete types directly instead of relying on call-time SomeT

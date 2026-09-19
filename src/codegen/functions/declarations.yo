@@ -101,7 +101,6 @@ collect_evidence_from_record :: (
   )
 );
 /// Extract evidence parameters from a function type's implicit parameters.
-/// Mirrors `getEvidenceParameters`.
 ///
 /// DIVERGENCE: TS hardcodes `expandImplicitParameters([])` (the implicit-param
 /// expansion is currently a no-op — effects evidence is handled elsewhere), so
@@ -114,7 +113,6 @@ get_evidence_parameters :: (fn(_function_type : TypeValue) -> ArrayList(Evidence
   ArrayList(EvidenceParameter).new()
 );
 /// Generate a C function prototype string `<ret> <cName>(<params>)`.
-/// Mirrors `generateFunctionPrototype`.
 ///
 /// `override_return_type` (`.Some(s)` overrides the computed return type) and
 /// the recursion for function-pointer parameters use the callee-name slot
@@ -484,7 +482,7 @@ _body_is_effectful :: (fn(body : Option(AstExpr), context : CodeGenContext) -> b
 /// Whether a collected function should be SKIPPED for C codegen (both its
 /// forward declaration AND its body). TS applies this same skip set in BOTH
 /// `generateFunctionDeclarations` and `generateAllFunctions` (generation.ts
-/// :583-661) — the two loops MUST agree, else a function whose prototype is
+/// 583-661) — the two loops MUST agree, else a function whose prototype is
 /// skipped but whose body is emitted produces "call to undeclared function" /
 /// "static declaration follows non-static" at any call site that precedes the
 /// definition. This is the single source of truth, called from both loops.

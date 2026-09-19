@@ -503,7 +503,6 @@ ComptimeFnCallResult :: ref(
 // ---------------------------------------------------------------------------
 // TypeCallResult
 // ---------------------------------------------------------------------------
-/// Mirrors `TypeCallResult`.
 TypeCallResult :: ref(
   struct(
     values : ArrayList(Option(EvalValue)),
@@ -515,28 +514,24 @@ TypeCallResult :: ref(
 // ---------------------------------------------------------------------------
 // Module / trait / macro / numeric / pointer / index call results
 // ---------------------------------------------------------------------------
-/// Mirrors `ModuleTypeCallResult`.
 ModuleTypeCallResult :: ref(
   struct(
     module_value : EvalValue,
     caller_env : Environment
   )
 );
-/// Mirrors `TraitTypeCallResult`.
 TraitTypeCallResult :: ref(
   struct(
     trait_value : EvalValue,
     caller_env : Environment
   )
 );
-/// Mirrors `TraitSpecializationResult`.
 TraitSpecializationResult :: ref(
   struct(
     specialized_trait_type : TypeValue,
     caller_env : Environment
   )
 );
-/// Mirrors `MacroFunctionCallResult`.
 MacroFuncCallResult :: ref(
   struct(
     callee_env : Environment,
@@ -544,21 +539,18 @@ MacroFuncCallResult :: ref(
     return_expr : AstExpr
   )
 );
-/// Mirrors `NumericTypeCallResult`.
 NumericTypeCallResult :: ref(
   struct(
     expr : AstExpr,
     env : Environment
   )
 );
-/// Mirrors `PointerTypeCallResult`.
 PointerTypeCallResult :: ref(
   struct(
     expr : AstExpr,
     env : Environment
   )
 );
-/// Mirrors `IndexCallResult`.
 IndexCallResult :: ref(
   struct(
     /// Auto-dereferenced value (Output type, not *(Output)).
@@ -576,7 +568,6 @@ IndexCallResult :: ref(
     index : Option(usize),
     /// Compile-time element/field reference produced by a ComptimeIndex
     /// dispatch, enabling `p(0) = v` and `&(p(0))` at compile time.
-    /// Mirrors `IndexCallResult.comptimeRef`.
     comptime_ref : Option(ComptimeRef)
   )
 );
@@ -2358,7 +2349,7 @@ force_pending_impls_for_type_name :: (fn(type_name : String) -> PendingImplOutco
   // type is the in-block sibling forward reference that impl.yo's shell
   // pre-pass and in-flight registry own — forcing a LATER impl of the same
   // type in the middle of that registration evaluated `impl(Sha1, Digest(update
-  // : self.update(data)))` against a half-registered Sha1 and left its trait
+  // self.update(data)))` against a half-registered Sha1 and left its trait
   // methods resolving through the trait record (`__yo_t18.update`,
   // tests/crypto/digest.test.yo). Cross-block references still force from
   // free functions, generic bodies and other types' impls.

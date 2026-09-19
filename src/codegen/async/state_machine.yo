@@ -62,7 +62,6 @@ generate_resume_function_declaration :: (
 /// The state-machine field name for the Future being awaited. Prefers the
 /// captured Future variable's field (`__capture.<name>` for an outer capture,
 /// `var_<id>` for a local) over a dedicated `await_future_<index>` field.
-/// Mirrors `getFutureFieldName`.
 ///
 /// An OUTER capture must carry the `__capture.` prefix: captures live in the
 /// state machine's `__capture` sub-struct, and every caller here splices the
@@ -1016,7 +1015,6 @@ emit_future_effect_injection_line :: (
 /// Resolve the C code for an effect-handler field from the surrounding
 /// state-machine scope: a caller evidence param (`current_evidence_params`) wins,
 /// else an outer captured variable (`sm->__capture.<label>`), else `.None`.
-/// Mirrors `resolveEffectFieldFromSMScope`.
 resolve_effect_field_from_sm_scope :: (
   fn(field_label : String, context : FunctionGenerationContext, _expr : AstExpr) -> Option(String)
 )({
@@ -1440,7 +1438,6 @@ emit_effect_injection_for_sm :: (
 /// Store the awaited Future for an EXTRA await in a cond/match branch (chained
 /// awaits): a `:= await` / standalone `io.await` stores into the SM future field;
 /// a nested cond/match/while/begin delegates to `generate_await_expression`.
-/// Mirrors `generateRemainingExprFuture`.
 generate_remaining_expr_future :: (
   fn(expr : AstExpr, await_point : AwaitPoint, analysis : AwaitAnalysisResult, indent : String, context : FunctionGenerationContext) -> unit
 )({
@@ -3785,7 +3782,6 @@ _emit_while_cond_await_exprs :: (
 /// A body await splits the loop into "before" and "after" halves. A condition
 /// await cannot be split that way: the condition is re-evaluated every
 /// iteration, so it is the whole loop that cycles through the state.
-/// Mirrors `emitWhileConditionAwaitResume`.
 _emit_while_condition_await_resume :: (
   fn(
     prev_await : AwaitPoint,
@@ -3871,7 +3867,6 @@ _emit_while_continuation :: (
         //   else { body; step; jump back to the state that stores the future }
         // Jumping back re-stores the future, which is what re-evaluates the
         // condition each iteration.
-        // Mirrors `emitWhileConditionAwaitResume`.
         if(match(while_data.condition_await, .Some(b) => b, .None => false), {
           _emit_while_condition_await_resume(prev_await, while_data, future_type, capture_type, analysis, async_block_id, context);
           return();

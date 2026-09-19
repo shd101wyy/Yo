@@ -11,9 +11,9 @@
 //! wall, mirrors anonymous-function.ts:766-852): non-generic bodies evaluate
 //! at definition time under a function-body context (captured_variables
 //! populated via track_variable_usage), guarded by the capture-free trial
-//! swallow. Post-eval gates: regular-fn-no-capture (ts:867), §4 rule 1
-//! unwind-needs-ctl (ts:894), Phase B ref-capture + control-bound-capture
-//! rejection (ts:1078-1110).
+//! swallow. Post-eval gates: regular-fn-no-capture, §4 rule 1
+//! unwind-needs-ctl, Phase B ref-capture + control-bound-capture
+//! rejection.
 //!
 //! Phase 3 simplifications (vs full TypeScript port):
 //!   - substituteSomeTypesFromEnv skipped
@@ -301,7 +301,7 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
 );
 /// Substitute generic SomeTypes (by name, from `env2` bindings) throughout a
 /// type. Faithful port of TS `substituteSomeTypesFromEnv`
-///: a SomeT becomes the env's non-SomeT TypeVal
+/// a SomeT becomes the env's non-SomeT TypeVal
 /// binding (innermost frame wins); Pointer/Array recurse into the child;
 /// Func substitutes param + result types only (generic/implicit/where lists
 /// and meta are preserved); every other node is returned unchanged. yo-self
@@ -675,7 +675,7 @@ evaluate_anonymous_function_implementation :: (
   // Resolve the expected type from context.
   // -------------------------------------------------------------------------
   // No expected type in context is a HARD ERROR, exactly as in TS
-  //: an anonymous-function literal has no type
+  // an anonymous-function literal has no type
   // of its own, so there is nothing to check its parameters and body against.
   // TS throws for `->`, `=>` and `=>>` alike, so this gate is operator-agnostic.
   //
@@ -1176,7 +1176,7 @@ evaluate_anonymous_function_implementation :: (
         .Some(rp_v) => {
           rp_v.is_ref = true;
           // TS binds `isReassignable: parameter.isRef`
-          //: assignment TO an `inout` param is
+          // assignment TO an `inout` param is
           // the write-through (`v = i32(99)` in with_lock's closure).
           rp_v.is_reassignable = true;
         },
@@ -1619,7 +1619,7 @@ Result type: ${type_to_string(decl_result_ty)}`
         //
         // Without this the whole Option/Result-combinator family hollowed: the
         // closure TAKES ON the expected `Impl(Fn(a : T) -> Option(B))` wrapper
-        // (ts:1183-1252), so the call's Step-6 synthesis sees a SomeT — not a
+        //, so the call's Step-6 synthesis sees a SomeT — not a
         // Func — on the given side and skips the Fn-trait recursion that would
         // otherwise bind `B` (synthesizer.yo's `is_function_type(given_ty)`
         // guard, the same one TS has). TS binds `B` here instead, at the
@@ -2003,7 +2003,7 @@ Result type: ${type_to_string(decl_result_ty)}`
   // measured hollow regressions in fs/file + fs/temp; the cell is
   // value-scoped). Ported for the wrapper-has-Fn-in-requiredTraits case
   // only (the annotation shape); TS's synthetic `__impl_fn` wrapper for
-  // where-clause-constrained generics (ts:1205-1216) is NOT ported — those
+  // where-clause-constrained generics is NOT ported — those
   // paths keep the plain Func type as before.
   // GATED to closures whose expected Fn-trait RESULT is CONCRETE: the
   // async pipeline registers the sync-future struct and io.await

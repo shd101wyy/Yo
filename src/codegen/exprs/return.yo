@@ -76,7 +76,6 @@ _drop_targets_escaped_result :: (fn(drop_expr : AstExpr, escaped_result : Option
   )
 );
 /// The Variable a drop expression targets (resolved via the atom's ExprInfo env).
-/// Mirrors `getDeferredDropTargetVariable`.
 _get_deferred_drop_target_variable :: (fn(drop_expr : AstExpr, context : FunctionGenerationContext) -> Option(Variable))(
   match(
     _drop_target_atom(drop_expr),
@@ -125,13 +124,11 @@ _max_comparable_token :: (fn(node : AstExpr, reference : Token, best : Token) ->
     .Atom(_, _) => best2
   )
 });
-/// Mirrors `getLastComparableTokenInExpr`.
 _get_last_comparable_token_in_expr :: (fn(expr : AstExpr, reference : Token) -> Token)({
   init := ast_expr_token(expr);
   init2 := if(!_tokens_are_comparable(init, reference), reference, init);
   _max_comparable_token(expr, reference, init2)
 });
-/// Mirrors `variableWasConsumedBeforeCleanupPoint`.
 _variable_was_consumed_before_cleanup_point :: (fn(consumed_at_token : Token, cleanup_expr : AstExpr) -> bool)({
   if(!_tokens_are_comparable(consumed_at_token, ast_expr_token(cleanup_expr)), {
     return(false);
@@ -496,7 +493,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : String, context : Functio
 );
 /// Emit the early-return-only deferred drops attached to `expr` (a return/unwind
 /// node) — M3. Mirrors `generateEarlyReturnOnlyDeferredDropExpressions`
-///: skip closure-capture drops, emit the rest.
+/// skip closure-capture drops, emit the rest.
 generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
   match(
     context.base.get_expr_info(expr),

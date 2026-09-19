@@ -492,7 +492,6 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
 // ---------------------------------------------------------------------------
 /// Traverses `expr` recursively to collect all `___dup(...)` calls, keyed by
 /// the variable id they dup, with conservative cross-branch analysis.
-/// Mirrors `collectDupCallsConservatively`.
 collect_dup_calls_conservatively :: (fn(expr : AstExpr, ctx : EvalContext) -> DupCallsResult)({
   res := _new_dup_calls_result();
   _search_dup_calls(expr, res, ctx);
@@ -1758,7 +1757,7 @@ evaluate_begin_expression :: (
             .None => ()
           );
           // Validate Impl return types across multiple return statements
-          //: a fn whose declared return is an `Impl(...)`
+          // a fn whose declared return is an `Impl(...)`
           // SomeType uses STATIC dispatch, so every `return(...)` must produce
           // the same concrete type. The first return's concrete type is
           // recorded in `ctx.function_return_impl_concrete_type` (the TS
