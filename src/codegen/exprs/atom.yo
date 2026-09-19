@@ -432,7 +432,7 @@ _is_captured_here :: (fn(name : String, env_opt : Option(Environment), context :
 /// Resolve a plain identifier read to its C code: the variable's C name, wrapped
 /// in `(*name)` when the binding is a by-`ref` borrow (`inout(name) : T` param — at
 /// the C level `name` is `T*`, so a read dereferences). Mirrors TS generateAtom
-/// (atom.ts:583). The deref here means a by-ref RECEIVER passed/used as a value
+///. The deref here means a by-ref RECEIVER passed/used as a value
 /// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
 _var_read_code :: (fn(tv : String, env_opt : Option(Environment)) -> String)({
   vn := get_variable_name_for_codegen(tv.clone(), env_opt);
@@ -641,7 +641,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
     }),
     .None => ()
   );
-  // --- async/effect SM variable resolution (atom.ts:258-460). TS also gates
+  // --- async/effect SM variable resolution. TS also gates
   // on inEffectStateMachine; yo-self has not modeled that flag yet (effect
   // SMs unported) — async-only until then. ---
   if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {

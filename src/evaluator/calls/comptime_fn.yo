@@ -836,7 +836,7 @@ evaluate_comptime_fn_call :: (
   });
   // Execution gate for unknown arguments. TS never executes a comptime body
   // when an argument is a runtime unknown: its runtime-unknowns are
-  // `undefined` and throw at the collect step above (comptime-fn.ts:78).
+  // `undefined` and throw at the collect step above.
   // yo-self represents runtime-unknowns as `UnknownVal` (value.yo), which
   // passes that check — so an unknown-arg CTFE body would execute, and a
   // RECURSIVE comptime fn (e.g. `__yo_comptime_fold_range`, `__sN`) recurses
@@ -1139,7 +1139,7 @@ evaluate_comptime_fn_call :: (
   );
   ctx.force_compile_time_bindings = true;
   // Evaluate a FRESH-ID CLONE of the function body — TS evaluates
-  // `cloneExpr(functionBodyExpr)` per call (comptime-fn.ts:199), and its
+  // `cloneExpr(functionBodyExpr)` per call, and its
   // per-NODE `expr.$` info makes each execution's annotations private.
   // yo-self's ExprInfo table is keyed by expr id, so executing the ORIGINAL
   // tree makes every call overwrite the same ids: `SortedSet(i32)`'s body

@@ -33,7 +33,7 @@
 { generate_comptime_value } :: import("../exprs/comptime_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 /// True when `ty` is an io.async/io.await Future SomeType (vs an extern
-/// `__yo_io_future_t`). Mirrors `isIoFutureType` (state-machine.ts:496).
+/// `__yo_io_future_t`). Mirrors `isIoFutureType`.
 ///
 /// TS has TWO signals:
 ///   (1) `resolvedConcreteType` is itself an EXTERN SomeType — an extern C type
@@ -423,7 +423,7 @@ cond_branch_future_access :: (
 });
 /// A contiguous run of body expressions that execute in one FSM state, ending
 /// at an await (or the final segment). Mirrors `StateSegment`
-/// (state-code-gen.ts:47). yo-self's `split_body_at_suspension_points` collapses
+///. yo-self's `split_body_at_suspension_points` collapses
 /// the TS generic to the concrete `SuspensionPoint` base, so the owning
 /// `AwaitPoint` is recovered by matching `base.index`.
 StateSegment :: ref(
@@ -466,7 +466,7 @@ _find_await_point_by_index :: (
 });
 /// Split a function body into FSM segments at await points. Each segment holds
 /// the expressions to run before reaching the next await. Mirrors
-/// `splitIntoStateSegments` (state-code-gen.ts:71): a thin wrapper over the
+/// `splitIntoStateSegments`: a thin wrapper over the
 /// shared `split_body_at_suspension_points` mapping `suspension_point` →
 /// `await_point`, plus a trailing completion segment when the last segment still
 /// ends at an await.
@@ -541,7 +541,7 @@ split_into_state_segments :: (
       // result (the resume then stores `sm->await_result_N`), move the await
       // node into the completion segment, and let the final-segment result
       // capture render it as `sm->result = sm->await_result_N`.
-      // Mirrors the tail-move block in splitIntoStateSegments (state-code-gen.ts).
+      // Mirrors the tail-move block in splitIntoStateSegments.
       match(
         segments.get(segments.len() - usize(2)),
         .Some(tail_seg) => match(
@@ -583,7 +583,7 @@ split_into_state_segments :: (
 });
 /// True when `expr`'s tree contains the given await expression (skipping nested
 /// async-block bodies, whose awaits belong to the inner state machine). Mirrors
-/// `containsAwaitExpr` (state-code-gen.ts:111) — a thin wrapper over the shared
+/// `containsAwaitExpr` — a thin wrapper over the shared
 /// `contains_suspension_expr` with `is_io_async_call` as the skip predicate.
 contains_await_expr :: (fn(expr : AstExpr, await_expr : AstExpr) -> bool)(
   contains_suspension_expr(expr, await_expr, is_io_async_call)
@@ -592,7 +592,7 @@ contains_await_expr :: (fn(expr : AstExpr, await_expr : AstExpr) -> bool)(
 /// assignment whose value awaits (or is a cond/match with await), or a bare
 /// cond/match/while with await. The actual suspend/resume happens at the state
 /// transition; this stores the awaited Future into its field (or delegates to the
-/// branch emitters). Mirrors `generateAwaitExpression` (state-code-gen.ts:184).
+/// branch emitters). Mirrors `generateAwaitExpression`.
 /// The macro expansion of a macro call (`if` -> `cond`). Read from the durable
 /// side-table rather than this call's per-pass ExprInfo, which can lose
 /// `macro_expansion` (see codegen/types/collection.yo:557).
@@ -607,7 +607,7 @@ _await_macro_expansion :: (fn(expr : AstExpr) -> Option(AstExpr))(
 /// expression (`!(io.await(f, io))`) asks codegen for helper specialisations the
 /// collection pass never saw, and the C then calls undeclared functions. Awaits
 /// nested inside a bigger expression are unsupported everywhere.
-/// Mirrors `exprIsBareAwait` (state-code-gen.ts).
+/// Mirrors `exprIsBareAwait`.
 expr_is_bare_await :: (fn(expr_opt : Option(AstExpr), await_point : AwaitPoint) -> bool)({
   cur := match(expr_opt, .Some(e) => e, .None => return(false));
   (current : AstExpr) = cur;
@@ -646,7 +646,7 @@ expr_is_bare_await :: (fn(expr_opt : Option(AstExpr), await_point : AwaitPoint) 
 /// evaluates conditions lazily, in order, so hoisting a LATER condition would
 /// evaluate its await even when an earlier branch matches — a silent change of
 /// meaning, not just of timing. The first condition is always evaluated.
-/// Mirrors `awaitIsInFirstCondPosition` (state-code-gen.ts).
+/// Mirrors `awaitIsInFirstCondPosition`.
 await_is_in_first_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint) -> bool)({
   if(!(ast_expr_is_fn_call(cond_expr) && ast_expr_is_fn_call_of(cond_expr, BK_COND, Option(usize).None)), {
     return(false);
@@ -661,7 +661,7 @@ await_is_in_first_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitP
 });
 /// True when this await sits somewhere in `expr` that the state machine cannot
 /// split at: a `cond`/`if` branch condition, or a `match` scrutinee.
-/// Mirrors `awaitIsInNonSplittablePosition` (state-code-gen.ts).
+/// Mirrors `awaitIsInNonSplittablePosition`.
 await_is_in_non_splittable_position :: (fn(expr : AstExpr, await_point : AwaitPoint) -> bool)({
   if(!(ast_expr_is_fn_call(expr)), {
     return(false);
@@ -693,7 +693,7 @@ await_is_in_non_splittable_position :: (fn(expr : AstExpr, await_point : AwaitPo
 /// Used both by codegen (to pick the condition-await loop layout) and by the
 /// state-struct emitter, which must allocate `await_result_N` for it — that
 /// field is otherwise reserved for cond awaits, and the layout reads it to test
-/// the loop condition. Mirrors `awaitIsWhileCondition` (state-code-gen.ts).
+/// the loop condition. Mirrors `awaitIsWhileCondition`.
 await_is_while_condition :: (fn(await_point : AwaitPoint) -> bool)({
   we := match(await_point.base.enclosing_while_expr, .Some(w) => w, .None => return(false));
   if(!(ast_expr_is_fn_call(we) && ast_expr_is_fn_call_of(we, BK_WHILE, Option(usize).None)), {
@@ -717,7 +717,7 @@ await_is_while_condition :: (fn(await_point : AwaitPoint) -> bool)({
 /// So the await point stays on segment N (its future store and state transition
 /// are unchanged) and the enclosing expression moves to the front of segment
 /// N+1, where `sm->await_result_N` is live.
-/// Mirrors `hoistNonSplittableAwaits` (state-code-gen.ts).
+/// Mirrors `hoistNonSplittableAwaits`.
 hoist_non_splittable_awaits :: (fn(segments : ArrayList(StateSegment)) -> unit)({
   (i : usize) = usize(0);
   n := segments.len();
@@ -844,7 +844,7 @@ emit_await_future_store :: (
 /// The enclosing expression now lives in the next segment, so this segment ends
 /// with just the store — the state transition the caller appends reads
 /// `sm->await_future_N` exactly as it would for any other await.
-/// Mirrors `emitHoistedAwaitFutureStore` (state-code-gen.ts).
+/// Mirrors `emitHoistedAwaitFutureStore`.
 emit_hoisted_await_future_store :: (
   fn(await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
 )({
@@ -873,7 +873,7 @@ emit_hoisted_await_future_store :: (
 });
 
 /// True when a cond/match branch expression contains an `io.await` call (recurses
-/// through FnCall args). Mirrors `branchHasAwait` (state-code-gen.ts:975).
+/// through FnCall args). Mirrors `branchHasAwait`.
 branch_has_await :: (fn(expr : AstExpr) -> bool)({
   if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
     return(true);
@@ -911,7 +911,7 @@ branch_has_await :: (fn(expr : AstExpr) -> bool)({
 });
 /// True when an expression contains a `return` statement. Used to avoid
 /// double-completion when a non-await cond branch already returns. Mirrors
-/// `exprContainsReturnStatement` (state-code-gen.ts:996).
+/// `exprContainsReturnStatement`.
 expr_contains_return_statement :: (fn(expr : AstExpr) -> bool)({
   if(ast_expr_is_atom_of(expr, "return"), {
     return(true);
@@ -933,7 +933,7 @@ expr_contains_return_statement :: (fn(expr : AstExpr) -> bool)({
   false
 });
 /// True when `expr` is an or-pattern `a | b`. Mirrors `isOrPatternExpr`
-/// (state-code-gen.ts:1560).
+///.
 is_or_pattern_expr :: (fn(expr : AstExpr) -> bool)({
   if(!(ast_expr_is_fn_call(expr)), {
     return(false);
@@ -941,7 +941,7 @@ is_or_pattern_expr :: (fn(expr : AstExpr) -> bool)({
   ast_expr_is_fn_call_of(expr, "|", Option(usize).Some(usize(2)))
 });
 /// Flatten an or-pattern into its individual patterns. Mirrors
-/// `flattenOrPatternExpr` (state-code-gen.ts:1568).
+/// `flattenOrPatternExpr`.
 flatten_or_pattern_expr :: (fn(expr : AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   if(!(is_or_pattern_expr(expr)), {
@@ -1042,7 +1042,7 @@ _extract_target_var_id :: (
 /// True when this await sits in a branch CONDITION of `cond_expr` (rather than
 /// in a branch value, which is what the splitter supports). `cond_expr` must be
 /// a `cond` — for an `if`, pass its macro expansion.
-/// Mirrors `awaitIsInCondPosition` (state-code-gen.ts).
+/// Mirrors `awaitIsInCondPosition`.
 _await_is_in_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint) -> bool)({
   if(!(ast_expr_is_fn_call(cond_expr) && ast_expr_is_fn_call_of(cond_expr, BK_COND, Option(usize).None)), {
     return(false);
@@ -1076,7 +1076,7 @@ _await_is_in_cond_position :: (fn(cond_expr : AstExpr, await_point : AwaitPoint)
 ///    needs a state per condition, which the FSM does not model. Fix: hoist.
 ///  - `if` BODY (`if(c, { await f })`): `if` is a macro over `cond`, and only
 ///    `cond` carries the branch structure the splitter needs. Fix: write `cond`.
-/// Mirrors `unsupportedAwaitMessage` (state-code-gen.ts).
+/// Mirrors `unsupportedAwaitMessage`.
 _unsupported_await_message :: (fn(expr : AstExpr, is_if : bool, in_cond_pos : bool) -> String)({
   t := ast_expr_token(expr);
   where := `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}: `;
@@ -1342,7 +1342,7 @@ _register_await_substitutions :: (
 /// the one containing this segment's await (handled by `generate_await_expression`)
 /// and, in the final segment when `capture_last_expr_result`, the last expression
 /// is captured into `sm->result`. Mirrors `generateStateSegmentCode`
-/// (state-code-gen.ts:121).
+///.
 generate_state_segment_code :: (
   fn(segment : StateSegment, indent : String, context : FunctionGenerationContext, capture_last_expr_result : bool) -> unit
 )({
@@ -1508,7 +1508,7 @@ _collect_exprs_from :: (
 /// rather than a real C loop), then store the awaited Future / delegate to the
 /// nested cond/match/while emitter. Returns the body expressions AFTER the await
 /// (executed in the resume state). Mirrors `generateWhileBodyWithAwait`
-/// (state-code-gen.ts:1961).
+///.
 generate_while_body_with_await :: (
   fn(
     body_expr : AstExpr,
@@ -1669,7 +1669,7 @@ generate_while_body_with_await :: (
 /// Emit a `while` body that contains no await, in the label/goto form state 0
 /// uses. Only needed when the loop's await is in the STEP: the body still has
 /// to run before it, but there is nothing to split.
-/// Mirrors `generateWholeWhileBody` (state-code-gen.ts).
+/// Mirrors `generateWholeWhileBody`.
 generate_whole_while_body :: (
   fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext, while_loop_index : usize) -> unit
 )({
@@ -1718,7 +1718,7 @@ generate_whole_while_body :: (
 /// labels, the condition guard, the pre-await body, and (for an outer while
 /// wrapping a nested while-with-await) a fresh loop index. Records per-loop info
 /// in `context.async_while_loop_info` for the resume generator. Mirrors
-/// `generateWhileWithAwait` (state-code-gen.ts:1855).
+/// `generateWhileWithAwait`.
 generate_while_with_await :: (
   fn(while_expr : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> unit
 )({
@@ -1957,7 +1957,7 @@ _emit_nested_cond_or_match :: (
 /// Emit a single cond/match branch body (a `begin` block) up to its first await:
 /// pre-await expressions emit normally, the await stores its Future (or delegates
 /// to a nested cond/match/while), and post-await expressions are returned for the
-/// resume state. Mirrors `generateCondBranchWithAwait` (state-code-gen.ts:1720).
+/// resume state. Mirrors `generateCondBranchWithAwait`.
 generate_cond_branch_with_await :: (
   fn(branch_value : AstExpr, await_point : AwaitPoint, indent : String, context : FunctionGenerationContext) -> BranchEmission
 )({
@@ -2149,7 +2149,7 @@ generate_cond_branch_with_await :: (
 /// True when a non-await cond/match branch should emit Future completion because
 /// the cond/match IS the async block body's implicit return value (no assignment
 /// target, inside an SM, and the branch doesn't already return). Mirrors
-/// `shouldEmitAsyncBranchCompletion` (state-code-gen.ts:877).
+/// `shouldEmitAsyncBranchCompletion`.
 _should_emit_async_branch_completion :: (
   fn(
     cond_or_match_expr : AstExpr,
@@ -2171,7 +2171,7 @@ _should_emit_async_branch_completion :: (
 /// Emit Future completion for a non-await cond/match branch that IS the async
 /// body's implicit return: compute the value into `sm->result`, drop body-level
 /// locals, complete the Future, and return. Mirrors
-/// `emitNonAwaitBranchAsyncCompletion` (state-code-gen.ts:899).
+/// `emitNonAwaitBranchAsyncCompletion`.
 _emit_non_await_branch_async_completion :: (
   fn(value : AstExpr, indent : String, context : FunctionGenerationContext) -> unit
 )({
@@ -2457,7 +2457,7 @@ _attach_cond_branch_post_while :: (
 /// Mirrors `extract_target_variable_id`'s contract: the target only exists when
 /// the await call is the direct RHS of a `:=`. Does not descend into a nested
 /// `io.async` body — those awaits belong to that block's own state machine.
-/// Mirrors `findBranchAwaitTargetVariableId` (state-code-gen.ts).
+/// Mirrors `findBranchAwaitTargetVariableId`.
 _find_branch_await_target_variable_id :: (
   fn(expr : AstExpr, context : FunctionGenerationContext) -> Option(String)
 )({
@@ -2573,7 +2573,7 @@ _make_cond_branch :: (
 /// target_variable_id would also trigger the post-switch "assign await result
 /// now" copy, overwriting the branch value. Mirrors
 /// `registrationTargetAssignment` / `condRegistrationTargetAssignment`
-/// (state-code-gen.ts).
+///.
 _registration_target_assignment :: (
   fn(
     cond_or_match_expr : AstExpr,
@@ -2741,7 +2741,7 @@ _union_cond_branches :: (fn(into : ArrayList(CondBranch), incoming : ArrayList(C
 /// the taken branch in `sm->cond_branch_N`, stores each awaited Future / delegates
 /// the await branch to `generate_cond_branch_with_await`, and records branch info
 /// (+ while-loop post-exprs) for the resume generator. Mirrors
-/// `generateCondWithAwait` (state-code-gen.ts:416).
+/// `generateCondWithAwait`.
 /// Allocate `count` DISTINCT `sm->cond_branch_N` dispatch codes for one
 /// `cond`/`match` that contains an await.
 ///
@@ -2762,7 +2762,7 @@ _alloc_cond_branch_codes :: (
   // await-future NULL guard and must be able to tell "branch <code> ran"
   // from "no await-carrying branch ran" — reserving 0 for the latter makes
   // the calloc default the unambiguous "none" value. Mirrors
-  // allocCondBranchCodes (state-code-gen.ts).
+  // allocCondBranchCodes.
   (base : usize) = context.cond_branch_case_seq;
   if(base == usize(0), {
     base = usize(1);
@@ -3050,7 +3050,7 @@ _emit_match_case_value :: (
 /// Fallback `case <literal>:` emission for a primitive pattern when the
 /// `primitive_pattern_values` ExprInfo is absent: flatten any or-pattern and read
 /// each pattern expr's comptime value. Mirrors the fallback in
-/// `generatePrimitiveMatchWithAwait` (state-code-gen.ts:1631).
+/// `generatePrimitiveMatchWithAwait`.
 _emit_primitive_fallback_cases :: (fn(case_value : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   flat := flatten_or_pattern_expr(case_value);
@@ -3078,7 +3078,7 @@ _emit_primitive_fallback_cases :: (fn(case_value : AstExpr, indent : String, con
 /// Emit a primitive (integer/bool) match whose branches contain await: a C switch
 /// over the matched value, recording the taken branch + storing each awaited
 /// Future / delegating to `generate_cond_branch_with_await`. Mirrors
-/// `generatePrimitiveMatchWithAwait` (state-code-gen.ts:1582).
+/// `generatePrimitiveMatchWithAwait`.
 generate_primitive_match_with_await :: (
   fn(
     match_expr : AstExpr,
@@ -3233,7 +3233,7 @@ _find_sm_var_id_by_name :: (fn(context : FunctionGenerationContext, name : Strin
 /// resolve by id to this arm's field, which stays calloc-zeroed (NULL for a
 /// ref type). When env resolution succeeds but the id is not a state-machine
 /// variable, the binding is a local and must NOT fall through to the name scan.
-/// Mirrors `resolvePatternBindingStateMachineField` (state-code-gen.ts). See
+/// Mirrors `resolvePatternBindingStateMachineField`. See
 /// issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md.
 /// Destructure ONE match-arm pattern inside an async state machine: bind
 /// variant fields into their SM slots (`sm->var_...`) when the binding was
@@ -3507,7 +3507,7 @@ _emit_match_case_await_or_value :: (
 /// branch in `sm->cond_branch_N`, binding destructured fields (into SM fields or
 /// C locals), and storing each awaited Future / delegating to
 /// `generate_cond_branch_with_await`. Mirrors `generateMatchWithAwait`
-/// (state-code-gen.ts:1023).
+///.
 _generate_match_with_await_impl :: (
   fn(
     match_expr : AstExpr,
@@ -3569,7 +3569,7 @@ _generate_match_with_await_impl :: (
           variant_names := match(match_value_type, .EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new());
           variant_fields := match(match_value_type, .EnumT({ variant_fields : vfs }) => vfs, _ => ArrayList(ArrayList(TypeValue)).new());
           variant_field_labels := match(match_value_type, .EnumT({ variant_field_labels : vfls }) => vfls, _ => ArrayList(ArrayList(String)).new());
-          // TS reads `context.types[enumType.id].cName` (state-code-gen.ts).
+          // TS reads `context.types[enumType.id].cName`.
           // yo-self's registry is keyed by `type_key(t)`, not by the enum's
           // `id` field, so the id-keyed lookup MISSED for every generic enum
           // instance — `Option(i32)` included. The whole `match` was then

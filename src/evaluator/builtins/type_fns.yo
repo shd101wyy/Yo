@@ -922,7 +922,7 @@ _ti_bind_function_info :: (
     result_ty : TypeValue,
     // The variadic parameter (0-or-1 in variadic_types; label/comptime from
     // FuncMeta) — appended to the params list exactly as TS appends
-    // variadicParameter (type-fns.ts:1134).
+    // variadicParameter.
     variadic_types : ArrayList(TypeValue),
     variadic_label : String,
     variadic_comptime : bool,
@@ -1232,7 +1232,7 @@ evaluate_yo_type_get_info :: (
       (String.from("TypeInfo.Union(") + fl_name) + String.from(")")
     },
     // === SomeType(name, required_traits, negative_traits, resolved_type) ===
-    // (type-fns.ts:896-930)
+    //
     .SomeT({ name : st_name, required_trait_types : st_req, negative_trait_types : st_neg, resolved_concrete : st_res }) => {
       req_name := _ti_bind_trait_info_list(local_env, st_req, String.from("req"), ctx, exn);
       neg_name := _ti_bind_trait_info_list(local_env, st_neg, String.from("neg"), ctx, exn);
@@ -1254,7 +1254,7 @@ evaluate_yo_type_get_info :: (
         sc
       }
     },
-    // === Dyn(required_traits, negative_traits) === (type-fns.ts:876-894)
+    // === Dyn(required_traits, negative_traits) ===
     .DynT(dt_req, _, dt_neg, _) => {
       req_name := _ti_bind_trait_info_list(local_env, dt_req, String.from("req"), ctx, exn);
       neg_name := _ti_bind_trait_info_list(local_env, dt_neg, String.from("neg"), ctx, exn);
@@ -1267,7 +1267,7 @@ evaluate_yo_type_get_info :: (
         dc
       }
     },
-    // === Trait(fields, kind) === (type-fns.ts:858-874). yo-self splits TS's
+    // === Trait(fields, kind) ===. yo-self splits TS's
     // TraitType into TraitT / FnTraitT / FutureTraitT — one arm each.
     .TraitT(_, tt_assoc_names, tt_flabels, tt_ftypes, _, _, _, _, _, _) => {
       fl_name := _ti_bind_trait_field_info_list(local_env, tt_flabels, tt_ftypes, tt_assoc_names, ctx, exn);
@@ -1319,7 +1319,7 @@ evaluate_yo_type_get_info :: (
         uc
       }
     },
-    // === Function(info) === (type-fns.ts:849-856)
+    // === Function(info) ===
     .Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta, variadic_types : fn_vts }) => {
       fni_name := _ti_bind_function_info(
         local_env,

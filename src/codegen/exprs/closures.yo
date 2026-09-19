@@ -68,7 +68,7 @@ check_variable_is_closure_captured :: (
 });
 /// Walk a SomeType's resolved-concrete chain until a non-SomeType is reached
 /// (or no resolution / a self-cycle). Mirrors `resolveSomeTypeToConcrete`
-/// (closures.ts:21). yo-self reads the resolved concrete via the
+///. yo-self reads the resolved concrete via the
 /// `lookup_some_resolved_concrete` side-table (no `.resolvedConcreteType` field).
 resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
   (cur : TypeValue) = t;
@@ -116,7 +116,7 @@ resolve_some_type_to_concrete :: (fn(t : TypeValue) -> TypeValue)({
 });
 /// True if `expr` is a closure-construction call: its ExprInfo carries a
 /// `closure_function_value` and its type implements `Fn`. Mirrors
-/// `isClosureConstruction` (closures.ts:68).
+/// `isClosureConstruction`.
 is_closure_construction :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(expr),
@@ -186,7 +186,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     // its OWN reference — without it, dropping the constructing scope's local
     // freed the value under the still-pending closure (the Command.status
     // spawn-storage UAF). Mirrors TS `allocateClosureCapture`
-    // (closures.ts:99-170).
+    //.
     data := String.from("(");
     data.push_string(capture_c_name.clone());
     data.push_str("){ ");
@@ -312,7 +312,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
 /// specialized `Thread.spawn` body → `__yo_thread_spawn(cb)`) can be codegen'd
 /// before the closure's construction site (which also registers the map), so the
 /// call-site lookup misses. Mirrors TS `registerImplClosureCallMappings`
-/// (closures.ts:223); yo-self has no FunctionValue.closureInfo, so it reads the
+///; yo-self has no FunctionValue.closureInfo, so it reads the
 /// capture struct from the get_closure_capture_info side-table (keyed by func_id).
 register_impl_closure_call_mappings :: (fn(context : FunctionGenerationContext) -> unit)({
   it := context.base.functions.keys();

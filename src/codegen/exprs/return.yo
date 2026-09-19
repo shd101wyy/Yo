@@ -53,7 +53,7 @@ _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
 /// Whether `drop_expr` targets the C variable named by `escaped_result` — the
 /// result temp of a call that just unwound. Mirrors TS's
 /// `getDeferredDropTargetCName(dropExpr) === escapedCallResultCName`
-/// (src/codegen/exprs/return.ts). The comparison is on the CODEGEN name, not the
+///. The comparison is on the CODEGEN name, not the
 /// atom name, because that is the identifier the drop actually emits.
 _drop_targets_escaped_result :: (fn(drop_expr : AstExpr, escaped_result : Option(String), context : FunctionGenerationContext) -> bool)(
   match(
@@ -313,7 +313,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
 /// unwound. On that path the callee discarded its continuation instead of
 /// returning, so the temp was never assigned and still holds whatever the ABI
 /// left in the return registers — dropping it dereferences garbage. Mirrors
-/// TS's `escapedCallResultCName` (src/codegen/exprs/return.ts).
+/// TS's `escapedCallResultCName`.
 generate_pending_deferred_drops :: (fn(indent : String, context : FunctionGenerationContext, expr : AstExpr, is_completion : bool, skip_already_dropped : bool, skip_env_check : bool, additional_skip : Option(HashSet(String)), escaped_result : Option(String)) -> unit)(
   match(
     context.pending_deferred_drops,
@@ -496,7 +496,7 @@ generate_consumed_var_drops_for_escape :: (fn(indent : String, context : Functio
 );
 /// Emit the early-return-only deferred drops attached to `expr` (a return/unwind
 /// node) — M3. Mirrors `generateEarlyReturnOnlyDeferredDropExpressions`
-/// (src/codegen/exprs/return.ts): skip closure-capture drops, emit the rest.
+///: skip closure-capture drops, emit the rest.
 generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
   match(
     context.base.get_expr_info(expr),
@@ -919,7 +919,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       generate_deferred_drop_expressions(expr, indent.clone(), context);
       generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
       // Async state-machine return: complete the Future instead of emitting a
-      // C `return <value>` (return.ts:653-683) — store the result on the SM,
+      // C `return <value>` — store the result on the SM,
       // set state -1, spawn the continuation. Without this the closure's tail
       // `return(x)` emitted NOTHING (the old Phase-5 stub returned "") and the
       // machine never completed (fs/file read_to_string: empty final state).
@@ -1051,7 +1051,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       generate_deferred_drop_expressions(expr, indent.clone(), context);
       generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
       // Async state-machine early unit return: complete the Future
-      // (return.ts:740-756). A non-unit future output completes with a
+      //. A non-unit future output completes with a
       // zeroed result.
       match(
         context.in_async_state_machine,
@@ -1173,7 +1173,7 @@ _unwind_dummy_return :: (fn(indent : String, context : FunctionGenerationContext
 });
 /// Emit an unwind check after calling a function that may set
 /// `__yo_effect_escaped`. Faithful port of `emitEffectUnwindCheck`
-/// (other-fn-call.ts:2778). At a handler-installation point
+///. At a handler-installation point
 /// (`is_handler_installation = true`) it clears the flag and extracts the
 /// unwound value from `__yo_unwind_value` as the call result; at a transitive
 /// point it returns a dummy to propagate the escape up the stack.
@@ -1238,7 +1238,7 @@ emit_effect_unwind_check :: (fn(indent : String, context : FunctionGenerationCon
   em.emit_string_line(`${indent.clone()}}`);
 });
 /// `unwind(expr)` — discard the continuation and exit the enclosing control
-/// function. Faithful port of `generateUnwind` (generation.ts:198-448), minus the
+/// function. Faithful port of `generateUnwind`, minus the
 /// nested-resume-handler `continuationVariables` branch (yo-self has no such
 /// context field). Async-state-machine context routes through
 /// `emit_async_future_escape` (Future aborted). Synchronous effect handlers set

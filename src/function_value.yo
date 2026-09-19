@@ -56,7 +56,7 @@ is_control_fn :: (fn(func_id : String) -> bool)(
 /// control-fn / default-args / func-type registries). Set when an anon-fn is typed
 /// as a closure (`evaluator/calls/closure_type.yo`); read by the codegen
 /// function-emission driver to prepend the `void* closure_context` capture param
-/// (declarations.ts:405).
+///.
 (g_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by `func_id`) as a closure. Idempotent.
 mark_as_closure_fn :: (fn(func_id : String) -> unit)({
@@ -294,7 +294,7 @@ is_effect_record_member :: (fn(func_id : String) -> bool)(
 /// `type_of_eval_value(FuncVal)` returns unit — so the type is recorded here at
 /// function-definition time, where it is known. Resolves Gap 10
 /// (issues/retired/codegen-port-type-model-gaps.md): the function-emission driver
-/// (functions/generation.ts) reads `get_func_type(func_id)` to build the prototype.
+/// reads `get_func_type(func_id)` to build the prototype.
 (g_func_type_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
 /// Register the enclosing function's return type at a function's definition site.
@@ -334,7 +334,7 @@ get_definition_site_return :: (fn(func_id : String) -> TypeValue)(
 /// this body type as the given return lets `U` bind concretely through the
 /// SAME env channel the spec body eval reads. TS needs no side table: its
 /// synthesize sees the closure's mutated-in-place concrete return via object
-/// identity (anonymous-function.ts:963-988).
+/// identity.
 (g_closure_body_type_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
 register_closure_body_type :: (fn(func_id : String, body_ty : TypeValue) -> unit)({

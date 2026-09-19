@@ -4,7 +4,7 @@
 //! (set_generate_expr_fn) so every emitter's recursive calls land here.
 //!
 //! DEFERRED (documented — emitted as `/* TODO[codegen-port] */` so the
-//! differential harness surfaces them): match (match.ts), other-fn-call
+//! differential harness surfaces them): match, other-fn-call
 //! (other-fn-call.ts — the call/method/trait dispatcher, the real blocker for
 //! any program with calls), async/await/spawn/state/JoinHandle (Phase 5), asm/
 //! global_asm, unwind (Phase 5 effects), closure-CONSTRUCTION with captures
@@ -369,7 +369,7 @@ _anon_fn_value :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
 );
 /// `io.spawn(future)` — start a cold Future and return a JoinHandle (non-owning
 /// view). Faithful port of the inline io.spawn block in `generateFuncCall`
-/// (generation.ts:702).
+///.
 _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
@@ -445,7 +445,7 @@ _index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, i
   )
 });
 /// Generate C for Index-trait dispatch: `value(i)` → `*index_fn(&value, i)`.
-/// Mirrors `generateIndexTraitCall` (generation.ts). The evaluator stamps the
+/// Mirrors `generateIndexTraitCall`. The evaluator stamps the
 /// specialized `index()` method FuncVal on `ei.index_method_value` and the
 /// pointer-return type on `ei.index_trait_ptr_type`; collection.yo registers the
 /// method for emission. We emit `&receiver`, call the method, and auto-deref the
@@ -591,7 +591,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // WHOLE `match` dispatch, so every sibling test arm was silently lost too.
   // tests/index.test.yo reported "49 passed" while running nothing; 31 of its
   // arms are ordinary runtime tests that were collateral.
-  // TS checks the same list without needing ExprInfo (generation.ts:1081-1102).
+  // TS checks the same list without needing ExprInfo.
   // See issues/fixed/yo-self-hollow-language-test-files.md.
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_EXPECT_ERROR, Option(usize).None), return(String.from("")));
   if(ast_expr_is_fn_call_of(expr, BF_COMPTIME_ASSERT, Option(usize).None), return(String.from("")));
@@ -644,7 +644,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       // issues/fixed/self-hosted-compile-swallows-undefined-call.md) and it is also
       // exactly what the hollow-sweep detector defines as HOLLOW. TS needs none
       // of this: it never drops an emission, so it has no degrade chain and its
-      // counterpart simply throws (generation.ts:1119).
+      // counterpart simply throws.
       out := String.from("// Failed to transpile ");
       out.push_string(ast_expr_to_string(expr));
       if(ceg_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
@@ -680,7 +680,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // (SomeType-Future ___drop/___dup fast path — Phase 5, omitted.)
   // Closure construction: `(x) => body` used as a value/arg — emit the capture
   // struct construction + register the impl-closure-call mapping. Mirrors the
-  // isClosureConstruction branch in generateFuncCall (other-fn-call.ts).
+  // isClosureConstruction branch in generateFuncCall.
   if(is_closure_construction(expr, context), return(generate_closure_construction(expr, indent.clone(), context)));
   // RC builtins.
   if(ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, Option(usize).None), return(generate_yo_decr_rc(expr, indent.clone(), context)));

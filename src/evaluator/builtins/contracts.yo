@@ -1004,7 +1004,7 @@ evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
 /// reference it. Phase V1 (decision D3,
 /// plans/backlog/FORMAL_VERIFICATION.md) removed the Phase-0 magic `result`
 /// identifier: a post-condition names the return value through the labeled
-/// return. Replaces `RESULT_IDENTIFIER` (contracts.ts:238).
+/// return. Replaces `RESULT_IDENTIFIER`.
 __YO_CONTRACT_RESULT :: "__yo_contract_result";
 /// Phase V1: record the node ids of every identifier atom inside a spliced
 /// `ensures(...)` predicate of an UNLABELED-return function, so the ordinary
@@ -1034,7 +1034,7 @@ _note_unlabeled_ensures_atoms :: (fn(e : AstExpr) -> unit)(
   )
 );
 /// Build a synthetic atom borrowing `src_tok`'s source position so diagnostics
-/// point at the user's contract clause. Mirrors `synthAtom` (contracts.ts:245).
+/// point at the user's contract clause. Mirrors `synthAtom`.
 _synth_atom :: (fn(value : String, kind : TokenKind, src_tok : Token) -> AstExpr)(
   AstExpr.Atom(
     alloc_global_expr_id(),
@@ -1053,7 +1053,7 @@ _synth_atom :: (fn(value : String, kind : TokenKind, src_tok : Token) -> AstExpr
 /// JSON-escape `s` for embedding in a synthetic string-literal token. yo-self's
 /// `evaluate_string_literal` runs `decode_str_lit_escapes(tok.value)`, which
 /// assumes the raw token value INCLUDES the surrounding double quotes — the
-/// same round-trip TS gets from `JSON.stringify` (contracts.ts:274).
+/// same round-trip TS gets from `JSON.stringify`.
 _synth_string_token_value :: (fn(s : String) -> String)({
   sb := StringBuilder.new();
   sb.write_byte(u8(0x22));
@@ -1096,7 +1096,7 @@ _synth_string_token_value :: (fn(s : String) -> String)({
 /// `std/assert` (explicit import), so a bare `assert` identifier no longer
 /// resolves in user files that never import it. Synthesize
 /// `import("std/assert").assert` instead — self-contained and immune to local
-/// shadowing. Mirrors `buildAssertCallee` (contracts.ts).
+/// shadowing. Mirrors `buildAssertCallee`.
 /// Build the runtime check for one contract predicate. `label_pred`
 /// supplies the human-readable message text; `pred` is what actually gets
 /// checked (it may have had `old(...)` rewritten to snapshot references).
@@ -1112,7 +1112,7 @@ _synth_string_token_value :: (fn(s : String) -> String)({
 /// any import.
 /// COMPTIME shape — `comptime_assert(pred, "<label>: <src>")` (a builtin,
 /// also import-free).
-/// Mirrors `buildAssertCall` (contracts.ts:260-283).
+/// Mirrors `buildAssertCall`.
 _build_assert_call :: (
   fn(
     pred : AstExpr,
@@ -1214,7 +1214,7 @@ _build_assert_call :: (
 /// Build a synthetic `name := value` (runtime) or `name :: value` (comptime)
 /// binding. Comptime functions need `::` because a `:=` runtime binding is
 /// rejected inside a compile-time-only function body.
-/// Mirrors `buildBinding` (contracts.ts:290-312).
+/// Mirrors `buildBinding`.
 _build_binding :: (fn(name : String, value : AstExpr, src_tok : Token, op : String) -> AstExpr)({
   bind_tok := Token(
     kind : TokenKind.Identifier,
@@ -1259,7 +1259,7 @@ single2 :: (fn(a : AstExpr, b : AstExpr) -> ArrayList(AstExpr))({
 /// hoisted into an entry-time snapshot binding `__yo_contract_old_K := expr`
 /// pushed onto `snapshots`, and the `old(expr)` node is replaced by a
 /// reference to that snapshot.
-/// Mirrors the `rewrite` closure of `hoistOldExpressions` (contracts.ts:328-360).
+/// Mirrors the `rewrite` closure of `hoistOldExpressions`.
 _hoist_old_in :: (
   fn(
     e : AstExpr,

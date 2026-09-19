@@ -30,7 +30,7 @@ Substitution :: ref(
     // recorded, `substitute` returns that TraitT unchanged rather than
     // re-descending into its (already-bound) method types.
     visited_trait_ids : ArrayList(String),
-    /// TS `substitutions.insert("Self", concreteType)` (impl.ts:2474), applied by
+    /// TS `substitutions.insert("Self", concreteType)`, applied by
     /// this same walk. 0 or 1 element each; empty = no Self binding.
     self_from : ArrayList(TypeValue),
     self_to : ArrayList(TypeValue),
@@ -187,8 +187,8 @@ subst_lookup_len_var :: (fn(s : Substitution, name : String) -> Option(usize))({
   Option(usize).None
 });
 /// Bind `Self` — port of TS `substitutions.insert("Self", concreteType)`
-/// (src/evaluator/values/impl.ts:2474), consumed by
-/// `reEvaluateFunctionType(..., SelfType)` (impl.ts:1494-1498). TS re-evaluates
+///, consumed by
+/// `reEvaluateFunctionType(..., SelfType)`. TS re-evaluates
 /// the stored type EXPRESSIONS; yo-self's `TypeValue.Func` stores none
 /// (types/definitions.yo:135-146), so the binding is applied as a type-level
 /// replacement keyed on EXACT identity with the impl's own receiver pattern —
@@ -382,7 +382,7 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
     (s.self_from.len() > usize(0)) && _is_self_pattern(s, ty),
     // This node IS `Self` — hand back the concrete receiver, as TS's
     // re-evaluation of the `Self` identifier yields `context.SelfType`
-    // (src/evaluator/exprs/identifer-and-operator.ts:453-461). Interned like
+    //. Interned like
     // every other arm; the hash-consing invariant is load-bearing for codegen
     // identity.
     intern_type(match(s.self_to.get(usize(0)), .Some(st) => st, .None => ty)),

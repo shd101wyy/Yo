@@ -317,7 +317,7 @@ _bind_some_type :: (
       });
       // In-place update keeps the EXISTING variable's declared type — TS
       // `updateExistingVariable(env, variable, {...variable, value: [value]})`
-      // replaces only the value (synthesizer.ts:274-277).
+      // replaces only the value.
       new_var := Variable(
         id : old_var.id,
         name : old_var.name,
@@ -1037,7 +1037,7 @@ _synthesize_fn_traits :: (
   // synthesizes an `Impl(Fn(...))` (FnTraitT) against a concrete closure `Func`
   // (see the caller guard `is_fn_trait_type(exp_trait) && is_function_type(given)`
   // and the doc note below). TS converts the FnTraitT to its `isFn.callType`
-  // (a Func) and runs Func-vs-Func synthesis (synthesizer.ts:516-523); the
+  // (a Func) and runs Func-vs-Func synthesis; the
   // value-space equivalent is to read params/result from whichever shape each
   // side is. Without the `.Func` arms, a `Func` given fell to `TypeValue.Unit`
   // for its result, so `Impl(Fn(e : E) -> T)` vs `fn(e : IoExn) -> i32` bound
@@ -1343,7 +1343,7 @@ _synthesize_types_impl :: (
         // resolved_concrete): every clone of this SomeT — including copies
         // already stored in func types and registries — sees the resolution,
         // the value-semantics equivalent of TS mutating resolvedConcreteType
-        // on the shared object (synthesizer.ts:463). Last-wins like TS.
+        // on the shared object. Last-wins like TS.
         match(
           expected_ty,
           .SomeT({ resolved_concrete : exp_cell }) => {
@@ -1718,7 +1718,7 @@ _synthesize_types_impl :: (
         vi = (vi + usize(1));
       });
       // Also synthesize via the GADT type-constructor args
-      // (synthesizer.ts:738-756): for a GADT enum the variant field types
+      //: for a GADT enum the variant field types
       // are concrete and don't mention the type parameters (T appears only
       // in `-> recur(...)`), so the field loop above binds NOTHING — the
       // only carrier of `T := i32` is the instantiation's recorded

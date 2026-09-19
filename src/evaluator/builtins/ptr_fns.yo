@@ -161,7 +161,7 @@ evaluate_address_call :: (
     .None => Option(EvalValue).None
   );
   // A compile-time PLACE: `comptimeRef` first, then `sourceVariable`
-  // (ptr-fns.ts:138-186). Kept separate from the UnknownValue fallback so the
+  //. Kept separate from the UnknownValue fallback so the
   // ladder below can follow TS's order exactly.
   ptr_place_val_opt := match(
     ptr_val_from_comptime_ref,
@@ -181,7 +181,7 @@ evaluate_address_call :: (
       .None => Option(EvalValue).None
     )
   );
-  // Last arm (ptr-fns.ts:200-205): the argument itself is a comptime
+  // Last arm: the argument itself is a comptime
   // UnknownValue, so `&(arg)` is a comptime unknown pointer too.
   ptr_unknown_val_opt := match(
     arg_info.value,
@@ -193,7 +193,7 @@ evaluate_address_call :: (
     .None => Option(EvalValue).None
   );
   out_info := new_expr_info(cur_env, pointer_type);
-  // TS's ladder, IN ORDER (ptr-fns.ts:130-205). Its own comment says the order
+  // TS's ladder, IN ORDER. Its own comment says the order
   // is load-bearing: "We check comptimeRef BEFORE indexTraitPtrType because
   // comptime arrays set both properties, and comptimeRef allows creating a
   // comptime pointer whereas indexTraitPtrType would return a runtime-only

@@ -117,7 +117,7 @@ evaluate_struct_type :: (
   // RC functions (___drop/___dup) for reference-semantics structs are lowered
   // DIRECTLY in codegen (drop_dup.yo: `is_reference_struct_type` →
   // `__yo_decr_rc`/`__yo_incr_rc`), exactly as the TS reference does for ref
-  // structs (drop-dup.ts). TS ALSO synthesizes evaluator-side ___drop/___dup
+  // structs. TS ALSO synthesizes evaluator-side ___drop/___dup
   // methods (addRcFunctionSignaturesToStructType), but that mutates
   // `SelfType.trait.fields` — yo-self's TypeValue is a value enum with NO
   // per-type trait-field list (trait methods live in a side-registry, see
@@ -312,7 +312,7 @@ evaluate_struct_type :: (
     env,
     struct_ty
   );
-  // Enforce Send for atomic object types (struct.ts:152-173) — must run AFTER
+  // Enforce Send for atomic object types — must run AFTER
   // auto-derive so the Send-derivation cycle bracket is closed.
   if(is_atomic_rc, {
     enforce_atomic_object_send(

@@ -131,7 +131,7 @@ LoopBodyCtx :: ref(
     // Frame count SNAPSHOT taken at loop entry. `env` is the live shared
     // Environment whose frames list keeps growing during the body eval, so
     // TS's `variable.frameLevel < isEvaluatingLoopBody.env.frames.length`
-    // (assignment.ts:543) must compare against this number, not env's
+    // must compare against this number, not env's
     // current length — that live read is exactly why the first port of the
     // while-loop init gate false-fired on body-locals and was reverted.
     entry_frame_count : usize
@@ -175,7 +175,7 @@ SpecializingFunctionInfo :: ref(
     /// Signature of the impl generic bindings injected as `TypeVal` captures on
     /// the method value (`_inject_forall_captures`). TS gives each generic-impl
     /// method instantiation a UNIQUE funcId embedding its substitutions
-    /// (impl.ts:1551), so its recursion guard never fires across
+    ///, so its recursion guard never fires across
     /// instantiations; yo-self keeps ONE shared func_id and injects the
     /// bindings as captures instead — this field carries those bindings so the
     /// guard can distinguish `Eq(ArrayList(i32)).==` in progress from a nested
@@ -371,7 +371,7 @@ EvalContext :: ref(
     /// Working-trait field bindings for the trait constructor CURRENTLY
     /// being implemented inside an `impl(...)` block — parallel
     /// label/value arrays. Mirrors TS attaching the progressively-updated
-    /// `workingTraitType` to `receiverType.trait` (trait-type.ts:151-203)
+    /// `workingTraitType` to `receiverType.trait`
     /// so `Self.X` resolves to fields already bound in the SAME trait
     /// entry (e.g. `Output : T` before `index : fn(...) -> *(Self.Output)`);
     /// yo-self TypeValues have value semantics (no trait slot), so the
@@ -496,7 +496,7 @@ ComptimeFnCallResult :: ref(
     /// ComptimeRef from the evaluated function body, so callers (e.g. the
     /// ComptimeIndex dispatch) can treat the result as a comptime place.
     /// Mirrors `comptimeRef: evaluatedFunctionBody.$.comptimeRef`
-    /// (TS comptime-fn.ts:297).
+    ///.
     comptime_ref : Option(ComptimeRef)
   )
 );
@@ -576,7 +576,7 @@ IndexCallResult :: ref(
     index : Option(usize),
     /// Compile-time element/field reference produced by a ComptimeIndex
     /// dispatch, enabling `p(0) = v` and `&(p(0))` at compile time.
-    /// Mirrors `IndexCallResult.comptimeRef` (src/evaluator/context.ts:449).
+    /// Mirrors `IndexCallResult.comptimeRef`.
     comptime_ref : Option(ComptimeRef)
   )
 );

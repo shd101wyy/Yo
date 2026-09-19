@@ -10,10 +10,10 @@
 //! arm values are address-of wrapped (`&(...)`) — sound because flowability
 //! already verified the arm roots back to a ref-bound parameter.
 //!
-//! Deferred-dup rewrite of arm values (cond.ts:409-470) and of begin-arm FINAL
-//! expressions (cond.ts:293-365) are both ported — see _emit_value_arm and
+//! Deferred-dup rewrite of arm values and of begin-arm FINAL
+//! expressions are both ported — see _emit_value_arm and
 //! _emit_begin_arm. The begin block's own deferred drops are emitted on arm
-//! fall-through (cond.ts:401-403).
+//! fall-through.
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -233,7 +233,7 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
     arm_dups,
     .Some(vei) => {
       // Clear `variable_name` around the RAW generation, exactly as TS does
-      // (cond.ts:417-420): the atom generator returns the info's temp alias
+      //: the atom generator returns the info's temp alias
       // when set, so generating `ps` yielded the not-yet-declared temp name,
       // the `vtv != raw_code` declaration below was skipped, and every use of
       // the temp referenced an UNDECLARED identifier — the stage-2 fixpoint
@@ -289,7 +289,7 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
         },
         .None => ()
       );
-      // Apply the dup: named dup temp when available (cond.ts:451-458), else
+      // Apply the dup: named dup temp when available, else
       // the drift-safe escape hatch — dup the generated value directly.
       (dup_named : bool) = false;
       arm_dup_list := match(vei.deferred_dup_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new());
@@ -464,7 +464,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
             );
             generate_deferred_dup_expressions(final_expr, value_indent.clone(), context);
             // Use the dup result temp when the dup call carries one
-            // (cond.ts:341-353); else assign the generated final expr.
+            //; else assign the generated final expr.
             (dup_result_used : bool) = false;
             f_dup_list := match(fei.deferred_dup_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new());
             match(

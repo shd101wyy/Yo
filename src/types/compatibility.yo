@@ -329,7 +329,7 @@ _compat_impl :: (
   // `dyn(Error)` receiver match a `Self`-constrained `self` param when the
   // dyn's required traits (incl. expanded supertraits) cover the constraint.
   // Checked before the tag-mismatch guard since the tags differ.
-  // Mirrors `areTypesCompatible` (src/types/compatibility.ts:662-684).
+  // Mirrors `areTypesCompatible`.
   // An `extern("Yo", X : Type)` opaque is a `SomeT` carrying NO required traits
   // (yo-self's TypeValue has no `is_extern` slot; extern-ness lives in the
   // `g_extern_type_names` side table). It is a CONCRETE C type wearing a SomeT
@@ -392,7 +392,7 @@ _compat_impl :: (
   // a `Dyn(Trait)` RECEIVER must satisfy a `Self`-constrained pointee `*(Self)`
   // so the filter flags `needs_pointer_conversion` and the call site addresses
   // it. Maps to TS `areTypesCompatible(expected=SomeType, given=Dyn)`
-  // (compatibility.ts:662-684) — yo-self's actual≈given. Without it, a dyn
+  // — yo-self's actual≈given. Without it, a dyn
   // method call (`value.print()` on `value : Dyn(TestDyn)`, self : `*(Self)`)
   // synthesized `*(Self)` vs the bare `dyn(...)` arg and failed the
   // tag-mismatch guard (tests/dyn.test.yo).
@@ -680,7 +680,7 @@ _compat_impl :: (
         // ("ArgParser" vs ""), and the mixed pair must stay compatible
         // (previously everything was "" so this never arose).
         //
-        // Non-exact struct compat. TS (compatibility.ts:288-331) has NO name-only
+        // Non-exact struct compat. TS has NO name-only
         // shortcut for structs: it rejects only on field-count / nominal-distinctness
         // and otherwise recurses field types. yo-self's old name-only rule rejected
         // two instantiations of the SAME constructor whose STAMPED names differ —
@@ -920,7 +920,7 @@ _compat_impl :: (
         // "passing __yo_t16 to parameter of type __yo_t9", the collections
         // batch residual). TS's only id use here is object identity /
         // an early REJECT — acceptance always runs the structural compare
-        // (compatibility.ts:354-389). Shells are already resolved above
+        //. Shells are already resolved above
         // (resolve_enum_shell), so the shell-identity case the id compare
         // once served compares structurally on the finalized forms.
         .EnumT(eid, ename, evns, evfs, _, evls, _, _, _) => cond(
@@ -1073,7 +1073,7 @@ _compat_impl :: (
       .SomeT(name : ename, frame_level : elvl, required_trait_types : ertt) => cond(
         ((aname == ename) && (alvl == elvl)) => true,
         // Definition-time-trial acceptance, ported from TS's different-id
-        // SomeType rule (compatibility.ts:676-744): two distinct type
+        // SomeType rule: two distinct type
         // parameters are compatible when the GIVEN side satisfies every
         // constraint the EXPECTED side carries — trivially true for an
         // unconstrained forall (`A` in `where(I <: Iterator(Item := A))`

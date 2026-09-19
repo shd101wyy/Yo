@@ -301,7 +301,7 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
 );
 /// Substitute generic SomeTypes (by name, from `env2` bindings) throughout a
 /// type. Faithful port of TS `substituteSomeTypesFromEnv`
-/// (anonymous-function.ts:110): a SomeT becomes the env's non-SomeT TypeVal
+///: a SomeT becomes the env's non-SomeT TypeVal
 /// binding (innermost frame wins); Pointer/Array recurse into the child;
 /// Func substitutes param + result types only (generic/implicit/where lists
 /// and meta are preserved); every other node is returned unchanged. yo-self
@@ -675,7 +675,7 @@ evaluate_anonymous_function_implementation :: (
   // Resolve the expected type from context.
   // -------------------------------------------------------------------------
   // No expected type in context is a HARD ERROR, exactly as in TS
-  // (anonymous-function.ts:190-196): an anonymous-function literal has no type
+  //: an anonymous-function literal has no type
   // of its own, so there is nothing to check its parameters and body against.
   // TS throws for `->`, `=>` and `=>>` alike, so this gate is operator-agnostic.
   //
@@ -1176,7 +1176,7 @@ evaluate_anonymous_function_implementation :: (
         .Some(rp_v) => {
           rp_v.is_ref = true;
           // TS binds `isReassignable: parameter.isRef`
-          // (anonymous-function.ts:560): assignment TO an `inout` param is
+          //: assignment TO an `inout` param is
           // the write-through (`v = i32(99)` in with_lock's closure).
           rp_v.is_reassignable = true;
         },
@@ -1314,7 +1314,7 @@ evaluate_anonymous_function_implementation :: (
   // stayed an unbound SomeT (`x := id(i32, 12)` then had no `==` impl and typed
   // `unit` — tests/fn.test.yo arm 9), and a `comptime(y) : i32` parameter was
   // emitted as a RUNTIME C parameter. TS needs no copy: `newFunctionType` is a
-  // SPREAD of the expected FunctionType (anonymous-function.ts:597-638), so
+  // SPREAD of the expected FunctionType, so
   // both ride along. `origin_id` is yo-self's channel for the same thing and
   // travels with the meta through the `.clone()` just above.
   match(
@@ -1516,7 +1516,7 @@ Result type: ${type_to_string(decl_result_ty)}`
     // is in scope; frame-list mutations during body eval cannot corrupt the
     // outer env's frame list — see snapshot_env / the recorded-env-aliasing
     // issue). TS evaluates in the live env and restores `outerEnv` after
-    // (anonymous-function.ts:1062) — the snapshot gives the same net effect.
+    // — the snapshot gives the same net effect.
     body_eval_env := snapshot_env(env);
     // NOTE: io.async's generic `E` (the effect bundle) is bound at the CALL site
     // (`try_to_call_function_with_arguments` Step 6b, helper.yo), which resolves
@@ -1583,7 +1583,7 @@ Result type: ${type_to_string(decl_result_ty)}`
         )
       );
     });
-    // §4 typing rule 1 (anonymous-function.ts:894-900): `unwind` is only
+    // §4 typing rule 1: `unwind` is only
     // valid in a `ctl(...) -> ret` body. A `fn(...) -> ret` body containing
     // `unwind` is a type error. Closures are exempt (TS checks isClosure).
     fn_type_is_control := match(
@@ -1900,7 +1900,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             // SomeT unifies with anything even in exact mode, which is why
             // `(value -> return(i32(0)))` against `fn(generic(T), value : T)
             // -> T` was accepted while TS rejects
-            // (anonymous-function.ts:773).
+            //.
             dgc_expected_is_some := is_some_type(dgc_expected);
             if((((!dgc_skip_cf && !dgc_own_forall_skip) && !dgc_trial_abstract) && !dgc_trial_degenerate) && (dgc_expected_is_some || !are_types_compatible_exact(dgc_trial_ty, dgc_expected)), {
               dgc_exp_str := type_to_string(dgc_expected);

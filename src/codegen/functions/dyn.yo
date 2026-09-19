@@ -58,7 +58,7 @@ _dyn_impl_keys :: (fn(context : FunctionGenerationContext) -> ArrayList(String))
   out
 });
 /// Generate dup/drop functions for dyn types (RC on the boxed data pointer).
-/// Mirrors `generateDynDupDrop` (functions/dyn.ts:18).
+/// Mirrors `generateDynDupDrop`.
 generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   generated := HashSet(String).new();
@@ -95,7 +95,7 @@ generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
   });
 });
 /// Generate box constructor + dispose functions for dyn impls. Mirrors
-/// `generateDynBoxFunctions` (functions/dyn.ts:57). yo-self resolves the
+/// `generateDynBoxFunctions`. yo-self resolves the
 /// concrete type's drop fn via get_drop_function_for_type (the type-method
 /// registry) rather than TS's `concreteType.trait.fields.find(___drop)`.
 generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)({
@@ -319,7 +319,7 @@ _wrapper_params :: (fn(param_types : ArrayList(TypeValue), start : usize, contex
   out
 });
 /// Generate wrapper functions for dyn method dispatch. Mirrors
-/// `generateDynWrapperFunctions` (functions/dyn.ts:163). Each wrapper takes
+/// `generateDynWrapperFunctions`. Each wrapper takes
 /// `void* self_ptr`, unwraps it to the boxed value (is_boxed_type) or casts to
 /// the concrete pointer, then calls the impl method. Two slot kinds: the Fn
 /// synthetic `call` slot (FnTraitT) and regular trait methods (from the
@@ -545,7 +545,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
   });
 });
 /// Generate static vtables for dyn implementations. Mirrors `generateDynVtables`
-/// (functions/dyn.ts:430): a unique TypeId static per concrete type (its address
+///: a unique TypeId static per concrete type (its address
 /// is the runtime TypeId), then one `static const <Dyn>_vtable __yo_vtable_<key>`
 /// per impl whose first field is the type id and whose method slots reference the
 /// wrappers emitted above (`.call` for Fn traits; `.method` for trait methods

@@ -69,7 +69,7 @@ _first_future_effect :: (fn(ft : TypeValue) -> Option(_FutureEffect))(
   )
 );
 /// Resolve a function-type effect field from scope (caller evidence params, then
-/// SM capture variables). Mirrors `resolveEffectFieldFromScope` (await.ts:813).
+/// SM capture variables). Mirrors `resolveEffectFieldFromScope`.
 resolve_effect_field_from_scope :: (fn(field_label : String, context : FunctionGenerationContext) -> Option(String))({
   match(
     context.current_evidence_params,
@@ -119,7 +119,7 @@ resolve_effect_field_from_scope :: (fn(field_label : String, context : FunctionG
 });
 /// Resolve an effect record field (e.g. "throw" from Exception) from `given`
 /// bindings in the call environment. Mirrors `resolveEvidenceFieldFromGivenBindings`
-/// (await.ts:778). yo-self StructVal carries field names + values directly.
+///. yo-self StructVal carries field names + values directly.
 resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context : FunctionGenerationContext, expr : AstExpr) -> Option(String))({
   call_env := match(
     context.base.get_expr_info(expr),
@@ -174,7 +174,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : String, context 
 });
 /// Inject struct-record effect fields (e.g. Exception.throw) into a Future's
 /// capture struct. Resolves each fn field from SM captures, caller evidence
-/// params, or `given` bindings. Mirrors `emitEffectRecordInjection` (await.ts:707).
+/// params, or `given` bindings. Mirrors `emitEffectRecordInjection`.
 /// (The TS `usingArgValue` path is dropped — `using(...)` is gone in explicit
 /// effects, so all call sites pass `undefined`.)
 emit_effect_record_injection :: (fn(source_namespace_type : TypeValue, future_type : TypeValue, future_var : String, indent : String, context : FunctionGenerationContext, expr : AstExpr) -> unit)({
@@ -251,7 +251,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : TypeValue, future_ty
 });
 /// Inject the effect bundle from `io.spawn(future, bundle)` into the future's SM
 /// via the set_effect("__bundle", ...) callback. Mirrors `emitIoSpawnEffectInjection`
-/// (await.ts:584).
+///.
 emit_io_spawn_effect_injection :: (fn(expr : AstExpr, future_var : String, indent : String, context : FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
@@ -282,7 +282,7 @@ emit_io_spawn_effect_injection :: (fn(expr : AstExpr, future_var : String, inden
   em.emit_string_line(`${indent.clone()}if (${future_var.clone()}->__yo_set_effect_fn) ${future_var.clone()}->__yo_set_effect_fn((void*)${future_var.clone()}, "__bundle", (void*)&${tmp_name});`);
 });
 /// Generate effect-injection code for an `io.await` cold-start. Mirrors
-/// `emitEffectInjectionForAwait` (await.ts:617). Early-returns when the future has
+/// `emitEffectInjectionForAwait`. Early-returns when the future has
 /// no effect (the BASELINE no-effect case).
 emit_effect_injection_for_await :: (fn(expr : AstExpr, future_var : String, indent : String, context : FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return());
@@ -343,7 +343,7 @@ emit_effect_injection_for_await :: (fn(expr : AstExpr, future_var : String, inde
 /// True when the current function is the handler-installation point for an
 /// algebraic effect that could cause a Future abort (the effect is locally
 /// installed, not forwarded via evidence params). Mirrors
-/// `isAwaitUnwindHandlerInstallation` (await.ts:487).
+/// `isAwaitUnwindHandlerInstallation`.
 is_await_unwind_handler_installation :: (fn(future_trait_type : TypeValue, context : FunctionGenerationContext) -> bool)({
   effect := match(_first_future_effect(future_trait_type), .Some(e) => e, .None => return(false));
   if(is_function_type(effect.ty), {
@@ -386,7 +386,7 @@ is_await_unwind_handler_installation :: (fn(future_trait_type : TypeValue, conte
 /// `await` — extract a value from a Future. Inside a state machine, returns "" (the
 /// FSM resume generator handles the suspension). For `io.await` outside a state
 /// machine, emits a synchronous blocking wait (cold-start, poll, extract). Faithful
-/// port of `generateAwait` (await.ts:39).
+/// port of `generateAwait`.
 generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
@@ -635,7 +635,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
 });
 /// `io.state` — read a Future's raw state, mapped to the FutureState enum
 /// (Pending=0, Running=1, Completed=-1, Aborted=-2). Faithful port of
-/// `generateState` (await.ts:305).
+/// `generateState`.
 generate_state :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
@@ -677,7 +677,7 @@ _option_some_field_type :: (fn(option_type : TypeValue) -> Option(TypeValue))(
 /// `JoinHandle.await(io)` — poll a spawned task, return Option(T). Casts the
 /// handle's void* future to a common header layout, polls until completed/aborted,
 /// and builds .Some(result)/.None. Faithful port of `generateJoinHandleAwait`
-/// (await.ts:359).
+///.
 generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   em := context.base.emitter;
   // Method call: expr.func is `.`(handle, "await"); self (JoinHandle) is func.args[0].

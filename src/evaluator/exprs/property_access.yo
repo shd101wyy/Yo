@@ -630,7 +630,7 @@ Raw pointer operations may dereference invalid memory.`
                   // Compile-time pointer: dereference to the pointed-to value.
                   // TS indexes the target when it is an aggregate —
                   // `dereferencedValue = target.elements[objectValue.targetIndex]`
-                  // (property-access.ts:329-334) — and stamps
+                  // — and stamps
                   // `ptrTargetValue`/`ptrTargetIndex` so a later `p.* = v` has a
                   // place to write (consumed by assignment.ts:1150-1173).
                   // yo-self's `ComptimeRef.ArrayRef(list, index)` IS that pair
@@ -676,7 +676,7 @@ Raw pointer operations may dereference invalid memory.`
                   // In execution mode a call-chain result carries `UnknownVal`
                   // under yo-self's runtime-result convention where TS carries
                   // `undefined` — TS then takes the RUNTIME deref branch below
-                  // (property-access.ts:381-398), which attaches a borrowed
+                  //, which attaches a borrowed
                   // temp so `.Some((_ptr &+ index).*)`-style uses get a ___dup
                   // (missing dup freed every ArrayList(ref-struct) element on
                   // get(); see issues/fixed/yo-self-stage2-parser-divergence.md).
@@ -776,7 +776,7 @@ Raw pointer operations may dereference invalid memory.`
       // fill : ...)`, which lives in the generic-impl registry, not the
       // id-keyed trait-methods registry (Array types have no id). Mirrors
       // the struct branch's `findMethodsFromGenericImpls` lookup
-      // (property-access.ts:526-546); single candidate only — multiple
+      //; single candidate only — multiple
       // candidates defer to function.yo's arg-type disambiguation.
       pr_prop_name := ast_expr_token(property_expr).value;
       generic_methods_pr := find_methods_from_generic_impls(type_val_inner, pr_prop_name, env);
@@ -801,7 +801,7 @@ Raw pointer operations may dereference invalid memory.`
     // `Self.X` must resolve to fields already bound in the SAME trait entry
     // (e.g. `Output : T` before `index : fn(...) -> *(Self.Output)`).
     // Mirrors TS attaching the progressively-updated `workingTraitType` to
-    // `receiverType.trait` (trait-type.ts:151-203); yo-self TypeValues have
+    // `receiverType.trait`; yo-self TypeValues have
     // value semantics (no trait slot), so the in-flight bindings live on
     // the context (`current_impl_trait_field_*`). Scoped to literal `Self`
     // receivers — the only spelling these in-impl references use — so
@@ -870,7 +870,7 @@ Raw pointer operations may dereference invalid memory.`
               // METHOD call on a comptime Option/Result fell through to
               // enum-VARIANT resolution and threw `Enum variant "unwrap" not
               // found in enum`. Mirrors TS `findMethodsFromGenericImpls`
-              // (property-access.ts:478-499); the same guard the struct/union
+              //; the same guard the struct/union
               // branch already has below. Resolve only a SINGLE candidate —
               // multiple are left unresolved so function.yo can disambiguate by
               // argument types (TS sets `expr.$ = undefined` there).
@@ -1201,7 +1201,7 @@ Raw pointer operations may dereference invalid memory.`
           // must query with the same key (TS findMethodFromGenericImplForTrait
           // uses getBaseTraitKey, impl.ts:2045).
           tt_trait_key := get_base_trait_key(type_val_inner);
-          // CONCRETE impls first (TS property-access.ts:651-849): a witness
+          // CONCRETE impls first: a witness
           // on a type with a direct `impl(R, Trait(...))` must resolve THAT
           // impl's method — `(T <: TraitDisambigB).get_number(self)` at spec
           // time (T bound to DisambigPoint) previously fell through the
@@ -1355,7 +1355,7 @@ Raw pointer operations may dereference invalid memory.`
                 st_ft := match(st_types.get(st_fi), .Some(t) => t, .None => t_unit());
                 // For assoc-type fields (declared `Item : Type` etc.): TS
                 // returns the field's SINGLE `unassignedSomeType`
-                // (property-access.ts:445-456), so every `Self.Output` names
+                //, so every `Self.Output` names
                 // ONE SomeType object. yo-self's stand-in for that per-field
                 // storage is the trait-definition scoped frame, where the
                 // field loop binds the assoc label to its SomeT — resolve
@@ -1680,7 +1680,7 @@ Raw pointer operations may dereference invalid memory.`
                       // The pointee lives at target_value(target_index) — the
                       // "optional faithfulness completion" noted in
                       // issues/fixed/yo-self-comptime-pointer-place.md: TS indexes
-                      // first (property-access.ts:1066-1073).
+                      // first.
                       .PtrVal(tgt_cell_l, tgt_idx_l) => {
                         resolved_lbl = match(
                           tgt_cell_l.get(usize(0)),
@@ -1732,7 +1732,7 @@ Raw pointer operations may dereference invalid memory.`
                             out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
                           }
                         );
-                        // See the TupleVal arm above (TS property-access.ts:1084-1090).
+                        // See the TupleVal arm above.
                         if(lbl_via_ptr, {
                           out_lbl.comptime_ref = Option(ComptimeRef).Some(
                             ComptimeRef.StructRef(sflds_l, fi_lbl)

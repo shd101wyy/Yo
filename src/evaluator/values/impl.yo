@@ -224,7 +224,7 @@ GenericImplEntry :: struct(
   /// Where-clause constraints (parallel arrays). A concrete type bound to
   /// `where_constraint_some_types[i]` during `try_match_generic_impl` must
   /// implement `where_constraint_traits[i]`, else the impl does NOT match.
-  /// Mirrors TS `GenericImpl.whereConstraints` (impl.ts:3011). Without this a
+  /// Mirrors TS `GenericImpl.whereConstraints`. Without this a
   /// blanket `impl(generic(I), where(I <: Iterator), I, into_iter -> Self)`
   /// leaks onto non-Iterator types (e.g. ArrayList), shadowing the type's own
   /// method. See issues/fixed/yo-self-p1-transpile-tail.md.
@@ -282,7 +282,7 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
 /// a value struct), `.None` when satisfied. Routed via a function pointer to
 /// break the impl.yo ↔ trait_checking.yo import cycle (same pattern as above);
 /// the caller throws with its own token/exn. Mirrors TS calling
-/// `checkTypeImplementsSelfConstraints` per trait entry (impl.ts:3269).
+/// `checkTypeImplementsSelfConstraints` per trait entry.
 CheckSelfConstraintsFn :: (fn(target_type : TypeValue, trait_ty : TypeValue, env : Environment) -> Option(String));
 (g_check_self_constraints_fn : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
@@ -342,7 +342,7 @@ get_trait_key :: (fn(trait_ty : TypeValue) -> String)(
 );
 /// Base-trait key for the GENERIC-impl registry: the trait constructor's
 /// funcId when the trait came from a comptime fn (`Eq(K)` → Eq's fid), else
-/// the trait's own key. Mirrors TS `getBaseTraitKey` (impl.ts:1042-1050) —
+/// the trait's own key. Mirrors TS `getBaseTraitKey` —
 /// per-instantiation trait ids (`Eq(Box(T))` vs `Eq(Box(i32))`) must land in
 /// ONE registry bucket, keyed by the constructor. Everything id-keyed
 /// (negative impls, concrete registrations) keeps `get_trait_key`, as TS
@@ -1003,7 +1003,7 @@ try_match_generic_impl :: (
   // extraction and typed the impl registry's own HashMap `get` dispatch
   // as returning DocParam (issues/
   // warm-test-batches-doc-stability-genericimplentry.md). TS reads its
-  // substitutions from the synthesis's scratch frames only (impl.ts:2243);
+  // substitutions from the synthesis's scratch frames only;
   // this is that scoping.
   (unify_base : usize) = unify_env.frames.len();
   (ui : usize) = usize(0);
@@ -1490,7 +1490,7 @@ find_matching_generic_impl :: (
   false
 });
 /// Negative generic impl registry. Mirrors TS `negativeGenericImplRegistry`
-/// (impl.ts:286): holds `impl(generic(...), Pattern, !(Trait))` entries (reusing
+///: holds `impl(generic(...), Pattern, !(Trait))` entries (reusing
 /// `GenericImplEntry`, with empty field_* lists — negative impls carry no
 /// methods). Checked as step 0 of `type_implements_trait` so a matching negative
 /// generic impl overrides auto-derive (e.g. `impl(generic(T), Container(T),
@@ -1502,7 +1502,7 @@ register_negative_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
 });
 /// Returns true if some registered negative generic impl for `trait_type`
 /// matches `concrete_type`. Mirrors TS `findMatchingNegativeGenericImpl`
-/// (impl.ts:296): filter by trait key, then `try_match_generic_impl`.
+///: filter by trait key, then `try_match_generic_impl`.
 find_matching_negative_generic_impl :: (
   fn(concrete_type : TypeValue, trait_type : TypeValue, env : Environment) -> bool
 )({
@@ -1879,7 +1879,7 @@ find_methods_from_generic_impls :: (
               fvalue := entry.field_values.get(fi);
               // Specialize the method TYPE with the impl's generic bindings —
               // mirrors TS `reEvaluateFunctionType` in `findMethodsFromGenericImpls`
-              // (impl.ts:1484): the returned candidate's param/return types must
+              //: the returned candidate's param/return types must
               // be concrete (e.g. `self : ComptimeList(comptime_str)`, not
               // `ComptimeList(T)`) so the call-site parameter check compares
               // concrete types directly instead of relying on call-time SomeT
@@ -1954,9 +1954,9 @@ find_methods_from_generic_impls :: (
                 sb_i = (sb_i + usize(1));
               });
               // Bind `Self` to the CONCRETE RECEIVER — port of TS
-              // `substitutions.insert("Self", concreteType)` (impl.ts:2474),
+              // `substitutions.insert("Self", concreteType)`,
               // consumed by `reEvaluateFunctionType(..., SelfType)`
-              // (impl.ts:1494-1498). Pass the pattern UN-SUBSTITUTED: `Self`
+              //. Pass the pattern UN-SUBSTITUTED: `Self`
               // was baked into `ftype` as the receiver pattern verbatim
               // (impl.yo:1643) and the walk tests each node BEFORE
               // substituting it, so substituting the key first makes the
@@ -2121,7 +2121,7 @@ g_find_assoc_from_impls_fn = Option(FindAssocFromImplsFn).Some(find_associated_t
 // ---------------------------------------------------------------------------
 // Generic-impl DOC entries — the `yo doc` builder's view of the registry.
 // Mirrors `GenericImplDocEntry` / `formatGenericImplSignature` /
-// `getGenericImplDocEntries` (src/evaluator/values/impl.ts:1788-1903).
+// `getGenericImplDocEntries`.
 // ---------------------------------------------------------------------------
 /// One matched generic impl, formatted for documentation. TS carries
 /// `methods: {name, type}[]`; yo-self splits it into the parallel
@@ -2132,7 +2132,7 @@ GenericImplDocEntry :: struct(
   method_names : ArrayList(String),
   method_types : ArrayList(TypeValue)
 );
-/// Mirrors `getReceiverBaseTypeId` (impl.ts:1057): the constructor function id
+/// Mirrors `getReceiverBaseTypeId`: the constructor function id
 /// when the type carries one (TS `functionValue.funcId`), else the type's own
 /// `id`; "" when it has neither.
 _receiver_base_type_id_for_doc :: (fn(t : TypeValue) -> String)(
@@ -2161,7 +2161,7 @@ _type_name_for_doc :: (fn(t : TypeValue) -> String)(
     _ => String.from("")
   )
 );
-/// Mirrors `formatGenericImplSignature` (impl.ts:1795). TS distinguishes
+/// Mirrors `formatGenericImplSignature`. TS distinguishes
 /// type-kind forall params (`typeToString(param.someType.parentType)`) from
 /// value-kind ones (`typeToString(param.type)`); yo-self keeps both as SomeT
 /// whose `parent_type` IS that meta-type, so one arm covers both kinds.
@@ -2211,7 +2211,7 @@ _format_generic_impl_signature :: (fn(entry : GenericImplEntry) -> String)({
   });
   `impl(${String.from(", ").join(parts)})`
 });
-/// Mirrors `getGenericImplDocEntries` (impl.ts:1830). `receiver_type_name` is
+/// Mirrors `getGenericImplDocEntries`. `receiver_type_name` is
 /// "" for TS's absent optional. Method lists come from the TRAIT type's fields
 /// (TS reads `impl.traitType.fields`); yo-self stores an anonymous impl's
 /// trait_type as Unit with the fields on the entry itself, so the non-TraitT
@@ -4077,7 +4077,7 @@ evaluate_module_value :: (
     ctx.self_type = old_self_type_g;
     // Field loop done — drop the in-flight provisional entries (the real
     // methods live in the GenericImplEntry registered below). Mirrors the
-    // Case 3 clear and TS restoring receiverType.trait (trait-type.ts:512).
+    // Case 3 clear and TS restoring receiverType.trait.
     if(c2_recv_id != "", {
       clear_provisional_trait_methods(c2_recv_id);
     });
@@ -4527,7 +4527,7 @@ evaluate_module_value :: (
         });
         // Member evaluation done — drop the in-flight signatures (the real
         // entries were registered by the loop above / the defaults fill
-        // below). Mirrors TS restoring receiverType.trait (trait-type.ts:512).
+        // below). Mirrors TS restoring receiverType.trait.
         if(receiver_type_id != "", {
           clear_provisional_trait_methods(receiver_type_id);
         });

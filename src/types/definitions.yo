@@ -39,7 +39,7 @@ FuncMeta :: struct(
   // implicit (`using`) parameter labels (parallel to Func.implicit_types)
   implicit_spreads : ArrayList(bool),
   // isEffectRowSpread flags
-  /// Mirrors `FunctionType.return.isCompileTimeOnly` (src/types/definitions.ts):
+  /// Mirrors `FunctionType.return.isCompileTimeOnly`:
   /// true when the declared return is `comptime(...)`. `helper.ts:1731` gates
   /// CTFE on this; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
   /// `should_cache` use it to route type-constructor calls through memoization.
@@ -57,7 +57,7 @@ FuncMeta :: struct(
   result_is_ref : bool,
   /// True when the param list ends with a `...` variadic marker (C-style
   /// variadic externs). Mirrors `FunctionType.variadicParameter` presence; the
-  /// call-site arg-count check is skipped when set (helper.ts:965).
+  /// call-site arg-count check is skipped when set.
   has_variadic : bool,
   /// FFI language tag (`extern "c"`/`"yo"` / `c_include`). `Some("c")` etc. for
   /// FFI symbols, `None` for ordinary Yo functions. Mirrors
@@ -93,7 +93,7 @@ FuncMeta :: struct(
   /// them, so a `comptime(T) : Type` parameter/return was lost. TS needs no such
   /// channel — `isCompileTimeOnly` and `exprs.typeExpr` live ON the
   /// FunctionType, and its anonymous-function evaluator SPREADS the expected
-  /// type (anonymous-function.ts:597-638) so they are inherited verbatim. This
+  /// type so they are inherited verbatim. This
   /// field is yo-self's equivalent: it travels with the type through the same
   /// `meta.clone()` the spread models. Defaulted so the 20+ existing
   /// construction sites are unaffected.
@@ -151,7 +151,7 @@ TypeValue :: ref(
     /// an unresolved generic VARIABLE of that name (e.g. the `U` in
     /// `impl(generic(T : Type, U : usize), Array(T, U), ...)`) and `length`
     /// is a meaningless placeholder. TS stores an UnknownValue carrying
-    /// `variableName` and binds it during synthesis (synthesizer.ts:884).
+    /// `variableName` and binds it during synthesis.
     Array(element : Self, length : usize, length_var : String),
     /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
     /// field (empty `String` means positional). `field_types(i)` is the type.
@@ -310,7 +310,7 @@ TypeValue :: ref(
       // site propagates to every copy in that lineage — including copies
       // already stored inside func types and registries. This is the
       // value-semantics equivalent of TS mutating `resolvedConcreteType` on
-      // the shared type object (src/types/definitions.ts:191). ArrayList is
+      // the shared type object. ArrayList is
       // used (not a dedicated cell struct) because Yo has no forward
       // references and a cell type mentioning TypeValue cannot be declared
       // before it. EXCLUDED from type_key / type_intern_key / compatibility

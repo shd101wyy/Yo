@@ -189,7 +189,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
     // reaches its generateDropCodeForValue with this type — its EVALUATOR lowers
     // a SomeType ___drop to `__yo_sometype_drop(x)` (types/utils.ts
     // addRcFunctionsToSomeType), which codegen handles in generateYoSomeTypeDrop
-    // (rc-fns.ts) with exactly this emission. yo-self's evaluate_drop keeps the
+    // with exactly this emission. yo-self's evaluate_drop keeps the
     // generic `___drop(x)` (no synthesized SomeType methods), so the Future arm
     // must live here — without it a sync-await's future temp fell through to the
     // `true => ""` no-op and its deferred drop was silently skipped everywhere
@@ -1160,7 +1160,7 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
   if(bdups.len() == usize(0), {
     return(Option(String).None);
   });
-  // Clear `variable_name` around the RAW generation (TS match.ts:133-136):
+  // Clear `variable_name` around the RAW generation:
   // with it set, the atom generator returns the info's temp alias — a
   // NOT-YET-DECLARED name — and the `btv != raw_code` declaration below is
   // skipped. Same phantom-temp class as the stage-2 fixpoint blocker in
@@ -1190,7 +1190,7 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
     },
     .None => ()
   );
-  // Emit the dup ONCE: named dup temp when available (match.ts:143-150),
+  // Emit the dup ONCE: named dup temp when available,
   // else the drift-safe escape hatch (dup the generated value directly).
   (dup_named : bool) = false;
   match(

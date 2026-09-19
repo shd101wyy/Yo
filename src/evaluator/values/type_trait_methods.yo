@@ -72,7 +72,7 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     // static or instance — was unresolvable (tests/basic.test.yo arm 14), while
     // the identical struct form worked. TS has no such gap: `UnionType extends
     // Type` so it carries an `id` like every other type
-    // (src/types/definitions.ts:11-20).
+    //.
     .Union({ name : un_id }) => un_id,
     // Primitive types get stable synthetic ids so `impl(usize, ...)`,
     // `impl(i32, ...)`, etc. can register `MAX`/`MIN`/operator methods
@@ -111,7 +111,7 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     /// TypeUni id below; without it every Expr method soft-fell to unit).
     .ExprT => String.from("__yo_t_expr"),
     // The type universe (`Type`). Mirrors TS `createTypeHierarchy`, which
-    // gives the cached singleton `id: "Type(${level})"` (creators.ts:1030)
+    // gives the cached singleton `id: "Type(${level})"`
     // and a trait slot — so `impl(Type, get_info : ...)` registers and
     // `Type.get_info(...)` dispatch resolves. Without this id the prelude's
     // `impl(Type, ...)` registration was silently skipped and every
@@ -139,7 +139,7 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
 ///
 /// `self_type` mirrors TS's
 /// `specializedMethodType.SelfType = dereferencedReceiverType`
-/// (env.ts:1958-1961). Set on the SomeT / Dyn / TypeApplication
+///. Set on the SomeT / Dyn / TypeApplication
 /// trait-walk paths to the dereferenced receiver so that
 /// codegen can resolve `Self` references inside the method's
 /// signature to the concrete receiver type. Direct-on-type
@@ -288,7 +288,7 @@ get_type_trait_methods_for_type :: (
 );
 /// PROVISIONAL (in-flight) trait-method entries: the yo-self port of TS's
 /// receiver-trait splice in `tryToImplementTraitWithArgumentsByTraitType`
-/// (trait-type.ts:176-203). TS mutates `receiverType.trait.fields` BEFORE
+///. TS mutates `receiverType.trait.fields` BEFORE
 /// evaluating the impl's member expressions, so a member body that calls back
 /// into the impl's own methods (recursive types — `TreeNode` with
 /// `Box(Self)` fields under `derive(TreeNode, Clone)`: the derived clone

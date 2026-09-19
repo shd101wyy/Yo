@@ -35,7 +35,7 @@
 { emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
 /// Information about a generated state machine. Mirrors `StateMachineInfo`
-/// (state-machine.ts:516).
+///.
 StateMachineInfo :: ref(
   struct(
     /// The C struct name for this state machine.
@@ -47,7 +47,7 @@ StateMachineInfo :: ref(
   )
 );
 /// Emit the forward declaration for the resume function. Mirrors
-/// `generateResumeFunctionDeclaration` (state-machine.ts:535).
+/// `generateResumeFunctionDeclaration`.
 generate_resume_function_declaration :: (
   fn(info : StateMachineInfo, context : FunctionGenerationContext) -> unit
 )({
@@ -62,7 +62,7 @@ generate_resume_function_declaration :: (
 /// The state-machine field name for the Future being awaited. Prefers the
 /// captured Future variable's field (`__capture.<name>` for an outer capture,
 /// `var_<id>` for a local) over a dedicated `await_future_<index>` field.
-/// Mirrors `getFutureFieldName` (state-machine.ts:461).
+/// Mirrors `getFutureFieldName`.
 ///
 /// An OUTER capture must carry the `__capture.` prefix: captures live in the
 /// state machine's `__capture` sub-struct, and every caller here splices the
@@ -129,7 +129,7 @@ CLEANUP_SEGMENT :: usize.MAX;
 /// resolving SSA remapping and RC-ownership aliasing. Skips nested async-block
 /// bodies (their refs belong to the inner state machine) but still walks their
 /// deferred dup expressions. Mirrors `collectVariableRefsInExpr`
-/// (state-machine.ts:76). yo-self threads `context` because the ExprInfo (env +
+///. yo-self threads `context` because the ExprInfo (env +
 /// deferred expressions) lives in the codegen side-table, not on the expr.
 collect_variable_refs_in_expr :: (
   fn(
@@ -360,7 +360,7 @@ collect_variable_refs_in_expr :: (
   });
 });
 /// Result of cross-boundary variable analysis. Mirrors `CrossBoundaryResult`
-/// (state-machine.ts:152). `variable_segments` maps each variable id to the set
+///. `variable_segments` maps each variable id to the set
 /// of segment indices it is referenced in (`CLEANUP_SEGMENT` = body-level drops).
 CrossBoundaryResult :: ref(
   struct(
@@ -390,7 +390,7 @@ _add_variable_segment :: (
 /// more than one state segment, or in the cleanup segment, or in a single
 /// branching-await segment). Such variables must be stored as struct fields;
 /// segment-local ones in non-branching segments can be C locals. Mirrors
-/// `computeCrossBoundaryVariables` (state-machine.ts:171).
+/// `computeCrossBoundaryVariables`.
 compute_cross_boundary_variables :: (
   fn(body_expr : AstExpr, analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> CrossBoundaryResult
 )({
@@ -652,7 +652,7 @@ compute_cross_boundary_variables :: (
 /// A variable's live range `[min_segment, max_segment]` over numbered segments.
 _SlotRange :: ref(struct(min : usize, max : usize));
 /// An overlapping storage slot shared by ≥2 non-RC value vars with disjoint live
-/// ranges. Mirrors `OverlappingSlot` (state-machine.ts:310).
+/// ranges. Mirrors `OverlappingSlot`.
 OverlappingSlot :: ref(
   struct(
     /// The struct field name, e.g. `slot_0`.
@@ -664,7 +664,7 @@ OverlappingSlot :: ref(
   )
 );
 /// Result of overlapping storage analysis. Mirrors `OverlappingStorageResult`
-/// (state-machine.ts:322).
+///.
 OverlappingStorageResult :: ref(
   struct(
     /// Maps variable IDs to their aliased slot field name.
@@ -694,7 +694,7 @@ _find_captured_by_id :: (
 /// Compute overlapping storage slots for cross-boundary variables: same-C-type
 /// non-RC value vars whose live ranges don't overlap can share one struct field
 /// (greedy graph coloring per type group). Mirrors `computeOverlappingSlots`
-/// (state-machine.ts:339). NOTE: yo-self HashMap is not insertion-ordered, so
+///. NOTE: yo-self HashMap is not insertion-ordered, so
 /// type/var iteration is driven off the ordered `eligible`/`ordered_c_types`
 /// lists to keep slot assignment deterministic (any valid coloring is correct —
 /// disjoint live ranges never collide — so the exact slot_N numbering may differ
@@ -914,7 +914,7 @@ compute_overlapping_slots :: (
   OverlappingStorageResult(slot_aliases : slot_aliases, slots : slots)
 });
 /// True when an expression contains a `return`. Mirrors `exprContainsReturn`
-/// (state-machine.ts:2346) — the resume generator's local copy (TS keeps a
+/// — the resume generator's local copy (TS keeps a
 /// duplicate of `exprContainsReturnStatement` in this file).
 expr_contains_return :: (fn(expr : AstExpr) -> bool)({
   if(ast_expr_is_atom_of(expr, "return"), {
@@ -939,7 +939,7 @@ expr_contains_return :: (fn(expr : AstExpr) -> bool)({
 /// True when `future_type` must be driven through the GENERIC Future vtable
 /// (`__yo_set_effect_fn` etc.) rather than a concrete capture struct — i.e. it is
 /// a Future SomeType with no concrete C type registered (nor a registered
-/// resolved-concrete). Mirrors `usesGenericFutureInterface` (state-machine.ts:2366).
+/// resolved-concrete). Mirrors `usesGenericFutureInterface`.
 uses_generic_future_interface :: (fn(future_type : TypeValue, context : FunctionGenerationContext) -> bool)({
   if(!(is_some_type(future_type) && type_implements_future(future_type)), {
     return(false);
@@ -994,7 +994,7 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
 /// Emit the effect-injection line for one captured effect member of a Future:
 /// the generic vtable `__yo_set_effect_fn` call for generic-interface Futures, or
 /// a direct `__capture.<label>` store for concrete Futures. Mirrors
-/// `emitFutureEffectInjectionLine` (state-machine.ts:2401).
+/// `emitFutureEffectInjectionLine`.
 emit_future_effect_injection_line :: (
   fn(
     future_type : TypeValue,
@@ -1016,7 +1016,7 @@ emit_future_effect_injection_line :: (
 /// Resolve the C code for an effect-handler field from the surrounding
 /// state-machine scope: a caller evidence param (`current_evidence_params`) wins,
 /// else an outer captured variable (`sm->__capture.<label>`), else `.None`.
-/// Mirrors `resolveEffectFieldFromSMScope` (state-machine.ts:2583).
+/// Mirrors `resolveEffectFieldFromSMScope`.
 resolve_effect_field_from_sm_scope :: (
   fn(field_label : String, context : FunctionGenerationContext, _expr : AstExpr) -> Option(String)
 )({
@@ -1188,7 +1188,7 @@ find_bundle_field_name :: (
 /// into the awaited future (resolving the member's C code from SM captures /
 /// the using-arg value / evidence params / env given-bindings), via the generic
 /// vtable or a direct capture store. Mirrors `emitEffectRecordInjectionForSM`
-/// (state-machine.ts:2493).
+///.
 emit_effect_record_injection_for_sm :: (
   fn(
     source_namespace_type : TypeValue,
@@ -1356,7 +1356,7 @@ emit_effect_record_injection_for_sm :: (
 /// effect on the future's trait, a function-type effect resolves its handler from
 /// the SM scope; a struct/source-namespace effect forwards the outer bundle field
 /// (or injects each member). Mirrors `emitEffectInjectionForSM`
-/// (state-machine.ts:2423). yo-self iterates the `FutureTraitT` effect arrays
+///. yo-self iterates the `FutureTraitT` effect arrays
 /// (TS models a single `effect`).
 emit_effect_injection_for_sm :: (
   fn(await_expr : AstExpr, future_access : String, indent : String, context : FunctionGenerationContext) -> unit
@@ -1440,7 +1440,7 @@ emit_effect_injection_for_sm :: (
 /// Store the awaited Future for an EXTRA await in a cond/match branch (chained
 /// awaits): a `:= await` / standalone `io.await` stores into the SM future field;
 /// a nested cond/match/while/begin delegates to `generate_await_expression`.
-/// Mirrors `generateRemainingExprFuture` (state-machine.ts:2257).
+/// Mirrors `generateRemainingExprFuture`.
 generate_remaining_expr_future :: (
   fn(expr : AstExpr, await_point : AwaitPoint, analysis : AwaitAnalysisResult, indent : String, context : FunctionGenerationContext) -> unit
 )({
@@ -1824,7 +1824,7 @@ _emit_await_suspension_dispatch :: (
 /// cold-start (effect injection + resume-fn call, non-Io futures only), and
 /// continuation registration. Wrapped in while-active / cond-non-NULL guards when
 /// the await is inside a while/cond. Mirrors the await block in
-/// `generateAsyncBlockResumeFunction` (state-machine.ts:2018).
+/// `generateAsyncBlockResumeFunction`.
 _emit_await_suspension :: (
   fn(
     segment : StateSegment,
@@ -1910,7 +1910,7 @@ _emit_await_suspension :: (
 /// direct-emitting drops are caught too, and collected into
 /// `local_var_drop_codes` for the dispose function) and then the Future
 /// completion. Mirrors the last-segment branch in
-/// `generateAsyncBlockResumeFunction` (state-machine.ts:2184).
+/// `generateAsyncBlockResumeFunction`.
 /// The skip condition must be TAIL-ONLY: the previous `expr_contains_return`
 /// over any segment expression skipped the completion whenever a return was
 /// nested in ANY arm — a body like `match(x, .None => return(.None), ...)`
@@ -1991,7 +1991,7 @@ _emit_last_segment_completion :: (
 ///
 /// Aliased ids still have storage (an `await_future_N` or an overlapping slot),
 /// so they count as present. Mirrors `awaitTargetHasStructField`
-/// (state-machine.ts).
+///.
 /// True when the state-machine variable `target_variable_id` has the same C type
 /// as `result_type`. Distinguishes an arm's binding for THIS await point from a
 /// binding for a SECOND await inside the same arm, which suspends into a later
@@ -2367,7 +2367,7 @@ _emit_prev_await_result_extraction_dispatch :: (
 /// `await_result_N` for cond awaits, or directly into the target SM var for
 /// linear awaits; RC results are dup'd), and the temp-future RC decrement when
 /// the awaited future was anonymous. Mirrors the result-extraction prologue in
-/// `generateAsyncBlockResumeFunction` (state-machine.ts:661). Caller guarantees
+/// `generateAsyncBlockResumeFunction`. Caller guarantees
 /// `state_number >= 1`.
 _emit_prev_await_result_extraction :: (
   fn(async_block_id : String, state_number : usize, prev_await : AwaitPoint, analysis : AwaitAnalysisResult, context : FunctionGenerationContext, cross_boundary_ids : Option(HashSet(String))) -> unit
@@ -2592,7 +2592,7 @@ _chain_additional_remaining :: (
 /// (chaining to the next state on an additional await, else emitting drops), and
 /// restore context. `indent` is 10 spaces for the main switch, 6 for chained
 /// layers. Mirrors the per-branch body in the cond-branch-continuation handler
-/// (state-machine.ts:809). (The TS `remainingExprs.length === 0` block at :906 is
+///. (The TS `remainingExprs.length === 0` block at :906 is
 /// dead — it sits inside a `length > 0` guard — and is omitted.)
 _emit_cond_branch_remaining :: (
   fn(
@@ -3063,7 +3063,7 @@ _emit_nested_branch_continuation :: (
 /// post-await remaining code), then any chained-branch layers, then the cond
 /// result assignment. `cond_field == usize.MAX` is the TS `-1` unconditional
 /// sentinel (skip the switch). Mirrors the cond-branch handler in
-/// `generateAsyncBlockResumeFunction` (state-machine.ts:774).
+/// `generateAsyncBlockResumeFunction`.
 _emit_cond_branch_continuation :: (
   fn(
     async_block_id : String,
@@ -3287,7 +3287,7 @@ _emit_chained_arm_binding :: (
 /// Branch codes start at 1 (_alloc_cond_branch_codes), so the calloc-zeroed
 /// field of a never-taken cond cannot match a case here. Mirrors the
 /// post-guard chained processing in `generateAsyncBlockResumeFunction`
-/// (state-machine.ts).
+///.
 _emit_outer_chained_branch_layers :: (
   fn(
     prev_await : AwaitPoint,
@@ -3353,7 +3353,7 @@ _emit_outer_chained_branch_layers :: (
 /// once, after the loop exits, guarded by `sm->cond_branch_N` unless the nested
 /// cond overwrote it). Caller invokes only when the body's after-await code did
 /// NOT itself chain to the next state. Mirrors the post-while block in
-/// `generateAsyncBlockResumeFunction` (state-machine.ts:1540).
+/// `generateAsyncBlockResumeFunction`.
 _emit_post_while_cond_branch :: (
   fn(
     while_data : WhileLoopInfo,
@@ -3501,7 +3501,7 @@ _emit_post_while_cond_branch :: (
 /// outer body's after-await expressions, then its continue label + body drops +
 /// step + condition re-eval (loop back to `prev_await.index` or fall through to
 /// `after_while_loop_<outer>`). Mirrors the outer-while block in
-/// `generateAsyncBlockResumeFunction` (state-machine.ts:1703).
+/// `generateAsyncBlockResumeFunction`.
 /// Park a while loop's remaining body (everything after an additional await
 /// carried by `further`'s predecessor) on the entry at `next_index`. When
 /// that entry already belongs to a DIFFERENT loop — a nested while-with-await
@@ -3785,7 +3785,7 @@ _emit_while_cond_await_exprs :: (
 /// A body await splits the loop into "before" and "after" halves. A condition
 /// await cannot be split that way: the condition is re-evaluated every
 /// iteration, so it is the whole loop that cycles through the state.
-/// Mirrors `emitWhileConditionAwaitResume` (state-machine.ts).
+/// Mirrors `emitWhileConditionAwaitResume`.
 _emit_while_condition_await_resume :: (
   fn(
     prev_await : AwaitPoint,
@@ -3846,7 +3846,7 @@ _emit_while_condition_await_resume :: (
 /// the loop info if they contain another await), else emit the continue label +
 /// body drops + step + condition re-eval + loop-back goto; then the post-while
 /// cond-branch code and the outer-while continuation. Mirrors the while-handling
-/// in `generateAsyncBlockResumeFunction` (state-machine.ts:1196).
+/// in `generateAsyncBlockResumeFunction`.
 _emit_while_continuation :: (
   fn(
     prev_await : AwaitPoint,
@@ -3871,7 +3871,7 @@ _emit_while_continuation :: (
         //   else { body; step; jump back to the state that stores the future }
         // Jumping back re-stores the future, which is what re-evaluates the
         // condition each iteration.
-        // Mirrors `emitWhileConditionAwaitResume` (state-machine.ts).
+        // Mirrors `emitWhileConditionAwaitResume`.
         if(match(while_data.condition_await, .Some(b) => b, .None => false), {
           _emit_while_condition_await_resume(prev_await, while_data, future_type, capture_type, analysis, async_block_id, context);
           return();
@@ -4098,7 +4098,7 @@ _emit_while_continuation :: (
 /// cond/while continuation, the segment's own code (`generate_state_segment_code`),
 /// and either the await suspension or the final-state completion. Returns the
 /// body-local drop-code lines (for the dispose function). Mirrors
-/// `generateAsyncBlockResumeFunction` (state-machine.ts:572).
+/// `generateAsyncBlockResumeFunction`.
 generate_async_block_resume_function :: (
   fn(
     body_expr : AstExpr,

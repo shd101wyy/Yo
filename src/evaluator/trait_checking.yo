@@ -449,7 +449,7 @@ _is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -
 // ---------------------------------------------------------------------------
 /// Bind SomeTypes in `constraint_ty` against `resolved_ty` and return the
 /// updated env — the `synthesizeTypes(constraintType, resolvedType)` call in
-/// TS `checkAssociatedTypeConstraints` (trait-checking.ts:315-320). Returns
+/// TS `checkAssociatedTypeConstraints`. Returns
 /// `.None` when synthesis throws (compat already passed, so a throw here is
 /// a no-binding situation, not an error).
 _assoc_synth_env :: (
@@ -609,7 +609,7 @@ _check_associated_type_constraints :: (
       .Some(resolved) => {
         // Argument ROLES matter: yo-self's signature is (actual, expected)
         // while TS's is (expected, given) — TS passes expected=constraintType,
-        // given=resolvedType (trait-checking.ts:306-311), so the resolved
+        // given=resolvedType, so the resolved
         // associated type is the ACTUAL and the constraint is the EXPECTED.
         // With the roles swapped, `Item := A` (constraint = unbound SomeT A)
         // against resolved `i32` missed the concrete-vs-SomeT wildcard rule
@@ -802,7 +802,7 @@ type_implements_trait :: (
     if(!(are_types_compatible(fn_trait_call_ty, target)), {
       return(TraitCheckResult(implemented : false, env : env));
     });
-    // Binding propagation (TS trait-checking.ts:377-394): synthesize the
+    // Binding propagation: synthesize the
     // trait's call type against the target fn so SomeTs in parameter/return
     // positions (`Fn(a : A) -> B` against `fn(x : i32) -> i32`) get BOUND in
     // the returned env. Discarding this env left `A`/`B` unresolved and the
@@ -824,7 +824,7 @@ type_implements_trait :: (
   if(!(type_id.is_empty()), {
     if(is_type_registered_as_trait(type_id, trait_type, env), {
       // Associated-type constraints (`Iterator(Item := A)`) must hold and
-      // their bindings propagate (TS trait-checking.ts:418-431). On failure
+      // their bindings propagate. On failure
       // TS `continue`s to the later steps rather than rejecting outright.
       assoc_result_reg := _check_associated_type_constraints(target, trait_type, env);
       if(assoc_result_reg.satisfied, {
@@ -1766,7 +1766,7 @@ type_contains_some_type_for_codegen_param :: (
     // src/types/utils.ts:694-713.)
     // Extern opaque type (`extern("Yo", X : Type)` → a SomeT placeholder named X)
     // that codegen lowers to a concrete C type: NOT a codegen-blocking generic.
-    // Mirrors TS excluding `isExtern` SomeTypes (src/types/utils.ts:10).
+    // Mirrors TS excluding `isExtern` SomeTypes.
     tc_some_nm := match(ty, .SomeT({ name : snm }) => snm, _ => String.from(""));
     if(is_extern_type_name(tc_some_nm), {
       return(false);

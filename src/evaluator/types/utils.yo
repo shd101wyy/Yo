@@ -75,7 +75,7 @@ _all_fields_implement_acyclic :: (fn(field_types : ArrayList(TypeValue), env : E
 /// the buffer, and this derive can run before a self-referential element's own
 /// cycle status is known, so `ArrayList(Node)` is correctly withheld from Acyclic
 /// while `ArrayList(i32)` stays Acyclic). Mirrors the element-aware check in
-/// `autoDeriveAcyclicForStructType` (src/evaluator/types/utils.ts).
+/// `autoDeriveAcyclicForStructType`.
 _all_buffer_elements_acyclic :: (fn(field_types : ArrayList(TypeValue), env : Environment) -> bool)({
   n := field_types.len();
   (i : usize) = usize(0);
@@ -273,7 +273,7 @@ auto_derive_traits_for_union_type :: (
 // enforce_atomic_object_send
 // ---------------------------------------------------------------------------
 /// Enforce Send for atomic object types. Mirrors the check at the end of TS
-/// `evaluateStructType` (struct.ts:152-173): after auto-derive completes (the
+/// `evaluateStructType`: after auto-derive completes (the
 /// begin/end_send_derivation bracket lives in
 /// `auto_derive_traits_for_struct_type` above, so the cycle breaker cannot
 /// interfere with this check), an `atomic(ref(struct(...)))` whose type did

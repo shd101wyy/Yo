@@ -821,7 +821,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`
     // comptime_int, e.g. basic.test.yo's Point2) — TS's
     // typeRequiresComptimeModifier is isComptimeOnlyType(type, env) =
     // implementsComptime && !implementsRuntime with the auto-derive
-    // recursion (types/utils.ts:85-96). Use the env-aware derivation as
+    // recursion. Use the env-aware derivation as
     // the fallback after the cheap tag path.
     lhs_requires_ct := (type_requires_comptime_modifier(lhs_type) || (type_implements_comptime(lhs_type, env) && !type_implements_runtime_full(lhs_type, env)));
     // In a DEFINITION-time body trial a type still carrying unresolved
@@ -877,8 +877,8 @@ ${expr_str}`
     // A runtime CALL result is stored as a RUNTIME-ONLY UnknownVal placeholder
     // (`_call_result_unknown`, calls/function.yo) — "TS would have had no
     // value here" (value.yo doc). TS's gate is `if (!rhsValue && ...)`
-    // (initialization-assignment.ts:325) where a runtime call left
-    // `returnValue` unassigned (helper.ts:1752-1754), so the faithful port
+    // where a runtime call left
+    // `returnValue` unassigned, so the faithful port
     // rejects BOTH no-value and runtime-only-unknown. Without this,
     // `r :: runt_id(n)` was silently accepted (tests/fn.test.yo arm 12's
     // comptime_expect_error never saw an error and hollowed the batch).
@@ -907,7 +907,7 @@ ${rhs_str}`
     // the shared type object in place; yo-self TypeValues are value-typed,
     // so rebuild the TypeVal with the binding name filled (only when the
     // current name is empty) before storing. Without this, name-keyed
-    // checks — e.g. panic's `typeName === "str"` (panic.ts:88) — can never
+    // checks — e.g. panic's `typeName === "str"` — can never
     // match; under propagated def-eval the prelude's `assert` failed on it
     // and cascaded across 96 std files.
     stamped_rhs_value_opt := match(

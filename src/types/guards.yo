@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 // Extern opaque-Type registry. `extern("Yo", X : Type)` declares an opaque type
 // whose value is a SomeT PLACEHOLDER (e.g. `__yo_thread_t`); codegen emits a
 // concrete C type for it, so it is NOT a codegen-blocking generic. TS marks
-// these via `SomeType.isExtern` (src/types/utils.ts:10); yo-self's SomeT has no
+// these via `SomeType.isExtern`; yo-self's SomeT has no
 // such field, so the extern declaration records the type NAME here (extern.yo)
 // and the codegen-generic checks (type_contains_some_type_for_codegen_param)
 // exclude a SomeT whose name is registered. Empty during pure evaluation.
@@ -197,12 +197,12 @@ is_trait_type :: (fn(t : TypeValue) -> bool)(
   )
 );
 /// True for source-namespace structs (anonymous modules / imports).
-/// Mirrors TS `isSourceNamespaceType` (guards.ts:191) — TS has no module
+/// Mirrors TS `isSourceNamespaceType` — TS has no module
 /// type; the legacy name is kept for the existing call sites.
 is_module_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .Struct({ is_source_namespace : sns }) => sns, _ => false)
 );
-/// Mirrors TS `isStructType` (guards.ts:161): EXCLUDES source-namespace
+/// Mirrors TS `isStructType`: EXCLUDES source-namespace
 /// structs, exactly as TS does.
 is_struct_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .Struct({ is_source_namespace : sns }) => !sns, _ => false)
@@ -642,7 +642,7 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
               .Some(pt) => match(
                 pt,
                 // Future-implementing SomeT params are exempt — mirrors TS
-                // `!typeImplementsFuture(p.type)` (guards.ts:474).
+                // `!typeImplementsFuture(p.type)`.
                 .SomeT(name : _) => if(!_some_type_implements_future(pt), {
                   found = true;
                 }),
@@ -690,7 +690,7 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
                 pt,
                 .SomeT(id : sid, name : _) => {
                   // Future-implementing SomeT params are exempt — mirrors TS
-                  // `!typeImplementsFuture(p.type)` (guards.ts:510): they
+                  // `!typeImplementsFuture(p.type)`: they
                   // lower to the future-trait struct pointer, so the
                   // unspecialized form IS valid C.
                   if(!_some_type_implements_future(pt) && !_some_param_has_resolved_concrete(sid), {
@@ -734,7 +734,7 @@ is_function_specializable :: (fn(t : TypeValue) -> bool)(false);
 // ---------------------------------------------------------------------------
 // Box / effects-row guards
 // ---------------------------------------------------------------------------
-// Mirrors `isBoxedType` (src/types/guards.ts:529): a reference-semantics
+// Mirrors `isBoxedType`: a reference-semantics
 // struct with exactly one field labeled `*` whose typeName starts with
 // "Box(" — i.e. the prelude `Box(T)` wrapper.
 is_boxed_type :: (fn(t : TypeValue) -> bool)(

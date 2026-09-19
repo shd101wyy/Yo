@@ -111,7 +111,7 @@
 /// Mirrors the `{ effectLabel, accessPath }` records in `async.ts`.
 EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
 /// True if the extern name is defined in the async runtime (poll / fs_event /
-/// async prefixes). Mirrors `isAsyncRuntimeExternName` (async.ts:1659).
+/// async prefixes). Mirrors `isAsyncRuntimeExternName`.
 is_async_runtime_extern_name :: (fn(name : String) -> bool)(
   (name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_")) || name.starts_with("__yo_async_")
 );
@@ -241,7 +241,7 @@ _numeric_id_less :: (fn(a : String, b : String) -> bool)(
 ///
 /// DETERMINISM (yo-self divergence, same justified category as the murmur3
 /// h1_hash fix): TS iterates `stateMachineVariables` — an insertion-ordered
-/// JS Map — and takes the FIRST type-matching entry (async.ts:468-477), which
+/// JS Map — and takes the FIRST type-matching entry, which
 /// with monotonic variable ids means the first-minted match; when a closure's
 /// bundle PARAM and a same-typed local both match (fs/file.yo's `e`), the
 /// param was minted first, its alias fires, and the mapping targets
@@ -301,7 +301,7 @@ _find_bundle_var_field :: (
 /// effect on the `FutureTraitT`, a function-typed effect maps to a `__capture`
 /// field; a struct/source-namespace effect maps its top-level fn fields to
 /// `__capture` and its nested fn leaves to the SM bundle field. Mirrors
-/// `getInjectableFutureEffectFieldMappings` (async.ts:402); iterates yo-self's
+/// `getInjectableFutureEffectFieldMappings`; iterates yo-self's
 /// effect arrays (TS's single `effect`).
 get_injectable_future_effect_field_mappings :: (
   fn(
@@ -412,7 +412,7 @@ _capitalize_last_segment :: (fn(label : String) -> String)({
 /// Emit the future's `set_effect` callback: a `strcmp(field, …)` chain that copies
 /// each injected effect handler / bundle into the SM struct (the sync-param slot,
 /// the whole-bundle copy, then each label→access-path mapping with name aliases).
-/// Mirrors `generateFutureEffectSetter` (async.ts:547).
+/// Mirrors `generateFutureEffectSetter`.
 generate_future_effect_setter :: (
   fn(
     struct_name : String,
@@ -500,7 +500,7 @@ generate_future_effect_setter :: (
 });
 /// The full description of one async-block state machine, passed to the struct /
 /// dispose / constructor emitters. Mirrors the inline `asyncBlockInfo` object
-/// literal of `emitAsyncBlockStructDefinition` (async.ts:637). Optional TS fields
+/// literal of `emitAsyncBlockStructDefinition`. Optional TS fields
 /// become `Option(...)`; `Set<string>` → `HashSet(String)`, `Map<string,string>`
 /// → `HashMap(String, String)`.
 AsyncBlockStructInfo :: ref(
@@ -520,7 +520,7 @@ AsyncBlockStructInfo :: ref(
 );
 /// True if an await point's result type is effectively unit (real unit, or an
 /// unresolved SomeType whose concrete type couldn't be resolved). Mirrors the
-/// `isEffectivelyUnit` check (async.ts:793).
+/// `isEffectivelyUnit` check.
 _await_result_is_unit :: (fn(result_type : TypeValue) -> bool)({
   if(is_unit_type(result_type), return(true));
   if(!(is_some_type(result_type)), return(false));
@@ -533,7 +533,7 @@ _await_result_is_unit :: (fn(result_type : TypeValue) -> bool)({
 });
 /// Find the C name of the capture struct for `capture_type`: the registered
 /// type-entry c_name if present, else `async_capture_<id>`. Mirrors the
-/// `Object.values(context.types).find(...)` lookup (async.ts:719).
+/// `Object.values(context.types).find(...)` lookup.
 _find_capture_type_c_name :: (fn(capture_type : TypeValue, context : FunctionGenerationContext) -> String)({
   target_key := type_key(capture_type);
   vals := context.base.types.values();
@@ -589,7 +589,7 @@ _join_dotted :: (fn(parts : ArrayList(String)) -> String)({
   out
 });
 /// Emit the C `struct <name>_struct { ... }` definition for one async-block state
-/// machine. Faithful port of `emitAsyncBlockStructDefinition` (async.ts:637):
+/// machine. Faithful port of `emitAsyncBlockStructDefinition`:
 /// RC header → state → result → continuation/resume/set_effect fn ptrs → capture
 /// struct → closure-param slots → cross-boundary local fields → overlapping slots
 /// → await-result temporaries → await-future fields → cond_branch fields →
@@ -951,7 +951,7 @@ _add_deferred_dep :: (
 /// Build the dependency edges for one deferred block `b`: a local-variable field
 /// or an `await_future_X` field whose type C-string matches another block's
 /// struct name introduces an edge. Mirrors the per-block body of the dependency
-/// graph construction (async.ts:932).
+/// graph construction.
 _build_deferred_deps :: (
   fn(b : DeferredAsyncBlock, by_struct_name : HashMap(String, DeferredAsyncBlock), dependents : HashMap(String, HashSet(String)), indegree : HashMap(String, usize), context : FunctionGenerationContext) -> unit
 )({
@@ -1020,7 +1020,7 @@ _build_deferred_deps :: (
 /// Emit struct definitions for all deferred async blocks in dependency order
 /// (Kahn's topological sort over by-value embedding edges; falls back to input
 /// order on cycles). Faithful port of `emitDeferredAsyncBlockStructDefinitions`
-/// (async.ts:907).
+///.
 emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGenerationContext) -> unit)({
   blocks := match(context.deferred_async_blocks, .Some(b) => b, .None => return());
   if(blocks.len() == usize(0), return());
@@ -1235,7 +1235,7 @@ _capture_type_entry_exists :: (fn(capture_type : TypeValue, context : FunctionGe
 });
 /// Inline RC-field drops for a capture struct whose `___drop` function was not
 /// generated (e.g. it holds unresolved SomeType fields). Mirrors the inline
-/// fallback in `generateAsyncBlockStateDisposeFunction` (async.ts:1116).
+/// fallback in `generateAsyncBlockStateDisposeFunction`.
 _emit_inline_capture_field_drops :: (fn(capture_type : TypeValue, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
@@ -1271,7 +1271,7 @@ _emit_inline_capture_field_drops :: (fn(capture_type : TypeValue, context : Func
 /// capture struct, the result field (on normal completion, state == -1), and
 /// cross-boundary locals (on unwind/abort, state == -2). Called by `__yo_decr_rc`
 /// at refcount 0 — does NOT free memory. Faithful port of
-/// `generateAsyncBlockStateDisposeFunction` (async.ts:1060). `local_var_drops` is
+/// `generateAsyncBlockStateDisposeFunction`. `local_var_drops` is
 /// retained for signature fidelity (unused in the TS body as well).
 generate_async_block_state_dispose_function :: (
   fn(async_block_id : String, struct_name : String, dispose_function_name : String, result_type : TypeValue, capture_type : Option(TypeValue), analysis : AwaitAnalysisResult, local_var_drops : ArrayList(String), cross_boundary_ids : HashSet(String), await_future_temp_var_aliases : HashMap(String, String), context : FunctionGenerationContext) -> unit
@@ -1380,7 +1380,7 @@ generate_async_block_state_dispose_function :: (
 /// state machine, sets up the RC header (cycle-GC fields or type-id dispatch),
 /// installs the capture struct, zeroes the result, and stores the resume +
 /// set_effect fn pointers. Returns a cold (unstarted, RC=1) future. Faithful port
-/// of `generateAsyncBlockConstructor` (async.ts:1269). `async_block_id` and
+/// of `generateAsyncBlockConstructor`. `async_block_id` and
 /// `future_type` are retained for signature fidelity (unused in the TS body too).
 generate_async_block_constructor :: (
   fn(async_block_id : String, struct_name : String, resume_function_name : String, constructor_name : String, dispose_function_name : String, set_effect_function_name : String, cancel_pending_function_name : Option(String), future_type : TypeValue, result_type : TypeValue, result_type_c_name : String, capture_type : Option(TypeValue), context : FunctionGenerationContext) -> unit
@@ -1458,7 +1458,7 @@ generate_async_block_constructor :: (
 /// Extract the captured-variable name a deferred `___dup` expression targets:
 /// either the function-call form `___dup(varName)` (args[0] is an atom) or the
 /// method-call form `(varName.___dup)()` (no args; func is a `.`-call whose
-/// args[0] is an atom). Mirrors the inner varName extraction (async.ts:285).
+/// args[0] is an atom). Mirrors the inner varName extraction.
 _dup_expr_var_name :: (fn(dup_expr : AstExpr) -> Option(String))({
   match(
     dup_expr,
@@ -1493,7 +1493,7 @@ _dup_expr_var_name :: (fn(dup_expr : AstExpr) -> Option(String))({
   Option(String).None
 });
 /// Build the capture-struct initializer literal for an io.async block. Mirrors the
-/// capture-emission section of `generateAsyncBlock` (async.ts:268): effect-param
+/// capture-emission section of `generateAsyncBlock`: effect-param
 /// fields are zero-initialized (populated at io.await/io.spawn); other fields use
 /// a matching deferred `___dup` expression when available (else the capture-struct
 /// dup function wraps the whole literal).
@@ -1560,7 +1560,7 @@ _build_async_capture_struct_literal :: (
             .None => {
               // Capture-expression fallback: read the captured variable BY
               // NAME in the call-site scope. TS generates the capture field's
-              // RECORDED atom expr here (async.ts:330-335); yo-self
+              // RECORDED atom expr here; yo-self
               // capture-struct fields carry no per-field exprs, so the C name
               // of the same-named variable at the io.async call site is the
               // faithful equivalent for the std-internal shapes (read's
@@ -1691,7 +1691,7 @@ io_async_await_analysis :: (fn(expr : AstExpr, context : FunctionGenerationConte
         // body exists twice and the resume references temps declared only in
         // the standalone copy). Mirrors TS setting
         // `isIoAsyncStateMachineClosure` when the closure has await analysis
-        // (function.ts:2222).
+        //.
         if(aa.is_some(), {
           mark_io_async_sm_closure(__fvd1.*.func_id.clone());
         });
@@ -1822,7 +1822,7 @@ flatten_nested_await_blocks :: (fn(expr : AstExpr, context : FunctionGenerationC
 /// type, emits forward declarations, records a deferred-generation request (resume
 /// /constructor/dispose emitted after all regular functions), and emits the cold
 /// constructor call. Returns the C expression for the resulting (cold) future.
-/// Faithful port of `generateAsyncBlock` (async.ts:63).
+/// Faithful port of `generateAsyncBlock`.
 /// Extract the io.async(closure) body for the state-machine path: the closure
 /// FuncVal's body, read from the runtime-arg's ExprInfo — `closure_function_value`
 /// first, falling back to `cei.value` when it is None (evaluate_anonymous_function
@@ -2111,7 +2111,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   // Collect closure parameter slots (io.async closures take a bundle param; the
   // value flows in at io.await time via set_effect). Sourced from the closure
   // FuncVal's OWN type (via the expr→func_id registry + get_func_type), like TS
-  // `closureFnValue.type.parameters` (async.ts:211-223) — NOT from the arg
+  // `closureFnValue.type.parameters` — NOT from the arg
   // ExprInfo's type: that is the DECLARED `Fn(e : E) -> T` signature from the
   // Io record, whose label "e" breaks atom.yo's name-based slot resolution when
   // the closure literal names the param differently (`(io : Io) => ...` emitted
@@ -2234,7 +2234,7 @@ _copy_string_map :: (fn(src : HashMap(String, String)) -> HashMap(String, String
 /// Build the filtered captured-variable list + SM-var map + merged field aliases
 /// for one deferred block, registers closure-param slots as SM variables, and emits
 /// the resume + set_effect + dispose + constructor for that block. Mirrors the
-/// per-block body of `generateDeferredAsyncBlocks` (async.ts:1413).
+/// per-block body of `generateDeferredAsyncBlocks`.
 _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   saved_sm_vars := context.state_machine_variables;
@@ -2374,7 +2374,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
 /// / constructor), after all regular functions. Index-based loop because emitting a
 /// block's resume may discover nested async blocks (pushed during iteration); their
 /// struct definitions are emitted before they are processed. Faithful port of
-/// `generateDeferredAsyncBlocks` (async.ts:1391).
+/// `generateDeferredAsyncBlocks`.
 generate_deferred_async_blocks :: (fn(context : FunctionGenerationContext) -> unit)({
   blocks := match(context.deferred_async_blocks, .Some(b) => b, .None => return());
   if(blocks.len() == usize(0), return());
@@ -2452,7 +2452,7 @@ _called_extern_name :: (fn(expr : AstExpr, context : FunctionGenerationContext) 
 });
 /// Recursively search `expr` for async blocks and pre-register their state-machine
 /// types (forward-declared struct typedefs), and flag uses_async / uses_parallelism.
-/// Faithful port of `preRegisterAsyncBlocksInExpr` (async.ts:1668).
+/// Faithful port of `preRegisterAsyncBlocksInExpr`.
 preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> unit)({
   is_fn_call := match(expr, .FnCall(_, _, _, _, _) => true, _ => false);
   if(!(is_fn_call), return());
@@ -2571,7 +2571,7 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
 });
 /// Pre-register every function body's async-block state-machine types before
 /// function declarations are generated, so prototypes see the right struct names.
-/// Faithful port of `preRegisterAsyncBlockTypes` (async.ts:1639).
+/// Faithful port of `preRegisterAsyncBlockTypes`.
 preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> unit)({
   vals := context.base.functions.values();
   (go : bool) = true;
@@ -2592,7 +2592,7 @@ preregister_async_block_types :: (fn(context : FunctionGenerationContext) -> uni
 /// Generate C for `io.async(closure)` as a LAZY synchronous future (no await
 /// points). The closure is NOT called at io.async time; its function pointer +
 /// capture live in the future struct, and io.await's resume call executes it.
-/// Faithful port of `generateIoAsyncSyncCall` (async.ts:1798).
+/// Faithful port of `generateIoAsyncSyncCall`.
 /// DIVERGENCE: the closure's C function name comes from the closure-arg's
 /// `closure_function_value` FuncVal func_id (via get_function_entry) rather than
 /// TS's implClosureCallMap (absent in yo-self); the closure's runtime params +

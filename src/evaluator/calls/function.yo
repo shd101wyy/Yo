@@ -203,7 +203,7 @@ ReceiverMethodResult :: struct(
   // `needs_pointer_conversion` above are the FIRST hit (the common single-hit
   // case); when `all_hits.len() > 1` the call site trial-calls each and picks
   // the one whose parameters match the arguments. Mirrors TS keeping the full
-  // `functions` candidate array (function.ts:330) for overload resolution.
+  // `functions` candidate array for overload resolution.
   all_hits : ArrayList(MethodEntry)
 );
 // ---------------------------------------------------------------------------
@@ -814,8 +814,8 @@ _select_matching_overload :: (
 )({
   // Collect EVERY candidate whose trial passes (not just the first) so the
   // comptime-priority rule below can run — TS filters to type-matching
-  // candidates (function.ts:1691) and THEN applies "comptime function call
-  // has higher priority" (function.ts:1737-1751). Without it,
+  // candidates and THEN applies "comptime function call
+  // has higher priority". Without it,
   // `self.neg()` on a comptime receiver picked the RUNTIME `Negate.neg`
   // (registered before `ComptimeNegate.neg`), its result was a runtime
   // UnknownVal, and every `NAME :: <ctfe call>` whose body used a prefix
@@ -823,7 +823,7 @@ _select_matching_overload :: (
   // (issues/fixed/yo-self-comptime-const-batch-undeclared.md).
   matching := ArrayList(usize).new();
   // Mark the dry-runs on ctx — TS sets isInFunctionCallCheckingPhase on
-  // every dry-run (function.ts:822-831); the Call-overload loop already
+  // every dry-run; the Call-overload loop already
   // does the same externally. These trials previously ran WITHOUT it,
   // which made a trial's parameter-check rejections (helper.yo Step 5b)
   // indistinguishable from a real call's — the distinction the
@@ -1036,7 +1036,7 @@ _try_expand_call_overload :: (
     }
   );
   // Candidates: a tuple of functions, or a single function
-  // (TS function.ts:541-555).
+  //.
   cand_vals := ArrayList(EvalValue).new();
   match(
     call_v,
@@ -1107,8 +1107,8 @@ _try_expand_call_overload :: (
   ctx.is_in_function_call_checking_phase = old_checking_ph;
   if(successes.len() == usize(0), {
     // TS replaces the function list with exactly the `Call` tuple's elements
-    // (function.ts:553-587) and, when none matches, throws "No matching call
-    // found" (function.ts:1827-1834). yo-self's pre-pass previously no-op'd
+    // and, when none matches, throws "No matching call
+    // found". yo-self's pre-pass previously no-op'd
     // here, letting the source-namespace struct callee fall through to the
     // struct path — which silently ACCEPTED e.g. `add(4, 5, 6, 7)` against a
     // `Call :: (add2, add3)` module (tests/fn.test.yo arm 13, hollow batch).
@@ -1123,7 +1123,7 @@ ${ast_expr_to_string(call_expr)}`
     );
     return(());
   });
-  // PRIMARY rule (TS function.ts:1737-1751): a COMPTIME-RETURNING candidate
+  // PRIMARY rule: a COMPTIME-RETURNING candidate
   // wins outright when exactly one survives — "Comptime function call has
   // higher priority than normal function call. So this way we eagerly
   // evaluate the function call that can be done at the compile-time."
@@ -1142,7 +1142,7 @@ ${ast_expr_to_string(call_expr)}`
   // RUNTIME-ONLY (`_call_result_unknown`) — the remedy TS applied for the same
   // symptom in issues/fixed/recur-runtime-result-not-marked-runtime-only.md.
   // That alone fixed `!((s.is_empty)())` (tests/imm_string, imm_list, prelude).
-  // TS's extra `hasRuntimeUnknownArg` guard (function.ts:1734) cannot be
+  // TS's extra `hasRuntimeUnknownArg` guard cannot be
   // expressed here — each trial evaluates its own fresh-id arg CLONES, so there
   // is no shared evaluated-arg list — and is subsumed by that filter.
   //
@@ -1166,7 +1166,7 @@ ${ast_expr_to_string(call_expr)}`
       csi = (csi + usize(1));
     });
   };
-  // Tiebreak (TS function.ts:1664-1681): among multiple matches prefer the
+  // Tiebreak: among multiple matches prefer the
   // single candidate with comptime parameter types, if exactly one exists.
   (winner_idx : usize) = match(successes.get(usize(0)), .Some(i) => i, .None => usize(0));
   if(ct_successes.len() == usize(1), {
@@ -1364,7 +1364,7 @@ _freshen_io_async_result :: (fn(t : TypeValue) -> TypeValue)(
 );
 /// Rebuild a SomeT with the SAME identity but a FRESH resolution cell seeded
 /// with `concrete` — the value-semantics mirror of TS's per-call clone
-/// `{ ...returnType, resolvedConcreteType: concreteType }` (function.ts:2095).
+/// `{ ...returnType, resolvedConcreteType: concreteType }`.
 /// The caller's stamped result type carries the resolution WITHOUT mutating
 /// the declaration's shared lineage cell (per-call isolation — see the HAZARD
 /// note on `resolved_concrete` in types/definitions.yo).
@@ -2005,7 +2005,7 @@ _funcval_bind_foralls :: (
     // flag` + `if ()`) and the specialization keyed on the unresolved return
     // SomeT was called but never emitted. TS infers these via
     // `synthesizeTypes(parameterType, argType)` running per-param in
-    // checkIfFunctionParameterMatchesArgument (helper.ts:623-637), which
+    // checkIfFunctionParameterMatchesArgument, which
     // descends into Func types structurally. Synthesize every declared param
     // type against its arg type into a lazy scratch env (swallowing
     // mismatches — best-effort like the arms around this) and bind the
@@ -2063,7 +2063,7 @@ _funcval_bind_foralls :: (
               // scratch env (with its declared type, usize). Propagate the
               // VALUE binding into fresh_env — the port of TS's calleeEnv
               // carrying `N = <len> : usize` from synthesizeTypes
-              // (synthesizer.ts:900-937) — so the body's `with_capacity(N)`
+              // — so the body's `with_capacity(N)`
               // sees a usize value, and the later positional receiver
               // fallback (which would misbind `N := TypeVal(elem)`, the
               // imm_list/imm_vec unify(usize, Type) hollow root) is skipped.
@@ -2567,7 +2567,7 @@ _evaluate_funcval_runtime_call :: (
   // `Option` bound to `F` routes through evaluate_function_call's ordinary
   // comptime-call path and REDUCES to `Option(i32)`. TS builds a
   // TypeApplication only while the callee is still an abstract SomeT with a
-  // kind function type (calls/function.ts:1345-1394); there is no TypeApp
+  // kind function type; there is no TypeApp
   // reduction function in TS at all. yo-self resolves by value-space
   // substitution, which can never APPLY a constructor — and for an HKT binder
   // it substitutes the FuncVal's TYPE into the constructor slot, which is the
@@ -2830,7 +2830,7 @@ _evaluate_funcval_runtime_call :: (
   // (ctl/effect-handler) functions are excluded — the effect system handles
   // them.
   // Soft-generic spec trigger: TS's guard is BARE
-  // `isFunctionTypeGeneric && !isControlFunction` (helper.ts:1911-1929);
+  // `isFunctionTypeGeneric && !isControlFunction`;
   // yo-self's closure-param narrowing left SomeT-param functions WITHOUT
   // closure params on the rtcall path — the parametric-trait `!=` default
   // (`lhs : Self, rhs : str`) called heterogeneously (`a != "abcd"`) then
@@ -2866,7 +2866,7 @@ _evaluate_funcval_runtime_call :: (
   );
   // EXPLICIT-COMPTIME-PARAM functions (`fn(comptime(K) : Type, node : ...)`,
   // e.g. std/imm/map.yo `_node_insert`) are generic WITHOUT foralls: TS's
-  // `isFunctionTypeGeneric` counts `p.isCompileTimeOnly` params (guards.ts:466)
+  // `isFunctionTypeGeneric` counts `p.isCompileTimeOnly` params
   // so TS mints a runtime specialization keyed on the comptime arg VALUES.
   // yo-self's trigger below only fired on foralls/closure params, so these
   // calls fell through to the non-specializing path — no spec was ever minted
@@ -3039,7 +3039,7 @@ _evaluate_funcval_runtime_call :: (
       // specialization arg_type so the closure param (`cb : Impl(Fn(...),
       // Send)`) lowers to its concrete capture struct in the specialized C
       // function — the same concretion TS achieves via the SomeType's
-      // resolvedConcreteType (helper.ts:2245-2252).
+      // resolvedConcreteType.
       (arg_ty_spec : TypeValue) = match(ainfo.capture_type, .Some(ct) => ct, .None => ainfo.ty);
       // Lower a comptime-only ARG type (comptime_int/float/str) to its
       // runtime equivalent when the param is a RUNTIME param — the inline
@@ -3471,7 +3471,7 @@ evaluate_function_call :: (
       // str"). When there is more than one candidate, evaluate the 2nd operand
       // and pick the overload whose 2nd parameter (`rhs`) type accepts that
       // operand's type. Mirrors TS trying each overload and using the matching
-      // one (function.ts:867+). A single candidate keeps index 0 (no behavior
+      // one. A single candidate keeps index 0 (no behavior
       // change).
       (chosen_idx : usize) = usize(0);
       if((op_methods.len() > usize(1)) && (args.len() >= usize(2)), {
@@ -3553,7 +3553,7 @@ evaluate_function_call :: (
       // Resolve an associated-type return (`comptime(Self.Output)`) that came
       // back as a bare SomeT (`Output`) because the impl's associated-type
       // binding isn't in the callee env. TS resolves it by the receiver's
-      // trait impl matching the operator's trait id (env.ts:1970). yo-self's
+      // trait impl matching the operator's trait id. yo-self's
       // registry records `source_trait_id` as "" for direct-on-type trait
       // impls, so we approximate SOUNDLY: adopt the receiver's registered
       // associated types of this name only when they UNANIMOUSLY agree (they
@@ -3798,7 +3798,7 @@ evaluate_function_call :: (
   // `evaluate_recur`), use it as the callee instead of evaluating
   // `func_expr` — the callee atom (`recur`) is not a bound variable and an
   // identifier lookup would throw "Variable recur not found". Mirrors TS
-  // `evaluateFunctionCall`'s `givenFunc` shortcut (function.ts:234-237).
+  // `evaluateFunctionCall`'s `givenFunc` shortcut.
   // `___dup`: both arms yield `func_expr` (the `.None` arm's
   // `evaluate_expression_raw` returns its input node ALIASED, rc unchanged — a
   // borrow), but `evaluated_callee` is a separate owning local dropped at scope
@@ -3834,8 +3834,8 @@ evaluate_function_call :: (
   // `my_io.await` with an UNKNOWN Io receiver value but a typed callee). TS
   // classifies io builtins SEMANTICALLY via the callee type's `ioBuiltin`
   // marker (await-analysis.ts:137-167 reads `expr.func.$?.type`) — stamped
-  // by the extern declaration (extern.ts:143-158) and propagated onto the Io
-  // struct's field types at construction (calls/type.ts:176-182). yo-self
+  // by the extern declaration and propagated onto the Io
+  // struct's field types at construction. yo-self
   // resolves the same two sources here: (a) the callee type's own
   // `extern_name`, (b) the dot-access receiver's struct id + field label in
   // the construction-time side-table. Without this, the name-based
@@ -4153,7 +4153,7 @@ Fix: wrap the call:
             // Source-namespace struct (record type / anonymous module):
             // `RecordType(field: value, ...)` routes to the record-type
             // implementation, NOT struct construction. TS dispatches on
-            // SourceNamespaceType before plain structs (record-type.ts).
+            // SourceNamespaceType before plain structs.
             if(callee_is_sns, {
               result_m := try_to_implement_module_with_arguments_by_module_type(
                 func_expr,
@@ -4241,7 +4241,7 @@ Fix: wrap the call:
             // Propagate io-builtin markers from extern function VALUES to the
             // constructed struct's FIELDS — faithful port of TS
             // `memberElement.type.ioBuiltin = argType.ioBuiltin`
-            // (calls/type.ts:176-182): constructing
+            //: constructing
             // `Io(await : __yo_io_await, ...)` marks the Io struct's `await`
             // field, so `my_io.await(...)` on ANY Io-typed receiver later
             // classifies as the io.await builtin. TS mutates the SHARED
@@ -4887,7 +4887,7 @@ Fix: wrap the call:
           n_a = fv_args.len();
           // Evaluate each supplied type argument in the CALLER env and pair it
           // with the callee's forall label BY POSITION. `_` means "keep
-          // inferring" (TS helper.ts:1071-1078).
+          // inferring".
           {
             (gi : usize) = usize(0);
             while(gi < fv_g_args.len(), {
@@ -5003,7 +5003,7 @@ Fix: wrap the call:
         // from the recorded type: a quoted variadic carries `ComptimeList(Expr)`
         // (types/function.yo). Used both to relax the arg-count check below and
         // to bind the variadic as a `ComptimeList` of raw-AST `Expr`s for macro
-        // expansion. Mirrors TS `functionType.variadicParameter` (helper.ts).
+        // expansion. Mirrors TS `functionType.variadicParameter`.
         fv_variadic_entry_opt := get_func_variadic_param(func_id_fv.clone());
         fv_has_variadic := fv_variadic_entry_opt.is_some();
         (fv_variadic_label : String) = String.from("...");
@@ -5016,7 +5016,7 @@ Fix: wrap the call:
         // yet", types/function.yo) — so a registered non-quote variadic is
         // necessarily the comptime one. Mirrors the TS predicate
         // `variadicParameter.isCompileTimeOnly &&
-        // isComptimeListType(variadicParameter.type)` (helper.ts:1834).
+        // isComptimeListType(variadicParameter.type)`.
         (fv_variadic_is_comptime : bool) = false;
         match(
           fv_variadic_entry_opt,
@@ -5032,7 +5032,7 @@ Fix: wrap the call:
         // parameter: variadics accept any number of trailing args, so a strict
         // `n_a > n_p` upper bound (n_p excludes the variadic) wrongly rejects
         // e.g. `array_list(a, b)` (n_p=0). Mirrors TS
-        // `if (!functionType.variadicParameter) { ... }` (helper.ts:969).
+        // `if (!functionType.variadicParameter) { ... }`.
         if((!(fv_has_variadic)) && ((n_a < (n_required_reg + n_ev)) || (n_a > (n_p + n_ev))), {
           (fv_count_msg : String) = `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`;
           if(n_required_reg != n_p, {
@@ -5116,7 +5116,7 @@ Fix: wrap the call:
         while(ai < n_a, {
           arg_expr := match(fv_args.get(ai), .Some(a) => a, .None => make_err_expr());
           // Quoted parameter: bind the raw argument AST as an `Expr` value
-          // WITHOUT evaluating it (TS helper.ts:350). The early-continue
+          // WITHOUT evaluating it. The early-continue
           // shape matches the TS original; the 2026-06-07 corruption it was
           // once bisected to no longer reproduces (0/52 on the original
           // 4-file protocol, post-slice-rework) — see
@@ -5128,7 +5128,7 @@ Fix: wrap the call:
           // runtime unknowns). Mirrors TS `variadicParameter.isQuote`.
           if(fv_is_macro && (is_param_quoted(func_id_fv.clone(), ai) || (fv_variadic_is_quote && (ai >= n_p))), {
             // Strip a "label : value" colon-label wrapper BEFORE quoting —
-            // TS's shared label-strip (helper.ts:271-302) runs before its
+            // TS's shared label-strip runs before its
             // isQuote branch (:350), so a labeled macro arg (`if(c, then :
             // {...}, else : {...})`) quotes the VALUE. Binding the whole
             // colon-pair expanded `cond(c => (then : {...}), ...)`, which
@@ -5204,7 +5204,7 @@ Fix: wrap the call:
               arg_expr_eff = cl_value_expr;
             });
             // An `undefined` argument uses the parameter's declared default
-            // (TS helper.ts:323-344). The default expression may reference
+            //. The default expression may reference
             // EARLIER params (`(Rhs : Type) ?= Lhs`), which TS resolves via
             // its sequentially-bound calleeEnv — layer a frame binding the
             // already-evaluated args by param name for this evaluation.
@@ -5331,13 +5331,13 @@ Fix: wrap the call:
             // BEFORE evaluating the argument (helper.ts:304-317 ->
             // evaluateFunctionParameterTypeAgain, types/function.ts:2687-2706),
             // and its argument loop carries `calleeEnv` forward
-            // (helper.ts:1423-1446) — so the bindings synthesized from the
+            // — so the bindings synthesized from the
             // EARLIER arguments are already visible. For
             // `generic_fn(1, (x) -> (x + 1))` against
             // `fn(generic(T), x : T, callback : (fn(v : T) -> T)) -> T`,
             // argument 0 binds `T := i32`, so `callback`'s expected type is the
             // CONCRETE `fn(v : i32) -> i32`, and newFunctionType spreads it onto
-            // the lambda (anonymous-function.ts:597-638).
+            // the lambda.
             //
             // yo-self binds foralls only AFTER the whole argument loop
             // (`_funcval_bind_foralls`), so the lambda was checked against the
@@ -5437,7 +5437,7 @@ Fix: wrap the call:
               });
             });
             // Evaluate the arg with expectedType = the DECLARED PARAM TYPE
-            // (helper.ts:330) — leaving the caller's expected type in place
+            // — leaving the caller's expected type in place
             // leaked e.g. a single-expr fn body's expected `bool` into the
             // first argument, so `zimpl(zp.as_bytes(), ...)` synthesized
             // unify(ArrayList(u8), bool) and the whole module failed.
@@ -5450,7 +5450,7 @@ Fix: wrap the call:
                 .Some(apt) => cond(
                   // Skip Type params (constructor args) AND unresolved
                   // SomeTs — TS passes the SPECIALIZED parameterType
-                  // (helper.ts:330); when yo-self only has the generic
+                  //; when yo-self only has the generic
                   // declared type, an abstract expected mis-resolves
                   // enum-variant shorthands (".Table(...)" looked up in
                   // SomeT-T → "variant not found").
@@ -5462,7 +5462,7 @@ Fix: wrap the call:
                   // records its capture struct as the SomeT's resolvedConcreteType
                   // (needed for spawn/parallelism specialization). Mirrors TS
                   // passing the declared param type as the arg's expected type
-                  // (helper.ts:330).
+                  //.
                   is_some_type(apt) => match(
                     extract_fn_trait_from_type(apt),
                     .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env)),
@@ -5508,7 +5508,7 @@ Fix: wrap the call:
             // params, so without this they fell through the `.None => false`
             // default and were spliced into the emitted call. TS pushes a
             // variadic arg to `runtimeArgExprsInOrder` only when
-            // `!variadicParameter.isCompileTimeOnly` (helper.ts:1802).
+            // `!variadicParameter.isCompileTimeOnly`.
             rt_arg_is_ct := cond(
               (fv_variadic_is_comptime && (ai >= n_p)) => true,
               true => match(rt_ct_flags_args.get(ai), .Some(f) => f, .None => false)
@@ -5972,7 +5972,7 @@ Fix: wrap the call:
           // get_info param made the dyn detect-closure's capture struct drop
           // the field → undeclared `get_info` in the emitted C). TS binds
           // isCompileTimeOnly from the PARAMETER declaration, never from
-          // arg-value presence (helper.ts:573).
+          // arg-value presence.
           // An UnknownVal argument is a RUNTIME value (type known, value not
           // — the project-wide meaning of UnknownVal, and TS helper.ts:36's
           // own words: "A runtime value is either undefined (no value) or a
@@ -5982,7 +5982,7 @@ Fix: wrap the call:
           // identifier (issues/async-loop-awaiting-buffer-taking-method-
           // state-machine-corruption.md, facet 1). TS derives the binding's
           // isCompileTimeOnly from the DECLARED param flag alone
-          // (helper.ts:671); the value-derived heuristic here keeps genuine
+          //; the value-derived heuristic here keeps genuine
           // comptime VALUES comptime but must not claim runtime unknowns.
           (is_ct : bool) = match(arg_info.value, .Some(av) => (!(is_func_val(av)) && !(is_unknown_val(av))), .None => false);
           if((is_comptime_string_type(arg_info.ty) && (!(is_some_type(resolved_decl_pt)))) && (!(is_comptime_string_type(resolved_decl_pt))), {
@@ -6106,7 +6106,7 @@ Fix: wrap the call:
         // and bind it under the variadic's name in `fresh_env`, so the macro
         // body's `elems.len()/car()/cdr()` resolve when the body runs. Without
         // this, the variadic name is unbound and the body throws. Mirrors TS
-        // variadic binding (helper.ts:1620-1709); the args were already
+        // variadic binding; the args were already
         // captured as `Expr` in the arg loop above.
         if(fv_variadic_is_quote, {
           velems := ArrayList(EvalValue).new();
@@ -6204,7 +6204,7 @@ Fix: wrap the call:
         // helper.yo must run here too. Rejects e.g. `Mutex(NonSendObj)`
         // against `where(T <: Send)`.
         validate_where_constraints_for_call(func_id_fv.clone(), fresh_env, tok, exn);
-        // Where-clause EXPR re-application (TS helper.ts:1515). Internally
+        // Where-clause EXPR re-application. Internally
         // guarded: a spec-cache-hit reuse leaves the forall params bound to
         // non-type values in `fresh_env`, and the guard skips that state
         // (see reapply_where_clause_exprs_for_call in helper.yo).
@@ -6378,7 +6378,7 @@ Fix: wrap the call:
           // expansion (an Expr value). Evaluate the expanded expression in
           // the caller env and store its info as this call's info — the
           // expansion's type/value ARE the call's type/value
-          // (TS function.ts:1976-2005).
+          //.
           if(macro_return_is_unquote(func_id_fv.clone()), {
             match(
               ct_result.value,
@@ -7412,7 +7412,7 @@ Fix: wrap the call:
             out_idx := new_expr_info(idx_result.caller_env, idx_result.ty);
             out_idx.value = idx_result.value;
             // Record the index method's `*(T)` so the ref-argument place
-            // gate recognizes `xs(i)` as a buffer pointer (TS function.ts:2788).
+            // gate recognizes `xs(i)` as a buffer pointer.
             out_idx.index_trait_ptr_type = Option(TypeValue).Some(idx_result.ptr_type);
             // Also record the specialized index() method type + value so codegen
             // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
@@ -7420,15 +7420,15 @@ Fix: wrap the call:
             out_idx.index_method_type = match(idx_result.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None);
             out_idx.index_method_value = idx_result.index_method_value;
             // ComptimeIndex place-reference — see the FuncVal-callee index arm
-            // above (TS function.ts:2820).
+            // above.
             out_idx.comptime_ref = idx_result.comptime_ref;
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
-            // Attach a NON-owning temp (TS function.ts:2810) — see the
+            // Attach a NON-owning temp — see the
             // FuncVal-callee index arm above for the full rationale.
             attach_temp_variable_to_expr(expr, false, ctx);
             return(expr);
           });
-          // TS parity (function.ts:1827): a callee that resolved to neither a
+          // TS parity: a callee that resolved to neither a
           // method, a type constructor, an Index receiver, nor anything
           // FUNCTION-SHAPED contributes no callable candidate — TS's
           // `functionsWithMatchingTypes` comes up empty and it throws
@@ -7477,7 +7477,7 @@ Fix: wrap the call:
           //     durable stamps that later evaluations reuse (yo-self's
           //     shared-AST architecture); aborting one mid-body loses stamps
           //     TS never depended on. TS discards dg-trial errors wholesale
-          //     anyway (function-type.ts:112), so skipping the throw is the
+          //     anyway, so skipping the throw is the
           //     same observable outcome.
           if(((!(cvl_is_fnish)) && !(ctx.is_in_function_call_checking_phase)) && !(in_def_time_trial()), {
             if(fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
@@ -7594,7 +7594,7 @@ ${ast_expr_to_string(expr)}`
           out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
           out_none.deferred_drop_expressions = call_result_none.deferred_drop_expressions;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
-          // Same temp attachment as the method arm (TS function.ts:2263).
+          // Same temp attachment as the method arm.
           // The result temp is OWNING (+1 the callee produced) — except for
           // `__yo_as` (`unsafe.cast`): a cast conjures no new object, it is a
           // BORROWED view of the caller's. Treating `w := unsafe.cast(ud, W)`

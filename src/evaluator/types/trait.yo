@@ -14,7 +14,7 @@
 //!   - `attachTraitToReceiverType` for Runtime trait skipped
 //!   - `findSomeTypeMissingComptimeConstraint` RETURN-side check ported (TS
 //!     trait.ts:1074-1102, after the pending-constraint retry); the PARAMETER
-//!     side (trait.ts:1104-1123) is still skipped — trait-field fn types do
+//!     side is still skipped — trait-field fn types do
 //!     not register per-param comptime flags
 //!   - Function parameter annotation validation skipped (no exprs stored in TraitT fields)
 pragma(Pragma.AllowUnsafe);
@@ -1320,7 +1320,7 @@ evaluate_trait_type :: (
   // SomeT only then (and only reaches the field types at all because
   // `Self.Output` resolves to the ONE env-bound assoc SomeT — see the
   // property_access.yo assoc branch). Only the RETURN side is ported; the
-  // parameter side (trait.ts:1104-1123) needs the per-param comptime side
+  // parameter side needs the per-param comptime side
   // table, which trait FIELD fn-types do not register — no known witness.
   (vf_i : usize) = usize(0);
   while(vf_i < field_types.len(), {
@@ -1338,7 +1338,7 @@ evaluate_trait_type :: (
         .Func(_, _, _, _, vf_ret, vf_meta, _) => {
           // Deep contains-SomeT check: yo-self's `type_contains_some_type` is
           // SHALLOW (bare SomeT / TypeAppT only) — `*(Output)` walks right
-          // past it. TS's typeContainsSomeType recurses (utils.ts:526+); the
+          // past it. TS's typeContainsSomeType recurses; the
           // deep equivalent here is get_all_some_types (whose collector
           // descends Pointer/Array/Func/...).
           if(vf_meta.*.result_is_comptime_only && (get_all_some_types(vf_ret).len() > usize(0)), {

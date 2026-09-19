@@ -1,7 +1,7 @@
 //! Core code emitter for the self-hosted Yo C code generator.
 //!
-//! Mirrors `src/emitter.ts`. Accumulates C source text in three separate
-//! string buffers that are concatenated by `print()`:
+//! Accumulates C source text in three separate string buffers that are
+//! concatenated by `print()`:
 //!
 //!   headers      — #include directives and forward declarations
 //!   declarations — struct/enum/typedef declarations
@@ -14,9 +14,8 @@ _emitter_is_ident_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(48)) && (b <= u8(57))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))))
 );
 /// True iff `cn` looks like an eval-minted temp C name: contains `_temp_`
-/// followed by ONLY digits to the end (mirrors begin.yo `_looks_like_minted_temp`
-/// and TS `isCodegenTempName`). Kept local so this low-level module needs no
-/// codegen imports.
+/// followed by ONLY digits to the end (mirrors begin.yo `_looks_like_minted_temp`).
+/// Kept local so this low-level module needs no codegen imports.
 _emitter_is_minted_temp :: (fn(cn : String) -> bool)({
   marker := String.from("_temp_");
   match(
@@ -42,8 +41,8 @@ _emitter_is_minted_temp :: (fn(cn : String) -> bool)({
   )
 });
 /// When a line declares a minted temp (`<type> <temp> = …`), record its C name
-/// in `set`. Mirrors the TS Emitter's declaredCVarNames capture: the drop-emission
-/// gate skips a `___drop` for any minted temp NOT in declared_c_var_names, and the
+/// in `set`. The drop-emission gate skips a `___drop` for any minted temp NOT
+/// in declared_c_var_names, and the
 /// many temp-decl paths that build the declaration via get_type_string (not
 /// get_variable_type_string) otherwise leave their temps untracked → the gate
 /// wrongly skips their (live-RC) drops → LEAK. Recorded in C-emission order so
@@ -160,8 +159,8 @@ _emitter_record_scope_decl :: (fn(stack : ArrayList(String), line : String) -> u
 /// C block goes out of C scope when that block closes, so its escape drop must be
 /// skipped, but a marker-only tracker never sees the intervening close). A flat
 /// `ArrayList(String)` is used rather than a stack of `HashSet` frames because
-/// yo-self's own codegen mis-drops the nested `ArrayList(HashSet(String))` generic
-/// (double-free in the self-compiled binary). See
+/// the self-hosted compiler's own codegen mis-drops the nested `ArrayList(HashSet(String))`
+/// generic (double-free in the self-compiled binary). See
 /// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
 _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
   _emitter_record_scope_decl(stack, line.clone());

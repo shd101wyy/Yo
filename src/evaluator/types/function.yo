@@ -323,7 +323,7 @@ get_func_param_assigned_values :: (fn(func_id : String) -> ArrayList(Option(Eval
 // (only `param_is_ref`/`param_is_owning`), so — like the defaults above — it
 // rides a func-id-keyed side table. The call site (helper.yo) reads it to
 // replicate TS's `!parameter.isCompileTimeOnly` guard on the comptime→runtime
-// argument-type conversion (helper.ts:508): a RUNTIME parameter that receives a
+// argument-type conversion: a RUNTIME parameter that receives a
 // comptime-only argument (e.g. the operator `neg`'s `self : _Self` given
 // `comptime_float`) must lower the arg to its runtime type, or the specialized
 // body dispatches to the COMPTIME impl (`__yo_comptime_float_neg`, undeclared).
@@ -389,7 +389,7 @@ get_func_param_comptime :: (fn(func_id : String) -> ArrayList(bool))(
 // AST). The value table above suffices for the call-site count check and the
 // def-time binding, but CODEGEN must EMIT an omitted default as a C argument —
 // TS evaluates `parameter.exprs.defaultValueExpr` and pushes it to
-// `runtimeArgExprsInOrder` (helper.ts:328-344). yo-self keeps the exprs here so
+// `runtimeArgExprsInOrder`. yo-self keeps the exprs here so
 // the omitted-parameter branch can clone+evaluate+emit them. Keyed/copied like
 // the values (fn-type-expr id → FuncVal id).
 (g_func_param_default_exprs : HashMap(String, ArrayList(Option(AstExpr)))) =
@@ -476,7 +476,7 @@ get_func_param_type_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExpr))
 /// FuncVal id via the same two-step as the defaults) → the function's
 /// where-clause constraints as (LHS param label, trait type, negated) triples.
 /// TS stores the raw constraint exprs as `FunctionType.whereClauseExprs`
-/// (src/types/definitions.ts:837) and RE-APPLIES them at every call site once
+/// and RE-APPLIES them at every call site once
 /// parameters are bound (helper.ts:1493-1506 → applyWhereClauseConstraints →
 /// validateSingleTraitOnConcreteType, function.ts:974) — that re-application is
 /// what rejects `Mutex(NonSendObj)` against `where(T <: Send)`. yo-self's
@@ -556,14 +556,14 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
 /// `fn(...)`-type-expression id (then the FuncVal id via the same two-step as
 /// the defaults) → the signature's `requires(...)` predicate expressions.
 /// TS stores these as `FunctionType.requiresExprs`
-/// (src/types/definitions.ts:865); yo-self's `TypeValue.Func` cannot carry
+///; yo-self's `TypeValue.Func` cannot carry
 /// AstExprs (definitions.yo must not depend on expr.yo — see the
 /// where-constraints table above), so they live here and are read by the
 /// body-wrapping lowering in `evaluator/builtins/contracts.yo`.
 (g_func_requires_exprs : HashMap(String, ArrayList(AstExpr))) =
   HashMap(String, ArrayList(AstExpr)).new();
 /// Same, for `ensures(...)`. Mirrors `FunctionType.ensuresExprs`
-/// (src/types/definitions.ts:875).
+///.
 (g_func_ensures_exprs : HashMap(String, ArrayList(AstExpr))) =
   HashMap(String, ArrayList(AstExpr)).new();
 /// Phase V4 `decreases(M)` termination measure (at most one per fn).
@@ -898,7 +898,7 @@ FuncParamsResult :: struct(
   has_variadic : bool,
   variadic_param : FuncParam,
   /// Phase-0 `requires(...)` predicates extracted from the parameter list.
-  /// TS returns these on the FunctionType (function.ts:2273); yo-self carries
+  /// TS returns these on the FunctionType; yo-self carries
   /// them out here so `evaluate_function_type` can register the side-table.
   /// Appended last so existing positional constructions only need trailing args.
   requires_exprs : ArrayList(AstExpr),
@@ -1934,7 +1934,7 @@ use_id :: (fn(generic(T : Type),
           // When the parameter type is `Type` (TypeUni(0)) — e.g.
           // `generic(T : Type)` — bind to `TypeVal(SomeT(...))` rather
           // than `UnknownVal(...)`. Mirrors TS `createUnknownValue`
-          // (src/value.ts:573-588) which returns a TypeValue wrapping
+          // which returns a TypeValue wrapping
           // a fresh SomeType for level-0 type-hierarchy types. Where
           // clauses (`T <: Trait`) and identifier lookups expect to
           // see a TypeVal(SomeT) so they can attach constraints.
@@ -3968,7 +3968,7 @@ evaluate_function_type :: (
   // Whether the parameter-list head is `ctl(...)` — this is a control-function
   // type. Captured here (the head expr is only in scope at this point) and
   // stamped onto the constructed Func as `is_control` below. Mirrors TS
-  // `context.isControlFunctionType` (_expr.ts:286) → `isControl` (function.ts:2678).
+  // `context.isControlFunctionType` → `isControl`.
   is_ctl_fn_type := ast_expr_is_fn_call_of(arg_list_expr, BK_CTL, Option(usize).None);
   arg_list := _fn_call_args(arg_list_expr);
   // Set is_evaluating_function_type flag on context
@@ -4388,7 +4388,7 @@ evaluate_function_type :: (
   // call site can lower comptime-only args passed to RUNTIME params.
   register_func_param_comptime(ast_expr_id(expr).to_string(), param_comptime_flags);
   // Per-param `= <value>` assigned values (same two-step re-keying) so the
-  // call site can reject a mismatching argument (TS helper.ts:481-497).
+  // call site can reject a mismatching argument.
   register_func_param_assigned_values(ast_expr_id(expr).to_string(), param_assigned_values);
   // Keep the declared return-type EXPR for specialization-time re-evaluation
   // (see the side-table comment above; TS functionType.return.typeExpr).
@@ -4993,7 +4993,7 @@ _cta_seen :: (fn(cta_v : ArrayList(String), cta_id : String) -> bool)({
 /// `type_arguments` — the yo-self-only slot standing in for TS's
 /// `StructType.env` (types/definitions.yo:212). `get_all_some_types` walks
 /// FIELD types only, a faithful mirror of TS's `getAllSomeTypes`
-/// (src/types/utils.ts:813-864), which has nothing more to walk: TS never
+///, which has nothing more to walk: TS never
 /// substitutes into an instantiation, it RE-EVALUATES the return-type
 /// EXPRESSION (src/evaluator/types/function.ts:2836, called unconditionally
 /// from src/evaluator/calls/helper.ts:1538). yo-self resolves by substitution,

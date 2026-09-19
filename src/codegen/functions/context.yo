@@ -23,7 +23,7 @@
 /// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
 /// via `set_effect("__bundle", &value)`, stored in a dedicated `__yo_param_<i>`
 /// slot on the SM struct. Mirrors the inline `closureParamSlots` records
-/// (context.ts:101). Defined here (not in exprs/async.yo) so `DeferredAsyncBlock`
+///. Defined here (not in exprs/async.yo) so `DeferredAsyncBlock`
 /// can reference it without an import cycle.
 ClosureParamSlot :: ref(
   struct(
@@ -35,7 +35,7 @@ ClosureParamSlot :: ref(
 );
 /// A deferred async-block generation request: async blocks are generated after
 /// all regular functions. Mirrors the inline `deferredAsyncBlocks[]` element type
-/// (context.ts:82). `futureType` (SomeType | DynType) and `futureTraitType`
+///. `futureType` (SomeType | DynType) and `futureTraitType`
 /// (FutureTraitType) both become `TypeValue`.
 DeferredAsyncBlock :: ref(
   struct(
@@ -74,7 +74,7 @@ InAsyncStateMachine :: ref(struct(future_type : TypeValue));
 /// An effect-evidence parameter threaded into a function for explicit-effects
 /// dispatch — the implicit-record label, the field label/path within it, the
 /// field's function type, and the sanitized C parameter name. Mirrors
-/// `EvidenceParameter` (declarations.ts:281).
+/// `EvidenceParameter`.
 EvidenceParameter :: ref(
   struct(
     implicit_label : String,
@@ -121,7 +121,7 @@ CondBranchPostWhileExprs :: ref(
 /// guard can only test one field, so when the layers disagree fall back to
 /// `skip_cond_branch_check` (sound: after_while_loop_N is only reachable from
 /// the branch that ran the loop). Mirrors `mergeCondBranchPostWhileExprs`
-/// (state-machine.ts) — placed here because Yo's import DAG has no
+/// — placed here because Yo's import DAG has no
 /// state_machine ← state_code_gen edge.
 merge_cond_branch_post_while_exprs :: (
   fn(existing : Option(CondBranchPostWhileExprs), incoming : CondBranchPostWhileExprs) -> CondBranchPostWhileExprs
@@ -295,7 +295,7 @@ OuterWhileLoop :: ref(
   )
 );
 /// One branch of a cond/match with await. Mirrors the `branches[]` element in
-/// `asyncCondBranchInfo` (context.ts:112).
+/// `asyncCondBranchInfo`.
 CondBranch :: ref(
   struct(
     index : usize,
@@ -347,7 +347,7 @@ CondBranch :: ref(
 );
 /// A chained cond/match continuation: an outer cond's remaining code that shares
 /// a key with a nested cond, processed as a separate switch AFTER the nested
-/// cond's switch. Mirrors the `chainedBranches[]` element (context.ts:124).
+/// cond's switch. Mirrors the `chainedBranches[]` element.
 ChainedCondBranches :: ref(
   struct(
     branches : ArrayList(CondBranch),
@@ -355,7 +355,7 @@ ChainedCondBranches :: ref(
   )
 );
 /// Per-await-point info about a cond/match containing await in branches. Mirrors
-/// the value type of `asyncCondBranchInfo` (context.ts:109).
+/// the value type of `asyncCondBranchInfo`.
 AsyncCondBranchInfo :: ref(
   struct(
     branches : ArrayList(CondBranch),
@@ -376,7 +376,7 @@ AsyncCondBranchInfo :: ref(
   )
 );
 /// Per-await-point info about a while loop containing an await. Mirrors the
-/// value type of `asyncWhileLoopInfo` (context.ts:137).
+/// value type of `asyncWhileLoopInfo`.
 WhileLoopInfo :: ref(
   struct(
     condition_expr : AstExpr,

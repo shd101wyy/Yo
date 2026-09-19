@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // DupCallsResult — result type for collect_dup_calls_conservatively.
-// Mirrors TS `DupCallsResult` (begin.ts:343-346).
+// Mirrors TS `DupCallsResult`.
 // ---------------------------------------------------------------------------
 DupCallsResult :: ref(
   struct(
@@ -207,7 +207,7 @@ _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> uni
 });
 /// Recursive dup-call search with conservative cross-branch analysis.
 /// Mirrors `searchRecursively` + its nested `handleBranchingExpression`
-/// (begin.ts:348-640). The branching arm is inlined (branch bodies recurse via
+///. The branching arm is inlined (branch bodies recurse via
 /// `recur` into FRESH result containers — exactly TS's
 /// `collectDupCallsConservatively(branchBody)`). Follows a recorded
 /// `macro_expansion` INSTEAD of the raw macro-call args (added to TS
@@ -222,7 +222,7 @@ _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> uni
 /// that failure was a missed expansion-internal `return` and is owned by
 /// `_contains_return_for_opt` below.
 _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext) -> unit)({
-  // Skip io.async captures entirely (begin.ts:358-369): the SM path needs BOTH
+  // Skip io.async captures entirely: the SM path needs BOTH
   // the dup and the scope-exit drop; cancelling them would leak.
   if(ast_expr_is_fn_call(expr) && is_io_async_call(expr), {
     return(());
@@ -256,7 +256,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
     ),
     .None => ()
   );
-  // Attached deferred dups first (begin.ts:371-375).
+  // Attached deferred dups first.
   match(
     ei_opt,
     .Some(ei) => {
@@ -297,7 +297,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
     ),
     .None => ()
   );
-  // The node itself is a dup call (begin.ts:377-404)?
+  // The node itself is a dup call?
   match(
     _dup_call_target_name(expr),
     .Some(vn) => {
@@ -320,7 +320,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
     .None => ()
   );
   // While loops execute multiple times — never optimize across them
-  // (begin.ts:406-414).
+  //.
   if(ast_expr_is_fn_call_of(expr, "while", Option(usize).None), {
     return(());
   });
@@ -332,7 +332,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
       .FnCall(_, _, xs, _, _) => xs,
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
-    // match: search the scrutinee first (begin.ts:611-614).
+    // match: search the scrutinee first.
     start_idx := if(is_match, {
       match(
         cargs.get(usize(0)),
@@ -341,7 +341,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
       );
       usize(1)
     }, usize(0));
-    // Per-branch collection (begin.ts:492-505).
+    // Per-branch collection.
     branch_results := ArrayList(DupCallsResult).new();
     (bi : usize) = start_idx;
     while(bi < cargs.len(), {
@@ -367,7 +367,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
       bi = (bi + usize(1));
     });
     // Union of var ids with dups in ANY branch; merge nested partials
-    // (begin.ts:507-517).
+    //.
     all_vars := ArrayList(String).new();
     (bri : usize) = usize(0);
     while(bri < branch_results.len(), {
@@ -469,7 +469,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
     });
     return(());
   });
-  // Generic recursion (begin.ts:620-626).
+  // Generic recursion.
   match(
     expr,
     .FnCall(_, f2, fargs2, _, _) => {
@@ -492,7 +492,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
 // ---------------------------------------------------------------------------
 /// Traverses `expr` recursively to collect all `___dup(...)` calls, keyed by
 /// the variable id they dup, with conservative cross-branch analysis.
-/// Mirrors `collectDupCallsConservatively` (begin.ts:630-636).
+/// Mirrors `collectDupCallsConservatively`.
 collect_dup_calls_conservatively :: (fn(expr : AstExpr, ctx : EvalContext) -> DupCallsResult)({
   res := _new_dup_calls_result();
   _search_dup_calls(expr, res, ctx);
@@ -719,7 +719,7 @@ _variable_is_captured_by_current_function :: (fn(v : Variable, ctx : EvalContext
 );
 /// True iff `expr` is a nested function-definition boundary — recursion for
 /// early-return drops must stop here. Mirrors `isFunctionBoundaryForEarlyDrop`
-/// (begin.ts). (The TypeValue-fn-callee boundary sub-checks are omitted: they
+///. (The TypeValue-fn-callee boundary sub-checks are omitted: they
 /// guard the rare case of a return value that is itself a function-type call;
 /// the token-position gate in `_attach_if_cleanup_needs_drop` already prevents a
 /// wrong attach there.)
@@ -753,7 +753,7 @@ _is_function_boundary_for_early_drop :: (fn(expr : AstExpr, _ctx : EvalContext) 
 /// return/unwind path, and its init is at-or-before that point which is strictly
 /// before its consumption, attach `drop_expr` to `expr`'s
 /// early_return_only_deferred_drop_expressions. Mirrors the inner
-/// `attachIfCleanupPointNeedsDrop` (begin.ts).
+/// `attachIfCleanupPointNeedsDrop`.
 _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, variable : Variable, drop_expr : AstExpr, init_tok : Token, consumed_tok : Token, ctx : EvalContext) -> unit)({
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
@@ -789,7 +789,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
 });
 /// Recursively attach `drop_expr` (for `variable`) to every return/unwind in
 /// `expr` where the variable is live-but-not-yet-consumed. Mirrors
-/// `attachEarlyReturnOnlyDropExpressionToReturns` (begin.ts:130-238).
+/// `attachEarlyReturnOnlyDropExpressionToReturns`.
 _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Variable, drop_expr : AstExpr, ctx : EvalContext) -> unit)({
   init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
   consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb.*, .None => return(()));
@@ -852,7 +852,7 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Vari
   )
 });
 /// Macro-aware `expr_tree_contains_return` for the optimizer's earliest-return
-/// detection. TS's `exprTreeContainsReturn` (expr-traversal.ts:311-330) checks
+/// detection. TS's `exprTreeContainsReturn` checks
 /// `expr.$.macroExpansion`; yo-self's expr_traversal.yo baseline cannot (no
 /// ctx). An `if(cond, { ... return(...) })` statement hides its return in the
 /// recorded expansion — missing it left `earliest_ret` unset, the
@@ -898,7 +898,7 @@ _contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
   )
 });
 /// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
-/// tree. Mirrors `removeDupCallsFromExpr` (begin.ts:652-671). TS reaches
+/// tree. Mirrors `removeDupCallsFromExpr`. TS reaches
 /// expansion-internal dup lists through the raw args because its expansions
 /// SHARE the spliced arg nodes; yo-self expansions are fresh-id clones, so the
 /// walk must follow `macro_expansion` explicitly — the same reachability the
@@ -1040,7 +1040,7 @@ _optimize_dup_drop_pairs :: (
     Option(String).None
   );
   // 1. Collect dup calls per begin child; record each dup's child index and
-  //    the earliest child containing a return (begin.ts:1826-1861).
+  //    the earliest child containing a return.
   merged := _new_dup_calls_result();
   dup_child_idx := HashMap(usize, usize).new();
   (earliest_ret : Option(usize)) = Option(usize).None;
@@ -1100,7 +1100,7 @@ _optimize_dup_drop_pairs :: (
   if(merged.dup_call_var_ids.len() == usize(0), {
     return(());
   });
-  // 2. Consumed DERIVED variable count per base (begin.ts:1866-1889): a
+  // 2. Consumed DERIVED variable count per base: a
   //    derived copy consumed by an `own` param means its dup was transferred
   //    to the callee and cannot pair with the base's scope-end drop.
   consumed_derived := HashMap(String, usize).new();
@@ -1137,8 +1137,8 @@ _optimize_dup_drop_pairs :: (
     cdi = (cdi + usize(1));
   });
   // 3. Pair each drop-eligible frame local with its collected dups
-  //    (begin.ts:1891-2054). Eligibility mirrors _schedule_scope_end_drops'
-  //    e1-e7 gates plus the captured filter (begin.ts:1802-1804) so only
+  //   . Eligibility mirrors _schedule_scope_end_drops'
+  //    e1-e7 gates plus the captured filter so only
   //    variables the scheduler WOULD drop are optimized.
   remove_ids := HashSet(usize).new();
   // Bases whose alias dup must be KEPT because the alias or the base is
@@ -1185,7 +1185,7 @@ _optimize_dup_drop_pairs :: (
         e8 := (e7 && !_variable_is_captured_by_current_function(v, ctx));
         if(e8, {
           // Follow the ownership-alias chain to the root base variable
-          // (begin.ts:1892-1897).
+          //.
           (base : Variable) = v;
           (walking : bool) = true;
           while(walking, {
@@ -1234,7 +1234,7 @@ _optimize_dup_drop_pairs :: (
             merged.dup_calls.get(base_id.clone()),
             .Some(dups) => if((dups.len() > usize(0)) && (!alias_reassigned && !base_is_protected), {
               // Value types with RC fields: `y = temp` is a C memcpy; both
-              // copies need their own drop — never cancel (begin.ts:1900-1909).
+              // copies need their own drop — never cancel.
               value_type_with_rc := (!is_reference_struct_type(base.ty) && type_contains_rc_type(base.ty));
               partial := _ids_list_contains(merged.vars_with_partial_branch_dups, base_id.clone());
               // A dup taken in a DEEPER SCOPE than the candidate's own frame
@@ -1281,7 +1281,7 @@ _optimize_dup_drop_pairs :: (
               });
               // A main-path dup in a child AFTER an early-return child: the
               // early return never executes the dup, so the value is still
-              // live and needs the scope-exit drop (begin.ts:1919-1935).
+              // live and needs the scope-exit drop.
               (ret_before_dup : bool) = false;
               match(
                 earliest_ret,
@@ -1310,7 +1310,7 @@ _optimize_dup_drop_pairs :: (
                 .None => usize(0)
               );
               // Base variable itself consumed while `v` is a derived copy:
-              // the dup is essential for COW correctness (begin.ts:1979-1991).
+              // the dup is essential for COW correctness.
               (base_consumed : bool) = false;
               if(!(base.id == v.id), {
                 (bci2 : usize) = usize(0);
@@ -1328,7 +1328,7 @@ _optimize_dup_drop_pairs :: (
               gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && !base_consumed)))));
               if(gates_ok, {
                 // Count RUNTIME dups — every collected dup counts
-                // (begin.ts:1930-1955).
+                //.
                 (runtime_count : usize) = usize(0);
                 (single_regular : Option(AstExpr)) = Option(AstExpr).None;
                 (rci : usize) = usize(0);
@@ -1345,7 +1345,7 @@ _optimize_dup_drop_pairs :: (
                 });
                 if(runtime_count <= usize(1), {
                   // Cancel: remove the dup and mark the variable consumed
-                  // (begin.ts:1998-2044).
+                  //.
                   (rmi : usize) = usize(0);
                   while(rmi < dups.len(), {
                     match(
@@ -1366,7 +1366,7 @@ _optimize_dup_drop_pairs :: (
                   // just moves the double-drop from `b` to `a`.
                   dups.clear();
                   // Consume at the dup's USE SITE when there is exactly one
-                  // runtime dup (begin.ts:2019-2040): early returns AFTER the
+                  // runtime dup: early returns AFTER the
                   // transfer must not re-drop the moved value; ones BEFORE it
                   // stay inside the [init, consume) window and keep theirs.
                   (consume_tok : Token) = ast_expr_token(last_expr);
@@ -1394,7 +1394,7 @@ _optimize_dup_drop_pairs :: (
       .None => ()
     );
   });
-  // 4. Strip the cancelled dups from the tree (begin.ts:2056-2061).
+  // 4. Strip the cancelled dups from the tree.
   if(remove_ids.len() > usize(0), {
     (ri : usize) = usize(0);
     while(ri < begin_args.len(), {
@@ -1451,7 +1451,7 @@ _schedule_scope_end_drops :: (
     match(
       fvars.get(vi),
       .Some(v) => {
-        // Mirrors TS getVariablesNeedingDrop (src/env.ts): any owning local
+        // Mirrors TS getVariablesNeedingDrop: any owning local
         // whose type CONTAINS an RC-managed type needs a scope-end drop —
         // including value-structs with RC fields (e.g. MapEntry(K, V) locals in
         // HashMap.set; their ___drop decrements the field). The earlier "M1"
@@ -1493,7 +1493,7 @@ _schedule_scope_end_drops :: (
   // of TS `getVariablesNeedingDrop`, which ends with
   //     // Return in reverse order (end to start) for proper drop order
   //     return variables.reverse();
-  // (src/env.ts:2265-2266). `to_drop` is collected in FORWARD frame order and
+  //. `to_drop` is collected in FORWARD frame order and
   // this loop consumed it forward too, so yo-self dropped scope locals in
   // exactly the opposite order from TS. That matters whenever one local is
   // derived from an earlier one: dropping the earlier binding first can
@@ -1531,7 +1531,7 @@ evaluate_begin_expression :: (
   // `struct(value : T)` invoked via the comptime-fn caller), treat it
   // as a single-expression begin block by wrapping it in a 1-element
   // arg list. Mirrors TS `evaluateBeginExpression`
-  // (src/evaluator/exprs/begin.ts:1009-1037) which synthesises a
+  // which synthesises a
   // `begin(expr)` wrapper when the input is not already a begin call.
   // Without this, the naive `FnCall` arg unwrap below would treat the
   // struct call's fields (`value : T`) as top-level statements and
@@ -1715,7 +1715,7 @@ evaluate_begin_expression :: (
             .Some(ri) => ri.env,
             .None => env
           );
-          // Defense-in-depth flowability on the return ARGUMENT (begin.ts).
+          // Defense-in-depth flowability on the return ARGUMENT.
           // (Ref-returning functions are banned at signature evaluation —
           // see types/function.yo — so only the raw-pointer-representation
           // rooting check remains for explicit `return(...)`.)
@@ -1758,7 +1758,7 @@ evaluate_begin_expression :: (
             .None => ()
           );
           // Validate Impl return types across multiple return statements
-          // (begin.ts:1273-1318): a fn whose declared return is an `Impl(...)`
+          //: a fn whose declared return is an `Impl(...)`
           // SomeType uses STATIC dispatch, so every `return(...)` must produce
           // the same concrete type. The first return's concrete type is
           // recorded in `ctx.function_return_impl_concrete_type` (the TS
@@ -1904,7 +1904,7 @@ evaluate_begin_expression :: (
           .FnCall(_, _, esc_args0, _, _) => esc_args0.len(),
           .Atom(_, _) => usize(0)
         );
-        // At most one argument (TS begin.ts:1446-1451).
+        // At most one argument.
         if(esc_n_args > usize(1), {
           exn.throw(
             dyn(
@@ -1920,7 +1920,7 @@ evaluate_begin_expression :: (
           .Some(t) => t,
           .None => TypeValue.Unit
         );
-        // Zero-arg `unwind()` — unwind with unit (TS begin.ts:1454-1479):
+        // Zero-arg `unwind()` — unwind with unit:
         // type-check unit against the enclosing return type, stamp a
         // unit-typed ExprInfo carrying the Unwind control flow, and stop the
         // block. The with-arg path below fed a make_err_expr() into
@@ -2095,11 +2095,11 @@ evaluate_begin_expression :: (
   last_info := match(last_info_opt, .Some(li) => li, .None => new_expr_info(env, TypeValue.Unit));
   return_type := last_info.ty;
   // -------------------------------------------------------------------------
-  // Return-type compatibility check (begin.ts:1602-1680)
+  // Return-type compatibility check
   // -------------------------------------------------------------------------
-  // TS FIRST tries `synthesizeTypes(expected, given)` (begin.ts:1607-1618) —
+  // TS FIRST tries `synthesizeTypes(expected, given)` —
   // with a SomeT expected this BINDS the type variable's name in the env
-  // (synthesizer.ts:457-490); handles shapes like [i32; n] vs [i32; 5]. Only
+  //; handles shapes like [i32; n] vs [i32; 5]. Only
   // when synthesis THROWS does TS fall back to the raw compatibility check +
   // the mismatch error. NOTE: this alone does NOT fix the io.async
   // `return(<binop>)` void-result bug — there the GIVEN side is already the
@@ -2328,7 +2328,7 @@ evaluate_begin_expression :: (
       });
     }
   );
-  // OPTIMIZE_DUP_AND_DROP_PAIRS (begin.ts:1787-2062): cancel each candidate
+  // OPTIMIZE_DUP_AND_DROP_PAIRS: cancel each candidate
   // local's single runtime dup against its scope-end drop — a MOVE. Winners
   // are marked consumed HERE so the scheduler's e5 gate skips their drop and
   // the M3 driver below attaches their early-return-only drops.
@@ -2390,7 +2390,7 @@ evaluate_begin_expression :: (
     );
   });
   // M3 driver: attach early-return-only `___drop`s for CONSUMED (moved-out) owning
-  // locals to each return/unwind preceding consumption (begin.ts:2068-2122). Runs
+  // locals to each return/unwind preceding consumption. Runs
   // before pop_frame. Consumed vars are disjoint from the scope-end drop set.
   match(
     current_frame_opt,

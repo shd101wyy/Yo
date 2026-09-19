@@ -138,7 +138,7 @@ _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
 );
 /// Shallow-copy a deferred-drop/dup expr list into a FRESH ArrayList (same AstExpr
 /// refs, independent list). Mirrors TS `[...(expr.$?.deferredDropExpressions ?? [])]`
-/// (generation.ts:1515): `context.pending_deferred_drops` is MUTATED as drops are
+///: `context.pending_deferred_drops` is MUTATED as drops are
 /// emitted on control-flow exits, so it must NOT alias the begin block's recorded
 /// `ei.deferred_drop_expressions` — which is re-read for the scope-end drops. Aliasing
 /// (the previous yo-self behaviour) corrupted that list mid-codegen → memmove crash.
@@ -214,7 +214,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
         // gate in the drop emitters (declared_c_var_names +
         // is_temp/minted-temp check): a not-yet-declared local at an early
         // return is skipped there, which is the emission-level equivalent of
-        // TS's init-position filter (begin.ts:2068-2122).
+        // TS's init-position filter.
         context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(ei.deferred_drop_expressions));
         context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(expr_info_consumed_variable_drop_expressions(ei)));
       },
@@ -321,7 +321,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
                     .None => ()
                   );
                   generate_deferred_dup_expressions(last_expr, indent.clone(), context);
-                  // Return the dup-result temp (generation.ts:1745-1752).
+                  // Return the dup-result temp.
                   match(
                     lei.deferred_dup_expressions,
                     .Some(dups2) => match(
@@ -977,7 +977,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   generate_sys_runtime(context.base.emitter, context.base.target_info);
   // The async/await runtime is emitted only when the program uses async code
   // (avoids ~8K lines of C for non-async programs). Mirrors generateAllFunctions
-  // (generation.ts:360). register_dispose_type_id bridges to dispose_type_id_for.
+  //. register_dispose_type_id bridges to dispose_type_id_for.
   if(context.uses_async, {
     // Precompute the Linux timer dispose type-id. Only register it on the LINUX
     // non-cycle-GC path — TS registers lazily inside the runtime's `if(is_linux)`
@@ -993,7 +993,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   });
   // Generate parallelism runtime only when the program uses threads/workers.
   // This avoids ~450 lines of C thread pool code for single-threaded programs.
-  // Mirrors generateAllFunctions (generation.ts:386).
+  // Mirrors generateAllFunctions.
   if(context.uses_parallelism, {
     generate_parallelism_runtime(context.base.emitter, context.base.debug_parallelism, context.base.target_info, context.uses_async);
   });
@@ -1037,7 +1037,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
           // skipped but whose body is emitted produces "call to undeclared
           // function" / "static declaration follows non-static" at call sites
           // preceding the definition. Mirrors TS generateAllFunctions
-          // (generation.ts:583-661), which applies the full skip set here too.
+          //, which applies the full skip set here too.
           if(!should_skip_function_codegen(fid, entry.c_name.clone(), entry.value, context.base), {
             // Chunked emission: record this function's `code`-buffer byte
             // range AFTER the call returns — generate_function may truncate
@@ -1089,7 +1089,7 @@ _main_call_args :: (fn(main_func_id : String, context : FunctionGenerationContex
 /// its initializer RHS. Returned by `emit_module_level_variable_declarations` so
 /// `generate_main_wrapper` can emit the initialization. Mirrors the
 /// `{cVarName, cTypeStr, rhs}` triples in TS `emitModuleLevelVariableDeclarations`
-/// (generation.ts:786).
+///.
 ModuleLevelVarEntry :: struct(
   c_var_name : String,
   rhs : AstExpr,
@@ -1128,7 +1128,7 @@ _module_init_var_atom :: (fn(init_expr : AstExpr) -> Option(AstExpr))({
 });
 /// Emit file-scope `static` declarations for module-level mutable variables and
 /// return the (c_var_name, rhs) list for initialization. Mirrors TS
-/// `emitModuleLevelVariableDeclarations` (generation.ts:782). Dedups by resolved
+/// `emitModuleLevelVariableDeclarations`. Dedups by resolved
 /// C name because the evaluator's multiple passes may record a global under
 /// several clone ids (the collection side-table dedups by expr id, but clones
 /// carry distinct ids — the C-name dedup here is the definitive guard against
@@ -1182,7 +1182,7 @@ emit_module_level_variable_declarations :: (
             // `g_size_of_type_fn = Some(get_size_of_type)` slot wiring after
             // the `= None` declaration) is a DISTINCT source statement and
             // must keep its init entry — TS emits every entry with no dedup
-            // at all (generation.ts:782). Keying by name alone dropped the
+            // at all. Keying by name alone dropped the
             // slot wiring from the module init (the self-compiled binary's
             // sizeof() folds all failed — the stage2/stage3 fixpoint residue).
             dedup_key := `${c_var_name}#${ast_expr_token(init_expr).character.to_string()}`;

@@ -655,11 +655,11 @@ evaluate_enum_type :: (
   });
   // GADT: record per-variant return-type args in the side-table (marks this
   // enum id as a GADT). Mirrors `enumType.isGadt = true` + per-variant
-  // `gadtReturnTypeArgs` (enum.ts:364-365). typeConstructorArgs (enum.ts:369-391)
+  // `gadtReturnTypeArgs`. typeConstructorArgs
   // is populated by the caller/match path.
   if(any_gadt, {
     register_gadt_enum(enum_id.clone(), all_variant_gadt_args);
-    // typeConstructorArgs (enum.ts:369-391): when a GADT enum is built
+    // typeConstructorArgs: when a GADT enum is built
     // inside its type-constructor fn body (`Value(i32)` → `enum(...)`),
     // record the concrete type args the constructor was called with —
     // read from the env via the fn type's comptime (Type-universe) params.
@@ -819,7 +819,7 @@ evaluate_enum_type :: (
   // Validate the enum can exist in at least ONE evaluation context — a
   // variant with comptime-only fields alongside one with runtime-only
   // fields has empty availability. TS runs this at the same point
-  // (utils.ts:1865); unported, the invalid definition was ACCEPTED and
+  //; unported, the invalid definition was ACCEPTED and
   // comptime_expect_error's no-error check hollowed the arm (basic arm 24,
   // MixedResult). Structural scan over ALL variant fields — the enum's
   // availability is the intersection of its variants'.

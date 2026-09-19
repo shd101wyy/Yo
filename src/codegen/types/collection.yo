@@ -245,7 +245,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
       ((is_struct_type(type) || is_union_type(type)) || (is_enum_type(type) || is_tuple_type(type)))
       // FutureTraitT: the generic Future trait-object interface struct — TS's
       // FutureTraitType is a TraitType subtype so `isTraitType` covers it
-      // (collection.ts:420); yo-self models it as a SEPARATE variant, so it
+      //; yo-self models it as a SEPARATE variant, so it
       // needs its own clause. Registered so a future-typed parameter's
       // `__yo_future_trait_*` interface struct gets a C name + declaration
       // (generation.yo's is_future_trait_type declaration pass).
@@ -302,7 +302,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
     });
     // Future trait interface: collect the OUTPUT type (T in Future(T)) — its
     // C name appears as the interface struct's `result` field. Mirrors TS
-    // collecting `futureModule.isFuture.outputType` (collection.ts:384).
+    // collecting `futureModule.isFuture.outputType`.
     match(
       type,
       .FutureTraitT({ output : ftc_out }) => if(!(is_some_type(ftc_out)), {
@@ -680,7 +680,7 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
               // its body — a param type used only in the signature (e.g. a
               // non-async `main(io : Io)` whose body never mentions Io) would
               // otherwise never be collected. Bridges Gap 2 via the get_func_type
-              // side-table. Mirrors collectTypesFromFunctionType (collection.ts:127).
+              // side-table. Mirrors collectTypesFromFunctionType.
               collect_types_from_function_type(get_func_type(_fv_id(value)), context);
               collect_types_from_expr(_fv_body(value), context, info);
             },

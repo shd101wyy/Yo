@@ -34,7 +34,7 @@
 { DocModel, DocModule } :: import("./doc/model.yo");
 { ModuleLoadOutcome, mm_load_file, resolve_std_path } :: import("./module_manager.yo");
 { MANIFEST_FILENAME, file_exists_sync, load_manifest } :: import("./manifest.yo");
-/// Options for `run_doc`. Mirrors `DocCommandOptions` (doc-command.ts:53);
+/// Options for `run_doc`. Mirrors `DocCommandOptions`;
 /// Options with TS `undefined` are "" here.
 DocCommandOptions :: struct(
   input : String,
@@ -104,7 +104,7 @@ _run_git :: (
   if(v.len() == usize(0), Option(String).None, Option(String).Some(v))
 });
 /// Detect version from git: prefer an exact tag on HEAD, fall back to the
-/// short commit hash. Mirrors `detectGitVersion` (doc-command.ts:32);
+/// short commit hash. Mirrors `detectGitVersion`;
 /// `git -C <dir>` stands in for execFileSync's `cwd` option (std's Command
 /// has no current_dir — same route as build_runner's `_git_version`).
 detect_git_version :: (
@@ -129,7 +129,7 @@ detect_git_version :: (
   )
 });
 /// Recursively collect documentable `.yo` files. Mirrors `collectYoFiles`
-/// (doc-command.ts:98): hidden entries, node_modules, yo-out, out and tmp are
+///: hidden entries, node_modules, yo-out, out and tmp are
 /// skipped; `.test.yo` files are excluded.
 _collect_yo_files :: (
   fn(
@@ -174,7 +174,7 @@ _collect_yo_files :: (
   });
 });
 /// Find all `.yo` source files to document. Mirrors `findYoFiles`
-/// (doc-command.ts:74): a file input must be a `.yo` file; a directory is
+///: a file input must be a `.yo` file; a directory is
 /// walked recursively; results are sorted.
 _find_yo_files :: (
   fn(input_path : String, io : Io, exn : Exception) -> ArrayList(String)
@@ -202,7 +202,7 @@ _find_yo_files :: (
   files
 });
 /// Derive a module name from a file path relative to the project root.
-/// Mirrors `moduleNameFromPath` (doc-command.ts:124).
+/// Mirrors `moduleNameFromPath`.
 _module_name_from_path :: (fn(file_path : String, base_path : String) -> String)({
   rel := Path.new(file_path.clone()).relative_to(Path.new(base_path.clone())).to_string();
   if(rel.ends_with(String.from(".yo")), rel.substring(usize(0), rel.len() - usize(3)), rel.clone())
@@ -276,7 +276,7 @@ _scan_quoted_value_after :: (fn(content : String, marker : String, connector : S
   result
 });
 /// Derive the project name from `yo.toml`, then package.json, build.yo, or the
-/// directory name. Extends `inferProjectName` (doc-command.ts:133), which
+/// directory name. Extends `inferProjectName`, which
 /// predates the manifest.
 ///
 /// `[package] name` wins because since P1.3 it IS the project's name — the one
@@ -342,7 +342,7 @@ _infer_project_name :: (
     .None => base_path.clone()
   )
 });
-/// Document a single `.yo` file. Mirrors `documentFile` (doc-command.ts:162).
+/// Document a single `.yo` file. Mirrors `documentFile`.
 /// `mm_load_file` already catches evaluator throws (its local exception
 /// handler returns a not-ok outcome), so TS's fresh-ModuleManager retry has
 /// no counterpart — a failed load goes straight to the token-only fallback.
@@ -393,7 +393,7 @@ _document_file :: (
   Option(DocModule).Some(build_doc_module_from_tokens(module_name.clone(), module_name.clone(), extraction, tokens))
 });
 /// Render the Markdown site: README.md index + one page per module under
-/// module/. Mirrors `renderDocMarkdown` (render-markdown.ts:455).
+/// module/. Mirrors `renderDocMarkdown`.
 _render_markdown_site :: (
   fn(model : DocModel, out_dir : String, io : Io, exn : Exception) -> unit
 )({
@@ -429,7 +429,7 @@ _render_markdown_site :: (
   });
 });
 /// Main entry point for the `yo doc` command. Mirrors `runDoc`
-/// (doc-command.ts:251).
+///.
 run_doc :: (
   fn(options : DocCommandOptions, io : Io, exn : Exception) -> unit
 )({

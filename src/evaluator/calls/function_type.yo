@@ -181,7 +181,7 @@ PendingDefEval :: ref(
 // Trial-swallow cell — the FATAL-endgame channel (TS parity).
 //
 // TS's definition-time body evaluation has TWO dispositions
-// (src/evaluator/calls/function-type.ts):
+//:
 //   - the DEFERRED-GENERIC trial (checkDeferredGenericReturnType) wraps its
 //     evaluateBeginExpression in `catch { return; }` (ts:112) — errors are
 //     DISCARDED. yo-self's dg site mirrors that: swallowing there is faithful.
@@ -324,7 +324,7 @@ _trial_eval_fn_body :: (
 /// Deliberately NOT `create_unknown_val(Type)`: an unknown VALUE of type `Type`
 /// is not usable AS a type, so a type-constructor body (`struct(_0 : A, _1 : B)`)
 /// throws "expected type for element, got A" (field.yo:293). TS can use
-/// `createUnknownValue(declaredType)` (helper.ts:1038-1067) because its type
+/// `createUnknownValue(declaredType)` because its type
 /// objects are mutable and resolve in place; yo-self's TypeValues are value-typed
 /// snapshots, so the placeholder itself has to BE a type.
 ///
@@ -399,7 +399,7 @@ _type_binder_env_value :: (
 /// (re-derived from `caller_env` so other top-level names resolve) + a frame
 /// with the parameters bound (with `is_ref`/`is_parameter` set so the
 /// flow-soundness check recognises them). Mirrors how TS `evaluateFunctionType`
-/// binds params into the env threaded to the body eval (function.ts:711-713).
+/// binds params into the env threaded to the body eval.
 /// Build a def-time body env SHARING the caller's `Variable` handles but NOT
 /// its mutable `Frame` objects (plans/backlog/YO_SELF_ENV_SHARING.md §3 +
 /// issues/env-sharing-live-frame-membership-leak.md). Every frame — frame 0
@@ -413,11 +413,11 @@ _type_binder_env_value :: (
 /// hiding inside a memory fix.
 ///
 /// WHY membership must be frozen per-frame instead of pushing the live Frame
-/// handles (`snapshot_env`): TS's `addVariableToEnv` (env.ts:660-688) is
+/// handles (`snapshot_env`): TS's `addVariableToEnv` is
 /// PERSISTENT — it builds a new frame + new frames list, so an env captured
 /// at definition time keeps point-in-time frame membership forever, which is
 /// what lets TS hand the caller env to a def-time body eval by reference
-/// (function-type.ts:296-304). yo-self frames append IN PLACE, so pushing the
+///. yo-self frames append IN PLACE, so pushing the
 /// live handles lets bindings added AFTER the definition leak into the def
 /// env and every `ExprInfo.env` recorded from the body eval. Measured cost of
 /// the leak: std/fs/file.yo binds a METHOD named `fd` (line ~218) after the
@@ -492,7 +492,7 @@ _build_def_time_body_env :: (
     param_is_owning : ArrayList(bool),
     /// Per-parameter `comptime(...)` flags (the fn-type side table). TS binds
     /// `value: isCompileTimeOnly ? [createUnknownValue(...)] : undefined`
-    /// (function-type.ts:346) — a comptime VALUE param must carry an
+    /// — a comptime VALUE param must carry an
     /// UnknownVal or every builtin the body hands it to throws its
     /// "expects a compile-time known value" error at definition time and
     /// the trial swallows the body (prelude's `Array.fill` /
@@ -509,14 +509,14 @@ _build_def_time_body_env :: (
     // instantiations → match-arm unification failure (std/imm/map.yo
     // `_alloc_pairs`). TS has no such split: the def-time body eval
     // reuses the fn-type evaluation env, so the body sees the same
-    // SomeType objects (function-type.ts:499).
+    // SomeType objects.
     result_type : TypeValue,
     // The fn's registered where-clause constraints (side table keyed by the
     // fn-type expr id — same key as the defaults). A comptime TYPE param
     // (`comptime(V) : Type, where(V <: (Send, Acyclic))`) has its SomeT only
     // in the fn-type eval env's VALUE binding — not in param_types/result —
     // so the sig_some_ts scan misses it and a fresh unconstrained SomeT is
-    // minted. TS reuses the fn-type parametersFrame (function-type.ts:380)
+    // minted. TS reuses the fn-type parametersFrame
     // whose variables hold the SAME (where-stamped) SomeType objects, so its
     // body sees the constraints; stamp the fresh mint here to match.
     // Measured on std/prelude `Arc`: without this, the body's
@@ -763,7 +763,7 @@ _build_def_time_body_env :: (
           // A VALUE binder (`generic(N : usize)` on `from_array`, whose body does
           // `Self.with_capacity(N)` and `while(i < N, ...)`): bind an unknown
           // VALUE of the DECLARED type — TS's
-          // `createUnknownValue(declaredType)` (helper.ts:1038-1067). Kind
+          // `createUnknownValue(declaredType)`. Kind
           // matters: a TypeVal here is exactly the `usize`-vs-`Type` misbind
           // recorded in issues/yo-self-collections-batch-residuals.md, whereas
           // leaving it unbound throws `Variable "N" not found`.
@@ -1119,7 +1119,7 @@ Result type: ${type_to_string(result_box)}`
       ft_env_key := mint_funcval_env_key();
       register_funcval_cap_vars(ft_env_key, cap_vars);
       fn_val_id := stable_func_id(String.from(""), tok.module_path, tok.row, tok.column);
-      // Faithful port of `shouldDeferBodyEvaluation` (function-type.ts:445-451):
+      // Faithful port of `shouldDeferBodyEvaluation`:
       // defer body evaluation ONLY for functions that depend on generic type
       // variables — `generic` parameters, any parameter whose type contains a
       // some-type in codegen-relevant position, or a generic `Self`. Every other
@@ -1161,7 +1161,7 @@ Result type: ${type_to_string(result_box)}`
       // array batch main (the single-batch shape).
       //
       // TYPE-position comptime params (`comptime(Idx) : Type`, a TypeUni) do
-      // NOT defer: TS's shouldDeferBodyEvaluation (function-type.ts:445-451)
+      // NOT defer: TS's shouldDeferBodyEvaluation
       // has NO comptime-param clause at all — it trial-evaluates such bodies
       // at definition, which is what lets `comptime_expect_error` observe a
       // deliberate rejection inside them (the arm-26 batch residue:
@@ -1480,7 +1480,7 @@ Result type: ${type_to_string(result_box)}`
       info := new_expr_info(caller_env, final_func_ty);
       info.value = Option(EvalValue).Some(final_func_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-      // Def-time body evaluation (function-type.ts:499) for every non-deferred
+      // Def-time body evaluation for every non-deferred
       // (concrete) function. The flowability *check* on the evaluated final
       // expression runs only for returns whose representation carries a raw
       // pointer — ordinary functions are merely evaluated, not rejected.
@@ -1846,7 +1846,7 @@ Result type: ${type_to_string(result_box)}`
         },
         .None => {
           // Deferred (generic) definition — port of
-          // checkDeferredGenericReturnType (function-type.ts:50-169):
+          // checkDeferredGenericReturnType:
           // trial-evaluate a CLONE of the body to catch
           // `fn(generic(T), value : T) -> T` returning a concrete type.
           // A trial that itself throws is silently skipped (the body is

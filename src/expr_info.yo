@@ -780,7 +780,7 @@ lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
 // the shared struct field type (`memberElement.type.ioBuiltin =
 // argType.ioBuiltin`, calls/type.ts:176-182) — so `my_io.await` on ANY
 // receiver of type Io reads the marker via `expr.func.$?.type?.ioBuiltin`
-// (await-analysis.ts:137-167). yo-self's TypeValues are copied, not shared,
+//. yo-self's TypeValues are copied, not shared,
 // so the propagation is modelled as two side-tables:
 //   * construction time: (struct id, field label) → marker, recorded when a
 //     ctor arg's Func type carries an io-builtin `extern_name`;
@@ -1070,7 +1070,7 @@ lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
 ///
 /// This registry is a DURABLE GLOBAL, but a function's own `generic(B : Type)`
 /// binder is NOT durable — TS mints a fresh `SomeType` for it on EVERY call
-/// (helper.ts:1047), so one call's `B := i32` can never be seen by the next.
+///, so one call's `B := i32` can never be seen by the next.
 /// yo-self reuses the ONE signature instance, so the entry must be dropped when
 /// a call installs its own placeholder for that binder — see the Step-6 marker
 /// loop in `evaluator/calls/helper.yo`.
@@ -1086,7 +1086,7 @@ _compat_some_resolved_init := (fn() -> bool)({
 })();
 // Constructor-funcId stamp side-table, keyed by STRUCT ID. TS stamps
 // `returnedType.functionValue = functionValue` by MUTATING the shared type
-// object when a comptime type-constructor returns (comptime-fn.ts:270-277),
+// object when a comptime type-constructor returns,
 // so every reference — including the pre-stamp SHELL copies a self-recursive
 // body embeds via `Option(Self)`, and the memoized instantiations that
 // captured those shells — observes the stamp. yo-self TypeValues are copies:
@@ -1156,7 +1156,7 @@ get_arm_init_range :: (fn(arm_expr_id : usize) -> Option(ArrayList(usize)))(
   g_arm_init_ranges.get(arm_expr_id)
 );
 /// Active branching-construct stack for the Impl(...) reassignment rule
-/// (TS assignment.ts:635-655). Each entry is a 2-element list
+///. Each entry is a 2-element list
 /// [group_start, current_arm_start]: log records with index in
 /// [group_start, current_arm_start) were made by COMPLETED SIBLING ARMS of a
 /// cond that is still evaluating — TS's per-branch child envs make sibling
@@ -1283,7 +1283,7 @@ lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
 );
 /// Trait counterpart of the struct ctor-fid table. TS stamps
 /// `returnedType.functionValue = functionValue` on EVERY type a comptime fn
-/// returns, traits included (comptime-fn.ts:266-276), and the generic-impl
+/// returns, traits included, and the generic-impl
 /// registry keys parameterized traits by that constructor's funcId
 /// (`getBaseTraitKey`, impl.ts:1042-1050) — so `Eq(Box(T))` and `Eq(Box(i32))`
 /// share one bucket. yo-self's `TraitT` cannot carry the fid; the id-keyed
@@ -1462,7 +1462,7 @@ lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
 // Module-level mutable-variable init expressions, collected during module-body
 // evaluation (`evaluate_anonymous_module_begin_exprs`) and consumed by codegen
 // to emit file-scope `static` declarations + initialize them in the main
-// wrapper. TS carries these on `moduleValue.moduleLevelInitExprs` (value.ts) and
+// wrapper. TS carries these on `moduleValue.moduleLevelInitExprs` and
 // aggregates them in module-manager.ts (`allModuleLevelInitExprs`); yo-self's
 // EvalValue enum cannot hold the field, so this durable global is the idiomatic
 // eval→codegen bridge (same pattern as g_macro_expansions / g_method_callee_values
@@ -1486,7 +1486,7 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
   g_module_level_init_exprs
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
-// (mirrors `src/expr-traversal.ts`).
+//.
 export(Path, PathCollection, path_collection_new, expr_info_paths_for_write);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);

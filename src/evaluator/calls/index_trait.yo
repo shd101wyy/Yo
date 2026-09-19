@@ -136,7 +136,7 @@ _try_ctfe_range_ctor :: (
 });
 /// Resolve a prelude type constructor (`Range` / `RangeInclusive`) applied to
 /// `usize`, by looking the constructor up in `env` and CTFE-calling it.
-/// 1:1 port of `resolvePreludeTypeWithUsize` (index-trait.ts:663-711); the
+/// 1:1 port of `resolvePreludeTypeWithUsize`; the
 /// constructor call is run under a swallowing local exn, matching TS's
 /// `try { … } catch { return undefined }`.
 _resolve_prelude_range_type :: (
@@ -184,7 +184,7 @@ _ctor_ids_agree :: (fn(a : TypeValue, b : TypeValue) -> bool)({
 });
 /// Process-lifetime cache for `Range(usize)` / `RangeInclusive(usize)` —
 /// TS caches these in a WeakMap keyed on the first env frame
-/// (index-trait.ts:714-737). Both come from the prelude, which is shared by
+///. Both come from the prelude, which is shared by
 /// every module in a compilation, so a plain global is the same thing here.
 /// Only SUCCESSFUL resolutions are cached, so an early call against an env
 /// that cannot see the prelude does not poison later ones.
@@ -213,7 +213,7 @@ _cached_range_type :: (
 });
 /// Is `arg_type` a `Range(...)` / `RangeInclusive(...)`?
 ///
-/// 1:1 port of `checkRangeType` (index-trait.ts:745-775): resolve the prelude
+/// 1:1 port of `checkRangeType`: resolve the prelude
 /// constructors applied to `usize` and ask `are_types_compatible`. The
 /// previous implementation matched on the struct's NAME (`starts_with("Range")`),
 /// a Phase-3u shortcut that never fired — `Range :: (fn(comptime(T) : Type) ->
@@ -403,7 +403,7 @@ _find_all_index_methods :: (
   );
   // Registry lookup for non-trait receivers (structs/objects like
   // `ArrayList(u8)`): TS reads `concreteType.trait.fields` directly
-  // (index-trait.ts:76-90); yo-self's trait-methods registry + generic-impl
+  //; yo-self's trait-methods registry + generic-impl
   // fallback is the mirror of that slot. Post method-type specialization,
   // generic-impl candidates arrive concrete (e.g.
   // `index : fn(self : *(ArrayList(u8)), idx : usize) -> *(u8)`). Without
@@ -486,7 +486,7 @@ _find_index_method :: (
                       // rejected with "Type does not implement Index for the given argument
                       // type" while `l(usize(0))` worked. TS spells the same check
                       // `areTypesCompatible({type: idxParam.type}, {type: argType})`
-                      // (index-trait.ts:404-406), but ITS first position is `expected` and
+                      //, but ITS first position is `expected` and
                       // its second is `given` — the opposite order from yo-self's, so a
                       // faithful port must swap.
                       p1_compatible := are_types_compatible(arg_type, p1);
@@ -1007,10 +1007,10 @@ _specialize_index_method :: (
 /// `_find_index_method` — `(self : *(Self) | inout(self) : Self, idx : ArgType)
 /// -> *(Output)` — but BOTH parameters must carry the `comptime(...)` modifier.
 ///
-/// Mirrors `findComptimeIndexMethod` (src/evaluator/calls/index-trait.ts:382-420).
+/// Mirrors `findComptimeIndexMethod`.
 ///
 /// TS reads the flag straight off the type: `selfParam.isCompileTimeOnly &&
-/// idxParam.isCompileTimeOnly` (index-trait.ts:414). yo-self's `TypeValue.Func`
+/// idxParam.isCompileTimeOnly`. yo-self's `TypeValue.Func`
 /// / `FuncMeta` carry NO per-parameter comptime bit (only `param_is_ref` /
 /// `param_is_owning`) — the `comptime(name) : T` parameter modifier rides the
 /// func-id-keyed side table `g_func_param_comptime`
@@ -1065,7 +1065,7 @@ _find_comptime_index_method :: (
                       // rejected with "Type does not implement Index for the given argument
                       // type" while `l(usize(0))` worked. TS spells the same check
                       // `areTypesCompatible({type: idxParam.type}, {type: argType})`
-                      // (index-trait.ts:404-406), but ITS first position is `expected` and
+                      //, but ITS first position is `expected` and
                       // its second is `given` — the opposite order from yo-self's, so a
                       // faithful port must swap.
                       // Range vs RangeInclusive are BOTH `struct(start : T, end : T)` and
@@ -1080,7 +1080,7 @@ _find_comptime_index_method :: (
                       p1_compatible := (_ctor_ids_agree(arg_type, p1) && are_types_compatible(arg_type, p1));
                       ret_is_ptr := is_pointer_type(ci_result);
                       if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
-                        // Comptime-parameter gate (TS index-trait.ts:414).
+                        // Comptime-parameter gate.
                         ci_flags := match(
                           m.method_value,
                           .Some(mv) => match(
@@ -1122,7 +1122,7 @@ _find_comptime_index_method :: (
 /// is indexed with `p(0)`, the ComptimeIndex `index` method is EXECUTED at
 /// compile time. Returns `.None` to fall through to runtime dispatch.
 ///
-/// Mirrors `tryComptimeCustomTypeIndex` (src/evaluator/calls/index-trait.ts:427-620).
+/// Mirrors `tryComptimeCustomTypeIndex`.
 ///
 /// yo-self deltas, all forced by representation differences:
 ///   * TS sets up the callee env as `pushEnvFrame(fnType.env)`; yo-self's
@@ -1160,7 +1160,7 @@ _try_comptime_custom_type_index :: (
     exn : Exception
   ) -> Option(IndexCallResult)
 )({
-  // Evaluate the argument (TS index-trait.ts:441-450); expected_type cleared
+  // Evaluate the argument; expected_type cleared
   // around the arg eval — see _try_comptime_array_index.
   cci_saved_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -1186,7 +1186,7 @@ _try_comptime_custom_type_index :: (
   });
   ct_caller_env := arg_info.env;
   arg_type := arg_info.ty;
-  // Find a ComptimeIndex method (TS index-trait.ts:456-465).
+  // Find a ComptimeIndex method.
   ct_method := match(
     _find_comptime_index_method(value_type, arg_type, ct_caller_env),
     .Some(m) => m,
@@ -1203,13 +1203,13 @@ _try_comptime_custom_type_index :: (
   if(!is_func_val(ct_fn_value), {
     return(Option(IndexCallResult).None);
   });
-  // The return type must be `*(Output)` (TS index-trait.ts:539-545).
+  // The return type must be `*(Output)`.
   ct_ret_type := match(ct_fn_type, .Func({ result : ct_r }) => ct_r, _ => t_unit());
   if(!is_pointer_type(ct_ret_type), {
     return(Option(IndexCallResult).None);
   });
   output_ty := match(ct_ret_type, .Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
-  // Comptime pointer to self for the first argument (TS index-trait.ts:475-476).
+  // Comptime pointer to self for the first argument.
   self_ptr_type := t_ptr(value_type);
   // Fresh 1-elem cell around self (TS index-trait.ts:472
   // `createPtrValue(selfPtrType, [selfValue])`).
@@ -1237,7 +1237,7 @@ _try_comptime_custom_type_index :: (
     _ => String.from("idx")
   );
   // Rebuild the method's definition-time scope from its capture snapshot, then
-  // push a frame with `self` / `idx` bound (TS index-trait.ts:481-508).
+  // push a frame with `self` / `idx` bound.
   ct_cap_names := match(ct_fn_value, .FuncVal(__cifvd2, _) => __cifvd2.*.cap_names, _ => ArrayList(String).new());
   ct_cap_tys := match(ct_fn_value, .FuncVal(__cifvd3, _) => __cifvd3.*.cap_tys, _ => ArrayList(TypeValue).new());
   ct_cap_vals := match(ct_fn_value, .FuncVal(_, __cicv) => __cicv, _ => ArrayList(EvalValue).new());
@@ -1309,7 +1309,7 @@ _try_comptime_custom_type_index :: (
     implicit_args : Option(ArrayList(ArgEntry)).None,
     variadic_args : ArrayList(VarArgEntry).new()
   );
-  // Execute the ComptimeIndex method (TS index-trait.ts:510-535). The
+  // Execute the ComptimeIndex method. The
   // validation override is what makes the body actually run — see the header.
   ct_saved_validating := ctx.is_validating_function_definition;
   ctx.is_validating_function_definition = false;
@@ -1332,7 +1332,7 @@ _try_comptime_custom_type_index :: (
   ct_rt_method_value := match(ct_rt_method, .Some(rm) => rm.method_value, .None => Option(EvalValue).None);
   // A PtrVal return derefs to the pointed-at element/field and yields the
   // ComptimeRef that makes `p(0) = v` and `&(p(0))` comptime places
-  // (TS index-trait.ts:549-576).
+  //.
   //
   // NOTE: yo-self's `&(self.x)` builds `PtrVal(ArrayVal(field_values), i)` —
   // it wraps the struct's field list in an `ArrayVal` "to enable indexed
@@ -1526,7 +1526,7 @@ try_to_call_with_index_trait :: (
   // into the ARGUMENT's operator call made the `-` overload synthesis throw
   // "Cannot unify incompatible types: usize and u8" (swallowed by the no-exn
   // wrapper — the std/string/string.yo `trim` noise-baseline line). TS passes
-  // `expectedType: undefined` here (index-trait.ts:278-284).
+  // `expectedType: undefined` here.
   rt_arg_saved_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated_arg := evaluate_expression(arg_expr, caller_env, ctx);
@@ -1603,7 +1603,7 @@ try_to_call_with_index_trait :: (
   );
   // Runtime dispatch through a trait method — TS marks the result
   // `isRuntimeOnly` "so overload resolution doesn't prefer comptime functions"
-  // (index-trait.ts:321-328).
+  //.
   result_val := create_runtime_unknown_val(output_ty);
   // Specialize the index method so codegen has an emittable concrete FuncVal (see
   // _specialize_index_method). On any failure, fall back to the generic value

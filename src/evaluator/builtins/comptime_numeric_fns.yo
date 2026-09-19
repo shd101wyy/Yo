@@ -137,7 +137,7 @@ make_int_val :: (fn(n : i64, ty : TypeValue) -> EvalValue)(
 // _i64_op_wrapped: `true` when the i64 arithmetic for `a <op> b` itself wrapped,
 // so the EXACT mathematical result is not representable in the i64 the
 // bootstrap uses for comptime integers. TS computes with BigInt and never
-// wraps (comptime-numeric-fns.ts:556-660), so the wrap has to be detected
+// wraps, so the wrap has to be detected
 // explicitly before the range comparison — otherwise `i64(1000000000000) *
 // i64(250000000000)` (exact result 2.5e23) folds to a wrapped in-range value
 // and the overflow goes unreported.
@@ -194,7 +194,7 @@ check_int_overflow :: (
   // u64(1000)` is a valid u64 result that signed-wraps, and `usize.MAX` reads
   // as `-1 < min` — so redo the test in the UNSIGNED domain on the patterns.
   // TS needs no such split: its comptime integers are BigInt, so
-  // `checkOverflow` compares exact values (comptime-numeric-fns.ts:131).
+  // `checkOverflow` compares exact values.
   is_unsigned_64 := (is_unsigned_integer_type(ty) && match(get_integer_type_bits(ty), .Some(bw) => (bw == u32(64)), .None => false));
   if(is_unsigned_64, {
     ua := u64(a);
@@ -418,7 +418,7 @@ evaluate_yo_comptime_numeric_functions :: (
               // then fell into the integer branch's `_ =>` and produced an
               // UNKNOWN (runtime) value, so `X :: f64(-(50.75))` was rejected
               // with "Got runtime value". TS's performUnaryOp branches on the
-              // VALUE, not the type (comptime-numeric-fns.ts:425-436).
+              // VALUE, not the type.
               (is_float_type(numeric_type) || is_comptime_float_type(numeric_type)) => match(
                 av,
                 .FloatLit(raw) => match(

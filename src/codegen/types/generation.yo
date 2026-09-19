@@ -45,7 +45,7 @@ _array_wrapper_name_lt :: (fn(a : String, b : String) -> bool)(
 /// Generate the array-wrapper struct typedefs collected during type lowering.
 /// Mirrors `generateArrayStructDeclarations`. TS iterates an
 /// insertion-ordered Map whose lazy registration recurses into the element
-/// FIRST (utils/index.ts:599), so inner wrappers always precede the outer
+/// FIRST, so inner wrappers always precede the outer
 /// ones that embed them by value. yo-self's `array_struct_types` is a
 /// HashMap — key iteration is HASH order — so a nested wrapper could be
 /// emitted before its child's typedef (`n := [m,]` over 4 levels: the
@@ -1238,7 +1238,7 @@ _is_reserved_dyn_method :: (fn(label : String) -> bool)(
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain
-/// Dyn by value. Mirrors `generateDynForwardDeclarations` (types/dyn.ts:17).
+/// Dyn by value. Mirrors `generateDynForwardDeclarations`.
 generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
   em := context.emitter;
   keys := ArrayList(String).new();
@@ -1283,7 +1283,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
 });
 /// The vtable member line for one trait field (None for Self / reserved /
 /// already-processed / non-`self`-first methods). Mirrors the per-field body of
-/// generateDynDeclaration (types/dyn.ts:111-174). RETURNS the line rather than
+/// generateDynDeclaration. RETURNS the line rather than
 /// emitting it: `get_type_string` on a member's return/param types may emit an
 /// on-demand typedef (a method returning `Impl(Future(..))` mints the Future
 /// struct right there), which must land BEFORE the vtable typedef opens — the
@@ -1337,7 +1337,7 @@ _dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed :
 });
 /// Generate a Dyn vtable declaration (the Dyn struct is forward-declared). The
 /// vtable has __yo_type_id + a function pointer per trait method (FnTrait → a
-/// `call` pointer). Mirrors `generateDynDeclaration` (types/dyn.ts:56).
+/// `call` pointer). Mirrors `generateDynDeclaration`.
 generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
   em := context.emitter;
   vtable_name := `${c_name}_vtable`;
@@ -1417,7 +1417,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
 });
 /// Generate box types (RC-header-wrapped value structs) + their ctor/dispose
 /// declarations for every dyn() implementation. Mirrors `generateDynBoxTypes`
-/// (types/dyn.ts:185).
+///.
 generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
   if(context.dyn_impls.is_empty(), {
     return(());
@@ -1485,7 +1485,7 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
 /// generateFutureTraitDeclaration) — not exercised by the corpus.
 /// Emit the generic Future trait-object interface struct for a
 /// `FutureTraitT`. Faithful port of `generateFutureTraitDeclaration`
-/// (src/codegen/types/generation.ts:982-1012). Every async state-machine
+///. Every async state-machine
 /// struct begins with this exact prefix (header/state/cancel_pending_fn/result/continuation_fn/
 /// continuation_sm/__yo_resume_fn/__yo_set_effect_fn), so a concrete SM
 /// future pointer casts to this interface — it is the C lowering for a

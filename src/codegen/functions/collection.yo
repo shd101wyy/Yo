@@ -707,7 +707,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         // on it misses P's static methods in the registry, leaving the callee
         // uncollected ("call to undeclared function"). Prefer the WRAPPED type's
         // id from the receiver's TypeVal value. Mirrors TS collecting the type
-        // directly on `isTypeValue(value)` (collection.ts:615).
+        // directly on `isTypeValue(value)`.
         recv_static_id := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(r)), .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(t) => type_id_or_empty(t), _ => String.from("")), .None => String.from("")), .None => String.from("")), .None => String.from(""));
         // A POINTER receiver (`self : *(Self)`) carries its methods on the
         // POINTEE type. `type_id_or_empty` has no Pointer case, so it returns ""
@@ -1375,9 +1375,9 @@ _synthesize_and_register_dispose :: (
   // that into the type's ___dispose, freeing such a container TRANSITIVELY (as an RC
   // field of another object whose dispose merely `decr_rc`s it) leaks ALL its
   // elements — the dominant self-compile leak (Environment→frames→variables). Mirror
-  // TS: `collectDisposeMethodsFromGenericImpls` (collection.ts:650) +
+  // TS: `collectDisposeMethodsFromGenericImpls` +
   // `findUserDisposeMethodForType` emitting a call at the top of ___dispose
-  // (generation.ts:1433-1473). The `self.dispose()` call in the synthesized body IS
+  //. The `self.dispose()` call in the synthesized body IS
   // that call site: evaluating it lazily specializes the user dispose for `ct` (so a
   // `bool`-valued map correctly skips the element drop via its own
   // `Type.contains_rc_type(V)` comptime guard), and `_eval_and_register_rc_method`'s
@@ -1481,7 +1481,7 @@ _synthesize_and_register_enum_dispose :: (
     return(());
   });
   // User `impl Dispose` destructor: TS emits the call at the top of the ___dispose
-  // C body for ANY SelfType (generation.ts:1433-1473) — enums included. The
+  // C body for ANY SelfType — enums included. The
   // `self.dispose()` call in the synthesized body is that call site here.
   has_user_dispose := (
     (find_methods_from_generic_impls(ct, String.from("dispose"), module_env).len() > usize(0))
@@ -1592,7 +1592,7 @@ collect_dispose_methods :: (
     match(
       vals.next(),
       // Skip GENERIC (SomeT-bearing) RC struct types. TS never lets them reach
-      // codegen at all — `typeContainsSomeType` (src/types/utils.ts:477-567) is
+      // codegen at all — `typeContainsSomeType` is
       // RECURSIVE (Struct fields at :534, Ptr at :559, …), so
       // src/codegen/types/collection.ts:404 keeps `BTreeMap(K, V)` out of
       // `context.types` entirely. yo-self's `type_contains_some_type` is only

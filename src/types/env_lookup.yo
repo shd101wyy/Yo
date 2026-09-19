@@ -171,7 +171,7 @@ _lookup_by_frame :: (fn(env : Environment, fl : usize, name : String) -> Option(
       )
   )
 });
-/// TS fallback (env-lookup.ts:170-200): after `synthesize_types` replaces a
+/// TS fallback: after `synthesize_types` replaces a
 /// SomeType's binding with a concrete type, the self-referential marker
 /// (`T = SomeT(T)`) that `_was_self_bound` looks for no longer exists. Verify
 /// ownership instead via the SomeType's definition frame level: if the
@@ -364,7 +364,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                           // Concrete type
                           true => {
                             (was_bound : bool) = _was_self_bound(env, cur_name, cur_id);
-                            // TS fallback (env-lookup.ts:170-200): the
+                            // TS fallback: the
                             // self-referential marker is gone once
                             // `synthesize_types` rebinds the variable to the
                             // concrete type — confirm ownership via the
@@ -458,7 +458,7 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
         .Some(tv) =>
           cond(
             // Self-bound (SomeType binding to itself) at its own definition
-            // frame → UNBOUND, definitively. TS (env-lookup.ts:57-64) returns
+            // frame → UNBOUND, definitively. TS returns
             // `someType` here without running the normal search; falling
             // through to the name-keyed last-binding-wins scan lets a sibling
             // call's same-named SomeT hijack the resolution (the mutable-env

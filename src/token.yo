@@ -68,7 +68,7 @@ derive(Token, Eq(Token));
 // `.clone()` is a refcount bump (the body returns `self`) that shares the whole
 // token — positions, lexeme, and the immutable `input`/`module_path` source
 // strings. Sound because tokens are immutable after lexing (no field is ever
-// reassigned), and faithful to TS, where `Token` is a by-reference `interface`.
+// reassigned).
 impl(
   Token,
   Clone(
@@ -116,13 +116,11 @@ is_identifier_start :: (fn(c : rune) -> bool)(
 is_identifier_continue :: (fn(c : rune) -> bool)(
   is_identifier_start(c) || c.is_digit()
 );
-/// True iff every char of `s` is an operator char. Mirrors
-/// `stringIsOperator` in `src/token.ts`.
+/// True iff every char of `s` is an operator char.
 string_is_operator :: (fn(s : String) -> bool)({
   n := s.len();
   cond(
-    // Vacuously true for the empty string — TS token.ts:132
-    // `if (str.length === 0) return true;`.
+    // Vacuously true for the empty string.
     (n == usize(0)) => true,
     true => {
       (i : usize) = usize(0);
@@ -183,8 +181,7 @@ string_is_operator :: (fn(s : String) -> bool)({
   )
 });
 /// True iff `s` is a valid identifier under the regex
-/// `^[_a-zA-Z\xA0-￿][_a-zA-Z0-9\xA0-￿]*$`. Mirrors
-/// `IdentifierRegex.test(s)` in `src/token.ts`.
+/// `^[_a-zA-Z\xA0-￿][_a-zA-Z0-9\xA0-￿]*$`.
 is_valid_identifier :: (fn(s : String) -> bool)({
   chars := ArrayList(rune).new();
   {
@@ -225,8 +222,7 @@ is_valid_identifier :: (fn(s : String) -> bool)({
   )
 });
 /// Synthetic placeholder token used as a sentinel position when constructing
-/// AST nodes that have no real source location. Mirrors `PlaceholderToken`
-/// in `src/token.ts`.
+/// AST nodes that have no real source location.
 placeholder_token :: (fn() -> Token)(
   Token(
     kind : TokenKind.Identifier,
@@ -239,7 +235,7 @@ placeholder_token :: (fn() -> Token)(
   )
 );
 /// Synthetic token used for `drop` (RAII) markers attached to compiler-generated
-/// drop expressions. Mirrors `RAIIToken` in `src/token.ts`.
+/// drop expressions.
 raii_token :: (fn() -> Token)(
   Token(
     kind : TokenKind.Identifier,

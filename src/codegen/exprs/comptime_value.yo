@@ -214,7 +214,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
       // — `_i64_op_wrapped`'s `a < (i64.MIN + b)` then returned TRUE for
       // `isize(3) - isize(1)`, making the self-hosted binary reject EVERY
       // comptime signed subtraction. Emit the portable INT64_MIN idiom.
-      // Mirrors generateComptimeValue (comptime-value.ts).
+      // Mirrors generateComptimeValue.
       suffix := _int_suffix(ty);
       if((suffix == "LL") && (raw == "-9223372036854775808"), {
         return(String.from("(-9223372036854775807LL - 1)"));
@@ -455,7 +455,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         c_name := match(context.get_type_c_name(type_key(ty)), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
         // Comptime-only field flags, by FULL declaration index. TS pairs
         // `type.fields[i]` with `value.fields[i]` and then FILTERS to
-        // `getRuntimeStructFields` (comptime-value.ts:276-298), so comptime-only
+        // `getRuntimeStructFields`, so comptime-only
         // fields are erased from the emitted literal / constructor args exactly
         // as they are erased from the C struct layout. Both branches below
         // previously indexed by the RUNTIME position (ref-semantics) or skipped

@@ -210,15 +210,15 @@ EvalValue :: ref(
     /// NOT the same as `VarRef` — `VarRef` represents a known-at-runtime variable
     /// reference, while `UnknownVal` is a compile-time placeholder.
     ///
-    /// `is_runtime_only` mirrors `UnknownValue.isRuntimeOnly` (src/value.ts:163).
+    /// `is_runtime_only` mirrors `UnknownValue.isRuntimeOnly`.
     /// FALSE for an ordinary compile-time placeholder (the default, and what
     /// `create_unknown_val` builds); TRUE only for a value produced by runtime
-    /// dispatch — Index-trait dispatch (index-trait.ts:321-328), a `recur`
-    /// result in a runtime-returning function (recur.ts:97-108), and anything
+    /// dispatch — Index-trait dispatch, a `recur`
+    /// result in a runtime-returning function, and anything
     /// derived from one by property access (property-access.ts:358-368,
     /// 1040-1053, 1170-1184). Consumers must treat only the TRUE case as "this
     /// is a runtime value": TS's comptime-parameter check rejects exactly that
-    /// (helper.ts:465-478), and treating every unknown as runtime made a
+    ///, and treating every unknown as runtime made a
     /// comptime `self` parameter unfillable.
     UnknownVal(ty : TypeValue, is_runtime_only : bool)
   )
@@ -287,7 +287,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
     .ContinueVal => match(b, .ContinueVal => true, _ => false),
     .TypeVal(at) =>
       // EXACT type identity (not lenient compatibility): mirrors TS `areValuesEqual`
-      // (value.ts:699-704) passing `requireExactMatch = true`. `eval_value_eq` keys the
+      // passing `requireExactMatch = true`. `eval_value_eq` keys the
       // specialization cache (`_find_specialization_cache`, on compile-time arg VALUES —
       // which include the generic type args like a HashMap's `V`), so a lenient compare
       // collapses distinct instantiations: `HashMap<usize, ArrayList>` and

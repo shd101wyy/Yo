@@ -297,7 +297,7 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
       // the evaluator actually stamped (io-builtin markers included) are the
       // EXPANSION's clones, so an `aio.await(...)` inside a raw `if` arg is
       // invisible to this walk — recurse into the expansion instead. Mirrors
-      // `exprContainsAwait` (src/expr-traversal.ts:378), which follows
+      // `exprContainsAwait`, which follows
       // `expr.$.macroExpansion`. Without this, an if-in-while body whose
       // branch awaits emitted "Expected await in while loop body but none
       // found" — the loop body vanished and the program spun forever.
@@ -380,7 +380,7 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
 /// back-edge and no exit label, so its body runs once and control never returns
 /// to it. Honors the same boundaries as `expr_contains_await`.
 ///
-/// Mirrors `exprContainsWhileWithAwait` (src/expr-traversal.ts).
+/// Mirrors `exprContainsWhileWithAwait`.
 expr_contains_while_with_await :: (fn(expr : AstExpr) -> bool)(
   match(
     expr,
@@ -466,7 +466,7 @@ expr_contains_while_with_await :: (fn(expr : AstExpr) -> bool)(
 ///
 /// Conservative (false when unprovable); honors function/closure boundaries
 /// like `evaluated_body_contains_unwind`. `return(...)` counts as a NORMAL
-/// delivery (false). Mirrors `allPathsUnwind` (src/expr-traversal.ts:116).
+/// delivery (false). Mirrors `allPathsUnwind`.
 all_paths_unwind :: (fn(e : AstExpr) -> bool)(
   match(
     e,

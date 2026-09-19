@@ -43,7 +43,7 @@
 /// unique per generated C function body, not per call's arg index — two
 /// separate calls in one function both spilling arg 0 would otherwise collide
 /// on `__yo_ref_spill_0`. Mirrors TS module-level `refSpillCounter`
-/// (src/codegen/exprs/other-fn-call.ts:84).
+///.
 (g_ref_spill_counter : usize) = usize(0);
 /// Reset the ref-spill counter — per-EMISSION state (each emitted C file is
 /// self-contained), so every compile of one process must start at 0 or the
@@ -201,7 +201,7 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
   // Track whether we're inside a C string/char literal (0 = not; else the quote
   // byte). A `)`/`}`/`,` inside a literal (e.g. the `)` in the str initializer
   // `(__yo_str){ .ptr=(const uint8_t*)")", .len=1 }`) must not corrupt the depth
-  // count or trigger a split. Mirrors splitTopLevelArgsList (other-fn-call.ts).
+  // count or trigger a split. Mirrors splitTopLevelArgsList.
   (in_str : u8) = u8(0);
   while(i < n, {
     b := s.byte_at(i);
@@ -1104,7 +1104,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     // runtime-arg[0] a `*(Dyn)` pointer rather than a Dyn — see below).
     recv_is_dyn := ((dm_runtime.len() > usize(0)) && match(dm_runtime.get(usize(0)), .Some(rv) => match(context.base.get_expr_info(rv), .Some(rvi) => is_dyn_type(rvi.ty), .None => false), .None => false));
     // The DOT-RECEIVER (`obj` in `obj.method`) must itself be a Dyn for this to be
-    // a real Dyn method-dispatch — mirrors TS (other-fn-call.ts:478+), which keys
+    // a real Dyn method-dispatch — mirrors TS, which keys
     // `isDynMethodCall` off `expr.func.args[0].$.type` (the dot-receiver), NOT the
     // prepended runtime arg. Two reasons the dot-receiver is the correct signal:
     //   1. A `ctl`-FIELD effect call like `exn.throw(dyn(err))` (Exception.throw is
@@ -1282,7 +1282,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               // (which dereferences a value). Without this, a derived clone of a
               // primitive STRUCT FIELD (`self.row.clone()`) emitted
               // `(*((*self).row))` and failed to compile. Mirrors the param.isRef
-              // `&` in the main arg loop (other-fn-call.ts).
+              // `&` in the main arg loop.
               m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
               m_pir := match(get_func_type(m_fid_amp), .Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
               inline_args_amped := _apply_ref_amp(inline_args, m_pir, dm_runtime, indent.clone(), context);
@@ -1872,7 +1872,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // Array indexing `arr(i)`: a value-call whose callee is a concrete Array type
   // lowers to a direct `<arr>.data[<i>]` (the array struct wrapper), NOT the
   // generic Index trait. Mirrors TS generateOtherFunctionCall's isArrayType
-  // branch (other-fn-call.ts:2731).
+  // branch.
   if(is_array_type(function_type), {
     arr_code := _call_generate_expr(func_expr, indent.clone(), context);
     idx_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -2236,7 +2236,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // Piece C — closure call: if the callee value's concrete type is a registered
   // Impl(Fn) capture struct, call its impl fn with `&(capture)` as the
   // closure_context (static dispatch). Mirrors the implClosureCallMap lookup
-  // (other-fn-call.ts:2103). MISS → the function-pointer cast fallback below.
+  //. MISS → the function-pointer cast fallback below.
   cc_id := match(
     context.base.get_expr_info(func_expr),
     .Some(cei) => match(resolve_some_type_to_concrete(cei.ty), .Struct({ id : i }) => i, .SomeT({ id : i }) => i, _ => String.from("")),

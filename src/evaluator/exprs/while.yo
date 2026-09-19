@@ -92,7 +92,7 @@ max_comptime_loop_iterations :: (fn() -> usize)(
 // Phase 0 of plans/backlog/FORMAL_VERIFICATION.md §A2: loop invariants must appear as
 // the first statement of the loop body. 1:1 port of
 // `enforceLoopInvariantPlacement` / `walkForMisplacedInvariant`
-// (src/evaluator/exprs/while.ts:106-166).
+//.
 // ---------------------------------------------------------------------------
 /// Find any `invariant(...)` call NESTED inside an expression (cond/match
 /// branches, nested begin blocks). Returns the offending node instead of
@@ -723,7 +723,7 @@ evaluate_while :: (
                   },
                   _ => {
                     // Condition became runtime — can't unroll further; keep
-                    // what we have and fall back (TS while.ts:607-616).
+                    // what we have and fall back.
                     out_rt_u := new_expr_info(current_env, t_unit());
                     out_rt_u.value = Option(EvalValue).None;
                     out_rt_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
@@ -745,7 +745,7 @@ evaluate_while :: (
         unroll_iter = (unroll_iter + usize(1));
       });
       if(!cond_still_true, {
-        // Loop terminates — store unrolled bodies (TS while.ts:619-629).
+        // Loop terminates — store unrolled bodies.
         out_done_u := new_expr_info(current_env, t_unit());
         out_done_u.value = Option(EvalValue).None;
         out_done_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);

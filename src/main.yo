@@ -573,7 +573,7 @@ _walk_check_dir :: (
         match(
           entry.file_type,
           .Directory => {
-            // Skip noisy infrastructure dirs (mirror src/yo-cli.ts:walkCheckDir).
+            // Skip noisy infrastructure dirs.
             skip := cond(
               (entry.name == "node_modules") => true,
               (entry.name == "vendor") => true,
@@ -627,7 +627,7 @@ collect_check_files :: (
     meta.is_dir() => _walk_check_dir(path_str, raw, io, exn),
     true => ()
   );
-  // ANCHORED exclude matching, TS parity (src/yo-cli.ts:58-64): both sides
+  // ANCHORED exclude matching, TS parity: both sides
   // resolve against the cwd, and a file is excluded when it IS the exclude
   // path or lives under it (`p === ex || p.startsWith(ex + sep)`). The old
   // substring `fp.contains(ex)` over-matched — `--exclude tests/fn` also
@@ -1129,7 +1129,7 @@ run_check :: (
     exn.throw(dyn(`check: missing input file. Usage: yo check <input.yo | dir>`));
   });
   // Positional + `--exclude <path>` (repeatable) in any order; unknown
-  // options are errors — TS's yargs is .strict() (yo-cli.ts:1348).
+  // options are errors — TS's yargs is .strict().
   (target_path : String) = String.new();
   excludes := ArrayList(String).new();
   (watch : bool) = false;
@@ -2246,7 +2246,7 @@ _probe_liburing :: (fn(io : Io, out : ArrayList(bool)) -> unit)({
   out.push(st.raw == i32(0));
 });
 /// AddressSanitizer functionality probe — faithful port of TS
-/// `asanRuntimeIsUsable` (src/compiler-utils.ts): compile a trivial C program
+/// `asanRuntimeIsUsable`: compile a trivial C program
 /// with `-fsanitize=address` via the SYSTEM `cc` (matching TS, which probes
 /// `cc` regardless of --cc) and run it under a 3-second shell watchdog. A
 /// healthy ASan binary exits 0 immediately; a clang/ASan-runtime mismatch
@@ -2856,7 +2856,7 @@ run_compile :: (
   // whole project and the whole std tree per artifact. "" = unset.
   (emit_deps_to : String) = String.new();
   // `--emcc-environment <web|node>`: mirrors the TS-internal `emccEnvironment`
-  // codegen option (codegen/index.ts:187). TS has no CLI flag for it because
+  // codegen option. TS has no CLI flag for it because
   // its build-runner calls codegen in-process; ours SHELLS OUT to `compile`,
   // so the value needs a flag to travel on. "" = unset, which is exactly TS's
   // `undefined` for the plain `yo compile` path and adds `-sNODERAWFS=1`;
@@ -3061,8 +3061,8 @@ run_compile :: (
         ai = (ai + usize(1));
       },
       // `--emit-c` PRINTS the generated C to stdout and still compiles/links
-      // (TS module-manager.ts:473-475); `--skip-c-compiler` gates the link
-      // (TS codegen/index.ts:234). Previously conflated.
+      //; `--skip-c-compiler` gates the link
+      //. Previously conflated.
       (a_name == "--emit-c") => {
         emit_c = true;
         ai = (ai + usize(1));
@@ -3170,7 +3170,7 @@ run_compile :: (
         ai = (ai + usize(1));
       },
       a.starts_with("-") => {
-        // yargs is .strict() (src/yo-cli.ts:1358): an unknown option is an
+        // yargs is .strict(): an unknown option is an
         // error. The old silent catch-all dropped mistyped flags — a
         // `--sanitizer address` typo compiled unsanitized with rc=0.
         exn.throw(dyn(`compile: unknown option '${a}'`));
@@ -3262,7 +3262,7 @@ run_compile :: (
   if(jobs == usize(0), {
     jobs = cond((chunk_auto_cap >= usize(1)) => chunk_auto_cap, true => usize(8));
   });
-  // ----- C compiler resolution (src/yo-cli.ts:468-486) ---------------------
+  // ----- C compiler resolution ---------------------
   // Auto-select emcc for wasm targets when --cc was not given; otherwise probe
   // for the first available compiler instead of assuming clang.
   if((cc == "") && target_triple.starts_with("wasm"), {
@@ -3279,7 +3279,7 @@ run_compile :: (
       }
     );
   });
-  // emcc implies wasm32-unknown-emscripten when no target was given (yo-cli.ts:488-490).
+  // emcc implies wasm32-unknown-emscripten when no target was given.
   if((cc == "emcc") && (target_triple == ""), {
     target_triple = String.from("wasm32-unknown-emscripten");
   });
@@ -3323,7 +3323,7 @@ run_compile :: (
     exn.throw(dyn(`compile: --heap-size ${_format_heap_size(heap_size)} does not fit a 32-bit target (max 4294967295 bytes)`));
   });
   // The pointer-size global feeds get_size_of_type's sizeof/alignof folding.
-  // TS pairs these two setters at the same spot (codegen/index.ts:194-195);
+  // TS pairs these two setters at the same spot;
   // yo-self had NO caller for this setter, so sizeof folded 64-bit pointer
   // layouts into wasm32 C — e.g. sizeof(MapNode) = 16 while typed-pointer
   // `.add()` arithmetic scales by the REAL 8-byte wasm32 element, mixing
@@ -3332,7 +3332,7 @@ run_compile :: (
   // shells out to `self compile --target ...` per batch, so this one call
   // covers both the compile and test paths.
   set_target_pointer_size(target.pointer_size_bits);
-  // Auto-add the output extension when none was given (yo-cli.ts:494-509):
+  // Auto-add the output extension when none was given:
   // emcc → `.wasm` for standalone WASI, else `.html`; Windows targets → `.exe`.
   if((cc == "emcc") && !(_path_has_extension(output)), {
     output = if(is_target_standalone_wasi(target), `${output}.wasm`, `${output}.html`);
@@ -3351,7 +3351,7 @@ run_compile :: (
     );
     output = if(output.ends_with(so_ext), output.clone(), `${output}${so_ext}`);
   });
-  // mimalloc isn't available on wasm (codegen/index.ts:193-199) — downgrade
+  // mimalloc isn't available on wasm — downgrade
   // BEFORE codegen so the emitted runtime matches the link line.
   if((allocator == "mimalloc") && is_target_wasm(target), {
     allocator = String.from("system");
@@ -3592,13 +3592,13 @@ run_compile :: (
         true => usize(0)
       );
     });
-    // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
+    // --emit-c prints the generated C to stdout —
     // and compilation continues; only --skip-c-compiler stops before the link.
     if(emit_c, {
       println(c_src);
     });
     // Strip a target-format extension so `app.html` gets `app.c`, not
-    // `app.html.c` (codegen/index.ts:226-228).
+    // `app.html.c`.
     (c_base : String) = output.clone();
     cond(
       c_base.ends_with(".html") => {
@@ -3683,7 +3683,7 @@ run_compile :: (
     _print_compile_profile(profile_json.clone(), io, exn);
     return(());
   });
-  // ----- assemble the C-compiler invocation (mirrors src/codegen/index.ts) ---
+  // ----- assemble the C-compiler invocation ---
   std_root := resolve_std_path();
   // Flags are RECORDED rather than pushed straight into a Command, so the
   // chunked path can replay the identical flag list for per-chunk `cc -c`
@@ -3810,7 +3810,7 @@ run_compile :: (
   });
   // Sanitizers (clang/gcc; mirror of TS getSanitizerFlags for the Unix path).
   // emcc takes none — TS gates the whole block on `!isEmcc`
-  // (codegen/index.ts:465), and the test path already mirrors that.
+  //, and the test path already mirrors that.
   if(cc == "emcc", {
     sanitize = String.from("");
   });
@@ -3885,7 +3885,7 @@ run_compile :: (
     });
   });
   // Bundled mimalloc allocator (else system): add static.c + its include path,
-  // guarded by existence with TS's fallback warning (codegen/index.ts:534-555).
+  // guarded by existence with TS's fallback warning.
   if(allocator == "mimalloc", {
     mim_static := `${std_root}/../vendor/mimalloc/src/static.c`;
     mim_found := io.await(exists(Path.new(mim_static.clone()), io), io);
@@ -3906,7 +3906,7 @@ run_compile :: (
     });
   });
   // Cross-compile target / sysroot pass-through. Skipped entirely for emcc,
-  // which handles its own target internally (codegen/index.ts:636-641) — it
+  // which handles its own target internally — it
   // rejects `--target=wasm32-unknown-emscripten`.
   if(cc != "emcc", {
     if(target_triple != "", {
@@ -3932,7 +3932,7 @@ run_compile :: (
       cmd.arg(`--sysroot=${sysroot}`);
     });
   });
-  // Emscripten-specific link flags (codegen/index.ts:605-634).
+  // Emscripten-specific link flags.
   if(cc == "emcc", {
     // WASM call_indirect demands exact signature matches, but codegen casts
     // void* to function pointers — without this every such call traps.
@@ -4074,7 +4074,7 @@ run_compile :: (
   // proven link lines.)
   //
   // WASM excluded: TS gates EVERY system library on `!isWasm`
-  // (codegen/index.ts:526), and `-pthread` in particular is not inert for
+  //, and `-pthread` in particular is not inert for
   // emcc — it switches Emscripten into pthreads mode, which changes the shape
   // of the generated output. Passing it unconditionally is why the first
   // self-hosted wasm smoke test built `hello-world.html` but produced no
@@ -4237,7 +4237,7 @@ _collect_test_files :: (
   // `tests/internal`, whose files each pull ~99k lines through their import
   // closure and peak near 6.5 GB — they cannot share a run with the fast
   // language tests. Mirrors the `exclude` option on the TS `test` subcommand
-  // (src/yo-cli.ts) and `findTestFiles` (src/test-runner.ts).
+  // and `findTestFiles`.
   //
   // Two kinds of file carry tests: `*.test.yo` (always), and a plain `.yo`
   // MODULE with a top-level `test(...)` declaration — Rust's in-file
@@ -4343,7 +4343,7 @@ _export_without_main :: (fn(e : AstExpr) -> Option(String))({
 TestDecl :: struct(name : String, body_src : String);
 /// Run `*.test.yo` files — and plain modules with in-file `test(...)`
 /// declarations — with the self-hosted pipeline. Port of the TS
-/// test runner's BATCHED strategy (src/test-runner.ts): per file, parse and
+/// test runner's BATCHED strategy: per file, parse and
 /// split `test(name, body)` declarations from the non-test content, synthesize
 /// ONE program whose `main` dispatches on the `YO_TEST_INDEX` env var over the
 /// inlined test bodies (generateBatchedTestProgram, test-runner.ts:340),
@@ -4355,7 +4355,7 @@ TestDecl :: struct(name : String, body_src : String);
 /// footer mirror the TS output (without durations/colors).
 ///
 /// Tests are compiled in batches of `TEST_BATCH_SIZE`, mirroring TS's
-/// `DEFAULT_TEST_BATCH_SIZE` (src/test-runner.ts:54).
+/// `DEFAULT_TEST_BATCH_SIZE`.
 TEST_BATCH_SIZE :: usize(100);
 /// §7 items 3+4 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): this
 /// process's resident set in MB, from `/proc/self/statm` field 2 (resident
@@ -4602,7 +4602,7 @@ run_test :: (
       },
       a.starts_with(String.from("-")) => {
         // TS's yargs is .strict(): an unknown option is an error, never a
-        // path (yo-cli.ts:1348).
+        // path.
         exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH] [--shard I/N] [--workspace]`));
       },
       true => {
@@ -4865,7 +4865,7 @@ run_test :: (
           // Go through extract_test_name, which strips the surrounding quotes a
           // StringLit token value carries ("name" -> name). That matches what TS
           // reports: it reads the EVALUATED comptime string
-          // (src/test-runner.ts:316) and only falls back to the raw token value.
+          // and only falls back to the raw token value.
           // Taking ntok.value directly printed `✓ "name"` and made
           // --test-name-pattern match against the quote characters.
           tname := match(extract_test_name(e), .Some(n) => n, .None => String.from("unnamed_test"));
@@ -5079,7 +5079,7 @@ run_test :: (
         // WASI batch binaries embed the whole evaluator, whose `evaluate()`
         // has 693+ locals; emcc's defaults (64 KB stack, 16 MB initial
         // memory) cannot hold a frame that size. TS applies these in the TEST
-        // RUNNER only (test-runner.ts:655-663), never in plain `compile`, so
+        // RUNNER only, never in plain `compile`, so
         // they travel as --cflags rather than becoming a compile-wide default
         // for every WASI build.
         if(run_is_wasi, {
@@ -5101,7 +5101,7 @@ run_test :: (
         // Default sanitizer is "address"; YO_TEST_SANITIZE overrides (e.g.
         // "thread" for the TSan CI leg) and --disable-sanitize turns it off.
         // MSVC and emcc take no sanitizer, exactly as TS
-        // (src/test-runner.ts:556-566). The child compile owns the flag
+        //. The child compile owns the flag
         // mapping and the ASan-usability probe.
         san_choice := match(
           proc_env.get(`YO_TEST_SANITIZE`),
@@ -5222,7 +5222,7 @@ run_test :: (
             run_is_wasi => {
               wc := Command.new(String.from("wasmtime"));
               // The guest's default stack is far below what this suite's
-              // recursion needs (test-runner.ts:750-753).
+              // recursion needs.
               wc.arg(String.from("-W"));
               wc.arg(String.from("max-wasm-stack=16777216"));
               // WASI is deny-by-default for the filesystem. All three grants
@@ -5256,7 +5256,7 @@ run_test :: (
           combined.push_string(String.from_bytes(tout.stderr));
           (t_status : i32) = tout.status.raw;
           // Older ASan runtimes: "detect_leaks is not supported" → retry once
-          // without leak detection (test-runner.ts:806-826).
+          // without leak detection.
           if(use_asan && combined.contains("detect_leaks is not supported"), {
             _sv_asan2 := proc_env.set(String.from("ASAN_OPTIONS"), String.from("detect_leaks=0"));
             tcmd2 := Command.new(tmp_bin.clone());
@@ -5266,7 +5266,7 @@ run_test :: (
             t_status = tout2.status.raw;
             _sv_asan3 := proc_env.set(String.from("ASAN_OPTIONS"), if(leak_verdict, String.from("detect_leaks=1"), String.from("detect_leaks=0")));
           });
-          // A leak is a FAILURE even at exit 0 (test-runner.ts:835-843) —
+          // A leak is a FAILURE even at exit 0 —
           // unless staged off via YO_TEST_LEAK_VERDICT=0 (hoisted above,
           // where it also disables LSan's own exit-code).
           has_leak := ((leak_verdict && ((test_cc != "emcc") && use_asan)) && (((combined.contains("LeakSanitizer") || combined.contains("detected memory leaks")) || combined.contains("Direct leak")) || combined.contains("Indirect leak")));
@@ -5288,7 +5288,7 @@ run_test :: (
               `Test failed with exit code ${t_status.to_string()}\n${combined}`
             );
             // -v prints the whole diagnostic indented; the default prints the
-            // first line (test-runner.ts:1263-1276).
+            // first line.
             if(verbose, {
               err_lines := err_msg.split("\n");
               (eli : usize) = usize(0);
@@ -5512,7 +5512,7 @@ run_fmt :: (
       },
       arg.starts_with(String.from("-")) => {
         // TS's yargs is .strict(): an unknown option is an error, never a
-        // path (yo-cli.ts:1348).
+        // path.
         exn.throw(dyn(`fmt: unknown option '${arg}'. Usage: yo fmt [paths...] [--check]`));
       },
       true => {
@@ -5529,7 +5529,7 @@ run_fmt :: (
     .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
   );
   // TS wraps the whole handler in try/catch and prints the BARE message —
-  // no `yo: error:` prefix (yo-cli.ts:1088-1090).
+  // no `yo: error:` prefix.
   fmt_exn := Exception(
     throw : (
       (fmt_err) -> {

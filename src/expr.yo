@@ -374,7 +374,7 @@ alloc_global_expr_id :: (fn() -> ExprId)({
   id
 });
 /// Deep-clone an expression giving every node a FRESH id — the faithful
-/// mirror of TS `cloneExpr` (expr.ts:513), which creates new objects and
+/// mirror of TS `cloneExpr`, which creates new objects and
 /// therefore new `$` slots. The derived `AstExpr` Clone keeps ids, so a
 /// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
 /// (and id-0 synthesized nodes all collide); use THIS for trial dry-runs,
@@ -762,7 +762,7 @@ is_function_boundary_arrow :: (fn(e : AstExpr) -> bool)(
 /// function boundaries.
 ///
 // `evaluated_body_contains_unwind` and `expr_tree_contains_return` were
-// relocated to `./expr_traversal.yo` (mirrors `src/expr-traversal.ts`).
+// relocated to `./expr_traversal.yo`.
 export(BK_FN, BK_UNSAFE_FN, BK_CTL, BK_FN_TRAIT, BK_ATOMIC, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
 export(BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO);
 export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
@@ -1207,8 +1207,8 @@ export(is_function_boundary_arrow);
 export(alloc_global_expr_id, clone_expr_fresh_ids);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
 /// `begin(...)` node. Mirrors TS's function-body evaluation, which ALWAYS
-/// routes through `evaluateBeginExpression` (anonymous-function.ts:829) whose
-/// implicit single-expression wrap (begin.ts:1016-1045) gives even a
+/// routes through `evaluateBeginExpression` whose
+/// implicit single-expression wrap gives even a
 /// bare-atom body the begin machinery — in particular the begin-tail
 /// ownership pass, so a borrowed-param tail like `to_string : (...)(self)`
 /// receives its balancing ___dup. yo-self's def-time trials route through

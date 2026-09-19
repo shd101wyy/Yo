@@ -61,7 +61,7 @@ mark_needs_intel_asm_syntax :: (fn() -> unit)({
 get_needs_intel_asm_syntax :: (fn() -> bool)(g_needs_intel_asm_syntax);
 // Same out-of-band channel for `uses_parallelism`, needed by the emcc link
 // line (`-pthread -sPTHREAD_POOL_SIZE=4 -sEXIT_RUNTIME=1`). TS reads it via
-// `moduleManager.usesParallelism` (codegen/index.ts:626); here the per-run
+// `moduleManager.usesParallelism`; here the per-run
 // context flag (codegen/exprs/async.yo) is mirrored into a module global
 // because main.yo assembles the command after compile_module has returned.
 // Like the flag above it is never reset: each `compile` is its own process
@@ -102,7 +102,7 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
 // ===========================================================================
 // CodeGenContext — mirrors the `CodeGenContext` interface in
 // src/codegen/utils/index.ts. This is the BASE generation context; the
-// FunctionGenerationContext (src/codegen/functions/context.ts) extends it.
+// FunctionGenerationContext extends it.
 // Yo has no struct inheritance, so functions/context.yo composes this via a
 // `base : CodeGenContext` field. Grown incrementally per the plan ("add
 // fields as emitters demand them") — only the registries + flags the current
@@ -123,7 +123,7 @@ CodegenExternFnEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : 
 CodegenFunctionEntry :: ref(struct(value : EvalValue, c_name : String, def_module : String));
 /// An entry in `impl_closure_call_map`: the resolved concrete capture-struct
 /// type id → the generated closure implementation function for that type.
-/// Mirrors the `implClosureCallMap` value type (utils/index.ts:139).
+/// Mirrors the `implClosureCallMap` value type.
 ImplClosureCallInfo :: ref(
   struct(
     function_c_name : String,
@@ -295,7 +295,7 @@ CodeGenContext :: ref(
     declared_scopes : ArrayList(String),
     /// Resolved concrete capture-struct type id → its generated closure impl fn.
     /// Populated at closure construction; read at closure call sites to emit
-    /// `fn(&(cb), args)`. Mirrors CodeGenContext.implClosureCallMap (utils/index.ts:139).
+    /// `fn(&(cb), args)`. Mirrors CodeGenContext.implClosureCallMap.
     impl_closure_call_map : HashMap(String, ImplClosureCallInfo),
     // type_key ALIASES: an EVOLVED type_key render of an already-collected
     // type maps to the FIRST registration's key (collect_type's stable-identity
@@ -1524,7 +1524,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       // (no Future requirement left), so it is recognized here by the
       // runtime's contractual future type name, exactly as this function's
       // own unregistered-extern fallback below hard-codes it. Same TS rule
-      // as the resolved branch above (utils/index.ts:660-668): pointer, not
+      // as the resolved branch above: pointer, not
       // the bare struct — every use site (`->state`, drops) is pointer-shaped
       // (issues/fixed/io-future-named-local-declared-by-value.md).
       .None => if(
@@ -1573,7 +1573,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       )
     ),
     // Iso type (reference-counted isolated value). Mirrors getTypeString's
-    // TypeTag.Iso case (utils/index.ts:788): the C name is `Iso_<cleanChild>`
+    // TypeTag.Iso case: the C name is `Iso_<cleanChild>`
     // and the type is registered (idempotent) so its struct + runtime helpers
     // (__yo_create_iso_*, __yo_iso_extract_*, __yo_iso_dispose_*) get emitted.
     .IsoT(c) => {
@@ -1587,7 +1587,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       iso_name
     },
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
-    // by value. Mirrors getTypeString's TypeTag.Dyn case (utils/index.ts:547):
+    // by value. Mirrors getTypeString's TypeTag.Dyn case:
     // return the registered fat-pointer C type name (keyed by type_key here,
     // not TS's numeric type.id).
     .DynT({}) => match(

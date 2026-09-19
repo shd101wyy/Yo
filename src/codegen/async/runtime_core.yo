@@ -15,7 +15,7 @@ generate_async_runtime_core :: (
     is_target_windows(target_info) => String.from("__declspec(thread)"),
     true => String.from("_Thread_local")
   );
-  // --- header + continuation/queue typedefs (runtime-core.ts:22-54) ---
+  // --- header + continuation/queue typedefs ---
   emitter.emit_string_line(
     `
 // ============================================================================
@@ -40,7 +40,7 @@ typedef struct {
 
 // Thread-local async runtime state`
   );
-  // Thread-local queue + free-list (runtime-core.ts:56-64).
+  // Thread-local queue + free-list.
   cond(
     is_target_windows(target_info) => emitter.emit_string_line(
       `static __declspec(thread) __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};
@@ -51,7 +51,7 @@ static __declspec(thread) __yo_continuation_t* __yo_cont_free_list = NULL;`
 static __thread __yo_continuation_t* __yo_cont_free_list = NULL;`
     )
   );
-  // Per-thread flags (runtime-core.ts:66-84). has_io is always true.
+  // Per-thread flags. has_io is always true.
   emitter.emit_string_line(
     `
 static ${thread_local} bool __yo_async_scheduler_initialized = false;
@@ -517,7 +517,7 @@ static void __yo_thread_set_maximum_threads(size_t num) {
 
 static size_t __yo_get_thread_id(void) {`
   );
-  // thread-id body (runtime-core.ts:343-353).
+  // thread-id body.
   cond(
     is_target_windows(target_info) => emitter.emit_string_line(`  return (size_t)GetCurrentThreadId();`),
     is_target_macos(target_info) => emitter.emit_string_line(
@@ -533,7 +533,7 @@ static size_t __yo_get_thread_id(void) {`
 
 static void __yo_thread_yield(void) {`
   );
-  // yield body (runtime-core.ts:358-364).
+  // yield body.
   cond(
     is_target_windows(target_info) => emitter.emit_string_line(`  SwitchToThread();`),
     is_target_wasm(target_info) => emitter.emit_string_line(`  // No-op: WASM is single-threaded, cooperative scheduling only`),

@@ -160,7 +160,7 @@ _eval_comptime_str :: (
   )
 });
 /// Evaluate a constraint argument (register class atom, explicit register
-/// string, or raw("constraint")). Mirrors evaluateConstraint (asm.ts:135).
+/// string, or raw("constraint")). Mirrors evaluateConstraint.
 _evaluate_constraint :: (
   fn(constraint_expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> String
 )({
@@ -198,7 +198,7 @@ _evaluate_constraint :: (
   );
   String.from("")
 });
-/// Parse const_val/sym operands. Mirrors parseSpecialOperand (asm.ts:420).
+/// Parse const_val/sym operands. Mirrors parseSpecialOperand.
 _parse_special_operand :: (
   fn(operand_expr : AstExpr, env : Environment, ctx : EvalContext, kind : String, exn : Exception) -> AsmOperand
 )({
@@ -238,11 +238,11 @@ _parse_special_operand :: (
     discarded : false
   )
 });
-/// Parse a single operand sub-call. Mirrors parseOperand (asm.ts:186).
+/// Parse a single operand sub-call. Mirrors parseOperand.
 _parse_operand :: (
   fn(operand_expr : AstExpr, env : Environment, ctx : EvalContext, kind_in : String, exn : Exception) -> AsmOperand
 )({
-  // Normalize the `ref` alias to `inout` (asm.ts:196-198).
+  // Normalize the `ref` alias to `inout`.
   kind := cond((kind_in == String.from("ref")) => String.from("inout"), true => kind_in.clone());
   args := _fn_call_args_of(operand_expr);
   if(_is_special_kind(kind), {
@@ -279,7 +279,7 @@ _parse_operand :: (
     });
   });
   // Explicit register names: the name IS the constraint and the next arg is
-  // the value/type (asm.ts:246-259).
+  // the value/type.
   has_constraint := (constraint_idx < (args.len() - usize(1)));
   (constraint : Option(String)) = Option(String).None;
   (value_type_idx : usize) = usize(0);
@@ -328,7 +328,7 @@ _parse_operand :: (
       );
     });
     // Variable-target mode: look the variable up directly (it may be
-    // uninitialized). Skip variables holding TYPE values (asm.ts:290-336).
+    // uninitialized). Skip variables holding TYPE values.
     if(ast_expr_is_atom(value_or_type_expr), {
       var_name := _atom_value(value_or_type_expr);
       variables := get_variables_from_env(env, var_name.clone());
@@ -361,7 +361,7 @@ _parse_operand :: (
             );
           });
           // Evaluate to annotate for codegen; an UNINITIALIZED variable is
-          // annotated manually (asm.ts:312-323).
+          // annotated manually.
           (evaluated_out : AstExpr) = value_or_type_expr;
           if(var_initialized, {
             evaluated_out = evaluate_expression_raw(value_or_type_expr, env, ctx, exn);
@@ -383,7 +383,7 @@ _parse_operand :: (
         });
       });
     });
-    // Return-value mode: evaluate as a type expression (asm.ts:338-362).
+    // Return-value mode: evaluate as a type expression.
     evaluated_ty_e := evaluate_expression_raw(value_or_type_expr, env, ctx, exn);
     (out_ty : Option(TypeValue)) = Option(TypeValue).None;
     match(
@@ -448,7 +448,7 @@ _parse_operand :: (
       )
     );
   });
-  // Input / inout operands: evaluate the value expression (asm.ts:365-411).
+  // Input / inout operands: evaluate the value expression.
   evaluated := evaluate_expression_raw(value_or_type_expr, env, ctx, exn);
   value_ty := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
@@ -498,7 +498,7 @@ _parse_operand :: (
     discarded : false
   )
 });
-/// Parse asm_options(...) flags. Mirrors parseAsmOptions (asm.ts:468).
+/// Parse asm_options(...) flags. Mirrors parseAsmOptions.
 /// Returns the `noreturn` flag (the only one the evaluator consumes).
 _parse_asm_options :: (
   fn(option_expr : AstExpr, exn : Exception) -> bool
@@ -539,11 +539,11 @@ _parse_asm_options :: (
   noreturn
 });
 /// Validate template placeholders `{N}` / `{name}` against the operand list.
-/// Hand-rolled port of the TS regex scan (asm.ts:726-756).
+/// Hand-rolled port of the TS regex scan.
 _validate_template_placeholders :: (
   fn(template : String, operands : ArrayList(AsmOperand), tok : Token, exn : Exception) -> unit
 )({
-  // Duplicate-name check (asm.ts:731-742).
+  // Duplicate-name check.
   operand_names := ArrayList(String).new();
   {
     (i : usize) = usize(0);
@@ -663,7 +663,7 @@ _validate_template_placeholders :: (
   });
   ()
 });
-/// Mirrors evaluateAsm (asm.ts:498).
+/// Mirrors evaluateAsm.
 evaluate_asm :: (
   fn(
     expr : AstExpr,
@@ -673,7 +673,7 @@ evaluate_asm :: (
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
-  // Phase C privilege gate (asm.ts:506-518).
+  // Phase C privilege gate.
   if(!(is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone()))), {
     exn.throw(
       dyn(
@@ -687,7 +687,7 @@ evaluate_asm :: (
     );
     return(expr);
   });
-  // asm can only be called inside a function body or test block (asm.ts:520-529).
+  // asm can only be called inside a function body or test block.
   in_fn_or_test := match(
     ctx.is_evaluating_function_body_or_async_block,
     .Some(fab) => match(fab.kind, .FunctionBody => true, .TestBlock => true, _ => false),
@@ -704,7 +704,7 @@ evaluate_asm :: (
     );
     return(expr);
   });
-  // Block CTFE (asm.ts:531-537).
+  // Block CTFE.
   if(ctx.is_analyzing_ctfe_capability, {
     exn.throw(
       dyn(
@@ -728,7 +728,7 @@ evaluate_asm :: (
     );
     return(expr);
   });
-  // --- Parse template strings (asm.ts:545-583) ---
+  // --- Parse template strings ---
   template_parts := ArrayList(String).new();
   (arg_idx : usize) = usize(0);
   (scanning_template : bool) = true;
@@ -778,7 +778,7 @@ evaluate_asm :: (
     );
     return(expr);
   });
-  // --- Parse operands and options (asm.ts:585-660) ---
+  // --- Parse operands and options ---
   operands := ArrayList(AsmOperand).new();
   (noreturn : bool) = false;
   while(arg_idx < args.len(), {
@@ -815,7 +815,7 @@ evaluate_asm :: (
         operands.push(_parse_operand(arg, env, ctx, call_name, exn));
       },
       ((call_name == String.from("clobber")) || (call_name == String.from("clobber_abi"))) => {
-        // Validate clobber args (asm.ts:614-649): bare `memory`/`cc` atoms
+        // Validate clobber args: bare `memory`/`cc` atoms
         // pass; everything else must be a comptime string.
         cargs := _fn_call_args_of(arg);
         (ci : usize) = usize(0);
@@ -858,7 +858,7 @@ evaluate_asm :: (
     );
     arg_idx = (arg_idx + usize(1));
   });
-  // --- Mark variable-target output variables as initialized (asm.ts:662-680) ---
+  // --- Mark variable-target output variables as initialized ---
   {
     (oi : usize) = usize(0);
     while(oi < operands.len(), {
@@ -889,7 +889,7 @@ evaluate_asm :: (
       oi = (oi + usize(1));
     });
   };
-  // --- Infer return type (asm.ts:682-724) ---
+  // --- Infer return type ---
   return_output_types := ArrayList(TypeValue).new();
   {
     (oi : usize) = usize(0);
@@ -937,7 +937,7 @@ evaluate_asm :: (
       return_type = match(return_output_types.get(usize(0)), .Some(t) => t, .None => t_unit());
     },
     true => {
-      // Multiple outputs → tuple with positional labels (asm.ts:711-723).
+      // Multiple outputs → tuple with positional labels.
       labels := ArrayList(String).new();
       types := ArrayList(TypeValue).new();
       (ti : usize) = usize(0);
@@ -949,7 +949,7 @@ evaluate_asm :: (
       return_type = TypeValue.Tuple(labels, types);
     }
   );
-  // --- Validate template placeholders (asm.ts:726-756) ---
+  // --- Validate template placeholders ---
   joined := String.new();
   {
     (tpi : usize) = usize(0);
@@ -968,12 +968,12 @@ evaluate_asm :: (
     });
   };
   _validate_template_placeholders(joined, operands, tok, exn);
-  // Stamp: asm is always a runtime expression (asm.ts:758-765).
+  // Stamp: asm is always a runtime expression.
   out_info := new_expr_info(env, return_type);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-/// Mirrors evaluateGlobalAsm (asm.ts:776).
+/// Mirrors evaluateGlobalAsm.
 evaluate_global_asm :: (
   fn(
     expr : AstExpr,

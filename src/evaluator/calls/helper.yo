@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   register_funcval_cap_vars,
   make_err_variable
 } :: import("../../env.yo");
-// dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
+// dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -470,7 +470,7 @@ CheckParamResult :: ref(
 );
 // ---------------------------------------------------------------------------
 // check_if_function_parameter_matches_argument
-// Phase 3 port of checkIfFunctionParameterMatchesArgument (helper.ts).
+// Phase 3 port of checkIfFunctionParameterMatchesArgument.
 // ---------------------------------------------------------------------------
 /// TRUE when the type (shallowly recursively) contains an Array with an
 /// UNRESOLVED length variable (`Array(i32, n)` — a value-generic length).
@@ -537,7 +537,7 @@ _type_has_array_len_var :: (fn(t : TypeValue) -> bool)(_type_has_array_len_var_d
 /// Trial-evaluate a declared return-type EXPR in the mint env (SWALLOWING —
 /// the local `->` exn cannot capture, so a failing eval just leaves `out`
 /// empty). On success pushes the evaluated TypeValue. Port shape of TS
-/// `evaluateFunctionReturnTypeAgain` (function.ts:2822): re-EVALUATING the
+/// `evaluateFunctionReturnTypeAgain`: re-EVALUATING the
 /// expr (vs substituting the def-era TypeValue) routes generic instantiations
 /// in the return (`*(Pair(K, V))`) through the SAME memoized type-constructor
 /// as the body's own calls — one instantiation lineage (the imm_map
@@ -652,7 +652,7 @@ check_if_function_parameter_matches_argument :: (
     exn : Exception,
     /// The parameter's `= <value>` ASSIGNED value, or `.None`. Appended last
     /// with a default so existing call sites need no change. See the Step-5b
-    /// guard below (TS helper.ts:481-497).
+    /// guard below.
     (param_assigned_value : Option(EvalValue)) ?= Option(EvalValue).None,
     /// Aliasing Stage 0: true when the CALLEE is extern/builtin (no Yo code
     /// runs inside — its borrows cannot dangle), so Step 4c skips the
@@ -771,7 +771,7 @@ check_if_function_parameter_matches_argument :: (
   // GUARD: coerce when the PARAMETER is a runtime param (not comptime-only) and
   // the parameter TYPE is not itself a comptime type. Mirrors TS
   // `!parameter.isCompileTimeOnly && isComptimeOnlyType(argType)`
-  // (helper.ts:508). `is_ct_only` (the `comptime(...)` param modifier, from the
+  //. `is_ct_only` (the `comptime(...)` param modifier, from the
   // per-param comptime side-table) REPLACES the earlier `!is_some_type`
   // PROXY, which wrongly skipped a runtime param typed as a SomeT — e.g. the
   // operator `neg`'s `self : _Self`, leaving a `comptime_float` arg unlowered
@@ -956,7 +956,7 @@ check_if_function_parameter_matches_argument :: (
   // `// Failed to transpile` (tests/prelude.test.yo arm 1, hollow batch).
   // `are_values_equal` is the port of TS `areValuesEqual`, whose Type/Type
   // branch compares with `areTypesCompatible(..., requireExactMatch = true)`
-  // (value.ts:699-705) — `are_types_compatible_exact` here.
+  // — `are_types_compatible_exact` here.
   match(
     param_assigned_value,
     .Some(pav) => match(
@@ -1248,7 +1248,7 @@ sanitize_for_sig :: (fn(s : String) -> String)({
 value_to_signature_string :: (fn(value : EvalValue) -> String)(
   match(
     value,
-    // Mirror TS `${valueToString(value)}_id${type.id}` (helper.ts:2103): the
+    // Mirror TS `${valueToString(value)}_id${type.id}`: the
     // human-readable type string ALONE is not instantiation-precise — an
     // anonymous generic instantiation renders `<struct:yo_id_N>` where N is
     // the shared DECLARATION id, so every same-named local struct / generic
@@ -1363,7 +1363,7 @@ compute_compile_time_signature :: (
     .None => ()
   );
   // Compile-time REGULAR parameters — a `comptime(y) : i32` value parameter.
-  // Faithful port of TS's third block (helper.ts:2154-2163):
+  // Faithful port of TS's third block:
   //
   //   functionType.parameters.forEach((param, index) => {
   //     if (param.isCompileTimeOnly && index < argValues.args.length) { … }
@@ -1552,7 +1552,7 @@ _find_specialization_cache :: (
                           // ARGUMENTS but not closures buried in a receiver's
                           // type arguments). TS cannot collide here: each
                           // instantiation is a distinct object with a unique
-                          // type id under requireExactMatch (helper.ts:2290).
+                          // type id under requireExactMatch.
                           // Require type_key equality — the exact identity the
                           // emitted C is keyed by — before reusing the spec.
                           ck_tyargs := ArrayList(TypeValue).new();
@@ -1636,7 +1636,7 @@ _store_specialization_cache :: (
 /// captures (`_inject_forall_captures`, evaluator/values/impl.yo) into a
 /// deterministic signature string. TS never needs this: each generic-impl
 /// method INSTANTIATION gets a unique funcId embedding its substitutions
-/// (impl.ts:1551), so identity comparisons distinguish `Eq(ArrayList(i32)).==`
+///, so identity comparisons distinguish `Eq(ArrayList(i32)).==`
 /// from `Eq(ArrayList(ArrayList(i32))).==` for free. yo-self keeps the shared
 /// original func_id and injects the bindings as captures — so recursion
 /// guards must compare THIS alongside the func_id, or a nested call to the
@@ -1918,7 +1918,7 @@ _reeval_closure_body_swallow :: (
 /// cell first, then the global registry), bounded by a visited set. Adopt ONLY
 /// a CONCRETE (non-SomeT) result. TS's computeCompileTimeSignature and the
 /// specialized param types read the SomeType's `resolvedConcreteType`
-/// (helper.ts:2245-2252), so a FORWARDED closure param specializes on the
+///, so a FORWARDED closure param specializes on the
 /// CAPTURE STRUCT, not on the caller's abstract SomeT id. Without this, every
 /// forwarding hop keyed the spec on the bare declared SomeT id: the def-era
 /// TYPE-ERASED spec (param rendered void*) and the resolved-era call collided
@@ -2056,7 +2056,7 @@ create_specialized_function_inline :: (
       // Build runtime parameter types from regular args
       // Phase 3 simplification: all regular params are treated as runtime.
       // This means we track all regular arg types for cache differentiation.
-      // EXCEPTION (TS helper.ts:2233-2237): an explicit `comptime(K) : Type`
+      // EXCEPTION: an explicit `comptime(K) : Type`
       // param's arg is a COMPILE-TIME value — its VALUE joins the cache key
       // (else `_node_insert(i32, ...)` and `_node_insert(String, ...)` collide
       // on identical TypeUni arg types and share one spec). The arg TYPE still
@@ -2673,7 +2673,7 @@ create_specialized_function_inline :: (
           // recursive call graph forever and overflows the stack (Phase 6). Stack
           // entries need only the id/return-type fields (EvalValue has no clone, and
           // `original_func_value` is never read off the stack). Mirrors TS
-          // currentlySpecializingFunctionStack (helper.ts:2419-2429); popped below.
+          // currentlySpecializingFunctionStack; popped below.
           spec_stack := match(
             ctx.currently_specializing_function_stack,
             .Some(s) => s,
@@ -2854,7 +2854,7 @@ create_specialized_function_inline :: (
             decl_pt := match(decl_param_types.get(rbp_i), .Some(t) => t, .None => TypeValue.Unit);
             // Prefer the CALL's resolved parameter type over the pristine
             // declared one. TS's parameter object is mutated in place by the
-            // closure's return rewrite (anonymous-function.ts:1010-1012), so by
+            // closure's return rewrite, so by
             // the time it specializes, the declared type ALREADY reads
             // `Impl(Fn(a : i32) -> Option(i32))`. yo-self's declared type stays
             // def-era, and rebuilding the closure param from it re-installed
@@ -3129,7 +3129,7 @@ create_specialized_function_inline :: (
           // especially `Self.static_method` like HashMap's
           // `Self._find_bucket(self, ...)` — resolves inside the specialized
           // method body. TS evaluates the specialized body with `{ ...context }`
-          // (helper.ts:2434), and the method-dispatch caller has already set
+          //, and the method-dispatch caller has already set
           // `context.SelfType` (carried from the method's `functionType.SelfType`).
           // yo-self's dispatch doesn't thread self_type to this point and `Func`
           // carries no SelfType field, so reconstruct it from the bound `self`
@@ -3493,7 +3493,7 @@ create_specialized_function_inline :: (
               while(spi < runtime_param_tys.len(), {
                 // Explicit `comptime(K) : Type` params are NOT C parameters:
                 // TS's specializedType keeps only runtimeParameters
-                // (helper.ts:2218-2255). Skip them here — and filter the
+                //. Skip them here — and filter the
                 // per-param meta arrays identically below — so the registered
                 // spec type's C signature carries runtime params only. The
                 // call site drops the matching args (function.yo's
@@ -5040,7 +5040,7 @@ try_to_call_function_with_arguments :: (
           // The `generic(...)` node must be REMOVED from the middle of the
           // regular-arg list, keeping the receiver at index 0 — TS does
           // `argExprs = [argExprs[0]!, ...argExprs.slice(2)]`
-          // (src/evaluator/calls/helper.ts:956). Leaving it in shifted every
+          //. Leaving it in shifted every
           // parameter association by one (and pushed the type argument into
           // the emitted C call), so `container.map(generic(B), f)` never
           // type-checked (tests/higher_kinded_types.test.yo:91).
@@ -5101,7 +5101,7 @@ try_to_call_function_with_arguments :: (
       );
       // Parallel to call_param_defaults: per-param `is_compile_time_only` flags,
       // so the comptime→runtime argument-type conversion (Step 4) can gate on
-      // the parameter's comptime modifier exactly as TS does (helper.ts:508).
+      // the parameter's comptime modifier exactly as TS does.
       call_param_comptime := match(
         func_val,
         .Some(fvv3) => match(
@@ -5112,7 +5112,7 @@ try_to_call_function_with_arguments :: (
         .None => ArrayList(bool).new()
       );
       // Parallel to call_param_comptime: the per-param `= <value>` ASSIGNED
-      // values, so Step 5b can reject a mismatching argument (helper.ts:481).
+      // values, so Step 5b can reject a mismatching argument.
       call_param_assigned := match(
         func_val,
         .Some(fvv4) => match(
@@ -5286,7 +5286,7 @@ try_to_call_function_with_arguments :: (
         });
       };
       // Self-slot marker exclusion (TS fidelity): TS recreates NO markers —
-      // its callee env EXTENDS the method's definition env (helper.ts:1013),
+      // its callee env EXTENDS the method's definition env,
       // which holds self-markers ONLY for type variables the signature
       // itself declared. A SomeT arriving exclusively through the
       // SUBSTITUTED self param (the receiver record embeds the PREVIOUS
@@ -5483,7 +5483,7 @@ try_to_call_function_with_arguments :: (
               // where(Self <: Iterator(Item := A))) -> IterTake(Self)`;
               // `get_all_some_types(func_type)` returns NOTHING for it). TS
               // still binds a TypeVal: `createUnknownValue` PROMOTES every
-              // Type-level-0 slot to a fresh SomeType (value.ts:547-560), so
+              // Type-level-0 slot to a fresh SomeType, so
               // its trait-application eval accepts `Iterator(Item := A)` and
               // the constraint synthesis then binds A from the receiver's
               // impl. yo-self's UnknownVal placeholder made that eval throw
@@ -5554,7 +5554,7 @@ try_to_call_function_with_arguments :: (
         );
         // This call now OWNS `flabel`: drop any resolution a PREVIOUS call left
         // for the same signature SomeT in the durable id registry. TS mints a
-        // fresh SomeType per call for every forall binder (helper.ts:1047-1053),
+        // fresh SomeType per call for every forall binder,
         // so a stale `B := i32` simply cannot exist there; yo-self reuses the one
         // signature instance, and `_resolve_some_types_deep`'s registry fallback
         // then silently pre-resolved the NEXT call's `Impl(Fn() -> B)` parameter
@@ -5865,7 +5865,7 @@ try_to_call_function_with_arguments :: (
                 // rebound (a NEW last binding) to a TypeVal of its signature
                 // SomeT — the state TS's calleeEnv is ALWAYS in: TS
                 // `createUnknownValue` returns `TypeVal(SomeType)` for a
-                // Type-typed forall (value.ts:547-560), which is why TS's
+                // Type-typed forall, which is why TS's
                 // trait-application eval accepts `Iterator(Item := A)` with
                 // `A` unresolved (it stores the SomeT and the constraint
                 // synthesis then binds it). Without this, the eval throws
@@ -6149,7 +6149,7 @@ try_to_call_function_with_arguments :: (
         // Omitted optional parameter (no corresponding argument): clone the
         // recorded default VALUE EXPRESSION and route it through the SAME
         // matching flow as an explicit argument. In TS the omitted branch
-        // (helper.ts:323-344) merges into the shared post-processing after
+        // merges into the shared post-processing after
         // evaluating the default — comptime→runtime conversion, generic
         // synthesis into callee_env, compatibility check, and the param
         // binding all run for defaults too. Skipping them left the generic
@@ -6157,7 +6157,7 @@ try_to_call_function_with_arguments :: (
         // `assert(x)`: `panic(msg)` then specialized at an unresolved SomeT
         // → unemitted C fn → clang undeclared-function). Differences from an
         // explicit arg, mirroring TS: the default is evaluated in the CALLEE
-        // env (helper.ts:330-336), the caller env is NOT updated from the
+        // env, the caller env is NOT updated from the
         // match result, and the move-ownership step never runs (TS runs it
         // only in the explicit-arg branch) — pass param_is_owning=false.
         if(pi >= n_args, {
@@ -6459,7 +6459,7 @@ try_to_call_function_with_arguments :: (
                           ex_res = lookup_some_resolved_concrete(ex_sid);
                         });
                         // TS gates the write-back on the type variable carrying NO
-                        // trait constraints (helper.ts:1480-1482) — a constrained
+                        // trait constraints — a constrained
                         // `Impl(...)` wrapper must keep its SomeT binding.
                         wb_plain = (ex_rtt.len() == usize(0));
                         match(
@@ -6505,7 +6505,7 @@ try_to_call_function_with_arguments :: (
       // ----------------------------------------------------------------
       // Step 8b: Re-apply where-clause constraints now that parameters are
       // bound. Mirrors helper.ts:1493-1506 (applyWhereClauseConstraints) →
-      // validateSingleTraitOnConcreteType (types/function.ts:974): every
+      // validateSingleTraitOnConcreteType: every
       // constraint whose LHS param is now bound to a CONCRETE type must be
       // validated — `Mutex(NonSendObj)` against `where(T <: Send)` is
       // rejected here.
@@ -6675,7 +6675,7 @@ try_to_call_function_with_arguments :: (
       // return like `-> _ArrayIter(T, N)`, whose def-era nominal cannot be
       // re-stamped by substitution), re-evaluate the declared return-type
       // EXPRESSION in the bound callee env. TS's
-      // evaluateFunctionReturnTypeAgain IS an expr re-eval (helper.ts:1282)
+      // evaluateFunctionReturnTypeAgain IS an expr re-eval
       // — it re-invokes the comptime type constructor with the bound N
       // value; yo-self's type-level walk cannot, so the rte side-table
       // supplies the expr (same mechanism as the create_specialized mint).
@@ -7057,7 +7057,7 @@ try_to_call_function_with_arguments :: (
         .None => func_type
       );
       callee_own_generic := _func_type_has_runtime_some_param(callee_own_type);
-      // TS `isFunctionTypeGeneric` (guards.ts:457) ALSO counts COMPTIME
+      // TS `isFunctionTypeGeneric` ALSO counts COMPTIME
       // PARAMS (`parameters.some(p => p.isCompileTimeOnly)`), excluding only
       // comptime-RETURNING functions (those are CTFE'd, guards.ts:462-464).
       // A trait-impl method like `try_into : (fn(self : Self,

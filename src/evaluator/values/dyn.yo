@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
 /// `Box(...)` name (stamped in comptime_fn.yo) so is_boxed_type recognises it.
 /// Construct `Box(inner_type)` by calling the prelude `Box` comptime
 /// type-constructor with `V` pre-bound to inner_type in the callee env. Mirrors
-/// TS `createBoxedType` (dyn.ts:62-105). evaluate_comptime_fn_call evals the body
+/// TS `createBoxedType`. evaluate_comptime_fn_call evals the body
 /// in the passed callee_env and does NOT bind params, so V must be pre-bound.
 _create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))({
   vars := get_variables_from_env(env, String.from("Box"));
@@ -103,7 +103,7 @@ _create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalC
       // failed is_boxed_type and the boxed-dyn path registered the impl
       // against the Box pointer itself (dyn_dispatch_autobox_value printed
       // a blank instead of 'Q'). TS stamps ALL comptime-fn results from
-      // funcName (comptime-fn.ts:261-265) and cannot reach this state.
+      // funcName and cannot reach this state.
       b_callee_tok := synthetic_token(String.from("Box"), cenv.module_path);
       b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), box_ft, bfv, bav, env, cenv, ctx, exn);
@@ -652,7 +652,7 @@ evaluate_dyn_value :: (
     // every `exn.throw(dyn(format_error_message(...)))` (the pre-existing
     // stage-2 startup heap corruption; see
     // issues/fixed/yo-self-dyn-throw-double-drop.md; repro /tmp/dd.yo). Mirrors TS
-    // `setExprAsNeedsToCallDup(finalValueExpr)` (values/dyn.ts:321).
+    // `setExprAsNeedsToCallDup(finalValueExpr)`.
     set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn);
     rt_args_ne := ArrayList(AstExpr).new();
     rt_args_ne.push(ne_final_expr);
