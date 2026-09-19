@@ -96,3 +96,48 @@ mutable cell state diverging by reader — the same disease class as the
 closure-F slot repairs in type_key.yo's `_tk_resolve_arg_slot` comment.
 Start: impl.yo's try_match_generic_impl slot walk (~lines 910–1350) vs
 type_key.yo's `_tk_resolve_arg_slot`.
+
+## ROOT CAUSE FOUND 2026-09-19: shared signature-SomeT slots + the global resolution table
+
+One level deeper than the SomeT-cell hypothesis, and it is the disease
+`expr_info.yo`'s `unregister_some_resolved_concrete` comment already names:
+"yo-self reuses the ONE signature instance, so one call's `B := i32` can
+never be seen by the next" — except here it CAN, because the value was
+STORED. The chain, measured with the [fmg-get]/[rfb-bound]/[unify-struct]
+probes on the minimal pair:
+
+1. The warm registry's stored `GenericImplEntry` instances carry
+   UNRESOLVED type-arg slots (the receiver render shows
+   `forall_types:R#struct_r37c4_n4` etc. — SomeT-slot placeholders, not
+   the concrete types a cold process stores).
+2. Those slots' SomeT ids belong to SHARED signature instances; the global
+   `g_some_resolved_concrete` table is LAST-WRITE-WINS keyed by id.
+3. doc/model's earlier pass (doc_render_markdown's batch) registered ITS
+   resolutions over those same ids (`T := ArrayList(DocParam)`,
+   `T := DocVariant`, …).
+4. doc_stability's warm dispatch of `.get` on the registry's
+   `ArrayList(GenericImplEntry)` synthesizes pattern-vs-receiver over
+   those poisoned slots → binds `T := DocVariant` (measured:
+   `[fmg-get] … spec_key=fn(self : ArrayList(DocVariant), index : usize)
+   -> Option(T)` for a receiver that renders as
+   `ArrayList(GenericImplEntry)`) → the spec result unifies against the
+   `GenericImplEntry` annotation → the fatal throw.
+
+Two hardening layers already landed with this diagnosis (both
+behavior-preserving cold, verified): the env-lookup fast path's concrete
+branch now requires the def frame to hold the LIVE (last) binding of the
+name (types/env_lookup.yo), and `try_match_generic_impl`'s binding
+extraction is frame-scoped to the match's own synthesis frames
+(`_resolve_one_forall_binding_from`) — TS's impl.ts:2243 scratch-frame
+scoping. They close the INHERITED-env channels but cannot fix slots the
+SYNTHESIS ITSELF reads through the poisoned table.
+
+**The remaining fix** is slot identity for stored values: either
+(a) the registry stores only FULLY-RESOLVED instances (deep-resolve at
+registration — but the warm pass is what leaves them unresolved, so this
+is really "resolve before store, after any call"), or (b) per-call SomeT
+minting for signature binders (TS parity — the big one), or (c)
+generation-keying `g_some_resolved_concrete` so a stale registration can't
+satisfy a later read. (c) is the smallest sound step: stamp registrations
+with the match/eval generation and ignore reads from a later generation
+unless re-registered.
