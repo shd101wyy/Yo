@@ -1,0 +1,20 @@
+// The POSITIVE canary for ghost_fn_contracted_runtime_call: the same
+// contracted ghost fn, used the LEGAL way. Rejecting a runtime call must not
+// close the ghost-context path, so this file must keep verifying — both the
+// lemma (proved from its own requires) and its caller.
+// issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md
+pragma(Pragma.Verify);
+
+g :: ghost_fn(
+  (fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
+    y := x;
+    y
+  })
+);
+
+use_it :: (
+  fn(n : i32, requires(n > i32(0)), ensures(result > i32(0))) -> (result : i32)
+)({
+  ghost(v := g(n));
+  n
+});
