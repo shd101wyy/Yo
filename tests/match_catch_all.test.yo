@@ -1,0 +1,79 @@
+//! Identifier catch-alls and constant patterns
+//! (plans/MATCH_PATTERN_MATCHING.md §4.3): a bare identifier binds the
+//! scrutinee unless it names a compile-time constant in scope, in which case
+//! it compares; enum constants (`RED`, `Color.Red`) lower to tag tests.
+{ assert } :: import("std/assert");
+import("std/fmt");
+Color :: enum(Red, Green, Blue);
+TEN :: i32(10);
+RED :: Color.Red;
+test("an identifier arm binds the scrutinee", {
+  f :: (fn(n : i32) -> i32)(
+    match(
+      n,
+      0 => i32(100),
+      other => (other * i32(2))
+    )
+  );
+  assert(f(0) == i32(100));
+  assert(f(21) == i32(42));
+});
+test("an identifier arm binds an enum scrutinee", {
+  g :: (fn(c : Color) -> bool)(
+    match(
+      c,
+      .Red => true,
+      whole => match(
+        whole,
+        .Green => false,
+        _ => false
+      )
+    )
+  );
+  assert(g(Color.Red));
+  assert(!g(Color.Blue));
+});
+test("a compile-time constant in scope compares instead of binding", {
+  h :: (fn(n : i32) -> i32)(
+    match(
+      n,
+      TEN => i32(1),
+      _ => i32(0)
+    )
+  );
+  assert(h(10) == i32(1));
+  assert(h(11) == i32(0));
+});
+test("enum constants are variant patterns", {
+  k :: (fn(c : Color) -> i32)(
+    match(
+      c,
+      RED => i32(1),
+      Color.Green => i32(2),
+      .Blue => i32(3)
+    )
+  );
+  assert(k(Color.Red) == i32(1));
+  assert(k(Color.Green) == i32(2));
+  assert(k(Color.Blue) == i32(3));
+});
+test("a typed literal call is a constant pattern", {
+  m :: (fn(n : i64) -> i32)(
+    match(
+      n,
+      i64(5) => i32(1),
+      _ => i32(0)
+    )
+  );
+  assert(m(5) == i32(1));
+  assert(m(6) == i32(0));
+});
+test("catch-all on a compile-time scrutinee", {
+  K :: i32(7);
+  r :: match(
+    K,
+    0 => i32(0),
+    v => (v + i32(1))
+  );
+  assert(r == i32(8));
+});

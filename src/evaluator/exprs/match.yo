@@ -525,8 +525,11 @@ evaluate_match :: (
     match(
       guard_ast,
       .Some(g) => {
+        // Evaluated WITHOUT an expected type: a non-bool guard must reach the
+        // type check below with its own type, not fail inside the operator
+        // dispatch against an expected `bool`.
         old_expected_g := ctx.expected_type;
-        ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : env));
+        ctx.expected_type = Option(ExpectedTypeCtx).None;
         evaluated_g := evaluate_expression(g, env, ctx);
         ctx.expected_type = old_expected_g;
         match(

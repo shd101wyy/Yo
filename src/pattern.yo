@@ -1067,6 +1067,16 @@ match_missing_witness :: (fn(arms : ArrayList(Arm), scrutinee_ty : TypeValue) ->
 /// one by one so a partly-redundant or-pattern is reported too.
 arm_is_unreachable :: (fn(arms : ArrayList(Arm), i : usize, scrutinee_ty : TypeValue) -> bool)({
   arm := match(arms.get(i), .Some(a) => a, .None => return(false));
+  // A TRAILING catch-all (`_` or a binding, last arm, no guard) after
+  // complete coverage is tolerated, not reported: it is the defensive idiom
+  // (`.InvalidUtf8(c) => …, _ => …` over a one-variant enum) and costs
+  // nothing. Every other redundant arm — a duplicate variant or literal, an
+  // arm AFTER the catch-all — is an error.
+  if(((i + usize(1)) == arms.len()) && arm.guard.is_none(), {
+    if(match(arm.pattern, .Wildcard => true, .Bind(_, _) => true, _ => false), {
+      return(false);
+    });
+  });
   rows := _coverage_rows(arms, i);
   tys := ArrayList(TypeValue).new();
   tys.push(scrutinee_ty);

@@ -1,0 +1,82 @@
+//! Match guards (plans/MATCH_PATTERN_MATCHING.md P3): `(p && (g)) => body`
+//! runs the arm when `p` matches AND `g` — evaluated with `p`'s bindings in
+//! scope — is true; a guarded arm never counts toward exhaustiveness.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+import("std/fmt");
+test("a guard sees the pattern's bindings", {
+  classify :: (fn(o : Option(i32)) -> i32)(
+    match(
+      o,
+      (.Some(v) && (v > i32(100))) => i32(2),
+      (.Some(v) && (v > i32(10))) => i32(1),
+      .Some(_) => i32(0),
+      .None => i32(-1)
+    )
+  );
+  assert(classify(Option(i32).Some(500)) == i32(2));
+  assert(classify(Option(i32).Some(50)) == i32(1));
+  assert(classify(Option(i32).Some(5)) == i32(0));
+  assert(classify(Option(i32).None) == i32(-1));
+});
+test("a guard on a wildcard and on a catch-all", {
+  sign :: (fn(n : i32) -> i32)(
+    match(
+      n,
+      (_ && (n < i32(0))) => i32(-1),
+      (v && (v == i32(0))) => i32(0),
+      _ => i32(1)
+    )
+  );
+  assert(sign(-3) == i32(-1));
+  assert(sign(0) == i32(0));
+  assert(sign(9) == i32(1));
+});
+test("a guard may read an outer local", {
+  limit := i32(10);
+  over :: (fn(n : i32, lim : i32) -> bool)(
+    match(
+      n,
+      (v && (v > lim)) => true,
+      _ => false
+    )
+  );
+  assert(over(11, limit));
+  assert(!over(10, limit));
+});
+test("a guarded arm on a nested pattern", {
+  f :: (fn(o : Option(Option(i32))) -> i32)(
+    match(
+      o,
+      (.Some(.Some(v)) && (v == i32(7))) => i32(70),
+      .Some(.Some(v)) => v,
+      .Some(.None) => i32(-1),
+      .None => i32(-2)
+    )
+  );
+  assert(f(Option(Option(i32)).Some(Option(i32).Some(7))) == i32(70));
+  assert(f(Option(Option(i32)).Some(Option(i32).Some(8))) == i32(8));
+  assert(f(Option(Option(i32)).Some(Option(i32).None)) == i32(-1));
+});
+test("a guard over a reference-semantics binding", {
+  long_name :: (fn(o : Option(String)) -> bool)(
+    match(
+      o,
+      (.Some(s) && (s.len() > usize(3))) => true,
+      _ => false
+    )
+  );
+  assert(long_name(Option(String).Some(`hello`)));
+  assert(!long_name(Option(String).Some(`hi`)));
+  assert(!long_name(Option(String).None));
+});
+test("guards on a compile-time scrutinee fold", {
+  K :: Option(i32).Some(500);
+  r :: match(
+    K,
+    (.Some(v) && (v > i32(100))) => i32(2),
+    .Some(_) => i32(1),
+    .None => i32(0)
+  );
+  assert(r == i32(2));
+});

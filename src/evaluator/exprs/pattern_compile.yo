@@ -345,16 +345,9 @@ _make_const :: (
     },
     _ => ()
   );
-  if(!are_types_compatible(const_ty, position_ty), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(src),
-          `Pattern type ${type_to_string(const_ty)} is not compatible with scrutinee type ${type_to_string(position_ty)}`
-        )
-      )
-    );
-  });
+  // No type-compatibility pre-check: the synthesized `==` below is the
+  // arbiter, which is what lets a `str` literal match a `String` position
+  // (`impl(String, Eq(str))`) and a user `Eq` impl match its own type.
   subject := _next_subject(pc);
   tok := ast_expr_token(src);
   test := _synth_infix(tok, "==", _synth_atom(tok, TokenKind.Identifier, subject.clone()), src);
@@ -470,7 +463,10 @@ _compile_range :: (
   tok := ast_expr_token(e);
   s_lo := _synth_atom(tok, TokenKind.Identifier, subject.clone());
   s_hi := _synth_atom(tok, TokenKind.Identifier, subject.clone());
-  lower := _synth_infix(tok, "<=", lo, s_lo);
+  // The subject is the LEFT operand of both compares: operator dispatch
+  // keys on the left operand's type, and a literal there selects the
+  // comptime-only impl (issues/an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md).
+  lower := _synth_infix(tok, ">=", s_lo, lo);
   upper := cond(
     inclusive => _synth_infix(tok, "<=", s_hi, hi),
     true => _synth_infix(tok, "<", s_hi, hi)

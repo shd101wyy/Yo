@@ -1,0 +1,64 @@
+//! Whole-value bindings (plans/MATCH_PATTERN_MATCHING.md P3): `(name := p)`
+//! binds the value at the position AND matches `p` against it, at the top
+//! level and inside a payload.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+import("std/fmt");
+Shape :: enum(Circle(r : i32), Square(side : i32), Dot);
+Boxed :: enum(Holds(s : Shape), Nothing);
+test("bind the whole scrutinee while destructuring it", {
+  f :: (fn(s : Shape) -> i32)(
+    match(
+      s,
+      (whole := .Circle(r)) => match(
+        whole,
+        .Circle(r2) => (r + r2),
+        _ => i32(0)
+      ),
+      .Square(side) => side,
+      .Dot => i32(0)
+    )
+  );
+  assert(f(Shape.Circle(4)) == i32(8));
+  assert(f(Shape.Square(3)) == i32(3));
+  assert(f(Shape.Dot) == i32(0));
+});
+test("a whole-value binding inside a payload", {
+  inner_r :: (fn(b : Boxed) -> i32)(
+    match(
+      b,
+      .Holds(inner := .Circle(_)) => match(
+        inner,
+        .Circle(r) => r,
+        _ => i32(-1)
+      ),
+      .Holds(_) => i32(-2),
+      .Nothing => i32(-3)
+    )
+  );
+  assert(inner_r(Boxed.Holds(Shape.Circle(9))) == i32(9));
+  assert(inner_r(Boxed.Holds(Shape.Dot)) == i32(-2));
+  assert(inner_r(Boxed.Nothing) == i32(-3));
+});
+test("a whole-value binding over a literal", {
+  g :: (fn(n : i32) -> i32)(
+    match(
+      n,
+      (z := 0) => (z + i32(100)),
+      other => other
+    )
+  );
+  assert(g(0) == i32(100));
+  assert(g(5) == i32(5));
+});
+test("whole-value binding of a reference-semantics payload", {
+  h :: (fn(o : Option(String)) -> usize)(
+    match(
+      o,
+      (all := .Some(s)) => (s.len() + match(all, .Some(t) => t.len(), .None => usize(0))),
+      .None => usize(0)
+    )
+  );
+  assert(h(Option(String).Some(`abc`)) == usize(6));
+  assert(h(Option(String).None) == usize(0));
+});

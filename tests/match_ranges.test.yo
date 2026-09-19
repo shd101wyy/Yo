@@ -1,0 +1,71 @@
+//! Range patterns (plans/MATCH_PATTERN_MATCHING.md P3): `(lo..hi)` is
+//! half-open, `(lo..=hi)` inclusive, bounds are compile-time constants, and
+//! an integer scrutinee still needs a wildcard or binding arm.
+{ assert } :: import("std/assert");
+import("std/fmt");
+test("half-open and inclusive ranges", {
+  bucket :: (fn(n : i32) -> i32)(
+    match(
+      n,
+      (0 .. 10) => i32(1),
+      (10 ..= 19) => i32(2),
+      _ => i32(3)
+    )
+  );
+  assert(bucket(0) == i32(1));
+  assert(bucket(9) == i32(1));
+  assert(bucket(10) == i32(2));
+  assert(bucket(19) == i32(2));
+  assert(bucket(20) == i32(3));
+  assert(bucket(-1) == i32(3));
+});
+test("negative bounds", {
+  sign :: (fn(n : i32) -> i32)(
+    match(
+      n,
+      (-100 .. 0) => i32(-1),
+      0 => i32(0),
+      other => (other / other)
+    )
+  );
+  assert(sign(-5) == i32(-1));
+  assert(sign(0) == i32(0));
+  assert(sign(7) == i32(1));
+});
+test("a range on a u8 payload", {
+  Byte :: enum(Of(b : u8), Nope);
+  kind :: (fn(x : Byte) -> i32)(
+    match(
+      x,
+      .Of(48 ..= 57) => i32(1),
+      .Of(65 ..= 90) => i32(2),
+      .Of(_) => i32(0),
+      .Nope => i32(-1)
+    )
+  );
+  assert(kind(Byte.Of(u8(50))) == i32(1));
+  assert(kind(Byte.Of(u8(70))) == i32(2));
+  assert(kind(Byte.Of(u8(200))) == i32(0));
+  assert(kind(Byte.Nope) == i32(-1));
+});
+test("a range with a whole-value binding", {
+  clamp :: (fn(n : i32) -> i32)(
+    match(
+      n,
+      (v := (1 ..= 5)) => (v * i32(10)),
+      _ => i32(0)
+    )
+  );
+  assert(clamp(3) == i32(30));
+  assert(clamp(6) == i32(0));
+});
+test("ranges on a compile-time scrutinee", {
+  K :: i32(42);
+  r :: match(
+    K,
+    (0 .. 10) => i32(1),
+    (40 .. 50) => i32(2),
+    _ => i32(3)
+  );
+  assert(r == i32(2));
+});

@@ -1,0 +1,81 @@
+//! Or-patterns on variants and in nested positions
+//! (plans/MATCH_PATTERN_MATCHING.md P2): `(.A | .B)`, alternatives that bind
+//! the same name, and or-patterns inside a payload.
+{ assert } :: import("std/assert");
+import("std/fmt");
+Color :: enum(Red, Green, Blue, Black);
+Shape :: enum(Square(side : i32), Circle(r : i32), Dot);
+Wrapped :: enum(Some(c : Color), Nothing);
+test("or-pattern over fieldless variants", {
+  warm :: (fn(c : Color) -> bool)(
+    match(
+      c,
+      (.Red | .Green) => true,
+      (.Blue | .Black) => false
+    )
+  );
+  assert(warm(Color.Red));
+  assert(warm(Color.Green));
+  assert(!warm(Color.Blue));
+  assert(!warm(Color.Black));
+});
+test("or-pattern alternatives bind the same name", {
+  size :: (fn(s : Shape) -> i32)(
+    match(
+      s,
+      (.Square(n) | .Circle(n)) => n,
+      .Dot => i32(0)
+    )
+  );
+  assert(size(Shape.Square(4)) == i32(4));
+  assert(size(Shape.Circle(9)) == i32(9));
+  assert(size(Shape.Dot) == i32(0));
+});
+test("three alternatives and a wildcard", {
+  code :: (fn(c : Color) -> i32)(
+    match(
+      c,
+      (.Red | .Green | .Blue) => i32(1),
+      _ => i32(0)
+    )
+  );
+  assert(code(Color.Red) == i32(1));
+  assert(code(Color.Blue) == i32(1));
+  assert(code(Color.Black) == i32(0));
+});
+test("or-pattern inside a payload", {
+  primary :: (fn(w : Wrapped) -> bool)(
+    match(
+      w,
+      .Some(.Red | .Green | .Blue) => true,
+      .Some(.Black) => false,
+      .Nothing => false
+    )
+  );
+  assert(primary(Wrapped.Some(Color.Red)));
+  assert(!primary(Wrapped.Some(Color.Black)));
+  assert(!primary(Wrapped.Nothing));
+});
+test("or-pattern on a compile-time scrutinee", {
+  K :: Color.Green;
+  r :: match(
+    K,
+    (.Red | .Green) => i32(1),
+    _ => i32(2)
+  );
+  assert(r == i32(1));
+});
+test("or-of-literals on an integer payload", {
+  small :: (fn(s : Shape) -> bool)(
+    match(
+      s,
+      .Square(1 | 2 | 3) => true,
+      .Square(_) => false,
+      .Circle(_) => false,
+      .Dot => false
+    )
+  );
+  assert(small(Shape.Square(2)));
+  assert(!small(Shape.Square(7)));
+  assert(!small(Shape.Circle(1)));
+});
