@@ -487,6 +487,31 @@ law proves); cheatsheet + docs updated.
 
 ### B2 — Lemmas: contracted `ghost_fn`s verified by induction
 
+> **Task 1 (the probe) is DONE — 2026-09-19. Answer: YES, already registered,
+> so task 4 is CONFIRM, not ADD.** A `ghost_fn` whose signature carries
+> contracts is already a `VerifyTask` and its `ensures` is already discharged
+> as an obligation. Measured with `yo verify --format json`:
+> `ensures`-only (no `requires`) reports **`refuted` with 1 obligation** — the
+> right answer, since `result > 0` is false for `x <= 0` — and adding the
+> matching `requires` flips the same function to **`ok`, 1 obligation proved**.
+> A contracted ghost fn also verifies when used from `ghost(v := g(n))` and
+> from another function's `ensures`, with both the lemma and its caller `ok`.
+>
+> Two things task 4 must still do, which the probe pins down:
+> 1. The report id is **`fn@<file>:<row>`, not `ghost@…`** — today a report
+>    cannot tell a lemma from a runtime function. The prefix is the work.
+> 2. The obligation count is already non-zero, so these functions are NOT
+>    vacuous under B0's `--strict` — no new gate is needed for them.
+>
+> The probe also surfaced a real bug, filed and unfixed:
+> `issues/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md`
+> — a contracted `ghost_fn` called from a **runtime** body reports
+> `Cannot unify incompatible types: "unit" and "i32"` against its own
+> `requires` clause instead of the existing "callable only from ghost context"
+> diagnostic that the *uncontracted* shape produces. B2 makes contracted ghost
+> fns the normal way to write a spec function, so this should be fixed with (or
+> before) task 2.
+
 **Scope.** Dispatch change in the call rule, SMT function symbols +
 definitional unfolding (fuel 1) for contracted spec functions, task
 registration for ghost fns, the `ghost(call)` statement in the walk.

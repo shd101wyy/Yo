@@ -1,0 +1,29 @@
+// Reproducer: issues/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md
+//
+// A ghost_fn whose signature carries contract clauses, called from a RUNTIME
+// body, reports an internal unification error against its OWN `requires`
+// clause instead of the intended "callable only from ghost context" error.
+//
+//   yo check issues/repros/contracted-ghost-fn-runtime-call.yo --std-path ./std
+//
+// Expected: error "a ghost_fn is callable only from ghost context ...",
+//           anchored at the CALL (line 24).
+// Actual:   error "Cannot unify incompatible types: \"unit\" and \"i32\"",
+//           anchored at the DEFINITION's requires clause (line 18).
+//
+// Drop the two clauses from `g` and the intended error appears, so the
+// clauses — not the ghost_fn wrapper alone — are what diverts the path.
+pragma(Pragma.Verify);
+
+g :: ghost_fn((fn(x : i32, requires(x > i32(0)), ensures(result > i32(0))) -> (result : i32))({
+  y := x;
+  y
+}));
+
+use_it :: (fn(n : i32) -> (result : i32))({
+  r := g(n);
+  r
+});
+
+main :: (fn() -> unit)({});
+export(main);
