@@ -503,14 +503,16 @@ law proves); cheatsheet + docs updated.
 > 2. The obligation count is already non-zero, so these functions are NOT
 >    vacuous under B0's `--strict` — no new gate is needed for them.
 >
-> The probe also surfaced a real bug, filed and unfixed:
-> `issues/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md`
-> — a contracted `ghost_fn` called from a **runtime** body reports
+> The probe also surfaced a real bug, since FIXED:
+> `issues/fixed/contracted-ghost-fn-called-from-runtime-reports-a-unify-error.md`
+> — a contracted `ghost_fn` called from a **runtime** body reported
 > `Cannot unify incompatible types: "unit" and "i32"` against its own
-> `requires` clause instead of the existing "callable only from ghost context"
-> diagnostic that the *uncontracted* shape produces. B2 makes contracted ghost
-> fns the normal way to write a spec function, so this should be fixed with (or
-> before) task 2.
+> `requires` clause instead of the "callable only from ghost context"
+> diagnostic the evaluator already had. The guard was never missing: the right
+> error was thrown, the def-time trial swallowed it, and
+> `prepare_callsite_contracts` then ran on the hollow body and raised a
+> derived error that masked it. The fix skips that stash when the trial
+> failed.
 
 **Scope.** Dispatch change in the call rule, SMT function symbols +
 definitional unfolding (fuel 1) for contracted spec functions, task
