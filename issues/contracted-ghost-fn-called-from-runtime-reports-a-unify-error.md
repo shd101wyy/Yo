@@ -105,15 +105,42 @@ operand's type disagrees. Any fix needs a canary for the quiet shape, not just
 the noisy one — a clause whose operands are both parameters must not go green
 for the wrong reason.
 
-The likely mechanism, now narrow enough to check directly, is that the clause
-is evaluated in an environment where `x` is not bound, and the evaluator's
-soft "variable not found" fallback yields a unit-typed unknown rather than
-raising. `wrap_function_body_with_contracts`
-(`src/evaluator/calls/function_type.yo:~1008`) splices each `requires`/`ensures`
-predicate into the body as an `assert(...)`, so the clause is re-evaluated
-somewhere that the ghost path reaches with a different parameter frame than the
-ordinary contracted-function path, which handles the identical clause correctly
-(the non-ghost control passes).
+### The exact line
+
+`src/evaluator/calls/function_type.yo:1318`, building the environment the clauses
+are diagnostic-evaluated in:
+
+```rust
+pv_name := match(param_labels.get(pv_i), .Some(l) => l, .None => String.new());
+pv_ty := match(param_types.get(pv_i), .Some(t) => t, .None => t_unit());
+```
+
+The loop walks `param_labels` but reads the type from `param_types` at the same
+index. **A label with no matching type silently becomes a `unit` parameter.** The
+clauses are then evaluated against that environment
+(`evaluated_for_verify(rp, pred_env, ctx, exn)`, ~L1375) with the hard `exn`
+whenever the function is not deferred, which is how a mis-typed parameter reaches
+the user as a unification failure anchored at their own clause.
+
+`param_types` is **empty, not shifted**, on this path. Measured with a two-parameter
+ghost fn: a clause on the first parameter and a clause on the second each report
+`"unit" and "i32"`, and a clause comparing the two (`requires(a > b)`) reports
+nothing at all and lets the intended ghost-context error through. A shift would have
+made exactly one of the first two pass. The non-ghost control with the identical
+two-parameter signature populates the list correctly.
+
+So there are two defects stacked here, and both want fixing:
+
+1. **`param_types` arrives empty** for a contracted `ghost_fn` reached through a
+   call from non-ghost context. This is the bug proper — find why the list is not
+   populated on this path when the ordinary contracted-function path populates it.
+2. **The `.None => t_unit()` fallback turns that into a wrong answer instead of a
+   complaint.** A named parameter with no recorded type is an internal invariant
+   violation; defaulting it to `unit` is what converts a missing list into a
+   confidently mis-typed clause — loudly when the other operand disagrees, silently
+   when it does not. This is the same shape as the empty-string drop fallback
+   recorded in the pitfalls: a default that makes a missing value look like a
+   legitimate one.
 
 ### A hypothesis that was tested and refuted
 
