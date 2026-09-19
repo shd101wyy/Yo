@@ -361,7 +361,16 @@ EvalContext :: ref(
     /// visible to the whole body evaluation and repurposing it changed
     /// specialization behavior broadly (measured: fs/temp + sys/bufio runtime
     /// regressions).
-    pending_method_self_type : Option(TypeValue)
+    pending_method_self_type : Option(TypeValue),
+    /// One-shot hint for a `name := .Variant(…)` statement whose enum type is
+    /// not knowable from the right-hand side alone: `evaluate_begin_expression`
+    /// looks ahead in the block for the local's first typed use
+    /// (`return(name)`, or `name` as the function body's tail) and stores the
+    /// function's result type here; `evaluate_initialization_assignment`
+    /// consumes it (read + clear) as the RHS expected type when the RHS is a
+    /// bare variant literal (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md
+    /// §2.2). Defaulted so the existing constructors need not change.
+    (local_variant_hint : Option(ExpectedTypeCtx)) ?= Option(ExpectedTypeCtx).None
   )
 );
 /// Create a minimal execution context with sensible defaults.
