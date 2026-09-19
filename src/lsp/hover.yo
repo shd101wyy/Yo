@@ -26,18 +26,112 @@
 //! definition answers nothing for them, and references/rename skip them
 //! (issues/fixed/lsp-member-and-label-atoms-resolve-to-same-named-locals.md).
 { String } :: import("std/string");
+{ StringBuilder } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { Exception } :: import("std/error");
 { Token, TokenKind, is_reserved_operator_name } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
-{ AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_token, ast_expr_to_string } :: import("../expr.yo");
 { ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 { get_variables_from_env, Variable, variable_doc_comment } :: import("../env.yo");
 { type_to_string } :: import("../types/string.yo");
 { EvalValue, value_to_string } :: import("../value.yo");
+// Contract hover (FORMAL_VERIFICATION.md V7 task 1): the fn-value side
+// tables are the FRESH source — hook writes land at every fn-type
+// evaluation, unlike the verify-task registry whose first-wins
+// registration would serve a stale entry from a pre-edit evaluation in
+// this long-lived process.
+{
+  hook_func_requires,
+  hook_func_ensures,
+  hook_func_return_label
+} :: import("../evaluator/values/type_trait_methods.yo");
+{ is_ghost_fn, resolve_verify_mode } :: import("../evaluator/builtins/contracts.yo");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, j_range_in } :: import("./protocol.yo");
+
+/// The contracts + verification-status block for a function-valued hover
+/// (FORMAL_VERIFICATION.md V7 task 1). Sources are deliberately the FRESH
+/// ones: the FuncVal side tables (hook writes land at every fn-type
+/// evaluation) and `resolve_verify_mode` (a pure function of the file's
+/// pragma) — the verify-task registry is first-wins per fn_id and would
+/// serve a stale pre-edit entry in this long-lived process. Per-function
+/// VERDICTS are not hover-computable (they need the solver); refuted
+/// contract obligations already surface as ordinary diagnostics.
+_contract_block :: (
+  fn(val : Option(EvalValue), module_path : String) -> Option(String)
+)({
+  v := match(
+    val,
+    .Some(x) => x,
+    .None => {
+      return(Option(String).None);
+    }
+  );
+  data := match(
+    v,
+    .FuncVal(d, _) => d,
+    _ => {
+      return(Option(String).None);
+    }
+  );
+  fid := data.*.func_id;
+  reqs := hook_func_requires(fid.clone());
+  enss := hook_func_ensures(fid.clone());
+  label := hook_func_return_label(fid.clone());
+  ghost := is_ghost_fn(fid.clone());
+  if((reqs.len() == usize(0)) && ((enss.len() == usize(0)) && !ghost), {
+    return(Option(String).None);
+  });
+  Option(String).Some(_render_contract_block(reqs, enss, label, ghost, resolve_verify_mode(module_path)))
+});
+_render_contract_block :: (
+  fn(
+    reqs : ArrayList(AstExpr),
+    enss : ArrayList(AstExpr),
+    label : Option(String),
+    ghost : bool,
+    mode : String
+  ) -> String
+)({
+  sb := StringBuilder.new();
+  sb.write_string(String.from("\n\n---\n\n**contracts**"));
+  if(ghost, {
+    sb.write_string(String.from(" · ghost_fn (spec-only, never called at runtime)"));
+  });
+  sb.write_string(`\n\nverification mode: ${mode}\n`);
+  (ri : usize) = usize(0);
+  while(ri < reqs.len(), {
+    match(
+      reqs.get(ri),
+      .Some(r) => {
+        sb.write_string(`\n- requires: ${ast_expr_to_string(r)}`);
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  (ei : usize) = usize(0);
+  while(ei < enss.len(), {
+    match(
+      enss.get(ei),
+      .Some(e) => {
+        sb.write_string(`\n- ensures: ${ast_expr_to_string(e)}`);
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  match(
+    label,
+    .Some(l) => {
+      sb.write_string(`\n- returns ${l}`);
+    },
+    .None => ()
+  );
+  sb.to_string()
+});
 
 /// Find the token at (line, character), skipping whitespace and comments.
 _find_token_at :: (
@@ -456,10 +550,12 @@ handle_hover :: (
   (val_opt : Option(String)) = Option(String).None;
   (doc_opt : Option(String)) = Option(String).None;
   (is_comptime : bool) = false;
+  (fn_val : Option(EvalValue)) = Option(EvalValue).None;
   match(
     info_opt,
     .Some(info) => {
       ty_opt = Option(String).Some(type_to_string(info.ty));
+      fn_val = info.value;
       match(
         info.value,
         .Some(v) => {
@@ -485,6 +581,7 @@ handle_hover :: (
               match(
                 sv.value.get(usize(0)),
                 .Some(vv) => {
+                  fn_val = Option(EvalValue).Some(vv);
                   vs2 := value_to_string(vv);
                   if(vs2 != "<runtime value>", {
                     val_opt = Option(String).Some(vs2);
@@ -533,6 +630,14 @@ handle_hover :: (
     doc_opt,
     .Some(dc2) => {
       content = `${content}\n\n---\n\n${dc2}`;
+    },
+    .None => ()
+  );
+  // V7 task 1: contracts + verification status for a function-valued hover.
+  match(
+    _contract_block(fn_val, doc_abs.clone()),
+    .Some(cb) => {
+      content = `${content}${cb}`;
     },
     .None => ()
   );
