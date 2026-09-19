@@ -1,11 +1,9 @@
 //! evaluate_dyn_type — handles `Dyn(trait1, !(trait2), …)` type expressions.
 //!
-//! 1:1 port (simplified) of `src/evaluator/types/dyn.ts`.
-//!
-//! Phase 2aq scope: argument iteration, trait-type validation, negation
+//! Scope: argument iteration, trait-type validation, negation
 //! detection (`!(...)`), duplicate-id detection, and `DynT` construction.
 //!
-//! Deferred to later phases (commented at the relevant call sites):
+//! Deferred (commented at the relevant call sites):
 //!   * self-constraint / supertrait expansion (needs `selfConstraints` field
 //!     on `TraitT`, not yet added)
 //!   * function-name conflict check across required traits (needs trait-field
@@ -232,7 +230,6 @@ evaluate_dyn_type :: (
   // also carry `ToString` so a `dyn(Error)` value satisfies a `Self <:
   // ToString`-constrained parameter. The loop re-reads `.len()` each
   // iteration, so traits appended here are themselves expanded (BFS).
-  // Mirrors `src/evaluator/types/dyn.ts:88-104`.
   qi := usize(0);
   while(qi < required_traits.len(), {
     cur_trait := match(required_traits.get(qi), .Some(t) => t, .None => t_i32());

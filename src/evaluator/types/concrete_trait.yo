@@ -1,7 +1,5 @@
 //! evaluate_concrete_type — handles `Concrete(T)` type expressions.
 //!
-//! 1:1 port of `src/evaluator/types/concrete-trait.ts`.
-//!
 //! `Concrete(T)` creates a marker trait type that specifies the concrete
 //! type for `Impl`. The `is_concrete` field on `TraitT` stores the wrapped
 //! type so downstream consumers (e.g. `Impl(Concrete(T), ...)`) can read it.
@@ -103,8 +101,8 @@ evaluate_concrete_type :: (
     ),
     .None => t_i32() // unreachable
   );
-  // Canonical id format mirrors TS: `concrete_module_${concreteType.id}`.
-  // yo-self does not yet have a uniform `type_id` accessor, so we use
+  // Canonical id format: `concrete_module_${concreteType.id}`. There is no
+  // uniform `type_id` accessor yet, so we use
   // `type_to_string` as a stable identity proxy.
   concrete_id := String.from("concrete_module_");
   concrete_id.push_string(type_to_string(concrete_ty));

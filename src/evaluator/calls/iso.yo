@@ -1,7 +1,5 @@
 //! evaluator/calls/iso — evaluate_iso_type_call and evaluate_iso_value_call.
 //!
-//! 1:1 port of `src/evaluator/calls/iso.ts`.
-//!
 //! `evaluate_iso_type_call`  — evaluates `Iso(Box(T))` to produce the Iso type value.
 //! `evaluate_iso_value_call` — evaluates `Iso(Box(T))(x)` to wrap a value in an Iso.
 //!
@@ -31,8 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// True if struct type `t` has a dereference field labeled `*` (the
-/// pointed-to-value field of a Box/Arc wrapper). Mirrors TS
-/// `childType.fields.find((f) => f.label === "*")`.
+/// pointed-to-value field of a Box/Arc wrapper).
 _struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
   match(
     t,
@@ -141,7 +138,7 @@ evaluate_iso_type_call :: (
   );
   // Phase H: Ban Iso(Arc(T)) — Iso's uniqueness is about the Iso wrapper's
   // rc, not the inner Arc cell. After extract() you get the Arc back; Iso adds
-  // nothing over naked Arc + move-on-spawn. Mirrors iso.ts:62-73.
+  // nothing over naked Arc + move-on-spawn.
   if(is_atomic_reference_struct_type(child_type) && _struct_has_deref_field(child_type), {
     exn.throw(
       dyn(

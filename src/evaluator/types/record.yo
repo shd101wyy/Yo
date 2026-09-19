@@ -1,22 +1,13 @@
 //! evaluate_module_field — evaluates a field in a record type expression.
 //!
-//! TS counterpart: `src/evaluator/types/record.ts` (~420 lines).
-//!
-//! Naming note: TS deleted `src/evaluator/types/module.ts` and created
-//! `src/evaluator/types/record.ts` in the "Unify module and struct" PR
-//! (ca129d0e, 2026-05-08). The pre-refactor `evaluateModuleType` was
-//! replaced by `evaluateRecordField` and friends; `ModuleType` was merged
-//! into `StructType` (`SourceNamespaceType = StructType & { isSourceNamespace
-//! : true }`). The `module(...)` keyword is REMOVED from the language —
+//! Naming note: the `module(...)` keyword is REMOVED from the language —
 //! `evaluate_module_type` was deleted here to match (a bare `module(x : i32)`
-//! is now "Variable \"module\" not found", exactly like TS).
+//! is now "Variable \"module\" not found").
 //!
-//! This file keeps the pre-refactor symbols (`EvalModuleFieldResult`,
-//! `evaluate_module_field`) — symbol-level rename and content sync to the
-//! new TS record-shaped API are tracked as a follow-up content-drift port.
-//! File/directory layout matches the current TS tree.
+//! This file keeps the `EvalModuleFieldResult` / `evaluate_module_field`
+//! symbols.
 //!
-//! Stubs (deferred to Phase 3):
+//! Stubs (deferred):
 //!   - ?= (default value) and =/`:=` (assigned value) module field forms
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
@@ -157,11 +148,11 @@ evaluate_module_field :: (
     ),
     .None => TypeValue.Unit
   );
-  // Set expr info on label_expr (mirrors TS: labelExpr.$ = {...})
+  // Set expr info on label_expr
   label_info := new_expr_info(env_mut, field_type);
   label_info.value = Option(EvalValue).Some(create_unknown_val(field_type));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(label_expr), label_info);
-  // Set expr info on the field expr itself (mirrors TS: expr.$ = { value: VUnit, ... })
+  // Set expr info on the field expr itself
   unit_info := new_expr_info(env_mut, TypeValue.Unit);
   unit_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);

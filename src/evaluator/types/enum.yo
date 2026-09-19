@@ -1,7 +1,5 @@
 //! evaluate_enum_type — evaluates an `enum(...)` type expression.
 //!
-//! 1:1 port of `src/evaluator/types/enum.ts`.
-//!
 //! Builds a `TypeValue.EnumT` with variant names, fields, field labels, and
 //! discriminants. Supports:
 //!   - Simple atom variants:                 `Red`
@@ -10,13 +8,13 @@
 //!   - Variants with fields + discriminant:   `Some(T) = 5`
 //!   - Discriminants are auto-assigned (one more than previous, starting at 0)
 //!
-//! RC + trait derivation (mirrors `struct.yo`):
+//! RC + trait derivation (same scheme as `struct.yo`):
 //!   - Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived by
 //!     `auto_derive_traits_for_enum_type` after variant evaluation.
 //!   - RC functions (___drop/___dup) for reference-semantics enums
 //!     (`ref(enum(…))`) are lowered DIRECTLY in codegen (drop_dup.yo), like ref
-//!     structs — TS's evaluator-side ___drop/___dup method synthesis mutates
-//!     `SelfType.trait.fields`, which yo-self's value-enum TypeValue lacks (see
+//!     structs — the value-enum TypeValue has no trait fields for evaluator-side
+//!     method synthesis to mutate (see
 //!     [[yo-self-typevalue-enum-interning]]); the direct lowering is equivalent.
 //!   - GADT enums are supported (see the GADT detection + gadt_registry below).
 pragma(Pragma.AllowUnsafe);
@@ -355,8 +353,8 @@ evaluate_enum_type :: (
   variant_field_labels := ArrayList(ArrayList(String)).new();
   variant_discriminants := ArrayList(i64).new();
   // GADT: per-variant `-> recur(T…)` return-type args, parallel to variant
-  // order. An empty inner list marks a non-GADT variant. `any_gadt` mirrors
-  // `EnumType.isGadt`. Recorded in the gadt_registry side-table at the end.
+  // order. An empty inner list marks a non-GADT variant; `any_gadt` is the
+  // enum's GADT flag. Recorded in the gadt_registry side-table at the end.
   all_variant_gadt_args := ArrayList(ArrayList(TypeValue)).new();
   (any_gadt : bool) = false;
   // Track the next auto-assigned discriminant.
@@ -369,8 +367,7 @@ evaluate_enum_type :: (
     // GADT detection. Detect `Variant -> recur(T…)` or
     // `(Variant -> recur(T…)) = disc`, capture the `recur(...)` return-type
     // expression in `gadt_ret`, and rewrite `enum_arg` to the bare variant so
-    // the normal variant-building `cond` below runs unchanged. Mirrors
-    // `enum.ts:61-85`.
+    // the normal variant-building `cond` below runs unchanged.
     // -------------------------------------------------------------------
     is_gadt_arrow := ast_expr_is_fn_call_of(enum_arg, "->", Option(usize).Some(usize(2)));
     is_gadt_eq_arrow := if(ast_expr_is_fn_call_of(enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
@@ -391,8 +388,7 @@ evaluate_enum_type :: (
         gadt_ret = Option(AstExpr).Some(match(arrow_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
         arrow_lhs := match(arrow_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
         eq_disc := match(eq_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-        // Reconstruct the `=` node stripped of the `->` wrapper (mirrors TS's
-        // `{...outerFnCall, args:[arrow.args[0], outer.args[1]]}`).
+        // Reconstruct the `=` node stripped of the `->` wrapper.
         enum_arg = match(
           enum_arg,
           .FnCall(fid, ffunc, _, finfix, ftok) => {
@@ -602,7 +598,7 @@ evaluate_enum_type :: (
       }
     );
     // GADT: evaluate the `-> recur(T…)` return-type args for the variant just
-    // built and record them parallel to variant order (mirrors enum.ts:313-366).
+    // built and record them parallel to variant order.
     // A non-GADT variant records an empty list. `ctx.self_type` is still the
     // preliminary enum type, so self-referential return args resolve.
     match(
@@ -654,8 +650,7 @@ evaluate_enum_type :: (
     i = (i + usize(1));
   });
   // GADT: record per-variant return-type args in the side-table (marks this
-  // enum id as a GADT). Mirrors `enumType.isGadt = true` + per-variant
-  // `gadtReturnTypeArgs`. typeConstructorArgs
+  // enum id as a GADT). typeConstructorArgs
   // is populated by the caller/match path.
   if(any_gadt, {
     register_gadt_enum(enum_id.clone(), all_variant_gadt_args);
@@ -703,8 +698,7 @@ evaluate_enum_type :: (
                 });
                 tci = (tci + usize(1));
               });
-              // Only register when every comptime param resolved to a type
-              // (mirrors TS `typeArgs.length === comptimeParams.length`).
+              // Only register when every comptime param resolved to a type.
               n_comptime := usize(0);
               (cti : usize) = usize(0);
               while(cti < fc_ptypes.len(), {
@@ -730,7 +724,6 @@ evaluate_enum_type :: (
     );
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
-  // in TypeScript.
   auto_derive_traits_for_enum_type(enum_id.clone(), variant_fields, env);
   // Definition-time value-cycle rejection
   // (issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md): a plain
@@ -786,8 +779,7 @@ evaluate_enum_type :: (
   // carried ArrayList(<0-variant shell>) and downstream dispatch/unify
   // failed (std/encoding/json.yo's `at`). Replace one level here; deeper
   // self-nesting resolves through the enum-final registry
-  // (resolve_enum_shell). TS needs no patch — its Self IS the same
-  // mutable object.
+  // (resolve_enum_shell).
   patched_fields := ArrayList(ArrayList(TypeValue)).new();
   (pf_i : usize) = usize(0);
   while(pf_i < variant_fields.len(), {
@@ -818,8 +810,8 @@ evaluate_enum_type :: (
   register_enum_final(shell_id.clone(), enum_ty);
   // Validate the enum can exist in at least ONE evaluation context — a
   // variant with comptime-only fields alongside one with runtime-only
-  // fields has empty availability. TS runs this at the same point
-  //; unported, the invalid definition was ACCEPTED and
+  // fields has empty availability. Without this check the invalid
+  // definition was ACCEPTED and
   // comptime_expect_error's no-error check hollowed the arm (basic arm 24,
   // MixedResult). Structural scan over ALL variant fields — the enum's
   // availability is the intersection of its variants'.

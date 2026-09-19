@@ -1,7 +1,5 @@
 //! evaluate_trait_type — evaluates `trait(...)` type expressions.
 //!
-//! 1:1 port of `src/evaluator/types/trait.ts` (Phase 2az).
-//!
 //! Key functions:
 //!   - `_get_or_create_some_ty_for_trait` — resolves or creates a SomeType for a where-clause LHS
 //!   - `_apply_single_constraint_for_trait` — applies one where-clause constraint (for retry)
@@ -9,13 +7,13 @@
 //!   - `_evaluate_trait_field` — evaluates one trait field expression
 //!   - `evaluate_trait_type` — main entry point (exported)
 //!
-//! Phase 2az known stubs / skips:
-//!   - `selfType.trait = traitType` skipped — SomeT has no `trait` field in yo-self
-//!   - `attachTraitToReceiverType` for Runtime trait skipped
-//!   - `findSomeTypeMissingComptimeConstraint` RETURN-side check ported (TS
-//!     trait.ts:1074-1102, after the pending-constraint retry); the PARAMETER
-//!     side is still skipped — trait-field fn types do
-//!     not register per-param comptime flags
+//! Known stubs / skips:
+//!   - no `selfType.trait` back-link — SomeT has no `trait` field
+//!   - attaching the trait to the receiver type for Runtime traits skipped
+//!   - the comptime-constraint check on trait-field fn types runs on the
+//!     RETURN side only (after the pending-constraint retry); the PARAMETER
+//!     side is still skipped — trait-field fn types do not register
+//!     per-param comptime flags
 //!   - Function parameter annotation validation skipped (no exprs stored in TraitT fields)
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
@@ -189,8 +187,7 @@ _get_or_create_some_ty_for_trait :: (
   // Non-atom LHS: evaluate and extract SomeType. Use the *raw* evaluator
   // entry point so any throw propagates to the caller's `exn` instead of
   // panicking via `_evaluate_expression_wrapper`. This lets the trait
-  // retry path swallow failures with a local handler (mirrors TS's
-  // try/catch around `getOrCreateSomeTypeForTraitWhereClause`).
+  // retry path swallow failures with a local handler.
   old_self_type := ctx.self_type;
   ctx.self_type = .Some(self_type);
   evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut, ctx, exn);
@@ -243,14 +240,12 @@ _get_or_create_some_ty_for_trait :: (
   _SomeTyResolvedResult(lhs_tv, false)
 });
 /// Check whether a where-clause LHS expression is a property access of the
-/// form `Self.X` (or any other compound expression that the current
-/// bootstrap evaluator cannot resolve to a SomeT inside a trait body
+/// form `Self.X` (or any other compound expression that the evaluator
+/// cannot resolve to a SomeT inside a trait body
 /// because the referenced field isn't bound yet). When `collect_pending`
 /// is true and the answer is yes, the calling loop defers the constraint
-/// for retry. Mirrors the TS `try/catch` around
-/// `getOrCreateSomeTypeForTraitWhereClause` in `trait.ts:317`, simplified
-/// to a syntactic check because the bootstrap can't yet catch the throw
-/// (the eval path goes through the panic-wrapper).
+/// for retry. A syntactic check rather than catching the throw, because
+/// the eval path goes through the panic-wrapper.
 _lhs_should_defer_for_pending :: (
   fn(lhs_expr : AstExpr) -> bool
 )({
@@ -399,13 +394,10 @@ _parse_trait_where_clauses :: (
     // local exception handler so the constraint can be retried later
     // (e.g. `Self.Output <: Comptime` references the trait's own Output
     // field which isn't bound until the body finishes processing).
-    // Mirrors TS `trait.ts:317` try/catch around
-    // `getOrCreateSomeTypeForTraitWhereClause`.
     // When collecting pending constraints (first pass through a trait
     // body), defer any non-atom LHS to retry. Examples that match this:
     //   * `Self.Output <: Comptime` — Output field not yet bound.
     //   * `Vec(T).Item <: Eq` — Item assoc-type forward reference.
-    // Mirrors TS `trait.ts:317` (try/catch + pending list).
     if(collect_pending && _lhs_should_defer_for_pending(lhs_expr), {
       pending_traits.push(_PendingTraitConstraint(lhs_expr, rhs_expr, constraint_expr));
       continue;
@@ -539,9 +531,8 @@ _parse_trait_where_clauses :: (
 /// Apply a list of where-clause constraints but swallow any throws.
 /// Used by the trait-body retry pass so a failed associated-type
 /// constraint (e.g. `Self.Output` referencing a trait field the
-/// bootstrap evaluator can't resolve to a SomeT) doesn't abort the
-/// whole trait definition. Mirrors the "drop on failure" leniency in
-/// TS where pending constraints can fail silently.
+/// evaluator can't resolve to a SomeT) doesn't abort the
+/// whole trait definition — pending constraints fail silently.
 ///
 /// Lives in its own function because Yo effect-handler bodies cannot
 /// capture outer runtime vars — wrapping the call this way lets the
@@ -1073,7 +1064,7 @@ evaluate_trait_type :: (
   });
   (env_mut : Environment) = env;
   // Extract trait name from context if available
-  // (yo-self: trait name is set externally via variable binding, not embedded in the trait expr)
+  // (trait name is set externally via variable binding, not embedded in the trait expr)
   trait_name_str := String.from("");
   // Build the shared ArrayLists that will form the TraitT value
   // Phase 2: occurrence-indexed from the declaration's source position —
@@ -1107,7 +1098,7 @@ evaluate_trait_type :: (
   top_frame := env_mut.frames.len();
   self_frame_level := if(top_frame > usize(0), top_frame - usize(1), usize(0));
   self_type := t_some_t(String.from("Self"), self_frame_level);
-  // Note: selfType.trait = traitType is skipped — SomeT has no `trait` field in yo-self.
+  // Note: no selfType.trait back-link — SomeT has no `trait` field.
   // Find where clause exprs (last arg, if it's a where(...) call)
   (where_clause_exprs_opt : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
   if(args.len() > usize(0), {
@@ -1282,10 +1273,9 @@ evaluate_trait_type :: (
   // evaluated. The retry runs through `_drop_where_constraint_failures`
   // (a unit-returning wrapper with a local Exception handler) so
   // constraints that still can't resolve — typically because the LHS
-  // references an associated type the bootstrap evaluator can't yet
+  // references an associated type the evaluator can't yet
   // produce as a SomeT (e.g. `Self.Output`) — are silently dropped
-  // rather than aborting the whole trait. Mirrors TS's lenient
-  // pending-constraint flow. Tracked in `issues/yo-self-evaluator-gaps.md`
+  // rather than aborting the whole trait. Tracked in `issues/yo-self-evaluator-gaps.md`
   // §1 (trait-checking).
   if(pending_constraints.len() > usize(0), {
     retry_list := ArrayList(AstExpr).new();
@@ -1314,13 +1304,12 @@ evaluate_trait_type :: (
     ctx.self_type = old_self_type;
     ctx.self_trait_type = old_self_trait_type;
   });
-  // Validate comptime function types in trait fields. Mirrors TS
-  // trait.ts:1074-1102 — and, like TS, this MUST run after the pending
-  // where-clause retry above: `Self.Output <: Comptime` lands on the assoc
-  // SomeT only then (and only reaches the field types at all because
-  // `Self.Output` resolves to the ONE env-bound assoc SomeT — see the
-  // property_access.yo assoc branch). Only the RETURN side is ported; the
-  // parameter side needs the per-param comptime side
+  // Validate comptime function types in trait fields. This MUST run after
+  // the pending where-clause retry above: `Self.Output <: Comptime` lands
+  // on the assoc SomeT only then (and only reaches the field types at all
+  // because `Self.Output` resolves to the ONE env-bound assoc SomeT — see
+  // the property_access.yo assoc branch). Only the RETURN side is checked;
+  // the parameter side needs the per-param comptime side
   // table, which trait FIELD fn-types do not register — no known witness.
   (vf_i : usize) = usize(0);
   while(vf_i < field_types.len(), {
@@ -1336,11 +1325,10 @@ evaluate_trait_type :: (
       match(
         vf_ty,
         .Func(_, _, _, _, vf_ret, vf_meta, _) => {
-          // Deep contains-SomeT check: yo-self's `type_contains_some_type` is
+          // Deep contains-SomeT check: `type_contains_some_type` is
           // SHALLOW (bare SomeT / TypeAppT only) — `*(Output)` walks right
-          // past it. TS's typeContainsSomeType recurses; the
-          // deep equivalent here is get_all_some_types (whose collector
-          // descends Pointer/Array/Func/...).
+          // past it. The deep equivalent here is get_all_some_types (whose
+          // collector descends Pointer/Array/Func/...).
           if(vf_meta.*.result_is_comptime_only && (get_all_some_types(vf_ret).len() > usize(0)), {
             match(
               find_some_type_missing_comptime_constraint(vf_ret, env_mut),

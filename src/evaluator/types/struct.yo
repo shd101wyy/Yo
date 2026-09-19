@@ -1,16 +1,9 @@
 //! evaluate_struct_type — evaluates `struct(...)`, `object(...)`, and `newtype(...)` type expressions.
 //!
-//! 1:1 port of `src/evaluator/types/struct.ts`.
-//!
 //! Creates a TypeValue.Struct with the given fields.
 //! `is_reference_semantics` is set for `object`, `is_newtype` for `newtype`,
 //! and `is_atomic_rc` for `atomic object`.
 //! All TypeField metadata is registered in `g_struct_field_registry`.
-//!
-//! Stubs: `addRcFunctionSignaturesToStructType`,
-//!        `autoDeriveTraitsAndAddRcFunctionsForStructType`,
-//!        `beginSendDerivation`, `endSendDerivation`, `typeImplementsSend`
-//! are not yet ported (see plans/archive/BOOTSTRAPPING.md Phase 3).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
@@ -116,13 +109,12 @@ evaluate_struct_type :: (
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
   // RC functions (___drop/___dup) for reference-semantics structs are lowered
   // DIRECTLY in codegen (drop_dup.yo: `is_reference_struct_type` →
-  // `__yo_decr_rc`/`__yo_incr_rc`), exactly as the TS reference does for ref
-  // structs. TS ALSO synthesizes evaluator-side ___drop/___dup
-  // methods (addRcFunctionSignaturesToStructType), but that mutates
-  // `SelfType.trait.fields` — yo-self's TypeValue is a value enum with NO
+  // `__yo_decr_rc`/`__yo_incr_rc`). Evaluator-side ___drop/___dup method
+  // synthesis does not apply: it would need to mutate
+  // `SelfType.trait.fields`, and the TypeValue is a value enum with NO
   // per-type trait-field list (trait methods live in a side-registry, see
-  // [[yo-self-typevalue-enum-interning]]), so the method-synthesis approach
-  // does not apply; the direct codegen lowering has the identical effect.
+  // [[yo-self-typevalue-enum-interning]]); the direct codegen lowering has
+  // the identical effect.
   // Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived AFTER field
   // evaluation by `auto_derive_traits_for_struct_type` (below).
   // Evaluate fields
@@ -213,7 +205,7 @@ evaluate_struct_type :: (
   });
   // Phase H: Ban Arc(Iso(T)) — the `*` field of an atomic object wrapping Iso
   // directly. Arc(Iso) is contradictory: Arc shares, Iso is unique. Transitive
-  // nesting (Arc(MyStruct(_inner: Iso(T)))) stays legal. Mirrors struct.ts:114-125.
+  // nesting (Arc(MyStruct(_inner: Iso(T)))) stays legal.
   if(is_atomic_rc, {
     (deref_idx : Option(usize)) = Option(usize).None;
     (j : usize) = usize(0);
@@ -256,11 +248,11 @@ evaluate_struct_type :: (
       )
     );
   });
-  // Build the final struct in two steps (mirrors enum.yo:663-707): an UNPATCHED
+  // Build the final struct in two steps (same scheme as enum.yo): an UNPATCHED
   // pre-final used as the replacement target, then the real final with the
   // self-shell patched out of the field types one level. Deeper self-nesting
   // resolves through the struct-final registry (resolve_struct_shell) at use
-  // sites. TS needs no patch — its Self IS the same mutable object.
+  // sites.
   pre_final_ty := TypeValue.Struct(
     struct_id.clone(),
     String.from(""),
@@ -303,7 +295,6 @@ evaluate_struct_type :: (
   // get_runtime_struct_fields can filter comptime-only fields (Gap 1).
   register_struct_field_comptime_flags(struct_id.clone(), field_comptime_flags);
   // Auto-derive trait markers (Send, Rc, Acyclic, Comptime, Runtime).
-  // in TypeScript.
   auto_derive_traits_for_struct_type(
     struct_id.clone(),
     runtime_field_types,
@@ -326,9 +317,8 @@ evaluate_struct_type :: (
   });
   // Validate the struct can exist in at least ONE evaluation context —
   // mixed comptime-only + runtime-only fields (`x : comptime_int, y :
-  // Box(i32)`) have empty availability. TS runs this at the same point
-  // (utils.ts:1795 validateTypeAvailability after auto-derive); unported,
-  // the invalid definition was ACCEPTED and comptime_expect_error's
+  // Box(i32)`) have empty availability. Without this check the invalid
+  // definition was ACCEPTED and comptime_expect_error's
   // no-error check hollowed the arm (basic arm 24). Structural field scan
   // (see fields_have_incompatible_contexts) — the registry-based check
   // false-fired on pointer-fielded prelude newtypes.
@@ -351,7 +341,7 @@ evaluate_struct_type :: (
   out_info := new_expr_info(env, meta_ty);
   out_info.value = Option(EvalValue).Some(struct_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-  // Annotate callee (expr.func) with same info (mirrors TypeScript: expr.func.$ = expr.$)
+  // Annotate callee (expr.func) with the same info
   callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
   expr

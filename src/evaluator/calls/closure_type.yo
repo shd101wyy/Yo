@@ -1,7 +1,6 @@
 //! evaluator/calls/closure_type — closure value creation.
 //!
 //! Phase 3 implementation of `try_to_implement_closure_by_fn_module_type`.
-//! 1:1 port of `src/evaluator/calls/closure-type.ts`.
 //!
 //! Given `WrapperType(closureBody)` where `WrapperType` is `SomeT` or `DynT`
 //! containing a `FnTraitT`, this function:
@@ -17,7 +16,7 @@
 //!
 //! Phase 3 simplifications:
 //!   - Where-clause re-application skipped (deferred to Phase 4).
-//!   - No `wrapperType.resolvedConcreteType` mutation (no such field in yo-self).
+//!   - No `wrapperType.resolvedConcreteType` mutation (no such field).
 //!   - No `deferredDupExpressions` / ARC dup (deferred to Phase 4).
 //!   - No `attachTempVariableToExpr` for DynType (deferred to Phase 4).
 pragma(Pragma.AllowUnsafe);
@@ -170,7 +169,7 @@ try_to_implement_closure_by_fn_module_type :: (
         p_var_opt,
         .Some(p_var) => {
           p_var.is_ref = true;
-          // TS: `isReassignable: parameter.isRef` — see the
+          // is_reassignable mirrors is_ref — see the
           // anonymous_function.yo stamping.
           p_var.is_reassignable = true;
         },
@@ -237,13 +236,12 @@ try_to_implement_closure_by_fn_module_type :: (
     // cap_vals
   );
   // Mark this function as a closure so codegen prepends the `void* closure_context`
-  // capture parameter to its C prototype/definition (mirrors FunctionType.isClosure).
+  // capture parameter to its C prototype/definition.
   mark_as_closure_fn(closure_id.clone());
   // Record the closure's own resolved Func type by func_id so codegen's
-  // prototype emitter (get_func_type) can build the signature. TS reads
-  // `closureFunctionValue.type` directly; yo-self's FuncVal carries only
-  // param-name strings, so the structured type is side-tabled here at creation
-  // time (mirrors anonymous_function.yo:806 `register_func_type(func_id, ...)`).
+  // prototype emitter (get_func_type) can build the signature. FuncVal carries
+  // only param-name strings, so the structured type is side-tabled here at
+  // creation time (mirrors anonymous_function.yo:806 `register_func_type(func_id, ...)`).
   register_func_type(closure_id.clone(), synthetic_func_ty.clone());
   // Create the function body evaluation context.
   if(cap_dbg_env_closure_call.get(`YO_DEBUG_CAPTURE`).is_some(), {
@@ -314,7 +312,7 @@ try_to_implement_closure_by_fn_module_type :: (
   );
   capture_ty := cap_result.capture_type;
   // Validate that the capture struct implements every required non-Fn trait
-  // of the wrapper (e.g. `Send` on a spawn closure) — TS closure-type.ts:269.
+  // of the wrapper (e.g. `Send` on a spawn closure).
   match(
     capture_ty.clone(),
     .Some(vct) => validate_capture_trait_requirements(wrapper_type.clone(), vct, captured_vars_with_values_opt, caller_env, ctx, tok, exn),
@@ -332,7 +330,8 @@ try_to_implement_closure_by_fn_module_type :: (
       // the SomeT via lookup_some_resolved_concrete) and a direct value-call
       // `add(x)` resolves cc_id to the capture-struct id so it dispatches through
       // impl_closure_call_map (`closure_fn(&add, x)`) instead of a bad fn-ptr
-      // cast. Mirrors TS's `resolvedConcreteType` on the closure SomeType.
+      // cast, by resolving the closure wrapper SomeT to its concrete capture
+      // struct.
       match(
         wrapper_type.clone(),
         .SomeT({ id : wid }) => register_some_resolved_concrete(wid, ct),

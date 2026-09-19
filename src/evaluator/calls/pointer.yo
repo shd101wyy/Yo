@@ -1,7 +1,5 @@
 //! evaluator/calls/pointer — evaluate_raw_pointer_call.
 //!
-//! 1:1 port of `src/evaluator/calls/pointer.ts`.
-//!
 //! `*(T)` creates a pointer type `Pointer(T)`.
 //! `*(val)` where val is not a type → error (use `&` to take the address of a value).
 pragma(Pragma.AllowUnsafe);
@@ -34,8 +32,6 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("../exprs/expr.yo");
 /// Evaluate a raw pointer call `*(T)` (pointer type) or `*(val)` (error).
-///
-/// 1:1 port of 
 evaluate_raw_pointer_call :: (
   fn(
     expr : AstExpr,
@@ -54,7 +50,7 @@ evaluate_raw_pointer_call :: (
     ),
     .Atom(_, _) => make_err_expr()
   );
-  // TypeScript: if expectedType is a pointer type, pass the inner type as expected.
+  // If expectedType is a pointer type, the inner type would be passed as expected.
   // Phase 2am: expectedType modification skipped — simplified port.
   // Evaluate the argument
   evaluated := evaluate_expression(arg_expr, env, ctx);
@@ -91,7 +87,7 @@ evaluate_raw_pointer_call :: (
       // pointer type. In safe code (a file without `pragma(Pragma.AllowUnsafe);`
       // and not in an `unsafe(...)` context), raw pointer types are not part of
       // the user vocabulary — naming `*(T)` in a parameter / field / return slot
-      // is rejected. 1:1 with `src/evaluator/calls/pointer.ts:75-86`.
+      // is rejected.
       ptok := ast_expr_token(expr);
       if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.clone())), {
         exn.throw(
@@ -106,8 +102,7 @@ evaluate_raw_pointer_call :: (
       // §4 escape boundary (rule 11): a pointer type cannot have a
       // control-bound pointee. A `ctl(...)` value's lifetime is bound to its
       // install frame; a pointer would let writes-through-indirection escape
-      // that frame. Banning the TYPE prevents the construction. Mirrors
-      // `src/evaluator/calls/pointer.ts:87-101`.
+      // that frame. Banning the TYPE prevents the construction.
       if(type_is_control_bound(inner_ty), {
         exn.throw(
           dyn(

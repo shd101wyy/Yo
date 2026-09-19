@@ -1,13 +1,11 @@
 //! evaluator/calls/array_type — try_to_implement_array_by_array_type.
 //!
-//! 1:1 port of `src/evaluator/calls/array-type.ts`.
-//!
 //! Creates an array value from an ArrayType and initial arguments, e.g.:
 //!
 //!   ArrayType :: Array(i32, 3);
 //!   arr := ArrayType(1, 2, 3);
 //!
-//! Note: `Array(T, _)` length inference is NOT supported in yo-self
+//! Note: `Array(T, _)` length inference is NOT supported
 //! because `TypeValue.Array` stores a concrete `usize` length.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
@@ -35,10 +33,8 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 /// Construct an array value from `array_type` and the provided `arg_exprs`.
 ///
-///
-///
-/// Note: The TypeScript version supports `isUnknownValue(length)` for array-length
-/// inference (`Array(i32, _)`). yo-self's `TypeValue.Array` stores a concrete `usize`
+/// Note: `Array(i32, _)` length inference is NOT supported —
+/// `TypeValue.Array` stores a concrete `usize`
 /// so only the known-length path is implemented here.
 try_to_implement_array_by_array_type :: (
   fn(
@@ -73,8 +69,7 @@ try_to_implement_array_by_array_type :: (
   );
   // A non-empty `length_var` means the length is an UNRESOLVED inference
   // variable (`Array(i32, _)` or a generic-impl `Array(T, U)`): the
-  // constructor's element count IS the length (TS array-type.ts binds the
-  // UnknownValue placeholder from the arg count). Skip the arity check and
+  // constructor's element count IS the length. Skip the arity check and
   // resolve the result type to the concrete count below.
   arr_len_var := match(
     array_type,
@@ -184,8 +179,7 @@ try_to_implement_array_by_array_type :: (
   // EMPTY initializer slot, so any array of RC/reference elements failed to
   // compile with "expected expression". The array-LITERAL path
   // (values/array.yo) already guarded exactly this way, which is why
-  // `[a, b,]` worked while `Array(T, N)(a, b)` did not. Mirrors the same fix
-  // in src/evaluator/calls/array-type.ts.
+  // `[a, b,]` worked while `Array(T, N)(a, b)` did not.
   if(all_elements_are_comptime, {
     out_info.value = .Some(EvalValue.ArrayVal(elements));
   });

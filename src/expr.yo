@@ -50,7 +50,7 @@ BF_CONSUME :: "consume";
 BF_UNSAFE :: "unsafe";
 /// Phase C of plans/reference/MEMORY_SAFETY.md — the `pragma(Pragma.X);`
 /// builtin records a file-level flag (e.g. AllowUnsafe, SkipPrelude,
-/// SkipWasm*). The yo-self pre-scan looks for `Pragma.SkipPrelude`
+/// SkipWasm*). The pre-scan looks for `Pragma.SkipPrelude`
 /// before the prelude loads.
 BF_PRAGMA :: "pragma";
 BF_DROP :: "___drop";
@@ -61,7 +61,7 @@ BF_VA_START :: "va_start";
 /// `requires`/`ensures` in a function SIGNATURE are extracted + lowered to
 /// runtime asserts by the function-type evaluator; these handlers fire when the
 /// builtins appear in EXPRESSION position. `ghost_fn`/`old` are transparent
-/// pass-throughs. in `src/expr.ts:1321`.
+/// pass-throughs.
 BF_REQUIRES :: "requires";
 BF_ENSURES :: "ensures";
 BF_INVARIANT :: "invariant";
@@ -125,7 +125,7 @@ BF_YO_SOMETYPE_DROP :: "__yo_sometype_drop";
 BF_YO_SOMETYPE_DUP :: "__yo_sometype_dup";
 BF_YO_GC_COLLECT :: "__yo_gc_collect";
 BF_YO_GC_TRACE_CHILD :: "__yo_gc_trace_child";
-// Inline operator builtins (mirrors src/expr.ts BuiltinFunctions.__yo_op_*)
+// Inline operator builtins
 BF_YO_OP_ADD :: "__yo_op_add";
 BF_YO_OP_SUB :: "__yo_op_sub";
 BF_YO_OP_MUL :: "__yo_op_mul";
@@ -160,12 +160,12 @@ BF_YO_PTR_GT :: "__yo_ptr_gt";
 BF_YO_PTR_GTE :: "__yo_ptr_gte";
 BF_YO_SLICE_LEN :: "__yo_slice_len";
 BF_YO_SLICE_PTR :: "__yo_slice_ptr";
-// `str` builtins (mirrors src/expr.ts BuiltinFunctions.__yo_str_*)
+// `str` builtins
 BF_YO_STR_FROM_RAW_PARTS :: "__yo_str_from_raw_parts";
 BF_YO_STR_LEN :: "__yo_str_len";
 BF_YO_STR_PTR :: "__yo_str_ptr";
 BF_YO_STR_BYTE :: "__yo_str_byte";
-// Borrow-flag backstop builtin (mirrors src/expr.ts __yo_borrow_assert_unborrowed)
+// Borrow-flag backstop builtin
 BF_YO_BORROW_ASSERT_UNBORROWED :: "__yo_borrow_assert_unborrowed";
 // The borrowed `for`'s loop-scoped acquire/release (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 C3).
 BF_YO_BORROW_ACQUIRE :: "__yo_borrow_acquire";
@@ -278,7 +278,6 @@ BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE :: "__yo_comptime_string_index_range_in
 // Comptime array/slice index builtins
 BF_COMPTIME_ARRAY_INDEX :: "__yo_comptime_array_index";
 /// Builtin keyword strings used by the evaluator — control / declaration forms.
-/// Mirrors the `BuiltinKeywords` enum in `src/expr.ts`.
 BK_COMPTIME :: "comptime";
 BK_GIVEN :: "given";
 BK_GENERIC :: "generic";
@@ -361,10 +360,9 @@ impl(
 );
 /// Global expression-id counter — moved here from parser.yo so SYNTHESIZED
 /// nodes (gensym, quote expansions, fresh-id clones below) can mint ids
-/// from the SAME sequence as parsed nodes. In TS, per-node eval data lives
-/// on the object (`expr.$`) so object identity is the key; yo-self keys
-/// the ExprInfo table by this id — every distinct evaluated node MUST have
-/// a distinct id or table writes drop values other holders still use.
+/// from the SAME sequence as parsed nodes. The ExprInfo table is keyed by
+/// this id — every distinct evaluated node MUST have a distinct id or table
+/// writes drop values other holders still use.
 (g_next_global_expr_id : usize) = usize(0);
 /// Mint a fresh ExprId (parser nodes and synthesized nodes share the
 /// sequence).
@@ -373,9 +371,8 @@ alloc_global_expr_id :: (fn() -> ExprId)({
   g_next_global_expr_id = (g_next_global_expr_id + usize(1));
   id
 });
-/// Deep-clone an expression giving every node a FRESH id — the faithful
-/// mirror of TS `cloneExpr`, which creates new objects and
-/// therefore new `$` slots. The derived `AstExpr` Clone keeps ids, so a
+/// Deep-clone an expression giving every node a FRESH id. The derived
+/// `AstExpr` Clone keeps ids, so a
 /// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
 /// (and id-0 synthesized nodes all collide); use THIS for trial dry-runs,
 /// macro templates/expansions, and quoted-argument binding.
@@ -593,10 +590,9 @@ export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
 export(BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_WHERE);
 export(make_err_expr, ast_expr_token, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_atom_and_operator, ast_expr_is_infix_op_fn_call, ast_expr_to_string);
 // ---------------------------------------------------------------------------
-// Atom / FnCall predicate helpers (mirrors src/expr.ts exprIsAtomOf, etc.)
+// Atom / FnCall predicate helpers
 // ---------------------------------------------------------------------------
 /// True if `e` is an Atom whose token value equals `value`.
-/// Mirrors the `typeof values === "string"` branch of `exprIsAtomOf`.
 ast_expr_is_atom_of :: (fn(e : AstExpr, value : str) -> bool)(
   match(
     e,
@@ -605,7 +601,6 @@ ast_expr_is_atom_of :: (fn(e : AstExpr, value : str) -> bool)(
   )
 );
 /// True if `e` is an Atom whose token value is found in `values`.
-/// Mirrors the `values.includes(expr.token.value)` branch of `exprIsAtomOf`.
 ast_expr_is_atom_of_any :: (fn(e : AstExpr, values : ArrayList(str)) -> bool)(
   match(
     e,
@@ -626,7 +621,6 @@ ast_expr_is_atom_of_any :: (fn(e : AstExpr, values : ArrayList(str)) -> bool)(
 );
 /// True if `e` is a FnCall whose func is an Atom equal to `func_name`,
 /// and whose argument count equals `arg_count` (if `.Some`).
-///
 ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(usize)) -> bool)(
   match(
     e,
@@ -651,7 +645,6 @@ ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(u
 );
 /// True if `e` is a FnCall whose func is an Atom found in `func_names`,
 /// and whose argument count equals `arg_count` (if `.Some`).
-/// Mirrors the `funcNames.includes(funcName)` branch of `exprIsFunctionCallOf`.
 ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_count : Option(usize)) -> bool)(
   match(
     e,
@@ -870,7 +863,6 @@ expect_expr_to_be_fn_call_of :: (
   )
 });
 /// Throws if `expr` is not a FnCall of one of `func_names` with an optional exact `arg_count`.
-/// Mirrors the list variant of 
 expect_expr_to_be_fn_call_of_any :: (
   fn(
     expr : AstExpr,
@@ -1206,15 +1198,13 @@ export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
 export(alloc_global_expr_id, clone_expr_fresh_ids);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
-/// `begin(...)` node. Mirrors TS's function-body evaluation, which ALWAYS
-/// routes through `evaluateBeginExpression` whose
-/// implicit single-expression wrap gives even a
-/// bare-atom body the begin machinery — in particular the begin-tail
-/// ownership pass, so a borrowed-param tail like `to_string : (...)(self)`
-/// receives its balancing ___dup. yo-self's def-time trials route through
-/// the expression DISPATCHER (a direct begin.yo import from values/ would
-/// close an import cycle), so the wrap happens here at the AST level; a
-/// curly body is already a begin call and passes through untouched.
+/// `begin(...)` node. The wrap gives even a bare-atom body the begin
+/// machinery — in particular the begin-tail ownership pass, so a
+/// borrowed-param tail like `to_string : (...)(self)` receives its balancing
+/// ___dup. Def-time trials route through the expression DISPATCHER (a direct
+/// begin.yo import from values/ would close an import cycle), so the wrap
+/// happens here at the AST level; a curly body is already a begin call and
+/// passes through untouched.
 wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
   // Narrow to bare-ATOM and bare FIELD-ACCESS (2-arg `.`) bodies: a curly
   // body IS a begin; a general call body's result flows through the call's
@@ -1224,8 +1214,7 @@ wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
   // Krate)(p.inner)`) both return a BORROWED value and miss the begin-tail
   // ownership pass without the wrap — the field case emitted no balancing
   // ___dup, so the caller's scope drop over-dropped the field (round-3
-  // borrowed-field-tail UAF; TS anonymous-function.ts:829 always routes
-  // through evaluateBeginExpression). Method-call bodies (`x.f()`) are NOT
+  // borrowed-field-tail UAF). Method-call bodies (`x.f()`) are NOT
   // 2-arg dot calls (their func is the dot) and stay unwrapped.
   is_bare_field_access := ast_expr_is_fn_call_of(body, BF_DOT, Option(usize).Some(usize(2)));
   if(!(ast_expr_is_atom(body) || is_bare_field_access), {

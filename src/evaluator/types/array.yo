@@ -1,7 +1,5 @@
 //! evaluate_array_type — evaluates `Array(T, N)` type expressions.
 //!
-//! 1:1 port of `src/evaluator/types/array.ts`.
-//!
 //! `Array(T, N)` where T is a type and N is a compile-time usize.
 //! Note: `Array(T, _)` (underscore length inference) is NOT supported in the
 //! self-hosted compiler because `t_array` requires a concrete `usize` length.
@@ -238,8 +236,6 @@ evaluate_array_type :: (
   // carries an EvalValue length, the placeholder is a deliberate
   // simplification: it lets prelude function signatures with HKT-style
   // generic-bound lengths typecheck without segfaulting at this site.
-  // Mirrors TS `evaluator/types/array.ts` which accepts any compile-time
-  // value (including UnknownValue) and stores it in `ArrayType.length`.
   (len_is_var : bool) = false;
   len_usize := match(
     len_value,
@@ -271,8 +267,7 @@ evaluate_array_type :: (
   );
   // Forall-bound length (`Array(T, U)` with `U : usize`): record the
   // VARIABLE NAME on the type so generic-impl matching can bind it
-  // (mirrors TS storing an UnknownValue with `variableName` in
-  // `ArrayType.length`; the synthesizer binds it at match time).
+  // (the synthesizer binds it at match time).
   // A length that is neither compile-time known NOR a bare variable name has
   // nowhere to go: `t_array_var` can only record an IDENTIFIER, so the old
   // fall-through built `Array(elem, 0, "")` — a CONCRETE length of zero. That
