@@ -79,50 +79,85 @@ from a non-ghost body.** Either factor alone is fine.
   the unify error rather than either the ghost error or an arity error. Control does
   not get that far.
 
-### A hypothesis that was tested and REFUTED
+### CONFIRMED: the parameter is bound to `unit` when the clause is evaluated
 
-The obvious first guess was that `evaluate_ghost_fn`
-(`src/evaluator/builtins/contracts.yo:571`) fails to register a *contracted* fn,
-because it registers by reading the inner expression's `ExprInfo.value` and
-matching `.FuncVal(gfvd, _)` — leaving `is_ghost_fn` false so the guard cannot fire.
+The clause is type-checked with `x : unit` instead of `x : i32`. Five files,
+each differing from the reproducer in one clause:
 
-That is wrong. `register_ghost_fn` and `register_ghost_fn_def` sit in the same match
-arm, and the def table is what lets the verifier INLINE a ghost fn
-(`src/verifier/vc.yo:3817`). In the probe where a caller's contract says
-`ensures(result >= g(n))` with `result = n`, the caller verifies `ok` — which needs
-`n >= g(n)`, provable only from the inlined body (`g(n) = n`), not from `g`'s own
-`ensures` (`result > 0`) treated as an uninterpreted contracted callee. So
-registration does happen for contracted ghost fns.
+| clause | result |
+| --- | --- |
+| `requires(x > i32(0))` | `Cannot unify … expected "unit", given "i32"` |
+| `requires(i32(0) < x)` | `Cannot unify … expected "i32", given "unit"` |
+| `requires(x > 0)` | `… expected "unit", given "i32"` — so it is not the `i32(...)` constructor |
+| `requires(x > x)` | **no error** |
+| `requires(true)` | no error |
 
-### The current, better-supported hypothesis
+The binary operator reports the left operand as *expected* and the right as
+*given*. Flip the operands and the `unit` moves with `x` — the literal keeps its
+`i32` on both sides. So it is `x`, the parameter, that carries `unit`. The two
+quiet rows agree: `x > x` is `unit` against `unit`, which unifies, and
+`requires(true)` never mentions `x`.
 
-The message is `Cannot unify incompatible types: "unit" and "i32"` with the caret on
-the `i32` of `i32(0)` inside `requires(x > i32(0))` — that is, *expected* `unit`,
-*given* `i32`, at the right-hand operand of the comparison. The reading that fits the
-caret is that **`x` is bound to `unit`** when the clause is re-evaluated, so `x >
-i32(0)` unifies `unit` against `i32`. A parameter binding going to `unit` is what a
-call-time re-binding with no arguments would produce — and `ghost_fn`s legitimately
-have no runtime arguments to pass.
+`requires(x > x)` passing is the **worse half of this bug**: on that path the
+clause is silently type-checked against the wrong type for the parameter and
+nothing is reported. The loud unify error is only what happens when the other
+operand's type disagrees. Any fix needs a canary for the quiet shape, not just
+the noisy one — a clause whose operands are both parameters must not go green
+for the wrong reason.
 
-This is still a hypothesis. It has not been confirmed against the code, and the
-previous one looked at least as good before it was tested. Confirm it — by finding
-which binder re-binds the callee's parameters on this path and what it binds `x` to
-— before writing any fix.
+The likely mechanism, now narrow enough to check directly, is that the clause
+is evaluated in an environment where `x` is not bound, and the evaluator's
+soft "variable not found" fallback yields a unit-typed unknown rather than
+raising. `wrap_function_body_with_contracts`
+(`src/evaluator/calls/function_type.yo:~1008`) splices each `requires`/`ensures`
+predicate into the body as an `assert(...)`, so the clause is re-evaluated
+somewhere that the ghost path reaches with a different parameter frame than the
+ordinary contracted-function path, which handles the identical clause correctly
+(the non-ghost control passes).
+
+### A hypothesis that was tested and refuted
+
+Before the table above, the natural first guess was that `evaluate_ghost_fn`
+(`src/evaluator/builtins/contracts.yo:571`) fails to register a *contracted* fn —
+it registers by reading the inner expression's `ExprInfo.value` and matching
+`.FuncVal(gfvd, _)` — leaving `is_ghost_fn` false so the guard cannot fire.
+
+That is wrong. `register_ghost_fn` and `register_ghost_fn_def` sit in the same
+match arm, and the def table is what lets the verifier INLINE a ghost fn
+(`src/verifier/vc.yo:3817`). In a probe where the caller's contract says
+`ensures(result >= g(n))` with `result = n`, the caller verifies `ok` — which
+needs `n >= g(n)`, provable only from the inlined body (`g(n) = n`), not from
+`g`'s own `ensures` (`result > 0`) treated as an uninterpreted contracted
+callee. So registration does happen for contracted ghost fns.
 
 ## Why it matters
 
 B2 (lemmas) makes contracted `ghost_fn`s the normal way to write a spec function,
-so this shape stops being exotic. Until it is fixed, the first mistake a user makes
-with a lemma — calling it from real code — is answered with a compiler-internal
-message that blames their contract.
+so this shape stops being exotic. Two costs, and the second is the larger one:
+
+1. The first mistake a user makes with a lemma — calling it from real code — is
+   answered with a compiler-internal message that blames their contract, when the
+   evaluator already holds the right diagnostic.
+2. **On that same path a clause whose operands agree is type-checked against the
+   wrong parameter type and says nothing** (`requires(x > x)` is accepted with
+   `x : unit`). That is a silent wrong answer in the contract machinery, and it is
+   only invisible because a mismatched literal usually turns it into the loud
+   error above.
 
 ## Fixing it
 
-No workaround: do not special-case the message. Establish why the contracted
-`ghost_fn` misses `is_ghost_fn`, fix the registration (or the path that bypasses
-the guard) so the guard fires, and keep the existing diagnostic.
+No workaround: do not special-case the message, and do not suppress the unify
+error. The parameter must carry its declared type when the clause is evaluated on
+this path; with that fixed, the existing ghost-context guard reports the real
+problem on its own.
 
-Tests to add with the fix:
-- `tests/spec/fixtures/negative/ghost_fn_contracted_runtime_call.yo` — the reproducer;
-  must report the ghost-context error anchored at the call.
+Tests to add with the fix — note that the noisy shape alone is not enough:
+- `tests/spec/fixtures/negative/ghost_fn_contracted_runtime_call.yo` — the
+  reproducer; must report the ghost-context error anchored at the call.
+- A **quiet-shape canary**: a contracted ghost fn whose clause compares two
+  parameters (`requires(x > x)`-style, so today it passes for the wrong reason)
+  called from a runtime body. It must report the ghost-context error too. Without
+  this the fix can be "green" while the parameter is still typed `unit`.
+- A **positive canary**: the same contracted ghost fn used from ghost context still
+  verifies, so the fix does not close the legal path.
 - The uncontracted sibling stays as the canary that the message did not move.
