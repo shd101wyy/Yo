@@ -588,6 +588,75 @@ _resolve_one_forall_binding :: (
     .None => Option(TypeValue).None
   )
 });
+/// The frame-scoped twin of `_resolve_one_forall_binding`, reading ONLY
+/// frames >= min_frame (this match's synthesis frames — see the
+/// `unify_base` anchor in try_match_generic_impl). One top-down scan for
+/// the last TypeVal binding of `fa_name` within the scoped frames:
+/// concrete → the binding; a DIFFERENT-id SomeT inside a def-time trial →
+/// the binding (same channel rules as the unscoped twin); self-bound or
+/// nothing → .None. This is TS's substitutions-extraction scoping
+/// (impl.ts:2243's scratch frames): an entry whose forall never appears
+/// in its receiver pattern must NOT inherit a same-named binding from the
+/// caller env — in a warm resident env that chain holds EARLIER files'
+/// leaked synthesis bindings (the doc_stability
+/// GenericImplEntry-vs-DocParam breakage).
+_resolve_one_forall_binding_from :: (
+  fn(expected_env : Environment, fa_some : TypeValue, fa_name : String, min_frame : usize) -> Option(TypeValue)
+)({
+  fa_some_id := match(fa_some, .SomeT({ id : __fsi2 }) => __fsi2, _ => String.from(""));
+  n_frames := expected_env.frames.len();
+  (fi : usize) = n_frames;
+  while(fi > min_frame, {
+    fi = (fi - usize(1));
+    if(fi < min_frame, {
+      break;
+    });
+    match(
+      expected_env.frames.get(fi),
+      .Some(frame) => {
+        vars := frame.variables;
+        // LAST binding of fa_name inside THIS frame.
+        (vi : usize) = vars.len();
+        while(vi > usize(0), {
+          vi = (vi - usize(1));
+          match(
+            vars.get(vi),
+            .Some(var) =>
+              if(var.name == fa_name, {
+                match(
+                  var.value.get(usize(0)),
+                  .Some(ev) =>
+                    match(
+                      ev,
+                      .TypeVal(b) => {
+                        if(!is_some_type(b), {
+                          if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+                            eprintln(`[rfb-bound] name=${fa_name} via=scoped-concrete ty=${type_to_string(b)} trial=${in_def_time_trial().to_string()}`);
+                          });
+                          return(Option(TypeValue).Some(b));
+                        });
+                        nb_id2 := match(b, .SomeT({ id : __nbi2 }) => __nbi2, _ => String.from(""));
+                        if(in_def_time_trial() && (nb_id2.len() > usize(0)) && (nb_id2 != fa_some_id), {
+                          return(Option(TypeValue).Some(b));
+                        });
+                      },
+                      .IntLit(_) => {
+                        return(Option(TypeValue).Some(var.ty));
+                      },
+                      _ => ()
+                    ),
+                  .None => ()
+                );
+              }),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+  });
+  Option(TypeValue).None
+});
 /// Match `entry` against `concrete_type` in `env`. Returns `.Some(bindings)`
 /// where `bindings[i]` is the concrete type bound to `entry.forall_names[i]`
 /// (in declaration order) when the impl matches and every generic param
@@ -923,6 +992,20 @@ try_match_generic_impl :: (
   //    LOOKUP — a top allocation-churn site of a self-emit.
   (unify_env : Environment) = snapshot_env(env);
   unify_env.push_frame(false);
+  // §7 warm-bug fix anchor: EVERYTHING this match synthesizes binds into
+  // this frame or above. The binding extraction below reads ONLY frames
+  // >= this index — an entry whose forall params never appear in its
+  // receiver pattern (blanket/marker impls) leaves its top-frame marker
+  // SELF-BOUND, and the old extraction then fell through the INHERITED
+  // env chain: cold that chain held nothing (no match — correct), but a
+  // warm resident env holds EARLIER files' leaked synthesis bindings
+  // (doc/model's `T := ArrayList(DocParam)`), which wrongly satisfied the
+  // extraction and typed the impl registry's own HashMap `get` dispatch
+  // as returning DocParam (issues/
+  // warm-test-batches-doc-stability-genericimplentry.md). TS reads its
+  // substitutions from the synthesis's scratch frames only (impl.ts:2243);
+  // this is that scoping.
+  (unify_base : usize) = unify_env.frames.len();
   (ui : usize) = usize(0);
   (n_forall : usize) = entry.forall_names.len();
   while(ui < n_forall, {
@@ -1090,7 +1173,7 @@ try_match_generic_impl :: (
       wcj_trait := match(entry.where_constraint_traits.get(wcj), .Some(tr) => tr, .None => t_unit());
       wcj_name := match(wcj_some, .SomeT(_, nm, _, _, _, _, _, _, _, _, _) => nm, _ => ``);
       match(
-        _resolve_one_forall_binding(match_env, wcj_some, wcj_name),
+        _resolve_one_forall_binding_from(match_env, wcj_some, wcj_name, unify_base - usize(1)),
         .Some(wcj_bound) => match(
           g_type_implements_trait_full_fn,
           .Some(wcj_f) => {
@@ -1148,7 +1231,7 @@ try_match_generic_impl :: (
       });
     };
     match(
-      _resolve_one_forall_binding(match_env, fa_some2, fa_name2),
+      _resolve_one_forall_binding_from(match_env, fa_some2, fa_name2, unify_base - usize(1)),
       .Some(t) => {
         bindings.push(t);
         g_last_match_binding_vals.push(fa_val2);
@@ -1200,7 +1283,7 @@ try_match_generic_impl :: (
                         wcr_lbl := match(wcr_alabels.get(wcr_k), .Some(l) => l, .None => String.new());
                         wcr_subj_nm := match(wcr_subj, .SomeT(name : wsn) => wsn, _ => String.new());
                         match(
-                          _resolve_one_forall_binding(match_env, wcr_subj, wcr_subj_nm),
+                          _resolve_one_forall_binding_from(match_env, wcr_subj, wcr_subj_nm, unify_base - usize(1)),
                           .Some(wcr_subj_bound) => {
                             // Registry first: the durable assoc registration
                             // (tmgi success tail above) stores the subject's

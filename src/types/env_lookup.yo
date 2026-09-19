@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("./guards.yo");
 { type_to_string } :: import("./string.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, get_variables_from_env } :: import("../env.yo");
+{ Environment, Variable, get_variables_from_env } :: import("../env.yo");
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -394,6 +394,48 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
   });
   result
 });
+/// The index of the OUTERMOST (last, most recent) frame holding a TypeEval
+/// variable named `name`, or .None. "Last binding wins" is the semantic the
+/// full `_do_chain_resolve` applies — the fast path uses this to verify a
+/// def-frame concrete binding is still the LIVE one.
+_last_type_binding_frame :: (fn(env : Environment, name : String) -> Option(usize))({
+  n_frames := env.frames.len();
+  (fi : usize) = n_frames;
+  while(fi > usize(0), {
+    fi = (fi - usize(1));
+    (hit : bool) = false;
+    match(
+      env.frames.get(fi),
+      .Some(frame) => {
+        vars := frame.variables;
+        (vi : usize) = usize(0);
+        while((vi < vars.len()) && !hit, {
+          match(
+            vars.get(vi),
+            .Some(var) =>
+              if((var.name == name) && _is_type_eval_value_or_empty(var), {
+                hit = true;
+              }),
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    if(hit, {
+      return(Option(usize).Some(fi));
+    });
+  });
+  Option(usize).None
+});
+_is_type_eval_value_or_empty :: (fn(var : Variable) -> bool)(
+  match(
+    var.value.get(usize(0)),
+    .Some(val) => _is_type_eval_value(val),
+    .None => false
+  )
+);
 /// Fast-path chain resolution: tries the definitionFrameLevel first, then
 /// falls back to the full iterative loop in `_do_chain_resolve`.
 _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayList(String)) -> TypeValue)({
@@ -424,8 +466,28 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
             _same_some_id(tv, sid) => Option(TypeValue).Some(start),
             // Another SomeT at the same frame → fall through to chain search
             is_some_type(tv) => Option(TypeValue).None,
-            // Concrete binding → return it
-            true => Option(TypeValue).Some(tv)
+            // Concrete binding → trust it ONLY if the def frame still holds
+            // the LIVE (last) binding of the name. (frame_level, name)
+            // addressing is only meaningful inside the env stack the level
+            // was measured in — TS's per-ModuleManager env is instance-
+            // scoped, yo-self's warm in-process universe is not: a RESIDENT
+            // env (build --watch rounds, the in-process test batches) can
+            // have an UNRELATED frame at this level legitimately holding
+            // `name` (doc/model's own `V := ArrayList(DocParam)` under
+            // HashMap's `V`), and the fast path returned it with NO
+            // ownership check — the whole doc_stability warm breakage
+            // (issues/warm-test-batches-doc-stability-genericimplentry.md).
+            // When the def frame is not the last binding of the name, the
+            // chain's last-binding-wins scan below is the authority (it
+            // finds THIS match's fresh synthesis binding in the top frame).
+            true => match(
+              _last_type_binding_frame(env, sn),
+              .Some(lbf) => cond(
+                (lbf == sfl) => Option(TypeValue).Some(tv),
+                true => Option(TypeValue).None
+              ),
+              .None => Option(TypeValue).None
+            )
           ),
         .None => Option(TypeValue).None
       )
