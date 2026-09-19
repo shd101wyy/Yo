@@ -298,7 +298,11 @@ text := match(value,
 
 - Enum definitions omit the leading `.`
 - Construction and match branches use the leading `.`
-- Nested destructuring is not supported; match one layer at a time
+- Sub-patterns nest to any depth (`.Ok(.Some(v))`), literals and string
+  literals compare (`.Tag("a")`, `.Some(0)`), or-patterns `(.A | .B)`, ranges
+  `(0..10)`, guards `(.Some(v) && (v > i32(1)))` and whole-value bindings
+  `(whole := .Some(v))` are all patterns — every infix pattern in its own
+  parentheses. See "Pattern forms" below.
 
 Three destructuring shapes for arms (mix freely across arms):
 
@@ -890,27 +894,35 @@ load-bearing, so leave it alone:
   statement evaluates successfully — the `_ :=` is what makes the
   error fire.
 
-### Enum pattern matching does NOT support literal values
+### Pattern forms (real pattern matching, since 2026-09-19)
 
-Match patterns on enum variants only support **variable binding**, not literal comparison.
-`.BoolVal(true)` binds the inner value to a variable named `true` — it does NOT check
-if the value is `true`. The arm always matches any `BoolVal`.
+A literal in a payload position COMPARES (`.BoolVal(true)` matches only a true
+payload; `.IntLit("42")` compares the string). The full set, each infix form
+in its own parentheses:
 
 ```rust
-// ❌ WRONG — always matches (true is a variable binding, not a comparison)
-match(val,
-  .BoolVal(true) => handle_true(),
-  _ => ()
+match(v,
+  .Ok(.Some(x)) => x,                       // nested variants, any depth
+  .Ok(.None) => i32(0),
+  (.Err(.Timeout) | .Err(.Closed)) => i32(-1), // or-patterns on variants
+  .Err(other) => match(other, _ => i32(-2))    // identifier binds
 );
-
-// ✅ CORRECT — bind to variable, then check with cond
-match(val,
-  .BoolVal(b) => cond(b => handle_true(), true => ()),
-  _ => ()
+match(n,
+  (0..10) => "small", (10..=99) => "medium",   // ranges (compile-time bounds)
+  (v && (v < i32(0))) => "negative",           // guard sees the binding
+  (big := 100) => "exactly a hundred",         // whole-value binding
+  _ => "large"                                 // a binding or `_` is required for ints
 );
+match(s, "compile" => 1, ("check" | "fmt") => 2, _ => 0);   // str / String scrutinee
 ```
 
-Same applies to `.IntLit(42)`, `.StrLit("hello")`, etc.
+- A bare identifier binds, UNLESS a `::` constant of that name holding a
+  literal/enum value is in scope — then it compares (`TEN => …`, `RED => …`).
+- Exhaustiveness is structural (`Missing case: .Some(false)`), an unreachable
+  arm is an error (`E0608`), a trailing `_` after full coverage is tolerated.
+- In an `io.async` arm that AWAITS, only the classic shapes are lowered
+  today; the new forms fail loudly at codegen (bind the payload and match
+  again inside the arm).
 
 ### `forall` / `exists` / `==>` — the verification quantifiers (V5, ghost-only)
 
@@ -1699,19 +1711,19 @@ Always merge them into a single destructuring import:
 { Foo, Bar } :: import("../../mod.yo");
 ```
 
-### Nested `Option` patterns require staging
+### Nested `Option` patterns
 
-`match` does not support nested destructuring patterns like `.Some(.TypeVal(x))`.
-Split into two separate `match` expressions.
+`match` supports nested destructuring (`.Some(.TypeVal(x))`) since 2026-09-19;
+the two-stage form below still works and is what `src/`/`std/` use until the
+seed carries the feature (a NEW form may not appear in `src/`/`std/` before
+then — the seed compiles them).
 
 ```rust
-// WRONG — nested option pattern:
+// Both are fine in tests/ and user code:
 match(opt_value,
-  .Some(.TypeVal(box)) => { ... },   // ERROR
+  .Some(.TypeVal(box)) => { ... },
   _ => { ... }
 );
-
-// CORRECT — match in two stages:
 match(opt_value,
   .Some(v) => match(v,
     .TypeVal(box) => { ... },
@@ -1768,26 +1780,25 @@ match(outer_val,
 )                          // ← closes outer match
 ```
 
-### Nested enum patterns in match are NOT supported
+### Nested enum patterns in match
 
-Yo does **not** support nested enum patterns inside a single match arm.
-You cannot write `.Some(.IntLit(n))` — this is a parser error.
+Supported since 2026-09-19 (plans/MATCH_PATTERN_MATCHING.md P2): `.Some(.IntLit(n))`
+is one arm. The two-level form is still valid — and REQUIRED in `src/`/`std/`
+until the seed carries the feature.
 
 ```rust
-// ❌ WRONG — nested enum pattern, parser error:
+// One arm, nested:
 match(v.get(usize(0)),
   .Some(.IntLit(n)) => assert(n == "3", "ok"),
   _ => assert(false, "err")
 )
 
-// ✅ CORRECT — two-level match:
+// Equivalent two-level match (seed-safe spelling for src/ and std/):
 match(v.get(usize(0)),
   .Some(x) => match(x, .IntLit(n) => assert(n == "3", "ok"), _ => assert(false, "err")),
   .None => assert(false, "err")
 )
 ```
-
-This applies to ALL nested enum patterns: `.Some(.BoolVal(b))`, `.Some(.ArrayVal(arr))`, etc. — always use a two-level match.
 
 ### `get_callee()` returns ExprVal directly, not an Option-wrapped EnumVal
 

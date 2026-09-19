@@ -1,0 +1,1154 @@
+//! pattern — the Pattern IR behind `match(...)` (plans/MATCH_PATTERN_MATCHING.md
+//! §4.11). One compiled `Pattern` per arm, produced by
+//! `evaluator/exprs/pattern_compile.yo` and read by the evaluator's arm loop,
+//! the sync C emitter (`codegen/exprs/match.yo`, `pattern_emit.yo`) and the
+//! async state-machine emitter. This module holds only what every consumer
+//! shares: the IR itself, the per-match arm registry, the usefulness-based
+//! exhaustiveness/unreachability check (Maranget 2007) with witness rendering,
+//! and the pattern walkers (binding names, irrefutability, the classic-shape
+//! test that keeps today's `switch` lowerings byte-identical).
+//!
+//! Exported symbols: Pattern, Arm, register_match_arms, lookup_match_arms,
+//! pattern_bindings, pattern_is_irrefutable, pattern_to_string,
+//! match_missing_witness, arm_is_unreachable, gadt_branch_reachable,
+//! gadt_resolve_tca_entry, norm_position_type, variant_field_types
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ AstExpr, ast_expr_to_string } :: import("./expr.yo");
+{ Token } :: import("./token.yo");
+{ TypeValue } :: import("./types/definitions.yo");
+{ EvalValue, value_to_string } :: import("./value.yo");
+{ is_bool_type, is_enum_type, is_pointer_type, is_some_type } :: import("./types/guards.yo");
+{ resolve_enum_shell } :: import("./types/creators.yo");
+{ are_types_compatible } :: import("./types/compatibility.yo");
+{ get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
+{ lookup_some_resolved_concrete } :: import("./expr_info.yo");
+/// A compiled match pattern. Positions are typed top-down from the scrutinee;
+/// `Const`/`Range` carry the SYNTHESIZED test expression the evaluator typed
+/// (`subject == lit`, `(lo <= subject) && (subject < hi)`) against a hidden
+/// subject variable named `subject`, so both CTFE (fold the test with the
+/// subject bound to the known value) and codegen (declare a C local named
+/// `subject` holding the value at this position, then emit the test through
+/// the ordinary expression emitter) reuse the language's own `==`/`<=`.
+Pattern :: ref(
+  enum(
+    /// `_` — matches anything, binds nothing.
+    Wildcard,
+    /// `name` — matches anything, binds the value at this position.
+    Bind(name : String, token : Token),
+    /// A compile-time constant compared with `==` (literal, `::` constant,
+    /// typed literal call, string literal, …).
+    Const(value : EvalValue, ty : TypeValue, src : AstExpr, subject : String, test : AstExpr),
+    /// `(lo..hi)` / `(lo..=hi)` with compile-time bounds.
+    Range(src : AstExpr, subject : String, test : AstExpr, ty : TypeValue),
+    /// `.V`, `.V(p…)`, `.V(label : p)`, `.V({…})`. `subs` is PARTIAL: `field_idx`
+    /// names the field each sub-pattern is for; fields not listed match
+    /// anything. `arity` is the variant's field count. `through_ptr` says the
+    /// position's type was a pointer to the enum (one implicit deref).
+    Variant(
+      name : String,
+      idx : usize,
+      field_idx : ArrayList(usize),
+      subs : ArrayList(Self),
+      enum_ty : TypeValue,
+      through_ptr : bool,
+      arity : usize
+    ),
+    /// `(p | q)` — every alternative binds the same names.
+    Or(alts : ArrayList(Self)),
+    /// `(name := p)` — bind the whole value AND match `p` against it.
+    At(name : String, token : Token, sub : Self)
+  )
+);
+/// One `pattern => body` arm after compilation.
+Arm :: ref(
+  struct(
+    pattern : Pattern,
+    /// `(p && (g)) => body` — the guard, evaluated with the pattern's
+    /// bindings in scope.
+    guard : Option(AstExpr),
+    body : AstExpr,
+    /// The `=>` node.
+    arm_expr : AstExpr,
+    /// The pattern side of the `=>` — the node `case_executed` is stamped on.
+    pattern_expr : AstExpr,
+    /// True when the arm is one of the shapes the pre-IR emitters lower to a
+    /// `switch`: `_`, `.V`, `.V(binders / _ / numeric literals)`,
+    /// `.V(label : binder)`, `.V({…})`, or a primitive literal / or-of-literals
+    /// arm — with no guard. Codegen keeps today's emitters (byte-identical C)
+    /// for a match whose every arm is classic and takes the general
+    /// test-chain lowering otherwise.
+    classic : bool
+  )
+);
+// ---------------------------------------------------------------------------
+// Registry — arms per match node, keyed by the match expression's id.
+// ---------------------------------------------------------------------------
+(g_match_arms : HashMap(usize, ArrayList(Arm))) = HashMap(usize, ArrayList(Arm)).new();
+register_match_arms :: (fn(match_id : usize, arms : ArrayList(Arm)) -> unit)({
+  _old := g_match_arms.insert(match_id, arms);
+});
+lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_arms.get(match_id));
+// ---------------------------------------------------------------------------
+// GADT reachability (moved from evaluator/exprs/match.yo so the checker can
+// exclude unreachable variants from an enum's constructor set).
+// ---------------------------------------------------------------------------
+/// Resolve a GADT type-constructor arg through the SomeT resolution channel
+/// (lineage cell first, then the id-keyed registry).
+gadt_resolve_tca_entry :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .SomeT({ id : rt_id, resolved_concrete : rt_cell }) => match(
+      rt_cell.get(usize(0)),
+      .Some(rt_c) => rt_c,
+      .None => match(
+        lookup_some_resolved_concrete(rt_id),
+        .Some(rt_g) => rt_g,
+        .None => t
+      )
+    ),
+    _ => t
+  )
+);
+/// A variant is UNREACHABLE when the enum is instantiated with concrete type
+/// args that do not match the variant's `-> recur(...)` return-type args.
+gadt_branch_reachable :: (fn(enum_id : String, variant_idx : usize) -> bool)({
+  vargs_opt := get_gadt_variant_args(enum_id);
+  tca_opt := get_gadt_type_constructor_args(enum_id);
+  match(
+    vargs_opt,
+    .None => true,
+    .Some(all_vargs) => match(
+      tca_opt,
+      .None => true,
+      .Some(tca) => {
+        gra := match(all_vargs.get(variant_idx), .Some(g) => g, .None => ArrayList(TypeValue).new());
+        if(gra.len() == usize(0), {
+          return(true);
+        });
+        (reachable : bool) = true;
+        (k : usize) = usize(0);
+        while((k < tca.len()) && reachable, {
+          tk := gadt_resolve_tca_entry(match(tca.get(k), .Some(t) => t, .None => TypeValue.Unit));
+          gk := match(gra.get(k), .Some(g) => g, .None => TypeValue.Unit);
+          if(!is_some_type(tk), {
+            if(!are_types_compatible(tk, gk), {
+              reachable = false;
+            });
+          });
+          k = (k + usize(1));
+        });
+        reachable
+      }
+    )
+  )
+});
+// ---------------------------------------------------------------------------
+// Type helpers
+// ---------------------------------------------------------------------------
+/// The type a pattern at a position is compiled against: one pointer level
+/// looked through, a leaked recursive-enum self-shell resolved.
+norm_position_type :: (fn(t : TypeValue) -> TypeValue)({
+  inner := match(t, .Pointer(p) => p, _ => t);
+  resolve_enum_shell(inner)
+});
+/// The field types of variant `idx` of enum `enum_ty` (empty when absent).
+variant_field_types :: (fn(enum_ty : TypeValue, idx : usize) -> ArrayList(TypeValue))(
+  match(
+    enum_ty,
+    .EnumT({ variant_fields : vfs }) => match(vfs.get(idx), .Some(f) => f, .None => ArrayList(TypeValue).new()),
+    _ => ArrayList(TypeValue).new()
+  )
+);
+_enum_variant_names :: (fn(enum_ty : TypeValue) -> ArrayList(String))(
+  match(enum_ty, .EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new())
+);
+_enum_id :: (fn(enum_ty : TypeValue) -> String)(
+  match(enum_ty, .EnumT({ id : eid }) => eid, _ => String.new())
+);
+// ---------------------------------------------------------------------------
+// Walkers
+// ---------------------------------------------------------------------------
+_push_names :: (fn(p : Pattern, out : ArrayList(String)) -> unit)({
+  match(
+    p,
+    .Wildcard => (),
+    .Bind(name, _) => {
+      out.push(name.clone());
+    },
+    .Const(_, _, _, _, _) => (),
+    .Range(_, _, _, _) => (),
+    .Variant(_, _, _, subs, _, _, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(
+          subs.get(i),
+          .Some(s) => {
+            recur(s, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Or(alts) => {
+      // Every alternative binds the same names (checked at compile time);
+      // report the first alternative's.
+      match(
+        alts.get(usize(0)),
+        .Some(a0) => {
+          recur(a0, out);
+        },
+        .None => ()
+      );
+    },
+    .At(name, _, sub) => {
+      out.push(name.clone());
+      recur(sub, out);
+    }
+  );
+});
+/// The names a pattern binds, in source order.
+pattern_bindings :: (fn(p : Pattern) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  _push_names(p, out);
+  out
+});
+/// True when the pattern matches every value of its type.
+pattern_is_irrefutable :: (fn(p : Pattern) -> bool)(
+  match(
+    p,
+    .Wildcard => true,
+    .Bind(_, _) => true,
+    .Const(_, _, _, _, _) => false,
+    .Range(_, _, _, _) => false,
+    .Variant(_, _, _, _, _, _, _) => false,
+    .Or(alts) => {
+      (any_irref : bool) = false;
+      (i : usize) = usize(0);
+      while((i < alts.len()) && !any_irref, {
+        match(
+          alts.get(i),
+          .Some(a) => {
+            any_irref = recur(a);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      any_irref
+    },
+    .At(_, _, sub) => recur(sub)
+  )
+);
+/// Render a pattern in Yo syntax (for diagnostics).
+pattern_to_string :: (fn(p : Pattern) -> String)(
+  match(
+    p,
+    .Wildcard => String.from("_"),
+    .Bind(name, _) => name.clone(),
+    .Const(_, _, src, _, _) => ast_expr_to_string(src),
+    .Range(src, _, _, _) => ast_expr_to_string(src),
+    .Variant(name, _, field_idx, subs, enum_ty, _, arity) => {
+      out := String.from(".");
+      out.push_string(name.clone());
+      if(subs.len() > usize(0), {
+        out.push_str("(");
+        // Positional rendering over the FULL arity, `_` for fields the
+        // pattern leaves open.
+        (fi : usize) = usize(0);
+        while(fi < arity, {
+          if(fi > usize(0), {
+            out.push_str(", ");
+          });
+          (sub_str : String) = String.from("_");
+          (si : usize) = usize(0);
+          while(si < field_idx.len(), {
+            if(match(field_idx.get(si), .Some(k) => (k == fi), .None => false), {
+              match(
+                subs.get(si),
+                .Some(s) => {
+                  sub_str = recur(s);
+                },
+                .None => ()
+              );
+            });
+            si = (si + usize(1));
+          });
+          out.push_string(sub_str);
+          fi = (fi + usize(1));
+        });
+        out.push_str(")");
+      });
+      out
+    },
+    .Or(alts) => {
+      out := String.from("(");
+      (i : usize) = usize(0);
+      while(i < alts.len(), {
+        if(i > usize(0), {
+          out.push_str(" | ");
+        });
+        match(
+          alts.get(i),
+          .Some(a) => {
+            out.push_string(recur(a));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      out.push_str(")");
+      out
+    },
+    .At(name, _, sub) => {
+      out := String.from("(");
+      out.push_string(name.clone());
+      out.push_str(" := ");
+      out.push_string(recur(sub));
+      out.push_str(")");
+      out
+    }
+  )
+);
+// ---------------------------------------------------------------------------
+// Usefulness (Maranget, "Warnings for pattern matching", 2007)
+//
+// A row is a vector of patterns (one per column); `tys` are the column types.
+// `_useful(rows, q, tys)` answers "is there a value matched by `q` that no
+// row matches?" and, when there is, returns one such value rendered as a list
+// of Yo pattern strings (one per column of `q`).
+// ---------------------------------------------------------------------------
+/// The full-arity sub-pattern vector of a variant pattern: `_` for every field
+/// the (possibly partial) pattern leaves open.
+_variant_full_subs :: (fn(field_idx : ArrayList(usize), subs : ArrayList(Pattern), arity : usize) -> ArrayList(Pattern))({
+  out := ArrayList(Pattern).new();
+  (fi : usize) = usize(0);
+  while(fi < arity, {
+    (chosen : Pattern) = Pattern.Wildcard;
+    (si : usize) = usize(0);
+    while(si < field_idx.len(), {
+      if(match(field_idx.get(si), .Some(k) => (k == fi), .None => false), {
+        match(
+          subs.get(si),
+          .Some(s) => {
+            chosen = s;
+          },
+          .None => ()
+        );
+      });
+      si = (si + usize(1));
+    });
+    out.push(chosen);
+    fi = (fi + usize(1));
+  });
+  out
+});
+_wildcards :: (fn(n : usize) -> ArrayList(Pattern))({
+  out := ArrayList(Pattern).new();
+  (i : usize) = usize(0);
+  while(i < n, {
+    out.push(Pattern.Wildcard);
+    i = (i + usize(1));
+  });
+  out
+});
+/// `a ++ b`.
+_concat_patterns :: (fn(a : ArrayList(Pattern), b : ArrayList(Pattern)) -> ArrayList(Pattern))({
+  out := ArrayList(Pattern).new();
+  (i : usize) = usize(0);
+  while(i < a.len(), {
+    match(
+      a.get(i),
+      .Some(p) => {
+        out.push(p);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < b.len(), {
+    match(
+      b.get(j),
+      .Some(p) => {
+        out.push(p);
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  out
+});
+_concat_types :: (fn(a : ArrayList(TypeValue), b : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < a.len(), {
+    match(
+      a.get(i),
+      .Some(t) => {
+        out.push(t);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < b.len(), {
+    match(
+      b.get(j),
+      .Some(t) => {
+        out.push(t);
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  out
+});
+_tail_patterns :: (fn(v : ArrayList(Pattern)) -> ArrayList(Pattern))({
+  out := ArrayList(Pattern).new();
+  (i : usize) = usize(1);
+  while(i < v.len(), {
+    match(
+      v.get(i),
+      .Some(p) => {
+        out.push(p);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+_tail_types :: (fn(v : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(1);
+  while(i < v.len(), {
+    match(
+      v.get(i),
+      .Some(t) => {
+        out.push(t);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// Strip `At` and expand `Or` at the HEAD of every row, so each row's head is
+/// a wildcard, binding, constant, range or variant.
+_expand_row_heads :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(ArrayList(Pattern)))({
+  out := ArrayList(ArrayList(Pattern)).new();
+  (i : usize) = usize(0);
+  while(i < rows.len(), {
+    match(
+      rows.get(i),
+      .Some(row) => {
+        match(
+          row.get(usize(0)),
+          .Some(head) => match(
+            head,
+            .At(_, _, sub) => {
+              nr := ArrayList(Pattern).new();
+              nr.push(sub);
+              rest := _tail_patterns(row);
+              // Re-run on the rewritten row (the sub may be an Or).
+              one := ArrayList(ArrayList(Pattern)).new();
+              one.push(_concat_patterns(nr, rest));
+              expanded := recur(one);
+              (k : usize) = usize(0);
+              while(k < expanded.len(), {
+                match(
+                  expanded.get(k),
+                  .Some(r2) => {
+                    out.push(r2);
+                  },
+                  .None => ()
+                );
+                k = (k + usize(1));
+              });
+            },
+            .Or(alts) => {
+              rest := _tail_patterns(row);
+              (ai : usize) = usize(0);
+              while(ai < alts.len(), {
+                match(
+                  alts.get(ai),
+                  .Some(alt) => {
+                    nr := ArrayList(Pattern).new();
+                    nr.push(alt);
+                    one := ArrayList(ArrayList(Pattern)).new();
+                    one.push(_concat_patterns(nr, rest));
+                    expanded := recur(one);
+                    (k : usize) = usize(0);
+                    while(k < expanded.len(), {
+                      match(
+                        expanded.get(k),
+                        .Some(r2) => {
+                          out.push(r2);
+                        },
+                        .None => ()
+                      );
+                      k = (k + usize(1));
+                    });
+                  },
+                  .None => ()
+                );
+                ai = (ai + usize(1));
+              });
+            },
+            _ => {
+              out.push(row);
+            }
+          ),
+          .None => {
+            out.push(row);
+          }
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// The comparison key of a constant/range head (two heads with equal keys are
+/// the same constructor).
+_const_key :: (fn(p : Pattern) -> String)(
+  match(
+    p,
+    .Const(v, _, _, _, _) => value_to_string(v),
+    .Range(src, _, _, _) => {
+      k := String.from("range:");
+      k.push_string(ast_expr_to_string(src));
+      k
+    },
+    _ => String.new()
+  )
+);
+_head_is_wild :: (fn(p : Pattern) -> bool)(
+  match(p, .Wildcard => true, .Bind(_, _) => true, _ => false)
+);
+/// Specialize the matrix by variant constructor `name` of arity `arity`.
+_specialize_variant :: (fn(rows : ArrayList(ArrayList(Pattern)), name : String, arity : usize) -> ArrayList(ArrayList(Pattern)))({
+  out := ArrayList(ArrayList(Pattern)).new();
+  (i : usize) = usize(0);
+  while(i < rows.len(), {
+    match(
+      rows.get(i),
+      .Some(row) => match(
+        row.get(usize(0)),
+        .Some(head) => match(
+          head,
+          .Variant(vn, _, fidx, subs, _, _, _) => {
+            if(vn == name, {
+              out.push(_concat_patterns(_variant_full_subs(fidx, subs, arity), _tail_patterns(row)));
+            });
+          },
+          .Wildcard => {
+            out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
+          },
+          .Bind(_, _) => {
+            out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
+          },
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// Specialize the matrix by a constant/range constructor with key `key`.
+_specialize_const :: (fn(rows : ArrayList(ArrayList(Pattern)), key : String) -> ArrayList(ArrayList(Pattern)))({
+  out := ArrayList(ArrayList(Pattern)).new();
+  (i : usize) = usize(0);
+  while(i < rows.len(), {
+    match(
+      rows.get(i),
+      .Some(row) => match(
+        row.get(usize(0)),
+        .Some(head) => {
+          if(_head_is_wild(head), {
+            out.push(_tail_patterns(row));
+          }, {
+            hk := _const_key(head);
+            if((hk.len() > usize(0)) && (hk == key), {
+              out.push(_tail_patterns(row));
+            });
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// The default matrix: rows whose head matches anything, heads dropped.
+_default_matrix :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(ArrayList(Pattern)))({
+  out := ArrayList(ArrayList(Pattern)).new();
+  (i : usize) = usize(0);
+  while(i < rows.len(), {
+    match(
+      rows.get(i),
+      .Some(row) => match(
+        row.get(usize(0)),
+        .Some(head) => {
+          if(_head_is_wild(head), {
+            out.push(_tail_patterns(row));
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// `[head] ++ rest` for witness vectors.
+_cons_str :: (fn(head : String, rest : ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  out.push(head);
+  (i : usize) = usize(0);
+  while(i < rest.len(), {
+    match(
+      rest.get(i),
+      .Some(s) => {
+        out.push(s);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// Render a variant witness from the first `arity` entries of `w`, returning
+/// `(rendered, remaining)`.
+_render_variant_witness :: (fn(name : String, arity : usize, w : ArrayList(String)) -> ArrayList(String))({
+  head := String.from(".");
+  head.push_string(name.clone());
+  (all_wild : bool) = true;
+  (i : usize) = usize(0);
+  while(i < arity, {
+    match(
+      w.get(i),
+      .Some(s) => {
+        if(!(s == "_"), {
+          all_wild = false;
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if((arity > usize(0)) && !all_wild, {
+    head.push_str("(");
+    (j : usize) = usize(0);
+    while(j < arity, {
+      if(j > usize(0), {
+        head.push_str(", ");
+      });
+      match(
+        w.get(j),
+        .Some(s) => {
+          head.push_string(s.clone());
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    head.push_str(")");
+  });
+  rest := ArrayList(String).new();
+  (k : usize) = arity;
+  while(k < w.len(), {
+    match(
+      w.get(k),
+      .Some(s) => {
+        rest.push(s);
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  _cons_str(head, rest)
+});
+/// Does the head column of `rows` name every REACHABLE variant of `enum_ty`?
+/// Returns the list of missing variant indices (empty = complete).
+_missing_variants :: (fn(rows : ArrayList(ArrayList(Pattern)), enum_ty : TypeValue) -> ArrayList(usize))({
+  vns := _enum_variant_names(enum_ty);
+  eid := _enum_id(enum_ty);
+  missing := ArrayList(usize).new();
+  (vi : usize) = usize(0);
+  while(vi < vns.len(), {
+    vname := match(vns.get(vi), .Some(n) => n, .None => String.new());
+    if(gadt_branch_reachable(eid.clone(), vi), {
+      (present : bool) = false;
+      (ri : usize) = usize(0);
+      while((ri < rows.len()) && !present, {
+        match(
+          rows.get(ri),
+          .Some(row) => match(
+            row.get(usize(0)),
+            .Some(head) => match(
+              head,
+              .Variant(hn, _, _, _, _, _, _) => {
+                if(hn == vname, {
+                  present = true;
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
+        ri = (ri + usize(1));
+      });
+      if(!present, {
+        missing.push(vi);
+      });
+    });
+    vi = (vi + usize(1));
+  });
+  missing
+});
+/// Are both `true` and `false` among the constant heads? Returns the missing
+/// bool keys (empty = complete).
+_missing_bools :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(String))({
+  (has_t : bool) = false;
+  (has_f : bool) = false;
+  (ri : usize) = usize(0);
+  while(ri < rows.len(), {
+    match(
+      rows.get(ri),
+      .Some(row) => match(
+        row.get(usize(0)),
+        .Some(head) => match(
+          head,
+          .Const(v, _, _, _, _) => match(
+            v,
+            .BoolVal(b) => {
+              if(b, {
+                has_t = true;
+              }, {
+                has_f = true;
+              });
+            },
+            _ => ()
+          ),
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  out := ArrayList(String).new();
+  if(!has_t, {
+    out.push(String.from("true"));
+  });
+  if(!has_f, {
+    out.push(String.from("false"));
+  });
+  out
+});
+/// Variants of `enum_ty` present as row heads, each with its arity — the
+/// constructor set to iterate when the signature is complete.
+_present_variants :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(Pattern))({
+  out := ArrayList(Pattern).new();
+  seen := ArrayList(String).new();
+  (ri : usize) = usize(0);
+  while(ri < rows.len(), {
+    match(
+      rows.get(ri),
+      .Some(row) => match(
+        row.get(usize(0)),
+        .Some(head) => match(
+          head,
+          .Variant(hn, _, _, _, _, _, _) => {
+            (dup : bool) = false;
+            (si : usize) = usize(0);
+            while((si < seen.len()) && !dup, {
+              if(match(seen.get(si), .Some(s) => (s == hn), .None => false), {
+                dup = true;
+              });
+              si = (si + usize(1));
+            });
+            if(!dup, {
+              seen.push(hn.clone());
+              out.push(head);
+            });
+          },
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  out
+});
+/// Distinct constant/range heads of the matrix (their keys), for the
+/// "specialize by every present constant" walk of a bool column.
+_present_bool_consts :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(Pattern))({
+  out := ArrayList(Pattern).new();
+  seen := ArrayList(String).new();
+  (ri : usize) = usize(0);
+  while(ri < rows.len(), {
+    match(
+      rows.get(ri),
+      .Some(row) => match(
+        row.get(usize(0)),
+        .Some(head) => match(
+          head,
+          .Const(_, _, _, _, _) => {
+            k := _const_key(head);
+            (dup : bool) = false;
+            (si : usize) = usize(0);
+            while((si < seen.len()) && !dup, {
+              if(match(seen.get(si), .Some(s) => (s == k), .None => false), {
+                dup = true;
+              });
+              si = (si + usize(1));
+            });
+            if(!dup, {
+              seen.push(k);
+              out.push(head);
+            });
+          },
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  out
+});
+/// The usefulness check with witness. `.None` = `q` is NOT useful (every value
+/// it matches is already covered by a row); `.Some(w)` = a witness vector.
+_useful :: (fn(rows_in : ArrayList(ArrayList(Pattern)), q : ArrayList(Pattern), tys : ArrayList(TypeValue)) -> Option(ArrayList(String)))({
+  if(q.len() == usize(0), {
+    if(rows_in.len() == usize(0), {
+      return(Option(ArrayList(String)).Some(ArrayList(String).new()));
+    });
+    return(Option(ArrayList(String)).None);
+  });
+  rows := _expand_row_heads(rows_in);
+  head0 := match(q.get(usize(0)), .Some(h) => h, .None => Pattern.Wildcard);
+  q_rest := _tail_patterns(q);
+  tys_rest := _tail_types(tys);
+  ty0 := norm_position_type(match(tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit));
+  match(
+    head0,
+    .At(_, _, sub) => {
+      nq := ArrayList(Pattern).new();
+      nq.push(sub);
+      return(recur(rows, _concat_patterns(nq, q_rest), tys));
+    },
+    .Or(alts) => {
+      (ai : usize) = usize(0);
+      while(ai < alts.len(), {
+        match(
+          alts.get(ai),
+          .Some(alt) => {
+            nq := ArrayList(Pattern).new();
+            nq.push(alt);
+            match(
+              recur(rows, _concat_patterns(nq, q_rest), tys),
+              .Some(w) => {
+                return(Option(ArrayList(String)).Some(w));
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      return(Option(ArrayList(String)).None);
+    },
+    .Variant(name, idx, fidx, subs, enum_ty, _, arity) => {
+      spec := _specialize_variant(rows, name.clone(), arity);
+      ftys := variant_field_types(enum_ty, idx);
+      match(
+        recur(spec, _concat_patterns(_variant_full_subs(fidx, subs, arity), q_rest), _concat_types(ftys, tys_rest)),
+        .Some(w) => {
+          return(Option(ArrayList(String)).Some(_render_variant_witness(name.clone(), arity, w)));
+        },
+        .None => {
+          return(Option(ArrayList(String)).None);
+        }
+      );
+    },
+    .Const(_, _, _, _, _) => {
+      spec := _specialize_const(rows, _const_key(head0));
+      match(
+        recur(spec, q_rest, tys_rest),
+        .Some(w) => {
+          return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(head0), w)));
+        },
+        .None => {
+          return(Option(ArrayList(String)).None);
+        }
+      );
+    },
+    .Range(_, _, _, _) => {
+      spec := _specialize_const(rows, _const_key(head0));
+      match(
+        recur(spec, q_rest, tys_rest),
+        .Some(w) => {
+          return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(head0), w)));
+        },
+        .None => {
+          return(Option(ArrayList(String)).None);
+        }
+      );
+    },
+    _ => {
+      // Wildcard / binding head.
+      if(is_enum_type(ty0), {
+        missing := _missing_variants(rows, ty0);
+        if(missing.len() == usize(0), {
+          // Complete signature: q is useful iff it is useful for some ctor.
+          present := _present_variants(rows);
+          (pi : usize) = usize(0);
+          while(pi < present.len(), {
+            match(
+              present.get(pi),
+              .Some(cp) => match(
+                cp,
+                .Variant(cn, cidx, _, _, cenum, _, carity) => {
+                  spec := _specialize_variant(rows, cn.clone(), carity);
+                  ftys := variant_field_types(cenum, cidx);
+                  match(
+                    recur(spec, _concat_patterns(_wildcards(carity), q_rest), _concat_types(ftys, tys_rest)),
+                    .Some(w) => {
+                      return(Option(ArrayList(String)).Some(_render_variant_witness(cn.clone(), carity, w)));
+                    },
+                    .None => ()
+                  );
+                },
+                _ => ()
+              ),
+              .None => ()
+            );
+            pi = (pi + usize(1));
+          });
+          return(Option(ArrayList(String)).None);
+        });
+        // Incomplete: only the rows that match anything constrain q's tail.
+        match(
+          recur(_default_matrix(rows), q_rest, tys_rest),
+          .Some(w) => {
+            vns := _enum_variant_names(ty0);
+            first_missing := match(missing.get(usize(0)), .Some(m) => m, .None => usize(0));
+            mname := match(vns.get(first_missing), .Some(n) => n, .None => String.from("_"));
+            marity := variant_field_types(ty0, first_missing).len();
+            wild_w := ArrayList(String).new();
+            (wi : usize) = usize(0);
+            while(wi < marity, {
+              wild_w.push(String.from("_"));
+              wi = (wi + usize(1));
+            });
+            (k : usize) = usize(0);
+            while(k < w.len(), {
+              match(
+                w.get(k),
+                .Some(s) => {
+                  wild_w.push(s);
+                },
+                .None => ()
+              );
+              k = (k + usize(1));
+            });
+            return(Option(ArrayList(String)).Some(_render_variant_witness(mname, marity, wild_w)));
+          },
+          .None => {
+            return(Option(ArrayList(String)).None);
+          }
+        );
+      });
+      if(is_bool_type(ty0), {
+        missing_b := _missing_bools(rows);
+        if(missing_b.len() == usize(0), {
+          present_c := _present_bool_consts(rows);
+          (ci : usize) = usize(0);
+          while(ci < present_c.len(), {
+            match(
+              present_c.get(ci),
+              .Some(cp) => {
+                spec := _specialize_const(rows, _const_key(cp));
+                match(
+                  recur(spec, q_rest, tys_rest),
+                  .Some(w) => {
+                    return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(cp), w)));
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+            ci = (ci + usize(1));
+          });
+          return(Option(ArrayList(String)).None);
+        });
+        match(
+          recur(_default_matrix(rows), q_rest, tys_rest),
+          .Some(w) => {
+            mb := match(missing_b.get(usize(0)), .Some(s) => s, .None => String.from("_"));
+            return(Option(ArrayList(String)).Some(_cons_str(mb, w)));
+          },
+          .None => {
+            return(Option(ArrayList(String)).None);
+          }
+        );
+      });
+      // Infinite domain (integers, floats, strings, …): only wildcard rows
+      // cover it.
+      match(
+        recur(_default_matrix(rows), q_rest, tys_rest),
+        .Some(w) => Option(ArrayList(String)).Some(_cons_str(String.from("_"), w)),
+        .None => Option(ArrayList(String)).None
+      )
+    }
+  )
+});
+/// One-column row vector for an arm pattern.
+_row_of :: (fn(p : Pattern) -> ArrayList(Pattern))({
+  r := ArrayList(Pattern).new();
+  r.push(p);
+  r
+});
+/// The rows that count toward COVERAGE: unguarded arms only (a guard can
+/// fail, so a guarded arm covers nothing for the arms below it).
+_coverage_rows :: (fn(arms : ArrayList(Arm), upto : usize) -> ArrayList(ArrayList(Pattern)))({
+  rows := ArrayList(ArrayList(Pattern)).new();
+  (i : usize) = usize(0);
+  while(i < upto, {
+    match(
+      arms.get(i),
+      .Some(a) => {
+        if(a.guard.is_none(), {
+          rows.push(_row_of(a.pattern));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  rows
+});
+/// A value of `scrutinee_ty` no arm matches, rendered as a Yo pattern — or
+/// `.None` when the match is exhaustive.
+match_missing_witness :: (fn(arms : ArrayList(Arm), scrutinee_ty : TypeValue) -> Option(String))({
+  rows := _coverage_rows(arms, arms.len());
+  tys := ArrayList(TypeValue).new();
+  tys.push(scrutinee_ty);
+  match(
+    _useful(rows, _row_of(Pattern.Wildcard), tys),
+    .Some(w) => match(w.get(usize(0)), .Some(s) => Option(String).Some(s), .None => Option(String).Some(String.from("_"))),
+    .None => Option(String).None
+  )
+});
+/// True when arm `i` can never run because ONE earlier unguarded arm alone
+/// already matches everything it matches: a duplicate variant or literal,
+/// any arm after `_` or a binding, an or-alternative repeated. An arm that
+/// is redundant only COLLECTIVELY (`.Some(_)` after `.Some(true)` and
+/// `.Some(false)`, a trailing `_` after every variant) is tolerated: it is the
+/// defensive idiom the tree is full of, Rust only warns about it, and Yo has
+/// no warnings channel yet (plans/MATCH_PATTERN_MATCHING.md §4.6, adjusted
+/// 2026-09-19 after the tree-wide measurement).
+arm_is_unreachable :: (fn(arms : ArrayList(Arm), i : usize, scrutinee_ty : TypeValue) -> bool)({
+  arm := match(arms.get(i), .Some(a) => a, .None => return(false));
+  // A TRAILING catch-all (`_` or a binding, last arm, no guard) is never
+  // reported, even when a single earlier arm covers it — over a one-variant
+  // enum (`.InvalidUtf8(c) => …, _ => …`, std/encoding/percent.yo) the
+  // defensive arm is subsumed by one arm and is still the idiom to keep.
+  if(((i + usize(1)) == arms.len()) && arm.guard.is_none(), {
+    if(match(arm.pattern, .Wildcard => true, .Bind(_, _) => true, _ => false), {
+      return(false);
+    });
+  });
+  tys := ArrayList(TypeValue).new();
+  tys.push(scrutinee_ty);
+  (j : usize) = usize(0);
+  while(j < i, {
+    match(
+      arms.get(j),
+      .Some(earlier) => {
+        if(earlier.guard.is_none(), {
+          one := ArrayList(ArrayList(Pattern)).new();
+          one.push(_row_of(earlier.pattern));
+          if(_useful(one, _row_of(arm.pattern), tys).is_none(), {
+            return(true);
+          });
+        });
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  false
+});
+/// The synthesized test expressions (`subject == lit`, range compares) of a
+/// pattern, in pre-order — codegen's collectors must see them (they are not
+/// in the source AST), so the evaluator hangs them off the arm's pattern node
+/// as its `macro_expansion`.
+pattern_test_exprs :: (fn(p : Pattern, out : ArrayList(AstExpr)) -> unit)({
+  match(
+    p,
+    .Wildcard => (),
+    .Bind(_, _) => (),
+    .Const(_, _, _, _, test) => {
+      out.push(test);
+    },
+    .Range(_, _, test, _) => {
+      out.push(test);
+    },
+    .Variant(_, _, _, subs, _, _, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(
+          subs.get(i),
+          .Some(s) => {
+            recur(s, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Or(alts) => {
+      (i : usize) = usize(0);
+      while(i < alts.len(), {
+        match(
+          alts.get(i),
+          .Some(a) => {
+            recur(a, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .At(_, _, sub) => {
+      recur(sub, out);
+    }
+  );
+});
+export(Pattern, Arm, register_match_arms, lookup_match_arms);
+export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
+export(match_missing_witness, arm_is_unreachable, pattern_test_exprs);
+export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, variant_field_types);

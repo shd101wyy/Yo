@@ -1,0 +1,109 @@
+//! Nested variant patterns (plans/MATCH_PATTERN_MATCHING.md P2): a
+//! sub-pattern of a variant payload may itself be a variant pattern, at any
+//! depth, positional or labeled, with literals inside, on runtime and
+//! compile-time scrutinees.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+import("std/fmt");
+Inner :: enum(A(x : i32), B);
+Outer :: enum(Ok(v : Inner), Err(code : i32));
+Deep :: enum(Wrap(o : Outer), Flat);
+test("nested variant patterns select by the inner variant", {
+  f :: (fn(o : Outer) -> i32)(
+    match(
+      o,
+      .Ok(.A(x)) => x,
+      .Ok(.B) => i32(-1),
+      .Err(c) => (c * i32(10))
+    )
+  );
+  assert(f(Outer.Ok(Inner.A(7))) == i32(7));
+  assert(f(Outer.Ok(Inner.B)) == i32(-1));
+  assert(f(Outer.Err(3)) == i32(30));
+});
+test("Option of Option", {
+  g :: (fn(a : Option(Option(i32))) -> i32)(
+    match(
+      a,
+      .Some(.Some(v)) => v,
+      .Some(.None) => i32(-1),
+      .None => i32(-2)
+    )
+  );
+  assert(g(Option(Option(i32)).Some(Option(i32).Some(5))) == i32(5));
+  assert(g(Option(Option(i32)).Some(Option(i32).None)) == i32(-1));
+  assert(g(Option(Option(i32)).None) == i32(-2));
+});
+test("three levels deep, with a literal at the bottom", {
+  h :: (fn(d : Deep) -> i32)(
+    match(
+      d,
+      .Wrap(.Ok(.A(0))) => i32(100),
+      .Wrap(.Ok(.A(x))) => x,
+      .Wrap(.Ok(.B)) => i32(-1),
+      .Wrap(.Err(c)) => (c + i32(1000)),
+      .Flat => i32(0)
+    )
+  );
+  assert(h(Deep.Wrap(Outer.Ok(Inner.A(0)))) == i32(100));
+  assert(h(Deep.Wrap(Outer.Ok(Inner.A(9)))) == i32(9));
+  assert(h(Deep.Wrap(Outer.Ok(Inner.B))) == i32(-1));
+  assert(h(Deep.Wrap(Outer.Err(5))) == i32(1005));
+  assert(h(Deep.Flat) == i32(0));
+});
+test("nested patterns in labeled and curly slots", {
+  k :: (fn(o : Outer) -> i32)(
+    match(
+      o,
+      .Ok(v : .A(x)) => (x + i32(1)),
+      .Ok({ v : .B }) => i32(-1),
+      .Err({ code }) => code
+    )
+  );
+  assert(k(Outer.Ok(Inner.A(1))) == i32(2));
+  assert(k(Outer.Ok(Inner.B)) == i32(-1));
+  assert(k(Outer.Err(42)) == i32(42));
+});
+test("a wildcard inside a nested payload", {
+  any_a :: (fn(o : Outer) -> bool)(
+    match(
+      o,
+      .Ok(.A(_)) => true,
+      _ => false
+    )
+  );
+  assert(any_a(Outer.Ok(Inner.A(3))));
+  assert(!any_a(Outer.Ok(Inner.B)));
+  assert(!any_a(Outer.Err(0)));
+});
+test("compile-time scrutinee: the nested arm is selected at compile time", {
+  K :: Outer.Ok(Inner.A(7));
+  r :: match(
+    K,
+    .Ok(.A(x)) => x,
+    _ => i32(0)
+  );
+  assert(r == i32(7));
+  K2 :: Outer.Ok(Inner.B);
+  r2 :: match(
+    K2,
+    .Ok(.A(x)) => x,
+    .Ok(.B) => i32(-1),
+    .Err(_) => i32(-2)
+  );
+  assert(r2 == i32(-1));
+});
+Pair :: enum(Two(a : Option(String), b : i32), Zero);
+test("reference-semantics payloads bound through a nested pattern", {
+  total :: (fn(p : Pair) -> usize)(
+    match(
+      p,
+      .Two(.Some(s), n) => (s.len() + usize(n)),
+      .Two(.None, n) => usize(n),
+      .Zero => usize(0)
+    )
+  );
+  assert(total(Pair.Two(Option(String).Some(`hello`), 2)) == usize(7));
+  assert(total(Pair.Two(Option(String).None, 4)) == usize(4));
+  assert(total(Pair.Zero) == usize(0));
+});

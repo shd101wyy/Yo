@@ -28,14 +28,15 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   resident evaluator, per-module TUs) and what it does not (native
   backend, in-place patching). Phase 0 = instrumentation; nothing started.
 - [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) —
-  ACTIVE 2026-09-13: the `match` audit (value matching exists only on the
-  primitive path; three silent wrong answers and three check-green/C-red
-  shapes measured) and the design for real pattern matching: patterns stay
-  expressions, one compiled `Pattern` IR shared by the evaluator and both C
-  emitters, usefulness-based exhaustiveness, `switch` kept where it is
-  switch-shaped plus a test-chain lowering for nested/literal/or/guard/range/
-  string/tuple/struct patterns. P0 absorbs PR #661 and closes the
-  exhaustiveness hole it leaves.
+  ACTIVE 2026-09-13; **P1–P3 landed 2026-09-19**: the `Pattern` IR
+  (`src/pattern.yo`), the pattern compiler, one arm loop in `evaluate_match`,
+  usefulness-based exhaustiveness with structural witnesses, and the general
+  test-chain lowering beside the byte-identical `switch` paths. Shipped:
+  nested variant patterns, literal/constant/string sub-patterns, or-patterns
+  on variants, identifier catch-alls, `str`/`String` scrutinees, ranges,
+  guards `(p && (g))`, `(name := p)`; codes E0607–E0609. Open: tuple/struct
+  scrutinees (P4), `Box` payloads, the async general lowering, the seed-gated
+  adoption sweep (P5), the verifier (P6).
 - [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) —
   ACTIVE 2026-09-18: **Yo verifies Yo.** The compiler as the verifier's
   flagship user, as a ladder of claims true at every rung (M0 measure/ratchet,

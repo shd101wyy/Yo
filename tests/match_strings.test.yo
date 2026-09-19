@@ -1,0 +1,83 @@
+//! String patterns (plans/MATCH_PATTERN_MATCHING.md P3): `str` and `String`
+//! scrutinees against string literals, or-of-strings, and string literals in
+//! a variant payload. The comparison is the language's own `==`.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+import("std/fmt");
+Tagged :: enum(Tag(name : str), Empty);
+Named :: enum(Name(s : String), Anon);
+test("a str scrutinee against string literals", {
+  code :: (fn(s : str) -> i32)(
+    match(
+      s,
+      "compile" => i32(1),
+      "check" => i32(2),
+      _ => i32(0)
+    )
+  );
+  assert(code("compile") == i32(1));
+  assert(code("check") == i32(2));
+  assert(code("fmt") == i32(0));
+});
+test("a String scrutinee against string literals", {
+  code :: (fn(s : String) -> i32)(
+    match(
+      s,
+      "a" => i32(1),
+      "bb" => i32(2),
+      other => i32(other.len())
+    )
+  );
+  assert(code(`a`) == i32(1));
+  assert(code(`bb`) == i32(2));
+  assert(code(`xyz!`) == i32(4));
+});
+test("or-of-strings", {
+  is_yes :: (fn(s : str) -> bool)(
+    match(
+      s,
+      ("y" | "yes" | "Y") => true,
+      _ => false
+    )
+  );
+  assert(is_yes("y"));
+  assert(is_yes("yes"));
+  assert(!is_yes("no"));
+});
+test("a string literal in a payload position compares", {
+  f :: (fn(t : Tagged) -> i32)(
+    match(
+      t,
+      .Tag("a") => i32(1),
+      .Tag(n) => i32(n.len()),
+      .Empty => i32(0)
+    )
+  );
+  assert(f(Tagged.Tag("a")) == i32(1));
+  assert(f(Tagged.Tag("zzz")) == i32(3));
+  assert(f(Tagged.Empty) == i32(0));
+});
+test("a String payload against a literal", {
+  g :: (fn(n : Named) -> i32)(
+    match(
+      n,
+      .Name("root") => i32(1),
+      .Name(_) => i32(2),
+      .Anon => i32(0)
+    )
+  );
+  assert(g(Named.Name(`root`)) == i32(1));
+  assert(g(Named.Name(`user`)) == i32(2));
+  assert(g(Named.Anon) == i32(0));
+});
+test("string match with a binding catch-all used in the body", {
+  describe :: (fn(s : String) -> String)(
+    match(
+      s,
+      "" => `empty`,
+      other => `got ${other}`
+    )
+  );
+  assert(describe(``) == `empty`);
+  assert(describe(`hi`) == `got hi`);
+});

@@ -36,6 +36,9 @@ json :: import("std/encoding/json");
   E_RETURN_TYPE_MISMATCH,
   E_TYPE_MISMATCH,
   E_ARGUMENT_NOT_CALLABLE,
+  E_MATCH_NOT_EXHAUSTIVE,
+  E_MATCH_UNREACHABLE_ARM,
+  E_INVALID_PATTERN,
   E_USE_OF_MOVED_VALUE,
   E_CANNOT_REASSIGN,
   E_MAYBE_UNINITIALIZED,
@@ -498,6 +501,51 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "s : i32 = 2147483647;\nx := (s + 1);",
       "Runtime addition wraps; the comptime one rejects.",
       "运行时加法会回绕；comptime 加法会拒绝。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MATCH_NOT_EXHAUSTIVE,
+      "match is not exhaustive",
+      "match 未覆盖所有情况",
+      "Some value of the scrutinee's type is matched by no arm.",
+      "被匹配值的类型中存在没有任何分支能匹配的值。",
+      "Every `match` must cover every value. For an enum that means every reachable variant, with nested payload patterns counted structurally (`.Some(true)` covers only `.Some(true)`, so `.Some(false)` is a missing case); for `bool` both values; for integers, floats and strings — infinite domains — a wildcard `_` or a binding arm is required. The message names one missing value in Yo pattern syntax; a guarded arm never counts as covering its pattern, because the guard can fail.",
+      "每个 `match` 都必须覆盖所有取值。对枚举意味着覆盖每个可达的变体，且嵌套的载荷模式按结构计算（`.Some(true)` 只覆盖 `.Some(true)`，因此 `.Some(false)` 是缺失情况）；对 `bool` 需要两个值；对整数、浮点数和字符串这类无穷域，则需要通配符 `_` 或绑定分支。错误信息会以 Yo 模式语法给出一个缺失的值；带守卫的分支不算覆盖其模式，因为守卫可能失败。",
+      "match(o, .Some(true) => 1, .None => 0)",
+      "match(o, .Some(true) => 1, .Some(false) => 2, .None => 0)",
+      "`.Some(false)` was matched by no arm.",
+      "没有分支匹配 `.Some(false)`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MATCH_UNREACHABLE_ARM,
+      "unreachable match arm",
+      "不可达的 match 分支",
+      "Every value this arm matches is already matched by an earlier arm.",
+      "该分支能匹配的所有值都已被前面的分支匹配。",
+      "Arms are tried in source order and the first match wins, so an arm whose every value an earlier arm already takes can never run: a second `.Red`, a literal after `_`, or an or-pattern alternative repeated. Yo reports this as an error rather than a warning. Reorder the arms or delete the dead one.",
+      "分支按源码顺序尝试，首个匹配者胜出，因此一个分支若其全部取值已被前面的分支占据，就永远不会执行：重复的 `.Red`、`_` 之后的字面量、或重复的或模式选项。Yo 将其报告为错误而非警告。请调整分支顺序或删除无效分支。",
+      "match(c, .Red => 1, _ => 2, .Green => 3)",
+      "match(c, .Red => 1, .Green => 3, _ => 2)",
+      "The `_` arm before `.Green` already takes every remaining value.",
+      "`.Green` 之前的 `_` 分支已经接住了所有剩余的值。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_INVALID_PATTERN,
+      "invalid match pattern",
+      "无效的 match 模式",
+      "The arm's pattern cannot match a value of the scrutinee's type, or is not a pattern form.",
+      "该分支的模式无法匹配被匹配值的类型，或者不是合法的模式形式。",
+      "A pattern is `_`, a binding name, a compile-time constant (a literal, a `::` constant, a typed literal such as `i32(5)`, a string), `.Variant`, `.Variant(p, …)` with sub-patterns at any depth, `.Variant(label : p)`, `.Variant({…})`, `(p | q)`, `(name := p)`, `(lo..hi)` / `(lo..=hi)`, or `(p && (guard))`. A constant must fold at compile time and must be comparable with `==` to the value at its position; range bounds must be constants; a guard must be `bool`; or-pattern alternatives must bind the same names. Because Yo has no operator precedence, an infix pattern needs its own parentheses.",
+      "模式可以是 `_`、绑定名、编译期常量（字面量、`::` 常量、如 `i32(5)` 的带类型字面量、字符串）、`.Variant`、任意深度嵌套子模式的 `.Variant(p, …)`、`.Variant(label : p)`、`.Variant({…})`、`(p | q)`、`(name := p)`、`(lo..hi)` / `(lo..=hi)`，或 `(p && (guard))`。常量必须能在编译期折叠，并且必须能与该位置的值用 `==` 比较；范围边界必须是常量；守卫必须是 `bool`；或模式的各选项必须绑定相同的名字。由于 Yo 没有运算符优先级，中缀模式需要自己的括号。",
+      "match(n, x + 1 => 1, _ => 0)",
+      "match(n, (x := (1..=5)) => x, _ => 0)",
+      "`x + 1` is a runtime expression, not a pattern; a range with a whole-value binding is.",
+      "`x + 1` 是运行时表达式而非模式；带整体绑定的范围模式才是。"
     )
   );
   out

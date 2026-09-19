@@ -1,0 +1,1242 @@
+//! pattern_compile — turn a match arm's pattern AST into the `Pattern` IR
+//! (plans/MATCH_PATTERN_MATCHING.md §4.3–§4.4, §4.7).
+//!
+//! A pattern is whatever expression the parser produced; this module reads
+//! its SHAPE and types it top-down from the scrutinee type:
+//!
+//! - `_` → `Wildcard`; a bare identifier → `Bind`, unless it names a
+//!   compile-time constant in scope (a `::` binding holding a literal or enum
+//!   value) → `Const` (Rust's rule, §4.3).
+//! - `.V`, `.V(p…)`, `.V(label : p)`, `.V({…})` → `Variant`, every sub-pattern
+//!   compiled against its field type (so nesting is free).
+//! - `(p | q)` → `Or` (alternatives must bind the same names).
+//! - `(name := p)` → `At`.
+//! - `(lo..hi)` / `(lo..=hi)` → `Range` with compile-time bounds.
+//! - anything else is evaluated with the position's type as the expected type
+//!   and must fold to a compile-time value → `Const`.
+//!
+//! `Const`/`Range` compare through the language's own operators: the compiler
+//! binds a HIDDEN SUBJECT variable of the position's type in the arm frame,
+//! synthesizes `(subject == lit)` (or the two range inequalities) and
+//! evaluates it right here. When the scrutinee's value is known the test folds
+//! and decides the arm (CTFE); when it is not, codegen declares a C local of
+//! that name holding the value at the position and emits the very same test
+//! through the ordinary expression emitter — string equality, float compare
+//! and user `Eq` impls all come for free.
+//!
+//! Exported symbols: PatternCtx, BindInfo, new_pattern_ctx, compile_pattern,
+//! match_value, arm_is_classic, pattern_const_values
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{
+  AstExpr,
+  ast_expr_token,
+  ast_expr_id,
+  ast_expr_to_string,
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom_of,
+  make_err_expr,
+  alloc_global_expr_id
+} :: import("../../expr.yo");
+{ Token, TokenKind } :: import("../../token.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
+{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalValue, is_unknown_val } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
+{ t_bool } :: import("../../types/creators.yo");
+{ is_enum_type, is_pointer_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ format_error_message } :: import("../../error.yo");
+{ evaluate_expression } :: import("./expr.yo");
+{ Pattern, norm_position_type, variant_field_types } :: import("../../pattern.yo");
+{ Exception } :: import("std/error");
+/// A binding the pattern introduces, collected during compilation and added
+/// to the arm's env frame by the caller once the WHOLE pattern is compiled
+/// (an or-pattern compiles every alternative but binds each name once).
+BindInfo :: ref(
+  struct(
+    name : String,
+    ty : TypeValue,
+    value : Option(EvalValue),
+    atom : AstExpr
+  )
+);
+/// Per-arm compilation state.
+PatternCtx :: ref(
+  struct(
+    /// The `=>` node's id — the hidden subject names are derived from it.
+    arm_id : usize,
+    /// Hidden subject counter (unique within the arm).
+    counter : usize,
+    /// The scrutinee's value is known at compile time (bindings become
+    /// compile-time-only, as the pre-IR destructuring did).
+    ct_scrutinee : bool,
+    /// Bindings collected so far.
+    binds : ArrayList(BindInfo)
+  )
+);
+new_pattern_ctx :: (fn(arm_id : usize, ct_scrutinee : bool) -> PatternCtx)(
+  PatternCtx(arm_id : arm_id, counter : usize(0), ct_scrutinee : ct_scrutinee, binds : ArrayList(BindInfo).new())
+);
+_args_of :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+);
+_func_of :: (fn(e : AstExpr) -> Option(AstExpr))(
+  match(e, .FnCall(_, f, _, _, _) => Option(AstExpr).Some(f), .Atom(_, _) => Option(AstExpr).None)
+);
+_atom_name :: (fn(e : AstExpr) -> String)(ast_expr_token(e).value.clone());
+/// A token for a synthesized node, positioned at `base`.
+_synth_token :: (fn(base : Token, kind : TokenKind, value : String) -> Token)(
+  Token(
+    kind : kind,
+    value : value,
+    row : base.row,
+    column : base.column,
+    character : base.character,
+    byte_offset : base.byte_offset,
+    module_path : base.module_path.clone(),
+    input : base.input.clone()
+  )
+);
+_synth_atom :: (fn(base : Token, kind : TokenKind, value : String) -> AstExpr)(
+  AstExpr.Atom(alloc_global_expr_id(), _synth_token(base, kind, value))
+);
+/// `(lhs <op> rhs)` as an infix call node.
+_synth_infix :: (fn(base : Token, op : str, lhs : AstExpr, rhs : AstExpr) -> AstExpr)({
+  args := ArrayList(AstExpr).new();
+  args.push(lhs);
+  args.push(rhs);
+  // The call node carries the OPERATOR token, exactly as the parser builds
+  // `a == b` (`.FnCall(id, .Atom(id, op_tok), args, true, op_tok)`); the
+  // operator emitters key on it, and with the literal's token here the call
+  // took the generic path and rendered `"a"` as an identifier.
+  op_tok := _synth_token(base, TokenKind.Operator, String.from(op));
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), op_tok), args, true, op_tok)
+});
+/// True for an atom whose token is a literal kind (compared, never bound).
+_is_literal_atom :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_atom(e) && match(
+    ast_expr_token(e).kind,
+    .Bool => true,
+    .Integer => true,
+    .Float => true,
+    .StringLit => true,
+    .CharLit => true,
+    _ => false
+  )
+);
+/// `-<numeric atom>` — the prefix-minus call the parser produces for `-1`.
+_is_negated_numeric_literal :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, "-", Option(usize).Some(usize(1))) && match(
+    _args_of(e).get(usize(0)),
+    .Some(op) => (
+      ast_expr_is_atom(op) && match(
+        ast_expr_token(op).kind,
+        .Integer => true,
+        .Float => true,
+        _ => false
+      )
+    ),
+    .None => false
+  )
+);
+/// The pre-IR emitters compare exactly these payload literals in place
+/// (`codegen/utils/index.yo` `pattern_param_is_literal`): bool/integer/float
+/// atoms and `-<numeric>`. Any other constant sub-pattern is a NEW form and
+/// takes the general lowering.
+_is_classic_payload_literal :: (fn(e : AstExpr) -> bool)(
+  cond(
+    ast_expr_is_atom(e) => match(
+      ast_expr_token(e).kind,
+      .Bool => true,
+      .Integer => true,
+      .Float => true,
+      _ => false
+    ),
+    true => _is_negated_numeric_literal(e)
+  )
+);
+/// Is `e` the `.V` dot call (one atom argument)?
+_is_variant_head :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, ".", Option(usize).Some(usize(1))) && match(
+    _args_of(e).get(usize(0)),
+    .Some(v) => ast_expr_is_atom(v),
+    .None => false
+  )
+);
+/// Is `e` `.V(…)` — a call whose callee is the `.V` dot call?
+_is_variant_call :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call(e) && match(_func_of(e), .Some(f) => _is_variant_head(f), .None => false)
+);
+/// A compile-time binding in scope whose value is a comparable constant (a
+/// literal or an enum value) — the only identifiers that are CONSTANT
+/// patterns; every other identifier is a binding (§4.3).
+_constant_in_scope :: (fn(name : String, env : Environment) -> bool)({
+  vars := get_variables_from_env(env, name);
+  if(vars.len() == usize(0), {
+    return(false);
+  });
+  v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(false));
+  if(!v.is_compile_time_only, {
+    return(false);
+  });
+  if(v.value.len() == usize(0), {
+    return(false);
+  });
+  match(
+    v.value.get(v.value.len() - usize(1)),
+    .Some(val) => match(
+      val,
+      .IntLit(_) => true,
+      .FloatLit(_) => true,
+      .BoolVal(_) => true,
+      .StrLit(_) => true,
+      .EnumVal(_, _) => true,
+      _ => false
+    ),
+    .None => false
+  )
+});
+_enum_variant_names :: (fn(t : TypeValue) -> ArrayList(String))(
+  match(t, .EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new())
+);
+_enum_variant_labels :: (fn(t : TypeValue, idx : usize) -> ArrayList(String))(
+  match(
+    t,
+    .EnumT({ variant_field_labels : vfls }) => match(vfls.get(idx), .Some(l) => l, .None => ArrayList(String).new()),
+    _ => ArrayList(String).new()
+  )
+);
+_find_str :: (fn(list : ArrayList(String), s : String) -> Option(usize))({
+  (i : usize) = usize(0);
+  (found : Option(usize)) = Option(usize).None;
+  while((i < list.len()) && found.is_none(), {
+    if(match(list.get(i), .Some(x) => (x == s), .None => false), {
+      found = Option(usize).Some(i);
+    });
+    i = (i + usize(1));
+  });
+  found
+});
+/// `.Some` vs `Some`: constructed EnumVals store the dot-prefixed name.
+_variant_name_eq :: (fn(stored : String, arm_name : String) -> bool)(
+  cond(
+    (stored == arm_name) => true,
+    true => {
+      dotted := String.from(".");
+      dotted.push_string(arm_name.clone());
+      stored == dotted
+    }
+  )
+);
+/// The enum type with `selected_variant_name` set (what the pre-IR evaluator
+/// stamped on the pattern node; the LSP and codegen read it).
+_select_variant :: (fn(enum_ty : TypeValue, name : String) -> TypeValue)(
+  match(
+    enum_ty,
+    .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(name), vfl, discs, eirs, eiar),
+    _ => enum_ty
+  )
+);
+/// Bind the hidden subject variable for a constant/range test and evaluate the
+/// synthesized test in the arm frame. Returns the test node.
+_bind_subject_and_eval_test :: (
+  fn(
+    subject : String,
+    position_ty : TypeValue,
+    value_opt : Option(EvalValue),
+    test : AstExpr,
+    src : AstExpr,
+    pc : PatternCtx,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  known := match(value_opt, .Some(v) => !is_unknown_val(v), .None => false);
+  _added := add_variable_to_env(
+    env,
+    subject.clone(),
+    position_ty,
+    cond(known => value_opt, true => Option(EvalValue).None),
+    known,
+    false,
+    false,
+    true,
+    ast_expr_token(src)
+  );
+  old_expected := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_bool(), env : env));
+  _evaluated := evaluate_expression(test, env, ctx);
+  ctx.expected_type = old_expected;
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(test)),
+    .Some(ti) => {
+      if(!are_types_compatible(ti.ty, t_bool()), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(src),
+              `Pattern ${ast_expr_to_string(src)} cannot match a value of type ${type_to_string(position_ty)}: comparing them yields ${type_to_string(ti.ty)}, not bool`
+            )
+          )
+        );
+      });
+    },
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(src),
+            `Pattern ${ast_expr_to_string(src)} cannot match a value of type ${type_to_string(position_ty)} (no \`==\` between them)`
+          )
+        )
+      );
+    }
+  );
+});
+_next_subject :: (fn(pc : PatternCtx) -> String)({
+  name := String.from("__yo_pat_s");
+  name.push_string(pc.arm_id.to_string());
+  name.push_str("_");
+  name.push_string(pc.counter.to_string());
+  pc.counter = (pc.counter + usize(1));
+  name
+});
+/// Build the `(subject == src)` test for a constant pattern, bind the hidden
+/// subject and evaluate the test. Returns `(subject, test)`.
+_make_const_test :: (
+  fn(
+    src : AstExpr,
+    position_ty : TypeValue,
+    value_opt : Option(EvalValue),
+    pc : PatternCtx,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  subject := _next_subject(pc);
+  tok := ast_expr_token(src);
+  test := _synth_infix(tok, "==", _synth_atom(tok, TokenKind.Identifier, subject.clone()), src);
+  _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, test, src, pc, env, ctx, exn);
+  test
+});
+/// The hidden subject name a test was built for (its left operand).
+_test_subject :: (fn(test : AstExpr) -> String)(
+  match(
+    _args_of(test).get(usize(0)),
+    .Some(lhs) => _atom_name(lhs),
+    .None => String.new()
+  )
+);
+/// A fieldless enum VALUE (`Color.Red`, `RED :: Color.Red`) as a variant
+/// pattern: it lowers to a tag test and counts toward exhaustiveness.
+_enum_const_to_variant :: (fn(value : EvalValue, position_ty : TypeValue) -> Option(Pattern))(
+  match(
+    value,
+    .EnumVal(
+      vname,
+      vfields
+    ) => {
+      if(is_enum_type(position_ty) && (vfields.len() == usize(0)), {
+        vns := _enum_variant_names(position_ty);
+        (vi : usize) = usize(0);
+        while(vi < vns.len(), {
+          cand := match(vns.get(vi), .Some(n) => n, .None => String.new());
+          if(_variant_name_eq(vname.clone(), cand.clone()), {
+            return(
+              Option(Pattern).Some(
+                Pattern.Variant(
+                  name : cand.clone(),
+                  idx : vi,
+                  field_idx : ArrayList(usize).new(),
+                  subs : ArrayList(Pattern).new(),
+                  enum_ty : position_ty,
+                  through_ptr : false,
+                  arity : variant_field_types(position_ty, vi).len()
+                )
+              )
+            );
+          });
+          vi = (vi + usize(1));
+        });
+      });
+      Option(Pattern).None
+    },
+    _ => Option(Pattern).None
+  )
+);
+/// Read the compile-time value the evaluation of `e` produced, or throw.
+_const_value_of :: (fn(e : AstExpr, evaluated : AstExpr, ctx : EvalContext, exn : Exception) -> EvalValue)({
+  info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(e),
+            `Invalid pattern in match expression: ${ast_expr_to_string(e)}
+Supported patterns: _, a binding name, a compile-time constant, .Variant, .Variant(p, …), .Variant(label : p), .Variant({…}), (p | q), (name := p), (lo..hi), (p && (guard))`
+          )
+        )
+      );
+      return(EvalValue.UnitVal);
+    }
+  );
+  match(
+    info.value,
+    .Some(v) => {
+      if(is_unknown_val(v), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(e),
+              `Match patterns must be compile-time known values. "${ast_expr_to_string(e)}" is a runtime value.`
+            )
+          )
+        );
+        return(EvalValue.UnitVal);
+      });
+      v
+    },
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(e),
+            `Match patterns must be compile-time known values. "${ast_expr_to_string(e)}" is a runtime value.`
+          )
+        )
+      );
+      EvalValue.UnitVal
+    }
+  )
+});
+/// Compile a constant pattern.
+///
+/// A named constant (`TEN`, `RED`) or a `Type.Variant` access is evaluated
+/// bare first, so a fieldless enum value becomes a variant pattern without
+/// ever needing `Eq` on the enum. Every other constant (literals, `-1`,
+/// `i32(5)`, strings) is evaluated ONLY inside its synthesized `==` test:
+/// a bare pre-evaluation left a temp `variable_name` on the literal node and
+/// codegen then emitted the literal as an identifier (measured on
+/// `match(s, "a" => …)`).
+_compile_const_expr :: (
+  fn(
+    e : AstExpr,
+    position_ty : TypeValue,
+    value_opt : Option(EvalValue),
+    pc : PatternCtx,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Pattern
+)({
+  is_named := ((ast_expr_is_atom(e) && !_is_literal_atom(e)) || ast_expr_is_fn_call_of(e, ".", Option(usize).Some(usize(2))));
+  if(is_named, {
+    old_expected := ctx.expected_type;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
+    evaluated := evaluate_expression(e, env, ctx);
+    ctx.expected_type = old_expected;
+    value := _const_value_of(e, evaluated, ctx, exn);
+    match(
+      _enum_const_to_variant(value, norm_position_type(position_ty)),
+      .Some(vp) => {
+        return(vp);
+      },
+      .None => ()
+    );
+    const_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)), .Some(i) => i.ty, .None => position_ty);
+    test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
+    return(Pattern.Const(value : value, ty : const_ty, src : e, subject : _test_subject(test), test : test));
+  });
+  test := _make_const_test(e, position_ty, value_opt, pc, env, ctx, exn);
+  value := _const_value_of(e, e, ctx, exn);
+  const_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)), .Some(i) => i.ty, .None => position_ty);
+  Pattern.Const(value : value, ty : const_ty, src : e, subject : _test_subject(test), test : test)
+});
+/// Compile a range pattern `(lo..hi)` / `(lo..=hi)`.
+_compile_range :: (
+  fn(
+    e : AstExpr,
+    inclusive : bool,
+    position_ty : TypeValue,
+    value_opt : Option(EvalValue),
+    pc : PatternCtx,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Pattern
+)({
+  args := _args_of(e);
+  lo := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  hi := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  // Both bounds must be compile-time values of the position's type.
+  (bi : usize) = usize(0);
+  while(bi < usize(2), {
+    b := cond((bi == usize(0)) => lo, true => hi);
+    old_expected := ctx.expected_type;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
+    ev := evaluate_expression(b, env, ctx);
+    ctx.expected_type = old_expected;
+    known := match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev)),
+      .Some(binfo) => match(binfo.value, .Some(v) => !is_unknown_val(v), .None => false),
+      .None => false
+    );
+    if(!known, {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(b),
+            `Range pattern bounds must be compile-time known values. "${ast_expr_to_string(b)}" is not.`
+          )
+        )
+      );
+      return(Pattern.Wildcard);
+    });
+    bi = (bi + usize(1));
+  });
+  subject := _next_subject(pc);
+  tok := ast_expr_token(e);
+  s_lo := _synth_atom(tok, TokenKind.Identifier, subject.clone());
+  s_hi := _synth_atom(tok, TokenKind.Identifier, subject.clone());
+  // The subject is the LEFT operand of both compares: operator dispatch
+  // keys on the left operand's type, and a literal there selects the
+  // comptime-only impl (issues/an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md).
+  lower := _synth_infix(tok, ">=", s_lo, lo);
+  upper := cond(
+    inclusive => _synth_infix(tok, "<=", s_hi, hi),
+    true => _synth_infix(tok, "<", s_hi, hi)
+  );
+  test := _synth_infix(tok, "&&", lower, upper);
+  _bind_subject_and_eval_test(subject.clone(), position_ty, value_opt, test, e, pc, env, ctx, exn);
+  Pattern.Range(src : e, subject : subject, test : test, ty : position_ty)
+});
+/// The or-pattern `(a | b | c)` as a flat list of alternatives.
+_flatten_or :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
+  if(!ast_expr_is_fn_call_of(e, "|", Option(usize).Some(usize(2))), {
+    out := ArrayList(AstExpr).new();
+    out.push(e);
+    return(out);
+  });
+  args := _args_of(e);
+  out := ArrayList(AstExpr).new();
+  (i : usize) = usize(0);
+  while(i < usize(2), {
+    match(
+      args.get(i),
+      .Some(side) => {
+        flat := recur(side);
+        (k : usize) = usize(0);
+        while(k < flat.len(), {
+          match(
+            flat.get(k),
+            .Some(x) => {
+              out.push(x);
+            },
+            .None => ()
+          );
+          k = (k + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+_bind_names_sorted :: (fn(binds : ArrayList(BindInfo)) -> ArrayList(String))({
+  names := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < binds.len(), {
+    match(
+      binds.get(i),
+      .Some(b) => {
+        names.push(b.name.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // Selection sort into a fresh list — the lists are tiny.
+  sorted := ArrayList(String).new();
+  taken := ArrayList(usize).new();
+  (round : usize) = usize(0);
+  while(round < names.len(), {
+    (best : Option(usize)) = Option(usize).None;
+    (ci : usize) = usize(0);
+    while(ci < names.len(), {
+      if(!taken.contains(ci), {
+        cand := match(names.get(ci), .Some(n) => n, .None => String.new());
+        match(
+          best,
+          .None => {
+            best = Option(usize).Some(ci);
+          },
+          .Some(bi) => {
+            cur_best := match(names.get(bi), .Some(n) => n, .None => String.new());
+            if(cand < cur_best, {
+              best = Option(usize).Some(ci);
+            });
+          }
+        );
+      });
+      ci = (ci + usize(1));
+    });
+    match(
+      best,
+      .Some(bi) => {
+        taken.push(bi);
+        sorted.push(match(names.get(bi), .Some(n) => n, .None => String.new()));
+      },
+      .None => ()
+    );
+    round = (round + usize(1));
+  });
+  sorted
+});
+_same_names :: (fn(a : ArrayList(String), b : ArrayList(String)) -> bool)({
+  if(a.len() != b.len(), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  (same : bool) = true;
+  while((i < a.len()) && same, {
+    x := match(a.get(i), .Some(s) => s, .None => String.new());
+    y := match(b.get(i), .Some(s) => s, .None => String.new());
+    if(!(x == y), {
+      same = false;
+    });
+    i = (i + usize(1));
+  });
+  same
+});
+_names_to_string :: (fn(names : ArrayList(String)) -> String)({
+  out := String.from("{");
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    if(i > usize(0), {
+      out.push_str(", ");
+    });
+    match(
+      names.get(i),
+      .Some(s) => {
+        out.push_string(s.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out.push_str("}");
+  out
+});
+/// Compile one variant pattern `.V` / `.V(…)`.
+_compile_variant :: (
+  fn(
+    e : AstExpr,
+    head : AstExpr,
+    params : ArrayList(AstExpr),
+    position_ty_in : TypeValue,
+    value_opt : Option(EvalValue),
+    pc : PatternCtx,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Pattern
+)({
+  through_ptr := is_pointer_type(position_ty_in);
+  enum_ty := norm_position_type(position_ty_in);
+  name_expr := match(_args_of(head).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  vname := _atom_name(name_expr);
+  if(!is_enum_type(enum_ty), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(e),
+          `Pattern .${vname} needs an enum value to match against, but this position has type ${type_to_string(position_ty_in)}`
+        )
+      )
+    );
+    return(Pattern.Wildcard);
+  });
+  vns := _enum_variant_names(enum_ty);
+  vidx := match(
+    _find_str(vns, vname.clone()),
+    .Some(i) => i,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(e),
+            `Enum variant "${vname}" not found in ${type_to_string(enum_ty)}`
+          )
+        )
+      );
+      return(Pattern.Wildcard);
+    }
+  );
+  field_tys := variant_field_types(enum_ty, vidx);
+  labels := _enum_variant_labels(enum_ty, vidx);
+  arity := field_tys.len();
+  // Stamp the variant-name node with the selected-variant type (hover, and
+  // what the pre-IR evaluator recorded).
+  selected := _select_variant(enum_ty, vname.clone());
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(name_expr), new_expr_info(env, selected));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(head), new_expr_info(env, selected));
+  // The known field values, when the scrutinee is a known value of THIS
+  // variant (a different variant's fields are irrelevant — the arm is dead).
+  (field_vals : Option(ArrayList(EvalValue))) = match(
+    value_opt,
+    .Some(v) => match(
+      v,
+      .EnumVal(sv_name, sv_fields) => cond(
+        _variant_name_eq(sv_name.clone(), vname.clone()) => Option(ArrayList(EvalValue)).Some(sv_fields),
+        true => Option(ArrayList(EvalValue)).None
+      ),
+      _ => Option(ArrayList(EvalValue)).None
+    ),
+    .None => Option(ArrayList(EvalValue)).None
+  );
+  // `.V({…})`: a single anonymous-record argument carries the labeled
+  // sub-patterns (bare `{a}` is the parser's `(a : a)`).
+  is_curly := (
+    (params.len() == usize(1)) && match(
+      params.get(usize(0)),
+      .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None),
+      .None => false
+    )
+  );
+  dparams := cond(
+    is_curly => match(params.get(usize(0)), .Some(p0) => _args_of(p0), .None => params),
+    true => params
+  );
+  (has_labeled : bool) = is_curly;
+  (li : usize) = usize(0);
+  while((li < dparams.len()) && !has_labeled, {
+    if(match(dparams.get(li), .Some(p) => ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), .None => false), {
+      has_labeled = true;
+    });
+    li = (li + usize(1));
+  });
+  if(arity == usize(0), {
+    if(dparams.len() > usize(0), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(e),
+            `Variant "${vname}" has no fields, but destructuring parameters were provided`
+          )
+        )
+      );
+      return(Pattern.Wildcard);
+    });
+  }, {
+    if(!has_labeled && (dparams.len() > usize(0)) && (dparams.len() != arity), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(e),
+            `Variant "${vname}" expects ${arity} parameters, got ${dparams.len()}`
+          )
+        )
+      );
+      return(Pattern.Wildcard);
+    });
+  });
+  field_idx := ArrayList(usize).new();
+  subs := ArrayList(Pattern).new();
+  seen_labels := ArrayList(String).new();
+  (pi : usize) = usize(0);
+  while(pi < dparams.len(), {
+    param := match(dparams.get(pi), .Some(p) => p, .None => make_err_expr());
+    (fidx : usize) = pi;
+    (sub_ast : AstExpr) = param;
+    (curly_bind : bool) = false;
+    if(ast_expr_is_fn_call_of(param, ":", Option(usize).Some(usize(2))), {
+      pargs := _args_of(param);
+      label_expr := match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      sub_ast = match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+      if(!ast_expr_is_atom(label_expr), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(label_expr),
+              `Expected identifier for label in destructuring pattern, got ${ast_expr_to_string(label_expr)}`
+            )
+          )
+        );
+        return(Pattern.Wildcard);
+      });
+      lbl := _atom_name(label_expr);
+      fidx = match(
+        _find_str(labels, lbl.clone()),
+        .Some(i) => i,
+        .None => {
+          available := String.new();
+          (al : usize) = usize(0);
+          while(al < labels.len(), {
+            if(al > usize(0), {
+              available.push_str(", ");
+            });
+            match(
+              labels.get(al),
+              .Some(l) => {
+                available.push_string(l.clone());
+              },
+              .None => ()
+            );
+            al = (al + usize(1));
+          });
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(label_expr),
+                `Label "${lbl}" not found in variant "${vname}". Available labels: ${available}`
+              )
+            )
+          );
+          return(Pattern.Wildcard);
+        }
+      );
+      if(_find_str(seen_labels, lbl.clone()).is_some(), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(label_expr),
+              `Label "${lbl}" is already destructured`
+            )
+          )
+        );
+        return(Pattern.Wildcard);
+      });
+      seen_labels.push(lbl.clone());
+      expr_info_table_set(
+        ctx.expr_info_table,
+        ast_expr_id(label_expr),
+        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => TypeValue.Unit))
+      );
+    }, {
+      if(is_curly, {
+        if(ast_expr_is_atom_of(param, "_"), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(param),
+                `Bare "_" inside curly destructuring "{...}" is meaningless. Either omit the field, or write "label: _" to assert presence without binding.`
+              )
+            )
+          );
+          return(Pattern.Wildcard);
+        });
+        if(ast_expr_is_fn_call_of(param, "_", Option(usize).None), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(param),
+                `Nested curly destructuring "{...}" inside another "{...}" is not supported.`
+              )
+            )
+          );
+          return(Pattern.Wildcard);
+        });
+        // A bare identifier in a record pattern names the field AND binds it
+        // (always a binding — a same-named constant in scope is irrelevant).
+        if(ast_expr_is_atom(param), {
+          lbl := _atom_name(param);
+          curly_bind = true;
+          fidx = match(
+            _find_str(labels, lbl.clone()),
+            .Some(i) => i,
+            .None => {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(param),
+                    `Label "${lbl}" not found in variant "${vname}"`
+                  )
+                )
+              );
+              return(Pattern.Wildcard);
+            }
+          );
+        }, {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(param),
+                `Expected labeled pattern (label: variable) inside curly destructuring "{...}", got ${ast_expr_to_string(param)}`
+              )
+            )
+          );
+          return(Pattern.Wildcard);
+        });
+      });
+    });
+    fty := match(field_tys.get(fidx), .Some(t) => t, .None => TypeValue.Unit);
+    fval := match(
+      field_vals,
+      .Some(fvs) => fvs.get(fidx),
+      .None => Option(EvalValue).None
+    );
+    sub := cond(
+      curly_bind => {
+        bn := _atom_name(sub_ast);
+        pc.binds.push(BindInfo(name : bn.clone(), ty : fty, value : fval, atom : sub_ast));
+        Pattern.Bind(name : bn, token : ast_expr_token(sub_ast))
+      },
+      true => compile_pattern(sub_ast, fty, fval, pc, env, ctx, exn)
+    );
+    field_idx.push(fidx);
+    subs.push(sub);
+    pi = (pi + usize(1));
+  });
+  Pattern.Variant(
+    name : vname,
+    idx : vidx,
+    field_idx : field_idx,
+    subs : subs,
+    enum_ty : enum_ty,
+    through_ptr : through_ptr,
+    arity : arity
+  )
+});
+/// Compile the pattern AST `e` against the type of its position.
+/// `value_opt` is the compile-time value at this position when the scrutinee
+/// is known (bindings then carry it, and constant tests fold).
+compile_pattern :: (
+  fn(
+    e : AstExpr,
+    position_ty : TypeValue,
+    value_opt : Option(EvalValue),
+    pc : PatternCtx,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> Pattern
+)({
+  // `_`
+  if(ast_expr_is_atom_of(e, "_"), {
+    return(Pattern.Wildcard);
+  });
+  // `(name := p)`
+  if(ast_expr_is_fn_call_of(e, ":=", Option(usize).Some(usize(2))), {
+    args := _args_of(e);
+    name_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    sub_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+    if(!ast_expr_is_atom(name_expr) || _is_literal_atom(name_expr), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(name_expr),
+            `Expected a binding name on the left of ":=" in a pattern, got ${ast_expr_to_string(name_expr)}`
+          )
+        )
+      );
+      return(Pattern.Wildcard);
+    });
+    nm := _atom_name(name_expr);
+    pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : name_expr));
+    sub := recur(sub_expr, position_ty, value_opt, pc, env, ctx, exn);
+    return(Pattern.At(name : nm, token : ast_expr_token(name_expr), sub : sub));
+  });
+  // `(p | q)`
+  if(ast_expr_is_fn_call_of(e, "|", Option(usize).Some(usize(2))), {
+    alts_ast := _flatten_or(e);
+    alts := ArrayList(Pattern).new();
+    outer_binds := pc.binds;
+    (first_binds : Option(ArrayList(BindInfo))) = Option(ArrayList(BindInfo)).None;
+    (first_names : ArrayList(String)) = ArrayList(String).new();
+    (ai : usize) = usize(0);
+    while(ai < alts_ast.len(), {
+      alt_ast := match(alts_ast.get(ai), .Some(a) => a, .None => make_err_expr());
+      pc.binds = ArrayList(BindInfo).new();
+      alt := recur(alt_ast, position_ty, value_opt, pc, env, ctx, exn);
+      alt_binds := pc.binds;
+      alt_names := _bind_names_sorted(alt_binds);
+      match(
+        first_binds,
+        .None => {
+          first_binds = Option(ArrayList(BindInfo)).Some(alt_binds);
+          first_names = alt_names;
+        },
+        .Some(_) => {
+          if(!_same_names(first_names, alt_names), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(alt_ast),
+                  `Or-pattern alternatives bind different names: ${_names_to_string(first_names)} vs ${_names_to_string(alt_names)}`
+                )
+              )
+            );
+            return(Pattern.Wildcard);
+          });
+        }
+      );
+      alts.push(alt);
+      ai = (ai + usize(1));
+    });
+    pc.binds = outer_binds;
+    match(
+      first_binds,
+      .Some(fb) => {
+        (bi : usize) = usize(0);
+        while(bi < fb.len(), {
+          match(
+            fb.get(bi),
+            .Some(b) => {
+              pc.binds.push(b);
+            },
+            .None => ()
+          );
+          bi = (bi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    return(Pattern.Or(alts : alts));
+  });
+  // `(lo..hi)` / `(lo..=hi)`
+  if(ast_expr_is_fn_call_of(e, "..", Option(usize).Some(usize(2))), {
+    return(_compile_range(e, false, norm_position_type(position_ty), value_opt, pc, env, ctx, exn));
+  });
+  if(ast_expr_is_fn_call_of(e, "..=", Option(usize).Some(usize(2))), {
+    return(_compile_range(e, true, norm_position_type(position_ty), value_opt, pc, env, ctx, exn));
+  });
+  // `.V`
+  if(_is_variant_head(e), {
+    return(_compile_variant(e, e, ArrayList(AstExpr).new(), position_ty, value_opt, pc, env, ctx, exn));
+  });
+  // `.V(…)`
+  if(_is_variant_call(e), {
+    head := match(_func_of(e), .Some(f) => f, .None => make_err_expr());
+    return(_compile_variant(e, head, _args_of(e), position_ty, value_opt, pc, env, ctx, exn));
+  });
+  // A record pattern `{…}` outside a variant payload — not supported yet.
+  if(ast_expr_is_fn_call_of(e, "_", Option(usize).None), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(e),
+          `Struct patterns are not supported yet: ${ast_expr_to_string(e)}. Bind the value and read its fields in the arm body.`
+        )
+      )
+    );
+    return(Pattern.Wildcard);
+  });
+  // A bare identifier: a binding, unless it names a constant in scope.
+  if(ast_expr_is_atom(e) && !_is_literal_atom(e), {
+    nm := _atom_name(e);
+    if(!_constant_in_scope(nm.clone(), env), {
+      pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : e));
+      return(Pattern.Bind(name : nm, token : ast_expr_token(e)));
+    });
+  });
+  // Everything else is a compile-time constant compared with `==`.
+  _compile_const_expr(e, norm_position_type(position_ty), value_opt, pc, env, ctx, exn)
+});
+/// Does the pattern match the known value? `.None` = cannot be decided at
+/// compile time (unknown value, or a comparison that did not fold).
+match_value :: (fn(p : Pattern, value_opt : Option(EvalValue), ctx : EvalContext) -> Option(bool))(
+  match(
+    p,
+    .Wildcard => Option(bool).Some(true),
+    .Bind(_, _) => Option(bool).Some(true),
+    .Const(_, _, _, _, test) => match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(test)),
+      .Some(ti) => match(
+        ti.value,
+        .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
+        .None => Option(bool).None
+      ),
+      .None => Option(bool).None
+    ),
+    .Range(_, _, test, _) => match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(test)),
+      .Some(ti) => match(
+        ti.value,
+        .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None),
+        .None => Option(bool).None
+      ),
+      .None => Option(bool).None
+    ),
+    .Variant(name, _, field_idx, subs, _, _, _) => match(
+      value_opt,
+      .None => Option(bool).None,
+      .Some(v) => match(
+        v,
+        .EnumVal(sv_name, sv_fields) => {
+          if(!_variant_name_eq(sv_name.clone(), name.clone()), {
+            return(Option(bool).Some(false));
+          });
+          (result : Option(bool)) = Option(bool).Some(true);
+          (si : usize) = usize(0);
+          while(si < subs.len(), {
+            fidx := match(field_idx.get(si), .Some(k) => k, .None => usize(0));
+            sub := match(subs.get(si), .Some(s) => s, .None => Pattern.Wildcard);
+            r := recur(sub, sv_fields.get(fidx), ctx);
+            match(
+              r,
+              .Some(b) => {
+                if(!b, {
+                  result = Option(bool).Some(false);
+                });
+              },
+              .None => {
+                if(match(result, .Some(rb) => rb, .None => false), {
+                  result = Option(bool).None;
+                });
+              }
+            );
+            si = (si + usize(1));
+          });
+          result
+        },
+        _ => Option(bool).None
+      )
+    ),
+    .Or(alts) => {
+      (any_true : bool) = false;
+      (all_false : bool) = true;
+      (i : usize) = usize(0);
+      while((i < alts.len()) && !any_true, {
+        match(
+          alts.get(i),
+          .Some(a) => match(
+            recur(a, value_opt, ctx),
+            .Some(b) => {
+              if(b, {
+                any_true = true;
+              });
+            },
+            .None => {
+              all_false = false;
+            }
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      cond(
+        any_true => Option(bool).Some(true),
+        all_false => Option(bool).Some(false),
+        true => Option(bool).None
+      )
+    },
+    .At(_, _, sub) => recur(sub, value_opt, ctx)
+  )
+);
+/// The classic-shape test (see `Arm.classic`): the arm's pattern AST is one
+/// the pre-IR emitters lower to a `switch`, and its compiled form uses no new
+/// feature. `primitive` says the scrutinee is a matchable primitive.
+_ast_is_classic_variant :: (fn(e : AstExpr) -> bool)(
+  _is_variant_head(e) || _is_variant_call(e)
+);
+_pattern_subs_classic :: (fn(p : Pattern, ast_params : ArrayList(AstExpr)) -> bool)(
+  match(
+    p,
+    .Variant(_, _, _, subs, _, _, _) => {
+      (ok : bool) = true;
+      (i : usize) = usize(0);
+      while((i < subs.len()) && ok, {
+        sub := match(subs.get(i), .Some(s) => s, .None => Pattern.Wildcard);
+        ok = match(
+          sub,
+          .Wildcard => true,
+          .Bind(_, _) => true,
+          .Const(_, _, src, _, _) => {
+            // The pre-IR emitters compare only POSITIONAL numeric/bool
+            // literals in place; a labeled or curly literal was rejected.
+            positional := (
+              (ast_params.len() == subs.len()) && match(
+                ast_params.get(i),
+                .Some(ap) => (!ast_expr_is_fn_call_of(ap, ":", Option(usize).Some(usize(2))) && !ast_expr_is_fn_call_of(ap, "_", Option(usize).None)),
+                .None => false
+              )
+            );
+            positional && _is_classic_payload_literal(src)
+          },
+          _ => false
+        );
+        i = (i + usize(1));
+      });
+      ok
+    },
+    _ => false
+  )
+);
+_pattern_is_const_or_or :: (fn(p : Pattern) -> bool)(
+  match(
+    p,
+    .Const(_, _, _, _, _) => true,
+    .Or(alts) => {
+      (ok : bool) = true;
+      (i : usize) = usize(0);
+      while((i < alts.len()) && ok, {
+        ok = match(alts.get(i), .Some(a) => recur(a), .None => false);
+        i = (i + usize(1));
+      });
+      ok
+    },
+    _ => false
+  )
+);
+arm_is_classic :: (fn(pattern_ast : AstExpr, p : Pattern, has_guard : bool, primitive : bool) -> bool)({
+  if(has_guard, {
+    return(false);
+  });
+  if(primitive, {
+    return(match(p, .Wildcard => true, _ => _pattern_is_const_or_or(p)));
+  });
+  match(
+    p,
+    .Wildcard => ast_expr_is_atom_of(pattern_ast, "_"),
+    .Variant(_, _, _, _, _, _, _) => (_ast_is_classic_variant(pattern_ast) && _pattern_subs_classic(p, _args_of(pattern_ast))),
+    _ => false
+  )
+});
+/// The compile-time values of a primitive-shaped arm (`Const` or an or-pattern
+/// of them), for the pre-IR `switch` emitter's `primitive_pattern_values`.
+pattern_const_values :: (fn(p : Pattern) -> ArrayList(Option(EvalValue)))({
+  out := ArrayList(Option(EvalValue)).new();
+  match(
+    p,
+    .Const(v, _, _, _, _) => {
+      out.push(Option(EvalValue).Some(v));
+    },
+    .Or(alts) => {
+      (i : usize) = usize(0);
+      while(i < alts.len(), {
+        match(
+          alts.get(i),
+          .Some(a) => {
+            inner := recur(a);
+            (k : usize) = usize(0);
+            while(k < inner.len(), {
+              match(
+                inner.get(k),
+                .Some(x) => {
+                  out.push(x);
+                },
+                .None => ()
+              );
+              k = (k + usize(1));
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+export(PatternCtx, BindInfo, new_pattern_ctx, compile_pattern, match_value, arm_is_classic, pattern_const_values);

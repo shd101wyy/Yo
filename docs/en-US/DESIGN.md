@@ -1896,6 +1896,59 @@ area :: (fn(shape: Shape) -> i32)(
 );
 ```
 
+### Pattern forms
+
+A pattern is an ordinary expression; the compiler reads its shape. Because Yo
+has no operator precedence, every infix pattern is written in its own
+parentheses.
+
+| Form | Example | Meaning |
+| --- | --- | --- |
+| wildcard | `_ => …` | matches anything, binds nothing |
+| binding | `other => (other + 1)` | matches anything, binds the value |
+| constant | `0`, `-1`, `true`, `'a'`, `"lit"`, `i32(5)`, `TEN`, `Color.Red` | compared with `==`; a `::` constant in scope holding a literal or enum value is a constant pattern, any other identifier is a binding |
+| variant | `.V`, `.V(p, q)`, `.V(label : p)`, `.V({ a, b : p })` | sub-patterns may be any pattern, at any depth |
+| or | `(.Red \| .Green)`, `(1 \| 2 \| 3)` | alternatives must bind the same names |
+| range | `(0..10)`, `(10..=19)` | half-open / inclusive, compile-time bounds |
+| whole-value binding | `(whole := .Some(v))` | binds the whole value and matches the sub-pattern |
+| guard | `(.Some(v) && (v > i32(100)))` | the arm runs when the pattern matches and the guard, which sees the bindings, is true |
+
+```rust
+classify :: (fn(r : Result(Option(i32), str)) -> i32)(
+  match(r,
+    .Ok(.Some(0)) => i32(0),
+    (.Ok(.Some(v)) && (v < i32(0))) => i32(-1),
+    .Ok(.Some(v)) => v,
+    .Ok(.None) => i32(-2),
+    (.Err("timeout") | .Err("closed")) => i32(-3),
+    .Err(_) => i32(-4)
+  )
+);
+
+bucket :: (fn(n : i32) -> str)(
+  match(n,
+    (0..10) => "small",
+    (10..=99) => "medium",
+    other => cond((other < i32(0)) => "negative", true => "large")
+  )
+);
+
+command :: (fn(s : String) -> i32)(
+  match(s, "compile" => i32(1), ("check" | "fmt") => i32(2), _ => i32(0))
+);
+```
+
+Arms are tried in source order and the first match wins. Exhaustiveness is
+checked structurally: `.Some(true), .None` is rejected with
+`Missing case: .Some(false)`; integers, floats and strings need a wildcard or
+binding arm; a guarded arm never counts as covering its pattern. An arm no
+value can reach is an error (`Unreachable match arm`), except a trailing `_`
+after complete coverage. Bindings borrow the matched value for the arm.
+
+Not yet supported: struct and tuple scrutinees, patterns through a `Box(...)`
+payload, and the new forms inside an `io.async` arm that awaits (those fail
+loudly at codegen; bind the payload and match again inside the arm).
+
 ## String
 
 ### String literal as `str` or C string pointer

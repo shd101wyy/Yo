@@ -39,6 +39,9 @@
   E_RETURN_TYPE_MISMATCH,
   E_TYPE_MISMATCH,
   E_ARGUMENT_NOT_CALLABLE,
+  E_MATCH_NOT_EXHAUSTIVE,
+  E_MATCH_UNREACHABLE_ARM,
+  E_INVALID_PATTERN,
   E_USE_OF_MOVED_VALUE,
   E_CANNOT_REASSIGN,
   E_MAYBE_UNINITIALIZED,
@@ -138,6 +141,33 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
     return(_coded(E_VARIABLE_NOT_FOUND));
   });
   // ── Types & traits (E06xx–E08xx) ───────────────────────────────────────
+  // `match` (plans/MATCH_PATTERN_MATCHING.md §4.10) — before the generic
+  // type rules, which would otherwise claim "Pattern type …".
+  if(msg.starts_with(String.from("Match expression is not exhaustive")) || msg.contains(
+    String.from("for exhaustiveness")
+  ), {
+    return(_coded(E_MATCH_NOT_EXHAUSTIVE));
+  });
+  if(msg.starts_with(String.from("Unreachable match arm")), {
+    return(_coded(E_MATCH_UNREACHABLE_ARM));
+  });
+  if(msg.starts_with(String.from("Invalid pattern in match expression")) || (
+    msg.starts_with(String.from("Pattern ")) && (
+      msg.contains(String.from("cannot match a value of type")) || msg.contains(
+        String.from("is not compatible with scrutinee type")
+      )
+    )
+  ) || (
+    msg.starts_with(String.from("Match patterns must be compile-time known")) || (
+      msg.starts_with(String.from("Or-pattern alternatives bind different names")) || (
+        msg.starts_with(String.from("Match guard must be bool")) || msg.starts_with(
+          String.from("Range pattern bounds must be")
+        )
+      )
+    )
+  ), {
+    return(_coded(E_INVALID_PATTERN));
+  });
   if(msg.contains(String.from("is not callable")), {
     return(_coded(E_ARGUMENT_NOT_CALLABLE));
   });

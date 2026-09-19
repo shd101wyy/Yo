@@ -14,7 +14,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 {
@@ -36,6 +36,7 @@
 { get_type_string, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ Pattern, Arm, lookup_match_arms, pattern_bindings } :: import("../../pattern.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -1515,6 +1516,470 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
+// ---------------------------------------------------------------------------
+// General lowering — an ordered test chain (plans/MATCH_PATTERN_MATCHING.md
+// §4.8). Taken whenever an arm is not one of the classic switch shapes: a
+// nested variant, a literal in a labeled/curly slot, a string or typed
+// constant, an or-pattern on variants, an identifier catch-all, a range, a
+// guard or a `(name := p)` binding. Every match the pre-IR emitters handled
+// still goes through them above, so their C is byte-identical.
+//
+//   {                                   // arm k
+//     if (!((s).tag == TAG_Ok)) goto __yo_m17_a1;
+//     T __yo_pat_s9_0 = (s).data.Ok.value;         // hidden subject
+//     if (!(__yo_eq(__yo_pat_s9_0, lit))) goto __yo_m17_a1;
+//     int32_t v = (s).data.Ok.value;               // binding
+//     bool __yo_g9 = (v > 0); if (!__yo_g9) goto __yo_m17_a1;   // guard
+//     __yo_tN = body; goto __yo_m17_end;
+//   }
+//   __yo_m17_a1: ;
+//
+// Tests are emitted in PRE-ORDER, one `goto` per refutable node, so every
+// payload access is guarded by the tag test that makes it valid. Bindings
+// borrow (a plain C copy, no dup), as the classic emitters' do.
+// ---------------------------------------------------------------------------
+/// Per-match label allocator for the general lowering.
+_MatchLabels :: ref(
+  struct(
+    prefix : String,
+    next : usize
+  )
+);
+_fresh_label :: (fn(labels : _MatchLabels, tag : str) -> String)({
+  l := labels.prefix.clone();
+  l.push_str("_");
+  l.push_str(tag);
+  l.push_string(labels.next.to_string());
+  labels.next = (labels.next + usize(1));
+  l
+});
+/// The C value of an enum at a position: `path` when the position holds the
+/// value, `(*path)` when it holds a pointer to it (a pointer scrutinee or a
+/// pointer-typed payload field).
+_enum_value_code :: (fn(path : String, ptrish : bool) -> String)(
+  cond(
+    ptrish => {
+      v := String.from("(*");
+      v.push_string(path.clone());
+      v.push_str(")");
+      v
+    },
+    true => path.clone()
+  )
+);
+/// Does a value of type `t` sit behind a pointer in C (so members are reached
+/// with `->`)? Raw pointers and reference-semantics enums/structs.
+_position_is_ptrish :: (fn(t : TypeValue) -> bool)(
+  is_pointer_type(t) || (is_reference_enum_type(t) || is_reference_struct_type(t))
+);
+/// The C test "the enum value at `path` is variant `vname`", for all three
+/// enum representations (nullable pointer, plain C enum, tagged union).
+_variant_test_code :: (fn(enum_ty : TypeValue, vidx : usize, vname : String, path : String, ptrish : bool, is_raw_ptr : bool, context : FunctionGenerationContext) -> String)({
+  match(
+    can_optimize_as_nullable_pointer(enum_ty),
+    .Some(_) => {
+      // The enum IS the pointer: the fieldless variant is NULL.
+      fields := match(enum_ty, .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      v := _enum_value_code(path, is_raw_ptr);
+      t := String.from("(");
+      t.push_string(v);
+      t.push_str(cond((fields.len() == usize(0)) => " == NULL)", true => " != NULL)"));
+      return(t);
+    },
+    .None => ()
+  );
+  tag := get_enum_variant_c_name(enum_ty, vname.clone(), context.base);
+  if(can_optimize_as_simple_enum(enum_ty), {
+    t := String.from("(");
+    t.push_string(_enum_value_code(path, is_raw_ptr));
+    t.push_str(" == ");
+    t.push_string(tag);
+    t.push_str(")");
+    return(t);
+  });
+  t := String.from("(");
+  if(ptrish, {
+    t.push_string(path.clone());
+    t.push_str("->tag == ");
+  }, {
+    t.push_str("(");
+    t.push_string(path.clone());
+    t.push_str(").tag == ");
+  });
+  t.push_string(tag);
+  t.push_str(")");
+  t
+});
+/// The C expression of field `label` of variant `vname` at `path`.
+_variant_field_code :: (fn(enum_ty : TypeValue, vname : String, label : String, path : String, ptrish : bool, is_raw_ptr : bool) -> String)({
+  match(
+    can_optimize_as_nullable_pointer(enum_ty),
+    .Some(_) => {
+      // The single payload IS the pointer value.
+      return(_enum_value_code(path, is_raw_ptr));
+    },
+    .None => ()
+  );
+  f := path.clone();
+  f.push_str(cond(ptrish => "->", true => "."));
+  f.push_str("data.");
+  f.push_string(vname.clone());
+  f.push_str(".");
+  f.push_string(sanitize_for_c_identifier(label.clone(), false));
+  f
+});
+/// Collect `(name, type)` for every binding of `p` at a position of type `ty`
+/// (the declarations an or-pattern hoists before its alternatives).
+_collect_bind_decls :: (fn(p : Pattern, ty : TypeValue, names : ArrayList(String), types : ArrayList(TypeValue)) -> unit)({
+  match(
+    p,
+    .Wildcard => (),
+    .Bind(name, _) => {
+      names.push(name.clone());
+      types.push(ty);
+    },
+    .Const(_, _, _, _, _) => (),
+    .Range(_, _, _, _) => (),
+    .Variant(_, vidx, field_idx, subs, enum_ty, _, _) => {
+      ftys := match(enum_ty, .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        match(
+          subs.get(i),
+          .Some(sub) => {
+            recur(sub, fty, names, types);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Or(alts) => {
+      match(
+        alts.get(usize(0)),
+        .Some(a0) => {
+          recur(a0, ty, names, types);
+        },
+        .None => ()
+      );
+    },
+    .At(name, _, sub) => {
+      names.push(name.clone());
+      types.push(ty);
+      recur(sub, ty, names, types);
+    }
+  );
+});
+/// Emit the tests and bindings of `p` at C expression `path` (of Yo type
+/// `ty`), jumping to `fail_label` on the first failed test. `assign_binds`
+/// makes bindings assignments to already-declared variables (or-pattern
+/// alternatives) instead of declarations. Shadow-registers every binding
+/// and hidden subject; the caller un-shadows after the body.
+_emit_pattern_chain :: (
+  fn(
+    p : Pattern,
+    path : String,
+    ty : TypeValue,
+    fail_label : String,
+    assign_binds : bool,
+    /// False for the LAST arm of an exhaustive match: control reaching it
+    /// means it matches, so its tests are skipped (a dead
+    /// `if (…) goto end;` would leave the result temp uninitialized on a path
+    /// C cannot prove dead). Or-patterns keep their tests — they pick the
+    /// alternative that binds.
+    emit_tests : bool,
+    indent : String,
+    labels : _MatchLabels,
+    shadows : ArrayList(String),
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  match(
+    p,
+    .Wildcard => (),
+    .Bind(name, _) => {
+      if(!is_unit_type(ty), {
+        cname := sanitize_for_c_identifier(name.clone(), false);
+        if(assign_binds, {
+          line := indent.clone();
+          line.push_string(cname.clone());
+          line.push_str(" = ");
+          line.push_string(path.clone());
+          line.push_str(";");
+          em.emit_string_line(line);
+        }, {
+          _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
+        });
+        _shadow_add(context, cname.clone());
+        shadows.push(cname);
+      });
+    },
+    .Const(_, _, _, subject, test) => {
+      if(emit_tests, {
+        cname := sanitize_for_c_identifier(subject.clone(), false);
+        _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
+        _shadow_add(context, cname.clone());
+        shadows.push(cname);
+        test_code := _call_generate_expr(test, indent.clone(), context);
+        line := indent.clone();
+        line.push_str("if (!(");
+        line.push_string(test_code);
+        line.push_str(")) goto ");
+        line.push_string(fail_label.clone());
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+    },
+    .Range(_, subject, test, _) => {
+      if(emit_tests, {
+        cname := sanitize_for_c_identifier(subject.clone(), false);
+        _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
+        _shadow_add(context, cname.clone());
+        shadows.push(cname);
+        test_code := _call_generate_expr(test, indent.clone(), context);
+        line := indent.clone();
+        line.push_str("if (!(");
+        line.push_string(test_code);
+        line.push_str(")) goto ");
+        line.push_string(fail_label.clone());
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+    },
+    .Variant(vname, vidx, field_idx, subs, enum_ty0, _, _) => {
+      enum_ty := resolve_enum_shell(enum_ty0);
+      is_raw_ptr := is_pointer_type(ty);
+      ptrish := _position_is_ptrish(ty);
+      if(emit_tests, {
+        line := indent.clone();
+        line.push_str("if (!");
+        line.push_string(_variant_test_code(enum_ty, vidx, vname.clone(), path.clone(), ptrish, is_raw_ptr, context));
+        line.push_str(") goto ");
+        line.push_string(fail_label.clone());
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+      labels_v := match(enum_ty, .EnumT({ variant_field_labels : vfls }) => match(vfls.get(vidx), .Some(l) => l, .None => ArrayList(String).new()), _ => ArrayList(String).new());
+      ftys := match(enum_ty, .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        flabel := match(labels_v.get(fi), .Some(l) => l, .None => String.from(""));
+        fcode := _variant_field_code(enum_ty, vname.clone(), flabel, path.clone(), ptrish, is_raw_ptr);
+        match(
+          subs.get(i),
+          .Some(sub) => {
+            recur(sub, fcode, fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Or(alts) => {
+      // Declare the alternatives' bindings once (they all bind the same
+      // names), then try each alternative in its own block.
+      if(!assign_binds, {
+        names := ArrayList(String).new();
+        types := ArrayList(TypeValue).new();
+        match(
+          alts.get(usize(0)),
+          .Some(a0) => {
+            _collect_bind_decls(a0, ty, names, types);
+          },
+          .None => ()
+        );
+        (ni : usize) = usize(0);
+        while(ni < names.len(), {
+          nm := match(names.get(ni), .Some(n) => n, .None => String.from(""));
+          nt := match(types.get(ni), .Some(t) => t, .None => TypeValue.Unit);
+          if(!is_unit_type(nt), {
+            decl := indent.clone();
+            decl.push_string(get_type_string(nt, context.base));
+            decl.push_str(" ");
+            decl.push_string(sanitize_for_c_identifier(nm.clone(), false));
+            decl.push_str(";");
+            em.emit_string_line(decl);
+          });
+          ni = (ni + usize(1));
+        });
+      });
+      done_label := _fresh_label(labels, "or");
+      inner_indent := indent.clone();
+      inner_indent.push_str("  ");
+      (ai : usize) = usize(0);
+      while(ai < alts.len(), {
+        // In a last arm (tests skipped) the LAST alternative is unconditional:
+        // exhaustiveness proved that control reaching it matches, so no
+        // dead `goto fail` is left behind.
+        alt_is_final := (!emit_tests && ((ai + usize(1)) == alts.len()));
+        alt_fail := _fresh_label(labels, "alt");
+        open := indent.clone();
+        open.push_str("{");
+        em.emit_string_line(open);
+        match(
+          alts.get(ai),
+          .Some(alt) => {
+            recur(alt, path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context);
+          },
+          .None => ()
+        );
+        jump := inner_indent.clone();
+        jump.push_str("goto ");
+        jump.push_string(done_label.clone());
+        jump.push_str(";");
+        em.emit_string_line(jump);
+        close := indent.clone();
+        close.push_str("}");
+        em.emit_string_line(close);
+        if(!alt_is_final, {
+          lbl := indent.clone();
+          lbl.push_string(alt_fail);
+          lbl.push_str(": ;");
+          em.emit_string_line(lbl);
+        });
+        ai = (ai + usize(1));
+      });
+      if(emit_tests, {
+        none := indent.clone();
+        none.push_str("goto ");
+        none.push_string(fail_label.clone());
+        none.push_str(";");
+        em.emit_string_line(none);
+      });
+      dl := indent.clone();
+      dl.push_string(done_label);
+      dl.push_str(": ;");
+      em.emit_string_line(dl);
+    },
+    .At(name, _, sub) => {
+      if(!is_unit_type(ty), {
+        cname := sanitize_for_c_identifier(name.clone(), false);
+        if(assign_binds, {
+          line := indent.clone();
+          line.push_string(cname.clone());
+          line.push_str(" = ");
+          line.push_string(path.clone());
+          line.push_str(";");
+          em.emit_string_line(line);
+        }, {
+          _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
+        });
+        _shadow_add(context, cname.clone());
+        shadows.push(cname);
+      });
+      recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
+    }
+  );
+});
+/// Are all arms of a match classic switch shapes?
+_arms_all_classic :: (fn(arms : ArrayList(Arm)) -> bool)({
+  (ok : bool) = true;
+  (i : usize) = usize(0);
+  while((i < arms.len()) && ok, {
+    ok = match(arms.get(i), .Some(a) => a.classic, .None => false);
+    i = (i + usize(1));
+  });
+  ok
+});
+/// The general test-chain lowering.
+_gen_general_match :: (fn(expr : AstExpr, arms : ArrayList(Arm), indent : String, context : FunctionGenerationContext, matched_value_code : String, match_value_type : TypeValue, temp_var_opt : Option(String), is_unit : bool) -> String)({
+  em := context.base.emitter;
+  saved := context.base.inside_match;
+  context.base.inside_match = true;
+  body_indent := indent.clone();
+  body_indent.push_str("  ");
+  prefix := String.from("__yo_m");
+  prefix.push_string(ast_expr_id(expr).to_string());
+  labels := _MatchLabels(prefix : prefix.clone(), next : usize(0));
+  end_label := prefix.clone();
+  end_label.push_str("_end");
+  n := arms.len();
+  (k : usize) = usize(0);
+  while(k < n, {
+    match(
+      arms.get(k),
+      .Some(arm) => {
+        if(_case_executed(arm.pattern_expr, context), {
+          fail_label := cond(
+            ((k + usize(1)) < n) => _fresh_label(labels, "a"),
+            true => end_label.clone()
+          );
+          open := indent.clone();
+          open.push_str("{");
+          em.emit_string_line(open);
+          shadows := ArrayList(String).new();
+          // The last unguarded arm of an exhaustive match needs no tests.
+          is_last := ((k + usize(1)) == n);
+          _emit_pattern_chain(arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), labels, shadows, context);
+          match(
+            arm.guard,
+            .Some(g) => {
+              gcode := _call_generate_expr(g, body_indent.clone(), context);
+              gvar := _fresh_label(labels, "g");
+              gl := body_indent.clone();
+              gl.push_str("bool ");
+              gl.push_string(gvar.clone());
+              gl.push_str(" = ");
+              gl.push_string(gcode);
+              gl.push_str(";");
+              em.emit_string_line(gl);
+              // The guard's temps die here, on both paths.
+              generate_deferred_drop_expressions(g, body_indent.clone(), context);
+              gt := body_indent.clone();
+              gt.push_str("if (!");
+              gt.push_string(gvar);
+              gt.push_str(") goto ");
+              gt.push_string(fail_label.clone());
+              gt.push_str(";");
+              em.emit_string_line(gt);
+            },
+            .None => ()
+          );
+          _emit_case_body_no_break(arm.body, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
+          jump := body_indent.clone();
+          jump.push_str("goto ");
+          jump.push_string(end_label.clone());
+          jump.push_str(";");
+          em.emit_string_line(jump);
+          (si : usize) = usize(0);
+          while(si < shadows.len(), {
+            match(
+              shadows.get(si),
+              .Some(sn) => {
+                _shadow_remove(context, sn);
+              },
+              .None => ()
+            );
+            si = (si + usize(1));
+          });
+          close := indent.clone();
+          close.push_str("}");
+          em.emit_string_line(close);
+          if(!(fail_label == end_label), {
+            lbl := indent.clone();
+            lbl.push_string(fail_label);
+            lbl.push_str(": ;");
+            em.emit_string_line(lbl);
+          });
+        });
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  el := indent.clone();
+  el.push_string(end_label);
+  el.push_str(": ;");
+  em.emit_string_line(el);
+  context.base.inside_match = saved;
+  generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+  if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
+});
 /// Generate a match expression.
 generate_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
@@ -1597,6 +2062,18 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   is_ptr := is_pointer_type(match_value_type);
   is_ref_sem := (!is_ptr && (is_reference_struct_type(match_value_type) || is_reference_enum_type(match_value_type)));
   enum_type0 := if(is_ptr, match(match_value_type, .Pointer(p) => p, _ => match_value_type), match_value_type);
+  // The general test-chain lowering: any arm outside the classic switch
+  // shapes, or a scrutinee that is neither a primitive nor an enum (a string
+  // matched against literals).
+  match(
+    lookup_match_arms(ast_expr_id(expr)),
+    .Some(arms) => {
+      if(!_arms_all_classic(arms) || !is_enum_type(resolve_enum_shell(enum_type0)), {
+        return(_gen_general_match(expr, arms, indent.clone(), context, matched_value_code, match_value_type, temp_var_opt, is_unit));
+      });
+    },
+    .None => ()
+  );
   // Resolve a leaked recursive-enum SELF-SHELL to its finalized form. A shell
   // keeps `variant_names` (so the tag emits) but has EMPTY `variant_fields`/
   // `variant_field_labels`, so `_emit_destructure_binds`'s positional loop
