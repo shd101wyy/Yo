@@ -199,7 +199,15 @@ generalize) and
 (PROPOSED 2026-09-18: what Yo takes from Bend 2 — `law(...)` claims outside
 the code, lemmas as contracted `ghost_fn`s proved by induction, a
 `yo verify --strict` gate that fails on `assumed()`, `yo guide`/`yo std`, an
-evals corpus — with implementation phases B0–B6 another agent can pick up). Three landed 2026-09-11
+evals corpus — with implementation phases B0–B6 another agent can pick up), and
+[`backlog/LLM_AUTHORING_AUDIT_2026-09-19.md`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md)
+(PROPOSED 2026-09-19: the measured baseline — cast counts, loop idioms, the
+pitfall-rule census, 27 codes / 1 repair — the maintainer's rulings that close
+literal inference, untyped closure locals, order-free named args and `yo run`,
+and what remains: `match` P1, variant inference for locals, `try` back as a
+prelude macro with its removal history, the receiver-position literal bug,
+`yo fix` repairs, the LSP repair channel, a compiler-verified explain
+registry). Three landed 2026-09-11
 alongside `reference/ASYNC_ITERATION_STREAM.md`, each parking a piece of it
 with the blocker measured:
 [`backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`](backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md)
