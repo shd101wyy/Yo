@@ -191,3 +191,41 @@ always-true — one line + comment).
 **Estimated size:** one helper + three binder-site conversions + the
 invariant grep. Mechanically small; semantically load-bearing — every
 generic call's env changes identity. Budget a full session.
+
+## MEASURED REFINEMENT 2026-09-19 (later): binder-only minting is refuted — the cure is a per-call SIGNATURE clone
+
+Implemented and measured: `clone_some_fresh` (types/creators.yo, KEPT —
+exported, unused-by-default) + minting at the Step-6 marker loop and the
+Type-kinded forall placeholder. Results:
+
+- The warm doc_stability unify DISAPPEARED (0 GenericImplEntry hits on the
+  minimal pair) — the mechanism diagnosis was right; the call binders WERE
+  the poisoning writers.
+- But COLD compiles broke: `*(T).add`'s body died with "expected T, got
+  *(u8)" (prelude:6801, `__yo_ptr_add(self, count)`) — for BOTH sites, and
+  for either site alone. The shared signature's SomeT and the env binding
+  cohere THROUGH the shared id: the call's resolution is stamped on the
+  shared SomeT (register_some_resolved_concrete / the cell), and every
+  later read of the SIGNATURE'S OWN types — builtin param checks, the
+  return-type re-eval, the occurrence-substitution (the "Gap-6 lineage
+  split" machinery at helper.yo's zret block) — resolves through it.
+  Severing id coherence at any one binder strands the signature's copy
+  permanently abstract.
+
+**The cure's correct shape (supersedes the binder-site design):** at call
+entry, when func_type carries SomeTs, CLONE THE WHOLE SIGNATURE — mint one
+fresh SomeT per distinct shared id, substitute them through the ENTIRE
+func_type (params, result, where/implicit lists, trait carriers), and bind
+THOSE same fresh clones in the callee env. Signature and env then share
+the FRESH ids (coherence preserved) while the stored/shared signature
+stays pristine (contamination severed). The substitution is the existing
+`substitute()` with an id-rewriting map (a new subst kind or a dedicated
+walk — SomeT arms rewrite by map, everything else recurses). Cost: one
+substitute() per generic call — measurable, but bounded by the same class
+of work the spec paths already do.
+
+Entry point: try_to_call's Step-6 area — build the map from
+sig_some_types, clone func_type once, use the CLONE everywhere below
+(func_type uses in the rest of the fn) and bind the map's values in
+callee_env. create_specialized_function_inline receives func_type by
+parameter — thread the clone.
