@@ -1331,7 +1331,30 @@ become real; the stdlib starts carrying executable specifications.
 > not itself return. The issue moved to `issues/fixed/`; the INLINE
 > spelling now loads AND its variance task proves (regression test in
 > `verifier_trait_variance.test.yo` + fixture
-> `valid/trait_impl_clauses.yo`). Remaining for V6: tasks 2–6 below.
+> `valid/trait_impl_clauses.yo`).
+>
+> **Status: TASK 3 COMPLETE — literal-construction CTFE folding (2026-09-18).**
+> The last task-3 item landed: `_emit` constant-folds every obligation
+> term bottom-up (`_fold_term` + the `_fold_*` helpers, vc.yo) — a
+> predicate over literal arguments (`use_nz(i32(5))`'s `refine#1` =
+> `5 != 0`) folds to a BoolLit and the verdict is recorded WITHOUT an
+> SMT call (`VcObligation.pre`, honored by the driver). Folding is
+> conservative: division/remainder (a zero divisor is the AoRTE
+> obligation itself) and shifts >= width stay symbolic; signed
+> comparisons use the sign-bit rule (no i64 casts — a 64-bit INT_MIN
+> pattern has no i64 absolute form); subtraction/negation are written
+> `a + (~b + 1)` because a literal u64 underflow trips the compile-time
+> arithmetic folder's E1102 EVEN in runtime code (a surfaced language
+> quirk: `u64(0) - u64(1)` hard-errors wherever it appears). Observably
+> solver-free: `refine_literal.yo` proves `5 != 0` and refutes `0 != 0`
+> with a BOGUS solver path (the no-solver test in
+> `verifier_refine.test.yo`). With this fold, **V6 IS COMPLETE — all six
+> tasks landed**: task 1 trait variance (#685), task 2 contracted generic
+> callees + abstract-body support (#687, #745), task 3 refinements
+> (#705, #727, #753, this fold), task 4 mutual-recursion cliques (#691),
+> task 5 `assumed()` + the std/collections annotations (#713), task 6
+> the refined-index worked example (#726). What remains of this plan is
+> the V7 productization phase.
 >
 > **Status: TASK 2 SLICE 1 — contracted generic callees at monomorphized
 > call sites (2026-09-14).** Two fixes, both probe-driven: (1) the

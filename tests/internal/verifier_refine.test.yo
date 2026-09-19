@@ -81,6 +81,39 @@ _load_reports :: (
   );
   verify_and_strip_tasks(cfg, binary, take_verify_tasks())
 });
+/// The same flow with a NONEXISTENT solver binary: any obligation that is
+/// not constant-folded reports solver-error; only CTFE-folded ones pass.
+_load_reports_bogus_solver :: (
+  fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport)
+)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_refine: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(outcome.ok, `fixture ${rel_path} load ok=${outcome.ok.to_string()}: ${rendered}`);
+    },
+    .None => ()
+  );
+  assert(outcome.ok, `fixture ${rel_path} failed to load`);
+  cfg := default_verify_run_config();
+  verify_and_strip_tasks(cfg, String.from("/nonexistent/z3-ctfe-probe"), take_verify_tasks())
+});
 _reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
   (i : usize) = usize(0);
@@ -285,5 +318,52 @@ test("worked example twin: an under-constrained index refutes at refine#1", {
   assert(
     _count_outcome(reports, String.from("ok")) == usize(2),
     `the callee and predicate fn stay ok (modular), got: [${_reports_dump(reports)}]`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// V6 task 3 (literal-construction CTFE folding): a refined argument that
+// is a LITERAL folds the refine#N obligation to a BoolLit in _emit — the
+// verdict is known WITHOUT an SMT call. The test forces a BOGUS solver
+// path: every obligation in the fixture pre-resolves, so the outcomes are
+// exact even though no solver could run.
+// ---------------------------------------------------------------------------
+test("refine#N with LITERAL arguments folds — proves and refutes with NO solver", {
+  // NOT via env mutation (a shared batch process must not reorder other
+  // tests' resolver lookups): _load_reports_bogus_solver hands the driver
+  // a nonexistent binary directly. Every obligation in the fixture
+  // pre-resolves by folding, so nothing ever invokes it.
+  reports := _load_reports_bogus_solver(
+    String.from("./tests/spec/fixtures/valid/refine_literal.yo"),
+    io
+  );
+  assert(
+    reports.len() == usize(4),
+    `all four functions report (predicate fn, takes_nz, lit_caller, lit_caller_bad), got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+  );
+  // fn_ids carry path:line (no fn names) — the literal callers sit at
+  // :12 (lit_caller, must PROVE from the folded 5 != 0) and :14
+  // (lit_caller_bad, must REFUTE from the folded 0 != 0).
+  (lit_proved : bool) = false;
+  (lit_refuted : bool) = false;
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        if(rp.fn_id.contains(String.from(":14")), {
+          lit_refuted = (rp.outcome == "refuted");
+        });
+        if(rp.fn_id.contains(String.from(":12")), {
+          lit_proved = (rp.outcome == "ok");
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(
+    lit_proved && lit_refuted,
+    `the literal caller must prove and the literal-zero caller must refute — WITHOUT a solver (both obligations constant-fold): [${_reports_dump(reports)}]`
   );
 });

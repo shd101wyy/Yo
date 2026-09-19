@@ -1,0 +1,17 @@
+pragma(Pragma.Verify);
+
+non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+
+takes_nz :: (fn(d : refine(i32, non_zero)) -> i32)(d + i32(1));
+
+// Literal arguments: the refine#1 obligation (5 != 0 / 0 != 0) is
+// CONSTANT-FOLDED in _emit — proved and refuted WITHOUT an SMT call
+// (the plan's "literal construction (CTFE discharges when the value is
+// known)"). The no-solver test below is the proof: every obligation in
+// this file pre-resolves, so the whole battery runs with a BOGUS solver
+// path and still reports proved/refuted correctly.
+lit_caller :: (fn() -> i32)(takes_nz(i32(5)));
+
+lit_caller_bad :: (fn() -> i32)(takes_nz(i32(0)));
+
+export(lit_caller);

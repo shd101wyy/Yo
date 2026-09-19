@@ -804,35 +804,74 @@ verify_and_strip_tasks :: (
               match(
                 body_res.obligations.get(oi),
                 .Some(obl) => {
-                  r := run_vc_query(obl.query, cfg, binary.clone());
-                  // Counter-examples carry source names: unmangle the
-                  // model's `__yo_v<fn>_<name> = value` pairs against
-                  // this function's id at report-construction time, so
-                  /// every consumer (text, JSON, tests) sees `x = ...`.
-                  clean_verdict := match(
-                    r.verdict,
-                    .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), ce)),
-                    .Proved(core) => VerifyVerdict.Proved(core),
-                    .Unproven(reason) => VerifyVerdict.Unproven(reason),
-                    .SolverError(msg) => VerifyVerdict.SolverError(msg)
+                  // Literal-construction CTFE folding: a pre-resolved
+                  // obligation skips the solver entirely (the verdict came
+                  // from constant folding, which is a proof).
+                  (pre_done : bool) = false;
+                  (pre_is_proved : bool) = false;
+                  match(
+                    obl.pre,
+                    .Some(pv) => {
+                      pre_done = true;
+                      match(
+                        pv,
+                        .PreProved => {
+                          pre_is_proved = true;
+                        },
+                        .PreRefuted => ()
+                      );
+                    },
+                    .None => ()
                   );
-                  obligations.push(
-                    VerifyFnObligation(
-                      name : r.query_name.clone(),
-                      verdict : clean_verdict,
-                      cached : r.cached
-                    )
-                  );
-                  // 0 ok < 1 unproven < 2 solver-error < 3 refuted
-                  rank := match(
-                    r.verdict,
-                    .Proved(_) => usize(0),
-                    .Unproven(_) => usize(1),
-                    .SolverError(_) => usize(2),
-                    .Refuted(_) => usize(3)
-                  );
-                  if(rank > worst, {
-                    worst = rank;
+                  if(pre_done, {
+                    pre_verdict := if(
+                      pre_is_proved,
+                      VerifyVerdict.Proved(ArrayList(String).new()),
+                      VerifyVerdict.Refuted(ArrayList(String).new())
+                    );
+                    obligations.push(
+                      VerifyFnObligation(
+                        name : obl.name.clone(),
+                        verdict : pre_verdict,
+                        cached : false
+                      )
+                    );
+                    rank := if(pre_is_proved, usize(0), usize(3));
+                    if(rank > worst, {
+                      worst = rank;
+                    });
+                  });
+                  if(!pre_done, {
+                    r := run_vc_query(obl.query, cfg, binary.clone());
+                    // Counter-examples carry source names: unmangle the
+                    // model's `__yo_v<fn>_<name> = value` pairs against
+                    // this function's id at report-construction time, so
+                    // every consumer (text, JSON, tests) sees `x = ...`.
+                    clean_verdict := match(
+                      r.verdict,
+                      .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), ce)),
+                      .Proved(core) => VerifyVerdict.Proved(core),
+                      .Unproven(reason) => VerifyVerdict.Unproven(reason),
+                      .SolverError(msg) => VerifyVerdict.SolverError(msg)
+                    );
+                    obligations.push(
+                      VerifyFnObligation(
+                        name : r.query_name.clone(),
+                        verdict : clean_verdict,
+                        cached : r.cached
+                      )
+                    );
+                    // 0 ok < 1 unproven < 2 solver-error < 3 refuted
+                    rank := match(
+                      r.verdict,
+                      .Proved(_) => usize(0),
+                      .Unproven(_) => usize(1),
+                      .SolverError(_) => usize(2),
+                      .Refuted(_) => usize(3)
+                    );
+                    if(rank > worst, {
+                      worst = rank;
+                    });
                   });
                 },
                 .None => ()
