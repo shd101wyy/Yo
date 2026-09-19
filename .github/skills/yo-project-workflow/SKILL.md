@@ -1,6 +1,6 @@
 ---
 name: yo-project-workflow
-description: Build, test, scaffold, format, and manage Yo projects. Use this when working with yo init, build.yo, yo build, yo compile, yo test, yo fmt, yo add, yo install, yo version, or cross-platform Yo project setup.
+description: Build, test, verify, scaffold, format, and manage Yo projects. Use this when working with yo init, build.yo, yo build, yo compile, yo test, yo verify, yo fmt, yo add, yo install, yo version, or cross-platform Yo project setup.
 argument-hint: "[project task or command]"
 ---
 
@@ -17,6 +17,7 @@ Use this skill when you need to:
 - scaffold a new Yo project
 - understand or edit `build.yo`
 - choose between `yo build`, `yo compile`, and `yo test`
+- PROVE code correct (or read counter-examples) with `yo verify` / `--explain` / `--format json`
 - format source with `yo fmt`
 - manage dependencies with `yo add`, `yo remove`, `yo install`, `yo update` (declared in `yo.toml`)
 - pin or manage Yo versions with `yo version`
@@ -31,6 +32,31 @@ Use this skill when you need to:
 4. For source formatting, use `yo fmt`; use `yo fmt --check` in CI-style verification.
 5. To pin the project to a specific Yo version, use `yo version pin`.
 6. Consult the [workflow cheatsheet](./workflow-cheatsheet.md) for command shapes, project layout, and a minimal `build.yo`.
+
+## The agentic verification loop
+
+When the task is to PROVE something about Yo code (not just test it), iterate
+with `yo verify` — the report is designed for machine consumption:
+
+1. Start with the plain run: `yo verify ./src` — the text summary names the
+   failing function and outcome (`refuted` = a counter-example exists;
+   `unproven` = the solver ran out of budget; `subset-error` = the body uses
+   something outside the verifiable subset, the message says what).
+2. Read one function in full: `yo verify ./src --explain <fn-or-file:line>` —
+   substring match on the `fn@path:line` id; every obligation prints its
+   verdict AND its goal as SMT-LIB, so the exact claim under proof is visible.
+3. For programmatic consumption (agents, scripts): `--format json` —
+   `summary` (counts, `queries`/`cached`/`folded`, `elapsed_ms`) plus
+   `functions[]` each with `obligations[]` (`verdict`, `goal`, `model` —
+   the counter-example bindings when `refuted`).
+4. A refuted obligation's `model` is the fix's specification: those bindings
+   are the inputs that break the contract. Repair the code or strengthen the
+   `requires`, then re-run — verdicts cache, so unchanged obligations are
+   instant.
+5. Gate with `--strict` (or `--deny <outcomes>`): a run must not pass by
+   quietly degrading — `assumed`/`outside-subset`/`unproven` become failures.
+6. The solver resolves automatically (`YO_Z3_PATH` → pinned install → one-time
+   download); no manual setup.
 
 ## High-signal rules
 

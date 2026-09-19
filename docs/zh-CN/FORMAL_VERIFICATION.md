@@ -165,6 +165,18 @@ NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x :
 `comptime(p)`；而 comptime 谓词永远无法在运行期被*调用* —— 这正是各
 族闸门将谓词内联书写、而非以运行期值接收 ghost 的原因。
 
+**字面量实参直接折叠 —— 不经过求解器。** 当精化参数的实参是字面量
+（`takes_nz(i32(5))`）时，`refine#N` 义务在发射阶段就被常量折叠：
+字面量之上的谓词（`5 != 0`）求值为布尔值，判定被直接记录，不发起
+SMT 调用（汇总中计入 `folded`，绝不算作查询）。折叠是保守的 ——
+除法/取余（除零正是待证明的 AoRTE 义务本身）与超过位宽的移位保持
+符号化。
+
+**编辑器集成。** LSP 在悬停时展示函数的契约 —— requires/ensures 子句、
+返回值标签、`ghost_fn`（仅规格）标记，以及文件的验证模式。验证运行
+驳倒义务时，反例以普通诊断的形式呈现；逐函数的判定属于
+`yo verify --explain` 查询，而非悬停计算（那需要求解器）。
+
 ## 模式
 
 | 模式 | 选择方式 | 行为 |
@@ -200,15 +212,41 @@ yo verify ./spec --deny assumed    # 也可以自己指定
 `unproven` 即使在 `verify+` 中也会失败，而不会退回运行时断言。
 
 每次运行都会以一行汇总结尾 —— 七种结果的计数（包含 0，便于 grep）、其中
-有多少 `ok` 是**空洞的**（完全没有讨还任何义务）、求解器查询数、命中缓存
-的数量，以及墙上时间：
+有多少 `ok` 是**空洞的**（完全没有讨还任何义务）、求解器查询数与缓存
+命中率、经常量折叠讨还（不经求解器）的义务数，以及墙上时间：
 
 ```
-verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 1 queries, 0 cached, 46 ms
+verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 3 queries, 2 cached (66%), 1 folded, 46 ms
 ```
 
 `--format json` 在 `summary` 对象中给出同样的数字，另外还有 `strict` 和
-`denied` 列表。
+`denied` 列表：
+
+```json
+"summary": { "total": 3, "ok": 2, "assumed": 1, "outside-subset": 0,
+             "unproven": 0, "refuted": 0, "solver-error": 0,
+             "subset-error": 0, "vacuous": 1, "queries": 3,
+             "cached": 2, "folded": 1, "elapsed_ms": 46,
+             "strict": false, "denied": [] }
+```
+
+每个函数条目（`functions[]`）携带 `fn_id`、`mode`、`outcome`、
+`vacuous`、`subset_construct`/`subset_source`，以及它的
+`obligations[]` —— 每个义务一个对象，含 `name`、`verdict`
+（`proved` / `refuted` / `unproven` / `solver-error`）、`cached`、
+`folded`、`goal`（按 SMT-LIB 渲染的义务本体 —— 求解器被问的东西）
+与 `model`（反例绑定，仅 `refuted`）。
+
+`--explain <模式>` 把报告收窄到 id 匹配（子串 —— 裸函数名或
+`文件:行号` 皆可）的函数，并强制输出明细：每个义务列出判定**及其目标
+项**，`ok` 的函数也一样 —— 已验证函数的 VC 集合是可检视的，而不只是
+失败才可见：
+
+```
+  ok  fn@src/my_spec.yo:12 [verify]
+    fn@src/my_spec.yo:12/refine#1: PROVED (folded)
+      goal: (not (= (_ bv5 32) (_ bv0 32)))
+```
 
 ## 自动义务（AoRTE）
 

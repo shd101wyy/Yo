@@ -189,6 +189,22 @@ comptime predicate can never be *called* at runtime, which is why the
 family gates spell their predicates inline rather than taking the ghost
 as a runtime value.
 
+**Literal arguments fold — no solver involved.** When the argument of a
+refined parameter is a literal (`takes_nz(i32(5))`), the `refine#N`
+obligation is constant-folded at emission: the predicate over literals
+(`5 != 0`) evaluates to a boolean, and the verdict is recorded without
+an SMT call (the summary counts it as `folded`, never as a query).
+Folding is conservative — division/remainder (whose zero divisor IS the
+AoRTE obligation under proof) and shifts beyond the operand width stay
+symbolic.
+
+**Editor integration.** The LSP shows a function's contracts on hover —
+requires/ensures clauses, the return label, a `ghost_fn` marker for
+spec-only predicates, and the file's verification mode. Counter-examples
+surface as ordinary diagnostics when a verify run refutes an
+obligation; per-function verdicts are a `yo verify --explain` query, not
+a hover computation (they need the solver).
+
 ## Modes
 
 | Mode | How to select | Behavior |
@@ -229,14 +245,42 @@ would otherwise fall back to a runtime assert.
 Every run ends with a summary line — counts for all seven outcomes (zeros
 included, so it is greppable), how many of the `ok` results were
 *vacuous* (they discharged no obligation at all), the number of solver
-queries, how many came from the cache, and the wall time:
+queries with the cache hit rate, how many obligations were discharged by
+constant folding (no solver), and the wall time:
 
 ```
-verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 1 queries, 0 cached, 46 ms
+verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error, 0 subset-error (1 of the ok vacuous) — 3 queries, 2 cached (66%), 1 folded, 46 ms
 ```
 
 `--format json` carries the same numbers under a `summary` object, plus
-`strict` and the `denied` list.
+`strict` and the `denied` list:
+
+```json
+"summary": { "total": 3, "ok": 2, "assumed": 1, "outside-subset": 0,
+             "unproven": 0, "refuted": 0, "solver-error": 0,
+             "subset-error": 0, "vacuous": 1, "queries": 3,
+             "cached": 2, "folded": 1, "elapsed_ms": 46,
+             "strict": false, "denied": [] }
+```
+
+Each function entry (`functions[]`) carries `fn_id`, `mode`, `outcome`,
+`vacuous`, `subset_construct`/`subset_source`, and its `obligations[]` —
+one object per obligation with `name`, `verdict` (`proved` / `refuted` /
+`unproven` / `solver-error`), `cached`, `folded`, `goal` (the obligation
+rendered as SMT-LIB — what the solver was asked), and `model` (the
+counter-example bindings, `refuted` only).
+
+`--explain <pattern>` narrows the report to functions whose id matches
+(substring — a bare name or a `file:line` both work) and forces the
+detailed rendering: every obligation lists its verdict AND its goal
+term, for `ok` functions too — the VC set of a verified function is
+inspectable, not just the failures:
+
+```
+  ok  fn@src/my_spec.yo:12 [verify]
+    fn@src/my_spec.yo:12/refine#1: PROVED (folded)
+      goal: (not (= (_ bv5 32) (_ bv0 32)))
+```
 
 ## Automatic obligations (AoRTE)
 
