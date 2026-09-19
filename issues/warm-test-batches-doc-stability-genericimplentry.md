@@ -229,3 +229,44 @@ sig_some_types, clone func_type once, use the CLONE everywhere below
 (func_type uses in the rest of the fn) and bind the map's values in
 callee_env. create_specialized_function_inline receives func_type by
 parameter — thread the clone.
+
+## SESSION MAP 2026-09-19 (evening) — signature clone implemented; the remaining channel is now isolated to three candidates
+
+The per-call SIGNATURE CLONE was implemented and measured (then reverted
+from the tree; the knowledge below is the record):
+
+- **Cold: green.** A thin wrapper (`_sig_clone_fresh_ids` +
+  `_try_to_call_function_with_arguments_impl`) clones func_type per call —
+  pairwise (name, frame_level) uniqueness guard falls back to the shared
+  path — and unregisters the fresh ids after the call (bounded table
+  growth; unwind paths leak a failure-bounded residue). Self-build green,
+  path.test.yo 89/89. The Step-6 marker loop reads the CLONE automatically
+  (it collects from func_type), so coherence is preserved by construction.
+- **Warm pair: still red** — same GenericImplEntry vs DocParam at
+  impl.yo:1459. So the call-binder channel is now closed AND the poison
+  persists ⇒ the stamping writer is elsewhere. Eliminated this session:
+  - `g_some_resolved_concrete` cross-file residue: a
+    `clear_some_resolved_registry()` at the runner's file boundary did NOT
+    fix the pair ⇒ the read is NOT table-backed.
+  - The synthesizer's opts-gated cell stamping (synthesizer.yo 1340-1356 /
+    1427+): **dead code** — every SynthesizeOptions constructor passes
+    `set_resolved_concrete_type : false` (verified by grep).
+  - `_with_resolved_concrete` (function.yo:1371): rebuilds the SomeT with
+    the SAME id but a FRESH seeded cell — does NOT touch the original's
+    shared cell (benign for this channel).
+
+**The three remaining candidates, in probe order:**
+1. THE READER (prime suspect): `_bind_forall_from_type_args`'s "Resolution
+   channel 1" CELL-CHAIN WALK (impl.yo ~841-880) — the receiver's stored
+   type_arguments slot resolves through its `resolved_concrete` cell. Probe:
+   print (YO_DEBUG_WARM) the walked cell's [id, cell contents] when the
+   walk yields a Doc*-flavored type during file 2.
+2. The cell's stamper: whoever seeded that stored slot's cell during
+   file 1 — `t_resolved_cell` callers and any remaining direct
+   `cell.drain/push` sites (grep beyond the dead synthesizer arms; the
+   io/async freshener is already per-call).
+3. The env variables' own slots in the registry instance's construction
+   (impl.yo's registration) — the slots may be minted pre-resolved from a
+   file-1 context.
+
+Next session: probe (1) first — it names the stamper directly.
