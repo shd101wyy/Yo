@@ -611,14 +611,20 @@ evaluate_match :: (
       // The constant/range tests are synthesized nodes outside the source
       // AST. Codegen's collectors (functions, types) follow a node's
       // `macro_expansion`, so an arm the general lowering will emit hangs its
-      // tests off the pattern node as a `begin(...)` of them.
+      // tests off the ARM's `=>` node as a `begin(...)` of them. NOT off the
+      // pattern node: for a top-level constant arm (`"a" => …`) the pattern
+      // node IS the literal inside its own test, and codegen's
+      // generate-the-expansion rule then recursed forever (SIGBUS, measured).
+      // The `=>` node is never generated as an expression, only walked.
       if(!(classic), {
         tests := ArrayList(AstExpr).new();
         pattern_test_exprs(pat, tests);
         if(tests.len() > usize(0), {
-          ptok := ast_expr_token(pattern_ast);
+          ptok := ast_expr_token(arm_expr);
           begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : String.from(BK_BEGIN), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : ptok.module_path.clone(), input : ptok.input.clone()));
-          mae_info.macro_expansion = Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, tests, false, ptok));
+          arm_info := new_expr_info(env, t_unit());
+          arm_info.macro_expansion = Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, tests, false, ptok));
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(arm_expr), arm_info);
         });
       });
       if(scrutinee_is_primitive && classic, {

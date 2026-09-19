@@ -1821,6 +1821,10 @@ _emit_pattern_chain :: (
       inner_indent.push_str("  ");
       (ai : usize) = usize(0);
       while(ai < alts.len(), {
+        // In a last arm (tests skipped) the LAST alternative is unconditional:
+        // exhaustiveness proved that control reaching it matches, so no
+        // dead `goto fail` is left behind.
+        alt_is_final := (!emit_tests && ((ai + usize(1)) == alts.len()));
         alt_fail := _fresh_label(labels, "alt");
         open := indent.clone();
         open.push_str("{");
@@ -1828,7 +1832,7 @@ _emit_pattern_chain :: (
         match(
           alts.get(ai),
           .Some(alt) => {
-            recur(alt, path.clone(), ty, alt_fail.clone(), true, true, inner_indent.clone(), labels, shadows, context);
+            recur(alt, path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context);
           },
           .None => ()
         );
@@ -1840,17 +1844,21 @@ _emit_pattern_chain :: (
         close := indent.clone();
         close.push_str("}");
         em.emit_string_line(close);
-        lbl := indent.clone();
-        lbl.push_string(alt_fail);
-        lbl.push_str(": ;");
-        em.emit_string_line(lbl);
+        if(!alt_is_final, {
+          lbl := indent.clone();
+          lbl.push_string(alt_fail);
+          lbl.push_str(": ;");
+          em.emit_string_line(lbl);
+        });
         ai = (ai + usize(1));
       });
-      none := indent.clone();
-      none.push_str("goto ");
-      none.push_string(fail_label.clone());
-      none.push_str(";");
-      em.emit_string_line(none);
+      if(emit_tests, {
+        none := indent.clone();
+        none.push_str("goto ");
+        none.push_string(fail_label.clone());
+        none.push_str(";");
+        em.emit_string_line(none);
+      });
       dl := indent.clone();
       dl.push_string(done_label);
       dl.push_str(": ;");
