@@ -199,6 +199,12 @@ _bind_some_type :: (
   ) -> unit
 )({
   token := match(tok, .Some(t) => t, .None => synthetic_token(name, env.module_path));
+  if(synth_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+    bs_s := type_to_string(ty);
+    if((bs_s.index_of(String.from("Doc")) != .None) || (bs_s.index_of(String.from("GenericImplEntry")) != .None), {
+      eprintln(`[bindsome] name=${name} src_id=${source_some_id} ty=${bs_s} mod=${env.module_path}`);
+    };
+  });
   // The bound VARIABLE's declared type is the KIND of the bound value —
   // TS binds `type: value.type` where createTypeValue computes
   // `typeOfType(value)` (synthesizer.ts:259-271, value.ts:442-448), so a

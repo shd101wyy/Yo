@@ -270,3 +270,40 @@ from the tree; the knowledge below is the record):
    file-1 context.
 
 Next session: probe (1) first — it names the stamper directly.
+
+## NARROWED TO THE BIND EVENT 2026-09-19 (night 2): `[bindsome]` names the exact moment
+
+New probe (kept, gated): `[bindsome]` in `_bind_some_type` (synthesizer.yo)
+prints when the bound type renders Doc*/GenericImplEntry-flavored. On the
+minimal pair, the last events before the fatal unify:
+
+```
+[bindsome] name=T src_id=1784 ty=GenericImplEntry          ← correct bind (registry match)
+...
+[bindsome] name=T src_id=1152  ty=ArrayList(DocParam)      ← the poisoning precursor
+[bindsome] name=T src_id=1784  ty=ArrayList(DocParam)      ← THE WRONG BIND (id 1784 = ArrayList's forall T)
+fatal: Cannot unify GenericImplEntry and DocParam
+```
+
+Reading: **1784 is the inherent ArrayList impl's SHARED forall T** (the
+registry entry's own SomeT — one id for every ArrayList match). In file 2's
+fatal match the pattern `ArrayList(T@1784)` is unified against a receiver
+whose ELEMENT (the inner `ArrayList(GenericImplEntry)` instance) resolves
+to `ArrayList(DocParam)` — the GIVEN-side slot resolution returns the stale
+DocParam. The receiver itself renders correctly through type_key (cell
+chains), so the divergence is the ENV-channel: the given-side SomeT is
+resolved via `get_value_of_some_type_from_env` against file 2's env stack,
+whose frame at the slot's recorded `frame_level` is a DRIFTED frame (the
+warm stack is deeper than impl.yo's module-eval stack) holding a live
+`T := DocParam`. The #774 fast-path liveness check cannot catch this — in
+the drifted stack the stale binding IS the last `T` at that level.
+
+**Fix direction (next session, one probe to confirm first):** the given
+(receiver) side of a generic-impl synthesis must not resolve stored slots
+through the AMBIENT env's frame-level addressing at all — candidates:
+(a) skip given-side SomeT env-resolution in `_synthesize_types_impl` (TS
+never has slots on a concrete receiver), or (b) verify frame identity via
+the marker Variable's synthetic token module_path (the binding at the
+SomeT's true def frame carries the minting module's path; a drifted
+frame's T does not). Probe: print the given slot's id + frame_level and
+the env frame count at the bind — the drift becomes arithmetic.
