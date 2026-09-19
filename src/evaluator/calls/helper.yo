@@ -1,7 +1,4 @@
-//! evaluator/calls/helper — stub for try_to_call_function_with_arguments.
-//!
-//! Phase 2x stub. Full implementation planned for Phase 3.
-//! 1:1 port of `src/evaluator/calls/helper.ts`.
+//! evaluator/calls/helper — the core function-call helper.
 //!
 //! `try_to_call_function_with_arguments` is the core function-call helper that:
 //!   1. Resolves generic type variables from argument types.
@@ -10,15 +7,16 @@
 //!   4. Returns a `FuncCallResult` with the resolved return type, runtime arg
 //!      expressions, updated caller env, and deferred drop expressions.
 //!
-//! Ported functions (Phase 3):
+//! Also in this file:
 //!   * `extract_function_value` — extract FuncVal from EvalValue
-//!   * `_module_type_contains_ctl_field` — stub (no isControlFunction in yo-self)
+//!   * `_module_type_contains_ctl_field` — control-fn detection via the
+//!     global registry (FuncVal carries no control flag)
 //!   * `generate_deferred_drop_expressions` — generates ___drop calls for RC vars
 //!   * `validate_function_return_type` — checks return type SomeTs are resolvable
 //!
-//! Note: `getVariablesNeedingDrop` is now ported in full in
-//! `src/env.yo:get_variables_needing_drop`; the prior simplified
-//! stub that lived here has been retired.
+//! Note: the full `get_variables_needing_drop` lives at
+//! `src/env.yo:get_variables_needing_drop`; the simplified
+//! stub that used to live here has been retired.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
@@ -53,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
   register_funcval_cap_vars,
   make_err_variable
 } :: import("../../env.yo");
-// dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
+// dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -183,7 +181,6 @@ pragma(Pragma.AllowUnsafe);
 /// Extract a FuncVal from an optional EvalValue.
 /// Closures are runtime-only and have no FuncVal at compile time.
 ///
-/// Mirrors `extractFunctionValue` in `src/evaluator/calls/helper.ts`.
 extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
   match(
     value,
@@ -201,8 +198,8 @@ extract_function_value :: (fn(value : Option(EvalValue)) -> Option(EvalValue))(
 /// Return true if any field of `module_type` is a "control function"
 /// (one that uses `unwind` to control the continuation).
 ///
-/// Mirrors `moduleTypeContainsCtlField` in `src/evaluator/calls/helper.ts`.
-/// Uses the global control-function registry since FuncVal has no isControlFunction flag.
+/// Uses the global control-function registry since FuncVal carries no
+/// control-function flag.
 _module_type_contains_ctl_field :: (
   fn(
     module_type : TypeValue,
@@ -273,19 +270,17 @@ _module_type_contains_ctl_field :: (
     _ => false
   )
 );
-// `_get_variables_needing_drop` stub retired — the full
-// `getVariablesNeedingDrop` port lives at
-// `src/env.yo:get_variables_needing_drop` after the
-// env.yo ↔ types/utils.yo import cycle was broken.
+// `get_variables_needing_drop` lives at
+// `src/env.yo:get_variables_needing_drop` (moved there when the
+// env.yo ↔ types/utils.yo import cycle was broken).
 // ---------------------------------------------------------------------------
 // generate_deferred_drop_expressions
 // ---------------------------------------------------------------------------
 /// Generate `___drop(varName)` expressions for variables that need RC cleanup.
 ///
-/// Phase 3: returns `None` (no variables qualify with the current stub for
+/// Returns `None` (no variables qualify with the current stub for
 /// `type_contains_rc_type`).
 ///
-/// Mirrors `generateDeferredDropExpressions` in `src/evaluator/calls/helper.ts`.
 generate_deferred_drop_expressions :: (
   fn(
     variables_to_drop : ArrayList(Variable),
@@ -332,7 +327,7 @@ generate_deferred_drop_expressions :: (
 /// Throws an Exception if a SomeType is found in the return type that has no
 /// corresponding variable in the env AND is not a Future/Fn impl type.
 ///
-/// Mirrors `validateFunctionReturnType` in `src/evaluator/calls/helper.ts`.
+///
 validate_function_return_type :: (
   fn(
     return_type : TypeValue,
@@ -470,7 +465,6 @@ CheckParamResult :: ref(
 );
 // ---------------------------------------------------------------------------
 // check_if_function_parameter_matches_argument
-// Phase 3 port of checkIfFunctionParameterMatchesArgument (helper.ts).
 // ---------------------------------------------------------------------------
 /// TRUE when the type (shallowly recursively) contains an Array with an
 /// UNRESOLVED length variable (`Array(i32, n)` — a value-generic length).
@@ -536,8 +530,7 @@ _type_has_array_len_var_d :: (fn(t : TypeValue, d : usize) -> bool)(
 _type_has_array_len_var :: (fn(t : TypeValue) -> bool)(_type_has_array_len_var_d(t, usize(0)));
 /// Trial-evaluate a declared return-type EXPR in the mint env (SWALLOWING —
 /// the local `->` exn cannot capture, so a failing eval just leaves `out`
-/// empty). On success pushes the evaluated TypeValue. Port shape of TS
-/// `evaluateFunctionReturnTypeAgain` (function.ts:2822): re-EVALUATING the
+/// empty). On success pushes the evaluated TypeValue. Re-EVALUATING the
 /// expr (vs substituting the def-era TypeValue) routes generic instantiations
 /// in the return (`*(Pair(K, V))`) through the SAME memoized type-constructor
 /// as the body's own calls — one instantiation lineage (the imm_map
@@ -568,14 +561,10 @@ _trial_eval_ret_type_expr :: (
 /// itself a type variable and DOES contain one — i.e. exactly the
 /// `-> Option(B)` shape.
 ///
-/// This is the value-semantics stand-in for TS anonymous-function.ts:1010-1012.
-/// There, `functionType` IS the parameter type's `isFn.callType` object, so
-/// `functionType.return.type = evaluatedBodyReturnType` rewrites the PARAMETER
-/// TYPE in place: after the argument is evaluated, TS's parameter type reads
-/// `Impl(Fn(a : i32) -> Option(i32))`, and the specialized body therefore types
-/// `f(value)` with the CANONICAL `Option(i32)`. yo-self types are values, so
-/// the caller re-applies the refinement explicitly. Without it the specialized
-/// body types `f(value)` as the def-era `Option(B)` and yo-self's codegen
+/// Types are VALUES here (no shared callType object whose mutation rewrites
+/// the PARAMETER TYPE in place), so the caller re-applies the refinement
+/// explicitly: without it the specialized body types `f(value)` as the
+/// def-era `Option(B)` instead of the CANONICAL `Option(i32)` and codegen
 /// aborts with "no C type name found for <enum:…>" — substitution keeps the
 /// def-era enum id, so only the closure's own (canonical) body type will do.
 _refine_one_fn_trait_result :: (fn(ftt : TypeValue, new_result : TypeValue) -> TypeValue)(
@@ -652,18 +641,18 @@ check_if_function_parameter_matches_argument :: (
     exn : Exception,
     /// The parameter's `= <value>` ASSIGNED value, or `.None`. Appended last
     /// with a default so existing call sites need no change. See the Step-5b
-    /// guard below (TS helper.ts:481-497).
+    /// guard below.
     (param_assigned_value : Option(EvalValue)) ?= Option(EvalValue).None,
     /// Aliasing Stage 0: true when the CALLEE is extern/builtin (no Yo code
     /// runs inside — its borrows cannot dangle), so Step 4c skips the
-    /// projection dup. Mirrors TS helper.ts `!functionType.externName`.
+    /// projection dup.
     (callee_is_extern : bool) ?= false
   ) -> CheckParamResult
 )({
   // Step 1: Strip "label: value" colon-label wrapper from arg if present,
-  // VALIDATING the label (port of TS helper.ts:271-302 — labels are
+  // VALIDATING the label — labels are
   // readability-only and must match the declared parameter label; a bare
-  // strip silently accepted wrong/reordered labels TS rejects).
+  // strip silently accepted wrong/reordered labels that must be rejected.
   (actual_arg : AstExpr) = arg_expr_raw;
   if(ast_expr_is_fn_call_of(arg_expr_raw, ":", .Some(usize(2))), {
     colon_args := _h_get_fn_call_args(arg_expr_raw);
@@ -729,9 +718,8 @@ check_if_function_parameter_matches_argument :: (
   // evaluate WITHOUT an expected type so the future arg keeps its NATURAL type
   // (e.g. `IoFuture`) rather than being coerced to the `Impl(Future(T,E))`
   // SomeType parameter — coercion can make synthesis unable to resolve the generic
-  // `T` from `Future(T)`. Mirrors TS helper.ts:378-384 (the
-  // `functionType.ioBuiltin === "io_await"` skip); yo-self has no `ioBuiltin`
-  // marker, so the caller detects the io-builtin structurally.
+  // `T` from `Future(T)`. There is no `ioBuiltin` marker on the type, so
+  // the caller detects the io-builtin structurally.
   saved_exp := ctx.expected_type;
   if(skip_expected_type, {
     ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -769,9 +757,8 @@ check_if_function_parameter_matches_argument :: (
   // mismatch before any coercion could run. `convert_…` returns the type
   // unchanged for non-comptime inputs, so this is a no-op for normal args.
   // GUARD: coerce when the PARAMETER is a runtime param (not comptime-only) and
-  // the parameter TYPE is not itself a comptime type. Mirrors TS
-  // `!parameter.isCompileTimeOnly && isComptimeOnlyType(argType)`
-  // (helper.ts:508). `is_ct_only` (the `comptime(...)` param modifier, from the
+  // the parameter TYPE is not itself a comptime type.
+  // `is_ct_only` (the `comptime(...)` param modifier, from the
   // per-param comptime side-table) REPLACES the earlier `!is_some_type`
   // PROXY, which wrongly skipped a runtime param typed as a SomeT — e.g. the
   // operator `neg`'s `self : _Self`, leaving a `comptime_float` arg unlowered
@@ -798,8 +785,7 @@ check_if_function_parameter_matches_argument :: (
     );
     // Record the runtime type the comptime arg coerced to, so codegen renders
     // the right C form (e.g. comptime_str → `*(char)` emits a bare string
-    // literal, not a `__yo_str` struct). Mirrors TS convertComptimeTypeToRuntime
-    // Type writing `expr.$.convertedRuntimeType`. ExprInfo is an object (ref),
+    // literal, not a `__yo_str` struct). ExprInfo is an object (ref),
     // and for a literal arg `evaled_arg` IS the original node codegen reads.
     // Only the codegen reads this field — no evaluator logic branches on it.
     if(arg_was_comptime, {
@@ -835,30 +821,27 @@ check_if_function_parameter_matches_argument :: (
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
   // Step 4a: the argument variable must not already be CONSUMED (moved) —
-  // TS helper.ts:400-401 `requireExprNotConsumed(evaluatedArgExpr,
-  // callerEnv)`, UNCONDITIONAL (not gated on ownership). yo-self had the
-  // 1:1 checker (utils.yo require_expr_not_consumed) but never called it
-  // from the call path — only from assignments — so calling
+  // UNCONDITIONAL (not gated on ownership), and the checker (utils.yo
+  // require_expr_not_consumed) must actually be called from the call path,
+  // not only from assignments: calling
   // `uninit.assume_init()` twice (own(self), consumed on the first call)
-  // passed `check`, `comptime_expect_error` saw no error, and prelude
+  // otherwise passed `check`, `comptime_expect_error` saw no error, and prelude
   // arm 3 hollowed its whole batch (handoff §3.1-§7).
   require_expr_not_consumed(evaled_arg, caller_env_r, ctx, exn);
-  // Step 4b: Move-ownership for an OWNED parameter (mirrors src/evaluator/calls/
-  // helper.ts:411-451). If the arg already owns the RC value → MOVE it (consume,
-  // no dup). If borrowed/non-owning → materialize an owned copy via `___dup` and
+  // Step 4b: Move-ownership for an OWNED parameter. If the arg already owns
+  // the RC value → MOVE it (consume, no dup). If borrowed/non-owning →
+  // materialize an owned copy via `___dup` and
   // consume the original so it can't be used after the call. Gated on the
   // PARAMETER taking ownership — borrow/`inout` params never consume/dup their arg.
-  // NOTE: the own(self)-captured-variable tracking (`ctx.own_consumed_captures`,
-  // TS helper.ts:419-428) is deferred until a thread-spawn capture test needs it.
+  // NOTE: the own(self)-captured-variable tracking (`ctx.own_consumed_captures`)
+  // is deferred until a thread-spawn capture test needs it.
   // NOT during the CHECKING PHASE: a trial call (overload selection /
   // _trial_call_overload_candidate) runs this helper against the REAL caller
-  // env; TS's `callerEnv = setExprAsConsumed(...)` threads an IMMUTABLE env
-  // copy, so a trial's consumption dies with the trial — yo-self's
-  // set_expr_as_consumed mutates the shared Variable in place, so a trial
-  // consumption LEAKED into the real pass and Step 4a then rejected the same
+  // env, and set_expr_as_consumed mutates the shared Variable in place, so a
+  // trial consumption LEAKED into the real pass and Step 4a then rejected the same
   // statement that had "moved" the value ('use of moved value: `v1_copy` /
   // value moved here' both pointing at the SAME line — tests/imm_vec arms
-  // 14/17, surfaced by the Step-4a port).
+  // 14/17).
   if((param_is_owning && (!(is_ct_only))) && !(ctx.is_in_function_call_checking_phase), {
     match(
       arg_info.variable_name,
@@ -887,8 +870,8 @@ check_if_function_parameter_matches_argument :: (
       }
     );
   });
-  // Step 4c: Aliasing Stage 0 (mirrors TS helper.ts's borrow-projection
-  // branch; issues/borrowed-arg-invalidated-by-aliased-container-mutation.md).
+  // Step 4c: Aliasing Stage 0 (the borrow-projection branch;
+  // issues/borrowed-arg-invalidated-by-aliased-container-mutation.md).
   // An RC-typed field PROJECTION passed to a BORROWING parameter hands the
   // callee a view into storage it may reassign through an aliased handle
   // (`f(w, w.b)` reassigning `w.b` in a loop frees the old value mid-call —
@@ -907,16 +890,16 @@ check_if_function_parameter_matches_argument :: (
   });
   // Step 5: Comptime check — runtime arg cannot fill a comptime parameter.
   //
-  // 1:1 with TS helper.ts:465-478: the argument counts as runtime when it has
-  // NO value, or when it is an UnknownValue that is `isRuntimeOnly`. An
-  // ORDINARY `UnknownVal` is a compile-time placeholder (CTFE analysis) and TS
-  // accepts it. yo-self used to reject every `UnknownVal`, which made a
+  // The argument counts as runtime when it has NO value, or when it is an
+  // UnknownVal that is runtime-only. An ORDINARY
+  // `UnknownVal` is a compile-time placeholder (CTFE analysis) and
+  // must be accepted — rejecting every `UnknownVal` made a
   // comptime-only `self` parameter unfillable; the throw was then eaten by
   // `_evaluate_expression_wrapper` (_expr.yo:1017) and the enclosing statement
   // emitted as `// Failed to transpile` — measured on tests/imm_vec, where the
   // dropped statement was the whole test body (a hollow rc=0 "47 passed").
   // `VarRef` keeps its own arm: it names a runtime variable binding, which is
-  // never a compile-time value in yo-self (TS has no VarRef).
+  // never a compile-time value.
   if(is_ct_only, {
     is_rt := match(
       arg_value,
@@ -939,12 +922,9 @@ check_if_function_parameter_matches_argument :: (
       );
     });
   });
-  // Step 5b: assigned-value check — 1:1 with TS helper.ts:481-497.
-  //
-  //   // If the parameter has an assignedValue, check that the argument value
-  //   // matches it. This is used for overload resolution based on value
-  //   // matching (e.g., TryInto(i32) vs TryInto(i64)).
-  //   if (parameter.assignedValue && evaluatedArgExpr.$?.value) { ... }
+  // Step 5b: assigned-value check — if the parameter has an assigned value,
+  // check that the argument value matches it. This is used for overload
+  // resolution based on value matching (e.g., TryInto(i32) vs TryInto(i64)).
   //
   // Two impls of the same parameterized trait give the receiver TWO methods
   // with IDENTICAL parameter types — `try_into(self : Self, comptime(_To) :
@@ -954,9 +934,9 @@ check_if_function_parameter_matches_argument :: (
   // `x.try_into(i64)` returned `Result(i32, str)` and the following
   // `assert(b == i64(10))` then found no `i32 == i64` and was dropped as
   // `// Failed to transpile` (tests/prelude.test.yo arm 1, hollow batch).
-  // `are_values_equal` is the port of TS `areValuesEqual`, whose Type/Type
-  // branch compares with `areTypesCompatible(..., requireExactMatch = true)`
-  // (value.ts:699-705) — `are_types_compatible_exact` here.
+  // `are_values_equal` compares a Type/Type pair with
+  // `are_types_compatible_exact` — the exact-match form of
+  // `are_types_compatible`.
   match(
     param_assigned_value,
     .Some(pav) => match(
@@ -967,9 +947,8 @@ check_if_function_parameter_matches_argument :: (
           // Outside a dry-run this rejection is a REAL user error: every
           // overload candidate was already trial-rejected, the fallback
           // committed to this one, and its assigned value still mismatches
-          // (`n.try_into(u8)` with only i32/i64 impls). TS's error
-          // propagates because its def-time body eval has no catch; here
-          // the def-time wall would swallow the throw and the statement
+          // (`n.try_into(u8)` with only i32/i64 impls). The def-time wall
+          // would swallow the throw and the statement
           // would silently hollow (rc=0 + "// Failed to transpile") —
           // issues/fixed/yo-self-no-matching-overload-silent-drop.md. Flag it on
           // the flow-violation channel so the def-time caller re-raises it
@@ -1008,17 +987,16 @@ ${ast_expr_to_string(actual_arg)}`
   // (issues/retired/yo-self-hollow-test-batch-main.md, fourth round). Substitute the
   // closure's def-time-evaluated CONCRETE body type (side table registered by
   // values/anonymous_function.yo) as the GIVEN return, so the generic binds
-  // through the same env channel the spec body eval reads. TS needs no side
-  // table — its synthesize sees the concrete return through object identity
-  // (anonymous-function.ts:963-988 mutates the closure's type in place). No
+  // through the same env channel the spec body eval reads — types are values
+  // here, so synthesize cannot see the concrete return through object
+  // identity. No
   // effect unless the arg value is a FuncVal whose given fn-type return is a
   // SomeT and a concrete body type was registered.
-  // The PARAMETER-side twin of the same TS mutation (anonymous-function.ts:
-  // 1010-1012, which writes through to the parameter type's Fn-trait callType —
+  // The PARAMETER-side twin of the same refinement (it writes through to the
+  // parameter type's Fn-trait callType —
   // see _refine_wrapper_fn_result): a closure argument whose def-evaluated body
   // type is concrete pins the Fn-trait carrier's `-> Option(B)` to that
-  // CANONICAL instance, on BOTH sides (TS's two sides are one shared object, so
-  // they can never disagree). `resolved_pt` is what Step 7 re-evaluates and
+  // CANONICAL instance, on BOTH the parameter and the argument. `resolved_pt` is what Step 7 re-evaluates and
   // Step 9 binds `f` with, so this is what makes the specialized body — and the
   // C it emits — use `Option(i32)`.
   match(
@@ -1031,9 +1009,9 @@ ${ast_expr_to_string(actual_arg)}`
           resolved_pt = _refine_wrapper_fn_result(resolved_pt, pr_body_ty.clone());
           if(_wrapper_fn_result_needs_refine(arg_type), {
             arg_type = _refine_wrapper_fn_result(arg_type, pr_body_ty);
-            // …and through the arg's RECORDED type, which is what codegen reads:
-            // TS's rewrite lands on the shared Fn-trait object, so the closure
-            // expression's own `expr.$.type` reports the concrete result too.
+            // …and through the arg's RECORDED type, which is what codegen
+            // reads: the closure expression's own type must report the
+            // concrete result too.
             arg_info.ty = arg_type;
           });
         }),
@@ -1112,12 +1090,12 @@ ${ast_expr_to_string(actual_arg)}`
     );
   });
   // Step 9: Bind param variable in callee_env.
-  // Gap-6 attempt #8(a), the body-side half: when the DECLARED param type
+  // The body-side half of the Gap-6 lineage fix: when the DECLARED param type
   // re-evaluates to a PATTERN-ERA instance of the arg's constructor (a
   // `self : Self` on an impl method — its unresolved T#N lives only in
   // type_arguments), bind the param with the ARG's concrete instance
-  // instead. TS binds params so signature- and body-side converge on the
-  // same type object; without this every `self.field` in a specialized
+  // instead — signature- and body-side must converge on the
+  // same type instance; without this every `self.field` in a specialized
   // body types (and emits C) in the pattern lineage while the call site
   // and ctor memo use the concrete one (the imm_*/collections t1-vs-t7).
   (bind_pt : TypeValue) = final_pt;
@@ -1160,8 +1138,8 @@ ${ast_expr_to_string(actual_arg)}`
   );
   // inout(name) : T parameters — propagate the flag onto the binding this
   // call created so the callee body's codegen dereferences reads (`(*name)`)
-  // and reassignment is accepted. Mirrors TS helper.ts:584
-  // (`isRef: parameter.isRef, isReassignable: parameter.isRef`). Marking the
+  // and reassignment is accepted (`is_ref` and `is_reassignable` both follow
+  // the parameter's `inout`). Marking the
   // exact created Variable (not an env-wide name search) keeps enclosing
   // same-named bindings (e.g. an outer method's by-value `self`) untouched.
   // Every binding OF A PARAMETER must carry is_parameter — resolution
@@ -1203,9 +1181,8 @@ ${ast_expr_to_string(actual_arg)}`
 /// Replace all non-alphanumeric bytes in `s` with underscores.
 ///
 /// Used to make compile-time signature strings safe as C identifier suffixes.
-/// Mirrors `sanitizeForCIdentifier` in `src/codegen/utils/index.ts` but only
-/// handles the character-replacement aspect (no C keyword avoidance needed
-/// here since the signature is a suffix appended to a valid func_id).
+/// Only the character-replacement aspect is handled (no C keyword avoidance
+/// needed here since the signature is a suffix appended to a valid func_id).
 sanitize_for_sig :: (fn(s : String) -> String)({
   bytes := s.as_bytes();
   n := bytes.len();
@@ -1244,19 +1221,17 @@ sanitize_for_sig :: (fn(s : String) -> String)({
 /// For function values, returns `fn_<func_id>`.
 /// For other values, falls back to value_to_string.
 ///
-/// Mirrors `valueToSignatureString` in `src/evaluator/calls/helper.ts`.
 value_to_signature_string :: (fn(value : EvalValue) -> String)(
   match(
     value,
-    // Mirror TS `${valueToString(value)}_id${type.id}` (helper.ts:2103): the
-    // human-readable type string ALONE is not instantiation-precise — an
+    // The human-readable type string ALONE is not instantiation-precise — an
     // anonymous generic instantiation renders `<struct:yo_id_N>` where N is
     // the shared DECLARATION id, so every same-named local struct / generic
     // instantiation produced the SAME specialization signature and collapsed
     // onto one specialized function (param typed from one instantiation,
     // return from another — arc.test.yo's per-test `Counter :: struct(...)`;
-    // previously also the shared-GcTracer-visit MapEntry class). yo-self has no
-    // numeric `type.id`; `type_key` is its instantiation-precise identity.
+    // previously also the shared-GcTracer-visit MapEntry class). TypeValue has
+    // no numeric type id; `type_key` is the instantiation-precise identity.
     // (Re-applied 2026-07-17: the 2026-07-15 revert's crash verdicts came
     // from an invalidated bisect — the startup corruption was the since-fixed
     // RC/GC-teardown bugs. See
@@ -1277,9 +1252,8 @@ value_to_signature_string :: (fn(value : EvalValue) -> String)(
 ///   - runtime parameter types that contain SomeType (to differentiate
 ///     specializations with different concrete closure capture types)
 ///
-/// Used as the suffix for `specializedFuncId = funcId + "_" + signature`.
+/// Used as the suffix for `specialized_func_id = func_id + "_" + signature`.
 ///
-/// Mirrors `computeCompileTimeSignature` in `src/evaluator/calls/helper.ts`.
 compute_compile_time_signature :: (
   fn(
     func_type : TypeValue,
@@ -1363,18 +1337,12 @@ compute_compile_time_signature :: (
     .None => ()
   );
   // Compile-time REGULAR parameters — a `comptime(y) : i32` value parameter.
-  // Faithful port of TS's third block (helper.ts:2154-2163):
-  //
-  //   functionType.parameters.forEach((param, index) => {
-  //     if (param.isCompileTimeOnly && index < argValues.args.length) { … }
-  //   });
-  //
-  // yo-self had no counterpart, so the signature carried only TYPES and two
+  // Without this the signature carries only TYPES and two
   // calls that differ solely in a comptime VALUE collapsed onto ONE
   // specialization — a SILENT WRONG ANSWER, not a compile error:
   // `comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)(x + y)` emitted a
   // single `yo_id_…(int32_t x) { return x + 1; }`, so `comptime_add(3, 2)`
-  // returned 4. yo-self keeps the per-parameter comptime flags in a func-id
+  // returned 4. The per-parameter comptime flags are kept in a func-id
   // side table rather than on the parameter, so they are threaded in from the
   // caller, which already reads them.
   n_pc := param_comptime.len();
@@ -1401,12 +1369,9 @@ compute_compile_time_signature :: (
   // `println(generic(T), v : T)` over `str` vs `i32`: the generic T part may
   // resolve to "unknown" for an INFERRED type param, so without the concrete
   // param type here `println<str>` and `println<i32>` would get the SAME
-  // signature and collide on one specialized func id). Mirrors TS
-  // computeCompileTimeSignature, which includes a runtime param type when
-  // `paramType.id || typeContainsSomeType(paramType)` — concrete types carry a
-  // unique `.id` there, so they ARE included. yo-self's TypeValue has no numeric
-  // `.id`, so include every non-unit runtime param type by its (stable) type
-  // string; SomeType-containing types are a subset and still included.
+  // signature and collide on one specialized func id). TypeValue has no
+  // numeric id, so include every non-unit runtime param type by its (stable)
+  // type key; SomeType-containing types are a subset and still included.
   n_rt := runtime_param_tys.len();
   (rti : usize) = usize(0);
   while(rti < n_rt, {
@@ -1437,16 +1402,16 @@ compute_compile_time_signature :: (
 // ---------------------------------------------------------------------------
 // Specialization cache helpers
 // ---------------------------------------------------------------------------
-/// Global specialization-cache store, keyed by `func_id`. TS keeps each
-/// function's `specializedFunctionCaches` ON the FunctionValue OBJECT
-/// (helper.ts:2264/2885), so it is shared by every caller across the whole
-/// process via the module cache. yo-self's value semantics cannot hang it on
-/// `FuncVal`; a per-EvalContext list (the old home) is NOT equivalent — in
+/// Global specialization-cache store, keyed by `func_id`. Value semantics
+/// cannot hang each function's specialization caches on the `FuncVal`
+/// object, and a
+/// per-EvalContext list (the old home) is NOT equivalent — in
 /// `check`/`test` mode every file gets a fresh ctx, so a prelude comptime fn
 /// like `Eq(String)` RE-specialized per file, minting a fresh trait id that no
 /// longer matched the id its concrete impls registered under ("Type String
 /// does not implement required trait Eq(String)"). Module-global storage keyed
-/// by the stable func_id is the same-lifetime equivalent of TS's model.
+/// by the stable func_id shares one cache across every caller for the whole
+/// process lifetime.
 (g_specialized_fn_caches : ArrayList(SpecializedFunctionCacheEntry)) = ArrayList(SpecializedFunctionCacheEntry).new();
 /// Look up a cached specialization by `func_id` and compile-time args.
 ///
@@ -1550,9 +1515,7 @@ _find_specialization_cache :: (
                           // `next` collapsed — `filter` itself is protected by
                           // the clfid cache-key extras, which cover closure
                           // ARGUMENTS but not closures buried in a receiver's
-                          // type arguments). TS cannot collide here: each
-                          // instantiation is a distinct object with a unique
-                          // type id under requireExactMatch (helper.ts:2290).
+                          // type arguments).
                           // Require type_key equality — the exact identity the
                           // emitted C is keyed by — before reusing the spec.
                           ck_tyargs := ArrayList(TypeValue).new();
@@ -1634,11 +1597,11 @@ _store_specialization_cache :: (
 });
 /// Render the impl-generic bindings a generic-impl method carries as `TypeVal`
 /// captures (`_inject_forall_captures`, evaluator/values/impl.yo) into a
-/// deterministic signature string. TS never needs this: each generic-impl
-/// method INSTANTIATION gets a unique funcId embedding its substitutions
-/// (impl.ts:1551), so identity comparisons distinguish `Eq(ArrayList(i32)).==`
-/// from `Eq(ArrayList(ArrayList(i32))).==` for free. yo-self keeps the shared
-/// original func_id and injects the bindings as captures — so recursion
+/// deterministic signature string. A generic-impl method keeps the SHARED
+/// original func_id across instantiations and carries the bindings as
+/// captures, so identity comparisons alone do NOT distinguish
+/// `Eq(ArrayList(i32)).==`
+/// from `Eq(ArrayList(ArrayList(i32))).==` — recursion
 /// guards must compare THIS alongside the func_id, or a nested call to the
 /// same trait method at a SMALLER instantiation (ArrayList(ArrayList(i32))'s
 /// `==` comparing elements via ArrayList(i32)'s `==`) is misread as direct
@@ -1677,10 +1640,10 @@ _impl_type_captures_sig :: (fn(fv : EvalValue) -> String)({
 });
 /// Find the in-progress specialization for `fid` on the FULL specializing stack,
 /// used for the MUTUAL-recursion forward-reference. Returns None when `fid` is the
-/// innermost (top-slot) specialization — that DIRECT case is handled by yo-self's
+/// innermost (top-slot) specialization — that DIRECT case is handled by the
 /// `recur` machinery, so it must NOT be forward-ref'd (only mutual recursion, where
-/// the single slot has been overwritten by an inner sibling, needs it). Mirrors the
-/// stack `.find` in TS helper.ts:1993. The returned info carries only the id/type
+/// the single slot has been overwritten by an inner sibling, needs it). The
+/// returned info carries only the id/type
 /// fields (EvalValue has no clone; `original_func_value` is unused here).
 /// `bindings_sig` (see `_impl_type_captures_sig`) must ALSO match: a stack hit
 /// for the same func_id at a DIFFERENT impl instantiation is not recursion.
@@ -1728,9 +1691,8 @@ _find_mutual_specializing_info :: (
 /// specialization: a copy of the callee's arity (generic/param/evidence labels) with
 /// the body + captures stripped and `func_id` rewritten to the in-progress
 /// `specialized_func_id`, so codegen emits a call to the specialized function rather
-/// than re-specializing the generic original. Mirrors TS helper.ts:1998-2010
-/// (`{...functionValue, funcId: specInfo.specializedFuncId}`); yo-self strips the
-/// body/caps because the value is a reference (never re-evaluated) and `EvalValue`
+/// than re-specializing the generic original. The body/caps are stripped
+/// because the value is a reference (never re-evaluated) and `EvalValue`
 /// is not clonable.
 _build_forward_ref_funcval :: (
   fn(func_val : Option(EvalValue), specialized_func_id : String) -> EvalValue
@@ -1814,9 +1776,7 @@ _spec_resolve_slot_cell :: (fn(t_in : TypeValue) -> TypeValue)({
 /// emission-time read resolves a DIFFERENT era than the call the spec was
 /// minted for (`IterFilter(_, capture-A)` at the call site vs
 /// `IterFilter(_, capture-B)` in the spec signature — the arm-18 clang
-/// mismatch). TS is immune: each call freshens its forall objects and the
-/// record references THAT call's SomeType, whose resolvedConcreteType is set
-/// once and never rebound.
+/// mismatch).
 _bake_record_slots :: (fn(ty : TypeValue) -> TypeValue)(
   match(
     ty,
@@ -1908,17 +1868,9 @@ _reeval_closure_body_swallow :: (
 ///      stores in cache.
 ///   4. Returns the specialized FuncVal.
 ///
-/// NOTE: Effects analysis (isControlFunction detection, effectCtlParams, etc.)
-/// is not yet implemented here — it is the TS function's largest section
-/// (~600 lines) and requires more infrastructure. That is deferred to Phase 4k.
-///
-/// Mirrors the core (pre-effects) of `createSpecializedFunctionInline` in
-/// `src/evaluator/calls/helper.ts`.
 /// Resolve a specialization ARG type through the SomeT resolution chain (own
 /// cell first, then the global registry), bounded by a visited set. Adopt ONLY
-/// a CONCRETE (non-SomeT) result. TS's computeCompileTimeSignature and the
-/// specialized param types read the SomeType's `resolvedConcreteType`
-/// (helper.ts:2245-2252), so a FORWARDED closure param specializes on the
+/// a CONCRETE (non-SomeT) result, so a FORWARDED closure param specializes on the
 /// CAPTURE STRUCT, not on the caller's abstract SomeT id. Without this, every
 /// forwarding hop keyed the spec on the bare declared SomeT id: the def-era
 /// TYPE-ERASED spec (param rendered void*) and the resolved-era call collided
@@ -2054,9 +2006,9 @@ create_specialized_function_inline :: (
         .None => ()
       );
       // Build runtime parameter types from regular args
-      // Phase 3 simplification: all regular params are treated as runtime.
+      // Simplification: all regular params are treated as runtime.
       // This means we track all regular arg types for cache differentiation.
-      // EXCEPTION (TS helper.ts:2233-2237): an explicit `comptime(K) : Type`
+      // EXCEPTION: an explicit `comptime(K) : Type`
       // param's arg is a COMPILE-TIME value — its VALUE joins the cache key
       // (else `_node_insert(i32, ...)` and `_node_insert(String, ...)` collide
       // on identical TypeUni arg types and share one spec). The arg TYPE still
@@ -2096,8 +2048,7 @@ create_specialized_function_inline :: (
       // unit-typed chain). The minted spec carries unit params/locals and an
       // empty condition render (`void flag`, `if ()` — the assert spec from
       // issues/repros/void-param-assert-open-env.yo), nothing ever calls it,
-      // and its mere emission breaks the whole batch C. TS's checking-phase
-      // gates never register such a spec. Return the ORIGINAL value
+      // and its mere emission breaks the whole batch C. Return the ORIGINAL value
       // unspecialized — the later non-degenerate pass mints the good spec and
       // re-stamps the call site.
       {
@@ -2122,9 +2073,7 @@ create_specialized_function_inline :: (
         });
       };
       // Bind explicit `comptime(K) : Type` params into the mint env EARLY —
-      // BEFORE the return-type re-evaluation below (TS binds
-      // compileTimeArgValues into specializedEnv before
-      // evaluateFunctionReturnTypeAgain, helper.ts:2330-2378). Binding them
+      // BEFORE the return-type re-evaluation below. Binding them
       // only in the param-binding loop (which runs AFTER spec_ret_ty) left
       // `Pair(K, V)` in the declared return unresolvable at re-eval time, so
       // the mint fell back to the def-era SomeT instance and split the
@@ -2180,8 +2129,7 @@ create_specialized_function_inline :: (
       // cache returned the FIRST instantiation's specialization (its concrete
       // return type baked in) for every later receiver → stage-2
       // "initializing __yo_tA with __yo_tB" mismatches on Result(HashMap(...)).
-      // TS cannot collide here: its per-instantiation FunctionValue OBJECTS
-      // each carry their own specializedFunctionCaches. The call site DOES
+      // The call site DOES
       // resolve the return per receiver (the caller-side C locals are typed
       // correctly) — so key the specialization on that resolved return: an
       // EXTRA COMPILE-TIME cache-key value (+ a sig segment below), NOT a
@@ -2201,17 +2149,13 @@ create_specialized_function_inline :: (
         ret_sig_ty = Option(TypeValue).Some(ret_probe);
         compile_time_args.push(EvalValue.TypeVal(ret_probe));
       };
-      // Closure-identity cache keys. TS folds `_id${paramType.id}` into the
-      // signature and compares cached runtime types with STRICT type-ID
-      // matching (helper.ts:2176, 2290): every closure LITERAL's FunctionType
-      // is a fresh object with a unique id, so two same-signature closures
-      // never share a specialization there. yo-self's FnTraitT compares
-      // structurally, so `Thread(unit).spawn(c1)` / `Thread(unit).spawn(c2)` collided on
+      // Closure-identity cache keys. FnTraitT compares STRUCTURALLY, so
+      // `Thread(unit).spawn(c1)` / `Thread(unit).spawn(c2)` collided on
       // ONE cached spec — the second call site passed its own capture struct
       // to a body compiled for the first's ("passing '__yo_t15' to parameter
       // of incompatible type '__yo_t14'"; arc/prelude, repro
-      // issues/repros/arc-spawn-capture-split.yo). A closure's func_id is the
-      // yo-self equivalent of TS's type identity: fold it into the
+      // issues/repros/arc-spawn-capture-split.yo). A closure's func_id is its
+      // type identity: fold it into the
       // compile-time cache key (+ the sig segment below, same gate as
       // ret_sig_ty) — NOT into runtime_param_tys (appending there changed C
       // call arity and regressed massively; see the warning above).
@@ -2301,8 +2245,8 @@ create_specialized_function_inline :: (
           // inside the body can find the specialized func_id.
           // Bind the inferred generic values (arg_values.forall_args, in
           // forall_names order) into the mint env before the return
-          // re-evaluation. TS's calleeEnv already carries these bindings; on
-          // the yo-self FuncVal-arm route the env passed here does NOT —
+          // re-evaluation — on the FuncVal-arm route the env passed here does
+          // NOT carry them —
           // measured on the closure-arg repro: forall_args=[i32] at mint
           // entry while the re-eval still saw `U` unbound, so spec_ret_ty
           // stayed `List(U)`, emission's has_generic_return gate silently
@@ -2322,8 +2266,7 @@ create_specialized_function_inline :: (
               // would stamp `N := i32` (ty Type) and the body's
               // `with_capacity(N)` throws unify(usize, Type) on the
               // unswallowed spec path (the imm_list/imm_vec hollow batch
-              // main). TS never rebinds here at all — its calleeEnv already
-              // carries the (kind-correct) bindings.
+              // main).
               zb_kind := match(zb_ft.get(zb_i), .Some(t) => t, .None => t_unit());
               match(
                 arg_values.forall_args.get(zb_i),
@@ -2344,9 +2287,7 @@ create_specialized_function_inline :: (
                         synthetic_token(zb_name, callee_env.module_path)
                       );
                     }, {
-                      // Declared-param bridge, mint-env half (the
-                      // value-semantics equivalent of TS's shared
-                      // resolvedConcreteType identity): the forall bound to
+                      // Declared-param bridge, mint-env half: the forall bound to
                       // an UNRESOLVED wrapper SomeT (box's `V` := the
                       // Impl-Fn wrapper from the expected-type arm) leaves
                       // the spec BODY eval typing `Box(V)(value)` with the
@@ -2357,9 +2298,7 @@ create_specialized_function_inline :: (
                       // positionally with the call's concrete argument type
                       // (a closure arg resolves to its capture struct); bind
                       // THAT so the body eval sees the same concrete `V` the
-                      // registered spec type carries. In TS the wrapper's
-                      // resolvedConcreteType is set once and seen everywhere,
-                      // body eval included.
+                      // registered spec type carries.
                       if(is_some_type(zb_tb) && is_type_0(zb_kind), {
                         zb_pt := match(func_type, .Func({ param_types : zpt }) => zpt, _ => ArrayList(TypeValue).new());
                         (zbp : usize) = usize(0);
@@ -2495,7 +2434,7 @@ create_specialized_function_inline :: (
               });
             });
           });
-          // TS-faithful return resolution (see _trial_eval_ret_type_expr): with
+          // Return resolution (see _trial_eval_ret_type_expr): with
           // the mint env fully bound (foralls + comptime params), RE-EVALUATE
           // the declared return-type EXPR so instantiations route through the
           // memoized type constructor — same lineage as the body's calls.
@@ -2536,8 +2475,7 @@ create_specialized_function_inline :: (
           };
           // Slice 2 (the PARAM side of the era fix, RETRY with the recorded
           // refinement): with the mint env fully bound, RE-EVALUATE each
-          // runtime param's declared TYPE EXPR (g_func_param_type_exprs; TS
-          // parameter.exprs.typeExpr via evaluateFunctionParameterTypeAgain)
+          // runtime param's declared TYPE EXPR (g_func_param_type_exprs)
           // and OVERWRITE runtime_param_tys with a concrete result — so the
           // placeholder rebind loop, the body eval and the registered
           // spec_param_types all share the CACHE era instead of the
@@ -2625,8 +2563,7 @@ create_specialized_function_inline :: (
                 rte_prev_fnty := ctx.is_evaluating_function_type;
                 ctx.is_evaluating_function_type = true;
                 // `Self` in the return expr must resolve to THIS method's
-                // receiver, not the CALLER's stale ctx.self_type (TS passes
-                // functionType.SelfType into evaluateFunctionReturnTypeAgain).
+                // receiver, not the CALLER's stale ctx.self_type.
                 // Mirror the mint's instance-method self reconstruction here:
                 // params[0] == "self" → the receiver ARG's type IS Self.
                 // Static dot-calls already had ctx.self_type set by the
@@ -2670,10 +2607,9 @@ create_specialized_function_inline :: (
           // the single slot. The stack catches MUTUAL recursion (f→g→f) that the
           // single slot — overwritten by the inner sibling g — cannot; without it the
           // unified stage-2 self-compile re-specializes the compiler's own mutually
-          // recursive call graph forever and overflows the stack (Phase 6). Stack
+          // recursive call graph forever and overflows the stack. Stack
           // entries need only the id/return-type fields (EvalValue has no clone, and
-          // `original_func_value` is never read off the stack). Mirrors TS
-          // currentlySpecializingFunctionStack (helper.ts:2419-2429); popped below.
+          // `original_func_value` is never read off the stack); popped below.
           spec_stack := match(
             ctx.currently_specializing_function_stack,
             .Some(s) => s,
@@ -2711,7 +2647,7 @@ create_specialized_function_inline :: (
           // would propagate out and leave the call site without ExprInfo). The
           // func_type carries the SPECIALIZED return type so a generic `-> T` /
           // `-> Self` return argument is checked against the concrete type, not
-          // the original SomeType-bearing one. Mirrors TS helper.ts:2434-2454.
+          // the original SomeType-bearing one.
           fb_func_type := match(
             func_type,
             .Func({
@@ -2731,11 +2667,10 @@ create_specialized_function_inline :: (
             ),
             _ => func_type
           );
-          // Override the evaluation context for the body exactly as TS does
-          // (`{ ...context, <overrides> }` in helper.ts:2437-2462). The
+          // Override the evaluation context for the body. The
           // specialized body is a FRESH function scope, so we must:
           //   * mark it a function body (legalizes explicit `return(...)`),
-          //   * CLEAR captured_variables (TS `capturedVariables: undefined`) —
+          //   * CLEAR captured_variables —
           //     otherwise a nested regular `->` function in the body inherits
           //     the caller's capture map and wrongly reports "a regular
           //     function cannot capture outer runtime variables" (e.g. std/path),
@@ -2754,12 +2689,10 @@ create_specialized_function_inline :: (
               func_type : Option(TypeValue).Some(fb_func_type),
               func_value : Option(EvalValue).Some(original_func_val),
               // SNAPSHOT the entry env (frames-list copy, shared Frame refs):
-              // TS's evaluationEnv is a persistent env whose frames.length is
-              // frozen at body entry, so trackVariableUsage's outer-scope gate
-              // (frameLevel >= evaluationEnv.frames.length) never counts the
-              // body's OWN begin frame. yo-self's live env grows when
-              // evaluate_begin pushes that frame, so body locals (frame_level
-              // == entry count) looked "outer" and polluted captured_variables
+              // the live env grows when evaluate_begin pushes the body's OWN
+              // begin frame, so without the snapshot body locals (frame_level
+              // == entry count) look "outer" to trackVariableUsage's
+              // outer-scope gate and pollute captured_variables
               // (killing the dup/drop pair optimizer's captured gate — the
               // cycle_collector mid-scope collect failure).
               eval_env : snapshot_env(callee_env)
@@ -2798,8 +2731,8 @@ create_specialized_function_inline :: (
           // runtime case, e.g. a `comptime_str` arg coerced to runtime `str`) are
           // LEFT UNTOUCHED, since blindly re-binding them perturbs the
           // specialization identity (a str `println` regressed to an undeclared
-          // specialized callee). Mirrors TS specializeFunction using runtime
-          // placeholders for value params.
+          // specialized callee). Value params are bound as runtime
+          // placeholders.
           // Declared param types (the SomeT `Impl(Fn(...))` for a closure param),
           // used below to keep a closure param CALLABLE during body eval.
           decl_param_types := match(func_type, .Func({ param_types : dpt }) => dpt, _ => ArrayList(TypeValue).new());
@@ -2853,13 +2786,11 @@ create_specialized_function_inline :: (
             // (utils/index.yo:760).
             decl_pt := match(decl_param_types.get(rbp_i), .Some(t) => t, .None => TypeValue.Unit);
             // Prefer the CALL's resolved parameter type over the pristine
-            // declared one. TS's parameter object is mutated in place by the
-            // closure's return rewrite (anonymous-function.ts:1010-1012), so by
-            // the time it specializes, the declared type ALREADY reads
-            // `Impl(Fn(a : i32) -> Option(i32))`. yo-self's declared type stays
-            // def-era, and rebuilding the closure param from it re-installed
-            // `-> Option(B)`: the spec body then typed `f(value)` with the
-            // def-era instance and codegen had no C type for it (the
+            // declared one. The declared type stays def-era (there is no
+            // shared parameter object for the closure's return rewrite to
+            // mutate in place), and rebuilding the closure param from it
+            // re-installs `-> Option(B)`: the spec body then typed `f(value)`
+            // with the def-era instance and codegen had no C type for it (the
             // Option/Result-combinator family's last layer). Only taken when the
             // resolved type still carries an Fn-trait carrier, so the
             // capture-struct rebuild below is unaffected.
@@ -3121,18 +3052,16 @@ create_specialized_function_inline :: (
           // the LAST specialization's body eval would overwrite each node's
           // entry — so `println<str>` and `println<i32>`, sharing one body, both
           // emitted a call to the i32 `to_string` (the str call printed garbage).
-          // A fresh-id clone gives each specialization independent nodes. Mirrors
-          // TS specializeFunction (`cloneExpr` of the body). The specialized
-          // FuncVal below carries this clone so codegen walks the right nodes.
+          // A fresh-id clone gives each specialization independent nodes. The
+          // specialized FuncVal below carries this clone so codegen walks the
+          // right nodes.
           cloned_body := clone_expr_fresh_ids(body);
           // Set `ctx.self_type` to the concrete receiver so `Self` — and
           // especially `Self.static_method` like HashMap's
           // `Self._find_bucket(self, ...)` — resolves inside the specialized
-          // method body. TS evaluates the specialized body with `{ ...context }`
-          // (helper.ts:2434), and the method-dispatch caller has already set
-          // `context.SelfType` (carried from the method's `functionType.SelfType`).
-          // yo-self's dispatch doesn't thread self_type to this point and `Func`
-          // carries no SelfType field, so reconstruct it from the bound `self`
+          // method body. `Func` carries no SelfType field and dispatch does
+          // not thread self_type to this point, so reconstruct it from the
+          // bound `self`
           // parameter — its type IS the concrete receiver. Scoped: saved here and
           // restored in the context-restore block below (handles nested
           // specializations, where each method's body must see its own receiver).
@@ -3162,8 +3091,8 @@ create_specialized_function_inline :: (
           });
           if(!(spec_self_set), {
             // (b1) An impl member's FuncVal carries the matched CONCRETE
-            // receiver as a "Self" capture (impl.yo's _inject_forall_captures
-            // — the port of TS `substitutions.insert("Self", concreteType)`).
+            // receiver as a "Self" capture (impl.yo's
+            // _inject_forall_captures).
             // A STATIC member (no `self` parameter) has no receiver argument,
             // so its body's `Self` must resolve through that capture: CLEAR
             // the ambient ctx.self_type — inherited from whatever evaluation
@@ -3454,8 +3383,7 @@ create_specialized_function_inline :: (
           // Register the SPECIALIZED Func TYPE under the specialized func_id so
           // codegen's get_func_type(specialized_func_id) returns concrete
           // param/return types (generic dropped) instead of the generic
-          // `generic(T) …` whose SomeT crashes get_type_string (Gap 6). Mirrors
-          // TS `specializedType`.
+          // `generic(T) …` whose SomeT crashes get_type_string (Gap 6).
           match(
             func_type,
             .Func({
@@ -3471,10 +3399,8 @@ create_specialized_function_inline :: (
               // can be the DECLARED variable's type whose labels differ:
               // `comptime(id) : (fn(comptime(T) : Type, x : T) -> T)` assigned
               // `id = ((T, a) -> a)` emitted `bool ...(bool x) { return a; }`
-              // (clang: undeclared identifier). TS keeps the anon fn's
-              // original names on FunctionValue.type
-              // (function-type.ts:388-391 "the function body uses the
-              // original parameter names").
+              // (clang: undeclared identifier) — the anon fn's original
+              // parameter names must be kept (the function body uses them).
               if(params.len() == sp_pl.len(), {
                 sp_pl = params.clone();
               });
@@ -3491,9 +3417,8 @@ create_specialized_function_inline :: (
               (spec_param_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
               (spi : usize) = usize(0);
               while(spi < runtime_param_tys.len(), {
-                // Explicit `comptime(K) : Type` params are NOT C parameters:
-                // TS's specializedType keeps only runtimeParameters
-                // (helper.ts:2218-2255). Skip them here — and filter the
+                // Explicit `comptime(K) : Type` params are NOT C parameters.
+                // Skip them here — and filter the
                 // per-param meta arrays identically below — so the registered
                 // spec type's C signature carries runtime params only. The
                 // call site drops the matching args (function.yo's
@@ -3505,22 +3430,20 @@ create_specialized_function_inline :: (
                 });
                 rpt := match(runtime_param_tys.get(spi), .Some(t) => t, .None => t_unit());
                 // Prefer the RESOLVED DECLARED param type when it is concrete
-                // and the ARG type degenerated to unit: TS's specializedType
-                // params come from the declared parameters (+ substitutions),
-                // never from arg types, so a degenerate analysis-pass arg
-                // (module-member soft-fail → UnknownVal → unit) cannot
-                // poison the registered spec type. yo-self keeps the arg type
-                // as the general source (Phase 3 design: it carries the
-                // call-site concretization for generic params) and falls back
-                // to the declared type ONLY for the poisoned shape — a
+                // and the ARG type degenerated to unit: the arg type is the
+                // general source (it carries the call-site concretization for
+                // generic params), but a degenerate analysis-pass arg
+                // (module-member soft-fail → UnknownVal → unit) must not
+                // poison the registered spec type, so fall back to the
+                // declared type ONLY for that poisoned shape — a
                 // unit-typed arg against a concrete non-unit declared param
                 // (`assert(flag : bool, ...)` emitted `void flag`;
                 // issues/repros/void-param-assert-open-env.yo).
                 declared_pt := match(sp_pt.get(spi), .Some(t) => t, .None => t_unit());
                 // CLOSURE param: type the spec's param as the closure's
-                // CAPTURE STRUCT (the TS convention — the wrapper SomeType's
-                // resolvedConcreteType is the capture struct; yo-self's
-                // registry equivalent is get_closure_capture_info). A plain
+                // CAPTURE STRUCT (get_closure_capture_info is the registry
+                // lookup for the wrapper SomeT's resolved concrete type —
+                // the capture struct). A plain
                 // Func type here emits an `int32_t (*)(int32_t)` C param that
                 // the call site's capture-struct argument cannot satisfy
                 // (red cluster 3 / the closure-forall emission residual).
@@ -3543,11 +3466,10 @@ create_specialized_function_inline :: (
                         // wall workaround; issues/yo-self-closure-void-param-
                         // where-clause.md): a closure passed to a where-clause-
                         // constrained `f : F` param is CREATED before the
-                        // foralls bind (yo-self evaluates all args first), so
+                        // foralls bind (all args are evaluated first), so
                         // its registered type keeps the no-expected placeholder
                         // params (`fn(x : x) -> _ret`) and the C signature
-                        // emits `void*`. TS types it contextually at check time
-                        // with `A := i32` already bound. HERE the mint env has
+                        // emits `void*`. HERE the mint env has
                         // the bindings: when the current registration still
                         // carries SomeT params, pull the declared param F's Fn
                         // trait (its own required traits, then the callee-env
@@ -3865,16 +3787,15 @@ create_specialized_function_inline :: (
                   );
                   yrsi = (yrsi + usize(1));
                 });
-                // Declared-param bridge — the value-semantics equivalent of
-                // TS's shared resolvedConcreteType identity. When the forall
+                // Declared-param bridge. When the forall
                 // binding itself is an unresolved SomeT (e.g. box's V bound
                 // to the Impl-Fn wrapper), the loop above harvests nothing,
                 // but a declared param that IS that bare SomeT (`own(value)
-                // : V`) pairs positionally with the spec's CONCRETE param
-                // type (the closure capture struct resolved above). In TS
-                // the same information flows through object identity: the
-                // wrapper SomeType's resolvedConcreteType is set once and
-                // seen everywhere, including inside the specialized return.
+                // V`) pairs positionally with the spec's CONCRETE param
+                // type (the closure capture struct resolved above), so the
+                // same information the wrapper SomeT's resolved concrete type
+                // carries reaches the specialized return through the
+                // positional pairing.
                 (ydb : usize) = usize(0);
                 while(ydb < sp_pt.len(), {
                   match(
@@ -3963,8 +3884,7 @@ create_specialized_function_inline :: (
               // issues/retired/yo-self-gap6-ctor-memo-reconciliation-attempt7.md).
               // The RECEIVER ARGUMENT of an instance method carries the
               // call's real concrete instance — adopt it when the ctor
-              // matches (TS: SelfType = dereferencedReceiverType makes the
-              // signature receiver-canonical natively).
+              // matches, making the signature receiver-canonical.
               (sr_recv_ty : Option(TypeValue)) = Option(TypeValue).None;
               sr_is_self_first := match(params.get(usize(0)), .Some(l) => (l == "self"), .None => false);
               if(sr_is_self_first, {
@@ -4050,10 +3970,8 @@ create_specialized_function_inline :: (
             },
             _ => ()
           );
-          // Detect isControlFunction: set if the original was already a control
+          // Detect control functions: set if the original was already a control
           // function OR if the specialized body contains unwind.
-          // Mirrors the `isControlFunction: originalFunction.isControlFunction ||
-          //   evaluatedBodyContainsEscape(specializedBody)` logic in TypeScript.
           parent_is_ctl := is_control_fn(func_id.clone());
           body_has_unwind := evaluated_body_contains_unwind(specialized_body);
           if(parent_is_ctl || body_has_unwind, {
@@ -4082,13 +4000,10 @@ create_specialized_function_inline :: (
 /// Inline-evaluate a control function body to produce a specialized version
 /// with the generic type parameter bound to the concrete call-site type.
 ///
-/// Called for `isControlFunction` functions (effect handlers that use `unwind`)
+/// Called for control functions (effect handlers that use `unwind`)
 /// when they have generic parameters. This is separate from normal specialization
 /// because the concrete type comes from the CALL SITE's enclosing function return
 /// type (not from the arguments).
-///
-/// Mirrors `evaluateCtlFunctionBodyInline` in `src/evaluator/calls/helper.ts`
-/// (lines 3616–3790).
 evaluate_ctl_function_body_inline :: (
   fn(
     original_func_val : EvalValue,
@@ -4112,11 +4027,8 @@ evaluate_ctl_function_body_inline :: (
   orig_env_key := match(original_func_val, .FuncVal(__fvd11, _) => __fvd11.*.env_key, _ => usize(0));
   // -------------------------------------------------------------------------
   // Determine concreteTypeForForall from context.
-  // For function-body contexts, it's the enclosing function's return type.
-  // Mirrors:
-  //   context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
-  //     ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
-  //     : functionType.return.type
+  // For function-body contexts, it's the enclosing function's return type;
+  // otherwise the callee Func type's own return.
   // -------------------------------------------------------------------------
   (concrete_type_for_forall : TypeValue) = match(
     ctx.is_evaluating_function_body_or_async_block,
@@ -4136,16 +4048,12 @@ evaluate_ctl_function_body_inline :: (
     .None => match(func_type, .Func({ result : rb }) => rb, _ => TypeValue.Unit)
   );
   // -------------------------------------------------------------------------
-  // Determine enclosing return type from definition-site registry.
-  // Mirrors:
-  //   originalFunction.definitionSiteEnclosingFunctionType?.return.type ?? createUnitType()
+  // Determine enclosing return type from definition-site registry
+  // (unit when no definition-site return was recorded).
   // -------------------------------------------------------------------------
   enclosing_return_ty := get_definition_site_return(orig_func_id.clone());
   // -------------------------------------------------------------------------
   // Build cache key: <original_func_id>_ctl_<sanitized_type_string>.
-  // Mirrors:
-  //   const ctlSignature = sanitizeForCIdentifier(typeToString(concreteTypeForForall));
-  //   funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`
   // -------------------------------------------------------------------------
   ctl_sig_raw := type_to_string(concrete_type_for_forall);
   ctl_sig_san := sanitize_for_sig(ctl_sig_raw);
@@ -4178,20 +4086,20 @@ evaluate_ctl_function_body_inline :: (
     return(cached_val);
   });
   // -------------------------------------------------------------------------
-  // Build specialized env: snapshot callee_env (SHARE the frames — TS
-  // `pushEnvFrame` copies only the frame-pointer array) and push a new frame.
+  // Build specialized env: snapshot callee_env (SHARE the frames — the
+  // snapshot copies only the frame-pointer array) and push a new frame.
   // All writes below go to the freshly pushed frame, so sharing the parent
-  // frames is exactly TS's aliasing. The old `clone_env` deep-copied every
+  // frames aliases exactly like a pushed frame would. The old `clone_env`
+  // deep-copied every
   // frame's variable list per specialization — the top allocation-churn site
   // of a self-emit (see the handoff doc's memory section).
-  // Mirrors: let specializedEnv = pushEnvFrame(calleeEnv);
   // -------------------------------------------------------------------------
   specialized_env := snapshot_env(callee_env);
   _push_frame_res := specialized_env.push_frame(false);
   // -------------------------------------------------------------------------
   // Add compile-time bindings from caller's scope that are missing from
   // specializedEnv (types, modules, traits — not plain function values).
-  // Mirrors the callerEnv injection loop in evaluateCtlFunctionBodyInline.
+  // Same injection loop as the spec path's caller-env handling.
   // -------------------------------------------------------------------------
   n_caller_frames := caller_env.frames.len();
   (cfi : usize) = usize(0);
@@ -4241,7 +4149,6 @@ evaluate_ctl_function_body_inline :: (
   });
   // -------------------------------------------------------------------------
   // Bind each generic parameter to concreteTypeForForall.
-  // Mirrors the forallParam loop in evaluateCtlFunctionBodyInline.
   // -------------------------------------------------------------------------
   forall_labels := match(
     func_type,
@@ -4273,15 +4180,10 @@ evaluate_ctl_function_body_inline :: (
     fi2 = (fi2 + usize(1));
   });
   // -------------------------------------------------------------------------
-  // Build a handler context with modified enclosingFunctionReturnType.
-  // Mirrors:
-  //   const handlerContext: EvaluatorContext = {
-  //     ...context,
-  //     expectedType: undefined,
-  //     enclosingFunctionReturnType: enclosingReturnType,
-  //     isEvaluatingFunctionBodyOrAsyncBlock: { kind: "function-body", type: functionType, value: originalFunction, evaluationEnv: specializedEnv },
-  //     functionReturnImplConcreteType: [],
-  //   };
+  // Build a handler context with modified enclosingFunctionReturnType:
+  // clear the expected type, carry the enclosing return type, switch to a
+  // function-body context over the specialized env, and give it a fresh
+  // functionReturnImplConcreteType array.
   // -------------------------------------------------------------------------
   handler_fb_ctx := FuncOrAsyncBlockCtx(
     kind : FuncOrAsyncBlockKind.FunctionBody,
@@ -4315,8 +4217,7 @@ evaluate_ctl_function_body_inline :: (
   ctx.enclosing_function_return_type = prev_enclosing_ret;
   ctx.function_return_impl_concrete_type = prev_impl_concrete;
   // -------------------------------------------------------------------------
-  // Build the specialized FuncVal.
-  // Mirrors: funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`
+  // Build the specialized FuncVal (func_id `<orig>_ctl_<sig>`).
   // -------------------------------------------------------------------------
   ctl_parent_is_ctl := is_control_fn(orig_func_id.clone());
   ctl_body_has_unwind := evaluated_body_contains_unwind(ctl_body);
@@ -4420,34 +4321,25 @@ evaluate_ctl_function_body_inline :: (
 /// Type-check the arguments of a function call against `func_type` and
 /// (optionally) execute CTFE. Returns a `FuncCallResult` with the resolved
 /// return type, runtime arg expressions, updated caller env, and deferred
-/// drop expressions.
-///
-/// Phase 3 port of `tryToCallFunctionWithArguments` in
-/// `src/evaluator/calls/helper.ts`.
-///
-/// Phase 3 simplifications (relative to the full TypeScript implementation):
-///   * CTFE is not executed — return_value is always None.
-///   * Generic specialization is implemented (create_specialized_function_inline)
-///     but without effects analysis (isControlFunction, effectCtlParams).
-///   * RC ownership / deferred drop expressions are skipped.
-///   * Quote parameters are not supported (throw on encounter).
-///   * Where-clause constraints are skipped (TypeValue has no AstExpr forms).
+/// drop expressions. (Its definition sits below the where-clause helpers.)
+// ---------------------------------------------------------------------------
+// validate_where_constraints_for_call
+// ---------------------------------------------------------------------------
 /// Validate the registered where-clause constraints of `func_id` against the
-/// parameter bindings now present in `callee_env`. Mirrors TS re-applying
-/// `FunctionType.whereClauseExprs` at every call site once parameters are
-/// bound (helper.ts:1493-1506 → applyWhereClauseConstraints →
-/// validateSingleTraitOnConcreteType, types/function.ts:974): a constraint
-/// whose LHS param resolved to a CONCRETE type must hold — this is what
+/// parameter bindings now present in `callee_env`. Every function's
+/// where-clause constraints are re-applied at each call site once parameters
+/// are bound: a constraint whose LHS param resolved to a CONCRETE type must
+/// hold — this is what
 /// rejects `Mutex(NonSendObj)` against `where(T <: Send)`. Called from BOTH
 /// call paths: Step 8b of `try_to_call_function_with_arguments` below AND the
 /// inline FuncVal arm in `calls/function.yo` (the same two-path obligation as
 /// the default-args side table).
 ///
-/// DOCUMENTED DIVERGENCE (narrower than TS): only MARKER-trait constraints
+/// DOCUMENTED DIVERGENCE: only MARKER-trait constraints
 /// (traits without methods — Send/Acyclic/user markers) are enforced, and only
-/// against FULLY CONCRETE bound types (no SomeT anywhere in the type). TS
-/// validates every constraint because its `typeImplementsTrait` is complete;
-/// yo-self's still has gaps for (a) method-trait satisfaction on concrete
+/// against FULLY CONCRETE bound types (no SomeT anywhere in the type) —
+/// `type_implements_trait` still has gaps for (a) method-trait satisfaction
+/// on concrete
 /// types (e.g. `K <: (Eq, Hash)` for `String`) and (b) marker derivation
 /// through generic-instantiation fields that still carry constraint-bearing
 /// SomeTs — enforcing those today rejects valid std code (imm/map, hashmap).
@@ -4506,8 +4398,8 @@ validate_where_constraints_for_call :: (
             .TypeVal(bound_tb) => {
               bound_ty := bound_tb;
               // Fully concrete only: a bound type still carrying SomeTs (a
-              // generic instantiation inside an impl body) defers to TS-style
-              // constraint propagation, which yo-self's marker derivation
+              // generic instantiation inside an impl body) defers to
+              // constraint propagation, which the marker derivation
               // can't see through yet.
               if((!(is_some_type(bound_ty))) && (get_all_some_types(bound_ty).len() == usize(0)), {
                 (wc_implemented : bool) = type_implements_trait_bool(bound_ty, wce.trait_ty, callee_env);
@@ -4562,15 +4454,13 @@ validate_where_constraints_for_call :: (
   });
 });
 /// Re-apply the function's where-clause constraint EXPRESSIONS in the bound
-/// callee env — the faithful port of TS re-applying
-/// `functionType.whereClauseExprs` at every call site (helper.ts:1515-1530 →
-/// applyWhereClauseConstraints). Re-evaluating the expr is what the evaluated
+/// callee env at every call site. Re-evaluating the expr is what the evaluated
 /// `WhereConstraintEntry` table above cannot do: a PARAMETERIZED trait
 /// constraint (`K <: Eq(K)`, `P <: Pattern`) resolves against the call's
 /// concrete binding (`Eq(String)`), and a concrete-bound LHS then takes
 /// `validate_concrete_type_constraints`'s hard error ("Type i32 does not
-/// implement required trait Pattern"). Exprs are cloned with fresh ids (TS
-/// cloneExpr clears `$`; yo-self's ExprInfo side table is keyed by id).
+/// implement required trait Pattern"). Exprs are cloned with fresh ids (the
+/// ExprInfo side table is keyed by id).
 /// Called from BOTH call paths, like `validate_where_constraints_for_call`.
 reapply_where_clause_exprs_for_call :: (
   fn(
@@ -4582,14 +4472,13 @@ reapply_where_clause_exprs_for_call :: (
 )({
   wce_exprs := get_func_where_clause_exprs(func_id);
   if(wce_exprs.len() > usize(0), {
-    // Guard (mirrors TS's own early-apply guard, helper.ts:1375-1393, adapted
-    // for yo-self's extra inline-FuncVal call path which TS does not have):
+    // Guard (adapted for the extra inline-FuncVal call path):
     // only re-apply when every atom LHS that IS bound in callee_env is bound
     // to a TYPE value. On a spec-cache-hit reuse the forall params (`U`, `V`)
     // are not re-bound as TypeVals, and running the parse there throws a
     // spurious 'Expected type for left-hand side of where clause constraint,
     // got variable "U"' (second `zip_with` call in tests/imm_vec). An UNBOUND
-    // LHS is fine — the parse creates a fresh SomeT for it, as TS does.
+    // LHS is fine — the parse creates a fresh SomeT for it.
     (wce_state_ok : bool) = true;
     (wcg_i : usize) = usize(0);
     while((wcg_i < wce_exprs.len()) && wce_state_ok, {
@@ -4654,8 +4543,8 @@ reapply_where_clause_exprs_for_call :: (
 /// from the expected return type. For the FuncVal-arm call path (`function.yo`),
 /// which sets each argument's expected type from the DECLARED parameter type —
 /// an unresolved `generic` (e.g. `value : V` in `box`) is skipped there, so a
-/// `.Variant`-shorthand argument cannot resolve its enum type. Mirrors TS
-/// `helper.ts:1283-1310`: synthesize the foralls from the expected type, then
+/// `.Variant`-shorthand argument cannot resolve its enum type. Synthesize the
+/// foralls from the expected type, then
 /// re-evaluate the parameter types so they become concrete (`V → Tree` for
 /// `(.Atom(...))` with expected `Box(Tree)`).
 ///
@@ -4948,9 +4837,8 @@ try_to_call_function_with_arguments :: (
   );
   // Second normalization chance: a closure-typed FIELD call can arrive with
   // the callee typed as the BARE capture struct, or as a SomeT whose
-  // resolution chain terminates in it (the where-clause `F` family — TS keeps
-  // the Impl(Fn) wrapper on field types, helper.ts:2242-2252, so its call
-  // route always extracts the Fn; yo-self field stamps can lose it). Recover
+  // resolution chain terminates in it (the where-clause `F` family — field
+  // stamps can lose the Impl(Fn) wrapper). Recover
   // the Func signature via the capture-struct → closure-fid reverse lookup.
   // Without this the call falls into the non-Func soft fallback below, which
   // records EMPTY runtime args → codegen emits the closure call with no
@@ -5006,8 +4894,7 @@ try_to_call_function_with_arguments :: (
       ispr := __fm8.*.implicit_spreads;
       fn_has_variadic := __fm8.*.has_variadic;
       // Aliasing Stage 0: extern/builtin callees run no Yo code, so their
-      // borrows cannot dangle — Step 4c skips the projection dup for them
-      // (mirrors TS helper.ts `!functionType.externName`).
+      // borrows cannot dangle — Step 4c skips the projection dup for them.
       callee_is_extern := __fm8.*.extern_name.is_some();
       ispr;
       wt;
@@ -5038,9 +4925,8 @@ try_to_call_function_with_arguments :: (
           fa1 := match(arg_exprs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
           forall_args_opt = .Some(_h_get_fn_call_args(fa1));
           // The `generic(...)` node must be REMOVED from the middle of the
-          // regular-arg list, keeping the receiver at index 0 — TS does
-          // `argExprs = [argExprs[0]!, ...argExprs.slice(2)]`
-          // (src/evaluator/calls/helper.ts:956). Leaving it in shifted every
+          // regular-arg list, keeping the receiver at index 0. Leaving it in
+          // shifted every
           // parameter association by one (and pushed the type argument into
           // the emitted C call), so `container.map(generic(B), f)` never
           // type-checked (tests/higher_kinded_types.test.yo:91).
@@ -5101,7 +4987,7 @@ try_to_call_function_with_arguments :: (
       );
       // Parallel to call_param_defaults: per-param `is_compile_time_only` flags,
       // so the comptime→runtime argument-type conversion (Step 4) can gate on
-      // the parameter's comptime modifier exactly as TS does (helper.ts:508).
+      // the parameter's comptime modifier.
       call_param_comptime := match(
         func_val,
         .Some(fvv3) => match(
@@ -5112,7 +4998,7 @@ try_to_call_function_with_arguments :: (
         .None => ArrayList(bool).new()
       );
       // Parallel to call_param_comptime: the per-param `= <value>` ASSIGNED
-      // values, so Step 5b can reject a mismatching argument (helper.ts:481).
+      // values, so Step 5b can reject a mismatching argument.
       call_param_assigned := match(
         func_val,
         .Some(fvv4) => match(
@@ -5139,8 +5025,8 @@ try_to_call_function_with_arguments :: (
         n_required = nr;
       });
       // Variadic functions (C-style `...` externs like `snprintf`) accept any
-      // number of extra arguments — TS skips the count check entirely for
-      // them (`if (!functionType.variadicParameter)`, helper.ts:965).
+      // number of extra arguments — the count check is skipped entirely for
+      // them.
       if((!(fn_has_variadic)) && ((n_args < n_required) || (n_args > n_params)), {
         (count_msg : String) = `Argument count mismatch: expected ${n_params.to_string()} arguments, got ${n_args.to_string()}`;
         if(n_required != n_params, {
@@ -5182,12 +5068,10 @@ try_to_call_function_with_arguments :: (
       );
       // Step 5: Push a new frame on callee_env for parameter bindings.
       callee_env.push_frame(false);
-      // Step 5b: Bind `Self` for METHOD calls — port of TS helper.ts:1015-1035
-      // (`if (functionType.SelfType) addVariableToEnv("Self", ...)`). TS
-      // stamps `SelfType` on the method's FunctionType when the impl match
-      // resolves it (impl.ts:1497 `substitutions.get("Self")` = the concrete
-      // receiver); yo-self's flattened Func type carries no such field, so
-      // the method-call site threads the receiver type through the
+      // Step 5b: Bind `Self` for METHOD calls. The flattened Func type
+      // carries no SelfType field, so the method-call site threads the
+      // receiver type (resolved by the impl
+      // match) through the
       // ONE-SHOT `ctx.pending_method_self_type` (consumed above — cleared
       // before anything else runs, so only this binding sees it). Binding it
       // here lets the Step-6c early where-clause application below see
@@ -5220,16 +5104,12 @@ try_to_call_function_with_arguments :: (
       //         them from an explicit generic(…) argument).
       // ----------------------------------------------------------------
       n_forall := fl.len();
-      // Self-bound markers (TS structural mirror): TS's callee env EXTENDS
-      // the function type's definition env (`pushEnvFrame(functionType.env)`,
-      // helper.ts:1009), whose frames still hold the self-binding
-      // `T := SomeT(T)` for EVERY type variable the signature introduced —
-      // explicit `generic` labels AND implicit ones (`Impl(...)` sugar). That
-      // intact marker is what lets `getValueOfSomeTypeFromEnv` accept the
-      // concrete rebinding `synthesizeTypes` later writes over the LAST
-      // binding (env-lookup.ts:141-167, `thisSomeTypeWasBound`). yo-self's
-      // callee_env is built FRESH (the flattened `Func` TypeValue carries no
-      // definition env), so the markers must be recreated here, for every
+      // Self-bound markers: callee_env is built FRESH (the flattened `Func`
+      // TypeValue carries no definition env), so the definition env's
+      // self-binding markers —
+      // `T := SomeT(T)` for EVERY type variable the signature introduced,
+      // explicit `generic` labels AND implicit ones (`Impl(...)` sugar) —
+      // must be recreated here, for every
       // distinct SomeT in the signature:
       //   - generic labels: marker only — the `UnknownVal` call binding added
       //     by the loop below stays LAST (it is what `_bind_some_type`
@@ -5239,13 +5119,15 @@ try_to_call_function_with_arguments :: (
       //     ownership marker. Skipped when the name is already bound in
       //     callee_env (e.g. an enclosing impl's type param arriving through
       //     the FuncVal captures — self-binding would shadow the real value).
+      // That intact marker is what lets `get_value_of_some_type_from_env`
+      // accept the concrete rebinding `synthesize_types` later writes over
+      // the LAST binding.
       sig_some_types := get_all_some_types(func_type);
-      // `get_all_some_types` stops at a SomeT boundary (faithful mirror of TS's
-      // `getAllSomeTypes`), so type variables NESTED inside a wrapper's Fn-trait
-      // carrier — `E`/`T` inside `Impl(Fn(e : E) -> T)` — are not returned. TS
-      // never needs them here because its callee env extends the signature's
-      // definition env, which already holds their self-markers; yo-self builds
-      // callee_env fresh, so those inner markers must be recreated too. Collect
+      // `get_all_some_types` stops at a SomeT boundary, so type variables
+      // NESTED inside a wrapper's Fn-trait
+      // carrier — `E`/`T` inside `Impl(Fn(e : E) -> T)` — are not returned,
+      // and their inner markers must be recreated too (callee_env is built
+      // fresh). Collect
       // and append them before the marker loop so a later concrete rebinding of
       // an inner var (e.g. io.async binding `E = IoExn`) can be resolved
       // (`get_value_of_some_type_from_env`'s ownership check needs the marker).
@@ -5285,10 +5167,8 @@ try_to_call_function_with_arguments :: (
           wx_i = (wx_i + usize(1));
         });
       };
-      // Self-slot marker exclusion (TS fidelity): TS recreates NO markers —
-      // its callee env EXTENDS the method's definition env (helper.ts:1013),
-      // which holds self-markers ONLY for type variables the signature
-      // itself declared. A SomeT arriving exclusively through the
+      // Self-slot marker exclusion: markers exist ONLY for type variables the
+      // signature itself declares. A SomeT arriving exclusively through the
       // SUBSTITUTED self param (the receiver record embeds the PREVIOUS
       // combinator call's foralls, e.g. `IterFilter(_, F-filter)` in
       // `.filter(p).fold(init, f)`) must NOT be marker-bound under its bare
@@ -5439,10 +5319,7 @@ try_to_call_function_with_arguments :: (
         ftype_inner := match(ft.get(fpi), .Some(t) => t, .None => t_unit());
         (forall_val : EvalValue) = EvalValue.UnknownVal(ftype_inner, false);
         // A Type-kinded forall whose SomeT occurs in the SIGNATURE binds as
-        // `TypeVal(that SomeT)` — the state TS's calleeEnv is ALWAYS in
-        // (`createUnknownValue` promotes a Type-level-0 slot to
-        // `TypeVal(SomeType)`, value.ts:547-560; yo-self's UnknownVal
-        // placeholder was the port divergence). This is what lets a
+        // `TypeVal(that SomeT)`. This is what lets a
         // generic-args type-constructor CALL inside a single-pass body
         // validation EXECUTE (mint the generic-era struct) instead of
         // short-circuiting to a `ctfe_result_*` SomeT that then throws as a
@@ -5465,9 +5342,7 @@ try_to_call_function_with_arguments :: (
                 // sig_some_types lists filter's F (inside the substituted
                 // `self : IterFilter(_, F-filter)`) BEFORE fold's own F.
                 // Binding the forall to it routes fold's `f` to filter's
-                // predicate. TS binds `forallParameter.type` directly — the
-                // name search is yo-self's reconstruction, so it must skip
-                // foreign ids.
+                // predicate — the name search must skip foreign ids.
                 fv_mid := match(fv_mst, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => String.from(""));
                 (fv_foreign : bool) = false;
                 (fv_si : usize) = usize(0);
@@ -5504,12 +5379,11 @@ try_to_call_function_with_arguments :: (
               // No SIGNATURE occurrence — the label appears only in the
               // where clause (`take : fn(generic(A), self : Self, n : usize,
               // where(Self <: Iterator(Item := A))) -> IterTake(Self)`;
-              // `get_all_some_types(func_type)` returns NOTHING for it). TS
-              // still binds a TypeVal: `createUnknownValue` PROMOTES every
-              // Type-level-0 slot to a fresh SomeType (value.ts:547-560), so
-              // its trait-application eval accepts `Iterator(Item := A)` and
-              // the constraint synthesis then binds A from the receiver's
-              // impl. yo-self's UnknownVal placeholder made that eval throw
+              // `get_all_some_types(func_type)` returns NOTHING for it).
+              // Still bind a TypeVal: the
+              // trait-application eval must accept `Iterator(Item := A)` so
+              // the constraint synthesis can then bind A from the receiver's
+              // impl. An UnknownVal placeholder made that eval throw
               // 'Expected type for associated type constraint "Item"',
               // hollowing every take/skip/enumerate/zip combinator call
               // (v4_take repro; tests/iterator_combinators). Mint the fresh
@@ -5576,10 +5450,9 @@ try_to_call_function_with_arguments :: (
           synthetic_token(flabel, callee_env.module_path)
         );
         // This call now OWNS `flabel`: drop any resolution a PREVIOUS call left
-        // for the same signature SomeT in the durable id registry. TS mints a
-        // fresh SomeType per call for every forall binder (helper.ts:1047-1053),
-        // so a stale `B := i32` simply cannot exist there; yo-self reuses the one
-        // signature instance, and `_resolve_some_types_deep`'s registry fallback
+        // for the same signature SomeT in the durable id registry. The one
+        // signature instance is reused across calls, and
+        // `_resolve_some_types_deep`'s registry fallback
         // then silently pre-resolved the NEXT call's `Impl(Fn() -> B)` parameter
         // to `Impl(Fn() -> i32)`. That flipped the closure onto the take-on path,
         // which skips the Step-5.5 body-type substitution that binds `B` — so the
@@ -5606,8 +5479,7 @@ try_to_call_function_with_arguments :: (
       });
       // ----------------------------------------------------------------
       // Step 6b: io.async — pre-bind the effect-bundle generic `E` from the
-      // expected return type. Mirrors TS `helper.ts:1312-1366` (which binds both
-      // `T` and `E`). `io.async`'s signature is
+      // expected return type. `io.async`'s signature is
       //   fn(generic(T, E), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))
       // and the closure argument's parameter type references `E`. When the call
       // has an expected type `Impl(Future(T, E_concrete))`, bind `E` to that
@@ -5618,14 +5490,14 @@ try_to_call_function_with_arguments :: (
       // E` reaches codegen as `void*` and `e.io`/`e.exn` emit `member reference
       // base type 'void *'` (the stage-2 bundle-field-as-arg cluster).
       //
-      // DELIBERATELY binds ONLY `E`, not `T` (the future OUTPUT), unlike TS: the
-      // yo-self async pipeline keeps the future output as an UNRESOLVED SomeType
+      // DELIBERATELY binds ONLY `E`, not `T` (the future OUTPUT): the
+      // async pipeline keeps the future output as an UNRESOLVED SomeType
       // through eval (the sync-future struct + io.await refinement are registered
       // against that SomeType id; resolving `T` here breaks that registration and
       // regresses all async — see issues/fixed/yo-self-async-await-struct-result-eval.md
       // and the [[yo-self-stage2-family-breakdown]] async-codegen note). `E` (the
       // effect bundle) is NOT part of that pipeline, so binding it is safe.
-      // yo-self has no `ioBuiltin` type marker (await_analysis.yo) — detect the
+      // There is no `ioBuiltin` type marker (await_analysis.yo) — detect the
       // call structurally. Guard: only bind a label not already concrete.
       if(is_io_async_call(expr), {
         match(
@@ -5636,8 +5508,7 @@ try_to_call_function_with_arguments :: (
               io_ftt,
               .FutureTraitT({ output : io_t_out, effect_types : io_ets }) => {
                 // Bind the future OUTPUT generic `T` when the expected output is
-                // concrete (TS binds T unconditionally at helper.ts:1334-1362;
-                // yo-self guards on concreteness because the async pipeline's
+                // concrete (guarded on concreteness because the async pipeline's
                 // sync-future/io.await refinements are keyed on the UNRESOLVED
                 // SomeT id — a SomeT-to-SomeT bind would break them for the
                 // no-expected case, which must keep working as before). With
@@ -5815,10 +5686,10 @@ try_to_call_function_with_arguments :: (
         );
       });
       // ----------------------------------------------------------------
-      // Step 6c: EARLY where-clause application — port of TS helper.ts:1368-
-      // 1408. TS applies ALL the where-clause constraint exprs before the
+      // Step 6c: EARLY where-clause application. Apply ALL the where-clause
+      // constraint exprs before the
       // argument loop when every `lhs <: rhs` LHS atom is a variable in
-      // calleeEnv, which binds method-level generics that are only derivable
+      // callee_env, which binds method-level generics that are only derivable
       // from a constraint — `where(Self <: Iterator(Item := A))` on the
       // blanket Iterator combinators binds `A` from the CONCRETE receiver's
       // impl — so a closure argument checked against `F : (Fn(item : A) ->
@@ -5826,10 +5697,10 @@ try_to_call_function_with_arguments :: (
       // `void*` closure param; tests/closure_capture_rc_leak,
       // issues/repros/iterator-any-closure-void-param.yo).
       //
-      // ADAPTATION (not in TS): apply PER-EXPR, and only when the LHS's
-      // CURRENT binding is a TYPE value. TS's calleeEnv binds forall params
-      // as SomeType TYPE values, so its all-or-nothing "LHS exists" guard is
-      // safe; yo-self's Step 6 binds them as UnknownVal placeholders, and
+      // ADAPTATION: apply PER-EXPR, and only when the LHS's
+      // CURRENT binding is a TYPE value — Step 6 binds forall params
+      // as UnknownVal placeholders, and an all-or-nothing "LHS exists" guard
+      // is unsafe here:
       // `apply_where_clause_constraints` on that state throws 'Expected type
       // for left-hand side...' — measured hollowing EVERY `!`/`not` call
       // body (`where(_Self <: LogicalNot)`; enum_ne_dispatch FTT, iso/rc
@@ -5886,11 +5757,9 @@ try_to_call_function_with_arguments :: (
                 // PREBIND: any forall label the applied constraints reference
                 // that is still bound to the Step-6 UnknownVal placeholder is
                 // rebound (a NEW last binding) to a TypeVal of its signature
-                // SomeT — the state TS's calleeEnv is ALWAYS in: TS
-                // `createUnknownValue` returns `TypeVal(SomeType)` for a
-                // Type-typed forall (value.ts:547-560), which is why TS's
-                // trait-application eval accepts `Iterator(Item := A)` with
-                // `A` unresolved (it stores the SomeT and the constraint
+                // SomeT — that is the state the
+                // trait-application eval needs to accept `Iterator(Item := A)`
+                // with `A` unresolved (it stores the SomeT and the constraint
                 // synthesis then binds it). Without this, the eval throws
                 // 'Expected type for associated type constraint "Item", got:
                 // A' and the arm hollows. Scoped to the labels the applied
@@ -5976,10 +5845,9 @@ try_to_call_function_with_arguments :: (
                 ctx.is_evaluating_function_type = ew_prev;
                 // Post-application durable assoc binding: the check's own
                 // `A := i32` synthesis can land in a scratch frame that pops
-                // before the argument loop (yo-self's mutable push/pop envs;
-                // TS keeps the binding via the returned env chain,
-                // helper.ts:1397-1405). For every applied `lhs <: Trait(assoc
-                // := X)` whose X forall is STILL not concretely bound, resolve
+                // before the argument loop (envs are mutable push/pop). For
+                // every applied `lhs <: Trait(assoc
+                // = X)` whose X forall is STILL not concretely bound, resolve
                 // the assoc from the lhs's concrete target through the same
                 // registry channels the check used, and bind X here in the
                 // callee env's own frame (`.filter(p).fold(init, f)`: fold's
@@ -6109,9 +5977,8 @@ try_to_call_function_with_arguments :: (
       // TOP frame; during a trial those writes are junk the moment the trial
       // ends, but the shared frame keeps them (the [bind-T] K := unit write
       // into hash_map's def frame that later specialized `_find_bucket` with
-      // `key : unit` — hash_map:714 of the corpus family). TS's persistent
-      // chains scope these automatically (updates fork the chain); the
-      // yo-self equivalent is a scratch frame on a LOCAL copy — the body
+      // `key : unit` — hash_map:714 of the corpus family). The equivalent
+      // scoping is a scratch frame on a LOCAL copy — the body
       // eval threads callee_env_m and sees every binding, the shared def
       // env object never does. Trials only: the concrete path's frame
       // arithmetic (function_declaration_frame_level readers) keeps its
@@ -6122,19 +5989,18 @@ try_to_call_function_with_arguments :: (
       });
       (caller_env_m : Environment) = caller_env;
       // io.async: evaluate the closure ARGUMENT under async-block context
-      // (mirrors TS helper.ts:1314-1315 setting isInsideIoAsyncCall in
-      // tryToCall — the OTHER route, function.yo:3369, already sets it; this
+      // (the OTHER route, function.yo:3369, already sets it; this
       // route previously did not, which is why the flag measured FALSE at
       // closure eval and could not gate the closure take-on-expected-type
-      // port). Restored after the arg loop.
+      // path). Restored after the arg loop.
       h_prev_io_async_ctx := ctx.is_inside_io_async_call;
       if(is_io_async_call(expr), {
         ctx.is_inside_io_async_call = true;
       });
       // io-builtin args (io.await/io.state/io.spawn/JoinHandle.await) must be
       // evaluated WITHOUT an expected type so the future arg keeps its natural
-      // type (TS helper.ts:378-384 `functionType.ioBuiltin` skip). yo-self has no
-      // `ioBuiltin` marker, so detect the call structurally here (once).
+      // type. There is no `ioBuiltin` marker, so detect the call structurally
+      // here (once).
       io_builtin_skip_expected := (((is_io_await_call(expr) || is_io_state_call(expr)) || is_io_spawn_call(expr)) || is_join_handle_await_call(expr));
       // io.async params use the (per-call freshened) declared type DIRECTLY —
       // but ONLY when the call has NO Future-carrying expected type. WITH a
@@ -6171,18 +6037,18 @@ try_to_call_function_with_arguments :: (
         p_owning := match(pio.get(pi), .Some(o) => o, .None => false);
         // Omitted optional parameter (no corresponding argument): clone the
         // recorded default VALUE EXPRESSION and route it through the SAME
-        // matching flow as an explicit argument. In TS the omitted branch
-        // (helper.ts:323-344) merges into the shared post-processing after
+        // matching flow as an explicit argument. The omitted branch merges
+        // into the shared post-processing after
         // evaluating the default — comptime→runtime conversion, generic
         // synthesis into callee_env, compatibility check, and the param
         // binding all run for defaults too. Skipping them left the generic
         // type param UNBOUND for calls relying on the default (e.g. bare
         // `assert(x)`: `panic(msg)` then specialized at an unresolved SomeT
         // → unemitted C fn → clang undeclared-function). Differences from an
-        // explicit arg, mirroring TS: the default is evaluated in the CALLEE
-        // env (helper.ts:330-336), the caller env is NOT updated from the
-        // match result, and the move-ownership step never runs (TS runs it
-        // only in the explicit-arg branch) — pass param_is_owning=false.
+        // explicit arg: the default is evaluated in the CALLEE
+        // env, the caller env is NOT updated from the
+        // match result, and the move-ownership step never runs — pass
+        // param_is_owning=false.
         if(pi >= n_args, {
           (default_expr : Option(AstExpr)) = Option(AstExpr).None;
           match(
@@ -6202,7 +6068,7 @@ try_to_call_function_with_arguments :: (
                 // is_ct_only: honour the param's comptime modifier here too, so
                 // a comptime param's default keeps its raw comptime type.
                 match(call_param_comptime.get(pi), .Some(f) => f, .None => false),
-                // param_is_owning: TS never runs move-ownership for defaults
+                // param_is_owning: move-ownership never runs for defaults
                 false,
                 match(pref.get(pi), .Some(b) => b, .None => false),
                 false,
@@ -6269,7 +6135,7 @@ try_to_call_function_with_arguments :: (
           // is_ct_only: the parameter's `comptime(...)` modifier (from the
           // per-param comptime side-table). A comptime param keeps its raw
           // comptime arg type; a runtime param lowers a comptime-only arg to
-          // its runtime type (mirrors TS `!parameter.isCompileTimeOnly`).
+          // its runtime type.
           match(call_param_comptime.get(pi), .Some(f) => f, .None => false),
           p_owning,
           match(pref.get(pi), .Some(b) => b, .None => false),
@@ -6310,9 +6176,8 @@ try_to_call_function_with_arguments :: (
         pi = (pi + usize(1));
       });
       // Step 7b: Variadic arguments — the args beyond the fixed parameters.
-      // Mirrors TS helper.ts:1618-1662 (the non-quote runtime branch). yo-self
-      // models a variadic function only as `has_variadic : bool` (no per-variadic
-      // `isQuote`/`isCompileTimeOnly`/label), so we handle the C-extern runtime
+      // A variadic function is modeled only as `has_variadic : bool` (no
+      // per-variadic quote/comptime/label), so we handle the C-extern runtime
       // case (e.g. `snprintf(buf, n, fmt, v...)`): evaluate each extra arg and
       // record it as a runtime arg so codegen emits it. Without this the loop
       // above (bounded by `n_params`) silently DROPPED every variadic arg from
@@ -6402,9 +6267,8 @@ try_to_call_function_with_arguments :: (
           .None => ()
         );
       });
-      // v4.1: validate the PLACES bound to ref parameters (after argument
-      // evaluation so the chain types are resolved). Mirrors TS
-      // requireValidRefArgumentPlaces in tryToCallFunctionWithArguments.
+      // Validate the PLACES bound to ref parameters (after argument
+      // evaluation so the chain types are resolved).
       vrf_param_labels := match(
         func_type,
         .Func({ meta : __fm9 }) => __fm9.*.param_labels,
@@ -6449,19 +6313,17 @@ try_to_call_function_with_arguments :: (
               match(
                 last_v.value.get(usize(0)),
                 .Some(v) => {
-                  // TS helper.ts:1464-1494 (unported until now): propagate
-                  // resolvedConcreteType from a generic SomeType back before
-                  // extraction — the body eval resolves `U` through the
+                  // Propagate the resolved concrete type from a generic SomeT
+                  // back before extraction — the body eval resolves `U` through the
                   // lineage cell / id registry, but this raw env read handed
                   // the spec's return substitution the bare SomeT, so
                   // spec_ret_ty stayed `List(U)` and emission's
                   // has_generic_return gate silently dropped the spec.
                   (v_out : EvalValue) = v;
-                  // The env WRITE-BACK half of helper.ts:1471-1493: TS replaces
-                  // the calleeEnv binding itself (`updateExistingVariable`, value
-                  // `[concreteTypeValue]`) — "Without this,
-                  // evaluateFunctionReturnTypeAgain would re-evaluate the return
-                  // type and still see T as SomeType instead of i32". That is
+                  // The env WRITE-BACK half: replace the callee_env binding
+                  // itself — without this, the return-type re-evaluation
+                  // would re-evaluate the return type and still see T as
+                  // SomeType instead of i32. That is
                   // exactly the Option/Result-combinator family's defect: the
                   // closure argument's body/return unification stamps `B := i32`
                   // on the lineage cell (anonymous_function.yo
@@ -6481,8 +6343,8 @@ try_to_call_function_with_arguments :: (
                         }, {
                           ex_res = lookup_some_resolved_concrete(ex_sid);
                         });
-                        // TS gates the write-back on the type variable carrying NO
-                        // trait constraints (helper.ts:1480-1482) — a constrained
+                        // The write-back is gated on the type variable carrying
+                        // NO trait constraints — a constrained
                         // `Impl(...)` wrapper must keep its SomeT binding.
                         wb_plain = (ex_rtt.len() == usize(0));
                         match(
@@ -6501,7 +6363,7 @@ try_to_call_function_with_arguments :: (
                   // global table is shared across calls and would leak a sibling
                   // call's resolution) and to a binding in the call's OWN top
                   // frame, so the update pops with the frame instead of becoming
-                  // a durable write-through in yo-self's mutable env model (the
+                  // a durable write-through in the mutable env model (the
                   // rule _bind_some_type follows for the same reason).
                   wb_top_frame := ((callee_env_m.frames.len() > usize(0)) && (last_v.frame_level == (callee_env_m.frames.len() - usize(1))));
                   if(((wb_from_cell && wb_plain) && wb_top_frame) && !(match(v_out, .TypeVal(wb_t) => is_some_type(wb_t), _ => true)), {
@@ -6527,8 +6389,7 @@ try_to_call_function_with_arguments :: (
       });
       // ----------------------------------------------------------------
       // Step 8b: Re-apply where-clause constraints now that parameters are
-      // bound. Mirrors helper.ts:1493-1506 (applyWhereClauseConstraints) →
-      // validateSingleTraitOnConcreteType (types/function.ts:974): every
+      // bound. Every
       // constraint whose LHS param is now bound to a CONCRETE type must be
       // validated — `Mutex(NonSendObj)` against `where(T <: Send)` is
       // rejected here.
@@ -6559,9 +6420,8 @@ try_to_call_function_with_arguments :: (
       // evaluate_function_return_type_again resolves by NAME through the env
       // and cannot rewrite a nominal, so every call stamped the SAME record —
       // codegen merged all callers onto one C type while each specialized
-      // callee returned its own (iter_filter_closure, 3 closure arms). TS
-      // never faces this: its returnType is rebuilt per call from the
-      // freshened declared type. Recover per-call identity by substituting
+      // callee returned its own (iter_filter_closure, 3 closure arms).
+      // Recover per-call identity by substituting
       // (declared-param SomeT name → THIS call's recorded arg type, at each
       // return-occurrence's recorded level — the calls/function.yo s_ret
       // pattern), adopting only a fully-resolving result.
@@ -6697,11 +6557,10 @@ try_to_call_function_with_arguments :: (
       // carries SomeTs or an Array length var (a value-generic stamped
       // return like `-> _ArrayIter(T, N)`, whose def-era nominal cannot be
       // re-stamped by substitution), re-evaluate the declared return-type
-      // EXPRESSION in the bound callee env. TS's
-      // evaluateFunctionReturnTypeAgain IS an expr re-eval (helper.ts:1282)
-      // — it re-invokes the comptime type constructor with the bound N
-      // value; yo-self's type-level walk cannot, so the rte side-table
-      // supplies the expr (same mechanism as the create_specialized mint).
+      // EXPRESSION in the bound callee env: the type-level walk cannot
+      // re-invoke the comptime type constructor with the bound N value, so
+      // the rte side-table supplies the expr (same mechanism as the
+      // create_specialized mint).
       // Skip the re-eval when the current return_type is already
       // codegen-concrete via resolution cells (see calls/function.yo
       // rre_wanted): the by-NAME re-eval would clobber the per-call
@@ -6825,12 +6684,11 @@ try_to_call_function_with_arguments :: (
             );
             // When the (re-evaluated) return type is compatible with the
             // caller's expected type and the expected type is fully concrete,
-            // ADOPT the expected type as the call's return type. Mirrors TS
-            // helper.ts:1593-1605 (`returnType = context.expectedType.type`).
+            // ADOPT the expected type as the call's return type.
             // This is what resolves a ctl call's free `ResumeType` result in
             // statement position (e.g. `exn.throw(...)` as a cond arm under a
-            // unit sibling arm): TS records the call as `unit`, so the arm
-            // merge unifies; without it the bare SomeT refused to unify and
+            // unit sibling arm): recording the call as `unit` lets the arm
+            // merge unify; without it the bare SomeT refused to unify and
             // the def-time body eval of the enclosing closure was swallowed
             // (io.async callback FTT — the self-capture stage-2 family).
             (ret_for_adopt : TypeValue) = return_type;
@@ -7059,16 +6917,13 @@ try_to_call_function_with_arguments :: (
       );
       // ----------------------------------------------------------------
       // Step 12b: Create specialized function value if needed.
-      // Simplified port of the specialization guard in helper.ts.
       // ----------------------------------------------------------------
       // A generic-impl method resolved for a concrete receiver arrives with its
       // Func TYPE already concretized (generic stripped, `fl=0`), but its FuncVAL
       // carries the impl's generic (stamped at impl-eval by
       // `_stamp_impl_forall_on_method`). That surviving `forall_names` is the
       // signal that the method needs specialization — without it the method is
-      // never specialized and codegen only has the abstract body (skipped). Mirror
-      // TS, which recognizes generic-impl methods via `forallParameters` on the
-      // function value's type.
+      // never specialized and codegen only has the abstract body (skipped).
       fv_has_forall := match(
         func_val,
         .Some(fvp) => match(fvp, .FuncVal(__fvd13, _) => (__fvd13.*.forall_names.len() > usize(0)), _ => false),
@@ -7080,9 +6935,8 @@ try_to_call_function_with_arguments :: (
         .None => func_type
       );
       callee_own_generic := _func_type_has_runtime_some_param(callee_own_type);
-      // TS `isFunctionTypeGeneric` (guards.ts:457) ALSO counts COMPTIME
-      // PARAMS (`parameters.some(p => p.isCompileTimeOnly)`), excluding only
-      // comptime-RETURNING functions (those are CTFE'd, guards.ts:462-464).
+      // The generic test ALSO counts COMPTIME PARAMS, excluding only
+      // comptime-RETURNING functions (those are CTFE'd).
       // A trait-impl method like `try_into : (fn(self : Self,
       // (comptime(_To) : Type) = To) -> Result(To, Self.Error))` has fl=0
       // (its generics are trait-level), no impl foralls, and no runtime SomeT
@@ -7131,9 +6985,9 @@ try_to_call_function_with_arguments :: (
           .Some(fv) => match(fv, .FuncVal(__fvd14, _) => __fvd14.*.func_id, _ => String.from("")),
           .None => String.from("")
         );
-        // The callee's impl-instantiation identity: TS distinguishes generic-impl
-        // method instantiations by funcId (impl.ts:1551 embeds the substitutions);
-        // yo-self shares one func_id and injects the bindings as TypeVal captures,
+        // The callee's impl-instantiation identity: one func_id is shared
+        // across generic-impl method instantiations and the bindings are
+        // injected as TypeVal captures,
         // so both recursion guards below compare this signature TOO. Without it,
         // `Eq(ArrayList(ArrayList(i32))).==` specializing and calling
         // `Eq(ArrayList(i32)).==` on its elements was misread as self-recursion:
@@ -7155,7 +7009,7 @@ try_to_call_function_with_arguments :: (
         // MUTUAL recursion (callee is being specialized higher up, not innermost):
         // forward-reference the in-progress specialization instead of re-specializing
         // it (which never terminates and overflows the stack in the unified stage-2
-        // self-compile — Phase 6). Mirrors TS helper.ts:1985-2010.
+        // self-compile).
         mutual_info := _find_mutual_specializing_info(ctx, callee_fid_g, callee_bindings_sig.clone());
         mutual_is_some := mutual_info.is_some();
         is_concrete_fv := match(
@@ -7175,9 +7029,8 @@ try_to_call_function_with_arguments :: (
         if((!(is_recursive_spec) && !(mutual_is_some)) && is_concrete_fv, {
           fv2 := match(func_val, .Some(v) => v, .None => EvalValue.UnitVal);
           // ----------------------------------------------------------------
-          // Ctl function path: isControlFunction + has generic params.
+          // Ctl function path: a control function with generic params.
           // Must come before regular specialization to override it.
-          // Mirrors the `isControlFunction` branch in helper.ts step 12b.
           // ----------------------------------------------------------------
           fv2_func_id := match(
             fv2,

@@ -1,7 +1,5 @@
 //! evaluator/builtins/and_or — implements evaluate_and_or.
 //!
-//! 1:1 port of `src/evaluator/builtins/and-or.ts`.
-//!
 //! Handles short-circuit evaluation of `&&` and `||` operations.
 //! - Empty and → true; empty or → false.
 //! - Short-circuits on definitive compile-time values.
@@ -113,8 +111,7 @@ evaluate_and_or :: (
           },
           .Some(av) => {
             if(is_unknown_val(av), {
-              // A RUNTIME-ONLY unknown is yo-self's stand-in for TS's "no
-              // value at all" (create_runtime_unknown_val) — classify it as
+              // A RUNTIME-ONLY unknown (create_runtime_unknown_val) — classify it as
               // RUNTIME. Folding it into `has_unknown` made the `||`/`&&`
               // result an UNMARKED unknown, which downstream comptime
               // overloads accept: `!((prev == key) || ...)` then preferred

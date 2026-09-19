@@ -1,16 +1,8 @@
-//! Per-function generation context — mirrors `src/codegen/functions/context.ts`.
+//! Per-function generation context.
 //!
-//! TS: `interface FunctionGenerationContext extends CodeGenContext { ... }`.
 //! Yo has no struct inheritance, so this COMPOSES the base via a `base :
 //! CodeGenContext` field; functions that take a FunctionGenerationContext read
 //! base fields as `ctx.base.<field>`.
-//!
-//! PORT STATUS (incremental): the non-async core fields are present. The
-//! async/effect state-machine fields (inAsyncStateMachine, stateMachineVariables,
-//! stateMachineFieldAliases, currentEvidenceParams, continuationVariables,
-//! deferredAsyncBlocks, asyncCondBranchInfo, asyncWhileLoopInfo,
-//! asyncNextWhileLoopIndex, asyncBodyReturnExpr, smWhile*) are Phase 5 and will
-//! be added then (they reference the await/effect-analysis result types).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -22,9 +14,8 @@
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 /// One closure parameter slot — a bundle value supplied at io.await/io.spawn time
 /// via `set_effect("__bundle", &value)`, stored in a dedicated `__yo_param_<i>`
-/// slot on the SM struct. Mirrors the inline `closureParamSlots` records
-/// (context.ts:101). Defined here (not in exprs/async.yo) so `DeferredAsyncBlock`
-/// can reference it without an import cycle.
+/// slot on the SM struct. Defined here (not in exprs/async.yo) so
+/// `DeferredAsyncBlock` can reference it without an import cycle.
 ClosureParamSlot :: ref(
   struct(
     field_name : String,
@@ -34,9 +25,8 @@ ClosureParamSlot :: ref(
   )
 );
 /// A deferred async-block generation request: async blocks are generated after
-/// all regular functions. Mirrors the inline `deferredAsyncBlocks[]` element type
-/// (context.ts:82). `futureType` (SomeType | DynType) and `futureTraitType`
-/// (FutureTraitType) both become `TypeValue`.
+/// all regular functions. `future_type` (SomeType | DynType) and
+/// `future_trait_type` (FutureTraitType) both become `TypeValue`.
 DeferredAsyncBlock :: ref(
   struct(
     body_expr : AstExpr,
@@ -56,11 +46,10 @@ DeferredAsyncBlock :: ref(
   )
 );
 /// State-machine while-loop break info: the after-loop goto label and the
-/// optional while-loop active-flag index. Mirrors the `smWhileBreakInfo` shape.
+/// optional while-loop active-flag index.
 SmWhileBreakInfo :: ref(struct(label : String, active_index : Option(usize)));
 /// State-machine while-loop continue info: the loop goto label, whether to
 /// emit body drops before the goto, and the optional 3-arg step expression.
-/// Mirrors the `smWhileContinueInfo` shape.
 SmWhileContinueInfo :: ref(
   struct(
     label : String,
@@ -69,12 +58,11 @@ SmWhileContinueInfo :: ref(
   )
 );
 /// Marks that code is being generated inside an async state machine; carries
-/// the future type (a SomeType or DynType). Mirrors `inAsyncStateMachine`.
+/// the future type (a SomeType or DynType).
 InAsyncStateMachine :: ref(struct(future_type : TypeValue));
 /// An effect-evidence parameter threaded into a function for explicit-effects
 /// dispatch — the implicit-record label, the field label/path within it, the
-/// field's function type, and the sanitized C parameter name. Mirrors
-/// `EvidenceParameter` (declarations.ts:281).
+/// field's function type, and the sanitized C parameter name.
 EvidenceParameter :: ref(
   struct(
     implicit_label : String,
@@ -85,8 +73,7 @@ EvidenceParameter :: ref(
   )
 );
 /// Expressions from an enclosing cond branch that come after a while loop — run
-/// only after the loop exits, guarded by the `sm->cond_branch_N` field. Mirrors
-/// the `condBranchPostWhileExprs` shape in `asyncWhileLoopInfo`.
+/// only after the loop exits, guarded by the `sm->cond_branch_N` field.
 CondBranchPostWhileExprs :: ref(
   struct(
     branch_index : usize,
@@ -120,8 +107,8 @@ CondBranchPostWhileExprs :: ref(
 /// the correct split point. Drops merge the same way. The `sm->cond_branch_N`
 /// guard can only test one field, so when the layers disagree fall back to
 /// `skip_cond_branch_check` (sound: after_while_loop_N is only reachable from
-/// the branch that ran the loop). Mirrors `mergeCondBranchPostWhileExprs`
-/// (state-machine.ts) — placed here because Yo's import DAG has no
+/// the branch that ran the loop).
+/// — placed here because Yo's import DAG has no
 /// state_machine ← state_code_gen edge.
 merge_cond_branch_post_while_exprs :: (
   fn(existing : Option(CondBranchPostWhileExprs), incoming : CondBranchPostWhileExprs) -> CondBranchPostWhileExprs
@@ -283,8 +270,7 @@ merge_cond_branch_post_while_exprs :: (
     }
   )
 );
-/// Info about an OUTER while loop wrapping a while-with-await. Mirrors the
-/// `outerWhileLoop` shape in `asyncWhileLoopInfo`.
+/// Info about an OUTER while loop wrapping a while-with-await.
 OuterWhileLoop :: ref(
   struct(
     while_loop_index : usize,
@@ -294,8 +280,7 @@ OuterWhileLoop :: ref(
     body_exprs_after_await : ArrayList(AstExpr)
   )
 );
-/// One branch of a cond/match with await. Mirrors the `branches[]` element in
-/// `asyncCondBranchInfo` (context.ts:112).
+/// One branch of a cond/match with await.
 CondBranch :: ref(
   struct(
     index : usize,
@@ -347,15 +332,14 @@ CondBranch :: ref(
 );
 /// A chained cond/match continuation: an outer cond's remaining code that shares
 /// a key with a nested cond, processed as a separate switch AFTER the nested
-/// cond's switch. Mirrors the `chainedBranches[]` element (context.ts:124).
+/// cond's switch.
 ChainedCondBranches :: ref(
   struct(
     branches : ArrayList(CondBranch),
     cond_branch_field_index : usize
   )
 );
-/// Per-await-point info about a cond/match containing await in branches. Mirrors
-/// the value type of `asyncCondBranchInfo` (context.ts:109).
+/// Per-await-point info about a cond/match containing await in branches.
 AsyncCondBranchInfo :: ref(
   struct(
     branches : ArrayList(CondBranch),
@@ -375,8 +359,7 @@ AsyncCondBranchInfo :: ref(
     tail_of_enclosing_arm : bool
   )
 );
-/// Per-await-point info about a while loop containing an await. Mirrors the
-/// value type of `asyncWhileLoopInfo` (context.ts:137).
+/// Per-await-point info about a while loop containing an await.
 WhileLoopInfo :: ref(
   struct(
     condition_expr : AstExpr,
@@ -413,7 +396,7 @@ WhileLoopInfo :: ref(
 /// The per-function generation context. See header for the composition note.
 FunctionGenerationContext :: ref(
   struct(
-    /// The base codegen context (TS `extends CodeGenContext`).
+    /// The base codegen context.
     base : CodeGenContext,
     /// Type of the current function being generated.
     current_function_type : Option(TypeValue),
@@ -494,8 +477,7 @@ FunctionGenerationContext :: ref(
     /// name (atom emission redirects SM lookups to the existing await field).
     state_machine_field_aliases : Option(HashMap(String, String)),
     /// While-loop-with-await info, keyed by await-point index. Written by
-    /// `generate_while_with_await`, read by the resume generator. Mirrors
-    /// `asyncWhileLoopInfo`.
+    /// `generate_while_with_await`, read by the resume generator.
     async_while_loop_info : Option(HashMap(usize, WhileLoopInfo)),
     /// `io.await` in a position the body cannot be SPLIT at — a `cond`/`if`
     /// condition, or a `match` scrutinee. Maps the await call's `ExprId` to the
@@ -504,22 +486,19 @@ FunctionGenerationContext :: ref(
     /// a state machine — the empty operand that produced `sm->var_N = ;`.
     await_result_substitutions : Option(HashMap(usize, String)),
     /// Next free while-loop index for nested while-with-await (so outer-while
-    /// labels don't collide with await-point indices). Mirrors
-    /// `asyncNextWhileLoopIndex`.
+    /// labels don't collide with await-point indices).
     async_next_while_loop_index : Option(usize),
     /// Cond/match-with-await branch info, keyed by await-point index. Written by
     /// `generate_cond_with_await` / `generate_match_with_await`, read by the resume
-    /// generator. Mirrors `asyncCondBranchInfo`.
+    /// generator.
     async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)),
     /// Monotonic counter handing out DISTINCT `sm->cond_branch_N` dispatch codes
     /// to each awaiting arm of each cond/match in this function. Arm indices
     /// alone collide when two matches share one await point's resume switch,
-    /// which C rejects as a duplicate case value. Mirrors TS
-    /// `FunctionGenerationContext.condBranchCaseSeq`.
+    /// which C rejects as a duplicate case value.
     cond_branch_case_seq : usize,
     /// When set, the cond/match expression that IS the async block body's implicit
-    /// return value — its non-await branches must emit Future completion. Mirrors
-    /// `asyncBodyReturnExpr`.
+    /// return value — its non-await branches must emit Future completion.
     async_body_return_expr : Option(AstExpr),
     /// Nested cond/match emission (see `CondBranch.nested`). Set by
     /// `_emit_nested_cond_or_match` right before it calls the cond/match
@@ -538,17 +517,16 @@ FunctionGenerationContext :: ref(
     /// `CondBranch.owner` / `AsyncCondBranchInfo.nested_owner`.
     nested_cond_records : ArrayList(AsyncCondBranchInfo),
     /// Effect-evidence parameters in scope (implicit label → evidence param), for
-    /// explicit-effects dispatch / effect injection. Mirrors `currentEvidenceParams`.
+    /// explicit-effects dispatch / effect injection.
     current_evidence_params : Option(HashMap(String, EvidenceParameter)),
-    /// Async blocks deferred to after all regular functions are generated. Mirrors
-    /// `deferredAsyncBlocks`.
+    /// Async blocks deferred to after all regular functions are generated.
     deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)),
     /// Raw name of the enclosing assignment's save-old-value temp while its
     /// RHS is being generated. The temp receives ownership of the old value
     /// only AFTER the assignment completes, so escape-path pending drops
     /// emitted inside the RHS must skip it (the local still owns the value;
-    /// dropping both double-frees). TS needs no flag — its per-expr
-    /// point-in-time envs simply don't contain the not-yet-defined temp.
+    /// dropping both double-frees) — the END-of-scope envs list the
+    /// not-yet-defined temp, so the skip needs this explicit flag.
     current_assignment_save_temp : Option(String),
     /// Deferred-drop expression ids (ast_expr_id) already emitted as C — the
     /// emitted-once guard for the node-list drop flushes (drop_dup.yo
@@ -624,10 +602,10 @@ impl(
 /// `sm->var_X` for a hoisted local. Returns the name unchanged outside a state
 /// machine, or when it is a real C temp rather than a hoisted local.
 ///
-/// Lives here rather than in `exprs/other_fn_call.yo` (its TS home) because
+/// Lives here rather than in `exprs/other_fn_call.yo` because
 /// `return.yo` needs it too and `other_fn_call.yo` already imports `return.yo`
-/// — yo-self's loader rejects the destructuring import cycle. Same structural
-/// necessity as `state_machine_naming.yo`. Mirrors `resolveVarNameInContext`.
+/// — the loader rejects the destructuring import cycle. Same structural
+/// necessity as `state_machine_naming.yo`.
 resolve_var_name_in_context :: (
   fn(var_name : String, context : FunctionGenerationContext) -> String
 )({
@@ -653,8 +631,8 @@ resolve_var_name_in_context :: (
             .None => (),
             .Some(cv) => if(cv.base.name == var_name, {
               found = true;
-              // Outer captures are named by the variable's NAME (TS
-              // resolveVarNameInContext: `__capture.${capturedVar.name}`),
+              // Outer captures are named by the variable's NAME
+              // (`__capture.<name>`),
               // NEVER the map key: the same outer capture is registered both
               // under its numeric variable id (the re-kinded analysis entry)
               // and under its capture-struct label, and which one this name

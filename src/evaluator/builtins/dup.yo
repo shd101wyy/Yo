@@ -1,12 +1,10 @@
 //! evaluator/builtins/dup — implements evaluate_dup.
 //!
-//! 1:1 port of `src/evaluator/builtins/dup.ts`.
-//!
-//! Tuple/array RC-owning paths ARE ported (per-element
-//! `__yo_dup_tuple_element` / `__yo_dup_array_element` expansion — rc
-//! layer 4). The struct `.___dup()` branch is deliberately NOT ported:
-//! yo-self synthesizes no evaluator-side ___dup methods (ref-struct RC is
-//! lowered directly in codegen) — see the DIVERGENCE note in the body.
+//! Tuple/array RC-owning paths expand per-element
+//! (`__yo_dup_tuple_element` / `__yo_dup_array_element` expansion — rc
+//! layer 4). There is deliberately NO struct `.___dup()` branch:
+//! no evaluator-side ___dup methods are synthesized (ref-struct RC is
+//! lowered directly in codegen) — see the note in the body.
 { String } :: import("std/string");
 { AstExpr, ast_expr_token, ast_expr_id, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT } :: import("../../expr.yo");
 {
@@ -73,8 +71,7 @@ evaluate_dup :: (
   );
   (cur_env : Environment) = arg_info.env;
   arg_type := arg_info.ty;
-  // Resolve a SomeT with a filled resolved-concrete cell (mirrors TS
-  // `argType.resolvedConcreteType ?? argType`).
+  // Resolve a SomeT with a filled resolved-concrete cell.
   (concrete_type : TypeValue) = arg_type;
   if(is_some_type(concrete_type), {
     match(
@@ -92,15 +89,15 @@ evaluate_dup :: (
   // Tuple/array values containing Rc fields expand to per-element dup calls
   // (`__yo_dup_tuple_element` / `__yo_dup_array_element`) — the builtins the
   // codegen side (codegen/exprs/rc_fns.yo) already renders as incr loops.
-  // Mirrors evaluateDup's tuple/array branches (dup.ts:106-250). This was a
+  // This was a
   // Phase-3 stub (`type_contains_rc_type` was itself a stub then): with the
   // expansion missing, `___dup(y)` on an array/tuple of Boxes was a NO-OP —
   // every enclosing literal aliased ONE refcount and the scope-end drops
   // over-released (double free; tests/rc.test.yo "Rc in different data
   // structures", rc layer 4; repro issues/repros/rc-array-tuple-dup-elision.yo).
   //
-  // DIVERGENCE from TS: the struct `.___dup()` branch is NOT ported —
-  // yo-self synthesizes no evaluator-side ___dup methods (ref-struct RC is
+  // The struct `.___dup()` branch does not exist here —
+  // no evaluator-side ___dup methods are synthesized (ref-struct RC is
   // lowered directly in codegen, see evaluator/types/struct.yo) — structs
   // keep the simple path below.
   if(type_contains_rc_type(concrete_type), {
@@ -124,7 +121,7 @@ evaluate_dup :: (
           .Array(e, l, lv) => (e, l, lv),
           _ => (TypeValue.Unit, usize(0), String.new())
         );
-        // Only compile-time-known lengths (TS: isNumberValue(length)); a
+        // Only compile-time-known lengths; a
         // pattern-era `length_var` means the length is not concrete — skip.
         if(type_contains_rc_type(arr_elem) && (arr_lvar.len() == usize(0)), {
           (dai : usize) = usize(0);
@@ -152,8 +149,7 @@ evaluate_dup :: (
         gen_expr := generate_expr_from_code(dup_code, exn);
         evaluated_gen := evaluate_expression(gen_expr, cur_env, ctx);
         // Stamp the ORIGINAL `___dup(...)` node with the generated node's
-        // info too (TS mutates the node in place via
-        // replaceFuncCallExprWithFuncCallExpr; yo-self returns the new node —
+        // info too (the new node is returned, and
         // stamping both keeps id-keyed readers of the original consistent).
         match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_gen)),
@@ -167,7 +163,7 @@ evaluate_dup :: (
     });
   });
   out_info := new_expr_info(cur_env, arg_type);
-  // value is None (runtime) — mirrors `value: undefined` in TS
+  // value is None (runtime)
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

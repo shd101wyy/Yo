@@ -1,10 +1,8 @@
-//! are_types_compatible — structural compatibility check (Phase 2f).
+//! are_types_compatible — structural compatibility check.
 //!
-//! Mirrors `areTypesCompatible` in `src/types/compatibility.ts`.
-//!
-//! Argument convention (opposite of TypeScript):
-//!   `actual`   = the type we have        (TS: `given`)
-//!   `expected` = the type context expects (TS: `expected`)
+//! Argument convention:
+//!   `actual`   = the type we have
+//!   `expected` = the type the context expects
 //!
 //! Public API:
 //!   are_types_compatible(actual, expected) -> bool
@@ -329,9 +327,8 @@ _compat_impl :: (
   // `dyn(Error)` receiver match a `Self`-constrained `self` param when the
   // dyn's required traits (incl. expanded supertraits) cover the constraint.
   // Checked before the tag-mismatch guard since the tags differ.
-  // Mirrors `areTypesCompatible` (src/types/compatibility.ts:662-684).
   // An `extern("Yo", X : Type)` opaque is a `SomeT` carrying NO required traits
-  // (yo-self's TypeValue has no `is_extern` slot; extern-ness lives in the
+  // (`TypeValue` has no `is_extern` slot; extern-ness lives in the
   // `g_extern_type_names` side table). It is a CONCRETE C type wearing a SomeT
   // as a representation stand-in, so it must unify with itself and nothing
   // else — the same carve-out `type_contains_some_type` (types/utils.yo) and
@@ -391,8 +388,7 @@ _compat_impl :: (
   // by `_filter_receiver_methods` (`are_types_compatible(receiver, pointee)`):
   // a `Dyn(Trait)` RECEIVER must satisfy a `Self`-constrained pointee `*(Self)`
   // so the filter flags `needs_pointer_conversion` and the call site addresses
-  // it. Maps to TS `areTypesCompatible(expected=SomeType, given=Dyn)`
-  // (compatibility.ts:662-684) — yo-self's actual≈given. Without it, a dyn
+  // it. Without it, a dyn
   // method call (`value.print()` on `value : Dyn(TestDyn)`, self : `*(Self)`)
   // synthesized `*(Self)` vs the bare `dyn(...)` arg and failed the
   // tag-mismatch guard (tests/dyn.test.yo).
@@ -430,12 +426,11 @@ _compat_impl :: (
     return(true);
   });
   // --- Concrete (actual) vs SomeType (expected) ------------------------------
-  // Mirrors TS compatibility.ts:800-828 ("Given is a concrete type, expected is
-  // SomeType"): an UNCONSTRAINED SomeType (bare generic param, e.g. a ctl
+  // An UNCONSTRAINED SomeType (bare generic param, e.g. a ctl
   // handler's free `ResumeType`) accepts ANY concrete type — non-exact only
-  // (exact/cache comparisons keep them distinct, like TS's requireExactMatch
-  // branch). A CONSTRAINED SomeType accepts a concrete type that implements ALL
-  // its required traits (`typeImplementsTraitBool`, routed through the hook
+  // (exact/cache comparisons keep them distinct). A CONSTRAINED SomeType
+  // accepts a concrete type that implements ALL
+  // its required traits (`type_implements_trait_bool`, routed through the hook
   // above). Without this rule every concrete-vs-SomeT pair fell to the
   // tag-mismatch guard below: a match/cond arm evaluated under a
   // constrained-SomeT expected type (the prelude `(!)` operator module's
@@ -474,8 +469,8 @@ _compat_impl :: (
   // --- Empty struct == unit (non-exact) -------------------------------------
   // `{}` parses to the `_()` anon-struct literal (BK_ANON_STRUCT) — a 0-field,
   // zero-size value used as a no-op match/cond arm (`.None => {}` / `_ => {}`).
-  // It must unify with a `()`/unit sibling arm. TS accepts this (verified:
-  // `yo compile` accepts `match(.Some(x) => (), .None => {})`); without
+  // It must unify with a `()`/unit sibling arm (`yo compile` accepts
+  // `match(.Some(x) => (), .None => {})`); without
   // this rule the tag-mismatch guard below rejects unit-vs-empty-struct, so
   // every empty-`{}` arm paired with a unit sibling throws "Incompatible types"
   // at def-time and loses the match's ExprInfo -> "Failed to transpile" marker.
@@ -493,13 +488,13 @@ _compat_impl :: (
     });
   });
   // --- SomeType (actual) vs concrete (expected) ------------------------------
-  // TS compatibility.ts:900-916: a GIVEN SomeType that already carries a
+  // A SomeType that already carries a
   // resolved concrete type is compatible when its RESOLUTION is — e.g. an
   // `Impl(RetI32)` receiver resolved to `bool` flowing into an impl method's
   // `self : *(bool)` (the receiver-methods filter and the self-param check
-  // both route here). requireExactMatch passes through, exactly as TS does,
+  // both route here). require_exact passes through,
   // so the pointer-children exact recursion also benefits. Reads the lineage
-  // CELL (the value-semantics surrogate of TS's mutated type object).
+  // CELL (the value-semantics surrogate of a mutated type object).
   if(is_some_type(actual) && !(is_some_type(expected)), {
     match(
       actual,
@@ -526,7 +521,7 @@ _compat_impl :: (
       _ => ()
     );
   });
-  // Symmetric unwrap: several yo-self call sites pass (param, arg) with the
+  // Symmetric unwrap: several call sites pass (param, arg) with the
   // SomeT in the EXPECTED slot (e.g. helper.yo Step 8's self-param check:
   // expected = `Impl(RetI32)` receiver arg... or the roles reversed). A
   // resolved SomeT stands for its concrete either way.
@@ -588,7 +583,7 @@ _compat_impl :: (
       .TypeUni(elvl) => (alvl == elvl),
       _ => false
     ),
-    // Pointer children always use require_exact=true (TS semantics)
+    // Pointer children always use require_exact=true
     .Pointer(ainner) => match(
       expected,
       .Pointer(einner) => recur(ainner, einner, true, visited),
@@ -620,7 +615,7 @@ _compat_impl :: (
           et := match(etypes.get(i), .Some(v) => v, .None => TypeValue.Unit);
           // Labels are deliberately NOT compared — a Tuple is a structural
           // type, so `(1, 3.4, true)` flows into `Tuple(a : i32, b : f64,
-          // c : bool)` (TS compatibility.ts:242-264 has the same rule).
+          // c : bool)`.
           if(!(recur(at, et, require_exact, visited)), {
             return(false);
           });
@@ -662,10 +657,10 @@ _compat_impl :: (
       },
       _ => false
     ),
-    // Named user types. Non-exact (general compatibility): name-only (Phase 2f).
-    // `require_exact` (cache identity — TS `requireExactMatch=true`): compare
+    // Named user types. Non-exact (general compatibility): name-only.
+    // `require_exact` (cache identity): compare
     // STRUCTURALLY (equal field labels + recursively-exact field types), with a
-    // cycle guard. All yo-self structs carry an empty `name` (struct.yo sets
+    // cycle guard. All structs carry an empty `name` (struct.yo sets
     // `""`), so name-only would treat ALL anonymous structs as equal — that
     // caused a comptime-fn cache collision where `(?*)(MapEntry(String,
     // ArrayList(ME)))` hit a cached `(?*)(ME)` entry (both name=""), collapsing
@@ -680,16 +675,16 @@ _compat_impl :: (
         // ("ArgParser" vs ""), and the mixed pair must stay compatible
         // (previously everything was "" so this never arose).
         //
-        // Non-exact struct compat. TS (compatibility.ts:288-331) has NO name-only
-        // shortcut for structs: it rejects only on field-count / nominal-distinctness
-        // and otherwise recurses field types. yo-self's old name-only rule rejected
+        // Non-exact struct compat: NO name-only
+        // shortcut for structs. Reject only on field-count / nominal-distinctness
+        // and otherwise recurse field types — a pure name-only rule rejected
         // two instantiations of the SAME constructor whose STAMPED names differ —
         // e.g. `Box(V)` (generic placeholder, or a recursive `Box(Self)` field whose
         // name embeds the unresolved `__self_shell`) vs the resolved `Box(<final>)` —
-        // even though their fields are compatible. Restore TS behavior: accept the
+        // even though their fields are compatible. Accept the
         // empty-name / equal-name wildcard fast paths, reject only genuinely-distinct
         // nominals (different non-empty names, NO SomeT either side, DIFFERENT
-        // constructor_func_id — TS's `functionValue.funcId` check), and otherwise
+        // constructor_func_id), and otherwise
         // recurse field types (which resolves `__self_shell`s via the EnumT arm and
         // treats a generic SomeT as compatible). See
         // issues/fixed/yo-self-recursive-enum-nested-member-shell.md.
@@ -764,7 +759,7 @@ _compat_impl :: (
         ),
         // DISTINCT generic instantiations: two structs whose concrete
         // `type_arguments` differ are DIFFERENT types even when they share a
-        // base `id` (yo-self ids churn) and their `field_types` are still the
+        // base `id` (ids churn) and their `field_types` are still the
         // generic placeholder (`SomeT(T)` in both, so the field comparison below
         // wrongly matches). e.g. `Iter(usize)` vs `Iter(String)` collapsed the
         // specialization cache → one `.next()` served both, its return baked to
@@ -800,11 +795,11 @@ _compat_impl :: (
         // cached `Box(shell)` entry, so e.g. SuspensionCapturedVariable's
         // `is_owning_the_same_rc_value_as` field emitted as
         // `Option(Box(Variable))` (stage-2 `__yo_t628 → __yo_t114`
-        // incompatible-type cluster). TS has no shells — its `Self` IS the
-        // final object mutated in place, so a cached Self arg "grows" with the
-        // final and never matches another struct's empty in-progress type;
-        // id-only comparison for shells is the faithful equivalent of that
-        // object identity. (aid == eid already returned true above, so
+        // incompatible-type cluster). Shells exist because TypeValue is
+        // value-semantic (no shared in-place-mutated `Self` object that
+        // "grows" into the final); comparing them by id only is the
+        // value-semantic equivalent of object identity.
+        // (aid == eid already returned true above, so
         // reaching here with an empty side means different ids → distinct.)
         ((atypes.len() == usize(0)) || (etypes.len() == usize(0))) => false,
         // Exact, different ids → structural. But the SEMANTICS KIND must match
@@ -815,9 +810,8 @@ _compat_impl :: (
         // `Type.impls(RegularPoint, Send)` over `object(x:i32,y:i32)` share a cache
         // entry, so the second query returns the first's result.
         (((aref != eref) || (aatomic != eatomic)) || (anew != enew)) => false,
-        // NOMINAL distinctness by CONSTRUCTOR (mirrors TS compatibility.ts's
-        // `functionValue.funcId` check, the same signal the non-exact arm above
-        // already uses): two instantiations stamped with DIFFERENT non-empty
+        // NOMINAL distinctness by CONSTRUCTOR (the same signal the non-exact
+        // arm above already uses): two instantiations stamped with DIFFERENT non-empty
         // constructor_func_ids come from DIFFERENT generic declarations and are
         // DISTINCT under exact match even when their FIELD LAYOUTS are identical
         // and their names are empty (instantiation copies don't stamp names).
@@ -830,9 +824,9 @@ _compat_impl :: (
         // issues/repros/deque-identity-split-2arm.yo). SomeT-bearing sides and
         // cfid-empty copies fall through exactly as before.
         (((((acfid.len() != usize(0)) && (ecfid.len() != usize(0))) && (acfid != ecfid)) && (!(type_contains_some_type(actual)))) && (!(type_contains_some_type(expected)))) => false,
-        // NOMINAL distinctness (mirrors TS compatibility.ts:288-306): two structs
+        // NOMINAL distinctness: two structs
         // with DIFFERENT non-empty names are DISTINCT types under exact match,
-        // UNLESS either contains a SomeT (a specialization placeholder). yo-self's
+        // UNLESS either contains a SomeT (a specialization placeholder). The
         // struct `id` churns across generic instantiations (no stable funcId), so
         // the stamped NAME is the nominal identity here — same-named instantiations
         // (Box(i32) vs Box(String)) and ""-named reconstructions still fall through
@@ -841,8 +835,7 @@ _compat_impl :: (
         // comptime-fn CTFE cache, collapsing HashMap(_, CodegenTypeEntry).values()
         // and HashMap(_, CodegenExternFnEntry).values() to one instantiation.
         ((((aname.len() != usize(0)) && (ename.len() != usize(0))) && (aname != ename)) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected))))) => false,
-        // SAME-NAMED DISTINCT DECLARATIONS (mirrors TS requireExactMatch's
-        // strict type-ID comparison, helper.ts:2288-2292): reaching here means
+        // SAME-NAMED DISTINCT DECLARATIONS: reaching here means
         // aid != eid (the id-equality arm above returned true otherwise). Two
         // structs with the SAME non-empty stamped name, different ids, no
         // SomeT on either side and NO type_arguments are DISTINCT
@@ -859,9 +852,8 @@ _compat_impl :: (
         // struct is minted ONCE under a deterministic `capture_<id>` struct id
         // (utils/closure.yo g_capture_struct_ids) and is never re-minted as an
         // id-churned copy, so different capture ids ARE different types — the
-        // faithful equivalent of TS's per-closure StructType object identity
-        // (TS compatibility.ts:292 rejects on id inequality for SomeT-free
-        // structs). Capture structs carry empty names and empty cfids, so the
+        // value-semantic equivalent of per-closure object identity.
+        // Capture structs carry empty names and empty cfids, so the
         // nominal arms above never fire for them; without this rule two
         // same-shaped captures (`{a : i32}` from two different closures)
         // compare exact-equal and collide the comptime-fn CTFE cache — the
@@ -906,21 +898,19 @@ _compat_impl :: (
         // Non-exact keeps the empty-name wildcard rule ("TomlValue" vs a
         // ""-named reconstruction of the same enum). Under `require_exact`
         // (cache identity), name-only is unsound for the same reason as the
-        // Struct arm: all yo-self enums carry an empty name, so e.g. the
+        // Struct arm: all enums carry an empty name, so e.g. the
         // CTFE cache key `Option(JsonValue)` matched a stale `Option(T)`
         // entry and returned `Option(Option(T))` (std/encoding/json.yo).
-        // Mirror TS compatibility.ts:344-399: compare variant names, field
+        // Compare variant names, field
         // labels, and field types exactly, with the same cycle guard as the
-        // Struct arm. NO id fast-ACCEPT: yo-self generic-enum INSTANTIATIONS
+        // Struct arm. NO id fast-ACCEPT: generic-enum INSTANTIATIONS
         // share the declaration's eval id (both Option(i32) and
         // Option(String) carry enum_yo_id_3135), so `aid == eid → true`
         // declared different instantiations exact-equal — the spec cache
         // then served the FIRST payload's specialization to every receiver
         // (`Option(String).is_some()` called the Option(i32) spec:
         // "passing __yo_t16 to parameter of type __yo_t9", the collections
-        // batch residual). TS's only id use here is object identity /
-        // an early REJECT — acceptance always runs the structural compare
-        // (compatibility.ts:354-389). Shells are already resolved above
+        // batch residual). Shells are already resolved above
         // (resolve_enum_shell), so the shell-identity case the id compare
         // once served compares structurally on the finalized forms.
         .EnumT(eid, ename, evns, evfs, _, evls, _, _, _) => cond(
@@ -1053,18 +1043,17 @@ _compat_impl :: (
       ),
       _ => false
     ),
-    // SomeT: name + frame_level identity (Phase 2f: no env resolution) —
+    // SomeT: name + frame_level identity (no env resolution — `_compat_impl`
+    // carries no env) —
     // extended with a NARROW structural acceptance for same-NAMED wrappers
     // minted at different frames whose constraint-carrier arguments are all
     // CONCRETE (`Impl : (Future(i32, Io))` written at a binding annotation
     // vs the same wrapper produced by the callee's return-type resolution).
-    // TS resolves both sides through env (compatibility.ts:676-796 + :916,
-    // getValueOfSomeTypeFromEnv); yo-self's `_compat_impl` carries no env,
-    // so two such wrappers compared as unequal even when they PRINT
+    // Without it, two such wrappers compared as unequal even when they PRINT
     // identically (tests/async_await.test.yo arm 65; scratchpad/t5/
-    // B_io_variant.yo). The acceptance is deliberately narrower than the
-    // refuted full port of the TS SomeT rule (whose unguarded trait-SUBSET
-    // walk self-recursed unboundedly in stage 2): it requires equal names,
+    // B_io_variant.yo). The acceptance is deliberately narrow (an unguarded
+    // trait-SUBSET walk would self-recurse unboundedly in stage 2): it
+    // requires equal names,
     // equal-length NON-EMPTY constraint lists, and every Fn/Future carrier
     // argument SomeT-FREE — the pairwise recursion below then only ever
     // descends into concrete types and terminates.
@@ -1072,8 +1061,7 @@ _compat_impl :: (
       expected,
       .SomeT(name : ename, frame_level : elvl, required_trait_types : ertt) => cond(
         ((aname == ename) && (alvl == elvl)) => true,
-        // Definition-time-trial acceptance, ported from TS's different-id
-        // SomeType rule (compatibility.ts:676-744): two distinct type
+        // Definition-time-trial acceptance: two distinct type
         // parameters are compatible when the GIVEN side satisfies every
         // constraint the EXPECTED side carries — trivially true for an
         // unconstrained forall (`A` in `where(I <: Iterator(Item := A))`
@@ -1081,10 +1069,10 @@ _compat_impl :: (
         // comparisons — the exact mode keys spec/CTFE caches, where
         // collapsing `Box(V)`/`Box(T)` is the gap-6 identity-split family —
         // and (b) def-time trials, whose stamps are discardable (the
-        // repair-1 contract); unscoped, yo-self's compensations around the
-        // stricter name+level rule regress (the refuted full-port note
-        // above). EMPTY expected-constraint lists only: the trait-SUBSET
-        // walk of the full TS rule is what self-recursed unboundedly.
+        // repair-1 contract); unscoped, the compensations around the
+        // stricter name+level rule regress. EMPTY expected-constraint lists
+        // only: a trait-SUBSET
+        // walk on non-empty lists can self-recurse unboundedly.
         (((!(require_exact)) && trial_flag_get()) && (ertt.len() == usize(0))) => true,
         true => {
           (xw_ok : bool) = (
@@ -1267,9 +1255,9 @@ _compat_impl :: (
           if(flat_a_types.len() != flat_e_types.len(), {
             return(false);
           });
-          // Order-independent set matching by effect TYPE only. TS compares
-          // Future effects structurally by type (compatibility.ts:516-529 —
-          // a single optional effect, no label anywhere); yo-self's label
+          // Order-independent set matching by effect TYPE only. Future
+          // effects compare structurally by type — a single optional
+          // effect, no label anywhere: a label
           // equality requirement rejected `Impl(Future(i32, Ctx))` (declared
           // label "Ctx") against io.async's return (its declared effect
           // forall label "E", resolved to the same Ctx) — the whole

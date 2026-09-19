@@ -1,21 +1,6 @@
 //! evaluator/calls/record_type — try_to_implement_module_with_arguments_by_module_type.
 //!
-//! TS counterpart: `src/evaluator/calls/record-type.ts`.
-//!
-//! Naming note: TS renamed `module-type.ts` → `record-type.ts` in the
-//! "Unify module and struct" PR (ca129d0e, 2026-05-08), which also replaced
-//! the exported `tryToImplementModuleWithArgumentsByModuleType` with
-//! `tryToImplementRecordWithArgumentsByRecordType` and merged `ModuleType`
-//! into `StructType` (the post-refactor `SourceNamespaceType` is a
-//! `StructType` with `isSourceNamespace = true`).
-//!
-//! This file keeps the pre-refactor symbol names (`ModuleT`, `module_type`,
-//! `try_to_implement_module_with_arguments_by_module_type`) — the
-//! symbol-level rename and the type-system unification are tracked as a
-//! follow-up content port. Structural file/directory layout matches the
-//! current TS tree.
-//!
-//! Original behavior:
+//! Behavior:
 //! - Binds argument values to the fields of a ModuleType, producing a module value.
 //! - `ModuleT.field_types` are already evaluated; no `exprs.typeExpr` re-evaluation needed.
 //! - `ModuleT` has no `assignedValue`/`defaultValue` per field → error if field missing.
@@ -54,9 +39,6 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 /// Bind `arg_exprs` to the fields of `module_type`, returning a ModuleTypeCallResult.
 ///
-/// 1:1 port of `tryToImplementModuleWithArgumentsByModuleType` from
-/// `src/evaluator/calls/module-type.ts`.
-///
 /// Requires every module field to be provided (no default/assigned value support yet).
 try_to_implement_module_with_arguments_by_module_type :: (
   fn(
@@ -68,8 +50,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     exn : Exception
   ) -> ModuleTypeCallResult
 )({
-  // Extract field labels and types from the source-namespace Struct
-  // (TS: SourceNamespaceType, record-type.ts:37).
+  // Extract field labels and types from the source-namespace Struct.
   field_labels := match(
     module_type,
     .Struct({ field_labels : labels }) => labels,

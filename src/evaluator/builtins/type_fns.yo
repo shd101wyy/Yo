@@ -1,7 +1,5 @@
 //! evaluator/builtins/type_fns — type introspection builtin functions.
 //!
-//! Full 1:1 port of `src/evaluator/builtins/type-fns.ts`.
-//!
 //! Functions implemented:
 //!   evaluate_yo_type_to_string, evaluate_yo_are_types_compatible,
 //!   evaluate_yo_are_types_equal, evaluate_yo_type_contains_rc_type,
@@ -280,7 +278,7 @@ evaluate_yo_are_types_compatible :: (
   });
   given_type := _extract_type_val(arg1, info_1, "__yo_are_types_compatible", exn);
   cur_env = info_1.env;
-  // are_types_compatible(actual, expected) — yo-self param order
+  // are_types_compatible(actual, expected)
   compatible := are_types_compatible(given_type, expected_type);
   out_info := new_expr_info(cur_env, t_bool());
   out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(compatible));
@@ -364,7 +362,7 @@ evaluate_yo_are_types_equal :: (
   );
   type_b := _extract_type_val(arg1, info_1, "__yo_are_types_equal", exn);
   cur_env = info_1.env;
-  // Use exact match (requireExactMatch = true in TS).
+  // Use exact match (no implicit conversions).
   equal := are_types_compatible_exact(type_a, type_b);
   out_info := new_expr_info(cur_env, t_bool());
   out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(equal));
@@ -489,7 +487,7 @@ evaluate_yo_type_can_form_rc_cycle :: (
 });
 /// __yo_type_impls(T, Trait) -> bool
 /// Returns true if T implements the given Trait.
-/// Mirrors `evaluateYoTypeImpls` in `src/evaluator/builtins/type-fns.ts`.
+///
 evaluate_yo_type_impls :: (
   fn(
     expr : AstExpr,
@@ -846,8 +844,7 @@ _ti_bind_variant_info_list :: (
   });
   _ti_bind_comptime_list(env_ptr, vi_vals, String.from("VariantInfo"), String.from("vl"), ctx, exn)
 });
-/// Build a ComptimeList(TraitInfo) from trait types and bind to a temp var
-/// (port of bindTempTraitInfoList, type-fns.ts:1330).
+/// Build a ComptimeList(TraitInfo) from trait types and bind to a temp var.
 _ti_bind_trait_info_list :: (
   fn(
     env_ptr : Environment,
@@ -880,8 +877,7 @@ _ti_bind_trait_info_list :: (
     _ti_bind_comptime_list(env_ptr, values, String.from("TraitInfo"), pfx, ctx, exn)
   }
 });
-/// Build one ParamInfo value (port of the loop body in bindTempParamInfoList,
-/// type-fns.ts:1128).
+/// Build one ParamInfo value.
 _ti_build_param_info :: (
   fn(
     env_ptr : Environment,
@@ -905,10 +901,9 @@ _ti_build_param_info :: (
   code.push_str(")");
   match(_ti_eval_code(env_ptr, code, ctx, exn), .Some(v) => v, .None => EvalValue.UnitVal)
 });
-/// Build a FunctionInfo temp var from a call signature (port of
-/// bindTempFunctionInfo, type-fns.ts:1064). Sources per-param data from
-/// what the type value CARRIES (labels/types/foralls/implicits + variadic
-/// flag); yo-self keeps per-param comptime in an expr-id side table
+/// Build a FunctionInfo temp var from a call signature. Sources per-param
+/// data from what the type value CARRIES (labels/types/foralls/implicits +
+/// variadic flag); per-param comptime lives in an expr-id side table
 /// unreachable from a bare TypeValue — recorded gap in the map.
 _ti_bind_function_info :: (
   fn(
@@ -921,8 +916,7 @@ _ti_bind_function_info :: (
     implicit_types : ArrayList(TypeValue),
     result_ty : TypeValue,
     // The variadic parameter (0-or-1 in variadic_types; label/comptime from
-    // FuncMeta) — appended to the params list exactly as TS appends
-    // variadicParameter (type-fns.ts:1134).
+    // FuncMeta) — appended to the params list after the fixed params.
     variadic_types : ArrayList(TypeValue),
     variadic_label : String,
     variadic_comptime : bool,
@@ -1029,10 +1023,9 @@ _ti_bind_function_info :: (
   );
   fni_name
 });
-/// Build the TraitFieldInfo list for a TraitT (port of
-/// bindTempTraitFieldInfoList, type-fns.ts:1237). A field is an ASSOCIATED
-/// TYPE when its label is in the trait's assoc_type_names (TS
-/// `field.unassignedSomeType`).
+/// Build the TraitFieldInfo list for a TraitT. A field is an ASSOCIATED
+/// TYPE when its label is in the trait's assoc_type_names (the field's
+/// unassigned some-type).
 _ti_bind_trait_field_info_list :: (
   fn(
     env_ptr : Environment,
@@ -1232,7 +1225,7 @@ evaluate_yo_type_get_info :: (
       (String.from("TypeInfo.Union(") + fl_name) + String.from(")")
     },
     // === SomeType(name, required_traits, negative_traits, resolved_type) ===
-    // (type-fns.ts:896-930)
+    //
     .SomeT({ name : st_name, required_trait_types : st_req, negative_trait_types : st_neg, resolved_concrete : st_res }) => {
       req_name := _ti_bind_trait_info_list(local_env, st_req, String.from("req"), ctx, exn);
       neg_name := _ti_bind_trait_info_list(local_env, st_neg, String.from("neg"), ctx, exn);
@@ -1254,7 +1247,7 @@ evaluate_yo_type_get_info :: (
         sc
       }
     },
-    // === Dyn(required_traits, negative_traits) === (type-fns.ts:876-894)
+    // === Dyn(required_traits, negative_traits) ===
     .DynT(dt_req, _, dt_neg, _) => {
       req_name := _ti_bind_trait_info_list(local_env, dt_req, String.from("req"), ctx, exn);
       neg_name := _ti_bind_trait_info_list(local_env, dt_neg, String.from("neg"), ctx, exn);
@@ -1267,8 +1260,8 @@ evaluate_yo_type_get_info :: (
         dc
       }
     },
-    // === Trait(fields, kind) === (type-fns.ts:858-874). yo-self splits TS's
-    // TraitType into TraitT / FnTraitT / FutureTraitT — one arm each.
+    // === Trait(fields, kind) ===. Traits split into
+    // TraitT / FnTraitT / FutureTraitT — one arm each.
     .TraitT(_, tt_assoc_names, tt_flabels, tt_ftypes, _, _, _, _, _, _) => {
       fl_name := _ti_bind_trait_field_info_list(local_env, tt_flabels, tt_ftypes, tt_assoc_names, ctx, exn);
       {
@@ -1319,7 +1312,7 @@ evaluate_yo_type_get_info :: (
         uc
       }
     },
-    // === Function(info) === (type-fns.ts:849-856)
+    // === Function(info) ===
     .Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta, variadic_types : fn_vts }) => {
       fni_name := _ti_bind_function_info(
         local_env,
@@ -1764,7 +1757,7 @@ evaluate_type_join_fields :: (
   });
   // For each field, build FieldInfo and call mapper.
   // Resolve the DECLARED `FieldInfo` struct type once for the temp-var
-  // bindings — same TS `value.type` parity (and same lossy
+  // bindings — same `value.type` parity (and same lossy
   // `type_of_eval_value` pitfall) as the `VariantInfo` resolution in
   // `evaluate_type_map_variants` below.
   fi_declared_ty_opt := match(
@@ -1993,10 +1986,9 @@ evaluate_type_map_variants :: (
   variant_fields := match(target_type, .EnumT(_, _, _, vf, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
   variant_field_labels := match(target_type, .EnumT(_, _, _, _, _, vfl, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
   // Resolve the DECLARED `VariantInfo` struct type from the env once — the
-  // type each per-variant temp var is bound with. Mirrors TS `argType:
-  // variantInfoValue.type` (type-fns.ts callMapperWithArg): TS values carry
-  // their evaluated type. yo-self values don't, and the
-  // `type_of_eval_value(vi_val)` stand-in reconstructs field types from field
+  // type each per-variant temp var is bound with. EvalValues do not carry
+  // their evaluated type, and the `type_of_eval_value(vi_val)` stand-in
+  // reconstructs field types from field
   // VALUES — lossy for `ComptimeListVal` fields (no case → `unit`), so the
   // mapper param's `fields` slot lost its ComptimeList type and
   // `variant.fields.len()` found no method (dispatch on `unit` → 0 hits) —

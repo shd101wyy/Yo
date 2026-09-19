@@ -1,21 +1,13 @@
 //! Evaluator context types.
 //!
-//! Mirrors `src/evaluator/context.ts` — 1:1 port of all exported interfaces,
-//! type aliases, and the `trackVariableUsage` helper.
+//! Key type mapping decisions:
 //!
-//! Key design decisions vs the TypeScript source:
-//!
-//! * TypeScript interfaces → Yo `object` types.
-//! * Optional TypeScript fields (`field?: T`) → `Option(T)` Yo fields.
-//! * TypeScript discriminated-union result fields → Yo enum variants.
+//! * Interfaces are Yo `object` types; optional fields (`field?: T`) are
+//!   `Option(T)` fields; discriminated-union result fields are Yo enum variants.
 //! * `Map<K,V>` → `HashMap(K, V)` from std/collections/hash_map.
 //! * `Set<K>` → `HashSet(K)` from std/collections/hash_set.
-//! * TypeScript callback types (`LoadModuleFn`, …) → Yo function types.
-//! * TypeScript `Type` → `TypeValue` (our enum-based type representation).
-//! * TypeScript `Value | ModuleValue | TraitValue | FunctionValue` → `EvalValue`.
-//! * TypeScript `Expr | FnCallExpr` → `AstExpr`.
-//! * TypeScript `PathCollection` (Path[]) → `PathCollection :: ArrayList(ArrayList(String))`
-//!   imported from `src/expr_info.yo` (Phase 2k).
+//! * `PathCollection` → `PathCollection :: ArrayList(ArrayList(String))`
+//!   imported from `src/expr_info.yo`.
 { String } :: import("std/string");
 { env : ctx_dbg_env } :: import("std/env");
 { eprintln } :: import("std/fmt");
@@ -53,9 +45,6 @@
 { Token } :: import("../token.yo");
 { fnv1a64 } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
-// PathCollection now imported from ../expr_info.yo (Phase 2k)
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
 // ---------------------------------------------------------------------------
 /// Node ids of identifier atoms inside `ensures(...)` predicates spliced into
@@ -79,8 +68,7 @@ is_unlabeled_ensures_atom :: (fn(id : ExprId) -> bool)(
 // ---------------------------------------------------------------------------
 // LoadModuleFn result
 // ---------------------------------------------------------------------------
-/// Return value of a `load_module` callback.  Mirrors the anonymous object
-/// `{ moduleValue: ModuleValue; moduleError: Error | undefined }` in the TS source.
+/// Return value of a `load_module` callback.
 LoadModuleResult :: ref(
   struct(
     module_value : EvalValue,
@@ -105,9 +93,6 @@ FuncOrAsyncBlockKind :: enum(
   TestBlock
 );
 /// Evaluation sub-context for a function body or async / test block.
-///
-/// Mirrors the TypeScript union
-/// `FunctionEvaluationContext | AsyncBlockEvaluationContext | TestBlockEvaluationContext`.
 FuncOrAsyncBlockCtx :: ref(
   struct(
     kind : FuncOrAsyncBlockKind,
@@ -130,10 +115,9 @@ LoopBodyCtx :: ref(
     env : Environment,
     // Frame count SNAPSHOT taken at loop entry. `env` is the live shared
     // Environment whose frames list keeps growing during the body eval, so
-    // TS's `variable.frameLevel < isEvaluatingLoopBody.env.frames.length`
-    // (assignment.ts:543) must compare against this number, not env's
-    // current length — that live read is exactly why the first port of the
-    // while-loop init gate false-fired on body-locals and was reverted.
+    // frame-level comparisons must use this number, not env's current
+    // length — a live read of the current length makes the while-loop init
+    // gate false-fire on body-locals.
     entry_frame_count : usize
   )
 );
@@ -173,15 +157,13 @@ SpecializingFunctionInfo :: ref(
     /// The original (pre-specialization) function value.
     original_func_value : EvalValue,
     /// Signature of the impl generic bindings injected as `TypeVal` captures on
-    /// the method value (`_inject_forall_captures`). TS gives each generic-impl
-    /// method instantiation a UNIQUE funcId embedding its substitutions
-    /// (impl.ts:1551), so its recursion guard never fires across
-    /// instantiations; yo-self keeps ONE shared func_id and injects the
-    /// bindings as captures instead — this field carries those bindings so the
-    /// guard can distinguish `Eq(ArrayList(i32)).==` in progress from a nested
-    /// call to `Eq(i32).==` (same func_id, different instantiation). Empty for
-    /// plain generic functions — their guard stays bare-func_id (TS-faithful,
-    /// including for polymorphic recursion).
+    /// the method value (`_inject_forall_captures`). Generic-impl method
+    /// instantiations share ONE func_id (the substitutions ride as injected
+    /// captures), so this field carries those bindings and lets the
+    /// recursion guard distinguish `Eq(ArrayList(i32)).==` in progress from
+    /// a nested call to `Eq(i32).==` (same func_id, different
+    /// instantiation). Empty for plain generic functions — their guard stays
+    /// bare-func_id, including for polymorphic recursion.
     impl_bindings_sig : String
   )
 );
@@ -201,9 +183,8 @@ ImplConcreteTypeInfo :: ref(
 // ---------------------------------------------------------------------------
 /// One cached call entry for a compile-time function.
 ///
-/// Mirrors `CalledComptimeFunctionCache` in `src/function-value.ts`.
-/// Simplified: `env` field dropped (we use callerEnv at lookup time);
-/// `body` field dropped (ExprInfoTable makes AST re-evaluation safe).
+/// Holds no `env` (callerEnv is used at lookup time) and no `body`
+/// (ExprInfoTable makes AST re-evaluation safe).
 CalledComptimeFnCache :: ref(
   struct(
     func_id : String,
@@ -214,8 +195,7 @@ CalledComptimeFnCache :: ref(
 );
 /// Per-function CTFE cache bucket, keyed by `func_id`.
 ///
-/// Mirrors the per-`FunctionValue` `calledComptimeFunctionCaches` array in TS,
-/// but stored globally in `EvalContext` instead of on the `FuncVal` to avoid
+/// Stored globally in `EvalContext` instead of on the `FuncVal` to avoid
 /// circular imports between `value.yo` and `env.yo`.
 ComptimeFnCacheEntry :: ref(
   struct(
@@ -228,10 +208,9 @@ ComptimeFnCacheEntry :: ref(
 // ---------------------------------------------------------------------------
 /// One cached specialization of a generic function.
 ///
-/// Mirrors `SpecializedFunctionCache` on TypeScript's `FunctionValue`.
 /// Stored in the module-global `g_specialized_fn_caches` (calls/helper.yo,
 /// keyed by `func_id`) rather than on `FuncVal`, to avoid updating ~24
-/// pattern-match sites while matching TS's process-wide cache lifetime.
+/// pattern-match sites; the cache lives for the whole process.
 SpecializedFunctionCache :: ref(
   struct(
     /// The compile-time argument values (generic + implicit + comptime params)
@@ -257,8 +236,6 @@ SpecializedFunctionCacheEntry :: ref(
 // Main EvaluatorContext
 // ---------------------------------------------------------------------------
 /// The evaluator context threaded through every expression evaluation.
-///
-/// Mirrors `EvaluatorContext` in `src/evaluator/context.ts`.
 EvalContext :: ref(
   struct(
     /// Whether we are currently executing code (`true`) or just type-checking it.
@@ -301,7 +278,7 @@ EvalContext :: ref(
     receiver_type : Option(TypeValue),
     /// Whether we are evaluating a function type definition.
     is_evaluating_function_type : bool,
-    /// Module loader callback.  Set by the module manager before evaluation
+    /// Module loader callback. Set by the module manager before evaluation
     /// starts and used by `import("...")` expressions.
     load_module : Option((fn(path : String) -> LoadModuleResult)),
     /// Absolute path to the standard library `std/` directory.
@@ -312,7 +289,7 @@ EvalContext :: ref(
     is_unsafe_function_type : bool,
     /// Whether the expression currently being evaluated is inside an
     /// `unsafe(...)` block. Set by `evaluate_unsafe`; permits raw-pointer
-    /// operations (deref/arith) within. Mirrors TS `EvaluatorContext.unsafeContext`.
+    /// operations (deref/arith) within.
     unsafe_context : bool,
     /// Whether the function type being evaluated was declared `ctl(...)
     /// -> ret`. Control functions may contain `unwind` in their body and
@@ -360,32 +337,30 @@ EvalContext :: ref(
     currently_specializing_function_stack : Option(ArrayList(SpecializingFunctionInfo)),
     /// Doc-comment lookup table (position key → comment text).
     doc_comment_lookup : Option(HashMap(String, String)),
-    /// Side-table for expression evaluation results (replaces TypeScript's `expr.$` mutation).
+    /// Side-table for expression evaluation results (instead of mutating the AST node).
     expr_info_table : ExprInfoTable,
     /// CTFE call cache — per-function buckets keyed by `func_id`.
     ///
     /// Stored here (rather than on `FuncVal`) to avoid a circular import between
-    /// `value.yo` and `env.yo`.  Each entry holds the cached call results for
+    /// `value.yo` and `env.yo`. Each entry holds the cached call results for
     /// one compile-time function.
     comptime_fn_caches : ArrayList(ComptimeFnCacheEntry),
     /// Working-trait field bindings for the trait constructor CURRENTLY
     /// being implemented inside an `impl(...)` block — parallel
-    /// label/value arrays. Mirrors TS attaching the progressively-updated
-    /// `workingTraitType` to `receiverType.trait` (trait-type.ts:151-203)
-    /// so `Self.X` resolves to fields already bound in the SAME trait
-    /// entry (e.g. `Output : T` before `index : fn(...) -> *(Self.Output)`);
-    /// yo-self TypeValues have value semantics (no trait slot), so the
-    /// in-flight bindings live on the context, consulted by
+    /// label/value arrays, so `Self.X` resolves to fields already bound in
+    /// the SAME trait entry (e.g. `Output : T` before `index : fn(...) ->
+    /// *(Self.Output)`). TypeValues have value semantics (no trait slot),
+    /// so the in-flight bindings live on the context, consulted by
     /// property_access's working-trait associated-type fallback.
     current_impl_trait_field_labels : ArrayList(String),
     current_impl_trait_field_types : ArrayList(TypeValue),
     /// One-shot carrier for a method call's CONCRETE receiver type, set by
     /// the method-call dispatch just before `try_to_call_function_with_arguments`
-    /// and consumed (read + cleared) at its entry — the port channel for TS's
-    /// `functionType.SelfType` (helper.ts:1015 binds "Self" into calleeEnv
-    /// from it). A dedicated field, NOT `self_type`: `self_type` is visible
-    /// to the whole body evaluation and repurposing it changed specialization
-    /// behavior broadly (measured: fs/temp + sys/bufio runtime regressions).
+    /// and consumed (read + cleared) at its entry, where it binds "Self" into
+    /// the callee env. A dedicated field, NOT `self_type`: `self_type` is
+    /// visible to the whole body evaluation and repurposing it changed
+    /// specialization behavior broadly (measured: fs/temp + sys/bufio runtime
+    /// regressions).
     pending_method_self_type : Option(TypeValue)
   )
 );
@@ -453,7 +428,6 @@ VarArgEntry :: ref(
     arg_type : TypeValue
   )
 );
-/// Mirrors `ArgValues` in `src/evaluator/context.ts`.
 ArgValues :: ref(
   struct(
     forall_args : ArrayList(ArgEntry),
@@ -465,7 +439,6 @@ ArgValues :: ref(
 // ---------------------------------------------------------------------------
 // FunctionCallResult
 // ---------------------------------------------------------------------------
-/// Mirrors `FunctionCallResult` in `src/evaluator/context.ts`.
 FuncCallResult :: ref(
   struct(
     callee_env : Environment,
@@ -485,9 +458,6 @@ FuncCallResult :: ref(
 // ComptimeFnCallResult
 // ---------------------------------------------------------------------------
 /// Result from `evaluate_comptime_fn_call`.
-///
-/// Mirrors the anonymous return type of `evaluateComptimeFunctionCall` in
-/// `src/evaluator/calls/comptime-fn.ts`.
 ComptimeFnCallResult :: ref(
   struct(
     value : EvalValue,
@@ -495,15 +465,12 @@ ComptimeFnCallResult :: ref(
     callee_env : Environment,
     /// ComptimeRef from the evaluated function body, so callers (e.g. the
     /// ComptimeIndex dispatch) can treat the result as a comptime place.
-    /// Mirrors `comptimeRef: evaluatedFunctionBody.$.comptimeRef`
-    /// (TS comptime-fn.ts:297).
     comptime_ref : Option(ComptimeRef)
   )
 );
 // ---------------------------------------------------------------------------
 // TypeCallResult
 // ---------------------------------------------------------------------------
-/// Mirrors `TypeCallResult`.
 TypeCallResult :: ref(
   struct(
     values : ArrayList(Option(EvalValue)),
@@ -515,28 +482,24 @@ TypeCallResult :: ref(
 // ---------------------------------------------------------------------------
 // Module / trait / macro / numeric / pointer / index call results
 // ---------------------------------------------------------------------------
-/// Mirrors `ModuleTypeCallResult`.
 ModuleTypeCallResult :: ref(
   struct(
     module_value : EvalValue,
     caller_env : Environment
   )
 );
-/// Mirrors `TraitTypeCallResult`.
 TraitTypeCallResult :: ref(
   struct(
     trait_value : EvalValue,
     caller_env : Environment
   )
 );
-/// Mirrors `TraitSpecializationResult`.
 TraitSpecializationResult :: ref(
   struct(
     specialized_trait_type : TypeValue,
     caller_env : Environment
   )
 );
-/// Mirrors `MacroFunctionCallResult`.
 MacroFuncCallResult :: ref(
   struct(
     callee_env : Environment,
@@ -544,21 +507,18 @@ MacroFuncCallResult :: ref(
     return_expr : AstExpr
   )
 );
-/// Mirrors `NumericTypeCallResult`.
 NumericTypeCallResult :: ref(
   struct(
     expr : AstExpr,
     env : Environment
   )
 );
-/// Mirrors `PointerTypeCallResult`.
 PointerTypeCallResult :: ref(
   struct(
     expr : AstExpr,
     env : Environment
   )
 );
-/// Mirrors `IndexCallResult`.
 IndexCallResult :: ref(
   struct(
     /// Auto-dereferenced value (Output type, not *(Output)).
@@ -576,7 +536,6 @@ IndexCallResult :: ref(
     index : Option(usize),
     /// Compile-time element/field reference produced by a ComptimeIndex
     /// dispatch, enabling `p(0) = v` and `&(p(0))` at compile time.
-    /// Mirrors `IndexCallResult.comptimeRef` (src/evaluator/context.ts:449).
     comptime_ref : Option(ComptimeRef)
   )
 );
@@ -584,9 +543,6 @@ IndexCallResult :: ref(
 // FunctionToCall — result discriminated union
 // ---------------------------------------------------------------------------
 /// Discriminated union of all possible results from a call dispatch.
-///
-/// Mirrors the anonymous union type on `FunctionToCall.result` in
-/// `src/evaluator/context.ts`.
 CallResultKind :: enum(
   /// Result from tryToCallFunctionWithArguments.
   FunctionResult(result : FuncCallResult),
@@ -615,7 +571,6 @@ CallResultKind :: enum(
   /// An error occurred during call dispatch.
   ErrorResult(message : String)
 );
-/// Mirrors `FunctionToCall` in `src/evaluator/context.ts`.
 FunctionToCall :: ref(
   struct(
     ty : TypeValue,
@@ -625,7 +580,7 @@ FunctionToCall :: ref(
   )
 );
 // ---------------------------------------------------------------------------
-// Convenience extractors (mirrors getFunctionCallResult, etc.)
+// Convenience extractors
 // ---------------------------------------------------------------------------
 get_function_call_result :: (fn(ftc : FunctionToCall) -> Option(FuncCallResult))(
   match(
@@ -674,14 +629,12 @@ get_pointer_type_call_result :: (fn(ftc : FunctionToCall) -> Option(PointerTypeC
 // ---------------------------------------------------------------------------
 /// Track usage of a variable inside a closure or async block.
 ///
-/// Mirrors `trackVariableUsage` in `src/evaluator/context.ts`.
-///
 /// - Skips compile-time-only variables (they are not captured at runtime).
 /// - Only tracks variables from outer scopes (frame_level < eval_env.frame_count).
 /// - Promotes usage type: `own` > `write` > `read`.
 ///
 /// `context` is modified in-place.
-/// `track_variable_usage`, with the CALLER-RESOLVED binding's
+/// This is `track_variable_usage` with the CALLER-RESOLVED binding's
 /// `is_compile_time_only` flag. The tracker re-finds the name in the
 /// closure ctx's `eval_env`, which for a DEFERRED generic fn is the
 /// DEF-TIME generation — where concrete-typed params are bound
@@ -690,8 +643,7 @@ get_pointer_type_call_result :: (fn(ftc : FunctionToCall) -> Option(PointerTypeC
 /// `r`/`io` (whose def-time bindings happen to be runtime), so the emitted
 /// C read the dropped names as bare identifiers or garbage
 /// (issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md,
-/// facet 1). TS is immune: its envs are per-generation, so the re-found
-/// binding IS the resolved one. Pass `.Some(resolved.is_compile_time_only)`
+/// facet 1). Pass `.Some(resolved.is_compile_time_only)`
 /// from identifier resolution; `.None` keeps the legacy stale-binding gate
 /// for callers that have no resolved binding at hand.
 track_variable_usage_resolved :: (
@@ -721,9 +673,7 @@ track_variable_usage_resolved :: (
       // tracked identifier read under scope-end drop evaluation, and the
       // blind per-candidate `v.name == variable_name` String compares (each
       // paying an Rc incr/decr pair) dominated heavy `check` runs. Semantics
-      // identical: first match, outermost frame first (TS context.ts:671
-      // does the same frames[i].variables.find scan — cheap there because
-      // JS string === has no RC cost).
+      // identical: first match, outermost frame first.
       var_found := Option(Variable).None;
       actual_frame_level := usize(0);
       fi := usize(0);
@@ -783,12 +733,10 @@ track_variable_usage_resolved :: (
         .Some(v) => {
           // A variable found in the TOP frame of a function body's eval_env
           // is the function's OWN parameter — every body-context creator
-          // pushes the parameters frame before creating the context (TS:
-          // function-type.ts:380, closure-type.ts:67, anonymous-function.ts:340).
+          // pushes the parameters frame before creating the context.
           // Parameters are not captures: recording them made the scope-end
           // drop filter skip the drop of any `own` parameter the body
-          // referenced (issues/fixed/own-param-discard-leak.md). Mirrors
-          // src/evaluator/context.ts trackVariableUsage.
+          // referenced (issues/fixed/own-param-discard-leak.md).
           is_fn_body := match(sub_ctx.kind, .FunctionBody => true, _ => false);
           if(ctx_dbg_env.get(`YO_DEBUG_CAPTURE`).is_some(), {
             trk_top := (is_fn_body && (actual_frame_level == (eval_env.frame_count() - usize(1))));
@@ -867,10 +815,9 @@ track_variable_usage_resolved :: (
 // A fn defined while a forward-declared comptime fn variable is still
 // VALUELESS (`comptime(is_odd) : (fn ...)`; is_even's body references it)
 // records call-site ExprInfos with no FuncVal — codegen's fn-pointer
-// fallback then emits the raw identifier. TS re-records on its later
-// evaluations of the SHARED body nodes; yo-self re-runs the def-time trial
-// eval after the forward declaration is FILLED (assignment.yo calls
-// through this hook into function_type.yo's pending table).
+// fallback then emits the raw identifier. The def-time trial eval is
+// therefore re-run after the forward declaration is FILLED (assignment.yo
+// calls through this hook into function_type.yo's pending table).
 RerunPendingDefEvalsFn :: (fn(env : Environment, ctx : EvalContext) -> unit);
 (g_rerun_pending_def_evals_fn : Option(RerunPendingDefEvalsFn)) = Option(RerunPendingDefEvalsFn).None;
 set_rerun_pending_def_evals_fn :: (fn(f : RerunPendingDefEvalsFn) -> unit)({
@@ -1026,8 +973,8 @@ forward_ref_diagnostic :: (fn(msg : String) -> Option(String))({
   )
 });
 /// The swallow classes that must surface at check time even from the SILENT
-/// trial sites (the deferred-generic trials, TS ts:112 catch parity):
-/// forward references get the enriched diagnostic above; an ARITY mismatch
+/// trial sites (the deferred-generic trials): forward references get the
+/// enriched diagnostic above; an ARITY mismatch
 /// against the resolved callee is knowable at def time — the hole that
 /// shipped broken `yo version install` in v0.2.19/v0.2.20: check stayed
 /// green, the swallow ate "Argument count mismatch", and the async state
@@ -2358,7 +2305,7 @@ force_pending_impls_for_type_name :: (fn(type_name : String) -> PendingImplOutco
   // type is the in-block sibling forward reference that impl.yo's shell
   // pre-pass and in-flight registry own — forcing a LATER impl of the same
   // type in the middle of that registration evaluated `impl(Sha1, Digest(update
-  // : self.update(data)))` against a half-registered Sha1 and left its trait
+  // self.update(data)))` against a half-registered Sha1 and left its trait
   // methods resolving through the trait record (`__yo_t18.update`,
   // tests/crypto/digest.test.yo). Cross-block references still force from
   // free functions, generic bodies and other types' impls.
@@ -2649,14 +2596,6 @@ take_pending_impl_force_error :: (fn() -> Option(String))({
 in_def_time_trial :: (fn() -> bool)(trial_flag_get());
 set_in_def_time_trial :: (fn(v : bool) -> bool)(trial_flag_set(v));
 /// Creates a fresh evaluation context for function body evaluation.
-///
-/// Mirrors `createFunctionBodyEvaluationContext` in `src/evaluator/calls/function-type.ts`.
-///
-/// In TypeScript the function returns `{ evaluationContext, functionBodyContext }`.
-/// In Yo, `functionBodyContext` is embedded inside the returned `EvalContext` as
-/// `is_evaluating_function_body_or_async_block`, so we return just `EvalContext`.
-///
-/// Phase 3c: IMPLEMENTED.
 create_function_body_evaluation_context :: (
   fn(
     function_type : TypeValue,
@@ -2665,7 +2604,7 @@ create_function_body_evaluation_context :: (
     ctx : EvalContext
   ) -> EvalContext
 )({
-  // Build the FuncOrAsyncBlockCtx (FunctionEvaluationContext in TypeScript).
+  // Build the FuncOrAsyncBlockCtx.
   func_body_ctx := FuncOrAsyncBlockCtx(
     kind : FuncOrAsyncBlockKind.FunctionBody,
     func_type : Option(TypeValue).Some(function_type),
@@ -2697,8 +2636,6 @@ create_function_body_evaluation_context :: (
   // (`*(T)` at the C ABI) — set the body's expected type to `*(T)` so
   // unification across `match`/`cond` arms agrees on the pointer shape
   // (e.g. `match(opt, .Some(b) => &(b(i)), .None => __yo_panic(...))`).
-  // Mirrors TS function-type.ts `bodyExpectedType = return.isRef ?
-  // createPtrType(return.type) : return.type`.
   return_type := match(
     function_type,
     .Func({ result : ret_box, meta : __fm1 }) => cond(
@@ -2707,7 +2644,7 @@ create_function_body_evaluation_context :: (
     ),
     _ => t_unit()
   );
-  // Build the new EvalContext with overrides (mirrors `{ ...context, overrides }` in TS).
+  // Build the new EvalContext with overrides.
   EvalContext(
     // Overridden fields
     is_executing : false,
@@ -2729,7 +2666,7 @@ create_function_body_evaluation_context :: (
     enclosing_function_return_type : enclosing_return_type,
     force_compile_time_bindings : false,
     is_analyzing_ctfe_capability : false,
-    // Copied from parent context (mirrors `...context` spread in TS)
+    // Copied from parent context
     is_inside_impl_block : ctx.is_inside_impl_block,
     self_type : ctx.self_type,
     self_trait_type : ctx.self_trait_type,

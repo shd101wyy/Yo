@@ -1,29 +1,21 @@
 //! evaluate_anonymous_function_implementation — evaluates anonymous function literals.
 //!
-//! Phase 3 implementation — port of `src/evaluator/values/anonymous-function.ts`.
-//!
 //! Handles:
 //!   `(params) -> body`   — regular anonymous function (expected type must be Func)
 //!   `(params) => body`   — closure (expected type must be SomeT or FnTraitT with Fn trait)
-//!   `(params) =>> body`  — async closure (like `=>` but marks io.async context)
+//!   `(params) =>> body` — async closure (like `=>` but marks io.async context)
 //!
-//! Definition-time body evaluation IS ported (the closure-body def-eval
-//! wall, mirrors anonymous-function.ts:766-852): non-generic bodies evaluate
-//! at definition time under a function-body context (captured_variables
-//! populated via track_variable_usage), guarded by the capture-free trial
-//! swallow. Post-eval gates: regular-fn-no-capture (ts:867), §4 rule 1
-//! unwind-needs-ctl (ts:894), Phase B ref-capture + control-bound-capture
-//! rejection (ts:1078-1110).
+//! Definition-time body evaluation (the closure-body def-eval wall):
+//! non-generic bodies evaluate at definition time under a function-body
+//! context (captured_variables populated via track_variable_usage),
+//! guarded by the capture-free trial swallow. Post-eval gates:
+//! regular-fn-no-capture, §4 rule 1 unwind-needs-ctl, ref-capture +
+//! control-bound-capture rejection.
 //!
-//! Phase 3 simplifications (vs full TypeScript port):
-//!   - substituteSomeTypesFromEnv skipped
-//!   - analyzeCtfeCapability skipped
-//!   - await analysis skipped
-//!   - Effect row spread expansion skipped (uses existing implicit params as-is)
-//!   - checkDeferredGenericReturnType skipped for deferred (generic) bodies
-//!   - return-type-vs-body compatibility check skipped (would over-fire on
-//!     def-eval porting gaps; the swallow philosophy admits only
-//!     deliberately-gated rejections)
+//! Deliberately not done (the swallow philosophy admits only
+//! deliberately-gated rejections):
+//!   - await analysis at this layer (the io.async path runs its own)
+//!   - Effect row spread expansion (uses existing implicit params as-is)
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
@@ -300,26 +292,23 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
   )
 );
 /// Substitute generic SomeTypes (by name, from `env2` bindings) throughout a
-/// type. Faithful port of TS `substituteSomeTypesFromEnv`
-/// (anonymous-function.ts:110): a SomeT becomes the env's non-SomeT TypeVal
+/// type: a SomeT becomes the env's non-SomeT TypeVal
 /// binding (innermost frame wins); Pointer/Array recurse into the child;
 /// Func substitutes param + result types only (generic/implicit/where lists
-/// and meta are preserved); every other node is returned unchanged. yo-self
-/// stands in `!is_some_type(bound)` for TS's `bound !== type` identity guard
-/// (same convention as the per-param substitution loop in
+/// and meta are preserved); every other node is returned unchanged (same
+/// convention as the per-param substitution loop in
 /// evaluate_anonymous_function_implementation).
 ///
-/// DIVERGENCE (deliberate): TS's step 1 resolves through the SomeT's own
-/// `resolvedConcreteType` — a PER-CALL-CLONE field, always this call's
-/// truth. yo-self's resolution cell is per-LINEAGE (the declaration's
-/// clones share the handle), so by the time a later io.async call site's
-/// lambda evaluates, the shared `T` cell can hold a SIBLING call's
-/// resolution — substituting through it concretized the expected type with
-/// the WRONG type (e.g. unit for an i32-bodied task), the body's
+/// Only ENV BINDINGS (the per-lambda annotation frame + the callee env)
+/// drive this substitution — deliberately NOT the SomeT's own
+/// `resolvedConcreteType`. The resolution cell is per-LINEAGE (the
+/// declaration's clones share the handle), so by the time a later io.async
+/// call site's lambda evaluates, the shared `T` cell can hold a SIBLING
+/// call's resolution — substituting through it concretized the expected type
+/// with the WRONG type (e.g. unit for an i32-bodied task), the body's
 /// return-type check threw, the def-time trial swallowed, and the closure
 /// never reached the result refinement (the async_await 8× void-closure
-/// class). Only ENV BINDINGS (the per-lambda annotation frame + the callee
-/// env) drive this substitution.
+/// class).
 _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : ArrayList(String)) -> TypeValue)(
   match(
     ty,
@@ -433,10 +422,9 @@ _trial_eval_anon_body :: (
       }
     )
   );
-  // Route the body through evaluate_begin_expression DIRECTLY — the faithful
-  // port of TS anonymous-function.ts:829, which calls `evaluateBeginExpression`
-  // for EVERY body shape (begin.ts:1009-1037 then treats a non-begin body as a
-  // one-statement begin in place). Twin of the fn-body trial
+  // Route the body through evaluate_begin_expression DIRECTLY, for EVERY
+  // body shape (a non-begin body is treated as a one-statement begin in
+  // place). Twin of the fn-body trial
   // (calls/function_type.yo:230) and the closure-call body eval
   // (calls/closure_type.yo:258), which already do this.
   //
@@ -456,25 +444,21 @@ _trial_eval_anon_body :: (
 /// against the concrete body type, binding each nested type variable in
 /// `expected_env`.
 ///
-/// TS does this for the side effect on the shared SomeType object
-/// (`setResolvedConcreteType`, anonymous-function.ts:1004-1008) and then
-/// harvests it into the call's calleeEnv at helper.ts:1471-1493. yo-self routes
-/// the SAME net effect through the env in one step: `expected_env` IS the
+/// The binding is routed through the env in one step: `expected_env` IS the
 /// caller-side `ctx.expected_type.env` — the call's own callee env — so the
 /// binding lands exactly where `evaluate_function_return_type_again` reads it.
 ///
 /// Going through the env rather than the lineage cell / id registry is what
 /// makes this PER CALL. Those channels are keyed on the SomeT's identity, and a
-/// prelude signature's `B` is ONE instance shared by every call of the method
-/// (TS mints a fresh `B` per call at helper.ts:1047), so stamping them made
+/// prelude signature's `B` is ONE instance shared by every call of the method,
+/// so stamping them made
 /// `opt.and_then(x => Option(String).Some(…))` inherit the previous call's
 /// `B := i32` — measured as a specialized `and_then` declared `-> Option(i32)`
 /// whose closure returned `Option(String)` (a C type error in
 /// tests/option_result_combinators arm 6).
 ///
-/// A genuine mismatch must not fail the definition-time evaluation — TS's own
-/// compatibility check downstream reports it — so the throw is swallowed by
-/// unwinding THIS helper.
+/// A genuine mismatch must not fail the definition-time evaluation, so the
+/// throw is swallowed by unwinding THIS helper.
 _synth_nested_return_somes :: (
   fn(ret_ty : TypeValue, body_ty : TypeValue, expected_env : Environment, given_env : Environment) -> unit
 )({
@@ -484,11 +468,10 @@ _synth_nested_return_somes :: (
   synthesize_types(ret_ty, expected_env, body_ty, given_env, nrs_checked, nrs_opts, inner_exn);
   ()
 });
-/// Evaluate a closure-parameter type annotation, swallowing eval errors
-/// (mirrors the try/catch around anonymous-function.ts:448). On success —
-/// the annotation evaluated to a CONCRETE (non-SomeT) TypeVal — pushes the
-/// type to `out`; on error or a non-type result `out` stays empty. The
-/// caller saves/restores `ctx.is_evaluating_function_type` (an unwind here
+/// Evaluate a closure-parameter type annotation, swallowing eval errors.
+/// On success — the annotation evaluated to a CONCRETE (non-SomeT) TypeVal —
+/// pushes the type to `out`; on error or a non-type result `out` stays empty.
+/// The caller saves/restores `ctx.is_evaluating_function_type` (an unwind here
 /// would skip an in-helper restore).
 _trial_eval_annotation_type :: (
   fn(type_expr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
@@ -512,14 +495,14 @@ _trial_eval_annotation_type :: (
     .None => ()
   );
 });
-/// Post-body-eval capture checks. Mirrors anonymous-function.ts:
-///   - :867-878 — a regular function (`->`) cannot capture outer runtime
+/// Post-body-eval capture checks:
+///   - a regular function (`->`) cannot capture outer runtime
 ///     variables (codegen would emit a standalone C function with no capture
 ///     params → undeclared identifiers). Only TRUE outer captures count:
 ///     `frame_level < outer_frames_len` (params live AT outer_frames_len).
-///   - :1078-1087 — Phase B non-escape: a closure cannot capture a `ref`
+///   - non-escape: a closure cannot capture a `ref`
 ///     binding (second-class reference; the closure could outlive the frame).
-///   - :1088-1110 — §4 rule 4: a closure cannot capture a value of
+///   - §4 rule 4: a closure cannot capture a value of
 ///     control-bound type (the captured ctl handler would escape its install
 ///     frame with the closure).
 /// `env` still carries the parameter frame; `outer_frames_len` is the frame
@@ -560,8 +543,8 @@ _check_anon_fn_captures :: (
       );
     });
     if(names.len() > usize(0), {
-      // TS discards the definition when this throws; yo-self already
-      // registered it — mark it unemittable so codegen skips the body
+      // The definition is already registered at this point — mark it
+      // unemittable so codegen skips the body
       // (else it emits `return outer_val;` referencing an undeclared
       // outer variable; the algebraic_effects cee block).
       mark_fn_unemittable(func_id.clone());
@@ -593,8 +576,8 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
         match(
           caps.get(k.clone()),
           .Some(ci) => {
-            // Mirror TS: `if (captureInfo.frameLevel >= env.frames.length)
-            // continue` — only true outer captures are checked.
+            // Only true outer captures are checked:
+            // `frame_level < outer_frames_len`.
             if(ci.frame_level < outer_frames_len, {
               match(
                 env.frames.get(ci.frame_level),
@@ -674,10 +657,10 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // Resolve the expected type from context.
   // -------------------------------------------------------------------------
-  // No expected type in context is a HARD ERROR, exactly as in TS
-  // (anonymous-function.ts:190-196): an anonymous-function literal has no type
-  // of its own, so there is nothing to check its parameters and body against.
-  // TS throws for `->`, `=>` and `=>>` alike, so this gate is operator-agnostic.
+  // No expected type in context is a HARD ERROR: an anonymous-function
+  // literal has no type of its own, so there is nothing to check its
+  // parameters and body against. The gate is operator-agnostic (`->`, `=>`
+  // and `=>>` alike).
   //
   // The former leniency (`_synthesize_default_func_type`, which built an
   // all-`SomeT` Func and DISCARDED the user's parameter annotations) is what
@@ -706,7 +689,7 @@ evaluate_anonymous_function_implementation :: (
   // For closures passed to generic functions (e.g. io.async), the callee's
   // env carries generic bindings (E=Io, T=i32). Extract it so the closure's
   // parameter types can be resolved against those bindings before body
-  // evaluation. Mirrors TS anonymous-function.ts:205 `expectedTypeEnv`.
+  // evaluation.
   expected_type_env := match(
     ctx.expected_type,
     .Some(etc) => etc.env,
@@ -731,11 +714,11 @@ evaluate_anonymous_function_implementation :: (
       fn_trait_opt := extract_fn_trait_from_type(expected_ty);
       match(
         fn_trait_opt,
-        // NOTE: TS anonymous-function.ts:249 also substitutes here from
-        // expectedTypeEnv; the yo-self port of that call proved both
-        // unnecessary (the annotation-driven pass below is what resolves
-        // io.async's `E := Io`) and collision-prone (name-based lookup), so
-        // only the allow-listed annotation-driven substitution remains.
+        // NOTE: no substitution happens here from expected_type_env — it
+        // proved both unnecessary (the annotation-driven pass below is what
+        // resolves io.async's `E := Io`) and collision-prone (name-based
+        // lookup), so only the allow-listed annotation-driven substitution
+        // remains.
         .Some(ftt) => Option(TypeValue).Some(_func_from_fn_trait(ftt)),
         .None => Option(TypeValue).None
       )
@@ -883,8 +866,8 @@ evaluate_anonymous_function_implementation :: (
     );
   });
   // -------------------------------------------------------------------------
-  // Lambda-annotation-driven generic resolution (closure params). Mirrors TS
-  // anonymous-function.ts:416-490: when a closure parameter carries an
+  // Lambda-annotation-driven generic resolution (closure params): when a
+  // closure parameter carries an
   // explicit `(name : Type)` annotation and the expected Fn-trait parameter
   // type is an UNRESOLVED SomeType (io.async's `Impl(Fn(E) -> T)` exposes
   // `e : E`), evaluate the user's annotation and substitute that SomeType
@@ -904,8 +887,8 @@ evaluate_anonymous_function_implementation :: (
       ann_pe := match(regular_param_exprs.get(ann_i), .Some(a) => a, .None => make_err_expr());
       ann_exp_ty := match(param_types.get(ann_i), .Some(t) => t, .None => TypeValue.Unit);
       ann_is_colon := ast_expr_is_fn_call_of(ann_pe, ":", Option(usize).Some(usize(2)));
-      // The expected param must be a SomeT with no resolution yet — mirrors
-      // `isSomeType(expectedParam.type) && !expectedParam.type.resolvedConcreteType`.
+      // The expected param must be a SomeT with no resolution yet
+      // (`resolved_concrete` empty).
       ann_some_name := match(
         ann_exp_ty,
         .SomeT({ name : ann_sn, resolved_concrete : ann_rc }) => if(
@@ -932,7 +915,7 @@ evaluate_anonymous_function_implementation :: (
                 ann_frame_pushed = true;
               });
               // Skip if this generic name was already bound by an earlier
-              // annotated param (TS: topFrame duplicate-name check —
+              // annotated param (top-frame duplicate-name check —
               // multi-param closures reusing one generic name).
               ann_already := match(
                 env.frames.get(env.frames.len() - usize(1)),
@@ -990,8 +973,8 @@ evaluate_anonymous_function_implementation :: (
     });
   });
   // -------------------------------------------------------------------------
-  // Phase 3ad: snapshot outer env for closure/function capture.
-  // Mirrors eval.yo lines 1696-1730: iterate all outer frames and collect
+  // Snapshot outer env for closure/function capture.
+  // Same walk as eval.yo lines 1696-1730: iterate all outer frames and collect
   // all visible variable bindings. Runtime variables (no comptime value) are
   // stored as VarRef(name) in cap_vals so they can be found at call time.
   // This must happen BEFORE pushing the parameter frame so we only capture
@@ -1115,8 +1098,7 @@ evaluate_anonymous_function_implementation :: (
     exp_label := match(param_labels.get(rp_i), .Some(n) => n, .None => String.from(""));
     rp_ty_raw := match(param_types.get(rp_i), .Some(t) => t, .None => TypeValue.Unit);
     // Substitute generic SomeTypes (e.g. `E`) in the param type with their
-    // concrete bindings from the callee env. Mirrors TS
-    // substituteSomeTypesFromEnv at anonymous-function.ts:249.
+    // concrete bindings from the callee env.
     rp_ty := match(
       rp_ty_raw,
       .SomeT(_, srp_name, _, _, _, _, _, _, _, _, _) => {
@@ -1175,8 +1157,8 @@ evaluate_anonymous_function_implementation :: (
         rp_v_opt,
         .Some(rp_v) => {
           rp_v.is_ref = true;
-          // TS binds `isReassignable: parameter.isRef`
-          // (anonymous-function.ts:560): assignment TO an `inout` param is
+          // Reassignable goes with ref:
+          // assignment TO an `inout` param is
           // the write-through (`v = i32(99)` in with_lock's closure).
           rp_v.is_reassignable = true;
         },
@@ -1194,9 +1176,7 @@ evaluate_anonymous_function_implementation :: (
   // VARIABLE concretely (rp_ty), but the registered type kept the raw SomeT,
   // whose cell is never written by the env binding — the C emitter then
   // falls back to `void*` and every call site mismatches (`acc + x` with
-  // `void* x`; iterator_combinators arm 18's last layer). TS needs no step
-  // here: its newFunctionType is a SPREAD of the expected FunctionType whose
-  // parameter objects already reference the resolved SomeType.
+  // `void* x`; iterator_combinators arm 18's last layer).
   if(is_creating_closure, {
     rp_resolved_names := ArrayList(String).new();
     (rpr_i : usize) = usize(0);
@@ -1291,8 +1271,7 @@ evaluate_anonymous_function_implementation :: (
   // the EXPECTED label (e.g. `error` from `Exception.throw : ctl(…, error : AnyError) →
   // …`). The C prototype is generated from this registered type's `meta.param_labels`, so
   // registering the expected label yields "undeclared identifier 'err'" (proto declares
-  // `error`, body references `err`). TS's FunctionValue.type carries the anon fn's OWN
-  // (source) param labels. Rebuild a fresh Func with the source labels; leave
+  // `error`, body references `err`). Rebuild a fresh Func with the source labels; leave
   // `function_type` (used below for body-eval + the expr's ExprInfo) untouched.
   corrected_func_type := match(
     function_type.clone(),
@@ -1306,17 +1285,15 @@ evaluate_anonymous_function_implementation :: (
   // Re-key the func-id SIDE TABLES from the `fn(...)` type expression this
   // anonymous function was checked against, onto THIS FuncVal's id — the same
   // nine copies `try_to_implement_function_by_function_type` does for the `::`
-  // form (evaluator/calls/function_type.yo). yo-self keeps
+  // form (evaluator/calls/function_type.yo). The evaluator keeps
   // `is_compile_time_only`, the per-parameter type exprs and the return-type
   // expr in tables keyed by that expression's id; the anonymous-function path
-  // minted a fresh `fn_<random>` id and copied NOTHING, so a
+  // mints a fresh `fn_<random>` id, and without these copies a
   // `comptime(T) : Type` parameter/return was simply lost: the call's return
   // stayed an unbound SomeT (`x := id(i32, 12)` then had no `==` impl and typed
   // `unit` — tests/fn.test.yo arm 9), and a `comptime(y) : i32` parameter was
-  // emitted as a RUNTIME C parameter. TS needs no copy: `newFunctionType` is a
-  // SPREAD of the expected FunctionType (anonymous-function.ts:597-638), so
-  // both ride along. `origin_id` is yo-self's channel for the same thing and
-  // travels with the meta through the `.clone()` just above.
+  // emitted as a RUNTIME C parameter. `origin_id` is the channel for the same
+  // thing and travels with the meta through the `.clone()` just above.
   match(
     match(corrected_func_type, .Func({ meta : _oid_m }) => _oid_m.*.origin_id, _ => Option(String).None),
     .Some(_oid) => {
@@ -1334,7 +1311,7 @@ evaluate_anonymous_function_implementation :: (
     .None => ()
   );
   register_func_type(func_id.clone(), corrected_func_type);
-  // Phase 5/3 (closure codegen): an io.async `=>` closure must carry the
+  // Closure codegen (io.async): an io.async `=>` closure must carry the
   // capture-struct type + closure marker the codegen needs (closure functions take
   // a `void* closure_context` capture parameter; the sync-future path reads
   // `capture_type` for the SM's `__capture` field). closure_type.yo sets these on
@@ -1352,9 +1329,9 @@ evaluate_anonymous_function_implementation :: (
   // UNSCOPED (mark every `=>` closure): the codegen-read closure is a CLONE with
   // fresh expr-ids, evaluated WITHOUT is_inside_io_async_call, so neither the flag
   // nor an ExprInfo-keyed sticky bit transfers to it — only marking on every
-  // closure eval reaches the clone codegen consumes. This is safe: yo-self-bin's
-  // general closure codegen is unported (no capture-param convention existed
-  // before this), so marking all closures cannot regress anything that worked; the
+  // closure eval reaches the clone codegen consumes. This is safe: general
+  // closure codegen had no capture-param convention when this was introduced,
+  // so marking all closures regressed nothing that worked; the
   // capture-struct creation below is the only added evaluator load, and the
   // pre-existing `check ./std` crash (std/imm/map.yo, bisected) is unrelated.
   mark_closure_for_codegen := is_creating_closure;
@@ -1364,10 +1341,9 @@ evaluate_anonymous_function_implementation :: (
   (closure_capture_type : Option(TypeValue)) = Option(TypeValue).None;
   (closure_capture_dups : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
   (closure_body_caps : Option(HashMap(String, CapturedVarInfo))) = Option(HashMap(String, CapturedVarInfo)).None;
-  // Register definitionSiteEnclosingFunctionType return type.
-  // Mirrors: definitionSiteEnclosingFunctionType = context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
-  //   ? context.isEvaluatingFunctionBodyOrAsyncBlock.type : undefined
-  // in src/evaluator/values/anonymous-function.ts.
+  // Register the definition-site enclosing function's return type: when the
+  // anonymous function is evaluated inside a function-body context, record
+  // the enclosing function's result type for it.
   match(
     ctx.is_evaluating_function_body_or_async_block,
     .Some(fb_ctx) => match(
@@ -1391,15 +1367,14 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // Definition-time body evaluation (closure-body def-eval wall).
   //
-  // Mirrors anonymous-function.ts:766-852: a NON-GENERIC anonymous function
-  // evaluates its body NOW, under a function-body evaluation context whose
+  // A NON-GENERIC anonymous function evaluates its body NOW, under a
+  // function-body evaluation context whose
   // `captured_variables` map records every outer-variable reference
   // (identifier lookup calls `track_variable_usage`). Generic bodies stay
-  // deferred, mirroring `shouldDeferBodyEvaluation` (generic params, or a
-  // param type carrying SomeTs).
+  // deferred (generic params, or a param type carrying SomeTs).
   //
   // Eval errors are SWALLOWED by the capture-free trial wrapper (the
-  // def-eval-wall pattern — yo-self porting gaps must not reject valid
+  // def-eval-wall pattern — evaluation gaps must not reject valid
   // bodies). Deliberate rejections surface through three channels:
   //   1. a flow violation flagged inside the body (binding-site checks) is
   //      re-raised here via the real `exn`;
@@ -1415,9 +1390,7 @@ evaluate_anonymous_function_implementation :: (
   // AnyError) -> ResumeType` INHERITS `forall_labels = [ResumeType]` even though its
   // source declares no generic — keying the defer on `forall_labels` would wrongly skip
   // evaluating the body, leaving its `unwind` sub-expr UNSTAMPED (→ codegen "// Failed
-  // to transpile unwind(...)"). TS keys on `forallParamExprs.length` (the anon fn's OWN
-  // generic args — anonymous-function.ts:759; the generic-count mismatch guard at :320 is
-  // commented out). The env still binds the inherited `forall_labels` below (~line 688)
+  // to transpile unwind(...)"). The env still binds the inherited `forall_labels` below (~line 688)
   // for bodies that DO reference ResumeType.
   (should_defer_body : bool) = (forall_param_exprs.len() > usize(0));
   if(!should_defer_body, {
@@ -1430,7 +1403,7 @@ evaluate_anonymous_function_implementation :: (
       sd_i = (sd_i + usize(1));
     });
   });
-  // Phase 5 (closure codegen): an io.async closure has its synthesized type's
+  // Closure codegen: an io.async closure has its synthesized type's
   // params as SomeT (→ would defer), but codegen MUST emit its body, which needs
   // the body's ExprInfo (types) from def-time eval — otherwise the body emits
   // "Failed to transpile". Force evaluation; the def-eval-wall swallow below makes
@@ -1448,8 +1421,7 @@ evaluate_anonymous_function_implementation :: (
   // struct-record family, issues/fixed/yo-self-algebraic-effects-two-roots.md).
   // Params bind at their (erased) declared types — exactly the void*
   // convention the emitted C uses; the def-eval-wall swallow keeps a
-  // failing body harmless. TS needs no equivalent: its codegen emits
-  // simple bodies from AST + types without per-node eval infos.
+  // failing body harmless.
   ctl_force := match(
     function_type,
     .Func({ meta : __fmc9 }) => __fmc9.*.is_control,
@@ -1515,13 +1487,12 @@ Result type: ${type_to_string(decl_result_ty)}`
     // The body evaluates against a SNAPSHOT of the live env (the param frame
     // is in scope; frame-list mutations during body eval cannot corrupt the
     // outer env's frame list — see snapshot_env / the recorded-env-aliasing
-    // issue). TS evaluates in the live env and restores `outerEnv` after
-    // (anonymous-function.ts:1062) — the snapshot gives the same net effect.
+    // issue).
     body_eval_env := snapshot_env(env);
     // NOTE: io.async's generic `E` (the effect bundle) is bound at the CALL site
     // (`try_to_call_function_with_arguments` Step 6b, helper.yo), which resolves
     // the closure's `e : E` param type to the concrete bundle BEFORE this body
-    // eval runs — mirroring TS helper.ts:1312-1366. So `e.io` / `e.exn` field
+    // eval runs. So `e.io` / `e.exn` field
     // accesses see a concrete receiver here without any body-env type binding.
     body_eval_ctx := create_function_body_evaluation_context(
       function_type,
@@ -1529,7 +1500,7 @@ Result type: ${type_to_string(decl_result_ty)}`
       body_eval_env,
       ctx
     );
-    // Phase 5 (closure codegen): for a marked io.async closure, the synthesized
+    // Closure codegen: for a marked io.async closure, the synthesized
     // closure return type is a fresh `SomeT _ret` — using it as the body's expected
     // type coerces an operator-bodied result (e.g. `i32+i32`) to that SomeT, so the
     // body types as SomeT and the concrete result-refine is skipped (closure return
@@ -1563,8 +1534,8 @@ Result type: ${type_to_string(decl_result_ty)}`
       );
     });
     // Channel 1: re-raise a flow violation the trial swallow ate (a
-    // deliberate binding-site rejection inside the body). Mirrors the
-    // def-time caller in calls/function_type.yo:601.
+    // deliberate binding-site rejection inside the body). Same pattern as
+    // the def-time caller in calls/function_type.yo:601.
     if(flow_violation_pending(), {
       anon_viol_msg := flow_violation_message();
       clear_flow_violation();
@@ -1583,9 +1554,9 @@ Result type: ${type_to_string(decl_result_ty)}`
         )
       );
     });
-    // §4 typing rule 1 (anonymous-function.ts:894-900): `unwind` is only
+    // §4 typing rule 1: `unwind` is only
     // valid in a `ctl(...) -> ret` body. A `fn(...) -> ret` body containing
-    // `unwind` is a type error. Closures are exempt (TS checks isClosure).
+    // `unwind` is a type error. Closures are exempt.
     fn_type_is_control := match(
       function_type,
       .Func({ meta : __fm5 }) => __fm5.*.is_control,
@@ -1604,37 +1575,29 @@ Result type: ${type_to_string(decl_result_ty)}`
             )
           );
         });
-        // TS anonymous-function.ts:992-1015: when the declared return type
-        // CONTAINS SomeTypes but is not itself one (`Option(B)` — the comment
-        // there names this very shape) and the body evaluated to a fully
-        // concrete type, synthesize the declared return against the body type
-        // with `setResolvedConcreteType`, so every NESTED type variable carries
-        // its resolution. TS relies on object identity: the `B` inside the
-        // closure's `-> Option(B)` IS the callee signature's `B`, so stamping it
-        // is what lets `helper.ts:1464` propagate `B := i32` into calleeEnv and
-        // `evaluateFunctionReturnTypeAgain` resolve `Option(B)` → `Option(i32)`.
-        // yo-self binds them in the call's own callee env instead — see
+        // When the declared return type CONTAINS SomeTypes but is not itself
+        // one (`Option(B)`) and the body evaluated to a fully concrete type,
+        // synthesize the declared return against the body type so every
+        // NESTED type variable carries its resolution; the bindings are
+        // routed through the call's own callee env — see
         // _synth_nested_return_somes for why the identity channels (the shared
         // `resolved_concrete` cell / id registry) are wrong here.
         //
         // Without this the whole Option/Result-combinator family hollowed: the
-        // closure TAKES ON the expected `Impl(Fn(a : T) -> Option(B))` wrapper
-        // (ts:1183-1252), so the call's Step-6 synthesis sees a SomeT — not a
+        // closure TAKES ON the expected `Impl(Fn(a : T) -> Option(B))` wrapper,
+        // so the call's Step-6 synthesis sees a SomeT — not a
         // Func — on the given side and skips the Fn-trait recursion that would
         // otherwise bind `B` (synthesizer.yo's `is_function_type(given_ty)`
-        // guard, the same one TS has). TS binds `B` here instead, at the
-        // closure's own body/return unification.
+        // guard).
         match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
           .Some(nrs_info) => {
             nrs_body_ty := nrs_info.ty;
             nrs_ret_ty := match(function_type, .Func({ result : nrs_r }) => nrs_r, _ => t_unit());
             nrs_ret_nested := (!is_some_type(nrs_ret_ty) && (get_all_some_types(nrs_ret_ty).len() > usize(0)));
-            // BARE-SomeT declared return (`-> B`, map's output forall): TS
-            // binds it through object identity at the plain body/declared
-            // compat check (the closure's `B` IS the signature's `B`, so
-            // setResolvedConcreteType propagates); yo-self's env channel
-            // must handle it here or `B` never binds anywhere — the caller's
+            // BARE-SomeT declared return (`-> B`, map's output forall): the
+            // env-channel binding must handle it here or `B` never binds
+            // anywhere — the caller's
             // return record keeps a raw `B` slot and method dispatch on it
             // leaves the blanket impl's `B` forall abstract
             // (iterator_combinators arm 0 / repro9). io.async closures are
@@ -1653,10 +1616,8 @@ Result type: ${type_to_string(decl_result_ty)}`
             nrs_body_concrete := (!is_some_type(nrs_body_ty) && (get_all_some_types(nrs_body_ty).len() == usize(0)));
             if((nrs_ret_nested || nrs_ret_bare) && nrs_body_concrete, {
               _synth_nested_return_somes(nrs_ret_ty, nrs_body_ty, expected_type_env, body_eval_env);
-              // TS ts:1012-1014 completes the mechanism by REPLACING the
-              // declared return with the body type on both function types
-              // (`functionType.return.type = evaluatedBodyReturnType`). In
-              // yo-self this is load-bearing for codegen, not just tidiness:
+              // REPLACING the declared return with the body type on the
+              // function type is load-bearing for codegen, not just tidiness:
               // resolving `B` by SUBSTITUTION keeps the def-era enum id, so a
               // left-in-place `Option(B)` reaches lowering as an instance that
               // was never collected ("get_type_string: no C type name found for
@@ -1680,11 +1641,11 @@ Result type: ${type_to_string(decl_result_ty)}`
           },
           .None => ()
         );
-        // Phase 5: for an `io.async(closure)`, run the await-point analysis on the
+        // For an `io.async(closure)`, run the await-point analysis on the
         // body and record it on the body's ExprInfo when it has awaits — the
         // async-FSM codegen reads `await_analysis` to choose the state-machine path
-        // (vs the sync-future path) and drive the transformation. Mirrors
-        // anonymous-function.ts:898-907. Gated on mark_closure_for_codegen (not just
+        // (vs the sync-future path) and drive the transformation. Gated on
+        // mark_closure_for_codegen (not just
         // is_inside_io_async_call) so the codegen-read CLONE — re-evaluated without
         // the flag — also gets it (else an await-bearing closure is mis-dispatched
         // to the sync path). See issues/fixed/yo-self-closure-codegen-gate.md.
@@ -1698,7 +1659,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             register_closure_await_analysis(func_id.clone(), await_res);
           });
         });
-        // Phase 5 (closure codegen): refine the io.async closure's registered Func
+        // Closure codegen: refine the io.async closure's registered Func
         // type so its RESULT is the def-evaluated body type (concrete), not the
         // synthesized `_ret` SomeT. Codegen reads get_func_type(func_id) for the
         // prototype + the future result type; without this the closure's return
@@ -1712,13 +1673,13 @@ Result type: ${type_to_string(decl_result_ty)}`
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
             .Some(body_info2) => {
               (body_ty : TypeValue) = body_info2.ty;
-              // TS anonymous-function.ts:975-978 — the body type might be a
+              // The body type might be a
               // SomeT whose resolved_concrete was set during evaluation
-              // ("e.g., when the last expression is a binary op whose result
+              // (e.g. when the last expression is a binary op whose result
               // inherits the expected SomeType but has been resolved to a
-              // concrete type"). A `return(x + y)` body types exactly so (the
-              // return arg is evaluated against the fn's `_ret` SomeT —
-              // begin.ts:1157-1165). Unwrap it BEFORE the concreteness gate,
+              // concrete type). A `return(x + y)` body types exactly so (the
+              // return arg is evaluated against the fn's `_ret` SomeT).
+              // Unwrap it BEFORE the concreteness gate,
               // or the refinement is skipped and the closure's return / the
               // io.async future result lower to void*.
               match(
@@ -1795,7 +1756,7 @@ Result type: ${type_to_string(decl_result_ty)}`
       },
       .None => ()
     );
-    // Capture checks (regular-fn-no-capture; Phase B ref-capture +
+    // Capture checks (regular-fn-no-capture; ref-capture +
     // control-bound-capture for closures). `n_cap_fr` is the outer frame
     // count from before the parameter frame was pushed.
     match(
@@ -1806,15 +1767,15 @@ Result type: ${type_to_string(decl_result_ty)}`
       .None => ()
     );
     // Stash the body-eval captured variables so the capture struct can be built
-    // after the parameter frame is popped (below) — mirrors closure_type.yo's
-    // pop-then-create order. (Only the non-deferred path evaluates the body and
+    // after the parameter frame is popped (below) — same pop-then-create
+    // order as closure_type.yo. (Only the non-deferred path evaluates the body and
     // thus populates captures; a deferred generic closure has none → empty struct.)
     closure_body_caps = body_eval_ctx.captured_variables;
   });
-  // Deferred generic body: TS trial-evaluates a CLONE to catch a concrete
+  // Deferred generic body: trial-evaluate a CLONE to catch a concrete
   // return against the declared generic return type (`(value -> i32(0))`
-  // checked against `fn(generic(T), value : T) -> T` must be rejected) —
-  // checkDeferredGenericReturnType, anonymous-function.ts:773. Twin of the
+  // checked against `fn(generic(T), value : T) -> T` must be rejected).
+  // Twin of the
   // direct-definition check in calls/function_type.yo — same skips: a trial
   // that throws is silently skipped, a trial type carrying SomeTs or
   // degenerating to unit cannot convict, and an expected bare SomeT that is
@@ -1834,7 +1795,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             cap_tys : ArrayList(TypeValue).new(),
             // THROWAWAY id: reusing the real func_id let trial registrations
             // shadow the real definition's (codegen emitted the trial clone).
-            // Phase 2: positional-occurrence like every fid — the throwaway
+            // Positional-occurrence like every fid — the throwaway
             // takes this position's next ordinal, distinct from the real one.
             func_id : stable_func_id(String.from("fn_"), tok.module_path, tok.row, tok.column)
           )
@@ -1849,8 +1810,8 @@ Result type: ${type_to_string(decl_result_ty)}`
       _trial_eval_anon_body(body_for_def_eval.clone(), dgc_env, dgc_ctx, dgc_out);
       truncate_forcing_depths(dgc_depths);
       // P0 (§4.6): forward reference — re-raise instead of discarding (the
-      // dgc trial is the SILENT swallow otherwise; TS parity keeps the
-      // discard for every other error class).
+      // dgc trial is the SILENT swallow otherwise; every other error class
+      // stays discarded).
       if(_anon_swallow_pending(), {
         match(
           hard_swallow_diagnostic(_anon_swallow_message()),
@@ -1899,8 +1860,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             // compatibility check cannot convict here because an unresolved
             // SomeT unifies with anything even in exact mode, which is why
             // `(value -> return(i32(0)))` against `fn(generic(T), value : T)
-            // -> T` was accepted while TS rejects
-            // (anonymous-function.ts:773).
+            // -> T` used to slip through.
             dgc_expected_is_some := is_some_type(dgc_expected);
             if((((!dgc_skip_cf && !dgc_own_forall_skip) && !dgc_trial_abstract) && !dgc_trial_degenerate) && (dgc_expected_is_some || !are_types_compatible_exact(dgc_trial_ty, dgc_expected)), {
               dgc_exp_str := type_to_string(dgc_expected);
@@ -1939,7 +1899,7 @@ Result type: ${type_to_string(decl_result_ty)}`
   env.pop_frame();
   // Build the capture struct for an io.async closure (empty for no-capture; works
   // for deferred-generic closures too, which simply have no recorded captures).
-  // Mirrors closure_type.yo's pop-then-create. Set on the ExprInfo below so
+  // Same pop-then-create order as closure_type.yo. Set on the ExprInfo below so
   // generate_io_async_sync_call can resolve the SM's __capture field type.
   if(mark_closure_for_codegen, {
     cvwv := match(
@@ -1949,15 +1909,14 @@ Result type: ${type_to_string(decl_result_ty)}`
     );
     // Generate evaluated `___dup(name)` exprs for RC-typed captures BEFORE
     // building the capture struct — codegen emits them as the capture-field
-    // initializers so the capture owns its own reference (mirrors TS
-    // anonymous-function.ts:1154 + utils/closure.ts:393; missing this freed
+    // initializers so the capture owns its own reference (missing this freed
     // the captured Command.status spawn storage under the running closure).
     dup_res := generate_captured_variable_dup_expressions(cvwv, env, ctx, exn);
     closure_capture_dups = dup_res.dup_exprs;
     cap_res := create_capture_type_and_value(Option(TypeValue).None, cvwv, env, tok);
     closure_capture_type = cap_res.capture_type;
     // The wrapper's non-Fn trait requirements (`Send`) hold for each capture
-    // and for the capture struct — TS anonymous-function.ts:1184.
+    // and for the capture struct.
     match(
       closure_capture_type,
       .Some(vct) => validate_capture_trait_requirements(expected_ty, vct, cvwv, env, ctx, tok, exn),
@@ -1994,17 +1953,14 @@ Result type: ${type_to_string(decl_result_ty)}`
   // -------------------------------------------------------------------------
   // Build and store the ExprInfo for this expression.
   // -------------------------------------------------------------------------
-  // TS anonymous-function.ts:1183-1252: a CLOSURE whose expected type is a
+  // A CLOSURE whose expected type is a
   // SomeT wrapper TAKES ON that wrapper as its recorded type, with the
   // capture struct as its resolved concrete — so an Impl(Fn(...))-ANNOTATED
   // BINDING's compat check sees the SomeT, not the plain Func (the c01/c06
   // closure-battery hollow). Recorded on the VALUE COPY's resolved cell —
   // NOT the global register_some_resolved_concrete registry (that stamp
   // measured hollow regressions in fs/file + fs/temp; the cell is
-  // value-scoped). Ported for the wrapper-has-Fn-in-requiredTraits case
-  // only (the annotation shape); TS's synthetic `__impl_fn` wrapper for
-  // where-clause-constrained generics (ts:1205-1216) is NOT ported — those
-  // paths keep the plain Func type as before.
+  // value-scoped).
   // GATED to closures whose expected Fn-trait RESULT is CONCRETE: the
   // async pipeline registers the sync-future struct and io.await
   // refinement against the UNRESOLVED wrapper SomeT, and its closures'
@@ -2012,8 +1968,8 @@ Result type: ${type_to_string(decl_result_ty)}`
   // them broke all 12 io_async corpus files (SELF-FAIL: the FSM resume
   // call lost the closure-context argument; measured 2026-07-27, and
   // `ctx.is_inside_io_async_call` used to be FALSE here because only the
-  // function.yo route set it — helper.yo's Step 7 now sets it too (the TS
-  // helper.ts:1314 twin), so the flag gates io.async closures whose `T`
+  // function.yo route set it — helper.yo's Step 7 now sets it too, so the
+  // flag gates io.async closures whose `T`
   // was pre-bound concrete by Step-6b — the four fsm/bundle corpus files
   // the concrete-result check alone admitted). A concrete result means a
   // fully-annotated binding shape (`(c : Impl(Fn(y : i32) -> i32)) = ...`),
@@ -2048,17 +2004,17 @@ Result type: ${type_to_string(decl_result_ty)}`
               );
               wf_i = (wf_i + usize(1));
             });
-            // TS anonymous-function.ts:1195-1216 (`__impl_fn`): when the
-            // wrapper's Fn bound comes from a WHERE CLAUSE (TS:
-            // `!wrapperHasFnInRequired`), setting resolved = the bare capture
+            // When the
+            // wrapper's Fn bound comes from a WHERE CLAUSE, setting
+            // resolved = the bare capture
             // struct would strip the Fn trait info and subsequent where-clause
-            // checks would fail. TS mints a synthetic `Impl(Fn(...))` SomeT
+            // checks would fail. Mint a synthetic `Impl(Fn(...))` SomeT
             // (`__impl_fn`, requiredTraits=[expectedFnTraitType],
-            // resolvedConcreteType=captureType) and stamps it as F's resolved
-            // concrete IN PLACE — one stable F identity at the return-type
+            // resolvedConcreteType=captureType) and stamp it as F's resolved
+            // concrete — one stable F identity at the return-type
             // mint, the body construction and the arg check.
-            // yo-self divergence: the where-bound has already been MERGED into
-            // `w_rtt` (the where-clause binding arc), so TS's
+            // The where-bound has already been MERGED into
+            // `w_rtt` (the where-clause binding arc), so a
             // requiredTraits-membership test cannot discriminate. Annotation
             // wrappers are minted with the RESERVED name "Impl"
             // (builtins/impl_constraint.yo:171; synthesizer.yo:501 documents
@@ -2091,9 +2047,7 @@ Result type: ${type_to_string(decl_result_ty)}`
                     Option(TypeValue).None,
                     t_resolved_cell(cap_t)
                   );
-                  // PER-CALL identity: TS stamps `wrapperType.resolvedConcrete
-                  // Type = implFnWrapper` in place, but ITS wrapperType is a
-                  // per-call freshened object. yo-self's `F` here shares ONE
+                  // PER-CALL identity: the `F` here shares ONE
                   // resolution cell across every call of the generic fn
                   // (substitution copies the cell HANDLE), so an in-place
                   // stamp makes the LAST closure win for every caller

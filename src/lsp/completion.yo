@@ -1,9 +1,6 @@
 //! lsp/completion — textDocument/completion (plans/archive/P4_LSP.md slice 4).
 //!
-//! The attic `completion.ts` (1541 lines) is the feature map here, not the
-//! spec — it predates the self-hosted compiler and its heuristics lean on
-//! data the TS evaluator hung directly on expressions (`$.env`, `$.type`).
-//! The Yo server reads the same facts from the `ExprInfo` side table and
+//! The server reads its facts from the `ExprInfo` side table and
 //! the evaluator's method registries:
 //!
 //!   - import-path completion: `import("std/…` / `import("./…` → directory
@@ -25,9 +22,9 @@
 //!     cursor + the deepest visible env's bindings (prelude names arrive
 //!     through this) + a keyword list.
 //!
-//! Deliberate v1 divergences from the attic (it was itself incomplete):
-//! no text-based type re-parse fallback, and `foo().`/`)`-receivers answer
-//! nothing rather than guessing. The attic's last-good-module fallback lives
+//! Deliberate v1 gaps: no text-based type re-parse fallback, and
+//! `foo().`/`)`-receivers answer nothing rather than guessing. The
+//! last-good-module fallback lives
 //! in the server (DocState keeps the last PARSED outcome, and an evaluation
 //! error keeps its partial ExprInfo), so completion answers while the
 //! document is mid-edit.

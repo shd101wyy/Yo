@@ -1,16 +1,9 @@
 //! evaluate_assignment — the `=` reassignment handler.
 //!
-//! Mirrors `src/evaluator/exprs/assignment.ts` — Phase 3t (full) port.
-//!
 //! Supports:
 //!   - Simple atom LHS:           x = rhs
 //!   - Typed binding LHS:         (x : T) = rhs
 //!   - Property / index LHS:      x.a = rhs, arr(0) = rhs
-//!
-//! Phase 3 stubs (not yet implemented):
-//!   - Ownership tracking (clone_value, find_rc_value_owner_relationship, etc.)
-//!   - attachTempVariableToExpr (no-op stub in utils.yo)
-//!   - synthesizeExprAndType (type-inference for unknown-length arrays)
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -107,9 +100,6 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 /// Throw a descriptive error when the RHS of an assignment unconditionally
 /// transfers control flow (return / unwind / break / continue).
-///
-/// Mirrors `throwRhsContainsControlFlowExpressionError` in
-/// `src/evaluator/exprs/assignment.ts`.
 throw_rhs_contains_control_flow_expression_error :: (
   fn(
     rhs : AstExpr,
@@ -138,15 +128,12 @@ throw_rhs_contains_control_flow_expression_error :: (
   );
 });
 // ---------------------------------------------------------------------------
-// resolve_unknown_values_and_some_type_in_type  (Phase 2v stub)
+// resolve_unknown_values_and_some_type_in_type (stub)
 // ---------------------------------------------------------------------------
 /// Resolve unknown values and SomeType instances in a type.
 ///
-/// In yo-self all array lengths are concrete, so the full TS logic is not
-/// needed here.  Returns `ty` unchanged.
-///
-/// Mirrors `resolveUnknownValuesAndSomeTypeInType` in
-/// `src/evaluator/exprs/assignment.ts`.
+/// All array lengths are concrete, so no resolution is needed here.
+/// Returns `ty` unchanged.
 resolve_unknown_values_and_some_type_in_type :: (
   fn(
     ty : TypeValue,
@@ -223,7 +210,7 @@ make_variable_with_value :: (
 // ---------------------------------------------------------------------------
 /// Walk a chained field/index access down to its root atom.
 /// For `a.b.c`, returns the `a` atom. For a bare atom `x`, returns it
-/// unchanged. Mirrors `getRootExprOfFieldAccess` in `src/evaluator/utils.ts`.
+/// unchanged.
 get_root_expr_of_field_access :: (fn(expr : AstExpr) -> AstExpr)(
   if(
     ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BF_DOT, .None) && (match(expr, .FnCall(_, _, args, _, _) => args.len(), .Atom(_, _) => usize(0)) >= usize(2)),
@@ -238,7 +225,7 @@ get_root_expr_of_field_access :: (fn(expr : AstExpr) -> AstExpr)(
 /// `atomic object` type, writes through it are forbidden in safe code.
 /// Returns the root type if it's an atomic object, `None` otherwise.
 /// Resolves SomeType (e.g. `Self`) to concrete types before checking.
-/// Mirrors `getAtomicObjectRootType` in `src/evaluator/utils.ts`.
+///
 get_atomic_object_root_type :: (
   fn(root_expr : AstExpr, env : Environment) -> Option(TypeValue)
 )({
@@ -278,7 +265,7 @@ get_atomic_object_root_type :: (
 ///   - typed-binding LHS:  `(x : T) = rhs`
 ///   - property/index LHS: `x.a = rhs`, `arr(0) = rhs`
 ///
-/// Mirrors `evaluateAssignment` in `src/evaluator/exprs/assignment.ts`.
+///
 evaluate_assignment :: (
   fn(
     expr : AstExpr,
@@ -367,8 +354,6 @@ evaluate_assignment :: (
   is_typed_binding_lhs := (ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))));
   // -----------------------------------------------------------------------
   // Property / index LHS: x.a = rhs, arr(0) = rhs
-  // Mirrors the `else` branch in `evaluateAssignment` (lines ~680-1048 of
-  // `src/evaluator/exprs/assignment.ts`).
   // -----------------------------------------------------------------------
   if(!(is_atom_lhs || is_typed_binding_lhs), {
     // Phase O: Forbid writing through atomic-object fields in safe code.
@@ -457,7 +442,7 @@ evaluate_assignment :: (
     // root binding (`holder`/`arr`): pass its frame level as
     // `max_local_frame_level` so an inner-block local source is rejected while
     // a `ref` param / enclosing-scope local / parameter / comptime is
-    // accepted. Mirrors src/evaluator/exprs/assignment.ts. Throws directly
+    // accepted. Throws directly
     // (this path runs at module/test level — not behind the def-eval swallow).
     if(type_representation_contains_raw_ptr(expected_ty) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(lhs).module_path.clone())), {
       prop_root_expr := get_root_expr_of_field_access(lhs);
@@ -498,10 +483,10 @@ evaluate_assignment :: (
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = prop_rhs_info.ty;
     if(!(is_comptime_int_type(expected_ty) || is_comptime_float_type(expected_ty) || is_comptime_string_type(expected_ty)), {
-      // Pass the EXPECTED type: TS threads `expectedType: expectedType`
-      // (assignment.ts:976-982) so a `comptime_str` assigned into a `*(u8)` /
+      // Pass the EXPECTED type
+      // so a `comptime_str` assigned into a `*(u8)` /
       // `*(char)` target converts to THAT pointer type rather than defaulting
-      // to `str` (types/utils.ts:963-979). Without the hint the check below
+      // to `str`. Without the hint the check below
       // compares `*(u8)` against `str` and rejects
       // `(path : *(u8)) = "…"` — the C-string-literal form.
       prop_rhs_type = convert_comptime_type_to_runtime_type_with_expected(
@@ -509,8 +494,8 @@ evaluate_assignment :: (
         Option(TypeValue).Some(expected_ty),
         env
       );
-      // TS also passes `expr: rhs`, and the helper stores the result on
-      // `expr.$.convertedRuntimeType` (types/utils.ts:985-988). Codegen needs
+      // The helper also stores the result on
+      // the rhs's `convertedRuntimeType`. Codegen needs
       // it: generate_comptime_value emits a StrLit as the `__yo_str` struct
       // when the type it is handed is str/comptime_str, and as a bare C string
       // literal otherwise — so without this a `*(u8)` target still gets the
@@ -532,7 +517,6 @@ evaluate_assignment :: (
       );
     });
     // Step 5 — Update compile-time value via path_collection
-    // Mirrors the pathCollection[0].length >= 2 branch in assignment.ts.
     (is_comptime_only_prop : bool) = false;
     prop_path_col := lhs_info.path_collection;
     if(prop_path_col.len() > usize(0), {
@@ -597,8 +581,8 @@ evaluate_assignment :: (
                   if(is_ref_sem, {
                     // Reference semantics: update all variables that share the same
                     // compile-time struct value.
-                    // Note: yo-self uses deep equality (eval_value_eq) as an
-                    // approximation for TypeScript's reference identity (===).
+                    // Note: deep equality (eval_value_eq) stands in for
+                    // reference identity.
                     all_env_vars := get_all_variables_from_env(env);
                     n_av := all_env_vars.len();
                     (k_av : usize) = usize(0);
@@ -726,7 +710,6 @@ evaluate_assignment :: (
       });
     });
     // Step 6 — Handle comptimeRef: direct in-place mutation of shared ArrayList.
-    // Mirrors the `comptimeRef` block in assignment.ts (lines ~982-1001).
     match(
       lhs_info.comptime_ref,
       .None => (),
@@ -756,9 +739,8 @@ evaluate_assignment :: (
       }
     );
     // Step 7 — Fallback: a compile-time-only field/index write (both LHS and RHS
-    // have values, LHS is not an Index-trait lvalue). Mirrors assignment.ts
-    // 1013-1019, which ONLY sets this inside `if (variable.isCompileTimeOnly ...)`
-    // — i.e. the flag requires the BASE VARIABLE to be compile-time-only. Without
+    // have values, LHS is not an Index-trait lvalue). ONLY set the flag when the
+    // BASE VARIABLE is compile-time-only. Without
     // that guard, a RUNTIME field write whose value is an UnknownVal (which is
     // still `.is_some()`) — e.g. `self.field = ...` inside a method body — was
     // wrongly marked comptime-only, so codegen (assignment.yo:40) emitted NOTHING
@@ -807,7 +789,7 @@ evaluate_assignment :: (
     },
     true => {
       // Typed binding: (x : T) = rhs — defer the generic-fn-type check to
-      // the deferred recheck after the RHS eval below (TS assignment.ts:210).
+      // the deferred recheck after the RHS eval below.
       set_defer_generic_fn_type_check(true);
       binding := evaluate_binding(lhs, env, ctx, exn);
       set_defer_generic_fn_type_check(false);
@@ -906,8 +888,8 @@ evaluate_assignment :: (
   // The if-check above guarantees vars is non-empty here; the .None arm is unreachable.
   variable := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
   // Closure capture tracking — a WRITE to an outer variable from inside a
-  // function body / async block is a capture too (mirrors assignment.ts:667
-  // calling trackVariableUsage with usage "own"). Reads are tracked by the
+  // function body / async block is a capture too (tracked with usage "own").
+  // Reads are tracked by the
   // identifier evaluator; without this, a closure whose only reference to an
   // outer variable is an assignment (`(...) => { x = v; }`) recorded NO
   // capture and the ref-capture gate never saw `x`
@@ -955,7 +937,7 @@ evaluate_assignment :: (
     );
   });
   rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
-  // Deferred generic-fn-type check (TS assignment.ts:438-470): reject a
+  // Deferred generic-fn-type check: reject a
   // runtime variable with a GENERIC function type unless the bound lambda's
   // body provably ALWAYS unwinds — such a ctl handler never delivers its
   // generic'd return through the C fn pointer, so the ABI mismatch the rule
@@ -996,7 +978,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
-  // Slice-flowability at the assignment boundary (assignment.ts:263-297). When
+  // Slice-flowability at the assignment boundary. When
   // the TARGET's type carries a raw pointer (Slice/str/aggregate-thereof; owned
   // object types like String/ArrayList are excluded by the predicate), the RHS
   // must be rooted in storage that OUTLIVES the target binding. `=` can target
@@ -1004,10 +986,10 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // `max_local_frame_level`: a same-frame/local source is accepted only if its
   // scope encloses the target's (level <= target). Parameters, comptime values
   // and `ref`-bound names outlive the function and are always accepted.
-  // Privileged files (pragma AllowUnsafe) are exempt, mirroring the sibling
+  // Privileged files (pragma AllowUnsafe) are exempt, like the sibling
   // return-position gate — raw-pointer manipulation like `p = &(x)` is exactly
-  // what those files declare (assignment.ts gate, same exemption). Mirrors the
-  // binding-site check, but `:=` is always innermost so only `=` reassignment
+  // what those files declare. Same rule as at the binding site, but
+  // `:=` is always innermost so only `=` reassignment
   // can invert scope.
   if(type_representation_contains_raw_ptr(variable.ty) && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).module_path.clone())), {
     assign_flow_opts := FlowOptions(
@@ -1028,7 +1010,6 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // This happens in patterns like `v = v.push(x)` where push takes own(self).
   // If consumed, we must NOT create a temp variable to save the old value,
   // because the old value's ownership was transferred to the callee.
-  // Mirrors assignment.ts:305-315.
   lhs_consumed_by_rhs := {
     cvars := get_variables_from_env(env, variable_name);
     cond(
@@ -1040,15 +1021,15 @@ comptime(${variable_name}) : ${dgc_ty_str}
       true => false
     )
   };
-  // Check if the RHS variable has been consumed (moved). Mirrors assignment.ts:318.
+  // Check if the RHS variable has been consumed (moved).
   require_expr_not_consumed(rhs_evaled, env, ctx, exn);
   // Under the new ownership model, all assignments transfer ownership, so we
   // always need to call dup on the RHS. Without this, codegen emits the
   // scope-end drop for the (owning) LHS binding but no matching dup — every
   // `(x : T) = rhs` / `x = rhs` whose RHS is a borrowed RC value net-releases
-  // the caller's object (the stage-2 Environment UAF). Mirrors assignment.ts:321.
+  // the caller's object (the stage-2 Environment UAF).
   set_expr_as_needs_to_call_dup(rhs_evaled, ctx, exn);
-  // Re-read env in case set_expr_as_needs_to_call_dup updated it (TS: env = rhs.$.env).
+  // Re-read env in case set_expr_as_needs_to_call_dup updated it.
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled)),
     .Some(ri_after_dup) => {
@@ -1071,16 +1052,16 @@ comptime(${variable_name}) : ${dgc_ty_str}
   (rhs_type : TypeValue) = rhs_info.ty;
   // Convert comptime types to runtime types when the variable is not comptime-only.
   if(!variable.is_compile_time_only, {
-    // Expected-type-aware (TS assignment.ts:360-366 passes
-    // `expectedType: variable.type`): a `comptime_str` assigned to a
+    // Expected-type-aware (passing `expectedType: variable.type`):
+    // a `comptime_str` assigned to a
     // `*(u8)` / `*(char)` variable becomes that pointer type, not `str`.
     rhs_type = convert_comptime_type_to_runtime_type_with_expected(
       rhs_type,
       Option(TypeValue).Some(variable.ty),
       env
     );
-    // Mirror TS's `expr: rhs` side-effect (types/utils.ts:985-988) — see the
-    // property-assignment site above for why codegen needs it.
+    // Same `expr: rhs` side-effect as at the
+    // property-assignment site above — see there for why codegen needs it.
     if(is_comptime_int_type(rhs_info.ty) || is_comptime_float_type(rhs_info.ty) || is_comptime_string_type(rhs_info.ty), {
       expr_info_set_converted_runtime_type(rhs_info, Option(TypeValue).Some(rhs_type.clone()));
     });
@@ -1107,27 +1088,24 @@ comptime(${variable_name}) : ${dgc_ty_str}
   );
   // Determine whether this is initialisation (first assignment) or reassignment.
   is_mutating_defined_variable := updated_variable.initialized_at_token.is_some();
-  // First-initialisation scope gate (assignment.ts:557-574): a declared-but-
+  // First-initialisation scope gate: a declared-but-
   // uninitialised variable may only be initialised in the scope that declared
   // it — initialising one defined OUTSIDE the current function body is an
   // error (the function may never be called, and its body must not initialise
   // caller-scope storage).
   //
-  // The TS while-loop twin (assignment.ts:539-555) is deliberately NOT ported:
-  // yo-self's mutable-shared frames make the frame-level oracle unreliable
-  // there — measured on tests/codegen-bootstrap/arraylist_index_call.yo, a
-  // body-local `(b : u8) = al(i)` inside `while` carried frame_level 3 against
-  // a loop-entry frame count of 4, so the gate wrongly fired and the swallowed
+  // A frame-level oracle over the LIVE env is unreliable with mutable
+  // shared frames — measured on tests/codegen-bootstrap/arraylist_index_call.yo,
+  // a body-local `(b : u8) = al(i)` inside `while` carried frame_level 3 against
+  // a loop-entry frame count of 4, so such a gate wrongly fired and the swallowed
   // throw dropped the loop from the emitted C (corpus DIFF).
   if(!is_mutating_defined_variable, {
-    // While-loop twin (assignment.ts:541-555): a variable declared OUTSIDE
+    // While-loop twin: a variable declared OUTSIDE
     // the loop may not be first-initialised inside its body (the loop may run
-    // zero times, and iteration 2 would re-init). The first port of this gate
-    // was reverted: it read the LIVE shared env's frame count, which had
-    // grown past loop entry by the time the gate ran, so body-locals compared
-    // as "outside" (corpus DIFF on arraylist_index_call.yo). The
-    // entry_frame_count SNAPSHOT taken by while.yo restores TS's persistent-
-    // env semantics.
+    // zero times, and iteration 2 would re-init). Compare against the
+    // entry_frame_count SNAPSHOT taken by while.yo: reading the LIVE env's
+    // frame count — grown past loop entry by the time the gate runs — makes
+    // body-locals compare as "outside" (corpus DIFF on arraylist_index_call.yo).
     match(
       ctx.is_evaluating_loop_body,
       .Some(loop_ctx) => {
@@ -1177,15 +1155,15 @@ comptime(${variable_name}) : ${dgc_ty_str}
       .None => ()
     );
   });
-  // Impl(...) reassignment rule (TS assignment.ts:635-655): a SomeType
+  // Impl(...) reassignment rule: a SomeType
   // variable whose concrete type is already fixed (Impl uses static dispatch)
   // cannot be reassigned. Generic type parameters WITHOUT a resolved concrete
   // type stay reassignable. "Already assigned" must be judged on the CURRENT
-  // control-flow path: yo-self's shared mutable Variable is stamped
+  // control-flow path: the shared mutable Variable is stamped
   // initialized by the FIRST cond arm, so a sibling arm's own first
   // assignment would false-positive here — has_dominating_branch_init
   // consults cond.yo's branch-group windows to exclude sibling-arm records
-  // (TS's per-branch child envs make them invisible for free).
+  // (sibling arms must not count).
   if(is_mutating_defined_variable, {
     impl_resolved := match(
       updated_variable.ty,
@@ -1229,9 +1207,9 @@ comptime(${variable_name}) : ${dgc_ty_str}
     id : updated_variable.id,
     name : updated_variable.name,
     // A labeled tuple declaration keeps its DECLARED type when a positional
-    // tuple flows in: TS's variableType is always the declared type (never
+    // tuple flows in: the variable's type is always the declared type (never
     // the RHS), so `(t2 : Tuple(a : i32, ...)) = (1, ...)` still resolves
-    // `t2.a` afterwards. Scoped to tuples — yo-self otherwise deliberately
+    // `t2.a` afterwards. Scoped to tuples — everything else deliberately
     // adopts rhs_type (enum selected-variant, SomeT resolution riders).
     ty : cond(
       (is_tuple_type(updated_variable.ty) && is_tuple_type(rhs_type)) => updated_variable.ty,
@@ -1241,8 +1219,8 @@ comptime(${variable_name}) : ${dgc_ty_str}
     frame_level : updated_variable.frame_level,
     value : value_cell_of(value_to_store),
     // A `ref` binding/parameter NEVER owns: writing through the borrow
-    // stores into the OWNER's storage. Mirrors TS assignment.ts
-    // (`variable.isRef ? false : typeContainsRcType(...)`) — flipping a
+    // stores into the OWNER's storage (`isRef ? false :
+    // typeContainsRcType(...)`) — flipping a
     // borrow to owning generated a spurious scope-end drop / double free
     // (issues/fixed/codegen-ref-binding-to-object-field-missing-addressof.md).
     is_owning_the_rc_value : cond(
@@ -1253,9 +1231,9 @@ comptime(${variable_name}) : ${dgc_ty_str}
     is_reassignable : updated_variable.is_reassignable,
     token : updated_variable.token,
     // First initialization stamps the token; a REASSIGNMENT must preserve it.
-    // TS also writes `initializedAtToken: lhs.token` here, but its persistent
-    // env means exprs BEFORE the reassignment keep a snapshot with the original
-    // token. yo-self shares one mutable Variable (END-of-scope env), so moving
+    // A reassignment also writes `initializedAtToken: lhs.token`, but exprs
+    // BEFORE the reassignment must keep seeing the original
+    // token. One mutable Variable is shared (END-of-scope env), so moving
     // the token forward makes _keep_pending_drop's forward-reference guard
     // (codegen/exprs/return.yo) treat the local as not-yet-declared at every
     // EARLIER return and skip its drop — the ee/ge Environment leak in
@@ -1272,9 +1250,9 @@ comptime(${variable_name}) : ${dgc_ty_str}
     is_from_effect_spread : updated_variable.is_from_effect_spread,
     is_effect_param : updated_variable.is_effect_param,
     is_module_level : updated_variable.is_module_level,
-    // Preserve the borrow/parameter flags across reassignment (1:1 with
-    // the TS `...variable` spread — the previous `false` literals DROPPED
-    // is_ref on write-through, silently disabling the ref-aware gates).
+    // Preserve the borrow/parameter flags across reassignment — the previous
+    // `false` literals DROPPED
+    // is_ref on write-through, silently disabling the ref-aware gates.
     is_ref : updated_variable.is_ref,
     is_parameter : updated_variable.is_parameter
   );
@@ -1297,7 +1275,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   expr_info_paths_for_write(lhs_info2).push(lhs_path);
   lhs_info2.variable_name = .Some(variable_name);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs_resolved), lhs_info2);
-  // Write ExprInfo for the whole `=` expression. Mirrors assignment.ts:759-800:
+  // Write ExprInfo for the whole `=` expression:
   // - initialization (variable not yet initialized) → unit info;
   // - reassignment whose old value was consumed by the RHS (e.g. passed to an
   //   `own` parameter) → unit info: the callee owns the old value, no temp;
@@ -1316,7 +1294,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     expr_info.is_compile_time_only_assignment = .Some(variable.is_compile_time_only);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
     // This temp variable is used to hold the old value of lhs.
-    // (yo-self divergence: attach_temp_variable_to_expr takes no
+    // (attach_temp_variable_to_expr takes no
     // is_owning_the_same_rc_value_as optimization argument.)
     attach_temp_variable_to_expr(expr, true, ctx);
   });

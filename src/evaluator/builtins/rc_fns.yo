@@ -1,6 +1,4 @@
 //! evaluator/builtins/rc_fns — RC reference-counting builtin evaluators.
-//!
-//! 1:1 port of `src/evaluator/builtins/rc_fns.ts`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -33,9 +31,8 @@ create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
   variant_fields.push(some_fields);
   none_labels := ArrayList(String).new();
   some_labels := ArrayList(String).new();
-  // "value" — MUST match prelude Option's `Some(value : T)` label: TS's
-  // createOptionType calls the real env Option constructor, so its label is
-  // always "value". The enum-signature dedup collapses this synthesized
+  // "value" — MUST match prelude Option's `Some(value : T)` label: the
+  // enum-signature dedup collapses this synthesized
   // rendition with real Option instances into ONE C type (labels are not in
   // the sig), and the downcast/await emitters hardcode `.Some = { .value =`
   // — a "val"-labelled winner made the field designator miss (the lexer
@@ -96,7 +93,6 @@ _eval_arg :: (
 // ---------------------------------------------------------------------------
 // Simple 1-arg -> unit functions
 // ---------------------------------------------------------------------------
-/// Mirrors `evaluateYoDecrRc` in rc-fns.ts.
 evaluate_yo_decr_rc :: (
   fn(
     expr : AstExpr,
@@ -111,7 +107,6 @@ evaluate_yo_decr_rc :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoDecrRcAtomic` in rc-fns.ts.
 evaluate_yo_decr_rc_atomic :: (
   fn(
     expr : AstExpr,
@@ -126,7 +121,6 @@ evaluate_yo_decr_rc_atomic :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoIncrRc` in rc-fns.ts.
 evaluate_yo_incr_rc :: (
   fn(
     expr : AstExpr,
@@ -141,7 +135,6 @@ evaluate_yo_incr_rc :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoIncrRcAtomic` in rc-fns.ts.
 evaluate_yo_incr_rc_atomic :: (
   fn(
     expr : AstExpr,
@@ -156,7 +149,6 @@ evaluate_yo_incr_rc_atomic :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoDynVtableDrop` in rc-fns.ts.
 evaluate_yo_dyn_vtable_drop :: (
   fn(
     expr : AstExpr,
@@ -171,7 +163,6 @@ evaluate_yo_dyn_vtable_drop :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoDynVtableDup` in rc-fns.ts.
 evaluate_yo_dyn_vtable_dup :: (
   fn(
     expr : AstExpr,
@@ -186,7 +177,6 @@ evaluate_yo_dyn_vtable_dup :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoSomeTypeDrop` in rc-fns.ts.
 evaluate_yo_some_type_drop :: (
   fn(
     expr : AstExpr,
@@ -201,7 +191,6 @@ evaluate_yo_some_type_drop :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoSomeTypeDup` in rc-fns.ts.
 evaluate_yo_some_type_dup :: (
   fn(
     expr : AstExpr,
@@ -216,7 +205,6 @@ evaluate_yo_some_type_dup :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoIsoDispose` in rc-fns.ts.
 evaluate_yo_iso_dispose :: (
   fn(
     expr : AstExpr,
@@ -234,7 +222,6 @@ evaluate_yo_iso_dispose :: (
 // ---------------------------------------------------------------------------
 // 1-arg -> arg type (rc_own passes ownership to caller, no comptime value)
 // ---------------------------------------------------------------------------
-/// Mirrors `evaluateYoRcOwn` in rc-fns.ts.
 evaluate_yo_rc_own :: (
   fn(
     expr : AstExpr,
@@ -252,7 +239,6 @@ evaluate_yo_rc_own :: (
 // ---------------------------------------------------------------------------
 // iso_extract: 1-arg -> Option(T)
 // ---------------------------------------------------------------------------
-/// Mirrors `evaluateYoIsoExtract` in rc-fns.ts.
 evaluate_yo_iso_extract :: (
   fn(
     expr : AstExpr,
@@ -275,7 +261,7 @@ evaluate_yo_iso_extract :: (
       )
     );
   });
-  // Phase H (mirrors TS evaluateYoIsoExtract): extract() returns T DIRECTLY (it
+  // Phase H: extract() returns T DIRECTLY (it
   // panics at runtime on failure), NOT Option(T). The prelude method is
   // `extract : (fn(self) -> T)(__yo_iso_extract(self))`, so wrapping the builtin's
   // result in Option(T) here made the method body's type (Option(T)) mismatch its
@@ -291,7 +277,6 @@ evaluate_yo_iso_extract :: (
 // ---------------------------------------------------------------------------
 // 2-arg -> unit functions
 // ---------------------------------------------------------------------------
-/// Mirrors `evaluateYoDropArrayElement` in rc-fns.ts.
 evaluate_yo_drop_array_element :: (
   fn(
     expr : AstExpr,
@@ -308,7 +293,6 @@ evaluate_yo_drop_array_element :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoDropTupleElement` in rc-fns.ts.
 evaluate_yo_drop_tuple_element :: (
   fn(
     expr : AstExpr,
@@ -328,7 +312,6 @@ evaluate_yo_drop_tuple_element :: (
 // ---------------------------------------------------------------------------
 // 2-arg -> element type (dup returns the duped element value)
 // ---------------------------------------------------------------------------
-/// Mirrors `evaluateYoDupArrayElement` in rc-fns.ts.
 evaluate_yo_dup_array_element :: (
   fn(
     expr : AstExpr,
@@ -359,7 +342,6 @@ evaluate_yo_dup_array_element :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
   expr
 });
-/// Mirrors `evaluateYoDupTupleElement` in rc-fns.ts.
 evaluate_yo_dup_tuple_element :: (
   fn(
     expr : AstExpr,

@@ -1,7 +1,7 @@
-//! `recur(...)` self-call emitter — mirrors `src/codegen/exprs/recur.ts`.
+//! `recur(...)` self-call emitter.
 //!
-//! DEFERRED (documented divergences, none reached by the no-RC/no-effect
-//! corpus): evidence-parameter forwarding for `using()`/effects (Phase 3/5).
+//! KNOWN LIMITATION (none reached by the no-RC/no-effect corpus):
+//! evidence-parameter forwarding for `using()`/effects (Phase 3/5).
 { String } :: import("std/string");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_fn_call } :: import("../../expr.yo");
@@ -15,7 +15,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
 /// has a result variable name, emit it into a named temp first (so enclosing
-/// scope drops don't run before the call). Mirrors `generateRecur`.
+/// scope drops don't run before the call).
 generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("No arguments for recur call"))));
   match(
@@ -34,7 +34,6 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             arg_code := _call_generate_expr(arg, indent.clone(), context);
             // Strip `(*name)` to `name` for ref (inout) params — both the
             // caller and callee expect a pointer, so the deref is wrong.
-            // Mirrors TS recur.ts:34-51.
             match(
               context.base.get_expr_info(arg),
               .Some(aei) => match(
@@ -62,8 +61,8 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             // raw projection read is lost (arg_code is replaced by the dup
             // result below). get_variable_type_string is the
             // declared_c_var_names choke-point, so the dup emitter's
-            // undeclared-temp gate sees the declaration. Mirrors TS
-            // recur.ts (`recur(K, V, h._left, key)` in
+            // undeclared-temp gate sees the declaration
+            // (`recur(K, V, h._left, key)` in
             // std/imm/sorted_map.yo _node_contains surfaced this).
             match(
               context.base.get_expr_info(arg),

@@ -1,7 +1,5 @@
 //! evaluate_future_type — evaluates `Future(T)` or `Future(T, E)` syntax.
 //!
-//! 1:1 port of `src/evaluator/types/future-trait.ts` (Phase 2ay).
-//!
 //! Creates a FutureTraitT type with output type and at most one effect bundle.
 //! Supports:
 //!   Future(T)        — basic future
@@ -45,7 +43,6 @@ _future_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   )
 );
 /// Derive a label name for an individual effect type.
-/// Mirrors `getEffectLabel` from future-trait.ts.
 _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> String)(
   match(
     effect_type,
@@ -56,7 +53,6 @@ _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> Stri
 );
 /// Resolve a spread effect row `E : Type.Struct`.
 /// Pushes the resolved label/type/spread into the output lists.
-/// Mirrors `resolveEffectRowSpread` from future-trait.ts.
 _resolve_effect_row_spread :: (
   fn(
     effect_expr : AstExpr,
@@ -239,7 +235,6 @@ _resolve_effect_row_spread :: (
 });
 /// Resolve a single effect argument (either `E : Type.Struct` spread or individual effect type).
 /// Pushes the result into out_labels/out_types/out_spreads and returns updated env.
-/// Mirrors `resolveEffectArg` from future-trait.ts.
 _resolve_effect_arg :: (
   fn(
     effect_expr : AstExpr,
@@ -311,7 +306,6 @@ _resolve_effect_arg :: (
 /// Evaluates the `Future(T, ...)` syntax.
 /// Creates a FutureTraitT type with output type and optional effect row effects.
 ///
-/// Mirrors `evaluateFutureType` from future-trait.ts.
 evaluate_future_type :: (
   fn(
     expr : AstExpr,

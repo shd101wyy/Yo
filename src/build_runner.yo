@@ -4,8 +4,6 @@
 //! (build.executable, build.test, etc.) populate a `BuildRegistry`.
 //! After evaluation the runner reads the registry and orchestrates
 //! compilation for each artifact.
-//!
-//! Mirrors `src/build-runner.ts`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 _(env : warm_dbg_env) :: import("std/env");
@@ -69,7 +67,7 @@ _(env : warm_dbg_env) :: import("std/env");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { TargetInfo, parse_target, host_target, is_target_windows, is_target_macos, is_target_wasm } :: import("./target.yo");
 // ---------------------------------------------------------------------------
-// Build options  (mirrors TypeScript BuildOptions interface)
+// Build options
 // ---------------------------------------------------------------------------
 BuildOptions :: ref(
   struct(
@@ -184,9 +182,8 @@ ExecutionContext :: ref(
   )
 );
 /// `git describe --tags --always` in the project dir, or `.None` when that fails
-/// for any reason (not a repo, no git, non-zero exit, empty output). Mirrors
-/// `getGitVersion` (src/build-runner.ts:1417-1429), whose entire body is a
-/// try/catch returning undefined — the version is decoration on the "Building …"
+/// for any reason (not a repo, no git, non-zero exit, empty output) — the
+/// version is decoration on the "Building …"
 /// line, never a reason to fail a build.
 _git_output_task :: (fn(cmd : Command, io : Io) -> Impl(Future(Output, IoExn)))(
   io.async((e : IoExn) => {
@@ -219,8 +216,7 @@ _git_version :: (
 )(
   io.async((e : IoExn) => {
     // `git -C <dir>` rather than a cwd on the Command — `std/process/command.yo`
-    // has no `current_dir`, and this is git's own equivalent of TS's
-    // `execSync(..., { cwd: projectDir })`. The output future runs as a
+    // has no `current_dir`. The output future runs as a
     // SPAWNED TASK polled with is_finished + yield: a blocking await from
     // inside a task nests the event loop (C37), and awaiting an aborted
     // future directly would discard this closure's continuation.
@@ -243,17 +239,15 @@ _git_version :: (
 );
 /// The compiler binary to invoke for sub-steps (artifact compiles, test runs).
 ///
-/// `src/build-runner.ts` compiles IN PROCESS (`codeGenerator.compileModule`) —
-/// it never shells out — so the reference implementation cannot pick up a
-/// stranger's binary. yo-self shells out instead, and used the literal name
-/// `yo-cli`, resolved through `PATH`. In a clean sandbox that resolved to an
+/// An earlier version used the literal name `yo-cli`, resolved through `PATH`.
+/// In a clean sandbox that resolved to an
 /// unrelated globally-installed `yo` package, so every `build run` failed with
-/// a yargs stack trace (caught by `tests/cli-cases/build-run`).
+/// a stack trace (caught by `tests/cli-cases/build-run`).
 ///
 /// `argv[0]` is this binary, which is the only correct answer for a self-hosted
 /// compiler: `yo build` must invoke the compiler the user actually ran, not
-/// whatever `PATH` happens to offer. Falls back to the old name only if
-/// `argv[0]` is somehow empty.
+/// whatever `PATH` happens to offer. Falls back to the old name (`yo-cli`)
+/// only if `argv[0]` is somehow empty.
 _self_exe :: (fn() -> String)({
   argv := proc_args();
   if(argv.len() == usize(0), return(String.from("yo-cli")));
@@ -264,7 +258,6 @@ _self_exe :: (fn() -> String)({
 // Artifact output file name
 // ---------------------------------------------------------------------------
 /// Compute the output file name for a build artifact.
-/// Mirrors `getArtifactOutputFileName` in build-runner.ts.
 get_artifact_output_file_name :: (
   fn(
     kind : ArtifactKind,
@@ -1734,7 +1727,7 @@ compile_artifact :: (
     );
     kind_dir := if(is_lib, "lib", "bin");
     output_dir := _artifact_output_dir(artifact, ctx.project_dir.clone(), effective_target.clone(), kind_dir);
-    // Create the output directory before compiling into it (src/build-runner.ts:937-939).
+    // Create the output directory before compiling into it.
     // Without this the compiler is handed `-o <missing dir>/<name>` and dies with
     // a bare ENOENT — "file or directory not found" — with nothing to say which
     // path was missing. `yo build` could not build ANYTHING in a fresh project.
@@ -1751,8 +1744,8 @@ compile_artifact :: (
     // relative to the DEPENDENCY's directory, not to this project's.
     package_dir := if(artifact.package_dir.len() > usize(0), artifact.package_dir.clone(), ctx.project_dir.clone());
     source_path := Path.new(package_dir.clone()).join(Path.new(artifact.root));
-    // Byte-for-byte `src/build-runner.ts:948-956`: UNCONDITIONAL (not behind
-    // --verbose), the PROJECT name (the manifest's, else the first registered
+    // The Building line is UNCONDITIONAL (not behind
+    // --verbose): the PROJECT name (the manifest's, else the first registered
     // module's) rather than the
     // artifact's, a `git describe` suffix when the project dir is a repo, a
     // U+2192 arrow, the output path RELATIVE to the project dir, and a `.a`
@@ -1803,9 +1796,7 @@ compile_artifact :: (
     // same artifact.
     cmd.arg(String.from("--emit-deps"));
     cmd.arg(`${output_path.to_string()}.deps`);
-    // Forward the parent's `--std-path` override to the child compile. TS
-    // needs no equivalent: its build runner compiles artifacts in-process,
-    // where the override already applies.
+    // Forward the parent's `--std-path` override to the child compile.
     match(
       get_std_path_override(),
       .Some(sp) => {
@@ -1817,10 +1808,10 @@ compile_artifact :: (
     cmd.arg(source_path.to_string());
     cmd.arg(String.from("-o"));
     cmd.arg(output_path.to_string());
-    // TS sets the internal `emccEnvironment` to "web" for wasm targets
-    // (build-runner.ts:1017/1891) because it calls codegen in-process. We shell
-    // out to `compile`, so it has to travel as a flag — without it the plain
-    // `compile` default (`-sNODERAWFS=1`) would leak into `yo build` output.
+    // Force the emcc environment to "web" for wasm targets. The child is a
+    // separate `compile` process, so it has to travel as a flag — without it
+    // the plain `compile` default (`-sNODERAWFS=1`) would leak into `yo build`
+    // output.
     eff_ti_emcc := match(
       parse_target(effective_target.clone()),
       .Ok(t) => t,
@@ -1833,10 +1824,9 @@ compile_artifact :: (
     // Pass --target whenever it is not the host. The old condition was
     // `effective_target != artifact.target`, which meant an artifact declaring
     // its OWN target — the normal case — never got one: `effective_target`
-    // equals `artifact.target` unless the CLI overrides it. TS does not hit
-    // this because it calls codegen IN-PROCESS with parsedTarget; we shell out,
-    // so the target must travel on the command line or the child silently
-    // builds for the host.
+    // equals `artifact.target` unless the CLI overrides it. The child is a
+    // separate process, so the target must travel on the command line or it
+    // silently builds for the host.
     //
     // Run 31875845879 is what that looks like: `yo build` for
     // Wasm32_Unknown_Emscripten produced yo-out/wasm32-unknown-emscripten/bin/hello-world.html
@@ -1851,7 +1841,7 @@ compile_artifact :: (
       cmd.arg(String.from("--target"));
       cmd.arg(effective_target.clone());
     });
-    // Force emcc for wasm targets (build-runner.ts:902-907). `compile` also
+    // Force emcc for wasm targets. `compile` also
     // auto-selects it, but only from a target it can SEE — and ctx.c_compiler
     // defaults to "clang", which would otherwise be passed through explicitly
     // and defeat that auto-selection.
@@ -1936,9 +1926,8 @@ compile_artifact :: (
       i = (i + usize(1));
     });
     // Forward the artifact's compile options — the §9 debt in
-    // plans/archive/P1_CLI_PARITY.md. Mirrors the `codeGenerator.compileModule`
-    // option mapping in `src/build-runner.ts:967-996`: `release` is true for
-    // every level except debug/release-safe, `mapOptimize` sends
+    // plans/archive/P1_CLI_PARITY.md. The option mapping: `release` is true
+    // for every level except debug/release-safe, optimize sends
     // release-safe/-small to -O2 and release-fast to -O3, allocator is passed
     // unconditionally, sanitize only when not "none".
     // Only `--optimize <level>` is emitted: `yo compile` has no `--release`
@@ -2054,11 +2043,10 @@ compile_artifact :: (
       cmd.arg(String.from("--cflags"));
       cmd.arg(joined);
     });
-    // STREAM the child's output rather than capturing it. `src/build-runner.ts`
-    // compiles in-process, so its "Generated C code written to …" / "Compiling
-    // with: …" lines and every clang diagnostic land on the build's own stdout.
-    // Capturing them hid compile errors from the user entirely unless the whole
-    // step failed.
+    // STREAM the child's output rather than capturing it: its "Generated C code
+    // written to …" / "Compiling with: …" lines and every clang diagnostic must
+    // land on the build's own stdout. Capturing them hid compile errors from
+    // the user entirely unless the whole step failed.
     // Every await-bearing step below is a TOP-LEVEL statement of this
     // async closure ON PURPOSE: an await nested inside an if-branch here
     // silently lost its continuation (the cache-skip block after it never
@@ -2247,17 +2235,16 @@ run_executable :: (
       ctx.target_triple
     );
     exe_path := Path.new(output_dir).join(Path.new(exe_name));
-    // Missing-binary pre-flight (build-runner.ts:1918-1921): a step chain that
+    // Missing-binary pre-flight: a step chain that
     // skipped the compile must fail HERE with a diagnostic, not with the
     // shell's exec error.
     exe_found := e.io.await(exists(Path.new(exe_path.to_string()), e.io), e.io);
     if(!(exe_found), {
       return(Result(unit, String).Err(`Error: Compiled executable not found at ${exe_path.to_string()}`));
     });
-    // The program runs with cwd = project dir (TS spawnSync {cwd: projectDir},
-    // build-runner.ts:1938-1942). `Command` has no cwd builder, so chdir
-    // around the spawn — the runner is single-threaded, and the exe path is
-    // made absolute FIRST so the chdir cannot invalidate it.
+    // The program runs with cwd = project dir. `Command` has no cwd builder,
+    // so chdir around the spawn — the runner is single-threaded, and the exe
+    // path is made absolute FIRST so the chdir cannot invalidate it.
     (abs_exe : String) = exe_path.to_string();
     if(!(Path.new(abs_exe.clone()).is_absolute()), {
       base := match(cwd(), .Ok(cb) => cb.to_string(), .Err(_) => String.from("."));
@@ -2266,7 +2253,6 @@ run_executable :: (
     prev_dir := match(cwd(), .Ok(pc) => pc.to_string(), .Err(_) => String.from("."));
     _cd_in := chdir(Path.new(ctx.project_dir.clone()));
     // wasm artifacts run through node on the emitted .js shim
-    // (build-runner.ts:1924-1937).
     eff_ti_run := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
     cmd := if(is_target_wasm(eff_ti_run), {
       js_path := if(
@@ -2284,9 +2270,8 @@ run_executable :: (
       cmd.arg(args(i));
       i = (i + usize(1));
     });
-    // Streamed, not captured: `runExecutable` in src/build-runner.ts spawns with
-    // `stdio: "inherit"`, so the program the user asked to run writes to the
-    // user's terminal. Capturing swallowed its output entirely.
+    // Streamed, not captured: the program the user asked to run must write
+    // to the user's terminal. Capturing swallowed its output entirely.
     st := e.io.await(cmd.status(e.io), e);
     _cd_back := chdir(Path.new(prev_dir));
     if(st.success(), Result(unit, String).Ok(()), {
@@ -2310,9 +2295,7 @@ run_test_suite :: (
     test_path := Path.new(ctx.project_dir).join(Path.new(suite.root));
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("test"));
-    // Forward the build's C compiler to the child test run (TS passes
-    // cCompiler through runTests, build-runner.ts:1955-1978; hollow before
-    // the runner's own --cc forwarding landed in P2.5 step 5).
+    // Forward the build's C compiler to the child test run.
     cmd.arg(String.from("--c-compiler"));
     cmd.arg(ctx.c_compiler.clone());
     // Forward the parent's `--std-path` override to the child test run (same
@@ -2327,8 +2310,7 @@ run_test_suite :: (
     );
     cmd.arg(test_path.to_string());
     // Suite excludes are project-relative; the child test runner resolves
-    // `--exclude` against its CWD, so anchor them to the project dir (TS
-    // does the same in-process via path.resolve(projectDir, e)).
+    // `--exclude` against its CWD, so anchor them to the project dir.
     (exi : usize) = usize(0);
     while(exi < suite.exclude.len(), {
       match(
@@ -2354,8 +2336,8 @@ run_test_suite :: (
     if(ctx.verbose, {
       _arg_c := cmd.arg(String.from("--verbose"));
     });
-    // Streamed, not captured — `runTestSuite` in src/build-runner.ts inherits
-    // stdio, so the test runner's own report is the point of running it.
+    // Streamed, not captured — the test runner's own report is the point of
+    // running it.
     st := e.io.await(cmd.status(e.io), e);
     if(st.success(), Result(unit, String).Ok(()), {
       code := st.code().unwrap_or(i32(-1));
@@ -2363,8 +2345,7 @@ run_test_suite :: (
     })
   })
 );
-/// Run a documentation step, mapping any thrown error to `false` (TS wraps
-/// runDocGeneration in try/catch, build-runner.ts:745-757).
+/// Run a documentation step, mapping any thrown error to `false`.
 _run_doc_step :: (fn(opts : DocCommandOptions, io : Io) -> bool)({
   doc_exn := Exception(
     throw : (
@@ -2496,8 +2477,7 @@ execute_node :: (
           .None => (),
           .Some(doc_cfg) => {
             description = `doc ${doc_cfg.name}`;
-            // Actually generate the documentation (runDocGeneration,
-            // src/build-runner.ts:745-757 + :1987-2010). Previously this arm
+            // Actually generate the documentation. Previously this arm
             // printed success and ran nothing — `yo init` scaffolds a doc
             // step, so every scaffolded project's `yo build doc` was hollow.
             println(`Generating documentation: ${doc_cfg.name}`);
@@ -2976,7 +2956,7 @@ execute_step :: (
     // A failed step must fail the build. execute_node folds per-step errors
     // into StepResult.success so the DAG finishes and the summary can show
     // WHICH step broke — but exiting 0 after a failed compile would let CI
-    // pass silently. Mirrors runBuild (src/build-runner.ts). See
+    // pass silently. See
     // issues/fixed/yo-build-exits-zero-on-failed-step.md
     (any_failed : bool) = false;
     (ri : usize) = usize(0);
@@ -3005,7 +2985,7 @@ execute_step :: (
   })
 );
 // ---------------------------------------------------------------------------
-/// Byte-for-byte `printSteps` (src/build-runner.ts:342-354): the header wording,
+/// Byte-for-byte `print_steps` output: the header wording,
 /// the empty-registry line, and the TAB between name and description are all
 /// load-bearing — `tests/cli-cases/build-list-steps` diffs this stdout against
 /// the reference compiler's.
@@ -3110,15 +3090,15 @@ _manifest_fields :: (fn(manifest_opt : Option(Manifest)) -> HashMap(String, Stri
 /// JSON parser was `BuildRegistry.new()` — it ignored its input entirely — so
 /// `yo build` built an empty DAG and exited 0. See plans/archive/P1_CLI_PARITY.md §3.
 ///
-/// The real thing, mirroring `src/build-runner.ts`: clear the global registry,
-/// evaluate the file through the module manager (the builtins mutate the
-/// registry as a side effect of evaluation), then read the registry back.
+/// The real thing: clear the global registry, evaluate the file through the
+/// module manager (the builtins mutate the registry as a side effect of
+/// evaluation), then read the registry back.
 ///
 /// A parse or evaluation error in the build file is a BUILD FAILURE: the
 /// loader's handlers stash the rendered diagnostic (the single-print rule,
 /// plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md D2), this edge prints it once
 /// and throws. It used to be swallowed ("some errors are expected if the build
-/// file has runtime components", mirroring TS), which turned every mistake in
+/// file has runtime components"), which turned every mistake in
 /// a build file — a syntax error, a duplicate artifact name, a wrong field
 /// type — into `Unknown step "install". Available: (none)` with no location
 /// (issues/fixed/build-yo-evaluation-errors-are-swallowed.md).
@@ -3179,7 +3159,7 @@ run_build :: (
     if(!(build_file_exists), {
       e.exn.throw(dyn(`Error: Build file not found: ${build_file_path.to_string()}`));
     });
-    // `path.dirname` semantics, which is what src/build-runner.ts uses. Yo's
+    // `project_dir` follows `path.dirname` semantics ("foo" → "."): Yo's
     // `Path.parent()` follows Rust — `Path::new("foo").parent()` is `Some("")` —
     // so the default `./build.yo` yielded an EMPTY project dir, and every derived
     // path became absolute: the output dir was `/yo-out/<target>/bin`, and
@@ -3258,7 +3238,7 @@ run_build :: (
       mm_reset();
     });
     // Resolve system libraries per-artifact via pkg-config
-    // (build-runner.ts:234-275). Each artifact only gets flags for libraries
+    //. Each artifact only gets flags for libraries
     // it explicitly linked; wasm targets skip host pkg-config/vcpkg (paths
     // are incompatible) but still add `-l<name>` for the emscripten linker.
     if(registry.system_libraries.len() > usize(0), {

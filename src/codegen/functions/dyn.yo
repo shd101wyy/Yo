@@ -1,14 +1,13 @@
-//! Dyn function emitters — 1-to-1 port of `src/codegen/functions/dyn.ts`.
+//! Dyn function emitters.
 //!
-//! All four emitters ported: generate_dyn_dup_drop (RC dup/drop on the fat
+//! Four emitters: generate_dyn_dup_drop (RC dup/drop on the fat
 //! pointer), generate_dyn_box_functions (box ctor + dispose),
 //! generate_dyn_wrapper_functions (unwrap self + forward to the impl method —
 //! Fn `call` slot + regular trait methods) and generate_dyn_vtables (TypeId
-//! statics + static vtable instances referencing the wrappers). yo-self
-//! resolves impl funcs/types via the func-id side-table (get_func_type /
-//! get_function_entry) rather than TS's `moduleValue.type.fields`; the
-//! closure-discovery optimization (implClosureCallMap, absent here) is replaced
-//! by the general `box->field.call(...)` fat-pointer path for the Fn slot.
+//! statics + static vtable instances referencing the wrappers). Impl
+//! funcs/types resolve via the func-id side-table (get_func_type /
+//! get_function_entry); the Fn slot goes through the general
+//! `box->field.call(...)` fat-pointer path.
 { String } :: import("std/string");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -23,7 +22,7 @@
 { type_key, get_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-/// func_id of a FuncVal EvalValue (mirrors collection.yo:_func_val_id).
+/// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
 _func_val_id :: (fn(v : EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
 );
@@ -58,7 +57,6 @@ _dyn_impl_keys :: (fn(context : FunctionGenerationContext) -> ArrayList(String))
   out
 });
 /// Generate dup/drop functions for dyn types (RC on the boxed data pointer).
-/// Mirrors `generateDynDupDrop` (functions/dyn.ts:18).
 generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   generated := HashSet(String).new();
@@ -94,10 +92,9 @@ generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
     i = (i + usize(1));
   });
 });
-/// Generate box constructor + dispose functions for dyn impls. Mirrors
-/// `generateDynBoxFunctions` (functions/dyn.ts:57). yo-self resolves the
-/// concrete type's drop fn via get_drop_function_for_type (the type-method
-/// registry) rather than TS's `concreteType.trait.fields.find(___drop)`.
+/// Generate box constructor + dispose functions for dyn impls. The
+/// concrete type's drop fn resolves via get_drop_function_for_type (the
+/// type-method registry).
 generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   if(context.base.dyn_impls.is_empty(), {
     return(());
@@ -318,16 +315,13 @@ _wrapper_params :: (fn(param_types : ArrayList(TypeValue), start : usize, contex
   });
   out
 });
-/// Generate wrapper functions for dyn method dispatch. Mirrors
-/// `generateDynWrapperFunctions` (functions/dyn.ts:163). Each wrapper takes
+/// Generate wrapper functions for dyn method dispatch. Each wrapper takes
 /// `void* self_ptr`, unwraps it to the boxed value (is_boxed_type) or casts to
 /// the concrete pointer, then calls the impl method. Two slot kinds: the Fn
 /// synthetic `call` slot (FnTraitT) and regular trait methods (from the
-/// TraitVal evidence records). yo-self resolves the impl func + its type via
-/// the func-id side-table (get_func_type / get_function_entry) rather than TS's
-/// `moduleValue.type.fields` / `fieldValue.funcId`. The closure-discovery
-/// optimization (implClosureCallMap) is absent in yo-self, so the Fn slot uses
-/// the general `box->field.call(...)` fat-pointer path.
+/// TraitVal evidence records). The impl func + its type resolve via
+/// the func-id side-table (get_func_type / get_function_entry). The Fn slot
+/// uses the general `box->field.call(...)` fat-pointer path.
 generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   if(context.base.dyn_impls.is_empty(), {
     return(());
@@ -367,8 +361,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                   // Dyn'd CLOSURE: the boxed payload is the closure's CAPTURE
                   // STRUCT — resolve the closure C fn via impl_closure_call_map
                   // (capture-struct id → fn name) and call it directly with
-                  // `(void*)&box-><payload>` as the closure_context. Mirrors
-                  // TS's wrapper: `return closure_yoX((void*)&box->_u42_, arg1)`.
+                  // `(void*)&box-><payload>` as the closure_context.
                   cc_struct_id := match(
                     impl_entry.concrete_type.clone(),
                     .Struct({ id : csid }) => csid,
@@ -406,10 +399,9 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     // Gated on a RESOLVED inner: an unresolved-SomeT payload's
                     // Box field degenerates to `void*` in C, so the fat-pointer
                     // `.call` below is invalid ("member reference base type
-                    // 'void *'", the fn batch clang error). TS never emits a
-                    // wrapper for an unresolved inner (the eval-side failure
-                    // discards it); fall through to the zeroed stub — nothing
-                    // calls it, its callers were dropped by the same throw.
+                    // 'void *'", the fn batch clang error). Fall through to
+                    // the zeroed stub — nothing calls it, its callers were
+                    // dropped by the same eval-side throw.
                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());
                     em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
@@ -471,7 +463,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     label := match(field_names.get(fi), .Some(l) => l, .None => String.from(""));
                     // Pre-bind the owned-clone subexpression so it is declared
                     // unconditionally (a `label.clone()` inside a short-circuit
-                    // `||` mis-scopes its drop — TS-compiler bug).
+                    // `||` mis-scopes its drop).
                     label_reserved := _is_reserved_dyn_label(label.clone());
                     is_reserved := ((label == "Self") || label_reserved);
                     if(!is_reserved, {
@@ -544,8 +536,8 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
     ki = (ki + usize(1));
   });
 });
-/// Generate static vtables for dyn implementations. Mirrors `generateDynVtables`
-/// (functions/dyn.ts:430): a unique TypeId static per concrete type (its address
+/// Generate static vtables for dyn implementations.
+/// a unique TypeId static per concrete type (its address
 /// is the runtime TypeId), then one `static const <Dyn>_vtable __yo_vtable_<key>`
 /// per impl whose first field is the type id and whose method slots reference the
 /// wrappers emitted above (`.call` for Fn traits; `.method` for trait methods
@@ -647,7 +639,7 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                   while(fi < nfl, {
                     label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
                     // Pre-bind owned-clone subexpressions (short-circuit `||`
-                    // mis-scopes their drops — TS-compiler bug).
+                    // mis-scopes their drops).
                     label_reserved := _is_reserved_dyn_label(label.clone());
                     label_processed := processed.contains(label.clone());
                     is_skip := ((label == "Self") || label_reserved || label_processed);

@@ -1,21 +1,16 @@
 //! Type definitions for await analysis.
 //!
-//! Mirrors `src/evaluator/async/await-analysis-types.ts` — 1:1 port.
-//!
 //! `AwaitPoint` extends `SuspensionPoint` with async-specific fields.
 //! `CapturedVariable` extends `SuspensionCapturedVariable` with a `kind` discriminator
 //! and an async-typed self-referential `is_owning_the_same_rc_value_as` override.
 //! `AwaitAnalysisResult` aggregates all await information for one async block.
 //!
-//! Key design decisions vs the TypeScript source:
+//! Design notes:
 //!
-//! * TypeScript `extends` → embed base type as a `base` field (Yo has no interface inheritance).
-//! * `kind: "local" | "outer"` → `CapturedVariableKind` enum.
-//! * `isOwningTheSameRcValueAs: CapturedVariable | undefined` override →
-//!   `is_owning_the_same_rc_value_as: Option(Box(Self))` using `Box(Self)`.
-//! * `Map<string, string>` → `HashMap(String, String)`.
-//! * `Type[]` → `TypeValue` (single element fields stay as `TypeValue`).
-//! * Optional fields (`field?: T`) → `Option(T)`.
+//! * No interface inheritance in Yo: base types are embedded as a `base` field.
+//! * The self-referential `is_owning_the_same_rc_value_as` override uses
+//!   `Option(Box(Self))` to break the recursive value-type cycle.
+//! * Optional fields are `Option(T)`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -28,8 +23,6 @@
 // CapturedVariableKind
 // ---------------------------------------------------------------------------
 /// Discriminator for the kind of variable being captured.
-///
-/// Mirrors the `kind: "local" | "outer"` discriminated union field in TypeScript.
 CapturedVariableKind :: enum(
   /// A variable defined in the async function body (uses `var_{id}` field naming).
   Local,
@@ -40,9 +33,7 @@ CapturedVariableKind :: enum(
 // AwaitPoint
 // ---------------------------------------------------------------------------
 /// Information about a single await expression found in an async function.
-/// Embeds `SuspensionPoint` as a `base` field (TypeScript: extends SuspensionPoint).
-///
-/// Mirrors `AwaitPoint` in `src/evaluator/async/await-analysis-types.ts`.
+/// Embeds `SuspensionPoint` as a `base` field.
 AwaitPoint :: ref(
   struct(
     /// Shared suspension-point fields (index, expr, target_variable_id, …).
@@ -62,10 +53,8 @@ AwaitPoint :: ref(
 // CapturedVariable
 // ---------------------------------------------------------------------------
 /// Information about a local variable that needs to persist across await points.
-/// TypeScript: `CapturedVariable extends SuspensionCapturedVariable`.
-///
-/// Yo: embeds the base fields in `base` and adds async-specific fields.
-/// The self-referential `isOwningTheSameRcValueAs: CapturedVariable | undefined`
+/// Embeds the base fields in `base` and adds async-specific fields.
+/// The self-referential `is_owning_the_same_rc_value_as`
 /// is overridden with the async-typed version.
 CapturedVariable :: ref(
   struct(
@@ -73,7 +62,7 @@ CapturedVariable :: ref(
     base : SuspensionCapturedVariable,
     /// The kind of variable being captured (local or outer-scope).
     kind : CapturedVariableKind,
-    /// Async-typed self-referential override for `isOwningTheSameRcValueAs`.
+    /// Async-typed self-referential override for `is_owning_the_same_rc_value_as`.
     /// Uses `Box(Self)` to break the recursive value-type cycle.
     is_owning_the_same_rc_value_as : Option(Box(Self))
   )
@@ -82,8 +71,6 @@ CapturedVariable :: ref(
 // AwaitAnalysisResult
 // ---------------------------------------------------------------------------
 /// Result of analyzing an async function for await points.
-///
-/// Mirrors `AwaitAnalysisResult` in `src/evaluator/async/await-analysis-types.ts`.
 AwaitAnalysisResult :: ref(
   struct(
     /// All await points found in the function, in order of appearance.

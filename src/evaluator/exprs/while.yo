@@ -1,8 +1,4 @@
 //! evaluate_while — evaluates `while(...)` loops.
-//! 1:1 port of `src/evaluator/exprs/while.ts` (Phase 2ad).
-//!
-//! Phase 2 stubs:
-//!   - Comptime while loop unrolling with runtime body (cloneExpr path) deferred to Phase 3
 //!
 //! Exported symbols: evaluate_while
 { String } :: import("std/string");
@@ -52,8 +48,7 @@
 // Constants
 // ---------------------------------------------------------------------------
 /// Default maximum number of compile-time while loop iterations before bailing
-/// out. Mirrors the `MAX_COMPTIME_LOOP_ITERATIONS` IIFE in
-/// `src/evaluator/exprs/while.ts:34-41`.
+/// out.
 DEFAULT_MAX_COMPTIME_LOOP_ITERATIONS :: usize(10000);
 /// Memoized resolution of the limit. Read once per process: the limit is tested
 /// once per unrolled iteration, so a fresh `env.get` per test would allocate a
@@ -62,10 +57,9 @@ DEFAULT_MAX_COMPTIME_LOOP_ITERATIONS :: usize(10000);
 /// The effective limit: `YO_MAX_COMPTIME_LOOP_ITERATIONS` when it parses as a
 /// positive integer, else the default — the behavior the two "To increase the
 /// limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable" halves
-/// of `_throw_max_iterations_error` promise. (TS uses `parseInt`, which also
-/// accepts trailing garbage such as `12abc`; `parse_u64` rejects it and falls
-/// back to the default. Rejecting a malformed value is the safer half of that
-/// divergence.)
+/// of `_throw_max_iterations_error` promise. `parse_u64` rejects trailing
+/// garbage such as `12abc` and falls back to the default, which is the safer
+/// reading of a malformed value.
 max_comptime_loop_iterations :: (fn() -> usize)(
   match(
     _g_max_comptime_loop_iterations,
@@ -90,9 +84,7 @@ max_comptime_loop_iterations :: (fn() -> usize)(
 );
 // ---------------------------------------------------------------------------
 // Phase 0 of plans/backlog/FORMAL_VERIFICATION.md §A2: loop invariants must appear as
-// the first statement of the loop body. 1:1 port of
-// `enforceLoopInvariantPlacement` / `walkForMisplacedInvariant`
-// (src/evaluator/exprs/while.ts:106-166).
+// the first statement of the loop body.
 // ---------------------------------------------------------------------------
 /// Find any `invariant(...)` call NESTED inside an expression (cond/match
 /// branches, nested begin blocks). Returns the offending node instead of
@@ -176,8 +168,6 @@ _enforce_loop_invariant_placement :: (fn(body_expr : AstExpr) -> Option(Invarian
 // ---------------------------------------------------------------------------
 /// True when the body is GUARANTEED to terminate via break/return/unwind
 /// control-flow flags (i.e. every execution path terminates).
-///
-/// Mirrors the `guaranteed` field of `bodyHasAnyTerminator` in `while.ts`.
 _body_has_any_terminator_guaranteed :: (
   fn(
     body_info_cf : Option(ControlFlowFlags)
@@ -191,8 +181,6 @@ _body_has_any_terminator_guaranteed :: (
 );
 /// True when the body MIGHT terminate (either guaranteed or the AST contains
 /// any loop-terminator atom/call reachable through a conditional branch).
-///
-/// Mirrors the `possible` field of `bodyHasAnyTerminator` in `while.ts`.
 _body_has_any_terminator_possible :: (
   fn(
     body_expr : AstExpr,
@@ -208,7 +196,7 @@ _body_has_any_terminator_possible :: (
 /// Throw an appropriate error for a compile-time while loop that exceeded the
 /// maximum iteration count.
 ///
-/// Mirrors `throwMaxIterationsError` in `src/evaluator/exprs/while.ts`.
+///
 _throw_max_iterations_error :: (
   fn(
     expr : AstExpr,
@@ -243,7 +231,7 @@ _throw_max_iterations_error :: (
 ///   - `ctx`                       Mutable evaluator context.
 ///   - `comptime_iteration_count`  Recursion depth for compile-time unrolling.
 ///
-/// Mirrors `evaluateWhile` in `src/evaluator/exprs/while.ts`.
+///
 evaluate_while :: (
   fn(
     expr : AstExpr,
@@ -283,7 +271,7 @@ evaluate_while :: (
   });
   // Phase 0 invariant-placement rule: inside a `while(...)` body,
   // `invariant(...)` may only appear as the first statement of the loop body.
-  // See plans/backlog/FORMAL_VERIFICATION.md §A2 / while.ts:206-211. The helper
+  // See plans/backlog/FORMAL_VERIFICATION.md §A2. The helper
   // RETURNS the violation and the throw happens here — see its doc comment.
   match(
     _enforce_loop_invariant_placement(body_expr),
@@ -352,8 +340,8 @@ evaluate_while :: (
   // Snapshot the condition value before any potential mutation below.
   condition_value := cond_info.value;
   // A condition is comptime-KNOWN only if it has a value that is NOT an
-  // `UnknownVal`. yo-self represents "type known, value unknown" as
-  // `Some(UnknownVal)` (where TS uses `$.value === undefined`); a bare
+  // `UnknownVal` ("type known, value unknown" is represented as
+  // `Some(UnknownVal)`); a bare
   // `condition_value.is_some()` would wrongly treat such a runtime-unknown
   // condition (e.g. `i < lhs.len()` on an unknown param, evaluated at
   // definition time) as comptime-known and mis-fire the modifier gate below.
@@ -428,10 +416,9 @@ evaluate_while :: (
       true => Option(EvalValue).None
     );
     // ADAPTATION: record EMPTY unrolled bodies so codegen emits NOTHING for
-    // the eliminated loop. TS emits a dead runtime loop whose unevaluated
-    // body statements degrade to benign `// Error:` comments; yo-self's
-    // equivalent degradation is `// Failed to transpile` markers, which the
-    // honest-hollow gate counts (basic arm 26's `i :: 10; while(comptime(
+    // the eliminated loop. A dead runtime loop whose body statements went
+    // unevaluated would degrade to `// Failed to transpile` markers, which
+    // the honest-hollow gate counts (basic arm 26's `i :: 10; while(comptime(
     // i < 5), ...)`). Semantically identical: zero iterations.
     out_info.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -639,12 +626,12 @@ evaluate_while :: (
       env = match(step_info_s_opt, .Some(si) => si.env, .None => env);
     }
   );
-  // Comptime while loop unrolling with a RUNTIME body — port of TS
-  // while.ts:534-634. When the condition is compile-time TRUE but the body
+  // Comptime while loop unrolling with a RUNTIME body. When the condition is
+  // compile-time TRUE but the body
   // carries runtime values, deep-clone and re-evaluate the body per
   // iteration (each clone's ExprInfos bake THAT iteration's comptime
   // constants) and record the clones on `comptime_unrolled_bodies`; the
-  // codegen emits them sequentially with no C loop. Without this the stub
+  // codegen emits them sequentially with no C loop. Without this the
   // recursion re-evaluated the SAME nodes (last iteration's constants won)
   // and codegen emitted a runtime loop whose comptime step leaked a raw
   // identifier (`i = 5;` — basic arm 26's undeclared-identifier hard fail).
@@ -723,7 +710,7 @@ evaluate_while :: (
                   },
                   _ => {
                     // Condition became runtime — can't unroll further; keep
-                    // what we have and fall back (TS while.ts:607-616).
+                    // what we have and fall back.
                     out_rt_u := new_expr_info(current_env, t_unit());
                     out_rt_u.value = Option(EvalValue).None;
                     out_rt_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
@@ -745,7 +732,7 @@ evaluate_while :: (
         unroll_iter = (unroll_iter + usize(1));
       });
       if(!cond_still_true, {
-        // Loop terminates — store unrolled bodies (TS while.ts:619-629).
+        // Loop terminates — store unrolled bodies.
         out_done_u := new_expr_info(current_env, t_unit());
         out_done_u.value = Option(EvalValue).None;
         out_done_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
@@ -754,7 +741,7 @@ evaluate_while :: (
       });
     });
     // Unrolling failed: condition stayed comptime true (or a body/step eval
-    // lost its info). Mirrors TS while.ts:632-634.
+    // lost its info).
     _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
   });
   // If the effective condition is compile-time true (pure-comptime body),

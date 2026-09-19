@@ -1,15 +1,10 @@
 //! evaluate_union_type — evaluates a `union(...)` type expression.
 //!
-//! 1:1 port of `src/evaluator/types/union.ts`.
-//!
 //! Builds a `TypeValue.Union` with the given field labels and types.
 //! Validates that fields are runtime types and do not contain RC types.
-//!
-//! Stubs (deferred to Phase 3):
-//!   - `auto_derive_send_for_union_type`
-//!   - `auto_derive_acyclic_for_union_type`
-//!   - `auto_derive_runtime_for_union_type`
-//!   - `definedInModulePath` propagation (orphan rule checks)
+//! Trait markers are auto-derived by `auto_derive_traits_for_union_type`
+//! (utils.yo). Still deferred: defined-in-module-path propagation
+//! (orphan rule checks).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
@@ -155,7 +150,6 @@ evaluate_union_type :: (
     i = (i + usize(1));
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
-  // Mirrors `autoDeriveTraitsForUnionType` in TypeScript.
   auto_derive_traits_for_union_type(union_id.clone(), field_types, env);
   // Restore SelfType.
   ctx.self_type = old_self_type;
@@ -170,7 +164,7 @@ evaluate_union_type :: (
   out_info := new_expr_info(env_mut, meta_ty);
   out_info.value = Option(EvalValue).Some(union_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
-  // Annotate callee (expr.func) with same info (mirrors TS: expr.func.$ = expr.$).
+  // Annotate callee (expr.func) with the same info.
   callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
   expr

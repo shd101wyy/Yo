@@ -1,7 +1,5 @@
 //! evaluator/builtins/unsafe — implements evaluate_unsafe.
 //!
-//! 1:1 port of `src/evaluator/builtins/unsafe.ts`.
-//!
 //! `unsafe(expr)` is a compile-time marker that permits pointer deref
 //! (`p.*`), pointer arithmetic (`&+`, `&-`, `&/`), and `consume(p.* = v)`
 //! inside `expr`. Outside `unsafe(...)`, those operations are compile errors.
@@ -34,8 +32,7 @@ import("std/fmt");
 /// Evaluate the `unsafe(expr)` builtin. Evaluates the inner expression with
 /// `ctx.unsafe_context = true` (permitting raw-pointer ops within), then
 /// transparently propagates the inner expression's `ExprInfo` (value, type,
-/// env, variable name, ownership fields) to the outer call. Mirrors
-/// `evaluateUnsafe` in `src/evaluator/builtins/unsafe.ts`.
+/// env, variable name, ownership fields) to the outer call.
 evaluate_unsafe :: (
   fn(
     expr : AstExpr,
@@ -105,7 +102,7 @@ evaluate_unsafe :: (
   // ExprInfo (value, type, env, variable name, ownership fields) to the outer
   // call so downstream bindings, dup/drop scheduling, and consumption tracking
   // see the inner temp variable as if `unsafe(...)` weren't there. Reusing the
-  // same ExprInfo object mirrors TS's `expr.$ = { ...evaluatedArgExpr.$, env }`.
+  // same ExprInfo object preserves all of it.
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), arg_info);
   expr
 });

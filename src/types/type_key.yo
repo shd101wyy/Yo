@@ -21,10 +21,8 @@
 // once via `ArrayList.get()` and once via the iterator `next()`'s `-> Option(T)`
 // return) get DISTINCT eval ids → distinct id-based type keys → two incompatible
 // C structs (`assigning from incompatible type` when one is stored into the
-// other). TS avoids this entirely: its eval unifies the ids via the comptime-fn
-// cache and codegen keys the registry by `type.id` (collection.ts:805). yo-self's
-// eval mints fresh ids per instantiation (same divergence the struct cfid scheme
-// already compensates for), so we dedup at codegen here: map an enum's STRUCTURAL
+// other). Eval mints fresh ids per instantiation (the same divergence the
+// struct cfid scheme already compensates for), so dedup at codegen here: map an enum's STRUCTURAL
 // signature (variant names + discriminants + field-type keys, NO id) to the
 // FIRST-seen full key, and reuse that for later structural duplicates. Single
 // enums are unaffected (they register their own key and get it back), so this is
@@ -148,7 +146,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
     t,
     .Struct({ id, constructor_func_id : cfid, type_arguments : tas, field_types : fts, is_reference_semantics : t_is_ref }) => {
       // Resolve a leaked recursive-struct SELF-SHELL to its final so the shell and
-      // its final share ONE C type key. Mirrors the EnumT branch below. No-op for
+      // its final share ONE C type key. Same as the EnumT branch below. No-op for
       // non-shells. See resolve_struct_shell (creators.yo).
       st := resolve_struct_shell(t);
       (sid, scfid, stas, sfts, s_is_ref) := match(
@@ -279,8 +277,8 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
         // with_capacity Type(1) path, so NO instantiation ever records a gs_
         // key) otherwise render bare-sid everywhere and every layout collapses
         // onto ONE key — one GcTracer visit specialization served all MapEntry
-        // layouts and walked the wrong fields (TS emits 47 distinct MapEntry
-        // visit fns, one per instantiation). Unpoisoned REGISTERED sids
+        // layouts and walked the wrong fields; every distinct instantiation
+        // must get its own visit fn. Unpoisoned REGISTERED sids
         // (.Some non-poison) behave exactly as before.
         (sid.len() > usize(0)) => {
           slot := g_struct_cfid_keys.get(sid);
@@ -495,8 +493,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
     // `_ => type_to_string` fallback rendered `*(<struct:yo_id_N>)` — N being
     // the shared DECLARATION id — so pointers to different instantiations
     // produced identical keys and collided (the shared GcTracer visit
-    // specialization class; TS keys every type by its unique numeric
-    // `type.id`). Re-applied 2026-07-17: the 2026-07-15 revert's "stage-2
+    // specialization class). Re-applied 2026-07-17: the 2026-07-15 revert's "stage-2
     // startup heap corruption" verdict came from an invalidated bisect — the
     // corruption was the since-fixed RC leak + GC-teardown double-free. See
     // issues/fixed/yo-self-specialization-signature-type-identity.md.

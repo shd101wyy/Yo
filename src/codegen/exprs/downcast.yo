@@ -1,4 +1,4 @@
-//! `downcast(dyn_value, T)` emitter — mirrors `src/codegen/exprs/downcast.ts`.
+//! `downcast(dyn_value, T)` emitter.
 //!
 //! Safe downcast returning `Option(T)`. Dyn only wraps object types, so the
 //! result is an owned RC reference (we dup, since the Dyn also holds one). The
@@ -10,7 +10,7 @@
 //!
 //! - a REFERENCE-struct target IS the object pointer — cast + `__yo_incr_rc`;
 //! - a VALUE/newtype target was auto-boxed at `dyn()` creation — read the value
-//!   out of the Box found in `dyn_impls` (`wasBoxed`, downcast.ts:111-150; the
+//!   out of the Box found in `dyn_impls` (`wasBoxed`; the
 //!   old note calling this branch unreachable predates
 //!   `issues/fixed/yo-self-downcast-value-type.md`);
 //! - a VALUE target with NO `dyn_impls` entry for this (Dyn, target) pair — no
@@ -29,7 +29,7 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-/// Generate code for `downcast(dyn_value, T)`. Mirrors `generateDowncast`.
+/// Generate code for `downcast(dyn_value, T)`.
 generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: downcast not evaluated */")));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -71,9 +71,9 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   // casting the pointer straight to the value STRUCT is invalid C
   // ("used type … where arithmetic or pointer type is required"). Extract the
   // boxed value via the Box's value field and dup it (the Box keeps its copy).
-  // Mirrors TS's `wasBoxed` branch (downcast.ts:111-150); yo-self DOES box value
-  // types into dyns (the dyn_impl records concrete=<value>, data=Box(<value>)),
-  // so the branch the file header called "unreachable" is in fact the live path
+  // Value types ARE boxed into dyns (the dyn_impl records
+  // concrete=<value>, data=Box(<value>)), so this branch — once called
+  // "unreachable" — is in fact the live path
   // for a value target. See issues/fixed/yo-self-downcast-value-type.md.
   // `dyn_impls` is the WHOLE-PROGRAM registry of `dyn()` creation sites, filled
   // by the collection pass (`collect_required_functions`) long before any body

@@ -1,10 +1,10 @@
-//! Anonymous-tuple constructor emitter — mirrors `src/codegen/exprs/tuple-fn.ts`.
+//! Anonymous-tuple constructor emitter.
 //!
 //! Emits `(<cName>){ ._0 = a, ._1 = b, ... }` for a `tuple(...)` call. If the
 //! tuple has a result variable name, emits it into a named temp and returns
 //! the temp; otherwise returns the C compound-literal inline. A zero-arg tuple
 //! is the unit value — optimized away (returns ""). Per-field deferred-dup
-//! emission for moved RC fields IS ported (rc layer 4 — without it the tuple
+//! emission for moved RC fields (rc layer 4 — without it the tuple
 //! literal aliased its field's refcount and scope-end drops over-released).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -54,7 +54,7 @@ _build_tuple :: (fn(arg_exprs : ArrayList(AstExpr), c_name : String, expr : AstE
         args_list.push_string(i.to_string());
         args_list.push_str(" = ");
         arg_code := _call_generate_expr(arg, indent.clone(), context);
-        // Deferred dup for a moved RC field (mirrors tuple-fn.ts:36-48):
+        // Deferred dup for a moved RC field:
         // emit the field's deferred `___dup` expressions and reference the
         // DUP RESULT temp — the literal owns its own +1 per field.
         (used_dup_temp : bool) = false;
@@ -122,8 +122,7 @@ _type_not_found :: (fn(ei_ty_key : String) -> String)({
   out.push_str(" */");
   out
 });
-/// The `tuple(...)` function call, generating a tuple value. Mirrors
-/// `generateAnonymousTuple`.
+/// The `tuple(...)` function call, generating a tuple value.
 generate_anonymous_tuple :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("tuple has no evaluation info"))));
   ty_key := type_key(ei.ty);

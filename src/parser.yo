@@ -409,8 +409,7 @@ impl(
     // UNIQUE expr ids (passed in via `id_*`): hardcoding `usize(0)` made
     // every template-string sub-expr collide on id 0 in the per-ctx
     // `expr_info_table`, corrupting their evaluated types (a downstream
-    // `.to_string()` dispatch then saw garbage and failed to unify). Mirrors
-    // the global-expr-id collision fixed in commit 354b235b.
+    // `.to_string()` dispatch then saw garbage and failed to unify).
     make_ts_call :: (
       fn(
         e : AstExpr,
@@ -662,11 +661,9 @@ impl(
       );
       cond(
         (curr.kind == TokenKind.Comma) => {
-          // TS (parser.ts:1269-1271) just advances past the comma and loops
-          // back into parseExpression — a trailing comma before `)` is then
-          // REJECTED there ("Unexpected token"). A previous port accepted
-          // trailing commas here, silently admitting programs the TS
-          // bootstrap rejects.
+          // Just advance past the comma and loop
+          // back into parse_expression — a trailing comma before `)` is then
+          // REJECTED there ("Unexpected token").
           idx = (idx + usize(1));
         },
         (((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket)) || (curr.kind == TokenKind.RCurlyBracket)) => {
@@ -1150,10 +1147,10 @@ impl(
       exn : Exception
     ) -> ParseResult
   )({
-    // Mirrors parser.ts:894-899 EXACTLY: rhs is a FnCall AND isInfix AND its
+    // rhs is a FnCall AND isInfix AND its
     // callee is an Atom whose token is NOT a Dot. No arg-count restriction
-    // and no callee-token-kind restriction — TS has neither (same guard
-    // pattern removed from the infix branch's rhs_is_chained_op).
+    // and no callee-token-kind restriction — the same guard pattern was
+    // removed from the infix branch's rhs_is_chained_op.
     rhs_is_infix_non_dot := match(
       rhs,
       .FnCall(_, rfb, _, ris_infix, _) => cond(
@@ -1350,12 +1347,11 @@ impl(
         rhs_end := rhs_pr.index;
         // Check if rhs is an infix (non-dot) expression
         // Check if the RHS is already an operator expression (chained
-        // operators). Mirrors parser.ts:1083-1088 EXACTLY: rhs is a FnCall
-        // AND isInfix AND its callee is an Atom whose token is NOT a Dot
-        // (dot chains are allowed). No arg-count restriction and no
-        // callee-token-kind restriction — TS has neither (a previous port
-        // added `rargs.len() == 2` and `kind ∈ {Operator, Dot}` guards,
-        // which silently ACCEPTED chains TS rejects).
+        // operators): rhs is a FnCall AND isInfix AND its callee is an Atom
+        // whose token is NOT a Dot (dot chains are allowed). No arg-count
+        // restriction and no callee-token-kind restriction — an earlier
+        // revision's `rargs.len() == 2` and `kind ∈ {Operator, Dot}` guards
+        // silently ACCEPTED chains that must be rejected.
         rhs_is_chained_op := match(
           rhs,
           .FnCall(_, rfb, _, ris_infix, _) => cond(
@@ -1691,7 +1687,7 @@ parse :: (
 /// still an error, so the documented "wrap statement blocks in parens" rule is
 /// unchanged.
 ///
-/// Mirrors `generateExprFromCode` in `src/parser.ts`.
+///
 generate_expr_from_code :: (
   fn(
     code : String,
@@ -1738,7 +1734,7 @@ generate_expr_from_code :: (
   )
 });
 /// Parse all Yo expressions from a code string and return them.
-/// Mirrors `generateExprsFromCode` in `src/parser.ts`.
+///
 generate_exprs_from_code :: (
   fn(
     code : String,

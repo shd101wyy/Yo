@@ -1,8 +1,8 @@
-//! Dyn-impl key fixup — 1-to-1 port of `src/codegen/utils/fixup.ts`.
+//! Dyn-impl key fixup.
 //!
 //! Re-keys `context.dyn_impls` from type-id-based keys to C-name-based keys,
-//! to be called AFTER type generation (when C names are registered). yo-self's
-//! `DynT` carries no `.id` and no `resolvedConcreteType`, so the key components
+//! to be called AFTER type generation (when C names are registered). `DynT`
+//! carries no `.id` and no resolved-concrete field, so the key components
 //! use `type_key(...)` directly (the registry key) and the concrete type is
 //! used as-is (no SomeType-resolve step).
 { String } :: import("std/string");
@@ -11,7 +11,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { CodeGenContext, DynImplEntry, type_key } :: import("./index.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-/// Fix up dyn impl keys to use C names instead of ids. Mirrors `fixupDynImplKeys`.
+/// Fix up dyn impl keys to use C names instead of ids.
 fixup_dyn_impl_keys :: (fn(context : CodeGenContext) -> unit)({
   new_map := HashMap(String, DynImplEntry).new();
   // Drain the current keys (Yo has no for-over-iterator).

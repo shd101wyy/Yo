@@ -1,9 +1,7 @@
 //! evaluator/calls/trait_type — trait-type call helpers.
 //!
-//! 1:1 port of `src/evaluator/calls/trait-type.ts` (~567 TS lines).
-//!
 //! Adaptation notes:
-//! - `TraitT` in yo-self has no `exprs.typeExpr`/`exprs.defaultValueExpr` per field.
+//! - `TraitT` has no per-field `exprs.typeExpr`/`exprs.defaultValueExpr`.
 //!   `field_types[i]` are already evaluated and used directly.
 //! - `TraitT` has no `assignedValue`/`defaultValue` per field.
 //!   Error if a field is not provided.
@@ -12,7 +10,7 @@
 //!   unchanged (constraint storage is deferred to Phase 3).
 //! - `receiverType.trait` mutation skipped (Phase 3).
 //! - `typeImplementsTraitBool` (where clause checking) skipped (Phase 3 stub).
-//! - `funcId` suffix and `specializedType` skipped (no FuncVal.funcId in yo-self).
+//! - `funcId` suffix and `specializedType` skipped (FuncVal has no funcId).
 //! - Return types changed from `Option(AstExpr)` stub to correct result types.
 pragma(Pragma.AllowUnsafe);
 import("std/fmt");
@@ -58,7 +56,7 @@ import("std/fmt");
 /// e.g. `Iterator(Item := i32)` — constraint validated but NOT stored in TraitT
 /// (associatedTypeConstraints deferred to Phase 3).
 ///
-/// Mirrors `tryToSpecializeTraitType` in `src/evaluator/calls/trait-type.ts`.
+///
 try_to_specialize_trait_type :: (
   fn(
     trait_expr : AstExpr,
@@ -87,7 +85,7 @@ try_to_specialize_trait_type :: (
     _ => String.from("unknown")
   );
   (caller_env : Environment) = caller_env_in;
-  // Collected `Item := X` bindings (TS `associatedTypeConstraints`).
+  // Collected `Item := X` bindings (associated type constraints).
   atc_labels := ArrayList(String).new();
   atc_types := ArrayList(TypeValue).new();
   n_args := arg_exprs.len();
@@ -205,7 +203,7 @@ try_to_specialize_trait_type :: (
       );
     });
     caller_env = match(evaluated_info_opt, .Some(info) => info.env, .None => caller_env);
-    // Store the binding (TS trait-type.ts: associatedTypeConstraints.push).
+    // Store the binding.
     constraint_ty := match(
       evaluated_info_opt,
       .Some(info) => match(
@@ -219,8 +217,7 @@ try_to_specialize_trait_type :: (
     atc_types.push(constraint_ty);
     j = (j + usize(1));
   });
-  // Specialized TraitType — same identity, with the constraints added
-  // (TS: `{ ...traitType, associatedTypeConstraints }`).
+  // Specialized TraitType — same identity, with the constraints added.
   specialized_trait_type := match(
     trait_type,
     .TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _) =>
@@ -230,9 +227,6 @@ try_to_specialize_trait_type :: (
   TraitSpecializationResult(specialized_trait_type : specialized_trait_type, caller_env : caller_env)
 });
 /// Bind `arg_exprs` to the fields of `trait_type` to produce a trait-value instance.
-///
-/// Mirrors `tryToImplementTraitWithArgumentsByTraitType` in
-/// `src/evaluator/calls/trait-type.ts`.
 ///
 /// Adaptations:
 /// - Uses stored `field_types[i]` instead of re-evaluating `exprs.typeExpr`.
@@ -294,15 +288,14 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     i_init = (i_init + usize(1));
   });
   // Extend the receiver type's trait methods BEFORE evaluating member
-  // expressions — the port of TS's receiver-trait splice
-  // (trait-type.ts:176-203, "Extend the receiverType trait"). A member body
+  // expressions. A member body
   // that calls back into this impl's own methods (recursive types:
   // `TreeNode :: enum(..., Branch(left : Box(Self), ...))` +
   // `derive(TreeNode, Clone)` — validating the derived clone specializes
   // `Box(TreeNode).clone`, whose body calls `TreeNode.clone`) must find the
   // method TYPE from the trait signature while the real `FuncVal` is still
-  // being evaluated. TS substitutes `SelfType: receiverType` on each
-  // function-typed field; yo-self carries the same via `MethodEntry.self_type`.
+  // being evaluated. Each function-typed field carries the receiver via
+  // `MethodEntry.self_type`.
   // Entries are provisional (`value : None`) and cleared after the member
   // loop — the real registration happens in impl.yo once this returns.
   receiver_ty_pv := match(

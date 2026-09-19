@@ -1,18 +1,16 @@
 //! evaluator/calls/comptime_fn — evaluate_comptime_fn_call.
 //!
 //! Phase 3a — full implementation.
-//! 1:1 port of `src/evaluator/calls/comptime-fn.ts`.
 //!
 //! `evaluate_comptime_fn_call` executes a compile-time function (CTFE),
 //! caches the result (keyed by func_id + arg values), and handles recursive
 //! CTFE by inserting a temporary `UnknownVal` placeholder to break cycles.
 //!
-//! Key differences from the TypeScript version:
-//!   - The per-function cache lives in `g_comptime_fn_caches` (not on
-//!     `FuncVal.calledComptimeFunctionCaches`) to avoid circular imports.
-//!   - No `cloneExpr` needed (Yo uses ExprInfoTable — AST re-evaluation is safe).
-//!   - No `funcName` / `typeName` back-patching (TypeValue is pure enum in Yo).
-//!   - No `functionValue` field back-patching (not in Yo TypeValue).
+//! Design notes:
+//!   - The per-function cache lives in `g_comptime_fn_caches` (a global keyed
+//!     by func_id) to avoid circular imports.
+//!   - No AST cloning needed (Yo uses ExprInfoTable — AST re-evaluation is safe).
+//!   - TypeValue is a pure enum: no display-name or FuncVal back-patching.
 //!   - SomeType id comparison uses `SomeT.id` for exact identity.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
@@ -59,15 +57,14 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Global CTFE cache.
 //
-// TS stores per-function CTFE caches ON the FunctionValue
-// (`calledComptimeFunctionCaches`) — one GLOBAL cache per function
-// identity, shared by every module. yo-self previously kept them on the
-// EvalContext, but the demand loader creates a FRESH context per imported
+// One GLOBAL cache per function identity, shared by every module.
+// Keeping them on the EvalContext failed: the demand loader creates a
+// FRESH context per imported
 // module, so each module minted its OWN `ArrayList(u8)` instantiation
 // (different struct ids) and cross-module unification failed
 // ("Cannot unify <struct:A> and <struct:B>" for the same written type —
 // the std/glob `as_bytes()` vs local `ArrayList(u8)` param family).
-// A module-level global keyed by func_id is the faithful equivalent.
+// Hence a module-level global keyed by func_id.
 // ---------------------------------------------------------------------------
 (g_comptime_fn_caches : ArrayList(ComptimeFnCacheEntry)) = ArrayList(ComptimeFnCacheEntry).new();
 // Internal helper: compare two EvalValues for CTFE cache lookup.
@@ -211,14 +208,14 @@ _ctfe_args_equal :: (
         bty := bty_b;
         a_is_some := is_some_type(aty);
         b_is_some := is_some_type(bty);
-        // TS compares cached type args with the SAME type OBJECT memo-hitting
-        // trivially (object identity). yo-self type values are copies, but a
+        // Type values are copies, not shared objects, so cached type args
+        // compare by identity-carrying ids: a
         // struct/enum ID is unique per definition and SHARED between a
         // mid-definition self-shell and its final (struct.yo mints one id for
-        // both) — so same-id means same type object. Without this, a
+        // both) — so same-id means same type. Without this, a
         // self-recursive constructor's `Option(Self)` (arg = fieldless shell)
         // and the post-definition `Option(RBNode(K, V))` (arg = stamped final)
-        // land in SEPARATE memo entries, splitting one TS type object into two
+        // land in SEPARATE memo entries, splitting one type into two
         // enum instances.
         a_struct_id := match(aty, .Struct({ id : as_id }) => as_id, _ => String.from(""));
         b_struct_id := match(bty, .Struct({ id : bs_id }) => bs_id, _ => String.from(""));
@@ -270,8 +267,7 @@ _ctfe_args_equal :: (
           // entry so eras converge instead of propagating upward.
           _ctfe_types_era_equal(aty, bty, usize(0)) => true,
           // Concrete types: require EXACT match for cache identity, NOT lenient
-          // compatibility. Mirrors TS comptime-fn.ts:159-164 (`requireExactMatch
-          // =true`). Lenient `are_types_compatible` treats two distinct
+          // compatibility. Lenient `are_types_compatible` treats two distinct
           // same-shaped structs as equal (e.g. a user `object(name, kind)` vs
           // `MapEntry(key, value)`), causing a CACHE COLLISION: a later
           // `(?*)(MapEntry(String, ArrayList(ME)))` wrongly hit a cached
@@ -288,16 +284,15 @@ _ctfe_args_equal :: (
   )
 );
 // ---------------------------------------------------------------------------
-// Recursive-type-reference side-table (port of TS `SomeType.recursiveTypeRef`).
+// Recursive-type-reference side-table.
 //
 // When a type constructor recursively references itself during CTFE, the
 // recursive call hits the in-progress temp cache and must return a placeholder
 // that is a LEAF in the type graph (so the resulting TypeValue is a finite DAG
-// and `type_to_string`/`synthesize`/`substitute` terminate). TS returns a
-// `SomeType` tagged with `recursiveTypeRef: {functionValue, argValues}` and
-// resolves it lazily when the type is used as a constructor.
+// and `type_to_string`/`synthesize`/`substitute` terminate), resolved lazily
+// when the type is used as a constructor.
 //
-// yo-self's `SomeT` (in `definitions.yo`) cannot carry `EvalValue` arg-values
+// `SomeT` (in `definitions.yo`) cannot carry `EvalValue` arg-values
 // (circular import), so we keep the placeholder a bare `SomeT` and record the
 // resolution info in this module-level side-table, keyed by the placeholder
 // SomeT's unique id. `resolve_recursive_type_ref` (in `function.yo`) reads it.
@@ -477,8 +472,8 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : TypeValue) -> TypeValue)({
   );
   ty
 });
-/// Resolve a recursion-placeholder `SomeT` to its actual type. Mirrors TS
-/// `resolveRecursiveTypeRef` (`function.ts:133`): (1) the cache entry of the
+/// Resolve a recursion-placeholder `SomeT` to its actual type, in priority
+/// order: (1) the cache entry of the
 /// same func with exactly-matching args whose value is resolved; (2)
 /// `ctx.self_type` when it is a struct/object; (3) ANY resolved cache entry of
 /// the same func (all instantiations share the same structure). Returns `.None`
@@ -566,10 +561,8 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
 });
 /// Named CTFE unknown: a CTFE short-circuit (analysis pass, unknown args,
 /// gate skips) that returns an unknown RESULT must promote Type-universe
-/// returns to `TypeVal(SomeT)` — TS passes a variableName at every such
-/// site ("ctfe_analysis_result_..." comptime-fn.ts:63, return.label
-/// comptime-fn.ts:191) and `createUnknownValue` THROWS on a nameless
-/// Type-typed slot, so a bare UnknownVal of type Type cannot exist in TS.
+/// returns to `TypeVal(SomeT)` — a bare UnknownVal of type Type is not
+/// usable as a type.
 /// Without this, `types.first()` on an unknown variadic ComptimeList(Type)
 /// produced a bare unknown that `__yo_are_types_compatible` rejects
 /// (tests/variadic_comptime.test.yo). Name built without a template
@@ -580,11 +573,10 @@ _ctfe_unknown :: (fn(return_type : TypeValue, env : Environment) -> EvalValue)({
 });
 /// Build the in-progress recursion placeholder for a type-constructor call.
 /// When the return is the `Type` universe (level 0) — i.e. a type constructor —
-/// the placeholder is a fresh `SomeT` LEAF (mirroring TS `createUnknownValue`
-/// promoting to a `SomeType` when `variableName` is given and the type is
-/// `Type` level 0), and we record `(some_id → func_id, arg_values)` so it can
-/// be resolved later. Otherwise it stays a bare `UnknownVal` (TS's non-type
-/// branch). `arg_vals` is the flattened argument-value list of this call.
+/// the placeholder is a fresh `SomeT` LEAF, and we record
+/// `(some_id → func_id, arg_values)` so it can
+/// be resolved later. Otherwise it stays a bare `UnknownVal`. `arg_vals` is
+/// the flattened argument-value list of this call.
 _recursive_placeholder :: (
   fn(return_type : TypeValue, func_id : String, arg_vals : ArrayList(EvalValue)) -> EvalValue
 )(
@@ -606,7 +598,7 @@ _recursive_placeholder :: (
 /// Execute a compile-time function call (CTFE), returning the evaluated value
 /// together with updated caller/callee environments.
 ///
-/// Mirrors `evaluateComptimeFunctionCall` in `src/evaluator/calls/comptime-fn.ts`.
+///
 evaluate_comptime_fn_call :: (
   fn(
     function_callee_expr : Option(AstExpr),
@@ -639,9 +631,8 @@ evaluate_comptime_fn_call :: (
       // dispatch product with no impl value yet (a where-constraint trait
       // method on an abstract receiver — prelude's `~`/`-` comptime
       // variants, roots #14/#15 of
-      // issues/fixed/def-eval-swallow-remaining-roots.md). TS never reaches its
-      // CTFE with a non-FunctionValue (typing) — such calls degrade to an
-      // unknown of the return type earlier. Mirror that here, scoped to
+      // issues/fixed/def-eval-swallow-remaining-roots.md). Such calls degrade
+      // to an unknown of the return type, scoped to
       // the trial; everywhere else the throw stays (a genuine
       // calling-a-non-function error must not be silently absorbed).
       if(in_def_time_trial(), {
@@ -688,22 +679,13 @@ evaluate_comptime_fn_call :: (
     );
   });
   // During the function-call CHECKING phase (overload trial dry-runs),
-  // never execute CTFE — return an UnknownVal of the declared return type.
-  // Mirrors TS `skipCtfeExecution` + `isInFunctionCallCheckingPhase`
-  // (function.ts:822-831 sets both on every dry-run; helper.ts:1735 then
-  // skips execution): trials are TYPE checks only. Without this, each
-  // overload dry-run re-evaluated its cloned arg exprs INCLUDING macro
-  // expansion + CTFE, going exponential in nested operator-call chains
-  // (std/glob.yo never finished a single check).
-  // During the function-call CHECKING phase (overload trial dry-runs),
-  // skip execution ONLY for non-type CTFE functions — mirrors TS
-  // function.ts:1843 `isInFunctionCallCheckingPhase && isNonTypeCtfeFunction`
-  // where isNonTypeCtfeFunction = comptime-only return AND NOT an unquote
+  // skip execution ONLY for non-type CTFE functions — that is a
+  // comptime-only return AND NOT an unquote
   // macro AND NOT a type-returning constructor AND no generic params
-  // (function.ts:782-789, "prevents exponential blowup when checking
-  // recursive CTFE functions"; type constructors MUST still execute so the
-  // trial can resolve argument types). Without any gate, each overload
-  // dry-run re-evaluated cloned arg exprs including nested CTFE —
+  // (type constructors MUST still execute so the
+  // trial can resolve argument types). Trials are TYPE checks only: without
+  // any gate, each overload dry-run re-evaluated its cloned arg exprs
+  // INCLUDING macro expansion + nested CTFE —
   // exponential in nested operator chains (std/glob.yo never finished).
   ctfe_gate_result_is_comptime := match(
     function_type,
@@ -834,19 +816,14 @@ evaluate_comptime_fn_call :: (
     );
     eprintln(`[ctfe-in] fid=${func_id_str} callee=${dbge_callee} args=${dbge_args}`);
   });
-  // Execution gate for unknown arguments. TS never executes a comptime body
-  // when an argument is a runtime unknown: its runtime-unknowns are
-  // `undefined` and throw at the collect step above (comptime-fn.ts:78).
-  // yo-self represents runtime-unknowns as `UnknownVal` (value.yo), which
+  // Execution gate for unknown arguments. Runtime-unknowns are represented
+  // as `UnknownVal` (value.yo), which
   // passes that check — so an unknown-arg CTFE body would execute, and a
   // RECURSIVE comptime fn (e.g. `__yo_comptime_fold_range`, `__sN`) recurses
   // forever: the unknown termination cond evaluates both branches, and the
   // growing accumulator argument never matches the in-progress cache entry.
-  // Return `UnknownVal(return_type)` without executing — the same result
-  // TS's checking phase produces (`skipCtfeExecution`, helper.ts:1735);
-  // yo-self's `UnknownVal` also covers TS's type-known `UnknownValue` case,
-  // for which an unknown result of the declared return type is the correct
-  // non-executing outcome.
+  // Return `UnknownVal(return_type)` without executing — the correct
+  // non-executing outcome whether the unknown is runtime- or type-known.
   (any_arg_unknown : bool) = false;
   {
     (uai : usize) = usize(0);
@@ -861,9 +838,9 @@ evaluate_comptime_fn_call :: (
       uai = (uai + usize(1));
     });
   };
-  // TRIAL carve-out from the gate below: TS executes a TYPE-returning
-  // constructor's body even with UnknownValue args (comptime-fn.ts has no
-  // unknown-arg execution gate at all), so a def-time trial calling
+  // TRIAL carve-out from the gate below: a TYPE-returning
+  // constructor's body executes even with unknown-value args, so a
+  // def-time trial calling
   // `_ArrayIter(T, N)` with the impl's value binder `N : usize` bound to an
   // unknown must RUN the body — the degraded `_ctfe_unknown(Type)` is a
   // fresh bare SomeT, which the callee-dispatch then cannot call ("TypeVal
@@ -909,8 +886,7 @@ evaluate_comptime_fn_call :: (
   // Pure type-constructor functions like Box(T), Vec(T) etc. are safe to cache.
   // Functions returning runtime values may have side effects and must not be cached.
   // Cache type-returning calls. `is_type_hierarchy_type` catches bare-`Type`
-  // returns — and ONLY that, mirroring TS (comptime-fn.ts:91 caches solely on
-  // `isTypeHierarchyType(returnType)`). Do NOT widen to
+  // returns — and ONLY that. Do NOT widen to
   // `result_is_comptime_only`: a comptime-VALUE-returning fn (e.g. a
   // `Type.map_variants` mapper `-> comptime(Expr)`) is not identified by its
   // non-type args here — all N per-variant calls collided on one memo entry
@@ -942,7 +918,7 @@ evaluate_comptime_fn_call :: (
     }
   );
   (should_cache : bool) = ((is_type_hierarchy_type(return_type) || all_args_are_types) && !(trial_unknown_nocache));
-  // TS checking-phase parity (SomeT surgery slice 2b): a ctfe call whose TYPE
+  // Checking-phase guard (SomeT surgery slice 2b): a ctfe call whose TYPE
   // args still CONTAIN unresolved SomeTs (analysis/validation generations
   // evaluating a declaration with `Self` bound to a fresh SomeT — the
   // `Box(V)` placeholder instantiations) must NOT create durable memo
@@ -1138,13 +1114,11 @@ evaluate_comptime_fn_call :: (
     ArrayList(ImplConcreteTypeInfo).new()
   );
   ctx.force_compile_time_bindings = true;
-  // Evaluate a FRESH-ID CLONE of the function body — TS evaluates
-  // `cloneExpr(functionBodyExpr)` per call (comptime-fn.ts:199), and its
-  // per-NODE `expr.$` info makes each execution's annotations private.
-  // yo-self's ExprInfo table is keyed by expr id, so executing the ORIGINAL
+  // Evaluate a FRESH-ID CLONE of the function body — the
+  // ExprInfo table is keyed by expr id, so executing the ORIGINAL
   // tree makes every call overwrite the same ids: `SortedSet(i32)`'s body
   // then read the T-era `SortedMap(T, bool)` instances annotated by the
-  // impl-registration call — splitting one TS type identity into two chains.
+  // impl-registration call — splitting one type identity into two chains.
   body_expr := clone_expr_fresh_ids(body_box);
   // Track CTFE depth around the body eval: struct/enum declaration eval mints
   // DECLARATION-STABLE ids only at depth 0 (module level) — inside a comptime
@@ -1216,10 +1190,8 @@ evaluate_comptime_fn_call :: (
       create_unknown_val(return_type)
     }
   );
-  // Stamp the returned type with this constructor's func_id, mirroring
-  // `src/evaluator/calls/comptime-fn.ts:274` (`returnedType.functionValue =
-  // functionValue`). Only set when currently empty (TS: `if
-  // (!returnedType.functionValue)`). TypeValue is immutable, so rebuild the
+  // Stamp the returned type with this constructor's func_id.
+  // Only set when currently empty. TypeValue is immutable, so rebuild the
   // Struct with the field populated. The synthesizer then unifies two
   // instantiations of the same generic constructor by this id.
   // Record enum constructor identity (EnumT has no cfid field to stamp).
@@ -1258,8 +1230,7 @@ evaluate_comptime_fn_call :: (
     tai = (tai + usize(1));
   });
   // Stamp the returned type's display name `Box(arg)` for the prelude `Box`
-  // constructor only, mirroring `comptime-fn.ts:261-265` (which names ALL
-  // comptime-fn type results). yo-self CANNOT name every instantiation: its
+  // constructor only. Naming every instantiation is NOT possible: the
   // compatibility layer treats the struct NAME as nominal identity
   // (compatibility.yo:430), so broadly naming generic instantiations breaks
   // type unification (HashMap/ArrayList/nested generics — corpus 90→55). But
@@ -1267,7 +1238,7 @@ evaluate_comptime_fn_call :: (
   // boxed-dyn vtable path (`dyn(box(Sq))`) needs it to recognise the box and
   // resolve trait methods on the UNDERLYING type. Box instantiations are
   // structurally unambiguous (single `*` field) and never unify with user
-  // types, so naming ONLY them is safe. yo-self FuncVal carries no funcName, so
+  // types, so naming ONLY them is safe. FuncVal carries no funcName, so
   // read it from the callee expr (the `Box` atom).
   ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(ce).value, .None => String.from(""));
   ctfe_box_name := if(!(ctfe_fn_name == "Box"), String.from(""), {
@@ -1346,7 +1317,7 @@ evaluate_comptime_fn_call :: (
     .TypeVal(rv_tb) => match(
       rv_tb,
       .Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid }) => if(scfid.len() == usize(0), {
-        // Mirror TS's shared-object stamp for copies that predate this one
+        // Mirror the shared-object stamp for copies that predate this one
         // (self-recursive shells, memoized embedders) — see expr_info.yo.
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
@@ -1355,9 +1326,8 @@ evaluate_comptime_fn_call :: (
         )
       }, return_value),
       // Trait returns: record the constructor funcId so the generic-impl
-      // registry can key `Eq(Box(i32))` and `Eq(Box(T))` into ONE bucket
-      // (TS comptime-fn.ts:266-276 stamping `returnedType.functionValue`,
-      // consumed by getBaseTraitKey). Side-table only — TraitT carries no
+      // registry can key `Eq(Box(i32))` and `Eq(Box(T))` into ONE bucket.
+      // Side-table only — TraitT carries no
       // fid field; first stamp wins inside the register fn.
       .TraitT(_, _, _, _, ct_trait_id, _, _, _, _, _) => {
         register_trait_ctor_fid(ct_trait_id.clone(), func_id_str.clone());
@@ -1405,7 +1375,7 @@ evaluate_comptime_fn_call :: (
     value : final_return_value,
     caller_env : caller_env,
     callee_env : out_callee_env,
-    // TS comptime-fn.ts:297 — comptimeRef: evaluatedFunctionBody.$.comptimeRef.
+    // comptimeRef: the evaluated body's comptime_ref.
     comptime_ref : body_info.comptime_ref
   )
 });

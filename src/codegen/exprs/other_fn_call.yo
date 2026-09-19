@@ -1,17 +1,4 @@
-//! Call/method/trait-dispatch emitter — mirrors `src/codegen/exprs/other-fn-call.ts`.
-//!
-//! PORT STATUS (incremental): the bounded self-contained HELPERS are ported here
-//! (the C-string addressability scanner, top-level arg splitter, interior-ref
-//! container extraction + borrow acquire/release bracketing, object-method
-//! detection, and the auto-borrow-assert). The ~2326-line
-//! generate_other_function_call ENTRY (regular calls, method/trait dispatch,
-//! specialization, extern, arg materialization with ref/closure/dyn handling)
-//! and the Phase-5 evidence/effect call-site machinery are the focused next
-//! effort; until they land the dispatcher routes other-fn-call → TODO stub.
-//!
-//! DEFERRED (documented): state-machine var→field resolution + temp-var storage
-//! (Phase 5 — getStateMachineFieldName / CapturedVariable not ported); these
-//! helpers are no-ops outside a state machine (the no-async corpus).
+//! Call/method/trait-dispatch emitter.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -42,8 +29,7 @@
 /// Monotonic counter for ref-spill temporaries (`__yo_ref_spill_N`). Must be
 /// unique per generated C function body, not per call's arg index — two
 /// separate calls in one function both spilling arg 0 would otherwise collide
-/// on `__yo_ref_spill_0`. Mirrors TS module-level `refSpillCounter`
-/// (src/codegen/exprs/other-fn-call.ts:84).
+/// on `__yo_ref_spill_0`.
 (g_ref_spill_counter : usize) = usize(0);
 /// Reset the ref-spill counter — per-EMISSION state (each emitted C file is
 /// self-contained), so every compile of one process must start at 0 or the
@@ -108,7 +94,7 @@ _byte_slice :: (fn(s : String, from : usize, to : usize) -> String)({
   String.from_bytes(out)
 });
 /// Whether `code` is an lvalue C expression whose address can be taken (a
-/// deref, or an identifier head + `.`/`->`/`[]` chain). Mirrors `isAddressableCExpr`.
+/// deref, or an identifier head + `.`/`->`/`[]` chain).
 _is_addressable_c_expr :: (fn(code : String) -> bool)({
   (s : String) = code.trim();
   // Strip balanced fully-enclosing parens. BYTE indices throughout — the
@@ -184,7 +170,6 @@ _is_addressable_c_expr :: (fn(code : String) -> bool)({
   true
 });
 /// Split a C arg list at top-level commas, respecting ()/[]/{} nesting.
-/// Mirrors `splitTopLevelArgsList`.
 _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
   out := ArrayList(String).new();
   (depth : usize) = usize(0);
@@ -201,7 +186,7 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
   // Track whether we're inside a C string/char literal (0 = not; else the quote
   // byte). A `)`/`}`/`,` inside a literal (e.g. the `)` in the str initializer
   // `(__yo_str){ .ptr=(const uint8_t*)")", .len=1 }`) must not corrupt the depth
-  // count or trigger a split. Mirrors splitTopLevelArgsList (other-fn-call.ts).
+  // count or trigger a split.
   (in_str : u8) = u8(0);
   while(i < n, {
     b := s.byte_at(i);
@@ -258,14 +243,12 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
 _resolve_var_name_in_context :: (fn(var_name : String, context : FunctionGenerationContext) -> String)(
   var_name
 );
-/// SM temp-var store — the REAL port of `storeTempVarToStateMachineIfNeeded`
-/// (other-fn-call.ts:237; was a documented no-op stub until 2026-08-11).
-/// Inside a state machine, a local temp declared as a C local must ALSO be
-/// stored to its `sm->var_<id>` field, or every deferred drop naming that
-/// field is a silent no-op on calloc zero (the async-match-scrutinee leak
-/// family). The stub's absence surfaced as mi_free invalid-pointer crashes
-/// the moment a SELF-BUILT binary compiled the compiler — see
-/// issues/fixed/seed-built-stage1-miscompiles-current-source.md.
+/// SM temp-var store. Inside a state machine, a local temp declared as a C
+/// local must ALSO be stored to its `sm->var_<id>` field, or every deferred
+/// drop naming that field is a silent no-op on calloc zero (the async-match-
+/// scrutinee leak family). A no-op stub here surfaced as mi_free
+/// invalid-pointer crashes the moment a SELF-BUILT binary compiled the
+/// compiler — see issues/fixed/seed-built-stage1-miscompiles-current-source.md.
 _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : String, context : FunctionGenerationContext) -> unit)({
   if(context.in_async_state_machine.is_none(), return(()));
   smv := match(
@@ -306,7 +289,7 @@ _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : String, indent : St
   );
 });
 /// The container-pointer C code for an interior `ref` argument (an Index-trait
-/// expression), or `.None`. Mirrors `getInteriorRefContainerCode`.
+/// expression), or `.None`.
 _get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool, indent : String, context : FunctionGenerationContext) -> Option(String))(
   if(
     !(param_is_ref),
@@ -349,7 +332,7 @@ _get_interior_ref_container_code :: (fn(arg_expr : AstExpr, param_is_ref : bool,
   )
 );
 /// Emit `__yo_borrow_acquire` for each interior-ref arg's container; returns the
-/// acquired container codes (caller emits releases). Mirrors `emitBorrowAcquires`.
+/// acquired container codes (caller emits releases).
 _emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_param_is_ref : ArrayList(bool), indent : String, context : FunctionGenerationContext) -> ArrayList(String))({
   containers := ArrayList(String).new();
   em := context.base.emitter;
@@ -379,7 +362,7 @@ _emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_par
   });
   containers
 });
-/// Emit `__yo_borrow_release` (LIFO) for acquired containers. Mirrors `emitBorrowReleases`.
+/// Emit `__yo_borrow_release` (LIFO) for acquired containers.
 _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   n := containers.len();
@@ -407,7 +390,7 @@ _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, co
   });
 });
 /// Whether the current function is a method of an RC-managed object type
-/// (`self` parameter of object type). Mirrors `isInsideObjectMethod`.
+/// (`self` parameter of object type).
 _is_inside_object_method :: (fn(context : FunctionGenerationContext) -> bool)(
   match(context.current_function_type, .Some(ft) => match(ft, .Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)), .Some(l) => if(l == "self", match(pts.get(usize(0)), .Some(t) => is_reference_struct_type(t), .None => false), false), .None => false)), _ => false), .None => false)
 );
@@ -418,7 +401,7 @@ _current_self_param_is_ref :: (fn(context : FunctionGenerationContext) -> bool)(
   match(context.current_function_type, .Some(ft) => match(ft, .Func({ meta : __fm1 }) => match(__fm1.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
 );
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
-/// inside an RC-managed object method. Mirrors `maybeEmitAutoBorrowAssert`.
+/// inside an RC-managed object method.
 _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String, context : FunctionGenerationContext) -> unit)(
   if(((extern_func_name == "__yo_realloc") || (extern_func_name == "__yo_free")) && _is_inside_object_method(context), {
     em := context.base.emitter;
@@ -485,7 +468,7 @@ _is_bare_literal :: (fn(c : String) -> bool)({
 });
 /// Materialize one runtime argument into its C code (temp-var decl for named
 /// non-ref values; closure-capture / SM / dyn-method handling is gated for the
-/// corpus). Mirrors the arg-map in `generateOtherFunctionCall`.
+/// corpus).
 _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   match(
     context.base.get_expr_info(arg),
@@ -519,7 +502,7 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
         // of the same variable). That is a simple read, NOT a fresh temp — do not
         // materialize it into `<T> name = (*name);` (which would redeclare and
         // shadow the `T* name` param: C "redefinition with different type"). Emit
-        // `(*name)` inline. Mirrors TS, which passes the deref expression directly.
+        // `(*name)` inline.
         deref_form := {
           d := String.from("(*");
           d.push_string(sanitized.clone());
@@ -569,7 +552,7 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
 );
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
-/// spill to a temp). Mirrors the inout/ref `&` section.
+/// spill to a temp).
 _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), runtime_args : ArrayList(AstExpr), indent : String, context : FunctionGenerationContext) -> ArrayList(String))({
   em := context.base.emitter;
   out := ArrayList(String).new();
@@ -699,8 +682,7 @@ _ctor_args_from_labeled :: (fn(wrapped : TypeValue, fncall_args : ArrayList(AstE
   out
 });
 /// Per-argument cast to the callee's declared parameter C types (a no-op when
-/// types match; needed for specialized generic callees). Mirrors the
-/// namedCastedArgsList logic.
+/// types match; needed for specialized generic callees).
 /// True when a by-value parameter of this type must NOT be wrapped in a C
 /// cast: aggregate/struct-like types (value structs, value enums, tuples,
 /// unions, `str`) cannot legally be cast targets in C (a cast to the SAME
@@ -807,9 +789,8 @@ _enum_variant_index :: (fn(enum_ty : TypeValue, name : String) -> Option(usize))
 );
 /// Emit a RUNTIME enum construction `.Variant(args...)` whose field values are
 /// runtime (so the evaluator left an EnumVal shell with holes that
-/// generate_comptime_value can't fill — `/* skip generating value */`). Mirrors
-/// other-fn-call.ts:2500-2680 (nullable-pointer / simple-enum / tagged-union),
-/// and the comptime enum emission shape in comptime_value.yo, but generates each
+/// generate_comptime_value can't fill — `/* skip generating value */`).
+/// Follows the comptime enum emission shape in comptime_value.yo, but generates each
 /// field VALUE from the recorded runtime arg exprs. The runtime args are aligned
 /// by index with the variant's declared fields (unit fields are skipped).
 _generate_runtime_enum_construct :: (
@@ -904,14 +885,13 @@ _func_val_id :: (fn(v : EvalValue) -> String)(match(v, .FuncVal(__fvd2, _) => __
 /// Whether a call to this callee might trigger an effect escape (it directly is
 /// a control/effect-record fn, its resolved type is `ctl(...)`, it has a
 /// fn-typed / ctl-bound param a handler may be threaded through, its body has
-/// effects, or — TS's final fallback — it is a DIRECT call through an atom
-/// whose type is a function type). Mirrors the `callMayUnwind` computation in
-/// other-fn-call.ts:1205-1236 INCLUDING the atom fallback
-/// (`isFunctionType(functionType) && exprIsAtom(expr.func)`). That fallback is
-/// LOAD-BEARING for behavior parity with the TS-compiled compiler: TS brackets
-/// every such call with `__yo_effect_escaped = 0; call; if (escaped) ...`, and
+/// effects, or it is a DIRECT call through an atom
+/// whose type is a function type). That atom fallback
+/// (`is_function_type(function_type) && callee_is_atom`) is
+/// LOAD-BEARING: every such call is bracketed
+/// with `__yo_effect_escaped = 0; call; if (escaped) ...`, and
 /// inside a ctl handler's `unwind(<call>)` argument the pre-call reset CLOBBERS
-/// the just-set unwind flag — so the reference compiler RESUMES past swallowed
+/// the just-set unwind flag — so the compiler RESUMES past swallowed
 /// throws (`unwind(<literal>)` has no call and really unwinds). The evaluator's
 /// def-time trial-eval swallow-and-continue behavior depends on reproducing
 /// this exactly (issues/fixed/yo-self-stage2-dyn-closure-divergence.md).
@@ -941,10 +921,9 @@ _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeV
   || (is_function_type(function_type) && callee_is_atom)
 });
 /// Whether the call site is the handler-installation point (where the unwound
-/// value is extracted, vs merely propagated). Mirrors the `callIsHandlerInstallation`
-/// computation in other-fn-call.ts:1240 (direct-control-fn given-binding check +
-/// the Phase-2 explicit-param fallback). The specialized-evidence branch is
-/// omitted (yo-self FuncVal has no specializedType — Gap 2).
+/// value is extracted, vs merely propagated): the direct-control-fn
+/// given-binding check plus the Phase-2 explicit-param fallback. There is no
+/// specialized-evidence branch (FuncVal has no specializedType — Gap 2).
 _call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeValue, param_types : ArrayList(TypeValue), runtime_args : ArrayList(AstExpr), context : FunctionGenerationContext) -> bool)({
   env := func_ei.env;
   fdfl := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
@@ -1001,7 +980,7 @@ _future_init_cast :: (fn(ty : TypeValue, context : FunctionGenerationContext) ->
   fic_ct := get_type_string(ty, context.base);
   if(fic_ct.ends_with("*"), `(${fic_ct})`, String.new())
 });
-/// The call/method/trait-dispatch emitter. Mirrors `generateOtherFunctionCall`
+/// The call/method/trait-dispatch emitter.
 /// (corpus path). Returns `.None` to fall through (unhandled shape).
 ///
 /// DEFERRED (documented, gated dead for the no-RC/no-async/no-effect corpus):
@@ -1021,8 +1000,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // field values are unknown (runtime). `generate_comptime_value` would emit
   // `/* skip generating value */` for those holes. Skip the comptime short-cut
   // so the value-struct constructor branch below emits the compound literal /
-  // newtype cast from the runtime arg exprs. Mirrors TS, where such an expr
-  // carries an UnknownValue (so the comptime short-cut never fires).
+  // newtype cast from the runtime arg exprs.
   oc_has_runtime_args := match(ei.runtime_arg_exprs_in_order, .Some(ra) => (ra.len() > usize(0)), .None => false);
   match(
     ei.value,
@@ -1038,12 +1016,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // Runtime enum construction `.Variant(args...)` with runtime field values: the
   // evaluator left an EnumVal shell with holes (the comptime short-cut above is
   // skipped for it via oc_is_runtime_ctor). Emit the construction from the runtime
-  // arg exprs. Mirrors other-fn-call.ts:2500 (the isEnumType construction case).
+  // arg exprs.
   // Enum CONSTRUCTION (`.Some(args)`) — NOT a plain call returning an enum
   // (`mk(x)`). The discriminator is the CALLEE's value: an enum constructor's
   // callee resolves to a `TypeVal` wrapping an enum type (`.Some` → Option),
-  // whereas `mk(x)` has a `FuncVal` callee. Mirrors TS dispatch on
-  // `isEnumType(functionValue.value)`. Without this gate the branch wrongly fires
+  // whereas `mk(x)` has a `FuncVal` callee. Without this gate the branch wrongly fires
   // for any enum-returning function call (e.g. `mk(i32(65))` → variant "mk").
   callee_is_enum_ctor := match(
     expr,
@@ -1059,7 +1036,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     // (regular enums, e.g. `Option(i32)`); the result type's
     // `selected_variant_name` (nullable-pointer-optimized `Option`, where the
     // evaluator leaves `ei.value` as `None` — confirmed by probe — yet `ei.ty` IS
-    // the narrowed EnumT, mirroring TS `functionValue.value.selectedVariantName`);
+    // the narrowed EnumT);
     // the callee source text (`.Some`) as a final fallback. All may carry a
     // leading `.`, which _generate_runtime_enum_construct strips.
     from_val := match(ei.value, .Some(ev) => match(ev, .EnumVal(vr, _) => vr, _ => String.new()), .None => String.new());
@@ -1092,7 +1069,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // method directly), so this MUST run before the func_ei early-return below.
   // The evaluator's method-call path records the runtime args as
   // [receiver, ...explicit]; we lower to `(recv).vtable->method((recv).data,
-  // explicit...)`. Mirrors other-fn-call.ts:478+.
+  // explicit...)`.
   if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
     dmethod_args := match(func_expr, .FnCall(_, _, da, _, _) => da, .Atom(_, _) => ArrayList(AstExpr).new());
     dm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
@@ -1104,9 +1081,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     // runtime-arg[0] a `*(Dyn)` pointer rather than a Dyn — see below).
     recv_is_dyn := ((dm_runtime.len() > usize(0)) && match(dm_runtime.get(usize(0)), .Some(rv) => match(context.base.get_expr_info(rv), .Some(rvi) => is_dyn_type(rvi.ty), .None => false), .None => false));
     // The DOT-RECEIVER (`obj` in `obj.method`) must itself be a Dyn for this to be
-    // a real Dyn method-dispatch — mirrors TS (other-fn-call.ts:478+), which keys
-    // `isDynMethodCall` off `expr.func.args[0].$.type` (the dot-receiver), NOT the
-    // prepended runtime arg. Two reasons the dot-receiver is the correct signal:
+    // a real Dyn method-dispatch — key the check off the DOT-RECEIVER,
+    // NOT the prepended runtime arg. Two reasons the dot-receiver is the correct signal:
     //   1. A `ctl`-FIELD effect call like `exn.throw(dyn(err))` (Exception.throw is
     //      a `ctl(...)` struct field) does NOT prepend the receiver, so the dyn arg
     //      sits at runtime-arg[0]; gating on the dot-receiver `exn` (a struct, not a
@@ -1213,11 +1189,9 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         // `starts_with(prefix : String)` is registered before, and so shadows,
         // the `StrPattern` `starts_with(prefix : str)` the evaluator selected for
         // `s.starts_with("-")`) and for GENERIC-impl methods (registered under the
-        // generic `C(T)` id, so this concrete-id lookup misses). Mirrors TS, where
-        // a method call is lowered to a direct call to the resolved FunctionValue
-        // and codegen never re-resolves by name. Falls back to the registry
-        // first-hit only when no value was recorded (method resolved via a path
-        // that doesn't populate the side-table).
+        // generic `C(T)` id, so this concrete-id lookup misses). Falls back to
+        // the registry first-hit only when no value was recorded (method
+        // resolved via a path that doesn't populate the side-table).
         (mc_name : Option(String)) = Option(String).None;
         (method_fv : Option(EvalValue)) = Option(EvalValue).None;
         match(
@@ -1281,8 +1255,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               // BY ADDRESS so `__yo_return_self` emits `(*(&recv))`, not `(*recv)`
               // (which dereferences a value). Without this, a derived clone of a
               // primitive STRUCT FIELD (`self.row.clone()`) emitted
-              // `(*((*self).row))` and failed to compile. Mirrors the param.isRef
-              // `&` in the main arg loop (other-fn-call.ts).
+              // `(*((*self).row))` and failed to compile. Same ref-`&` handling
+              // as the main arg loop.
               m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
               m_pir := match(get_func_type(m_fid_amp), .Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
               inline_args_amped := _apply_ref_amp(inline_args, m_pir, dm_runtime, indent.clone(), context);
@@ -1298,7 +1272,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             // Materialize args, then auto-`&` ref params (e.g. a `inout(self)`
             // receiver on a VALUE type — `String`/newtype — needs `&recv`; an
             // object receiver is NOT a ref param so it's left as the pointer it
-            // already is). Mirrors the FuncVal-call path's _apply_ref_amp; without
+            // already is). Same _apply_ref_amp as the FuncVal-call path; without
             // it, `w.bump()` emitted `bump(w)` for `bump(self*)` ("take the address
             // with &"). param_is_ref comes from the resolved method's Func type.
             cm_param_is_ref := match(
@@ -1337,17 +1311,16 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             cm_call.push_str("(");
             cm_call.push_string(_join_args(cm_arg_list));
             cm_call.push_str(")");
-            // Effect-unwind coverage for METHOD calls. TS lowers a method call
-            // through the SAME checked call path as plain calls (the
-            // callMayUnwind sites, other-fn-call.ts:1384/1517), so
+            // Effect-unwind coverage for METHOD calls: a method call goes
+            // through the SAME checked call path as plain calls, so
             // `Parser.new(...)` / `p.get_program(exn)` get
-            // `__yo_effect_escaped = 0; call; if (escaped) ...` wraps. This
+            // `__yo_effect_escaped = 0; call; if (escaped) ...` wrap. This
             // separate method-dispatch emitter had NO check — after a throw
             // deep inside a method, the caller CONTINUED with a garbage
             // result (stage-2 prelude-eval SIGSEGV; see
             // issues/retired/yo-self-stage2-unwind-check-coverage.md).
-            // Method dispatch: the callee is a property access, not an atom —
-            // TS's exprIsAtom(expr.func) fallback is false here.
+            // Method dispatch: the callee is a property access, not an atom,
+            // so the atom fallback in _call_may_unwind is false here.
             cm_may_unwind := _call_may_unwind(method_fv, cm_mft, cm_ptypes, false, context);
             cm_install_ei := new_expr_info(ei.env, cm_mft);
             cm_install_ei.value = method_fv;
@@ -1390,8 +1363,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 return(Option(String).Some(tv));
               },
               // Inline-expression exit (no temp var): cannot emit statements
-              // around the expression here; TS gives may-unwind calls a temp
-              // var, so this exit stays uncheckable — acceptable only for
+              // around the expression here; the may-unwind check requires a
+              // temp var, so this exit stays uncheckable — acceptable only for
               // non-unwinding calls.
               .None => return(Option(String).Some(cm_call))
             );
@@ -1404,11 +1377,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   func_ei := match(context.base.get_expr_info(func_expr), .Some(e) => e, .None => return(Option(String).None));
   // Closure-typed callee whose recorded type is ALREADY the bare capture
   // struct (a specialized struct FIELD like `self._f`: the where-clause `F`
-  // resolved through `__impl_fn` to the concrete capture struct, and yo-self's
-  // substitution stamps the FIELD type fully concrete — TS keeps the SomeT
-  // wrapper on field types and unwraps only for runtime C signatures,
-  // helper.ts:2242-2252, so its dispatcher naturally reaches the
-  // implClosureCallMap route). Detect it once here: such a callee must BYPASS
+  // resolved through `__impl_fn` to the concrete capture struct, and the
+  // substitution stamps the FIELD type fully concrete). Detect it once here: such a callee must BYPASS
   // (a) the `!is_function_type` early return and (b) the named-FuncVal direct
   // call (which would emit the closure impl fn WITHOUT its closure_context
   // arg), so control reaches Piece C's closure-call emission below.
@@ -1427,8 +1397,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // records the resolved method FuncVal in the method-callee side-table (keyed by
   // the call id). But the SOURCE callee is still the bare receiver `v` (a non-dot
   // atom), so the dot-method dispatch above never runs and the value-call tail
-  // below emits "// Failed to transpile" (an undeclared identifier). TS mutates
-  // `expr.func` in place so its codegen sees the method call; yo-self reads the
+  // below emits "// Failed to transpile" (an undeclared identifier); read the
   // recorded method here. Emit `<mcn>(<runtime args = recv, range>)`. Only fires
   // for a NON-dot callee with a recorded method (dot calls are handled above; a
   // normal function call never populates the method-callee side-table).
@@ -1618,7 +1587,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // wrapped type is a reference-semantics struct, so emit `__yo_new_<cName>(args)`
   // (the constructor function is generated by constructors.yo). Value structs are
   // comptime StructVals handled by the comptime-value branch above; objects are
-  // runtime heap values and reach here. Mirrors other-fn-call.ts:2299.
+  // runtime heap values and reach here.
   match(
     func_ei.value,
     .Some(fv) => match(
@@ -1713,12 +1682,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           );
         });
         // Union constructor call: exactly ONE named member is initialised, so
-        // `SomeUnion(x : 12)` emits `(cName){ .x = 12 }`. Mirrors
-        // other-fn-call.ts:2468-2521 (`isUnionType(functionValue.value)`),
-        // including its "union is supposed to have only one member
-        // initialized" shape and its temp-variable declaration. Without this
+        // `SomeUnion(x : 12)` emits `(cName){ .x = 12 }` ("union is supposed
+        // to have only one member initialized" shape, with a temp-variable
+        // declaration). Without this
         // arm the call fell through to the generic fallback and emitted
-        // `// Failed to transpile SomeUnion(x : 12)` — yo-self could declare a
+        // `// Failed to transpile SomeUnion(x : 12)` — the compiler could declare a
         // union but never construct one (tests/basic.test.yo arm 14).
         if(is_union_type(wrapped), {
           u_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_union"));
@@ -1763,8 +1731,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         // through generate_comptime_value. A value struct built from runtime
         // arguments (e.g. `Self(v : n)` in a method body) reaches here — emit
         // either a newtype zero-cost cast `((cName)(arg))` or a C99 compound
-        // literal `(cName){ .field = arg, ... }`. Mirrors other-fn-call.ts
-        // :2235-2420 (the newtype + value-struct branches).
+        // literal `(cName){ .field = arg, ... }`.
         if(is_struct_type(wrapped) && !(is_reference_struct_type(wrapped)), {
           vs_cname := match(context.base.get_type_c_name(type_key(wrapped.clone())), .Some(cn) => cn, .None => String.from("__yo_unknown_struct"));
           vs_is_newtype := match(wrapped, .Struct({ is_newtype : nt }) => nt, _ => false);
@@ -1871,8 +1838,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   );
   // Array indexing `arr(i)`: a value-call whose callee is a concrete Array type
   // lowers to a direct `<arr>.data[<i>]` (the array struct wrapper), NOT the
-  // generic Index trait. Mirrors TS generateOtherFunctionCall's isArrayType
-  // branch (other-fn-call.ts:2731).
+  // generic Index trait.
   if(is_array_type(function_type), {
     arr_code := _call_generate_expr(func_expr, indent.clone(), context);
     idx_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -2052,8 +2018,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   if(is_some_type(result_type) && !(is_unit_type(ei.ty)), {
     result_type = ei.ty;
   });
-  // Effect-unwind detection (port of other-fn-call.ts callMayUnwind /
-  // callIsHandlerInstallation). When a call may unwind, an
+  // Effect-unwind detection (_call_may_unwind / _call_is_handler_installation).
+  // When a call may unwind, an
   // `emit_effect_unwind_check` is emitted after it: at the install frame the
   // unwound value is extracted + returned; elsewhere the escape propagates.
   ou_callee_atom := match(expr, .FnCall(_, __ouf, _, _, _) => ast_expr_is_atom(__ouf), _ => false);
@@ -2077,9 +2043,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           // carries an unresolved SomeT — the cluster-7 shape) has no C
           // definition, so a plain `yo_id_...(args)` call is an undeclared-
           // function error that breaks the whole batch C (the fn
-          // Dyn-manual-boxing test). TS never drops emissions, so a call
-          // site can always assume its callee exists; yo-self degrades the
-          // CALL to the statement-level FTT comment instead — honest hollow
+          // Dyn-manual-boxing test). The CALL is degraded
+          // to the statement-level FTT comment instead — honest hollow
           // markers, valid C. io.async SM closures are exempt (they are
           // called through the FSM resume path, not here).
           if(should_skip_function_codegen(fid.clone(), c_func_name.clone(), fv, context.base) && !(is_io_async_sm_closure(fid.clone())), {
@@ -2098,7 +2063,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             // Acquire the runtime borrow flag on every container an interior
             // `inout` arg (`xs(i)`) points into, and release it right after the
             // call — BEFORE the deferred drops and the unwind check, so an
-            // unwinding callee still releases. Mirrors other-fn-call.ts:1403/1423.
+            // unwinding callee still releases.
             ou_bc := _emit_borrow_acquires(runtime_args, param_is_ref, indent.clone(), context);
             // Clear __yo_effect_escaped before the call so a stale flag from
             // a previous unwind (already handled by a higher-level handler)
@@ -2212,8 +2177,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             // assign sm->result", so the call must still appear as an
             // EXPRESSION; a comment here produced `T temp = // Error: …;`, C
             // that never compiles. Emit the call itself — it is used exactly
-            // once, by the declaration the caller is building. Mirrors
-            // src/codegen/exprs/other-fn-call.ts.
+            // once, by the declaration the caller is building.
             // See issues/fixed/async-match-arm-early-return-drops-call-result.md.
             .None => {
               inline_call := String.new();
@@ -2235,8 +2199,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   func_code := _call_generate_expr(func_expr, indent.clone(), context);
   // Piece C — closure call: if the callee value's concrete type is a registered
   // Impl(Fn) capture struct, call its impl fn with `&(capture)` as the
-  // closure_context (static dispatch). Mirrors the implClosureCallMap lookup
-  // (other-fn-call.ts:2103). MISS → the function-pointer cast fallback below.
+  // closure_context (static dispatch), via the impl_closure_call_map lookup.
+  // MISS → the function-pointer cast fallback below.
   cc_id := match(
     context.base.get_expr_info(func_expr),
     .Some(cei) => match(resolve_some_type_to_concrete(cei.ty), .Struct({ id : i }) => i, .SomeT({ id : i }) => i, _ => String.from("")),
@@ -2274,7 +2238,6 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       // Dyn(Fn) VALUE call: the callee is a dyn fat pointer over the Fn trait
       // (e.g. a `Dyn(Fn(...))` struct FIELD like SuspensionPointDetector.detect).
       // Lower through the vtable: `(callee).vtable->call((callee).data, args...)`.
-      // Mirrors TS's `(h->apply).vtable->call((h->apply).data, 32)` emission.
       // Without this the fallback below casts the fat-pointer STRUCT to a raw
       // fn pointer ("operand of type X where arithmetic or pointer type is
       // required") and drops the data argument.
@@ -2338,8 +2301,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           pi = (pi + usize(1));
         });
         cast.push_str("))");
-        // Cast each runtime arg to its corresponding parameter type —
-        // mirrors TS other-fn-call.ts:1647-1656 (castedArgsList). Without
+        // Cast each runtime arg to its corresponding parameter type
+        // (castedArgsList). Without
         // it a type-erased evidence-record call passes raw values into
         // `void*` slots: `((i32 (*)(i32, void*))exn.throw)(x, 666)` was an
         // int-to-pointer clang error (the algebraic_effects generic
@@ -2380,8 +2343,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   );
   // Effect unwind: a fn-pointer call through a `ctl`/handler param may set
   // __yo_effect_escaped. Unlike the inline-expression default, emit the call to
-  // a temp + post-call check so the escape propagates (mirrors TS, which always
-  // emits a temp + emitEffectUnwindCheck for such calls).
+  // a temp + post-call check so the escape propagates.
   if(ou_may_unwind, {
     // `is_unit_type` does not walk the SomeT resolution chain, and the
     // normalization at the top of this function deliberately LEAVES
@@ -2417,7 +2379,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     );
     if(ou_result_is_void, {
       // Interior-`inout` borrow flags around the indirect call (see the
-      // direct-call unit exit). Mirrors other-fn-call.ts:2286/2298.
+      // direct-call unit exit).
       fp_bc := _emit_borrow_acquires(runtime_args, param_is_ref, indent.clone(), context);
       // Clear __yo_effect_escaped before the indirect call
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
@@ -2446,7 +2408,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       );
       fpc := get_type_string(result_type, context.base);
       // Interior-`inout` borrow flags around the indirect call (see the
-      // direct-call unit exit). Mirrors other-fn-call.ts:2286/2317.
+      // direct-call unit exit).
       fp_bc2 := _emit_borrow_acquires(runtime_args, param_is_ref, indent.clone(), context);
       // Clear __yo_effect_escaped before the indirect call
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);

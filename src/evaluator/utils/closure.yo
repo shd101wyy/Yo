@@ -1,7 +1,5 @@
 //! evaluator/utils/closure — closure capture helpers.
 //!
-//! Simplified Phase 3 port of `src/evaluator/utils/closure.ts`.
-//!
 //! Phase 3 simplifications:
 //!   - `consume_captured_variables`             → no-op (no move semantics)
 //!   - `build_path_collection_from_captured_variables` → empty list
@@ -70,8 +68,6 @@
 // ---------------------------------------------------------------------------
 /// `CapturedVarInfo` enriched with the actual type and optional value of the
 /// captured variable.  Produced by `enrich_captured_variables`.
-///
-/// Mirrors `FunctionCapturedVariableInfo` from `src/function-value.ts`.
 FuncCapturedVarInfo :: struct(
   frame_level : usize,
   usage : CaptureUsage,
@@ -95,8 +91,6 @@ CaptureTypeAndValueResult :: struct(
 /// Mark closure-captured variables as consumed (move semantics).
 ///
 /// Phase 3 stub: no move semantics yet — returns env unchanged.
-///
-/// Mirrors `consumeCapturedVariables` from `src/evaluator/utils/closure.ts`.
 consume_captured_variables :: (
   fn(
     _captured_variables : HashMap(String, CapturedVarInfo),
@@ -111,9 +105,6 @@ consume_captured_variables :: (
 /// variables.  Used for borrow tracking in C codegen.
 ///
 /// Phase 3 simplification: returns an empty list.
-///
-/// Mirrors `buildPathCollectionFromCapturedVariables` from
-/// `src/evaluator/utils/closure.ts`.
 build_path_collection_from_captured_variables :: (
   fn(
     _captured_variables : HashMap(String, CapturedVarInfo)
@@ -226,9 +217,6 @@ _declared_bound_requires :: (fn(ty : TypeValue, trait_type : TypeValue) -> bool)
 /// captured variable is checked first, so the error lands on the capture
 /// site; then the capture struct as a whole. A no-op stub until 2026-09-06
 /// (issues/fixed/send-was-not-enforced-at-spawn-boundaries.md).
-///
-/// Mirrors `validateCaptureTraitRequirements` from
-/// `src/evaluator/utils/closure.ts`.
 validate_capture_trait_requirements :: (
   fn(
     wrapper_type : TypeValue,
@@ -321,8 +309,6 @@ validate_capture_trait_requirements :: (
 /// variables are excluded from captures (they are always inlined).
 ///
 /// Returns a map of name → `FuncCapturedVarInfo`.
-///
-/// Mirrors `enrichCapturedVariables` from `src/evaluator/utils/closure.ts`.
 enrich_captured_variables :: (
   fn(
     captured_variables : HashMap(String, CapturedVarInfo),
@@ -407,8 +393,6 @@ enrich_captured_variables :: (
 ///   - If there are no captured variables, create an empty struct.
 ///   - Explicit capture struct types (expected_capture_type = Some(T)) are
 ///     deferred to Phase 4.
-///
-/// Mirrors `createCaptureTypeAndValue` from `src/evaluator/utils/closure.ts`.
 create_capture_type_and_value :: (
   fn(
     expected_capture_type : Option(TypeValue),
@@ -498,9 +482,7 @@ create_capture_type_and_value :: (
         // types, so the resolved-era spec initialized a void* field with a
         // concrete struct value (clang error; the forwarded-closure family,
         // tests/closure_param_forwarding.test.yo arm 2). Append the resolved
-        // identity so the two eras mint DISTINCT capture structs. TS gets
-        // this for free: each spec body eval creates its own captureType
-        // object with that era's field types.
+        // identity so the two eras mint DISTINCT capture structs.
         match(
           field_types.get(csi),
           .Some(ck_t) => match(
@@ -568,7 +550,6 @@ create_capture_type_and_value :: (
         false
       );
       // Auto-derive trait markers for the capture struct.
-      // Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` call in closure.ts.
       auto_derive_traits_for_struct_type(
         struct_id.clone(),
         field_types,
@@ -650,10 +631,9 @@ CapturedVarDupResult :: struct(
 /// under the closure (the Command.status spawn-storage UAF —
 /// issues/yo-self-async-capture-missing-dup.md).
 ///
-/// Mirrors `generateCapturedVariableDupExpressions` from
-/// `src/evaluator/utils/closure.ts:393` (TS threads env updates through the
-/// evaluated exprs; yo-self's env is mutated in place, so no threading needed
-/// — same as the `___drop` builder in exprs/begin.yo).
+/// The env is mutated in place, so the updated env needs no threading
+/// through the evaluated exprs — same as the `___drop` builder in
+/// exprs/begin.yo.
 generate_captured_variable_dup_expressions :: (
   fn(
     captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),

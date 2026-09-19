@@ -1,4 +1,4 @@
-//! Assignment / initialization emitter — mirrors `src/codegen/exprs/assignment.ts`.
+//! Assignment / initialization emitter.
 //!
 //! Handles `lhs = rhs` and `(lhs : T) = rhs` (initialization). Skips
 //! compile-time-only assignments, module-level globals (declared in the main
@@ -24,7 +24,7 @@
 // §C dup-on-store: a field/index/deref store of a borrowed RC value must dup it
 // (the slot takes a new owned ref) so the value survives the source's scope-end
 // drop. The eval marks the RHS via set_expr_as_needs_to_call_dup (assignment.yo
-// eval :388); this emits it. Mirrors src/codegen/exprs/assignment.ts.
+// eval :388); this emits it.
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string } :: import("../utils/index.yo");
@@ -41,7 +41,7 @@ _last_is_compile_time_only :: (fn(env : Environment, name : String) -> bool)({
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });
-/// Generate an assignment / initialization. Mirrors `generateAssignment`.
+/// Generate an assignment / initialization.
 generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   // Compile-time-only assignment (e.g. `p.* = v` where `p` is comptime).
@@ -59,8 +59,8 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     .Some(e) => e,
     // NOT fatal: the MISSING-ExprInfo class, which multi-pass emission
     // legitimately reaches (a comptime `while` unrolls its body once per
-    // iteration and a discarded pass has no type info). Kept a comment to
-    // match TS; the harmful case is the `__yo_user_main` gate in
+    // iteration and a discarded pass has no type info). Kept a comment,
+    // not an error; the harmful case is the `__yo_user_main` gate in
     // codegen/functions/generation.yo.
     .None => return(`// Error: No type information for left-hand side ${ast_expr_to_string(lhs)}`)
   );
@@ -115,8 +115,8 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
           save.push_str("; // Save old value for later use");
           em.emit_string_line(save);
         }),
-        // The LHS is an sm-> slot (TS assignment.ts:169-199 + its local-temp
-        // fallback). When the old-value temp was itself lowered into the
+        // The LHS is an sm-> slot. When the old-value temp was itself lowered
+        // into the
         // state struct, save the old value into ITS OWN sm field — the
         // deferred drop reads it there. When it was NOT (the drop is
         // same-state), a plain LOCAL temp is the correct home. This branch
@@ -187,8 +187,8 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   // inside the RHS skip it: ownership of the old value transfers to the temp
   // only when the assignment completes — on an escape the LOCAL still owns it
   // and its own scope drop covers it; dropping both double-freed the old value
-  // (the round-4 `rhs = evaluate(rhs)` escape UAF; TS's point-in-time envs
-  // exclude the not-yet-defined temp naturally). Save/restore for nesting.
+  // (the round-4 `rhs = evaluate(rhs)` escape UAF; the escape list drops only
+  // the local, never the not-yet-defined temp). Save/restore for nesting.
   prev_save_temp := context.current_assignment_save_temp;
   match(
     ei.variable_name,
@@ -230,7 +230,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     // the comment into `<type> <name> = <comment>;` breaks the C
     // ("unexpected type name", the c03 dyn(box(closure)) shape). Same
     // convention as the return/tail FTT degrades — emit the whole statement
-    // as the comment; TS never reaches this state.
+    // as the comment.
     if(rhs_code.starts_with("// Failed to transpile"), {
       ftl := indent.clone();
       ftl.push_string(rhs_code);

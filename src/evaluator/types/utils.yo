@@ -1,12 +1,10 @@
 //! evaluator/types/utils — type-system utility helpers.
 //!
-//! 1-to-1 with `src/evaluator/types/utils.ts` (~2000 lines), which
-//! aggregates several concerns. Currently this file covers the
-//! auto-derive portion only:
+//! This file covers the auto-derive portion of the type utilities:
 //!
-//!   * `autoDeriveTraitsAndAddRcFunctionsForStructType`
-//!   * `autoDeriveTraitsAndAddRcFunctionsForEnumType`
-//!   * `autoDeriveTraitsForUnionType`
+//!   * `auto_derive_traits_for_struct_type`
+//!   * `auto_derive_traits_for_enum_type`
+//!   * `auto_derive_traits_for_union_type`
 //!
 //! Traits auto-derived here (stored in `g_type_trait_registry` in
 //! `evaluator/trait_checking.yo`):
@@ -16,12 +14,8 @@
 //!   - Comptime: struct if all fields Comptime; object never
 //!   - Runtime:  object always; struct if all fields Runtime
 //!
-//! RC functions (___drop / ___dup / ___dispose) are deferred to a later
-//! phase. The remaining concerns from utils.ts (self-type module
-//! composition, RC signature installation across struct/enum/dyn/iso,
-//! `attachTraitToReceiverType`) are still scattered/stubbed across the
-//! per-type files in `evaluator/types/` and are pulled in here as
-//! they're ported, one TS function at a time.
+//! RC functions (___drop / ___dup / ___dispose) are NOT derived here:
+//! reference-semantics drop/dup is lowered directly in codegen (drop_dup.yo).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -74,8 +68,7 @@ _all_fields_implement_acyclic :: (fn(field_types : ArrayList(TypeValue), env : E
 /// Acyclic. A container is Acyclic only if its element is (the field walk can't see
 /// the buffer, and this derive can run before a self-referential element's own
 /// cycle status is known, so `ArrayList(Node)` is correctly withheld from Acyclic
-/// while `ArrayList(i32)` stays Acyclic). Mirrors the element-aware check in
-/// `autoDeriveAcyclicForStructType` (src/evaluator/types/utils.ts).
+/// while `ArrayList(i32)` stays Acyclic).
 _all_buffer_elements_acyclic :: (fn(field_types : ArrayList(TypeValue), env : Environment) -> bool)({
   n := field_types.len();
   (i : usize) = usize(0);
@@ -123,9 +116,6 @@ _all_fields_implement_runtime :: (fn(field_types : ArrayList(TypeValue), env : E
 // auto_derive_traits_for_struct_type
 // ---------------------------------------------------------------------------
 /// Auto-derive trait markers for a struct/object/newtype type.
-///
-/// Mirrors `autoDeriveTraitsAndAddRcFunctionsForStructType` in
-/// `src/evaluator/types/utils.ts`.
 ///
 /// `begin_send_derivation` / `end_send_derivation` are called here so
 /// struct.yo does not need to import trait_checking.yo directly.
@@ -206,9 +196,6 @@ _flatten_variant_fields :: (fn(variant_fields : ArrayList(ArrayList(TypeValue)))
 });
 /// Auto-derive trait markers for an enum type.
 ///
-/// Mirrors `autoDeriveTraitsAndAddRcFunctionsForEnumType` in
-/// `src/evaluator/types/utils.ts`.
-///
 /// Enums are always value types (no reference semantics).
 /// Traits are derived from the union of all variant field types.
 auto_derive_traits_for_enum_type :: (
@@ -241,7 +228,7 @@ auto_derive_traits_for_enum_type :: (
 // ---------------------------------------------------------------------------
 /// Auto-derive trait markers for a union type.
 ///
-/// Mirrors `autoDeriveTraitsForUnionType` in `src/evaluator/types/utils.ts`.
+///
 ///
 /// Unions are value types (they cannot contain RC types — enforced earlier).
 /// Traits derived from all field types.
@@ -272,8 +259,7 @@ auto_derive_traits_for_union_type :: (
 // ---------------------------------------------------------------------------
 // enforce_atomic_object_send
 // ---------------------------------------------------------------------------
-/// Enforce Send for atomic object types. Mirrors the check at the end of TS
-/// `evaluateStructType` (struct.ts:152-173): after auto-derive completes (the
+/// Enforce Send for atomic object types: after auto-derive completes (the
 /// begin/end_send_derivation bracket lives in
 /// `auto_derive_traits_for_struct_type` above, so the cycle breaker cannot
 /// interfere with this check), an `atomic(ref(struct(...)))` whose type did
@@ -301,17 +287,17 @@ enforce_atomic_object_send :: (
     while(i < n, {
       fl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
       ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-      // DOCUMENTED DIVERGENCE (narrower than TS): only a fully CONCRETE
+      // DIVERGENCE from blanket-impl semantics: only a fully CONCRETE
       // (SomeT-free) field counts as a violation. A generic type-constructor
       // body (`Channel`'s `_data : *(T)` with `where(T <: Send)`) is
-      // trial-evaluated with T an unresolved SomeT; TS proves `*(T)` Send
-      // through the blanket `impl(generic(T), where(T <: Send), *(T),
-      // Send())` with SomeType-level constraint evidence, which yo-self's
-      // generic-impl matcher can't yet do for constrained-SomeT targets.
+      // trial-evaluated with T an unresolved SomeT, and the generic-impl
+      // matcher can't yet prove `*(T)` Send from the blanket
+      // `impl(generic(T), where(T <: Send), *(T), Send())` for
+      // constrained-SomeT targets.
       // Every concrete INSTANTIATION re-evaluates the body (CTFE per call),
       // so a real non-Send field is still rejected there.
       // Hoisted out of the `||` (an owned temp inside a short-circuit RHS in a
-      // loop body trips the TS drop-emission bug — see _is_dots_atom's note).
+      // loop body trips the drop-emission bug — see _is_dots_atom's note).
       ft_somes := get_all_some_types(ft);
       ft_is_generic := (is_some_type(ft) || (ft_somes.len() > usize(0)));
       if(!ft_is_generic && !type_implements_send(ft, env), {

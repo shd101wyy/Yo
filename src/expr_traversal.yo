@@ -1,25 +1,22 @@
-//! Expression-tree traversal helpers — 1-to-1 port of `src/expr-traversal.ts`.
+//! Expression-tree traversal helpers.
 //!
 //! Pure AST-shape predicates that walk an `AstExpr` tree looking for
 //! control-flow keywords (`return`, `unwind`, `break`). They respect
 //! function/closure boundaries (`=>` arrows) so a `return` inside a
 //! nested closure does not register as a return for the outer scope.
 //!
-//! Ported helpers:
+//! Helpers:
 //!   * `evaluated_body_contains_unwind` — true if `unwind` appears outside
-//!     a function boundary. Mirrors `evaluatedBodyContainsEscape`.
+//!     a function boundary.
 //!   * `expr_tree_contains_return` — same shape but also matches `return`.
-//!     Mirrors `exprTreeContainsReturn`. The TS `macro_expansion` case is
-//!     omitted because `ExprInfo.macro_expansion` lives in a side table
-//!     not reachable from a raw `AstExpr`.
-//!   * `expr_contains_loop_terminator` — also matches `break`. Mirrors
-//!     `exprContainsLoopTerminator`.
+//!     The macro-expansion case is omitted because `ExprInfo.macro_expansion`
+//!     lives in a side table not reachable from a raw `AstExpr`.
+//!   * `expr_contains_loop_terminator` — also matches `break`.
+//!   * `expr_contains_await` — also matches `io.await` calls.
 //!
-//! Not yet ported:
-//!   * `expr_contains_await` — no yo-self caller uses it yet.
-//!
-//! Phase A.9 (§2 — create missing files): these three helpers previously
-//! lived in `expr.yo` and `expr_info.yo`; relocated here to mirror src/.
+//! All of these are AST-only baselines: anything that lives in `ExprInfo`
+//! (macro expansions, io-builtin markers) is not reachable from a raw
+//! `AstExpr` and is not consulted.
 pragma(Pragma.AllowUnsafe);
 import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -45,8 +42,6 @@ import("std/string");
 /// The cond/match branch traversal is inlined here rather than delegated to a
 /// separate visitor function (historical: it predates order-independent
 /// definitions).
-///
-/// Mirrors `evaluatedBodyContainsEscape` in `src/expr-traversal.ts`.
 evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
   match(
     e,
@@ -116,10 +111,9 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
 /// `return`. Skips new function/closure boundaries; recurses into cond/match
 /// branches.
 ///
-/// Mirrors `exprTreeContainsReturn` in `src/expr-traversal.ts`. The macro
-/// expansion case from TS is omitted — `ExprInfo.macro_expansion` lives in a
-/// side table (`ExprInfoTable`) and is not reachable from a raw `AstExpr`, so
-/// this helper is an AST-only baseline.
+/// The macro-expansion case is omitted — `ExprInfo.macro_expansion` lives in
+/// a side table (`ExprInfoTable`) and is not reachable from a raw `AstExpr`,
+/// so this helper is an AST-only baseline.
 expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
   match(
     e,
@@ -196,8 +190,6 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
 /// the `=>` boundary check for those specific arguments.
 ///
 /// Uses `recur` for self-recursion (Yo does not allow direct self-calls).
-///
-/// Mirrors `exprContainsLoopTerminator` in `src/expr-traversal.ts`.
 expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
   match(
     expr,
@@ -277,11 +269,9 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
 /// scopes and function/closure boundaries (`=>`), but recurses directly into
 /// `cond`/`match` branch parts (bypassing the `=>` boundary check there).
 ///
-/// Mirrors `exprContainsAwait` in `src/expr-traversal.ts`. Faithful adaptations
-/// to the yo-self AST-only convention (like the siblings above): io.await /
-/// io.async are detected via `is_io_await_call` / `is_io_async_call` (dot-access
-/// pattern) instead of the TS `Func.ioBuiltin` marker (not in yo-self's Func
-/// TypeValue); the ExprInfo-only cases (`macroExpansion`, type-value /
+/// AST-only convention, like the siblings above: io.await / io.async are
+/// detected via `is_io_await_call` / `is_io_async_call` (dot-access pattern);
+/// the ExprInfo-only cases (`macroExpansion`, type-value /
 /// `typeImplementsFn` callee skips) are omitted — `ExprInfo` lives in a side
 /// table not reachable from a raw `AstExpr`.
 expr_contains_await :: (fn(expr : AstExpr) -> bool)(
@@ -297,7 +287,7 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
       // the evaluator actually stamped (io-builtin markers included) are the
       // EXPANSION's clones, so an `aio.await(...)` inside a raw `if` arg is
       // invisible to this walk — recurse into the expansion instead. Mirrors
-      // `exprContainsAwait` (src/expr-traversal.ts:378), which follows
+      // `exprContainsAwait`, which follows
       // `expr.$.macroExpansion`. Without this, an if-in-while body whose
       // branch awaits emitted "Expected await in while loop body but none
       // found" — the loop body vanished and the program spun forever.
@@ -380,7 +370,6 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
 /// back-edge and no exit label, so its body runs once and control never returns
 /// to it. Honors the same boundaries as `expr_contains_await`.
 ///
-/// Mirrors `exprContainsWhileWithAwait` (src/expr-traversal.ts).
 expr_contains_while_with_await :: (fn(expr : AstExpr) -> bool)(
   match(
     expr,
@@ -466,7 +455,7 @@ expr_contains_while_with_await :: (fn(expr : AstExpr) -> bool)(
 ///
 /// Conservative (false when unprovable); honors function/closure boundaries
 /// like `evaluated_body_contains_unwind`. `return(...)` counts as a NORMAL
-/// delivery (false). Mirrors `allPathsUnwind` (src/expr-traversal.ts:116).
+/// delivery (false).
 all_paths_unwind :: (fn(e : AstExpr) -> bool)(
   match(
     e,

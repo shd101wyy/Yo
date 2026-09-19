@@ -1,7 +1,5 @@
 //! evaluate_binding — handles `(name : T)` typed variable declarations.
 //!
-//! 1:1 port of `src/evaluator/exprs/binding.ts`.
-//!
 //! `(name : T)` is a type-only declaration: it introduces `name` into the
 //! environment with type `T` but no value yet. Initialization comes from the
 //! subsequent `:=` or `=` assignment operator. The function is also called by
@@ -61,7 +59,7 @@ set_defer_generic_fn_type_check :: (fn(v : bool) -> unit)({
 // ---------------------------------------------------------------------------
 // Return type
 // ---------------------------------------------------------------------------
-/// The result of `evaluate_binding`. Mirrors the anonymous TS return type.
+/// The result of `evaluate_binding`.
 BindingResult :: ref(
   struct(
     /// The fully annotated `:` expression.
@@ -82,7 +80,7 @@ BindingResult :: ref(
 /// the variable to `env`, and writes `ExprInfo` for both the lhs and the
 /// whole `":"` expression into `ctx.expr_info_table`.
 ///
-/// Mirrors `evaluateBinding` in `src/evaluator/exprs/binding.ts`.
+///
 evaluate_binding :: (
   fn(
     expr : AstExpr,
@@ -154,10 +152,9 @@ evaluate_binding :: (
     ),
     .None => t_unit()
   );
-  // Array types with inferred length are not allowed in type annotations
-  // (TS binding.ts:76: `isArrayType(t) && isUnknownValue(t.length)`). The
-  // `_` placeholder is value-position-only (`arr := Array(i32, _)(1,2,3)`).
-  // yo-self's `_` path (evaluator/types/array.yo) mints a length_var named
+  // Array types with inferred length are not allowed in type annotations.
+  // The `_` placeholder is value-position-only (`arr := Array(i32, _)(1,2,3)`).
+  // The `_` path (evaluator/types/array.yo) mints a length_var named
   // `_array_length_*` — gate on that prefix so legitimate generic-impl
   // length variables (`Array(T, U)`) in other positions are unaffected.
   // Without this, the array.test.yo cee that EXPECTS this rejection
@@ -235,8 +232,6 @@ evaluate_binding :: (
     is_compile_time_only = true;
   });
   // Reject runtime bindings inside a compile-time-only function body.
-  // Mirrors: context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
-  //          && context.isEvaluatingFunctionBodyOrAsyncBlock?.type.return.isCompileTimeOnly
   if(!is_compile_time_only, {
     is_ctfe_body := match(
       ctx.is_evaluating_function_body_or_async_block,
@@ -327,8 +322,7 @@ evaluate_binding :: (
   // Reject runtime vars with generic function types — DEFERRABLE: exprs/
   // assignment.yo sets the flag around its typed-binding eval and re-runs
   // the check itself after the RHS is evaluated, relaxing it for ctl
-  // handlers whose body ALWAYS unwinds (TS binding.ts:160
-  // `deferGenericFnTypeCheckToAssignment` + assignment.ts:447-470).
+  // handlers whose body ALWAYS unwinds.
   if(!is_compile_time_only && !g_defer_generic_fn_type_check && (is_function_type(user_defined_type) && is_function_type_generic(user_defined_type)), {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
@@ -363,9 +357,8 @@ evaluate_binding :: (
     is_compile_time_only => Option(EvalValue).Some(create_unknown_val(user_defined_type)),
     true => Option(EvalValue).None
   );
-  // No-shadowing rule (TS env.ts:644-658, enforced inside addVariableToEnv) —
-  // same check as initialization_assignment.yo; see the comment there for why
-  // yo-self keeps it at the user binding-introduction sites.
+  // No-shadowing rule — same check as initialization_assignment.yo; see the
+  // comment there for why it lives at the user binding-introduction sites.
   if(variable_name != String.from("__yo_self"), {
     shadow_existing := get_variables_from_env(env, variable_name);
     if(shadow_existing.len() > usize(0), {
@@ -406,8 +399,7 @@ evaluate_binding :: (
     ast_expr_token(lhs)
   );
   // The variable is NOT initialized yet — initialization happens in the
-  // enclosing `=` assignment. Mirrors binding.ts:211
-  // (`initializedAtToken: undefined`). add_variable_to_env stamps
+  // enclosing `=` assignment. add_variable_to_env stamps
   // Some(token) (correct for params and `:=` bindings), so clear it here.
   // Without this, `(x : T) = rhs` reads as a REASSIGNMENT in
   // evaluate_assignment (is_mutating_defined_variable true) and wrongly
@@ -430,7 +422,7 @@ evaluate_binding :: (
     .None => ()
   );
   // Write ExprInfo for the lhs expression.
-  // pathCollection = [[variableName]] (one-element path collection, matches TS).
+  // pathCollection = [[variableName]] (one-element path collection).
   lhs_path := ArrayList(String).new();
   lhs_path.push(variable_name);
   lhs_info := new_expr_info(env, user_defined_type);

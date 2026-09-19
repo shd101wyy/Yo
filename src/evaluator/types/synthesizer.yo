@@ -1,22 +1,19 @@
 //! evaluator/types/synthesizer — type synthesis (unification of SomeType variables).
 //!
-//! 1:1 port of `src/evaluator/types/synthesizer.ts`.
-//!
 //! Exports:
 //!   `SynthesizeOptions`     — options controlling synthesis behavior.
 //!   `SynthesizeResult`      — return type of `synthesize_types`.
 //!   `can_assign_type_hierarchy` — check if a TypeHierarchy type can be assigned.
 //!   `synthesize_types`      — main type-inference/unification function.
 //!
-//! Key adaptation notes:
-//!   - TypeScript uses object identity for `checkedTypePairs`; yo-self uses
-//!     string IDs (`synthesis_type_id`) for structural identity.
-//!   - TypeScript `addVariableToEnv` returns `{env, variable}`; yo-self
-//!     `add_variable_to_env` mutates in place via `*(Environment)`.
-//!   - TypeScript `Set<number>` → yo-self `ArrayList(bool)` (index-based flags).
-//!   - `SomeType.resolvedConcreteType` mutation skipped (no such field in yo-self).
-//!   - `StructType.functionValue` comparison skipped (not in yo-self); uses `id` only.
-//!   - FnTrait synthesis uses parallel arrays directly instead of `callType`.
+//! Notes:
+//!   - Checked-pair identity is by string IDs (`synthesis_type_id`), not
+//!     object identity.
+//!   - `add_variable_to_env` mutates in place via `*(Environment)`.
+//!   - SomeT carries no `resolvedConcreteType` field; resolved concrete types
+//!     are recorded in the id-keyed registry in expr_info.yo.
+//!   - Struct comparisons use `id` only (no function-value comparison).
+//!   - FnTrait synthesis uses parallel arrays directly.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -79,18 +76,16 @@ _is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
 // Public data types
 // ---------------------------------------------------------------------------
 /// Options controlling type synthesis behavior.
-/// Mirrors `SynthesizeTypesOptions` in TypeScript.
 SynthesizeOptions :: ref(
   struct(
-    /// When true, also sets `resolvedConcreteType` on SomeType objects
-    /// (skipped in yo-self — no such field on SomeT).
+    /// When true, also records the SomeT's resolved concrete type in the
+    /// id-keyed registry (SomeT carries no such field).
     set_resolved_concrete_type : bool,
     /// Optional source token for variable bindings created during synthesis.
     token : Option(Token)
   )
 );
 /// Return type of `synthesize_types`.
-/// Mirrors `{ expectedEnv: Environment; givenEnv: Environment }` in TypeScript.
 SynthesizeResult :: ref(
   struct(
     expected_env : Environment,
@@ -100,7 +95,6 @@ SynthesizeResult :: ref(
 // ---------------------------------------------------------------------------
 // Internal data type: one implicit/effect parameter entry
 // ---------------------------------------------------------------------------
-/// Mirrors `FunctionImplicitParameter` in TypeScript.
 ImplicitEntry :: ref(
   struct(
     label : String,
@@ -112,7 +106,6 @@ ImplicitEntry :: ref(
 // Checked-pair anti-circularity state
 // ---------------------------------------------------------------------------
 /// A pair of type IDs used to detect circular synthesis.
-/// Mirrors `{ expected: Type; given: Type }[]` in TypeScript.
 TypePair :: ref(
   struct(
     expected_id : String,
@@ -129,7 +122,7 @@ TypePair :: ref(
 // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md), so the helpers call `_synthesize_types_impl`
 // directly even though it is defined below them; this used to go through a
 // global function pointer.
-/// Public entry point — mirrors `synthesizeTypes` in TypeScript.
+/// Public entry point.
 synthesize_types :: (
   fn(
     expected_ty : TypeValue,
@@ -186,7 +179,6 @@ _has_type_pair :: (fn(pairs : ArrayList(TypePair), exp_id : String, giv_id : Str
   found
 });
 /// Bind a SomeType variable in `env`: add if not present, update if already present.
-/// Mirrors the `!variable ? addVariableToEnv(...) : updateExistingVariable(...)` pattern.
 _bind_some_type :: (
   fn(
     env : Environment,
@@ -206,9 +198,7 @@ _bind_some_type :: (
     };
   });
   // The bound VARIABLE's declared type is the KIND of the bound value —
-  // TS binds `type: value.type` where createTypeValue computes
-  // `typeOfType(value)` (synthesizer.ts:259-271, value.ts:442-448), so a
-  // type binder `T` always carries `Type`/`Trait` as its variable type.
+  // a type binder `T` always carries `Type`/`Trait` as its variable type.
   // Passing the bound TYPE ITSELF (a SomeT or concrete) made a later read
   // of the `T` atom stamp `info.ty = <the SomeT>`, and kind-checking
   // builtins rejected it ("__yo_type_contains_rc_type: expected a Type
@@ -245,14 +235,12 @@ _bind_some_type :: (
     true => {
       // Update the last binding — but ONLY when it lives in the CURRENT top
       // frame (the call's own placeholder frame). An in-place update of an
-      // OUTER frame's binding is a DURABLE write-through in yo-self's mutable
+      // OUTER frame's binding is a DURABLE write-through in the mutable
       // env model: a NESTED call's generic resolution (`T := unit` from
       // yield's io.async inside every task body) persisted across def-eval
       // generations and poisoned sibling closures' expected types (the
       // async_await void-closure residual — the [REBIND] topology probe shows
-      // updates landing frames BELOW the top). TS's persistent env chains
-      // scope such updates automatically (updateExistingVariable produces a
-      // new chain visible only downstream); the yo-self equivalent is
+      // updates landing frames BELOW the top). The remedy is
       // SHADOWING: for an outer-frame match, ADD a call-local binding in the
       // top frame instead — it pops with the frame, and every read inside the
       // call sees it (innermost-wins).
@@ -282,10 +270,7 @@ _bind_some_type :: (
       // information (the source SomeT resolves to "unbound" with or without
       // it — without the marker the name lookup hits the sibling, fails the
       // ownership check, and returns unbound), but as the new LAST binding
-      // it buries the sibling for every name-keyed read. TS never persists
-      // this write: its both-unbound unification updates the last variable
-      // in a SCRATCH chain that tryMatchGenericImpl discards
-      // (synthesizer.ts:319-335, impl.ts:2243 pushEnvFrame). Measured: the
+      // it buries the sibling for every name-keyed read. Measured: the
       // `.filter(p).fold(init, f)` where-check wrote filter's `F` marker
       // into fold's live callee frame, routing fold's closure to filter's
       // predicate (iterator_combinators arm 18).
@@ -321,9 +306,8 @@ _bind_some_type :: (
         );
         return(());
       });
-      // In-place update keeps the EXISTING variable's declared type — TS
-      // `updateExistingVariable(env, variable, {...variable, value: [value]})`
-      // replaces only the value (synthesizer.ts:274-277).
+      // In-place update keeps the EXISTING variable's declared type — only
+      // the value is replaced.
       new_var := Variable(
         id : old_var.id,
         name : old_var.name,
@@ -354,7 +338,6 @@ _bind_some_type :: (
 // canAssignTypeHierarchy
 // ---------------------------------------------------------------------------
 /// Check if a given type hierarchy type can be assigned to an expected one.
-/// Mirrors `canAssignTypeHierarchy` in TypeScript.
 can_assign_type_hierarchy :: (fn(expected : TypeValue, given : TypeValue) -> bool)(
   match(
     expected,
@@ -372,7 +355,6 @@ can_assign_type_hierarchy :: (fn(expected : TypeValue, given : TypeValue) -> boo
 /// Check if a SomeType (identified by `some_type_id`) occurs anywhere in `ty`.
 /// Prevents infinite types like T = Option(T).
 /// `visited` is a list of type IDs already being checked (prevents cycles).
-/// Mirrors `occursCheck` in TypeScript.
 _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeValue, visited : ArrayList(String), exn : Exception) -> bool)({
   ty_id := synthesis_type_id(ty);
   // Prevent infinite recursion on cyclic types
@@ -480,11 +462,10 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       forall_labels := __fm1.*.forall_labels;
       // A generic declared by this Func's OWN signature SHADOWS the
       // searched variable: occurrences inside its params/return are
-      // bound (alpha-renameable), not free occurrences. TS gets this
-      // implicitly — each fn-type evaluation mints fresh SomeType ids,
-      // so an embedded method signature never shares ids with the
-      // call's foralls — but yo-self's value-typed struct copies
-      // preserve ids: an `IoExn` struct embedding `Io.await :
+      // bound (alpha-renameable), not free occurrences. Value-typed
+      // struct copies preserve SomeType ids, so an embedded method
+      // signature CAN share ids with the call's foralls: an
+      // `IoExn` struct embedding `Io.await :
       // fn(generic(T, E), …)` made `E := IoExn` a false infinite type
       // (std/http/client.yo). Within a Func that declares generic "E",
       // any SomeT named "E" lexically IS that inner generic, so
@@ -498,7 +479,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       // each `fn(generic(T,E), action : Impl(...)) -> Impl(...)`) made the outer
       // closure-wrapper "Impl" a FALSE infinite type. "Impl" is a reserved
       // sugar name (never a user var), so shadowing it inside a nested Func is
-      // sound — mirrors the generic-label shadowing below.
+      // sound, like the generic-label shadowing below.
       if(some_type_name == "Impl", {
         return(false);
       });
@@ -738,7 +719,6 @@ _expand_effects :: (
 });
 /// Synthesize effects between two FutureTraitT or function implicit param lists.
 /// Uses set-based matching with the "at most one unsolved spread" rule.
-/// Mirrors `synthesizeFutureEffects` in TypeScript.
 _synthesize_implicit_params :: (
   fn(
     expected_labels : ArrayList(String),
@@ -1042,9 +1022,7 @@ _synthesize_fn_traits :: (
   // Either side may be a `Func` rather than an `FnTraitT`: this helper also
   // synthesizes an `Impl(Fn(...))` (FnTraitT) against a concrete closure `Func`
   // (see the caller guard `is_fn_trait_type(exp_trait) && is_function_type(given)`
-  // and the doc note below). TS converts the FnTraitT to its `isFn.callType`
-  // (a Func) and runs Func-vs-Func synthesis (synthesizer.ts:516-523); the
-  // value-space equivalent is to read params/result from whichever shape each
+  // and the doc note below): read params/result from whichever shape each
   // side is. Without the `.Func` arms, a `Func` given fell to `TypeValue.Unit`
   // for its result, so `Impl(Fn(e : E) -> T)` vs `fn(e : IoExn) -> i32` bound
   // the io.async generic `T = unit` (→ later `Future(unit,E)` vs
@@ -1155,8 +1133,7 @@ _synthesize_future_traits :: (
   // poisoning sibling calls (the io.await shared-wrapper cluster,
   // issues/fixed/yo-self-io-await-shared-wrapper-poisoning.md). The cell here
   // belongs to the per-call FRESHENED forall (_freshen_io_builtin_callee), so
-  // the write is call-local. TS gets this from synthesizeTypes binding the
-  // effect forall on the one shared SomeType object.
+  // the write is call-local.
   if((exp_et.len() == usize(1)) && (giv_et.len() == usize(1)), {
     sfe_exp := match(exp_et.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
     sfe_giv := match(giv_et.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
@@ -1180,7 +1157,7 @@ _synthesize_future_traits :: (
 // ---------------------------------------------------------------------------
 /// Actual implementation of type unification.
 /// Called only through the dispatch wrapper `synthesize_types`.
-/// Mirrors `synthesizeTypes` in `src/evaluator/types/synthesizer.ts`.
+///
 ///
 /// Parameters:
 ///   expected_ty, expected_env — the "pattern" side (may contain SomeTypes).
@@ -1338,18 +1315,15 @@ _synthesize_types_impl :: (
       val := EvalValue.TypeVal(given_ty);
       _bind_some_type(ee, exp_name, exp_id2, val, given_ty, tok, exn);
       // Phase 5: record the resolved CONCRETE type for this SomeT (keyed by id)
-      // in the side-table when the caller asked for it. Mirrors
-      // synthesizer.ts:463 (`expected.type.resolvedConcreteType = given.type` when
-      // `options.setResolvedConcreteType`); yo-self has no SomeT field, so the
-      // `g_some_resolved_concrete` registry stands in (read by the async-Future /
-      // FSM codegen). Inert until the FSM readers land.
+      // in the side-table when the caller asked for it (SomeT has no such
+      // field): the `g_some_resolved_concrete` registry stands in (read by the
+      // async-Future / FSM codegen). Inert until the FSM readers land.
       if(match(opts, .Some(o) => o.set_resolved_concrete_type, .None => false), {
         register_some_resolved_concrete(exp_id2, given_ty);
         // ALSO stamp the SHARED per-lineage CELL (definitions.yo SomeT
         // resolved_concrete): every clone of this SomeT — including copies
-        // already stored in func types and registries — sees the resolution,
-        // the value-semantics equivalent of TS mutating resolvedConcreteType
-        // on the shared object (synthesizer.ts:463). Last-wins like TS.
+        // already stored in func types and registries — sees the resolution.
+        // Last-wins.
         match(
           expected_ty,
           .SomeT({ resolved_concrete : exp_cell }) => {
@@ -1427,9 +1401,8 @@ _synthesize_types_impl :: (
       val := EvalValue.TypeVal(expected_ty);
       _bind_some_type(ge, giv_name, giv_id2, val, expected_ty, tok, exn);
       // Phase 5 (symmetric set-site): record the given SomeT's resolved concrete
-      // type (the expected concrete) in the side-table. Mirrors synthesizer.ts:595
-      // (`given.type.resolvedConcreteType = expected.type` under
-      // `setResolvedConcreteType`). Keyed by the given SomeT's id.
+      // type (the expected concrete) in the side-table.
+      // Keyed by the given SomeT's id.
       if(match(opts, .Some(o) => o.set_resolved_concrete_type, .None => false), {
         register_some_resolved_concrete(giv_id2, expected_ty);
         // Symmetric per-lineage CELL stamp — see the expected-side site above.
@@ -1493,14 +1466,12 @@ _synthesize_types_impl :: (
     exp_id3 := match(expected_ty, .Struct({ id }) => id, _ => ``);
     giv_id3 := match(given_ty, .Struct({ id }) => id, _ => ``);
     // Two instantiations of the same generic constructor get distinct fresh
-    // ids but share `constructor_func_id`. Mirrors TS `synthesizer.ts:662`
-    // comparing `functionValue.funcId`.
+    // ids but share `constructor_func_id`.
     exp_cfid3 := match(expected_ty, .Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
     giv_cfid3 := match(given_ty, .Struct({ constructor_func_id : cfid }) => cfid, _ => ``);
     // An empty carried cfid may predate the constructor stamp (a self-recursive
     // shell, or a memoized instantiation that embedded one) — recover it from
-    // the id-keyed stamp table, the value-semantics stand-in for TS mutating
-    // the shared type object (see expr_info.yo g_struct_ctor_fids). Without
+    // the id-keyed stamp table (see expr_info.yo g_struct_ctor_fids). Without
     // this, `SortedSet(T)` vs `SortedSet(i32)` FAILED to unify: the top-level
     // pair matched by cfid but the `_inner : SortedMap(...)` FIELD instances
     // carried pre-stamp empty cfids and threw here.
@@ -1541,8 +1512,7 @@ _synthesize_types_impl :: (
     // AND scoped to a MISSING nominal identity: the fallback exists to
     // rescue instantiations minted past the ctor stamp (empty cfid). When
     // BOTH sides carry known-but-DIFFERENT ctor fids, nominal identity is
-    // decided and the pair must reject — TS synthesizer.ts:662 compares
-    // funcIds directly. Unscoped, two ANONYMOUS same-shaped ctors unified:
+    // decided and the pair must reject. Unscoped, two ANONYMOUS same-shaped ctors unified:
     // HashMapIter(K,V) vs HashMapIterPtr(K,V) (both name="", both fields
     // `(_map, _index)`) let the Clone-impl trial's `it.next()` bind the
     // BY-VALUE iterator's `next : -> Option(MapEntry(K,V))` for a
@@ -1624,7 +1594,7 @@ _synthesize_types_impl :: (
     giv_enum_id := match(giv_en_ty, .EnumT(id, _, _, _, _, _, _, _, _) => id, _ => ``);
     // Two instantiations of the same generic enum share a constructor_func_id
     // (value.yo enum-cfid side-table). Treat matching cfids as the same enum
-    // constructor → unify variant fields. Mirrors the struct same_constructor.
+    // constructor → unify variant fields, like the struct same_constructor check.
     exp_enum_cf := lookup_enum_cfid(exp_enum_id);
     giv_enum_cf := lookup_enum_cfid(giv_enum_id);
     same_enum_ctor := ((exp_enum_cf.len() > usize(0)) && (exp_enum_cf == giv_enum_cf));
@@ -1724,7 +1694,7 @@ _synthesize_types_impl :: (
         vi = (vi + usize(1));
       });
       // Also synthesize via the GADT type-constructor args
-      // (synthesizer.ts:738-756): for a GADT enum the variant field types
+      // for a GADT enum the variant field types
       // are concrete and don't mention the type parameters (T appears only
       // in `-> recur(...)`), so the field loop above binds NOTHING — the
       // only carrier of `T := i32` is the instantiation's recorded
@@ -1849,7 +1819,7 @@ _synthesize_types_impl :: (
     res := _synthesize_types_impl(exp_elem, ee, giv_elem, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
-    // Array LENGTH synthesis (mirrors TS synthesizer.ts:884-940): when the
+    // Array LENGTH synthesis: when the
     // EXPECTED length is an unresolved generic variable and the GIVEN length
     // is concrete, bind the variable in the expected env to the concrete
     // count so `_resolve_one_forall_binding` sees `U := <n>`.
@@ -1882,7 +1852,7 @@ _synthesize_types_impl :: (
     });
     // Concrete-vs-concrete mismatched lengths fail compatibility later
     // (compatibility.yo's Array arm); synthesis itself stays permissive,
-    // matching TS (which only binds, never rejects lengths here).
+    // only binding, never rejecting lengths here.
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
   // Case: ComptimeList + ComptimeList
@@ -2131,9 +2101,8 @@ _synthesize_types_impl :: (
       // A RESOLVED SomeT stands for its concrete on either side — an
       // `Impl(RetI32)` receiver (resolution: bool) unifying against the impl
       // method's `*(Self→bool)` self param reaches this fallback as
-      // (bool, Impl-SomeT). Mirror TS: given.resolvedConcreteType /
-      // getValueOfSomeTypeFromEnv resolve BEFORE declaring a mismatch
-      // (compatibility.ts:900-916; the synthesizer's SomeType arms assume
+      // (bool, Impl-SomeT). Resolve the given side BEFORE declaring a
+      // mismatch (the synthesizer's SomeType arms assume
       // unresolved vars). Retry the synthesis with the resolution.
       giv_resolution := match(
         given_ty,

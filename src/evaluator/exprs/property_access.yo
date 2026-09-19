@@ -1,18 +1,6 @@
 //! evaluate_property_access — evaluates `.(object, property)` expressions.
-//! 1:1 port of `src/evaluator/exprs/property-access.ts` (Phase 2af).
 //!
 //! Exported symbols: evaluate_property_access
-//!
-//! Phase 2 simplifications vs the TypeScript source:
-//! - TypeValue.Struct has no `.trait` field; struct type-val access searches
-//!   `field_labels` directly instead of `trait.fields`.
-//! - `findMethodsFromGenericImpls`: wired in Phase 3.5 (single-match case only).
-//! - `findAssociatedTypeFromGenericImpls`, `findMethodFromGenericImplForTrait`:
-//!   stubbed (no associated-type support yet).
-//! - `traitType.receiverType` block (TS lines 651-723) is skipped — Phase 3.
-//! - `isRuntimeOnly` propagation on UnknownVal — skipped (no flag in Phase 2).
-//! - `comptimeRef` setting for pointer-through-struct access — skipped (Phase 3).
-//! - `ModuleVal.isLoading` check — skipped (no such flag in yo-self).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
@@ -90,12 +78,9 @@ pragma(Pragma.AllowUnsafe);
 /// overhead on the most common expression shape in std — and it makes
 /// `(x : Option(String)) ?= Option(String).None` fail the not-consumed gate.
 ///
-/// The "some variant has fields" conjunct mirrors `can_optimize_as_simple_enum`
+/// The "some variant has fields" conjunct matches `can_optimize_as_simple_enum`
 /// (`src/codegen/utils/index.yo`): an all-payload-free enum collapses to a
 /// plain C enum constant and also allocates nothing.
-///
-/// Mirrors `attachOwnedTempForRcUnitVariant` in
-/// `src/evaluator/exprs/property-access.ts`.
 _attach_owned_temp_for_rc_unit_variant :: (
   fn(
     expr : AstExpr,
@@ -130,7 +115,6 @@ _attach_owned_temp_for_rc_unit_variant :: (
   attach_temp_variable_to_expr(expr, true, ctx);
 });
 /// Return the last index in `labels` where `labels[i] == name`, or `.None`.
-/// Mirrors `Array.findLast` from the TypeScript source.
 find_last_field_index :: (fn(labels : ArrayList(String), name : String) -> Option(usize))({
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
@@ -150,7 +134,6 @@ find_last_field_index :: (fn(labels : ArrayList(String), name : String) -> Optio
   result
 });
 /// Return the first index in `labels` where `labels[i] == name`, or `.None`.
-/// Mirrors `Array.findIndex` from the TypeScript source.
 find_first_field_index :: (fn(labels : ArrayList(String), name : String) -> Option(usize))({
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
@@ -174,9 +157,6 @@ find_first_field_index :: (fn(labels : ArrayList(String), name : String) -> Opti
 /// If the object already has a non-empty path_collection, each path is
 /// extended with `prop_name`.  Otherwise a fresh `[[var_name, prop_name]]`
 /// singleton is created.
-///
-/// Mirrors the `indexPathCollection` / `labelPathCollection` logic in the
-/// TypeScript source.
 build_field_path_collection :: (
   fn(
     obj_pc : ArrayList(ArrayList(String)),
@@ -225,9 +205,9 @@ build_field_path_collection :: (
 /// Index(String)(Output : JsonValue, …))`) are registered in the
 /// type-trait-methods registry keyed by the receiver type's id, with a
 /// `TypeVal` value. During generic-impl specialization they may also be
-/// bound directly in the env. This mirrors the assoc-type fallbacks in
-/// the struct/union branch (and TS `property-access.ts`'s
-/// `isEvaluatingGenericImplSpecialization` + associated-type lookups).
+/// bound directly in the env. Same assoc-type fallbacks as
+/// the struct/union branch (generic-impl specialization first, registry
+/// second).
 ///
 /// On success, sets ExprInfo on both `expr` and `property_expr` and
 /// returns `true`; otherwise returns `false` (caller proceeds to its
@@ -273,7 +253,7 @@ _try_resolve_associated_type :: (
   ) -> bool
 )({
   // (a) During generic-impl specialization the assoc type may be bound
-  //     directly in the env (mirrors TS isEvaluatingGenericImplSpecialization).
+  //     directly in the env.
   if(ctx.is_evaluating_generic_impl_specialization, {
     spec_vars := get_variables_from_env(env, prop_name);
     n_spec := spec_vars.len();
@@ -390,7 +370,7 @@ evaluate_property_access :: (
         // RAW so an inner error PROPAGATES — the non-raw wrapper
         // catches + prints + CONTINUES with a missing ExprInfo, and the
         // caller then proceeds on corrupted state (the SIGTRAP-in-malloc
-        // crash class; see yo-self-test-trial-eval-swallow memory).
+        // crash class).
         evaluated := evaluate_expression_raw(obj_expr, env, ctx, exn);
         return(evaluated);
       });
@@ -599,7 +579,6 @@ evaluate_property_access :: (
         if(is_pointer_type(ot), {
           // Memory-safety gate: pointer dereference requires `unsafe(...)`.
           // Files under std/ and src/ are implicitly unsafe-capable.
-          // Mirrors `property-access.ts:298-310`.
           if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
             exn.throw(
               dyn(
@@ -628,12 +607,13 @@ Raw pointer operations may dereference invalid memory.`
                 ov_deref,
                 .PtrVal(target_cell, ptr_tgt_idx) => {
                   // Compile-time pointer: dereference to the pointed-to value.
-                  // TS indexes the target when it is an aggregate —
+                  // Index the target when it is an aggregate —
                   // `dereferencedValue = target.elements[objectValue.targetIndex]`
-                  // (property-access.ts:329-334) — and stamps
-                  // `ptrTargetValue`/`ptrTargetIndex` so a later `p.* = v` has a
-                  // place to write (consumed by assignment.ts:1150-1173).
-                  // yo-self's `ComptimeRef.ArrayRef(list, index)` IS that pair
+                  // — and record
+                  // the target/index so a later `p.* = v` has a
+                  // place to write (consumed by assignment.yo's Step 6
+                  // comptimeRef block).
+                  // `ComptimeRef.ArrayRef(list, index)` IS that pair
                   // (assignment.yo's Step 6 writes `list(index) = rhs`), so:
                   //   * aggregate pointee — place = (elements, index);
                   //   * SCALAR pointee (arm 22) — place = (the CELL itself,
@@ -674,9 +654,8 @@ Raw pointer operations may dereference invalid memory.`
                 .UnknownVal(_, _) => {
                   // CHECKING PHASE ONLY: keep the comptime Unknown placeholder.
                   // In execution mode a call-chain result carries `UnknownVal`
-                  // under yo-self's runtime-result convention where TS carries
-                  // `undefined` — TS then takes the RUNTIME deref branch below
-                  // (property-access.ts:381-398), which attaches a borrowed
+                  // (the runtime-result convention) and takes the RUNTIME deref
+                  // branch below, which attaches a borrowed
                   // temp so `.Some((_ptr &+ index).*)`-style uses get a ___dup
                   // (missing dup freed every ArrayList(ref-struct) element on
                   // get(); see issues/fixed/yo-self-stage2-parser-divergence.md).
@@ -774,9 +753,9 @@ Raw pointer operations may dereference invalid memory.`
       // primitives whose impls are generic) — `Array(u8, 2).fill` resolves
       // through the inherent generic impl `impl(generic(T, U), Array(T, U),
       // fill : ...)`, which lives in the generic-impl registry, not the
-      // id-keyed trait-methods registry (Array types have no id). Mirrors
-      // the struct branch's `findMethodsFromGenericImpls` lookup
-      // (property-access.ts:526-546); single candidate only — multiple
+      // id-keyed trait-methods registry (Array types have no id). Same
+      // `findMethodsFromGenericImpls` lookup as the struct branch
+      //; single candidate only — multiple
       // candidates defer to function.yo's arg-type disambiguation.
       pr_prop_name := ast_expr_token(property_expr).value;
       generic_methods_pr := find_methods_from_generic_impls(type_val_inner, pr_prop_name, env);
@@ -800,9 +779,9 @@ Raw pointer operations may dereference invalid memory.`
     // While an `impl(...)` trait constructor's fields are being evaluated,
     // `Self.X` must resolve to fields already bound in the SAME trait entry
     // (e.g. `Output : T` before `index : fn(...) -> *(Self.Output)`).
-    // Mirrors TS attaching the progressively-updated `workingTraitType` to
-    // `receiverType.trait` (trait-type.ts:151-203); yo-self TypeValues have
-    // value semantics (no trait slot), so the in-flight bindings live on
+    // TypeValues have
+    // value semantics (no trait slot to attach a progressively-updated
+    // working trait to), so the in-flight bindings live on
     // the context (`current_impl_trait_field_*`). Scoped to literal `Self`
     // receivers — the only spelling these in-impl references use — so
     // unrelated TypeVal property accesses are untouched.
@@ -869,11 +848,11 @@ Raw pointer operations may dereference invalid memory.`
               // registry that `_try_resolve_associated_type` consults — so a
               // METHOD call on a comptime Option/Result fell through to
               // enum-VARIANT resolution and threw `Enum variant "unwrap" not
-              // found in enum`. Mirrors TS `findMethodsFromGenericImpls`
-              // (property-access.ts:478-499); the same guard the struct/union
+              // found in enum`. Same `findMethodsFromGenericImpls` guard the
+              // struct/union
               // branch already has below. Resolve only a SINGLE candidate —
               // multiple are left unresolved so function.yo can disambiguate by
-              // argument types (TS sets `expr.$ = undefined` there).
+              // argument types.
               generic_methods_en := find_methods_from_generic_impls(type_val_inner, variant_name_tv.clone(), env);
               if(generic_methods_en.len() == usize(1), {
                 method_en := match(
@@ -951,7 +930,7 @@ Raw pointer operations may dereference invalid memory.`
         }
       );
     });
-    // --- TypeVal + Struct or Union (replaces TS `typeValue.value.trait`) ---
+    // --- TypeVal + Struct or Union ---
     if(is_struct_type(type_val_inner) || is_union_type(type_val_inner), {
       if(!is_valid_variable_name(property_expr), {
         exn.throw(
@@ -977,7 +956,7 @@ Raw pointer operations may dereference invalid memory.`
         .Union(_, _, types) => types,
         _ => ArrayList(TypeValue).new()
       );
-      // Search field_labels (replaces TS trait.fields.findLast).
+      // Search field_labels.
       fidx_su := find_last_field_index(su_labels, prop_name_su.clone());
       match(
         fidx_su,
@@ -993,7 +972,7 @@ Raw pointer operations may dereference invalid memory.`
         .None => ()
       );
       // Check generic impl registry for methods on generic receiver types
-      // (mirrors `findMethodsFromGenericImpls` in TS property-access.ts line 526-546).
+      // (`findMethodsFromGenericImpls`).
       // Only resolve when exactly 1 candidate — multiple candidates are deferred to
       // function.yo which can disambiguate by argument types.
       generic_methods_su := find_methods_from_generic_impls(type_val_inner, prop_name_su, env);
@@ -1013,7 +992,6 @@ Raw pointer operations may dereference invalid memory.`
         return(expr);
       });
       // During generic impl specialization, the associated type may be in env.
-      // (mirrors TS isEvaluatingGenericImplSpecialization block at line 553)
       if(ctx.is_evaluating_generic_impl_specialization, {
         spec_vars := get_variables_from_env(env, prop_name_su);
         n_spec := spec_vars.len();
@@ -1044,10 +1022,8 @@ Raw pointer operations may dereference invalid memory.`
       // Look up in the type-trait-methods registry — covers
       // impl-provided associated types (e.g. `Counter.Item` where an
       // earlier `impl(Counter, Iter(Item : i32, ...))` registered
-      // "Item" with value `TypeVal(i32)`). Mirrors TS
-      // `property-access.ts:474-523` which walks
-      // `typeValue.value.trait.fields` looking for entries with
-      // assigned values. Only non-function values are eligible — the
+      // "Item" with value `TypeVal(i32)`). Only entries with
+      // assigned values are eligible — the
       // function dispatch path handles method overload resolution.
       su_type_id := type_id_or_empty(type_val_inner);
       if(su_type_id != "", {
@@ -1155,13 +1131,12 @@ Raw pointer operations may dereference invalid memory.`
           return(expr);
         },
         .None => {
-          // Not found — let function.ts handle it.
+          // Not found — let function.yo handle it.
           return(expr);
         }
       );
     });
     // --- TypeVal + TraitT -------------------------------------------------
-    // Phase 3 skip: receiverType block (TS lines 651-723).
     is_plain_trait_type := match(type_val_inner, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
     if(is_plain_trait_type, {
       if(!is_valid_variable_name(property_expr), {
@@ -1176,8 +1151,7 @@ Raw pointer operations may dereference invalid memory.`
         return(expr);
       });
       prop_name_tt := ast_expr_token(property_expr).value;
-      // `<:` WITNESS member access (the previously Phase-3-skipped
-      // receiverType block, TS property-access.ts:651-900, minimal form):
+      // `<:` WITNESS member access:
       // a TraitT whose `is_concrete` carries the receiver type — e.g.
       // `(Box(i32) <: Isolation).can_isolate` — resolves the method against
       // the generic impl registry (trait-filtered) and stamps the RESOLVED
@@ -1185,9 +1159,7 @@ Raw pointer operations may dereference invalid memory.`
       // FIELD's declared type with no value, so codegen fell back to a
       // record-member call through the witness's TYPE C name (`(bool(*)(
       // void*))__yo_tN.can_isolate)(x)` — undeclared identifier; rc layer 3,
-      // repro issues/repros/iso-witness-member-call.yo). TS also scans
-      // CONCRETE impls first (ts:651-849) — not yet needed by any red test;
-      // add if a concrete-impl witness shape surfaces.
+      // repro issues/repros/iso-witness-member-call.yo).
       tt_recv_opt := match(
         type_val_inner,
         .TraitT(_, _, _, _, _, ic, _, _, _, _) => ic,
@@ -1198,10 +1170,9 @@ Raw pointer operations may dereference invalid memory.`
         .Some(tt_recv_ty) => {
           // Base key: entry.trait_key is now the constructor funcId for
           // parameterized traits (get_base_trait_key), so the witness filter
-          // must query with the same key (TS findMethodFromGenericImplForTrait
-          // uses getBaseTraitKey, impl.ts:2045).
+          // must query with the same base trait key.
           tt_trait_key := get_base_trait_key(type_val_inner);
-          // CONCRETE impls first (TS property-access.ts:651-849): a witness
+          // CONCRETE impls first: a witness
           // on a type with a direct `impl(R, Trait(...))` must resolve THAT
           // impl's method — `(T <: TraitDisambigB).get_number(self)` at spec
           // time (T bound to DisambigPoint) previously fell through the
@@ -1244,7 +1215,7 @@ Raw pointer operations may dereference invalid memory.`
                 continue;
               }
             );
-            // Trait-filtered (TS findMethodFromGenericImplForTrait looks up
+            // Trait-filtered (look up
             // ONLY the trait's registry bucket): a same-named method on an
             // unrelated trait must not match this witness.
             if(tt_cand.source_trait_id == tt_trait_key, {
@@ -1283,7 +1254,7 @@ Raw pointer operations may dereference invalid memory.`
           return(expr);
         },
         .None => {
-          // Not found — let function.ts handle it.
+          // Not found — let the function-call path handle it.
           return(expr);
         }
       );
@@ -1292,12 +1263,12 @@ Raw pointer operations may dereference invalid memory.`
     // Resolve `Self.Item` (or `T.Item`) where the SomeT has a trait
     // constraint that declares `Item` as an associated type.
     //
-    // Mirrors TS `property-access.ts:425-456`. yo-self's SomeT doesn't
+    // SomeT doesn't
     // carry an inline `.trait` slot — the constraint trait lives in
     // either `required_trait_types` (for where-clause bounds) or in
     // `ctx.self_trait_type` (when the SomeT IS the trait's own Self).
     // We walk both and return on first match. The associated type's
-    // value is a SomeT placeholder in TS (`field.unassignedSomeType`);
+    // value is not a per-field placeholder;
     // here we return an `UnknownVal` of the field's declared type
     // (typically `Type` for assoc-type fields), which is enough for
     // the function-type evaluator to accept `Self.Output` as a type
@@ -1353,10 +1324,9 @@ Raw pointer operations may dereference invalid memory.`
               st_fidx,
               .Some(st_fi) => {
                 st_ft := match(st_types.get(st_fi), .Some(t) => t, .None => t_unit());
-                // For assoc-type fields (declared `Item : Type` etc.): TS
-                // returns the field's SINGLE `unassignedSomeType`
-                // (property-access.ts:445-456), so every `Self.Output` names
-                // ONE SomeType object. yo-self's stand-in for that per-field
+                // For assoc-type fields (declared `Item : Type` etc.), every
+                // `Self.Output` must name
+                // ONE SomeType object. The stand-in for that per-field
                 // storage is the trait-definition scoped frame, where the
                 // field loop binds the assoc label to its SomeT — resolve
                 // THROUGH the env binding before minting, or each access
@@ -1425,7 +1395,7 @@ Raw pointer operations may dereference invalid memory.`
   obj_ty_main := match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit());
   original_obj_ty := obj_ty_main;
   (base_ty : TypeValue) = obj_ty_main;
-  // Dereference pointer chain (TS: while (isPtrType(objectType))).
+  // Dereference pointer chain.
   while(is_pointer_type(base_ty), {
     match(
       base_ty,
@@ -1660,8 +1630,7 @@ Raw pointer operations may dereference invalid memory.`
               .Some(ov_lbl) => {
                 match(
                   ov_lbl,
-                  // Propagate `is_runtime_only` onto the field's unknown —
-                  // TS property-access.ts:1040-1053 does exactly this.
+                  // Propagate `is_runtime_only` onto the field's unknown.
                   .UnknownVal(_, ov_lbl_ro) => {
                     out_lbl.value = Option(EvalValue).Some(
                       if(
@@ -1679,8 +1648,8 @@ Raw pointer operations may dereference invalid memory.`
                       ov_lbl,
                       // The pointee lives at target_value(target_index) — the
                       // "optional faithfulness completion" noted in
-                      // issues/fixed/yo-self-comptime-pointer-place.md: TS indexes
-                      // first (property-access.ts:1066-1073).
+                      // issues/fixed/yo-self-comptime-pointer-place.md — index
+                      // first.
                       .PtrVal(tgt_cell_l, tgt_idx_l) => {
                         resolved_lbl = match(
                           tgt_cell_l.get(usize(0)),
@@ -1709,8 +1678,7 @@ Raw pointer operations may dereference invalid memory.`
                         );
                         // Field access THROUGH A COMPTIME POINTER is a mutable
                         // compile-time PLACE: record it so `&(self.x)` can build a
-                        // comptime PtrVal and `p(0) = v` can write in place.
-                        // Mirrors TS property-access.ts:1081-1096
+                        // comptime PtrVal and `p(0) = v` can write in place
                         // (`if (isPtrValue(objectExprValue))` -> comptimeRef
                         // {kind:"struct"|"tuple"}). Without it the ComptimeIndex
                         // `index` body's `&(self.x)` evaluates to NO value and CTFE
@@ -1732,7 +1700,7 @@ Raw pointer operations may dereference invalid memory.`
                             out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
                           }
                         );
-                        // See the TupleVal arm above (TS property-access.ts:1084-1090).
+                        // See the TupleVal arm above.
                         if(lbl_via_ptr, {
                           out_lbl.comptime_ref = Option(ComptimeRef).Some(
                             ComptimeRef.StructRef(sflds_l, fi_lbl)
@@ -1804,7 +1772,7 @@ Raw pointer operations may dereference invalid memory.`
           mod_fidx,
           .None => {
             if(is_module_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
-              // Phase 2: skip isLoading check (no such field in yo-self ModuleVal).
+              // (No ModuleVal.isLoading check — there is no such field.)
               exn.throw(
                 dyn(
                   format_error_message(
@@ -1836,7 +1804,7 @@ Raw pointer operations may dereference invalid memory.`
               .Some(ov_mod) => {
                 match(
                   ov_mod,
-                  // Propagate `is_runtime_only` — TS property-access.ts:1170-1184.
+                  // Propagate `is_runtime_only`.
                   .UnknownVal(_, ov_mod_ro) => {
                     out_mod.value = Option(EvalValue).Some(
                       if(
@@ -1864,9 +1832,9 @@ Raw pointer operations may dereference invalid memory.`
               },
               .None => {
                 // Object has no compile-time value (e.g. a def-time runtime
-                // param bound valueless — TS function-type.ts:346): resolve
+                // param bound valueless): resolve
                 // the member value from the module type's REGISTERED fields.
-                // Mirrors TS property-access.ts:757-760, which reads
+                // The registered value stands in as
                 // `field.assignedValue ?? createUnknownValue(field.type)` off
                 // the TYPE, independent of the receiver's value — this is how
                 // `io.async(...)` resolves inside a def-time function body.
@@ -1995,8 +1963,8 @@ Raw pointer operations may dereference invalid memory.`
               // parameter already supports in-place field mutation; a
               // `ref(enum)` parameter must too (reference semantics). The
               // programmer asserts the active variant; codegen emits the
-              // unchecked field access. Mirrors the TS fix in
-              // property-access.ts (`declaringVariants`).
+              // unchecked field access (resolve against the declaring
+              // variants).
               (n_dv : usize) = usize(0);
               (dv_idx : usize) = usize(0);
               (dv_i : usize) = usize(0);
@@ -2064,8 +2032,7 @@ Raw pointer operations may dereference invalid memory.`
   });
   // -------------------------------------------------------------------------
   // Fallback: property access could not be resolved at compile time.
-  // Return expr without setting ExprInfo — codegen / function.ts will handle.
-  // Mirrors `expr.$ = undefined; return(expr);` in TypeScript.
+  // Return expr without setting ExprInfo — codegen / function.yo will handle.
   // -------------------------------------------------------------------------
   if(pa_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
     pa_obj_ty := match(

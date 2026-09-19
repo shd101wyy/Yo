@@ -1,5 +1,4 @@
-//! `__yo_gc_collect()` / `__yo_gc_trace_child(...)` emitters — mirrors
-//! `src/codegen/exprs/gc.ts`.
+//! `__yo_gc_collect()` / `__yo_gc_trace_child(...)` emitters.
 { String } :: import("std/string");
 { AstExpr } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -9,8 +8,7 @@
 { _traverse_value, set_traverse_visit_expr } :: import("../functions/constructors.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-/// `__yo_gc_collect()` — trigger a cycle-GC collection (0 args). Mirrors
-/// `generateYoGcCollect`.
+/// `__yo_gc_collect()` — trigger a cycle-GC collection (0 args).
 generate_yo_gc_collect :: (fn(expr : AstExpr, _indent : String, _context : FunctionGenerationContext) -> String)(
   match(
     expr,
@@ -25,8 +23,7 @@ generate_yo_gc_collect :: (fn(expr : AstExpr, _indent : String, _context : Funct
 /// using `tracer` (a `GcTracer`, i.e. the opaque `void(*)(void*)` collector
 /// callback carried as a raw pointer) as the visit callback: a managed child
 /// registers the edge, a value child recurses inline. Passing the slot pointer
-/// (not the element by value) keeps tracing RC-neutral. Returns unit. Mirrors
-/// `generateYoGcTraceChild`.
+/// (not the element by value) keeps tracing RC-neutral. Returns unit.
 generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
   match(
     expr,
@@ -55,13 +52,11 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
           // dependent). So: take the pointee from the enclosing function
           // type's LAST param (visit's `slot : *(T)`), resolve it through the
           // type registry, and walk THAT — body ≡ signature deterministically.
-          // TS needs none of this: its numeric `type.id` keys are
-          // instantiation-precise, so each instantiation gets its own C type
-          // AND its own visit specialization. Making yo-self equally precise
-          // (splitting the specializations) materializes per-instantiation
+          // (Splitting the visit specializations per instantiation would
+          // materialize per-instantiation
           // bodies that expose a latent codegen bug — the stage-2 binary
           // corrupts its heap at startup (bisected 2026-07-15); see
-          // issues/fixed/yo-self-specialization-signature-type-identity.md.
+          // issues/fixed/yo-self-specialization-signature-type-identity.md.)
           sig_pointee := match(
             context.current_function_type,
             .Some(ft) => match(

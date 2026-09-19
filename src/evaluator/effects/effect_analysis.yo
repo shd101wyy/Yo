@@ -1,31 +1,27 @@
 //! Algebraic-effect call point analysis.
 //!
-//! Mirrors `src/evaluator/effects/effect-analysis.ts` — 1:1 port.
-//!
 //! Analyzes function bodies to identify ctl effect call points and local variables
 //! that need to be captured in state machine structs.
 //!
-//! Key design decisions vs the TypeScript source:
+//! Design notes:
 //!
-//! * `analyzeEffectCallPoints(body, name, type, transitive?, fieldPath?)` →
-//!   `analyze_effect_call_points(body, name, type, transitive, field_path, get_info)`:
-//!   the extra `get_info` parameter is Yo's equivalent of `expr.$` (the per-
-//!   expression evaluation annotation). `effect_field_path` is `Option(ArrayList(String))`
-//!   instead of optional (`string[] | undefined`).
+//! * `analyze_effect_call_points(body, name, type, transitive, field_path, get_info)`:
+//!   the `get_info` parameter provides the per-expression evaluation
+//!   annotations; `effect_field_path` is `Option(ArrayList(String))`.
 //!
-//! * `SuspensionPointDetector<EffectCallPoint>` (TypeScript generic) → untyped base
-//!   `SuspensionPointDetector`. A typed side-channel `HashMap(String, EffectCallPointExtra_)`
+//! * The shared `SuspensionPointDetector` is untyped (base `SuspensionPoint`
+//!   only); a typed side-channel `HashMap(String, EffectCallPointExtra_)`
 //!   keyed by `expr.token.character` carries the effect-specific fields. After
 //!   `analyze_suspension_points` returns, the base `SuspensionPoint` list is zipped
 //!   with the extras to produce `ArrayList(EffectCallPoint)`.
 //!
-//! * `isEffectCall` case 2 (module member) — builds access path with `push` (leaf→root
-//!   order), then compares against `effectFieldPath` from back to front.
+//! * Module-member effect calls: the access path is built with `push` (leaf→root
+//!   order), then compared against `effect_field_path` from back to front.
 //!
-//! * `isTransitiveEffectCall` FnTrait path — yo-self `FnTraitT` now carries implicit
+//! * The transitive-call FnTrait path: `FnTraitT` carries implicit
 //!   params; Path 2 checks `implicit_labels`/`implicit_types` from `FnTraitT` directly.
 //!
-//! * `hasEffectInSpread` — yo-self `SomeT` has no `isEffectsRow` flag; we attempt
+//! * `hasEffectInSpread`: `SomeT` has no `isEffectsRow` flag; we attempt
 //!   env lookup for all `SomeT` types. The `get_value_of_some_type_from_env` fallback
 //!   is omitted because `Environment` is not `Clone` and can only be consumed once.
 //!
@@ -96,7 +92,7 @@ EffectCallPointExtra_ :: ref(
 ///
 /// When `allow_missing_type = true`, accepts a name match even without type info.
 ///
-/// Mirrors `isEffectCall` in `src/evaluator/effects/effect-analysis.ts`.
+///
 is_effect_call_ :: (
   fn(
     expr : AstExpr,
@@ -325,10 +321,8 @@ is_effect_call_ :: (
 /// Checks if an effect row spread parameter resolves to an EffectsRowType
 /// containing `effect_param_name` as an implicit parameter.
 ///
-/// Note: yo-self `SomeT` has no `isEffectsRow` flag (unlike TypeScript `SomeType`),
-/// so we attempt env lookup for all `SomeT` types unconditionally.
-///
-/// Mirrors `hasEffectInSpread` in `src/evaluator/effects/effect-analysis.ts`.
+/// Note: `SomeT` has no `isEffectsRow` flag, so we attempt env lookup for all
+/// `SomeT` types unconditionally.
 has_effect_in_spread_ :: (
   fn(
     param_label : String,
@@ -340,8 +334,8 @@ has_effect_in_spread_ :: (
   effects_row_opt := Option(TypeValue).None;
   cond(
     // Case 1: SomeT — try env lookup by label.
-    // Note: The TypeScript fallback via get_value_of_some_type_from_env is omitted
-    // because Environment is not Clone and can only be consumed once.
+    // Note: there is no deeper value-based fallback — Environment is not
+    // Clone and can only be consumed once.
     is_some_type(param_type.clone()) => {
       env_vars := get_variables_from_env(env, param_label.clone());
       n_vars := env_vars.len();
@@ -411,7 +405,7 @@ has_effect_in_spread_ :: (
 /// - `Some(true)`  — matched via `Impl(Fn)` / `Dyn(Fn)` (closure)
 /// - `None`        — no match
 ///
-/// Mirrors `isTransitiveEffectCall` in `src/evaluator/effects/effect-analysis.ts`.
+///
 is_transitive_effect_call_ :: (
   fn(
     expr : AstExpr,
@@ -777,13 +771,10 @@ detect_effect_expr_ :: (
 /// Analyzes a function body to find all effect call points.
 ///
 /// An effect call point is a call to a variable whose handler function value
-/// has `isControlFunction: true` (set when the handler body uses `unwind`).
+/// has `is_control_function_type: true` (set when the handler body uses `unwind`).
 /// These are analogous to await points in async functions.
 ///
-/// Mirrors `analyzeEffectCallPoints` in `src/evaluator/effects/effect-analysis.ts`.
-///
-/// The extra `get_info` parameter provides per-expression type/env information
-/// (Yo's equivalent of TypeScript's `expr.$`).
+/// The `get_info` parameter provides per-expression type/env information.
 analyze_effect_call_points :: (
   fn(
     body : AstExpr,

@@ -1,4 +1,4 @@
-//! Short-circuit `&&` / `||` emitters — mirrors `src/codegen/exprs/and-or.ts`.
+//! Short-circuit `&&` / `||` emitters.
 //!
 //! When every argument is side-effect-free the operator lowers to C's native
 //! `&&`/`||`. When an argument beyond the first may emit statements (temp
@@ -6,10 +6,9 @@
 //! short-circuiting is preserved:
 //!   bool __yo_sc = false;  Type t1 = a; if (t1) { Type t2 = b; __yo_sc = t2; }
 //! Compile-time `true`/`false` operands are folded away (and short-circuit the
-//! whole expression). DIVERGENCE (documented): TS seeds the result-var name
-//! from a module-level counter; yo-self uses `random_id` (uniqueness only —
-//! same choice as loop labels — so a module-level mutable global isn't needed,
-//! which keeps the Phase-6 self-host fixpoint happy).
+//! whole expression). The result-var name is `random_id`-seeded (uniqueness
+//! only — same choice as loop labels — so a module-level mutable global isn't
+//! needed, which keeps the Phase-6 self-host fixpoint happy).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -58,8 +57,7 @@ _comptime_bool :: (fn(arg : AstExpr, context : FunctionGenerationContext) -> Opt
   )
 );
 /// Whether `generate_expr` for this node might emit side-effectful statements
-/// (a temp declaration or call). Atoms / compile-time values are safe. Mirrors
-/// `exprMayHaveSideEffects`.
+/// (a temp declaration or call). Atoms / compile-time values are safe.
 _expr_may_have_side_effects :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)({
   ei_opt := context.base.get_expr_info(expr);
   has_var := match(ei_opt, .Some(ei) => match(ei.variable_name, .Some(_) => true, .None => false), .None => false);
@@ -92,7 +90,7 @@ _expr_may_have_side_effects :: (fn(expr : AstExpr, context : FunctionGenerationC
 });
 /// Collect the variable names newly CREATED by an expression tree (temps from
 /// function-call results). For nested `&&`/`||`, only the first (unconditional)
-/// arg is descended into. Mirrors `collectCreatedVarNamesFromExpr`.
+/// arg is descended into.
 _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(String), context : FunctionGenerationContext) -> unit)(
   match(
     expr,
@@ -114,7 +112,7 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
           // argument inside a short-circuit RHS (`a && f(w.b)`) left its
           // scope-end drop at the outer block level — an undeclared C
           // identifier and an unconditional drop for a conditionally-run
-          // dup. Mirrors TS and-or.ts collectCreatedVarNamesFromExpr.
+          // dup.
           match(
             ei.deferred_dup_expressions,
             .Some(dups) => {
@@ -271,7 +269,7 @@ _emit_node_list_drops :: (
 /// only). Emissions from either source insert into the emitted-once guard
 /// and the short-circuit handled set, so begin-opened shapes (where the
 /// same drops are reachable through BOTH sources) emit exactly once.
-/// Mirrors `emitDropsForConditionalBranch` (the node source is Yo-only).
+/// (the node source is Yo-only).
 _emit_drops_for_conditional_branch :: (
   fn(
     var_names : HashSet(String),
@@ -367,7 +365,7 @@ _emit_drops_for_conditional_branch :: (
     );
   })
 );
-/// `&&` operator with short-circuit evaluation. Mirrors `generateOpAnd`.
+/// `&&` operator with short-circuit evaluation.
 generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {
@@ -521,7 +519,7 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   context.short_circuit_root_node = prev_sc_root;
   sc_var
 });
-/// `||` operator with short-circuit evaluation. Mirrors `generateOpOr`.
+/// `||` operator with short-circuit evaluation.
 generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() == usize(0), {

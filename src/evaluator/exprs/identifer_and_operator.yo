@@ -1,11 +1,5 @@
 //! Identifier and operator expression evaluator.
 //!
-//! 1-to-1 with `src/evaluator/exprs/identifer-and-operator.ts` (sic —
-//! the TS filename is misspelled). yo-self matches the TS filename
-//! verbatim (typo and all) so the structural mapping stays
-//! mechanical; fixing the typo on both sides is a separate rename
-//! that would touch the TS callers too.
-//!
 //! Handles the resolution of identifier expressions:
 //!   - Built-in type keywords (i32, bool, Type, Module, etc.)
 //!   - Self, SelfTrait, SelfModule context references
@@ -39,9 +33,6 @@
 { is_ghost_binding_name } :: import("../builtins/contracts.yo");
 { Exception } :: import("std/error");
 /// Evaluate an identifier or operator expression.
-///
-/// Mirrors `evaluateIdentifierAndOperator` in
-/// `src/evaluator/exprs/identifer-and-operator.ts`.
 ///
 /// Returns the (possibly annotated) expression after filling in its
 /// `ExprInfo` entry in `ctx.expr_info_table`.
@@ -361,9 +352,8 @@ evaluate_identifier_and_operator :: (
     });
   });
   // c_include constants (e.g. O_RDONLY from <fcntl.h>) have UnknownValue.
-  // Treat them as runtime values so operators like | use runtime BitOr.
-  // NOTE: `is_extern` is not yet ported to yo-self; skip this special-case
-  // and always use the variable's compile-time value.
+  // NOTE: `is_extern` is not consulted here; skip the runtime-value
+  // special-case and always use the variable's compile-time value.
   resolved_value := variable.value.get(usize(0));
   // Build ExprInfo
   info := new_expr_info(env, variable.ty);
@@ -493,7 +483,7 @@ evaluate_identifier_and_operator :: (
               if(!ab_is_inner && (variable.frame_level >= async_frame_level), {
                 // Cross-generation outer variable: record it with a level
                 // inside the current generation so the enrichment /
-                // access-rewriting math stays in range (mirrors the
+                // access-rewriting math stays in range (as in the
                 // FunctionBody arm).
                 (ab_rec_level : usize) = usize(0);
                 if(async_frame_level > usize(0), {

@@ -1,4 +1,4 @@
-//! Conditional (`cond`) expression emitter — mirrors `src/codegen/exprs/cond.ts`.
+//! Conditional (`cond`) expression emitter.
 //!
 //! Lowers a `cond(c1 => v1, c2 => v2, ...)` to a C if/else chain that assigns
 //! the taken arm's value to the cond's result temp. Compile-time `false` arms
@@ -10,10 +10,10 @@
 //! arm values are address-of wrapped (`&(...)`) — sound because flowability
 //! already verified the arm roots back to a ref-bound parameter.
 //!
-//! Deferred-dup rewrite of arm values (cond.ts:409-470) and of begin-arm FINAL
-//! expressions (cond.ts:293-365) are both ported — see _emit_value_arm and
+//! Deferred-dup rewrite of arm values and of begin-arm FINAL
+//! expressions — see _emit_value_arm and
 //! _emit_begin_arm. The begin block's own deferred drops are emitted on arm
-//! fall-through (cond.ts:401-403).
+//! fall-through.
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -32,8 +32,7 @@ _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
 );
 /// True when position `idx` lies INSIDE a double-quoted C string literal in
-/// `s` (parity walk with `\\`-escape skipping). Mirrors the TS fix
-/// (codeContainsReturnStatement, src/codegen/utils/index.ts): the word
+/// `s` (parity walk with `\\`-escape skipping): the word
 /// `return` inside a GENERATED STRING LITERAL (e.g. a Yo source literal
 /// "...before early return") is NOT a return statement — treating it as one
 /// skipped the arm's result-temp assignment and left the temp uninitialized
@@ -89,7 +88,7 @@ _byte_index_of :: (fn(s : String, word : String, from : usize) -> Option(usize))
   });
   Option(usize).None
 });
-/// Whether `s` contains "return" as a whole word (mirrors the TS `\breturn\b`
+/// Whether `s` contains "return" as a whole word (like a `\breturn\b`
 /// regex — avoids matching identifiers like `return_flag`).
 _contains_word_return :: (fn(s : String) -> bool)({
   word := String.from("return");
@@ -130,7 +129,7 @@ _cond_bool :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(bo
   )
 );
 /// Wrap `code` in `&(...)` when the enclosing function returns `-> inout(T)` and
-/// this arm value is not already a pointer. Mirrors the `maybeAddressOf` helper.
+/// this arm value is not already a pointer.
 _maybe_address_of :: (fn(value_expr : AstExpr, code : String, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> String)(
   if(!cond_outer_is_ptr, code, {
     arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(ei.ty), .None => true);
@@ -212,7 +211,7 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
 _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Arm value carrying deferred `___dup`s (returning a borrowed/shared local
-  // out of the arm — e.g. `true => methods`): port of cond.ts:409-470. Declare
+  // out of the arm — e.g. `true => methods`). Declare
   // the arm's eval temp, apply the balancing dup, and assign the result to the
   // cond temp. Without this the arm result aliased the local while the scope
   // end dropped BOTH names (get_receiver_methods_by_name_from_env's
@@ -232,13 +231,13 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
   match(
     arm_dups,
     .Some(vei) => {
-      // Clear `variable_name` around the RAW generation, exactly as TS does
-      // (cond.ts:417-420): the atom generator returns the info's temp alias
+      // Clear `variable_name` around the RAW generation: otherwise
+      // the atom generator returns the info's temp alias
       // when set, so generating `ps` yielded the not-yet-declared temp name,
       // the `vtv != raw_code` declaration below was skipped, and every use of
       // the temp referenced an UNDECLARED identifier — the stage-2 fixpoint
       // blocker. ExprInfo is a ref struct, so this mutates the table entry in
-      // place and restores it, like TS mutating `value.$`.
+      // place and restores it.
       // See issues/fixed/stage2-match-if-else-value-phantom-temp.md.
       saved_arm_vn := vei.variable_name;
       vei.variable_name = Option(String).None;
@@ -259,7 +258,7 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
           vtv := get_variable_name_for_codegen(vvn.clone(), Option(Environment).Some(vei.env));
           // Skip the temp-var declaration when value is an inout-param atom —
           // `T name = (*name);` would shadow the pointer parameter
-          // (cond.ts:427-443, issues/fixed/inout-multi-stmt-body-shadow.md).
+          // (issues/fixed/inout-multi-stmt-body-shadow.md).
           (is_inout_atom : bool) = false;
           if(ast_expr_is_atom(value), {
             iv_vars := get_variables_from_env(vei.env, vvn.clone());
@@ -289,7 +288,7 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
         },
         .None => ()
       );
-      // Apply the dup: named dup temp when available (cond.ts:451-458), else
+      // Apply the dup: named dup temp when available, else
       // the drift-safe escape hatch — dup the generated value directly.
       (dup_named : bool) = false;
       arm_dup_list := match(vei.deferred_dup_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new());
@@ -420,7 +419,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
           // Final expr carrying deferred `___dup`s (returning a borrowed value
           // out of the arm — e.g. evaluate_raw_pointer_call's `{ ...; expr }`):
           // declare the eval temp, emit the balancing dup, then assign the
-          // result to the cond temp. Port of cond.ts:293-365. Without this the
+          // result to the cond temp. Without this the
           // arm result aliased the borrowed value while the caller's scope end
           // dropped its own handle — the round-2 stage-2 `*(T)` param-type UAF.
           has_final_dups := match(fei.deferred_dup_expressions, .Some(d) => (d.len() > usize(0)), .None => false);
@@ -434,7 +433,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
                 ftv := get_variable_name_for_codegen(fvn.clone(), Option(Environment).Some(fei.env));
                 // Skip the temp-var declaration when final_expr is an inout-param
                 // atom — `T name = (*name);` would shadow the pointer parameter
-                // (cond.ts:318-328, issues/fixed/inout-multi-stmt-body-shadow.md).
+                // (issues/fixed/inout-multi-stmt-body-shadow.md).
                 (is_inout_atom : bool) = false;
                 if(ast_expr_is_atom(final_expr), {
                   fv_vars := get_variables_from_env(fei.env, fvn.clone());
@@ -464,7 +463,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
             );
             generate_deferred_dup_expressions(final_expr, value_indent.clone(), context);
             // Use the dup result temp when the dup call carries one
-            // (cond.ts:341-353); else assign the generated final expr.
+            //; else assign the generated final expr.
             (dup_result_used : bool) = false;
             f_dup_list := match(fei.deferred_dup_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new());
             match(
@@ -546,19 +545,18 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
     );
   });
   // Emit the arm begin-block's own scope-end drops at its NORMAL completion
-  // (fall-through). Mirrors TS cond.ts:401-403
-  // (`generateDeferredDropExpressions(value, ...)`). Without this, an owning
+  // (fall-through; `generate_deferred_drop_expressions(value, ...)`). Without this, an owning
   // local declared inside a `cond`/`if` arm (e.g. `bucket := (data_ptr &+ i).*`
   // in HashMap._find_bucket) was pushed onto pending_deferred_drops (for nested
   // early returns) but NEVER dropped on the arm's fall-through path, leaking the
   // value-struct's RC field on every non-matching probe. (On an early-return
   // path the return emits it from pending; any emission here after a
-  // control-flow tail is unreachable dead code, matching TS.)
+  // control-flow tail is unreachable dead code.)
   generate_deferred_drop_expressions(value, value_indent.clone(), context);
   context.pending_deferred_drops = prev_pending;
   context.consumed_var_pending_drops = prev_consumed;
 });
-/// Generate a conditional (`cond`) expression. Mirrors `generateCondExpression`.
+/// Generate a conditional (`cond`) expression.
 generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"cond\" expression is not evaluated */")));
   value_type := ei.ty;
@@ -667,14 +665,14 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                   line := indent.clone();
                   // The collapse-to-direct path skips this cond's own temp
                   // declaration because the evaluator ADOPTS the arm body's
-                  // temp (cond eval / TS cond.ts:269-276): normally
+                  // temp: normally
                   // `tv == value_code` and this line is a self-assign of a
-                  // temp the body's own emitter declared (TS emits the same
-                  // bare self-assign, cond.ts:141). But yo-self's shared-id
+                  // temp the body's own emitter declared (a bare
+                  // self-assign). But the shared-id
                   // begin finale re-mints the wrapped node's temp AFTER the
                   // adoption (begin.yo:1323-1325 stamps a fresh out_info +
-                  // attach — TS mints on the SEPARATE wrapper node,
-                  // begin.ts:1016-1045), so `tv` can be a name NO emitter
+                  // attach on the SHARED node, not a separate begin
+                  // wrapper), so `tv` can be a name NO emitter
                   // declares while the body's value sits in `value_code`.
                   // Recover locally: emit a typed declaration-assignment for
                   // that case only. (An eval-side variable_name carry was
@@ -741,10 +739,11 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                     h.push_str("{");
                     em.emit_string_line(h);
                   }, {
-                    // Mirror begin.ts:47-49: the condition is a single-expr
-                    // begin whose node the yo-self evaluator REUSES (TS clones
-                    // it into a begin node, so TS's begin codegen pushes its
-                    // deferred drops into pendingDeferredDrops before the body
+                    // The condition is a single-expr
+                    // begin whose node the evaluator REUSES (it is not
+                    // cloned into a separate begin node, so no begin
+                    // codegen pushes its
+                    // deferred drops into pending before the body
                     // generates). Push them here so a short-circuit branch
                     // inside the condition can flush a branch-scoped temp's
                     // drop IN-branch (emitDropsForConditionalBranch) instead

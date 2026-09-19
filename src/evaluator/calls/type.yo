@@ -1,14 +1,12 @@
 //! evaluator/calls/type — try_to_call_type_with_arguments.
 //!
-//! 1:1 port of `src/evaluator/calls/type.ts`.
-//!
 //! `try_to_call_type_with_arguments` handles struct/enum/union type constructor
 //! calls, binding positional or labelled argument expressions to the type's fields
 //! and returning the annotated call expression.
 //!
 //! Adaptation notes:
 //! - TypeField is from `evaluator/types/field.yo` (not from the types layer).
-//! - `TypeField.exprs.defaultValueExpr` doesn't exist in yo-self; when a field
+//! - `TypeField.exprs.defaultValueExpr` doesn't exist; when a field
 //!   uses its default/assigned value, `runtimeArgExprsInOrder[i]` is set to the
 //!   function callee expr as a placeholder (acceptable since codegen is not yet done).
 //! - `isComptimeOnlyType` is approximated via `_is_comptime_only_type_approx`.
@@ -67,7 +65,7 @@ _is_comptime_only_type_approx :: (fn(t : TypeValue) -> bool)(
 /// `type_fields`  — the TypeField descriptors for the target type (from field registry).
 /// `is_union_type` — when `true`, exactly one argument is expected.
 ///
-/// Mirrors `tryToCallTypeWithArguments` in `src/evaluator/calls/type.ts`.
+///
 try_to_call_type_with_arguments :: (
   fn(
     type_fields : ArrayList(TypeField),
@@ -259,11 +257,8 @@ try_to_call_type_with_arguments :: (
     });
     arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, member_element.ty));
     // Closure arg into an `Impl(Fn(...))`-SomeT FIELD: register the capture
-    // struct as the FIELD SomeT id's resolved concrete. TS needs no code here
-    // — the arg's expected type IS the field type object, so the lambda's
-    // `resolvedConcreteType` stamp (anonymous-function.ts:1183-1252) mutates
-    // the one shared object read by both the struct typedef and the member
-    // call. yo-self's lambda take-on stamps only the VALUE COPY's resolved
+    // struct as the FIELD SomeT id's resolved concrete. The lambda take-on
+    // stamps only the VALUE COPY's resolved
     // cell (anonymous_function.yo — the global stamp there regressed
     // fs/file+fs/temp via io.async's unresolved-`T` closures); the struct
     // type's own field SomeT instance has no cell, so the field emitted
@@ -378,9 +373,7 @@ try_to_call_type_with_arguments :: (
               );
               values(ci) = default_val;
               // Put the field's OWN default/assigned EXPRESSION in the runtime
-              // slot, exactly as TS does
-              // (`runtimeArgExprsInOrder[i] = memberElement.exprs.defaultValueExpr
-              // ?? memberElement.exprs.assignedValueExpr`, calls/type.ts:206).
+              // slot.
               // The slot used to keep the callee expr as a placeholder, which
               // codegen then emitted as the struct's own C TYPE NAME —
               // `Point()` became `(Point){ .x = __yo_t0, .y = __yo_t0 }` and

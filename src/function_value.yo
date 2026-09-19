@@ -1,22 +1,16 @@
 //! function_value.yo — FunctionValue-adjacent helpers for the self-hosted compiler.
 //!
-//! 1-to-1 port of `src/function-value.ts`.
-//!
-//! In TypeScript, `FunctionValue` is an interface with fields like
-//! `isControlFunction` and `definitionSiteEnclosingFunctionType`. In yo-self
-//! the corresponding shape is the `EvalValue.FuncVal` variant defined in
-//! `value.yo`, which doesn't currently carry those two optional fields.
-//!
-//! This file holds the side-table machinery that emulates those fields:
-//!   * `mark_as_control_fn` / `is_control_fn`           — backs `isControlFunction`
-//!   * `register_definition_site_return`                — backs
-//!     `definitionSiteEnclosingFunctionType.return.type`
+//! The `EvalValue.FuncVal` variant defined in
+//! `value.yo` doesn't currently carry the control-function, closure, or
+//! definition-site fields, so this file holds the side-table machinery
+//! that emulates them:
+//!   * `mark_as_control_fn` / `is_control_fn`           — control-fn marker
+//!   * `register_definition_site_return`                — records the
+//!     definition-site enclosing function's return type
 //!   * `get_definition_site_return`                     — accessor with
-//!     `t_unit()` fallback (mirrors the `?? createUnitType()` pattern in
-//!     `evaluateCtlFunctionBodyInline` at `src/evaluator/calls/helper.ts`)
+//!     a `t_unit()` fallback
 //!
-//! Both registries are keyed by `func_id : String` (the unique
-//! `FuncValueId` from src/function-value.ts).
+//! Both registries are keyed by `func_id : String` (the unique function id).
 { String } :: import("std/string");
 { env : fnval_dbg_env } :: import("std/env");
 { eprintln } :: import("std/fmt");
@@ -26,20 +20,16 @@
 { TypeValue } :: import("./types/definitions.yo");
 { t_unit } :: import("./types/creators.yo");
 // ---------------------------------------------------------------------------
-// isControlFunction side-table
+// Control-function side-table
 // ---------------------------------------------------------------------------
 /// Global map from `func_id` → `true` (only entries for control functions exist).
 (g_control_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function as a control function (uses `unwind`).
 /// Idempotent: calling multiple times with the same id is safe.
-///
-/// Mirrors setting `functionValue.isControlFunction = true` in TypeScript.
 mark_as_control_fn :: (fn(func_id : String) -> unit)({
   g_control_fn_registry.insert(func_id.clone(), true);
 });
 /// Returns true if the function identified by `func_id` is a control function.
-///
-/// Mirrors reading `functionValue.isControlFunction` in TypeScript.
 is_control_fn :: (fn(func_id : String) -> bool)(
   match(
     g_control_fn_registry.get(func_id.clone()),
@@ -48,22 +38,21 @@ is_control_fn :: (fn(func_id : String) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
-// isClosure side-table
+// Closure side-table
 // ---------------------------------------------------------------------------
 /// Global map from `func_id` → `true` (only entries for closure functions exist).
-/// Mirrors `FunctionType.isClosure` in TS — yo-self's flattened `Func` variant has
+/// The flattened `Func` variant has
 /// no such field, so the marker is side-tabled by id (same pattern as the
 /// control-fn / default-args / func-type registries). Set when an anon-fn is typed
 /// as a closure (`evaluator/calls/closure_type.yo`); read by the codegen
 /// function-emission driver to prepend the `void* closure_context` capture param
-/// (declarations.ts:405).
 (g_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by `func_id`) as a closure. Idempotent.
 mark_as_closure_fn :: (fn(func_id : String) -> unit)({
   g_closure_fn_registry.insert(func_id.clone(), true);
 });
 /// True if the function identified by `func_id` is a closure (takes a capture
-/// context as its first C parameter). Mirrors reading `functionType.isClosure`.
+/// context as its first C parameter).
 is_closure_fn :: (fn(func_id : String) -> bool)(
   match(
     g_closure_fn_registry.get(func_id.clone()),
@@ -221,9 +210,8 @@ get_closure_capture_info :: (fn(func_id : String) -> Option(ClosureCaptureInfo))
 // ---------------------------------------------------------------------------
 /// Global map from `func_id` → `true` for functions that are effect-record
 /// members (e.g. `Exception.throw` handlers) and so must be emitted as
-/// standalone C functions. Mirrors the `functionValue.isEffectRecordMember`
-/// flag that TS codegen MUTATES onto the value during function collection;
-/// yo-self's `FuncVal` is an immutable enum variant, so the mark lives here.
+/// standalone C functions. `FuncVal` is an immutable enum variant, so the
+/// mark lives here.
 (g_effect_record_member_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by func_id) as an effect-record member. Idempotent.
 mark_as_effect_record_member :: (fn(func_id : String) -> unit)({
@@ -236,9 +224,8 @@ mark_as_effect_record_member :: (fn(func_id : String) -> unit)({
 /// emitted by the STATE-MACHINE resume function (the deferred async block
 /// system) — their standalone C closure fn must NOT also be emitted, or the
 /// body exists twice and the SM resume references temps declared only in the
-/// standalone copy. Mirrors `closureFnValue.isIoAsyncStateMachineClosure`
-/// (TS function.ts:2222 set site; declarations.ts:172 / generation.ts:690
-/// skips). Populated when the closure has await analysis
+/// standalone copy.
+/// Populated when the closure has await analysis
 /// (io_async_await_analysis hit).
 (g_io_async_sm_closure_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a closure (by func_id) as an io.async state-machine closure. Idempotent.
@@ -258,9 +245,7 @@ is_io_async_sm_closure :: (fn(func_id : String) -> bool)(
 /// are DESTRUCTIVE moves, and the FSM path reads it more than twice (preregister
 /// analysis probe, dispatcher routing, slot collection) — this registry, filled
 /// on the FIRST successful extraction (io_async_await_analysis), makes the later
-/// reads idempotent. TS reads `closureArg.$.closureFunctionValue` freely
-/// (non-destructive JS object reads); this is the port-fidelity bridge.
-/// Populated on the FSM path (closures with await analysis).
+/// reads idempotent. Populated on the FSM path (closures with await analysis).
 (g_io_async_closure_fid_by_expr : HashMap(String, String)) = HashMap(String, String).new();
 /// Record the io.async call expr (by AST id, stringified) → closure func_id.
 register_io_async_closure_fid :: (fn(expr_id : String, func_id : String) -> unit)({
@@ -279,12 +264,12 @@ is_effect_record_member :: (fn(func_id : String) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
-// definitionSiteEnclosingFunctionType side-table
+// Definition-site enclosing-function return type side-table
 // ---------------------------------------------------------------------------
 /// Global map from `func_id` → return type of the enclosing function at the
 /// definition site. Only the return-type portion is stored, since that is
-/// the only field used by `evaluateCtlFunctionBodyInline`:
-///   `originalFunction.definitionSiteEnclosingFunctionType?.return.type ?? createUnitType()`
+/// the only portion `evaluate_ctl_function_body_inline`
+/// (`evaluator/calls/helper.yo`) reads.
 (g_definition_site_return_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
 /// Global map from `func_id` → the function's own resolved `Func` TypeValue
@@ -294,25 +279,19 @@ is_effect_record_member :: (fn(func_id : String) -> bool)(
 /// `type_of_eval_value(FuncVal)` returns unit — so the type is recorded here at
 /// function-definition time, where it is known. Resolves Gap 10
 /// (issues/retired/codegen-port-type-model-gaps.md): the function-emission driver
-/// (functions/generation.ts) reads `get_func_type(func_id)` to build the prototype.
+/// reads `get_func_type(func_id)` to build the prototype.
 (g_func_type_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
 /// Register the enclosing function's return type at a function's definition site.
 ///
 /// Called when creating a FuncVal (in `evaluator/values/anonymous_function.yo`)
 /// if the function is defined inside another function body.
-///
-/// Mirrors setting `functionValue.definitionSiteEnclosingFunctionType = ...`
-/// in `src/evaluator/values/anonymous-function.ts`.
 register_definition_site_return :: (fn(func_id : String, return_ty : TypeValue) -> unit)({
   g_definition_site_return_registry.insert(func_id.clone(), return_ty);
 });
 /// Get the enclosing function's return type at a function's definition site.
 /// Returns `t_unit()` if the function was not defined inside another function
 /// body (e.g., top-level definitions, handlers defined in test blocks).
-///
-/// Mirrors the `?? createUnitType()` fallback in
-/// `src/evaluator/calls/helper.ts:evaluateCtlFunctionBodyInline`.
 get_definition_site_return :: (fn(func_id : String) -> TypeValue)(
   match(
     g_definition_site_return_registry.get(func_id.clone()),
@@ -332,9 +311,7 @@ get_definition_site_return :: (fn(func_id : String) -> TypeValue)(
 /// chain (the hollow-batch blast radius; see
 /// issues/retired/yo-self-hollow-test-batch-main.md, fourth round). Substituting
 /// this body type as the given return lets `U` bind concretely through the
-/// SAME env channel the spec body eval reads. TS needs no side table: its
-/// synthesize sees the closure's mutated-in-place concrete return via object
-/// identity (anonymous-function.ts:963-988).
+/// SAME env channel the spec body eval reads.
 (g_closure_body_type_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
 register_closure_body_type :: (fn(func_id : String, body_ty : TypeValue) -> unit)({
@@ -353,8 +330,8 @@ register_func_type :: (fn(func_id : String, func_ty : TypeValue) -> unit)({
 // ---------------------------------------------------------------------------
 /// fids whose DEFINITION was rejected by a validation AFTER registration
 /// (e.g. the regular-fn-no-outer-capture check throwing from inside a
-/// `comptime_expect_error`): TS discards the definition on throw; yo-self's
-/// mutable registries keep it and codegen would emit a body referencing
+/// `comptime_expect_error`): the mutable registries keep the definition, and
+/// codegen would emit a body referencing
 /// undeclared outer variables. should_skip_function_codegen consults this.
 (g_unemittable_fns : HashSet(String)) = HashSet(String).new();
 mark_fn_unemittable :: (fn(func_id : String) -> unit)({
@@ -389,15 +366,13 @@ get_func_type :: (fn(func_id : String) -> TypeValue)(
   )
 );
 // ---------------------------------------------------------------------------
-// parametersFrame side-table (STAGED for def-time body evaluation)
+// Parameters-frame side-table (STAGED for def-time body evaluation)
 // ---------------------------------------------------------------------------
 /// Global map from `func_id` (the `fn(...)` type-expression id) → the parameter-
 /// bound `Frame` produced while evaluating the function's parameters.
 ///
-/// TS carries this directly on the function type as `FunctionType.parametersFrame`
-/// (`src/types/definitions.ts:877`) and pushes it before body eval
-/// (`function-type.ts:380` `pushEnvFrame(env, functionType.parametersFrame)`), so
-/// `Self`/trait params like `Idx` are BOUND when the body is type-checked. yo-self's
+/// The frame is pushed before body eval, so
+/// `Self`/trait params like `Idx` are BOUND when the body is type-checked. The
 /// `Func` TypeValue is flattened to parallel arrays with no frame field — putting
 /// `Frame` (from env.yo) on `Func` (in definitions.yo) would create a
 /// definitions↔env import cycle — so the bound frame is side-tabled here by id,

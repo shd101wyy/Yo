@@ -1,20 +1,10 @@
 //! initialization_assignment — evaluate `::` and `:=` initialization assignments.
 //!
-//! 1:1 port of `src/evaluator/exprs/initialization-assignment.ts`.
-//!
 //! Handles:
 //!   - `name := rhs`              — runtime variable declaration
 //!   - `name :: rhs`              — compile-time constant declaration
 //!   - `name := handler`   — implicit parameter declaration
 //!   - `_ := rhs`                 — discard (renamed to a temp var)
-//!
-//! Phase 2w stubs (deferred to Phase 3):
-//!   - `synthesize_expr_and_type` — type inference for `_`/partial types
-//!   - `clone_value`              — deep clone of compile-time values
-//!   - `set_expr_as_needs_to_call_dup` — deferred `___dup` insertion
-//!   - `evaluate_destructuring_assignment` — destructuring LHS
-//!   - `is_compile_time_only` check for function return type
-//!   - `funcName` / `typeName` / `isModuleEffectMember` mutations
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -100,9 +90,6 @@
 // evaluate_initialization_assignment
 // ---------------------------------------------------------------------------
 /// Evaluate a `::` or `:=` initialization expression.
-///
-/// Mirrors `evaluateInitializationAssignment` in
-/// `src/evaluator/exprs/initialization-assignment.ts`.
 /// One hop of an `inout` place chain `root.f1.f2…fn`: the `.`/2 node and the
 /// field atom it selects.
 _InoutPlaceHop :: struct(node : AstExpr, field : AstExpr);
@@ -619,9 +606,7 @@ evaluate_initialization_assignment :: (
   // and swallowed by the non-raw `_evaluate_expression_wrapper` (which then
   // continues with a placeholder expr). In particular this lets a test
   // body's trial-evaluation swallow (see `evaluate_test`) actually catch
-  // errors raised while evaluating a `:=` rhs. Mirrors TS
-  // `evaluateInitializationAssignment` calling the propagating
-  // `evaluateExpression`.
+  // errors raised while evaluating a `:=` rhs.
   rhs = evaluate_expression_raw(rhs, env, ctx, exn);
   ctx.expected_type = old_expected_type;
   ctx.is_inside_given_handler = old_is_inside_given_handler;
@@ -649,7 +634,7 @@ evaluate_initialization_assignment :: (
   // type cannot be control-bound. Module-level bindings outlive every call
   // frame, so a stored `ctl(...)` handler (or an aggregate / pointer containing
   // one) would be invokable long after its install frame has returned, where it
-  // would `unwind` to a dead frame. Mirrors `initialization-assignment.ts:186-210`.
+  // would `unwind` to a dead frame.
   match(
     rhs_info_opt,
     .Some(rhs_info) => {
@@ -752,8 +737,8 @@ Bound type: ${type_to_string(rhs_info.ty)}`
       .Some(ali) => (match(ali.value, .Some(_) => true, .None => false) || (type_value_tag(ali.ty) != TypeTag.TUnit)),
       .None => false
     );
-    // More precise: check if actualLhs.$.type was set (ExprInfo was created with a type annotation).
-    // In yo-self, if ExprInfo for actual_lhs has a non-unit type we treat it as pre-annotated.
+    // More precise: check whether ExprInfo was created with a type annotation —
+    // if ExprInfo for actual_lhs has a non-unit type we treat it as pre-annotated.
     (lhs_type : TypeValue) = match(
       rhs_type_opt,
       .Some(rt) => rt,
@@ -818,15 +803,13 @@ Bound type: ${type_to_string(rhs_info.ty)}`
     });
     // Check comptime modifier requirements. The tag-only helper misses
     // COMPOUND comptime-only types (a struct whose fields are all
-    // comptime_int, e.g. basic.test.yo's Point2) — TS's
-    // typeRequiresComptimeModifier is isComptimeOnlyType(type, env) =
-    // implementsComptime && !implementsRuntime with the auto-derive
-    // recursion (types/utils.ts:85-96). Use the env-aware derivation as
-    // the fallback after the cheap tag path.
+    // comptime_int, e.g. basic.test.yo's Point2); use the env-aware
+    // derivation (implements comptime && !implements runtime, with the
+    // auto-derive recursion) as the fallback after the cheap tag path.
     lhs_requires_ct := (type_requires_comptime_modifier(lhs_type) || (type_implements_comptime(lhs_type, env) && !type_implements_runtime_full(lhs_type, env)));
     // In a DEFINITION-time body trial a type still carrying unresolved
-    // SomeTs cannot be judged comptime-only (TS's auto-derive is
-    // conservative on SomeTypes; yo-self's trait check is optimistic, so
+    // SomeTs cannot be judged comptime-only (the trait check is
+    // optimistic on SomeTypes, so
     // `Option(T')` from an abstract cross-impl dispatch wrongly demanded
     // `::` — the ::-vs-:= layer of roots 797/616/7905,
     // issues/fixed/def-eval-swallow-remaining-roots.md). Skip; the
@@ -864,9 +847,6 @@ ${expr_str}`
         )
       );
     });
-    // NOTE: Type mutations (funcName, typeName, isModuleEffectMember) are
-    // intentionally skipped in Phase 2w.  The yo-self EvalValue types do not
-    // carry these mutable fields — they are TS-specific optimization hints.
     // Get RHS compile-time value.
     rhs_value_opt := match(
       rhs_info_opt,
@@ -875,10 +855,8 @@ ${expr_str}`
     );
     // Reject runtime value for a compile-time-only declaration.
     // A runtime CALL result is stored as a RUNTIME-ONLY UnknownVal placeholder
-    // (`_call_result_unknown`, calls/function.yo) — "TS would have had no
-    // value here" (value.yo doc). TS's gate is `if (!rhsValue && ...)`
-    // (initialization-assignment.ts:325) where a runtime call left
-    // `returnValue` unassigned (helper.ts:1752-1754), so the faithful port
+    // (`_call_result_unknown`, calls/function.yo) — "no value here" in
+    // value.yo's terms — so the gate
     // rejects BOTH no-value and runtime-only-unknown. Without this,
     // `r :: runt_id(n)` was silently accepted (tests/fn.test.yo arm 12's
     // comptime_expect_error never saw an error and hollowed the batch).
@@ -901,13 +879,11 @@ ${rhs_str}`
         )
       );
     });
-    // typeName stamping at `::` binding — mirrors TS
-    // initialization-assignment.ts:343-367: `str :: newtype(...)` names the
-    // struct "str", `Color :: enum(...)` names the enum, etc. TS mutates
-    // the shared type object in place; yo-self TypeValues are value-typed,
-    // so rebuild the TypeVal with the binding name filled (only when the
-    // current name is empty) before storing. Without this, name-keyed
-    // checks — e.g. panic's `typeName === "str"` (panic.ts:88) — can never
+    // typeName stamping at `::` binding: `str :: newtype(...)` names the
+    // struct "str", `Color :: enum(...)` names the enum, etc. TypeValues
+    // are value-typed, so rebuild the TypeVal with the binding name filled
+    // (only when the current name is empty) before storing. Without this, name-keyed
+    // checks — e.g. panic's `typeName === "str"` — can never
     // match; under propagated def-eval the prelude's `assert` failed on it
     // and cascaded across 96 std files.
     stamped_rhs_value_opt := match(
@@ -937,7 +913,7 @@ ${rhs_str}`
               true => Option(TypeValue).None
             ),
             // Traits too: `Send :: trait(id := "Send")` names the trait
-            // "Send" (TS stamps any unnamed type the same way). Identity is
+            // "Send". Identity is
             // unaffected — trait matching keys on the `id` field, which is
             // preserved. Without this, diagnostics render the trait as its
             // field dump (`(id : comptime_str)` instead of `Send`), e.g.
@@ -982,12 +958,10 @@ ${rhs_str}`
     actual_lhs_info.value = lhs_value_opt;
     actual_lhs_info.path_collection = path_collection_new();
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(actual_lhs), actual_lhs_info);
-    // NOTE: SomeType resolvedConcreteType copy is skipped in Phase 2w.
-    // yo-self's TypeValue.SomeT does not carry resolvedConcreteType.
+    // NOTE: no resolvedConcreteType copy here — TypeValue.SomeT does not
+    // carry one.
     final_lhs_type := lhs_type;
     // Find RC owner relationship for shared-ownership tracking.
-    // (type_contains_rc_type is a stub returning false, so rhsOwningVariable
-    //  will always be None in Phase 2w.)
     rhs_owning_variable := find_rc_value_owner_relationship(rhs, env, ctx);
     is_owning_same_rc_value_as := match(
       rhs_owning_variable,
@@ -1034,13 +1008,12 @@ Use \`::\` for compile-time definitions inside impl.`
         match(lookup.get(key), .Some(v) => Option(String).Some(v), .None => Option(String).None)
       }
     );
-    // No-shadowing rule (TS env.ts:644-658, enforced inside addVariableToEnv):
-    // a `:=`/`::` binding may not reuse a name visible in ANY frame. yo-self
-    // keeps the check at the user binding-introduction sites instead of inside
-    // add_variable_to_env — that helper's 100+ internal callers correspond to
-    // TS sites passing `allowVariableShadowing: true` (params, type params,
-    // effect spreads). Temp names (`_` rename) are machine-unique, and
-    // `__yo_self` is TS's explicit exemption.
+    // No-shadowing rule: a `:=`/`::` binding may not reuse a name visible in
+    // ANY frame. The check lives at the user binding-introduction sites
+    // instead of inside add_variable_to_env — that helper's 100+ internal
+    // callers bind params, type params, effect spreads, all of which may
+    // legitimately shadow. Temp names (`_` rename) are machine-unique, and
+    // `__yo_self` is an explicit exemption.
     // Lazy top-level bindings (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.3): when
     // THIS definition's phase-A FuncVal was already bound into the module
     // frame by a re-entrant reference (self- or mutual recursion), that

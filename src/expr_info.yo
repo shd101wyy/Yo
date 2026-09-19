@@ -1,30 +1,25 @@
 //! EvaluatedExprData annotation types and helpers.
 //!
-//! Mirrors the type definitions in `src/expr.ts` — 1:1 port.
+//! Key type decisions:
 //!
-//! Key design decisions vs TypeScript:
-//!
-//! * `Path = string[]` → `Path :: ArrayList(String)` type alias.
-//! * `PathCollection = Path[]` → `PathCollection :: ArrayList(ArrayList(String))` type alias.
+//! * `Path :: ArrayList(String)`; `PathCollection :: ArrayList(ArrayList(String))`.
 //!   This replaces the `PathCollection :: ArrayList(AstExpr)` stub in `evaluator/context.yo`.
 //!
-//! * `ControlFlowFlags { return?, unwind?, break?, continue? }` →
-//!   `ControlFlowFlags :: struct(return_flag, unwind_flag, break_flag, continue_flag : bool)`.
-//!   Using `bool` fields (not `Option(bool)`) because `false` and TypeScript `undefined`
-//!   are semantically equivalent for flag fields.
+//! * `ControlFlowFlags :: struct(return_flag, unwind_flag, break_flag, continue_flag : bool)`
+//!   — flag fields use plain `bool`, where `false` means absent (not `Option(bool)`).
 //!
-//! * `ControlFlowKind` enum replaces the TypeScript string literal union
-//!   `"return" | "unwind" | "break" | "continue"` for type-safe function parameterisation.
+//! * `ControlFlowKind` is an enum over the four flow kinds (return / unwind /
+//!   break / continue) for type-safe function parameterisation.
 //!
-//! * `ComptimeRef` discriminated union → Yo enum carrying the inner `ArrayList(EvalValue)`
+//! * The `ComptimeRef` enum carries the inner `ArrayList(EvalValue)`
 //!   directly (not the full EvalValue wrapper), preserving the type invariant and
 //!   enabling in-place mutation via the shared ArrayList reference handle.
 //!   The mutation semantics work because ArrayList is a ref-counted object; copying
 //!   the variant still shares the same underlying list.
 //!
-//! * `EvaluatedExprData` interface → `ExprInfo :: object(...)` with `Option(T)` for all
-//!   optional TypeScript fields (`field?: T`); required fields stay non-optional.
-//!   `new_expr_info(env, ty)` factory initialises all optional fields to `.None`.
+//! * `ExprInfo :: object(...)` marks optional fields `Option(T)`; required fields
+//!   stay non-optional. The `new_expr_info(env, ty)` factory initialises all
+//!   optional fields to `.None`.
 //!
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
@@ -62,9 +57,9 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Path and PathCollection
 // ---------------------------------------------------------------------------
-/// A compile-time ownership path.  Mirrors TypeScript `type Path = string[]`.
+/// A compile-time ownership path.
 Path :: ArrayList(String);
-/// A collection of ownership paths.  Mirrors TypeScript `type PathCollection = Path[]`.
+/// A collection of ownership paths.
 PathCollection :: ArrayList(ArrayList(String));
 /// Create an empty PathCollection.
 path_collection_new :: (fn() -> PathCollection)(
@@ -81,7 +76,7 @@ path_collection_new :: (fn() -> PathCollection)(
 // ---------------------------------------------------------------------------
 /// True if `path1` starts with all segments of `path2` (prefix check).
 ///
-/// Mirrors `pathContainsPath` in `src/expr.ts`.
+///
 ///
 ///   path_contains_path(["x"], ["x", "a"])     => false
 ///   path_contains_path(["x", "a"], ["x"])     => true
@@ -106,13 +101,13 @@ path_contains_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) 
 });
 /// True if `path1` and `path2` are in conflict: one is a prefix of the other.
 ///
-/// Mirrors `pathConflictsWithPath` in `src/expr.ts`.
+///
 path_conflicts_with_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) -> bool)(
   path_contains_path(path2, path1) || path_contains_path(path1, path2)
 );
 /// True if any path in `c1` conflicts with any path in `c2`.
 ///
-/// Mirrors `pathCollectionConflictsWithPathCollection` in `src/expr.ts`.
+///
 path_collection_conflicts_with_path_collection :: (
   fn(
     c1 : ArrayList(ArrayList(String)),
@@ -140,7 +135,6 @@ path_collection_conflicts_with_path_collection :: (
 // ControlFlowKind
 // ---------------------------------------------------------------------------
 /// Discriminator for control-flow flag operations.
-/// Replaces the TypeScript string literal union `"return" | "unwind" | "break" | "continue"`.
 ControlFlowKind :: enum(Return, Unwind, Break, Continue);
 derive(ControlFlowKind, Clone, Eq(ControlFlowKind), ToString);
 // ---------------------------------------------------------------------------
@@ -150,9 +144,7 @@ derive(ControlFlowKind, Clone, Eq(ControlFlowKind), ToString);
 /// Multiple flags can be simultaneously true (e.g., a cond where some branches
 /// return and others unwind).
 ///
-/// Mirrors `ControlFlowFlags` in `src/expr.ts`.
-/// All fields use `bool` rather than `Option(bool)` because `false` and
-/// TypeScript's `undefined` are semantically equivalent for flag fields.
+/// All fields use `bool` rather than `Option(bool)`; `false` means absent.
 ControlFlowFlags :: struct(
   return_flag : bool,
   unwind_flag : bool,
@@ -161,8 +153,6 @@ ControlFlowFlags :: struct(
 );
 derive(ControlFlowFlags, Clone, Eq(ControlFlowFlags));
 /// Create a ControlFlowFlags with exactly one flag set.
-///
-/// Mirrors `controlFlowOf` in `src/expr.ts`.
 ///
 /// Note: uses mutable flag variables rather than struct literals directly
 /// in match arms due to a codegen bug (see issues/fixed/struct-literal-in-match-arm-not-assigned.md).
@@ -190,7 +180,7 @@ control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)({
 });
 /// True if `cf` has the given flag set.
 ///
-/// Mirrors `hasControlFlow` in `src/expr.ts`.
+///
 ///
 /// Note: uses early-return pattern instead of struct literal in match arm
 /// due to codegen bug (see issues/fixed/struct-literal-in-match-arm-not-assigned.md).
@@ -212,7 +202,7 @@ has_control_flow :: (fn(cf : Option(ControlFlowFlags), kind : ControlFlowKind) -
 });
 /// True if `cf` has any flag set.
 ///
-/// Mirrors `hasAnyControlFlow` in `src/expr.ts`.
+///
 has_any_control_flow :: (fn(cf : Option(ControlFlowFlags)) -> bool)({
   f := match(
     cf,
@@ -225,7 +215,7 @@ has_any_control_flow :: (fn(cf : Option(ControlFlowFlags)) -> bool)({
 });
 /// Union multiple ControlFlowFlags into one (OR of all flags).
 ///
-/// Mirrors `mergeControlFlows` in `src/expr.ts`.
+///
 merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFlags)({
   r := false;
   e := false;
@@ -257,7 +247,7 @@ merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFl
 });
 /// Format ControlFlowFlags as a `+`-joined string for error messages.
 ///
-/// Mirrors `controlFlowToString` in `src/expr.ts`.
+///
 control_flow_to_string :: (fn(cf : ControlFlowFlags) -> String)({
   parts := ArrayList(String).new();
   if(cf.return_flag, {
@@ -280,8 +270,6 @@ control_flow_to_string :: (fn(cf : ControlFlowFlags) -> String)({
 /// Unified compile-time element/field reference for mutation and pointer creation.
 /// Enables compile-time operations like `arr(0) = value`, `&(arr(0))`.
 ///
-/// Mirrors the `ComptimeRef` discriminated union in `src/expr.ts`.
-///
 /// Each variant stores the inner `ArrayList(EvalValue)` directly rather than
 /// the full `EvalValue` wrapper, preserving the type invariant.
 /// Mutation works because `ArrayList` is a ref-counted object — copying the
@@ -303,8 +291,6 @@ ComptimeRef :: enum(
 // ---------------------------------------------------------------------------
 /// Runtime destructuring binding produced during evaluation of
 /// `{ x, y : another_y } := some_point`.
-///
-/// Mirrors `RuntimeDestructuring` in `src/expr.ts`.
 RuntimeDestructuring :: struct(
   label : String,
   ty : TypeValue,
@@ -315,31 +301,26 @@ derive(RuntimeDestructuring, Clone);
 // ExprInfo
 // ---------------------------------------------------------------------------
 /// Per-expression annotation object set by the evaluator.
-/// Mirrors the `EvaluatedExprData` interface in `src/expr.ts`.
 ///
-/// In TypeScript, this is attached to each `Expr` node via the `$` field.
-/// In the Yo self-hosted compiler, `ExprInfo` objects are stored separately;
-/// the chosen storage strategy (inline enum field vs. `ExprInfoTable` side-table)
-/// is finalised in Phase 3.
+/// `ExprInfo` objects are stored separately from the AST nodes they describe,
+/// in the `ExprInfoTable` side-table keyed by `ExprId`.
 ///
 /// Required fields:
 ///   `env`             – environment after evaluating this expression.
 ///   `ty`              – resolved type of this expression.
 ///   `path_collection` – ownership paths tracked by the evaluator.
 ///
-/// All other fields are optional (`Option(T)`), mirroring TypeScript `field?: T`.
+/// All other fields are optional (`Option(T)`).
 /// Rarely-set `ExprInfo` fields, hoisted out of `ExprInfo` into a separately
 /// allocated object reached through `ExprInfo.rare`.
 ///
 /// WHY: an `ExprInfo` reserves inline space for EVERY optional field whether or
 /// not it is set, and a self-emit keeps millions of them alive (3.35 M measured).
-/// TypeScript pays nothing for an absent `field?:`; this group is the port's
-/// equivalent. These twelve fields cost 168 of `sizeof(ExprInfo)`'s original
+/// These twelve fields cost 168 of `sizeof(ExprInfo)`'s original
 /// 624 bytes while being set on almost nothing — five of them
 /// (`closure_function_value`, `consumed_variable_drop_expressions`,
 /// `effect_analysis`, `await_analysis`, `async_stack_size`) are never written at
-/// all in a self-emit, and `async_stack_size` is dead in the TypeScript compiler
-/// too (`src/expr.ts:324` is its only occurrence).
+/// all in a self-emit — `async_stack_size` is dead outright.
 ///
 /// A GROUP ONLY PAYS IF IT IS ALMOST NEVER ALLOCATED — the header alone is 56 B.
 /// Measured setter calls per self-emit for the members are: converted_runtime_type
@@ -447,15 +428,11 @@ ExprInfo :: ref(
     /// M3 (early-return-only drops): `___drop` expressions attached to THIS
     /// return/unwind node that must fire ONLY on this early-return path — for a
     /// local that is initialized before this exit but consumed (moved out) after
-    /// it, so the block's normal scope-end drop would miss it. Mirrors TS
-    /// `earlyReturnOnlyDeferredDropExpressions` (src/expr.ts / begin.ts:130-238).
+    /// it, so the block's normal scope-end drop would miss it.
     early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr))
   )
 );
 /// Create an ExprInfo with the three required fields and all optional fields set to `.None`.
-///
-/// Mirrors the common pattern of constructing `EvaluatedExprData` with only `env`,
-/// `type`, and `pathCollection` set in TypeScript, then populating other fields as needed.
 new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
   ExprInfo(
     // Snapshot the env's frame LIST (shallow — shares Frame refs) so this
@@ -493,8 +470,8 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
 );
 /// ExprInfo for a SHARED-id begin result — `evaluate_begin_expression` on a
 /// single-expression body/arm, where the result node IS the inner expression
-/// node (yo-self reuses the id where TS clones a begin wrapper,
-/// begin.ts:1016-1045). Codegen reads this ONE id in BOTH roles (inner
+/// node (the id is reused, no begin wrapper is cloned). Codegen reads this ONE
+/// id in BOTH roles (inner
 /// expression shape + begin block), so preservation is the default: every
 /// field is copied from the inner expression's info (sharing payloads,
 /// including the whole `rare` group) and only what the begin level owns is
@@ -717,9 +694,8 @@ expr_info_set_closure_function_value :: (
 // ExprInfoTable
 // ---------------------------------------------------------------------------
 /// Side-table storing evaluation results for each expression node.
-/// Keys are ExprId values assigned during parsing.
-/// Mirrors the TypeScript evaluator's inline `expr.$` mutation with an
-/// immutable-AST equivalent.
+/// Keys are ExprId values assigned during parsing. The AST is immutable, so
+/// results live in this side-table instead of on the node.
 ExprInfoTable :: newtype(data : HashMap(ExprId, ExprInfo));
 /// Create a new empty ExprInfoTable.
 expr_info_table_new :: (fn() -> ExprInfoTable)(
@@ -751,11 +727,11 @@ expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInf
 // during method dispatch (evaluator/calls/function.yo, where the resolved
 // `method_info.method_ty` is known) and read by the flowability R3 check
 // (types/flowability.yo) as a FALLBACK when the `.`/2 method-callee sub-expr
-// has no ExprInfo of its own. yo-self never annotates the callee node with the
+// has no ExprInfo of its own. The callee node is never annotated with the
 // method Func type, and writing it INTO that node's ExprInfo is destructive
 // (the node's ExprInfo means property/field-access info — doing so regressed
-// `check ./std` 151→15). This non-destructive side-table is the faithful
-// equivalent of TS reading `call.func.$.type`. Keyed by `ExprId` (globally
+// `check ./std` 151→15). This non-destructive side-table provides the
+// method-type read instead. Keyed by `ExprId` (globally
 // unique), so one process-wide table is safe. Mutated via `set` (the loader
 // makes fresh ctx-keyed ExprInfoTables per module, but this global side-table
 // is shared — harmless, ids never collide). See
@@ -774,14 +750,10 @@ lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
 // ---------------------------------------------------------------------------
 // Io-builtin marker side-tables.
 //
-// TS marks the Io effect record's builtin members with `ioBuiltin` on the
-// FUNCTION TYPE: the extern declaration stamps it (extern.ts:143-158, from
-// the `__yo_io_*` field label), and STRUCT CONSTRUCTION propagates it onto
-// the shared struct field type (`memberElement.type.ioBuiltin =
-// argType.ioBuiltin`, calls/type.ts:176-182) — so `my_io.await` on ANY
-// receiver of type Io reads the marker via `expr.func.$?.type?.ioBuiltin`
-// (await-analysis.ts:137-167). yo-self's TypeValues are copied, not shared,
-// so the propagation is modelled as two side-tables:
+// The Io effect record's builtin members need an io-builtin marker reachable
+// from ANY receiver of type Io (`my_io.await`). TypeValues are copied, not
+// shared, so the marker cannot ride on the shared struct field type; the
+// propagation is modelled as two side-tables:
 //   * construction time: (struct id, field label) → marker, recorded when a
 //     ctor arg's Func type carries an io-builtin `extern_name`;
 //   * call time: call expr id → marker, resolved at the evaluate_function_call
@@ -827,7 +799,7 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
   g_method_callee_values.get(call_id)
 );
 // Names of extern-C GLOBAL symbols declared via `c_include` (e.g. `stdout`,
-// `stderr`, `stdin`). yo-self models `is_extern` only on the `Func` TypeValue
+// `stderr`, `stdin`). `is_extern` is modelled only on the `Func` TypeValue
 // variant, so a NON-Func extern global (`stdout : *(FILE)`) cannot carry the FFI
 // marker on its type. This registry lets the codegen name-resolver keep the REAL
 // C name (skip the `__yo_c_reserved_` reserved-word prefix) for such symbols —
@@ -866,7 +838,7 @@ _push_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
 (g_extern_c_module_ids : HashSet(String)) = HashSet(String).new();
 /// Mark `name` as an extern-C global symbol with its DECLARED type (called by
 /// c_include per field). The type is what identifies "this resolved binding
-/// IS the global": TS hangs `isExtern === "c"` on the TYPE itself, so a LOCAL
+/// IS the global": the match is BY DECLARED TYPE, so a LOCAL
 /// binding that merely shares the name (e.g. an `errno : i32` parameter
 /// shadowing <errno.h>'s `errno : *(int)`) does not match — see
 /// get_extern_c_global_type's consumer in codegen get_variable_name_for_codegen.
@@ -1045,17 +1017,14 @@ is_thread_local :: (fn(module_path : String, name : String) -> bool)(
   g_thread_locals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
 );
 // Phase 5 (async/effects): the resolved CONCRETE type for a `SomeT`, keyed by the
-// SomeT's unique `id`. TS stores this as a mutable `SomeType.resolvedConcreteType`
-// field set during return-type resolution / synthesis; yo-self's `SomeT` has no
-// such field (codegen otherwise lowers an unresolved SomeT to `void*`), so this
+// SomeT's unique `id`. `SomeT` carries no such field of its own (codegen
+// otherwise lowers an unresolved SomeT to `void*`), so this
 // side-table is the idiomatic eval→codegen bridge (same pattern as
 // `g_method_callee_values` / `g_extern_c_globals`). The async-Future codegen needs
 // it — e.g. `is_io_future_type` distinguishes an extern `__yo_io_future_t` from a
 // state-machine Future by inspecting the resolved concrete type. Keyed by `id`
-// (SomeT's first field, unique); spread-construction in TS keeps the same id, so
-// id-keying is sound. Populated by mirroring the ~15 TS `resolvedConcreteType` set
-// sites; read by the FSM emitters. (Registry foundation — set/read sites are wired
-// as the FSM core lands; see plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 5 #3.)
+// (SomeT's first field, unique — copies carry it, so id-keying is sound). Read by
+// the FSM emitters. (See plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 5 #3.)
 (g_some_resolved_concrete : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 /// Record the resolved concrete type for the `SomeT` with unique id `some_id`.
 register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit)({
@@ -1069,10 +1038,9 @@ lookup_some_resolved_concrete :: (fn(some_id : String) -> Option(TypeValue))(
 /// Drop any recorded resolution for `some_id`.
 ///
 /// This registry is a DURABLE GLOBAL, but a function's own `generic(B : Type)`
-/// binder is NOT durable — TS mints a fresh `SomeType` for it on EVERY call
-/// (helper.ts:1047), so one call's `B := i32` can never be seen by the next.
-/// yo-self reuses the ONE signature instance, so the entry must be dropped when
-/// a call installs its own placeholder for that binder — see the Step-6 marker
+/// binder is NOT durable — the ONE signature instance is reused across calls,
+/// so one call's `B := i32` must not be seen by the next: the entry is dropped
+/// when a call installs its own placeholder for that binder — see the Step-6 marker
 /// loop in `evaluator/calls/helper.yo`.
 unregister_some_resolved_concrete :: (fn(some_id : String) -> unit)({
   g_some_resolved_concrete.remove(some_id);
@@ -1084,19 +1052,18 @@ _compat_some_resolved_init := (fn() -> bool)({
   set_compat_lookup_some_resolved_fn(lookup_some_resolved_concrete);
   true
 })();
-// Constructor-funcId stamp side-table, keyed by STRUCT ID. TS stamps
-// `returnedType.functionValue = functionValue` by MUTATING the shared type
-// object when a comptime type-constructor returns (comptime-fn.ts:270-277),
-// so every reference — including the pre-stamp SHELL copies a self-recursive
+// Constructor-funcId stamp side-table, keyed by STRUCT ID. When a comptime
+// type-constructor returns, the constructor funcId must be observable from
+// every reference — including the pre-stamp SHELL copies a self-recursive
 // body embeds via `Option(Self)`, and the memoized instantiations that
-// captured those shells — observes the stamp. yo-self TypeValues are copies:
-// the stamp applied to the ctfe RETURN value never reaches copies made
+// captured those shells. TypeValues are copies:
+// a stamp applied to the ctfe RETURN value never reaches copies made
 // earlier (e.g. `SortedMap`'s `_root : Option(RBNode(K, V))` holds the
 // `Option(Self)` instance cached DURING RBNode's own body eval, embedding the
 // fieldless pre-stamp shell). Since a shell shares its final's struct id, the
 // id is the object-identity surrogate: keying the stamp by id lets any
 // holder — the synthesizer's same-constructor unification in particular —
-// recover the constructor fid exactly as TS's mutated object would show it.
+// recover the constructor fid.
 // (Same durable-global pattern as g_some_resolved_concrete above.)
 (g_struct_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
 /// Record the constructor funcId stamped onto the struct with `struct_id`.
@@ -1105,11 +1072,10 @@ _compat_some_resolved_init := (fn() -> bool)({
 // ---------------------------------------------------------------------------
 /// One record per FIRST-INITIALIZATION assignment (`x = v` on a declared-but-
 /// uninitialized variable): the variable's id, the assigned type, and the
-/// RHS's closure capture struct when present. yo-self shares ONE mutable
-/// Variable object across cond/match arm environments, so per-branch
+/// RHS's closure capture struct when present. ONE mutable
+/// Variable object is shared across cond/match arm environments, so per-branch
 /// assigned TYPES cannot be recovered from the env after the arms ran (the
-/// last write wins) — TS's persistent envs snapshot them naturally
-/// (expr.ts:1990-2094 reads the per-case matrix). The arms' evaluators
+/// last write wins). The arms' evaluators
 /// (cond.yo / match.yo) record each arm's [start, end) window into this log
 /// keyed by the arm body's expr id; merge_and_check_envs consumes the
 /// windows for the cross-branch checks.
@@ -1155,12 +1121,12 @@ register_arm_init_range :: (fn(arm_expr_id : usize, start : usize, end : usize) 
 get_arm_init_range :: (fn(arm_expr_id : usize) -> Option(ArrayList(usize)))(
   g_arm_init_ranges.get(arm_expr_id)
 );
-/// Active branching-construct stack for the Impl(...) reassignment rule
-/// (TS assignment.ts:635-655). Each entry is a 2-element list
+/// Active branching-construct stack for the Impl(...) reassignment rule.
+/// Each entry is a 2-element list
 /// [group_start, current_arm_start]: log records with index in
 /// [group_start, current_arm_start) were made by COMPLETED SIBLING ARMS of a
-/// cond that is still evaluating — TS's per-branch child envs make sibling
-/// inits invisible to each other, so a "was this variable already assigned on
+/// cond that is still evaluating — sibling
+/// inits are invisible to each other, so a "was this variable already assigned on
 /// MY path?" query must skip them. Entries stranded by a thrown-through arm
 /// eval are truncated by comptime_expect_error's state restore; a stale
 /// entry's window is a fixed HISTORICAL range, so it can never exclude records
@@ -1203,8 +1169,7 @@ truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
 /// same-signature methods from different traits (impl.test.yo:
 /// `use_trait_b`'s `where(T <: TraitDisambigB)` must pick B's `get_number`;
 /// at spec time T is bound concrete so the SomeT walk's trait filter no
-/// longer applies — TS keeps the def-time constrained method identity).
-/// Stack of id lists; the TOP is the active spec's set, empty = none.
+/// longer applies). Stack of id lists; the TOP is the active spec's set, empty = none.
 (g_active_where_trait_ids : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
 push_active_where_trait_ids :: (fn(ids : ArrayList(String)) -> unit)({
   g_active_where_trait_ids.push(ids);
@@ -1235,10 +1200,9 @@ restore_active_where_trait_ids :: (fn(saved : ArrayList(ArrayList(String))) -> u
 });
 /// True when a prior assignment record for `var_id` exists on the CURRENT
 /// control-flow path — i.e. outside every active group's completed-sibling
-/// window. This is the yo-self surrogate for TS's `variable.initializedAtToken`
-/// under per-branch child envs: the shared mutable Variable is stamped
-/// initialized by the FIRST arm, so the token alone cannot distinguish a
-/// sibling arm's init from a genuine same-path prior init.
+/// window. The shared mutable Variable is stamped
+/// initialized by the FIRST arm, so the Variable alone cannot distinguish a
+/// sibling arm's init from a genuine same-path prior init — the log can.
 has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
   (found : bool) = false;
   match(
@@ -1281,14 +1245,12 @@ register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)(
 lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
   g_struct_ctor_fids.get(struct_id)
 );
-/// Trait counterpart of the struct ctor-fid table. TS stamps
-/// `returnedType.functionValue = functionValue` on EVERY type a comptime fn
-/// returns, traits included (comptime-fn.ts:266-276), and the generic-impl
-/// registry keys parameterized traits by that constructor's funcId
-/// (`getBaseTraitKey`, impl.ts:1042-1050) — so `Eq(Box(T))` and `Eq(Box(i32))`
-/// share one bucket. yo-self's `TraitT` cannot carry the fid; the id-keyed
+/// Trait counterpart of the struct ctor-fid table. The generic-impl
+/// registry keys parameterized traits by the trait constructor's funcId
+/// — so `Eq(Box(T))` and `Eq(Box(i32))`
+/// share one bucket. `TraitT` cannot carry the fid; the id-keyed
 /// table is the same object-identity surrogate as the struct table above.
-/// First stamp wins (TS guards with `if (!returnedType.functionValue)`).
+/// First stamp wins.
 (g_trait_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
 /// Record the constructor funcId for the trait with `trait_id` (first wins).
 register_trait_ctor_fid :: (fn(trait_id : String, ctor_fid : String) -> unit)({
@@ -1344,8 +1306,7 @@ struct_fully_concrete_instance :: (fn(ty : TypeValue) -> bool)({
 });
 /// Swap a PATTERN-ERA method return instance for the call's concrete receiver
 /// instance: same constructor, different ids, receiver fully concrete. The
-/// per-call, receiver-derived canonicalization of Gap-6 attempt #8(a) — TS
-/// gets this for free from `context.SelfType = dereferencedReceiverType`.
+/// per-call, receiver-derived canonicalization of Gap-6 attempt #8(a).
 /// `.None` when no swap applies (keep the original).
 adopt_receiver_struct_instance :: (
   fn(ret : TypeValue, recv : TypeValue) -> Option(TypeValue)
@@ -1409,8 +1370,8 @@ adopt_receiver_struct_instance :: (
 // FuncVal still sits in other id-keyed infos (candidate resolutions, earlier
 // passes), so codegen's function collection registers and emits it: a dead
 // function whose un-specializable body breaks the C ("Failed to transpile"
-// inside `SortedSet(i32).new`'s emitted original). TS never emits it — its
-// resolution replaces the value ON the shared node. Mirror by counting: a fid
+// inside `SortedSet(i32).new`'s emitted original). Supersession is detected by
+// counting: a fid
 // whose every runtime call produced a spec is SUPERSEDED and skipped by
 // should_skip_function_codegen. A fid with any unspecialized call keeps its
 // emission (status quo).
@@ -1436,15 +1397,14 @@ fid_fully_specialized :: (fn(fid : String) -> bool)({
   (specs > usize(0)) && (specs >= calls)
 });
 // Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
-// its `cond(...)`), keyed by the call's expr id. yo-self codegen lowers a macro
+// its `cond(...)`), keyed by the call's expr id. Codegen lowers a macro
 // call ONLY via `ExprInfo.macro_expansion` (generation.yo) — but that per-pass
 // ExprInfo gets OVERWRITTEN across eval passes: a later eval of the same call id
 // re-sets its table entry WITHOUT macro_expansion, so codegen then reads `None`
 // and emits "Failed to transpile" (this is exactly why every `if(...recur...)`
 // fails — confirmed: same id is macro-set once, then read with no expansion).
-// TS never loses it because its ExprInfo lives ON the node (`expr.$`), a stable
-// per-node property; yo-self's side-table is per-pass churnable. This durable,
-// id-keyed table is the faithful equivalent — written once by the macro path,
+// The per-pass side-table is churnable, so this durable,
+// id-keyed table is written once by the macro path and
 // read by codegen as a FALLBACK when the per-pass ExprInfo lost it. A macro
 // call's expansion is a stable syntactic property of its id, so the record stays
 // correct regardless of which pass last touched the ExprInfo. (Same pattern as
@@ -1462,9 +1422,7 @@ lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
 // Module-level mutable-variable init expressions, collected during module-body
 // evaluation (`evaluate_anonymous_module_begin_exprs`) and consumed by codegen
 // to emit file-scope `static` declarations + initialize them in the main
-// wrapper. TS carries these on `moduleValue.moduleLevelInitExprs` (value.ts) and
-// aggregates them in module-manager.ts (`allModuleLevelInitExprs`); yo-self's
-// EvalValue enum cannot hold the field, so this durable global is the idiomatic
+// wrapper. The `EvalValue` enum cannot hold the field, so this durable global is the idiomatic
 // eval→codegen bridge (same pattern as g_macro_expansions / g_method_callee_values
 // above). Dedup by expr id bounds re-collection across the evaluator's multiple
 // passes; codegen additionally dedups by resolved C variable name (a global may
@@ -1486,7 +1444,6 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
   g_module_level_init_exprs
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
-// (mirrors `src/expr-traversal.ts`).
 export(Path, PathCollection, path_collection_new, expr_info_paths_for_write);
 export(path_contains_path, path_conflicts_with_path, path_collection_conflicts_with_path_collection);
 export(ControlFlowKind, ControlFlowFlags);

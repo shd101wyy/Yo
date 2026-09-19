@@ -1,13 +1,12 @@
-//! GC / reference-counting runtime prelude — mirrors the runtime-function
-//! generators in `src/codegen/functions/generation.ts`:
-//!   * generateBorrowRuntimePrimitives  (Law-of-Exclusivity backstop)
-//!   * collectUnwindValueCTypes         (sizes the unwind-value buffer)
-//!   * emitUnwindValueBuffer            (thread-local unwind-value storage)
-//!   * generateLightweightRCFunctions   (non-cyclic RC path)
-//!   * generateFullGCRuntimeFunctions   (cyclic-GC path: QuickJS trial-deletion)
-//!   * generateAtomicGCRuntimeFunctions (dispatcher: full vs lightweight)
+//! GC / reference-counting runtime prelude:
+//!   * borrow runtime primitives      (Law-of-Exclusivity backstop)
+//!   * collect_unwind_value_ctypes    (sizes the unwind-value buffer)
+//!   * the unwind-value buffer        (thread-local unwind-value storage)
+//!   * lightweight RC functions       (non-cyclic RC path)
+//!   * full GC runtime functions      (cyclic-GC path: QuickJS trial-deletion)
+//!   * the atomic-GC dispatcher       (full vs lightweight)
 //!
-//! This is the prelude that `generateAllFunctions` emits before the function loop —
+//! This is the prelude that `generate_all_functions` emits before the function loop —
 //! without it the emitted translation unit does not link (`__yo_incr_rc` /
 //! `__yo_decr_rc` / borrow primitives are referenced by every RC-managed value).
 //! The dispatcher emits the FULL cyclic-GC runtime when `needs_cycle_gc` (some
@@ -27,7 +26,7 @@
 // collectUnwindValueCTypes
 // ---------------------------------------------------------------------------
 /// Recursively collect the C type strings of every non-unit `unwind(value)`
-/// argument reachable from `expr`. Mirrors `collectUnwindValueCTypesFromExpr`.
+/// argument reachable from `expr`.
 /// Returns a flat list (deduped by the caller into a HashSet).
 _collect_unwind_value_ctypes_from_expr :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> ArrayList(String))({
   out := ArrayList(String).new();
@@ -96,8 +95,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : AstExpr, context : Function
   out
 });
 /// Populate `context.unwind_value_c_types` from every function body in the
-/// program. MUST run before the unwind-value buffer is declared. Mirrors
-/// `collectUnwindValueCTypes`.
+/// program. MUST run before the unwind-value buffer is declared.
 collect_unwind_value_ctypes :: (fn(context : FunctionGenerationContext) -> unit)({
   into := HashSet(String).new();
   vals := context.base.functions.values();
@@ -136,8 +134,7 @@ collect_unwind_value_ctypes :: (fn(context : FunctionGenerationContext) -> unit)
 // ---------------------------------------------------------------------------
 /// Emit the thread-local `__yo_unwind_value` buffer declaration. With one or
 /// more non-unit unwound values it is a union sized to the largest (plus a
-/// 64-byte floor); with none it is a plain 64-byte buffer. Mirrors
-/// `emitUnwindValueBuffer`.
+/// 64-byte floor); with none it is a plain 64-byte buffer.
 emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   empty := match(
@@ -205,7 +202,7 @@ emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
 // generateBorrowRuntimePrimitives
 // ---------------------------------------------------------------------------
 /// Emit the Law-of-Exclusivity borrow primitives. Emitted unconditionally
-/// regardless of GC path. Mirrors `generateBorrowRuntimePrimitives`.
+/// regardless of GC path.
 generate_borrow_runtime_primitives :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(
@@ -240,11 +237,10 @@ static inline void __yo_borrow_assert_unborrowed(void* ptr) {
   );
 });
 // ---------------------------------------------------------------------------
-// generateLightweightRCFunctions
+// generate_lightweight_rc_functions
 // ---------------------------------------------------------------------------
 /// Emit lightweight RC functions when no type can form reference cycles.
-/// `__yo_decr_rc` has no GC checks and the GC functions are no-ops. Mirrors
-/// `generateLightweightRCFunctions`.
+/// `__yo_decr_rc` has no GC checks and the GC functions are no-ops.
 generate_lightweight_rc_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Forward-declare the dispose dispatch function (defined after all dispose functions).
@@ -333,15 +329,14 @@ static void __yo_init_process_cleanup(void) {}`
   );
 });
 // ---------------------------------------------------------------------------
-// generateFullGCRuntimeFunctions
+// generate_full_gc_runtime_functions
 // ---------------------------------------------------------------------------
 /// Emit the FULL cyclic-GC RC runtime: GC-aware non-atomic decr/incr, atomic
 /// incr/decr, thread-local GC state + adaptive thresholds, per-thread cleanup-key
 /// infrastructure, register/unregister, the QuickJS-style trial-deletion cycle
 /// collector, and thread/process cleanup. Emitted on the needs_cycle_gc path
-/// INSTEAD of generate_lightweight_rc_functions. Verbatim port of
-/// `generateFullGCRuntimeFunctions` (src/codegen/functions/generation.ts:1963);
-/// the `isTargetWindows ? … : …` template branches become `if(is_target_windows…)`.
+/// INSTEAD of generate_lightweight_rc_functions; per-platform branches select on
+/// is_target_windows.
 /// (GC_DEBUG is macro-defined to nothing in non-debug builds — see types/generation.yo.)
 generate_full_gc_runtime_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
@@ -1052,11 +1047,10 @@ static void __yo_init_process_cleanup(void) {
   });
 });
 // ---------------------------------------------------------------------------
-// generateAtomicGCRuntimeFunctions (dispatcher)
+// generate_atomic_gc_runtime_functions (dispatcher)
 // ---------------------------------------------------------------------------
 /// Emit the borrow primitives + the RC runtime. Dispatches to the FULL cyclic-GC
-/// runtime when needs_cycle_gc, else the lightweight (type-tag) path. Mirrors
-/// `generateAtomicGCRuntimeFunctions`.
+/// runtime when needs_cycle_gc, else the lightweight (type-tag) path.
 generate_atomic_gc_runtime_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   // Chunked emission: the borrow primitives are the per-container-access hot
   // path, have no prototypes anywhere, and are called from every chunk —

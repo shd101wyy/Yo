@@ -1,14 +1,12 @@
 //! evaluator/builtins/comptime_fn — evaluate_comptime_fn.
 //!
-//! 1:1 port of `src/evaluator/builtins/comptime-fn.ts`.
-//!
 //! `comptime_fn(f)` converts a runtime function to a compile-time function by
 //! changing the return type from a runtime type (e.g. i32) to its comptime
 //! equivalent (e.g. ComptimeInt), then verifying the body can be evaluated at
 //! compile time.
 //!
-//! The CTFE analysis itself lives in `evaluator/ctfe/ctfe_analysis.yo` (mirroring
-//! TS's `src/evaluator/ctfe/ctfe-analysis.ts`). It used to be INLINED here, which
+//! The CTFE analysis itself lives in `evaluator/ctfe/ctfe_analysis.yo`. It
+//! used to be INLINED here, which
 //! left it reachable from this builtin only — so nested functions met during a
 //! CTFE analysis were never analysed. See
 //! `issues/yo-self-ctfe-nested-fn-analysis-gap.md`.
@@ -42,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 /// Builtin `comptime_fn(f)` — wrap a runtime function for compile-time evaluation.
 ///
-/// Mirrors `evaluateComptimeFn` from `src/evaluator/builtins/comptime-fn.ts`.
+///
 evaluate_comptime_fn :: (
   fn(
     expr : AstExpr,
@@ -121,10 +119,10 @@ evaluate_comptime_fn :: (
     return(expr);
   });
   // Pre-flight diagnostics. `analyze_ctfe_capability` re-derives all of these and
-  // simply returns `.None` (TS ctfe-analysis.ts does the same), but yo-self keeps
+  // simply returns `.None`, but this builtin keeps
   // these SPECIFIC messages: they say WHY comptime_fn is impossible, where the
-  // shared analysis can only say "not possible". TS has no equivalents, so these
-  // are a yo-self improvement worth preserving rather than a divergence to undo.
+  // shared analysis can only say "not possible" — worth keeping on top of the
+  // shared analysis.
   forall_labels := match(func_type, .Func({ meta : __fm1 }) => __fm1.*.forall_labels, _ => ArrayList(String).new());
   param_types := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
   result_box := match(func_type, .Func({ result : rb }) => rb, _ => t_unit());

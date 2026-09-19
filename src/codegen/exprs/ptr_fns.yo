@@ -1,4 +1,4 @@
-//! Pointer builtins — `&` (address-of) — mirrors `src/codegen/exprs/ptr-fns.ts`.
+//! Pointer builtins — `&` (address-of).
 //!
 //! `&x` → `(&x)`. Compile-time number/bool literals can't be addressed in C, so
 //! they go through a compound literal `(&(T){v})`. An `&(value(i))` whose inner
@@ -6,9 +6,9 @@
 //! is emitted without an extra deref. Rvalue function-call operands are spilled
 //! into a named temp first (C can't take the address of an rvalue).
 //!
-//! DEFERRED (documented): the `is_return_slot` ref-forward (when `&(arg)` is the
+//! KNOWN LIMITATION: the `is_return_slot` ref-forward (when `&(arg)` is the
 //! return value of a `*(T)`-returning fn and `arg` calls a `inout(T)` fn, forward
-//! the pointer instead of taking a stack address) — yo-self ExprInfo has no
+//! the pointer instead of taking a stack address) — ExprInfo has no
 //! `is_return_slot` field and Variable has no `is_ref` flag. A flowability/
 //! ref-return concern, revisited with that work.
 { String } :: import("std/string");
@@ -27,15 +27,15 @@
 _c_function_name_opt :: (fn(context : FunctionGenerationContext, func_id : String) -> Option(String))(
   match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None)
 );
-/// The `&` (address-of) operator generation. Mirrors `generateAddressOf`.
+/// The `&` (address-of) operator generation.
 generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(
     context.base.get_expr_info(expr),
     .Some(e) => e,
     // NOT fatal: the MISSING-ExprInfo class, which multi-pass emission
     // legitimately reaches (a comptime `while` unrolls its body once per
-    // iteration and a discarded pass has no type info). Kept a comment to
-    // match TS; the harmful case is the `__yo_user_main` gate in
+    // iteration and a discarded pass has no type info). Kept a comment,
+    // not an error; the harmful case is the `__yo_user_main` gate in
     // codegen/functions/generation.yo.
     .None => return(`// Error: No type information for pointer/reference expression ${ast_expr_to_string(expr)}`)
   );

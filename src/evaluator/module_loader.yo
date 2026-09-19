@@ -1,13 +1,12 @@
 //! evaluator/module_loader — per-module evaluation cache for `check`.
 //!
-//! yo-self has no equivalent of TypeScript's `ModuleManager`
-//! (`src/module-manager.ts`). For the `check` subcommand we still need
+//! For the `check` subcommand we still need
 //! `ctx.load_module` to return *just* an imported file's exports — not
 //! the whole flatten-eval env (which conflates prelude + every dep and
 //! breaks spread-export with "already exported" errors).
 //!
 //! This module provides the minimal slice that makes that work within
-//! yo-self's constraints:
+//! the compiler's constraints:
 //!
 //!   * I/O (reading + parsing dependency files) cannot happen inside a
 //!     plain `fn(path) -> LoadModuleResult` callback — `io` is
@@ -21,9 +20,8 @@
 //!   * `load_module_from_cache` is then a pure lookup, usable directly as
 //!     `ctx.load_module`.
 //!
-//! This mirrors the *effect* of TS's `ModuleManager.loadModule` (cache +
-//! per-module isolation) while keeping all effects at the orchestration
-//! layer.
+//! Net effect: cache + per-module isolation, with all effects kept at
+//! the orchestration layer.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { EvalValue } :: import("../value.yo");
@@ -36,8 +34,8 @@
 // demand-driven loading (main.yo `demand_load_module`). When module A is mid-
 // evaluation and imports B, and B imports A, A is "loading": the importer reads
 // A's LIVE env (its exported names are already bound as variables) to build a
-// partial ModuleVal, instead of erroring "module not preloaded". Mirrors TS's
-// loader returning the in-progress module for cycles.
+// partial ModuleVal, instead of erroring "module not preloaded" — the loader
+// returns the in-progress module for cycles.
 // ---------------------------------------------------------------------------
 (g_loading_keys : ArrayList(String)) = ArrayList(String).new();
 (g_loading_envs : ArrayList(Environment)) = ArrayList(Environment).new();

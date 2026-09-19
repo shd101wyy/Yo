@@ -1,15 +1,13 @@
 //! evaluate_function_type — evaluates `fn(...) -> ReturnType` expressions.
 //!
-//! 1:1 port of `src/evaluator/types/function.ts` (Phase 3w).
-//!
 //! Implements the full multi-pass parameter evaluation algorithm:
 //!   Pass 1 — process generic type parameters (create SomeTypes)
-//!   Pass 2 — process  implicit parameters
+//!   Pass 2 — process implicit parameters
 //!   Pass 3 — pre-add comptime parameters to env (so where clauses can reference them)
 //!   Pass 4 — scan where clause and try to evaluate constraints (with pending retry)
 //!   Pass 5 — process regular parameters; retry pending constraints after each
 //!
-//! Phase 3w: effect-row generic `E : Type.Struct` and effect-row spread `E : Type.Struct` in  are now fully implemented.
+//! Effect-row generic `E : Type.Struct` and effect-row spread `E : Type.Struct` are fully implemented.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
@@ -79,12 +77,8 @@ import("std/fmt");
 // Macro side-tables (folded from former
 // `evaluator/types/macro_registry.yo`).
 //
-// In src/, macro-ness is stored as flags on FunctionType:
-//   * `parameter.isQuote: boolean` — for `quote(name) : Expr` parameters
-//   * `returnType.isUnquote: boolean` — for `unquote(Expr)` return types
-//
-// yo-self's TypeValue.Func does not carry those flags, so we side-table
-// the information keyed by `func_id`. A function is treated as a macro
+// `TypeValue.Func` carries no macro flags, so we side-table the
+// information keyed by `func_id`. A function is treated as a macro
 // if EITHER its return type is `unquote(...)` OR it has at least one
 // quoted parameter.
 // ---------------------------------------------------------------------------
@@ -236,8 +230,7 @@ copy_func_param_defaults :: (fn(from_id : String, to_id : String) -> unit)({
 });
 /// Variadic-parameter side table: `fn(...)`-type-expression id (then the
 /// FuncVal id via the same two-step as the defaults) → the variadic
-/// parameter's NAME and TYPE. TS stores `FunctionType.variadicParameter`
-/// on the type itself; yo-self's `TypeValue.Func` only keeps the
+/// parameter's NAME and TYPE. `TypeValue.Func` only keeps the
 /// `has_variadic` presence bit, which loses the binding name the
 /// def-time body evaluation must bring into scope (`...(quote(elems))`
 /// in std/collections/array_list.yo's `array_list` macro — `elems` was
@@ -271,11 +264,11 @@ get_func_param_defaults :: (fn(func_id : String) -> ArrayList(Option(EvalValue))
     .None => ArrayList(Option(EvalValue)).new()
   )
 );
-// Per-parameter `= <value>` ASSIGNED values (TS `FunctionParameter
-// .assignedValue`). `TypeValue.Func`/`FuncMeta` carry no per-param assigned
-// value, so — like the defaults and the comptime flags above — it rides a
-// func-id-keyed side table, keyed/copied fn-type-expr id -> FuncVal id.
-// The call site (helper.yo) reads it to replicate TS helper.ts:481-497: an
+// Per-parameter `= <value>` ASSIGNED values. `TypeValue.Func`/`FuncMeta`
+// carry no per-param assigned value, so — like the defaults and the comptime
+// flags above — it rides a func-id-keyed side table, keyed/copied
+// fn-type-expr id -> FuncVal id.
+// The call site (helper.yo) reads it: an
 // argument whose value differs from the parameter's assigned value REJECTS
 // the candidate. That rejection is the only thing that distinguishes two
 // impls of the same parameterized trait — `TryInto(i32).try_into` and
@@ -321,9 +314,9 @@ get_func_param_assigned_values :: (fn(func_id : String) -> ArrayList(Option(Eval
 // Per-parameter `is_compile_time_only` flags (the `comptime(name) : T` param
 // modifier). `TypeValue.Func`/`FuncMeta` do NOT carry a per-param comptime bit
 // (only `param_is_ref`/`param_is_owning`), so — like the defaults above — it
-// rides a func-id-keyed side table. The call site (helper.yo) reads it to
-// replicate TS's `!parameter.isCompileTimeOnly` guard on the comptime→runtime
-// argument-type conversion (helper.ts:508): a RUNTIME parameter that receives a
+// rides a func-id-keyed side table. The call site (helper.yo) reads it for
+// the comptime→runtime argument-type conversion guard: a RUNTIME parameter
+// that receives a
 // comptime-only argument (e.g. the operator `neg`'s `self : _Self` given
 // `comptime_float`) must lower the arg to its runtime type, or the specialized
 // body dispatches to the COMPTIME impl (`__yo_comptime_float_neg`, undeclared).
@@ -357,15 +350,13 @@ copy_func_param_comptime :: (fn(from_id : String, to_id : String) -> unit)({
   );
 });
 // Side-table: the declared RETURN TYPE EXPRESSION (the normalized `-> RET`
-// AST), keyed/copied like the defaults (fn-type-expr id → FuncVal id). TS
-// carries this on the type itself (`functionType.return.typeExpr`) and
-// specialization RE-EVALUATES it in the specialized env
-// (evaluateFunctionReturnTypeAgain, function.ts:2822) so a generic
+// AST), keyed/copied like the defaults (fn-type-expr id → FuncVal id).
+// Specialization RE-EVALUATES it in the specialized env so a generic
 // instantiation in the return (`*(Pair(K, V))`) routes through the SAME
 // memoized type-constructor as the body's own calls — one instantiation
-// lineage. yo-self's substitution-based re-resolution kept the def-era
-// instance and split the lineage (the imm_map `_alloc_pairs` expected/actual
-// struct-id mismatch).
+// lineage. (Substitution-based re-resolution would keep the def-era
+// instance and split the lineage: the imm_map `_alloc_pairs` expected/actual
+// struct-id mismatch.)
 (g_func_return_type_expr : HashMap(String, AstExpr)) = HashMap(String, AstExpr).new();
 register_func_return_type_expr :: (fn(func_id : String, e : AstExpr) -> unit)({
   g_func_return_type_expr.insert(func_id.clone(), e);
@@ -387,10 +378,9 @@ get_func_param_comptime :: (fn(func_id : String) -> ArrayList(bool))(
 );
 // Parallel side-table: per-parameter default-value EXPRESSIONS (the `?= EXPR`
 // AST). The value table above suffices for the call-site count check and the
-// def-time binding, but CODEGEN must EMIT an omitted default as a C argument —
-// TS evaluates `parameter.exprs.defaultValueExpr` and pushes it to
-// `runtimeArgExprsInOrder` (helper.ts:328-344). yo-self keeps the exprs here so
-// the omitted-parameter branch can clone+evaluate+emit them. Keyed/copied like
+// def-time binding, but CODEGEN must EMIT an omitted default as a C argument,
+// so the exprs are kept here for the omitted-parameter branch to
+// clone+evaluate+emit. Keyed/copied like
 // the values (fn-type-expr id → FuncVal id).
 (g_func_param_default_exprs : HashMap(String, ArrayList(Option(AstExpr)))) =
   HashMap(String, ArrayList(Option(AstExpr))).new();
@@ -429,8 +419,7 @@ get_func_param_default_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExp
 );
 /// Per-parameter declared TYPE expressions (the raw AST right of `:`), keyed
 /// like the defaults (fn-type-expr id, re-keyed under the FuncVal id by
-/// try_to_implement_function_by_function_type). TS `parameter.exprs.typeExpr`,
-/// consumed by evaluateFunctionParameterTypeAgain: the call site RE-EVALUATES
+/// try_to_implement_function_by_function_type). The call site RE-EVALUATES
 /// the expr in the bound callee env so comptime type-constructor
 /// instantiations route through the memoized constructor (canonical ids)
 /// instead of substituting into the def-era nocache mint — the
@@ -475,11 +464,9 @@ get_func_param_type_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExpr))
 /// Where-clause constraint side table: `fn(...)`-type-expression id (then the
 /// FuncVal id via the same two-step as the defaults) → the function's
 /// where-clause constraints as (LHS param label, trait type, negated) triples.
-/// TS stores the raw constraint exprs as `FunctionType.whereClauseExprs`
-/// (src/types/definitions.ts:837) and RE-APPLIES them at every call site once
-/// parameters are bound (helper.ts:1493-1506 → applyWhereClauseConstraints →
-/// validateSingleTraitOnConcreteType, function.ts:974) — that re-application is
-/// what rejects `Mutex(NonSendObj)` against `where(T <: Send)`. yo-self's
+/// The raw constraint exprs are RE-APPLIED at every call site once
+/// parameters are bound — that re-application is
+/// what rejects `Mutex(NonSendObj)` against `where(T <: Send)`.
 /// `TypeValue.Func` cannot carry AstExprs (definitions.yo must not depend on
 /// expr.yo), so the constraints live here in evaluated form: the label of the
 /// constrained parameter plus the trait it must (or, negated, must NOT)
@@ -500,9 +487,7 @@ register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(Whe
     g_func_where_constraints.insert(func_id.clone(), entries);
   });
 });
-/// Call-site RE-APPLICATION needs the original constraint EXPRESSIONS: TS
-/// re-applies `FunctionType.whereClauseExprs` at every call once parameters
-/// are bound (helper.ts:1515-1530 → applyWhereClauseConstraints). The
+/// Call-site RE-APPLICATION needs the original constraint EXPRESSIONS: the
 /// evaluated `WhereConstraintEntry` form above cannot express a PARAMETERIZED
 /// trait — `K <: Eq(K)` must be re-evaluated with the call's concrete `K` to
 /// yield `Eq(String)`. Keyed and re-keyed exactly like the entries table.
@@ -555,15 +540,13 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
 // ---------------------------------------------------------------------------
 /// `fn(...)`-type-expression id (then the FuncVal id via the same two-step as
 /// the defaults) → the signature's `requires(...)` predicate expressions.
-/// TS stores these as `FunctionType.requiresExprs`
-/// (src/types/definitions.ts:865); yo-self's `TypeValue.Func` cannot carry
+/// `TypeValue.Func` cannot carry
 /// AstExprs (definitions.yo must not depend on expr.yo — see the
 /// where-constraints table above), so they live here and are read by the
 /// body-wrapping lowering in `evaluator/builtins/contracts.yo`.
 (g_func_requires_exprs : HashMap(String, ArrayList(AstExpr))) =
   HashMap(String, ArrayList(AstExpr)).new();
-/// Same, for `ensures(...)`. Mirrors `FunctionType.ensuresExprs`
-/// (src/types/definitions.ts:875).
+/// Same, for `ensures(...)`.
 (g_func_ensures_exprs : HashMap(String, ArrayList(AstExpr))) =
   HashMap(String, ArrayList(AstExpr)).new();
 /// Phase V4 `decreases(M)` termination measure (at most one per fn).
@@ -840,7 +823,7 @@ _collect_where_constraints_from_some_t :: (
 // ---------------------------------------------------------------------------
 // Local data structures
 // ---------------------------------------------------------------------------
-/// Processed function parameter — mirrors TypeScript `FunctionParameter`.
+/// Processed function parameter.
 FuncParam :: struct(
   label : String,
   ty : TypeValue,
@@ -867,19 +850,18 @@ FuncParam :: struct(
   default_value_expr : Option(AstExpr),
   /// The parameter's declared TYPE expression (the raw AST right of `:`), or
   /// `.None` when the param has no written type (default-only shorthand,
-  /// synthetic params). TS `parameter.exprs.typeExpr` — the call site
+  /// synthetic params). The call site
   /// RE-EVALUATES it in the bound callee env so comptime type-constructor
   /// instantiations (`Map(K)` with K := i32) route through the memoized
   /// constructor and unify with the body's instantiations, instead of
   /// substituting into the def-era nocache mint (the imm_sorted_map family's
   /// id split; issues/retired/yo-self-69-red-list-map.md ROOT CAUSE 2026-07-30).
   ty_expr : Option(AstExpr),
-  /// The parameter's `= <value>` ASSIGNED value (TS `FunctionParameter
-  /// .assignedValue`, definitions.ts:432), or `.None` for a normal parameter.
+  /// The parameter's `= <value>` ASSIGNED value, or `.None` for a normal parameter.
   /// Only `comptime` parameters may carry one, so it is always a `TypeVal`.
   /// The call site uses it to REJECT an argument that does not equal it —
   /// this is how two impls of the same parameterized trait are told apart
-  /// (`TryInto(i32)` vs `TryInto(i64)`; helper.ts:481-497). Defaulted so the
+  /// (`TryInto(i32)` vs `TryInto(i64)`). Defaulted so the
   /// synthetic `FuncParam(...)` constructions need no change.
   (assigned_value : Option(EvalValue)) ?= Option(EvalValue).None
 );
@@ -898,8 +880,7 @@ FuncParamsResult :: struct(
   has_variadic : bool,
   variadic_param : FuncParam,
   /// Phase-0 `requires(...)` predicates extracted from the parameter list.
-  /// TS returns these on the FunctionType (function.ts:2273); yo-self carries
-  /// them out here so `evaluate_function_type` can register the side-table.
+  /// Carried out here so `evaluate_function_type` can register the side-table.
   /// Appended last so existing positional constructions only need trailing args.
   requires_exprs : ArrayList(AstExpr),
   /// Phase-0 `ensures(...)` predicates (same rationale).
@@ -1039,8 +1020,6 @@ _is_dots_atom :: (fn(expr : AstExpr) -> bool)(
 // Each parameter belongs to an ordered "zone"; zones must appear
 // non-decreasing left-to-right:
 //   generic(0) -> regular params (1) -> where(2) -> requires(3) -> ensures(4)
-// Mirrors the `zoneOf` / `zoneLabels` block in
-// `src/evaluator/types/function.ts:1700-1743`.
 // ---------------------------------------------------------------------------
 /// The clause zone of a parameter expression.
 _clause_zone :: (fn(e : AstExpr) -> usize)(
@@ -1054,7 +1033,7 @@ _clause_zone :: (fn(e : AstExpr) -> usize)(
     true => usize(1)
   )
 );
-/// The diagnostic name of a parameter expression's clause (TS `zoneOf().name`).
+/// The diagnostic name of a parameter expression's clause.
 _clause_name :: (fn(e : AstExpr) -> String)(
   cond(
     ast_expr_is_fn_call_of(e, BK_GENERIC, Option(usize).None) => String.from("generic(...)"),
@@ -1066,7 +1045,7 @@ _clause_name :: (fn(e : AstExpr) -> String)(
     true => String.from("parameter")
   )
 );
-/// The zone label used in the "Move X before Y" hint (TS `zoneLabels`).
+/// The zone label used in the "Move X before Y" hint.
 _zone_label :: (fn(zone : usize) -> String)(
   cond(
     (zone == usize(0)) => String.from("generic(...)"),
@@ -1118,13 +1097,12 @@ _atom_name_occurs :: (fn(e : AstExpr, name : String) -> bool)(
 );
 /// Add a where-clause trait constraint directly to a SomeType's constraint lists.
 /// Since `required_trait_types` in SomeT is an `ArrayList(TypeValue)` (object =
-/// reference type), we can mutate it in-place. The mutation is visible everywhere
+/// reference type), we can mutate it in-place — SomeT stores constraints
+/// directly in required_trait_types / negative_trait_types, not in an
+/// env-frame constraint map. The mutation is visible everywhere
 /// the same ArrayList is referenced, including in the Variable stored in the env.
 ///
-/// Mirrors `addWhereClauseConstraintToEnv` from TypeScript, but using in-place
-/// mutation instead of env-frame constraint map (yo-self's SomeT stores constraints
-/// directly in required_trait_types / negative_trait_types ArrayLists).
-/// The identity TS compares trait bounds by (`traitType.id`). Restated here
+/// The trait-bound comparison identity. Restated here
 /// because env.yo's `_trait_type_id` (env.yo:1837) is private.
 _wcc_trait_id :: (fn(t : TypeValue) -> String)(
   match(
@@ -1165,12 +1143,9 @@ _add_where_clause_constraint :: (
       // REFERENCE, so re-validating the same where clause used to append another
       // copy every time — measured at the entries.yo codegen panic, one SomeT's
       // identity rendered as `V : (Send + Send + ... x32)` and a `==`/`Hash`
-      // bound repeated ~30 times. TS dedups by `traitType.id` at both of its
-      // write sites: src/env.ts:420-423 for env-frame constraints, and
-      // src/evaluator/types/function.ts:656-682 when merging into a SomeType's
-      // own `requiredTraits`/`negativeTraits`. yo-self already ports the first
-      // (env.yo:1883 `add_where_clause_constraint_to_env`, same id scan) and has
-      // the read-side twin (`_merge_trait_list`, env.yo:1846); this SomeT-list
+      // bound repeated ~30 times. The env-frame writer dedups the same way
+      // (env.yo:1883 `add_where_clause_constraint_to_env`, same id scan), as
+      // does its read-side twin (`_merge_trait_list`, env.yo:1846); this SomeT-list
       // push was the one site that kept appending.
       if(is_negated, {
         if(!_wcc_has_trait(negative_trait_types, trait_ty), {
@@ -1188,7 +1163,6 @@ _add_where_clause_constraint :: (
   )
 );
 /// Check if a trait type already has a receiver type (is_concrete is Some).
-/// Mirrors TypeScript `traitType.receiverType` check.
 _trait_has_receiver :: (fn(t : TypeValue) -> bool)(
   match(
     t,
@@ -1204,7 +1178,6 @@ _make_token :: (fn(tok : Token) -> Token)(tok);
 /// Return (name, type_expr, token) for `comptime(name) : Type` and variants.
 /// Returns None if the expression is not a comptime parameter.
 ///
-/// Mirrors `extractComptimeParameterInfo` from function.ts lines 91-133.
 ExtractComptimeResult :: struct(
   name : String,
   type_expr : AstExpr,
@@ -1267,7 +1240,6 @@ extract_comptime_parameter_info :: (
 // ---------------------------------------------------------------------------
 /// Evaluate a single function parameter expression.
 ///
-/// Mirrors `evaluateFunctionParameter` from function.ts lines 140-734.
 evaluate_function_parameter :: (
   fn(
     expr : AstExpr,
@@ -1394,7 +1366,7 @@ evaluate_function_parameter :: (
         });
         lhs_mut = match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
-      // own modifier — processed BEFORE inout (TS function.ts order), so
+      // own modifier — processed BEFORE inout, so
       // `own(inout(x))` reaches the inout branch with the own flag set and
       // gets the targeted combination error below, while `inout(own(x))`
       // falls through to the trailing "Expected identifier" rejection.
@@ -1566,7 +1538,7 @@ evaluate_function_parameter :: (
   );
   // Evaluate default value expression.
   //
-  // Mirror TS `function.ts:399-440` — the default value's VALUE and
+  // The default value's VALUE and
   // TYPE are extracted separately from the evaluated expression's
   // ExprInfo. A default like `?= i32(42)` evaluates to an i32 value
   // (not a TypeValue), so we cannot route through `_eval_and_update_env`
@@ -1598,8 +1570,7 @@ evaluate_function_parameter :: (
           dv_val_opt := info.value;
           captured_default_value = dv_val_opt;
           // Coerce comptime types (e.g. comptime_str) to their runtime
-          // equivalents when the param has an explicit annotation. Mirrors
-          // TS `convertComptimeTypeToRuntimeType` at default-value sites —
+          // equivalents when the param has an explicit annotation —
           // lets `(msg : str) ?= "Assertion failed."` typecheck because the
           // comptime_str literal coerces to `str` (or `*(u8)`/`*(char)`/
           // `[u8]` if explicitly expected).
@@ -1622,7 +1593,7 @@ evaluate_function_parameter :: (
                   // the check to the call site: binding the default there
                   // infers T from the default value and validates any
                   // `where` constraints, exactly like an explicitly passed
-                  // argument. Mirrors TS function.ts (same guard).
+                  // argument.
                   if(!type_contains_some_type(pt) && !are_types_compatible(pt, dv_ty), {
                     exn.throw(
                       dyn(
@@ -1680,8 +1651,7 @@ evaluate_function_parameter :: (
   );
   // Raw-view naming gate (plans/archive/SLICE_REWORK.md): a SAFE file may not
   // annotate a parameter with a type whose representation carries a raw
-  // pointer (RawSlice(T), structs wrapping *(T), ...). Mirrors the TS gate
-  // in src/evaluator/types/function.ts.
+  // pointer (RawSlice(T), structs wrapping *(T), ...).
   if(!ctx.unsafe_context &&
     !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())) &&
       type_representation_contains_raw_ptr(final_param_type), {
@@ -1933,8 +1903,7 @@ use_id :: (fn(generic(T : Type),
           //
           // When the parameter type is `Type` (TypeUni(0)) — e.g.
           // `generic(T : Type)` — bind to `TypeVal(SomeT(...))` rather
-          // than `UnknownVal(...)`. Mirrors TS `createUnknownValue`
-          // (src/value.ts:573-588) which returns a TypeValue wrapping
+          // than `UnknownVal(...)`: a TypeValue wrapping
           // a fresh SomeType for level-0 type-hierarchy types. Where
           // clauses (`T <: Trait`) and identifier lookups expect to
           // see a TypeVal(SomeT) so they can attach constraints.
@@ -1955,7 +1924,7 @@ use_id :: (fn(generic(T : Type),
                   // HKT: a function-kind annotation (e.g.
                   // `F : (fn(comptime(T) : Type) -> comptime(Type))`) binds F as
                   // a SomeType carrying `kind_function_type`, so a later `F(A)`
-                  // can evaluate to a TypeApplication. Mirrors `value.ts:598-624`.
+                  // can evaluate to a TypeApplication.
                   if(
                     match(
                       final_param_type,
@@ -2028,7 +1997,6 @@ use_id :: (fn(generic(T : Type),
 // validate_concrete_type_constraints
 // ---------------------------------------------------------------------------
 /// Validate that a concrete type satisfies all trait constraints from a where clause.
-/// Mirrors `validateConcreteTypeConstraints` from function.ts lines 1466-1564.
 validate_concrete_type_constraints :: (
   fn(
     concrete_type : TypeValue,
@@ -2152,8 +2120,7 @@ validate_concrete_type_constraints :: (
       // Use the FULL type_implements_trait (not the Bool wrapper) so bindings
       // produced during trait satisfaction — synthesizing `A := i32`,
       // `B := i32` from `F <: (Fn(a : A) -> B)` against `fn(x : i32) -> i32`
-      // — propagate back into `env_mut`. TS threads `envAfterCheck` the same
-      // way (function.ts:979-987 and 1598-1603); discarding it left A/B as
+      // — propagate back into `env_mut`. Discarding them left A/B as
       // SomeTs and the method body specialized a shadow struct
       // ("Type mismatch for type member \"_f\"").
       (tc_res : TraitCheckResult) = type_implements_trait(concrete_type, tv, env_mut);
@@ -2215,7 +2182,6 @@ validate_concrete_type_constraints :: (
 /// Try to apply a single trait constraint to a SomeType.
 /// Returns true if the trait was successfully applied, false if it failed (retry later).
 ///
-/// Mirrors `applySingleTraitConstraint` from function.ts lines 953-1104.
 apply_single_trait_constraint :: (
   fn(
     lhs_expr : AstExpr,
@@ -2356,7 +2322,6 @@ apply_single_trait_constraint :: (
 /// Parse where clause constraint expressions and apply them.
 /// If collect_pending is true, failed individual traits are collected for retry.
 ///
-/// Mirrors `parseWhereClauseConstraints` from function.ts lines 1115-1433.
 parse_where_clause_constraints :: (
   fn(
     constraint_exprs : ArrayList(AstExpr),
@@ -2475,7 +2440,7 @@ parse_where_clause_constraints :: (
       });
     }, {
       // Evaluate LHS expression
-      // Note: errors propagate via outer exn (simplified from TS try/catch pattern)
+      // Note: errors propagate via outer exn
       evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut, ctx, exn);
       lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
       lhs_info := match(
@@ -2509,8 +2474,8 @@ parse_where_clause_constraints :: (
       env_mut.input_string = lhs_info.env.input_string;
       lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit), .None => TypeValue.Unit);
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
-      // type-application constraint table (mirrors function.ts:1265-1348 +
-      // addWhereClauseConstraintForTypeApplication). The RHS trait parsing
+      // type-application constraint table
+      // (add_where_clause_constraint_for_type_application). The RHS trait parsing
       // below is shared; the recording branches on `type_app_lhs`. A
       // TypeApplication is NOT concrete (its head is an abstract type-param),
       // so it must NOT fall into the concrete-type validation branch.
@@ -2662,7 +2627,6 @@ parse_where_clause_constraints :: (
 /// Apply where-clause constraints in the current environment frame.
 /// Used when evaluating a function body to re-attach constraints.
 ///
-/// Mirrors `applyWhereClauseConstraints` from function.ts lines 1440-1461.
 apply_where_clause_constraints :: (
   fn(
     constraint_exprs : ArrayList(AstExpr),
@@ -2682,7 +2646,6 @@ apply_where_clause_constraints :: (
 /// First pass of where clause processing: scan LHS variables, create SomeTypes,
 /// and try to evaluate constraints. Returns pending constraints.
 ///
-/// Mirrors `prepareWhereClauseVariables` from function.ts lines 751-831.
 prepare_where_clause_variables :: (
   fn(
     constraint_exprs : ArrayList(AstExpr),
@@ -2766,7 +2729,6 @@ prepare_where_clause_variables :: (
 // ---------------------------------------------------------------------------
 /// Retry pending trait constraints. Returns still-pending constraints.
 ///
-/// Mirrors `retryPendingConstraints` from function.ts lines 837-866.
 retry_pending_constraints :: (
   fn(
     pending : ArrayList(PendingConstraint),
@@ -2809,7 +2771,6 @@ retry_pending_constraints :: (
 ///       The caller (evaluate_function_type) must pop the frame after evaluating
 ///       the return type.
 ///
-/// Mirrors `evaluateFunctionParameters` from function.ts lines 1570-2358.
 evaluate_function_parameters :: (
   fn(
     param_exprs : ArrayList(AstExpr),
@@ -2967,7 +2928,7 @@ evaluate_function_parameters :: (
     });
   });
   // --------------------------------------------------------------------------
-  // Pass 2 — process  implicit parameters
+  // Pass 2 — process implicit parameters
   // --------------------------------------------------------------------------
   (using_count : usize) = usize(0);
   (ui : usize) = usize(0);
@@ -3312,7 +3273,6 @@ evaluate_function_parameters :: (
   // --------------------------------------------------------------------------
   // Pass 2b — Phase 0 of plans/backlog/FORMAL_VERIFICATION.md: enforce the canonical
   // signature clause order, then extract the contract clauses.
-  // Mirrors src/evaluator/types/function.ts:1700-1783.
   // --------------------------------------------------------------------------
   (max_zone : usize) = usize(0);
   (max_name : String) = String.from("generic(...)");
@@ -3519,8 +3479,7 @@ evaluate_function_parameters :: (
         });
         param_type := match(param_type_opt, .Some(t) => t, .None => continue);
         // For `comptime(T) : Type` — create TypeVal(SomeT) so where
-        // clauses and identifier lookups treat T as a SomeType (mirrors
-        // TS createUnknownValue for level-0 type-hierarchy types).
+        // clauses and identifier lookups treat T as a SomeType.
         ct_frame_level := if(
           env_mut.frames.len() > usize(0),
           env_mut.frames.len() - usize(1),
@@ -3559,7 +3518,6 @@ evaluate_function_parameters :: (
     // `where` must come at the end of the signature, but Phase-0 contract
     // clauses (requires/ensures) may follow it. Scan from the end past any
     // trailing contract clauses to find the where clause.
-    // Mirrors src/evaluator/types/function.ts:1863-1878.
     (where_idx : usize) = (param_exprs.len() - usize(1));
     (where_scanning : bool) = true;
     while(where_scanning, {
@@ -3629,14 +3587,13 @@ evaluate_function_parameters :: (
     // Skip where clause (already processed in pass 4). Clause ordering —
     // including "where may only be followed by requires/ensures" — is
     // validated up front by the zone check in pass 2b, so no positional check
-    // is needed here. Mirrors src/evaluator/types/function.ts:1924-1933.
+    // is needed here.
     if(ast_expr_is_fn_call_of(param_expr, BK_WHERE, Option(usize).None), {
       continue;
     });
     // Skip Phase-0 contract clauses (requires/ensures). They were extracted in
     // pass 2b; their predicates are lowered into the body by
     // `wrap_function_body_with_contracts`.
-    // Mirrors src/evaluator/types/function.ts:1934-1943.
     if(_is_contract_clause(param_expr), {
       continue;
     });
@@ -3658,11 +3615,9 @@ evaluate_function_parameters :: (
         // ...((lhsExpr : typeExpr)) — type-annotated variadic.
         //
         // The outer is a *colon pair* `lhs : type`, parsed as
-        // `:(lhs, type)`. In TS this matches via the
-        // `BuiltinKeywords.quote = ["quote", ":"]` keyword alias, but
-        // the semantic shape is the colon pair, not the quote macro
-        // (quote is only the unary form). In yo-self where `BK_QUOTE`
-        // and `BK_COLON` are separate constants, the correct spelling
+        // `:(lhs, type)`. The semantic shape is the colon pair, not the
+        // quote macro (quote is only the unary form): with `BK_QUOTE`
+        // and `BK_COLON` as separate constants, the correct spelling
         // is `BK_COLON.Some(2)`.
         if(ast_expr_is_fn_call_of(varg, BK_COLON, .Some(usize(2))), {
           vlhs_arg := match(_fn_call_args(varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -3924,7 +3879,6 @@ param_exprs_for_error :: (fn(arg_list : ArrayList(AstExpr), idx : usize) -> Opti
 // ---------------------------------------------------------------------------
 /// Evaluate a `fn(...) -> ReturnType` expression.
 ///
-/// Mirrors `evaluateFunctionType` from function.ts lines 2366-2694.
 evaluate_function_type :: (
   fn(
     expr : AstExpr,
@@ -3967,8 +3921,7 @@ evaluate_function_type :: (
   });
   // Whether the parameter-list head is `ctl(...)` — this is a control-function
   // type. Captured here (the head expr is only in scope at this point) and
-  // stamped onto the constructed Func as `is_control` below. Mirrors TS
-  // `context.isControlFunctionType` (_expr.ts:286) → `isControl` (function.ts:2678).
+  // stamped onto the constructed Func as `is_control` below.
   is_ctl_fn_type := ast_expr_is_fn_call_of(arg_list_expr, BK_CTL, Option(usize).None);
   arg_list := _fn_call_args(arg_list_expr);
   // Set is_evaluating_function_type flag on context
@@ -3992,8 +3945,7 @@ evaluate_function_type :: (
     return_type_expr = match(ret_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
     // `(inout(name) : T)` / `(name : inout(T))` — ref-return forms are
     // BANNED: refs are second-class and may appear only in parameter
-    // position and local lvalue borrows. (Mirrors the TS ban in
-    // evaluateFunctionType.)
+    // position and local lvalue borrows.
     if(ast_expr_is_fn_call_of(rl_expr, BK_INOUT, Option(usize).None) ||
       (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None)), {
       exn.throw(
@@ -4021,8 +3973,7 @@ evaluate_function_type :: (
       });
       rl_expr = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
-    // unquote modifier — accepts both `unquote(...)` and `#(...)`
-    // (TS `BuiltinKeywords.unquote = ["unquote", "#"]`).
+    // unquote modifier — accepts both `unquote(...)` and `#(...)`.
     rl_is_unquote := (
       ast_expr_is_fn_call_of(rl_expr, "unquote", Option(usize).None) ||
         ast_expr_is_fn_call_of(rl_expr, "#", Option(usize).None)
@@ -4068,7 +4019,7 @@ evaluate_function_type :: (
     // never on the TYPE. Reject `-> (name : inout(T))` / `-> (name : comptime(T))`;
     // use `-> (inout(name) : T)` / `-> (comptime(name) : T)` (or unlabeled
     // `-> inout(T)` / `-> comptime(T)`). The `(inout(name) : inout(T))` double-ref
-    // case is caught above with a more specific message. Mirrors function.ts.
+    // case is caught above with a more specific message.
     if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
       exn.throw(
         dyn(
@@ -4103,8 +4054,7 @@ evaluate_function_type :: (
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr)
     // `-> inout(T)` is BANNED: refs are second-class and may appear only
-    // in parameter position and local lvalue borrows. (Mirrors the TS
-    // ban in evaluateFunctionType.)
+    // in parameter position and local lvalue borrows.
     if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
       exn.throw(
         dyn(
@@ -4173,7 +4123,6 @@ evaluate_function_type :: (
   });
   // `-> inout(T)` in the return slot is BANNED: refs are second-class and
   // may appear only in parameter position and local lvalue borrows.
-  // (Mirrors the TS ban in evaluateFunctionType.)
   if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
     exn.throw(
       dyn(
@@ -4388,28 +4337,27 @@ evaluate_function_type :: (
   // call site can lower comptime-only args passed to RUNTIME params.
   register_func_param_comptime(ast_expr_id(expr).to_string(), param_comptime_flags);
   // Per-param `= <value>` assigned values (same two-step re-keying) so the
-  // call site can reject a mismatching argument (TS helper.ts:481-497).
+  // call site can reject a mismatching argument.
   register_func_param_assigned_values(ast_expr_id(expr).to_string(), param_assigned_values);
   // Keep the declared return-type EXPR for specialization-time re-evaluation
-  // (see the side-table comment above; TS functionType.return.typeExpr).
+  // (see the side-table comment above).
   register_func_return_type_expr(ast_expr_id(expr).to_string(), return_type_expr.clone());
   // Register the per-parameter default-value EXPRESSIONS (parallel to the
   // values above) so codegen can EMIT an omitted default as a C argument.
   register_func_param_default_exprs(ast_expr_id(expr).to_string(), param_default_exprs);
-  // Per-parameter declared TYPE expressions (TS parameter.exprs.typeExpr) for
+  // Per-parameter declared TYPE expressions for
   // specialization-time re-evaluation — see the side-table comment above.
   register_func_param_type_exprs(ast_expr_id(expr).to_string(), param_type_exprs);
   // Register the where-clause constraints (keyed like the defaults; re-keyed
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // call site can validate bound concrete types against them.
   register_func_where_constraints(ast_expr_id(expr).to_string(), where_constraint_entries);
-  // Register the where-clause EXPRESSIONS too (TS functionType.whereClauseExprs)
+  // Register the where-clause EXPRESSIONS too
   // for the call-site re-application — see the exprs side-table comment above.
   register_func_where_clause_exprs(ast_expr_id(expr).to_string(), params_result.where_clause_exprs);
   // Register the Phase-0 contract predicates (keyed like the defaults; re-keyed
   // under the FuncVal id by try_to_implement_function_by_function_type) so the
   // body-wrapping lowering can splice them into the function body.
-  // Mirrors function.ts:2273-2274 storing them on the FunctionType.
   register_func_requires_exprs(ast_expr_id(expr).to_string(), params_result.requires_exprs);
   register_func_ensures_exprs(ast_expr_id(expr).to_string(), params_result.ensures_exprs);
   register_func_decreases_expr(ast_expr_id(expr).to_string(), params_result.decreases_expr);
@@ -4508,9 +4456,8 @@ evaluate_function_type :: (
   // Register macro-ness (quoted param indices + unquote return), keyed by
   // this `fn(...)` type-expression id and re-keyed under the FuncVal id by
   // `try_to_implement_function_by_function_type` (same two-step as the
-  // defaults table). Mirrors TS storing `parameter.isQuote` /
-  // `return.isUnquote` directly on FunctionType — yo-self's TypeValue.Func
-  // does not carry these flags, so they live in the macro registry above.
+  // defaults table). `TypeValue.Func` does not carry these flags, so they
+  // live in the macro registry above.
   register_macro_quoted_params(ast_expr_id(expr).to_string(), quoted_param_indices);
   if(is_return_unquote, {
     register_macro_return_is_unquote(ast_expr_id(expr).to_string());
@@ -4583,27 +4530,26 @@ evaluate_function_type :: (
         param_labels : param_labels,
         implicit_labels : implicit_labels,
         implicit_spreads : implicit_spreads,
-        // result_is_comptime_only — mirrors TS `return.isCompileTimeOnly`,
-        // set from the `comptime(...)` wrapper on the declared return.
+        // result_is_comptime_only — set from the `comptime(...)` wrapper on
+        // the declared return.
         result_is_comptime_only : is_return_comptime_only,
-        // param_is_ref / param_is_owning / result_is_ref — mirrors TS
-        // `FunctionParameter.isRef`, `isOwningTheRcValue`, and `return.isRef`.
+        // param_is_ref / param_is_owning / result_is_ref — the per-parameter
+        // ref/own flags and the return ref flag.
         param_is_ref : param_is_ref,
         param_is_owning : param_is_owning,
         result_is_ref : is_return_type_ref,
-        // has_variadic — mirrors TS `FunctionType.variadicParameter` presence,
-        // set from the trailing `...` marker (C-style variadic externs).
+        // has_variadic — set from the trailing `...` marker (C-style
+        // variadic externs).
         has_variadic : params_result.has_variadic,
         // is_extern / extern_name — None here; a bare `fn(...)` type carries no
         // FFI marker. `evaluate_extern`/`evaluate_c_include` rebuild the field's
-        // type with `Some(language)`/`Some(label)` (mirrors extern.ts:138-161).
+        // type with `Some(language)`/`Some(label)`.
         is_extern : Option(String).None,
         extern_name : Option(String).None,
-        // is_control — true when the head was `ctl(...)` (mirrors isControl).
+        // is_control — true when the head was `ctl(...)`.
         is_control : is_ctl_fn_type,
         // variadic_label / variadic_comptime — the variadic parameter's
-        // binding name + comptime flag (mirrors TS
-        // `FunctionType.variadicParameter.{label,isCompileTimeOnly}`); the
+        // binding name + comptime flag; the
         // TYPE rides in Func.variadic_types below.
         variadic_label : mint_vlabel,
         variadic_comptime : mint_vcomptime,
@@ -4613,8 +4559,7 @@ evaluate_function_type :: (
         // registered. Carrying it ON the type is what lets a consumer that only
         // ever sees the TYPE — an anonymous function checked against it —
         // re-key those tables onto its own FuncVal id, the way the `::` path
-        // does explicitly. TS needs no such channel because the data lives on
-        // its FunctionType and its anonymous-function evaluator spreads it.
+        // does explicitly.
         origin_id : Option(String).Some(ast_expr_id(expr).to_string())
       )
     ),
@@ -4630,23 +4575,20 @@ evaluate_function_type :: (
 // evaluate_function_parameter_type_again
 // ---------------------------------------------------------------------------
 /// Resolve every SomeT inside `ty` (at any structural depth) from `env`,
-/// substituting the ones that resolve to concrete types. TS re-evaluates the
-/// stored type EXPRESSION in the callee env, which resolves type variables at
-/// any nesting level (`*(T)` → `*(u8)`); yo-self's `TypeValue.Func` keeps
-/// only pre-evaluated TypeValues, so the equivalent is: collect the SomeTs,
+/// substituting the ones that resolve to concrete types. `TypeValue.Func`
+/// keeps only pre-evaluated TypeValues, so resolving type variables at any
+/// nesting level (`*(T)` → `*(u8)`) means: collect the SomeTs,
 /// resolve each via `get_value_of_some_type_from_env`, and `substitute`.
 /// A bare-SomeT input keeps the direct single-lookup path (identical result,
 /// no list allocation).
 /// Collect the SomeTypes nested inside a SomeT wrapper's `Fn`-trait carrier —
 /// the `E`/`T` inside `Impl(Fn(e : E) -> T)`. `get_all_some_types` deliberately
-/// stops at a SomeT boundary (a faithful mirror of TS's `getAllSomeTypes`, which
-/// never recurses into a SomeType and reaches inner vars only via type-expr
-/// re-evaluation). yo-self stores no type expr, so `_resolve_some_types_deep`
-/// walks the `Fn` carrier here so a closure parameter's bundle type resolves at
-/// the call site.
+/// stops at a SomeT boundary (it never recurses into a SomeType), so
+/// `_resolve_some_types_deep` walks the `Fn` carrier here so a closure
+/// parameter's bundle type resolves at the call site.
 ///
 /// Deliberately does NOT descend into a `Future` carrier (`Impl(Future(T, E))`):
-/// yo-self's async codegen keeps the future's output/effect UNRESOLVED through
+/// async codegen keeps the future's output/effect UNRESOLVED through
 /// eval (the sync-future struct is registered against the wrapper SomeType id).
 /// Resolving them would change the return type's identity and break that
 /// registration. The `Fn` carrier yields the same `E`/`T` instances (shared
@@ -4670,12 +4612,10 @@ collect_wrapper_trait_somes :: (fn(wrapper : TypeValue) -> ArrayList(TypeValue))
       // bound `T := i32` / `E := Io` in callee_env from the annotation —
       // the assignment's compat check then rejected two identically-
       // printing Impl SomeTs (tests/async_await.test.yo arm 65;
-      // scratchpad/t5/B_io_variant.yo). Mirrors TS, where
-      // evaluateFunctionReturnTypeAgain re-evaluates the return-type
-      // EXPRESSION and the `Future(T, E)` application re-reads T/E from
-      // calleeEnv. The no-expected case is unaffected: an unbound T/E
-      // resolves to itself and the substitution below no-ops, so the async
-      // pipeline's unresolved-SomeT registrations keep their identity.
+      // scratchpad/t5/B_io_variant.yo). The no-expected case is unaffected:
+      // an unbound T/E resolves to itself and the substitution below no-ops,
+      // so the async pipeline's unresolved-SomeT registrations keep their
+      // identity.
       .FutureTraitT({ output : fut_out, effect_types : fut_ets }) => {
         fo_inner := get_all_some_types(fut_out);
         (foi : usize) = usize(0);
@@ -4788,8 +4728,7 @@ _resolve_some_types_deep :: (
     // bridge writes the CLOSURE's Fn type into it; adopting that here made
     // io.await's `fut` param type `fn(e : Ctx) -> i32` and the arg check
     // threw (async_await arm 65 —
-    // issues/fixed/yo-self-io-await-shared-wrapper-poisoning.md). TS's equivalent
-    // resolution is per-call-freshened and cannot cross-contaminate.
+    // issues/fixed/yo-self-io-await-shared-wrapper-poisoning.md).
     (rsd_fut_poisoned : bool) = false;
     if(!is_some_type(r) && is_function_type(r), {
       match(
@@ -4827,8 +4766,7 @@ _resolve_some_types_deep :: (
     });
     // The wrapper is still an unbound SomeT (e.g. `Impl(Fn(e : E) -> T)` whose
     // `Impl` var is unbound while an inner var like `E` is now concrete). Resolve
-    // the SomeTypes nested in its `Fn` carrier and substitute them back — the
-    // value-space equivalent of TS re-evaluating the parameter's type expr.
+    // the SomeTypes nested in its `Fn` carrier and substitute them back.
     // Without it a closure bundle param stays `Impl(Fn(e : E) -> T)`, `e` lowers
     // to `void*`, and `e.io` / `e.exn` field accesses fail.
     nested := collect_wrapper_trait_somes(r);
@@ -4910,7 +4848,7 @@ _resolve_some_types_deep :: (
     st := match(some_types.get(sti), .Some(t) => t, .None => t_unit());
     (resolved : TypeValue) = get_value_of_some_type_from_env(env, st);
     // If the env resolves `st` only to ANOTHER SomeType (e.g. an async future's
-    // output type, which yo-self keeps unresolved through eval), try the codegen
+    // output type, which stays unresolved through eval), try the codegen
     // resolved-concrete registry — the same resolvedConcreteType bridge the
     // io.await/io.spawn refinements use. This lets `io.spawn`'s `JoinHandle(T)`
     // return type concretize `T` to the spawned future's actual output so the
@@ -4948,20 +4886,16 @@ _resolve_some_types_deep :: (
 });
 /// Re-evaluate (resolve) a function parameter's type at call site.
 ///
-/// In TypeScript, this re-evaluates the stored type expression (`.exprs.typeExpr`)
-/// to resolve any generic type variables that have been bound since the function
-/// was defined.  In Yo, `TypeValue.Func` stores only the pre-evaluated types
+/// Resolves any generic type variables that have been bound since the function
+/// was defined. `TypeValue.Func` stores only the pre-evaluated types
 /// (not the original expressions), so we resolve the type by walking the callee
-/// env — at ANY structural depth (`_resolve_some_types_deep`), matching the
-/// expression re-evaluation's behavior for shapes like `*(T)` / `Slice(T)`.
+/// env — at ANY structural depth (`_resolve_some_types_deep`), covering
+/// shapes like `*(T)` / `Slice(T)`.
 ///
 /// Input:
 ///   `param_type`  — pre-evaluated parameter type from `TypeValue.Func.param_types[i]`
 ///   `callee_env`  — callee-side environment (has generic bindings)
 /// Output: the resolved parameter type (concrete if a SomeT was bound, else unchanged)
-///
-/// Mirrors `evaluateFunctionParameterTypeAgain` in
-/// `src/evaluator/types/function.ts`.
 evaluate_function_parameter_type_again :: (
   fn(
     param_type : TypeValue,
@@ -4990,14 +4924,8 @@ _cta_seen :: (fn(cta_v : ArrayList(String), cta_id : String) -> bool)({
   cta_found
 });
 /// Collect the SomeTs that live ONLY in a generic instantiation's
-/// `type_arguments` — the yo-self-only slot standing in for TS's
-/// `StructType.env` (types/definitions.yo:212). `get_all_some_types` walks
-/// FIELD types only, a faithful mirror of TS's `getAllSomeTypes`
-/// (src/types/utils.ts:813-864), which has nothing more to walk: TS never
-/// substitutes into an instantiation, it RE-EVALUATES the return-type
-/// EXPRESSION (src/evaluator/types/function.ts:2836, called unconditionally
-/// from src/evaluator/calls/helper.ts:1538). yo-self resolves by substitution,
-/// and `substitute()` DOES rewrite `type_arguments`
+/// `type_arguments` (types/definitions.yo:212). `get_all_some_types` walks
+/// FIELD types only, yet `substitute()` DOES rewrite `type_arguments`
 /// (types/substitution.yo:290-298) — the gap is only in the MAP, so a forall
 /// occurring solely as an instantiation ARGUMENT is never a substitution key.
 /// `type_key` keys an instance as `gs_<ctor_fid>_<type_arguments>`
@@ -5155,15 +5083,12 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
 /// Re-evaluate (resolve) a function's return type at call site.
 ///
 /// Same semantics as `evaluate_function_parameter_type_again` but for the
-/// return type.  Resolves any SomeT in the return type from the callee env.
+/// return type. Resolves any SomeT in the return type from the callee env.
 ///
 /// Input:
 ///   `return_type` — pre-evaluated return type from `TypeValue.Func`
 ///   `callee_env`  — callee-side environment (has generic bindings)
 /// Output: the resolved return type
-///
-/// Mirrors `evaluateFunctionReturnTypeAgain` in
-/// `src/evaluator/types/function.ts`.
 evaluate_function_return_type_again :: (
   fn(
     return_type : TypeValue,
@@ -5176,8 +5101,7 @@ evaluate_function_return_type_again :: (
   // the impl's PATTERN-ERA instance (its unresolved `T#N` lives ONLY in
   // type_arguments, which no resolution path walks). The dispatcher put the
   // call's CONCRETE receiver instance in ctx.self_type — adopt it whenever
-  // the resolved return is a same-ctor, tyarg-compatible sibling (TS gets
-  // this natively from `context.SelfType = dereferencedReceiverType`). This
+  // the resolved return is a same-ctor, tyarg-compatible sibling. This
   // is the CENTRAL exit every spec-signature/return stamping funnels through.
   (rr_out : TypeValue) = match(
     _ctx.self_type,

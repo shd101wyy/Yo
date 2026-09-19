@@ -1,26 +1,22 @@
 //! evaluator/builtins/build — build-system data types, `BuildRegistry`,
 //! and the `evaluate_yo_build_functions` evaluator entry point.
 //!
-//! 1-to-1 port of `src/evaluator/builtins/build.ts`, which holds:
+//! This module holds:
 //!
-//!   1. The interface / class shapes for build artifacts and steps
+//!   1. The data-type shapes for build artifacts and steps
 //!      (`BuildArtifact`, `BuildTestSuite`, `BuildRunStep`, `BuildStep`, …).
-//!      Dependencies are NOT declared here any more: `yo.toml` is the
+//!      Dependencies are NOT declared here: `yo.toml` is the
 //!      manifest (src/manifest.yo) and `build.dependency("name")` only
 //!      REFERENCES an entry of it (`referenced_dependencies`).
-//!   2. The `BuildRegistry` class with all registration / lookup
+//!   2. The `BuildRegistry` with all registration / lookup
 //!      methods that populate it during `build.yo` evaluation.
-//!   3. The `evaluateYoBuildFunctions` evaluator entry point that
+//!   3. The `evaluate_yo_build_functions` entry point that
 //!      dispatches the `__yo_build_*` builtins to registry mutators.
 //!
 //! Parts (1) and (2) live here as data-type definitions + an `impl`
 //! block; part (3) is the `evaluate_yo_build_functions` dispatch at the
 //! bottom, which populates the module-level global registry that
 //! `get_build_registry` hands out.
-//!
-//! (Previously, parts (1) and (2) lived in a separate
-//! `src/build/build_registry.yo` file with no TS counterpart.
-//! That file was folded in here so the structural mapping is 1-to-1.)
 { String } :: import("std/string");
 { env : proc_env } :: import("std/env");
 { record_env_read } :: import("../../input_record.yo");
@@ -64,7 +60,7 @@
 { host_target, parse_target, TargetInfo } :: import("../../target.yo");
 { format_error_message } :: import("../../error.yo");
 // ---------------------------------------------------------------------------
-// Data types  (mirrors TypeScript interfaces in build.ts)
+// Data types
 // ---------------------------------------------------------------------------
 ArtifactKind :: enum(Executable, StaticLibrary, SharedLibrary);
 BuildArtifact :: ref(
@@ -82,8 +78,7 @@ BuildArtifact :: ref(
     /// REQUIRED, not defaulted: `?=` needs a compile-time-known value and
     /// `String.new()` is a runtime call ("Expected compile-time known value
     /// for default value"). So every BuildArtifact literal must pass it —
-    /// including the one in tests/internal/build_runner.test.yo, which is the
-    /// site the TS build-system tests could not see and CI caught.
+    /// including the one in tests/internal/build_runner.test.yo.
     emit_c_to : String,
     /// Split the emitted C into this many translation units (0 = off). See
     /// plans/reference/CHUNKED_C_EMISSION.md. Same "must be passed explicitly" caveat
@@ -173,8 +168,6 @@ BuildDocConfig :: ref(
   )
 );
 /// A `-D<name>=<value>` option declared by `build.option(...)`.
-/// Mirrors the `{ description, defaultValue }` value type of TS's
-/// `BuildRegistry.declaredOptions`.
 BuildDeclaredOption :: ref(
   struct(
     description : String,
@@ -193,7 +186,6 @@ ResolvedDep :: enum(
 // BuildRegistry
 // ---------------------------------------------------------------------------
 /// Central registry populated by `build.yo` evaluation.
-/// Mirrors the `BuildRegistry` class in `src/evaluator/builtins/build.ts`.
 BuildRegistry :: ref(
   struct(
     artifacts : ArrayList(BuildArtifact),
@@ -469,7 +461,7 @@ impl(
     self.doc_configs.push(config);
   }),
   /// Attach a system library to a registered module. No-op when the module is
-  /// unknown or the library is already attached. Mirrors `registerModuleLink`.
+  /// unknown or the library is already attached.
   register_module_link : (fn(inout(self) : Self, module_name : String, system_library_name : String) -> unit)({
     i := usize(0);
     n := self.modules.len();
@@ -672,12 +664,9 @@ impl(
 // The global registry
 // ---------------------------------------------------------------------------
 // `build.yo` evaluation populates ONE registry, which the caller then reads —
-// `yo build` for the DAG and the referenced dependency names. TS
-// keeps it in a module-level `globalRegistry` with lazy construction; this is
-// the same thing.
+// `yo build` for the DAG and the referenced dependency names.
 (g_build_registry : Option(BuildRegistry)) = Option(BuildRegistry).None;
-/// The global build registry, constructed on first use. Mirrors
-/// `getBuildRegistry`.
+/// The global build registry, constructed on first use.
 get_build_registry :: (fn() -> BuildRegistry)(
   match(
     g_build_registry,
@@ -689,7 +678,7 @@ get_build_registry :: (fn() -> BuildRegistry)(
     }
   )
 );
-/// Empty the global registry and drop it. Mirrors `clearBuildRegistry`.
+/// Empty the global registry and drop it.
 clear_build_registry :: (fn() -> unit)({
   match(
     g_build_registry,
@@ -700,8 +689,8 @@ clear_build_registry :: (fn() -> unit)({
   );
   g_build_registry = Option(BuildRegistry).None;
 });
-/// Install `new_registry` as the global one and return the previous. Mirrors
-/// `swapBuildRegistry` — the build runner uses it to evaluate a DEPENDENCY's
+/// Install `new_registry` as the global one and return the previous —
+/// the build runner uses it to evaluate a DEPENDENCY's
 /// `build.yo` into a scratch registry without clobbering the project's.
 swap_build_registry :: (fn(new_registry : Option(BuildRegistry)) -> Option(BuildRegistry))({
   prev := g_build_registry;
@@ -728,9 +717,8 @@ _build_arg_value :: (
 );
 /// True when any argument's value is missing or `UnknownVal` — i.e. this
 /// is a function-definition type-check ("trial") run rather than a real
-/// call with concrete comptime args. Mirrors `isTrialEvaluation` in
-/// `build.ts`. During `check`, build calls inside function bodies are
-/// always trial (their comptime params are `UnknownVal`).
+/// call with concrete comptime args. During `check`, build calls inside
+/// function bodies are always trial (their comptime params are `UnknownVal`).
 _build_is_trial :: (
   fn(args : ArrayList(AstExpr), ctx : EvalContext) -> bool
 )({
@@ -754,7 +742,7 @@ _build_is_trial :: (
   });
   trial
 });
-/// Set the expr's result to `unit`. Mirrors `makeUnitResult`.
+/// Set the expr's result to `unit`.
 _build_unit_result :: (
   fn(expr : AstExpr, env : Environment, ctx : EvalContext) -> AstExpr
 )({
@@ -764,7 +752,7 @@ _build_unit_result :: (
   expr
 });
 /// Set the expr's result to a `comptime_str` carrying `value`.
-/// Mirrors `makeComptimeStringResult`. `StrLit` stores the quoted source
+/// `StrLit` stores the quoted source
 /// form (see `builtins/process.yo`), so `value` is wrapped in quotes.
 /// A comptime BOOL result, the `_build_string_result` counterpart.
 _build_bool_result :: (
@@ -792,8 +780,7 @@ _build_string_result :: (
   expr
 });
 /// Extract the (unquoted) comptime-string content of arg `idx`, throwing
-/// the build-function arg-type error otherwise. Mirrors
-/// `extractComptimeString`.
+/// the build-function arg-type error otherwise.
 _build_extract_string :: (
   fn(
     args : ArrayList(AstExpr),
@@ -837,8 +824,8 @@ _build_extract_string :: (
     }
   )
 );
-/// Read arg `idx` as a boolean. TS uses `Boolean(expr.args[i].$?.value)`, whose
-/// only falsy `EvalValue` shapes here are a missing value and `BoolVal(false)`.
+/// Read arg `idx` as a boolean: only a missing value and `BoolVal(false)`
+/// are falsy; every other `EvalValue` shape counts as true.
 _build_extract_bool :: (
   fn(args : ArrayList(AstExpr), idx : usize, ctx : EvalContext) -> bool
 )(
@@ -862,12 +849,11 @@ _build_extract_usize_or :: (
 );
 /// The variant name of arg `idx` when it is an enum value, else `.None`.
 /// Used for `build.step.depend_on`'s `dep_kind`.
-/// The variant NAME of an enum-valued argument, without the leading dot.
 ///
-/// yo-self stores enum variants dot-prefixed — `EvalValue.EnumVal(".Run", …)`,
-/// built as `` `.${variant_name}` `` in `evaluator/calls/function.yo` — while
-/// TS's `isEnumValue(v).variantName` is bare (`"Run"`). Callers here are ports of
-/// TS comparisons against the bare name, so strip the dot at this boundary
+/// The variant NAME is returned without the leading dot: enum variants are
+/// stored dot-prefixed — `EvalValue.EnumVal(".Run", …)`, built as
+/// `` `.${variant_name}` `` in `evaluator/calls/function.yo` — and callers
+/// compare against the bare name, so the dot is stripped at this boundary
 /// rather than dot-prefixing every comparison.
 ///
 /// Without the strip, `__yo_build_step_depend_on` never recognised a `Run`
@@ -889,8 +875,7 @@ _build_extract_variant :: (
     .None => Option(String).None
   )
 );
-/// Split `s` on runs of whitespace, dropping empty pieces — TS's
-/// `.split(/\s+/).filter(Boolean)`.
+/// Split `s` on runs of whitespace, dropping empty pieces.
 _build_split_ws :: (fn(s : String) -> ArrayList(String))({
   out := ArrayList(String).new();
   cur := String.new();
@@ -955,9 +940,9 @@ _build_require_args :: (
     );
   });
 });
-/// A `BuildArtifact` with every list empty and every flag off — the shape TS
-/// spreads into `registerExecutable`/`registerStaticLibrary`/
-/// `registerSharedLibrary`. `kind` is set by the registry method.
+/// A `BuildArtifact` with every list empty and every flag off — the blank
+/// shape the executable/static-library/shared-library registration paths
+/// start from. `kind` is set by the registry method.
 _build_new_artifact :: (
   fn(
     name : String,
@@ -1018,17 +1003,16 @@ _build_attach_system_library :: (
   );
 });
 /// Dispatch the `__yo_build_*` evaluator builtins to their comptime
-/// result. 1-to-1 with `evaluateYoBuildFunctions` in
-/// `src/evaluator/builtins/build.ts`.
+/// result.
 ///
 /// During `check`, a build-function call inside a function body is a "trial"
-/// evaluation (its comptime params are `UnknownVal`), and the TS reference
-/// skips the registry on that path too — so the trial branch only validates
-/// arguments and returns each builtin's correct comptime TYPE.
+/// evaluation (its comptime params are `UnknownVal`), and the trial branch
+/// skips the registry too — it only validates arguments and returns each
+/// builtin's correct comptime TYPE.
 ///
 /// On the REAL path (concrete comptime args — i.e. a top-level `build.yo` being
-/// evaluated) every builtin mutates `get_build_registry()`, exactly as TS does.
-/// That is what `yo build` reads: without it the
+/// evaluated) every builtin mutates `get_build_registry()`. That is what
+/// `yo build` reads: without it the
 /// registry stays empty and `yo build` builds an empty DAG and exits 0.
 evaluate_yo_build_functions :: (
   fn(
@@ -1044,8 +1028,8 @@ evaluate_yo_build_functions :: (
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   // ── Trial evaluation (function-definition type-check) ───────────────
-  // Mirror build.ts: target_host returns the host triple, option returns
-  // "", everything else returns unit — no registry interaction.
+  // target_host returns the host triple, option returns "", everything
+  // else returns unit — no registry interaction.
   if(_build_is_trial(args, ctx), {
     if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_HOST, Option(usize).None), {
       return(_build_string_result(expr, env, ctx, host_target().triple));

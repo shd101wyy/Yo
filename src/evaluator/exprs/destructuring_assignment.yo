@@ -1,20 +1,11 @@
 //! destructuring_assignment — evaluate destructuring `_(x, y) := rhs`.
 //!
-//! Phase 2z: full 1:1 port of `evaluateDestructuringAssignment` and
-//! `handleMemberDestructuring` from
-//! `src/evaluator/exprs/destructuring-assignment.ts`.
-//!
 //! Supports:
 //!   - struct/union/module destructuring: `_(x, y) := point`
 //!   - tuple destructuring:               `tuple(a, b) := pair`
 //!   - enum variant destructuring:        `_(v) := some_val`
 //!   - labeled rename:                    `_(label : new_name) := point`
 //!   - spread:                            `_(...) := point`
-//!
-//! TypeValue structural differences from TypeScript (intentional divergence):
-//!   - TS `TypeField[]` → yo-self parallel `ArrayList(String)` + `ArrayList(TypeValue)`
-//!   - TS `Record<string, RuntimeDestructuring>` → yo-self `ArrayList(String)` seen set
-//!     + `ArrayList(RuntimeDestructuring)` result list
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -55,8 +46,6 @@ pragma(Pragma.AllowUnsafe);
 // Return type
 // ---------------------------------------------------------------------------
 /// Result of a destructuring assignment.
-/// Mirrors the anonymous `{ env; runtimeDestructurings }` return type of
-/// `evaluateDestructuringAssignment` in TypeScript.
 DestructuringResult :: ref(
   struct(
     env : Environment,
@@ -85,7 +74,6 @@ _label_already_seen :: (fn(seen : ArrayList(String), label : String) -> bool)({
   found
 });
 /// Get the field value at `index` from a struct/module/enum/tuple EvalValue.
-/// Mirrors `rhsValue.fields[fieldIndex]` in TypeScript.
 _get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))(
   match(
     v,
@@ -140,9 +128,9 @@ _reject_private_destructure :: (
   });
 });
 /// The no-shadowing rule at a destructuring binding site — the same check
-/// `binding.yo` and `initialization_assignment.yo` run for an atom LHS (TS
-/// env.ts:644-658 ran it inside addVariableToEnv; yo-self keeps it at the
-/// user binding-introduction sites). Until 2026-09-15 the destructurer never
+/// `binding.yo` and `initialization_assignment.yo` run for an atom LHS (the
+/// check lives at the user binding-introduction sites, not inside
+/// add_variable_to_env). Until 2026-09-15 the destructurer never
 /// ran it, so `{ a : b } :: m` onto an existing `b`, the same import twice,
 /// and a `c_include` re-declaring a Yo name were all silently accepted
 /// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §1).
@@ -238,16 +226,6 @@ _find_field_index :: (fn(field_labels : ArrayList(String), label : String) -> Op
 // handle_member_destructuring
 // ---------------------------------------------------------------------------
 /// Handle struct / union / module / tuple / enum-variant destructuring.
-///
-/// Mirrors `handleMemberDestructuring` in
-/// `src/evaluator/exprs/destructuring-assignment.ts`.
-///
-/// Key differences from TS:
-///   - `rhs_field_labels` + `rhs_field_types` replace `rhsFields: TypeField[]`
-///   - `seen_labels: ArrayList(String)` + `runtime_destructurings` replace
-///     `destructuredRhsFields: Record<string, RuntimeDestructuring>`
-///   - ExprInfo is recorded via `ctx.expr_info_table` instead of `expr.$`
-///   - No `rhsValue.isLoading` check (not carried on yo-self struct values)
 handle_member_destructuring :: (
   fn(
     lhs_func : AstExpr,
@@ -669,9 +647,6 @@ handle_member_destructuring :: (
 // evaluate_destructuring_assignment
 // ---------------------------------------------------------------------------
 /// Evaluate a destructuring initialization assignment.
-///
-/// Mirrors `evaluateDestructuringAssignment` in
-/// `src/evaluator/exprs/destructuring-assignment.ts`.
 evaluate_destructuring_assignment :: (
   fn(
     lhs : AstExpr,

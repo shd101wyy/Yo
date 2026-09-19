@@ -1,21 +1,12 @@
 //! evaluator/values/anonymous_module — evaluate_anonymous_module_begin_exprs.
 //!
-//! Phase 3 — full implementation.
-//! 1:1 port of `src/evaluator/values/anonymous-module.ts`.
-//!
 //! Evaluates module-body expressions and produces a source-namespace STRUCT
-//! type + StructVal (TS: SourceNamespaceType = StructType + isSourceNamespace,
-//! createSourceNamespaceType, creators.ts:755; the per-module value is a
-//! StructValue). See plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
+//! type + StructVal. Types and values are kept split (TypeValue cannot
+//! reference EvalValue), so the type's `field_labels` / `field_types` arrays
+//! are paired with a separate StructVal. See
+//! plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
 //!
-//! Key differences from TypeScript:
-//!   - `StructType.fields` (rich array with assignedValue) → separate
-//!     `field_labels` / `field_types` arrays + the paired StructVal (yo-self
-//!     keeps types and values split; TypeValue cannot reference EvalValue).
-//!   - `allowPartialModule`: supported via inner exception handler.
-//!   - `registerPartialModule`: not supported (VSCode-extension-only feature).
-//!   - `moduleLevelInitExprs`: not tracked.
-//!   - `moduleValue.isLoading`: not carried, skipped.
+//! `allow_partial_module` is supported via the inner exception handler.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -44,8 +35,8 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 /// Names of recorded module-level runtime statics — lets a later bare-atom
 /// `name = value;` top-level REASSIGNMENT be collected into the module init
-/// (mirrors TS's `variable.isModuleLevel` gate, which is unreliable for
-/// imported modules under yo-self's loader-frame evaluation).
+/// (a per-variable "module-level" flag would be unreliable for imported
+/// modules under loader-frame evaluation, so detection goes by recorded name).
 (g_module_level_static_names : HashSet(String)) = HashSet(String).new();
 { TypeValue } :: import("../../types/definitions.yo");
 { is_module_type } :: import("../../types/guards.yo");
@@ -87,9 +78,6 @@ pragma(Pragma.AllowUnsafe);
 { Exception, AnyError } :: import("std/error");
 { panic, assert } :: import("std/assert");
 /// Result type for `evaluate_anonymous_module_begin_exprs`.
-///
-/// Mirrors the return value of `evaluateAnonymousModuleBeginExprs` in
-/// `src/evaluator/values/anonymous-module.ts`.
 AnonModuleResult :: ref(
   struct(
     module_value : EvalValue,
@@ -230,7 +218,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
     exn : Exception
   ) -> AnonModuleResult
 )({
-  // Mutable local copy — mirrors TypeScript's `let env = inEnv`.
+  // Mutable local copy of the incoming env.
   (env : Environment) = init_env;
   // Parallel arrays that together build the source-namespace Struct + StructVal.
   field_labels := ArrayList(String).new();
@@ -537,7 +525,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               field_types.push(ext_type);
                               module_names.push(ext_label.clone());
                               module_vals.push(ext_val);
-                              // Set ExprInfo on export_expr (last field wins, matching TS behavior)
+                              // Set ExprInfo on export_expr (last field wins).
                               out_info := new_expr_info(env, ext_type);
                               out_info.value = .Some(ext_val);
                               expr_info_table_set(ctx.expr_info_table, ast_expr_id(export_expr), out_info);
@@ -750,26 +738,25 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
               },
               .None => ()
             );
-            // Collect module-level init expressions for codegen (mirrors TS
-            // anonymous-module.ts:383-417). These become file-scope `static`
-            // declarations, initialized in the main wrapper. Three shapes:
+            // Collect module-level init expressions for codegen. These become
+            // file-scope `static` declarations, initialized in the main
+            // wrapper. Three shapes:
             //   x := value;         — `:=` with an atom LHS that has a runtime
             //                         type but no compile-time value.
             //   (x : T) = value;    — `=` where the LHS is a `:` binding
             //                         (a new module-level runtime global).
             //   x = value;          — `=` REASSIGNING an already-recorded
-            //                         module-level static (bare-atom LHS). TS
-            //                         collects this via `variable.isModuleLevel`
-            //                         (anonymous-module.ts:395-413); that flag is
-            //                         unreliable here for IMPORTED modules (their
-            //                         body evaluates inside a loader function
-            //                         frame), so gate on the name having been
-            //                         recorded as a module-level static instead.
-            //                         Dropping these lost e.g. types/utils.yo's
+            //                         module-level static (bare-atom LHS).
+            //                         A per-variable "module-level" flag would
+            //                         be unreliable here for IMPORTED modules
+            //                         (their body evaluates inside a loader
+            //                         function frame), so detection gates on
+            //                         the name having been recorded as a
+            //                         module-level static instead. Dropping
+            //                         these loses e.g. types/utils.yo's
             //                         `g_size_of_type_fn = Some(get_size_of_type)`
-            //                         slot wiring from the self-compiled binary's
-            //                         module init — every sizeof() fold then
-            //                         failed (the stage2/stage3 fixpoint residue).
+            //                         slot wiring from the module init — every
+            //                         sizeof() fold then fails.
             if(ast_expr_is_fn_call(evaluated), {
               if(ast_expr_is_fn_call_of(evaluated, ":=", Option(usize).Some(usize(2))), {
                 init_args := match(evaluated, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
@@ -853,11 +840,9 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   if(partial_error.is_none() && !keep_frame_at_end, {
     env.pop_frame();
   });
-  // Source-namespace STRUCT — TS has no module type: anonymous modules are
-  // `StructType & { isSourceNamespace: true }` (`createSourceNamespaceType`,
-  // src/types/creators.ts:755), paired here with a StructVal because yo-self
-  // keeps types and values split (TS rides `assignedValue` on the type's
-  // fields; the TypeValue layer cannot reference EvalValue). See
+  // Source-namespace STRUCT — the module type is a Struct flagged
+  // `is_source_namespace`, paired with a StructVal because types and values
+  // are kept split (the TypeValue layer cannot reference EvalValue). See
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
   sns_id := stable_sns_module_id(env.module_path.clone());
   register_sns_module(sns_id.clone(), env.module_path.clone());
@@ -946,9 +931,6 @@ _run_module_walk :: (
 /// registrations for this walk (plans/reference/LAZY_TOPLEVEL_BINDINGS.md): true for a
 /// module FILE (program, import, prelude), false for the anonymous
 /// `impl({ ... })` block, whose bindings are block-scoped and stay ordered.
-///
-/// Mirrors `evaluateAnonymousModuleBeginExprs` in
-/// `src/evaluator/values/anonymous-module.ts`.
 evaluate_anonymous_module_begin_exprs :: (
   fn(
     begin_exprs : ArrayList(AstExpr),

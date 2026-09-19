@@ -1,7 +1,5 @@
 //! evaluate_tuple_value — evaluates tuple value literal expressions.
 //!
-//! 1:1 port of `src/evaluator/values/tuple.ts`.
-//!
 //! Evaluates `tuple(e0, e1, …)` runtime literals:
 //!   * `tuple()` (zero args) yields the unit value `()` of type `()`.
 //!   * Disallows labelled fields (`x: e`) — only allowed in tuple types.
@@ -12,9 +10,9 @@
 //!   * Records `runtime_arg_exprs_in_order` and the resulting tuple type/value
 //!     onto the call expression's ExprInfo.
 //!
-//! Phase 3 stubs preserved as no-ops:
-//!   (set_expr_as_needs_to_call_dup for field values IS wired — rc layer 4.)
-//!   * `attach_temp_variable_to_expr` — temp-variable assignment is not yet ported.
+//! `set_expr_as_needs_to_call_dup` for field values IS wired (rc layer 4);
+//! `attach_temp_variable_to_expr` is NOT — no temp-variable assignment is
+//! performed for tuple elements.
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -50,10 +48,8 @@ import("std/fmt");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("../exprs/expr.yo");
-// Pragmatic stand-in for the TS `isComptimeOnlyType` while the full
-// `typeImplementsComptime` / `typeImplementsRuntime` infrastructure is
-// not yet ported.  Covers the same primitive cases the evaluator actually
-// hits for tuple element types today.
+// Local comptime-only check covering the primitive cases the evaluator
+// actually hits for tuple element types today.
 is_comptime_only_type_local :: (fn(t : TypeValue) -> bool)(
   cond(
     is_comptime_int_type(t) => true,
@@ -73,8 +69,6 @@ EvalTupleElementsValueResult :: struct(
 );
 // Evaluate a single tuple element expression and append its evaluated form
 // onto `runtime_arg_exprs_in_order`.
-//
-// Mirrors `evaluateTupleElementValue` in the TS source.
 EvalTupleElementResult :: struct(
   ty : TypeValue,
   value : Option(EvalValue),
@@ -160,9 +154,8 @@ evaluate_tuple_element_value :: (
   evaluated_rhs := evaluate_expression(expr, env, ctx);
   ctx.expected_type = saved_expected;
   // Mark the field value copy-semantics: a named RC value moved into the
-  // tuple literal gets a deferred `___dup` (mirrors tuple.ts:107 — was a
-  // Phase-3 stub; without it the literal aliased the element's refcount and
-  // scope-end drops over-released, rc layer 4).
+  // tuple literal gets a deferred `___dup` (without it the literal aliased
+  // the element's refcount and scope-end drops over-released, rc layer 4).
   set_expr_as_needs_to_call_dup(evaluated_rhs, ctx, exn);
   // Look up the resulting ExprInfo for the rhs.
   rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
@@ -214,8 +207,6 @@ evaluate_tuple_element_value :: (
 });
 // Evaluate every element of a tuple value, returning parallel
 // labels/types/values plus the threaded environment.
-//
-// Mirrors `evaluateTupleElementsValue` in the TS source.
 evaluate_tuple_elements_value :: (
   fn(
     args : ArrayList(AstExpr),
@@ -258,8 +249,6 @@ evaluate_tuple_elements_value :: (
   )
 });
 // Evaluate a `tuple(...)` call expression.
-//
-// Mirrors `evaluateTupleValue` in the TS source.
 evaluate_tuple_value :: (
   fn(
     expr : AstExpr,
@@ -296,12 +285,11 @@ evaluate_tuple_value :: (
       result.values.get(k),
       .Some(opt) => match(
         opt,
-        // yo-self runtime results are `Some(UnknownVal)` where TS uses
-        // `undefined` — TS's `tupleValues.some((v) => !v)` therefore reads a
-        // runtime element as NOT known. Without this, a tuple with a runtime
-        // element (e.g. `(ArrayList(i32).new(), i32(42))` at module level)
-        // carries a TupleVal with an UnknownVal hole, and codegen's comptime
-        // short-cut emits `._0 = /* skip generating value */` — invalid C.
+        // A runtime element is `Some(UnknownVal)` and must count as NOT
+        // known. Without this, a tuple with a runtime element (e.g.
+        // `(ArrayList(i32).new(), i32(42))` at module level) carries a
+        // TupleVal with an UnknownVal hole, and codegen's comptime short-cut
+        // emits `._0 = /* skip generating value */` — invalid C.
         .Some(kv) => if(is_unknown_val(kv), {
           all_known = false;
         }),

@@ -1,4 +1,4 @@
-//! Field / property access emitter — mirrors `src/codegen/exprs/property-access.ts`.
+//! Field / property access emitter.
 //!
 //! Lowers `object.field` for structs, objects (ref-semantics), enums, pointers
 //! (deref + arrow), tuples (label→index), dyn (vtable), newtypes (zero-cost),
@@ -6,16 +6,15 @@
 //! resolves to a method (the expr's value is a function) emits the method's C
 //! function name directly.
 //!
-//! DEFERRED (documented — these need type-model work, not mechanical porting;
-//! none reached by the no-RC corpus):
+//! KNOWN LIMITATIONS (documented):
 //!  * Evidence-param field access + state-machine `sm->__capture` / `sm->var_N`
 //!    routing (Phase 5; FGC has no currentEvidenceParams, in_async only).
 //!  * Late-dispatch trait-walk + Rc-method (___drop/dup/dispose) trait lookup:
-//!    TS reads `objectType.trait.fields[].assignedValue`, but yo-self's Struct/
-//!    EnumT carry NO `.trait` field — methods live in a separate type-method
-//!    registry. Porting these requires routing through that registry (Phase 3/4).
-//!  * Module-namespace UnknownValue.variableName resolution: yo-self
-//!    `UnknownVal(ty)` carries no variableName, so that sub-branch falls through
+//!    Struct/EnumT carry NO `.trait` field — methods live in a separate
+//!    type-method registry; these need routing through that registry
+//!    (Phase 3/4).
+//!  * Module-namespace UnknownValue.variableName resolution: `UnknownVal(ty)`
+//!    carries no variableName, so that sub-branch falls through
 //!    to the plain identifier lookup.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -89,7 +88,7 @@ _enum_field_access :: (fn(object_type : TypeValue, object_code : String, field_n
                     vname := match(vnames.get(vi), .Some(v) => v, .None => String.from(""));
                     out := object_code.clone();
                     // A reference-semantics enum (`ref(enum(…))`) value is a pointer,
-                    // so its variant data is reached with `->`, not `.` (mirrors match).
+                    // so its variant data is reached with `->`, not `.` (as in match).
                     if(is_reference_enum_type(object_type), {
                       out.push_str("->data.");
                     }, {
@@ -170,8 +169,7 @@ _typevalue_enum_access :: (fn(object_value : Option(EvalValue), field_name : Str
   )
 );
 /// Pointer/reference field access: dereference to the value type (extra level
-/// for ref-semantics objects), then `->`/`.` as appropriate. Mirrors the
-/// pointer branch of `generateFieldAccess`.
+/// for ref-semantics objects), then `->`/`.` as appropriate.
 _ptr_field_access :: (fn(object_type : TypeValue, object_code : String, field_name : String) -> String)(
   if(field_name == "*", {
     out := String.from("(*");
@@ -266,7 +264,7 @@ _tuple_field_access :: (fn(object_type : TypeValue, object_code : String, field_
   ))
 );
 /// Generate field access for structs, objects, enums, pointers, tuples, dyn,
-/// newtypes, and module namespaces. Mirrors `generateFieldAccess`.
+/// newtypes, and module namespaces.
 generate_field_access :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -367,7 +365,7 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
       _ => ()
     );
   });
-  // Value-shape field access, mutually exclusive (mirrors the TS else-if chain).
+  // Value-shape field access, mutually exclusive branches.
   cond(
     is_enum_type(object_type) => _enum_field_access(object_type, object_code, field_name, context),
     _is_typevalue_enum(object_value) => _typevalue_enum_access(object_value, field_name, context),

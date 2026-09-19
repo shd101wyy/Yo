@@ -1,12 +1,12 @@
 //! evaluator/builtins/contracts — contract-clause builtin handlers.
 //!
-//! Partial 1:1 port of `src/evaluator/builtins/contracts.ts` (Phase 0 of
-//! plans/backlog/FORMAL_VERIFICATION.md). Ported here: the expression-position
+//! Part of Phase 0 of plans/backlog/FORMAL_VERIFICATION.md. Implemented here:
+//! the expression-position
 //! handlers for `requires` / `ensures` / `invariant` / `ghost` (no-op markers
 //! that evaluate their args and return `unit`) and `ghost_fn` / `old`
 //! (transparent pass-throughs).
 //!
-//! Also ported: `wrap_function_body_with_contracts` — the signature→assert
+//! Also here: `wrap_function_body_with_contracts` — the signature→assert
 //! lowering that turns `requires(...)` / `ensures(...)` in a function SIGNATURE
 //! into runtime `assert(...)` / `comptime_assert(...)` calls wrapping the body
 //! (wired from calls/function_type.yo). The runtime assert callee is the
@@ -73,7 +73,7 @@
 /// Evaluate any of the no-op contract markers (`requires` / `ensures` /
 /// `invariant` / `ghost` in expression position). Each argument is evaluated
 /// (so expression-level errors surface), but the call itself returns `unit`.
-/// Mirrors `evaluateContractMarker` in `src/evaluator/builtins/contracts.ts`.
+///
 _evaluate_contract_marker :: (
   fn(
     expr : AstExpr,
@@ -154,11 +154,8 @@ _is_verify_target :: (fn(module_path : String) -> bool)({
   });
   found
 });
-/// `requires(...)` in expression position — no-op marker. Mirrors
-/// `evaluateRequires`.
+/// `requires(...)` in expression position — no-op marker.
 /// Reject a zero-argument contract marker in expression position.
-/// Mirrors the `args.length === 0` guards in
-/// `src/evaluator/builtins/contracts.ts:96-137`.
 _reject_zero_arg_marker :: (fn(expr : AstExpr, message : String, exn : Exception) -> unit)({
   n := match(
     expr,
@@ -177,8 +174,7 @@ evaluate_requires :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
   );
   _evaluate_contract_marker(expr, env, ctx, exn)
 });
-/// `ensures(...)` in expression position — no-op marker. Mirrors
-/// `evaluateEnsures`.
+/// `ensures(...)` in expression position — no-op marker.
 evaluate_ensures :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
@@ -188,7 +184,7 @@ evaluate_ensures :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, ex
   _evaluate_contract_marker(expr, env, ctx, exn)
 });
 /// `invariant(...)` — no-op marker (loop placement checked in `while`; SMT
-/// discharge is a later phase). Mirrors `evaluateInvariant`.
+/// discharge is a later phase).
 evaluate_invariant :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
@@ -264,7 +260,7 @@ is_ghost_binding_name :: (fn(name : String) -> bool)(
 /// runtime-mode assert reading a ghost binding emitted an UNDECLARED C
 /// identifier — the evaluator resolved the name (Phase 0's marker bound it)
 /// while codegen erased the binding. Other `ghost(...)` shapes keep the
-/// transparent no-op marker. Mirrors `evaluateGhost`.
+/// transparent no-op marker.
 evaluate_ghost :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
   args0 := match(
     expr,
@@ -326,7 +322,7 @@ evaluate_ghost :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn 
 });
 /// Shared transparent pass-through for `ghost_fn(inner)` / `old(inner)`:
 /// evaluate the single inner argument and propagate its ExprInfo to the outer
-/// call. Mirrors the bodies of `evaluateGhostFn` / `evaluateOld`.
+/// call.
 _evaluate_transparent_unary :: (
   fn(
     expr : AstExpr,
@@ -564,8 +560,7 @@ ${ast_expr_to_string(expr)}`
 /// `ghost_fn(f)` — marks a function value ghost-only. V5 task 3: the
 /// wrapped function is REGISTERED as ghost (calls from non-ghost context
 /// are a compile error — function.yo's FuncVal arm checks the registry);
-/// the marker itself stays a transparent pass-through. Mirrors
-/// `evaluateGhostFn`.
+/// the marker itself stays a transparent pass-through.
 evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .Some(usize(1))), {
     exn.throw(
@@ -969,7 +964,7 @@ evaluate_implies :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, ex
   expr
 });
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
-/// by the wrapper; transparent pass-through elsewhere). Mirrors `evaluateOld`.
+/// by the wrapper; transparent pass-through elsewhere).
 evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(expr, BF_OLD, .Some(usize(1))), {
     exn.throw(
@@ -987,8 +982,6 @@ evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
 // Phase 0 task #6 of plans/backlog/FORMAL_VERIFICATION.md: lower the `requires(...)` /
 // `ensures(...)` clauses extracted from a function signature into runtime
 // `assert(P, msg)` / `comptime_assert(P, msg)` calls woven into the body.
-// 1:1 port of `wrapFunctionBodyWithContracts` in
-// `src/evaluator/builtins/contracts.ts:390-502`.
 //
 // Lowering shape (all four combinations):
 //   no contracts     -> <body> (unchanged)
@@ -1004,7 +997,7 @@ evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
 /// reference it. Phase V1 (decision D3,
 /// plans/backlog/FORMAL_VERIFICATION.md) removed the Phase-0 magic `result`
 /// identifier: a post-condition names the return value through the labeled
-/// return. Replaces `RESULT_IDENTIFIER` (contracts.ts:238).
+/// return. Replaces `RESULT_IDENTIFIER`.
 __YO_CONTRACT_RESULT :: "__yo_contract_result";
 /// Phase V1: record the node ids of every identifier atom inside a spliced
 /// `ensures(...)` predicate of an UNLABELED-return function, so the ordinary
@@ -1034,7 +1027,7 @@ _note_unlabeled_ensures_atoms :: (fn(e : AstExpr) -> unit)(
   )
 );
 /// Build a synthetic atom borrowing `src_tok`'s source position so diagnostics
-/// point at the user's contract clause. Mirrors `synthAtom` (contracts.ts:245).
+/// point at the user's contract clause.
 _synth_atom :: (fn(value : String, kind : TokenKind, src_tok : Token) -> AstExpr)(
   AstExpr.Atom(
     alloc_global_expr_id(),
@@ -1050,10 +1043,10 @@ _synth_atom :: (fn(value : String, kind : TokenKind, src_tok : Token) -> AstExpr
     )
   )
 );
-/// JSON-escape `s` for embedding in a synthetic string-literal token. yo-self's
+/// JSON-escape `s` for embedding in a synthetic string-literal token.
 /// `evaluate_string_literal` runs `decode_str_lit_escapes(tok.value)`, which
 /// assumes the raw token value INCLUDES the surrounding double quotes — the
-/// same round-trip TS gets from `JSON.stringify` (contracts.ts:274).
+/// escaping round-trips with that decode.
 _synth_string_token_value :: (fn(s : String) -> String)({
   sb := StringBuilder.new();
   sb.write_byte(u8(0x22));
@@ -1096,7 +1089,7 @@ _synth_string_token_value :: (fn(s : String) -> String)({
 /// `std/assert` (explicit import), so a bare `assert` identifier no longer
 /// resolves in user files that never import it. Synthesize
 /// `import("std/assert").assert` instead — self-contained and immune to local
-/// shadowing. Mirrors `buildAssertCallee` (contracts.ts).
+/// shadowing.
 /// Build the runtime check for one contract predicate. `label_pred`
 /// supplies the human-readable message text; `pred` is what actually gets
 /// checked (it may have had `old(...)` rewritten to snapshot references).
@@ -1112,7 +1105,6 @@ _synth_string_token_value :: (fn(s : String) -> String)({
 /// any import.
 /// COMPTIME shape — `comptime_assert(pred, "<label>: <src>")` (a builtin,
 /// also import-free).
-/// Mirrors `buildAssertCall` (contracts.ts:260-283).
 _build_assert_call :: (
   fn(
     pred : AstExpr,
@@ -1214,7 +1206,6 @@ _build_assert_call :: (
 /// Build a synthetic `name := value` (runtime) or `name :: value` (comptime)
 /// binding. Comptime functions need `::` because a `:=` runtime binding is
 /// rejected inside a compile-time-only function body.
-/// Mirrors `buildBinding` (contracts.ts:290-312).
 _build_binding :: (fn(name : String, value : AstExpr, src_tok : Token, op : String) -> AstExpr)({
   bind_tok := Token(
     kind : TokenKind.Identifier,
@@ -1238,8 +1229,8 @@ _build_binding :: (fn(name : String, value : AstExpr, src_tok : Token, op : Stri
   )
 });
 /// Monotonic counter for `old(...)` entry-snapshot names. A module-level global
-/// rather than TS's local `counter` closure variable: `_hoist_old_in` is a
-/// `recur`-style self-recursive function and yo-self cannot thread an
+/// rather than a local accumulator: `_hoist_old_in` is a
+/// `recur`-style self-recursive function and cannot thread an
 /// `inout(usize)` accumulator through `recur`. Snapshot names only need to be
 /// unique WITHIN one wrapped body, and a monotonic global is strictly stronger.
 /// Local list builders for AST synthesis (ArrayList has no literal syntax).
@@ -1259,7 +1250,6 @@ single2 :: (fn(a : AstExpr, b : AstExpr) -> ArrayList(AstExpr))({
 /// hoisted into an entry-time snapshot binding `__yo_contract_old_K := expr`
 /// pushed onto `snapshots`, and the `old(expr)` node is replaced by a
 /// reference to that snapshot.
-/// Mirrors the `rewrite` closure of `hoistOldExpressions` (contracts.ts:328-360).
 _hoist_old_in :: (
   fn(
     e : AstExpr,
@@ -2488,7 +2478,7 @@ wrap_function_body_with_contracts :: (
   if(_is_verify_target(body_tok.module_path.clone()), {
     mode := resolve_verify_mode(body_tok.module_path.clone());
     // `ignore` (the `pragma(Pragma.NoContracts);` mode, or the CLI
-    // override) — erase contract clauses entirely. Mirrors contracts.ts:406-409.
+    // override) — erase contract clauses entirely.
     if(mode == "ignore", {
       return(body);
     });
@@ -2511,9 +2501,9 @@ wrap_function_body_with_contracts :: (
     .None => String.from(__YO_CONTRACT_RESULT)
   );
   // requires asserts. `clone_expr_fresh_ids` gives each spliced predicate its
-  // own node ids: yo-self keys ExprInfo by node id (expr.yo:307-313), so
+  // own node ids: ExprInfo is keyed by node id (expr.yo:307-313), so
   // reusing the signature's nodes would alias table entries across
-  // specializations. TS gets fresh `$` slots for free from object identity.
+  // specializations.
   requires_asserts := ArrayList(AstExpr).new();
   (ri : usize) = usize(0);
   while(ri < requires_exprs.len(), {

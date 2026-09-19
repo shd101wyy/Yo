@@ -1,6 +1,4 @@
 //! evaluate_subtype_of — handles the `T <: Trait` expression.
-//!
-//! 1:1 port of `src/evaluator/exprs/subtype-of.ts`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -29,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { type_implements_trait_bool } :: import("../trait_checking.yo");
 /// Evaluate the `T <: Trait` constraint operator.
 ///
-/// Mirrors `evaluateSubtypeOf` in `src/evaluator/exprs/subtype-of.ts`.
+///
 evaluate_subtype_of :: (
   fn(
     expr : AstExpr,
@@ -136,7 +134,7 @@ evaluate_subtype_of :: (
   // Collect trait expressions.
   // Supports single trait or tuple of traits; also negated traits T <: !(Trait).
   // Use parallel arrays (trait_exprs_arr, is_neg_arr) since tuple type params
-  // are not supported in yo-self.
+  // are not supported.
   trait_exprs_arr := ArrayList(AstExpr).new();
   is_neg_arr := ArrayList(bool).new();
   rhs_is_tuple := ast_expr_is_fn_call_of(rhs_expr, BK_TUPLE, .None);
@@ -363,7 +361,6 @@ evaluate_subtype_of :: (
       });
     });
     // Create a new trait with receiver type (is_concrete) set to lhs_ty.
-    // Mirrors TypeScript's `{ ...traitType, receiverType: typeValue.value }`.
     // `is_concrete` is `Option(Self)` (a ref-enum TypeValue handle). Clone
     // lhs_ty into the new trait rather than moving it, so lhs_ty is left
     // un-consumed on every path (it drops naturally at scope end) — uniform with

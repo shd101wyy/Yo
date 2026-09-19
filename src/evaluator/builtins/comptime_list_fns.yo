@@ -1,6 +1,4 @@
-//! evaluator/builtins/comptime_list_fns — full 1:1 port of comptime-list-fns.ts.
-//!
-//! 1:1 port of `src/evaluator/builtins/comptime-list-fns.ts`.
+//! evaluator/builtins/comptime_list_fns — compile-time list operations.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -100,8 +98,8 @@ evaluate_yo_comptime_list_car :: (
   );
   out_info := new_expr_info(cur_env, child_ty);
   // Named variant: promotes an unknown ELEMENT of a ComptimeList(Type) to
-  // `TypeVal(SomeT)` — TS passes `__comptime_list_car_${randomId}` here
-  // (comptime-list-fns.ts:80) and createUnknownValue returns a TypeValue
+  // `TypeVal(SomeT)` — the named unknown
+  // returns a TypeValue
   // for Type-universe slots. Without it, `types.first()` on an unknown
   // variadic list yielded a bare UnknownVal that
   // `__yo_are_types_compatible` rejects (tests/variadic_comptime).
@@ -751,8 +749,7 @@ evaluate_yo_comptime_list_get :: (
   });
   child_ty := match(list_info.ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   (cur_env : Environment) = list_info.env;
-  // Same named promotion as the car builtin above (TS
-  // comptime-list-fns.ts:606).
+  // Same named promotion as the car builtin above.
   get_unk_name := String.from("__comptime_list_get_");
   get_unk_name.push_string(stable_module_id(String.from("get_unk_"), env.module_path));
   (out_val : Option(EvalValue)) = .Some(create_unknown_val_with_name(child_ty, get_unk_name));

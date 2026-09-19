@@ -1,19 +1,18 @@
 //! C codegen for the parallelism runtime (Thread + Worker pool).
 //!
-//! 1-to-1 port of `src/codegen/parallelism/runtime.ts`. Emits the
-//! `__yo_thread_*` (dedicated OS thread) and `__yo_worker_*` (thread-pool with
-//! thread affinity) C runtime. The thread/sync TYPES it references
+//! Emits the `__yo_thread_*` (dedicated OS thread) and `__yo_worker_*`
+//! (thread-pool with thread affinity) C runtime. The thread/sync TYPES it references
 //! (`__yo_thread_t`, `__yo_thread_fn`, `__YO_THREAD_TYPE`, `__YO_COND_TYPE`,
 //! `__yo_raw_thread_create`, `PARALLELISM_DEBUG`, …) are emitted separately by
 //! `codegen/types/generation.yo`. Wired into `generate_all_functions` (gated on
 //! `uses_parallelism`), beside `generate_async_runtime`.
 //!
-//! NOTE: TS uses ONE template literal; here the C body is emitted as many
-//! `emit_string_line` calls (each a pure literal or a single conditional value,
-//! 0 interpolations per call), mirroring `async/runtime_core.yo`. A single
-//! ~380-line template with 16 `${}` interpolations desugars to a deep
-//! string-concat AST that the TS codegen processes pathologically slowly; the
-//! sibling async-runtime files use the same split-emit idiom for the same reason.
+//! NOTE: the C body is emitted as many `emit_string_line` calls (each a pure
+//! literal or a single conditional value, 0 interpolations per call),
+//! mirroring `async/runtime_core.yo`. A single ~380-line template with 16
+//! `${}` interpolations desugars to a deep string-concat AST that the
+//! compiler processes pathologically slowly; the sibling async-runtime files
+//! use the same split-emit idiom for the same reason.
 import("std/string");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo, is_target_macos, is_target_linux, is_target_windows } :: import("../../target.yo");

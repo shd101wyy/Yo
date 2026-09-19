@@ -4,9 +4,8 @@
 //! directories and the raw-pointer-API-by-contract names exempt. The lint is
 //! informational — it exits 0 even with findings.
 //!
-//! 1:1 port of `src/public-safe-report.ts` (the byte-scanner conventions and
-//! the deliberately duplicated file walker match `unsafe_report.yo` — TS
-//! duplicates `walkYoFiles` between the two files the same way).
+//! The byte-scanner conventions and the deliberately duplicated file walker
+//! match `unsafe_report.yo`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { StringBuilder } :: import("std/fmt");
@@ -99,7 +98,7 @@ _psr_bytes_at :: (fn(src : ArrayList(u8), i : usize, needle : str) -> bool)({
 });
 /// Advance `i` past a string literal / line comment when one starts there;
 /// returns the new index (unchanged when neither starts at `i`). Shared by
-/// every balance scan below (mirrors the inline skip blocks of the TS scans).
+/// every balance scan below.
 _psr_skip_string_or_comment :: (fn(src : ArrayList(u8), i : usize) -> usize)({
   n := src.len();
   c := src(i);
@@ -132,13 +131,12 @@ _psr_skip_string_or_comment :: (fn(src : ArrayList(u8), i : usize) -> usize)({
   });
   i
 });
-/// Names whose raw pointer is part of the contract, not a leak. Mirrors
-/// `RAW_POINTER_API_PATTERNS`.
+/// Names whose raw pointer is part of the contract, not a leak.
 _name_is_raw_pointer_api :: (fn(name : String) -> bool)(
   ((((name.ends_with(`_cstr`) || (name == "from_cstr")) || ((name == "from_raw_parts") || (name == "as_ptr"))) || ((name == "from_raw") || name.ends_with(`_raw`))) || (name.starts_with(`raw_`) || name.ends_with(`_ptr`))) || ((name == "argv") || (name == "argc"))
 );
-/// Directories whose files are FFI by construction. Mirrors `FFI_DIR_NAMES`
-/// + the `.test.yo` exemption of `shouldSkipFile`.
+/// Directories whose files are FFI by construction, plus the `.test.yo`
+/// exemption.
 _should_skip_file :: (fn(file : String) -> bool)({
   if(file.ends_with(`.test.yo`), {
     return(true);
@@ -155,7 +153,7 @@ _should_skip_file :: (fn(file : String) -> bool)({
   false
 });
 /// Byte spans of `extern(...)` declarations — pointer types inside them are
-/// FFI signatures by design. Mirrors `findExternSpans`.
+/// FFI signatures by design.
 _find_extern_spans :: (fn(src : ArrayList(u8)) -> ArrayList(_Span))({
   spans := ArrayList(_Span).new();
   n := src.len();
@@ -221,7 +219,7 @@ _psr_ident_byte :: (fn(c : u8) -> bool)(
   ) || (c == u8(95))
 );
 /// Every pointer-type occurrence in `text` with its offset, skipping string
-/// literals and line comments. Mirrors `findPointerTypes`, extended for the
+/// literals and line comments. extended for the
 /// bare prefix spelling (plans/archive/FMT_PAREN_ELISION.md D3): `*(u8)` AND `*u8`
 /// / `**T` / tight call operands (`*List(i32)`). The slices handed here are
 /// parameter/return TYPE text, so a `*` before an identifier is a pointer
@@ -331,7 +329,7 @@ _find_pointer_types :: (fn(text : ArrayList(u8)) -> ArrayList(_PtrHit))({
   out
 });
 /// (line, column) of `offset` in `src` — 1-based, column from the previous
-/// newline. Mirrors `offsetToLineCol`.
+/// newline.
 _offset_to_line_col :: (fn(src : ArrayList(u8), offset : usize) -> _LineCol)({
   (line : usize) = usize(1);
   (last_nl : i64) = i64(-(1));
@@ -346,7 +344,6 @@ _offset_to_line_col :: (fn(src : ArrayList(u8), offset : usize) -> _LineCol)({
   _LineCol(line : line, column : usize(i64(offset) - last_nl))
 });
 /// The whitespace-collapsed 60-byte window around `offset` in `text`.
-/// Mirrors `shortSnippet`.
 _short_snippet :: (fn(text : ArrayList(u8), offset : usize) -> String)({
   start := if(offset > usize(20), offset - usize(20), usize(0));
   end := if((offset + usize(40)) < text.len(), offset + usize(40), text.len());
@@ -371,7 +368,7 @@ _short_snippet :: (fn(text : ArrayList(u8), offset : usize) -> String)({
 /// Extract every top-level `name :: (fn(<params>) -> <return>)` declaration.
 /// The anchor is the canonical formatted shape at a LINE START (no indent):
 /// `name :: (` then optional whitespace then `fn` then optional whitespace
-/// then `(`. Mirrors `extractTopLevelFnDecls` (its `^name :: \(\s*fn\s*\(`
+/// then `(`. (its `^name :: \(\s*fn\s*\(`
 /// anchored regex).
 _extract_top_level_fn_decls :: (fn(src : ArrayList(u8)) -> ArrayList(_FnDecl))({
   decls := ArrayList(_FnDecl).new();
@@ -391,7 +388,7 @@ _extract_top_level_fn_decls :: (fn(src : ArrayList(u8)) -> ArrayList(_FnDecl))({
         name_sb.write_byte(src(b));
         b = (b + usize(1));
       });
-      // ` :: (` — literal single spaces, per the TS regex.
+      // ` :: (` — literal single spaces.
       if(_psr_bytes_at(src, k, " :: ("), {
         sig_open := (k + usize(4));
         // Optional whitespace, `fn`, optional whitespace, `(`.
@@ -496,8 +493,8 @@ _extract_top_level_fn_decls :: (fn(src : ArrayList(u8)) -> ArrayList(_FnDecl))({
   });
   decls
 });
-/// Scan one file's declarations for pointer leaks. Mirrors `scanFile` (the
-/// params_start captured at extraction replaces TS's re-location searches).
+/// Scan one file's declarations for pointer leaks. The declaration's
+/// `params_start` is captured at extraction time.
 _scan_file :: (fn(file : String, src_str : String, findings : ArrayList(PublicSafeFinding)) -> unit)({
   src := src_str.as_bytes();
   extern_spans := _find_extern_spans(src);
@@ -530,7 +527,7 @@ _scan_file :: (fn(file : String, src_str : String, findings : ArrayList(PublicSa
         ret_bytes := decl.return_text.as_bytes();
         ret_hits := _find_pointer_types(ret_bytes);
         if(ret_hits.len() > usize(0), {
-          // TS approximates the return text's absolute position via the
+          // The return text's absolute position is approximated via the
           // first `->` after params_start.
           (arrow : usize) = decl.params_start;
           (found_arrow : bool) = false;
@@ -566,7 +563,7 @@ _scan_file :: (fn(file : String, src_str : String, findings : ArrayList(PublicSa
   });
 });
 /// The same .yo tree walk as unsafe_report.yo's (see its comment for the `.`
-/// and skip-set handling); duplicated because TS duplicates `walkYoFiles`.
+/// and skip-set handling); deliberately duplicated rather than shared.
 _psr_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
     is_dot := (root == ".");
@@ -618,7 +615,7 @@ _psr_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn :
     ()
   })
 );
-/// Generate the report. Mirrors `generatePublicSafeReport`.
+/// Generate the report.
 generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception) -> Impl(Future(PublicSafeReport, IoExn)))(
   io.async((e : IoExn) => {
     files := ArrayList(String).new();
@@ -655,7 +652,7 @@ generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception)
     )
   })
 );
-/// Human format. Mirrors `formatPublicSafeReport` line for line.
+/// Human format.
 format_public_safe_report :: (fn(report : PublicSafeReport) -> String)({
   out := StringBuilder.new();
   out.write_str("Public stdlib safety report\n");
@@ -709,8 +706,8 @@ _psr_json_str :: (fn(text : String) -> String)({
   out.push_str("\"");
   out
 });
-/// `JSON.stringify(report, null, 2)` parity: camelCase keys in declaration
-/// order (findings first, then totals — the TS interface order).
+/// JSON output: camelCase keys in declaration order (findings first, then
+/// totals).
 public_safe_report_to_json :: (fn(report : PublicSafeReport) -> String)({
   out := StringBuilder.new();
   out.write_str("{\n  \"findings\": [");
