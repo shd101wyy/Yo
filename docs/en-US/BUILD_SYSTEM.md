@@ -31,7 +31,8 @@ my-project/
 │   ├── main.yo           ← Executable entry point
 │   └── lib.yo            ← Library code
 ├── tests/
-│   └── main.test.yo      ← Test file
+│   ├── main.test.yo      ← Test file for the executable
+│   └── lib.test.yo       ← Test file for the library
 ├── .gitignore
 ├── AGENTS.md             ← Guidance for AI coding agents (lists the skills)
 ├── .agents/skills/       ← Bundled agent skill files (see yo skills install)
