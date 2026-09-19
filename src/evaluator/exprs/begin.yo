@@ -264,9 +264,8 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
   );
   // A macro call (e.g. `if`, expanding to `cond`) keeps its original head in
   // the AST; the evaluated expansion — the FRESH-ID clone codegen emits — is
-  // recorded in `macro_expansion`. Walk the EXPANSION instead of the raw args
-  // (begin.ts searchRecursively does the same via $.macroExpansion): the
-  // expansion's cond/match head routes arm-internal dups through the
+  // recorded in `macro_expansion`. Walk the EXPANSION instead of the raw args:
+  // the expansion's cond/match head routes arm-internal dups through the
   // branch-aware handler below, so they are flagged partial (or counted per
   // arm) instead of cancelled as unconditional dups.
   match(
@@ -383,7 +382,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
       );
       bri = (bri + usize(1));
     });
-    // Per-variable branch categorization (begin.ts handleBranchingExpression):
+    // Per-variable branch categorization:
     // a branch-arm dup executes only when that arm is taken, so it may be
     // exposed to the optimizer ONLY when EVERY arm dups the variable (with
     // 2+ arms the per-arm count then blocks cancellation anyway). Partial
@@ -2009,8 +2008,8 @@ evaluate_begin_expression :: (
           // runtime — including a conditional return — so folding the
           // block would silently delete the statement. Assignments are
           // exempt: a comptime-only assignment in a comptime fn body
-          // carries a typed unknown during validation (1:1 with begin.ts;
-          // issues/fixed/codegen-block-rhs-drops-nontail-statements.md).
+          // carries a typed unknown during validation
+          // (issues/fixed/codegen-block-rhs-drops-nontail-statements.md).
           is_unknown_val := match(
             ev_info_opt,
             .Some(ei) => match(

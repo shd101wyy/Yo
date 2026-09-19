@@ -238,8 +238,8 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
         // `.Some(x)`: the binding's open frame makes `x` look declared, and
         // the emitted drop then raw-decrs the BORROWED binding — the
         // seed-trust UAF, issues/fixed/seed-built-stage1-miscompiles-current-source.md).
-                        // Same initialized-after skip as the full env branch
-                        // ("declared after this cleanup point").
+        // Same initialized-after skip as the full env branch
+        // ("declared after this cleanup point").
         init_after := match(tv.initialized_at_token, .Some(it) => _variable_initialized_after_cleanup_point(it, expr), .None => false);
         if(init_after, {
           return(false);
