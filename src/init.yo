@@ -6,8 +6,9 @@
 //!
 //! Unless skipped with `--no-skills`, it then installs the bundled agent
 //! skill files into the project's agent config dirs and writes `AGENTS.md`
-//! (listing them) plus `CLAUDE.md` (pointing at `AGENTS.md`) — see
-//! `install_agent_files`.
+//! (listing them) — see `install_agent_files`. No `CLAUDE.md` is written:
+//! Claude Code reads `AGENTS.md` directly, so the pointer file was one more
+//! thing to keep in sync for no benefit.
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { env } :: import("std/env");
@@ -212,14 +213,10 @@ No Yo skill files are installed in this project yet. Run: yo skills install
   footer := String.from("\nRefresh the skills after upgrading the compiler: yo skills install\n");
   ((header + fence) + skills_section) + footer
 });
-/// Generate the content of `CLAUDE.md` — a one-line pointer at `AGENTS.md`,
-/// the same convention this repository itself uses, so Claude Code reads
-/// the same guidance without a second copy to keep in sync.
-generate_claude_md :: (fn() -> str)("@AGENTS.md\n");
 /// Post-scaffold agent setup, run by `yo init` unless `--no-skills`:
 /// install the bundled skill files into `project_dir`'s agent config dirs,
-/// then write `AGENTS.md` (listing the installed skills) and `CLAUDE.md`
-/// (pointing at `AGENTS.md`) when they do not already exist.
+/// then write `AGENTS.md` (listing the installed skills) when it does not
+/// already exist.
 ///
 /// Best-effort by design: a missing bundled skills dir only prints a note —
 /// it must never fail `yo init` itself. Sync (blocking awaits): called from
@@ -237,8 +234,8 @@ install_agent_files :: (
     .None => {
       println(
         tr(
-          `note: bundled skill files not found; skipping agent scaffolding (AGENTS.md, CLAUDE.md).`,
-          `注意：找不到随发行版捆绑的技能文件，跳过 agent 脚手架（AGENTS.md、CLAUDE.md）。`
+          `note: bundled skill files not found; skipping agent scaffolding (AGENTS.md).`,
+          `注意：找不到随发行版捆绑的技能文件，跳过 agent 脚手架（AGENTS.md）。`
         )
       );
     },
@@ -254,15 +251,6 @@ install_agent_files :: (
         !agents_exists => {
           io.await(write_string(agents_path, generate_agents_md(res.skills, res.targets), io), IoExn(io : io, exn : exn));
           println(String.from("  create     AGENTS.md"));
-        },
-        true => ()
-      );
-      claude_path := project_dir.join(Path.new(String.from("CLAUDE.md")));
-      claude_exists := io.await(exists(claude_path.clone(), io), io);
-      cond(
-        !claude_exists => {
-          io.await(write_string(claude_path, String.from(generate_claude_md()), io), IoExn(io : io, exn : exn));
-          println(String.from("  create     CLAUDE.md"));
         },
         true => ()
       );
@@ -429,7 +417,6 @@ export(
   generate_gitignore,
   generate_readme,
   generate_agents_md,
-  generate_claude_md,
   install_agent_files,
   init_project
 );

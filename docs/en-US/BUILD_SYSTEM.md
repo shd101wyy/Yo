@@ -31,10 +31,10 @@ my-project/
 │   ├── main.yo           ← Executable entry point
 │   └── lib.yo            ← Library code
 ├── tests/
-│   └── main.test.yo      ← Test file
+│   ├── main.test.yo      ← Test file for the executable
+│   └── lib.test.yo       ← Test file for the library
 ├── .gitignore
 ├── AGENTS.md             ← Guidance for AI coding agents (lists the skills)
-├── CLAUDE.md             ← Points at AGENTS.md
 ├── .agents/skills/       ← Bundled agent skill files (see yo skills install)
 └── README.md
 ```
@@ -752,7 +752,7 @@ Arguments:
 
 Options:
   --name <name>          Project name (default: directory name)
-  --no-skills            Skip the agent skill files and AGENTS.md/CLAUDE.md
+  --no-skills            Skip the agent skill files and AGENTS.md
 ```
 
 Creates the following files:
@@ -770,7 +770,6 @@ fresh project) and writes two entry points for AI coding agents:
 
 - `AGENTS.md` — lists the installed skills with their descriptions; created
   only if absent
-- `CLAUDE.md` — a one-line pointer at `AGENTS.md`; created only if absent
 
 ## Multi-Target Builds
 

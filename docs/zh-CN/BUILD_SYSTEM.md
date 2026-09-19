@@ -31,10 +31,10 @@ my-project/
 │   ├── main.yo           ← 可执行文件入口
 │   └── lib.yo            ← 库代码
 ├── tests/
-│   └── main.test.yo      ← 测试文件
+│   ├── main.test.yo      ← 可执行文件的测试
+│   └── lib.test.yo       ← 库的测试
 ├── .gitignore
 ├── AGENTS.md             ← AI 编码代理的指引（列出各技能）
-├── CLAUDE.md             ← 指向 AGENTS.md
 ├── .agents/skills/       ← 捆绑的 agent 技能文件（见 yo skills install）
 └── README.md
 ```
@@ -738,7 +738,7 @@ Arguments:
 
 Options:
   --name <name>          项目名称（默认：目录名）
-  --no-skills            跳过 agent 技能文件与 AGENTS.md/CLAUDE.md
+  --no-skills            跳过 agent 技能文件与 AGENTS.md
 ```
 
 创建以下文件：
@@ -755,7 +755,6 @@ Options:
 文件：
 
 - `AGENTS.md` — 列出已安装的技能及其描述；仅在不存在时创建
-- `CLAUDE.md` — 指向 `AGENTS.md` 的一行指针；仅在不存在时创建
 
 ## 多目标构建
 
