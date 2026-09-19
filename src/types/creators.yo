@@ -281,6 +281,36 @@ t_resolved_cell :: (fn(t : TypeValue) -> ArrayList(TypeValue))({
   cell.push(t);
   cell
 });
+/// Per-call SomeT minting (§7 step 3's cure, issues/
+/// warm-test-batches-doc-stability-genericimplentry.md): rebuild `s` with a
+/// FRESH id and a FRESH (empty) resolved-concrete cell, copying every other
+/// field. A call binds THESE clones into its callee env — the shared
+/// signature's SomeT objects stay pristine forever, so stored values
+/// (registry entries, captured types, memoized instances) can never observe
+/// another call's resolutions, and the global g_some_resolved_concrete
+/// table (keyed by id) is never contended between calls. Same name and
+/// frame_level, so the callee body's (name, level) resolution is
+/// unchanged. Mirrors TS minting a fresh SomeType per call (helper.ts:1047).
+/// Non-SomeT input returns unchanged.
+clone_some_fresh :: (fn(s : TypeValue) -> TypeValue)(
+  match(
+    s,
+    .SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, seff, skind, _) => .SomeT(
+      generate_some_type_id(),
+      snm,
+      sfl,
+      spt,
+      sreq,
+      sreql,
+      sneg,
+      snegl,
+      seff,
+      skind,
+      ArrayList(TypeValue).new()
+    ),
+    _ => s
+  )
+);
 /// Create a SomeType with a `kind_function_type` set — represents a
 /// higher-kinded type variable like `F : (fn(T : Type) -> Type)`.
 /// `kind` must be a `Func` TypeValue. Mirrors TS's `SomeType.kindFunctionType`
@@ -763,6 +793,7 @@ export(
   t_module_simple,
   t_some_t,
   t_some_t_with_kind,
+  clone_some_fresh,
   t_expr_t,
   t_comptime_list,
   t_effects_row,

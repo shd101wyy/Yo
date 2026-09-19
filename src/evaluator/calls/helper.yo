@@ -60,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
-{ t_unit, t_type, t_resolved_cell } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_resolved_cell, clone_some_fresh } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_key } :: import("../../types/type_key.yo");
 {
@@ -5388,6 +5388,19 @@ try_to_call_function_with_arguments :: (
               sf_i = (sf_i + usize(1));
             });
             sg_already_bound := (get_variables_from_env(callee_env, sg_nm).len() > usize(0));
+            // The SIG's own SomeT instance, deliberately NOT freshly minted
+            // (measured 2026-09-19): the signature's types and the env
+            // binding cohere THROUGH the shared id — the call's resolution
+            // is stamped on the shared SomeT (register_some_resolved_
+            // concrete / the cell), and every later read of the SIGNATURE's
+            // types (builtin param checks like `*(T).add`'s
+            // `__yo_ptr_add(self, count)`) resolves through it. Minting a
+            // fresh clone here leaves the shared signature's T permanently
+            // abstract and cold compiles die ("expected T, got *(u8)",
+            // prelude:6801). The §7 warm-bug cure therefore has to clone
+            // the WHOLE signature per call (fresh SomeTs substituted
+            // through func_type AND bound in the env, coherently) — see
+            // issues/warm-test-batches-doc-stability-genericimplentry.md.
             if(sg_is_forall || !(sg_already_bound), {
               add_variable_to_env(
                 callee_env,
@@ -5475,6 +5488,16 @@ try_to_call_function_with_arguments :: (
           match(
             fv_marker,
             .Some(fv_found) => {
+              // SIG MARKER instance, deliberately NOT freshly minted: this
+              // binding's SomeT must stay IDENTITY-SHARED with the
+              // signature's own occurrence — evaluate_function_return_type_
+              // again and the occurrence-substitution below resolve the
+              // DECLARED return's SomeT copy against THIS binding, and a
+              // fresh id splits the lineage (the Gap-6 class — measured
+              // 2026-09-19: minting here broke `*(T).add`'s body with
+              // "expected T, got *(u8)" on a cold compile). The cure's
+              // minting lives in the Step-6 marker loop, which every callee
+              // env builds on.
               forall_val = create_type_value(fv_found);
             },
             .None => {
