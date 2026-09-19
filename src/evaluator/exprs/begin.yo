@@ -1479,6 +1479,135 @@ _schedule_scope_end_drops :: (
   });
   Option(ArrayList(AstExpr)).Some(deferred)
 });
+/// `.V` or `.V(…)` — an enum variant literal whose enum is only knowable
+/// from context.
+_is_bare_variant_literal :: (fn(e : AstExpr) -> bool)({
+  head_ok := (fn(h : AstExpr) -> bool)(
+    ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
+      h,
+      .FnCall(_, _, hargs, _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false),
+      .Atom(_, _) => false
+    )
+  );
+  cond(
+    head_ok(e) => true,
+    true => match(
+      e,
+      .FnCall(_, func, _, _, _) => head_ok(func),
+      .Atom(_, _) => false
+    )
+  )
+});
+/// Does `e` contain `return(name)` anywhere?
+_contains_return_of :: (fn(e : AstExpr, name : String) -> bool)({
+  if(ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))), {
+    is_it := match(
+      e,
+      .FnCall(_, _, rargs, _, _) => match(
+        rargs.get(usize(0)),
+        .Some(a) => (ast_expr_is_atom(a) && (ast_expr_token(a).value == name)),
+        .None => false
+      ),
+      .Atom(_, _) => false
+    );
+    if(is_it, {
+      return(true);
+    });
+  });
+  match(
+    e,
+    .FnCall(_, func, args, _, _) => {
+      if(recur(func, name.clone()), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            if(recur(a, name.clone()), {
+              return(true);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    },
+    .Atom(_, _) => false
+  )
+});
+/// The enclosing function's declared result type, when evaluating a body.
+_enclosing_fn_result_type :: (fn(ctx : EvalContext) -> Option(TypeValue))(
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb_ctx) => match(
+      fb_ctx.kind,
+      .FunctionBody => match(
+        fb_ctx.func_type,
+        .Some(ft) => match(
+          ft,
+          .Func({ result : ret_box }) => Option(TypeValue).Some(ret_box),
+          _ => Option(TypeValue).None
+        ),
+        .None => Option(TypeValue).None
+      ),
+      _ => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  )
+);
+/// For statement `stmt` = `name := .Variant(…)`: the function result type as
+/// an expected-type hint when a LATER statement of the block returns `name`
+/// (or `name` is the function body's tail); `.None` otherwise.
+_variant_local_hint :: (
+  fn(
+    stmt : AstExpr,
+    begin_args : ArrayList(AstExpr),
+    idx : usize,
+    is_fn_body : bool,
+    env : Environment,
+    ctx : EvalContext
+  ) -> Option(ExpectedTypeCtx)
+)({
+  if(!ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))), {
+    return(Option(ExpectedTypeCtx).None);
+  });
+  sargs := match(stmt, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs := match(sargs.get(usize(0)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
+  rhs := match(sargs.get(usize(1)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
+  if(!ast_expr_is_atom(lhs) || !_is_bare_variant_literal(rhs), {
+    return(Option(ExpectedTypeCtx).None);
+  });
+  name := ast_expr_token(lhs).value.clone();
+  result_ty := match(_enclosing_fn_result_type(ctx), .Some(t) => t, .None => return(Option(ExpectedTypeCtx).None));
+  n := begin_args.len();
+  (found : bool) = false;
+  (k : usize) = (idx + usize(1));
+  while((k < n) && !found, {
+    match(
+      begin_args.get(k),
+      .Some(later) => {
+        if(_contains_return_of(later, name.clone()), {
+          found = true;
+        });
+        // The function body's tail expression IS the local.
+        if((k == (n - usize(1))) && is_fn_body, {
+          if(ast_expr_is_atom(later) && (ast_expr_token(later).value == name), {
+            found = true;
+          });
+        });
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  cond(
+    found => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : result_ty, env : env)),
+    true => Option(ExpectedTypeCtx).None
+  )
+});
 evaluate_begin_expression :: (
   fn(
     expr : AstExpr,
@@ -1972,7 +2101,13 @@ evaluate_begin_expression :: (
         if(!is_last_in_loop, {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
         });
+        // `name := .Variant(…)` with no type source on the right: look ahead
+        // for the local's first typed use and hand the initialization the
+        // function's result type as a one-shot hint
+        // (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §2.2).
+        ctx.local_variant_hint = _variant_local_hint(expr_to_eval, begin_args, loop_i, is_evaluating_function_body_begin_block, env, ctx);
         evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, exn);
+        ctx.local_variant_hint = Option(ExpectedTypeCtx).None;
         ctx.expected_type = old_expected;
         ev_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
         match(

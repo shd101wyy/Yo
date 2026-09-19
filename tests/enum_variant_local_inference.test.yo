@@ -1,0 +1,55 @@
+//! A `:=` local initialised from a bare variant literal takes its enum type
+//! from where the local flows (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md
+//! §2.2): a later `return(local)` in the same block, or the local as the
+//! function body's tail, supplies the enclosing function's result type.
+//! Before this, `r := .Ok(x); return(r);` was "Failed to infer enum variant
+//! type" while `return(.Ok(x))` inferred fine.
+{ assert } :: import("std/assert");
+import("std/fmt");
+E :: enum(Bad, Worse(code : i32));
+Color :: enum(Red, Green);
+test("a bare variant local returned later infers from the function result", {
+  f :: (fn(x : i32) -> Result(i32, E))({
+    r := .Ok(x);
+    return(r);
+  });
+  assert(match(f(3), .Ok(v) => (v == i32(3)), .Err(_) => false));
+});
+test("a fieldless variant local infers too", {
+  g :: (fn(flag : bool) -> Color)({
+    c := .Red;
+    if(flag, {
+      return(c);
+    });
+    .Green
+  });
+  assert(match(g(true), .Red => true, .Green => false));
+  assert(match(g(false), .Red => false, .Green => true));
+});
+test("the tail expression of the body counts as a use", {
+  h :: (fn(code : i32) -> Result(i32, E))({
+    e := .Err(.Worse(code));
+    e
+  });
+  assert(match(h(7), .Ok(_) => false, .Err(err) => match(err, .Worse(c) => (c == i32(7)), .Bad => false)));
+});
+test("a return nested inside a branch counts as a use", {
+  k :: (fn(n : i32) -> Option(i32))({
+    some := .Some(n);
+    if(n > i32(0), {
+      return(some);
+    });
+    Option(i32).None
+  });
+  assert(match(k(5), .Some(v) => (v == i32(5)), .None => false));
+  assert(match(k(-1), .Some(_) => false, .None => true));
+});
+test("the inferred local is usable before the return", {
+  m :: (fn(n : i32) -> Result(i32, E))({
+    r := .Ok(n * i32(2));
+    doubled := match(r, .Ok(v) => v, .Err(_) => i32(0));
+    assert(doubled == (n * i32(2)));
+    return(r);
+  });
+  assert(match(m(4), .Ok(v) => (v == i32(8)), .Err(_) => false));
+});

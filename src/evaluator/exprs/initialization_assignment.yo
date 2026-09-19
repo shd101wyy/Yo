@@ -435,6 +435,24 @@ _evaluate_inout_local_binding :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
   expr
 });
+/// `.V` or `.V(…)` on the right of `:=` — see `local_variant_hint`.
+_rhs_is_bare_variant_literal :: (fn(e : AstExpr) -> bool)({
+  head_ok := (fn(h : AstExpr) -> bool)(
+    ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
+      h,
+      .FnCall(_, _, hargs, _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false),
+      .Atom(_, _) => false
+    )
+  );
+  cond(
+    head_ok(e) => true,
+    true => match(
+      e,
+      .FnCall(_, func, _, _, _) => head_ok(func),
+      .Atom(_, _) => false
+    )
+  )
+});
 evaluate_initialization_assignment :: (
   fn(
     expr : AstExpr,
@@ -597,7 +615,16 @@ evaluate_initialization_assignment :: (
   // Save/restore context fields that are locally overridden.
   old_expected_type := ctx.expected_type;
   old_is_inside_given_handler := ctx.is_inside_given_handler;
-  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  // A bare `.Variant(…)` right-hand side takes the block's look-ahead hint
+  // (the enclosing function's result type, when a later statement returns
+  // this local) as its expected type; every other RHS is evaluated without
+  // one, as before. The hint is one-shot.
+  variant_hint := ctx.local_variant_hint;
+  ctx.local_variant_hint = Option(ExpectedTypeCtx).None;
+  ctx.expected_type = cond(
+    (variant_hint.is_some() && _rhs_is_bare_variant_literal(rhs)) => variant_hint,
+    true => Option(ExpectedTypeCtx).None
+  );
   if(is_implicit, {
     ctx.is_inside_given_handler = true;
   });

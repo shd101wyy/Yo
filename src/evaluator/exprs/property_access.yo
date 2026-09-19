@@ -410,9 +410,10 @@ evaluate_property_access :: (
       .None => {
         exn.throw(
           dyn(
-            format_error_message(
+            format_error_message_with_help(
               ast_expr_token(expr),
-              String.from("Failed to infer enum variant type.")
+              String.from("Failed to infer enum variant type."),
+              Option(String).Some(String.from("name the enum: `MyEnum.Variant(...)`, annotate the binding: `(x : MyEnum) = .Variant(...)`, or return the value directly"))
             )
           )
         );
@@ -422,9 +423,10 @@ evaluate_property_access :: (
         if(!is_enum_type(exp_ctx_1.ty), {
           exn.throw(
             dyn(
-              format_error_message(
+              format_error_message_with_help(
                 ast_expr_token(expr),
-                String.from("Failed to infer enum variant type.")
+                String.from("Failed to infer enum variant type."),
+                Option(String).Some(String.from("name the enum: `MyEnum.Variant(...)`, annotate the binding: `(x : MyEnum) = .Variant(...)`, or return the value directly"))
               )
             )
           );
@@ -499,9 +501,10 @@ evaluate_property_access :: (
           _ => {
             exn.throw(
               dyn(
-                format_error_message(
+                format_error_message_with_help(
                   ast_expr_token(expr),
-                  String.from("Failed to infer enum variant type.")
+                  String.from("Failed to infer enum variant type."),
+                  Option(String).Some(String.from("name the enum: `MyEnum.Variant(...)`, annotate the binding: `(x : MyEnum) = .Variant(...)`, or return the value directly"))
                 )
               )
             );
