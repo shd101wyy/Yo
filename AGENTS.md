@@ -189,16 +189,20 @@ yo explain E0xxx | yo fix <path>             # diagnostics registry / structured
 
 Three views of one rule: the only question is "does the battery I am about to trust cover the code I am about to act on".
 
-- **Cancel runs a merge made pointless.** A squash-merged branch's run gates nothing (its commit no longer exists on any branch), and a backlog of such runs has held every runner for hours. Keep every open PR's runs and the newest running `develop` battery; cancel the rest:
+- **Cancel runs a merge made pointless.** A squash-merged branch's run gates nothing (its commit no longer exists on any branch), and a backlog of such runs has held every runner for hours. Keep every open PR's runs, the newest running `develop` battery, and **every `Release` run**; cancel the rest:
 
   ```bash
-  gh run list --limit 30 --json databaseId,headBranch,status \
-    --jq '.[]|select(.status=="queued" or .status=="in_progress" or .status=="pending")|"\(.databaseId) \(.status) \(.headBranch)"'
+  # workflowName is NOT optional here — see the Release rule below.
+  gh run list --limit 30 --json databaseId,headBranch,workflowName,status \
+    --jq '.[]|select(.status=="queued" or .status=="in_progress" or .status=="pending")|"\(.databaseId) \(.status) \(.workflowName) \(.headBranch)"'
   gh pr list --state open --limit 50 --json headRefName --jq '[.[].headRefName]|join(" ")'
   gh run cancel <id>   # for each run whose branch is not an open PR's head
   ```
 
   Cancellation is asynchronous; re-list rather than cancelling twice. When in doubt about someone else's branch, leave it.
+- **NEVER cancel a `Release` run, and check the workflow name before every cancel.** A release is dispatched with `workflow_dispatch --ref develop`, so its `headBranch` is `develop`: it is not an open PR's head, and it is not "the newest running `develop` battery" either. **The recipe above, read on `headBranch` alone, tells you to cancel it.** Measured 2026-09-19: run `35412206049` had its `release` job finish green — bumping `src/version.yo` to 0.2.37, pushing the bump commit, and creating the draft release — and was then cancelled ~30 minutes in, killing all six bundle jobs plus publish, seed-bundle, portable-C, site-deploy and the `SEED_VERSION` bump. It left the repository in a genuinely confusing half-released state: a `v0.2.37` draft with no tag, `src/version.yo` already saying 0.2.37, and `SEED_VERSION` still pinned to v0.2.36. Recovery is not a re-run — dispatch `bump=none`, which is the documented resume ("RESUMES an interrupted release at the version already in `src/version.yo`") and re-releases that version instead of skipping to 0.2.38.
+
+  The `Cancel runs for closed PRs` workflow is NOT the hazard here: it guards long-lived branches by name and cancels only runs on the closed PR's own head ref, and its log for that window shows it cancelling exactly one unrelated run. The hazard is the manual sweep, which is why the listing above now prints `workflowName`.
 - **A push to `develop` always runs the full battery (28 jobs)**; `test.yml`'s docs-only fast path (`code=false`: 18 jobs with 15 skipped, reporting `success` having compiled nothing) is **PR-only**. A stacked PR (base not `develop`) runs a deliberately REDUCED battery (`full=false`). A skip count is not a diagnosis: read the `changes` job's log (`classification: code=…`, `battery: FULL|REDUCED`).
 - **Never merge a docs-only PR to `develop` while a battery you are waiting on is in flight.** The push supersedes the pending run (one pending run per concurrency group), so the verdict you wanted never arrives. Back-to-back merges have the same effect: the gate becomes "whatever the LAST merge triggered". Park work under a freeze by pushing the branch without opening the PR (a bare branch push runs nothing; an open PR runs on every push, draft or not).
 - **Before cutting a release, diff the code directories against the battery's head; do not reason from run ordering:**
