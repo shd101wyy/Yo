@@ -5,11 +5,6 @@
 //!
 //! The copy core (`install_skills_into`) is shared with `yo init`'s agent
 //! scaffolding, which calls it against the freshly scaffolded project.
-//!
-//! Port of the TypeScript-era `src/skills-command.ts` (frozen at the
-//! `src-attic-final` tag). The README documented `yo skills install` from
-//! PR #58 onward, but the P2.5 bootstrap carried the command over late —
-//! the self-hosted compiler shipped without it.
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { Exception, IoExn } :: import("std/error");
@@ -49,9 +44,9 @@ SkillCopyCounters :: ref(
     overwritten : usize
   )
 );
-/// Files report `  create ` / `  overwrite ` exactly like the TS command
-/// did; skills are plain directories of text files, so a recursive walk plus
-/// `std/fs` `copy` is the whole mechanism.
+/// Files report `  create ` / `  overwrite `; skills are plain directories
+/// of text files, so a recursive walk plus `std/fs` `copy` is the whole
+/// mechanism.
 _copy_skills_file :: (
   fn(
     src : Path,
@@ -184,8 +179,8 @@ description_from_frontmatter :: (fn(content : String) -> String)({
   desc
 });
 /// Walk `start`'s ancestors looking for a `.github/skills` directory;
-/// `.None` when none exists (the caller reports the packaging error — the
-/// TS command exited 1 here).
+/// `.None` when none exists (the caller reports the packaging error and
+/// exits 1).
 ///
 /// The bundled `.github/skills` lookup, in order:
 ///
@@ -328,7 +323,7 @@ install_skills_into :: (
     });
     i = (i + usize(1));
   });
-  // If none exist, `.agents` is the default (TS behavior).
+  // If none exist, `.agents` is the default.
   if(targets.len() == usize(0), {
     targets.push(String.from(".agents"));
   });
@@ -396,7 +391,7 @@ print_skills_summary :: (
     )
   );
 });
-/// Run the `skills install` subcommand. Mirrors TS `runSkillsInstall`.
+/// Run the `skills install` subcommand.
 run_skills_install :: (
   fn(
     argv : ArrayList(String),

@@ -14,8 +14,6 @@
 //!   2. Download `https://github.com/<repo>/releases/download/v<v>/<bundle>.tar.gz`.
 //!   3. Extract; the tarball root is a `<bundle>/` directory — move it to the
 //!      version cache directory.
-//!
-//! This mirrors `src/version-cache.ts`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { println } :: import("std/fmt");
@@ -300,11 +298,9 @@ is_version_cached :: (
     // The await is HOISTED out of the match arm on purpose. Inside an
     // `io.async` block `io.await` may not sit in a `cond` condition or in a
     // later branch, and `match`/`if` both lower to `cond` (std/prelude.yo's
-    // `if` macro). The self-hosted compiler accepts the nested form; the TS
-    // compiler rejects it, and TS is what builds the release bundles — so the
-    // nested form passed every PR check and broke the v0.2.5 release run.
-    // Resolving to a path FIRST and awaiting unconditionally is the shape the
-    // rest of this file already uses. An empty path simply does not exist.
+    // `if` macro). Resolving to a path FIRST and awaiting unconditionally is
+    // the shape the rest of this file already uses. An empty path simply
+    // does not exist.
     inst_path := match(
       get_install_version_dir(version.clone()),
       .Some(d) => cached_binary_path(d),
@@ -588,7 +584,7 @@ _scan_release_page :: (fn(json : String) -> _ReleasePage)({
   _ReleasePage(tags : tags, object_count : object_count)
 });
 /// Failure cleanup for `download_version`: remove the (possibly partial)
-/// version dir and the staging dir. Mirrors the TS helper.
+/// version dir and the staging dir.
 _cleanup_failed_download :: (
   fn(
     version_dir : String,

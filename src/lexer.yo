@@ -15,8 +15,7 @@
 // (issues/yo-self-compile-performance-rc-string-eq.md). Safe to share:
 // token value Strings are never mutated in place (audited 2026-07-27);
 // clones fall back to memcmp. The hash+lookup is paid once per TOKEN,
-// the savings on every later compare. yo-self-specific divergence: TS
-// gets this for free from JS engine string interning.
+// the savings on every later compare.
 g_token_intern := HashMap(String, String).new();
 intern_token_str :: (fn(s : String) -> String)(
   match(
@@ -332,12 +331,12 @@ tokenize :: (
       (c.char == u32(0x27)) => {
         k := (i + usize(1));
         val_sb := StringBuilder.new();
-        // TS validity is UTF-16 CODE-UNIT length:
+        // Char-literal validity is UTF-16 CODE-UNIT length:
         // `value.length === 1 || (value.length === 2 && value[0] === "\\")`.
         // Track the UTF-16 length (a rune > U+FFFF counts 2) and whether the
-        // first collected char is a backslash. TS has NO separate
+        // first collected char is a backslash. There is NO separate
         // "unterminated" throw — at EOF the collected value reaches the same
-        // validity check (so `'a` at EOF is a VALID char token in both).
+        // validity check (so `'a` at EOF is a VALID char token).
         (utf16_len : usize) = usize(0);
         (first_is_backslash : bool) = false;
         val_sb.write_byte(u8(0x27));
@@ -436,9 +435,9 @@ tokenize :: (
             }
           );
         });
-        // TS has no unterminated-string check — the scan just runs to EOF and
-        // the token is pushed with the closing quote appended (lexer.ts:347-
-        // 378), and the first confusing token pair then surfaces as a
+        // There is no unterminated-string check — the scan just runs to EOF
+        // and the token is pushed with the closing quote appended, and the
+        // first confusing token pair then surfaces as a
         // misdirected "Adjacent different operators" / "unexpected token"
         // arbitrarily far from the cause
         // (issues/fixed/multiline-double-quoted-string-parse-error-misleading.md).
@@ -712,9 +711,9 @@ tokenize :: (
         if(is_decimal, {
           dot_check := chars.get(j).unwrap_or(null_rune);
           // NOTE: For parsing case like x.0.0 — the char BEFORE the number
-          // start must not be '.' (TS lexer.ts:567 `input[startIndex - 1] !==
-          // "."`), so the middle 0 of `x.0.0` stays an Integer and the second
-          // dot remains a field access instead of merging into `0.0`.
+          // start must not be '.', so the middle 0 of `x.0.0` stays an
+          // Integer and the second dot remains a field access instead of
+          // merging into `0.0`.
           prev_is_dot := cond(
             (i == usize(0)) => false,
             true => (chars.get(i - usize(1)).unwrap_or(null_rune).char == u32(0x2E))
@@ -742,9 +741,8 @@ tokenize :: (
         // An exponent makes the token a FLOAT (`1e5` is f64 100000.0 — the
         // C/Rust/Go rule). The evaluator's `parse_raw_float` is `atof`,
         // which parses a dot-less exponent fine, while `parse_raw_int`
-        // rejects the text — pushing Integer here made `1e5` a guaranteed
-        // evaluation error (the retired TS lexer pushed Integer too, and
-        // its parseInt then silently read `1e10` as `1`). A sign with no
+        // rejects the text — pushing Integer here makes `1e5` a guaranteed
+        // evaluation error. A sign with no
         // digit (`1e+`) does NOT count: the exponent stays unconsumed and
         // the `+` surfaces as an operator, because atof("1e+") would
         // silently stop at 1.0.
