@@ -52,6 +52,7 @@ pragma(Pragma.AllowUnsafe);
   BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
+{ cloned_expr_node_count } :: import("./expr.yo");
 { Environment, Variable, snapshot_env } :: import("./env.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
@@ -1030,19 +1031,6 @@ is_thread_local :: (fn(module_path : String, name : String) -> bool)(
 (g_some_resolved_concrete : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 /// Record the resolved concrete type for the `SomeT` with unique id `some_id`.
 register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit)({
-  if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-    match(
-      g_some_resolved_concrete.get(some_id),
-      .Some(old) => {
-        (src_o : String) = type_to_string(old);
-        (src_n : String) = type_to_string(ty);
-        if(src_o != src_n, {
-          eprintln(`[src-collide] id=${some_id} old=${src_o} new=${src_n}`);
-        });
-      },
-      .None => ()
-    );
-  });
   g_some_resolved_concrete.insert(some_id, ty);
   ()
 });
@@ -1524,6 +1512,69 @@ export(
   struct_fully_concrete_instance,
   adopt_receiver_struct_instance
 );
-export(record_fid_rtcall, record_fid_spec, fid_fully_specialized);
+/// `YO_SPEC_REPORT=1`: at exit, print the specialization population — total
+/// nodes minted by `clone_expr_fresh_ids`, total specializations and runtime
+/// calls, and the 40 function ids with the most specializations
+/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 4 / F2).
+print_spec_report_if_requested :: (fn() -> unit)({
+  if(debug_knob(`YO_SPEC_REPORT`).is_none(), {
+    return(());
+  });
+  (total_specs : usize) = usize(0);
+  (total_calls : usize) = usize(0);
+  rows := ArrayList(String).new();
+  counts := ArrayList(usize).new();
+  ks := g_fid_specs.keys();
+  (going : bool) = true;
+  while(going, {
+    match(
+      ks.next(),
+      .Some(fid) => {
+        n := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
+        total_specs = (total_specs + n);
+        rows.push(fid.clone());
+        counts.push(n);
+      },
+      .None => {
+        going = false;
+      }
+    );
+  });
+  cs := g_fid_rtcalls.values();
+  (going2 : bool) = true;
+  while(going2, {
+    match(
+      cs.next(),
+      .Some(c) => {
+        total_calls = (total_calls + c);
+      },
+      .None => {
+        going2 = false;
+      }
+    );
+  });
+  eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
+  // Top 40 by count: repeated selection (the table is a few thousand rows).
+  (shown : usize) = usize(0);
+  while((shown < usize(40)) && (shown < rows.len()), {
+    (best : usize) = usize(0);
+    (bi : usize) = usize(0);
+    while(bi < counts.len(), {
+      if(match(counts.get(bi), .Some(c) => c, .None => usize(0)) > match(counts.get(best), .Some(c) => c, .None => usize(0)), {
+        best = bi;
+      });
+      bi = (bi + usize(1));
+    });
+    bc := match(counts.get(best), .Some(c) => c, .None => usize(0));
+    if(bc == usize(0), {
+      shown = usize(40);
+    }, {
+      eprintln(`[spec-report]   ${bc.to_string()}	${match(rows.get(best), .Some(r) => r, .None => String.from("?"))}`);
+      counts(best) = usize(0);
+      shown = (shown + usize(1));
+    });
+  });
+});
+export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested);
 export(record_macro_expansion, lookup_macro_expansion);
 export(record_module_level_init_expr, get_module_level_init_exprs);

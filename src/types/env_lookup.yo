@@ -25,10 +25,8 @@ pragma(Pragma.AllowUnsafe);
   is_char_type
 } :: import("./guards.yo");
 { type_to_string } :: import("./string.yo");
-{ eprintln } :: import("std/fmt");
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, get_variables_from_env } :: import("../env.yo");
-{ debug_knob } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -236,51 +234,6 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
   });
   found
 });
-/// Probe helper: the frame index of the FIRST (most recent) variable named
-/// `name` bound to a TypeVal whose SomeT id matches `id_to_find` — the
-/// self-marker's frame, for out-of-range resolution characterization.
-_was_self_bound_frame :: (fn(env : Environment, name : String, id_to_find : String) -> Option(usize))({
-  n_frames := env.frames.len();
-  (fi : usize) = n_frames;
-  while(fi > usize(0), {
-    fi = (fi - usize(1));
-    (hit : bool) = false;
-    match(
-      env.frames.get(fi),
-      .Some(frame) => {
-        vars := frame.variables;
-        m := vars.len();
-        (vi : usize) = usize(0);
-        while((vi < m) && !hit, {
-          match(
-            vars.get(vi),
-            .Some(var) =>
-              if(var.name == name, {
-                match(
-                  var.value.get(usize(0)),
-                  .Some(val) =>
-                    if(_is_type_eval_value(val), {
-                      tv := _unwrap_type_eval_value(val);
-                      if(_same_some_id(tv, id_to_find), {
-                        hit = true;
-                      });
-                    }),
-                  .None => ()
-                );
-              }),
-            .None => ()
-          );
-          vi = (vi + usize(1));
-        });
-      },
-      .None => ()
-    );
-    if(hit, {
-      return(Option(usize).Some(fi));
-    });
-  });
-  Option(usize).None
-});
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -412,36 +365,6 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                             if(!was_bound, {
                               was_bound = _def_frame_confirms_binding(env, current, resolved_tv);
                             });
-                            if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-                              cbc_lvl := match(
-                                _some_frame_level(current),
-                                .Some(l) => l,
-                                .None => usize(0)
-                              );
-                              cbs_lvl := match(
-                                _some_frame_level(start),
-                                .Some(l) => l,
-                                .None => usize(0)
-                              );
-                              if((cbc_lvl >= env.frames.len()) || (cbs_lvl >= env.frames.len()), {
-                                mk := match(
-                                  _was_self_bound_frame(env, cur_name, cur_id),
-                                  .Some(f) => f.to_string(),
-                                  .None => String.from("-")
-                                );
-                                eprintln(`[chres-oor] from=${_some_id(start)} id=${cur_id} name=${cur_name} lvl=${cbc_lvl.to_string()} slvl=${cbs_lvl.to_string()} depth=${env.frames.len().to_string()} mkf=${mk} was_bound=${was_bound.to_string()} -> ${type_to_string(resolved_tv)} mod=${env.module_path}`);
-                              });
-                            });
-                            if(!was_bound, {
-                              if(debug_knob(`YO_DEBUG_SOME`).is_some(), {
-                                crf_lvl := match(
-                                  _some_frame_level(current),
-                                  .Some(l) => l.to_string(),
-                                  .None => String.from("-")
-                                );
-                                eprintln(`[chres-refuse] id=${cur_id} name=${cur_name} lvl=${crf_lvl} depth=${env.frames.len().to_string()} refused=${type_to_string(resolved_tv)} mod=${env.module_path}`);
-                              });
-                            });
                             cond(
                               !was_bound => {
                                 result = current;
@@ -553,15 +476,7 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
             true => match(
               _last_type_binding_frame(env, sn),
               .Some(lbf) => cond(
-                (lbf == sfl) => {
-                  if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-                    cbf_s := type_to_string(tv);
-                    if(cbf_s.index_of(String.from("Doc")) != .None, {
-                      eprintln(`[chres-fast] id=${sid} name=${sn} lvl=${sfl.to_string()} lbf=${lbf.to_string()} depth=${env.frames.len().to_string()} -> ${cbf_s} mod=${env.module_path}`);
-                    });
-                  });
-                  Option(TypeValue).Some(tv)
-                },
+                (lbf == sfl) => Option(TypeValue).Some(tv),
                 true => Option(TypeValue).None
               ),
               .None => Option(TypeValue).None

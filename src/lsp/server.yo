@@ -48,6 +48,7 @@ json :: import("std/encoding/json");
 { handle_completion } :: import("./completion.yo");
 { format_yo_source } :: import("../formatter.yo");
 { resolve_std_path, mm_invalidate_document, mm_set_open_document, mm_forget_open_document } :: import("../module_manager.yo");
+{ set_retain_walk_contexts } :: import("../evaluator/context.yo");
 { BufReader } :: import("std/io/bufio");
 { Stdin, stdin } :: import("std/io/stdio");
 
@@ -656,6 +657,9 @@ _handle_message :: (
 
 /// `yo lsp` entry: serve LSP over stdio until `exit` or EOF.
 run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
+  // The server re-forces definitions of finished walks on every edit
+  // (`mm_revalidate_apply`), so it keeps every walk's evaluation context.
+  set_retain_walk_contexts(true);
   reader := BufReader(Stdin).new(stdin());
   docs := HashMap(String, DocState).new();
   std_path := resolve_std_path();

@@ -1422,8 +1422,7 @@ _find_specialization_cache :: (
     ctx : EvalContext,
     func_id : String,
     compile_time_arg_values : ArrayList(EvalValue),
-    runtime_parameter_types : ArrayList(TypeValue),
-    caller_env : Environment
+    runtime_parameter_types : ArrayList(TypeValue)
   ) -> Option(EvalValue)
 )({
   n_entries := g_specialized_fn_caches.len();
@@ -1463,7 +1462,6 @@ _find_specialization_cache :: (
                   n_cur_rt := runtime_parameter_types.len();
                   rt_match := (n_rt == n_cur_rt);
                   if(rt_match, {
-                    caller_env;
                     (rti : usize) = usize(0);
                     while((rti < n_rt) && rt_match, {
                       cached_ty := match(cache.runtime_parameter_types.get(rti), .Some(t) => t, .None => t_unit());
@@ -1554,15 +1552,13 @@ _store_specialization_cache :: (
     func_id : String,
     compile_time_arg_values : ArrayList(EvalValue),
     runtime_parameter_types : ArrayList(TypeValue),
-    specialized_func_val : EvalValue,
-    env : Environment
+    specialized_func_val : EvalValue
   ) -> unit
 )({
   new_cache := SpecializedFunctionCache(
     compile_time_arg_values : compile_time_arg_values,
     runtime_parameter_types : runtime_parameter_types,
-    specialized_func_value : specialized_func_val,
-    env : env
+    specialized_func_value : specialized_func_val
   );
   // Find existing entry for this func_id
   n_entries := g_specialized_fn_caches.len();
@@ -2206,8 +2202,7 @@ create_specialized_function_inline :: (
         ctx,
         func_id.clone(),
         compile_time_args,
-        runtime_param_tys,
-        caller_env
+        runtime_param_tys
       );
       match(
         cached,
@@ -3983,8 +3978,7 @@ create_specialized_function_inline :: (
             func_id,
             compile_time_args,
             runtime_param_tys,
-            specialized_func_val,
-            callee_env
+            specialized_func_val
           );
           specialized_func_val
         }
@@ -4069,8 +4063,7 @@ evaluate_ctl_function_body_inline :: (
     ctx,
     ctl_func_id.clone(),
     ctl_ct_args,
-    ArrayList(TypeValue).new(),
-    caller_env
+    ArrayList(TypeValue).new()
   );
   (found_cached : bool) = false;
   (cached_val : EvalValue) = EvalValue.UnitVal;
@@ -4310,8 +4303,7 @@ evaluate_ctl_function_body_inline :: (
     ctl_func_id.clone(),
     ctl_cache_args,
     ArrayList(TypeValue).new(),
-    ctl_func_val,
-    specialized_env
+    ctl_func_val
   );
   ctl_func_val
 });
