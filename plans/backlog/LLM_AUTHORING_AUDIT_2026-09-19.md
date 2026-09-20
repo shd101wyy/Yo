@@ -238,7 +238,7 @@ a block OR a record with a bad field); E0401 inserts the import line when
 exactly one std module exports the name and no rename candidate exists, with
 the std export index built by the CLI front doors from std's `export(...)`
 lines (public file per directory). Goldens: `fix-inserts-block-semicolon`,
-`fix-adds-a-std-import`, `check-std-import-help`,
+`fix-adds-a-std-import`, `check-std-import-help`, `check-std-import-repair-json`,
 `check-struct-literal-vs-block`. Item 1 is **declined**: E0003 fires only for
 DIFFERENT adjacent operators, where two groupings always exist, so no repair
 is unique — `run_fix`'s own comment already records this. Item 4 is
