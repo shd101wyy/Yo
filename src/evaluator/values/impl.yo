@@ -2948,7 +2948,9 @@ _c3_eval_colon_pair :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val)),
     .None => (),
     .Some(fi) => {
-      st.env = fi.env;
+      // Adopt a private copy: the in-flight env is pushed/popped on later
+      // and a recorded snapshot is shared between ExprInfos.
+      st.env = snapshot_env(fi.env);
       method_val := match(fi.value, .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`
       // within the SAME trait entry. Only TYPE-valued fields
@@ -3193,7 +3195,9 @@ _c2_eval_direct_field :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_mval)),
     .None => (),
     .Some(mfi) => {
-      st.env = mfi.env;
+      // Adopt a private copy: the in-flight env is pushed/popped on later
+      // and a recorded snapshot is shared between ExprInfos.
+      st.env = snapshot_env(mfi.env);
       mval := match(mfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
       m_is_macro := _method_ty_skip_stamp(mfi.ty);
       (m_to_push : EvalValue) = EvalValue.UnitVal;
@@ -3262,7 +3266,9 @@ _c2_eval_inner_field :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_gval)),
     .None => (),
     .Some(gfi) => {
-      st.env = gfi.env;
+      // Adopt a private copy: the in-flight env is pushed/popped on later
+      // and a recorded snapshot is shared between ExprInfos.
+      st.env = snapshot_env(gfi.env);
       g_mval := match(gfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`. TYPE-valued
       // fields only — see the Case 3 counterpart.
