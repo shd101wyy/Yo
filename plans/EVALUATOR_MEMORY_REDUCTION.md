@@ -167,6 +167,44 @@ for two unrelated reasons, both fixed in the follow-up PR:
   declaration (`issues/fixed/module-level-init-callees-are-never-collected.md`).
   The self-build was green only because `main.yo`'s import closure happens
   to use `Option(String).is_some()` elsewhere.
+### 0.2d Phase 0 step 4 measured — the specialization population (2026-09-21)
+
+`YO_SPEC_REPORT=1 yo check src/main.yo --std-path ./std` on the Phase 1 tree
+(24fcd192f + PR #805), 10.75 GB / 102 s:
+
+| Counter | Value | Meaning |
+| --- | --- | --- |
+| `cloned_nodes` | 1,303,246 | AST nodes minted by `clone_expr_fresh_ids` (every cache MISS clones the whole body) |
+| `node_evaluations` / `distinct_nodes` | 1,951,270 / 1,812,574 | the evaluator touched 1.81 M distinct nodes; after the F8 fix no node is evaluated more than 8× |
+| `specializations` | 10,357 over 61 fids | call-site specializations, cache HITS included (`record_fid_spec` fires whenever the resolved fid differs from the generic one) |
+| `runtime_calls` | 43,369 | runtime dispatches counted for the supersession rule |
+
+Top of the table (names recovered from the emitted C's mangled suffixes):
+
+| specs | fid | what it is | distinct emitted bodies |
+| --- | --- | --- | --- |
+| 3,501 | `yo_id_10369372665995140176…` | the prelude's bool `!` operator (`fn(T, self : T) -> T`) | 1 |
+| 3,133 | `yo_id_764922425204514452…` | `ArrayList(T).new()` | ~20 (one per element type) |
+| 532 / 460 / 422 | `…5533302169…`, `…10235496796…`, `…13402457958…` | `HashMap` slot helpers and a `Result`/`Option` constructor over `String` | few |
+
+Reading: the top two fids are 64 % of all specializations and collapse to a
+handful of emitted functions, so the population is dominated by REPEATED
+call-site resolution of the same instantiation. Those repeats are cache hits
+and cost no clone — the 1.30 M cloned nodes come from the ~10 k misses at
+~130 nodes each (generic std bodies are small; the compiler's own generic
+helpers are the fat tail). Consequences for Phase 4:
+
+- Design 1 (no AST clone per specialization) targets 1.30 M `AstExpr`s plus
+  their `ExprInfo`s — roughly 42 % of everything the evaluator evaluated. It
+  is the larger of the two designs by population and stays the candidate.
+- Design 2 (discard generic-body trial infos) targets only the 61 generic
+  ORIGINAL bodies' def-time infos — a few thousand nodes. Not worth a phase
+  on its own; fold it into Design 1 if that lands.
+- The cache-hit count is not a memory lever, but 3,501 resolutions of `!`
+  is a TIME lever: `_find_specialization_cache` is a linear scan over
+  `g_specialized_fn_caches` (61 entries) then over each entry's caches,
+  comparing type keys. Measure before touching; a fid-keyed map is the
+  obvious shape.
 
 ### 0.3 How to measure (the rules that bit earlier campaigns)
 
@@ -597,7 +635,7 @@ instruments durable and answer the three questions the ranking depends on.
    `Variable`; walk `g_specialized_fn_caches`; walk the module cache; the
    remainder is "other roots"). This is the measurement the prune post-mortem
    asked for and never got. Record the result in this document's §0.
-4. **Specialization counts**: a `YO_SPEC_REPORT=1` env knob (read once at exit
+4. **DONE (§0.2d).** **Specialization counts**: a `YO_SPEC_REPORT=1` env knob (read once at exit
    in `src/main.yo`, like `YO_DEBUG_*`) that prints `g_fid_specs` /
    `g_fid_rtcalls` sorted by count plus the total number of nodes cloned by
    `clone_expr_fresh_ids` (add a counter next to `g_next_global_expr_id`).
@@ -714,7 +752,7 @@ Amended 2026-09-20 after the audit found the 65 adoption sites (§0.2b):
 
 ### Phase 4 — the specialization population (F2b/c): measure, then decide
 
-Gated on Phase 0 step 4's counts. Two candidate designs, both "should be
+Gated on Phase 0 step 4's counts — measured in §0.2d: Design 1 targets 1.30 M cloned nodes, Design 2 a few thousand; go with 1. Two candidate designs, both "should be
 byte-identical" (they change bookkeeping, not what is emitted):
 
 1. **No AST clone per specialization.** Key `ExprInfoTable` by
