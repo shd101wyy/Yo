@@ -723,6 +723,33 @@ Amended 2026-09-20 after the audit found the 65 adoption sites (§0.2b):
 4. **Frame list buffers**: with snapshots shared, the remaining per-snapshot
    `ArrayList(Frame)` is per SCOPE; leave it.
 
+**What landed (2026-09-21, branch `perf/evaluator-memory-p2-f3`) — two
+corrections to the design above:**
+
+- The memo is a 4-slot **global ring** (`g_snapshot_ring` in `src/env.yo`),
+  not a field on `Environment`: an `Option(Self)` field on the widely
+  imported ref struct emitted TWO C types for `Environment` (an id/era
+  split, `issues/option-self-field-on-environment-splits-into-two-c-types.md`).
+  The ring keeps the last four snapshots; a hit is a frame-sequence match.
+- Copying at the 65 `frames` adoption sites was necessary but not
+  sufficient. A recorded env is also adopted **by handle** — the whole
+  `Environment` object — in four syntactic shapes (`x = info.env;`,
+  `rec.env = info.env;`, `env = match(.., .Some(i) => i.env, ..)`,
+  `evaluate_*(e, info.env, ctx)`), and the adopter then evaluates further
+  arguments in it, whose blocks push and pop; with sharing that rewrote every
+  sharer's recorded scope ("Variable body_info already defined"). The
+  `frozen : bool` flag + `YO_DEBUG_FROZEN=1` guard (panics on a mutation of
+  a recorded snapshot; the lldb backtrace names the adopter) found them one
+  cycle at a time — 3 cycles, then a scripted sweep of the whole class:
+  every such adoption is now `snapshot_env(info.env)` (58 sites, 24 files).
+  Note `pop_frame_nonmutating` is not safe on a shared snapshot either: it
+  reassigns `self.frames`. Lesson recorded in memory
+  (`yo-env-snapshot-sharing-lessons`): run the four static scans BEFORE the
+  next guard build; each guard cycle is a 15-minute self-build.
+- Result (to fill from the A/B): footprint / wall of `check src/main.yo`
+  against Phase 1's 10.16 GB / 90 s, and the emitted-C comparison against the
+  Phase 1 emission of the same tree.
+
 ### Phase 3 — `Option(ref)` niche (F4): layout change, full battery
 
 1. **Spec**: `Option(T)` where `T` is a reference-semantics handle
