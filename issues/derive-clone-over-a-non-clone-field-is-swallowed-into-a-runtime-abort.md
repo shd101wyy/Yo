@@ -38,7 +38,21 @@ call"), and the def-time trial swallows that failure — the same
 swallow class as issues/fixed/def-eval-swallow…: the method's ExprInfo says
 "body never fully evaluated" and codegen emits the FATAL stub instead of a
 body. `YO_DEBUG_SWALLOW=1 yo check` shows the swallowed error; nothing else
-does.
+does. Measured on the repro (2026-09-20, tree-built compiler):
+
+```
+[anon-swallow] error: No matching call found with arguments:
+((self.inner).clone)()
+  --> auto-generated://
+// === START auto-generated code ===
+Self(self.inner.clone(), self.k.clone())
+// === END auto-generated code ===
+```
+
+So the rejection is a plain dispatch failure inside auto-generated code — the
+same message every legitimate overload trial swallows, which is why flagging
+it as a flow violation at the throw site would be wrong (it would turn
+ordinary trial misses into hard errors). The fix has to live at the derive.
 
 ## Fix direction
 
