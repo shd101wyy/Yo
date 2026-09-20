@@ -82,7 +82,12 @@ feasible only as (A) a handle-indexed generational `Arena(T)` collection
 CELLS with a trial-deletion escape check at scope end (panic, never UB);
 the Odin/Zig "everything in scope comes from the arena" form is unsound
 because raw buffers carry no header; region-typed references are refused by
-design; and none of it reduces the compiler's footprint, which is retention.
+design; an RC-free arena needs arena-ness to be a static type property; and
+none of it reduces the compiler's footprint, which is retention.
+[`backlog/PERCEUS_REUSE.md`](backlog/PERCEUS_REUSE.md) — the allocation-churn
+lever that does fit Yo's RC: drop-guided reuse of a dying same-type cell at
+the next construction, guarded by a runtime `ref_count == 1` check, planned
+with a measure-first go/no-go (adjacent death→birth rate on the self-compile).
 
 The **LLM-friendly toolchain campaign** closed 2026-09-17:
 [`archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md)

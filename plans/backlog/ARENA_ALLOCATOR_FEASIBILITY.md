@@ -37,6 +37,11 @@ process-wide allocator — get a sound arena allocator, and would it help?
    `Arena(T)` collection in std — sound today, zero compiler change), and run
    Option B as a gated prototype whose go/no-go is a measured CPU win on
    phase-structured programs (§6). Do not start Option B to reduce memory.
+   An RC-FREE arena is possible only when arena-ness is a static property of
+   the type (Option A's inline values, or the typed frame-bound cells of
+   §4.3 Option C′); it is impossible for the dynamic Option B, whose counts
+   are its soundness argument. For allocation churn under Yo's existing RC,
+   Perceus-style reuse (`PERCEUS_REUSE.md`) is the better fit than any arena.
 
 ---
 
@@ -66,7 +71,7 @@ Read from `src/codegen/functions/gc_runtime.yo`, `codegen/types/generation.yo`,
 | **B. Scoped allocation policy for RC objects** (dynamic extent)         | Odin/Jai `context.allocator`, Apple autorelease pools (the RC precedent)   | cells freed at scope end; RC still governs *when* a cell is dead | bump allocation, no per-cell `free`, locality | **yes with a dynamic escape check** (§3, §4B); buffers excluded    |
 | C. Region-typed references (static)                                    | Cyclone, MLKit/Tofte–Talpin, Verona regions, Rust `bumpalo` lifetimes       | the type system proves no reference outlives the region | zero runtime cost                             | **no** — lifetimes on types are refused by design                  |
 | D. Per-collection allocator parameter                                  | Zig                                                                         | each container knows where its buffer lives       | buffers in arenas too                              | **no** — one global allocator is a settled decision (`FIXED_REGION_ALLOCATOR.md` §0) |
-| E. Allocation reuse instead of arenas                                  | Koka/Lean **Perceus** (reuse a dying cell for a same-size construction)    | none — pure RC                                    | removes malloc/free pairs at drop→construct sites  | **yes, as a codegen optimization** in the dup/drop optimizer family; orthogonal to this doc |
+| E. Allocation reuse instead of arenas                                  | Koka/Lean **Perceus** (reuse a dying cell for a same-size construction)    | none — pure RC                                    | removes malloc/free pairs at drop→construct sites  | **yes, as a codegen optimization** in the dup/drop optimizer family — planned in `PERCEUS_REUSE.md` |
 
 ## 3. Soundness analysis for Option B
 
@@ -263,14 +268,60 @@ on `Arena.scope`'s result type using `type_contains_rc_type`
 **Interaction with `--allocator`:** none — chunks come from `__yo_malloc`, so
 `system`, `mimalloc` and `fixed` all work underneath.
 
-### 4.3 Option E — Perceus-style reuse (noted, separate plan if pursued)
+### 4.3 Can the arena drop reference counting altogether? (asked 2026-09-20)
+
+The performance motive for an arena is to stop paying `incr`/`decr` on cells
+that will be bulk-freed anyway. Under Option B that is **not possible**: the
+decision "does this cell live in an arena" is made at RUNTIME (whichever
+scope is active when the constructor runs), while dup/drop are emitted at
+COMPILE time per type — the emitter cannot know which `TypeValue` handle is
+arena-backed, so it must emit the operations for all of them. Option B can
+only make the last `decr` skip `free` (§3.1); the counts themselves stay, and
+they are also what the escape check (§3.2) reads. Removing them removes the
+soundness argument.
+
+RC-free cells need the arena-ness to be a STATIC property of the type, so
+that (i) codegen elides dup/drop for those types entirely and (ii) escape is
+prevented by the type checker rather than detected by counts. Two shapes
+achieve that, and only these two:
+
+- **Option A as written**: values live INLINE in the `Arena(T)` buffer and
+  are addressed by `Handle(T)` indices. There is no cell and no count; the
+  handle is a plain value. This is the RC-free arena, available today.
+- **Option C′ — a typed, frame-bound arena cell**: a type marker (spelling to
+  be decided; conceptually `arena(ref(struct(...)))`) whose values can only be
+  constructed inside an `Arena.scope` and whose handles are FRAME-BOUND in
+  exactly the sense `ctl` values are: `type_is_control_bound`'s transitive
+  walk (`types/utils.yo:615`) and the §4 escape-boundary rules already
+  reject module-level bindings, closure captures, pointer formation and
+  fn-result types for such a type. One rule would be new: a non-arena type
+  may not have an arena-typed field (so a cell cannot be stored into a
+  heap object), and an arena type may not be `Send`. With those rules a
+  cell cannot outlive the scope, so codegen emits NO `incr`/`decr` for
+  arena types, the scope end frees the chunks without a walk, and cycles
+  among cells are irrelevant. Cells may still hold ordinary RC handles
+  (a `String` field): each cell then needs a typed dispose at scope end, so
+  the arena keeps a per-cell type id (a 4-8 B prefix, not a 56 B header)
+  and runs disposes in a linear walk — O(cells) but with no `free`s.
+
+Option C′ is sound and RC-free, and it is a LANGUAGE change: a new type
+marker, a transitive boundness analysis mirroring `type_is_control_bound`,
+the field rule, the `Send` rule, and constructor gating. Its benefit is
+confined to programs whose scratch objects are ALL arena-typed (the type
+marker is viral: a `ArrayList(ArenaCell)` must itself be arena-typed). It is
+the right shape if a later measurement shows a phase-structured workload
+where Option B's counts dominate; it is not motivated by anything measured
+today. Sequence: Option A (library) → Option B prototype (§6) → C′ only on a
+measured need.
+
+### 4.4 Option E — Perceus-style reuse (noted, separate plan if pursued)
 
 At a `___drop(x); y := T(...)` pair where `x` is the last reference and
 `sizeof` matches, reuse `x`'s cell for `y`. Pure codegen, no lifetime, no
-allocator change; removes a malloc/free pair per reused site. Gated like every
-dup/drop optimizer change (emit-diff + over-cancellation canary). It is the
+allocator change; removes a malloc/free pair per reused site. It is the
 RC-native answer to "allocation churn" and does not need this document's
-machinery.
+machinery. **Detailed design, measurement protocol and phases:
+`PERCEUS_REUSE.md` (2026-09-20).**
 
 ## 5. The escape hatches Option B must close (checklist)
 
