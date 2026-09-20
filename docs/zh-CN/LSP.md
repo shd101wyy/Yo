@@ -122,6 +122,14 @@ impl，无论在本文件还是标准库中），`mod.f` 落在被导入模块�
 通过 `yo fmt` 的格式化器进行整文档格式化。无法解析的文档保持不变。VS Code 扩展默认为
 `.yo` 文件开启保存时格式化。
 
+### 10. 代码操作（快速修复）
+
+`textDocument/codeAction` 对所请求行上每个携带编译器 `Repair` 的诊断回答一个
+`quickfix`——即 `yo fix` 应用的那个唯一机械修复（重命名为唯一接近的候选、补上缺失的
+std 导入行、在 `}` 前插入 `;`；见 `ERROR_DIAGNOSTICS.md`）。该操作的编辑与命令行
+逐字节一致，因此编辑器与 `yo fix` 永不分歧。消息中列出两种可能修法的诊断不携带
+修复，也就没有操作。
+
 ## 编辑过程中的行为
 
 大多数按键都会让文档暂时无法解析。服务器为每个文档保留**最近一次成功解析**的分析结果，
@@ -147,7 +155,7 @@ impl，无论在本文件还是标准库中），`mod.f` 落在被导入模块�
 | `src/lsp/server.yo`           | JSON-RPC 分发、`initialize`、文档同步             |
 | `src/lsp/transport.yo`        | stdio 上的 `Content-Length` 帧                    |
 | `src/lsp/protocol.yo`         | JSON 构造器、位置编码、`file:` URI                 |
-| `src/lsp/diagnostics.yo`      | 文档分析与 `publishDiagnostics`                   |
+| `src/lsp/diagnostics.yo`      | 文档分析与 `publishDiagnostics`；诊断携带 `textDocument/codeAction`（在 `server.yo`）所提供的 `Repair` |
 | `src/lsp/hover.yo`            | 悬停、共享的 token/候选辅助函数、原子角色           |
 | `src/lsp/completion.yo`       | `textDocument/completion`                        |
 | `src/lsp/definition.yo`       | `textDocument/definition`                        |

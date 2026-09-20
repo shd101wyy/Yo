@@ -65,7 +65,10 @@ DocState :: ref(
     text : String,
     lines : ArrayList(String),
     entry_abs : String,
-    outcome : AnalyzeOutcome
+    outcome : AnalyzeOutcome,
+    /// This version's diagnostics, kept for `textDocument/codeAction`: the
+    /// quickfixes are the `Repair`s they carry.
+    diags : ArrayList(LspDiag)
   )
 );
 
@@ -153,7 +156,7 @@ _analyze_and_publish :: (
       );
       docs.insert(
         uri.clone(),
-        DocState(text : text.clone(), lines : lines, entry_abs : fs_path.clone(), outcome : retained)
+        DocState(text : text.clone(), lines : lines, entry_abs : fs_path.clone(), outcome : retained, diags : diags.clone())
       );
     },
     .None => ()
@@ -250,7 +253,7 @@ _initialize_result :: (fn(params : JsonValue) -> JsonValue)({
   utf32 := _client_offers_utf32(params);
   set_utf16_positions(!utf32);
   encoding := cond(utf32 => String.from("utf-32"), true => String.from("utf-16"));
-  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
+  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", JsonValue.Bool(value : true)).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
     "serverInfo",
     // No `version` field on purpose: it is optional in the protocol, the
     // client can ask `yo --version`, and a version here would churn the
@@ -447,6 +450,65 @@ _handle_message :: (
         .None => ()
       );
       _respond(id_opt, rn_result);
+    },
+    (method == String.from("textDocument/codeAction")) => {
+      // Quickfixes = the compiler's own `Repair`s (plans/backlog/
+      // LLM_AUTHORING_AUDIT_2026-09-19.md §3.2): one action per stored
+      // diagnostic that carries a repair and touches the requested range's
+      // lines. The edit is the same `yo fix` applies, so an editor and the
+      // CLI never disagree about the fix.
+      actions := ArrayList(JsonValue).new();
+      match(
+        params_opt,
+        .Some(params) => {
+          uri := _params_uri(params);
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => {
+              (from_line : usize) = usize(0);
+              (to_line : usize) = usize(0);
+              match(
+                params.get(String.from("range")),
+                .Some(rg) => {
+                  from_line = match(rg.get(String.from("start")), .Some(sp) => _jfield_usize(sp, "line"), .None => usize(0));
+                  to_line = match(rg.get(String.from("end")), .Some(ep) => _jfield_usize(ep, "line"), .None => from_line);
+                },
+                .None => ()
+              );
+              (di : usize) = usize(0);
+              while(di < st.diags.len(), {
+                match(
+                  st.diags.get(di),
+                  .Some(d) => match(
+                    d.repair,
+                    .Some(r) => if((d.row >= from_line) && (d.row <= to_line), {
+                      edits := ArrayList(JsonValue).new();
+                      edits.push(
+                        jb().put("range", j_range_in(st.lines, r.span.row, r.span.col, r.span.row, r.span.col + r.span.len)).put("newText", jstr(r.replacement.clone())).obj()
+                      );
+                      ck := ArrayList(String).new();
+                      cv := ArrayList(JsonValue).new();
+                      ck.push(uri.clone());
+                      cv.push(JsonValue.Array(items : edits));
+                      diag_items := ArrayList(JsonValue).new();
+                      diag_items.push(j_diagnostic(j_range_in(st.lines, d.row, d.col, d.row, d.end_col), d.severity, d.code, d.message.clone()));
+                      actions.push(
+                        jb().put("title", jstr(r.description.clone())).put("kind", jstr(String.from("quickfix"))).put("isPreferred", JsonValue.Bool(value : true)).put("diagnostics", JsonValue.Array(items : diag_items)).put("edit", jb().put("changes", JsonValue.Object(keys : ck, values : cv)).obj()).obj()
+                      );
+                    }),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                di = (di + usize(1));
+              });
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      _respond(id_opt, JsonValue.Array(items : actions));
     },
     (method == String.from("textDocument/formatting")) => {
       (fmt_result : JsonValue) = JsonValue.Null;

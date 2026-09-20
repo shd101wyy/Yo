@@ -145,6 +145,16 @@ Whole-document formatting through `yo fmt`'s formatter. A document that does
 not parse is left untouched. The VS Code extension enables format-on-save for
 `.yo` files by default.
 
+### 10. Code Actions (quickfixes)
+
+`textDocument/codeAction` answers one `quickfix` per diagnostic on the
+requested lines that carries a compiler `Repair` — the unique mechanical fix
+`yo fix` applies (a rename to the one close candidate, the missing std import
+line, the `;` before a `}`; see `ERROR_DIAGNOSTICS.md`). The action's edit is
+byte-for-byte the CLI's, so the editor and `yo fix` never disagree. A
+diagnostic whose message names two possible fixes carries no repair and
+therefore no action.
+
 ## Behaviour while editing
 
 Most keystrokes leave a document that does not parse. The server keeps the
@@ -175,7 +185,7 @@ occupies two UTF-16 units, one rune.
 | `src/lsp/server.yo`           | JSON-RPC dispatch, `initialize`, document sync       |
 | `src/lsp/transport.yo`        | `Content-Length` framing over stdio                  |
 | `src/lsp/protocol.yo`         | JSON builders, position encoding, `file:` URIs       |
-| `src/lsp/diagnostics.yo`      | document analysis and `publishDiagnostics`           |
+| `src/lsp/diagnostics.yo`      | document analysis and `publishDiagnostics`; diagnostics carry the `Repair` that `textDocument/codeAction` (in `server.yo`) serves |
 | `src/lsp/hover.yo`            | hover, shared token/candidate helpers, atom roles    |
 | `src/lsp/completion.yo`       | `textDocument/completion`                            |
 | `src/lsp/definition.yo`       | `textDocument/definition`                            |

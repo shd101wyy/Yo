@@ -28,7 +28,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { Error, Exception } :: import("std/error");
 { parse } :: import("../parser.yo");
-{ Diagnostic, Severity } :: import("../diagnostics.yo");
+{ Diagnostic, Severity, Repair } :: import("../diagnostics.yo");
 { stash_error_diagnostics, take_error_diagnostics } :: import("../error.yo");
 { AstExpr } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("../expr_info.yo");
@@ -52,8 +52,14 @@ LspDiag :: struct(
   severity : usize,
   /// Registry code (`E0401`) when the diagnostic carries one.
   code : Option(String),
-  message : String
+  message : String,
+  /// The compiler's unique mechanical fix, when it computed one (the same
+  /// `Repair` `yo fix` applies) — served as a quickfix by
+  /// `textDocument/codeAction`. Only the typed channel carries it; the
+  /// rendered-text fallbacks have none.
+  (repair : Option(Repair)) ?= Option(Repair).None
 );
+derive(LspDiag, Clone);
 /// LSP severity number for a renderer/registry `Severity`.
 lsp_severity_of :: (fn(sev : Severity) -> usize)(
   match(
@@ -501,7 +507,13 @@ _typed_to_lsp :: (
               end_col : (d.span.col + d.span.len),
               severity : lsp_severity_of(d.severity),
               code : d.code,
-              message : d.message
+              message : d.message,
+              repair : match(
+                d.repair,
+                // A repair in ANOTHER file is not this document's quickfix.
+                .Some(r) => if(r.span.path == d.span.path, Option(Repair).Some(r), Option(Repair).None),
+                .None => Option(Repair).None
+              )
             )
           );
         }, {
