@@ -542,10 +542,10 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "没有候选者接受这次调用：接收者没有这个方法，或者没有重载适配这些参数。",
       "The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first.",
       "错误信息会列出编译器看到的参数。最常见的原因：该方法来自某个 trait，而其 impl 位于未导入的 std 模块（`std/fmt` 的 `to_string`）；接收者类型与预期不同；或该类型需要针对此 trait 的 `derive(...)`/`impl(...)`。请先核对信息中接收者的类型。",
-      "Point :: struct(x : i32);\np := Point(x : i32(1));\ns := p.x.to_string();\n",
-      "{ ToString } :: import(\"std/fmt\");\nPoint :: struct(x : i32);\np := Point(x : i32(1));\ns := p.x.to_string();\n",
-      "`to_string` on an integer is a `ToString` impl that `std/fmt` registers; without the import there is no candidate.",
-      "整数上的 `to_string` 是 `std/fmt` 注册的 `ToString` impl；不导入就没有候选者。"
+      "Point :: struct(x : i32);\np := Point(x : i32(1));\n_s := p.norm();\n",
+      "Point :: struct(x : i32);\nnorm :: (fn(p : Point) -> i32)(p.x);\np := Point(x : i32(1));\n_s := norm(p);\n",
+      "`Point` has no `norm` method and no impl provides one, so the method-call syntax finds no candidate; define the function (or an `impl(Point, ...)` method) first. The same code fires when a trait method's impl lives in a std module that was not imported (`to_string` from `std/fmt`).",
+      "`Point` 没有 `norm` 方法，也没有 impl 提供它，因此方法调用语法找不到候选者；请先定义该函数（或 `impl(Point, ...)` 方法）。当某个 trait 方法的 impl 位于未导入的 std 模块时（`std/fmt` 的 `to_string`），也会报同一错误码。"
     )
   );
   out
