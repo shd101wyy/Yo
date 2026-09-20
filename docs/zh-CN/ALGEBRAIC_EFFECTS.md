@@ -348,3 +348,26 @@ result := log_and_check(42, my_logger);
   ```
 - `unwind` 置 `__yo_effect_escaped = 1` 并把值存入 `__yo_unwind_value`。
 - `return` 正常恢复 — 不设置标志。
+
+## 报告能力：`yo effects`
+
+由于效应以普通参数传递，函数签名就是它的能力清单，而类型检查器保证被调用者
+无法使用未被交给它的能力。`yo effects <file-or-dir>` 从每个导出的顶层 `fn`
+的函数类型中读出这份清单，因此代理或沙箱无需阅读函数体就能回答"这个程序会不会
+抛出 / 触碰异步运行时"：
+
+```
+lib.yo
+  add: (none)
+  parse_or_throw: exn : Exception [ctl]
+  tick: io : Io [io]
+  run: e : IoExn [ctl, io]
+  later: io : Io [io]; future e : IoExn [ctl, io]
+```
+
+当参数类型（沿结构体字段传递地）是处理器记录（带 `ctl(...)` 字段的结构体——
+`Exception`、`ResumableException(T)`：种类 `ctl`）、prelude 的 `Io`（种类 `io`）
+或效应行隐式参数（种类 `row`）时，该参数即为效应。返回的 `Impl(Future(T, E))`
+把 `E` 列在 `future` 下，因为等待者必须提供它。`--json` 每个模块输出一个对象：
+`{"file", "functions": [{"name", "effects": [{"param", "type", "via": "param" |
+"implicit" | "future", "kinds"}]}]}`。
