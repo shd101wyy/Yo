@@ -297,6 +297,29 @@ format_error_message_with_repair :: (
   );
   _yo_error_of(d)
 });
+/// Like `format_error_message_with_repair`, but the edit lands at `span`
+/// rather than on the anchor token: an INSERTION (`len` 0) or an edit away
+/// from the token that carries the message — the E0007 `;` before the closing
+/// brace, the E0401 import line at the top of the file.
+format_error_message_with_repair_at :: (
+  fn(
+    token : Token,
+    error_message : String,
+    help : Option(String),
+    span : Span,
+    replacement : String,
+    repair_description : String
+  ) -> YoError
+)({
+  d := _diagnostic_of_token(token, Severity.Error, error_message);
+  if(help.is_some(), {
+    d.help = Option(String).Some(match(help, .Some(hh) => hh, .None => String.new()));
+  });
+  d.repair = Option(Repair).Some(
+    Repair(span : span, replacement : replacement, description : repair_description)
+  );
+  _yo_error_of(d)
+});
 format_error_message_with_help :: (
   fn(token : Token, error_message : String, help : Option(String)) -> YoError
 )({
@@ -592,7 +615,7 @@ format_warning_messages :: (
 });
 export(TokenAndError, TokenAndWarning, YoError);
 export(yo_error_from_diagnostics);
-export(format_error_message_with_repair);
+export(format_error_message_with_repair, format_error_message_with_repair_at);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —
 /// for `yo fix`, which runs after a whole file's evaluation and wants the
 /// repair-bearing diagnostic even though the attempt counter has moved on.

@@ -50,6 +50,24 @@ YO_ERROR_FORMAT=json yo build           # same, via the environment
 final `N passed / M failed` style footer as one machine-readable line, so a
 harness can parse the outcome without scraping prose.
 
+### Repairs and `yo fix`
+
+A diagnostic carries a `repair` when exactly ONE edit fixes it; the compiler
+never guesses between alternatives, so a message that names two possible fixes
+carries none. In the JSON render the field is
+`{ "file", "row", "col", "end_col", "replacement", "description" }` (0-based,
+rune columns; `col == end_col` is an insertion) — the same edit `yo fix <path>`
+applies, formatting each file it rewrites and re-running until a pass changes
+nothing. `yo fix --dry-run` prints the repairs without writing.
+
+The repairs the compiler computes today:
+
+| diagnostic | repair |
+| --- | --- |
+| E0401 name not found, one close candidate in scope | rename the token (`countr` → `counter`) |
+| E0401 name not found, exported by exactly one std module | insert `{ name } :: import("std/…");` above the first non-comment line (the help names the module; two exporting modules, or a rename candidate as well, give help only) |
+| E0007 `{ f(x) }` — one expression between braces, no `;` | insert `;` before the `}` (two or more comma-separated items give the message only) |
+
 ## Error codes and `yo explain`
 
 Messages that match a known family carry a stable `EXXXX` code in the header

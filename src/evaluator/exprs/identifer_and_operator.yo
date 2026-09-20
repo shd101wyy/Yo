@@ -28,8 +28,8 @@
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_unknown_val }
 :: import("../../value.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
-{ format_error_message, format_error_message_with_help, format_error_message_with_repair } :: import("../../error.yo");
-{ suggest_name } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_message_with_repair_at } :: import("../../error.yo");
+{ suggest_name, lookup_std_exporters, Span } :: import("../../diagnostics.yo");
 { is_ghost_binding_name } :: import("../builtins/contracts.yo");
 { Exception } :: import("std/error");
 /// Evaluate an identifier or operator expression.
@@ -299,6 +299,50 @@ evaluate_identifier_and_operator :: (
           .Some(h) => Option(String).Some(`did you mean "${h}"?`),
           .None => Option(String).None
         );
+        // A name exported by std (audit §3.1 item 3): say which module, and
+        // when EXACTLY ONE std module exports it and no rename is on offer,
+        // the import line is the unique mechanical fix — inserted above the
+        // first non-comment line, so a module's `//!` docs stay first. A
+        // rename candidate AND an import candidate, or two exporting modules,
+        // are two fixes: help only, `yo fix` never picks.
+        std_exporters := lookup_std_exporters(identifier_string);
+        (import_repair : Option(String)) = Option(String).None;
+        if(std_exporters.len() > usize(0), {
+          first_spec := match(std_exporters.get(usize(0)), .Some(s0) => s0, .None => String.new());
+          import_line := `{ ${identifier_string} } :: import("${first_spec}");`;
+          (spec_list : String) = String.new();
+          (sxi : usize) = usize(0);
+          while(sxi < std_exporters.len(), {
+            match(
+              std_exporters.get(sxi),
+              .Some(sx) => {
+                if(sxi > usize(0), {
+                  spec_list.push_str(", ");
+                });
+                spec_list.push_string(sx.clone());
+              },
+              .None => ()
+            );
+            sxi = (sxi + usize(1));
+          });
+          import_hint := if(
+            std_exporters.len() == usize(1),
+            `import it: \`${import_line}\``,
+            `it is exported by ${std_exporters.len().to_string()} std modules (${spec_list}) — import one of them`
+          );
+          not_found_help = match(
+            not_found_help,
+            .Some(h) => Option(String).Some(`${h} ${import_hint}`),
+            .None => Option(String).Some(import_hint)
+          );
+          if(std_exporters.len() == usize(1), {
+            if(not_found_repair.is_none(), {
+              import_repair = Option(String).Some(import_line.clone());
+            });
+            // Rename OR import: two candidates, neither unique.
+            not_found_repair = Option(String).None;
+          });
+        });
         if(is_unlabeled_ensures_atom(ast_expr_id(expr)), {
           // Phase V1 (decision D3, plans/backlog/FORMAL_VERIFICATION.md): the
           // atom sits in an `ensures(...)` predicate of an unlabeled-return
@@ -314,6 +358,7 @@ evaluate_identifier_and_operator :: (
           // Two candidate fixes now (rename, or label the return), so neither
           // is unique — `yo fix` must not pick one.
           not_found_repair = Option(String).None;
+          import_repair = Option(String).None;
         });
         exn.throw(
           dyn(
@@ -326,10 +371,21 @@ evaluate_identifier_and_operator :: (
                 fix_name.clone(),
                 `rename to "${fix_name}"`
               ),
-              .None => format_error_message_with_help(
-                token,
-                `Variable "${identifier_string}" not found.`,
-                not_found_help
+              .None => match(
+                import_repair,
+                .Some(line) => format_error_message_with_repair_at(
+                  token,
+                  `Variable "${identifier_string}" not found.`,
+                  not_found_help,
+                  Span(path : token.module_path, row : _first_code_row(token.input), col : usize(0), len : usize(0)),
+                  `${line}\n`,
+                  `add ${line}`
+                ),
+                .None => format_error_message_with_help(
+                  token,
+                  `Variable "${identifier_string}" not found.`,
+                  not_found_help
+                )
               )
             )
           )
@@ -508,5 +564,19 @@ evaluate_identifier_and_operator :: (
     .None => ()
   );
   expr
+});
+/// The row of the first line that is neither blank nor a `//` comment — where
+/// the E0401 import repair inserts its line, so `//!` module docs stay first.
+_first_code_row :: (fn(source : String) -> usize)({
+  lines := source.split(String.from("\n"));
+  (r : usize) = usize(0);
+  while(r < lines.len(), {
+    t := match(lines.get(r), .Some(l) => l.trim(), .None => String.new());
+    if((t.len() > usize(0)) && !t.starts_with(String.from("//")), {
+      return(r);
+    });
+    r = (r + usize(1));
+  });
+  usize(0)
 });
 export(evaluate_identifier_and_operator);
