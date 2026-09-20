@@ -15,7 +15,7 @@ finished its walk and released its evaluation context (only `check --watch` and 
 
 Develop battery run 35520237279 (tip ba77dead3): internal-tests shard 1 red on
 the Phase 3a and Phase 3b tests. (Shards 0 and 2 were red on a DIFFERENT bug
-the same PR exposed: `issues/fixed/module-level-method-call-on-a-user-fn-result-is-a-stub.md`.)
+the same PR exposed: `issues/fixed/module-level-init-callees-are-never-collected.md`.)
 
 ## Fix
 

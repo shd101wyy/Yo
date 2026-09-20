@@ -1,0 +1,17 @@
+{ println } :: import("std/fmt");
+{ knob } :: import("./knob.yo");
+
+// issues/fixed/module-level-init-callees-are-never-collected.md: a global
+// whose initializer is a METHOD CALL on a user function's result. The
+// method's specialization is reachable only from this initializer; the
+// function collector used to skip module-level initializers, so the whole
+// statement degraded to a `// Failed to transpile` comment that swallowed the
+// next declaration — a C compile error (or, worse, a silently-false global).
+(g_on : bool) = knob(`ON`).is_some();
+(g_off : bool) = knob(`OFF`).is_some();
+
+main :: (fn() -> unit)({
+  println(`g_on=${g_on.to_string()} g_off=${g_off.to_string()}`);
+});
+
+export(main);

@@ -4,7 +4,6 @@
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
 { lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis } :: import("../../expr_info.yo");
-{ eprintln } :: import("std/fmt");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
@@ -2049,7 +2048,6 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           // markers, valid C. io.async SM closures are exempt (they are
           // called through the FSM resume path, not here).
           if(should_skip_function_codegen(fid.clone(), c_func_name.clone(), fv, context.base) && !(is_io_async_sm_closure(fid.clone())), {
-            eprintln(`[ftt-probe] id=${ast_expr_id(expr).to_string()} fid=${fid} side_table=${lookup_method_callee_value(ast_expr_id(expr)).is_some().to_string()} recv_info=${match(ei.runtime_arg_exprs_in_order, .Some(ra) => match(ra.get(usize(0)), .Some(r0) => `${ast_expr_id(r0).to_string()}:${context.base.get_expr_info(r0).is_some().to_string()}`, .None => String.from("noarg")), .None => String.from("noargs"))} expr=${ast_expr_to_string(expr)}`);
             return(Option(String).Some(`// Failed to transpile ${ast_expr_to_string(expr)}`));
           });
           casted := _per_arg_cast(args_list.clone(), param_types, param_is_ref, context);
