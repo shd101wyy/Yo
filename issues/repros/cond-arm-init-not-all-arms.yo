@@ -1,0 +1,15 @@
+// issues/cond-arm-initialization-merge-check-never-fires.md — only the first
+// arm assigns `v`, the read after the cond is accepted. Expected: E0903.
+main :: (fn(c : bool) -> unit)({
+  v : i32;
+  cond(
+    c => {
+      v = i32(1);
+    },
+    true => {
+      ();
+    }
+  );
+  _y := v;
+});
+export(main);

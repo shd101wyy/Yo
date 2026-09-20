@@ -1,0 +1,93 @@
+//! The registry's examples, verified by the compiler
+//! (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §3.3): every entry's `bad`
+//! program is written to disk and loaded through the same module-manager
+//! service `yo check` uses, and must fail with EXACTLY the entry's code as the
+//! first diagnostic; every `good` program must load clean. Before this test,
+//! 6 of 30 `bad` snippets reproduced their own code and most were fragments
+//! with free names — `yo explain` was showing examples the compiler rejects
+//! for a different reason, or accepts.
+//!
+//! Exempt from the `bad` half, each with the reason in `_bad_exempt`:
+//!   - E0002: the parser accepts the unclosed-paren shapes today
+//!     (issues/parser-accepts-an-unclosed-call-paren.md); the code is
+//!     reserved for the fix.
+//!   - E0903: the cond-arm initialization merge check does not fire
+//!     (issues/cond-arm-initialization-merge-check-never-fires.md).
+//!   - E0905: reported by `compile` when a swallowed definition-time failure
+//!     reaches codegen; `check` reports the underlying error instead.
+//! Their `good` programs are still required to load clean.
+{ String } :: import("std/string");
+import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ Path } :: import("std/path");
+{ write_string } :: import("std/fs/file");
+{ create_dir_all } :: import("std/fs/dir");
+{ IoExn, Exception } :: import("std/error");
+{ Explain, registry_entries } :: import("../../src/diagnostics_registry.yo");
+{ mm_load_file, mm_preload_prelude, mm_invalidate_document, resolve_std_path, _take_load_error } :: import("../../src/module_manager.yo");
+{ take_error_diagnostics } :: import("../../src/error.yo");
+{ Diagnostic } :: import("../../src/diagnostics.yo");
+_bad_exempt :: (fn(code : String) -> bool)(
+  (code == "E0002") || (code == "E0903") || (code == "E0905")
+);
+/// The code of the first `error[EXXXX]` in a rendered diagnostic, "" when none.
+_first_code_in_text :: (fn(text : String) -> String)(
+  match(
+    text.index_of(String.from("error[")),
+    .Some(k) => text.substring(k + usize(6), k + usize(11)),
+    .None => String.new()
+  )
+);
+/// Load `src` as the module at `path` and return the first diagnostic code
+/// ("" for a clean load). Drains every error channel so nothing leaks into
+/// the next example.
+_load_code :: (fn(path : String, src : String, std_path : String, io : Io, exn : Exception) -> String)({
+  ioexn := IoExn(io : io, exn : exn);
+  io.await(write_string(Path.new(path.clone()), src, io), ioexn);
+  _inv := mm_invalidate_document(path.clone());
+  outcome := mm_load_file(path.clone(), std_path.clone(), false, io, exn);
+  rendered := match(_take_load_error(), .Some(r) => r, .None => String.new());
+  typed := match(take_error_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new());
+  if(outcome.ok, {
+    return(String.new());
+  });
+  typed_code := match(
+    typed.get(usize(0)),
+    .Some(d) => match(d.code, .Some(c) => c, .None => String.new()),
+    .None => String.new()
+  );
+  if(typed_code.len() > usize(0), typed_code, {
+    text_code := _first_code_in_text(rendered);
+    if(text_code.len() > usize(0), text_code, String.from("<uncoded>"))
+  })
+});
+test("every registry example reproduces its code, and every good example loads clean", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := String.from("/tmp/yo_registry_examples");
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  std_path := resolve_std_path();
+  assert(mm_preload_prelude(std_path.clone(), false, io, exn), "prelude must load");
+  entries := registry_entries();
+  assert(entries.len() >= usize(30), `expected at least 30 entries, got ${entries.len().to_string()}`);
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    e := match(entries.get(i), .Some(x) => x, .None => __yo_panic("missing registry entry"));
+    i = (i + usize(1));
+    bad_path := `${dir}/${e.code}_bad.yo`;
+    good_path := `${dir}/${e.code}_good.yo`;
+    if(!_bad_exempt(e.code.clone()), {
+      got := _load_code(bad_path.clone(), e.bad.clone(), std_path.clone(), io, exn);
+      assert(got == e.code, `${e.code}: the bad example must fail with ${e.code}, got "${got}"`);
+    });
+    got_good := _load_code(good_path.clone(), e.good.clone(), std_path.clone(), io, exn);
+    assert(got_good == "", `${e.code}: the good example must load clean, got "${got_good}"`);
+  });
+});

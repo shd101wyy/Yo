@@ -45,7 +45,7 @@
   E_USE_OF_MOVED_VALUE,
   E_CANNOT_REASSIGN,
   E_MAYBE_UNINITIALIZED,
-  E_AWAIT_PLACEMENT,
+  E_NO_MATCHING_CALL,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
@@ -129,7 +129,7 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   if(msg.contains(String.from("Module field \"")), {
     return(_coded(E_MODULE_FIELD_NOT_FOUND));
   });
-  if(msg.contains(String.from("is not defined.")), {
+  if(msg.contains(String.from("is not defined.")) || msg.contains(String.from("is not initialized")), {
     return(_coded(E_NOT_DEFINED));
   });
   if(msg.contains(String.from("is private")), {
@@ -168,6 +168,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   ), {
     return(_coded(E_INVALID_PATTERN));
   });
+  if(msg.starts_with(String.from("No matching call found")), {
+    return(_coded(E_NO_MATCHING_CALL));
+  });
   if(msg.contains(String.from("is not callable")), {
     return(_coded(E_ARGUMENT_NOT_CALLABLE));
   });
@@ -179,12 +182,18 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   ), {
     return(_coded(E_TRAIT_NOT_IMPLEMENTED));
   });
+  if(msg.starts_with(String.from("Function body has type")), {
+    return(_coded(E_RETURN_TYPE_MISMATCH));
+  });
   if(msg.contains(String.from("return type")) && (
     msg.contains(String.from("Incompatible")) || msg.contains(
       String.from("mismatch")
     )
   ), {
     return(_coded(E_RETURN_TYPE_MISMATCH));
+  });
+  if(msg.starts_with(String.from("Cannot unify incompatible types")), {
+    return(_coded(E_INCOMPATIBLE_TYPES));
   });
   if(msg.starts_with(String.from("Incompatible type")) || msg.starts_with(
     String.from("Incompatible types")
@@ -207,9 +216,6 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.contains(String.from("might be initialized in some cases")), {
     return(_coded(E_MAYBE_UNINITIALIZED));
-  });
-  if(msg.contains(String.from("must BE the first condition")), {
-    return(_coded(E_AWAIT_PLACEMENT));
   });
   if(msg.contains(String.from("was never fully evaluated")), {
     return(_coded(E_NEVER_FULLY_EVALUATED));
