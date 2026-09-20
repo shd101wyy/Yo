@@ -337,7 +337,9 @@ by hand.
    ~27% of such a program's emission).
 3. **`Executable.emit_chunks` in `std/build.yo`** — the open item from
    `CHUNKED_C_EMISSION.md` step 5 — threaded through `BuildArtifact` to
-   the child argv exactly as `emit_c_to` is.
+   the child argv exactly as `emit_c_to` is. **DONE** (`std/build.yo:134`
+   `(emit_chunks : comptime_int) ?= 0`; `src/build_runner.yo` forwards it as
+   `--emit-chunks N`; verified 2026-09-20).
 4. **Dev-profile default:** when `yo build` compiles at `-O0` (the default
    when no `--optimize` is given), it passes `--emit-chunks auto`; at
    `-O1`+ the default stays single-file until §5's naming lands, because
@@ -744,6 +746,18 @@ quantifies it), recompiles the dirty TU (Phase 5) and links in 0.1 s.
 That is the ≤ 10 s target in §2.
 
 ## 8. Phase 5 — per-module translation units (the C backend's version of patching)
+
+> **Step 1 IN PROGRESS 2026-09-20** (branch `feat/incr-p5-module-chunks`):
+> `yo compile --chunk-by module|name` (default `name`, today's rule). With
+> `module`, a function's unit is `fnv1a(defining module) % n`
+> (`ChunkRange.module`, from `CodegenFunctionEntry.def_module` — a
+> specialization carries its ORIGINAL's module through the body token, as
+> step 1 asks); the header-routed runtime blocks keep the by-name rule. The
+> edit-loop measurement (dev-profile self-compile: cold, warm, warm after a
+> one-statement edit in `src/lsp/folding.yo`, both groupings) is recorded
+> below when it lands; the cold-balance question of step 2 is answered by the
+> same runs (module-hash grouping is deterministic and stamp-free, so step 2's
+> size-packing is only needed if the cold wall says so).
 
 With Phase 2's stable names, `fnv1a(c_name) % N` is no longer the only
 edit-stable grouping: functions can be grouped by **defining module**, so
