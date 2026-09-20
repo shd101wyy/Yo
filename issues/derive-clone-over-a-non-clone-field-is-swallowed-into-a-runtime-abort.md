@@ -63,3 +63,13 @@ token naming the field, or (b) the generated body's def-eval failure is
 re-raised as a hard error (the flow-violation re-raise the async-closure fix
 used). (a) gives the better message. Gate: a cli-case `check` golden over the
 repro that expects E0602, red before, green after.
+
+Hazard for (a), from the peer session that landed the lazy-binding work:
+**impl registration is lazy** (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`) —
+pending entries are forced on a lookup MISS, and impl blocks ride that same
+forcing path, so "does this field type implement Clone?" asked with a raw
+registry read can answer NO for a type whose `impl(T, Clone(...))` sits below
+the `derive` or comes from a where-bound. The check must go through the
+lookup that forces pending entries, and it needs two over-rejection canaries
+that must keep compiling: a field type whose Clone impl is defined BELOW the
+derive, and a generic field whose Clone comes from a where-bound.
