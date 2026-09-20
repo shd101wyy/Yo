@@ -416,7 +416,7 @@ lib.yo
   parse_or_throw: exn : Exception [ctl]
   tick: io : Io [io]
   run: e : IoExn [io, ctl]
-  later: io : Io [io]; future e : IoExn [io, ctl]
+  later: io : Io [io]; future IoExn [io, ctl]
 ```
 
 A parameter is an effect when its type is, transitively through struct

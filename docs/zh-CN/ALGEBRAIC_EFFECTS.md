@@ -362,7 +362,7 @@ lib.yo
   parse_or_throw: exn : Exception [ctl]
   tick: io : Io [io]
   run: e : IoExn [io, ctl]
-  later: io : Io [io]; future e : IoExn [io, ctl]
+  later: io : Io [io]; future IoExn [io, ctl]
 ```
 
 当参数类型（沿结构体字段传递地）是处理器记录（带 `ctl(...)` 字段的结构体——

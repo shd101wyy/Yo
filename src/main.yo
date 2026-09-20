@@ -5799,7 +5799,10 @@ run_effects :: (
             ety := match(fut_types.get(ei), .Some(t) => t, .None => TypeValue.Unit);
             ei = (ei + usize(1));
             kinds := _effect_kinds_of_type(ety, usize(0));
-            entries.push(`future ${elabel} : ${type_to_string(ety)} [${_join_strings(kinds, ", ")}]`);
+            // The row label of an `Impl(Future(T, E))` is E's own name; say
+            // the type once.
+            fut_shown := if(elabel == type_to_string(ety), type_to_string(ety), `${elabel} : ${type_to_string(ety)}`);
+            entries.push(`future ${fut_shown} [${_join_strings(kinds, ", ")}]`);
             json_entries.push(`{"param":"${_json_escape(elabel.clone())}","type":"${_json_escape(type_to_string(ety))}","via":"future","kinds":[${_json_string_list(kinds)}]}`);
           });
           if(as_json, {
