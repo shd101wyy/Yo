@@ -4591,6 +4591,13 @@ run_test :: (
   // per-phase/per-module table on stderr) and print a per-file wall line —
   // `tests/internal`'s 22 min is the number this measures.
   (test_profile : bool) = false;
+  // Cooperative deadline forwarded to every batch-compile child (the flag
+  // exists on `compile`; here it used to be HARDCODED at 600000 in the
+  // child argv, so a tree whose batches outgrew ten minutes — measured
+  // 2026-09-20: ~651 s of comptime for one verifier.test.yo batch on the
+  // audit box, with every seed — could not run its battery locally at
+  // all while CI's faster runners kept passing).
+  (test_compile_timeout_ms : String) = String.new();
   (test_cc : String) = String.from("");
   (test_target : String) = String.from("");
   // Allocator choice forwarded to every batch compile (`--allocator fixed`
@@ -4645,6 +4652,10 @@ run_test :: (
       },
       (a == "--test-name-pattern") => {
         name_pattern = _arg_val(argv, ai);
+        ai = (ai + usize(2));
+      },
+      (a == "--compile-timeout-ms") => {
+        test_compile_timeout_ms = _arg_val_req(argv, ai, a.clone(), exn);
         ai = (ai + usize(2));
       },
       ((a == "--parallel") || (a == "-p")) => {
@@ -5255,21 +5266,20 @@ run_test :: (
         // travels as a flag. A
         // runaway comptime loop in one batch now fails THAT batch with a
         // named error instead of hanging until the CI job timeout with no
-        // indication of which file was responsible. The user's
-        // `--compile-timeout-ms` (which sets THIS process's evaluator
-        // deadline above) rides to the child too — the 600000 default is
-        // what a batch of the self-hosted compiler used to need, and the
-        // tree outgrew it: the reference verifier battery's batches now
-        // exceed 600 s of comptime on the audit box with EVERY seed
-        // (measured 2026-09-20: `yo check tests/internal/verifier.test.yo`
-        // = 651 s on the v0.2.38 evaluator), so the default silently
-        // killed every local battery run while CI's faster runners kept
-        // passing.
+        // indication of which file was responsible. The test subcommand's
+        // own `--compile-timeout-ms` sets the child's deadline (the value
+        // used to be HARDCODED at 600000 here — the flag only reached the
+        // parent's evaluator) — and the tree outgrew that default: the
+        // reference verifier battery's batches exceed 600 s of comptime on
+        // the audit box with EVERY seed (measured 2026-09-20:
+        // `yo check tests/internal/verifier.test.yo` = 651 s on the
+        // v0.2.38 evaluator), so the hardcoded value silently killed every
+        // local battery run while CI's faster runners kept passing.
         cargv.push(String.from("--compile-timeout-ms"));
         cargv.push(
           if(
-            compile_timeout_ms != "",
-            compile_timeout_ms.clone(),
+            test_compile_timeout_ms != "",
+            test_compile_timeout_ms.clone(),
             String.from("600000")
           )
         );
