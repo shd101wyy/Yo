@@ -29,6 +29,12 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
+The same leniency accepts an unclosed `struct(` at end of input:
+
+```rust
+P :: struct(x : i32;
+```
+
 `yo fmt` on the third shows what the parser built:
 
 ```rust

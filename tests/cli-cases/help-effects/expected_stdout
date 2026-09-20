@@ -1,0 +1,22 @@
+$ yo effects --help
+Usage: yo effects <file-or-dir> [options]
+
+Report which effect capabilities each EXPORTED top-level fn requires, read
+off the function types the type checker computed: a parameter whose type is
+a handler record (a struct with a ctl(...) field — Exception,
+ResumableException(T)) is kind 'ctl'; the prelude Io is kind 'io'; an
+effects-row implicit is kind 'row'. Bundles such as IoExn report every
+member's kind. A returned Impl(Future(T, E)) reports E under 'future'.
+A fn with no effect parameters is pure with respect to capabilities.
+
+Options:
+  --json                    One JSON object per module: {"file", "functions":
+                            [{"name", "effects": [{"param", "type", "via",
+                            "kinds"}]}]}
+  --exclude <path>          Exclude a directory/file (repeatable)
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo effects ./src
+  $ yo effects main.yo --json
+rc=0
