@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
   pop_branch_group,
   expr_info_set_case_executed
 } :: import("../../expr_info.yo");
-{ Environment, copy_frames } :: import("../../env.yo");
+{ Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_bool_val } :: import("../../value.yo");
@@ -222,7 +222,7 @@ evaluate_cond :: (
       );
     });
     cond_val := cond_info.value;
-    updated_case_env := cond_info.env;
+    updated_case_env := snapshot_env(cond_info.env);
     // Last condition must be compile-time known `true`.
     is_last := (ec_i == (parsed_stmts.len() - usize(1)));
     is_comptime_true := match(cond_val, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);

@@ -20,7 +20,7 @@ import("std/fmt");
   expr_info_table_get,
   expr_info_table_set
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -129,7 +129,7 @@ evaluate_concrete_type :: (
   );
   trait_val := create_type_value(concrete_trait_ty);
   meta_type := type_of_type(concrete_trait_ty);
-  next_env := inner_info.env;
+  next_env := snapshot_env(inner_info.env);
   out_info := new_expr_info(next_env, meta_type);
   out_info.value = .Some(trait_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

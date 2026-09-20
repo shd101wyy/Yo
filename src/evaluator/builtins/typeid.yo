@@ -17,7 +17,7 @@ import("std/string");
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, is_type_value, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -72,7 +72,7 @@ evaluate_type_id :: (
       return(expr);
     }
   );
-  cur_env := type_info.env;
+  cur_env := snapshot_env(type_info.env);
   // typeid only accepts compile-time Type values.
   if(!is_type_value(type_info.value), {
     exn.throw(

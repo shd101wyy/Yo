@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ Environment, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token } :: import("../../env.yo");
+{ Environment, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
 { is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type } :: import("../../types/guards.yo");
@@ -684,7 +684,7 @@ _try_comptime_array_index :: (
       new_expr_info(env, t_unit())
     }
   );
-  caller_env := info.env;
+  caller_env := snapshot_env(info.env);
   arg_type := info.ty;
   arg_val := info.value;
   rc := _check_range_type(arg_type, env, ctx);
@@ -920,7 +920,7 @@ _try_comptime_string_index :: (
       EvalValue.UnitVal
     }
   );
-  caller_env := info.env;
+  caller_env := snapshot_env(info.env);
   arg_type := info.ty;
   rc := _check_range_type(arg_type, env, ctx);
   result_val := _compute_comptime_string_index(
@@ -1158,7 +1158,7 @@ _try_comptime_custom_type_index :: (
   if(is_unknown_val(arg_value), {
     return(Option(IndexCallResult).None);
   });
-  ct_caller_env := arg_info.env;
+  ct_caller_env := snapshot_env(arg_info.env);
   arg_type := arg_info.ty;
   // Find a ComptimeIndex method.
   ct_method := match(
@@ -1517,7 +1517,7 @@ try_to_call_with_index_trait :: (
       new_expr_info(caller_env, t_unit())
     }
   );
-  updated_env := arg_info.env;
+  updated_env := snapshot_env(arg_info.env);
   // For array/slice: derive element type directly from TypeValue (no method lookup needed)
   if(is_arr_or_slice_ty, {
     elem_ty := match(

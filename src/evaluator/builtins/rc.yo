@@ -11,7 +11,7 @@
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -59,7 +59,7 @@ evaluate_rc :: (
       new_expr_info(env, t_usize())
     }
   );
-  cur_env := arg_info.env;
+  cur_env := snapshot_env(arg_info.env);
   out_info := new_expr_info(cur_env, t_usize());
   if(is_rc_type(arg_info.ty), {
     // RC type: count is only known at runtime → unknown value

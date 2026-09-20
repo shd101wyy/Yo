@@ -18,7 +18,7 @@ import("std/fmt");
 } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -83,7 +83,7 @@ evaluate_typeof :: (
     .None => new_expr_info(env, t_i32())
   );
   // Use the (possibly updated) env from the evaluated arg.
-  next_env := info.env;
+  next_env := snapshot_env(info.env);
   arg_ty := info.ty;
   // Wrap the arg's type as a TypeVal compile-time value.
   type_val := create_type_value(arg_ty);

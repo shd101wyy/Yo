@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   record_macro_expansion
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_float_type, is_numeric_type, is_some_type, is_extern_type_name } :: import("../../types/guards.yo");
 {
@@ -264,7 +264,7 @@ try_to_convert_to_numeric_type :: (
     );
   });
   arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
-  env := arg_info.env;
+  env := snapshot_env(arg_info.env);
   arg_val := arg_info.value;
   arg_type := arg_info.ty;
   // -----------------------------------------------------------------------
