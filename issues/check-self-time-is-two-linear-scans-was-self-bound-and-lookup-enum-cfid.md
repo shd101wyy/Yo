@@ -1,6 +1,6 @@
 # `check src/main.yo` self time: ~45% is TWO linear scans — `_was_self_bound` (RC churn + TLS reads) and `lookup_enum_cfid`
 
-**Status: DIAGNOSED 2026-09-20 (profile-verified, v0.2.38 release binary). Not yet fixed.**
+**Status: FIXED 2026-09-20 (profile before/after, same-tree A/B).**
 
 Found while measuring the allocator share for `plans/backlog/PERCEUS_REUSE.md`
 Phase 0 step 3. It is not a Perceus finding; it is the thing that sits in
@@ -62,7 +62,7 @@ that is false for almost every variable.
 A global `ArrayList(EnumCfidEntry)` scanned linearly with `String ==` on
 every call; the list grows with every registered enum. 5.5% self time.
 
-## Levers (not applied here)
+## Fixes (applied)
 
 - `_was_self_bound`: compare `var.name` through a borrowed accessor (the
   `for` borrowed iteration or an index-based `inout` read) so the scan dups
@@ -75,3 +75,32 @@ every call; the list grows with every registered enum. 5.5% self time.
 Raw profile: `sample` output kept in the Phase 0 scratch directory of the
 measuring session (top-of-stack table reproduced above; regenerate with the
 command in the Measurement section).
+
+### A third scan hiding behind the first two: `getenv` per call
+
+The post-fix profile (below) surfaced `__findenv_locked` at 4.4% of self
+time: `synthesize`, identifier evaluation and parameter matching each guarded
+a `YO_DEBUG_*` probe with `env.get(...)` on EVERY call — a locked linear scan
+of `environ` plus a `String` allocation for the name and one for the result.
+The census puts the wrapper at 67 M calls per self-check. Fixed by
+`debug_knob` in `src/utils.yo` (read once per knob name; 87 sites converted).
+
+## Verification
+
+Same-tree A/B (`perceus-base`, tree `e32207097`), tree-built binaries, quiet
+machine, `check src/main.yo --std-path ./std`:
+
+| binary                                            | wall     | user     | footprint |
+| ------------------------------------------------- | -------- | -------- | --------- |
+| baseline                                          | 350.5 s  | 292.9 s  | 31.55 GB  |
+| `_was_self_bound` + `lookup_enum_cfid` + list hoist | 315.3 s | 254.4 s  | 31.52 GB  |
+| + `debug_knob` (all four fixes)                   | 320.8 s  | 246.2 s  | 31.52 GB  |
+
+Wall is noisy at a 31 GB footprint on a 16 GB machine (sys time swung 47 → 62 s
+between otherwise identical runs); user time is the stable column: **−16%**.
+
+Post-fix profile (`sample`, 40 s, 29,813 busy samples): `_tlv_get_addr`
+**24.4% → 2.9%**, `__yo_decr_rc` 20.5% → 19.4%, malloc/free 15.2% → 23.1%
+(a larger share of a smaller total), `__findenv_locked` 4.4% (fixed next,
+above), the two `HashMap(String, …)` key-hash specializations 4.4% each
+(SipHash of string keys — real work, the `Symbol` lever's territory).
