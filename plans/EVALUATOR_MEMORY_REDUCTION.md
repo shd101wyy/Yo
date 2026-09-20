@@ -70,7 +70,7 @@ is macOS phys_footprint; "tracked live" is the allocator-boundary instrument of
 | 2026-08-18 | `_inject_forall_captures` memo       | tracked live 19.07 → 14.94 GB (−4.1 GB), wall −35%           | `backlog/RC_HEADER_SPLIT.md`               |
 | 2026-08-18 | ExprInfo accessor diet (REFUTED)     | diet binary −1.8 GB on same input, diet SOURCE +3.9 GB to compile (~10 MB retained per new call site) | `backlog/RC_HEADER_SPLIT.md` |
 | 2026-08-23 | FuncVal env sharing (steps 2+3)      | 17.19 → 16.08 GB footprint (self-emit, seed compile)         | `backlog/FUNCVAL_ENV_SHARING.md`           |
-| 2026-08-24 | one 5-line debug probe               | seed compile 17.5 → 29.1 GB, +2.9× wall, probe never fires   | `issues/debug-probe-line-costs-gigabytes-at-compile-time.md` |
+| 2026-08-24 | one 5-line debug probe               | seed compile 17.5 → 29.1 GB, +2.9× wall, probe never fires   | `issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md` |
 | 2026-09-20 | `check src/main.yo`                  | **19.33 GB** (this document)                                  | §0.1                                       |
 
 Read the two bold rows together: five weeks ago the evaluator-only `check` was
@@ -104,9 +104,9 @@ strings fold into a left-nested `.+` method chain and the evaluator costs
 ~4× per chain level (receiver evaluated once to resolve the method and again
 as the `self` argument, compounding) — a 15-line program with a
 10-interpolation template checks at 10.7 GB / 67 s
-(`issues/debug-probe-line-costs-gigabytes-at-compile-time.md`, with the growth
+(`issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md`, with the growth
 curve and the isolation table in
-`issues/seven-gated-debug-probes-cost-11-gb-of-check-memory.md`). The
+`issues/fixed/seven-gated-debug-probes-cost-11-gb-of-check-memory.md`). The
 probes are removed in Phase 1's PR; the evaluator fix is Phase 7, promoted to
 run right after Phase 1 because every `a.f().g().h()` chain in user code pays
 the same curve.
@@ -475,7 +475,7 @@ strings are names versus content.
 Two independent measurements: the ExprInfo accessor diet cost +3.9 GB to
 COMPILE (~370 accessor calls → "~10 MB of retained evaluation state per call
 site"), and one 5-line gated debug probe cost +11.7 GB / +2.9× wall of seed
-compile (`issues/debug-probe-line-costs-gigabytes-at-compile-time.md`, open).
+compile (`issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md`, open).
 Both point at one mechanism in def-time trial evaluation / specialization
 (suspects: a new binding shape driving `value_to_string`-class recursive
 formatters through fresh unknown lineages; per-interpolation cost in template

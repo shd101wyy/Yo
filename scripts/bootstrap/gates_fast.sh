@@ -61,7 +61,7 @@ done
 # method chain after desugaring) must compile within 120 s. Before the
 # receiver-once fix the evaluator cost 2^depth here — ten interpolations were
 # 67 s / 10.7 GB, twelve would have been ~18 min
-# (issues/debug-probe-line-costs-gigabytes-at-compile-time.md).
+# (issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md).
 r=issues/repros/template-ten-interpolations-is-linear.yo
 n=$(basename "$r" .yo)
 timeout 120 "$S1" compile "$r" --optimize 2 -o "/tmp/${P}_${n}" &> "/tmp/${P}_${n}.log"

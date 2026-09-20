@@ -1522,7 +1522,7 @@ export(
 // overload and again as arguments. Each level of a left-nested chain therefore
 // doubled the work below it: a template string with N interpolations is a
 // 2N-deep `.+` chain, and one with ten took 10.7 GB / 67 s to check
-// (issues/debug-probe-line-costs-gigabytes-at-compile-time.md). The call marks
+// (issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md). The call marks
 // such a node here for the duration of its argument matching; the evaluator's
 // dispatcher returns a marked node whose `ExprInfo` is already recorded without
 // re-evaluating it. Marks are keyed by node id, so a cloned body (fresh ids)
@@ -1537,7 +1537,7 @@ unmark_node_preevaluated :: (fn(id : usize) -> unit)({
 node_is_preevaluated :: (fn(id : usize) -> bool)(g_preevaluated_node_ids.contains(id));
 // `YO_SPEC_REPORT=1` also counts evaluations per AST node id (the re-evaluation
 // multiplicity behind the exponential method-chain cost,
-// issues/debug-probe-line-costs-gigabytes-at-compile-time.md). Read once at
+// issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md). Read once at
 // startup so the per-node hook costs one branch when the knob is unset.
 (g_node_eval_counting : bool) = debug_knob(`YO_SPEC_REPORT`).is_some();
 (g_node_eval_counts : HashMap(usize, usize)) = HashMap(usize, usize).new();

@@ -109,7 +109,7 @@ function binds N `String` locals and prints them in ONE template:
 
 The increments 0.11 / 0.44 / 1.79 / 7.1 GB are ×4 per level. The 2026-08-24
 probe (`[bind-T]`, +11.7 GB) and #800's `[chres-oor]` probe (+11.6 GB,
-`issues/seven-gated-debug-probes-cost-11-gb-of-check-memory.md`) were both
+`issues/fixed/seven-gated-debug-probes-cost-11-gb-of-check-memory.md`) were both
 10-interpolation templates; the "match-unwrapped unknown fed to a recursive
 formatter" hypothesis was wrong — the formatter never mattered, the count
 did.
