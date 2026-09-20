@@ -27,7 +27,7 @@
   has_any_control_flow
 } :: import("../../expr_info.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
-{ Environment, copy_frames } :: import("../../env.yo");
+{ Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, LoopBodyCtx, LoopKind } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
@@ -510,7 +510,8 @@ evaluate_while :: (
               )
             );
           });
-          updated_env_cont = match(step_info_cont_opt, .Some(si) => si.env, .None => updated_env_cont);
+          // Private copy: the loop body is re-evaluated in this env (its blocks pop).
+          updated_env_cont = match(step_info_cont_opt, .Some(si) => snapshot_env(si.env), .None => updated_env_cont);
         }
       );
       // If the condition is compile-time known, re-evaluate the loop.
@@ -623,7 +624,8 @@ evaluate_while :: (
           )
         );
       });
-      env = match(step_info_s_opt, .Some(si) => si.env, .None => env);
+      // Same: private copy of the recorded env.
+      env = match(step_info_s_opt, .Some(si) => snapshot_env(si.env), .None => env);
     }
   );
   // Comptime while loop unrolling with a RUNTIME body. When the condition is
