@@ -29,11 +29,12 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ToString } :: import("std/fmt");
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { hash_one } :: import("std/hash");
-{ cwd } :: import("std/env");
+{ cwd, env : ei_dbg_env } :: import("std/env");
 // `expr_info_paths_for_write` detects the SHARED empty PathCollection before a
 // push with the prelude's pointer-identity builtin `__yo_ptr_eq` (the same
 // direct call as env.yo / std/string/string.yo).
@@ -1059,6 +1060,19 @@ is_thread_local :: (fn(module_path : String, name : String) -> bool)(
 (g_some_resolved_concrete : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 /// Record the resolved concrete type for the `SomeT` with unique id `some_id`.
 register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit)({
+  if(ei_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+    match(
+      g_some_resolved_concrete.get(some_id),
+      .Some(old) => {
+        (src_o : String) = type_to_string(old);
+        (src_n : String) = type_to_string(ty);
+        if(src_o != src_n, {
+          eprintln(`[src-collide] id=${some_id} old=${src_o} new=${src_n}`);
+        });
+      },
+      .None => ()
+    );
+  });
   g_some_resolved_concrete.insert(some_id, ty);
   ()
 });

@@ -1202,6 +1202,15 @@ _synthesize_types_impl :: (
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   giv_id := synthesis_type_id(given_ty);
+  if(synth_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+    (sei_s : String) = type_to_string(expected_ty);
+    if((sei_s.index_of(String.from("GenericImplEntry")) != .None) || (sei_s.index_of(String.from("DocParam")) != .None), {
+      (sgi_s : String) = type_to_string(given_ty);
+      if((sgi_s.index_of(String.from("GenericImplEntry")) != .None) || (sgi_s.index_of(String.from("DocParam")) != .None) || (sgi_s.index_of(String.from("SomeT")) != .None) || (sei_s.index_of(String.from("SomeT")) != .None), {
+        eprintln(`[synth-mix] exp=${sei_s} giv=${sgi_s} mod=${ee.module_path}`);
+      };
+    };
+  });
   // Anti-circularity check
   if(_has_type_pair(checked, exp_id, giv_id), {
     return(SynthesizeResult(expected_env : ee, given_env : ge));
@@ -1403,6 +1412,17 @@ _synthesize_types_impl :: (
     existing_bound := get_value_of_some_type_from_env(ge, given_ty);
     giv_id2 := match(given_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     giv_name := match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
+    if(synth_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+      sgv_s := type_to_string(existing_bound);
+      if(sgv_s.index_of(String.from("Doc")) != .None, {
+        sgv_lvl := match(
+          given_ty,
+          .SomeT({ frame_level : sgl }) => sgl.to_string(),
+          _ => String.from("-")
+        );
+        eprintln(`[syn-giv] id=${giv_id2} name=${giv_name} lvl=${sgv_lvl} depth=${ge.frames.len().to_string()} -> ${sgv_s} mod=${ge.module_path}`);
+      });
+    });
     if(!is_some_type(existing_bound), {
       // Given is already bound — recurse
       res := _synthesize_types_impl(expected_ty, ee, existing_bound, ge, checked, opts, exn);

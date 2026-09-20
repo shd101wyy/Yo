@@ -809,9 +809,11 @@ _bind_forall_from_type_args :: (
         // specialized `_find_bucket` with `key : unit` under the HashMap
         // Clone-impl trial and the sibling `set` re-eval swallowed
         // ("Cannot unify u64 and unit", hash_map:714 of the corpus family).
-        .Some(ct) => if(!is_some_type(ct) && !match(ct,
-        .Unit => true,
-        _ => false),
+        .Some(ct) => if(!is_some_type(ct) && !match(
+          ct,
+          .Unit => true,
+          _ => false
+        ),
         {
           return(Option(TypeValue).Some(ct));
         },
@@ -919,7 +921,15 @@ _bind_forall_from_type_args :: (
             ct,
             .SomeT({ id : ctid }) => match(
               lookup_some_resolved_concrete(ctid),
-              .Some(c) => return(Option(TypeValue).Some(c)),
+              .Some(c) => {
+                if(impl_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+                  (c2_s : String) = type_to_string(c);
+                  if(c2_s.index_of(String.from("Doc")) != .None, {
+                    eprintln(`[chan2] id=${ctid} -> ${c2_s}`);
+                  });
+                });
+                return(Option(TypeValue).Some(c));
+              },
               .None => ()
             ),
             _ => ()
