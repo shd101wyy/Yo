@@ -527,10 +527,10 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "该分支的模式无法匹配被匹配值的类型，或者不是合法的模式形式。",
       "A pattern is `_`, a binding name, a compile-time constant (a literal, a `::` constant, a typed literal such as `i32(5)`, a string), `.Variant`, `.Variant(p, …)` with sub-patterns at any depth, `.Variant(label : p)`, `.Variant({…})`, `(p | q)`, `(name := p)`, `(lo..hi)` / `(lo..=hi)`, or `(p && (guard))`. A constant must fold at compile time and must be comparable with `==` to the value at its position; range bounds must be constants; a guard must be `bool`; or-pattern alternatives must bind the same names. Because Yo has no operator precedence, an infix pattern needs its own parentheses.",
       "模式可以是 `_`、绑定名、编译期常量（字面量、`::` 常量、如 `i32(5)` 的带类型字面量、字符串）、`.Variant`、任意深度嵌套子模式的 `.Variant(p, …)`、`.Variant(label : p)`、`.Variant({…})`、`(p | q)`、`(name := p)`、`(lo..hi)` / `(lo..=hi)`，或 `(p && (guard))`。常量必须能在编译期折叠，并且必须能与该位置的值用 `==` 比较；范围边界必须是常量；守卫必须是 `bool`；或模式的各选项必须绑定相同的名字。由于 Yo 没有运算符优先级，中缀模式需要自己的括号。",
-      "f :: (fn(n : i32) -> i32)(match(n, x + 1 => i32(1), _ => i32(0)));\n",
-      "f :: (fn(n : i32) -> i32)(match(n, (x := (1..=5)) => x, _ => i32(0)));\n",
-      "`x + 1` is an expression, not a pattern; bind with `(x := range)` or match a constant.",
-      "`x + 1` 是表达式而不是模式；请用 `(x := range)` 绑定，或匹配一个常量。"
+      "f :: (fn(n : i32) -> i32)(match(n, \"a\" => i32(1), _ => i32(0)));\n",
+      "f :: (fn(n : i32) -> i32)(match(n, 1 => i32(1), _ => i32(0)));\n",
+      "A string literal cannot match an `i32` scrutinee: there is no `==` between them. Match a constant of the scrutinee's type, a range, a variant or a binding.",
+      "字符串字面量不能匹配 `i32` 被匹配值：两者之间没有 `==`。请匹配与被匹配值同类型的常量、范围、变体或绑定。"
     )
   );
   out.push(
