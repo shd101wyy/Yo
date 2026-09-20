@@ -1,6 +1,6 @@
 """Perceus reuse-ceiling census of the emitted C — CURRENT (`__yo_tN`) naming.
 
-Sibling of live_census_t.py (plans/backlog/PERCEUS_REUSE.md Phase 0, step 2).
+Sibling of live_census_t.py (plans/archive/PERCEUS_REUSE.md §0 — Phase 0, step 2).
 Measures how many constructions could, at best, take over a same-type (or
 same-size) cell that dies IN THE SAME FUNCTION ACTIVATION with `ref_count == 1`
 — the runtime half of the reuse precondition. Every C function definition
@@ -72,7 +72,10 @@ src, n_ctor = ctor_pat.subn(ctor_repl, src)
 # function activations: every yo_id_* DEFINITION (not prototype). Dispose fns
 # are included on purpose: child deaths then land in an activation with no births.
 fnames, fret = [], []
-fn_pat = re.compile(r"^(static (?:inline )?[A-Za-z_0-9 \*]+? )(yo_id_[A-Za-z_0-9]*)\(([^;{]*?)\) \{$", re.M)
+# `__yo_fs_<hash>` is the emitter's name for a specialization whose mangled
+# name exceeds 160 chars (codegen/utils/index.yo) — e.g. `ArrayList(Option(Token)).new`;
+# without it every such constructor wrapper's births land in its caller.
+fn_pat = re.compile(r"^(static (?:inline )?[A-Za-z_0-9 \*]+? )((?:yo_id_|__yo_fs_)[A-Za-z_0-9]*)\(([^;{]*?)\) \{$", re.M)
 def fn_repl(m):
     fid = len(fnames); fnames.append(m.group(2))
     rt = re.search(r"(__yo_t_?\d+)\*\s*$", m.group(1))

@@ -1,37 +1,146 @@
 # Perceus-style reuse — drop-guided allocation reuse in Yo's RC codegen
 
-**Status: DESIGN, NOT STARTED (2026-09-20).** Written in answer to "is
+> **CLOSED 2026-09-20 — Phase 0 measured, verdict NO-GO for the mechanism as
+> designed.** The reuse ceiling of the drop-guided rewrite at a construction
+> expression (§4.3, shapes A/B/C) is **1.8% of all constructions** on the
+> self-compile (46 M of 2.63 B, `check src/main.yo`, tree `7eada73f8`), which
+> against an allocator self-time share of 17% predicts **≈0.3% of wall** —
+> far under the plan's own 5% bar. The reason is structural, not a detail:
+> Yo constructs almost every heap cell inside a constructor-like callee
+> (`ArrayList.new`, `String.with_capacity`, `to_string`, `synthesize`'s
+> result records), so the construction expression and the dying cell are
+> never in one block. A reuse token that flows THROUGH such callees (a
+> design this plan did not have) has a ceiling of 35% of constructions
+> (≈6% of wall as a ceiling, not an estimate), and 37% of that ceiling is
+> ONE function, `merge_and_check_envs`, which mints five lists per variable
+> per frame per `cond`/`match` — fixable by hand in one edit
+> (`issues/merge-and-check-envs-mints-five-lists-per-variable-per-branch-merge.md`).
+> The churn-shaped programs sit under their 15% bar too (JSON ≈10%, list
+> rebuild ≈4% of wall). The profile taken for step 3 found the actual CPU
+> lever instead: two linear scans, `_was_self_bound` and `lookup_enum_cfid`,
+> are ≈45% of `check`'s self time
+> (`issues/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md`).
+> Numbers, method and the retained instruments are in §0; §1–§7 are the
+> original design, kept as the record of what was evaluated.
+> Instruments: `scripts/bootstrap/reuse_census_t.py`, `scripts/bootstrap/reuse_report.py`.
+
+**Status: CLOSED (NO-GO) 2026-09-20; written 2026-09-20** in answer to "is
 Perceus a better fit for Yo than an arena?" after
 `ARENA_ALLOCATOR_FEASIBILITY.md` (2026-09-20) found that arenas cannot be made
 RC-free without region types and do not touch the compiler's footprint. Sister
 plan: `../EVALUATOR_MEMORY_REDUCTION.md` (the footprint; this document is about
 allocation CHURN and the CPU it costs).
 
-## 0. Verdict
+## 0. Phase 0 results (2026-09-20) and the verdict
 
-**Yes — Perceus is the allocation lever that fits Yo's model, and it is the
-one that needs no new language surface.** Yo already has the three things
-Perceus is built on: precise, non-atomic reference counts on every heap cell;
-an ownership analysis in the evaluator that knows which local OWNS a count and
-where its last use is (`is_owning_the_rc_value`, `set_expr_as_consumed`,
-`_optimize_dup_drop_pairs`); and typed constructors / typed dispose in the
-emitted C. Reuse is a local rewrite — "this cell is about to die, and a
-same-size cell is about to be allocated: hand the memory over" — guarded at
-runtime by a uniqueness check (`ref_count == 1`, `borrow_count == 0`), so it is
-sound by the same argument as `Iso`'s `can_isolate` and needs no escape
-analysis, no lifetimes, no arena scope. It respects the policy/mechanism split
-(`RC_POLICY_MECHANISM_SPLIT.md`): the evaluator decides WHERE a cell may be
-reused, codegen decides HOW.
+### 0.1 What was measured
 
-What it buys: fewer `malloc`/`free` pairs and less `memset`/cache traffic on
-churn-heavy code (the self-compile constructs 1.59 B objects for 130 M
-survivors — §2). What it does **not** buy: peak footprint (retention is the
-footprint, §`EVALUATOR_MEMORY_REDUCTION.md`), nor the ~58% of CPU in
-`__yo_decr_rc` that comes from dup/drop traffic on lookups
-(`issues/yo-self-compile-performance-rc-string-eq.md`) — that is the
-Symbol/identity lever. Perceus's gain is bounded by how often a death and a
-same-size birth sit next to each other in one block; **Phase 0 measures that
-ceiling before anything is built**, with a go/no-go.
+`scripts/bootstrap/reuse_census_t.py` instruments a fresh emission of the
+compiler (`yo compile src/main.yo --emit-c`, 160 MB of C, clang `-O1`): a
+birth counter at the entry of every constructor DEFINITION
+(`__yo_new___yo_tN[_V]`), a death counter at the entry of every installed
+`dispose_fn` (a synthetic one for the 34 constructors that install none), and
+an activation record pushed at the entry of every `yo_id_*` / `__yo_fs_*`
+function and popped by a cleanup attribute. A death is recorded in the
+CALLER's activation (the cell's own last-reference free); the decrements inside
+the dispose body (child deaths) land in the dispose's own activation, which has
+no births, and deaths reached through the cycle collector are skipped. Per
+activation, on pop:
+
+- **intra ceiling** `Σ_T min(births_T, deaths_T)` — order-insensitive, because
+  §4.3's consumed-marking may move a dead local's drop up to the construction;
+  this is the ceiling of the plan's own mechanism (a construction expression
+  and a same-type death in one function).
+- **strict** — births immediately preceded by a same-type death with no
+  intervening birth: what today's drop placement gives with no drop movement.
+- **transitive ceiling** — as intra, but one excess birth of a function's
+  return type is handed to its caller at return: the cell `x := f(...)`
+  receives counts as born in the caller. This is the ceiling of a design in
+  which a reuse token flows through constructor-like callees.
+- **same-size** variant of the transitive ceiling (Phase 3's cross-type
+  extension; tracked and untracked headers have different sizes, so it never
+  pairs across them).
+
+The first run instrumented only `yo_id_*` functions and reported an intra
+ceiling of 19.5%; that number was an artifact — `ArrayList(Option(Token)).new`
+and 253 other constructor wrappers have hashed `__yo_fs_*` C names
+(`codegen/utils/index.yo`, names over 160 chars) and their births were landing
+in the caller. The table below is the second run, with those instrumented.
+
+### 0.2 Numbers
+
+`check src/main.yo --std-path ./std`, tree `7eada73f8`, quiet Mac Mini M4:
+
+| metric                                              | count      | share of gross |
+| --------------------------------------------------- | ---------- | -------------- |
+| gross constructions                                 | 2,633 M    |                |
+| deaths (last-reference frees, collector excluded)   | 2,421 M    |                |
+| **intra ceiling (the plan's §4.3 mechanism)**       | **46 M**   | **1.8%**       |
+| strict (no drop movement)                           | 29 M       | 1.1%           |
+| transitive same-type ceiling                        | 918 M      | 34.9%          |
+| transitive same-size ceiling                        | 958 M      | 36.4%          |
+
+Top types (gross / intra / transitive):
+
+| type                              | gross    | intra  | transitive | note                                                  |
+| --------------------------------- | -------- | ------ | ---------- | ----------------------------------------------------- |
+| `ArrayList(u8)` (strings)         | 1,367 M  | 0      | 71 M       | 52% of all constructions; built and stored, not rebuilt |
+| `ArrayList(usize)`                | 176 M    | 0      | 109 M      |                                                       |
+| `ArrayList(String)`               | 173 M    | 0      | 160 M      | 5 lists per variable in `merge_and_check_envs`        |
+| `ArrayList(TypeValue)`            | 168 M    | 0      | 155 M      |                                                       |
+| `ArrayList(Option(Token))`        | 128 M    | 0      | 128 M      | all from `merge_and_check_envs`                       |
+| `SynthesizeResult`                | 44 M     | 24 M   | 44 M       | the one literal-construction hot spot                 |
+| `EvalValue`                       | 21 M     | 8 M    | 11 M       |                                                       |
+| `TypeValue`                       | 17 M     | 1.8 M  | 9 M        |                                                       |
+
+Top functions by transitive ceiling: `merge_and_check_envs` 340 M (37% of
+the whole ceiling), `try_to_call_function_with_arguments` 68 M, a
+`String -> ArrayList` helper 67 M, `synthesize` 57 M, `type_to_string` 46 M,
+`get_all_some_types` 39 M.
+
+Profile share (step 3; `sample`, 40 s, worker thread 29,987 busy samples):
+malloc/free family **15.2%**, memset 2.1% (memmove/memcmp another 4.3%, not
+allocation), `__yo_decr_rc` 20.5%, `_tlv_get_addr` 24.4% (thread-local reads
+under `__yo_decr_rc`'s tracked tail — 90% of them from `_was_self_bound`).
+Wall 380 s, peak footprint 31.5 GB (release v0.2.38 binary).
+
+Churn-shaped programs (`scratch/bench`: a 33 MB in-memory JSON document
+parsed and re-serialised 3×; a cons-list `map` ×40 over 200 k cells + a
+2 M-step record builder + string-label churn):
+
+| program    | gross   | intra  | transitive | alloc share | predicted win (transitive) |
+| ---------- | ------- | ------ | ---------- | ----------- | -------------------------- |
+| JSON       | 27.9 M  | 0%     | 19.4%      | 45%         | ≈ 10% of wall (ceiling)    |
+| list/build | 30.0 M  | 6.7%   | 6.7%       | 52%         | ≈ 4% of wall (ceiling)     |
+
+The list `map` rebuild — Perceus's headline case — pairs NOTHING even with an
+`own(xs)` parameter: the callee drops its owned param at scope END, after the
+recursive call has returned, so every cell but the outermost dies inside the
+outer cell's dispose cascade. Reaching it needs drop-at-last-use for owned
+params (§4.3's consumed-marking would do it for the candidate itself); with
+7 `own` params in `src/` this does not change the self-compile verdict.
+
+### 0.3 Verdict
+
+Plan formula: predicted win = (share of constructions with a pairable death)
+× (allocator share).
+
+- Mechanism as designed (§4.3): 1.8% × 17% ≈ **0.3% of wall**. No-go.
+- With reuse tokens through constructor-like callees: 35% × 17% ≈ 6% of
+  wall as a CEILING (ordering, aliasing and the buffer allocation behind
+  every `ArrayList` cell all subtract; a list costs two mallocs and reuse
+  saves one). Marginal against the 5% bar, and 37% of it is one function's
+  allocation pattern that a hand edit removes.
+- Churn programs: ≈10% / ≈4% against the 15% bar. No-go.
+
+**Closed as NO-GO.** What Phase 0 bought instead: the two linear scans
+(≈45% of `check` self time) and the `merge_and_check_envs` churn (≈13% of
+all constructions), each a targeted fix worth more than the whole reuse
+mechanism's ceiling. Revisit this plan only after those land AND the RC
+traffic levers (`Symbol`/interning, borrow elision) have moved the allocator
+share; the instruments are retained for that re-measurement.
+
+---
 
 ## 1. What Perceus is, part by part, against what Yo has
 

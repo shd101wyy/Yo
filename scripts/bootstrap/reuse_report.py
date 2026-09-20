@@ -3,7 +3,7 @@
 Usage: python3 scripts/bootstrap/reuse_report.py <dump.txt> <instrumented.c> [top]
 Prints totals (gross constructions, deaths, same-type ceiling, strict same-type
 pairs, same-size ceiling), the top types by ceiling and by gross, and the top
-functions by same-type ceiling. plans/backlog/PERCEUS_REUSE.md Phase 0 step 2.
+functions by same-type ceiling. plans/archive/PERCEUS_REUSE.md §0 / Phase 0 step 2.
 """
 import sys
 from pathlib import Path

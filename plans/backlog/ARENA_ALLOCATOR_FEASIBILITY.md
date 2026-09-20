@@ -41,7 +41,9 @@ process-wide allocator — get a sound arena allocator, and would it help?
    the type (Option A's inline values, or the typed frame-bound cells of
    §4.3 Option C′); it is impossible for the dynamic Option B, whose counts
    are its soundness argument. For allocation churn under Yo's existing RC,
-   Perceus-style reuse (`PERCEUS_REUSE.md`) is the better fit than any arena.
+   Perceus-style reuse (`../archive/PERCEUS_REUSE.md`) is the better fit than any arena
+   (measured 2026-09-20 and closed NO-GO: a 1.8% construction ceiling for the
+   designed mechanism — the plan's §0).
 
 ---
 
@@ -321,7 +323,7 @@ At a `___drop(x); y := T(...)` pair where `x` is the last reference and
 allocator change; removes a malloc/free pair per reused site. It is the
 RC-native answer to "allocation churn" and does not need this document's
 machinery. **Detailed design, measurement protocol and phases:
-`PERCEUS_REUSE.md` (2026-09-20).**
+`../archive/PERCEUS_REUSE.md` (2026-09-20; measured the same day and closed NO-GO, its §0).**
 
 ## 5. The escape hatches Option B must close (checklist)
 

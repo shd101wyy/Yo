@@ -84,10 +84,16 @@ the Odin/Zig "everything in scope comes from the arena" form is unsound
 because raw buffers carry no header; region-typed references are refused by
 design; an RC-free arena needs arena-ness to be a static type property; and
 none of it reduces the compiler's footprint, which is retention.
-[`backlog/PERCEUS_REUSE.md`](backlog/PERCEUS_REUSE.md) — the allocation-churn
-lever that does fit Yo's RC: drop-guided reuse of a dying same-type cell at
-the next construction, guarded by a runtime `ref_count == 1` check, planned
-with a measure-first go/no-go (adjacent death→birth rate on the self-compile).
+[`archive/PERCEUS_REUSE.md`](archive/PERCEUS_REUSE.md) — **CLOSED NO-GO
+2026-09-20**: drop-guided reuse of a dying same-type cell at the next
+construction, measured before building (`scripts/bootstrap/reuse_census_t.py`).
+The ceiling of the designed mechanism is 1.8% of constructions (≈0.3% of wall)
+because Yo constructs through `ArrayList.new`-style callees; a token through
+those callees reaches 35% as a ceiling, 37% of it one function's allocation
+pattern. The measurement found the real levers instead: two linear scans
+worth ≈45% of `check` self time and the `merge_and_check_envs` list churn
+(`issues/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md`,
+`issues/merge-and-check-envs-mints-five-lists-per-variable-per-branch-merge.md`).
 
 The **LLM-friendly toolchain campaign** closed 2026-09-17:
 [`archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md)
