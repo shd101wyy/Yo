@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-20 — Phase 0 steps 1/4/5 and Phase 1 landed, Phase 7's bug root-caused and FIXED (PR `perf/evaluator-memory-p1`: `check src/main.yo` 19.9 → 10.2 GB, 170 → 90 s); Phase 2 (F3) implemented on the stacked branch `perf/evaluator-memory-p2-f3`, measuring.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-21 — Phase 0 steps 1/4/5 and Phase 1 landed (#805: `check src/main.yo` 19.9 → 10.2 GB, 170 → 90 s; two follow-up bugs fixed in #807); Phase 2 (F3) implemented and measured on `perf/evaluator-memory-p2-f3`: 10.16 → 9.72 GB, the guard clean; awaiting the byte-identity gate.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -746,9 +746,23 @@ corrections to the design above:**
   reassigns `self.frames`. Lesson recorded in memory
   (`yo-env-snapshot-sharing-lessons`): run the four static scans BEFORE the
   next guard build; each guard cycle is a 15-minute self-build.
-- Result (to fill from the A/B): footprint / wall of `check src/main.yo`
-  against Phase 1's 10.16 GB / 90 s, and the emitted-C comparison against the
-  Phase 1 emission of the same tree.
+- **Measured 2026-09-21** (`check src/main.yo --std-path ./std` on tree
+  24fcd192f, `/usr/bin/time -l`, guard clean = zero frozen-snapshot
+  mutations across the whole run):
+
+  | tree | peak footprint | max RSS | wall |
+  | --- | --- | --- | --- |
+  | Phase 1 (#805) | 10.16 GB | — | 90 s |
+  | Phase 1 + F3 | 9.72 GB | 9.87 GB | 88.7 s |
+
+  −0.44 GB (−4 %), against the audit's 2–3 GB estimate for F3. The shortfall
+  is the design's own cost: the 4-slot ring only merges CONSECUTIVE
+  same-scope snapshots, and every one of the ~130 adoption sites now takes a
+  transient private copy (an `Environment` + one frame list) where it used to
+  alias. The census-side lever left in F3 is the ring depth (hit rate was not
+  measured; a per-scope memo keyed by the frame sequence would catch
+  non-consecutive repeats) — measure the hit rate before widening. Emitted C:
+  see the byte-identity note below.
 
 ### Phase 3 — `Option(ref)` niche (F4): layout change, full battery
 
