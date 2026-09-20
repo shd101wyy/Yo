@@ -138,6 +138,7 @@ json :: import("std/encoding/json");
 { eval_context_new } :: import("./evaluator/context.yo");
 { register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
+{ decode_str_lit_escapes } :: import("./evaluator/values/string.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
 { run_check_watch, run_watch_once, watch_snapshot, wait_for_change } :: import("./check_watch.yo");
 {
@@ -336,12 +337,15 @@ extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
           .FnCall(_, _, _, _, _) => Option(String).None,
           .Atom(_, ntok) => cond(
             (ntok.kind == TokenKind.StringLit) => {
-              // StringLit token values include surrounding double-quotes: "name"
-              // Strip them with substring(1, len-1).
-              n := ntok.value.len();
+              // The token value is the RAW quoted source: decode the escapes
+              // with the evaluator's own table (a `\"` in a test name printed
+              // as a backslash + quote, and `--json` then escaped both), then
+              // strip the surrounding double-quotes the decoder keeps.
+              decoded := decode_str_lit_escapes(ntok.value);
+              n := decoded.len();
               cond(
-                (n >= usize(2)) => .Some(ntok.value.substring(usize(1), n - usize(1))),
-                true => .Some(ntok.value)
+                (n >= usize(2)) => .Some(decoded.substring(usize(1), n - usize(1))),
+                true => .Some(decoded)
               )
             },
             true => Option(String).None
@@ -4458,6 +4462,15 @@ run_test :: (
   (test_heap_size_raw : String) = String.new();
   (test_debug_heap : bool) = false;
   (json_summary : bool) = false;
+  // `--json`: one JSON object per line — a `test` event per test (file,
+  // name, status, duration, and the captured output on failure) and a
+  // closing `summary` event — with the human lines suppressed, so a script
+  // or an agent reads ONE stream instead of scraping `✓`/`✗` lines.
+  (json_lines : bool) = false;
+  // `--list`: enumerate the tests the collection + filter would run, one per
+  // line (`<file>\t<name>`, or `test` events under `--json`), without
+  // compiling anything.
+  (list_only : bool) = false;
   // `--shard i/n` keeps only the files whose index mod n equals i, over the
   // SORTED collected order. It exists because `tests/` is flat — 158 of ~276
   // files sit directly in the directory — so there is no `--exclude` split
@@ -4554,6 +4567,15 @@ run_test :: (
         json_summary = true;
         ai = (ai + usize(1));
       },
+      (a == "--json") => {
+        json_lines = true;
+        json_summary = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--list") => {
+        list_only = true;
+        ai = (ai + usize(1));
+      },
       ((a == "--keep-generated-files") || (a == "-k")) => {
         ai = (ai + usize(1));
       },
@@ -4612,7 +4634,7 @@ run_test :: (
       },
       a.starts_with(String.from("-")) => {
         // Strict parsing: an unknown option is an error, never a path.
-        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test <path> [--bail] [--test-name-pattern P] [--parallel N] [--exclude PATH] [--shard I/N] [--workspace]`));
+        exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test [path] [--bail] [--test-name-pattern REGEX] [--exclude PATH] [--shard I/N] [--workspace] [--list] [--json] — see 'yo test --help'`));
       },
       true => {
         target_path = a.clone();
@@ -4620,6 +4642,9 @@ run_test :: (
       }
     );
   });
+  // Every informational line the runner prints for a person goes through
+  // this gate: `--json` and `--list` are machine-read streams.
+  human := !(json_lines || list_only);
   // --test-name-pattern is a REGEX — the old substring match made anchored
   // patterns like '^test 19' match nothing. Compiled once; an invalid
   // pattern is an error up front.
@@ -4634,7 +4659,9 @@ run_test :: (
         exn.throw(dyn(`test: invalid regex pattern '${name_pattern}': ${re_err}`));
       }
     );
-    println(`Filtering tests matching: ${name_pattern}`);
+    if(human, {
+      println(`Filtering tests matching: ${name_pattern}`);
+    });
   });
   // Allocator-flag validation matches `compile`: fixed is a valid choice and
   // --heap-size/--debug-heap belong to it alone. Parse the heap size here so
@@ -4700,12 +4727,14 @@ run_test :: (
     });
     // Say what this shard covers: a shard number alone does not identify a
     // failure, and the job log is unavailable until the run completes.
-    println(`shard ${shard_index.to_string()}/${shard_total.to_string()}: ${picked.len().to_string()} of ${all_files.len().to_string()} files`);
+    if(human, {
+      println(`shard ${shard_index.to_string()}/${shard_total.to_string()}: ${picked.len().to_string()} of ${all_files.len().to_string()} files`);
+    });
     // Print the FILE LIST too: a shard number alone does not say WHICH file
     // failed, and the job log is unreadable until the whole run completes —
     // compiler-internal-tests prints its map for exactly that reason.
     (pi : usize) = usize(0);
-    while(pi < picked.len(), {
+    while((pi < picked.len()) && human, {
       match(picked.get(pi), .Some(pf) => println(`  shard-file ${pf}`), .None => ());
       pi = (pi + usize(1));
     });
@@ -4800,7 +4829,9 @@ run_test :: (
       });
     });
     if(skipped_n > usize(0), {
-      println(`Skipping ${skipped_n.to_string()} test file(s) with pragma(Pragma.SkipWasm*) for target ${wasm_target_kind}`);
+      if(human, {
+        println(`Skipping ${skipped_n.to_string()} test file(s) with pragma(Pragma.SkipWasm*) for target ${wasm_target_kind}`);
+      });
     });
     files = kept_files;
   });
@@ -4835,12 +4866,19 @@ run_test :: (
       });
     });
     if(win_skipped > usize(0), {
-      println(`Skipping ${win_skipped.to_string()} test file(s) with pragma(Pragma.SkipWindows) on the Windows host`);
+      if(human, {
+        println(`Skipping ${win_skipped.to_string()} test file(s) with pragma(Pragma.SkipWindows) on the Windows host`);
+      });
     });
     files = win_kept;
   });
   if(files.len() == usize(0), {
-    println(String.from("No test files found."));
+    if(human, {
+      println(String.from("No test files found."));
+    });
+    if(json_lines, {
+      println(`{"event":"summary","passed":0,"failed":0,"total":0}`);
+    });
     return(());
   });
   // §7 items 3+4: the counts START from the restart's forwarded totals when
@@ -4854,8 +4892,10 @@ run_test :: (
     file := match(files.get(fi), .Some(f) => f, .None => String.from(""));
     fi = (fi + usize(1));
     file_t0 := Instant.now();
-    println(``);
-    println(`${file}`);
+    if(human, {
+      println(``);
+      println(`${file}`);
+    });
     src_bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
     prog := parse(src, file.clone(), exn);
@@ -4895,9 +4935,24 @@ run_test :: (
         });
       });
     });
-    if(tests.len() == usize(0), {
+    // `--list`: the collected + filtered names, nothing compiled. The JSON
+    // form is the `test` event without a verdict, so one consumer reads both.
+    if(list_only, {
+      (li : usize) = usize(0);
+      while(li < tests.len(), {
+        lt := match(tests.get(li), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
+        if(json_lines, {
+          println(`{"event":"test","file":"${_json_escape(file.clone())}","name":"${_json_escape(lt.name.clone())}"}`);
+        }, {
+          println(`${file}\t${lt.name}`);
+        });
+        li = (li + usize(1));
+      });
+    });
+    if((tests.len() == usize(0)) && human, {
       println(String.from("  (no tests)"));
-    }, {
+    });
+    if((tests.len() > usize(0)) && !(list_only), {
       // Split the file's tests into batches of TEST_BATCH_SIZE. This is not
       // cosmetic — a single batch nests ONE BRACE
       // LEVEL PER TEST in the emitted `cond` chain, so a file with >~250 tests
@@ -5140,6 +5195,16 @@ run_test :: (
           batch_failed = (cst.raw != i32(0));
         });
         if(batch_failed, {
+          // `--json`: the stream still names every test that did not run,
+          // each as a failed `test` event, before the run aborts below.
+          if(json_lines, {
+            (bfi : usize) = batch_start;
+            while(bfi < batch_end, {
+              bft := match(tests.get(bfi), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
+              println(`{"event":"test","file":"${_json_escape(file.clone())}","name":"${_json_escape(bft.name.clone())}","status":"failed","duration_ms":0,"message":"the batch failed to compile; this test did not run"}`);
+              bfi = (bfi + usize(1));
+            });
+          });
           // Say how many tests DID NOT RUN, not just that a compile failed.
           // "batch compile failed" reads like an infrastructure hiccup; the
           // fact that matters is that none of this file's tests in this batch
@@ -5245,6 +5310,7 @@ run_test :: (
             },
             true => Command.new(tmp_bin.clone())
           );
+          test_t0 := Instant.now();
           tout := io.await(tcmd.output(io), IoExn(io : io, exn : exn));
           (combined : String) = String.from_bytes(tout.stdout);
           combined.push_string(String.from_bytes(tout.stderr));
@@ -5264,37 +5330,50 @@ run_test :: (
           // unless staged off via YO_TEST_LEAK_VERDICT=0 (hoisted above,
           // where it also disables LSan's own exit-code).
           has_leak := ((leak_verdict && ((test_cc != "emcc") && use_asan)) && (((combined.contains("LeakSanitizer") || combined.contains("detected memory leaks")) || combined.contains("Direct leak")) || combined.contains("Indirect leak")));
+          test_ms := (test_t0.elapsed().as_nanos() / i64(1000000));
           if((t_status == i32(0)) && !(has_leak), {
             passed = (passed + usize(1));
-            println(`  ✓ ${t.name}`);
-            // Tests print through the child's stdout, which is now captured —
-            // re-emit it so passing tests keep their visible output exactly
-            // as before.
-            if(combined.len() > usize(0), {
-              print(combined.clone());
+            if(json_lines, {
+              println(`{"event":"test","file":"${_json_escape(file.clone())}","name":"${_json_escape(t.name.clone())}","status":"passed","duration_ms":${test_ms.to_string()}}`);
+            }, {
+              println(`  ✓ ${t.name}`);
+              // Tests print through the child's stdout, which is now captured —
+              // re-emit it so passing tests keep their visible output exactly
+              // as before.
+              if(combined.len() > usize(0), {
+                print(combined.clone());
+              });
             });
           }, {
             failed = (failed + usize(1));
-            println(`  ✗ ${t.name}`);
             err_msg := if(
               has_leak,
               `Memory leak detected:\n${combined}`,
               `Test failed with exit code ${t_status.to_string()}\n${combined}`
             );
+            first_line := match(err_msg.split("\n").get(usize(0)), .Some(l) => l, .None => String.from(""));
+            if(json_lines, {
+              println(`{"event":"test","file":"${_json_escape(file.clone())}","name":"${_json_escape(t.name.clone())}","status":"failed","duration_ms":${test_ms.to_string()},"message":"${_json_escape(first_line.clone())}","output":"${_json_escape(combined.clone())}"}`);
+            }, {
+              println(`  ✗ ${t.name}`);
+            });
             // -v prints the whole diagnostic indented; the default prints the
             // first line.
-            if(verbose, {
-              err_lines := err_msg.split("\n");
-              (eli : usize) = usize(0);
-              while(eli < err_lines.len(), {
-                el := match(err_lines.get(eli), .Some(l) => l, .None => String.from(""));
-                println(`    ${el}`);
-                eli = (eli + usize(1));
-              });
-            }, {
-              first_line := match(err_msg.split("\n").get(usize(0)), .Some(l) => l, .None => String.from(""));
-              println(`    ${first_line}`);
-            });
+            if(
+              json_lines,
+              (),
+              if(verbose, {
+                err_lines := err_msg.split("\n");
+                (eli : usize) = usize(0);
+                while(eli < err_lines.len(), {
+                  el := match(err_lines.get(eli), .Some(l) => l, .None => String.from(""));
+                  println(`    ${el}`);
+                  eli = (eli + usize(1));
+                });
+              }, {
+                println(`    ${first_line}`);
+              })
+            );
             if(bail, {
               bailed = true;
             });
@@ -5395,25 +5474,33 @@ run_test :: (
   if(test_profile, {
     eprintln(`profile: files ${files.len().to_string()} total ${_fmt_profile_ms(profile_t0.elapsed().as_nanos())}`);
   });
-  if(bailed, {
+  // `--list` ran nothing: no verdicts, no summary.
+  if(list_only, {
+    return(());
+  });
+  if(bailed && human, {
     println(``);
     println(String.from("Bailing out early due to test failure (--bail)"));
   });
-  println(``);
-  println(String.from("Test Summary"));
-  println(String.from("─────────────────────────────────"));
-  if(passed > usize(0), {
-    println(`${passed.to_string()} passed`);
+  if(human, {
+    println(``);
+    println(String.from("Test Summary"));
+    println(String.from("─────────────────────────────────"));
+    if(passed > usize(0), {
+      println(`${passed.to_string()} passed`);
+    });
+    if(failed > usize(0), {
+      println(`${failed.to_string()} failed`);
+    });
+    println(`${(passed + failed).to_string()} total`);
   });
-  if(failed > usize(0), {
-    println(`${failed.to_string()} failed`);
-  });
-  println(`${(passed + failed).to_string()} total`);
   // --json-summary (P3): the same footer as one machine-readable line —
-  // previously accepted-and-ignored.
+  // previously accepted-and-ignored. Under `--json` it is the stream's
+  // closing `summary` event.
   if(json_summary, {
+    event_key := if(json_lines, `"event":"summary",`, String.from(""));
     println(
-      `{"passed":${passed.to_string()},"failed":${failed.to_string()},"total":${(passed + failed).to_string()}}`
+      `{${event_key}"passed":${passed.to_string()},"failed":${failed.to_string()},"total":${(passed + failed).to_string()}}`
     );
   });
   if(failed > usize(0), {
@@ -6546,6 +6633,11 @@ run_version_cmd :: (
   );
 });
 /// The top-level usage text (the `help` cli-case golden pins this output).
+/// Every subcommand `main` dispatches, in the order the top-level help lists
+/// them. The unknown-subcommand error prints this list; it must name exactly
+/// the subcommands the dispatch below answers (a phantom `fetch` sat here
+/// for months after the subcommand was folded into `install`).
+SUBCOMMAND_NAMES :: "compile|build|init|add|remove|install|update|cache|test|check|fix|fmt|verify|doc|explain|lsp|unsafe-report|public-safe-report|version|skills";
 _top_level_help_text :: (fn() -> String)({
   (h : String) = String.from("The Yo Programming Language ");
   h.push_str(CURRENT_YO_VERSION);
@@ -6591,12 +6683,21 @@ Examples:
 yo remove <name>                 Delete a dependency from yo.toml
 yo install                       Fetch what yo.toml declares, write yo.lock
 yo update [name...]              Re-resolve dependencies (--latest bumps ranges)
+yo cache <path|clean|gc>         Manage the global dependency store
 
 yo test [path] [options]         Run tests
 Example:
   $ yo test                      Run all *.test.yo files in the workspace
   $ yo test ./tests              Run all *.test.yo files in ./tests directory
   $ yo test ./some-file.yo       Run tests in some-file.yo
+  $ yo test ./tests --list       List the tests without running them
+  $ yo test ./tests --json       One JSON line per test, plus a summary line
+
+yo check <path> [options]        Type-check without generating C
+Examples:
+  $ yo check ./src               Check every .yo file under ./src
+  $ yo check main.yo --error-format json
+                                 Structured diagnostics (with repairs)
 
 yo fix [path] [options]          Apply the compiler's mechanical repairs
 Example:
@@ -6635,6 +6736,11 @@ Examples:
   $ yo skills install             Copy skills into every agent config dir found
                                   (.github, .agents, .claude, .opencode,
                                   .openai, .cursor; defaults to .agents)
+
+yo explain <CODE>                Explain a diagnostic code offline (--list, --format json)
+yo lsp                           Run the language server on stdio
+yo unsafe-report [path]          List unsafe(...) sites with their // SAFETY: comments
+yo public-safe-report [path]     List public fns that expose raw pointers
 
 yo --help                        Show this help message
 yo <subcommand> --help           Show help for a subcommand
@@ -6679,12 +6785,21 @@ yo add <spec>                    把依赖写入 yo.toml 并抓取
 yo remove <name>                 从 yo.toml 删除依赖
 yo install                       抓取 yo.toml 声明的依赖并写入 yo.lock
 yo update [name...]              在范围内重新解析依赖
+yo cache <path|clean|gc>         管理全局依赖存储
 
 yo test [path] [options]         运行测试
 示例：
   $ yo test                      运行工作区内全部 *.test.yo 文件
   $ yo test ./tests              运行 ./tests 目录下的全部 *.test.yo 文件
   $ yo test ./some-file.yo       运行 some-file.yo 中的测试
+  $ yo test ./tests --list       只列出测试，不运行
+  $ yo test ./tests --json       每个测试一行 JSON，最后一行摘要
+
+yo check <path> [options]        只做类型检查，不生成 C
+示例：
+  $ yo check ./src               检查 ./src 下的每个 .yo 文件
+  $ yo check main.yo --error-format json
+                                 结构化诊断（附修复）
 
 yo fix [path] [options]          应用编译器已算出的机械修复
 示例：
@@ -6723,6 +6838,11 @@ yo skills install                把 AI 代理技能文件安装到本项目
   $ yo skills install             复制技能到每个已存在的 agent 配置目录
                                   （.github、.agents、.claude、.opencode、
                                   .openai、.cursor；默认建 .agents）
+
+yo explain <CODE>                离线解释诊断代码（--list、--format json）
+yo lsp                           在 stdio 上运行语言服务器
+yo unsafe-report [path]          列出 unsafe(...) 站点及其 // SAFETY: 注释
+yo public-safe-report [path]     列出暴露裸指针的公开函数
 
 yo --help                        显示本帮助
 yo <subcommand> --help           显示子命令帮助
@@ -7036,22 +7156,41 @@ Run *.test.yo files (a file, a directory tree, or the whole workspace).
 Options:
   -b, --bail                Stop after the first failure
   -v, --verbose             Show detailed output and errors
-  --test-name-pattern <s>   Run only tests whose name contains <s>
+  --test-name-pattern <re>  Run only tests whose name matches the regex <re>
   --exclude <path>          Exclude a directory/file (repeatable)
   --workspace               Run every workspace member's tests in one run
+  --shard <i>/<n>           Run only every n-th collected file, offset i
+  --list                    List the tests that would run (file<TAB>name);
+                            nothing is compiled
+  --json                    One JSON object per line: a "test" event per test
+                            (file, name, status, duration_ms; message and
+                            output on failure) and a closing "summary" event;
+                            human output is suppressed
+  --json-summary            Append the {"passed","failed","total"} line to the
+                            human summary
   -p, --parallel <n>        Accepted for compatibility (v1 runs sequentially)
   --test-batch-size <n>     Tests per generated C batch (default 100)
   --cc, --c-compiler <cc>   C compiler for test binaries
   --target <triple>         Run tests for a cross target (e.g. wasm32-wasip1)
+  --allocator <name>        Allocator for test binaries (system|mimalloc|fixed)
+  --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed)
+  --debug-heap              Heap stats + live-at-exit oracle per test (fixed only)
   --disable-sanitize        Skip AddressSanitizer linkage
   -k, --keep-generated-files  Keep generated batch files
   --profile                 Print per-phase timing
   --std-path <dir>          Override the std library directory
 
+Environment:
+  YO_KEEP_BATCH=1           Leave the generated batch .yo/.c files in place
+  YO_TEST_SANITIZE=<kind>   Sanitizer for test binaries (default address)
+  YO_TEST_LEAK_VERDICT=0    Do not fail a test on a LeakSanitizer report
+
 Examples:
   $ yo test                       All tests in the workspace
   $ yo test ./tests --bail
-  $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"`,
+  $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"
+  $ yo test ./tests --list
+  $ yo test ./tests/fs --json`,
         `用法：yo test [path] [options]
 
 运行 *.test.yo 文件（单个文件、目录树或整个工作区）。
@@ -7059,22 +7198,38 @@ Examples:
 选项：
   -b, --bail                首次失败后停止
   -v, --verbose             显示详细输出与错误
-  --test-name-pattern <s>   只运行名字包含 <s> 的测试
+  --test-name-pattern <re>  只运行名字匹配正则 <re> 的测试
   --exclude <path>          排除目录/文件（可重复）
   --workspace               在一次运行中运行工作区每个成员的测试
+  --shard <i>/<n>           只运行收集到的文件中每第 n 个、偏移 i 的文件
+  --list                    列出将要运行的测试（file<TAB>name）；不编译任何东西
+  --json                    每行一个 JSON 对象：每个测试一条 "test" 事件
+                            （file、name、status、duration_ms；失败时附 message
+                            与 output），最后一条 "summary" 事件；不打印人读输出
+  --json-summary            在人读摘要后追加 {"passed","failed","total"} 一行
   -p, --parallel <n>        仅为兼容保留（v1 顺序执行）
   --test-batch-size <n>     每批生成的 C 批次包含的测试数（默认 100）
   --cc, --c-compiler <cc>   测试二进制使用的 C 编译器
   --target <triple>         为交叉目标运行测试（如 wasm32-wasip1）
+  --allocator <name>        测试二进制的分配器（system|mimalloc|fixed）
+  --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed）
+  --debug-heap              每个测试退出时打印堆统计与存活块检查（仅 fixed）
   --disable-sanitize        跳过 AddressSanitizer 链接
   -k, --keep-generated-files  保留生成的批次文件
   --profile                 打印分阶段耗时
   --std-path <dir>          覆盖标准库目录
 
+环境变量：
+  YO_KEEP_BATCH=1           保留生成的批次 .yo/.c 文件
+  YO_TEST_SANITIZE=<kind>   测试二进制使用的清理器（默认 address）
+  YO_TEST_LEAK_VERDICT=0    LeakSanitizer 报告不判定测试失败
+
 示例：
   $ yo test                       工作区内的全部测试
   $ yo test ./tests --bail
-  $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"`
+  $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"
+  $ yo test ./tests --list
+  $ yo test ./tests/fs --json`
       )
     ),
     (subcmd == "fix") => Option(String).Some(
@@ -7255,7 +7410,7 @@ Generate API documentation for .yo files.
 
 Options:
   -o, --output <dir>        Output directory (default: ./yo-out/doc)
-  -f, --format <fmt>        Output format (html|json, default html)
+  -f, --format <fmt>        Output format (html|markdown|json, default html)
   --title <s>               Documentation site title
   --logo <path>             Image shown in the sidebar header
   --favicon <path>          Site icon
@@ -7272,7 +7427,7 @@ Examples:
 
 选项：
   -o, --output <dir>        输出目录（默认 ./yo-out/doc）
-  -f, --format <fmt>        输出格式（html|json，默认 html）
+  -f, --format <fmt>        输出格式（html|markdown|json，默认 html）
   --title <s>               文档站标题
   --logo <path>             侧边栏顶部显示的图片
   --favicon <path>          站点图标
@@ -7930,7 +8085,7 @@ main :: (fn(io : Io) -> unit)({
   }, if(subcmd == "version", {
     run_version_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|fix|check|verify|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`, `未知子命令 '${subcmd}'。用法：yo <compile|test|fmt|fix|check|verify|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`)));
+    exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
   }))))))))))))))));
 });
 export(main);

@@ -2993,6 +2993,13 @@ $ yo test path/to/file.test.yo --bail
 
 # 详细输出
 $ yo test path/to/file.test.yo -v
+
+# 只列出路径 + 模式选中的测试，不编译任何东西
+$ yo test ./tests --list
+
+# 每行一个 JSON 对象：每个测试一条 "test" 事件（file、name、status、
+# duration_ms；失败时附 message 与捕获的输出），最后一条 "summary" 事件
+$ yo test ./tests --json
 ```
 
 ### 断言
