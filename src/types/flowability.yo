@@ -45,6 +45,7 @@
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
 { is_function_type, is_reference_struct_type, is_atomic_reference_struct_type, is_pointer_type } :: import("./guards.yo");
+{ expr_info_adopt_env } :: import("../expr_info.yo");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type }
 :: import("./utils.yo");
 /// A 1-element mutable box flagging that an error thrown during a swallowed
@@ -655,7 +656,7 @@ require_ref_own_argument_exclusivity :: (
           match(
             root_atom_opt,
             .Some(root_atom) => {
-              root_env := match(_info(ctx, root_atom), .Some(ri) => snapshot_env(ri.env), .None => env);
+              root_env := match(_info(ctx, root_atom), .Some(ri) => expr_info_adopt_env(ri), .None => env);
               vars := get_variables_from_env(root_env, ast_expr_token(root_atom).value);
               if(vars.len() > usize(0), {
                 match(

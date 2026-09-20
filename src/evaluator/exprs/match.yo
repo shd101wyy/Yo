@@ -37,7 +37,8 @@ pragma(Pragma.AllowUnsafe);
   merge_control_flows,
   expr_info_set_case_executed,
   expr_info_set_is_primitive_match,
-  expr_info_set_primitive_pattern_values
+  expr_info_set_primitive_pattern_values,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame, copy_frames, snapshot_env } :: import("../../env.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -684,7 +685,7 @@ evaluate_match :: (
       // the recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`),
       // so popping it in place would rewrite every sharer's recorded scope.
       if(body_info.env.frames.len() > base_frame_count, {
-        trimmed_env := snapshot_env(body_info.env);
+        trimmed_env := expr_info_adopt_env(body_info);
         while(trimmed_env.frames.len() > base_frame_count, {
           pop_env_frame(trimmed_env);
         });

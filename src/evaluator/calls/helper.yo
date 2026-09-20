@@ -122,7 +122,8 @@ pragma(Pragma.AllowUnsafe);
   unregister_some_resolved_concrete,
   adopt_receiver_struct_instance,
   push_active_where_trait_ids,
-  pop_active_where_trait_ids
+  pop_active_where_trait_ids,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -745,7 +746,7 @@ check_if_function_parameter_matches_argument :: (
       new_expr_info(caller_env, t_unit())
     }
   );
-  (caller_env_r : Environment) = snapshot_env(arg_info.env);
+  (caller_env_r : Environment) = expr_info_adopt_env(arg_info);
   // Coerce a comptime arg type (comptime_int/float/string) to the
   // parameter's concrete runtime type before synthesis/compatibility,
   // mirroring the default-value-site coercion (types/env_lookup.yo). Only
@@ -6186,7 +6187,7 @@ try_to_call_function_with_arguments :: (
           match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(v_evaled)),
             .Some(vinfo) => {
-              caller_env_m = snapshot_env(vinfo.env);
+              caller_env_m = expr_info_adopt_env(vinfo);
             },
             .None => ()
           );
@@ -6770,7 +6771,7 @@ try_to_call_function_with_arguments :: (
                 match(
                   ua_info_opt,
                   .Some(ua_info) => {
-                    caller_env_m = snapshot_env(ua_info.env);
+                    caller_env_m = expr_info_adopt_env(ua_info);
                     match(
                       ua_info.value,
                       .Some(ua_val) => {

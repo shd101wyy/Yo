@@ -16,7 +16,8 @@ pragma(Pragma.AllowUnsafe);
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
@@ -75,7 +76,7 @@ evaluate_size_of :: (
       new_expr_info(env, t_usize())
     }
   );
-  (cur_env : Environment) = snapshot_env(info.env);
+  (cur_env : Environment) = expr_info_adopt_env(info);
   // Determine the type to measure: TypeVal → its wrapped type, otherwise expr type.
   (type_to_check : TypeValue) = match(
     info.value,

@@ -32,7 +32,8 @@
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
@@ -166,7 +167,7 @@ evaluate_yo_comptime_string_functions :: (
       }
     );
     ai := eval_comptime_str_arg(arg0, env, ctx, exn);
-    (cur_env : Environment) = snapshot_env(ai.env);
+    (cur_env : Environment) = expr_info_adopt_env(ai);
     arg_val := ai.value;
     (result_val : EvalValue) = cond(
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1))) =>
@@ -255,7 +256,7 @@ evaluate_yo_comptime_string_functions :: (
     );
     str_info := eval_comptime_str_arg(str_arg, env, ctx, exn);
     start_info := eval_comptime_int_arg(start_arg, str_info.env, ctx, exn);
-    (cur_env : Environment) = snapshot_env(start_info.env);
+    (cur_env : Environment) = expr_info_adopt_env(start_info);
     // Optional end argument.
     (end_info_opt : Option(ExprInfo)) = if(
       n_args == usize(3),
@@ -263,7 +264,7 @@ evaluate_yo_comptime_string_functions :: (
         args.get(usize(2)),
         .Some(end_arg) => {
           ei := eval_comptime_int_arg(end_arg, cur_env, ctx, exn);
-          cur_env = snapshot_env(ei.env);
+          cur_env = expr_info_adopt_env(ei);
           .Some(ei)
         },
         .None => .None
@@ -370,7 +371,7 @@ evaluate_yo_comptime_string_functions :: (
     );
     lhs_info := eval_comptime_str_arg(arg0, env, ctx, exn);
     rhs_info := eval_comptime_str_arg(arg1, lhs_info.env, ctx, exn);
-    (cur_env : Environment) = snapshot_env(rhs_info.env);
+    (cur_env : Environment) = expr_info_adopt_env(rhs_info);
     lhs_val := lhs_info.value;
     rhs_val := rhs_info.value;
     // Extract unquoted strings for comparison / concat.

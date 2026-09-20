@@ -14,7 +14,8 @@ pragma(Pragma.AllowUnsafe);
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  expr_info_set_dyn_call_trait_values
+  expr_info_set_dyn_call_trait_values,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
@@ -680,7 +681,7 @@ evaluate_dyn_value :: (
     }
   );
   (value_type : TypeValue) = inner_info.ty;
-  (cur_env : Environment) = snapshot_env(inner_info.env);
+  (cur_env : Environment) = expr_info_adopt_env(inner_info);
   (final_value_type : TypeValue) = value_type;
   // Auto-box non-object, non-dyn values. No Future-implementing SomeType
   // special case exists — all non-object, non-dyn values are wrapped in box().
@@ -700,7 +701,7 @@ evaluate_dyn_value :: (
         // so that C codegen sees inner rather than the bare inner expression.
         args(usize(0)) = boxed_expr;
         final_value_type = bi.ty;
-        cur_env = snapshot_env(bi.env);
+        cur_env = expr_info_adopt_env(bi);
         final_value_expr_ex = boxed_expr;
       },
       .None => {

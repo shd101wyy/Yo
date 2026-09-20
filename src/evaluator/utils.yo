@@ -34,7 +34,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_origin_type,
   get_arm_init_range,
   get_branch_init_record,
-  new_expr_info
+  new_expr_info,
+  expr_info_adopt_env
 } :: import("../expr_info.yo");
 {
   Environment,
@@ -722,7 +723,7 @@ set_expr_as_needs_to_call_dup :: (
       ctx.expected_type = .None;
       // Evaluate in a PRIVATE copy of the recorded scope: a recorded snapshot is
       // shared between ExprInfos, and a begin/match inside `dup_expr` pops frames.
-      evaluated_dup := evaluate_expression_raw(dup_expr, snapshot_env(ei.env), ctx, exn);
+      evaluated_dup := evaluate_expression_raw(dup_expr, expr_info_adopt_env(ei), ctx, exn);
       ctx.expected_type = saved_expected;
       // Consume the dup-result temp so it is not dropped separately later. The
       // dup temp was added in-place to `ei.env`'s current frame during eval.
@@ -760,7 +761,7 @@ set_expr_as_needs_to_call_dup :: (
       match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_dup)),
         .Some(dup_ei) => {
-          ei.env = snapshot_env(dup_ei.env);
+          ei.env = expr_info_adopt_env(dup_ei);
         },
         .None => ()
       );

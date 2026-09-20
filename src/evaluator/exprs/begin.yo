@@ -41,7 +41,8 @@ pragma(Pragma.AllowUnsafe);
   ControlFlowFlags,
   control_flow_of,
   has_control_flow,
-  has_any_control_flow
+  has_any_control_flow,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, copy_frames, snapshot_env } :: import("../../env.yo");
 {
@@ -1808,7 +1809,7 @@ evaluate_begin_expression :: (
           // this env is popped at the block's end (`pop_frame_nonmutating`).
           env = match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg)),
-            .Some(ri) => snapshot_env(ri.env),
+            .Some(ri) => expr_info_adopt_env(ri),
             .None => env
           );
           // Defense-in-depth flowability on the return ARGUMENT.
@@ -2082,7 +2083,7 @@ evaluate_begin_expression :: (
           // Same: adopt by private copy.
           env = match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg)),
-            .Some(ei) => snapshot_env(ei.env),
+            .Some(ei) => expr_info_adopt_env(ei),
             .None => env
           );
           out := new_expr_info(env, esc_info.ty);

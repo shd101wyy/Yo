@@ -27,7 +27,8 @@ pragma(Pragma.AllowUnsafe);
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  ComptimeRef
+  ComptimeRef,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
@@ -268,9 +269,9 @@ ci_eval_list_index :: (
     }
   );
   self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime list index"), exn);
-  (cur_env : Environment) = snapshot_env(self_info.env);
+  (cur_env : Environment) = expr_info_adopt_env(self_info);
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime list index"), exn);
-  cur_env = snapshot_env(idx_info.env);
+  cur_env = expr_info_adopt_env(idx_info);
   list_ev_opt := ci_resolve_comptime_list(self_info.value);
   fallback_ty := ci_elem_return_ty(self_info.ty);
   match(
@@ -396,9 +397,9 @@ ci_eval_list_range_index :: (
     }
   );
   self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime list range index"), exn);
-  (cur_env : Environment) = snapshot_env(self_info.env);
+  (cur_env : Environment) = expr_info_adopt_env(self_info);
   range_info := ci_eval_arg(range_arg, cur_env, ctx, String.from("Failed to evaluate range for comptime list range index"), exn);
-  cur_env = snapshot_env(range_info.env);
+  cur_env = expr_info_adopt_env(range_info);
   fallback_ty := ci_list_range_return_ty(self_info.ty);
   // Fallback when range value is unknown or not a struct.
   range_is_known := match(
@@ -539,9 +540,9 @@ ci_eval_array_index :: (
     }
   );
   self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime array/slice index"), exn);
-  (cur_env : Environment) = snapshot_env(self_info.env);
+  (cur_env : Environment) = expr_info_adopt_env(self_info);
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime array/slice index"), exn);
-  cur_env = snapshot_env(idx_info.env);
+  cur_env = expr_info_adopt_env(idx_info);
   // ----- Array branch -----
   array_ev_opt := match(
     self_info.value,
@@ -671,9 +672,9 @@ ci_eval_string_index :: (
     }
   );
   self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime string index"), exn);
-  (cur_env : Environment) = snapshot_env(self_info.env);
+  (cur_env : Environment) = expr_info_adopt_env(self_info);
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime string index"), exn);
-  cur_env = snapshot_env(idx_info.env);
+  cur_env = expr_info_adopt_env(idx_info);
   result_ty := self_info.ty;
   // If self is not a known comptime_str, set no value.
   self_is_str := match(

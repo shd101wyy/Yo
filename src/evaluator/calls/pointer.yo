@@ -16,7 +16,8 @@ pragma(Pragma.AllowUnsafe);
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, in_def_time_trial } :: import("../context.yo");
@@ -123,7 +124,7 @@ If you need to thread a handler through code, pass it by value (handlers are fn-
         eprintln(`[ptr-call] inner=${type_to_string(inner_ty)} out=${type_to_string(ptr_ty)}`);
       });
       meta_ty := type_of_type(ptr_ty);
-      next_env := snapshot_env(arg_info.env);
+      next_env := expr_info_adopt_env(arg_info);
       out_info := new_expr_info(next_env, meta_ty);
       out_info.value = .Some(ptr_val);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

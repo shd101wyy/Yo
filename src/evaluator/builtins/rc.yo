@@ -9,7 +9,8 @@
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
@@ -59,7 +60,7 @@ evaluate_rc :: (
       new_expr_info(env, t_usize())
     }
   );
-  cur_env := snapshot_env(arg_info.env);
+  cur_env := expr_info_adopt_env(arg_info);
   out_info := new_expr_info(cur_env, t_usize());
   if(is_rc_type(arg_info.ty), {
     // RC type: count is only known at runtime → unknown value

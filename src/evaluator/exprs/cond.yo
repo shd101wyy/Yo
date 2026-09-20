@@ -30,7 +30,8 @@ pragma(Pragma.AllowUnsafe);
   push_branch_group,
   begin_branch_group_arm,
   pop_branch_group,
-  expr_info_set_case_executed
+  expr_info_set_case_executed,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
@@ -222,7 +223,7 @@ evaluate_cond :: (
       );
     });
     cond_val := cond_info.value;
-    updated_case_env := snapshot_env(cond_info.env);
+    updated_case_env := expr_info_adopt_env(cond_info);
     // Last condition must be compile-time known `true`.
     is_last := (ec_i == (parsed_stmts.len() - usize(1)));
     is_comptime_true := match(cond_val, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
@@ -437,7 +438,7 @@ evaluate_cond :: (
               // Consume the case body temp var to avoid phantom drops.
               body_env_for_consume := match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_case_body)),
-                .Some(bi) => snapshot_env(bi.env),
+                .Some(bi) => expr_info_adopt_env(bi),
                 .None => ec_item.case_env
               );
               consume_case_body_temp_var(evaluated_case_body, body_env_for_consume, ctx);

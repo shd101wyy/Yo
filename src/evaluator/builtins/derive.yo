@@ -40,7 +40,8 @@ pragma(Pragma.AllowUnsafe);
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -396,7 +397,7 @@ call_registered_derive_rule :: (
     .Some(i) => i,
     .None => new_expr_info(caller_env, t_unit())
   );
-  snapshot_env(result_info.env)
+  expr_info_adopt_env(result_info)
 });
 // ---------------------------------------------------------------------------
 // process_trait_arg

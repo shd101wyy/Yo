@@ -42,7 +42,8 @@ pragma(Pragma.AllowUnsafe);
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  ComptimeRef
+  ComptimeRef,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -684,7 +685,7 @@ _try_comptime_array_index :: (
       new_expr_info(env, t_unit())
     }
   );
-  caller_env := snapshot_env(info.env);
+  caller_env := expr_info_adopt_env(info);
   arg_type := info.ty;
   arg_val := info.value;
   rc := _check_range_type(arg_type, env, ctx);
@@ -920,7 +921,7 @@ _try_comptime_string_index :: (
       EvalValue.UnitVal
     }
   );
-  caller_env := snapshot_env(info.env);
+  caller_env := expr_info_adopt_env(info);
   arg_type := info.ty;
   rc := _check_range_type(arg_type, env, ctx);
   result_val := _compute_comptime_string_index(
@@ -1158,7 +1159,7 @@ _try_comptime_custom_type_index :: (
   if(is_unknown_val(arg_value), {
     return(Option(IndexCallResult).None);
   });
-  ct_caller_env := snapshot_env(arg_info.env);
+  ct_caller_env := expr_info_adopt_env(arg_info);
   arg_type := arg_info.ty;
   // Find a ComptimeIndex method.
   ct_method := match(
@@ -1517,7 +1518,7 @@ try_to_call_with_index_trait :: (
       new_expr_info(caller_env, t_unit())
     }
   );
-  updated_env := snapshot_env(arg_info.env);
+  updated_env := expr_info_adopt_env(arg_info);
   // For array/slice: derive element type directly from TypeValue (no method lookup needed)
   if(is_arr_or_slice_ty, {
     elem_ty := match(

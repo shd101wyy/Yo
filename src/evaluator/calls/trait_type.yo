@@ -28,7 +28,8 @@ import("std/fmt");
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -203,7 +204,7 @@ try_to_specialize_trait_type :: (
       );
     });
     // Adopt the recorded env by private copy (snapshots are shared between ExprInfos).
-    caller_env = match(evaluated_info_opt, .Some(info) => snapshot_env(info.env), .None => caller_env);
+    caller_env = match(evaluated_info_opt, .Some(info) => expr_info_adopt_env(info), .None => caller_env);
     // Store the binding.
     constraint_ty := match(
       evaluated_info_opt,
@@ -429,7 +430,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         });
         arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(caller_env, field_type));
         set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
-        caller_env = snapshot_env(arg_info.env);
+        caller_env = expr_info_adopt_env(arg_info);
         arg_type := arg_info.ty;
         if(!are_types_compatible(arg_type, field_type), {
           exn.throw(
