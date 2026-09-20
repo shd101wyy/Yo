@@ -92,8 +92,8 @@ because Yo constructs through `ArrayList.new`-style callees; a token through
 those callees reaches 35% as a ceiling, 37% of it one function's allocation
 pattern. The measurement found the real levers instead: two linear scans
 worth ≈45% of `check` self time and the `merge_and_check_envs` list churn
-(`issues/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md`,
-`issues/merge-and-check-envs-mints-five-lists-per-variable-per-branch-merge.md`).
+(`issues/fixed/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md`,
+`issues/fixed/merge-and-check-envs-mints-five-lists-per-variable-per-branch-merge.md`).
 
 The **LLM-friendly toolchain campaign** closed 2026-09-17:
 [`archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md)
