@@ -206,51 +206,33 @@ _def_frame_confirms_binding :: (
 /// whose `id` matches `id_to_find`.  Used to distinguish unbound type variables
 /// from ones that were concretised by `synthesizeTypes`.
 _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) -> bool)({
+  // Only variables named `name` can match, so ask the env for exactly those
+  // (`get_variables_from_env` takes the per-frame name index for big frames)
+  // instead of scanning every variable of every frame. The previous full
+  // scan dup'd and dropped one TRACKED `Variable` per visited binding — a
+  // `__yo_decr_rc` tracked tail with two thread-local reads each — and was
+  // ~22% of `check src/main.yo`'s self time
+  // (issues/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md).
+  // The answer is existential, so frame order does not matter.
+  vars := get_variables_from_env(env, name);
   (found : bool) = false;
-  n_frames := env.frames.len();
-  // Search top-down (most recent frame first) so a per-call binding
-  // wins over a stale marker left by a prior synthesis / io.async call.
-  (fi : usize) = n_frames;
-  while((fi > usize(0)) && !found, {
-    fi = (fi - usize(1));
+  n := vars.len();
+  (vi : usize) = usize(0);
+  while((vi < n) && !found, {
     match(
-      env.frames.get(fi),
-      .Some(frame) => {
-        vars := frame.variables;
-        m := vars.len();
-        (vi : usize) = usize(0);
-        while((vi < m) && !found, {
-          match(
-            vars.get(vi),
-            .Some(var) =>
-              cond(
-                (var.name == name) =>
-                  match(
-                    var.value.get(usize(0)),
-                    .Some(val) =>
-                      cond(
-                        _is_type_eval_value(val) => {
-                          tv := _unwrap_type_eval_value(val);
-                          cond(
-                            _same_some_id(tv, id_to_find) => {
-                              found = true;
-                            },
-                            true => ()
-                          );
-                        },
-                        true => ()
-                      ),
-                    .None => ()
-                  ),
-                true => ()
-              ),
-            .None => ()
-          );
-          vi = (vi + usize(1));
-        });
-      },
+      vars.get(vi),
+      .Some(var) => match(
+        var.value.get(usize(0)),
+        .Some(val) => if(_is_type_eval_value(val), {
+          if(_same_some_id(_unwrap_type_eval_value(val), id_to_find), {
+            found = true;
+          });
+        }),
+        .None => ()
+      ),
       .None => ()
     );
+    vi = (vi + usize(1));
   });
   found
 });
