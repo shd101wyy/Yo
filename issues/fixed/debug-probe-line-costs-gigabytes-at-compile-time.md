@@ -147,3 +147,24 @@ Regression guards: `issues/repros/template-ten-interpolations-is-linear.yo`
 (twelve interpolations + a 14-deep method chain + a 14-operand operator chain)
 compiled under a 120 s timeout by `gates_fast.sh` GATE 0; the values a long
 template / chain must produce are pinned in `tests/template_string_specs.test.yo`.
+
+## Emitted C: not byte-identical, and every difference accounted for
+
+Seed v0.2.38 vs the fixed compiler, `compile src/main.yo --emit-c` of the
+same tree (`24fcd192f`): 3,224,734 vs 3,153,348 lines; 252,724 removed /
+181,338 added. Two classes:
+
+1. **Id renumbering** — every local-temp line kind appears with EQUAL counts
+   on both sides (65,991 `switch ((_file____User_temp_N).tag)`, 63,724
+   `__yo_decr_rc(… .data.Some.value)`, 25,155 temp declarations, …): the
+   second evaluation consumed ids, so everything minted after it renumbers.
+2. **14,541 async state-machine fields removed** (`__yo_t_N var__file____User_temp_N_N;`
+   plus their dispose `switch`/`__yo_decr_rc` lines). A one-pass scan of the
+   seed emission over all 14,541 names: **0 are ever assigned**; every
+   mention is the struct declaration or a drop. They were dead temps minted by
+   the receiver's second evaluation (the same source position gets a second
+   occurrence-keyed temp name), calloc-zeroed and "dropped" as `.None`/NULL.
+   Removing them shrinks the state structs and changes no behaviour.
+
+The fixpoint (stage 2 ≡ stage 3 under the new compiler) holds, and the
+tier-1 battery + the corpus goldens pass.
