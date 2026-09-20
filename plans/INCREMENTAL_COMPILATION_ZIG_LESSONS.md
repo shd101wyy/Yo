@@ -747,17 +747,53 @@ That is the ≤ 10 s target in §2.
 
 ## 8. Phase 5 — per-module translation units (the C backend's version of patching)
 
-> **Step 1 IN PROGRESS 2026-09-20** (branch `feat/incr-p5-module-chunks`):
+> **Step 1 LANDED + MEASURED 2026-09-21** (branch `feat/incr-p5-module-chunks`):
 > `yo compile --chunk-by module|name` (default `name`, today's rule). With
 > `module`, a function's unit is `fnv1a(defining module) % n`
 > (`ChunkRange.module`, from `CodegenFunctionEntry.def_module` — a
 > specialization carries its ORIGINAL's module through the body token, as
-> step 1 asks); the header-routed runtime blocks keep the by-name rule. The
-> edit-loop measurement (dev-profile self-compile: cold, warm, warm after a
-> one-statement edit in `src/lsp/folding.yo`, both groupings) is recorded
-> below when it lands; the cold-balance question of step 2 is answered by the
-> same runs (module-hash grouping is deterministic and stamp-free, so step 2's
-> size-packing is only needed if the cold wall says so).
+> step 1 asks); the header-routed runtime blocks keep the by-name rule.
+>
+> Two chunk-mode bugs surfaced the moment the compiler compiled ITSELF this
+> way (CI's chunked gate at N=4 had hidden both):
+> `issues/fixed/chunked-emission-drops-probed-include-flags-and-an-extern-runtime-declaration.md`.
+>
+> **The edit-loop measurement** — dev profile (`-O0`, `--emit-chunks auto`
+> = 10 units on this machine, `--jobs 8`), `yo compile src/main.yo`, the edit
+> is one added statement at the top of `handle_folding_ranges`
+> (`src/lsp/folding.yo`, a leaf module with two definitions):
+>
+> | grouping | round | wall | units recompiled |
+> | --- | --- | --- | --- |
+> | name | cold | 188.7 s | 10 / 10 |
+> | name | warm, no edit | 175.7 s | 0 / 10 |
+> | name | warm, leaf edit | 179.8 s | 3 / 10 |
+> | module | cold | 187.4 s | 10 / 10 |
+> | module | warm, no edit | 175.5 s | 0 / 10 |
+> | module | warm, leaf edit | 178.2 s | 2 / 10 |
+>
+> Peak footprint 14.1 GB (max RSS 11.0 GB) in every round — the evaluator's.
+> Reading, in order of importance:
+>
+> 1. **The C leg is ~13 s of a 188 s loop.** Cold minus fully-cached warm is
+>    13 s for all ten `-O0` units in parallel; a leaf edit costs 3–4 s of
+>    that. Everything else — 175 s — is the evaluator re-checking the whole
+>    tree and re-emitting 125 MB of C. Per-module TUs cannot move the
+>    dev-loop number; Phase 3/4 (re-evaluate only the edited definitions in
+>    a resident process, then re-emit) is the only lever left, exactly as §7
+>    says. **Step 2 (size-packing) and step 3 (header-tax sweep) are
+>    dropped: cold module grouping equals cold name grouping to within
+>    noise, and the whole leg is below the measurement floor of the loop.**
+> 2. **Module grouping does dirty fewer units (2 vs 3)** and the extra unit
+>    is not the module's: unit 0 held the edited function; unit 3 changed
+>    too. The mechanism is a Phase 2 stable-names gap — see the paragraph
+>    below the table once the clean-vs-edited chunk diff has named it.
+> 3. Name grouping scatters one module's functions across units, so any
+>    re-minted fid dirties two units (the old and the new home). Module
+>    grouping is the right default for the dev profile; it becomes
+>    `build_runner`'s choice beside `--emit-chunks auto` only when the
+>    warm-loop number can show it (after Phase 3/4 land), so `name` stays
+>    the default for now and the flag is the opt-in.
 
 With Phase 2's stable names, `fnv1a(c_name) % N` is no longer the only
 edit-stable grouping: functions can be grouped by **defining module**, so
