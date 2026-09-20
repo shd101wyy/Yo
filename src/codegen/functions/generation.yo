@@ -995,7 +995,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   generate_closure_constructor_functions(context);
   if(context.base.chunk_mode, {
     context.base.chunk_header_ranges.push(
-      ChunkRange(c_name : String.from("__ctor_block"), start_b : ctor_block_start, end_b : em.code.as_bytes().len())
+      ChunkRange(c_name : String.from("__ctor_block"), start_b : ctor_block_start, end_b : em.code.as_bytes().len(), module : String.new())
     );
   });
   // Iterate in INSERTION order (function_order), NOT HashMap bucket order, so
@@ -1024,7 +1024,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
             generate_function(entry.value, entry.c_name, context);
             if(context.base.chunk_mode, {
               context.base.chunk_fn_ranges.push(
-                ChunkRange(c_name : entry.c_name.clone(), start_b : fn_start, end_b : em.code.as_bytes().len())
+                ChunkRange(c_name : entry.c_name.clone(), start_b : fn_start, end_b : em.code.as_bytes().len(), module : entry.def_module.clone())
               );
             });
           });

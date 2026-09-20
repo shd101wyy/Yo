@@ -2987,6 +2987,8 @@ run_compile :: (
   // clamp(1, cap, emitted / MIN_CHUNK_BYTES) — with cap = YO_JOBS or the
   // hardware thread count.
   (emit_chunks_auto : bool) = false;
+  // `--chunk-by module|name` (default name): the translation-unit grouping rule.
+  (chunk_by_module : bool) = false;
   (chunk_no_lto : bool) = false;
   // --jobs J: parallel per-chunk `cc -c` jobs (chunked emission only).
   // 0 = not given: defaults to 8, or to the auto cap when --emit-chunks auto
@@ -3278,6 +3280,21 @@ run_compile :: (
       (a == "--jobs") => {
         jv := _arg_val_req(argv, ai, String.from("--jobs"), exn);
         jobs = match(jv.parse_u64(), .Some(n) => if(n > u64(0), usize(n), usize(1)), .None => usize(8));
+        ai = (ai + usize(2));
+      },
+      (a == "--chunk-by") => {
+        cbv := _arg_val_req(argv, ai, String.from("--chunk-by"), exn);
+        cond(
+          (cbv == "module") => {
+            chunk_by_module = true;
+          },
+          (cbv == "name") => {
+            chunk_by_module = false;
+          },
+          true => {
+            exn.throw(dyn(`compile: --chunk-by expects 'module' or 'name', got '${cbv}'`));
+          }
+        );
         ai = (ai + usize(2));
       },
       (a == "--emit-chunks") => {
@@ -3741,7 +3758,7 @@ run_compile :: (
     // threaded through to the code generator.
     is_library_build := (static_library || shared_library);
     chunk_parts := ArrayList(String).new();
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap);
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module);
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
     // chunk writer, the ThinLTO gate, the driver report — sees the real N.
@@ -7481,6 +7498,8 @@ Options:
   --skip-codegen            Evaluate only (no C generation)
   --emit-chunks <n|auto>    Split emitted C into n translation units (implies -flto=thin);
                             auto picks n from emitted size and core count (YO_JOBS overrides)
+  --chunk-by <name|module>  Group chunked units by C name (default) or by defining module
+                            (an edit then dirties only the edited module's units)
   --no-chunk-lto            Opt out of ThinLTO for chunked builds
   --jobs <n>                Parallel C compiles for chunked builds
   --compile-timeout-ms <ms> C compiler timeout
@@ -7529,6 +7548,8 @@ Examples:
   --skip-codegen            只做求值（不生成 C）
   --emit-chunks <n|auto>    把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）；
                             auto 按产物大小与核数选 n（可用 YO_JOBS 覆盖）
+  --chunk-by <name|module>  分块按 C 名字（默认）或按定义模块分组
+                            （按模块时一次编辑只使被改模块所在的单元失效）
   --no-chunk-lto            分块构建时退出 ThinLTO
   --jobs <n>                分块构建的并行 C 编译数
   --compile-timeout-ms <ms> C 编译器超时

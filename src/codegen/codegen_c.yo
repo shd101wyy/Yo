@@ -280,7 +280,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0)) -> String)({
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0), (chunk_by_module : bool) ?= false) -> String)({
   // Route fatal emitter errors (codegen_fatal) through this compile's exn so
   // they exit with a clean rc=1 instead of __yo_panic's SIGABRT.
   set_codegen_fatal_exn(exn);
@@ -310,6 +310,7 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   // emitted size at assembly time (below), so the range recording runs during
   // emission and the split decision happens with exact bytes.
   base.chunk_mode = ((emit_chunks >= usize(1)) || (chunk_auto_cap >= usize(1)));
+  base.chunk_by_module = chunk_by_module;
   // Seed the always-needed standard C headers. <unistd.h>/<sys/stat.h> are
   // platform-specific and added by emit_c_includes.
   base.add_c_include(String.from("<stdbool.h>"));
@@ -472,7 +473,8 @@ static Slice_uint8_t_u42_ __yo_args;
       base.chunk_fn_ranges,
       base.chunk_header_ranges,
       base.chunk_globals,
-      n_chunks
+      n_chunks,
+      base.chunk_by_module
     );
     chunk_parts_out.push(asm2.header_text);
     (ci2 : usize) = usize(0);
