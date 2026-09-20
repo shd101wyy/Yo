@@ -1,9 +1,60 @@
 # A re-forced dependent's body trial resolves module-member calls against the STALE callee
 
-OPEN (2026-09-14). Surfaced by Phase 3b's per-definition invalidation
+**FIXED 2026-09-21** (branch `fix/per-def-module-value-shared`). Surfaced
+2026-09-14 by Phase 3b's per-definition invalidation
 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6 step 4): the dependent's
-re-validation is not a faithful re-check, which is why the per-def path ships
-gated to signature-stable fn edits.
+re-validation was not a faithful re-check, which is why the per-def path
+shipped gated to signature-stable fn edits.
+
+## Root cause (reasoned from the code, then CONFIRMED by the flipped test)
+
+`lib_mod :: import("./lib.yo")` is a compile-time-only binding, and
+`initialization_assignment.yo` stored every compile-time-only rhs through
+`clone_value(rv, true)` — a DEEP clone. For a module StructVal that copies the
+`field_values` array, so every importer held a PRIVATE slot array that
+`update_module_cache_slot`'s in-place patch (which reaches only the cache's
+own array) never touched. The re-forced dependent's trial then read the OLD
+FuncVal from its private copy: stale value AND stale arity, exactly as
+observed. The 2026-09-14 trace had ASSERTED sharing ("the variable's StructVal
+sharing the patched `field_values` ArrayList") without measuring it — the
+clone happens after the value the probe printed.
+
+Why the member-read hook did not fire in the re-forced trial: the call
+`lib_mod.answer()` is dispatched by the method-call path in
+`calls/function.yo`, which reads the receiver's value directly; the hook lives
+in `property_access.yo`'s module-field path, which only a bare
+`lib_mod.answer` (no call) reaches. Orthogonal to the staleness.
+
+## Fix
+
+- A module value is stored by handle (`is_module_val(rv)` skips the deep
+  clone). A module value is immutable after its walk, so sharing is safe; it
+  also stops copying every std module's export array once per importer.
+- `_def_is_per_def_able` widens from "signature-STABLE fn-literal edit" to
+  "fn-literal → fn-literal edit": a signature change is covered because every
+  dependent that called the old signature holds a def edge, is re-forced, and
+  now re-derives the call against the patched slot.
+- `tests/internal/check_watch.test.yo`'s signature case flips from "falls
+  back to file-level (0 per-def forces)" to "takes the per-def path and the
+  re-forced dependent fails on arity". Measured 2026-09-21 with the fixed
+  tree: `watch: revalidated 2 definition(s), rechecked 0 file(s), 1 failed`
+  and `error[E0603]: Argument count mismatch: expected 1, got 0` from the
+  dependent's trial — the test that would have stayed red had the mechanism
+  been anything else.
+
+## Still file-level (unchanged, and correct)
+
+An importer that DESTRUCTURED the changed name (`{ answer } :: import(...)`)
+or spread the module holds the old FuncVal by value, not through the slot
+array; the ordered-read fallback still drops those readers. So a hub edit
+whose readers destructure (the `src/token.yo` probe) still reloads the
+reader closure — the remaining perf item is reader-side, not trial-side.
+
+---
+
+Original text follows.
+
+OPEN (2026-09-14).
 
 ## Reproducer
 
