@@ -158,3 +158,24 @@ test("a wake posted before the owner drops its waker copy still resumes the park
   });
   assert(round == i32(5), "every park whose wake preceded the owner's release resumed");
 });
+test("the common ordering — owner drops its waker copy first, worker wakes later — still resumes promptly", {
+  // The over-rejection canary for the fix above: this is the FOREIGN release
+  // path (the frame's copy is gone before the wake arrives), which must stay
+  // as fast as before — a fix that made every local release defer would pass
+  // the previous test while pessimising this one.
+  (round : i32) = i32(0);
+  while(runtime(round < i32(5)), {
+    p := Park.new();
+    {
+      w := p.waker();
+      _worker := Thread(unit).spawn((tio : Io) => {
+        sleep_blocking(Duration.from_millis(i64(5)));
+        w.wake();
+        ()
+      });
+    };
+    io.await(p.wait(io), io);
+    round = (round + i32(1));
+  });
+  assert(round == i32(5), "every park woken after the owner's release resumed");
+});

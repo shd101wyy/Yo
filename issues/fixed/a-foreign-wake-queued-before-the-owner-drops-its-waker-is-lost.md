@@ -106,7 +106,7 @@ io.await(p.wait(io), io); // hangs
 
 Swap the order (worker sleeps 30 ms then wakes; the frame drops `w` at once)
 and it passes: that is the foreign-release path. Local hammers of the test file
-(0 hangs in 60 direct runs here, 7/7 clean on the peer's box) never hit it —
+(0 hangs in 60 direct runs here; 0 in 67 runs on a second idle M4, 52×8 s, 7×9 s, 1×10 s) never hit it —
 the window needs the loop thread to lose the CPU right after the spawn.
 
 ## Fix
@@ -120,4 +120,6 @@ wake — exactly what the foreign path already did.
 
 `tests/cross_thread_wake.test.yo` "a wake posted before the owner drops its
 waker copy still resumes the park": the join makes the ordering deterministic,
-so it hangs every time on the unfixed runtime and passes after.
+so it hangs every time on the unfixed runtime and passes after. Its sibling
+"the common ordering … still resumes promptly" is the over-rejection canary:
+the foreign-release path must stay as fast as before.
