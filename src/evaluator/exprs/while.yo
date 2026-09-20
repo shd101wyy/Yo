@@ -27,7 +27,7 @@
   has_any_control_flow
 } :: import("../../expr_info.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, copy_frames } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, LoopBodyCtx, LoopKind } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
@@ -602,7 +602,7 @@ evaluate_while :: (
     );
   });
   // Update the environment with the body's post-evaluation state.
-  env.frames = body_info.env.frames;
+  env.frames = copy_frames(body_info.env.frames);
   env.module_path = body_info.env.module_path;
   env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
   env.input_string = body_info.env.input_string;

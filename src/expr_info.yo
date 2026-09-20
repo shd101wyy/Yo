@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BREAK
 } :: import("./expr.yo");
 { cloned_expr_node_count } :: import("./expr.yo");
-{ Environment, Variable, snapshot_env } :: import("./env.yo");
+{ Environment, Variable, expr_info_env_snapshot } :: import("./env.yo");
 { Token } :: import("./token.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
@@ -444,7 +444,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
     // in-place `pop_frame` on the live env (e.g. a begin block popping its
     // scope frame). Storing the live env by reference let `pop_frame` corrupt
     // recorded begin-local bindings. See issues/fixed/yo-self-recorded-env-aliasing.md.
-    env : snapshot_env(env),
+    env : expr_info_env_snapshot(env),
     ty : ty,
     path_collection : g_empty_path_collection,
     value : Option(EvalValue).None,
@@ -491,7 +491,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
 /// dyn traits / async analysis, ...) survive without per-field carries.
 clone_expr_info_for_shared_begin_result :: (fn(src : ExprInfo, env : Environment, ty : TypeValue) -> ExprInfo)(
   ExprInfo(
-    env : snapshot_env(env),
+    env : expr_info_env_snapshot(env),
     ty : ty,
     path_collection : g_empty_path_collection,
     value : src.value,

@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
   restore_active_where_trait_ids
 } :: import("../../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
-{ Environment, Variable, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, copy_frames } :: import("../../env.yo");
 /// Names of recorded module-level runtime statics — lets a later bare-atom
 /// `name = value;` top-level REASSIGNMENT be collected into the module init
 /// (a per-variable "module-level" flag would be unreliable for imported
@@ -355,7 +355,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         );
                       });
                       ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(env, TypeValue.Unit));
-                      env.frames = ext_info.env.frames;
+                      env.frames = copy_frames(ext_info.env.frames);
                       env.module_path = ext_info.env.module_path;
                       env.function_declaration_frame_level = ext_info.env.function_declaration_frame_level;
                       env.input_string = ext_info.env.input_string;
@@ -742,7 +742,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             match(
               info_opt,
               .Some(info) => {
-                env.frames = info.env.frames;
+                env.frames = copy_frames(info.env.frames);
                 env.module_path = info.env.module_path;
                 env.function_declaration_frame_level = info.env.function_declaration_frame_level;
                 env.input_string = info.env.input_string;

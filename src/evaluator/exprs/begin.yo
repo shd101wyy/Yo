@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
   has_control_flow,
   has_any_control_flow
 } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, copy_frames } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -1797,7 +1797,7 @@ evaluate_begin_expression :: (
             );
           });
           ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(env, TypeValue.Unit));
-          env.frames = ret_info.env.frames;
+          env.frames = copy_frames(ret_info.env.frames);
           env.module_path = ret_info.env.module_path;
           env.function_declaration_frame_level = ret_info.env.function_declaration_frame_level;
           env.input_string = ret_info.env.input_string;
@@ -2114,7 +2114,7 @@ evaluate_begin_expression :: (
         match(
           ev_info_opt,
           .Some(ev_info) => {
-            env.frames = ev_info.env.frames;
+            env.frames = copy_frames(ev_info.env.frames);
             env.module_path = ev_info.env.module_path;
             env.function_declaration_frame_level = ev_info.env.function_declaration_frame_level;
             env.input_string = ev_info.env.input_string;

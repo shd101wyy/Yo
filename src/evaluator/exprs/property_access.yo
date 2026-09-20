@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   lookup_io_builtin_struct_field,
   ComptimeRef
 } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, copy_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of } :: import("../context.yo");
 { get_struct_fields } :: import("../types/field.yo");
 {
@@ -555,7 +555,7 @@ evaluate_property_access :: (
   match(
     obj_info_opt,
     .Some(oi) => {
-      env.frames = oi.env.frames;
+      env.frames = copy_frames(oi.env.frames);
       env.module_path = oi.env.module_path;
       env.function_declaration_frame_level = oi.env.function_declaration_frame_level;
       env.input_string = oi.env.input_string;

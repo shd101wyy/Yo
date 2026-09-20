@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_is_primitive_match,
   expr_info_set_primitive_pattern_values
 } :: import("../../expr_info.yo");
-{ Environment, Variable, pop_env_frame } :: import("../../env.yo");
+{ Environment, Variable, pop_env_frame, copy_frames } :: import("../../env.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -233,7 +233,7 @@ _arm_result_type :: (fn(ctx : EvalContext, body_ty : TypeValue) -> TypeValue)(
 /// `env` takes over the frames of `src` (the body-env handover the arm loop
 /// and the post-loop use).
 _adopt_env :: (fn(env : Environment, src : Environment) -> unit)({
-  env.frames = src.frames;
+  env.frames = copy_frames(src.frames);
   env.module_path = src.module_path;
   env.function_declaration_frame_level = src.function_declaration_frame_level;
   env.input_string = src.input_string;

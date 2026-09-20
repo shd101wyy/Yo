@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
 { stable_module_id, fnv1a64 } :: import("../../utils.yo");
-{ Environment, Frame, new_frame, add_variable_to_env, invalidate_frame_index } :: import("../../env.yo");
+{ Environment, Frame, new_frame, add_variable_to_env, invalidate_frame_index, copy_frames } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
@@ -90,7 +90,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     evaluated_lang := evaluate_expression(lang_arg, env, ctx);
     lang_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lang));
     lang_info := match(lang_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
-    env.frames = lang_info.env.frames;
+    env.frames = copy_frames(lang_info.env.frames);
     env.module_path = lang_info.env.module_path;
     env.function_declaration_frame_level = lang_info.env.function_declaration_frame_level;
     env.input_string = lang_info.env.input_string;
@@ -240,7 +240,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     );
     field_labels.push(result.label.clone());
     field_types.push(field_ty_with_extern);
-    env.frames = result.env.frames;
+    env.frames = copy_frames(result.env.frames);
     env.module_path = result.env.module_path;
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
     env.input_string = result.env.input_string;

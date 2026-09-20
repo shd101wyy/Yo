@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set, expr_info_table_get, register_extern_c_global, register_extern_c_module_id } :: import("../../expr_info.yo");
 { stable_module_id, fnv1a64 } :: import("../../utils.yo");
-{ Environment, Frame, new_frame, add_variable_to_env, get_variables_from_env, invalidate_frame_index } :: import("../../env.yo");
+{ Environment, Frame, new_frame, add_variable_to_env, get_variables_from_env, invalidate_frame_index, copy_frames } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { is_function_type } :: import("../../types/guards.yo");
@@ -209,7 +209,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   evaluated_hdr := evaluate_expression(c_header_file_arg, env, ctx);
   hdr_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_hdr));
   hdr_info := match(hdr_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
-  env.frames = hdr_info.env.frames;
+  env.frames = copy_frames(hdr_info.env.frames);
   env.module_path = hdr_info.env.module_path;
   env.function_declaration_frame_level = hdr_info.env.function_declaration_frame_level;
   env.input_string = hdr_info.env.input_string;
@@ -375,7 +375,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     );
     field_labels.push(result.label.clone());
     field_types.push(field_ty_with_extern);
-    env.frames = result.env.frames;
+    env.frames = copy_frames(result.env.frames);
     env.module_path = result.env.module_path;
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
     env.input_string = result.env.input_string;

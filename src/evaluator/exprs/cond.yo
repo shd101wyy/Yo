@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
   pop_branch_group,
   expr_info_set_case_executed
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, copy_frames } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_bool_val } :: import("../../value.yo");
@@ -368,7 +368,7 @@ evaluate_cond :: (
         );
         bodies.push(evaluated_body);
         value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_info.ty, env : body_info.env));
-        env.frames = body_info.env.frames;
+        env.frames = copy_frames(body_info.env.frames);
         env.module_path = body_info.env.module_path;
         env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
         env.input_string = body_info.env.input_string;

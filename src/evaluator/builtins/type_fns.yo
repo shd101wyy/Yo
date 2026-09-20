@@ -20,7 +20,8 @@ pragma(Pragma.AllowUnsafe);
 {
   Environment,
   add_variable_to_env,
-  synthetic_token
+  synthetic_token,
+  copy_frames
 } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
@@ -693,7 +694,7 @@ _ti_eval_code :: (
     .Some(i) => i,
     .None => new_expr_info(env_ptr, t_unit())
   );
-  env_ptr.frames = result_info.env.frames;
+  env_ptr.frames = copy_frames(result_info.env.frames);
   env_ptr.module_path = result_info.env.module_path;
   env_ptr.function_declaration_frame_level = result_info.env.function_declaration_frame_level;
   env_ptr.input_string = result_info.env.input_string;
@@ -724,7 +725,7 @@ _ti_bind_comptime_list :: (
       .Some(i) => i,
       .None => new_expr_info(env_ptr, t_unit())
     );
-    env_ptr.frames = type_info.env.frames;
+    env_ptr.frames = copy_frames(type_info.env.frames);
     env_ptr.module_path = type_info.env.module_path;
     env_ptr.function_declaration_frame_level = type_info.env.function_declaration_frame_level;
     env_ptr.input_string = type_info.env.input_string;

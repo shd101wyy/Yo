@@ -19,7 +19,7 @@ import("std/fmt");
   BK_UNION
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, copy_frames } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -143,7 +143,7 @@ evaluate_union_type :: (
     field_labels.push(field.label.clone());
     field_types.push(field.ty);
     fields.push(field);
-    env_mut.frames = result.env.frames;
+    env_mut.frames = copy_frames(result.env.frames);
     env_mut.module_path = result.env.module_path;
     env_mut.function_declaration_frame_level = result.env.function_declaration_frame_level;
     env_mut.input_string = result.env.input_string;
