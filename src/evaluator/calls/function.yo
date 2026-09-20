@@ -3346,7 +3346,10 @@ evaluate_function_call :: (
     evaluated_first := evaluate_expression_raw(first_arg, env, ctx, exn);
     ctx.expected_type = saved_et;
     // Evaluated once here to pick the overload; argument matching below must
-    // reuse that (see `mark_node_preevaluated`). Unmarked after the call.
+    // reuse that (see `mark_node_preevaluated`). Unmarked after the call. The
+    // SECOND operand is only probed (`_try_eval_operand_type`, no expected
+    // type) and is NOT marked: a literal `0` there must still be evaluated
+    // against the parameter type to become `usize`.
     mark_node_preevaluated(ast_expr_id(first_arg));
     first_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_first));
     // Resolve a recursive enum's `Self` shell before the operator lookup, for
@@ -3428,9 +3431,6 @@ evaluate_function_call :: (
         snd_ty_holder := ArrayList(TypeValue).new();
         _try_eval_operand_type(snd_arg, env, ctx, snd_ty_holder);
         ctx.expected_type = snd_saved;
-        if(snd_ty_holder.len() > usize(0), {
-          mark_node_preevaluated(ast_expr_id(snd_arg));
-        });
         // Only refine when the 2nd operand evaluated to a concrete type; a
         // shorthand operand left `snd_ty_holder` empty → keep the first overload.
         match(
@@ -3498,7 +3498,6 @@ evaluate_function_call :: (
         exn
       );
       unmark_node_preevaluated(ast_expr_id(first_arg));
-      match(args.get(usize(1)), .Some(snd_done) => unmark_node_preevaluated(ast_expr_id(snd_done)), .None => ());
       ctx.self_type = saved_op_self;
       ctx.expected_type = saved_op_et;
       // Resolve an associated-type return (`comptime(Self.Output)`) that came
