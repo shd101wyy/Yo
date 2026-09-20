@@ -57,6 +57,20 @@ for r in issues/repros/box-eq-comptime-int-forall-leak.yo issues/repros/arc-spaw
     dump_log "/tmp/${P}_${n}.log"
   fi
 done
+# Compile-COST ratchet: a twelve-interpolation template string (a ~24-deep
+# method chain after desugaring) must compile within 120 s. Before the
+# receiver-once fix the evaluator cost 2^depth here — ten interpolations were
+# 67 s / 10.7 GB, twelve would have been ~18 min
+# (issues/debug-probe-line-costs-gigabytes-at-compile-time.md).
+r=issues/repros/template-ten-interpolations-is-linear.yo
+n=$(basename "$r" .yo)
+timeout 120 "$S1" compile "$r" --optimize 2 -o "/tmp/${P}_${n}" &> "/tmp/${P}_${n}.log"
+rc=$?
+echo "$n compile_rc=$rc (120 s ratchet)"
+if [ "$rc" != "0" ]; then
+  fail "repro $n compile_rc=$rc (the template-chain compile-cost ratchet)"
+  dump_log "/tmp/${P}_${n}.log"
+fi
 
 echo "=== T1 GATE 1: battery (with HOLLOW detection) ==="
 for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/async_await.test.yo tests/io/bufio.test.yo tests/fs/file.test.yo tests/fs/temp.test.yo tests/fs/walker.test.yo tests/sys/signal.test.yo tests/cycle_collector.test.yo tests/basic.test.yo tests/closure.test.yo tests/imm_list.test.yo tests/imm_string.test.yo tests/module_struct_unification.test.yo tests/ref_struct.test.yo tests/fn.test.yo tests/iso.test.yo tests/rc.test.yo tests/ref_field_borrow.test.yo tests/module.test.yo tests/operator_grouping.test.yo tests/algebraic_effects.test.yo; do
