@@ -257,6 +257,15 @@ reaches the editor. Read the typed stash the CLI already reads, keep the
 repair on the LSP diagnostic, and serve `textDocument/codeAction` from it.
 Inlay hints and semantic tokens are absent too and are lower priority.
 
+**Status 2026-09-20 (PR C):** landed. Correction to the premise: the typed
+stash was already the LSP's primary channel (`_typed_to_lsp`; the text parser
+is the fallback for bare string throws) — only the `Repair` was dropped in the
+mapping. `LspDiag` now carries it, `DocState` keeps the version's diagnostics,
+and `textDocument/codeAction` answers one `quickfix` (WorkspaceEdit, the
+CLI's exact edit) per repair-carrying diagnostic on the requested lines;
+`codeActionProvider` is advertised. Golden: `lsp-code-action`. Inlay hints /
+semantic tokens remain open.
+
 ### 3.3 The explain registry, verified by the compiler
 
 All 27 registry entries carry `bad`/`good` prose, and no test compiles either
