@@ -1338,7 +1338,7 @@ evaluate_comptime_fn_call :: (
   );
   // Local copy — `callee_env` is an immutable parameter; thread the updated
   // env through `out_callee_env` and return it.
-  (out_callee_env : Environment) = body_info.env;
+  (out_callee_env : Environment) = snapshot_env(body_info.env);
   // Update or remove the temp cache entry based on whether caching is enabled.
   if(should_cache, {
     updated_cache := CalledComptimeFnCache(

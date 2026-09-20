@@ -536,7 +536,7 @@ evaluate_yo_type_impls :: (
       new_expr_info(env, t_unit())
     }
   );
-  (cur_env : Environment) = info0.env;
+  (cur_env : Environment) = snapshot_env(info0.env);
   if(!(is_type_hierarchy_type(info0.ty)), {
     exn.throw(
       dyn(
@@ -1119,7 +1119,7 @@ evaluate_yo_type_get_info :: (
       new_expr_info(env, t_unit())
     }
   );
-  (local_env : Environment) = info0.env;
+  (local_env : Environment) = snapshot_env(info0.env);
   type_val := _extract_type_val(arg0, info0, "__yo_type_get_info", exn);
   // SomeType → return UnknownVal with TypeInfo type (avoid calling constructors).
   if(is_some_type(type_val), {
@@ -1416,7 +1416,7 @@ evaluate_comptime_eval :: (
       new_expr_info(env, t_unit())
     }
   );
-  (local_env : Environment) = info0.env;
+  (local_env : Environment) = snapshot_env(info0.env);
   // Non-StrLit value (e.g. UnknownVal for SomeType) → return unit silently.
   is_str := match(info0.value, .Some(v) => is_str_lit(v), .None => false);
   if(!(is_str), {
@@ -1510,7 +1510,7 @@ evaluate_comptime_string_to_expr :: (
       new_expr_info(env, t_unit())
     }
   );
-  (local_env : Environment) = info0.env;
+  (local_env : Environment) = snapshot_env(info0.env);
   // If the value is not a StrLit, return UnknownVal(Expr) or throw.
   is_str := match(info0.value, .Some(v) => is_str_lit(v), .None => false);
   if(!(is_str), {
@@ -1612,7 +1612,7 @@ evaluate_type_join_fields :: (
       new_expr_info(env, t_unit())
     }
   );
-  (local_env : Environment) = info0.env;
+  (local_env : Environment) = snapshot_env(info0.env);
   target_type := _extract_type_val(arg0, info0, "__yo_type_join_fields", exn);
   // SomeType → return UnknownVal(Expr).
   if(is_some_type(target_type), {
@@ -1906,7 +1906,7 @@ evaluate_type_map_variants :: (
       new_expr_info(env, t_unit())
     }
   );
-  (local_env : Environment) = info0.env;
+  (local_env : Environment) = snapshot_env(info0.env);
   target_type := _extract_type_val(arg0, info0, "__yo_type_map_variants", exn);
   // SomeType → return UnknownVal(ComptimeList(Expr)).
   if(is_some_type(target_type), {

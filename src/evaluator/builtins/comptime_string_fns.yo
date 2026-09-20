@@ -166,7 +166,7 @@ evaluate_yo_comptime_string_functions :: (
       }
     );
     ai := eval_comptime_str_arg(arg0, env, ctx, exn);
-    (cur_env : Environment) = ai.env;
+    (cur_env : Environment) = snapshot_env(ai.env);
     arg_val := ai.value;
     (result_val : EvalValue) = cond(
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1))) =>
@@ -255,7 +255,7 @@ evaluate_yo_comptime_string_functions :: (
     );
     str_info := eval_comptime_str_arg(str_arg, env, ctx, exn);
     start_info := eval_comptime_int_arg(start_arg, str_info.env, ctx, exn);
-    (cur_env : Environment) = start_info.env;
+    (cur_env : Environment) = snapshot_env(start_info.env);
     // Optional end argument.
     (end_info_opt : Option(ExprInfo)) = if(
       n_args == usize(3),
@@ -370,7 +370,7 @@ evaluate_yo_comptime_string_functions :: (
     );
     lhs_info := eval_comptime_str_arg(arg0, env, ctx, exn);
     rhs_info := eval_comptime_str_arg(arg1, lhs_info.env, ctx, exn);
-    (cur_env : Environment) = rhs_info.env;
+    (cur_env : Environment) = snapshot_env(rhs_info.env);
     lhs_val := lhs_info.value;
     rhs_val := rhs_info.value;
     // Extract unquoted strings for comparison / concat.

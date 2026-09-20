@@ -268,7 +268,7 @@ ci_eval_list_index :: (
     }
   );
   self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime list index"), exn);
-  (cur_env : Environment) = self_info.env;
+  (cur_env : Environment) = snapshot_env(self_info.env);
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime list index"), exn);
   cur_env = snapshot_env(idx_info.env);
   list_ev_opt := ci_resolve_comptime_list(self_info.value);
@@ -396,7 +396,7 @@ ci_eval_list_range_index :: (
     }
   );
   self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime list range index"), exn);
-  (cur_env : Environment) = self_info.env;
+  (cur_env : Environment) = snapshot_env(self_info.env);
   range_info := ci_eval_arg(range_arg, cur_env, ctx, String.from("Failed to evaluate range for comptime list range index"), exn);
   cur_env = snapshot_env(range_info.env);
   fallback_ty := ci_list_range_return_ty(self_info.ty);
@@ -539,7 +539,7 @@ ci_eval_array_index :: (
     }
   );
   self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime array/slice index"), exn);
-  (cur_env : Environment) = self_info.env;
+  (cur_env : Environment) = snapshot_env(self_info.env);
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime array/slice index"), exn);
   cur_env = snapshot_env(idx_info.env);
   // ----- Array branch -----
@@ -671,7 +671,7 @@ ci_eval_string_index :: (
     }
   );
   self_info := ci_eval_arg(self_arg, env, ctx, String.from("Failed to evaluate self for comptime string index"), exn);
-  (cur_env : Environment) = self_info.env;
+  (cur_env : Environment) = snapshot_env(self_info.env);
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime string index"), exn);
   cur_env = snapshot_env(idx_info.env);
   result_ty := self_info.ty;

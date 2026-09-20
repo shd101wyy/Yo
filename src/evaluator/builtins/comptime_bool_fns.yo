@@ -24,7 +24,7 @@
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, is_bool_val, create_unknown_val, type_of_eval_value }
 :: import("../../value.yo");
@@ -103,7 +103,7 @@ evaluate_yo_comptime_boolean_functions :: (
       }
     );
     ai := eval_bool_arg(arg0, env, ctx, exn);
-    (cur_env : Environment) = ai.env;
+    (cur_env : Environment) = snapshot_env(ai.env);
     arg_val := ai.value;
     (result_val : EvalValue) = cond(
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT, .Some(usize(1))) =>
@@ -159,7 +159,7 @@ evaluate_yo_comptime_boolean_functions :: (
     );
     lhs_info := eval_bool_arg(arg0, env, ctx, exn);
     rhs_info := eval_bool_arg(arg1, lhs_info.env, ctx, exn);
-    (cur_env : Environment) = rhs_info.env;
+    (cur_env : Environment) = snapshot_env(rhs_info.env);
     lhs_val := lhs_info.value;
     rhs_val := rhs_info.value;
     (result_val : EvalValue) = cond(

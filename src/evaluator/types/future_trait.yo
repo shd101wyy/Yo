@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
 }
 :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ Environment, get_variables_from_env, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -344,7 +344,7 @@ evaluate_future_type :: (
       new_expr_info(env, TypeValue.Unit)
     }
   );
-  (env_mut : Environment) = elem_info.env;
+  (env_mut : Environment) = snapshot_env(elem_info.env);
   if(!is_type_value(elem_info.value), {
     exn.throw(
       dyn(

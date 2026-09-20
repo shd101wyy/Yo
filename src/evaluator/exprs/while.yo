@@ -493,7 +493,7 @@ evaluate_while :: (
     // --- continue ---
     if(has_control_flow(body_info.control_flow, .Continue), {
       // Execute the step expression (if any) before re-evaluating the loop.
-      (updated_env_cont : Environment) = body_info.env;
+      (updated_env_cont : Environment) = snapshot_env(body_info.env);
       match(
         step_expr_opt,
         .None => (),
