@@ -612,21 +612,25 @@ instruments durable and answer the three questions the ranking depends on.
 
 ### Phase 2 — env-snapshot sharing (F3): byte-identical C
 
-1. **Re-audit mutation of stored snapshots by instrumentation, not grep**: a
-   debug build where `snapshot_env` marks the returned `Environment` frozen
-   (a bool field, debug-only) and `push_env_frame`/`pop_env_frame`/every
-   `env.frames.<mutator>` site panics on a frozen env. Run the fast suite,
-   `check ./src`, `check ./std`. Fix any hit by copying before mutating.
-2. **Scope version.** Add `(snapshot_version : usize)` to `Environment`
-   (bumped by `push_env_frame`, `pop_env_frame`, `add_variable_to_env`
-   creating a new frame, `clone_env`, and every direct `frames.push/pop`
-   found in step 1) and a per-env memo `(last_snapshot : Option(Environment),
-   last_snapshot_version : usize)`. `snapshot_env(env)` returns the memoized
-   snapshot when the version matches, else builds one and memoizes it.
-   Adding fields to `Environment` changes `sizeof` by 8-32 B — net negative
-   once 5 M snapshots collapse; confirm with the census.
-   Note the memo must hold a handle to the snapshot (an RC bump), and the
-   snapshot must not point back at the live env (no cycle).
+Amended 2026-09-20 after the audit found the 65 adoption sites (§0.2b):
+
+1. **Adoption sites copy.** Every `env.frames = X.env.frames;` becomes
+   `env.frames = copy_frames(X.env.frames);` (`copy_frames` in `src/env.yo`,
+   a shallow copy of the handle list). This is what makes sharing sound: a
+   live env can then never alias a recorded snapshot's list, so a later push
+   cannot rewrite a recorded scope. It costs one list per adoption executed
+   and is applied mechanically (`scripts`-free: a regex over `src/`, 65 sites
+   in 31 files, asserted count).
+2. **Frame-sequence memo instead of a version counter.** `Environment` gets
+   `snapshot_memo : Option(Environment)`; `expr_info_env_snapshot(env)` (used
+   ONLY by `new_expr_info` and `clone_expr_info_for_shared_begin_result`)
+   returns the memoized snapshot when its frame sequence equals the live
+   env's (compared by `Frame.id`, O(depth)), else `snapshot_env`s a fresh one
+   and memoizes it. No version bookkeeping at the 65 mutation sites is needed:
+   equality of the sequence IS the validity test, since frames append in
+   place. The other 19 `snapshot_env` callers build scratch envs they go on
+   to mutate and keep private copies. A snapshot's own memo stays `.None`
+   (no cycle: snapshots hold Frame handles, never the live env).
 3. Prove: emitted C byte-identical on the corpus (`scripts/cli-diff-test.sh`
    + the self-emit diff), `fixpoint_only.sh`, `gates_fast.sh`. Measure:
    `Environment` live count should fall by the share of consecutive
