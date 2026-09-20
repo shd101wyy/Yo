@@ -275,6 +275,24 @@ clean. Add cli-case goldens for the 22 codes that have none. Allocate the
 reserved E13xx (codegen) and E15xx (CLI/build/deps) bands for the ICE wrapper
 and the `install`/`fetch` family so those failures stop being uncoded prose.
 
+**Status 2026-09-20 (PR D): landed in part.** Measured first: of 30 `bad`
+snippets only 6 reproduced their own code (most were fragments with free
+names; `x : i32 = i64(5)` was an E0003), and 4 real messages had no code.
+Every example is now a self-contained program and
+`tests/internal/diagnostics_registry_examples.test.yo` loads each one
+through the module manager: `bad` must fail with exactly its code, `good`
+must load clean. Classifier additions: `Cannot unify incompatible types` →
+E0601, `Function body has type …` → E0604, `Variable … is not initialized` →
+E0404 (re-titled "used before initialization"), and a new **E0610** "no
+matching call" for `No matching call found`. **E0904 retired**: its message
+(`must BE the first condition`) has no raise site — await placement is a
+codegen `internal compiler error` today. Three `bad` halves are exempt with
+open issues: E0002 (`issues/parser-accepts-an-unclosed-call-paren.md`), E0903
+(`issues/cond-arm-initialization-merge-check-never-fires.md`), E0905 (a
+`compile`-stage code). Golden: `explain-list` pins the code set. NOT done:
+the E13xx/E15xx bands (the ICE wrapper and the install/fetch family stay
+uncoded prose) — no consumer asked for them yet.
+
 ### 3.4 `yo test` for a machine reader
 
 **Landed 2026-09-20 (PR A of the toolchain series).** `--list` prints

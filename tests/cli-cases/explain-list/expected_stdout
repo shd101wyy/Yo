@@ -1,0 +1,57 @@
+$ yo explain --list
+E0001  unexpected token
+E0002  expected a specific token
+E0003  adjacent different operators need parentheses
+E0004  unterminated literal or comment
+E0005  unexpected character
+E0006  unknown operator run
+E0007  { ... } without semicolons is a struct literal
+E0008  call syntax
+E0401  name not found
+E0402  enum variant not found
+E0403  module field not found
+E0404  variable used before initialization
+E0405  private member used outside its module
+E0601  incompatible types
+E0602  required trait not implemented
+E0603  argument count mismatch
+E0604  return type mismatch
+E0605  type mismatch
+E0606  argument is not callable
+E0901  use of moved value
+E0902  cannot reassign
+E0903  variable may be uninitialized
+E0905  body was never fully evaluated
+E0906  forward reference
+E1101  comptime argument error
+E1102  compile-time integer overflow
+E0607  match is not exhaustive
+E0608  unreachable match arm
+E0609  invalid match pattern
+E0610  no matching call
+rc=0
+$ yo explain E0610
+E0610 — no matching call
+
+No candidate accepts this call: the receiver has no such method, or no overload fits the arguments.
+
+The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first.
+
+Example — this fails:
+  Point :: struct(x : i32);
+  p := Point(x : i32(1));
+  _s := p.norm();
+  
+Example — write this instead:
+  Point :: struct(x : i32);
+  norm :: (fn(p : Point) -> i32)(p.x);
+  p := Point(x : i32(1));
+  _s := norm(p);
+  
+  `Point` has no `norm` method and no impl provides one, so the method-call syntax finds no candidate; define the function (or an `impl(Point, ...)` method) first. The same code fires when a trait method's impl lives in a std module that was not imported (`to_string` from `std/fmt`).
+Run 'yo explain --list' for all codes.
+rc=0
+$ yo explain E0904
+yo: error: explain: unknown error code 'E0904'
+help: did you mean 'E0004'? Run 'yo explain --list' for all codes.
+rc=1
