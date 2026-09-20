@@ -45,7 +45,9 @@ pragma(Pragma.AllowUnsafe);
   lookup_struct_ctor_fid,
   struct_effective_ctor_fid,
   struct_fully_concrete_instance,
-  adopt_receiver_struct_instance
+  adopt_receiver_struct_instance,
+  mark_node_preevaluated,
+  unmark_node_preevaluated
 } :: import("../../expr_info.yo");
 {
   Variable,
@@ -3343,6 +3345,9 @@ evaluate_function_call :: (
     ctx.expected_type = Option(ExpectedTypeCtx).None;
     evaluated_first := evaluate_expression_raw(first_arg, env, ctx, exn);
     ctx.expected_type = saved_et;
+    // Evaluated once here to pick the overload; argument matching below must
+    // reuse that (see `mark_node_preevaluated`). Unmarked after the call.
+    mark_node_preevaluated(ast_expr_id(first_arg));
     first_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_first));
     // Resolve a recursive enum's `Self` shell before the operator lookup, for
     // the same reason the DOT-call receiver is resolved at :298 — an enum shell
@@ -3423,6 +3428,9 @@ evaluate_function_call :: (
         snd_ty_holder := ArrayList(TypeValue).new();
         _try_eval_operand_type(snd_arg, env, ctx, snd_ty_holder);
         ctx.expected_type = snd_saved;
+        if(snd_ty_holder.len() > usize(0), {
+          mark_node_preevaluated(ast_expr_id(snd_arg));
+        });
         // Only refine when the 2nd operand evaluated to a concrete type; a
         // shorthand operand left `snd_ty_holder` empty → keep the first overload.
         match(
@@ -3489,6 +3497,8 @@ evaluate_function_call :: (
         false,
         exn
       );
+      unmark_node_preevaluated(ast_expr_id(first_arg));
+      match(args.get(usize(1)), .Some(snd_done) => unmark_node_preevaluated(ast_expr_id(snd_done)), .None => ());
       ctx.self_type = saved_op_self;
       ctx.expected_type = saved_op_et;
       // Resolve an associated-type return (`comptime(Self.Output)`) that came
@@ -6954,6 +6964,10 @@ Fix: wrap the call:
               .None => ()
             );
           });
+          // The receiver was evaluated when the DOT callee was resolved; as
+          // `self` it must not be evaluated again (the exponential chain cost).
+          recv_node_id := ast_expr_id(method_info.receiver_expr);
+          mark_node_preevaluated(recv_node_id);
           call_result_m := try_to_call_function_with_arguments(
             method_info.method_val_opt,
             m_callee_ty,
@@ -6967,6 +6981,7 @@ Fix: wrap the call:
             false,
             exn
           );
+          unmark_node_preevaluated(recv_node_id);
           ctx.pending_method_self_type = Option(TypeValue).None;
           // Record the resolved/specialized method FuncVal in the non-destructive
           // method-callee VALUE side-table (keyed by this call's expr id) so

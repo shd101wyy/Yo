@@ -222,7 +222,7 @@ import("std/fmt");
 { is_some_type } :: import("../../types/guards.yo");
 { is_primitive_type, is_unit_type, is_enum_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../value.yo");
-{ expr_info_table_get, expr_info_table_set, record_node_eval } :: import("../../expr_info.yo");
+{ expr_info_table_get, expr_info_table_set, record_node_eval, node_is_preevaluated } :: import("../../expr_info.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
 { BindingResult, evaluate_binding } :: import("./binding.yo");
 { register_rerun_pending_def_evals } :: import("../calls/function_type.yo");
@@ -1461,6 +1461,13 @@ _evaluate_expression_raw_wrapper :: (
     exn : Exception
   ) -> AstExpr
 )({
+  // A method receiver / operator operand already evaluated for the call whose
+  // arguments are being matched: its recorded ExprInfo is authoritative (see
+  // `mark_node_preevaluated`). Re-evaluating it here doubled the work of
+  // every level of a call chain below.
+  if(node_is_preevaluated(ast_expr_id(expr)) && expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)).is_some(), {
+    return(expr);
+  });
   record_node_eval(ast_expr_id(expr), ast_expr_token(expr));
   result := _evaluate_expression(expr, env, ctx, exn);
   _bridge_expr_info(expr, result, ctx);

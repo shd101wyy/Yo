@@ -121,6 +121,23 @@ scope; Phase 2 below is amended accordingly, and only `new_expr_info`'s two
 snapshot sites share (the 19 other `snapshot_env` callers build scratch envs
 they go on to mutate).
 
+### 0.2c Phase 1 measured (2026-09-20)
+
+Same source tree both sides (`24fcd192f`, probe-free), `check src/main.yo
+--std-path ./std`, quiet machine:
+
+| binary                                                   | footprint    | wall   |
+| -------------------------------------------------------- | ------------ | ------ |
+| seed v0.2.38                                             | 19.90 GB     | 170 s  |
+| Phase 1 (walk `ctx` released, spec-cache `env` removed) + #804 | **17.61 GB** | 145 s |
+
+F1 is worth **2.3 GB (11.5%)** on `check`, not the bulk of the peak: the
+per-module tables of finished walks are one holder among several. The rest of
+the live set is reachable from the module cache (function values → bodies →
+their def-time `ExprInfo`s through `g_funcval_def_envs` and the specialization
+caches); Phase 0 step 3's holder attribution remains the measurement that
+ranks what is left.
+
 ### 0.3 How to measure (the rules that bit earlier campaigns)
 
 - **Peak footprint, never RSS.** `/usr/bin/time -l <cmd>` → `peak memory
