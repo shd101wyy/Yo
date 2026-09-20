@@ -510,15 +510,18 @@ Gates:
 > vanished: "Variable not found"). Recorded def edges are monotone by design:
 > a reset does NOT prune them, because a re-force does not reliably re-record
 > (a body trial can short-circuit on existing ExprInfo) — a stale edge only
-> ever over-invalidates. The v1 ALLOWLIST is one predicate,
-> `_def_is_per_def_able`: only a SIGNATURE-STABLE fn-literal edit
-> (`name :: (fn(...) -> T)(body)`, fn-type head unchanged) is per-def-able —
-> a dependent's re-forced body trial does not reliably re-check arity, or
-> re-fold comptime values, against the patched slot
-> (issues/per-def-dependent-trial-resolves-stale-callee.md), so signature
-> changes, constants and type producers (whose values/types dependents fold
-> at def time; `derive(...)` is an ordered statement, so the stmt-sequence
-> check covers it) all take the file-level reload. The remaining conservative
+> ever over-invalidates. The ALLOWLIST is one predicate,
+> `_def_is_per_def_able`: a fn-literal edit (`name :: (fn(...) -> T)(body)`
+> → fn-literal) is per-def-able, body OR signature. **Signature edits joined
+> 2026-09-21**: the dependent's re-forced trial used to resolve the OLD
+> callee because `lib :: import(...)` deep-cloned the module value, so the
+> in-place slot patch never reached the importer's copy
+> (issues/fixed/per-def-dependent-trial-resolves-stale-callee.md); module
+> values are now shared by handle and the trial re-derives arity/types
+> against the patched slot (measured: the flipped check_watch case). Constants
+> and type producers (whose values/types dependents fold at def time;
+> `derive(...)` is an ordered statement, so the stmt-sequence check covers
+> it) still take the file-level reload. The remaining conservative
 > FILE-LEVEL fallbacks: structural edits (stmt sequence, def count, an added
 > def — `DefDiff.fallback`), the changed module's own ordered statements
 > mentioning a changed name, any importer that ORDER-READ a revalidated name
@@ -544,11 +547,13 @@ Gates:
 > collide on `source_namespace_0`), so the hub round now SOUNDLY drops the
 > destructured reader's closure: `src/token.yo`'s `is_identifier_continue`
 > edit drops `src/lexer.yo` + its 143-file import closure, a ~355 s
-> full re-check on the WSL2 box — correct, and the perf unlock for hub
-> edits is the dependent-trial stale-callee fix in
-> issues/per-def-dependent-trial-resolves-stale-callee.md (once a dependent
-> re-derives calls against the patched slot, signature-stable edits no
-> longer need to drop their readers). Surfaced on the way:
+> full re-check on the WSL2 box — correct. The stale-callee bug is FIXED
+> (2026-09-21, issues/fixed/per-def-dependent-trial-resolves-stale-callee.md),
+> but that does not unlock hub edits: a DESTRUCTURED reader holds the old
+> FuncVal by value, not through the shared slot array, so it must still be
+> dropped. The remaining perf item is reader-side (re-bind destructured
+> names from the patched slot instead of reloading the reader). Surfaced on
+> the way:
 > `issues/retired/enum-bool-option-literal-arms-duplicate-case.md` — an
 > in-tree `.Some(true)/.Some(false)` two-arm match broke the SELF-BUILD
 > because the v0.2.32 seed's codegen predates #661/#672; the tree's own

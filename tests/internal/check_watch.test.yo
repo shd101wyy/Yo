@@ -288,7 +288,7 @@ test("Phase 3b: a body edit re-evaluates only the changed def + its dependents",
   assert(failed_f == usize(0), `fixed body must clean the round, failed=${failed_f.to_string()}`);
 });
 
-test("Phase 3b: a signature edit falls back to file-level and still fails the importer", {
+test("Phase 3b: a signature edit takes the per-def path and the re-forced dependent fails on arity", {
   exn := Exception(
     throw : (
       err -> {
@@ -301,11 +301,8 @@ test("Phase 3b: a signature edit falls back to file-level and still fails the im
   // the per-def rounds can re-force definitions (main.yo sets this for
   // `check --watch`; an in-process driver has to say so itself).
   set_retain_walk_contexts(true);
-  // Own fixture directory: this test drives the FILE-LEVEL path, and a
-  // preceding per-def sequence leaves warm state (grafted defs, cloned
-  // dependents) whose interaction with the reload is exactly what
-  // issues/per-def-dependent-trial-resolves-stale-callee.md tracks — the
-  // gate's contract is asserted from a clean load.
+  // Own fixture directory: the contract is asserted from a clean load, not
+  // on top of the preceding test's warm per-def state.
   dir := `/tmp/yo_check_watch_fixture_p3b_sig`;
   io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
   lib_path := `${dir}/lib.yo`;
@@ -318,17 +315,17 @@ test("Phase 3b: a signature edit falls back to file-level and still fails the im
   files := ArrayList(String).new();
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
-  // Signature edit: answer takes a parameter now. A changed signature alters
-  // what every dependent call MEANS, and a dependent's re-forced body trial
-  // does not reliably re-check arity against the patched slot — so the round
-  // must take the FILE-LEVEL path (zero per-def forces) and the importer's
-  // reload must surface the error.
+  // Signature edit: answer takes a parameter now. The round re-forces exactly
+  // `answer` and its def-edge dependent `main`; `main`'s trial re-derives the
+  // call against the PATCHED slot (the importer's `lib_mod` shares the cached
+  // module's slot array — issues/fixed/per-def-dependent-trial-resolves-
+  // stale-callee.md) and fails on arity through the per-def channel.
   io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_SIG), io), ioexn);
   before := force_pending_count();
   failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
   delta := (force_pending_count() - before);
-  assert(failed == usize(1), `signature edit must fail the importer via reload, failed=${failed.to_string()}`);
-  assert(delta == usize(0), `signature edit must stay file-level (no per-def forces), forced ${delta.to_string()}`);
+  assert(failed == usize(1), `signature edit must fail the dependent, failed=${failed.to_string()}`);
+  assert(delta == usize(2), `signature edit must re-force exactly answer+main, forced ${delta.to_string()}`);
   // Fix: back to the parameterless body — the next round is clean again.
   io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
   failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
@@ -349,7 +346,7 @@ test("Phase 3b: a DIRECTORY check attributes destructured reads to the right mod
   // `check --watch`; an in-process driver has to say so itself).
   set_retain_walk_contexts(true);
   // Reproduces the sns id->module mis-attribution of
-  // issues/per-def-dependent-trial-resolves-stale-callee.md: every module's
+  // issues/fixed/per-def-dependent-trial-resolves-stale-callee.md: every module's
   // FIRST source-namespace mint collided on `source_namespace_0` (the
   // occurrence counter is per module), so the attribution map was
   // last-wins — in a directory check a later module's mint overwrote the

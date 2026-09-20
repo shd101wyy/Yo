@@ -54,7 +54,7 @@
   pending_prebound_variable,
   record_pending_def_variable
 } :: import("../context.yo");
-{ EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value } :: import("../../value.yo");
+{ EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value, is_module_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
@@ -963,11 +963,18 @@ ${rhs_str}`
       ),
       .None => rhs_value_opt
     );
-    // Determine the value to store.
+    // Determine the value to store. A MODULE value is stored by handle, not
+    // deep-cloned: importers must share the cached module's `field_values`
+    // array so a per-definition revalidation's in-place slot patch
+    // (`update_module_cache_slot`) reaches every live `lib :: import(...)`
+    // binding — the deep clone gave each importer a private copy whose
+    // callee slots went stale after an edit
+    // (issues/fixed/per-def-dependent-trial-resolves-stale-callee.md). A
+    // module value is immutable after its walk, so sharing is safe.
     lhs_value_opt := cond(
       effective_is_compile_time_only => match(
         stamped_rhs_value_opt,
-        .Some(rv) => Option(EvalValue).Some(clone_value(rv, true)),
+        .Some(rv) => Option(EvalValue).Some(cond(is_module_val(rv) => rv, true => clone_value(rv, true))),
         .None => Option(EvalValue).Some(create_unknown_val(lhs_type))
       ),
       true => Option(EvalValue).None
