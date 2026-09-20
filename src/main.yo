@@ -138,6 +138,7 @@ json :: import("std/encoding/json");
 { eval_context_new } :: import("./evaluator/context.yo");
 { register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
+{ decode_str_lit_escapes } :: import("./evaluator/values/string.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
 { run_check_watch, run_watch_once, watch_snapshot, wait_for_change } :: import("./check_watch.yo");
 {
@@ -336,12 +337,15 @@ extract_test_name :: (fn(expr : AstExpr) -> Option(String))(
           .FnCall(_, _, _, _, _) => Option(String).None,
           .Atom(_, ntok) => cond(
             (ntok.kind == TokenKind.StringLit) => {
-              // StringLit token values include surrounding double-quotes: "name"
-              // Strip them with substring(1, len-1).
-              n := ntok.value.len();
+              // The token value is the RAW quoted source: decode the escapes
+              // with the evaluator's own table (a `\"` in a test name printed
+              // as a backslash + quote, and `--json` then escaped both), then
+              // strip the surrounding double-quotes the decoder keeps.
+              decoded := decode_str_lit_escapes(ntok.value);
+              n := decoded.len();
               cond(
-                (n >= usize(2)) => .Some(ntok.value.substring(usize(1), n - usize(1))),
-                true => .Some(ntok.value)
+                (n >= usize(2)) => .Some(decoded.substring(usize(1), n - usize(1))),
+                true => .Some(decoded)
               )
             },
             true => Option(String).None

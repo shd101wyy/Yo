@@ -1,0 +1,44 @@
+$ yo test --help
+Usage: yo test [path] [options]
+
+Run *.test.yo files (a file, a directory tree, or the whole workspace).
+
+Options:
+  -b, --bail                Stop after the first failure
+  -v, --verbose             Show detailed output and errors
+  --test-name-pattern <re>  Run only tests whose name matches the regex <re>
+  --exclude <path>          Exclude a directory/file (repeatable)
+  --workspace               Run every workspace member's tests in one run
+  --shard <i>/<n>           Run only every n-th collected file, offset i
+  --list                    List the tests that would run (file<TAB>name);
+                            nothing is compiled
+  --json                    One JSON object per line: a "test" event per test
+                            (file, name, status, duration_ms; message and
+                            output on failure) and a closing "summary" event;
+                            human output is suppressed
+  --json-summary            Append the {"passed","failed","total"} line to the
+                            human summary
+  -p, --parallel <n>        Accepted for compatibility (v1 runs sequentially)
+  --test-batch-size <n>     Tests per generated C batch (default 100)
+  --cc, --c-compiler <cc>   C compiler for test binaries
+  --target <triple>         Run tests for a cross target (e.g. wasm32-wasip1)
+  --allocator <name>        Allocator for test binaries (system|mimalloc|fixed)
+  --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed)
+  --debug-heap              Heap stats + live-at-exit oracle per test (fixed only)
+  --disable-sanitize        Skip AddressSanitizer linkage
+  -k, --keep-generated-files  Keep generated batch files
+  --profile                 Print per-phase timing
+  --std-path <dir>          Override the std library directory
+
+Environment:
+  YO_KEEP_BATCH=1           Leave the generated batch .yo/.c files in place
+  YO_TEST_SANITIZE=<kind>   Sanitizer for test binaries (default address)
+  YO_TEST_LEAK_VERDICT=0    Do not fail a test on a LeakSanitizer report
+
+Examples:
+  $ yo test                       All tests in the workspace
+  $ yo test ./tests --bail
+  $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"
+  $ yo test ./tests --list
+  $ yo test ./tests/fs --json
+rc=0
