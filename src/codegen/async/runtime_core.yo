@@ -770,9 +770,33 @@ static void __yo_waker_release(void* p) {
     __yo_waker_token_unref(t);
     return;
   }
-  // Local release. The future's refcount is ours to drop either way; what
-  // decides the token's lifetime is only whether the inbox still holds a
-  // reference, and the refcount answers that without inspecting 'queued'.
+  // Local release. The future's refcount is ours to drop; what decides the
+  // token's lifetime is only whether the inbox still holds a reference.
+  //
+  // BUT a wake may already be ON the inbox: a worker thread posted it (CAS on
+  // 'queued', link under the owner's lock) and this loop has not drained yet.
+  // Nulling 'future' here made the drain skip that wake ('if (t->future)')
+  // and the parked task never resumed — the macOS test-leg hang
+  // (issues/fixed/a-foreign-wake-queued-before-the-owner-drops-its-waker-is-lost.md):
+  // spawn_blocking's worker finishes and wakes BEFORE the spawning frame drops
+  // its own copy of the waker whenever the loop thread is descheduled right
+  // after pthread_create, which a loaded 3-core runner does about one time in
+  // four and an idle machine almost never. So: if the token is queued, defer
+  // the future drop to the drain exactly as the foreign path does. The check
+  // is taken under the owner's lock because the post links under that same
+  // lock right after its CAS — a token whose CAS won but is not linked yet
+  // still reads as queued here, and the drain that consumes it will see
+  // 'release_pending'.
+  __yo_mutex_lock(&owner->lock);
+  bool on_inbox = atomic_load(&t->queued) != 0;
+  if (on_inbox) {
+    atomic_store(&t->release_pending, 1);
+  }
+  __yo_mutex_unlock(&owner->lock);
+  if (on_inbox) {
+    __yo_waker_token_unref(t);
+    return;
+  }
   if (t->future) {
     __yo_decr_rc((void*)t->future);
     t->future = NULL;
