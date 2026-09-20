@@ -111,9 +111,14 @@ _derive_eval_guarded :: (
 _derive_strip_error_prefix :: (fn(raw_msg : String) -> String)({
   lower_prefix := String.from("error: ");
   upper_prefix := String.from("Error: ");
+  // A coded prefix (`error[E0610]: `) is the third spelling: a swallowed
+  // diagnostic re-raised from the generated body carries its code, and the
+  // outer render classifies the whole message again.
+  coded_end := if(raw_msg.starts_with(String.from("error[")), raw_msg.index_of(String.from("]: ")), Option(usize).None);
   cond(
     raw_msg.starts_with(lower_prefix) => raw_msg.substring(lower_prefix.len(), raw_msg.len()),
     raw_msg.starts_with(upper_prefix) => raw_msg.substring(upper_prefix.len(), raw_msg.len()),
+    coded_end.is_some() => raw_msg.substring(coded_end.unwrap() + usize(3), raw_msg.len()),
     true => raw_msg
   )
 });

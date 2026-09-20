@@ -840,3 +840,17 @@ comptime_expect_error({
   // `ToString` impl.
   derive(_ErrStruct, Error(.a => `a`));
 });
+// REGRESSION CANARY (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md):
+// a swallowed failure inside a derive's generated body is a hard check error
+// now. That must NOT reject a field type whose impl is registered BELOW the
+// derive — impl registration is lazy (plans/reference/LAZY_TOPLEVEL_BINDINGS.md)
+// and the method miss inside the generated body forces the pending impl.
+_LaterInner :: struct(n : usize);
+_LaterOuter :: struct(inner : _LaterInner, k : usize);
+derive(_LaterOuter, Clone);
+impl(_LaterInner, Clone(clone : (fn(self : Self) -> Self)(Self(n : self.n))));
+test("a derived Clone over a field whose Clone impl is registered below the derive", {
+  o := _LaterOuter(inner : _LaterInner(n : usize(7)), k : usize(2));
+  o2 := o.clone();
+  assert((o2.inner.n == usize(7)) && (o2.k == usize(2)), "the later-registered field impl was forced by the derived body");
+});

@@ -17,5 +17,15 @@
 # but grep -oE stores whatever the pattern matches, so including the id would bake
 # it into the golden and renumber it on any evaluator change. Measured: the first
 # cut did exactly that.
-stdout_keep_match=whose body failed to transpile
+#
+# 2026-09-20: this fixture's swallow is a DERIVE-generated body, and a failure
+# inside auto-generated code is a hard check error now
+# (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md)
+# — so the build fails at `derive(P, Lbl)` with the method miss, before any
+# stub exists. That is the stronger outcome the stub path was a fallback for,
+# and the golden pins it. The self-naming stub stays in codegen as defence in
+# depth; no user-reachable swallow class is known to reach it any more (an
+# unbound name and a derive body are both hard), so the second alternative
+# below is kept only so a regression back to the stub path is still visible.
+stdout_keep_match=derive on "P" failed: No matching call found|whose body failed to transpile
 timeout=900
