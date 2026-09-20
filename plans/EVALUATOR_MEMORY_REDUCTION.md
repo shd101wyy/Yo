@@ -147,6 +147,27 @@ lands). The rest of the live set is reachable from the module cache
 `g_funcval_def_envs` and the specialization caches); Phase 0 step 3's holder
 attribution remains the measurement that ranks what is left.
 
+### 0.2c′ What #805 broke on develop (2026-09-21, fixed the same day)
+
+The Phase 1 PR turned three `tests/internal` CI shards red (run 35520237279),
+for two unrelated reasons, both fixed in the follow-up PR:
+
+- **F1's context release** assumes every re-forcing caller declared itself a
+  watch session. `main.yo` does for `check --watch`, `lsp/server.yo` for the
+  LSP; the in-process watch driver in `tests/internal/check_watch.test.yo`
+  did not and hit the new internal error. Now the test declares itself, and
+  `mm_revalidate_plan` treats a released context as "not per-def-able"
+  (file-level reload) instead of an internal error mid-round
+  (`issues/fixed/in-process-watch-drivers-lost-their-walk-contexts.md`).
+- **A pre-existing codegen bug** the Phase 0 instrument exposed:
+  `(g_node_eval_counting : bool) = debug_knob(...).is_some();` is the first
+  module-level initializer in `src/` whose method specialization is used
+  nowhere else, and the function collector never walked module-level
+  initializers, so the statement degraded to a stub that swallowed the next
+  declaration (`issues/fixed/module-level-init-callees-are-never-collected.md`).
+  The self-build was green only because `main.yo`'s import closure happens
+  to use `Option(String).is_some()` elsewhere.
+
 ### 0.3 How to measure (the rules that bit earlier campaigns)
 
 - **Peak footprint, never RSS.** `/usr/bin/time -l <cmd>` → `peak memory
