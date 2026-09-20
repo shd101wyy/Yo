@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
   has_control_flow,
   has_any_control_flow
 } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, copy_frames } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, copy_frames, snapshot_env } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -1804,9 +1804,11 @@ evaluate_begin_expression :: (
           // attachTempVariableToExpr is a no-op stub; call it for API parity.
           attach_temp_variable_to_expr(evaluated_ret_arg, true, ctx);
           // Re-read env in case the stub updated it (future-proof).
+          // By private copy: the recorded snapshot is shared between ExprInfos and
+          // this env is popped at the block's end (`pop_frame_nonmutating`).
           env = match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg)),
-            .Some(ri) => ri.env,
+            .Some(ri) => snapshot_env(ri.env),
             .None => env
           );
           // Defense-in-depth flowability on the return ARGUMENT.
@@ -2077,9 +2079,10 @@ evaluate_begin_expression :: (
             );
           });
           attach_temp_variable_to_expr(evaluated_esc_arg, true, ctx);
+          // Same: adopt by private copy.
           env = match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg)),
-            .Some(ei) => ei.env,
+            .Some(ei) => snapshot_env(ei.env),
             .None => env
           );
           out := new_expr_info(env, esc_info.ty);
