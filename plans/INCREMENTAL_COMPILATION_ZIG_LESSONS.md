@@ -785,9 +785,23 @@ That is the ≤ 10 s target in §2.
 >    dropped: cold module grouping equals cold name grouping to within
 >    noise, and the whole leg is below the measurement floor of the loop.**
 > 2. **Module grouping does dirty fewer units (2 vs 3)** and the extra unit
->    is not the module's: unit 0 held the edited function; unit 3 changed
->    too. The mechanism is a Phase 2 stable-names gap — see the paragraph
->    below the table once the clean-vs-edited chunk diff has named it.
+>    is not the module's: unit 0 held the edited function; unit 3 (the
+>    caller, `src/lsp/server.yo`) changed too. The clean-vs-edited chunk
+>    diff names the mechanism: the probe ALSO inserted a comment line above
+>    `handle_folding_ranges :: (`, and a fid embeds the definition's
+>    `row:col` (`stable_func_id`), so the definition was re-minted
+>    (`yo_id_5396…` → `yo_id_2461…`) and every caller's text changed with
+>    it. Every other unit differed only in its `#include` line. So: a
+>    body-only edit dirties exactly the module's unit; an edit that moves a
+>    definition's first token (any insertion above it — an import, a
+>    comment) re-mints every definition below it and dirties all their
+>    callers' units. A Phase 2 follow-up, not done here: key a NAMED
+>    top-level definition's fid on `(module, name)` and reserve the position
+>    key for anonymous functions. Latent in the same class (not measured to
+>    fire here): `__yo_ref_spill_N` and `__capture_<fid>_N` are per-EMISSION
+>    counters, so an edit that adds a spill or a capture in an early-emitted
+>    function renumbers every later one — `fresh_local_name` (per prefix ×
+>    function) is the stable shape both should use.
 > 3. Name grouping scatters one module's functions across units, so any
 >    re-minted fid dirties two units (the old and the new home). Module
 >    grouping is the right default for the dev profile; it becomes
