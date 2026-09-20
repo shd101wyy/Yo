@@ -3732,7 +3732,9 @@ evaluate_module_value :: (
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_rcv2)),
       .None => (),
       .Some(ri2) => {
-        forall_env = ri2.env;
+        // A recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`)
+        // and later pushed on (forall frame below): adopt a private shallow copy.
+        forall_env = snapshot_env(ri2.env);
         match(
           ri2.value,
           .None => (),
@@ -4131,7 +4133,8 @@ evaluate_module_value :: (
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_receiver)),
     .Some(ri) => {
-      local_env = ri.env;
+      // Same: `local_env` gets the impl frame pushed at the end.
+      local_env = snapshot_env(ri.env);
       match(
         ri.value,
         .None => (),
