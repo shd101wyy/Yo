@@ -222,7 +222,7 @@ import("std/fmt");
 { is_some_type } :: import("../../types/guards.yo");
 { is_primitive_type, is_unit_type, is_enum_type } :: import("../../types/guards.yo");
 { EvalValue } :: import("../../value.yo");
-{ expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ expr_info_table_get, expr_info_table_set, record_node_eval } :: import("../../expr_info.yo");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
 { BindingResult, evaluate_binding } :: import("./binding.yo");
 { register_rerun_pending_def_evals } :: import("../calls/function_type.yo");
@@ -1461,6 +1461,7 @@ _evaluate_expression_raw_wrapper :: (
     exn : Exception
   ) -> AstExpr
 )({
+  record_node_eval(ast_expr_id(expr), ast_expr_token(expr));
   result := _evaluate_expression(expr, env, ctx, exn);
   _bridge_expr_info(expr, result, ctx);
   // Memory-safety gate (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D): a raw

@@ -1512,6 +1512,24 @@ export(
   struct_fully_concrete_instance,
   adopt_receiver_struct_instance
 );
+// `YO_SPEC_REPORT=1` also counts evaluations per AST node id (the re-evaluation
+// multiplicity behind the exponential method-chain cost,
+// issues/debug-probe-line-costs-gigabytes-at-compile-time.md). Read once at
+// startup so the per-node hook costs one branch when the knob is unset.
+(g_node_eval_counting : bool) = debug_knob(`YO_SPEC_REPORT`).is_some();
+(g_node_eval_counts : HashMap(usize, usize)) = HashMap(usize, usize).new();
+(g_node_eval_labels : HashMap(usize, String)) = HashMap(usize, String).new();
+/// Count one evaluation of node `id` (no-op unless `YO_SPEC_REPORT` is set).
+record_node_eval :: (fn(id : usize, tok : Token) -> unit)({
+  if(!g_node_eval_counting, {
+    return(());
+  });
+  n := match(g_node_eval_counts.get(id), .Some(v) => v, .None => usize(0));
+  if(n == usize(0), {
+    _pl := g_node_eval_labels.insert(id, `${tok.value}@${tok.module_path}:${(tok.row + usize(1)).to_string()}:${(tok.column + usize(1)).to_string()}`);
+  });
+  _pc := g_node_eval_counts.insert(id, n + usize(1));
+});
 /// `YO_SPEC_REPORT=1`: at exit, print the specialization population — total
 /// nodes minted by `clone_expr_fresh_ids`, total specializations and runtime
 /// calls, and the 40 function ids with the most specializations
@@ -1574,7 +1592,48 @@ print_spec_report_if_requested :: (fn() -> unit)({
       shown = (shown + usize(1));
     });
   });
+  // The 30 most re-evaluated AST nodes.
+  (total_evals : usize) = usize(0);
+  ids := ArrayList(usize).new();
+  ecounts := ArrayList(usize).new();
+  eks := g_node_eval_counts.keys();
+  (going3 : bool) = true;
+  while(going3, {
+    match(
+      eks.next(),
+      .Some(id) => {
+        c := match(g_node_eval_counts.get(id), .Some(v) => v, .None => usize(0));
+        total_evals = (total_evals + c);
+        ids.push(id);
+        ecounts.push(c);
+      },
+      .None => {
+        going3 = false;
+      }
+    );
+  });
+  eprintln(`[spec-report] node_evaluations=${total_evals.to_string()} distinct_nodes=${ids.len().to_string()}`);
+  (eshown : usize) = usize(0);
+  while((eshown < usize(30)) && (eshown < ids.len()), {
+    (ebest : usize) = usize(0);
+    (ebi : usize) = usize(0);
+    while(ebi < ecounts.len(), {
+      if(match(ecounts.get(ebi), .Some(c) => c, .None => usize(0)) > match(ecounts.get(ebest), .Some(c) => c, .None => usize(0)), {
+        ebest = ebi;
+      });
+      ebi = (ebi + usize(1));
+    });
+    ebc := match(ecounts.get(ebest), .Some(c) => c, .None => usize(0));
+    if(ebc == usize(0), {
+      eshown = usize(30);
+    }, {
+      eid := match(ids.get(ebest), .Some(i) => i, .None => usize(0));
+      eprintln(`[spec-report]   evals=${ebc.to_string()} id=${eid.to_string()} ${match(g_node_eval_labels.get(eid), .Some(l) => l, .None => String.from("?"))}`);
+      ecounts(ebest) = usize(0);
+      eshown = (eshown + usize(1));
+    });
+  });
 });
-export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested);
+export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
 export(record_macro_expansion, lookup_macro_expansion);
 export(record_module_level_init_expr, get_module_level_init_exprs);
