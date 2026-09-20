@@ -16,7 +16,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_set_dyn_call_trait_values
 } :: import("../../expr_info.yo");
-{ Environment, synthetic_token, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
+{ Environment, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
 { EvalValue, is_func_val, create_type_value } :: import("../../value.yo");
@@ -700,7 +700,7 @@ evaluate_dyn_value :: (
         // so that C codegen sees inner rather than the bare inner expression.
         args(usize(0)) = boxed_expr;
         final_value_type = bi.ty;
-        cur_env = bi.env;
+        cur_env = snapshot_env(bi.env);
         final_value_expr_ex = boxed_expr;
       },
       .None => {

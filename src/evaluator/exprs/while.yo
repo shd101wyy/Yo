@@ -675,7 +675,7 @@ evaluate_while :: (
           },
           .Some(ebi) => {
             unrolled_bodies.push(cloned_body);
-            current_env = ebi.env;
+            current_env = snapshot_env(ebi.env);
             // Execute step if provided (3-argument form).
             match(
               step_expr_opt,
@@ -686,7 +686,7 @@ evaluate_while :: (
                 match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_u)),
                   .Some(sui) => {
-                    current_env = sui.env;
+                    current_env = snapshot_env(sui.env);
                   },
                   .None => {
                     unroll_abort = true;

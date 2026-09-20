@@ -34,7 +34,7 @@
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, is_str_lit, is_int_lit, create_unknown_val, type_of_eval_value }
 :: import("../../value.yo");
@@ -263,7 +263,7 @@ evaluate_yo_comptime_string_functions :: (
         args.get(usize(2)),
         .Some(end_arg) => {
           ei := eval_comptime_int_arg(end_arg, cur_env, ctx, exn);
-          cur_env = ei.env;
+          cur_env = snapshot_env(ei.env);
           .Some(ei)
         },
         .None => .None

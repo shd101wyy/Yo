@@ -6186,7 +6186,7 @@ try_to_call_function_with_arguments :: (
           match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(v_evaled)),
             .Some(vinfo) => {
-              caller_env_m = vinfo.env;
+              caller_env_m = snapshot_env(vinfo.env);
             },
             .None => ()
           );
@@ -6770,7 +6770,7 @@ try_to_call_function_with_arguments :: (
                 match(
                   ua_info_opt,
                   .Some(ua_info) => {
-                    caller_env_m = ua_info.env;
+                    caller_env_m = snapshot_env(ua_info.env);
                     match(
                       ua_info.value,
                       .Some(ua_val) => {

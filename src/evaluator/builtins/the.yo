@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_type_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -123,7 +123,7 @@ evaluate_the :: (
       new_expr_info(cur_env, t_unit())
     }
   );
-  cur_env = val_info.env;
+  cur_env = snapshot_env(val_info.env);
   // Check type compatibility (actual = val_info.ty, expected = expected_type).
   if(!are_types_compatible(val_info.ty, expected_type), {
     exn.throw(

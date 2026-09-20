@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 {
   EvalValue,
@@ -108,7 +108,7 @@ evaluate_impl_constraint :: (
             new_expr_info(cur_env, TypeValue.TypeUni(usize(0)))
           }
         );
-        cur_env = mod_info.env;
+        cur_env = snapshot_env(mod_info.env);
         // Expect a TypeVal containing a trait type
         if(!is_type_value(mod_info.value), {
           exn.throw(

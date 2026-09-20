@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_table_set
 } :: import("../../expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../env.yo");
+{ Environment, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -160,7 +160,7 @@ evaluate_anonymous_struct_value :: (
         new_expr_info(cur_env, TypeValue.Unit)
       }
     );
-    cur_env = arg_info.env;
+    cur_env = snapshot_env(arg_info.env);
     field_ty := arg_info.ty;
     field_val_opt := arg_info.value;
     // Determine label (use provided or generate)

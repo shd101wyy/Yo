@@ -18,7 +18,7 @@ import("std/fmt");
   expr_info_table_get,
   expr_info_table_set
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -107,7 +107,7 @@ evaluate_array_value :: (
       .Some(info) => info,
       .None => new_expr_info(env_loop, t_usize()) // unreachable
     );
-    env_loop = elem_info.env;
+    env_loop = snapshot_env(elem_info.env);
     element_values.push(elem_info.value);
     runtime_arg_exprs.push(evaluated_elem);
     elem_ty := elem_info.ty;

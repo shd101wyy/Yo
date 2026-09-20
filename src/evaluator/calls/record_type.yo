@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_table_set
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -186,7 +186,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         });
         arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(caller_env, field_type));
         set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
-        caller_env = arg_info.env;
+        caller_env = snapshot_env(arg_info.env);
         arg_type := arg_info.ty;
         if(!are_types_compatible(arg_type, field_type), {
           exn.throw(

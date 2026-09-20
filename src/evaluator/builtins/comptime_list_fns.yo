@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val, create_unknown_val_with_name } :: import("../../value.yo");
 { stable_module_id } :: import("../../utils.yo");
@@ -311,7 +311,7 @@ evaluate_yo_comptime_list_cons :: (
       new_expr_info(cur_env, TypeValue.Unit)
     }
   );
-  cur_env = cdr_info.env;
+  cur_env = snapshot_env(cdr_info.env);
   if(!is_comptime_list_type(cdr_info.ty), {
     exn.throw(
       dyn(
@@ -462,7 +462,7 @@ evaluate_yo_comptime_list_append :: (
       new_expr_info(cur_env, TypeValue.Unit)
     }
   );
-  cur_env = second_info.env;
+  cur_env = snapshot_env(second_info.env);
   if(!is_comptime_list_type(second_info.ty), {
     exn.throw(
       dyn(
@@ -784,7 +784,7 @@ evaluate_yo_comptime_list_get :: (
                           elements.get(idx),
                           .Some(elem) => {
                             out_val = .Some(elem);
-                            cur_env = idx_info.env;
+                            cur_env = snapshot_env(idx_info.env);
                           },
                           .None => {
                             exn.throw(

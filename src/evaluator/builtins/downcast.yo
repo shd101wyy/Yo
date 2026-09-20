@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_table_set
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_dyn_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -76,7 +76,7 @@ evaluate_downcast :: (
     );
   });
   dyn_info := match(dyn_info_opt, .Some(i) => i, .None => new_expr_info(cur_env, TypeValue.Unit));
-  cur_env = dyn_info.env;
+  cur_env = snapshot_env(dyn_info.env);
   dyn_type := dyn_info.ty;
   if(!is_dyn_type(dyn_type), {
     exn.throw(
@@ -109,7 +109,7 @@ evaluate_downcast :: (
     );
   });
   type_info := match(type_info_opt, .Some(i) => i, .None => new_expr_info(cur_env, TypeValue.Unit));
-  cur_env = type_info.env;
+  cur_env = snapshot_env(type_info.env);
   if(!is_type_value(type_info.value), {
     exn.throw(
       dyn(
