@@ -1,0 +1,7 @@
+# derive(Outer, Clone) where Inner has no Clone: the generated body's
+# `self.inner.clone()` failed at definition time and was SWALLOWED, so check
+# passed and the binary aborted on the first clone
+# (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md).
+# A failure inside auto-generated code is a hard error now, anchored on the
+# derive line. The over-rejection canary lives in tests/derive.test.yo (an
+# impl registered BELOW the derive must still compile).
