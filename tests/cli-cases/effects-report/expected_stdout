@@ -1,0 +1,19 @@
+$ yo effects lib.yo
+lib.yo
+  add: (none)
+  parse_or_throw: exn : Exception [ctl]
+  tick: io : Io [io]
+  run: e : IoExn [io, ctl]
+  later: io : Io [io]; future IoExn [io, ctl]
+rc=0
+$ yo effects lib.yo --json
+[
+  {"file":"lib.yo","functions":[
+    {"name":"add","effects":[]},
+    {"name":"parse_or_throw","effects":[{"param":"exn","type":"Exception","via":"param","kinds":["ctl"]}]},
+    {"name":"tick","effects":[{"param":"io","type":"Io","via":"param","kinds":["io"]}]},
+    {"name":"run","effects":[{"param":"e","type":"IoExn","via":"param","kinds":["io","ctl"]}]},
+    {"name":"later","effects":[{"param":"io","type":"Io","via":"param","kinds":["io"]},{"param":"IoExn","type":"IoExn","via":"future","kinds":["io","ctl"]}]}
+  ]}
+]
+rc=0

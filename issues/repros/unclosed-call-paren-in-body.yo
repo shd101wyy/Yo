@@ -1,0 +1,9 @@
+// issues/parser-accepts-an-unclosed-call-paren.md — the `;` turns the argument
+// list into a block that swallows the next statement, and the body's `}` is
+// accepted inside the open `(`. Passes `yo check`; `yo fmt` shows the shape.
+f :: (fn(a : i32) -> i32)(a);
+main :: (fn() -> unit)({
+  _r := f(i32(1);
+  _s := f(i32(2));
+});
+export(main);

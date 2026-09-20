@@ -400,3 +400,29 @@ Evidence passing is unchanged:
 - `unwind` sets `__yo_effect_escaped = 1` and stores the value via
   `__yo_unwind_value`.
 - `return` resumes normally — no flag set.
+
+## Reporting capabilities: `yo effects`
+
+Because effects travel as ordinary parameters, a function's signature IS its
+capability list, and the type checker guarantees a callee cannot use a
+capability it was not handed. `yo effects <file-or-dir>` reads that list off
+the function types of every exported top-level `fn`, so an agent or a sandbox
+can answer "may this program throw / touch the async runtime" without reading
+bodies:
+
+```
+lib.yo
+  add: (none)
+  parse_or_throw: exn : Exception [ctl]
+  tick: io : Io [io]
+  run: e : IoExn [io, ctl]
+  later: io : Io [io]; future IoExn [io, ctl]
+```
+
+A parameter is an effect when its type is, transitively through struct
+fields, a handler record (a struct with a `ctl(...)` field — `Exception`,
+`ResumableException(T)`: kind `ctl`), the prelude `Io` (kind `io`), or an
+effects-row implicit (kind `row`). A returned `Impl(Future(T, E))` reports `E`
+under `future`, since the awaiter must supply it. `--json` prints one object
+per module: `{"file", "functions": [{"name", "effects": [{"param", "type",
+"via": "param" | "implicit" | "future", "kinds"}]}]}`.

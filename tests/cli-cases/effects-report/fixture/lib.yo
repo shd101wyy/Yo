@@ -1,0 +1,17 @@
+//! Fixture for `yo effects`: one fn per capability shape.
+{ IoExn, Exception } :: import("std/error");
+{ String } :: import("std/string");
+/// No capabilities: pure with respect to effects.
+add :: (fn(a : i32, b : i32) -> i32)(a + b);
+/// Throws through the handler record.
+parse_or_throw :: (fn(text : String, exn : Exception) -> i32)(
+  match(text.parse_i32(), .Some(v) => v, .None => exn.throw(dyn(String.from("not a number"))))
+);
+/// Needs the async runtime.
+tick :: (fn(io : Io) -> unit)(());
+/// A bundle hands both.
+run :: (fn(e : IoExn) -> unit)(());
+/// A future the awaiter must supply IoExn for.
+later :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(io.async((e : IoExn) => i32(1)));
+_private_helper :: (fn(exn : Exception) -> unit)(());
+export(add, parse_or_throw, tick, run, later);

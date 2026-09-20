@@ -316,6 +316,15 @@ the two cannot drift again.
 `src/evaluator/effects/`, so an agent (or a sandbox) can answer "may this
 program touch the network" without reading it.
 
+**Status 2026-09-20 (PR E): landed**, with one design change: the report is
+read off the function TYPES (`run_effects`, `src/main.yo`), not from
+`src/evaluator/effects/` — that module analyses ctl call POINTS for the state
+machines, while the signature already is the complete capability list (a
+callee cannot use a capability it was not handed). Kinds: `ctl` (a struct
+with a `ctl(...)` field), `io` (the prelude `Io`), `row` (an effects-row
+implicit); `Impl(Future(T, E))` results report `E` under `future`. Golden:
+`effects-report`; docs: `ALGEBRAIC_EFFECTS.md` (en + zh).
+
 ## 4. `std/` candidates (additive, for the std lineage — not commitments)
 
 From the coverage sweep (176 files, 14 stable). Ranked by leverage per line

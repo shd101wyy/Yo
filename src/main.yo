@@ -151,6 +151,9 @@ json :: import("std/encoding/json");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { set_target_pointer_size } :: import("./types/utils.yo");
+{ TypeValue } :: import("./types/definitions.yo");
+{ is_function_type } :: import("./types/guards.yo");
+{ type_to_string } :: import("./types/string.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
 { get_needs_intel_asm_syntax, get_uses_parallelism, fresh_local_counts_reset } :: import("./codegen/utils/index.yo");
 { ref_spill_counter_reset } :: import("./codegen/exprs/other_fn_call.yo");
@@ -5638,6 +5641,331 @@ run_test :: (
     exn.throw(dyn(`${failed.to_string()} test(s) failed`));
   });
 });
+/// `yo effects <path> [--exclude P] [--json]` — which effect capabilities each
+/// EXPORTED top-level fn of each module requires (audit §3.6, the
+/// ZEROLANG "adopt" item): an agent or a sandbox answers "may this program
+/// touch the network / throw" from the signatures, without reading bodies.
+///
+/// Yo passes effects as ordinary parameters, so the report is read off the
+/// function TYPE the evaluator already computed — no new analysis, and
+/// exactly as complete as the type checker's own guarantee that a callee
+/// cannot use a capability it was not handed. A parameter is an effect when
+/// its type is (transitively through struct fields):
+///   - a struct with a `ctl(...)` field — a handler record (`Exception`,
+///     `ResumableException(T)`): kind `ctl`;
+///   - the prelude's `Io` (its fields are the async primitives): kind `io`;
+///   - an effects row (`...(E)` implicit): kind `row`, listing its types.
+/// `Impl(Future(T, E))` results report `E` the same way under `future`.
+/// Human output is one line per fn; `--json` is one object per module.
+run_effects :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  (target_path : String) = String.new();
+  (as_json : bool) = false;
+  excludes := ArrayList(String).new();
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    cond(
+      (a == "--json") => {
+        as_json = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--exclude") => {
+        excludes.push(_arg_val_req(argv, ai, a.clone(), exn));
+        ai = (ai + usize(2));
+      },
+      a.starts_with(String.from("-")) => {
+        exn.throw(dyn(`effects: unknown option '${a}'. Usage: yo effects <file-or-dir> [--exclude PATH] [--json]`));
+      },
+      true => {
+        target_path = a.clone();
+        ai = (ai + usize(1));
+      }
+    );
+  });
+  if(target_path.len() == usize(0), {
+    exn.throw(dyn(String.from("effects: missing input file. Usage: yo effects <file-or-dir> [--exclude PATH] [--json]")));
+  });
+  files := collect_check_files(target_path.clone(), excludes, io, exn);
+  if(files.len() == usize(0), {
+    exn.throw(dyn(`effects: no .yo files found at ${target_path}`));
+  });
+  std_path := resolve_std_path();
+  if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
+    exn.throw(dyn(`effects: could not load the prelude from ${std_path}`));
+  });
+  (failed : usize) = usize(0);
+  if(as_json, {
+    println(String.from("["));
+  });
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    fi = (fi + usize(1));
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    sep := if(fi < files.len(), String.from(","), String.new());
+    if(!outcome.ok, {
+      failed = (failed + usize(1));
+      why := match(_take_load_error(), .Some(r) => r, .None => String.from("evaluation failed"));
+      if(as_json, {
+        println(`  {"file":"${_json_escape(file.clone())}","error":"${_json_escape(why.clone())}"}${sep}`);
+      }, {
+        println(`${file}`);
+        println(`  error: ${why}`);
+      });
+      continue;
+    });
+    (labels : ArrayList(String)) = ArrayList(String).new();
+    (types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+    match(
+      outcome.module_type,
+      .Struct({ field_labels, field_types }) => {
+        labels = field_labels;
+        types = field_types;
+      },
+      _ => ()
+    );
+    if(as_json, {
+      println(`  {"file":"${_json_escape(file.clone())}","functions":[`);
+    }, {
+      println(`${file}`);
+    });
+    // Count the fns first so the JSON commas land right.
+    (n_fns : usize) = usize(0);
+    (ci : usize) = usize(0);
+    while(ci < labels.len(), {
+      match(
+        types.get(ci),
+        .Some(t) => if(is_function_type(t), {
+          n_fns = (n_fns + usize(1));
+        }),
+        .None => ()
+      );
+      ci = (ci + usize(1));
+    });
+    (seen_fns : usize) = usize(0);
+    (li : usize) = usize(0);
+    while(li < labels.len(), {
+      name := match(labels.get(li), .Some(l) => l, .None => String.new());
+      ty := match(types.get(li), .Some(t) => t, .None => TypeValue.Unit);
+      li = (li + usize(1));
+      match(
+        ty,
+        .Func({ param_types, implicit_types, result, meta }) => {
+          seen_fns = (seen_fns + usize(1));
+          fn_sep := if(seen_fns < n_fns, String.from(","), String.new());
+          entries := ArrayList(String).new();
+          json_entries := ArrayList(String).new();
+          param_labels := meta.*.param_labels;
+          (pi : usize) = usize(0);
+          while((pi < param_labels.len()) && (pi < param_types.len()), {
+            plabel := match(param_labels.get(pi), .Some(l) => l, .None => String.new());
+            pty := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
+            pi = (pi + usize(1));
+            kinds := _effect_kinds_of_type(pty, usize(0));
+            if(kinds.len() > usize(0), {
+              entries.push(`${plabel} : ${type_to_string(pty)} [${_join_strings(kinds, ", ")}]`);
+              json_entries.push(`{"param":"${_json_escape(plabel.clone())}","type":"${_json_escape(type_to_string(pty))}","via":"param","kinds":[${_json_string_list(kinds)}]}`);
+            });
+          });
+          implicit_labels := meta.*.implicit_labels;
+          (ii : usize) = usize(0);
+          while((ii < implicit_labels.len()) && (ii < implicit_types.len()), {
+            ilabel := match(implicit_labels.get(ii), .Some(l) => l, .None => String.new());
+            ity := match(implicit_types.get(ii), .Some(t) => t, .None => TypeValue.Unit);
+            ii = (ii + usize(1));
+            // An implicit (`using`) parameter is an effect by construction.
+            kinds := _effect_kinds_of_type(ity, usize(0));
+            if(kinds.len() == usize(0), {
+              kinds.push(String.from("implicit"));
+            });
+            entries.push(`using ${ilabel} : ${type_to_string(ity)} [${_join_strings(kinds, ", ")}]`);
+            json_entries.push(`{"param":"${_json_escape(ilabel.clone())}","type":"${_json_escape(type_to_string(ity))}","via":"implicit","kinds":[${_json_string_list(kinds)}]}`);
+          });
+          // A returned future carries the effects its awaiter must supply.
+          // `Impl(Future(T, E))` is a SomeT whose required traits hold the
+          // FutureTraitT; a bare FutureTraitT result is read directly.
+          fut_labels := ArrayList(String).new();
+          fut_types := ArrayList(TypeValue).new();
+          _collect_future_effects(result, fut_labels, fut_types);
+          (ei : usize) = usize(0);
+          while((ei < fut_labels.len()) && (ei < fut_types.len()), {
+            elabel := match(fut_labels.get(ei), .Some(l) => l, .None => String.new());
+            ety := match(fut_types.get(ei), .Some(t) => t, .None => TypeValue.Unit);
+            ei = (ei + usize(1));
+            kinds := _effect_kinds_of_type(ety, usize(0));
+            // The row label of an `Impl(Future(T, E))` is E's own name; say
+            // the type once.
+            fut_shown := if(elabel == type_to_string(ety), type_to_string(ety), `${elabel} : ${type_to_string(ety)}`);
+            entries.push(`future ${fut_shown} [${_join_strings(kinds, ", ")}]`);
+            json_entries.push(`{"param":"${_json_escape(elabel.clone())}","type":"${_json_escape(type_to_string(ety))}","via":"future","kinds":[${_json_string_list(kinds)}]}`);
+          });
+          if(as_json, {
+            println(`    {"name":"${_json_escape(name.clone())}","effects":[${_join_strings(json_entries, ",")}]}${fn_sep}`);
+          }, {
+            if(entries.len() == usize(0), {
+              println(`  ${name}: (none)`);
+            }, {
+              println(`  ${name}: ${_join_strings(entries, "; ")}`);
+            });
+          });
+        },
+        _ => ()
+      );
+    });
+    if(as_json, {
+      println(`  ]}${sep}`);
+    }, {
+      if(n_fns == usize(0), {
+        println(String.from("  (no exported functions)"));
+      });
+    });
+  });
+  if(as_json, {
+    println(String.from("]"));
+  });
+  if(failed > usize(0), {
+    exn.throw(dyn(`effects: ${failed.to_string()} file(s) failed to evaluate`));
+  });
+});
+/// The effect kinds a parameter of type `t` hands its callee: `ctl` (a struct
+/// with a `ctl(...)` field — a handler record), `io` (the prelude `Io`),
+/// `row` (an effects row). Struct fields are searched two levels deep so a
+/// bundle like `IoExn` reports both of its members' kinds. Empty = an
+/// ordinary value parameter.
+_effect_kinds_of_type :: (fn(t : TypeValue, depth : usize) -> ArrayList(String))({
+  kinds := ArrayList(String).new();
+  match(
+    t,
+    .Struct({ name, field_labels, field_types }) => {
+      (has_ctl : bool) = false;
+      (has_async : bool) = false;
+      (fi : usize) = usize(0);
+      while(fi < field_types.len(), {
+        flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.new());
+        fty := match(field_types.get(fi), .Some(x) => x, .None => TypeValue.Unit);
+        fi = (fi + usize(1));
+        match(
+          fty,
+          .Func({ meta : fmeta }) => {
+            if(fmeta.*.is_control, {
+              has_ctl = true;
+            });
+            // The prelude `Io` is the struct whose primitives are named
+            // `async`/`await`/`spawn`; naming the type alone would also match
+            // a user struct called Io.
+            if(((flabel == "async") || (flabel == "await")) && (name == "Io"), {
+              has_async = true;
+            });
+          },
+          _ => {
+            if(depth < usize(2), {
+              inner := recur(fty, depth + usize(1));
+              (ki : usize) = usize(0);
+              while(ki < inner.len(), {
+                match(inner.get(ki), .Some(k) => _push_unique(kinds, k.clone()), .None => ());
+                ki = (ki + usize(1));
+              });
+            });
+          }
+        );
+      });
+      if(has_ctl, {
+        _push_unique(kinds, String.from("ctl"));
+      });
+      if(has_async, {
+        _push_unique(kinds, String.from("io"));
+      });
+    },
+    .EffectsRowT({ implicit_types }) => {
+      _push_unique(kinds, String.from("row"));
+      (ri : usize) = usize(0);
+      while(ri < implicit_types.len(), {
+        match(
+          implicit_types.get(ri),
+          .Some(rt) => {
+            inner := recur(rt, depth + usize(1));
+            (ki : usize) = usize(0);
+            while(ki < inner.len(), {
+              match(inner.get(ki), .Some(k) => _push_unique(kinds, k.clone()), .None => ());
+              ki = (ki + usize(1));
+            });
+          },
+          .None => ()
+        );
+        ri = (ri + usize(1));
+      });
+    },
+    _ => ()
+  );
+  kinds
+});
+/// The effect labels/types of a `Future(T, E)` result: a bare `FutureTraitT`,
+/// or the one inside an `Impl(...)` SomeT's required traits.
+_collect_future_effects :: (
+  fn(t : TypeValue, labels : ArrayList(String), types : ArrayList(TypeValue)) -> unit
+)({
+  match(
+    t,
+    .FutureTraitT({ effect_labels, effect_types }) => {
+      (i : usize) = usize(0);
+      while((i < effect_labels.len()) && (i < effect_types.len()), {
+        labels.push(effect_labels(i).clone());
+        types.push(effect_types(i));
+        i = (i + usize(1));
+      });
+    },
+    .SomeT({ required_trait_types }) => {
+      (i : usize) = usize(0);
+      while(i < required_trait_types.len(), {
+        match(required_trait_types.get(i), .Some(rt) => recur(rt, labels, types), .None => ());
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+});
+_push_unique :: (fn(xs : ArrayList(String), x : String) -> unit)({
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    if(xs(i) == x, {
+      return(());
+    });
+    i = (i + usize(1));
+  });
+  xs.push(x);
+});
+_join_strings :: (fn(xs : ArrayList(String), sep : str) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    if(i > usize(0), {
+      out.push_str(sep);
+    });
+    out.push_string(xs(i).clone());
+    i = (i + usize(1));
+  });
+  out
+});
+_json_string_list :: (fn(xs : ArrayList(String)) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    if(i > usize(0), {
+      out.push_str(",");
+    });
+    out.push_str("\"");
+    out.push_string(_json_escape(xs(i).clone()));
+    out.push_str("\"");
+    i = (i + usize(1));
+  });
+  out
+});
 /// Run the `init` subcommand — scaffold a new Yo project.
 ///
 /// Flag contract:
@@ -6764,7 +7092,7 @@ run_version_cmd :: (
 /// them. The unknown-subcommand error prints this list; it must name exactly
 /// the subcommands the dispatch below answers (a phantom `fetch` sat here
 /// for months after the subcommand was folded into `install`).
-SUBCOMMAND_NAMES :: "compile|build|init|add|remove|install|update|cache|test|check|fix|fmt|verify|doc|explain|lsp|unsafe-report|public-safe-report|version|skills";
+SUBCOMMAND_NAMES :: "compile|build|init|add|remove|install|update|cache|test|check|fix|fmt|verify|doc|effects|explain|lsp|unsafe-report|public-safe-report|version|skills";
 _top_level_help_text :: (fn() -> String)({
   (h : String) = String.from("The Yo Programming Language ");
   h.push_str(CURRENT_YO_VERSION);
@@ -6864,6 +7192,7 @@ Examples:
                                   (.github, .agents, .claude, .opencode,
                                   .openai, .cursor; defaults to .agents)
 
+yo effects <path> [--json]       Which effect capabilities each exported fn requires
 yo explain <CODE>                Explain a diagnostic code offline (--list, --format json)
 yo lsp                           Run the language server on stdio
 yo unsafe-report [path]          List unsafe(...) sites with their // SAFETY: comments
@@ -6966,6 +7295,7 @@ yo skills install                把 AI 代理技能文件安装到本项目
                                   （.github、.agents、.claude、.opencode、
                                   .openai、.cursor；默认建 .agents）
 
+yo effects <path> [--json]       列出每个导出函数需要的效果能力
 yo explain <CODE>                离线解释诊断代码（--list、--format json）
 yo lsp                           在 stdio 上运行语言服务器
 yo unsafe-report [path]          列出 unsafe(...) 站点及其 // SAFETY: 注释
@@ -7829,6 +8159,48 @@ Examples:
   $ yo version clean 0.2.14`
       )
     ),
+    (subcmd == "effects") => Option(String).Some(
+      tr(
+        `Usage: yo effects <file-or-dir> [options]
+
+Report which effect capabilities each EXPORTED top-level fn requires, read
+off the function types the type checker computed: a parameter whose type is
+a handler record (a struct with a ctl(...) field — Exception,
+ResumableException(T)) is kind 'ctl'; the prelude Io is kind 'io'; an
+effects-row implicit is kind 'row'. Bundles such as IoExn report every
+member's kind. A returned Impl(Future(T, E)) reports E under 'future'.
+A fn with no effect parameters is pure with respect to capabilities.
+
+Options:
+  --json                    One JSON object per module: {"file", "functions":
+                            [{"name", "effects": [{"param", "type", "via",
+                            "kinds"}]}]}
+  --exclude <path>          Exclude a directory/file (repeatable)
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo effects ./src
+  $ yo effects main.yo --json`,
+        `用法：yo effects <file-or-dir> [options]
+
+报告每个导出的顶层函数需要哪些效果能力，直接读取类型检查器算出的函数类型：
+参数类型是处理器记录（带 ctl(...) 字段的结构体——Exception、
+ResumableException(T)）时为 'ctl'；prelude 的 Io 为 'io'；效果行隐式参数为
+'row'。IoExn 这类捆绑会报告每个成员的种类。返回 Impl(Future(T, E)) 时把 E
+列在 'future' 下。没有效果参数的函数在能力意义上是纯函数。
+
+选项：
+  --json                    每个模块一个 JSON 对象：{"file", "functions":
+                            [{"name", "effects": [{"param", "type", "via",
+                            "kinds"}]}]}
+  --exclude <path>          排除目录/文件（可重复）
+  --std-path <dir>          覆盖标准库目录
+
+示例：
+  $ yo effects ./src
+  $ yo effects main.yo --json`
+      )
+    ),
     (subcmd == "explain") => Option(String).Some(
       tr(
         `Usage: yo explain <CODE> [options]
@@ -8201,6 +8573,8 @@ main :: (fn(io : Io) -> unit)({
     run_update_cmd(argv, io, exn);
   }, if(subcmd == "cache", {
     run_cache(argv, io, exn);
+  }, if(subcmd == "effects", {
+    run_effects(argv, io, exn);
   }, if(subcmd == "doc", {
     run_doc_cmd(argv, io, exn);
   }, if(subcmd == "unsafe-report", {
@@ -8213,6 +8587,6 @@ main :: (fn(io : Io) -> unit)({
     run_version_cmd(argv, io, exn);
   }, {
     exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
-  }))))))))))))))));
+  })))))))))))))))));
 });
 export(main);
