@@ -39,8 +39,9 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   adoption sweep (P5), the verifier (P6).
 - [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) —
   ACTIVE 2026-09-20: the evaluator memory audit. Measured `yo check
-  src/main.yo` at 19.3 GB peak footprint (evaluator only, no C); the bytes
-  are retained metadata — a 456 B `ExprInfo` + a private `Environment`
+  src/main.yo` at 19.3 GB peak footprint (evaluator only, no C) with 130 M
+  live objects / 13.3 GB of struct bytes still reachable at exit (per-type
+  census, `scripts/bootstrap/live_census_t.py`); the bytes are retained metadata — a 456 B `ExprInfo` + a private `Environment`
   snapshot per evaluated node, a full re-evaluated clone per specialization,
   a 56 B cycle-collector header on every core object, 16 B `Option(ref)`
   fields — kept alive by process-lifetime roots (`g_finished_walks` retains

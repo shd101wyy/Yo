@@ -10,9 +10,13 @@ metadata, not allocation churn**. Every expression ever evaluated leaves a
 456 B `ExprInfo` plus its own `Environment` snapshot in a table that is a
 process-lifetime root; every specialization re-evaluates a fresh-id clone of
 its body and adds a full set of them; every binding ever made leaves a 224 B
-`Variable`; every one of those objects carries a 56 B cycle-collector header
-and a handful of 40 B `ArrayList` cells. `yo check src/main.yo` — evaluator
-only, no C emitted — now peaks at **19.3 GB** on this tree (§0.1). The plan
+`Variable`; every one of those objects — and every `ArrayList` whose element
+type can form a cycle — carries a 56 B cycle-collector header. `yo check
+src/main.yo` — evaluator only, no C emitted — now peaks at **19.3 GB** on this
+tree (§0.1), and the per-type census (§0.4) finds **130 M live objects /
+13.3 GB of struct bytes still reachable at exit**: the peak IS the retained
+set. The self-emit (`compile --emit-c`) peaks at 22.3 GB, so the evaluator is
+~87% of the compile footprint too. The plan
 attacks the count of retained objects first (Phases 1–2, no layout change, C
 output byte-identical), then the per-object cost (Phases 3, 5, 6), and treats
 the specialization population and the super-linear compile-cost bug as the
@@ -35,6 +39,7 @@ compressed pages at compressed size, so memory pressure can only shrink it).
 | `yo check ./src` (275 files, one process)          | **20.17 GB**          | 378 s  | max RSS 2.9 GB — clamped by paging; `sys` 43 s                 |
 | `yo check src/main.yo` (single entry, whole closure)| **19.33 GB**         | 345 s  | so the directory walk is NOT the accumulator — one entry is    |
 | `yo check ./src/types` (13 files)                  | 7.13 GB               | 45 s   |                                                                |
+| `yo compile src/main.yo --emit-c --skip-c-compiler --optimize 2` | **22.27 GB**  | 738 s  | evaluator + codegen, no clang; the check is 87% of this peak   |
 | `yo check std/collections/array_list.yo`           | 0.30 GB               | 1.1 s  |                                                                |
 | `yo check std/prelude.yo`                          | 0.25 GB               | 0.7 s  | the prelude alone                                              |
 | `yo check hello.yo` (prints one line)              | 0.49 GB               | 1.8 s  | the floor: prelude preload + `std/fmt` closure                 |
@@ -102,6 +107,78 @@ BOTH commands.
 
 ---
 
+### 0.4 The exit-live census (2026-09-20, instrumented compiler)
+
+`scripts/bootstrap/live_census_t.py` (this PR) over a fresh emission of the
+same tree, compiled with `clang -O1`; +1 per constructor, −1 per installed
+`dispose_fn`, dumped at exit. Footprints of the instrumented runs matched the
+uninstrumented ones (0.49 / 7.13 / 19.43 GB), so the counters did not perturb
+the shape. Struct bytes exclude raw buffers (`ArrayList` backing stores,
+HashMap tables) and allocator overhead; adding those (~22.6 M byte-strings
+alone) closes the gap to the footprint.
+
+| run                     | live objects at exit | live struct bytes | gross constructions | peak footprint |
+| ----------------------- | -------------------- | ----------------- | ------------------- | -------------- |
+| `check hello.yo`        | 2.84 M               | 0.20 GB           | 16.3 M              | 0.49 GB        |
+| `check ./src/types`     | 48.6 M               | 5.14 GB           | 388 M               | 7.13 GB        |
+| **`check src/main.yo`** | **130.5 M**          | **13.32 GB**      | **1.59 B**          | **19.43 GB**   |
+
+`check src/main.yo`, top rows (`live × sizeof`; enum rows are labelled by the
+emitter's `<enum:…>` comment — `expr_r335c2` = `AstExpr`, `value_r45c2` =
+`EvalValue`, `definitions_r110c2` = `TypeValue`):
+
+| type                                   | live       | gross     | sizeof | live bytes  |
+| -------------------------------------- | ---------- | --------- | ------ | ----------- |
+| `ExprInfo`                             | 7.35 M     | 11.5 M    | 440    | **3.23 GB** |
+| `Variable`                             | 10.15 M    | 14.7 M    | 192    | 1.95 GB     |
+| `TypeValue`                            | 7.76 M     | 16.4 M    | 176    | 1.37 GB     |
+| `ArrayList(TypeValue)` (tracked, 80 B) | 11.57 M    | 129.8 M   | 80     | 0.93 GB     |
+| `ArrayList(u8)` (strings)              | 22.65 M    | 729.6 M   | 40     | 0.91 GB + buffers |
+| `Environment`                          | 7.30 M     | 14.3 M    | 112    | 0.82 GB     |
+| `Token`                                | 6.68 M     | 13.9 M    | 104    | 0.69 GB     |
+| `AstExpr`                              | 10.72 M    | 13.4 M    | 64     | 0.69 GB     |
+| `ArrayList(EvalValue)` (value cells)   | 8.09 M     | 12.4 M    | 80     | 0.65 GB     |
+| `ArrayList(Frame)` (env snapshots)     | 7.25 M     | 14.4 M    | 80     | 0.58 GB     |
+| `ArrayList(usize)`                     | 11.98 M    | 136.3 M   | 40     | 0.48 GB     |
+| `ArrayList(ArrayList(TypeValue))`      | 3.22 M     | 3.2 M     | 80     | 0.26 GB     |
+| `EvalValue`                            | 1.82 M     | 15.2 M    | 96     | 0.18 GB     |
+| `ArrayList(AstExpr)`                   | 3.94 M     | 23.8 M    | 40     | 0.16 GB     |
+| `ArrayList(String)`                    | 3.45 M     | 103.6 M   | 40     | 0.14 GB     |
+| `ArrayList(ArrayList(String))` (paths) | 3.40 M     | 6.0 M     | 40     | 0.14 GB     |
+| `Box(Token)`                           | 1.45 M     | 1.45 M    | 24     | 0.03 GB     |
+| `Frame`                                | 0.34 M     | 3.0 M     | 96     | 0.03 GB     |
+| `ExprInfoRare`                         | 0.10 M     | 0.5 M     | 240    | 0.02 GB     |
+| `SpecializedFunctionCache`             | **3,134**  | 3,134     | 88     | —           |
+
+What the census settles:
+
+- **`ExprInfo` : `Environment` : `ArrayList(Frame)` = 7.35 : 7.30 : 7.25 M.**
+  The 1:1:1 population F3 predicts; the snapshot pair is 1.40 GB of struct
+  bytes plus one 8·depth-byte buffer each, all removable by sharing.
+- **Clusters** (struct bytes only): ExprInfo + env snapshots + path lists
+  **4.93 GB**; TypeValue + its child/level/label lists **3.03 GB**; Variable +
+  value cells **2.60 GB**; AST (`AstExpr` + `Token` + arg lists) **1.57 GB**;
+  byte-strings 0.91 GB + buffers.
+- **Headers: 83.0 M objects carry the 56 B tracked header = 4.65 GB** (35% of
+  all struct bytes); 45.5 M small-header lists carry 0.73 GB. Every
+  `ArrayList` whose element type is cycle-capable (`TypeValue`, `EvalValue`,
+  `Frame`, `ArrayList(TypeValue)`) is itself tracked and 80 B, not 40 —
+  30 M of the tracked objects are such lists.
+- **The specialization CACHE is tiny** (3,134 entries): F2a (its retained
+  `env`) is hygiene, not a lever. The specialization COST is the bodies it
+  re-evaluated — `AstExpr` live (10.7 M) is ~5× a plausible source-node count,
+  `ExprInfo` live 7.35 M — and those are counted under F2/F3.
+- **Churn is enormous and irrelevant to the peak**: 1.59 B constructions,
+  130 M live. `ArrayList(TypeValue)` alone was built 130 M times for 11.6 M
+  survivors; `ArrayList(u8)` 730 M times. The allocator absorbs it; only the
+  survivors cost footprint (F9 confirmed).
+- Still open (Phase 0 step 3b): WHICH ROOT retains each survivor. The
+  per-type census cannot tell a `Variable` held by a walk's table from one
+  held by a def-env registry; the holder-attribution walk remains the next
+  measurement.
+
+---
+
 ## 1. Where the bytes are: the data model
 
 Sizes are `sizeof` on the emitted C (arm64), taken from the 2026-08 censuses and
@@ -111,23 +188,29 @@ them with the durable census; treat the counts as ceilings until then.
 
 ### 1.1 The core objects
 
-| type (file)                               | sizeof | header | why it is this size                                                                                                                                         | population per self-compile (last census) |
-| ----------------------------------------- | ------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `ExprInfo` (`src/expr_info.yo`)           | 456 B  | 56 B   | 3 required handles + **24 `Option(...)` fields at 16 B each** (tag + payload; no niche for ref handles); 19 of 24 are ≤2.5% occupied at exit               | 5.65 M live (2.40 GB)                     |
-| `Environment` (`src/env.yo`)              | 112 B  | 56 B   | `frames : ArrayList(Frame)` + 2 Strings + `Option(usize)`; **one per `ExprInfo`** — `new_expr_info` calls `snapshot_env`, which allocates a fresh list too | 5.68 M live (0.59 GB) + 5.68 M frame lists |
-| `Variable` (`src/env.yo`)                 | 224 B  | 56 B   | 10 handles/ints + `ArrayList(EvalValue)` value cell + 10 grouped bools; `value` is a separate 40 B object when the binding has a comptime value             | 10.4 M live (1.86 GB)                     |
-| `TypeValue` (`src/types/definitions.yo`)  | 168 B  | 56 B   | `ref(enum)`, ~40 variants; the size is the largest variant's payload (`TraitT`/`SomeT`: 10-11 handles)                                                       | 13 M → 11.6 M after `substitute` interning |
-| `AstExpr` (`src/expr.yo`)                 | ~64 B  | 56 B   | `FnCall(id, func, args, is_infix, token)`; specialization deep-clones bodies with fresh ids (`clone_expr_fresh_ids`, 54 call sites)                        | 4.9 M live                                |
-| `Token` (`src/token.yo`)                  | 136 B  | 56 B   | 8 fields incl. 3 Strings (`value`, `module_path`, `input`); `Token.clone` returns self                                                                       | 2.2-3.6 M live                             |
-| `ArrayList(T)` (std)                      | 40 B   | 16 B   | `_ptr, _length, _capacity` + small header; **the majority class**: strings, value cells, type child lists, frame lists                                       | 114 M live blocks at peak (4.0 GB)         |
-| `String` (std) = `newtype(Option(ArrayList(u8)))` | 16 B inline | — | a String FIELD is 16 B (tag + handle) plus its 40 B `ArrayList(u8)` object plus the byte buffer: **three allocations' worth of overhead per name**   | 8-43 M `ArrayList(u8)` live                |
+`sizeof` is read from the 2026-09-20 census binary (arm64); populations are
+the `check src/main.yo` exit-live counts (§0.4).
+
+| type (file)                               | sizeof | header | why it is this size                                                                                                                                         | live at exit |
+| ----------------------------------------- | ------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `ExprInfo` (`src/expr_info.yo`)           | 440 B  | 56 B   | 3 required handles + **24 `Option(...)` fields at 16 B each** (tag + payload; no niche for ref handles); 19 of 24 are ≤2.5% occupied at exit               | 7.35 M (3.23 GB) |
+| `Environment` (`src/env.yo`)              | 112 B  | 56 B   | `frames : ArrayList(Frame)` + 2 Strings + `Option(usize)`; **one per `ExprInfo`** — `new_expr_info` calls `snapshot_env`, which allocates a fresh list too | 7.30 M (0.82 GB) + 7.25 M frame lists (0.58 GB) |
+| `Variable` (`src/env.yo`)                 | 192 B  | 56 B   | 10 handles/ints + `ArrayList(EvalValue)` value cell + 10 grouped bools; `value` is a separate 80 B tracked list when the binding has a comptime value       | 10.15 M (1.95 GB) + 8.09 M value cells (0.65 GB) |
+| `TypeValue` (`src/types/definitions.yo`)  | 176 B  | 56 B   | `ref(enum)`, ~40 variants; the size is the largest variant's payload (`TraitT`/`SomeT`: 10-11 handles); each node owns 1-6 `ArrayList`s                    | 7.76 M (1.37 GB) + 11.6 M child lists (0.93 GB) + 12 M usize lists (0.48 GB) |
+| `AstExpr` (`src/expr.yo`)                 | 64 B   | 56 B   | `FnCall(id, func, args, is_infix, token)`; specialization deep-clones bodies with fresh ids (`clone_expr_fresh_ids`, 54 call sites)                        | 10.72 M (0.69 GB) |
+| `Token` (`src/token.yo`)                  | 104 B  | 56 B   | 8 fields incl. 3 Strings (`value`, `module_path`, `input`); `Token.clone` returns self                                                                       | 6.68 M (0.69 GB) |
+| `EvalValue` (`src/value.yo`)              | 96 B   | 56 B   | `ref(enum)`, 20 variants                                                                                                                                    | 1.82 M (0.18 GB) |
+| `ArrayList(T)` (std), cycle-capable `T`   | 80 B   | 56 B   | `_ptr, _length, _capacity` + the TRACKED header, because a list of `TypeValue`/`EvalValue`/`Frame` handles can sit on a cycle                              | 30.1 M (2.4 GB) |
+| `ArrayList(T)` (std), other `T`           | 40 B   | 16 B   | same body, small header: strings (`ArrayList(u8)`), `usize`/`String`/`bool`/`AstExpr` lists                                                                | 45.5 M (1.8 GB) + buffers |
+| `String` (std) = `newtype(Option(ArrayList(u8)))` | 16 B inline | — | a String FIELD is 16 B (tag + handle) plus its 40 B `ArrayList(u8)` object plus the byte buffer: **three allocations' worth of overhead per name**   | 22.65 M `ArrayList(u8)` |
 
 Two consequences follow from the table alone:
 
-1. **One evaluated expression costs ≈ 456 + 112 + 40 (+ 8·frames) ≈ 650 B
-   before its type or any child list.** At 5.65 M `ExprInfo`s that is ~3.7 GB
-   of pure per-node bookkeeping, of which the `Environment` + frame list share
-   (~150 B/node) is 100% redundant within a scope (§2 F3).
+1. **One evaluated expression costs 440 + 112 + 80 (+ 8·frames) ≈ 650 B
+   before its type or any child list.** At 7.35 M `ExprInfo`s that is 4.6 GB
+   of pure per-node bookkeeping (measured: 4.93 GB for the cluster), of which
+   the `Environment` + frame list share (192 B/node, 1.40 GB) is 100% redundant
+   within a scope (§2 F3).
 2. **`Option(ref)` costs 16 B where a nullable pointer costs 8.** `ExprInfo`
    alone loses 192 B to this; `String` fields lose 8 B each everywhere
    (`Variable.name`, every `Token`, every `TypeValue` id/name). The codegen
@@ -164,11 +247,14 @@ The 2026-08 header split gave cycle-INCAPABLE types a 16 B header and left the
 pointers) on cycle-capable ones. Read from the emitted constructors: `ExprInfo`,
 `Variable`, `Environment`, `Frame`, `TypeValue`, `EvalValue`, `AstExpr` and
 `Token` all `__yo_gc_register` and carry the 56 B header — **every core
-evaluator object is tracked**, so the split's win landed almost entirely on
-`ArrayList`/`String` cells. The tracked header is 12% of an `ExprInfo`, 25% of
-a `Variable`, 33% of a `TypeValue`, 50% of an `Environment`. `RC_HEADER_SPLIT.md`
-step 2 (type-id registry instead of two function pointers, roots list as an
-array: 56 → 24-32 B) is still open; §5 Phase 6.
+evaluator object is tracked**, and so is every `ArrayList` whose element type
+is cycle-capable (`ArrayList(TypeValue)` is 80 B, `ArrayList(u8)` 40 B). The
+census puts **83.0 M tracked objects × 56 B = 4.65 GB of headers, 35% of all
+live struct bytes**, at the exit of `check src/main.yo`. The tracked header is
+13% of an `ExprInfo`, 29% of a `Variable`, 32% of a `TypeValue`, 50% of an
+`Environment`, 70% of a tracked `ArrayList`. `RC_HEADER_SPLIT.md` step 2
+(type-id registry instead of two function pointers, roots list as an array:
+56 → 24-32 B) would return 2.0-2.7 GB on today's population; §5 Phase 6.
 
 ---
 
@@ -224,8 +310,11 @@ snapshot + frame list, plus a `Variable` per binding and every intermediate
 the emit footprint in exactly this population; today's `check` is doing the
 same work (§0.2).
 
-Evidence: §0.2; `clone_expr_fresh_ids` (54 call sites, 9 in `calls/function.yo`,
-7 in `calls/helper.yo`, 12 in `builtins/contracts.yo`); `g_fid_specs` /
+Evidence: §0.2; §0.4 (10.7 M live `AstExpr` against a source tree whose
+parser mints a fraction of that; 3,134 `SpecializedFunctionCache` entries at
+exit, so the retained CACHE is small and the retained BODIES are the cost);
+`clone_expr_fresh_ids` (54 call sites, 9 in `calls/function.yo`, 7 in
+`calls/helper.yo`, 12 in `builtins/contracts.yo`); `g_fid_specs` /
 `g_fid_rtcalls` counters already exist (`expr_info.yo:1417`) but nothing prints
 them.
 
@@ -252,13 +341,14 @@ pushes into or pops `info.env.frames` (audited 2026-09-20 by grep; Phase 2
 step 1 re-audits by instrumentation).
 
 Evidence: `snapshot_env` (`env.yo:1833`) and `new_expr_info` (`expr_info.yo:459`);
-5.68 M `Environment` ≈ 5.65 M `ExprInfo` in the census — a 1:1 population.
+§0.4: 7.35 M `ExprInfo` : 7.30 M `Environment` : 7.25 M `ArrayList(Frame)` —
+the 1:1:1 population, 1.40 GB of struct bytes plus the frame buffers.
 
 Implication: a scope-version memo (bump a counter on every `push_env_frame` /
 `pop_env_frame` / direct `frames` mutation; `new_expr_info` reuses the last
 snapshot when the version and the env identity match) deletes most of 5.68 M
-`Environment` + 5.68 M list objects (~1.2-1.5 GB tracked live) with **no
-semantic change and byte-identical C**. This is the cheapest multi-hundred-MB
+`Environment` + 7.25 M list objects (1.40 GB struct + buffers, measured) with
+**no semantic change and byte-identical C**. This is the cheapest multi-hundred-MB
 lever in the plan.
 
 ### F4. `Option(ref)` has no niche, so every optional handle costs 16 B
@@ -281,10 +371,14 @@ expecting the tagged layout — `c_include`/extern signatures cannot mention
 
 ### F5. `TypeValue` is interned only at `substitute()`
 
-`backlog/TYPEVALUE_HASH_CONSING.md` measured 13 M live `TypeValue`s (~2.5 GB
-with their child lists), landed interning at `substitute()` (−1.45 M) and made
-`TypeValue.clone` return self. The remaining population is construction-site
-minted (25 variants, ~86 sites). Recursive interning at the constructor
+`backlog/TYPEVALUE_HASH_CONSING.md` measured 13 M live `TypeValue`s, landed
+interning at `substitute()` (−1.45 M) and made `TypeValue.clone` return self.
+Today (§0.4): **7.76 M `TypeValue` + 11.6 M `ArrayList(TypeValue)` + 3.2 M
+`ArrayList(ArrayList(TypeValue))` + ~12 M `ArrayList(usize)` level lists =
+3.03 GB of struct bytes**, the second-largest cluster — and 130 M
+`ArrayList(TypeValue)` were CONSTRUCTED for 11.6 M survivors, i.e. type nodes
+are rebuilt ~11× over. The remaining population is construction-site minted
+(25 variants, ~86 sites). Recursive interning at the constructor
 factories is designed there and not built; the construction-site memo is the
 only form that also cuts the transient peak.
 
@@ -362,13 +456,13 @@ the prune).
 | #  | lever                                                                  | est. saving                                | risk   | C identical | phase | evidence            |
 | -- | ---------------------------------------------------------------------- | ------------------------------------------ | ------ | ----------- | ----- | ------------------- |
 | 1  | Drop `ModuleWalk.ctx`/`env` retention outside watch/LSP (F1)           | up to the per-module tables — measure      | LOW    | yes         | 1     | §1.2, F1            |
-| 2  | Drop `SpecializedFunctionCache.env` (never read back) (F2a)            | one callee `Environment` + list per spec   | LOW    | yes         | 1     | `helper.yo:1571`    |
-| 3  | Scope-version env-snapshot sharing in `new_expr_info` (F3)             | ~1.2-1.5 GB tracked live (5.7 M envs + lists) | LOW  | yes         | 2     | census 1:1 counts   |
+| 2  | Drop `SpecializedFunctionCache.env` (never read back) (F2a)            | negligible — 3,134 entries (§0.4); hygiene | LOW    | yes         | 1     | `helper.yo:1571`    |
+| 3  | Scope-version env-snapshot sharing in `new_expr_info` (F3)             | **1.40 GB struct + buffers** (7.3 M envs + 7.25 M lists, measured) | LOW | yes | 2  | §0.4                |
 | 4  | `Option(ref)` niche in codegen (F4)                                    | ≥0.5 GB `ExprInfo` alone; every String field −8 B | MED (layout) | NO — full battery + ASan | 3 | §1.1             |
 | 5  | Specialization without AST cloning; drop generic-body trial infos (F2b/c) | up to 4.9 M `AstExpr` + a share of `ExprInfo` — measure | HIGH | should be | 4 | F2               |
-| 6  | Recursive `TypeValue` interning at constructors (F5)                    | multi-GB ceiling per its plan; measure count first | MED | yes         | 5a    | `TYPEVALUE_HASH_CONSING.md` |
+| 6  | Recursive `TypeValue` interning at constructors (F5)                    | up to the 3.03 GB TypeValue cluster (7.8 M nodes + 27 M lists, measured) | MED | yes | 5a | §0.4, `TYPEVALUE_HASH_CONSING.md` |
 | 7  | `Symbol` interning for names/ids (F7)                                  | strings population — measure               | HIGH (broad) | yes   | 5b    | F7                  |
-| 8  | Tracked RC header 56 → 24-32 B (type-id registry, roots array)          | ~1 GB at ~30 M tracked objects             | HIGH (GC) | layout-only | 6  | `RC_HEADER_SPLIT.md` step 2 |
+| 8  | Tracked RC header 56 → 24-32 B (type-id registry, roots array)          | **2.0-2.7 GB** at 83 M tracked objects (measured 4.65 GB of headers) | HIGH (GC) | layout-only | 6 | §0.4, `RC_HEADER_SPLIT.md` step 2 |
 | 9  | `Variable.value` inline single slot                                    | ~0.8 GB before F1–F3; less after           | MED    | yes         | 6     | `RC_HEADER_SPLIT.md` lever 3 |
 | 10 | Root-cause the super-linear per-call-site compile cost (F8)            | unlocks lever 11; fixes user programs too  | investigation | —    | 7     | F8                  |
 | 11 | `ExprInfo` diet (rare group) done without the accessor pathology        | ~1.2 GB (19 of 24 fields ≤2.5% occupied)   | MED    | yes         | 7     | `RC_HEADER_SPLIT.md` |
@@ -389,12 +483,12 @@ that survives (`scripts/bootstrap/live_census.py`) targets the retired
 `__yo_struct_yo…_id_N` naming and no longer matches the emitted C. Make the
 instruments durable and answer the three questions the ranking depends on.
 
-1. **`scripts/bootstrap/live_census_t.py`** — the per-type live census for the
-   current `__yo_tN` naming (a working draft exists in this session's
-   scratchpad: +1 at each `__yo_new___yo_tN` definition; −1 at the entry of
+1. **`scripts/bootstrap/live_census_t.py` — LANDED with this plan.** The
+   per-type live census for the current content-hashed `__yo_t_<hash>` naming
+   (+1 at each `__yo_new___yo_t_N[_Variant]` definition; −1 at the entry of
    the `yo_id_K` the constructor installs as `header.dispose_fn`; dump
-   `live gross sizeof name` per type from a destructor; types with no
-   `dispose_fn` are labelled as ceilings). Input: `yo compile src/main.yo
+   `live gross sizeof slot` per type from a destructor, names in the `.map`;
+   types with no `dispose_fn` are ceilings). §0.4 is its first output. Input: `yo compile src/main.yo
    --emit-c --skip-c-compiler --std-path ./std -o <c>`; output: the
    instrumented `.c`, compiled with the same flags `yo build` uses (it links
    OpenSSL: `-I$(brew --prefix openssl@3)/include -L…/lib -lssl -lcrypto -lm`
@@ -411,8 +505,9 @@ instruments durable and answer the three questions the ranking depends on.
    composition. Acceptance: reproduces the shape of the 2026-08-18 table
    (40 B class, 448 B class, …) on the current tree.
 3. **Attribute the 19.3 GB `check`** with both instruments on
-   `check src/main.yo` and on `check ./src/types`: (a) per-type live at exit;
-   (b) peak composition; (c) **retention by holder** — extend the census with
+   `check src/main.yo` and on `check ./src/types`: (a) per-type live at exit
+   — **DONE 2026-09-20, §0.4**; (b) peak composition; (c) **retention by
+   holder** — extend the census with
    a second counter keyed by the ROOT that retains the object at exit (walk
    `g_finished_walks` → tables → count reachable `ExprInfo`/`Environment`/
    `Variable`; walk `g_specialized_fn_caches`; walk the module cache; the
