@@ -231,6 +231,24 @@ with a cli-case golden showing the repaired file:
 Rule kept from the archived plan: a repair is offered only when it is the
 unique fix, and `yo fix` never touches a line the compiler did not flag.
 
+**Status 2026-09-20 (PR B of the toolchain series):** items 2 and 3 landed in
+the form the uniqueness rule allows — E0007 inserts `;` before the `}` only
+for the single-expression shape `{ f(x) }` (two comma-separated items may be
+a block OR a record with a bad field); E0401 inserts the import line when
+exactly one std module exports the name and no rename candidate exists, with
+the std export index built by the CLI front doors from std's `export(...)`
+lines (public file per directory). Goldens: `fix-inserts-block-semicolon`,
+`fix-adds-a-std-import`, `check-std-import-help`,
+`check-struct-literal-vs-block`. Item 1 is **declined**: E0003 fires only for
+DIFFERENT adjacent operators, where two groupings always exist, so no repair
+is unique — `run_fix`'s own comment already records this. Item 4 is
+**deferred**: the E0601 unify site sees two types and a token, not the local's
+initializer, so the cast repair needs the binding plumbed to the unify site;
+§2.6 row 2 disappears with the §2.4 bug fix; row 3 has no enum type to offer
+when the hint is absent. `{ x }` → `x` (item 2's second half) is not a
+diagnostic today: `{ x }` parses as the record `{ x : x }` and fails later as
+a type mismatch that does not know it came from braces.
+
 ### 3.2 LSP: carry `Repair`, expose code actions
 
 `src/lsp/diagnostics.yo` re-parses the human-rendered text and drops the
