@@ -1004,7 +1004,16 @@ hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
     .Some(fwd) => Option(String).Some(fwd),
     .None =>
       cond(
-        (msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found.")))) => {
+        // Fourth class: ANY failure inside auto-generated code (a derive's
+        // generated method body, `generate_expr_from_code`). Nothing in it
+        // is a speculative trial the user could redeem at a call site — the
+        // derive wrote the body, and a `self.inner.clone()` that resolves to
+        // nothing means the field's type lacks the trait. Swallowing it
+        // shipped a check-green binary that aborted on the first clone
+        // (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md).
+        // The location marker is the generated module path, which the
+        // rendered diagnostic carries.
+        (msg.contains(String.from("--> auto-generated://")) || (msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found."))))) => {
           // The swallowed dyn-message often already carries an "Error: " or
           // "error[E0401]: " prefix; format_error_message adds its own —
           // strip one to avoid "Error: Error:" / "error[E0401]: error[E0401]:".
