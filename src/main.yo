@@ -5788,21 +5788,20 @@ run_effects :: (
             json_entries.push(`{"param":"${_json_escape(ilabel.clone())}","type":"${_json_escape(type_to_string(ity))}","via":"implicit","kinds":[${_json_string_list(kinds)}]}`);
           });
           // A returned future carries the effects its awaiter must supply.
-          match(
-            result,
-            .FutureTraitT({ effect_labels, effect_types }) => {
-              (ei : usize) = usize(0);
-              while((ei < effect_labels.len()) && (ei < effect_types.len()), {
-                elabel := match(effect_labels.get(ei), .Some(l) => l, .None => String.new());
-                ety := match(effect_types.get(ei), .Some(t) => t, .None => TypeValue.Unit);
-                ei = (ei + usize(1));
-                kinds := _effect_kinds_of_type(ety, usize(0));
-                entries.push(`future ${elabel} : ${type_to_string(ety)} [${_join_strings(kinds, ", ")}]`);
-                json_entries.push(`{"param":"${_json_escape(elabel.clone())}","type":"${_json_escape(type_to_string(ety))}","via":"future","kinds":[${_json_string_list(kinds)}]}`);
-              });
-            },
-            _ => ()
-          );
+          // `Impl(Future(T, E))` is a SomeT whose required traits hold the
+          // FutureTraitT; a bare FutureTraitT result is read directly.
+          fut_labels := ArrayList(String).new();
+          fut_types := ArrayList(TypeValue).new();
+          _collect_future_effects(result, fut_labels, fut_types);
+          (ei : usize) = usize(0);
+          while((ei < fut_labels.len()) && (ei < fut_types.len()), {
+            elabel := match(fut_labels.get(ei), .Some(l) => l, .None => String.new());
+            ety := match(fut_types.get(ei), .Some(t) => t, .None => TypeValue.Unit);
+            ei = (ei + usize(1));
+            kinds := _effect_kinds_of_type(ety, usize(0));
+            entries.push(`future ${elabel} : ${type_to_string(ety)} [${_join_strings(kinds, ", ")}]`);
+            json_entries.push(`{"param":"${_json_escape(elabel.clone())}","type":"${_json_escape(type_to_string(ety))}","via":"future","kinds":[${_json_string_list(kinds)}]}`);
+          });
           if(as_json, {
             println(`    {"name":"${_json_escape(name.clone())}","effects":[${_join_strings(json_entries, ",")}]}${fn_sep}`);
           }, {
@@ -5902,6 +5901,31 @@ _effect_kinds_of_type :: (fn(t : TypeValue, depth : usize) -> ArrayList(String))
     _ => ()
   );
   kinds
+});
+/// The effect labels/types of a `Future(T, E)` result: a bare `FutureTraitT`,
+/// or the one inside an `Impl(...)` SomeT's required traits.
+_collect_future_effects :: (
+  fn(t : TypeValue, labels : ArrayList(String), types : ArrayList(TypeValue)) -> unit
+)({
+  match(
+    t,
+    .FutureTraitT({ effect_labels, effect_types }) => {
+      (i : usize) = usize(0);
+      while((i < effect_labels.len()) && (i < effect_types.len()), {
+        labels.push(effect_labels(i).clone());
+        types.push(effect_types(i));
+        i = (i + usize(1));
+      });
+    },
+    .SomeT({ required_trait_types }) => {
+      (i : usize) = usize(0);
+      while(i < required_trait_types.len(), {
+        match(required_trait_types.get(i), .Some(rt) => recur(rt, labels, types), .None => ());
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
 });
 _push_unique :: (fn(xs : ArrayList(String), x : String) -> unit)({
   (i : usize) = usize(0);
