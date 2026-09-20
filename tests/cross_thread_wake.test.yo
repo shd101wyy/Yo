@@ -132,3 +132,29 @@ test("a wake that arrives BEFORE the task suspends is not lost", {
   _r := h.await(io);
   assert(ran.load(MemoryOrder.Acquire) == i32(1), "the early wake was observed rather than lost");
 });
+test("a wake posted before the owner drops its waker copy still resumes the park", {
+  // REGRESSION (issues/fixed/a-foreign-wake-queued-before-the-owner-drops-its-waker-is-lost.md).
+  // The worker wakes FIRST — its wake sits on the owner's inbox — and only
+  // then does the owner drop its own copy of the waker. The local release
+  // used to null the token's future, so the drain skipped the queued wake and
+  // the park never resumed: the loop spun forever with nothing pending. This
+  // is spawn_blocking's shape whenever the loop thread is descheduled right
+  // after pthread_create (a loaded CI runner, about one time in four; the
+  // macOS test leg's four-hour hang). The join makes the ordering
+  // deterministic, so this fails every time on the unfixed runtime.
+  (round : i32) = i32(0);
+  while(runtime(round < i32(5)), {
+    p := Park.new();
+    {
+      w := p.waker();
+      worker := Thread(unit).spawn((tio : Io) => {
+        w.wake();
+        ()
+      });
+      worker.join();
+    };
+    io.await(p.wait(io), io);
+    round = (round + i32(1));
+  });
+  assert(round == i32(5), "every park whose wake preceded the owner's release resumed");
+});

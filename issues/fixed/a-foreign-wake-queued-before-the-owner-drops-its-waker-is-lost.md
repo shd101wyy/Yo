@@ -1,6 +1,6 @@
 # `tests/spawn_blocking.test.yo` hangs the macOS test leg for four hours, because the test-run child has no deadline
 
-**Status:** OPEN. **Found:** 2026-09-19, triaging a CI failure on an unrelated PR.
+**Status:** FIXED 2026-09-20 (root cause below; the deadline is a follow-on, deliberately not shipped — the maintainer asked for the cause, not a cap). **Found:** 2026-09-19, triaging a CI failure on an unrelated PR.
 **Severity:** a ~1-in-4 lottery that burns a 240-minute runner slot and reports
 nothing actionable. Six occurrences in three days, on `develop` and on
 unrelated branches.
@@ -71,3 +71,53 @@ run must exit non-zero naming the test within the cap.
 
 Nearest sibling, same shape, already fixed:
 `issues/fixed/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`.
+
+## Root cause (2026-09-20)
+
+Not the kqueue channel and not the 100 ms wait — a **lost wake in the
+waker token's LOCAL release** (`__yo_waker_release`, `src/codegen/async/runtime_core.yo`).
+
+`spawn_blocking` hands the worker thread a copy of the park's waker and keeps
+its own copy in the spawning frame until that frame ends. On an idle machine
+the frame ends first: the owner's copy is released locally (future dropped,
+`t->future = NULL`), the worker later wakes through the FOREIGN path, whose
+release defers the future drop to the drain. Fine. On a loaded runner the loop
+thread is descheduled right after `pthread_create`; the worker finishes its
+callee, sends the value and calls `w.wake()` first — the token is now on the
+owner's inbox (`queued = 1`) — and only THEN does the frame drop its copy.
+The local release nulled `t->future` regardless, and the drain does
+`if (t->future) __yo_waker_wake_local(...)`: the queued wake was skipped, the
+park future stayed pending forever, and the loop spun in
+`__yo_async_drain_xwakes` / `__yo_async_drain_yields` with nothing pending
+(`sample` of the hung process shows exactly that; `live_wakers` is 0 by then,
+so the wake-deadlock report is silent).
+
+Deterministic reproduction (any macOS/Linux box, develop before the fix):
+
+```rust
+p := Park.new();
+{
+  w := p.waker();
+  worker := Thread(unit).spawn((tio : Io) => { w.wake(); () });
+  worker.join();          // the wake is on the inbox before `w` drops below
+};
+io.await(p.wait(io), io); // hangs
+```
+
+Swap the order (worker sleeps 30 ms then wakes; the frame drops `w` at once)
+and it passes: that is the foreign-release path. Local hammers of the test file
+(0 hangs in 60 direct runs here, 7/7 clean on the peer's box) never hit it —
+the window needs the loop thread to lose the CPU right after the spawn.
+
+## Fix
+
+In the local release, check `t->queued` under the owner's lock (the post links
+under that same lock right after its CAS) and, if the token is on the inbox,
+set `release_pending` and let the drain drop the future AFTER delivering the
+wake — exactly what the foreign path already did.
+
+## Gate
+
+`tests/cross_thread_wake.test.yo` "a wake posted before the owner drops its
+waker copy still resumes the park": the join makes the ordering deterministic,
+so it hangs every time on the unfixed runtime and passes after.
