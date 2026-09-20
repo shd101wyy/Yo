@@ -827,7 +827,10 @@ mm_revalidate_plan :: (fn(fs_path : String) -> Option(RevalPlan))({
   // per-def-able (`_def_is_per_def_able` — every exclusion is a correctness
   // boundary).
   walk := finished_walk_for(diff.module_key.clone());
-  (allowed : bool) = walk.is_some();
+  // A walk that released its evaluation context (a one-shot command — only
+  // the watch modes retain it, `set_retain_walk_contexts`) cannot re-force
+  // anything: the file-level reload is the only correct path.
+  (allowed : bool) = match(walk, .Some(w) => w.ctx.is_some(), .None => false);
   changed_names := ArrayList(String).new();
   (ci : usize) = usize(0);
   while((ci < diff.changed.len()) && allowed, {

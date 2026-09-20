@@ -12,7 +12,7 @@
 { write_string } :: import("std/fs/file");
 { watch_round } :: import("../../src/check_watch.yo");
 { mm_load_file, mm_invalidate_document, mm_definitions_changed, mm_revalidate_plan, resolve_std_path } :: import("../../src/module_manager.yo");
-{ force_pending_count, PendingDef } :: import("../../src/evaluator/context.yo");
+{ force_pending_count, PendingDef, set_retain_walk_contexts } :: import("../../src/evaluator/context.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { RevalPlan } :: import("../../src/module_manager.yo");
 { type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
@@ -50,6 +50,10 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
     )
   );
   ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
   dir := `/tmp/yo_check_watch_fixture`;
   io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
   lib_path := `${dir}/lib.yo`;
@@ -99,6 +103,10 @@ test("Phase 3a: mm_definitions_changed — comment/whitespace edits are no-ops, 
     )
   );
   ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
   dir := `/tmp/yo_check_watch_fixture_p3`;
   io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
   lib_path := `${dir}/lib.yo`;
@@ -230,6 +238,10 @@ test("Phase 3b: a body edit re-evaluates only the changed def + its dependents",
     )
   );
   ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
   dir := `/tmp/yo_check_watch_fixture_p3b`;
   io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
   lib_path := `${dir}/lib.yo`;
@@ -285,6 +297,10 @@ test("Phase 3b: a signature edit falls back to file-level and still fails the im
     )
   );
   ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
   // Own fixture directory: this test drives the FILE-LEVEL path, and a
   // preceding per-def sequence leaves warm state (grafted defs, cloned
   // dependents) whose interaction with the reload is exactly what
@@ -328,6 +344,10 @@ test("Phase 3b: a DIRECTORY check attributes destructured reads to the right mod
     )
   );
   ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
   // Reproduces the sns id->module mis-attribution of
   // issues/per-def-dependent-trial-resolves-stale-callee.md: every module's
   // FIRST source-namespace mint collided on `source_namespace_0` (the
@@ -397,6 +417,10 @@ test("Phase 3b: a struct-field edit (type producer) falls back to file-level", {
     )
   );
   ioexn := IoExn(io : io, exn : exn);
+  // A watch driver: finished walks must keep their evaluation context so
+  // the per-def rounds can re-force definitions (main.yo sets this for
+  // `check --watch`; an in-process driver has to say so itself).
+  set_retain_walk_contexts(true);
   dir := `/tmp/yo_check_watch_fixture_p3b_ty`;
   io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
   lib_path := `${dir}/lib.yo`;
