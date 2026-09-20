@@ -186,6 +186,35 @@ edit_distance :: (fn(a : String, b : String) -> usize)({
   });
   prev(n)
 });
+/// The std export index behind the E0401 missing-import repair: which std
+/// module specs (`std/fmt`) export a given name. Filled once per process by
+/// the CLI front doors (`_index_std_exports` in main.yo) from the
+/// `export(...)` lines of every std module's PUBLIC file; empty when nothing
+/// filled it (the LSP, a compile without a std root) — then no import repair
+/// is offered, never a wrong one. Parallel arrays, a few hundred entries.
+(g_std_export_names : ArrayList(String)) = ArrayList(String).new();
+(g_std_export_modules : ArrayList(String)) = ArrayList(String).new();
+register_std_export :: (fn(name : String, module_spec : String) -> unit)({
+  g_std_export_names.push(name);
+  g_std_export_modules.push(module_spec);
+});
+std_export_index_size :: (fn() -> usize)(g_std_export_names.len());
+/// Every std module spec exporting `name`, in registration (sorted-walk) order.
+lookup_std_exporters :: (fn(name : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < g_std_export_names.len(), {
+    match(
+      g_std_export_names.get(i),
+      .Some(n) => if(n == name, {
+        match(g_std_export_modules.get(i), .Some(m) => out.push(m.clone()), .None => ());
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 /// The closest candidate within distance 3 — the did-you-mean engine for
 /// unresolved names (P3) and unknown codes. First-listed wins ties.
 suggest_name :: (fn(target : String, candidates : ArrayList(String)) -> Option(String))({
@@ -465,6 +494,7 @@ export(Severity, Span, Label, Diagnostic, Repair);
 export(render_diagnostics_human, render_diagnostics_short, render_diagnostics_json);
 export(render_diagnostics_for_mode, set_error_format, error_format, emit_rendered_text, emit_chatter);
 export(edit_distance, suggest_name);
+export(register_std_export, lookup_std_exporters, std_export_index_size);
 export(E_UNEXPECTED_TOKEN, E_EXPECTED_TOKEN, E_ADJACENT_OPERATORS, E_UNTERMINATED);
 export(E_UNEXPECTED_CHARACTER, E_UNKNOWN_OPERATOR, E_STRUCT_LITERAL_VS_BLOCK, E_CALL_SYNTAX);
 export(E_VARIABLE_NOT_FOUND, E_ENUM_VARIANT_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, E_NOT_DEFINED, E_PRIVATE_MEMBER);

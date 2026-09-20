@@ -9,7 +9,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList, array_list } :: import("std/collections/array_list");
 { TokenKind, Token, find_matching_bracket } :: import("./token.yo");
 { tokenize } :: import("./lexer.yo");
-{ YoError, format_error_message, format_raw_error } :: import("./error.yo");
+{ YoError, format_error_message, format_raw_error, format_error_message_with_repair_at } :: import("./error.yo");
+{ Span } :: import("./diagnostics.yo");
 {
   AstExpr,
   ExprId,
@@ -1055,16 +1056,31 @@ impl(
             .None => (),
             .Some(arg) => {
               if(!(self.is_valid_struct_field_arg(arg)), {
-                exn.throw(
-                  dyn(
-                    make_parse_error(
-                      tok,
-                      String.from(
-                        "{ ... } without semicolons is parsed as a struct literal, not a block. To write a block, use semicolons: { stmt1; stmt2; }"
+                block_msg := String.from(
+                  "{ ... } without semicolons is parsed as a struct literal, not a block. To write a block, use semicolons: { stmt1; stmt2; }"
+                );
+                // ONE expression between the braces (`{ f(x) }`, the shape
+                // an agent writes for a single-statement body) has exactly
+                // one repair: a `;` before the `}`, which `idx` still points
+                // at. Two or more comma-separated items could be a block OR
+                // a record with a bad field, so those get the message alone.
+                close_tok := match(self.tokens.get(idx), .Some(ct) => ct, .None => tok);
+                if((vn == usize(1)) && (close_tok.kind == TokenKind.RCurlyBracket), {
+                  exn.throw(
+                    dyn(
+                      format_error_message_with_repair_at(
+                        tok,
+                        block_msg,
+                        Option(String).None,
+                        Span(path : close_tok.module_path, row : close_tok.row, col : close_tok.column, len : usize(0)),
+                        String.from(";"),
+                        String.from("insert `;` before `}` so the braces form a block")
                       )
                     )
-                  )
-                );
+                  );
+                }, {
+                  exn.throw(dyn(make_parse_error(tok, block_msg)));
+                });
               });
             }
           );

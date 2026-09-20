@@ -133,7 +133,8 @@ json :: import("std/encoding/json");
   set_error_format,
   error_format,
   emit_rendered_text,
-  emit_chatter
+  emit_chatter,
+  register_std_export
 } :: import("./diagnostics.yo");
 { eval_context_new } :: import("./evaluator/context.yo");
 { register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
@@ -550,6 +551,128 @@ _resolve_for_match :: (fn(p : String) -> String)({
 });
 /// Recursive helper for `collect_check_files` — walks a directory
 /// tree appending each `.yo` file path to `out`.
+/// Fill diagnostics.yo's std export index for the E0401 missing-import repair
+/// (audit §3.1 item 3): every std module's PUBLIC file is scanned for its
+/// `export(...)` lines. Public means `index.yo` when the directory has one
+/// (its siblings are internals that `index.yo` re-exports by name), else each
+/// `.yo` file; `*.test.yo`, dot-files and the prelude (always in scope) are
+/// skipped. A text scan, not an evaluation: `export(a, b)` is a flat list of
+/// identifiers in every std file, and a name the scan misses means "no
+/// repair", never a wrong one. Once per process; ~180 small reads.
+(g_std_exports_indexed : bool) = false;
+_index_std_exports :: (fn(std_path : String, io : Io, exn : Exception) -> unit)({
+  if(g_std_exports_indexed, {
+    return(());
+  });
+  g_std_exports_indexed = true;
+  _index_std_dir(std_path.clone(), std_path.clone(), io, exn);
+});
+_index_std_dir :: (
+  fn(root : String, dir : String, io : Io, exn : Exception) -> unit
+)({
+  entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
+  files := ArrayList(String).new();
+  dirs := ArrayList(String).new();
+  (has_index : bool) = false;
+  (ei : usize) = usize(0);
+  while(ei < entries.len(), {
+    match(
+      entries.get(ei),
+      .Some(entry) => match(
+        entry.file_type,
+        .Directory => dirs.push(entry.name.clone()),
+        .File => {
+          is_src := ((entry.name.ends_with(String.from(".yo")) && !(entry.name.ends_with(String.from(".test.yo")))) && !(entry.name.starts_with(String.from("."))));
+          if(is_src, {
+            files.push(entry.name.clone());
+            if(entry.name == "index.yo", {
+              has_index = true;
+            });
+          });
+        },
+        .Symlink => (),
+        .Other => ()
+      ),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  // readdir order is filesystem-dependent; the index order decides which
+  // module a help text names first, so sort.
+  _sort_strings(files);
+  _sort_strings(dirs);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    name := match(files.get(fi), .Some(n) => n, .None => String.new());
+    fi = (fi + usize(1));
+    if(has_index && (name != "index.yo"), {
+      continue;
+    });
+    full := `${dir}/${name}`;
+    // `<root>/fmt/index.yo` → `std/fmt`; `<root>/collections/array_list.yo`
+    // → `std/collections/array_list`.
+    rel := full.substring(root.len(), full.len() - usize(3));
+    spec := `std${rel}`;
+    if(spec.ends_with(String.from("/index")), {
+      spec = spec.substring(usize(0), spec.len() - usize(6));
+    });
+    if(spec == "std/prelude", {
+      continue;
+    });
+    text := String.from_bytes(read_file_sync(full.clone(), exn));
+    lines := text.split(String.from("\n"));
+    (buf : String) = String.new();
+    (collecting : bool) = false;
+    (li : usize) = usize(0);
+    while(li < lines.len(), {
+      t := match(lines.get(li), .Some(l) => l.trim(), .None => String.new());
+      li = (li + usize(1));
+      if(!(collecting) && t.starts_with(String.from("export(")), {
+        collecting = true;
+        buf = t.substring(usize(7), t.len());
+      }, {
+        if(collecting, {
+          buf.push_str(" ");
+          buf.push_string(t.clone());
+        });
+      });
+      if(collecting && buf.contains(String.from(")")), {
+        close := match(buf.index_of(String.from(")")), .Some(k) => k, .None => buf.len());
+        parts := buf.substring(usize(0), close).split(String.from(","));
+        (pi : usize) = usize(0);
+        while(pi < parts.len(), {
+          nm := match(parts.get(pi), .Some(p) => p.trim(), .None => String.new());
+          pi = (pi + usize(1));
+          // Identifiers only: a `:` (aliased export) or a space is not a name.
+          if(((nm.len() > usize(0)) && !(nm.contains(String.from(":")))) && !(nm.contains(String.from(" "))), {
+            register_std_export(nm, spec.clone());
+          });
+        });
+        collecting = false;
+        buf = String.new();
+      });
+    });
+  });
+  (di : usize) = usize(0);
+  while(di < dirs.len(), {
+    match(dirs.get(di), .Some(d) => recur(root.clone(), `${dir}/${d}`, io, exn), .None => ());
+    di = (di + usize(1));
+  });
+});
+/// In-place insertion sort — the lists are directory listings.
+_sort_strings :: (fn(xs : ArrayList(String)) -> unit)({
+  (i : usize) = usize(1);
+  while(i < xs.len(), {
+    (j : usize) = i;
+    while((j > usize(0)) && (xs(j - usize(1)) > xs(j)), {
+      tmp := xs(j).clone();
+      xs(j) = xs(j - usize(1)).clone();
+      xs(j - usize(1)) = tmp;
+      j = (j - usize(1));
+    });
+    i = (i + usize(1));
+  });
+});
 _walk_check_dir :: (
   fn(
     dir : String,
@@ -956,6 +1079,7 @@ run_fix :: (
   if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
     exn.throw(dyn(`fix: could not load the prelude from ${std_path}`));
   });
+  _index_std_exports(std_path.clone(), io, exn);
   (total_applied : usize) = usize(0);
   (pass : usize) = usize(0);
   (progress : bool) = true;
@@ -1201,6 +1325,7 @@ run_check :: (
   if(!mm_preload_prelude(std_path.clone(), true, io, exn), {
     unsafe(exit(int(1)));
   });
+  _index_std_exports(std_path.clone(), io, exn);
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   total := files.len();
@@ -1485,6 +1610,7 @@ run_verify_cmd :: (
   if(!mm_preload_prelude(std_path.clone(), true, io, exn), {
     unsafe(exit(int(1)));
   });
+  _index_std_exports(std_path.clone(), io, exn);
   (eval_failed : usize) = usize(0);
   (fi2 : usize) = usize(0);
   while(fi2 < files.len(), {
@@ -3511,6 +3637,7 @@ run_compile :: (
       _compile_fail(watch_mode, int(1));
       return(());
     });
+    _index_std_exports(std_path.clone(), io, exn);
     profile_record_phase(String.from("prelude evaluation"), prof_prelude_t0.elapsed().as_nanos());
     // Read + parse the input module.
     prof_parse_t0 := Instant.now();
