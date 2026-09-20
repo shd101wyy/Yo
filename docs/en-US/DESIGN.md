@@ -3036,6 +3036,13 @@ $ yo test path/to/file.test.yo --bail
 
 # Verbose output
 $ yo test path/to/file.test.yo -v
+
+# List the tests a path + pattern selects, without compiling anything
+$ yo test ./tests --list
+
+# One JSON object per line: a "test" event per test (file, name, status,
+# duration_ms; message and captured output on failure), then a "summary" event
+$ yo test ./tests --json
 ```
 
 ### Assertions

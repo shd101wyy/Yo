@@ -1,0 +1,9 @@
+# `yo test --json`: one JSON object per line — a `test` event per test with
+# file, name, status and duration_ms (plus message and the captured output on
+# failure) and a closing `summary` event — and NO human lines, so a script
+# reads one stream. Durations and the failing test's captured output move
+# between runs, so the golden keeps each event up to its status and the
+# whole summary line; the batch compile's clang warnings are dropped the
+# same way.
+stdout_keep_match=^(\$ yo .*|rc=[0-9]+|yo: error.*|\{"event":"test","file":"[^"]*","name":"[^"]*","status":"[a-z]+"|\{"event":"summary".*)
+timeout=600

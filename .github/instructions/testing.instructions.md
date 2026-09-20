@@ -114,7 +114,10 @@ in-file tests ship with their module and cost a no-op.
 - The **full test suite** (`yo test --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. Use it for broad regression checks after significant changes.
 - `--bail` or `-b` — stop after first failure
 - `-v` or `--verbose` — show detailed errors
-- `--test-name-pattern "Test XXX"` — run specific test by name
+- `--test-name-pattern "Test XXX"` — run specific test by name (a REGEX, not a substring)
+- `--list` — print `<file>\t<name>` for every test the path + pattern selects, compiling nothing; preview a pattern before paying for the batch compile
+- `--json` — one JSON object per line: a `test` event per test (`file`, `name`, `status`, `duration_ms`; `message` + `output` on failure) then a `summary` event, no human lines. Read this instead of scraping `✓`/`✗`.
+- `yo test --help` lists every flag; `yo test` takes ONE positional path (a second path is silently ignored)
 - Tests automatically use AddressSanitizer for leak detection.
 
 ## Writing a test that observes a LEAK (macOS: ASan does not arm)

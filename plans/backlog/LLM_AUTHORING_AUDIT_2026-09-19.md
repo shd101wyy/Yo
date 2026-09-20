@@ -250,6 +250,16 @@ and the `install`/`fetch` family so those failures stop being uncoded prose.
 
 ### 3.4 `yo test` for a machine reader
 
+**Landed 2026-09-20 (PR A of the toolchain series).** `--list` prints
+`<file>\t<name>` per selected test and compiles nothing; `--json` (a flag of
+its own, not a mode of `--json-summary`) emits a `test` event per test
+(`file`, `name`, `status`, `duration_ms`, on failure `message` + `output`) and
+a closing `summary` event with the human lines suppressed. No `span`: the
+runner learns a failure from the child's exit code and captured output, and
+the `assert` message's own `file:line` is inside `output`. `--resume-from` /
+`--accum-*` stay out of `--help` as the RSS valve's private plumbing.
+Goldens: `tests/cli-cases/test-list`, `test-json-lines`, `help-test`.
+
 `--json-summary` is three counters. Add `--list` (enumerate tests without
 running) and per-test JSON Lines (`file`, `name`, `status`, `duration_ms`,
 failure `message` + `span`) behind the same flag, and put every accepted flag
@@ -257,6 +267,13 @@ in `--help` (`--json-summary`, `--shard`, `--resume-from`, `--allocator`,
 `--heap-size`, `--debug-heap` are accepted today and undocumented).
 
 ### 3.5 Help-text truth
+
+**Landed 2026-09-20 (PR A).** The dispatch list is one constant
+(`SUBCOMMAND_NAMES` in `src/main.yo`) shared by the unknown-subcommand error;
+the help texts stay hand-written and are pinned by `help-top-level`,
+`help-test`, `help-doc` and `unknown-subcommand-error` goldens instead of
+being generated (a subcommand added without a help entry now fails the
+`help-top-level` golden's review, not silently).
 
 `yo --help` omits `explain`, `check`, `lsp`, `unsafe-report` and
 `public-safe-report`; the unknown-subcommand usage string lists a `fetch`
