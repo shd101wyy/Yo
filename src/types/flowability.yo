@@ -38,7 +38,7 @@
 } :: import("../expr.yo");
 { ExprInfo, expr_info_table_get, has_any_control_flow, lookup_method_callee_type, expr_info_closure_function_value }
 :: import("../expr_info.yo");
-{ Variable, Environment, get_variables_from_env } :: import("../env.yo");
+{ Variable, Environment, get_variables_from_env, snapshot_env } :: import("../env.yo");
 { format_error_message } :: import("../error.yo");
 { Exception } :: import("std/error");
 { is_type_val } :: import("../value.yo");
@@ -655,7 +655,7 @@ require_ref_own_argument_exclusivity :: (
           match(
             root_atom_opt,
             .Some(root_atom) => {
-              root_env := match(_info(ctx, root_atom), .Some(ri) => ri.env, .None => env);
+              root_env := match(_info(ctx, root_atom), .Some(ri) => snapshot_env(ri.env), .None => env);
               vars := get_variables_from_env(root_env, ast_expr_token(root_atom).value);
               if(vars.len() > usize(0), {
                 match(

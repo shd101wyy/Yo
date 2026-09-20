@@ -437,7 +437,7 @@ evaluate_cond :: (
               // Consume the case body temp var to avoid phantom drops.
               body_env_for_consume := match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_case_body)),
-                .Some(bi) => bi.env,
+                .Some(bi) => snapshot_env(bi.env),
                 .None => ec_item.case_env
               );
               consume_case_body_temp_var(evaluated_case_body, body_env_for_consume, ctx);

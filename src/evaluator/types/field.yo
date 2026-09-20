@@ -29,7 +29,7 @@ import("std/fmt");
   BK_ASSIGN
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment, copy_frames } :: import("../../env.yo");
+{ Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -266,7 +266,7 @@ evaluate_type_field :: (
     te := match(type_expr, .Some(t) => t, .None => make_err_expr());
     old_expected := ctx.expected_type;
     if(expected_tuple_element_type.is_some(), {
-      elem_env := match(ctx.expected_type, .Some(e) => e.env, .None => env);
+      elem_env := match(ctx.expected_type, .Some(e) => snapshot_env(e.env), .None => env);
       ctx.expected_type = Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
           ty : match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
