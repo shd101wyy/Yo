@@ -1,7 +1,7 @@
 # `derive(S, Clone)` over a field whose type has no `Clone` passes `check` and aborts at runtime
 
-**Status: open** (found 2026-09-20 while landing LSP code actions, PR C of the
-toolchain series). Repro: `issues/repros/derive_clone_non_clone_field.yo`.
+**Status: FIXED 2026-09-20** (found the same day while landing LSP code actions, PR C of
+the toolchain series). Repro: `issues/repros/derive_clone_non_clone_field.yo`.
 
 ## Symptom
 
@@ -73,3 +73,22 @@ the `derive` or comes from a where-bound. The check must go through the
 lookup that forces pending entries, and it needs two over-rejection canaries
 that must keep compiling: a field type whose Clone impl is defined BELOW the
 derive, and a generic field whose Clone comes from a where-bound.
+
+## Fix (2026-09-20)
+
+Option (b), made general: `hard_swallow_diagnostic` (`src/evaluator/context.yo`)
+gains a fourth class — any swallowed failure whose rendered location is
+`--> auto-generated://` (a derive's generated body, `generate_expr_from_code`)
+surfaces at check time. Auto-generated code has no call site that could
+redeem a trial miss, so the swallow is never speculative there. The
+anonymous-body trial re-raises it, derive's guarded evaluation catches it and
+reports `derive on "Outer" failed: No matching call found … ((self.inner).clone)()`
+anchored on the `derive(...)` line (E0610 through the classifier).
+
+The lazy-impl hazard above is answered by the canary in `tests/derive.test.yo`
+("a derived Clone over a field whose Clone impl is registered below the
+derive"): the method miss inside the generated body forces the pending
+`impl(_LaterInner, Clone(...))` registered BELOW the derive, so it compiles;
+the where-bound generic derives (`derive(generic(T), CloneBox(T), where(T <:
+Clone), Clone)`) in the same file keep passing. Golden:
+`tests/cli-cases/check-derive-clone-non-clone-field`.
