@@ -48,7 +48,8 @@ pragma(Pragma.AllowUnsafe);
   make_err_variable,
   generate_variable_id,
   add_variable_to_begin_block_frame,
-  find_live_inout_borrowers
+  find_live_inout_borrowers,
+  snapshot_env
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext } :: import("./context.yo");
@@ -719,7 +720,9 @@ set_expr_as_needs_to_call_dup :: (
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
       saved_expected := ctx.expected_type;
       ctx.expected_type = .None;
-      evaluated_dup := evaluate_expression_raw(dup_expr, ei.env, ctx, exn);
+      // Evaluate in a PRIVATE copy of the recorded scope: a recorded snapshot is
+      // shared between ExprInfos, and a begin/match inside `dup_expr` pops frames.
+      evaluated_dup := evaluate_expression_raw(dup_expr, snapshot_env(ei.env), ctx, exn);
       ctx.expected_type = saved_expected;
       // Consume the dup-result temp so it is not dropped separately later. The
       // dup temp was added in-place to `ei.env`'s current frame during eval.
