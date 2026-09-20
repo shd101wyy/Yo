@@ -1,7 +1,7 @@
 # The parser accepts an unclosed call paren — at EOF, and across a `;` and the enclosing `}`
 
-**Status: open** (found 2026-09-20 while probing the diagnostics registry's
-E0002 example for the toolchain series). Repros:
+**Status: FIXED 2026-09-20** (found the same day while probing the diagnostics
+registry's E0002 example for the toolchain series). Repros:
 `issues/repros/unclosed-call-paren-eof.yo`,
 `issues/repros/unclosed-call-paren-in-body.yo`.
 
@@ -67,3 +67,20 @@ the first form) — the message the parser already has at `parser.yo:687-688`.
   multi-line call argument lists must keep parsing, and `yo check ./src ./std`
   + the corpus must stay green (a rejection that fires anywhere in the tree
   means the tree relied on the leniency).
+
+## Fix (2026-09-20)
+
+`parse_fn_args` (`src/parser.yo`): `;`, `]`, `}` and end of input end the
+PAREN-LESS call form only; inside `f(` they are E0002 `expected , or ) in
+function call` at the offending token (end of input anchors on the last
+argument). Goldens: `check-unclosed-call-paren`, `check-unclosed-call-paren-eof`;
+the registry's E0002 example reproduces and its exemption in
+`tests/internal/diagnostics_registry_examples.test.yo` is gone.
+
+The stricter parser found four real unbalanced parens the lenient one had
+hidden — `src/evaluator/values/impl.yo:890` and
+`src/evaluator/types/synthesizer.yo:198` (a debug `if(…, {` … `};` whose inner
+`if(` was never closed), the `src/main.yo` dispatch tail (one `)` short), and
+`markdown_yo` v0.0.7's `_is_email_local_char` (one `)` short in a 20-term
+`||` chain, fixed as v0.0.8). Every other file in `src/`, `std/`, `tests/`
+parses unchanged (`fmt --check` over all three).
