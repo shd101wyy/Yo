@@ -11,7 +11,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Path } :: import("std/path");
-{ cwd } :: import("std/env");
+{ cwd, env } :: import("std/env");
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Unicode escape scanning — shared by the lexer (template strings, and
@@ -685,6 +685,31 @@ is_any_temp_variable_name :: (fn(var_name : String) -> bool)({
 });
 // ---------------------------------------------------------------------------
 export(str_lit_unquote_bytes);
+
+// ---------------------------------------------------------------------------
+// Debug knobs (`YO_DEBUG_*`), read from the environment ONCE per name.
+// ---------------------------------------------------------------------------
+// The evaluator's hot paths (`synthesize`, identifier evaluation, parameter
+// matching) each guarded a probe with `env.get(\`YO_DEBUG_...\`)` — a `getenv`
+// per CALL, i.e. a locked linear scan of `environ` — and `__findenv_locked`
+// was 4.4% of `check src/main.yo`'s self time
+// (issues/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md).
+// The process environment does not change while the compiler runs, so the
+// first read is the only one that has to touch libc.
+(g_debug_knobs : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
+/// The value of the `YO_DEBUG_*` knob `name`, read from the environment once.
+debug_knob :: (fn(name : String) -> Option(String))(
+  match(
+    g_debug_knobs.get(name),
+    .Some(cached) => cached,
+    .None => {
+      fresh := env.get(name);
+      _prev := g_debug_knobs.insert(name, fresh);
+      fresh
+    }
+  )
+);
+export(debug_knob);
 export(hex_digit_value, UnicodeEscape, scan_unicode_escape);
 export(
   generate_temp_variable_name_prefix,

@@ -110,7 +110,6 @@ pragma(Pragma.AllowUnsafe);
   force_pending_impls_for_type_name,
   type_head_name_for_impl_forcing
 } :: import("../context.yo");
-{ env : helper_dbg_env } :: import("std/env");
 {
   PathCollection,
   path_collection_new,
@@ -175,6 +174,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../function_value.yo");
 { enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo } :: import("../utils/closure.yo");
 { Exception } :: import("std/error");
+{ debug_knob } :: import("../../utils.yo");
 // ---------------------------------------------------------------------------
 // extract_function_value
 // ---------------------------------------------------------------------------
@@ -1075,7 +1075,7 @@ ${ast_expr_to_string(actual_arg)}`
   // Step 7: Re-evaluate param type with the updated callee_env.
   final_pt := evaluate_function_parameter_type_again(resolved_pt, callee_env_r, ctx);
   // Debug hook (like YO_DEBUG_BIND): trace every param compatibility check.
-  if(match(helper_dbg_env.get(`YO_DEBUG_PARAMCHECK`), .Some(pdbg) => (pdbg.len() > usize(0)), .None => false), {
+  if(match(debug_knob(`YO_DEBUG_PARAMCHECK`), .Some(pdbg) => (pdbg.len() > usize(0)), .None => false), {
     eprintln(`[param-check] label=${param_label} declared=${type_to_string(param_type)} final=${type_to_string(final_pt)} arg=${type_to_string(arg_type)} compat=${are_types_compatible(final_pt, arg_type).to_string()}`);
   });
   // Step 8: Type-compatibility check.
@@ -3142,7 +3142,7 @@ create_specialized_function_inline :: (
               );
             });
           });
-          if(helper_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+          if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
             st_dbg := match(ctx.self_type, .Some(t) => type_key(t), .None => String.from("<none>"));
             st_prev := match(prev_self_type_spec, .Some(t) => type_key(t), .None => String.from("<none>"));
             eprintln(`[specself] fid=${func_id.clone()} src=${spec_self_src} self=${st_dbg} prev=${st_prev}`);
@@ -3913,7 +3913,7 @@ create_specialized_function_inline :: (
                 .Some(sr_rty) => match(
                   adopt_receiver_struct_instance(spec_result, sr_rty),
                   .Some(sr_adopted) => {
-                    if(helper_dbg_env.get(`YO_DEBUG_RRE`).is_some(), {
+                    if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
                       eprintln(`[sr-adopt] spec_result=${type_to_string(spec_result)} recv=${type_to_string(sr_rty)} adopted=${type_to_string(sr_adopted)}`);
                     });
                     spec_result = sr_adopted;
@@ -6409,7 +6409,7 @@ try_to_call_function_with_arguments :: (
       // Step 9: Evaluate return type.
       // ----------------------------------------------------------------
       (return_type : TypeValue) = evaluate_function_return_type_again(ret_b, callee_env_m, ctx);
-      s9_dbg := (in_def_time_trial() && helper_dbg_env.get(`YO_DEBUG_RET`).is_some());
+      s9_dbg := (in_def_time_trial() && debug_knob(`YO_DEBUG_RET`).is_some());
       if(s9_dbg, {
         eprintln(`[s9-init] declared=${type_to_string(ret_b)} after-rte=${type_to_string(return_type)}`);
       });

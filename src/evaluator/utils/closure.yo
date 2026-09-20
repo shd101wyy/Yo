@@ -9,7 +9,6 @@
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
 { String } :: import("std/string");
-{ env : clo_dbg_env } :: import("std/env");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -57,7 +56,7 @@
 {
   register_struct_fields
 } :: import("../types/field.yo");
-{ fnv1a64 } :: import("../../utils.yo");
+{ fnv1a64, debug_knob } :: import("../../utils.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -333,7 +332,7 @@ enrich_captured_variables :: (
           .Some(cap_info) => {
             fl := cap_info.frame_level;
             n_frames := env.frames.len();
-            if(clo_dbg_env.get(`YO_DEBUG_CAPTURE`).is_some(), {
+            if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
               enr_found := get_variables_from_env(env, var_name.clone());
               (enr_cto : usize) = usize(0);
               (enr_k : usize) = usize(0);

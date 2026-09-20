@@ -9,7 +9,6 @@
 //! * `PathCollection` → `PathCollection :: ArrayList(ArrayList(String))`
 //!   imported from `src/expr_info.yo`.
 { String } :: import("std/string");
-{ env : ctx_dbg_env } :: import("std/env");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -43,7 +42,7 @@
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
-{ fnv1a64 } :: import("../utils.yo");
+{ fnv1a64, debug_knob } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
 // ---------------------------------------------------------------------------
@@ -747,7 +746,7 @@ track_variable_usage_resolved :: (
           // drop filter skip the drop of any `own` parameter the body
           // referenced (issues/fixed/own-param-discard-leak.md).
           is_fn_body := match(sub_ctx.kind, .FunctionBody => true, _ => false);
-          if(ctx_dbg_env.get(`YO_DEBUG_CAPTURE`).is_some(), {
+          if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
             trk_top := (is_fn_body && (actual_frame_level == (eval_env.frame_count() - usize(1))));
             eprintln(`[cap-track] name=${variable_name} actual_fl=${actual_frame_level.to_string()} ev_count=${eval_env.frame_count().to_string()} top_excl=${trk_top.to_string()} cto=${v.is_compile_time_only.to_string()}`);
           });
@@ -1212,7 +1211,7 @@ record_def_dependency :: (fn(dependee : String) -> unit)({
       );
       deps.insert(dependee);
       _ := g_def_deps.insert(dk, deps);
-      if(ctx_dbg_env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+      if(debug_knob(`YO_DEBUG_P3DIFF`).is_some(), {
         eprintln(`[p3edge] ${top.name} -> ${dependee}`);
       });
     },
@@ -1222,7 +1221,7 @@ record_def_dependency :: (fn(dependee : String) -> unit)({
 /// Record an ORDERED-statement read (forcing stack empty) of `field` on
 /// `target_module` from `importer`.
 record_module_ordered_read :: (fn(importer : String, target_module : String, field : String) -> unit)({
-  if(ctx_dbg_env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+  if(debug_knob(`YO_DEBUG_P3DIFF`).is_some(), {
     eprintln(`[p3ord] ${importer.clone()} reads ${field.clone()} of ${target_module.clone()}`);
   });
   by_target := match(
@@ -2112,7 +2111,7 @@ force_pending_def :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String))
   // YO_DEBUG_LAZY=1 prints every out-of-order force — the first thing to
   // read when a program's evaluation order (and so its emitted C) differs
   // from the in-order baseline.
-  if(ctx_dbg_env.get(`YO_DEBUG_LAZY`).is_some(), {
+  if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
     eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.len().to_string()})`);
   });
   // Phase 3b: the watch tests' oracle — only the changed definition (+ its

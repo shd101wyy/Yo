@@ -8,7 +8,6 @@
 //! emission sites across the evaluator are untouched by the restructure.
 { String, Pattern } :: import("std/string");
 { ToString, eprintln } :: import("std/fmt");
-{ env : err_dbg_env } :: import("std/env");
 { Error, AnyError } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Token } :: import("./token.yo");
@@ -51,6 +50,7 @@
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW
 } :: import("./diagnostics.yo");
+{ debug_knob } :: import("./utils.yo");
 /// A token paired with an error message for error reporting — the input
 /// currency of the batch builder (ownership-flow errors collect several
 /// related locations in one group).
@@ -521,7 +521,7 @@ stash_error_diagnostics :: (fn(err : AnyError) -> unit)({
   match(
     downcast(err, YoError),
     .Some(ye) => {
-      if(err_dbg_env.get(`YO_DEBUG_DIAGSTASH`).is_some(), {
+      if(debug_knob(`YO_DEBUG_DIAGSTASH`).is_some(), {
         eprintln(`[diagstash] STORE ${ye.diagnostics.len().to_string()} diagnostic(s)`);
       });
       g_last_error_diagnostics = Option(ArrayList(Diagnostic)).Some(ye.diagnostics);
@@ -530,7 +530,7 @@ stash_error_diagnostics :: (fn(err : AnyError) -> unit)({
       // A NON-YoError reached the stash: something upstream flattened the
       // diagnostics to text. This is the channel's only failure mode and it
       // is silent by construction, so name it under the debug hook.
-      if(err_dbg_env.get(`YO_DEBUG_DIAGSTASH`).is_some(), {
+      if(debug_knob(`YO_DEBUG_DIAGSTASH`).is_some(), {
         eprintln(`[diagstash] DROP (not a YoError — already flattened to text): ${render_any_error(err)}`);
       });
     }
@@ -547,7 +547,7 @@ yo_error_from_diagnostics :: (fn(entries : ArrayList(Diagnostic)) -> YoError)(
 );
 take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
   taken := g_last_error_diagnostics;
-  if(err_dbg_env.get(`YO_DEBUG_DIAGSTASH`).is_some(), {
+  if(debug_knob(`YO_DEBUG_DIAGSTASH`).is_some(), {
     eprintln(`[diagstash] TAKE ${match(taken, .Some(d) => d.len().to_string(), .None => String.from("none"))}`);
   });
   g_last_error_diagnostics = Option(ArrayList(Diagnostic)).None;

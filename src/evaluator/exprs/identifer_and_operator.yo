@@ -6,7 +6,6 @@
 //!   - Variable lookup with closure-capture tracking
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ env : ident_dbg_env } :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 {
@@ -32,6 +31,7 @@
 { suggest_name, lookup_std_exporters, Span } :: import("../../diagnostics.yo");
 { is_ghost_binding_name } :: import("../builtins/contracts.yo");
 { Exception } :: import("std/error");
+{ debug_knob } :: import("../../utils.yo");
 /// Evaluate an identifier or operator expression.
 ///
 /// Returns the (possibly annotated) expression after filling in its
@@ -177,13 +177,13 @@ evaluate_identifier_and_operator :: (
     self_tv := match(self_type_opt, .Some(tv) => tv, .None => t_unit());
     resolved := if(is_some_type(self_tv), {
       bound := get_value_of_some_type_from_env(env, self_tv);
-      if(ident_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+      if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         st_r := if(is_some_type(bound), String.from("<unresolved-some>"), type_key(bound));
         eprintln(`[selfatom] path=ctx-some bound=${st_r} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
       });
       if(is_some_type(bound), self_tv, bound)
     }, self_tv);
-    if(ident_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+    if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
       eprintln(`[selfatom] resolved=${type_key(resolved)} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
     });
     ev := create_type_value(resolved);
@@ -220,7 +220,7 @@ evaluate_identifier_and_operator :: (
   // Variable lookup
   // ------------------------------------------------------------------
   identifier_string := token.value;
-  if((identifier == "Self") && ident_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+  if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
     eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
   });
@@ -283,7 +283,7 @@ evaluate_identifier_and_operator :: (
           return(expr);
         });
         // Ordinary identifiers throw.
-        if(ident_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+        if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path} frames=${env.frames.len().to_string()}`);
         });
         // The suggestion doubles as a MECHANICAL REPAIR: the token IS the
@@ -462,7 +462,7 @@ evaluate_identifier_and_operator :: (
                 }),
                 .None => ()
               );
-              if(ident_dbg_env.get(`YO_DEBUG_CAPTURE`).is_some(), {
+              if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
                 cap_dbg_fi := match(found_frame_idx_out.get(usize(0)), .Some(v) => v.to_string(), .None => `?`.to_string());
                 cap_dbg_ev_top := match(sub_ctx.eval_env.frames.get(closure_frame_level - usize(1)), .Some(fr) => fr.id.to_string(), .None => `?`.to_string());
                 cap_dbg_cur_top := match(env.frames.get(env.frames.len() - usize(1)), .Some(fr2) => fr2.id.to_string(), .None => `?`.to_string());

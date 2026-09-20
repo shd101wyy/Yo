@@ -4,7 +4,6 @@
 //! (set_generate_expr_fn) so every emitter's recursive calls land here.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ env : ceg_dbg_env } :: import("std/env");
 { eprintln : ceg_eprintln } :: import("std/fmt");
 {
   AstExpr,
@@ -132,7 +131,7 @@
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
-{ is_temp_variable_name } :: import("../../utils.yo");
+{ is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { generate_async_block, generate_io_async_sync_call, io_async_await_analysis, io_async_closure_body } :: import("./async.yo");
 {
   generate_await,
@@ -632,7 +631,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       // exactly what the hollow-sweep detector defines as HOLLOW.
       out := String.from("// Failed to transpile ");
       out.push_string(ast_expr_to_string(expr));
-      if(ceg_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+      if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         ftk := ast_expr_token(expr);
         ceg_eprintln(`[fttmark] loc=${ftk.module_path}:${ftk.row.to_string()}:${ftk.column.to_string()} expr=${ast_expr_to_string(expr)}`);
       });
@@ -857,7 +856,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
       // makes it fatal when it actually matters.
       out := String.from("// Failed to transpile ");
       out.push_string(ast_expr_to_string(expr));
-      if(ceg_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+      if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         ftk2 := ast_expr_token(expr);
         ceg_eprintln(`[fttmark] loc=${ftk2.module_path}:${ftk2.row.to_string()}:${ftk2.column.to_string()} expr=${ast_expr_to_string(expr)}`);
       });

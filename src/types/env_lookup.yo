@@ -25,10 +25,10 @@ pragma(Pragma.AllowUnsafe);
   is_char_type
 } :: import("./guards.yo");
 { type_to_string } :: import("./string.yo");
-{ env : elu_dbg_env } :: import("std/env");
 { eprintln } :: import("std/fmt");
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, get_variables_from_env } :: import("../env.yo");
+{ debug_knob } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                             if(!was_bound, {
                               was_bound = _def_frame_confirms_binding(env, current, resolved_tv);
                             });
-                            if(elu_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+                            if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
                               cbc_lvl := match(
                                 _some_frame_level(current),
                                 .Some(l) => l,
@@ -433,7 +433,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                               });
                             });
                             if(!was_bound, {
-                              if(elu_dbg_env.get(`YO_DEBUG_SOME`).is_some(), {
+                              if(debug_knob(`YO_DEBUG_SOME`).is_some(), {
                                 crf_lvl := match(
                                   _some_frame_level(current),
                                   .Some(l) => l.to_string(),
@@ -554,7 +554,7 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
               _last_type_binding_frame(env, sn),
               .Some(lbf) => cond(
                 (lbf == sfl) => {
-                  if(elu_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+                  if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
                     cbf_s := type_to_string(tv);
                     if(cbf_s.index_of(String.from("Doc")) != .None, {
                       eprintln(`[chres-fast] id=${sid} name=${sn} lvl=${sfl.to_string()} lbf=${lbf.to_string()} depth=${env.frames.len().to_string()} -> ${cbf_s} mod=${env.module_path}`);

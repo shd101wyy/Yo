@@ -15,7 +15,6 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ env : ctfe_dbg_env } :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom_of, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
 { register_type_display_name } :: import("../../types/string.yo");
@@ -38,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
   lookup_enum_cfid,
   value_to_string
 } :: import("../../value.yo");
-{ stable_module_id } :: import("../../utils.yo");
+{ stable_module_id, debug_knob } :: import("../../utils.yo");
 {
   EvalContext,
   ArgValues,
@@ -636,7 +635,7 @@ evaluate_comptime_fn_call :: (
       // the trial; everywhere else the throw stays (a genuine
       // calling-a-non-function error must not be silently absorbed).
       if(in_def_time_trial(), {
-        if(ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+        if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
           eprintln(`[ctfe-nonfv] fid=${func_id_str}`);
         });
         return(
@@ -666,7 +665,7 @@ evaluate_comptime_fn_call :: (
   // During CTFE capability analysis, return an UnknownVal immediately without
   // executing the body. This prevents infinite recursion in the analysis pass.
   if(ctx.is_analyzing_ctfe_capability, {
-    if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+    if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
       eprintln(`[ctfe-ana-gate] fid=${func_id_str}`);
     });
     return(
@@ -705,7 +704,7 @@ evaluate_comptime_fn_call :: (
       (!(macro_return_is_unquote(func_id_str.clone())))
   ) &&
     (ctfe_gate_forall_n == usize(0)), {
-    if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+    if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
       eprintln(`[ctfe-check-gate] fid=${func_id_str}`);
     });
     return(
@@ -795,7 +794,7 @@ evaluate_comptime_fn_call :: (
       )
     );
   });
-  if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+  if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
     (dbge_args : String) = String.from("");
     (dbge_i : usize) = usize(0);
     while(dbge_i < all_arg_vals.len(), {
@@ -852,7 +851,7 @@ evaluate_comptime_fn_call :: (
   // measured executing) under the same no-durable-cache regime.
   trial_type_ctor_unknown_ok := (in_def_time_trial() && is_type_hierarchy_type(return_type));
   if(any_arg_unknown && !(trial_type_ctor_unknown_ok), {
-    if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+    if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
       (dbg_args : String) = String.from("");
       (dbg_i : usize) = usize(0);
       while(dbg_i < all_arg_vals.len(), {
@@ -1058,7 +1057,7 @@ evaluate_comptime_fn_call :: (
   match(
     cached_result,
     .Some(cached_val) => {
-      if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+      if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
         eprintln(`[ctfe-hit] fid=${func_id_str} result=${value_to_string(cached_val)}`);
       });
       return(
@@ -1368,7 +1367,7 @@ evaluate_comptime_fn_call :: (
       .None => ()
     );
   });
-  if(in_def_time_trial() && ctfe_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+  if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
     eprintln(`[ctfe-out] fid=${func_id_str} result=${value_to_string(final_return_value)}`);
   });
   ComptimeFnCallResult(
