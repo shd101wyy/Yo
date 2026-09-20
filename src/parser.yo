@@ -657,6 +657,19 @@ impl(
         self.tokens.get(idx),
         .Some(t) => t,
         .None => {
+          // A parenthesised call whose input ends before its `)`: an
+          // unclosed `f(x` used to parse as a complete call
+          // (issues/fixed/parser-accepts-an-unclosed-call-paren.md).
+          if(!(has_whitespace), {
+            exn.throw(
+              dyn(
+                make_parse_error(
+                  ast_expr_token(arg_pr.expr),
+                  `expected , or ) in function call — the input ended before the argument list was closed`
+                )
+              )
+            );
+          });
           return(FnArgsResult(args : args, index : idx));
         }
       );
@@ -668,6 +681,14 @@ impl(
           idx = (idx + usize(1));
         },
         (((curr.kind == TokenKind.Semicolon) || (curr.kind == TokenKind.RBracket)) || (curr.kind == TokenKind.RCurlyBracket)) => {
+          // These end the PAREN-LESS call form only. Inside `f(` they mean
+          // the `)` is missing: `f(i32(1);` used to become a call whose
+          // argument list was a block that swallowed the next statement,
+          // with the enclosing `}` accepted inside the still-open `(`
+          // (issues/fixed/parser-accepts-an-unclosed-call-paren.md).
+          if(!(has_whitespace), {
+            exn.throw(dyn(make_parse_error(curr, `expected , or ) in function call`)));
+          });
           return(FnArgsResult(args : args, index : idx));
         },
         (curr.kind == TokenKind.RParen) => {
