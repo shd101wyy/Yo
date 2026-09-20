@@ -307,3 +307,78 @@ the marker Variable's synthetic token module_path (the binding at the
 SomeT's true def frame carries the minting module's path; a drifted
 frame's T does not). Probe: print the given slot's id + frame_level and
 the env frame count at the bind — the drift becomes arithmetic.
+
+## MECHANISM COMPLETE 2026-09-20: cross-generation reads of shared signature slots (the arithmetic + the refutations)
+
+The probe landed. Every Doc-flavored resolution feeding the fatal unify is
+OUT OF RANGE (`lvl >= depth`, e.g. `id=43 lvl=3 depth=2`, `id=28 lvl=2
+depth=2`; 116/116 out-of-range, 0 in-range) — the (frame_level, name) fast
+path correctly refuses; the NAME-KEYED last-binding-wins fallback in
+`_do_chain_resolve` fabricates. Two further refutations measured:
+
+- **Stack-addressability gate** (refuse out-of-range starts in
+  `_chain_resolve`, `YO_SOME_GATE`): cuts all 4700+ out-of-range
+  resolutions — and BREAKS file 1 (`__yo_ptr_add` E0605 at prelude:6801).
+  LEGIT shared-signature reads are ALSO out-of-range (the signature's slot
+  is minted at module-eval depth; the callee env is shallower). Range is
+  NOT the discriminator — ownership is. Gate removed.
+- **Per-call SIGNATURE CLONE v1** (wrapper over
+  `try_to_call_function_with_arguments`): cold-green but a MEMORY BOMB —
+  `compute_compile_time_signature` renders the (cloned) signature into the
+  specialized func_id, so fresh ids per call = a unique specialization per
+  call = unbounded cache/spec growth (~100 MB/s, killed at a 16 GB cap;
+  the third WSL crash). The spec-cache machinery's currency is SHARED-id
+  stability. Any clone must decouple CACHE/SIG keys (computed from the
+  original) from CALL BINDINGS (from the clone).
+
+**The full chain, measured with [bindsome]/[synth-mix]/[chres-oor]:**
+
+1. Slot `T@28` is a SHARED SIGNATURE slot (one id for every call of its
+   function). Within file 1 alone it is legitimately REBOUND per call:
+   `T@28 := *(DocFunction)` … `:= *(DocParam)` … `:= *(DocField)`
+   (successive `*(T)`-family dispatches in render_markdown).
+2. A value STORED during one of those calls (the impl registry's
+   `HashMap(String, ArrayList(GenericImplEntry))` instance; its `V` arg
+   carries slot lineage) keeps the slot UNRESOLVED inside `type_arguments`.
+3. In file 2's fatal `.get` dispatch, resolving that stored slot through
+   the ambient env pairs it with whatever the LAST writer bound —
+   `*(ArrayList(DocParam))` — regardless of generation. The wrong bind
+   (`[bindsome] name=T src_id=1784 ty=ArrayList(DocParam)`) then lands and
+   the annotated assignment unifies `GenericImplEntry` vs `DocParam`.
+
+Within a linear bind history the ownership pairing (below) is exact; what
+it cannot fix is that the history itself mixes generations of ONE slot.
+
+**Ownership-pairing + marker-preservation: implemented, measured, REVERTED.**
+Both changes were cold-green on the light gates (`yo check ./src` 275/275,
+`path.test.yo` 89/89, `std` 3/3) but the fast suite's third batch
+(tests/arc.test.yo) failed at C compile: the closure `io` param's `Io`
+trait type split into TWO structurally identical C structs. A/B isolation:
+pairing-only (marker preservation disabled) STILL failed; old
+`_was_self_bound` semantics (both changes off) PASSED 15/15. Root cause of
+the misattribution: the pairing's invariant — "every concrete `T`-binding
+is preceded by its own SomeT marker" — does NOT hold; binder paths exist
+that append concretes without markers (e.g. `_resolve_one_forall_binding`'s
+abstract acceptance, closure-type registrations), so a foreign concrete can
+sit directly above OUR marker and the pairing hands it to us anyway (or,
+with the marker elsewhere, strands a legitimately-trusted binding). Both
+changes are reverted from the tree; the A/B record lives here so the next
+attempt starts from the measured failure, not from scratch. Any revival
+needs the invariant enforced at EVERY concrete append site first.
+
+Probes kept (YO_DEBUG_WARM gated, unless noted): `[syn-giv]` (synthesizer
+given-side fetch), `[synth-mix]` (synthesis entry, GenericImplEntry/Doc
+mixes), `[chres-oor]`/`[chres-fast]` (resolver channels; `chres-refuse`
+also needs YO_DEBUG_SOME), `[src-collide]` (registry collisions), `[chan2]`
+(registry reads into impl matches).
+
+**The remaining cure (chosen direction): resolve-before-store at
+instantiation.** Cold processes store CONCRETE type arguments in
+instances; the warm path stores unresolved shared slots (finding #1 of the
+2026-09-19 root-cause section). Fix the constructor/instantiation path
+(`inst_type_args` family, evaluator calls) so a stored instance's
+`type_arguments` carry the RESOLVED concrete args (substitute the binding
+at instantiation time), making stored values generation-free. The stored
+registry map then never presents a slot to a later reader. Alternative if
+that proves too invasive: the decoupled clone (cache keys from the
+original signature, bindings from a per-call clone).
