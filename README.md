@@ -134,21 +134,24 @@ $ yo build run              # Build and run
 Hello, world!
 ```
 
-`yo init` generates a project with a build file, source, and tests — plus the
-bundled agent skill files and `AGENTS.md`/`CLAUDE.md` so AI coding agents pick
-up version-matched Yo knowledge (skip with `yo init --no-skills`):
+`yo init` generates a project with a manifest, a build file, source, and tests
+— plus the bundled agent skill files and `AGENTS.md` so AI coding agents pick up
+version-matched Yo knowledge (skip with `yo init --no-skills`):
 
 ```
 my-project/
+├── yo.toml               # Package manifest: name, modules, dependencies (edited by yo add)
 ├── build.yo              # Build configuration
 ├── src/
 │   ├── main.yo           # Entry point
 │   └── lib.yo            # Library module
 ├── tests/
-│   └── main.test.yo      # Unit tests
+│   ├── main.test.yo      # Unit tests for the executable
+│   └── lib.test.yo       # Unit tests for the library
 ├── .agents/skills/       # Agent skill files (AGENTS.md lists them)
 ├── AGENTS.md             # Guidance for AI coding agents
-└── CLAUDE.md             # Points at AGENTS.md
+├── .gitignore
+└── README.md
 ```
 
 `src/main.yo`:
