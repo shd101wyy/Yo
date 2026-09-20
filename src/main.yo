@@ -2003,7 +2003,15 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
               detail := match(
                 obl.verdict,
                 .Proved(_) => String.from("PROVED"),
-                .Refuted(ce) => `REFUTED  counter-example: ${_verify_join_strs(ce, String.from(", "))}`,
+                // A folded refutation has no model to print (the verdict
+                // came from constant folding, not a solver run) — the
+                // empty list used to render "counter-example: " with
+                // nothing after it.
+                .Refuted(ce) => if(
+                  ce.len() == usize(0),
+                  String.from("REFUTED"),
+                  `REFUTED  counter-example: ${_verify_join_strs(ce, String.from(", "))}`
+                ),
                 .Unproven(reason) => `UNPROVEN  ${reason}`,
                 .SolverError(msg) => `SOLVER-ERROR  ${msg}`
               );
@@ -5247,9 +5255,24 @@ run_test :: (
         // travels as a flag. A
         // runaway comptime loop in one batch now fails THAT batch with a
         // named error instead of hanging until the CI job timeout with no
-        // indication of which file was responsible.
+        // indication of which file was responsible. The user's
+        // `--compile-timeout-ms` (which sets THIS process's evaluator
+        // deadline above) rides to the child too — the 600000 default is
+        // what a batch of the self-hosted compiler used to need, and the
+        // tree outgrew it: the reference verifier battery's batches now
+        // exceed 600 s of comptime on the audit box with EVERY seed
+        // (measured 2026-09-20: `yo check tests/internal/verifier.test.yo`
+        // = 651 s on the v0.2.38 evaluator), so the default silently
+        // killed every local battery run while CI's faster runners kept
+        // passing.
         cargv.push(String.from("--compile-timeout-ms"));
-        cargv.push(String.from("600000"));
+        cargv.push(
+          if(
+            compile_timeout_ms != "",
+            compile_timeout_ms.clone(),
+            String.from("600000")
+          )
+        );
         // The runner's --profile rides along: the child prints its own
         // per-phase table (stderr is inherited).
         if(test_profile, {
