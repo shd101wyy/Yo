@@ -1,0 +1,21 @@
+{ String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
+
+// A cache-backed lookup: a runtime call whose result is a user-defined
+// Option — the receiver shape whose `.is_some()` specialization exists
+// nowhere but in the module-level initializer below.
+(g_knobs : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
+
+knob :: (fn(name : String) -> Option(String))(
+  match(
+    g_knobs.get(name),
+    .Some(c) => c,
+    .None => {
+      fresh := if(name == "ON", Option(String).Some(String.from("1")), Option(String).None);
+      _p := g_knobs.insert(name, fresh);
+      fresh
+    }
+  )
+);
+
+export(knob);
