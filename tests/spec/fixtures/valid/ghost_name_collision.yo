@@ -1,0 +1,17 @@
+// Regression (FV audit 2026-09-20): a plain local that happens to share its
+// NAME with a `ghost(name := e)` binding created in ANOTHER module must stay
+// an ordinary binding. The escape gate asks the RESOLVED Variable's own
+// `is_ghost_binding` flag, not a process-global name set — loading
+// valid/ghost_binding.yo (ghost(prev := x)) used to poison every later
+// module's plain local `prev` for the rest of the process, so a multi-file
+// `yo verify` run rejected unrelated modules
+// (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
+// The verifier_ghost test loads ghost_binding.yo BEFORE this file in the
+// same process.
+pragma(Pragma.Verify);
+
+bump :: (fn(x : i32) -> (result : i32))({
+  prev := x;
+  prev = (prev + i32(1));
+  prev
+});

@@ -243,18 +243,13 @@ BF_MS_OF :: "ms_of";
 BF_SET_SINGLE :: "set_single";
 BF_SET_ADD :: "set_add";
 BF_SET_CONTAINS :: "set_contains";
-/// V5 task 3: the ghost-BINDING name set. `ghost(name := e)` registers the
-/// bound name here; identifier resolution (identifer_and_operator.yo)
-/// rejects reads of these names from non-ghost context — the "ghost value
-/// escapes specification context" error.
-(g_ghost_binding_names : HashSet(String)) = HashSet(String).new();
-register_ghost_binding :: (fn(name : String) -> unit)({
-  g_ghost_binding_names.insert(name);
-  ()
-});
-is_ghost_binding_name :: (fn(name : String) -> bool)(
-  g_ghost_binding_names.contains(name)
-);
+/// V5 task 3: the ghost-BINDING identity lives ON the bound Variable
+/// (`Variable.is_ghost_binding`, set by `evaluate_ghost`) — the escape gate
+/// asks the RESOLVED variable, so an unrelated binding sharing only the
+/// name is unaffected. The old process-global name set
+/// (`g_ghost_binding_names` + `register_ghost_binding`/
+/// `is_ghost_binding_name`) was removed by the FV audit when it turned
+/// the gate into a cross-module false rejection.
 /// `ghost(...)` — V5 task 3 slice 2: `ghost(name := e)` BINDS the name
 /// for spec use ONLY (contract clauses, ghost code, ghost_fn bodies, and —
 /// in VERIFICATION targets — assert predicates) in EVERY mode: the binding
@@ -300,7 +295,7 @@ evaluate_ghost :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn 
             .Some(ri) => ri,
             .None => new_expr_info(env, t_unit())
           );
-          _ := add_variable_to_env(
+          ghost_var := add_variable_to_env(
             env,
             nm.clone(),
             r_info.ty,
@@ -311,7 +306,21 @@ evaluate_ghost :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn 
             false,
             ast_expr_token(first)
           );
-          register_ghost_binding(nm.clone());
+          // Mark the RESOLVED Variable itself as the spec-only binding —
+          // the escape gate (identifer_and_operator.yo) reads this flag,
+          // NOT a process-global name set. A global name set rejected an
+          // unrelated binding that merely shares the name in another
+          // module (or another function of the same module): loading a
+          // fixture with `ghost(v := ...)` poisoned every later module's
+          // plain local `v` for the rest of the process
+          // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
+          match(
+            ghost_var,
+            .Some(gv) => {
+              gv.is_ghost_binding = true;
+            },
+            .None => ()
+          );
           out_info := new_expr_info(r_info.env, t_unit());
           out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -2926,8 +2935,6 @@ export(
   register_ghost_fn,
   ghost_fn_def_of,
   is_ghost_fn,
-  register_ghost_binding,
-  is_ghost_binding_name,
   evaluate_seq_unit,
   evaluate_seq_append,
   evaluate_seq_len,
