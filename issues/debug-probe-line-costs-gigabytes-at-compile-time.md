@@ -1,7 +1,9 @@
 # A 5-line debug-probe enrichment in synthesizer.yo cost +11.7 GB / +2.9x wall of SEED-compile memory — compile-time, with the probe never firing
 
-**Status: OPEN (the probe is reverted; the underlying compile-cost mechanism
-is the open part).** Found 2026-08-24 root-causing what was first
+**Status: ROOT-CAUSED 2026-09-20 (standalone repro below); fix pending in the
+same campaign (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 7).** Originally:
+OPEN (the probe is reverted; the underlying compile-cost mechanism is the open
+part). Found 2026-08-24 root-causing what was first
 misdiagnosed as "S1 std growth hit a memory wall"
 (issues/retired/std-s1-prelude-growth-tripled-self-emit-memory.md — superseded by
 this doc's finding).
@@ -75,3 +77,45 @@ PARAMETERS or precomputed strings, not match-unwrapped values routed
 through big recursive formatters. Measure the self-emit peak
 (`/usr/bin/time -l`, with vendor initialized!) before landing any probe in
 src/evaluator/.
+
+## Root cause (2026-09-20)
+
+**The evaluator's cost is ~4× per level of a left-nested method-call chain,
+and a template string with N interpolations IS such a chain.**
+`parse_template_string` (`src/parser.yo`) folds the parts as
+`(prev.+)(part)` — a `.`-callee method call per part, each part wrapped in
+`.to_string()` — so N interpolations produce ~2N nesting levels. In
+`evaluate_function_call` (`src/evaluator/calls/function.yo`) a DOT callee's
+receiver is evaluated to resolve the method, and then the SAME receiver AST
+node is pushed into `all_args` (~line 6905, `all_args.push(method_info.receiver_expr)`)
+and evaluated again by argument matching; further re-visits (the operator
+path's `evaluate_expression_raw(first_arg, …)` at the head of the function,
+def-time trial + real evaluation) bring the measured multiplicity to ~4 per
+level, compounding down the chain.
+
+Standalone repro, v0.2.38, `yo check` of a 15-line program whose one
+function binds N `String` locals and prints them in ONE template:
+
+| N interpolations | footprint | wall   |
+| ---------------- | --------- | ------ |
+| 5                | 1.21 GB   | 3.4 s  |
+| 6                | 1.23 GB   | 3.6 s  |
+| 7                | 1.34 GB   | 4.2 s  |
+| 8                | 1.78 GB   | 7.3 s  |
+| 9                | 3.57 GB   | 19 s   |
+| **10**           | **10.7 GB** | **67 s** |
+| manual `((s0 + s1) + s2)…` chain of 20 operands | 4.38 GB | 26 s |
+| `s.clone().clone()…` × 20                        | 7.72 GB | 42 s |
+
+The increments 0.11 / 0.44 / 1.79 / 7.1 GB are ×4 per level. The 2026-08-24
+probe (`[bind-T]`, +11.7 GB) and #800's `[chres-oor]` probe (+11.6 GB,
+`issues/seven-gated-debug-probes-cost-11-gb-of-check-memory.md`) were both
+10-interpolation templates; the "match-unwrapped unknown fed to a recursive
+formatter" hypothesis was wrong — the formatter never mattered, the count
+did.
+
+Fix direction: the receiver of a method call must be evaluated ONCE (reuse
+its recorded `ExprInfo` when argument matching meets an already-evaluated
+node), and the template fold should not need to be left-nested at all. The
+parser-side flattening alone would leave `a.f().g().h()` chains exponential,
+so the evaluator fix is the real one; the repro shapes above are the gate.

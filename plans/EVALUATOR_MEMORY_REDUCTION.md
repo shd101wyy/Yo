@@ -84,6 +84,43 @@ bisect before anything is optimized**; the rest of this plan does not depend on
 the answer because every lever below removes objects that are retained under
 BOTH commands.
 
+### 0.2b Phase 0 step 5 — the per-release series, and the answer (2026-09-20)
+
+`check src/main.yo --std-path ./std`, each tag's own tree with its own seed
+binary (v0.2.31 has no bundle on this machine), plus the develop commits since
+the v0.2.38 tag with the v0.2.38 binary:
+
+| tree                  | footprint    | wall   | note                                   |
+| --------------------- | ------------ | ------ | -------------------------------------- |
+| `v0.2.37`             | 19.35 GB     | 162 s  |                                        |
+| `v0.2.38`             | 19.92 GB     | 170 s  |                                        |
+| `24fcd192f` (#802)    | 19.90 GB     | 170 s  |                                        |
+| `7eada73f8` (#800)    | **31.55 GB** | **350 s** | seven gated debug probes             |
+
+So the §0.1 baseline (19.33 GB on `49d75c665`) was flat across the last two
+releases, and the SAME afternoon #800 added 11.6 GB. The cause is F8, now
+root-caused: **one template string with ten interpolations**. Template
+strings fold into a left-nested `.+` method chain and the evaluator costs
+~4× per chain level (receiver evaluated once to resolve the method and again
+as the `self` argument, compounding) — a 15-line program with a
+10-interpolation template checks at 10.7 GB / 67 s
+(`issues/debug-probe-line-costs-gigabytes-at-compile-time.md`, with the growth
+curve and the isolation table in
+`issues/seven-gated-debug-probes-cost-11-gb-of-check-memory.md`). The
+probes are removed in Phase 1's PR; the evaluator fix is Phase 7, promoted to
+run right after Phase 1 because every `a.f().g().h()` chain in user code pays
+the same curve.
+
+**F3 correction (audit by grep was wrong).** Stored snapshots ARE mutated:
+65 sites re-adopt a recorded env's frame LIST by handle
+(`env.frames = info.env.frames;` — the TS-era "env = info.env" idiom), after
+which a `push_env_frame` on the live env writes into that snapshot's list.
+Snapshot sharing therefore needs the adoption sites to take a COPY
+(`copy_frames`), otherwise one push would rewrite every sharer's recorded
+scope; Phase 2 below is amended accordingly, and only `new_expr_info`'s two
+snapshot sites share (the 19 other `snapshot_env` callers build scratch envs
+they go on to mutate).
+
 ### 0.3 How to measure (the rules that bit earlier campaigns)
 
 - **Peak footprint, never RSS.** `/usr/bin/time -l <cmd>` → `peak memory

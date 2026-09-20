@@ -1,9 +1,10 @@
 # Seven gated `YO_DEBUG_WARM` probes (#800) cost +11.6 GB / +180 s on `check src/main.yo` — the F8 compile-cost mechanism, measured again
 
-**Status: MEASURED 2026-09-20; the probes are removed in this branch (that
-recovers the 11.6 GB); the MECHANISM stays open in
-`issues/debug-probe-line-costs-gigabytes-at-compile-time.md` and this doc
-records what the new repro attempts ruled out.**
+**Status: ROOT-CAUSED 2026-09-20.** The probes are removed in this branch (that
+recovers the 11.6 GB); the mechanism — one template string with TEN
+interpolations, evaluated at ~4× cost per nesting level — is recorded in
+`issues/debug-probe-line-costs-gigabytes-at-compile-time.md`, which now has a
+15-line standalone repro.
 
 ## Measurement
 
@@ -60,3 +61,27 @@ The seven blocks and the helper are removed (the `doc_stability` investigation
 they served is closed by #800 itself). This is cleanup of debugging residue,
 not the fix for the mechanism; the mechanism is F8 / Phase 7 of
 `plans/EVALUATOR_MEMORY_REDUCTION.md`.
+
+## Isolation (2026-09-20, `check src/evaluator/types/synthesizer.yo`, v0.2.38 binary)
+
+| variant of the #800 tree                                   | footprint | wall   |
+| ---------------------------------------------------------- | --------- | ------ |
+| all seven probes (as merged)                               | 19.84 GB  | 149 s  |
+| probe BODIES removed, the new imports kept                 | 7.35 GB   | 41 s   |
+| #802 tree (no probes)                                      | 7.35 GB   | 42 s   |
+| only `expr_info.yo`'s probe restored                       | 7.35 GB   | 41 s   |
+| only `impl.yo`'s probe restored                            | 7.36 GB   | 41 s   |
+| only `synthesizer.yo`'s three probes restored              | 7.39 GB   | 42 s   |
+| only `env_lookup.yo`'s three probes restored               | 19.81 GB  | 146 s  |
+| `env_lookup.yo`: `[chres-fast]` only                       | 7.50 GB   | 42 s   |
+| `env_lookup.yo`: `[chres-oor]` + `[chres-refuse]`          | 19.64 GB  | 149 s  |
+| `[chres-oor]` only                                         | 19.61 GB  | 150 s  |
+| `[chres-refuse]` only                                      | 7.41 GB   | 42 s   |
+| `[chres-oor]` without the `_was_self_bound_frame` call     | 19.62 GB  | 148 s  |
+| `[chres-oor]` with its template cut to ONE interpolation   | 7.33 GB   | 41 s   |
+| `[chres-oor]` template: first 5 / last 5 interpolations    | 7.36 / 7.37 GB | 41 / 42 s |
+| `[chres-oor]` template: first 8 / first 9 / all 10         | 8.12 / 10.35 / 19.6 GB | 47 / 64 / 148 s |
+
+One template string with ten `${…}` was the whole cost; six of the seven
+probes were free. Its cost grows ~4× per added interpolation past ~7, and
+the same growth reproduces in a 15-line program (the F8 issue).
