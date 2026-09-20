@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-20 — audit complete, nothing implemented.** Written
+**Status: ACTIVE 2026-09-20 — Phase 0 steps 1/4/5 and Phase 1 landed, Phase 7's bug root-caused and FIXED (PR `perf/evaluator-memory-p1`: `check src/main.yo` 19.9 → 10.2 GB, 170 → 90 s); Phase 2 (F3) implemented on the stacked branch `perf/evaluator-memory-p2-f3`, measuring.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -70,7 +70,7 @@ is macOS phys_footprint; "tracked live" is the allocator-boundary instrument of
 | 2026-08-18 | `_inject_forall_captures` memo       | tracked live 19.07 → 14.94 GB (−4.1 GB), wall −35%           | `backlog/RC_HEADER_SPLIT.md`               |
 | 2026-08-18 | ExprInfo accessor diet (REFUTED)     | diet binary −1.8 GB on same input, diet SOURCE +3.9 GB to compile (~10 MB retained per new call site) | `backlog/RC_HEADER_SPLIT.md` |
 | 2026-08-23 | FuncVal env sharing (steps 2+3)      | 17.19 → 16.08 GB footprint (self-emit, seed compile)         | `backlog/FUNCVAL_ENV_SHARING.md`           |
-| 2026-08-24 | one 5-line debug probe               | seed compile 17.5 → 29.1 GB, +2.9× wall, probe never fires   | `issues/debug-probe-line-costs-gigabytes-at-compile-time.md` |
+| 2026-08-24 | one 5-line debug probe               | seed compile 17.5 → 29.1 GB, +2.9× wall, probe never fires   | `issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md` |
 | 2026-09-20 | `check src/main.yo`                  | **19.33 GB** (this document)                                  | §0.1                                       |
 
 Read the two bold rows together: five weeks ago the evaluator-only `check` was
@@ -83,6 +83,69 @@ window), or something regressed. **Phase 0 step 2 settles this with a per-releas
 bisect before anything is optimized**; the rest of this plan does not depend on
 the answer because every lever below removes objects that are retained under
 BOTH commands.
+
+### 0.2b Phase 0 step 5 — the per-release series, and the answer (2026-09-20)
+
+`check src/main.yo --std-path ./std`, each tag's own tree with its own seed
+binary (v0.2.31 has no bundle on this machine), plus the develop commits since
+the v0.2.38 tag with the v0.2.38 binary:
+
+| tree                  | footprint    | wall   | note                                   |
+| --------------------- | ------------ | ------ | -------------------------------------- |
+| `v0.2.37`             | 19.35 GB     | 162 s  |                                        |
+| `v0.2.38`             | 19.92 GB     | 170 s  |                                        |
+| `24fcd192f` (#802)    | 19.90 GB     | 170 s  |                                        |
+| `7eada73f8` (#800)    | **31.55 GB** | **350 s** | seven gated debug probes             |
+
+So the §0.1 baseline (19.33 GB on `49d75c665`) was flat across the last two
+releases, and the SAME afternoon #800 added 11.6 GB. The cause is F8, now
+root-caused: **one template string with ten interpolations**. Template
+strings fold into a left-nested `.+` method chain and the evaluator costs
+~4× per chain level (receiver evaluated once to resolve the method and again
+as the `self` argument, compounding) — a 15-line program with a
+10-interpolation template checks at 10.7 GB / 67 s
+(`issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md`, with the growth
+curve and the isolation table in
+`issues/fixed/seven-gated-debug-probes-cost-11-gb-of-check-memory.md`). The
+probes are removed in Phase 1's PR; the evaluator fix is Phase 7, promoted to
+run right after Phase 1 because every `a.f().g().h()` chain in user code pays
+the same curve.
+
+**F3 correction (audit by grep was wrong).** Stored snapshots ARE mutated:
+65 sites re-adopt a recorded env's frame LIST by handle
+(`env.frames = info.env.frames;` — the TS-era "env = info.env" idiom), after
+which a `push_env_frame` on the live env writes into that snapshot's list.
+Snapshot sharing therefore needs the adoption sites to take a COPY
+(`copy_frames`), otherwise one push would rewrite every sharer's recorded
+scope; Phase 2 below is amended accordingly, and only `new_expr_info`'s two
+snapshot sites share (the 19 other `snapshot_env` callers build scratch envs
+they go on to mutate).
+
+### 0.2c Phase 1 measured (2026-09-20)
+
+Same source tree both sides (`24fcd192f`, probe-free), `check src/main.yo
+--std-path ./std`, quiet machine:
+
+| binary                                                   | footprint    | wall   |
+| -------------------------------------------------------- | ------------ | ------ |
+| seed v0.2.38                                             | 19.90 GB     | 170 s  |
+| Phase 1 (walk `ctx` released, spec-cache `env` removed) + #804 | 17.61 GB | 145 s |
+| + the F8 fix (receiver evaluated once per call)          | **10.16 GB** | **90 s** |
+| same binary on the #800 tree (the seven probes present)  | 10.16 GB     | 90 s   |
+
+F1 is worth **2.3 GB (11.5%)**: the per-module tables of finished walks are
+one holder among several. **The F8 fix is worth another 7.4 GB and 55 s on
+the compiler's own source** — `src/` has a 19-deep method chain
+(`lsp/server.yo:257`, the capabilities JSON builder), two 8-interpolation
+templates and dozens of 5–7-deep chains, each of which cost 2^depth
+evaluations — and it makes the seven #800 probes free (31.55 → 10.16 GB on
+that tree). Together: the evaluator's footprint on `check src/main.yo` is
+**halved** (19.9 → 10.2 GB) and wall time −47%, with the emitted C unchanged
+(fixpoint holds; the seed-vs-new emit comparison is recorded below when it
+lands). The rest of the live set is reachable from the module cache
+(function values → bodies → their def-time `ExprInfo`s through
+`g_funcval_def_envs` and the specialization caches); Phase 0 step 3's holder
+attribution remains the measurement that ranks what is left.
 
 ### 0.3 How to measure (the rules that bit earlier campaigns)
 
@@ -412,7 +475,7 @@ strings are names versus content.
 Two independent measurements: the ExprInfo accessor diet cost +3.9 GB to
 COMPILE (~370 accessor calls → "~10 MB of retained evaluation state per call
 site"), and one 5-line gated debug probe cost +11.7 GB / +2.9× wall of seed
-compile (`issues/debug-probe-line-costs-gigabytes-at-compile-time.md`, open).
+compile (`issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md`, open).
 Both point at one mechanism in def-time trial evaluation / specialization
 (suspects: a new binding shape driving `value_to_string`-class recursive
 formatters through fresh unknown lineages; per-interpolation cost in template
@@ -575,21 +638,25 @@ instruments durable and answer the three questions the ranking depends on.
 
 ### Phase 2 — env-snapshot sharing (F3): byte-identical C
 
-1. **Re-audit mutation of stored snapshots by instrumentation, not grep**: a
-   debug build where `snapshot_env` marks the returned `Environment` frozen
-   (a bool field, debug-only) and `push_env_frame`/`pop_env_frame`/every
-   `env.frames.<mutator>` site panics on a frozen env. Run the fast suite,
-   `check ./src`, `check ./std`. Fix any hit by copying before mutating.
-2. **Scope version.** Add `(snapshot_version : usize)` to `Environment`
-   (bumped by `push_env_frame`, `pop_env_frame`, `add_variable_to_env`
-   creating a new frame, `clone_env`, and every direct `frames.push/pop`
-   found in step 1) and a per-env memo `(last_snapshot : Option(Environment),
-   last_snapshot_version : usize)`. `snapshot_env(env)` returns the memoized
-   snapshot when the version matches, else builds one and memoizes it.
-   Adding fields to `Environment` changes `sizeof` by 8-32 B — net negative
-   once 5 M snapshots collapse; confirm with the census.
-   Note the memo must hold a handle to the snapshot (an RC bump), and the
-   snapshot must not point back at the live env (no cycle).
+Amended 2026-09-20 after the audit found the 65 adoption sites (§0.2b):
+
+1. **Adoption sites copy.** Every `env.frames = X.env.frames;` becomes
+   `env.frames = copy_frames(X.env.frames);` (`copy_frames` in `src/env.yo`,
+   a shallow copy of the handle list). This is what makes sharing sound: a
+   live env can then never alias a recorded snapshot's list, so a later push
+   cannot rewrite a recorded scope. It costs one list per adoption executed
+   and is applied mechanically (`scripts`-free: a regex over `src/`, 65 sites
+   in 31 files, asserted count).
+2. **Frame-sequence memo instead of a version counter.** `Environment` gets
+   `snapshot_memo : Option(Environment)`; `expr_info_env_snapshot(env)` (used
+   ONLY by `new_expr_info` and `clone_expr_info_for_shared_begin_result`)
+   returns the memoized snapshot when its frame sequence equals the live
+   env's (compared by `Frame.id`, O(depth)), else `snapshot_env`s a fresh one
+   and memoizes it. No version bookkeeping at the 65 mutation sites is needed:
+   equality of the sequence IS the validity test, since frames append in
+   place. The other 19 `snapshot_env` callers build scratch envs they go on
+   to mutate and keep private copies. A snapshot's own memo stays `.None`
+   (no cycle: snapshots hold Frame handles, never the live env).
 3. Prove: emitted C byte-identical on the corpus (`scripts/cli-diff-test.sh`
    + the self-emit diff), `fixpoint_only.sh`, `gates_fast.sh`. Measure:
    `Environment` live count should fall by the share of consecutive
@@ -679,6 +746,19 @@ byte-identical" (they change bookkeeping, not what is emitted):
   keep a lazily-created cell for the `PtrVal.target_value` case only).
 
 ### Phase 7 — the super-linear compile-cost bug (F8), then the diet
+
+**Steps 1–3 DONE 2026-09-20** (in the Phase 1 PR, because #800 had just made
+it a 12 GB regression): the mechanism was the evaluator evaluating a method
+receiver twice per call (once to resolve the method, once as `self`) and an
+infix operator's first operand likewise, so a left-nested chain cost
+2^depth — a template string with N interpolations is a 2N-deep `.+` chain
+(`issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md`). Fixed
+by marking the node pre-evaluated for the call's argument matching; ratchet
+in `gates_fast.sh` GATE 0 (a twelve-interpolation repro under 120 s); values
+pinned in `tests/template_string_specs.test.yo`. Step 4 (the diet) is now
+unblocked and stays sequenced after Phase 3.
+
+The original investigation plan, kept for the record:
 
 1. Distil the repro from the issue: a module-level fn with a gated `eprintln`
    whose template interpolates a match-unwrapped unknown through a large

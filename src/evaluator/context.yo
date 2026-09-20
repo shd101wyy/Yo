@@ -219,9 +219,9 @@ SpecializedFunctionCache :: ref(
     /// from others with the same compile-time args.
     runtime_parameter_types : ArrayList(TypeValue),
     /// The specialized function value (EvalValue.FuncVal with updated func_id).
-    specialized_func_value : EvalValue,
-    /// The environment at cache-creation time (for value equality checks).
-    env : Environment
+    /// (A retained `env : Environment` field used to sit here; it was never
+    /// read back — plans/EVALUATOR_MEMORY_REDUCTION.md F2a.)
+    specialized_func_value : EvalValue
   )
 );
 /// Per-function bucket of specialization caches, keyed by `func_id`.
@@ -1112,7 +1112,15 @@ ModuleWalk :: ref(
     /// holds the handle and `module_walk_force_env` re-appends it when the
     /// live list no longer has it.
     module_frame : Frame,
-    ctx : EvalContext,
+    /// The walker's evaluation context, copied at walk start. It is read by
+    /// exactly one thing: forcing a definition of THIS walk after the walk
+    /// finished — the Phase 3b revalidation of `check --watch` and the LSP
+    /// (`revalidate_walk_defs`). One-shot commands never do that, and the copy
+    /// shares the module's whole `ExprInfoTable` (in check mode every module
+    /// has its own), so `end_module_walk` releases it unless
+    /// `set_retain_walk_contexts(true)` was called
+    /// (plans/EVALUATOR_MEMORY_REDUCTION.md F1).
+    ctx : Option(EvalContext),
     defs : ArrayList(PendingDef),
     /// index in begin_exprs → its entry (the walker's per-statement check).
     by_index : HashMap(usize, PendingDef)
@@ -1129,6 +1137,13 @@ ModuleWalk :: ref(
 /// walk is over. Only names this mechanism bound are ever served — never a
 /// runtime module global, which a stripped fn env must keep hiding.
 (g_finished_walks : HashMap(String, ModuleWalk)) = HashMap(String, ModuleWalk).new();
+/// Whether a finished walk keeps its evaluation context (see `ModuleWalk.ctx`).
+/// Off by default; `yo check --watch` / `--watch-once` and `yo lsp` turn it on
+/// before their first evaluation.
+(g_retain_walk_contexts : bool) = false;
+set_retain_walk_contexts :: (fn(v : bool) -> unit)({
+  g_retain_walk_contexts = v;
+});
 /// Phase 3 (§6) — per-definition dependency tracking.
 ///
 /// Def key: `<module_path>#<index>#<row>#<name>` — index (the statement's
@@ -1803,7 +1818,7 @@ begin_module_walk :: (
     env : env,
     module_frame_id : module_frame_id,
     module_frame : module_frame,
-    ctx : copy_eval_context(ctx),
+    ctx : Option(EvalContext).Some(copy_eval_context(ctx)),
     defs : defs,
     by_index : by_index
   );
@@ -1849,6 +1864,9 @@ begin_module_walk :: (
 /// inside its importer's walk and returns before it continues).
 end_module_walk :: (fn(walk : ModuleWalk) -> unit)({
   g_module_walks.pop();
+  if(!g_retain_walk_contexts, {
+    walk.ctx = Option(EvalContext).None;
+  });
   g_finished_walks.insert(walk.module_path.clone(), walk);
   ()
 });
@@ -2804,6 +2822,7 @@ export(
   copy_eval_context,
   begin_module_walk,
   end_module_walk,
+  set_retain_walk_contexts,
   walk_pending_def_at,
   force_pending_def,
   force_pending_count,

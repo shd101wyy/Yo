@@ -60,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
-{ ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
+{ ExprInfoTable, expr_info_table_new, print_spec_report_if_requested } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
@@ -136,7 +136,7 @@ json :: import("std/encoding/json");
   emit_chatter,
   register_std_export
 } :: import("./diagnostics.yo");
-{ eval_context_new } :: import("./evaluator/context.yo");
+{ eval_context_new, set_retain_walk_contexts } :: import("./evaluator/context.yo");
 { register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { decode_str_lit_escapes } :: import("./evaluator/values/string.yo");
@@ -1317,6 +1317,9 @@ run_check :: (
   // references an undefined name reports "evaluator OK", so only the
   // ~30-minute suite finds out. plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.3.
   set_strict_test_bodies(test_bodies);
+  // Only the watch modes re-force definitions after a module's walk finished;
+  // a one-shot check lets each finished walk release its context (F1).
+  set_retain_walk_contexts(watch || watch_once);
   std_path := resolve_std_path();
   // Reset the per-module loader cache for this run. Keys are absolute
   // paths, so cache entries are valid for the whole run (a module
@@ -8588,5 +8591,6 @@ main :: (fn(io : Io) -> unit)({
   }, {
     exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
   })))))))))))))))));
+  print_spec_report_if_requested();
 });
 export(main);

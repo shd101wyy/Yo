@@ -1,7 +1,7 @@
 # ~~S1 prelude growth tripled self-emit memory~~ — SUPERSEDED: the regression was a debug-probe line, NOT std growth
 
 **Status: SUPERSEDED 2026-08-24 (same day)** by
-issues/debug-probe-line-costs-gigabytes-at-compile-time.md.
+issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md.
 
 The bisect this doc originally recorded was CONFOUNDED twice:
 

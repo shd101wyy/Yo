@@ -52,7 +52,9 @@ pragma(Pragma.AllowUnsafe);
   BF_UNWIND,
   BK_BREAK
 } :: import("./expr.yo");
+{ cloned_expr_node_count } :: import("./expr.yo");
 { Environment, Variable, snapshot_env } :: import("./env.yo");
+{ Token } :: import("./token.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
 { debug_knob } :: import("./utils.yo");
@@ -1030,19 +1032,6 @@ is_thread_local :: (fn(module_path : String, name : String) -> bool)(
 (g_some_resolved_concrete : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 /// Record the resolved concrete type for the `SomeT` with unique id `some_id`.
 register_some_resolved_concrete :: (fn(some_id : String, ty : TypeValue) -> unit)({
-  if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-    match(
-      g_some_resolved_concrete.get(some_id),
-      .Some(old) => {
-        (src_o : String) = type_to_string(old);
-        (src_n : String) = type_to_string(ty);
-        if(src_o != src_n, {
-          eprintln(`[src-collide] id=${some_id} old=${src_o} new=${src_n}`);
-        });
-      },
-      .None => ()
-    );
-  });
   g_some_resolved_concrete.insert(some_id, ty);
   ()
 });
@@ -1524,6 +1513,151 @@ export(
   struct_fully_concrete_instance,
   adopt_receiver_struct_instance
 );
-export(record_fid_rtcall, record_fid_spec, fid_fully_specialized);
+// ---------------------------------------------------------------------------
+// Nodes already evaluated once for THIS call, not to be evaluated again.
+// ---------------------------------------------------------------------------
+// A method call `recv.m(args)` evaluates `recv` to resolve `m` and then feeds
+// the SAME `recv` node to argument matching as `self`, which evaluated it
+// again — and an infix operator call evaluates both operands once to pick the
+// overload and again as arguments. Each level of a left-nested chain therefore
+// doubled the work below it: a template string with N interpolations is a
+// 2N-deep `.+` chain, and one with ten took 10.7 GB / 67 s to check
+// (issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md). The call marks
+// such a node here for the duration of its argument matching; the evaluator's
+// dispatcher returns a marked node whose `ExprInfo` is already recorded without
+// re-evaluating it. Marks are keyed by node id, so a cloned body (fresh ids)
+// is never affected.
+(g_preevaluated_node_ids : HashSet(usize)) = HashSet(usize).new();
+mark_node_preevaluated :: (fn(id : usize) -> unit)({
+  _m := g_preevaluated_node_ids.insert(id);
+});
+unmark_node_preevaluated :: (fn(id : usize) -> unit)({
+  _u := g_preevaluated_node_ids.remove(id);
+});
+node_is_preevaluated :: (fn(id : usize) -> bool)(g_preevaluated_node_ids.contains(id));
+// `YO_SPEC_REPORT=1` also counts evaluations per AST node id (the re-evaluation
+// multiplicity behind the exponential method-chain cost,
+// issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md). Read once at
+// startup so the per-node hook costs one branch when the knob is unset.
+(g_node_eval_counting : bool) = debug_knob(`YO_SPEC_REPORT`).is_some();
+(g_node_eval_counts : HashMap(usize, usize)) = HashMap(usize, usize).new();
+(g_node_eval_labels : HashMap(usize, String)) = HashMap(usize, String).new();
+/// Count one evaluation of node `id` (no-op unless `YO_SPEC_REPORT` is set).
+record_node_eval :: (fn(id : usize, tok : Token) -> unit)({
+  if(!g_node_eval_counting, {
+    return(());
+  });
+  n := match(g_node_eval_counts.get(id), .Some(v) => v, .None => usize(0));
+  if(n == usize(0), {
+    _pl := g_node_eval_labels.insert(id, `${tok.value}@${tok.module_path}:${(tok.row + usize(1)).to_string()}:${(tok.column + usize(1)).to_string()}`);
+  });
+  _pc := g_node_eval_counts.insert(id, n + usize(1));
+});
+/// `YO_SPEC_REPORT=1`: at exit, print the specialization population — total
+/// nodes minted by `clone_expr_fresh_ids`, total specializations and runtime
+/// calls, and the 40 function ids with the most specializations
+/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 4 / F2).
+print_spec_report_if_requested :: (fn() -> unit)({
+  if(debug_knob(`YO_SPEC_REPORT`).is_none(), {
+    return(());
+  });
+  (total_specs : usize) = usize(0);
+  (total_calls : usize) = usize(0);
+  rows := ArrayList(String).new();
+  counts := ArrayList(usize).new();
+  ks := g_fid_specs.keys();
+  (going : bool) = true;
+  while(going, {
+    match(
+      ks.next(),
+      .Some(fid) => {
+        n := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
+        total_specs = (total_specs + n);
+        rows.push(fid.clone());
+        counts.push(n);
+      },
+      .None => {
+        going = false;
+      }
+    );
+  });
+  cs := g_fid_rtcalls.values();
+  (going2 : bool) = true;
+  while(going2, {
+    match(
+      cs.next(),
+      .Some(c) => {
+        total_calls = (total_calls + c);
+      },
+      .None => {
+        going2 = false;
+      }
+    );
+  });
+  eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
+  // Top 40 by count: repeated selection (the table is a few thousand rows).
+  (shown : usize) = usize(0);
+  while((shown < usize(40)) && (shown < rows.len()), {
+    (best : usize) = usize(0);
+    (bi : usize) = usize(0);
+    while(bi < counts.len(), {
+      if(match(counts.get(bi), .Some(c) => c, .None => usize(0)) > match(counts.get(best), .Some(c) => c, .None => usize(0)), {
+        best = bi;
+      });
+      bi = (bi + usize(1));
+    });
+    bc := match(counts.get(best), .Some(c) => c, .None => usize(0));
+    if(bc == usize(0), {
+      shown = usize(40);
+    }, {
+      eprintln(`[spec-report]   ${bc.to_string()}	${match(rows.get(best), .Some(r) => r, .None => String.from("?"))}`);
+      counts(best) = usize(0);
+      shown = (shown + usize(1));
+    });
+  });
+  // The 30 most re-evaluated AST nodes.
+  (total_evals : usize) = usize(0);
+  ids := ArrayList(usize).new();
+  ecounts := ArrayList(usize).new();
+  eks := g_node_eval_counts.keys();
+  (going3 : bool) = true;
+  while(going3, {
+    match(
+      eks.next(),
+      .Some(id) => {
+        c := match(g_node_eval_counts.get(id), .Some(v) => v, .None => usize(0));
+        total_evals = (total_evals + c);
+        ids.push(id);
+        ecounts.push(c);
+      },
+      .None => {
+        going3 = false;
+      }
+    );
+  });
+  eprintln(`[spec-report] node_evaluations=${total_evals.to_string()} distinct_nodes=${ids.len().to_string()}`);
+  (eshown : usize) = usize(0);
+  while((eshown < usize(30)) && (eshown < ids.len()), {
+    (ebest : usize) = usize(0);
+    (ebi : usize) = usize(0);
+    while(ebi < ecounts.len(), {
+      if(match(ecounts.get(ebi), .Some(c) => c, .None => usize(0)) > match(ecounts.get(ebest), .Some(c) => c, .None => usize(0)), {
+        ebest = ebi;
+      });
+      ebi = (ebi + usize(1));
+    });
+    ebc := match(ecounts.get(ebest), .Some(c) => c, .None => usize(0));
+    if(ebc == usize(0), {
+      eshown = usize(30);
+    }, {
+      eid := match(ids.get(ebest), .Some(i) => i, .None => usize(0));
+      eprintln(`[spec-report]   evals=${ebc.to_string()} id=${eid.to_string()} ${match(g_node_eval_labels.get(eid), .Some(l) => l, .None => String.from("?"))}`);
+      ecounts(ebest) = usize(0);
+      eshown = (eshown + usize(1));
+    });
+  });
+});
+export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
+export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated);
 export(record_macro_expansion, lookup_macro_expansion);
 export(record_module_level_init_expr, get_module_level_init_exprs);

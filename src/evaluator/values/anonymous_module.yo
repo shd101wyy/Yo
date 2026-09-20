@@ -173,7 +173,18 @@ _force_eval :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext) -> unit
 });
 _force_pending_def_impl :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String))({
   force_env := module_walk_force_env(walk);
-  force_ctx := copy_eval_context(walk.ctx);
+  // A finished walk of a one-shot command has released its context
+  // (`end_module_walk`); nothing forces its definitions afterwards, so
+  // reaching this is a broken invariant, reported rather than masked.
+  force_ctx := match(
+    walk.ctx,
+    .Some(c) => copy_eval_context(c),
+    .None => return(
+      Option(String).Some(
+        `internal error: forcing \`${def.name}\` after module \`${walk.module_path}\` finished its walk and released its evaluation context (only \`check --watch\` and \`yo lsp\` retain it)`
+      )
+    )
+  );
   force_ctx.expected_type = .None;
   prev_mod_exprs := get_module_begin_exprs();
   prev_mod_idx := get_module_begin_expr_index();

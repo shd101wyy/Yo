@@ -1,0 +1,39 @@
+//! Repro: a template string with twelve interpolations must compile in
+//! seconds, not minutes (issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md).
+//!
+//! `parse_template_string` folds the parts into a left-nested `.+` method
+//! chain, ~2 levels per interpolation. The evaluator evaluated a method
+//! receiver twice per level (once to resolve the method, once as `self`), so
+//! the chain cost 2^depth: ten interpolations took 10.7 GB / 67 s to check
+//! and twelve would take ~18 min. gates_fast.sh GATE 0 compiles this file
+//! under a 120 s timeout — a regression fails the gate by timing out.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+
+render :: (fn(n : i32) -> String)({
+  a := n.to_string();
+  b := String.from("b");
+  c := String.from("c");
+  d := String.from("d");
+  e := String.from("e");
+  f := String.from("f");
+  g := String.from("g");
+  h := String.from("h");
+  i := String.from("i");
+  j := String.from("j");
+  k := String.from("k");
+  l := String.from("l");
+  return(`${a} ${b} ${c} ${d} ${e} ${f} ${g} ${h} ${i} ${j} ${k} ${l}`);
+});
+
+main :: (fn() -> unit)({
+  // The same shapes written by hand: a 14-deep method chain and a 14-operand
+  // operator chain.
+  s := String.from("x");
+  chain := s.clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone();
+  sum := (((((((((((((s + s) + s) + s) + s) + s) + s) + s) + s) + s) + s) + s) + s) + s);
+  println(render(i32(1)));
+  println(chain);
+  println(sum);
+});
+export(main);

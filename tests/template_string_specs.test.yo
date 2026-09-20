@@ -73,3 +73,21 @@ test("a template nested inside an interpolation", {
   n := i32(7);
   assert(`[${`${n:>3}`}]` == `[  7]`, "spec inside a nested template");
 });
+test("a long template and long chains evaluate the receiver once and still format correctly", {
+  // The evaluator used to evaluate a method receiver twice per chain level
+  // (2^depth): a twelve-interpolation template took minutes to check. The
+  // fix reuses the receiver's recorded info while the call's arguments are
+  // matched; this pins the VALUES it must still produce
+  // (issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md).
+  a := String.from("a");
+  n := i32(7);
+  b := true;
+  long := `${a}${n}${b}${a}${n}${b}${a}${n}${b}${a}${n}${b}`;
+  assert(long == `a7truea7truea7truea7true`, "twelve interpolations");
+  chain := a.clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone().clone();
+  assert(chain == `a`, "twelve-deep method chain");
+  sum := (((((((((((a + a) + a) + a) + a) + a) + a) + a) + a) + a) + a) + a);
+  assert(sum == `aaaaaaaaaaaa`, "twelve-operand operator chain");
+  nested := `${`${`${a}${n}`}${b}`}${a}`;
+  assert(nested == `a7truea`, "nested templates");
+});

@@ -383,7 +383,13 @@ alloc_global_expr_id :: (fn() -> ExprId)({
 /// derived-clone + evaluate writes the ORIGINAL tree's ExprInfo entries
 /// (and id-0 synthesized nodes all collide); use THIS for trial dry-runs,
 /// macro templates/expansions, and quoted-argument binding.
-clone_expr_fresh_ids :: (fn(e : AstExpr) -> AstExpr)(
+/// Nodes minted by `clone_expr_fresh_ids` so far — the size of the
+/// specialization / trial-clone population (`YO_SPEC_REPORT=1`,
+/// plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 4).
+(g_cloned_expr_nodes : usize) = usize(0);
+cloned_expr_node_count :: (fn() -> usize)(g_cloned_expr_nodes);
+clone_expr_fresh_ids :: (fn(e : AstExpr) -> AstExpr)({
+  g_cloned_expr_nodes = (g_cloned_expr_nodes + usize(1));
   match(
     e,
     .Atom(_, tok) => AstExpr.Atom(alloc_global_expr_id(), tok.clone()),
@@ -404,7 +410,7 @@ clone_expr_fresh_ids :: (fn(e : AstExpr) -> AstExpr)(
       AstExpr.FnCall(alloc_global_expr_id(), recur(func_box), new_args, is_infix, tok.clone())
     }
   )
-);
+});
 /// Build a placeholder Atom expression used as a fallback in error paths.
 make_err_expr :: (fn() -> AstExpr)(
   .Atom(
@@ -1203,7 +1209,7 @@ export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
-export(alloc_global_expr_id, clone_expr_fresh_ids);
+export(alloc_global_expr_id, clone_expr_fresh_ids, cloned_expr_node_count);
 /// Wrap `body` in a synthetic `begin(body)` call when it is not already a
 /// `begin(...)` node. The wrap gives even a bare-atom body the begin
 /// machinery — in particular the begin-tail ownership pass, so a
