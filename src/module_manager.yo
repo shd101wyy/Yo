@@ -602,7 +602,7 @@ _def_fn_head :: (fn(rhs : AstExpr) -> Option(AstExpr))(
       // is not part of the callee). `fn(` specifically — not any `fn…` name.
       head := ast_expr_to_string(callee);
       cond(
-        ((head.starts_with(String.from("fn("))) || (head.starts_with(String.from("(fn(")))) => Option(AstExpr).Some(callee),
+        (head.starts_with(String.from("fn(")) || head.starts_with(String.from("(fn("))) => Option(AstExpr).Some(callee),
         true => Option(AstExpr).None
       )
     },
@@ -610,16 +610,16 @@ _def_fn_head :: (fn(rhs : AstExpr) -> Option(AstExpr))(
   )
 );
 /// True when a `::` definition may take the per-def path: a FN-LITERAL
-/// definition (`name :: (fn(...) -> T)(body)`) whose SIGNATURE — name plus
-/// fn-type head — is unchanged by the edit. This one predicate is the whole
-/// v1 allowlist, and every exclusion is a correctness boundary, not an
+/// definition (`name :: (fn(...) -> T)(body)`) edited into a fn-literal
+/// definition — body OR signature. A signature change is covered because
+/// every dependent that called the old signature holds a def edge and is
+/// re-forced against the patched slot, which it now SEES: importers share
+/// the cached module's slot array instead of a deep clone
+/// (issues/fixed/per-def-dependent-trial-resolves-stale-callee.md), so the
+/// re-forced trial re-derives arity and types and surfaces the mismatch
+/// through the per-def failure channel. This one predicate is the whole
+/// allowlist, and the exclusion is a correctness boundary, not an
 /// optimization:
-///   * a SIGNATURE change (params, result type) changes what every dependent
-///     call means — a dependent's re-forced body trial does not reliably
-///     re-check arity against the patched slot
-///     (issues/per-def-dependent-trial-resolves-stale-callee.md), so the
-///     round must reload the file-level closure where diagnostics are
-///     guaranteed;
 ///   * a NON-fn def (a constant, a type constructor — `struct(...)`,
 ///     `enum(...)`, `trait(...)`, `ref(...)` around those, a plain value)
 ///     either mints a type identity whose registrations the per-def path
@@ -638,9 +638,9 @@ _def_is_per_def_able :: (fn(old : PendingDef, fresh : PendingDef) -> bool)({
   );
   match(
     old_head,
-    .Some(oh) => match(
+    .Some(_oh) => match(
       fresh_head,
-      .Some(fh) => ((((!(old.is_impl) && (old.members.len() == usize(0))) && (!(fresh.is_impl) && (fresh.members.len() == usize(0)))) && (fnv1a64(ast_expr_to_string(oh)) == fnv1a64(ast_expr_to_string(fh))))),
+      .Some(_fh) => (!old.is_impl && (old.members.len() == usize(0)) && (!fresh.is_impl && (fresh.members.len() == usize(0)))),
       .None => false
     ),
     .None => false
