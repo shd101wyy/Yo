@@ -1073,6 +1073,19 @@ merge_and_check_envs :: (
   max_frame_level := (env.frames.len() - usize(1));
   // Collect case environments from the expr_info_table.
   case_envs := ArrayList(Environment).new();
+  // Per-variable scratch lists, hoisted out of the frame × variable loops and
+  // `clear()`ed (capacity kept) at the top of each iteration. Minted fresh per
+  // variable they were 13% of ALL constructions in a self-check — 127.6 M
+  // `ArrayList(Option(Token))` alone
+  // (issues/fixed/merge-and-check-envs-mints-five-lists-per-variable-per-branch-merge.md).
+  // None of them escapes an iteration: each is read back by index inside it.
+  initialized_at_tokens := ArrayList(Option(Token)).new();
+  consumed_at_tokens := ArrayList(Option(Token)).new();
+  owning_at_tokens := ArrayList(Option(Token)).new();
+  var_ids := ArrayList(usize).new();
+  cb_tys := ArrayList(TypeValue).new();
+  cb_caps := ArrayList(Option(TypeValue)).new();
+  cb_body_idx := ArrayList(usize).new();
   (bi : usize) = usize(0);
   while(bi < bodies.len(), {
     body := match(bodies.get(bi), .Some(b) => b, .None => make_err_expr());
@@ -1250,11 +1263,10 @@ merge_and_check_envs :: (
           base_var := match(frame.variables.get(var_j), .Some(v) => v, .None => make_err_variable(env));
           var_name := base_var.name;
           // Collect per-case values for this variable.
-          initialized_at_tokens := ArrayList(Option(Token)).new();
-          consumed_at_tokens := ArrayList(Option(Token)).new();
-          owning_at_tokens := ArrayList(Option(Token)).new();
-          var_ids := ArrayList(usize).new();
-          case_types := ArrayList(TypeValue).new();
+          initialized_at_tokens.clear();
+          consumed_at_tokens.clear();
+          owning_at_tokens.clear();
+          var_ids.clear();
           (ck : usize) = usize(0);
           while(ck < case_envs.len(), {
             case_env := match(case_envs.get(ck), .Some(e) => e, .None => env);
@@ -1281,9 +1293,6 @@ merge_and_check_envs :: (
             {
               var_ids.push(case_var.id);
             };
-            {
-              case_types.push(case_var.ty);
-            };
             ck = (ck + usize(1));
           });
           n_cases := case_envs.len();
@@ -1294,9 +1303,9 @@ merge_and_check_envs :: (
           // registered by the arm evaluator; records matching this
           // variable's id give the per-branch (ty, capture).
           {
-            cb_tys := ArrayList(TypeValue).new();
-            cb_caps := ArrayList(Option(TypeValue)).new();
-            cb_body_idx := ArrayList(usize).new();
+            cb_tys.clear();
+            cb_caps.clear();
+            cb_body_idx.clear();
             (cb_i : usize) = usize(0);
             while(cb_i < bodies.len(), {
               cb_body := match(bodies.get(cb_i), .Some(b) => b, .None => make_err_expr());

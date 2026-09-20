@@ -20,7 +20,6 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, in_def_time_trial } :: import("../context.yo");
-{ env : ptr_dbg_env } :: import("std/env");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr, t_i32 } :: import("../../types/creators.yo");
@@ -31,6 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("../exprs/expr.yo");
+{ debug_knob } :: import("../../utils.yo");
 /// Evaluate a raw pointer call `*(T)` (pointer type) or `*(val)` (error).
 evaluate_raw_pointer_call :: (
   fn(
@@ -119,7 +119,7 @@ If you need to thread a handler through code, pass it by value (handlers are fn-
       });
       ptr_ty := t_ptr(inner_ty);
       ptr_val := create_type_value(ptr_ty);
-      if(in_def_time_trial() && ptr_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+      if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
         eprintln(`[ptr-call] inner=${type_to_string(inner_ty)} out=${type_to_string(ptr_ty)}`);
       });
       meta_ty := type_of_type(ptr_ty);

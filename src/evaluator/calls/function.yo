@@ -8,7 +8,6 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ env : fncall_dbg_env } :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -68,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
-{ stable_module_id, stable_func_id, private_member_blocked } :: import("../../utils.yo");
+{ stable_module_id, stable_func_id, private_member_blocked, debug_knob } :: import("../../utils.yo");
 { attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, parse_raw_int } :: import("../utils.yo");
 {
   EvalContext,
@@ -226,7 +225,7 @@ _try_eval_receiver_node :: (
       (_e) -> {
         // Capture-free swallow; YO_DEBUG_CTFE surfaces the error (the same
         // pattern as _trial_eval_fn_body's [swallow] hook).
-        if(fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+        if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
           eprintln(`[rcv-swallow] ${_e.to_string()}`);
         });
         unwind(());
@@ -385,14 +384,14 @@ _try_find_receiver_method :: (
             ri2
           },
           .None => {
-            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+            if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[rm-early] reason=recv-eval-no-info recv=${ast_expr_to_string(receiver_expr)}`);
             });
             return(Option(ReceiverMethodResult).None);
           }
         ),
         .None => {
-          if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+          if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
             eprintln(`[rm-early] reason=recv-eval-failed recv=${ast_expr_to_string(receiver_expr)}`);
           });
           return(Option(ReceiverMethodResult).None);
@@ -461,7 +460,7 @@ _try_find_receiver_method :: (
     );
   });
   if(hits.len() == usize(0), {
-    if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+    if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
       eprintln(`[rm-miss] name=${method_name} recv=${type_to_string(receiver_type)} static=${is_static.to_string()}`);
     });
     return(Option(ReceiverMethodResult).None);
@@ -1756,7 +1755,7 @@ _freshen_generic_closure_callee :: (
         return(ft);
       });
       gc_out := _gc_freshen_all_sites(ft, forall_names);
-      if(fncall_dbg_env.get(`YO_DEBUG_FRESHEN`).is_some(), {
+      if(debug_knob(`YO_DEBUG_FRESHEN`).is_some(), {
         gc_before := _rre_binder_ids(ft, forall_names);
         gc_after := _rre_binder_ids(gc_out, forall_names);
         eprintln(`[freshen-callee] ${type_to_string(ft)}`);
@@ -2616,7 +2615,7 @@ _evaluate_funcval_runtime_call :: (
         );
         hkt_out := ArrayList(TypeValue).new();
         _trial_eval_ret_type_expr(clone_expr_fresh_ids(hkt_expr), fresh_env, ctx, hkt_out);
-        if(fncall_dbg_env.get(`YO_DEBUG_RRE`).is_some(), {
+        if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
           rre_dbg_self := match(ctx.self_type, .Some(st) => type_to_string(st), .None => String.from("<none>"));
           rre_dbg_out := match(hkt_out.get(usize(0)), .Some(t) => type_to_string(t), .None => String.from("<none>"));
           eprintln(`[rre] callee=${ast_expr_to_string(func_expr)} old=${rre_old_wanted.to_string()} era=${rre_era_suspect.to_string()} self=${rre_dbg_self} hkt=${rre_dbg_out} resolved_ret=${type_to_string(resolved_ret)}`);
@@ -3099,7 +3098,7 @@ _evaluate_funcval_runtime_call :: (
     // — an abstract-keyed spec is skipped by the emitter while its call
     // site still emits (the derive_clone_complex 'undeclared function'
     // class). Prints the mint context so the guard can be scoped right.
-    if(fncall_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+    if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
       if((get_all_some_types(spec_ty_fixed).len() > usize(0)) && (spec_fid.len() > usize(0)), {
         eprintln(`[abstract-spec] fid=${spec_fid} trial=${in_def_time_trial().to_string()}`);
       });
@@ -4168,7 +4167,7 @@ Fix: wrap the call:
               );
               fsi = (fsi + usize(1));
             });
-            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+            if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[call-struct] id=${struct_id} name=${struct_name}`);
             });
             _reject_private_construction(struct_id.clone(), struct_name.clone(), struct_field_labels, tok, exn);
@@ -4277,7 +4276,7 @@ Fix: wrap the call:
               });
               Option(EvalValue).Some(EvalValue.StructVal(struct_name.clone(), fnames_s, fvals_s))
             }, Option(EvalValue).None);
-            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+            if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[call-struct-out] ty=${type_to_string(func_type)}`);
             });
             out_s := new_expr_info(call_result_s.caller_env, func_type);
@@ -5412,7 +5411,7 @@ Fix: wrap the call:
                 new_expr_info(env, t_unit())
               }
             );
-            if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE2`).is_some(), {
+            if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE2`).is_some(), {
               ae_val_str := match(
                 arg_info.value,
                 .Some(aev) => value_to_string(aev),
@@ -6418,7 +6417,7 @@ Fix: wrap the call:
             .Some(ct_recv) => match(
               adopt_receiver_struct_instance(resolved_ret_ct, ct_recv),
               .Some(ct_adopted) => {
-                if(fncall_dbg_env.get(`YO_DEBUG_RRE`).is_some(), {
+                if(debug_knob(`YO_DEBUG_RRE`).is_some(), {
                   eprintln(`[ct-adopt] callee=${ast_expr_to_string(func_expr)} ret=${type_to_string(resolved_ret_ct)} recv=${type_to_string(ct_recv)} adopted=${type_to_string(ct_adopted)}`);
                 });
                 resolved_ret_ct = ct_adopted;
@@ -6498,7 +6497,7 @@ Fix: wrap the call:
             ct_out_val = create_unknown_val(resolved_ret_ct);
           });
           out_ct.value = Option(EvalValue).Some(ct_out_val);
-          if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+          if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
             eprintln(`[ctfe-stamp] ty=${type_to_string(resolved_ret_ct)} val=${value_to_string(ct_out_val)}`);
           });
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ct);
@@ -7372,7 +7371,7 @@ Fix: wrap the call:
           //     wholesale anyway, so skipping the throw is the
           //     same observable outcome.
           if(((!(cvl_is_fnish)) && !(ctx.is_in_function_call_checking_phase)) && !(in_def_time_trial()), {
-            if(fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+            if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[vcall-throw] callee=${ast_expr_to_string(func_expr)} ty=${type_to_string(callee_ty_none)}`);
             });
             exn.throw(
@@ -7459,7 +7458,7 @@ ${ast_expr_to_string(expr)}`
               _ => ()
             );
           });
-          if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+          if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
             eprintln(`[call-none] ret=${type_to_string(ret_type_none)} callee=${ast_expr_to_string(func_expr)} callee_ty=${type_to_string(callee_ty_none)}`);
           });
           // C54 body half: a call whose result still mentions the enclosing

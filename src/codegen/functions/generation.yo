@@ -22,7 +22,7 @@
 { is_unit_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { function_param_mutation_mask, param_mutation_mask_hits } :: import("../../evaluator/effects/mutation_summary.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
-{ is_temp_variable_name } :: import("../../utils.yo");
+{ is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
 { get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls } :: import("../utils/index.yo");
@@ -33,7 +33,6 @@
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ env : gen_dbg_env } :: import("std/env");
 { eprintln } :: import("std/fmt");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
 { generate_sys_runtime, AsyncRuntimeOptions, generate_tls_runtime } :: import("../async/runtime_io_common.yo");
@@ -526,7 +525,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : TypeValue, func_id
       if(!has_object_param, return(()));
       mask := function_param_mutation_mask(func_id, body, context.base.info_table);
       // `YO_DEBUG_BORROW_MASK=1`: print every analysed function's mask.
-      if(match(gen_dbg_env.get(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
+      if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
         (bits : String) = String.new();
         (bi : usize) = usize(0);
         while(bi < pts.len(), {
@@ -866,7 +865,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         // former char-indexed `substring(0, stub_mark)` — stub_mark_b was taken
         // at the same buffer position.
         pb := em.code.as_bytes();
-        if(gen_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+        if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
           // The rewrite below TRUNCATES the body at the marker, destroying the
           // evidence of WHICH expression failed — print a window AROUND the
           // marker here (the warm in-process campaign's FTT triage probe).

@@ -14,12 +14,12 @@
 > (≈6% of wall as a ceiling, not an estimate), and 37% of that ceiling is
 > ONE function, `merge_and_check_envs`, which mints five lists per variable
 > per frame per `cond`/`match` — fixable by hand in one edit
-> (`issues/merge-and-check-envs-mints-five-lists-per-variable-per-branch-merge.md`).
+> (`issues/fixed/merge-and-check-envs-mints-five-lists-per-variable-per-branch-merge.md`).
 > The churn-shaped programs sit under their 15% bar too (JSON ≈10%, list
 > rebuild ≈4% of wall). The profile taken for step 3 found the actual CPU
 > lever instead: two linear scans, `_was_self_bound` and `lookup_enum_cfid`,
 > are ≈45% of `check`'s self time
-> (`issues/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md`).
+> (`issues/fixed/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md`).
 > Numbers, method and the retained instruments are in §0; §1–§7 are the
 > original design, kept as the record of what was evaluated.
 > Instruments: `scripts/bootstrap/reuse_census_t.py`, `scripts/bootstrap/reuse_report.py`.

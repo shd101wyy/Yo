@@ -28,7 +28,6 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
-{ env : synth_dbg_env } :: import("std/env");
 { type_key } :: import("../../types/type_key.yo");
 { in_def_time_trial } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -72,6 +71,7 @@ _is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
 { get_gadt_type_constructor_args } :: import("./gadt_registry.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
+{ debug_knob } :: import("../../utils.yo");
 // ---------------------------------------------------------------------------
 // Public data types
 // ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@ _bind_some_type :: (
   ) -> unit
 )({
   token := match(tok, .Some(t) => t, .None => synthetic_token(name, env.module_path));
-  if(synth_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+  if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
     bs_s := type_to_string(ty);
     if((bs_s.index_of(String.from("Doc")) != .None) || (bs_s.index_of(String.from("GenericImplEntry")) != .None), {
       eprintln(`[bindsome] name=${name} src_id=${source_some_id} ty=${bs_s} mod=${env.module_path}`);
@@ -282,7 +282,7 @@ _bind_some_type :: (
       if(identity_mismatch && val_is_self_marker, {
         return(());
       });
-      bind_probe_name := match(synth_dbg_env.get(`YO_DEBUG_BIND`), .Some(bpn) => bpn, .None => String.from(""));
+      bind_probe_name := match(debug_knob(`YO_DEBUG_BIND`), .Some(bpn) => bpn, .None => String.from(""));
       if((bind_probe_name.len() > usize(0)) && (name == bind_probe_name) && !val_is_self_marker, {
         wrote_lvl := if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), env.frames.len() - usize(1), old_var.frame_level);
         wrote_fid := match(env.frames.get(wrote_lvl), .Some(wf) => wf.id, .None => usize(0));
@@ -1179,7 +1179,7 @@ _synthesize_types_impl :: (
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   giv_id := synthesis_type_id(given_ty);
-  if(synth_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+  if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
     (sei_s : String) = type_to_string(expected_ty);
     if((sei_s.index_of(String.from("GenericImplEntry")) != .None) || (sei_s.index_of(String.from("DocParam")) != .None), {
       (sgi_s : String) = type_to_string(given_ty);
@@ -1386,7 +1386,7 @@ _synthesize_types_impl :: (
     existing_bound := get_value_of_some_type_from_env(ge, given_ty);
     giv_id2 := match(given_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     giv_name := match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
-    if(synth_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+    if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
       sgv_s := type_to_string(existing_bound);
       if(sgv_s.index_of(String.from("Doc")) != .None, {
         sgv_lvl := match(
@@ -1561,7 +1561,7 @@ _synthesize_types_impl :: (
       });
     });
     if(((exp_id3 != giv_id3) && !same_constructor3) && !same_shape3, {
-      if(synth_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+      if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         eprintln(
           `[unify-struct] exp_id=${exp_id3.clone()} giv_id=${giv_id3.clone()} exp_cfid=${exp_eff_cfid.clone()} giv_cfid=${giv_eff_cfid.clone()} exp_key=${type_key(expected_ty)} giv_key=${type_key(given_ty)} mod=${ee.module_path}`
         );

@@ -1,6 +1,6 @@
 # `merge_and_check_envs` mints five `ArrayList`s per variable per frame on EVERY `cond`/`match` — 13% of all constructions in a self-check
 
-**Status: DIAGNOSED 2026-09-20 (census-verified). Not yet fixed.**
+**Status: FIXED 2026-09-20 (census-verified before and after).**
 
 Found by the Perceus reuse census (`plans/archive/PERCEUS_REUSE.md` §0,
 `scripts/bootstrap/reuse_census_t.py`): of the 918 M constructions that a
@@ -52,7 +52,7 @@ This is precisely the shape Perceus would have reused automatically — and
 the reason the plan's measurement says the hand edit is worth more than the
 mechanism: one edit removes ≈13% of every construction in a self-check.
 
-## Fix shape (not applied here)
+## Fix (applied)
 
 Hoist the eight lists above the `var_j` loop (and the `frame_i` loop; their
 element types do not depend on the frame) and `clear()` them at the top of
@@ -61,3 +61,23 @@ the iteration (they are read by index inside it), so the change is
 behaviour-preserving and the emitted C for everything else is unchanged.
 Measure with the census (`ArrayList(Option(Token))` gross must fall from
 127.6 M to ~0) and the wall of `check src/main.yo`.
+
+## Verification
+
+Same census, same source tree (`perceus-base`, tree `e32207097`), compiler
+built from the fixed source:
+
+| metric                                   | before   | after     |
+| ---------------------------------------- | -------- | --------- |
+| gross constructions                      | 2,633 M  | 2,275 M   |
+| `ArrayList(Option(Token))` constructions | 127.6 M  | **104 k** |
+| `ArrayList(TypeValue)` constructions     | 168.4 M  | 83.4 M    |
+| `ArrayList(usize)` constructions         | 175.8 M  | 91.0 M    |
+| `merge_and_check_envs` in the top-20 functions by pairable births | 340 M (1st) | absent |
+
+(`ArrayList(String)` is unchanged at 173 M: those lists are minted
+elsewhere — the census attributed them to this function only through its
+callees' return values, see the plan's §0.2 caveat on transitive attribution.)
+Wall of `check src/main.yo` for the three evaluator fixes together (this one,
+`_was_self_bound`, `lookup_enum_cfid`): 350.5 s → 315.3 s, user 292.9 s →
+254.4 s, footprint unchanged (31.5 GB) — same-tree A/B, tree-built binaries.

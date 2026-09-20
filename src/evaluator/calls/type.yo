@@ -13,7 +13,6 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ env : tycall_dbg_env } :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
@@ -47,6 +46,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
+{ debug_knob } :: import("../../utils.yo");
 /// Approximation for `isComptimeOnlyType` (Phase 2 — full version deferred).
 /// Returns true for types whose values only exist at compile time:
 /// TypeUni (the `Type` kind), ComptimeInt, ComptimeFloat, ComptimeString.
@@ -311,7 +311,7 @@ try_to_call_type_with_arguments :: (
     );
     // Type compatibility check.
     if(!are_types_compatible(arg_type, member_element.ty), {
-      if(in_def_time_trial() && tycall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+      if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
         eprintln(
           `[tycall-mismatch] label=${member_element.label} expected=${type_to_string(member_element.ty)} got=${type_to_string(arg_type)} argval=${match(arg_info.value, .Some(av) => value_to_string(av), .None => String.from("<none>"))}`
         );

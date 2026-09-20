@@ -7,6 +7,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("./types/definitions.yo");
 { t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t } :: import("./types/creators.yo");
 { is_type_0 } :: import("./types/guards.yo");
@@ -982,27 +983,18 @@ export(eval_value_eq);
 // synthesizer import, no cycle). `substitute()` preserves enum id → key stays
 // valid across specialization; same role as `Struct.constructor_func_id`.
 // ---------------------------------------------------------------------------
-EnumCfidEntry :: ref(struct(enum_id : String, func_id : String));
-(g_enum_cfids : ArrayList(EnumCfidEntry)) = ArrayList(EnumCfidEntry).new();
+// enum id → the comptime-fn id that produced it. A map, not a list: the list
+// was scanned linearly with `String ==` on every lookup and grew with every
+// registered enum — 5.5% of `check src/main.yo`'s self time
+// (issues/fixed/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md).
+// The first registration wins, as the scan's first match did.
+(g_enum_cfids : HashMap(String, String)) = HashMap(String, String).new();
 register_enum_cfid :: (fn(enum_id : String, func_id : String) -> unit)({
-  if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)), {
-    g_enum_cfids.push(EnumCfidEntry(enum_id : enum_id, func_id : func_id));
+  if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)) && !g_enum_cfids.contains_key(enum_id), {
+    _prev := g_enum_cfids.insert(enum_id, func_id);
   });
 });
-lookup_enum_cfid :: (fn(enum_id : String) -> String)({
-  (i : usize) = usize(0);
-  n := g_enum_cfids.len();
-  (r : String) = String.from("");
-  while((i < n) && (r.len() == usize(0)), {
-    match(
-      g_enum_cfids.get(i),
-      .Some(e) => if(e.enum_id == enum_id, {
-        r = e.func_id.clone();
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  r
-});
+lookup_enum_cfid :: (fn(enum_id : String) -> String)(
+  match(g_enum_cfids.get(enum_id), .Some(f) => f, .None => String.from(""))
+);
 export(register_enum_cfid, lookup_enum_cfid);

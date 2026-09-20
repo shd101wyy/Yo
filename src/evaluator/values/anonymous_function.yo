@@ -21,7 +21,6 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ env : anonfn_dbg_env } :: import("std/env");
 {
   AstExpr,
   ast_expr_token,
@@ -77,7 +76,7 @@ pragma(Pragma.AllowUnsafe);
   CapturedVarInfo,
   ExpectedTypeCtx
 } :: import("../context.yo");
-{ stable_func_id } :: import("../../utils.yo");
+{ stable_func_id, debug_knob } :: import("../../utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 {
@@ -363,7 +362,7 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
   )
 );
 /// Cached `YO_DEBUG_SWALLOW` gate for the closure-body trial channel below.
-(_g_anon_dbg_swallow : bool) = anonfn_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some();
+(_g_anon_dbg_swallow : bool) = debug_knob(`YO_DEBUG_SWALLOW`).is_some();
 // Anon-closure trial-swallow cell — the twin of calls/function_type.yo's
 // `g_trial_swallow_msg`. The handler below is a capture-free `->` and cannot
 // propagate, so the P0 forward-reference check at the CALLER reads the
@@ -414,7 +413,7 @@ _trial_eval_anon_body :: (
   inner_exn := Exception(
     throw : (
       _err -> {
-        if(anonfn_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+        if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[anon-swallow] ${_err.to_string()}`);
         });
         _flag_anon_swallow(_err.to_string());

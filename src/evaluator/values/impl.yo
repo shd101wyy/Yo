@@ -16,7 +16,6 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ env : impl_dbg_env } :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
@@ -80,7 +79,7 @@ pragma(Pragma.AllowUnsafe);
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_key } :: import("../../types/type_key.yo");
-{ stable_func_id } :: import("../../utils.yo");
+{ stable_func_id, debug_knob } :: import("../../utils.yo");
 { parse_raw_int } :: import("../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
@@ -507,7 +506,7 @@ _resolve_one_forall_binding :: (
   fa_some_id := match(fa_some, .SomeT({ id : __fsi }) => __fsi, _ => String.from(""));
   bound_type := get_value_of_some_type_from_env(expected_env, fa_some);
   if(!is_some_type(bound_type), {
-    if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+    if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
       eprintln(`[rfb-bound] name=${fa_name} via=id-concrete ty=${type_to_string(bound_type)} trial=${in_def_time_trial().to_string()}`);
     });
     return(Option(TypeValue).Some(bound_type));
@@ -526,7 +525,7 @@ _resolve_one_forall_binding :: (
   if(in_def_time_trial() && (bt_id.len() > usize(0)) && (bt_id != fa_some_id), {
     return(Option(TypeValue).Some(bound_type));
   });
-  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+  if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
     eprintln(`[rfb-id-miss] name=${fa_name} own_id=${fa_some_id} bound_id=${bt_id} trial=${in_def_time_trial().to_string()}`);
   });
   // Name-based fallback: look up `fa_name` directly in `expected_env`.
@@ -542,7 +541,7 @@ _resolve_one_forall_binding :: (
       ev,
       .TypeVal(b) => cond(
         !is_some_type(b) => {
-          if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+          if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
             eprintln(`[rfb-bound] name=${fa_name} via=name-concrete ty=${type_to_string(b)} trial=${in_def_time_trial().to_string()}`);
           });
           Option(TypeValue).Some(b)
@@ -616,7 +615,7 @@ _resolve_one_forall_binding_from :: (
                       ev,
                       .TypeVal(b) => {
                         if(!is_some_type(b), {
-                          if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+                          if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
                             eprintln(`[rfb-bound] name=${fa_name} via=scoped-concrete ty=${type_to_string(b)} trial=${in_def_time_trial().to_string()}`);
                           });
                           return(Option(TypeValue).Some(b));
@@ -760,7 +759,7 @@ _bind_forall_from_type_args :: (
   fa_lvl := match(fa_some, .SomeT({ frame_level }) => frame_level, _ => return(Option(TypeValue).None));
   pat_ta := match(pattern, .Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
   con_ta := match(concrete, .Struct({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
-  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+  if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
     (bfta_s : String) = String.from("");
     (bfta_i : usize) = usize(0);
     while(bfta_i < con_ta.len(), {
@@ -869,7 +868,7 @@ _bind_forall_from_type_args :: (
               );
             });
             if(!is_some_type(cell_cur) && !match(cell_cur, .Unit => true, _ => false), {
-              if(impl_dbg_env.get(`YO_DEBUG_WARM`).is_some(),
+              if(debug_knob(`YO_DEBUG_WARM`).is_some(),
               {
                 cw_res := type_to_string(cell_cur);
                 if((cw_res.index_of(String.from("Doc")) != .None) || (cw_res.index_of(String.from("GenericImplEntry")) != .None), {
@@ -906,7 +905,7 @@ _bind_forall_from_type_args :: (
             .SomeT({ id : ctid }) => match(
               lookup_some_resolved_concrete(ctid),
               .Some(c) => {
-                if(impl_dbg_env.get(`YO_DEBUG_WARM`).is_some(), {
+                if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
                   (c2_s : String) = type_to_string(c);
                   if(c2_s.index_of(String.from("Doc")) != .None, {
                     eprintln(`[chan2] id=${ctid} -> ${c2_s}`);
@@ -995,12 +994,12 @@ try_match_generic_impl :: (
   // `check` paid a growing clone per candidate per lookup). SomeT /
   // TypeAppT pattern roots always proceed (they can bind anything).
   if(!_root_shapes_could_match(entry.receiver_type_pattern, resolved_concrete), {
-    if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+    if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
       eprintln(`[tm-none] reason=prefilter recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)}`);
     });
     return(Option(ArrayList(TypeValue)).None);
   });
-  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+  if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
     eprintln(`[tm-try] recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)} trial=${in_def_time_trial().to_string()}`);
   });
   // 2. Build unify_env: snapshot the env (share frames — copy only the
@@ -1065,14 +1064,14 @@ try_match_generic_impl :: (
         // Synthesis failed → no match. YO_DEBUG_DISPATCH prints the
         // swallowed error (capture-free handler, same pattern as the
         // [swallow] hook) — pairs with the [tm-try] line above it.
-        if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+        if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
           eprintln(`[tm-synth-swallow] ${err.to_string()}`);
         });
         unwind(Option(ArrayList(TypeValue)).None);
       }
     )
   );
-  if(impl_dbg_env.get(`YO_DEBUG_BIND`).is_some(), {
+  if(debug_knob(`YO_DEBUG_BIND`).is_some(), {
     (tmf_ids : String) = String.from("");
     (tmf_i : usize) = usize(0);
     while(tmf_i < unify_env.frames.len(), {
@@ -1442,7 +1441,7 @@ try_match_generic_impl :: (
       });
     });
   });
-  if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+  if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
     eprintln(`[tm-end] recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)} all_bound=${all_bound.to_string()}`);
   });
   cond(
@@ -1841,7 +1840,7 @@ find_methods_from_generic_impls :: (
         ei = (ei + usize(1));
       }, {
         mb_opt := try_match_generic_impl(resolved, entry, env, false);
-        if(in_def_time_trial() && impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some() && (method_name == "add"), {
+        if(in_def_time_trial() && debug_knob(`YO_DEBUG_DISPATCH`).is_some() && (method_name == "add"), {
           eprintln(`[fmg-try] name=${method_name} recv=${type_to_string(resolved)} pat=${type_to_string(entry.receiver_type_pattern)} matched=${mb_opt.is_some().to_string()}`);
         });
         if(mb_opt.is_none(), {
@@ -1971,10 +1970,10 @@ find_methods_from_generic_impls :: (
               // EnumT(id, Some(Node)) and silently never fire.
               subst_set_self(spec_s, entry.receiver_type_pattern, resolved);
               fmg_spec_ty := substitute(spec_s, ftype);
-              if(impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some(), {
+              if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
                 eprintln(`[fmg-cand] method=${method_name} recv=${type_to_string(resolved)} raw=${type_to_string(ftype)} spec=${type_to_string(fmg_spec_ty)} trial=${in_def_time_trial().to_string()}`);
               });
-              if(impl_dbg_env.get(`YO_DEBUG_WARM`).is_some() && (method_name == "get"), {
+              if(debug_knob(`YO_DEBUG_WARM`).is_some() && (method_name == "get"), {
                 eprintln(`[fmg-get] recv_key=${type_key(resolved)} spec_key=${type_key(fmg_spec_ty)} pattern=${type_key(entry.receiver_type_pattern)}`);
               });
               results.push(
@@ -2824,7 +2823,7 @@ _materialize_default_body :: (
   inner_exn := Exception(
     throw : (
       _err -> {
-        if(impl_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+        if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[mat-default-swallow] ${_err.to_string()}`);
         });
         unwind(())
@@ -3407,7 +3406,7 @@ force_in_flight_field :: (
           register_type_trait_method(rec.recv_id.clone(), pa_entry);
         });
         pf.phase_a_registered = true;
-        if(impl_dbg_env.get(`YO_DEBUG_LAZY`).is_some(), {
+        if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
           eprintln(`[force-field] phase-A ${type_id}.${method_name}`);
         });
         true
@@ -3415,7 +3414,7 @@ force_in_flight_field :: (
       true => false
     ),
     .Unforced => {
-      if(impl_dbg_env.get(`YO_DEBUG_LAZY`).is_some(), {
+      if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
         eprintln(`[force-field] ${type_id}.${method_name} (impl arg ${pf.top_index.to_string()}, inner=${pf.is_inner.to_string()})`);
       });
       // Process-wide "where am I" state the surrounding trial owns — reset

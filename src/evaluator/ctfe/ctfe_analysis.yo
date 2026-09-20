@@ -17,7 +17,6 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
-{ env : ctfe_env_mod } :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
 { expr_info_table_get } :: import("../../expr_info.yo");
@@ -52,6 +51,7 @@ pragma(Pragma.AllowUnsafe);
 { type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { Exception } :: import("std/error");
+{ debug_knob } :: import("../../utils.yo");
 /// The result of a successful CTFE analysis. Value and type are kept
 /// separate, so both come back together.
 CtfeComptimeFn :: struct(value : EvalValue, ty : TypeValue);
@@ -293,7 +293,7 @@ _try_eval_body_swallowing :: (
   inner_exn := Exception(
     throw : (
       _err -> {
-        if(ctfe_env_mod.get(`YO_DEBUG_CTFE_ANALYZE`).is_some(), {
+        if(debug_knob(`YO_DEBUG_CTFE_ANALYZE`).is_some(), {
           eprintln(`[ctfe-analyze] ${_err.to_string()}`);
         });
         unwind(());
