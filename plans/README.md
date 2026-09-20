@@ -37,6 +37,18 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   guards `(p && (g))`, `(name := p)`; codes E0607–E0609. Open: tuple/struct
   scrutinees (P4), `Box` payloads, the async general lowering, the seed-gated
   adoption sweep (P5), the verifier (P6).
+- [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) —
+  ACTIVE 2026-09-20: the evaluator memory audit. Measured `yo check
+  src/main.yo` at 19.3 GB peak footprint (evaluator only, no C); the bytes
+  are retained metadata — a 456 B `ExprInfo` + a private `Environment`
+  snapshot per evaluated node, a full re-evaluated clone per specialization,
+  a 56 B cycle-collector header on every core object, 16 B `Option(ref)`
+  fields — kept alive by process-lifetime roots (`g_finished_walks` retains
+  every module's whole `EvalContext`; `g_specialized_fn_caches` retains a
+  callee env per specialization). Phases: durable census + per-release
+  bisect, retention hygiene (byte-identical C), env-snapshot sharing,
+  `Option(ref)` niche, the specialization population, interning, header
+  diet, and the super-linear compile-cost bug. Nothing implemented.
 - [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) —
   ACTIVE 2026-09-18: **Yo verifies Yo.** The compiler as the verifier's
   flagship user, as a ladder of claims true at every rung (M0 measure/ratchet,
@@ -60,6 +72,16 @@ the open PR (#753, task 3 slice 3) is the frontier. Its two dated handovers
 ([`HANDOVER_2026-09-14_FV_V6_TASK1.md`](archive/HANDOVER_2026-09-14_FV_V6_TASK1.md),
 [`HANDOVER_2026-09-15_FV_V6_REMAINING.md`](archive/HANDOVER_2026-09-15_FV_V6_REMAINING.md))
 closed 2026-09-17 once everything they handed over had landed.
+
+Arena allocation research (backlog):
+[`backlog/ARENA_ALLOCATOR_FEASIBILITY.md`](backlog/ARENA_ALLOCATOR_FEASIBILITY.md)
+— 2026-09-20: can Yo have a sound arena under non-atomic RC? Verdict:
+feasible only as (A) a handle-indexed generational `Arena(T)` collection
+(sound today, no compiler change) and (B) a scoped allocator for RC object
+CELLS with a trial-deletion escape check at scope end (panic, never UB);
+the Odin/Zig "everything in scope comes from the arena" form is unsound
+because raw buffers carry no header; region-typed references are refused by
+design; and none of it reduces the compiler's footprint, which is retention.
 
 The **LLM-friendly toolchain campaign** closed 2026-09-17:
 [`archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md)
