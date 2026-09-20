@@ -28,7 +28,8 @@ pragma(Pragma.AllowUnsafe);
   push_env_frame,
   pop_env_frame,
   get_variables_from_env,
-  generate_variable_id
+  generate_variable_id,
+  snapshot_env
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
@@ -395,7 +396,7 @@ call_registered_derive_rule :: (
     .Some(i) => i,
     .None => new_expr_info(caller_env, t_unit())
   );
-  result_info.env
+  snapshot_env(result_info.env)
 });
 // ---------------------------------------------------------------------------
 // process_trait_arg
