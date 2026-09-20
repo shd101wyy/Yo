@@ -108,6 +108,10 @@ Swap the order (worker sleeps 30 ms then wakes; the frame drops `w` at once)
 and it passes: that is the foreign-release path. Local hammers of the test file
 (0 hangs in 60 direct runs here; 0 in 67 runs on a second idle M4, 52×8 s, 7×9 s, 1×10 s) never hit it —
 the window needs the loop thread to lose the CPU right after the spawn.
+Combined idle-box total: **127 runs of the test file, 0 hangs** (67 before
+the fix, 60 after) — so a green local hammer says nothing about this bug in
+either direction; the repro pair is the oracle, and the CI macOS leg is the
+only place the original rate lives.
 
 ## Fix
 
