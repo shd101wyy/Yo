@@ -1,0 +1,15 @@
+// issues/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md
+// `yo check` passes, `yo compile` succeeds, the binary aborts (rc=134) at
+// `o.clone()`: the derived clone body failed definition-time evaluation on
+// `self.inner.clone()` (Inner has no Clone) and the failure was swallowed.
+// Expected: E0602 at the `derive` line naming the field `inner`.
+{ println } :: import("std/fmt");
+Inner :: struct(n : usize);
+Outer :: struct(inner : Inner, k : usize);
+derive(Outer, Clone);
+main :: (fn() -> unit)({
+  o := Outer(inner : Inner(n : usize(1)), k : usize(2));
+  o2 := o.clone();
+  println(o2.k.to_string());
+});
+export(main);
