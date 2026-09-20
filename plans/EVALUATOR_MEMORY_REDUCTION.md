@@ -755,14 +755,18 @@ corrections to the design above:**
   | Phase 1 (#805) | 10.16 GB | — | 90 s |
   | Phase 1 + F3 | 9.72 GB | 9.87 GB | 88.7 s |
 
-  −0.44 GB (−4 %), against the audit's 2–3 GB estimate for F3. The shortfall
-  is the design's own cost: the 4-slot ring only merges CONSECUTIVE
-  same-scope snapshots, and every one of the ~130 adoption sites now takes a
-  transient private copy (an `Environment` + one frame list) where it used to
-  alias. The census-side lever left in F3 is the ring depth (hit rate was not
-  measured; a per-scope memo keyed by the frame sequence would catch
-  non-consecutive repeats) — measure the hit rate before widening. Emitted C:
-  see the byte-identity note below.
+  With plain private copies at the adoption sites: 9.72 GB (−0.44 GB). With
+  the copy-on-write adoption that keeps emission identical
+  (`expr_info_adopt_env`): **10.01 GB (−0.15 GB, −1.5 %)**, 88.2 s. The ring
+  hit rate IS high — `YO_SPEC_REPORT` on the self-compile: 2,807,813 hits /
+  423,507 misses (87 % of recorded envs shared) — so the audit's 2–3 GB
+  estimate for F3 was wrong, not the design: a snapshot is one `Environment`
+  plus a handle list of a few frames (~150 B), and 2.8 M of them are ~0.4 GB.
+  The frames' VARIABLE lists, which the audit attributed per snapshot, were
+  already shared `Frame` objects. F3's true ceiling was ~0.4 GB and the
+  copy-on-write adoptions give a third of it back. Lesson for the remaining
+  phases: the census counts OBJECTS; multiply by the object's own size before
+  ranking a lever.
 
 ### Phase 3 — `Option(ref)` niche (F4): layout change, full battery
 
