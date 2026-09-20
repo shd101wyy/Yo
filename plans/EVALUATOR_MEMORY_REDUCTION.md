@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-20 — audit complete, nothing implemented.** Written
+**Status: ACTIVE 2026-09-20 — Phase 0 steps 1/4/5 and Phase 1 landed, Phase 7's bug root-caused and FIXED (PR `perf/evaluator-memory-p1`: `check src/main.yo` 19.9 → 10.2 GB, 170 → 90 s); Phase 2 (F3) implemented on the stacked branch `perf/evaluator-memory-p2-f3`, measuring.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -129,14 +129,23 @@ Same source tree both sides (`24fcd192f`, probe-free), `check src/main.yo
 | binary                                                   | footprint    | wall   |
 | -------------------------------------------------------- | ------------ | ------ |
 | seed v0.2.38                                             | 19.90 GB     | 170 s  |
-| Phase 1 (walk `ctx` released, spec-cache `env` removed) + #804 | **17.61 GB** | 145 s |
+| Phase 1 (walk `ctx` released, spec-cache `env` removed) + #804 | 17.61 GB | 145 s |
+| + the F8 fix (receiver evaluated once per call)          | **10.16 GB** | **90 s** |
+| same binary on the #800 tree (the seven probes present)  | 10.16 GB     | 90 s   |
 
-F1 is worth **2.3 GB (11.5%)** on `check`, not the bulk of the peak: the
-per-module tables of finished walks are one holder among several. The rest of
-the live set is reachable from the module cache (function values → bodies →
-their def-time `ExprInfo`s through `g_funcval_def_envs` and the specialization
-caches); Phase 0 step 3's holder attribution remains the measurement that
-ranks what is left.
+F1 is worth **2.3 GB (11.5%)**: the per-module tables of finished walks are
+one holder among several. **The F8 fix is worth another 7.4 GB and 55 s on
+the compiler's own source** — `src/` has a 19-deep method chain
+(`lsp/server.yo:257`, the capabilities JSON builder), two 8-interpolation
+templates and dozens of 5–7-deep chains, each of which cost 2^depth
+evaluations — and it makes the seven #800 probes free (31.55 → 10.16 GB on
+that tree). Together: the evaluator's footprint on `check src/main.yo` is
+**halved** (19.9 → 10.2 GB) and wall time −47%, with the emitted C unchanged
+(fixpoint holds; the seed-vs-new emit comparison is recorded below when it
+lands). The rest of the live set is reachable from the module cache
+(function values → bodies → their def-time `ExprInfo`s through
+`g_funcval_def_envs` and the specialization caches); Phase 0 step 3's holder
+attribution remains the measurement that ranks what is left.
 
 ### 0.3 How to measure (the rules that bit earlier campaigns)
 
@@ -737,6 +746,19 @@ byte-identical" (they change bookkeeping, not what is emitted):
   keep a lazily-created cell for the `PtrVal.target_value` case only).
 
 ### Phase 7 — the super-linear compile-cost bug (F8), then the diet
+
+**Steps 1–3 DONE 2026-09-20** (in the Phase 1 PR, because #800 had just made
+it a 12 GB regression): the mechanism was the evaluator evaluating a method
+receiver twice per call (once to resolve the method, once as `self`) and an
+infix operator's first operand likewise, so a left-nested chain cost
+2^depth — a template string with N interpolations is a 2N-deep `.+` chain
+(`issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md`). Fixed
+by marking the node pre-evaluated for the call's argument matching; ratchet
+in `gates_fast.sh` GATE 0 (a twelve-interpolation repro under 120 s); values
+pinned in `tests/template_string_specs.test.yo`. Step 4 (the diet) is now
+unblocked and stays sequenced after Phase 3.
+
+The original investigation plan, kept for the record:
 
 1. Distil the repro from the issue: a module-level fn with a gated `eprintln`
    whose template interpolates a match-unwrapped unknown through a large
