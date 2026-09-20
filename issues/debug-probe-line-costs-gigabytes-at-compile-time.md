@@ -1,7 +1,7 @@
 # A 5-line debug-probe enrichment in synthesizer.yo cost +11.7 GB / +2.9x wall of SEED-compile memory — compile-time, with the probe never firing
 
-**Status: ROOT-CAUSED 2026-09-20 (standalone repro below); fix pending in the
-same campaign (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 7).** Originally:
+**Status: FIXED 2026-09-20 (root cause and fix below; the standalone repro is the
+GATE 0 compile-cost ratchet in `scripts/bootstrap/gates_fast.sh`).** Originally:
 OPEN (the probe is reverted; the underlying compile-cost mechanism is the open
 part). Found 2026-08-24 root-causing what was first
 misdiagnosed as "S1 std growth hit a memory wall"
@@ -119,3 +119,31 @@ its recorded `ExprInfo` when argument matching meets an already-evaluated
 node), and the template fold should not need to be left-nested at all. The
 parser-side flattening alone would leave `a.f().g().h()` chains exponential,
 so the evaluator fix is the real one; the repro shapes above are the gate.
+
+## Fix (2026-09-20)
+
+`mark_node_preevaluated` / `unmark_node_preevaluated` / `node_is_preevaluated`
+(`src/expr_info.yo`): a method call marks its receiver node, and an infix
+operator call its first operand, for the duration of the call's argument
+matching; the evaluator's dispatcher (`_evaluate_expression_raw_wrapper`,
+`src/evaluator/exprs/_expr.yo`) returns a marked node whose `ExprInfo` is
+already recorded instead of re-evaluating it. The operator's SECOND operand
+is only probed without an expected type and is deliberately NOT marked: a
+literal `0` there must still be evaluated against the parameter type
+(`(v.fields.len() == 0)` in the prelude's derived `Eq` failed with
+"Cannot unify usize and i32" when it was).
+
+Measured with the tree-built compiler (`YO_SPEC_REPORT=1` counts evaluations
+per AST node id):
+
+| program (`check`)                    | before (seed)     | after            | most-evaluated node |
+| ------------------------------------ | ----------------- | ---------------- | ------------------- |
+| `s.clone()` × 20                     | 8.32 GB / 38 s    | 0.92 GB / 3.9 s  | 1,048,576 → 8       |
+| template with 10 interpolations      | 11.53 GB / 66 s   | 0.92 GB / 2.6 s  | 1,048,576 → 8       |
+| `((s0 + s1) + s2)…` × 20             | 4.38 GB / 26 s    | 0.92 GB / 2.6 s  |                     |
+| node evaluations, 20-deep chain      | 5,365,871         | 89,450           |                     |
+
+Regression guards: `issues/repros/template-ten-interpolations-is-linear.yo`
+(twelve interpolations + a 14-deep method chain + a 14-operand operator chain)
+compiled under a 120 s timeout by `gates_fast.sh` GATE 0; the values a long
+template / chain must produce are pinned in `tests/template_string_specs.test.yo`.

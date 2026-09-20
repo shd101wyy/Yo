@@ -1,6 +1,6 @@
 # Seven gated `YO_DEBUG_WARM` probes (#800) cost +11.6 GB / +180 s on `check src/main.yo` — the F8 compile-cost mechanism, measured again
 
-**Status: ROOT-CAUSED 2026-09-20.** The probes are removed in this branch (that
+**Status: FIXED 2026-09-20 (probes removed; the mechanism fixed in the same PR — the F8 issue).** The probes are removed in this branch (that
 recovers the 11.6 GB); the mechanism — one template string with TEN
 interpolations, evaluated at ~4× cost per nesting level — is recorded in
 `issues/debug-probe-line-costs-gigabytes-at-compile-time.md`, which now has a
