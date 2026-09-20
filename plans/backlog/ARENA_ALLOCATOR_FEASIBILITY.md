@@ -222,14 +222,21 @@ Arena :: ref(struct(_id : usize));   // opaque; !Send by construction (non-atomi
 // not contain a reference type (`type_contains_rc_type(R) == false`) — the
 // static half of the escape rule; the dynamic half (§3.2) covers globals,
 // captures and caches.
-// scope : (fn(generic(R : Type), f : Impl(Fn() -> R), where(!(R <: Rc))) -> R)
+// scope : (fn(generic(R : Type), f : Impl(Fn() -> R), where(R <: !Rc)) -> R)
 ```
 
-Whether the static result-type rule is expressible with today's `where`
-vocabulary needs a check against `trait_checking.yo`'s marker set
-(`Send/Comptime/Acyclic/Runtime/Rc` are the fixed env markers) — `Rc` is
-already a marker, so `where(!(R <: Rc))` is the intended spelling; confirm it
-is accepted in a negative position.
+The static result-type rule needs a NEGATIVE marker constraint. Both halves
+exist: `Rc` is one of the fixed env markers (`trait_checking.yo:227-231`,
+with `Send/Comptime/Acyclic/Runtime`), and negated where-clause entries are a
+first-class shape (`WhereConstraintEntry.is_negated`,
+`_add_where_clause_constraint(some_ty, trait_ty, is_negated)` in
+`evaluator/types/function.yo`, feeding `SomeT.negative_trait_types`). The
+collector (`function.yo:2042-2080`) recognizes a negated constraint as a
+`!` prefix call on the TRAIT side, so the spelling is `where(R <: !Rc)`.
+If the marker check turns out not to reach a nested `R` (a result type that
+merely CONTAINS an `Rc` field), the rule becomes a dedicated evaluator check
+on `Arena.scope`'s result type using `type_contains_rc_type`
+(`types/utils.yo:511`), which is the predicate the marker should reduce to.
 
 **Runtime (emitted C, `gc_runtime.yo` + a new `c/arena.yo`):**
 
@@ -269,7 +276,7 @@ machinery.
 
 | #  | hatch                                                    | closure                                                                                     |
 | -- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| 1  | returning an RC value from the scope closure             | static: result type must not contain `Rc` (`where(!(R <: Rc))`)                             |
+| 1  | returning an RC value from the scope closure             | static: result type must not contain `Rc` (`where(R <: !Rc)`, or `type_contains_rc_type`)   |
 | 2  | storing an arena cell into an outer object / global      | dynamic: trial deletion at reset → panic                                                    |
 | 3  | closure capture that outlives the scope                  | dynamic (the closure's capture struct is a heap cell referencing the arena cell)             |
 | 4  | caches keyed process-wide (memo tables)                  | dynamic                                                                                     |

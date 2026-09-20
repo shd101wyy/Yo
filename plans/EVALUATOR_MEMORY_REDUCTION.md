@@ -181,13 +181,22 @@ lever ranking in §4 has one source.
 ### F1. One-shot commands retain every module's whole evaluation context
 
 `begin_module_walk` stores `ModuleWalk(ctx : copy_eval_context(ctx), env, defs,
-…)` and `end_module_walk` moves it into `g_finished_walks`, where nothing removes
-it except a re-walk of the same path. `copy_eval_context` shares the
-`expr_info_table` handle (`context.yo:1545`). The registry exists for the LSP
-and `check --watch` (`mm_revalidate_plan`/`mm_revalidate_apply`, per-definition
-revalidation — `reference/INCREMENTAL_COMPILATION.md`), and for `yo check`
-without `--watch`, `yo compile`, `yo build`, `yo test`, `yo doc`, `yo verify` it
-is dead weight: the walk is never consulted after the module finishes.
+by_index, begin_exprs, module_frame, …)` and `end_module_walk` moves it into
+`g_finished_walks`, where nothing removes it except a re-walk of the same path.
+`copy_eval_context` shares the `expr_info_table` handle (`context.yo:1545`).
+What is read from a FINISHED walk on the one-shot path (audited 2026-09-20,
+every `finished_walk_for` / `g_finished_walks.get` site in `context.yo` and
+`module_manager.yo`): `defs` / `by_index` (`_find_def_by_name`, dependency
+edges in `record_module_member_read`, the cross-module serve of an
+already-forced definition in `resolve_pending_definition`) and `module_frame`
+(`_def_variable_for` → `module_frame_variable`). Lookup-miss forcing itself
+goes through `_active_walk_for`, i.e. walks still on the `g_module_walks`
+stack. **`ctx` and `env` are read only by Phase 3b revalidation
+(`module_walk_force_env`, `revalidate_walk_defs`, `mm_revalidate_apply`)** —
+the LSP / `check --watch` path (`reference/INCREMENTAL_COMPILATION.md`). For
+`yo check` without `--watch`, `yo compile`, `yo build`, `yo test`, `yo doc`
+and `yo verify` the retained `ctx` (and through it the module's whole
+`ExprInfoTable`) and `env` are dead weight.
 
 Evidence: the code path (§1.2); the prune post-mortem's unexplained holder;
 `check ./src` costing only 0.8 GB more than `check src/main.yo` despite
@@ -432,14 +441,18 @@ instruments durable and answer the three questions the ranking depends on.
 ### Phase 1 — retention hygiene (F1, F2a): fewer roots, byte-identical C
 
 1. **Walk retention flag.** In `src/evaluator/context.yo` add
-   `(g_retain_finished_walks : bool) = false` with `set_retain_finished_walks`;
-   `end_module_walk` inserts into `g_finished_walks` only when the flag is
-   set, and otherwise stores a SLIM record (`module_path`, `defs`, hashes —
-   everything `mm_changed_definitions` / `finished_walk_for` callers on the
-   non-watch path actually read; audit each `finished_walk_for` site in
-   `module_manager.yo:437-1202` and list what it dereferences). Set the flag
-   in `run_check` when `--watch`/`--watch-once` is given and in `yo lsp`'s
-   server start. `yo compile`/`build`/`test`/`doc`/`verify` never set it.
+   `(g_retain_walk_contexts : bool) = false` with a setter. `ModuleWalk.ctx`
+   and `ModuleWalk.env` become `Option(...)`; `end_module_walk` keeps them
+   only when the flag is set and otherwise stores `.None` (the record keeps
+   `module_path`, `defs`, `by_index`, `begin_exprs`, `module_frame`,
+   `module_frame_id` — everything the one-shot readers listed under F1 touch).
+   `module_walk_force_env`, `revalidate_walk_defs` and `mm_revalidate_apply`
+   take the `.None` case as "not retained: fall back to the file-level
+   re-walk" (the conservative fallback those paths already have). Set the
+   flag in `run_check` when `--watch`/`--watch-once` is given and in
+   `yo lsp`'s server start. `yo compile`/`build`/`test`/`doc`/`verify` never
+   set it. An ACTIVE walk (still on `g_module_walks`) is unaffected: forcing
+   reads the live `ctx`/`env` passed to `begin_module_walk`, not the copy.
 2. **Prove the walk is dead on the one-shot path**: an assertion build
    (`YO_DEBUG_WALKS=1`) that panics if `finished_walk_for` returns a slim
    record and the caller touches `.ctx`/`.env`; run `check ./src`,
@@ -449,10 +462,13 @@ instruments durable and answer the three questions the ranking depends on.
    restores full retention on the next walk. Gate with the LSP tests under
    `tests/internal/` and a long-lived `yo lsp` session (open/edit/close 50
    documents, footprint must plateau).
-4. **`SpecializedFunctionCache.env`**: confirm by grep + the assertion build
-   that no reader exists besides `_store_specialization_cache`; delete the
-   field (and the parameter). If a reader exists, store the frame COUNT it
-   needs, not the env.
+4. **`SpecializedFunctionCache.env`**: the field is write-only today —
+   `_find_specialization_cache` (`helper.yo:1455-1600`) returns only
+   `specialized_func_value`, and its `caller_env` parameter appears once, as
+   a bare expression statement (`helper.yo:1501`), i.e. unused. Confirm with
+   the assertion build, then delete the field, the `env` parameter of
+   `_store_specialization_cache` (2 call sites: `helper.yo:4063`, `:4407`) and
+   the dead `caller_env` parameter.
 5. **Registry sweep**: for each of the 288 module-level globals, classify
    {bounded, per-module (purgeable by owner), per-function (purgeable by
    owner), process}. Record the table in this document. For the per-function
