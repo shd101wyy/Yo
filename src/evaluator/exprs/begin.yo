@@ -76,6 +76,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
+{ debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 // ---------------------------------------------------------------------------
 // DupCallsResult — result type for collect_dup_calls_conservatively.
 // ---------------------------------------------------------------------------
@@ -1201,6 +1203,9 @@ _optimize_dup_drop_pairs :: (
             });
           });
           base_is_protected := ((base.id == v.id) && (protected_bases.contains(base_id.clone()) || variable_keep_alias_dups(v)));
+          if(match(debug_knob(`YO_DEBUG_DUPDROP`), .Some(dk0) => (dk0 == v.name), .None => false), {
+            eprintln(`[dupdrop-probe] var=${v.name} base=${base.name} has_dups=${merged.dup_calls.get(base_id.clone()).is_some().to_string()} alias_reassigned=${alias_reassigned.to_string()} base_protected=${base_is_protected.to_string()}`);
+          });
           match(
             merged.dup_calls.get(base_id.clone()),
             .Some(dups) => if((dups.len() > usize(0)) && (!alias_reassigned && !base_is_protected), {
@@ -1297,6 +1302,9 @@ _optimize_dup_drop_pairs :: (
                 });
               });
               gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && !base_consumed)))));
+              if(match(debug_knob(`YO_DEBUG_DUPDROP`), .Some(dk) => (dk == v.name), .None => false), {
+                eprintln(`[dupdrop-probe] var=${v.name} base=${base.name} dups=${dups.len().to_string()} vt_rc=${value_type_with_rc.to_string()} partial=${partial.to_string()} nested=${nested_dup.to_string()} ret_before=${ret_before_dup.to_string()} consumed_dups=${consumed_dups.to_string()} base_consumed=${base_consumed.to_string()} gates_ok=${gates_ok.to_string()}`);
+              });
               if(gates_ok, {
                 // Count RUNTIME dups — every collected dup counts.
                 (runtime_count : usize) = usize(0);
