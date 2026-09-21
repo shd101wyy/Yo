@@ -294,6 +294,205 @@ static inline void __yo_div_guard_u(unsigned long long b, const char* f, int r, 
   }
 }`
   );
+  // Safe mode Phase 3a (plans/backlog/SAFE_MODE.md §6, ruling D1): integer
+  // overflow in + - * and negation of MIN abort with a diagnostic at every
+  // optimization level — the runtime match of comptime's check_int_overflow.
+  // Narrow widths (<= 32 bits) widen to long long / unsigned long long, do
+  // the op, and range-check; 64-bit widths use the overflow identities
+  // (division-free for mul). Bounds ride the call so one helper serves every
+  // width of its signedness.
+  context.emitter.emit_header_string_line(
+    `
+static inline long long __yo_add_chk_s(long long a, long long b, long long lo, long long hi, const char* f, int r, int c) {
+  long long rr = a + b;
+  if (rr < lo || rr > hi) {
+    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline long long __yo_sub_chk_s(long long a, long long b, long long lo, long long hi, const char* f, int r, int c) {
+  long long rr = a - b;
+  if (rr < lo || rr > hi) {
+    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline long long __yo_mul_chk_s(long long a, long long b, long long lo, long long hi, const char* f, int r, int c) {
+  long long rr = a * b;
+  if (rr < lo || rr > hi) {
+    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline unsigned long long __yo_add_chk_u(unsigned long long a, unsigned long long b, unsigned long long hi, const char* f, int r, int c) {
+  unsigned long long rr = a + b;
+  if (rr > hi) {
+    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline unsigned long long __yo_sub_chk_u(unsigned long long a, unsigned long long b, const char* f, int r, int c) {
+  unsigned long long rr = a - b;
+  if (a < b) {
+    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline unsigned long long __yo_mul_chk_u(unsigned long long a, unsigned long long b, unsigned long long hi, const char* f, int r, int c) {
+  unsigned long long rr = a * b;
+  if (b != 0 && rr / b != a) {
+    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline int64_t __yo_add_chk_s64(int64_t a, int64_t b, const char* f, int r, int c) {
+  int64_t rr = (int64_t)((uint64_t)a + (uint64_t)b);
+  if (((a ^ rr) & (b ^ rr)) < 0) {
+    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline int64_t __yo_sub_chk_s64(int64_t a, int64_t b, const char* f, int r, int c) {
+  int64_t rr = (int64_t)((uint64_t)a - (uint64_t)b);
+  if (((a ^ b) & (a ^ rr)) < 0) {
+    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline int64_t __yo_mul_chk_s64(int64_t a, int64_t b, const char* f, int r, int c) {
+  int64_t rr = (int64_t)((uint64_t)a * (uint64_t)b);
+  int ovf = 0;
+  if (a > 0) {
+    ovf = (b > 0) ? (a > (INT64_MAX / b)) : (b < (INT64_MIN / a));
+  } else if (a < 0) {
+    ovf = (b > 0) ? (a < (INT64_MIN / b)) : (b < (INT64_MAX / a));
+  }
+  if (ovf) {
+    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline uint64_t __yo_add_chk_u64(uint64_t a, uint64_t b, const char* f, int r, int c) {
+  uint64_t rr = a + b;
+  if (rr < a) {
+    fprintf(stderr, "integer addition overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline uint64_t __yo_sub_chk_u64(uint64_t a, uint64_t b, const char* f, int r, int c) {
+  if (a < b) {
+    fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return a - b;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline uint64_t __yo_mul_chk_u64(uint64_t a, uint64_t b, const char* f, int r, int c) {
+  uint64_t rr = a * b;
+  if (b != 0 && rr / b != a) {
+    fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return rr;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline long long __yo_neg_chk_s(long long a, long long lo, const char* f, int r, int c) {
+  if (a == lo) {
+    fprintf(stderr, "integer negation overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return -a;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline int64_t __yo_neg_chk_s64(int64_t a, const char* f, int r, int c) {
+  if (a == INT64_MIN) {
+    fprintf(stderr, "integer negation overflow (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+  return (int64_t)(0 - (uint64_t)a);
+}`
+  );
+  // Safe mode Phase 3b (§6): a shift count >= the operand's bit width (or
+  // negative) is C UB. The guard returns the validated count so the shift's
+  // emitted shape only gains the call around the count.
+  context.emitter.emit_header_string_line(
+    `
+static inline long long __yo_sh_chk(long long sh, long long bits, const char* f, int r, int c) {
+  if (sh < 0 || sh >= bits) {
+    fprintf(stderr, "shift count out of range: %lld not in [0, %lld) (at %s:%d:%d)\\n", sh, bits, f, r, c);
+    abort();
+  }
+  return sh;
+}`
+  );
+  // Safe mode Phase 3c (§6, ruling D2): float->int casts SATURATE
+  // (out-of-range -> the target's MIN/MAX, NaN -> 0) instead of being C UB.
+  // One signed helper (bounds passed) + one unsigned helper; f32 sources
+  // promote to double at the call.
+  context.emitter.emit_header_string_line(
+    `
+static inline int64_t __yo_sat_i64(double v, int64_t lo, int64_t hi) {
+  if (v != v) return 0;
+  if (v <= (double)lo) return lo;
+  if (v >= (double)hi) return hi;
+  return (int64_t)v;
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline uint64_t __yo_sat_u64(double v, uint64_t hi) {
+  if (v != v) return 0;
+  if (v <= 0.0) return 0;
+  if (v >= (double)hi) return hi;
+  return (uint64_t)v;
+}`
+  );
   context.emitter.emit_header_string_line(
     `
 static inline void* __yo_rc_alloc(size_t size) {
