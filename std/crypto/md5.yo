@@ -164,11 +164,11 @@ _S :: Array(u32, usize(64))(
 _rotl32 :: (fn(x : u32, n : u32) -> u32)(
   (x << n) | (x >> (u32(32) - n))
 );
-_le32 :: (fn(p : *(u8)) -> u32)(
-  (u32(p.*) | (u32((p.add(usize(1))).*) << u32(8))) |
+_le32 :: (fn(p : *u8) -> u32)(
+  u32(p.*) | (u32((p.add(usize(1))).*) << u32(8)) |
     ((u32((p.add(usize(2))).*) << u32(16)) | (u32((p.add(usize(3))).*) << u32(24)))
 );
-_md5_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
+_md5_block :: (fn(block : *u8, h : *u32) -> unit)({
   a := (h.add(usize(0))).*;
   b := (h.add(usize(1))).*;
   c := (h.add(usize(2))).*;
@@ -179,32 +179,33 @@ _md5_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
     g := usize(0);
     cond(
       (i < usize(16)) => {
-        fv = ((b & c) | ((~(b)) & d));
+        fv = ((b & c) | (~b & d));
         g = i;
       },
       (i < usize(32)) => {
-        fv = ((d & b) | ((~(d)) & c));
+        fv = ((d & b) | (~d & c));
         g = (((i * usize(5)) + usize(1)) % usize(16));
       },
       (i < usize(48)) => {
-        fv = ((b ^ c) ^ d);
+        fv = (b ^ c ^ d);
         g = (((i * usize(3)) + usize(5)) % usize(16));
       },
       true => {
-        fv = (c ^ (b | (~(d))));
+        fv = (c ^ (b | ~d));
         g = ((i * usize(7)) % usize(16));
       }
     );
-    fv = (((fv + a) + _T(i)) + _le32(block.add(g * usize(4))));
+    // MD5's round sum wraps BY DESIGN (wrapping_add, safe mode D1).
+    fv = fv.wrapping_add(a).wrapping_add(_T(i)).wrapping_add(_le32(block.add(g * usize(4))));
     a = d;
     d = c;
     c = b;
-    b = (b + _rotl32(fv, _S(i)));
+    b = b.wrapping_add(_rotl32(fv, _S(i)));
   });
-  (h.add(usize(0))).* = ((h.add(usize(0))).* + a);
-  (h.add(usize(1))).* = ((h.add(usize(1))).* + b);
-  (h.add(usize(2))).* = ((h.add(usize(2))).* + c);
-  (h.add(usize(3))).* = ((h.add(usize(3))).* + d);
+  (h.add(usize(0))).* = (h.add(usize(0))).*.wrapping_add(a);
+  (h.add(usize(1))).* = (h.add(usize(1))).*.wrapping_add(b);
+  (h.add(usize(2))).* = (h.add(usize(2))).*.wrapping_add(c);
+  (h.add(usize(3))).* = (h.add(usize(3))).*.wrapping_add(d);
 });
 // Compute an MD5 digest over `data`.
 /// MD5 streaming state (the Sha256 skeleton; little-endian length +
@@ -239,8 +240,8 @@ impl(
       self._total = (self._total + u64(1));
       cond(
         (self._buflen == usize(64)) => {
-          buf_ptr := &(self._buf(usize(0)));
-          h_ptr := &(self._h(usize(0)));
+          buf_ptr := &self._buf(usize(0));
+          h_ptr := &self._h(usize(0));
           _md5_block(buf_ptr, h_ptr);
           self._buflen = usize(0);
         },
@@ -264,8 +265,8 @@ impl(
         while(self._buflen < usize(64), self._buflen = (self._buflen + usize(1)), {
           self._buf(self._buflen) = u8(0);
         });
-        buf_ptr := &(self._buf(usize(0)));
-        h_ptr := &(self._h(usize(0)));
+        buf_ptr := &self._buf(usize(0));
+        h_ptr := &self._h(usize(0));
         _md5_block(buf_ptr, h_ptr);
         self._buflen = usize(0);
       },
@@ -283,8 +284,8 @@ impl(
     self._buf(usize(61)) = u8(bit_len >> u64(40));
     self._buf(usize(62)) = u8(bit_len >> u64(48));
     self._buf(usize(63)) = u8(bit_len >> u64(56));
-    buf_ptr := &(self._buf(usize(0)));
-    h_ptr := &(self._h(usize(0)));
+    buf_ptr := &self._buf(usize(0));
+    h_ptr := &self._h(usize(0));
     _md5_block(buf_ptr, h_ptr);
     digest := Array(u8, usize(16)).fill(u8(0));
     k := usize(0);
@@ -337,7 +338,7 @@ md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
     u32(0x98badcfe),
     u32(0x10325476)
   );
-  h_ptr := &(h(usize(0)));
+  h_ptr := &h(usize(0));
   n := data.len();
   // Process full blocks
   i := usize(0);
@@ -347,7 +348,7 @@ md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
   });
   // Final block(s) with padding
   pad_buf := Array(u8, usize(128)).fill(u8(0));
-  pad_ptr := &(pad_buf(usize(0)));
+  pad_ptr := &pad_buf(usize(0));
   rem := (n - i);
   j := usize(0);
   while(j < rem, j = (j + usize(1)), {
@@ -372,7 +373,7 @@ md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
       // Length goes in second block
       _md5_block(pad_ptr, h_ptr);
       pad2 := Array(u8, usize(64)).fill(u8(0));
-      pad2_ptr := &(pad2(usize(0)));
+      pad2_ptr := &pad2(usize(0));
       bit_len := u64(n * usize(8));
       (pad2_ptr.add(usize(56))).* = u8(bit_len);
       (pad2_ptr.add(usize(57))).* = u8(bit_len >> u64(8));

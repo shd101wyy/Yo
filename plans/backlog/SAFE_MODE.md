@@ -450,16 +450,15 @@ Landed order when this phase resumes (each its own PR):
    `wrapping_mul` on i8..i64/u8..u64/isize/usize — new BF_ builtins whose
    codegen arm is today's raw `_binop` (evaluator registration + prelude
    impls; runtime-only initially; comptime keeps its overflow error).
-2. **3a-ii: migrate intentional-wrap sites — LANDED for hash/rand/sha256
-   (branch `safe-mode-3`).** Done: `std/hash.yo` (SipHash's four round-adds,
-   FNV-1a's multiply), `std/rand.yo` (PCG LCG step + the two state-seed
-   adds), `std/crypto/sha256.yo` (schedule, compression, h-accumulation —
-   its helpers are shift/xor only). REMAINING before the Phase 3 PR opens,
-   each a mechanical `.wrapping_add/_mul` rewrite of the digest rounds
-   (bit-exactness required; `tests/crypto/` vectors are the oracle):
-   `std/crypto/sha512.yo` (~36 op-lines), `sha1.yo` (~29), `md5.yo` (~53),
-   `hmac.yo` (~2). Length/buffer counters (`_buflen + 1`, `length + size`)
-   are NOT wrap-by-design and stay plain.
+2. **3a-ii: migrate intentional-wrap sites — COMPLETE (branch `safe-mode-3`).**
+   Done: `std/hash.yo` (SipHash's four round-adds, FNV-1a's multiply),
+   `std/rand.yo` (PCG LCG step + the two state-seed adds),
+   `std/crypto/sha256.yo` (schedule, compression, h-accumulation — its
+   helpers are shift/xor only), `std/crypto/sha512.yo`, `std/crypto/sha1.yo`,
+   `std/crypto/md5.yo`. `hmac.yo` audited clean (its adds are loop
+   counters). Length/buffer counters (`_buflen + 1`, `length + size`) are
+   NOT wrap-by-design and stay plain. `tests/crypto/` RFC/FIPS vectors are
+   the bit-exactness oracle.
 3. **3a-iii: flip the traps** — the emitters/helpers below activate.
 
 Implementation state (emitters + runtime helpers, `yo check`-clean, the 64-bit
