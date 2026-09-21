@@ -12,7 +12,10 @@ historical record of mechanisms reasoned about or partially measured on the
 way; the ones marked refuted stay refuted, and the two landed scoping reads
 (impl.yo's fresh-frame extraction, env_lookup.yo's liveness check) were
 contributing reads, not the cause. Regression test:
-`tests/internal/check_watch.test.yo` ("a warm second load re-mints type ids").
+`tests/cli-cases/test-in-process-warm-type-ids` — two test files sharing a
+recursive generic struct module, run in-process; the develop binary dies on
+the second batch (rc=138, deterministic, passes in child mode), the fix
+passes both.
 
 ## Symptom
 
@@ -449,4 +452,16 @@ A/B of the self-emit recorded in the PR). Warm passes keep counting, so a
 fresh instantiation can never take a surviving entry's id.
 
 **Measured:** the minimal pair (`doc_render_markdown` + `doc_stability`
-in-process) — red before, `35 passed` after, with the probes removed.
+in-process) — red before, `35 passed` after, with the probes removed. All 92
+`tests/internal` files through ONE in-process runner: 1189 passed, 0 unify
+errors. Cold self-emit byte-IDENTICAL against the develop binary (same tree,
+same `--std-path`).
+
+**Regression fixture shape that reaches a poisoned registry** (a plain
+`Pair(i32)` / `Pair(String)` pair does NOT: its re-registration overwrites
+the field registry, so nothing stale is ever read): a RECURSIVE generic
+struct, `Node(T) = ref(struct(value : T, next : Option(Self)))`. Inside its
+own definition `Self` is a zero-field shell with the SAME struct id, and
+field reads through a shell resolve by id in `g_struct_finals` with a
+FIRST-match scan — batch 1's `Node(i32)` final answers for batch 2's
+`Node(String)`. `tests/cli-cases/test-in-process-warm-type-ids` is that pair.

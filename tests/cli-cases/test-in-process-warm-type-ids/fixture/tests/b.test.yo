@@ -1,0 +1,10 @@
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ Node } :: import("./node.yo");
+
+test("second file: Node(String) after the emission reset", {
+  leaf := Node(String)(value : String.from("b"), next : Option(Node(String)).None);
+  root := Node(String)(value : String.from("a"), next : Option(Node(String)).Some(leaf));
+  total := match(root.next, .Some(n) => (root.value.len() + n.value.len()), .None => root.value.len());
+  assert(total == usize(2), "lengths through the child");
+});

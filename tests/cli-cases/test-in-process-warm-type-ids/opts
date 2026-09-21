@@ -1,0 +1,13 @@
+# issues/fixed/warm-test-batches-doc-stability-genericimplentry.md: struct /
+# enum / trait / union ids were minted in the per-compile EMISSION namespace,
+# which the in-process runner resets before every batch. node.yo is a cache
+# hit in the second batch, so `Node(String)` re-mints at the same decl token
+# and — before the fix — took the id batch 1 gave `Node(i32)`; the surviving
+# id-keyed registries (struct finals, field registry, interned types) then
+# answered for the wrong instantiation. Measured under the develop binary:
+# the second batch dies (rc=138) in-process and passes in child mode; with
+# `stable_type_id` both files pass. The kept substrings are the per-file
+# verdicts and the summary.
+env=YO_TEST_IN_PROCESS=1
+stdout_keep_match=✓ (first|second) file: .*|✗ .*|[0-9]+ (passed|failed)|the batch failed to compile.*
+timeout=300
