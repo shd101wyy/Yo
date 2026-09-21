@@ -724,12 +724,20 @@ type_intern_probe_record :: (fn(t : TypeValue) -> unit)({
   ()
 });
 /// The probe's verdict line, printed next to the spec report.
-type_intern_probe_report :: (fn() -> String)(
-  cond(
-    !g_ti_probe_on => String.from(""),
-    true => `[type-intern] retained_types=${g_ti_total.to_string()} distinct=${g_ti_distinct.len().to_string()} nodes=${g_ti_nodes.to_string()} lists=${g_ti_lists.to_string()} empty_lists=${g_ti_lists_empty.to_string()} func=${g_ti_func.to_string()} struct=${g_ti_struct.to_string()} enum=${g_ti_enum.to_string()} some=${g_ti_some.to_string()} other=${g_ti_other.to_string()}`
-  )
-);
+type_intern_probe_report :: (fn() -> String)({
+  if(!g_ti_probe_on, {
+    return(String.from(""));
+  });
+  // Assembled from SHORT templates: under the v0.2.38 seed a template's check
+  // cost is ~4^N in its interpolation count (fixed on develop 2026-09-20, not
+  // in the seed), and `yo build` compiles src/ with the seed — one
+  // ten-interpolation line here made the self-build run 30+ minutes.
+  head := `[type-intern] retained_types=${g_ti_total.to_string()} distinct=${g_ti_distinct.len().to_string()} nodes=${g_ti_nodes.to_string()}`;
+  lists := ` lists=${g_ti_lists.to_string()} empty_lists=${g_ti_lists_empty.to_string()}`;
+  kinds := ` func=${g_ti_func.to_string()} struct=${g_ti_struct.to_string()} enum=${g_ti_enum.to_string()}`;
+  rest := ` some=${g_ti_some.to_string()} other=${g_ti_other.to_string()}`;
+  (((head + lists) + kinds) + rest)
+});
 (g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 /// Return the canonical instance for a structurally-equal type. Whole-tree.
 intern_type :: (fn(t : TypeValue) -> TypeValue)({
