@@ -8,7 +8,10 @@ Phase 3 (per-definition deps) steps 1, 2 and 4 LANDED 2026-09-12/14, the
 stale-callee bug behind the signature-edit gate FIXED 2026-09-21 (#809; §6),
 step 3 (signature/body hash split) and the destructured-reader re-bind open;
 Phase 4 (resident evaluator) steps 1, 2 and 4 LANDED 2026-09-13..18, step 3
-(`yo test` in-process) GATED behind `YO_TEST_IN_PROCESS=1` (§7); Phase 5
+(`yo test` in-process) GATED behind `YO_TEST_IN_PROCESS=1` (§7) — its
+measured breaker FIXED 2026-09-21 (type ids minted in the per-compile
+emission namespace; issues/fixed/warm-test-batches-doc-stability-genericimplentry.md),
+the full in-process `tests/internal` run is the un-gate's remaining gate; Phase 5
 step 1 (`--chunk-by module`) LANDED + MEASURED 2026-09-21 (#808; §8 — the C
 leg is 13 s of a 188 s loop, so steps 2–3 are dropped and step 4 stands).
 Remaining before graduation to `plans/reference/`: Phase 3 step 3 and
@@ -717,9 +720,13 @@ Design:
    three parents; see issues/warm-compile-selfcheck.md's step-3 section).
    The gate's reason: doc_stability's WARM compile dies unifying
    GenericImplEntry with DocParam (passes standalone;
-   issues/warm-test-batches-doc-stability-genericimplentry.md) — un-gating
-   needs per-batch reachability (owner-tagged registry purges / per-
-   compile emission scoping). Measured before the blocker ended the run:
+   issues/fixed/warm-test-batches-doc-stability-genericimplentry.md) —
+   ROOT CAUSE MEASURED AND FIXED 2026-09-21: not reachability at all —
+   struct/enum/trait/union ids were minted in the per-compile EMISSION
+   namespace (`stable_label_id`), so a warm batch's fresh instantiations
+   re-counted from `_n0` and took pass-1 ids in the surviving id-keyed
+   registries; `stable_type_id` (identity namespace, cold-only reset) is
+   the fix, cold ids unchanged. Measured before the blocker ended the run:
    31:35 wall through file ~20 of 92, peak 14.7 GB, 10 restarts.**
 4. **Memory is the constraint Zig does not have.** A self-build's
    evaluator peaks at 11–20 GB (`yo-one-heavy-job-at-a-time`,

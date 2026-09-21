@@ -17,10 +17,17 @@
 { RevalPlan } :: import("../../src/module_manager.yo");
 { type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
+{ emission_occurrence_reset } :: import("../../src/utils.yo");
 
 _LIB_OK :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
 _LIB_RENAMED :: "answer_renamed :: (fn() -> i32)(i32(42));\nexport(answer_renamed);\n";
 _APP :: "{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n";
+
+// A generic struct and two importers that each instantiate it with a
+// DIFFERENT element type (issues/fixed/warm-test-batches-doc-stability-genericimplentry.md).
+_PAIR_LIB :: "Pair :: (fn(T : type) -> type)(struct(a : T, b : T));\nexport(Pair);\n";
+_PAIR_APP1 :: "{ Pair } :: import(\"./pair.yo\");\nmain :: (fn() -> unit)({\n  p := Pair(i32)(a : i32(1), b : i32(2));\n  _s := (p.a + p.b);\n});\nexport(main);\n";
+_PAIR_APP2 :: "{ String } :: import(\"std/string\");\n{ Pair } :: import(\"./pair.yo\");\nmain :: (fn() -> unit)({\n  q := Pair(String)(a : String.from(\"x\"), b : String.from(\"y\"));\n  _n := (q.a.len() + q.b.len());\n});\nexport(main);\n";
 
 /// Unreachable unwrap helper for plan matches (an assert precedes every use).
 p0 :: (fn() -> RevalPlan)(
@@ -94,6 +101,40 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
   assert(gi_after == gi_before, `generic impls grew across rounds: ${gi_before.to_string()} -> ${gi_after.to_string()}`);
 });
 
+test("Phase 4 step 3: a warm second load re-mints type ids past the first load's (emission reset between compiles)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_warm_type_ids_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/pair.yo`;
+  app1_path := `${dir}/app1.yo`;
+  app2_path := `${dir}/app2.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_PAIR_LIB), io), ioexn);
+  io.await(write_string(Path.new(app1_path.clone()), String.from(_PAIR_APP1), io), ioexn);
+  io.await(write_string(Path.new(app2_path.clone()), String.from(_PAIR_APP2), io), ioexn);
+  std_path := resolve_std_path();
+  _pre1 := mm_invalidate_document(lib_path.clone());
+  _pre2 := mm_invalidate_document(app1_path.clone());
+  _pre3 := mm_invalidate_document(app2_path.clone());
+  // Batch 1: pair.yo is evaluated and `Pair(i32)` mints an instantiation
+  // id at Pair's DECL token.
+  assert(mm_load_file(app1_path.clone(), std_path.clone(), true, io, exn).ok, "app1 (Pair(i32)) should check");
+  // Between batches the in-process test runner's `run_compile` resets the
+  // EMISSION-name counters (temps, labels) but keeps the module cache.
+  emission_occurrence_reset();
+  // Batch 2: pair.yo is a cache hit (no re-mint of its own id), and
+  // `Pair(String)` is a FRESH instantiation at the same decl token. When
+  // type ids counted in the emission namespace it re-took batch 1's id
+  // and the surviving struct-field registry typed its fields `i32`:
+  // "Cannot unify" / a field type mismatch on a String construction.
+  assert(mm_load_file(app2_path.clone(), std_path.clone(), true, io, exn).ok, "app2 (Pair(String)) after an emission reset should check");
+});
 test("Phase 3a: mm_definitions_changed — comment/whitespace edits are no-ops, semantic edits are not", {
   exn := Exception(
     throw : (

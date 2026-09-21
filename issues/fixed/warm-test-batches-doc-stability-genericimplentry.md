@@ -1,10 +1,18 @@
 # Warm test batches: doc_stability's compile dies unifying GenericImplEntry with DocParam
 
-**Status:** OPEN. Found 2026-09-18 — the first cross-file warm-state breaker
-for §7 step 3 (`yo test` batches compiling in-process under one evaluator,
-plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md). The in-process path is gated
-behind `YO_TEST_IN_PROCESS=1` (default = the proven child-process spawn)
-until this lands.
+**Status:** FIXED 2026-09-21 (fix/warm-type-ids-identity-namespace). Found
+2026-09-18 — the first cross-file warm-state breaker for §7 step 3 (`yo test`
+batches compiling in-process under one evaluator,
+plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md). **Measured root cause (last
+section): struct / enum / trait / union ids were minted in the per-compile
+EMISSION namespace, so a warm pass's fresh instantiations re-counted from
+`_n0` and collided with pass 1's entries in the id-keyed registries that
+survive the pass.** Every section between "Symptom" and that one is the
+historical record of mechanisms reasoned about or partially measured on the
+way; the ones marked refuted stay refuted, and the two landed scoping reads
+(impl.yo's fresh-frame extraction, env_lookup.yo's liveness check) were
+contributing reads, not the cause. Regression test:
+`tests/internal/check_watch.test.yo` ("a warm second load re-mints type ids").
 
 ## Symptom
 
@@ -382,3 +390,63 @@ at instantiation time), making stored values generation-free. The stored
 registry map then never presents a slot to a later reader. Alternative if
 that proves too invasive: the decoupled clone (cache keys from the
 original signature, bindings from a per-call clone).
+
+## ROOT CAUSE MEASURED 2026-09-21: type ids minted in the per-compile EMISSION namespace
+
+The `[exp-bound]` probe (the expected-side arm of `_synthesize_types_impl`,
+printing the pre-existing binding of the expected SomeT) refuted the last
+open hypothesis: in 516/516 hits on the minimal pair the expected `T` was
+UNBOUND at bind time — no stale expected-side binding exists. What the
+probe did show was the LAST bind before the fatal:
+
+```
+[exp-bound] exp_id=1784 name=T frame_level=3 ee_frames=8 bound=T given=ArrayList(DocImplAssocType)
+[bindsome]  name=T src_id=1784 val=ArrayList(DocImplAssocType) env_frames=8 module=…/src/evaluator/values/impl.yo
+[unify-struct] exp_id=struct_decl_values__impl_r199c20 giv_id=struct_decl_doc__model_r88c20 …
+error: Cannot unify incompatible struct types: "GenericImplEntry" and "DocImplAssocType"
+```
+
+`impl.yo:1466` is `entry_list_opt = g_impl_registry_entry_lists.get(ki)`
+on an `ArrayList(ArrayList(GenericImplEntry))`. The GIVEN receiver element
+type — evaluated in impl.yo, where no Doc* type is in scope — rendered as
+`ArrayList(DocImplAssocType)`. A type that cannot be in scope is not a
+binding leak; it is an IDENTITY collision: two different instantiations
+sharing one id, so an id-keyed registry answered for the wrong one.
+
+The mint: `evaluate_struct_type` (types/struct.yo), `enum.yo`, `trait.yo`,
+`union.yo` and `anonymous_struct.yo` built their ids with
+`stable_label_id("struct_", decl_tok…)` = `struct_r<row>c<col>_n<k>`, where
+`k` is `emission_occurrence_key(position)` — the EMISSION-name counter that
+`run_compile` resets at the start of EVERY compile, warm included
+(`emission_occurrence_reset()`, main.yo; its comment even says "the identity
+counters below are a different namespace and stay cold-only"). A generic
+struct's instantiations all mint at the DECL token, so `k` is the
+instantiation ordinal of e.g. `ArrayList` at `array_list.yo r37c4`:
+
+1. Batch 1 evaluates std + doc/model and mints `struct_r37c4_n0 … n60`, one
+   per distinct `ArrayList(X)`; the registries that survive a warm pass
+   (`g_struct_field_registry`, `g_type_intern`, `g_struct_cfid_keys`, …)
+   record them.
+2. Batch 2 starts: `emission_occurrence_reset()`. Its cached modules skip
+   their mints, but impl.yo IS re-evaluated in this batch and its fresh
+   `ArrayList(GenericImplEntry)` mints `struct_r37c4_n51` again — the id
+   batch 1 gave `ArrayList(DocImplAssocType)`.
+3. The registries answer batch 1's entry: the receiver element resolves to
+   `DocImplAssocType`, the `.get` result is unified against the annotated
+   `Option(ArrayList(GenericImplEntry))`, fatal.
+
+Why every earlier candidate looked plausible: the collision presents as a
+Doc* type appearing where a T should have been bound, which is exactly
+what an env leak would look like — and the slot/frame reads that were
+found and scoped along the way were real reads, just not the writer.
+
+**Fix:** `stable_type_id` (utils.yo) — same `<prefix>r<row>c<col>_n<k>`
+shape, but `k` counts in the IDENTITY namespace (`g_stable_occurrence`,
+reset only by a cold compile) under a `tid:` key prefix so it shares no
+counter with function ids. The five type-id mints use it. Cold compiles
+reset both namespaces together, so cold ids are unchanged (byte-identity
+A/B of the self-emit recorded in the PR). Warm passes keep counting, so a
+fresh instantiation can never take a surviving entry's id.
+
+**Measured:** the minimal pair (`doc_render_markdown` + `doc_stability`
+in-process) — red before, `35 passed` after, with the probes removed.

@@ -468,8 +468,10 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
             // have an UNRELATED frame at this level legitimately holding
             // `name` (doc/model's own `V := ArrayList(DocParam)` under
             // HashMap's `V`), and the fast path returned it with NO
-            // ownership check — the whole doc_stability warm breakage
-            // (issues/warm-test-batches-doc-stability-genericimplentry.md).
+            // ownership check — one read behind the doc_stability warm
+            // breakage; its measured ROOT cause was type ids minted in the
+            // per-compile emission namespace
+            // (issues/fixed/warm-test-batches-doc-stability-genericimplentry.md).
             // When the def frame is not the last binding of the name, the
             // chain's last-binding-wins scan below is the authority (it
             // finds THIS match's fresh synthesis binding in the top frame).
