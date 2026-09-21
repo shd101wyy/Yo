@@ -255,6 +255,22 @@ ${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
     );
   });
   context.emitter.emit_header_string_line(`${alloc_fail_linkage}void __yo_alloc_fail(size_t size);`);
+  // Safe mode Phase 1 (plans/backlog/SAFE_MODE.md §4): EVERY fixed-array and
+  // str element subscript emitted by codegen is routed through this guard —
+  // raw C `p->data[i]` on an out-of-range index is UB (silent garbage or a
+  // fault far from the cause). Emitted unconditionally in the header section
+  // so any call site sees a declaration; unused in effectless programs is
+  // fine (static inline).
+  context.emitter.emit_header_string_line(
+    `
+static inline size_t __yo_idx_chk(size_t i, size_t n, const char* f, int r, int c) {
+  if (i >= n) {
+    fprintf(stderr, "index out of bounds: %zu not in [0, %zu) (at %s:%d:%d)\\n", i, n, f, r, c);
+    abort();
+  }
+  return i;
+}`
+  );
   context.emitter.emit_header_string_line(
     `
 static inline void* __yo_rc_alloc(size_t size) {

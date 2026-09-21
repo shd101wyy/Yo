@@ -65,7 +65,7 @@
 { is_target_windows } :: import("../../target.yo");
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, can_optimize_as_simple_enum } :: import("../utils/index.yo");
+{ get_type_string, can_optimize_as_simple_enum, _checked_index_expr, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 /// Argument code at index `i` (empty if absent).
 _a :: (fn(args : ArrayList(String), i : usize) -> String)(
   match(args.get(i), .Some(s) => s, .None => String.from(""))
@@ -326,10 +326,13 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out
     },
     (function_name == BF_YO_STR_BYTE) => {
+      // Safe mode Phase 1: `s.bytes(i)` is bounds-checked against the str's
+      // runtime length (plans/backlog/SAFE_MODE.md §4, closes H2).
+      str_idx := _checked_index_expr(_a(args, usize(1)), `(${_a(args, usize(0))}).len`, expr);
       out := String.from("(");
       out.push_string(_a(args, usize(0)));
       out.push_str(".ptr[");
-      out.push_string(_a(args, usize(1)));
+      out.push_string(str_idx);
       out.push_str("])");
       out
     },
@@ -408,10 +411,23 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
       out
     },
     (function_name == BF_YO_ARRAY_INDEX) => {
+      // Safe mode Phase 1: the fixed-array subscript is bounds-checked; the
+      // first argument's ExprInfo names the concrete Array(T, N) whose N is
+      // the bound (plans/backlog/SAFE_MODE.md §4, closes H1).
+      arr_expr_opt := match(expr, .FnCall(_, _, ua, _, _) => ua.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
+      arr_idx := match(
+        arr_expr_opt,
+        .Some(ae) => match(
+          context.base.get_expr_info(ae),
+          .Some(aei) => _checked_fixed_array_subscript(_a(args, usize(1)), aei.ty, expr),
+          .None => _a(args, usize(1))
+        ),
+        .None => _a(args, usize(1))
+      );
       out := String.from("(&((");
       out.push_string(_a(args, usize(0)));
       out.push_str(")->data[");
-      out.push_string(_a(args, usize(1)));
+      out.push_string(arr_idx);
       out.push_str("]))");
       out
     },
