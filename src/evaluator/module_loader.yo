@@ -28,7 +28,10 @@
 { TypeValue } :: import("../types/definitions.yo");
 { Environment, Variable } :: import("../env.yo");
 { LoadModuleResult } :: import("./context.yo");
-{ set_registration_owner } :: import("./values/type_trait_methods.yo");
+{ set_registration_owner, set_import_closure_fn } :: import("./values/type_trait_methods.yo");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ canonical_module_path } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // In-progress (currently-loading) registry — enables CIRCULAR imports under
 // demand-driven loading (main.yo `demand_load_module`). When module A is mid-
@@ -39,6 +42,12 @@
 // ---------------------------------------------------------------------------
 (g_loading_keys : ArrayList(String)) = ArrayList(String).new();
 (g_loading_envs : ArrayList(Environment)) = ArrayList(Environment).new();
+(g_import_edge_importers : ArrayList(String)) = ArrayList(String).new();
+(g_import_edge_imports : ArrayList(String)) = ArrayList(String).new();
+(g_import_closure_installed : bool) = false;
+(g_loading_key_by_canonical : HashMap(String, String)) = HashMap(String, String).new();
+(_canonical_memo : HashMap(String, String)) = HashMap(String, String).new();
+(g_import_closure_memo : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
 /// Keep the registries' owner tag in sync with the loading-stack top
 /// (Phase B2, plans/reference/INCREMENTAL_COMPILATION.md). The tag lives in
 /// type_trait_methods.yo — see `set_registration_owner`'s doc there.
@@ -52,10 +61,21 @@ _sync_registration_owner :: (fn() -> unit)({
 });
 /// Register `path` as currently-loading with its live evaluation `env`.
 register_loading :: (fn(path : String, env : Environment) -> unit)({
+  if(!g_import_closure_installed, {
+    set_import_closure_fn(import_closure_of);
+    g_import_closure_installed = true;
+  });
+  g_loading_key_by_canonical.insert(_canonical(path.clone()), path.clone());
   g_loading_keys.push(path);
   g_loading_envs.push(env);
   _sync_registration_owner();
 });
+/// The loading key (`file://<abs>`, or the entry path as typed) under which
+/// `module` was registered — the spelling the registries' owner tags use.
+/// `.None` for a module never loaded through this loader.
+loading_key_for_module :: (fn(module : String) -> Option(String))(
+  g_loading_key_by_canonical.get(_canonical(module))
+);
 /// Remove the most-recent loading entry for `path` (LIFO — nested loads).
 unregister_loading :: (fn(path : String) -> unit)({
   (i : usize) = g_loading_keys.len();
@@ -109,8 +129,68 @@ loading_env :: (fn(path : String) -> Option(Environment))({
 // the demand loader on EVERY import request — cache hits included, since a
 // hit is still a dependency. Consumed by `invalidate_module`'s
 // reverse-closure walk (plans/reference/INCREMENTAL_COMPILATION.md Phase B1).
-(g_import_edge_importers : ArrayList(String)) = ArrayList(String).new();
-(g_import_edge_imports : ArrayList(String)) = ArrayList(String).new();
+// (declared at the top of the module, with the loading stack — `register_loading`
+// installs the closure provider that reads them.)
+/// Canonical spelling of a module key, memoized (the closure walk below
+/// touches every edge endpoint).
+_canonical :: (fn(p : String) -> String)(
+  match(
+    _canonical_memo.get(p.clone()),
+    .Some(c) => c,
+    .None => {
+      c := canonical_module_path(p.clone());
+      _canonical_memo.insert(p, c.clone());
+      c
+    }
+  )
+);
+/// Import closures (canonical module → canonical reachable set, itself
+/// included), memoized; any edge change drops the memo — edges are added
+/// at import time and dropped on invalidation, both rare next to the
+/// method-resolution lookups that consume the closure.
+_clear_import_closure_memo :: (fn() -> unit)({
+  g_import_closure_memo = HashMap(String, HashSet(String)).new();
+});
+/// Every module reachable from `module` through import edges, `module`
+/// included, in canonical spelling. The provider behind
+/// `owner_visible_from_current` (type_trait_methods.yo).
+import_closure_of :: (fn(module : String) -> HashSet(String))({
+  start := _canonical(module);
+  match(
+    g_import_closure_memo.get(start.clone()),
+    .Some(s) => {
+      return(s);
+    },
+    .None => ()
+  );
+  seen := HashSet(String).new();
+  _ := seen.insert(start.clone());
+  work := ArrayList(String).new();
+  work.push(start.clone());
+  while(work.len() > usize(0), {
+    p := match(work.pop(), .Some(x) => x, .None => String.new());
+    n := g_import_edge_importers.len();
+    (i : usize) = usize(0);
+    while(i < n, {
+      from_p := match(g_import_edge_importers.get(i), .Some(a) => (_canonical(a) == p), .None => false);
+      if(from_p, {
+        match(
+          g_import_edge_imports.get(i),
+          .Some(t) => {
+            tc := _canonical(t);
+            if(seen.insert(tc.clone()), {
+              work.push(tc);
+            });
+          },
+          .None => ()
+        );
+      });
+      i = (i + usize(1));
+    });
+  });
+  g_import_closure_memo.insert(start, seen);
+  seen
+});
 /// Record that `importer` imports `imported`. Exact-pair duplicates are
 /// dropped (a module importing the same dep from several sites is one edge).
 record_import_edge :: (fn(importer : String, imported : String) -> unit)({
@@ -128,10 +208,12 @@ record_import_edge :: (fn(importer : String, imported : String) -> unit)({
   });
   g_import_edge_importers.push(importer);
   g_import_edge_imports.push(imported);
+  _clear_import_closure_memo();
 });
 /// Drop every outgoing edge of `importer`. Called when a module is
 /// invalidated: its re-evaluation re-records its (possibly changed) edges.
 _drop_edges_from :: (fn(importer : String) -> unit)({
+  _clear_import_closure_memo();
   (i : usize) = g_import_edge_importers.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -368,6 +450,7 @@ export(
   loading_env,
   current_loading_module,
   record_import_edge,
+  loading_key_for_module,
   remove_module,
   invalidate_module,
   update_module_cache_slot

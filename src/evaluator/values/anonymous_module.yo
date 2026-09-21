@@ -71,6 +71,8 @@ pragma(Pragma.AllowUnsafe);
   truncate_forcing_depths
 } :: import("../context.yo");
 { stable_sns_module_id } :: import("../../utils.yo");
+{ registration_owner, set_registration_owner } :: import("./type_trait_methods.yo");
+{ loading_key_for_module } :: import("../module_loader.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { format_error_message, render_any_error, stash_error_diagnostics } :: import("../../error.yo");
@@ -197,7 +199,18 @@ _force_pending_def_impl :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(St
   // field loop): drop whatever it left on the forcing stacks above this point
   // so `force_pending_def`'s own pop removes ITS entry, not a stale one.
   force_depths := forcing_depths();
+  // The definition is evaluated AS ITS OWN MODULE: whatever it registers is
+  // owned by that module, and whatever it resolves is resolved against that
+  // module's imports — not the module whose lookup forced it
+  // (issues/a-file-that-fails-check-alone-passes-inside-a-directory-check.md).
+  prev_owner := registration_owner();
+  match(
+    loading_key_for_module(walk.module_path.clone()),
+    .Some(k) => set_registration_owner(k),
+    .None => ()
+  );
   _force_eval(def.expr, force_env, force_ctx);
+  set_registration_owner(prev_owner);
   truncate_forcing_depths(force_depths);
   restore_active_where_trait_ids(saved_where);
   ___rt := set_in_def_time_trial(prev_trial);

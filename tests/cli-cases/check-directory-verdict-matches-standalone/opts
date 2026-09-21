@@ -1,0 +1,12 @@
+# issues/a-file-that-fails-check-alone-passes-inside-a-directory-check.md: a
+# file's `check` verdict must not depend on its siblings. b_no_import.yo never
+# imports std/fmt, so `x.to_string()` on an i64 is E0610 when the file is
+# checked alone. Checked after a_provider_user.yo — which loads and forces the
+# provider — the process-global method registry used to let b find the impl,
+# and the directory check reported 2/2 passed at rc=0. Method resolution now
+# only sees impls whose module is in the current file's import closure, so
+# the directory check agrees with the standalone one: 1/2 passed, rc=1. The
+# kept substrings are the diagnostic code line and the tally; the rest of the
+# rendered diagnostic carries the sandbox path.
+stdout_keep_match=error\[E0610\]: No matching call found with arguments|check: [0-9]+/[0-9]+ file\(s\) passed
+timeout=300

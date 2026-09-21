@@ -39,10 +39,12 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
 { set_lookup_assoc_const } :: import("../../types/substitution.yo");
 { EvalValue } :: import("../../value.yo");
 { AstExpr } :: import("../../expr.yo");
+{ canonical_module_path } :: import("../../utils.yo");
 /// Extract the unique `id` string from a `TypeValue` variant that
 /// carries one (Struct / EnumT / TraitT / SomeT). Returns
 /// the empty string for variants that don't — method lookup is
@@ -166,6 +168,61 @@ set_registration_owner :: (fn(owner : String) -> unit)({
 /// The current owner tag ("" outside any module evaluation). Read by this
 /// module's own registration and by impl.yo's generic-impl registry.
 registration_owner :: (fn() -> String)(_registration_owner.clone());
+/// Import-closure provider: the CANONICAL paths (`canonical_module_path`)
+/// of every module reachable from `module` through import edges, `module`
+/// itself included. Installed by module_loader.yo (`register_loading`),
+/// which owns the edge lists — importing it from here would close the
+/// module_loader → env → type_trait_methods cycle.
+ImportClosureFn :: (fn(module : String) -> HashSet(String));
+(g_import_closure_fn : Option(ImportClosureFn)) = Option(ImportClosureFn).None;
+set_import_closure_fn :: (fn(f : ImportClosureFn) -> unit)({
+  g_import_closure_fn = Option(ImportClosureFn).Some(f);
+});
+/// Owner tags are loading keys (`file://<abs>`, or the entry path as typed);
+/// comparisons go through their canonical spelling, memoized because this
+/// sits on the method-resolution path.
+(_canonical_owner_memo : HashMap(String, String)) = HashMap(String, String).new();
+_canonical_owner :: (fn(owner : String) -> String)(
+  match(
+    _canonical_owner_memo.get(owner.clone()),
+    .Some(c) => c,
+    .None => {
+      c := canonical_module_path(owner.clone());
+      _canonical_owner_memo.insert(owner, c.clone());
+      c
+    }
+  )
+);
+/// Is an entry registered by `owner` visible to the module being evaluated?
+///
+/// A method must resolve the same way whether its file is checked alone or
+/// beside other files: the registry is process-wide and a provider module
+/// (`std/fmt` for integer `to_string`) is demand-loaded, so without this
+/// filter a file that never imports the provider still finds the impl once
+/// ANY earlier file in the same process loaded it
+/// (issues/a-file-that-fails-check-alone-passes-inside-a-directory-check.md).
+///
+///   - no current module (owner tag `""`: codegen, the CLI, the prelude
+///     bootstrap) — everything is visible;
+///   - an entry with owner `""` (registered outside any module load, i.e.
+///     the prelude and derive machinery) — always visible;
+///   - otherwise the owner must be in the current module's import closure.
+owner_visible_from_current :: (fn(owner : String) -> bool)({
+  if(_registration_owner.len() == usize(0), {
+    return(true);
+  });
+  if(owner.len() == usize(0), {
+    return(true);
+  });
+  if(owner == _registration_owner, {
+    return(true);
+  });
+  match(
+    g_import_closure_fn,
+    .None => true,
+    .Some(f) => f(_registration_owner.clone()).contains(_canonical_owner(owner))
+  )
+});
 /// Append `entry` to the method list for `type_id`. The list is
 /// created on demand. The owner tag is read from the module-loader's
 /// loading stack HERE so registration call sites stay unchanged.
@@ -348,6 +405,32 @@ get_type_trait_methods_by_name :: (
           result.push(entry);
         });
       },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  result
+});
+/// `get_type_trait_methods_by_name` restricted to the entries VISIBLE from
+/// the module being evaluated (`owner_visible_from_current`). This is the
+/// getter method RESOLUTION uses (`env.yo`); codegen, the LSP and the
+/// registries' own bookkeeping keep the unfiltered view.
+get_visible_type_trait_methods_by_name :: (
+  fn(type_id : String, method_name : String) -> ArrayList(MethodEntry)
+)({
+  all := get_type_trait_methods_by_name(type_id, method_name);
+  if(_registration_owner.len() == usize(0), {
+    return(all);
+  });
+  result := ArrayList(MethodEntry).new();
+  n := all.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      all.get(i),
+      .Some(entry) => if(owner_visible_from_current(entry.owner.clone()), {
+        result.push(entry);
+      }),
       .None => ()
     );
     i = (i + usize(1));
@@ -647,6 +730,9 @@ export(
   clear_provisional_trait_methods,
   type_id_or_empty,
   set_registration_owner,
+  set_import_closure_fn,
+  owner_visible_from_current,
+  get_visible_type_trait_methods_by_name,
   registration_owner,
   purge_type_trait_methods_owned_by,
   type_trait_methods_entry_count
