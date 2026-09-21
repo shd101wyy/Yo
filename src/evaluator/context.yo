@@ -16,7 +16,7 @@
 { TypeValue } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable, Frame, _frame_positions, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame } :: import("../env.yo");
+{ Environment, Variable, Frame, _frame_positions, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -1361,6 +1361,51 @@ reset_pending_def :: (fn(walk : ModuleWalk, def : PendingDef) -> unit)({
   def.phase_a_type = Option(TypeValue).None;
   def.variable = Option(Variable).None;
   ()
+});
+/// Phase 3 (§6): re-point a DESTRUCTURED importer's module-frame binding at a
+/// definition's freshly re-forced Variable, and report whether it could.
+///
+/// `{ helper } :: import("./lib.yo")` binds `helper` BY VALUE into the
+/// importer's own module frame, so the importer's definitions resolve the
+/// name locally and record no def-level edge to `lib.yo`'s `helper`. That is
+/// why `ordered_readers_of` had to drop the whole importer — and with it the
+/// importer's entire reverse import closure, a ~355 s re-check for a
+/// `src/token.yo` hub edit. Re-pointing the binding is what makes the
+/// importer a per-def round instead.
+///
+/// The value is copied into a FRESH cell rather than aliasing the source
+/// definition's: two module frames sharing one `ArrayList(EvalValue)` would
+/// make a later write to either visible in both, which no other binding path
+/// does. `id` is deliberately NOT copied — the importer's own Variable id is
+/// what its recorded `ExprInfo`s point at.
+///
+/// Returns false when the frame has no binding under that name (an import
+/// rename, `{ helper : h }`, is the known case), and the caller then takes
+/// the file-level fallback it would have taken anyway.
+rebind_destructured_name :: (
+  fn(reader_module : String, name : String, fresh : Variable) -> bool
+)({
+  rw := match(
+    finished_walk_for(reader_module),
+    .Some(w) => w,
+    .None => return(false)
+  );
+  f := rw.module_frame;
+  (i : usize) = f.variables.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      f.variables.get(i),
+      .Some(v) => if(v.name == name, {
+        v.ty = fresh.ty;
+        v.value = value_cell_of(fresh.value.get(usize(0)));
+        v.is_compile_time_only = fresh.is_compile_time_only;
+        return(true);
+      }),
+      .None => ()
+    );
+  });
+  false
 });
 /// Graft a re-parsed statement onto a walk entry: the fresh AST (new expr
 /// ids, current row), its hash into the differ's table (so the NEXT round
@@ -2753,6 +2798,7 @@ track_variable_usage :: (
 export(
   record_module_member_read,
   record_module_ordered_read,
+  rebind_destructured_name,
   register_sns_module,
   sns_module_of,
   stored_def_hash,
