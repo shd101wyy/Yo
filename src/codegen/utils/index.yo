@@ -1894,7 +1894,90 @@ find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
     )
   )
 );
+/// ── Safe mode Phase 1 (plans/backlog/SAFE_MODE.md §4): bounds-checked
+/// subscripts ──
+/// Every emitted fixed-array / str element subscript must route its index
+/// through `_checked_index_expr`, which splices the `__yo_idx_chk` runtime
+/// guard (emitted unconditionally in c/collection.yo's header section).
+/// This is the codegen-wide rule: no `->data[` / `.ptr[` subscript outside
+/// these helpers (grep acceptance in the plan's Appendix A).
+///
+/// A bare-decimal index against a bare-decimal comptime length that is in
+/// range folds to the raw index, keeping comptime-shaped code identical.
+_is_decimal_literal :: (fn(s : String) -> bool)({
+  ok := (s.len() > usize(0));
+  (i : usize) = usize(0);
+  while((i < s.len()) && ok, {
+    ch := s(i);
+    if(!((ch >= u8(48)) && (ch <= u8(57))), {
+      ok = false;
+    });
+    i = (i + usize(1));
+  });
+  ok
+});
+_parse_decimal :: (fn(s : String) -> usize)({
+  (v : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < s.len(), {
+    v = ((v * usize(10)) + usize(s(i) - u8(48)));
+    i = (i + usize(1));
+  });
+  v
+});
+/// C string literal for the source location (module paths are URIs; escape
+/// the two characters C cares about).
+_idx_c_string_literal :: (fn(s : String) -> String)({
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(34));
+  (i : usize) = usize(0);
+  while(i < s.len(), {
+    ch := s(i);
+    if((ch == u8(34)) || (ch == u8(92)), {
+      bytes.push(u8(92));
+    });
+    bytes.push(ch);
+    i = (i + usize(1));
+  });
+  bytes.push(u8(34));
+  // ASCII we just built — the unchecked constructor is exact here.
+  String.from_bytes(bytes)
+});
+/// The guarded index sub-expression for a runtime-length receiver (`str`:
+/// the caller spells the length as `(<recv>).len`).
+_checked_index_expr :: (fn(index_code : String, length_code : String, expr : AstExpr) -> String)({
+  tok := ast_expr_token(expr);
+  if(_is_decimal_literal(index_code.clone()) && _is_decimal_literal(length_code.clone()), {
+    if(_parse_decimal(index_code.clone()) < _parse_decimal(length_code.clone()), {
+      return(index_code);
+    });
+  });
+  file_lit := _idx_c_string_literal(tok.module_path.clone());
+  `__yo_idx_chk((size_t)(${index_code}), (size_t)(${length_code}), ${file_lit}, ${(tok.row + usize(1)).to_string()}, ${(tok.column + usize(1)).to_string()})`
+});
+/// The comptime length of a fixed `Array(T, N)` as a decimal literal, or ""
+/// when the length is symbolic (a generic body pre-specialization — should
+/// never reach codegen; callers fail open to the raw subscript).
+_fixed_array_len_literal :: (fn(array_type : TypeValue) -> String)(
+  match(
+    array_type,
+    .Array(_, nlen, nlvar) => if(nlvar.len() == usize(0), nlen.to_string(), String.new()),
+    _ => String.new()
+  )
+);
+/// Guarded subscript for a FIXED array receiver: the bound is the array's
+/// comptime N. Symbolic-length arrays fail open (raw index).
+_checked_fixed_array_subscript :: (fn(index_code : String, array_type : TypeValue, expr : AstExpr) -> String)({
+  len_code := _fixed_array_len_literal(array_type);
+  if(len_code.len() == usize(0), {
+    return(index_code);
+  });
+  _checked_index_expr(index_code, len_code, expr)
+});
 export(
+  _checked_index_expr,
+  _fixed_array_len_literal,
+  _checked_fixed_array_subscript,
   pattern_param_is_literal,
   pattern_literal_param_code,
   pattern_literal_arm_guards,

@@ -129,7 +129,7 @@
 { generate_other_function_call, _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { is_closure_construction, generate_closure_construction } :: import("./closures.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { generate_async_block, generate_io_async_sync_call, io_async_await_analysis, io_async_closure_body } :: import("./async.yo");
@@ -481,11 +481,17 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
   // Inline builtin (`__yo_array_index` → `&((&recv)->data[idx])`) vs by-name call.
   call_code := match(
     is_function_value_with_only_builtin_yo_inline_function_call(method_value),
-    .Some(inline_op) => if(
-      inline_op == BF_YO_ARRAY_INDEX,
-      `(&((&${callee_code.clone()})->data[${index_code.clone()}]))`,
-      _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
-    ),
+    .Some(inline_op) => if(inline_op == BF_YO_ARRAY_INDEX, {
+      // Safe mode Phase 1: the fixed-array subscript is bounds-checked
+      // (plans/backlog/SAFE_MODE.md §4); the receiver's concrete
+      // Array(T, N) supplies N.
+      arr_idx := match(
+        context.base.get_expr_info(callee),
+        .Some(cei) => _checked_fixed_array_subscript(index_code.clone(), cei.ty, expr),
+        .None => index_code.clone()
+      );
+      `(&((&${callee_code.clone()})->data[${arr_idx}]))`
+    }, _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)),
     .None => _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
   );
   // A zero-sized element (`Array(unit, N)`): the wrapper has no `data` member
