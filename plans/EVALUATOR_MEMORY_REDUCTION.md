@@ -767,6 +767,13 @@ corrections to the design above:**
   copy-on-write adoptions give a third of it back. Lesson for the remaining
   phases: the census counts OBJECTS; multiply by the object's own size before
   ranking a lever.
+- **Emission:** identical to develop except one dup/drop pair whose
+  `nested_dup` gate develop computed from an alias-inflated recorded env
+  (measured with a decision probe in both trees; the ring off reproduces the
+  same emission) — `issues/fixed/recorded-env-adopted-by-handle-mutates-shared-snapshots.md`.
+  The `YO_ENV_NO_RING=1` knob and the ring hit/miss counters in
+  `YO_SPEC_REPORT` stay as instruments; `YO_DEBUG_FROZEN=1` stays as the
+  guard for future adoption sites.
 
 ### Phase 3 — `Option(ref)` niche (F4): layout change, full battery
 
