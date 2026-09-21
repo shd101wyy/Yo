@@ -3394,8 +3394,8 @@ run_compile :: (
   if((optimize != "") && (((optimize != "0") && (optimize != "1")) && ((optimize != "2") && (optimize != "3"))), {
     exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3`));
   });
-  if((sanitize != "") && (((sanitize != "address") && (sanitize != "leak")) && (sanitize != "thread")), {
-    exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread`));
+  if((sanitize != "") && ((((sanitize != "address") && (sanitize != "leak")) && (sanitize != "thread")) && (sanitize != "undefined")), {
+    exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread, undefined`));
   });
   if((emcc_environment != "") && ((emcc_environment != "web") && (emcc_environment != "node")), {
     exn.throw(dyn(`compile: invalid --emcc-environment "${emcc_environment}". Choices: web, node`));
@@ -4029,6 +4029,16 @@ run_compile :: (
     },
     (sanitize == "thread") => {
       cmd.arg(String.from("-fsanitize=thread"));
+      cmd.arg(String.from("-fno-omit-frame-pointer"));
+    },
+    (sanitize == "undefined") => {
+      // UBSan — the safe-mode campaign's measurement instrument
+      // (plans/backlog/SAFE_MODE.md §3 0b). -fno-sanitize-recover=all makes
+      // a caught UB abort instead of print-and-continue: a recovering
+      // UBSan run is not a gate. The help text has advertised
+      // "undefined" all along; only the validation rejected it.
+      cmd.arg(String.from("-fsanitize=undefined"));
+      cmd.arg(String.from("-fno-sanitize-recover=all"));
       cmd.arg(String.from("-fno-omit-frame-pointer"));
     },
     true => ()
