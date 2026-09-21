@@ -1,6 +1,6 @@
 # Faster edit-compile-run: what Yo can take from Zig, and what it cannot
 
-_Status: ACTIVE (updated 2026-09-21) — Phase 0 (instrumentation) LANDED
+_Status: LANDED — graduated to `plans/reference/` 2026-09-22; every phase below has shipped, and the tables in each phase's section are the record. Phase-by-phase: Phase 0 (instrumentation) LANDED
 2026-09-10 (`--profile` / `--profile-json`, `tests/cli-cases/compile-profile`,
 answers in §3.1); Phase 1 (dev profile) LANDED 2026-09-10 (`--emit-chunks
 auto`, numbers in §4); Phase 2 (stable names) LANDED 2026-09-12 (§5 results);
@@ -21,6 +21,19 @@ leg is 13 s of a 188 s loop, so steps 2–3 are dropped and step 4 stands).
 Remaining before graduation to `plans/reference/`: Phase 3 step 3 and
 Phase 4 step 3's un-gate (the §9 number is measured: 73 % of registered
 functions reached on the self-build, 2 % on a hello)._
+
+> **Graduation record (2026-09-22).** Phases 0–5 landed between 2026-09-10 and
+> 2026-09-21 (#818 §9 number, #820 warm-batch breaker, #821 Phase 3 re-bind,
+> the earlier PRs per section). Two items are deliberately NOT built and stay
+> that way: Phase 3 step 3's signature/body hash split (§6 — no sound
+> derivation of comptime body consumption) and §9's reachability-driven
+> evaluation for `compile` (measured: a small-program lever, 2 % reached on a
+> hello vs 73 % on the self-build; the trade-off is the user's decision and is
+> parked with its number). Phase 4 step 3 (`yo test` in-process) is complete
+> and OPT-IN behind `YO_TEST_IN_PROCESS=1` by measurement (§7). Cross-plan
+> references to `plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` now resolve
+> here; the doc is authoritative and no longer changes except to correct.
+
 
 This is the successor to two landed designs and should be read after them:
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # watch_verify.sh — Phase 3b's correctness oracle (§6 gates,
-# plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): a live `check --watch`
+# plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): a live `check --watch`
 # session's per-round diagnostics must agree with a cold `check` of the same
 # tree. Zig's incremental bugs were almost all "stale state the invalidation
 # missed" — this is the cheap oracle for that class, run over a scripted

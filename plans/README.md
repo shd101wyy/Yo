@@ -22,11 +22,6 @@ writing dates — the banner is the authoritative summary.
 Active work (root) — **plans and handovers driving work right now, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
-- [`INCREMENTAL_COMPILATION_ZIG_LESSONS.md`](INCREMENTAL_COMPILATION_ZIG_LESSONS.md) —
-  edit-compile-run latency: what Yo takes from Zig's incremental design
-  (per-definition hashing + dependency edges, stable symbol identity, a
-  resident evaluator, per-module TUs) and what it does not (native
-  backend, in-place patching). Phase 0 = instrumentation; nothing started.
 - [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) —
   ACTIVE 2026-09-13; **P1–P3 landed 2026-09-19**: the `Pattern` IR
   (`src/pattern.yo`), the pattern compiler, one arm loop in `evaluate_match`,
@@ -187,7 +182,10 @@ One-off plans closed 2026-09-17, each with a banner stating what landed:
   — shipped as v0.2.31 (2026-09-12).
 
 Landed designs & decisions (`reference/`) — done but still true. Subsystem
-designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
+designs: [`reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md`](reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md)
+(edit-compile-run latency: per-definition dependency edges, stable symbol
+names, the resident evaluator, per-module TUs — graduated 2026-09-22),
+[`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
 [`reference/DEPENDENCY_MANAGEMENT.md`](reference/DEPENDENCY_MANAGEMENT.md),
 [`reference/VERSION_MANAGEMENT.md`](reference/VERSION_MANAGEMENT.md),
 [`reference/ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md),

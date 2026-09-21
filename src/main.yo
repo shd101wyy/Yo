@@ -2722,7 +2722,7 @@ _json_escape :: (fn(s : String) -> String)({
   });
   String.from_bytes(out)
 });
-/// The `--profile` report (Phase 0, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3).
+/// The `--profile` report (Phase 0, plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3).
 /// Phase rows are WALL times in record order; module rows are EXCLUSIVE (the
 /// loader subtracts nested demand loads), top 20 by evaluation time; the
 /// census line answers "how many functions reach emission, from where, how
@@ -2991,7 +2991,7 @@ run_compile :: (
   (heap_size : usize) = usize(16777216);
   (debug_heap : bool) = false;
   (emit_chunks : usize) = usize(0);
-  // `--emit-chunks auto` (Phase 1, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md
+  // `--emit-chunks auto` (Phase 1, plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md
   // §4): N is resolved AFTER emission, from the actual emitted bytes —
   // clamp(1, cap, emitted / MIN_CHUNK_BYTES) — with cap = YO_JOBS or the
   // hardware thread count.
@@ -3026,7 +3026,7 @@ run_compile :: (
   // the test runner on its batch-compile children (see `set_evaluator_deadline`
   // in evaluator/exprs/_expr.yo for why this travels as a flag).
   (compile_timeout_ms : String) = String.new();
-  // Phase 0 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3): print the
+  // Phase 0 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3): print the
   // per-phase / per-module timing table on stderr after the compile, and
   // optionally write the machine-readable form (keys are absolute module
   // paths) for diffing across commits.
@@ -4552,7 +4552,7 @@ TestDecl :: struct(name : String, body_src : String);
 ///
 /// Tests are compiled in batches of `TEST_BATCH_SIZE`.
 TEST_BATCH_SIZE :: usize(100);
-/// §7 items 3+4 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): this
+/// §7 items 3+4 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): this
 /// process's resident set in MB, from `/proc/self/statm` field 2 (resident
 /// pages × 4 KiB). Returns 0 when the read or parse fails — callers treat
 /// that as "no valve", never as "reset".
@@ -4968,7 +4968,7 @@ run_test :: (
   if(test_debug_heap && (test_allocator != "fixed"), {
     exn.throw(dyn(String.from("test: --debug-heap requires --allocator fixed")));
   });
-  // §7 step 3 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): the batch
+  // §7 step 3 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): the batch
   // compiles run IN PROCESS under this one evaluator — prelude and std
   // evaluate once and every later batch's import closure is a cache hit
   // (the 22-minute tests/internal wall is mostly per-child re-evaluation).
@@ -5313,7 +5313,7 @@ run_test :: (
         // gate's byte-identical two-pass battery); the batch loop now runs
         // on the same machinery.
         self_exe := argv(usize(0));
-        // §7 step 3 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): with
+        // §7 step 3 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): with
         // YO_TEST_IN_PROCESS=1 the batch compiles IN PROCESS against the
         // runner's resident evaluator — prelude + std evaluate once, later
         // batches' imports are cache hits, the specializations land in the

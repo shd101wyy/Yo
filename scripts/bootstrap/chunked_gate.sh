@@ -17,7 +17,7 @@
 # compilers would disagree on some emitted byte. They do not.
 #
 # Cost: two full self-builds plus two self-emits (~12 min on an M4, and a lot
-# of RAM). Since Phase 1 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §4)
+# of RAM). Since Phase 1 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §4)
 # made `--emit-chunks auto` the default for DEBUG `yo build` executables,
 # chunking IS a default path, so test.yml runs this as the `chunked-gate` job
 # on every code PR (against the shared suite-candidate binary).
