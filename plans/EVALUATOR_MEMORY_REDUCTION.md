@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-21 — Phase 0 steps 1/4/5 and Phase 1 landed (#805: `check src/main.yo` 19.9 → 10.2 GB, 170 → 90 s; two follow-up bugs fixed in #807); Phase 2 (F3) LANDED (PR `perf/evaluator-memory-p2-f3`): 10.16 → 10.01 GB with copy-on-write adoption, guard clean, gates_fast + fixpoint green, emission identical to develop except one measured optimizer correction — the audit's 2–3 GB estimate for F3 was a sizing error (§Phase 2). Next by measured value: Phase 4 Design 1 (1.3 M cloned nodes), then F4/F5/F7.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-21 — Phase 0 steps 1/4/5 and Phase 1 landed (#805: `check src/main.yo` 19.9 → 10.2 GB, 170 → 90 s; two follow-up bugs fixed in #807); Phase 2 (F3) LANDED (PR `perf/evaluator-memory-p2-f3`): 10.16 → 10.01 GB with copy-on-write adoption, guard clean, gates_fast + fixpoint green, emission identical to develop except one measured optimizer correction — the audit's 2–3 GB estimate for F3 was a sizing error (§Phase 2). Phase 7 step 4 (ExprInfo diet) LANDED: 10.01 → 9.61 GB. Next by measured value: Phase 4 Design 1 (1.3 M cloned nodes), then F4/F5/F7.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -882,11 +882,27 @@ The original investigation plan, kept for the record:
    that is retained by a cache; (c) `match` on an unknown scrutinee trial-
    evaluates every arm with fresh bindings retained by F1's walks.
 3. Fix the mechanism; add the repro as a test with a footprint ratchet.
-4. Then re-run the `ExprInfoRare` diet from branch `perf/exprinfo-diet`
-   (the salvage list in `RC_HEADER_SPLIT.md`: occupancy data, the write-rate
-   rule — a field goes to the rare group only if read-cold AND write-cold —
-   and `origin_type` stays inline). With F4 landed the inline cost is already
-   halved; re-measure before deciding whether the group is still worth it.
+4. **DONE 2026-09-21 (branch `perf/exprinfo-diet-v2`).** The `ExprInfoRare`
+   diet re-run: 14 read/write-cold fields (`doc_comment`,
+   `deferred_dup_expressions`, `capture_type`, `macro_expansion`,
+   `original_expr`, `comptime_ref`, the four `index_*`, three `is_*`,
+   `comptime_unrolled_bodies`, `early_return_only_deferred_drop_expressions`)
+   moved into the rare group behind `expr_info_<f>` / skip-None
+   `expr_info_set_<f>` accessors; `origin_type`, `deferred_drop_expressions`,
+   `runtime_arg_exprs_in_order`, `control_flow`, `is_accessing_property`,
+   `variable_name`, `path_collection`, `source_variable` stay inline (the
+   write-rate rule). `ExprInfo` 440 → 216 B. Measured on `check src/main.yo`
+   (tree 24fcd192f): **10.01 → 9.61 GB (−0.40 GB, −4 %)**, wall unchanged
+   (88 s); emitted C byte-identical to the F3 compiler on the same tree. The
+   2026-08-18 refutation ("source costs 3.9 GB to compile") does not
+   reproduce: that cost was F8, removed by #805. Two hazards met on the way:
+   a mechanical `x.field` → accessor sweep converts same-named fields on
+   OTHER records (ClosureCaptureInfo, IndexCallResult, ComptimeFnCallResult,
+   AsyncBlockStructInfo, DeferredAsyncBlock, VariableRare) — the type
+   checker catches every one; and the open
+   `issues/fixed/assignment-to-call-expression-silently-accepted.md` (a
+   half-converted write `expr_info_x(ei) = v` was accepted silently) is now
+   a check error, fixed on the same branch.
 
 ---
 
