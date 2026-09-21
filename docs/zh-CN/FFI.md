@@ -95,7 +95,13 @@ fcntl :: import("std/libc/fcntl");   // fcntl.open、fcntl.O_RDONLY
 ```
 
 `stat_buf` 在 Yo 里是不透明类型，在生成的 C 里是 `struct stat`，所以 `*stat_buf` 参数就是
-`struct stat*`。用 `c_type` 拼写采纳 Yo 结构体（`Point : c_type("struct point")`，其中
+`struct stat*`。
+
+如果你只是要把自己分配的缓冲区（例如按结构体大小开的 `ArrayList(u64)`）交给 C 函数，把参数
+拼写为 `*void`，并用 `(*void)(ptr)` 转换缓冲区指针：C 会把 `void *` 隐式转换为任意对象指针。
+不要把它拼写成缓冲区元素类型的指针。Yo 不会为 `c_include` 函数生成自己的原型——头文件里的
+原型是唯一的——所以与头文件不一致的参数类型在调用处就是不兼容的指针类型，C 编译步骤会在
+所有平台上用 `-Werror=incompatible-pointer-types` 拒绝它。用 `c_type` 拼写采纳 Yo 结构体（`Point : c_type("struct point")`，其中
 `Point` 是一个 Yo `struct`）会把该 Yo 类型降低为该拼写。
 
 ## 限制
