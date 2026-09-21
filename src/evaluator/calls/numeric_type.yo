@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_float_type, is_numeric_type, is_some_type, is_extern_type_name } :: import("../../types/guards.yo");
+{ is_float_type, is_numeric_type, is_some_type, is_unit_type, is_extern_type_name } :: import("../../types/guards.yo");
 {
   is_comptime_int_type,
   is_comptime_float_type,
@@ -330,16 +330,31 @@ try_to_convert_to_numeric_type :: (
     !is_comptime_int_type(arg_type) &&
       !is_comptime_float_type(arg_type) &&
         !is_enum_type(arg_type), {
-    // Soft fallback: when the source is not numeric (e.g. came from
-    // an operator-trait call the bootstrap can't yet resolve, which
-    // produces a `t_unit()` placeholder), emit an `UnknownVal` of the
-    // target type instead of aborting. Lets prelude / std impls that
-    // use operator forms compile past this site. Tracked as evaluator
-    // coverage gap in `issues/yo-self-evaluator-gaps.md`.
-    out_unk := new_expr_info(env, target_type);
-    out_unk.value = Option(EvalValue).Some(create_unknown_val(target_type));
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
-    return(.Some(expr));
+    // A source the evaluator has not RESOLVED yet — the `t_unit()`
+    // placeholder an unresolved operator-trait call leaves behind, or a type
+    // variable still open in a definition-time trial — gets an `UnknownVal`
+    // of the target type so the enclosing definition can be typed; the
+    // specialization that resolves the source converts for real.
+    if(is_unit_type(arg_type) || is_some_type(arg_type), {
+      out_unk := new_expr_info(env, target_type);
+      out_unk.value = Option(EvalValue).Some(create_unknown_val(target_type));
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
+      return(.Some(expr));
+    });
+    // A CONCRETE non-numeric source is an error HERE, not in codegen. This
+    // arm used to hand every non-numeric source the same UnknownVal, so
+    // `usize(some_string)`, `usize(flag)` and `usize(raw_pointer)` checked
+    // clean and became `// Failed to transpile` stubs that abort when reached
+    // (issues/fixed/numeric-conversion-of-a-non-numeric-source-checks-clean-and-emits-a-hollow-stub.md).
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          `Cannot convert a value of type ${type_to_string(arg_type)} to ${type_to_string(target_type)}: \`${type_to_string(target_type)}(x)\` converts integers, floats, enum discriminants and C-compatible values only`
+        )
+      )
+    );
+    return(.None);
   });
   // -----------------------------------------------------------------------
   // Extract comptime raw string value (IntLit or FloatLit), or from enum disc.
