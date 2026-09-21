@@ -48,6 +48,7 @@
 (g_loading_key_by_canonical : HashMap(String, String)) = HashMap(String, String).new();
 (_canonical_memo : HashMap(String, String)) = HashMap(String, String).new();
 (g_import_closure_memo : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
+(g_always_visible_owners : ArrayList(String)) = ArrayList(String).new();
 /// Keep the registries' owner tag in sync with the loading-stack top
 /// (Phase B2, plans/reference/INCREMENTAL_COMPILATION.md). The tag lives in
 /// type_trait_methods.yo — see `set_registration_owner`'s doc there.
@@ -151,9 +152,16 @@ _canonical :: (fn(p : String) -> String)(
 _clear_import_closure_memo :: (fn() -> unit)({
   g_import_closure_memo = HashMap(String, HashSet(String)).new();
 });
+/// Mark a module whose registrations every module may see without importing
+/// it: the prelude, which is loaded through the ordinary entry path (so its
+/// impls carry its key as owner) but is implicitly in scope everywhere.
+mark_owner_always_visible :: (fn(module : String) -> unit)({
+  g_always_visible_owners.push(_canonical(module));
+  _clear_import_closure_memo();
+});
 /// Every module reachable from `module` through import edges, `module`
-/// included, in canonical spelling. The provider behind
-/// `owner_visible_from_current` (type_trait_methods.yo).
+/// included, in canonical spelling, plus the always-visible owners. The
+/// provider behind `owner_visible_from_current` (type_trait_methods.yo).
 import_closure_of :: (fn(module : String) -> HashSet(String))({
   start := _canonical(module);
   match(
@@ -165,6 +173,17 @@ import_closure_of :: (fn(module : String) -> HashSet(String))({
   );
   seen := HashSet(String).new();
   _ := seen.insert(start.clone());
+  (ai : usize) = usize(0);
+  while(ai < g_always_visible_owners.len(), {
+    match(
+      g_always_visible_owners.get(ai),
+      .Some(o) => {
+        _ := seen.insert(o);
+      },
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
   work := ArrayList(String).new();
   work.push(start.clone());
   while(work.len() > usize(0), {
@@ -451,6 +470,7 @@ export(
   current_loading_module,
   record_import_edge,
   loading_key_for_module,
+  mark_owner_always_visible,
   remove_module,
   invalidate_module,
   update_module_cache_slot

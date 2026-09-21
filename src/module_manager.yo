@@ -85,7 +85,7 @@ env_mod :: import("std/env");
   read_file_sync,
   file_exists_sync
 } :: import("./manifest.yo");
-{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot } :: import("./evaluator/module_loader.yo");
+{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot, mark_owner_always_visible } :: import("./evaluator/module_loader.yo");
 { purge_type_trait_methods_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
 { purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
@@ -2355,6 +2355,9 @@ mm_preload_prelude :: (
 )({
   (ok : bool) = true;
   if(g_cached_prelude_env.is_none(), {
+    // The prelude's impls are visible from every module without an import edge
+    // (`owner_visible_from_current`, type_trait_methods.yo).
+    mark_owner_always_visible(`${std_path}/prelude.yo`);
     pre_outcome := mm_load_file(`${std_path}/prelude.yo`, std_path.clone(), verbose, io, exn);
     // Print its diagnostic here, once, at this edge (the P1 single-print rule;
     // the loader's handlers only stash).
