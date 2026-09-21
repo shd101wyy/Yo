@@ -72,18 +72,19 @@ _sha1_block :: (fn(block : *u8, h : *u32) -> unit)({
         k = u32(0xca62c1d6);
       }
     );
-    temp := (_rotl32(a, u32(5)) + f + (e + k + w(i)));
+    // SHA-1's temp sum wraps BY DESIGN (wrapping_add, safe mode D1).
+    temp := _rotl32(a, u32(5)).wrapping_add(f).wrapping_add(e.wrapping_add(k).wrapping_add(w(i)));
     e = d;
     d = c;
     c = _rotl32(b, u32(30));
     b = a;
     a = temp;
   });
-  (h.add(usize(0))).* = ((h.add(usize(0))).* + a);
-  (h.add(usize(1))).* = ((h.add(usize(1))).* + b);
-  (h.add(usize(2))).* = ((h.add(usize(2))).* + c);
-  (h.add(usize(3))).* = ((h.add(usize(3))).* + d);
-  (h.add(usize(4))).* = ((h.add(usize(4))).* + e);
+  (h.add(usize(0))).* = (h.add(usize(0))).*.wrapping_add(a);
+  (h.add(usize(1))).* = (h.add(usize(1))).*.wrapping_add(b);
+  (h.add(usize(2))).* = (h.add(usize(2))).*.wrapping_add(c);
+  (h.add(usize(3))).* = (h.add(usize(3))).*.wrapping_add(d);
+  (h.add(usize(4))).* = (h.add(usize(4))).*.wrapping_add(e);
 });
 /// SHA-1 streaming state (the Sha256 skeleton).
 Sha1 :: ref(
