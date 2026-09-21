@@ -104,11 +104,34 @@ Measured with a compiler built from the branch:
 | `yo check ./std`                                      | 176/176                         |
 | cli-case `check-directory-verdict-matches-standalone` | E0610 + `1/2 file(s) passed`, rc=1 (seed: 2/2, rc=0 → GOLDEN-DIFF) |
 
-The blast radius predicted above (80 files) did not materialize: in `src/`
-and `std/` the provider is reachable TRANSITIVELY (`utils.yo` and friends
-import `std/fmt`), which the closure honours — the grep counted direct
-imports only. The standalone failure of `src/types/intern.yo` under the seed
-was the seed's lazy-forcing behaviour, not a missing transitive path.
+Two more findings on the way to green gates:
+
+1. **The closure was incomplete under lazy imports.** Import edges were only
+   recorded when an import statement was EVALUATED, and imports are lazy
+   top-level bindings, so in a fresh program a module forced early could not
+   see an impl reachable through an import nobody had forced yet (every
+   `tests/internal` batch failed in seconds on `src/types/intern.yo`). Fixed
+   by recording a module's edges from its SOURCE at load time
+   (`_record_static_import_edges`, module_manager.yo: every
+   `import("<literal>")` in the freshly parsed module, resolved with the
+   evaluator's own resolver), at both load paths.
+2. **The blast radius is one line, not 80 files.** `YO_VISIBILITY_REPORT=1`
+   makes both lookup paths ENUMERATE would-be misses instead of rejecting;
+   a stage-2 emit of `src/main.yo` with it lists **1 site**:
+   `src/types/intern.yo`'s integer `to_string` (now imports `std/fmt`;
+   `std/encoding/percent.yo`'s `str.to_string` was the same class and got
+   its import too). The first version of the report printed 26,849 sites
+   because the generic-impl filter sat BEFORE the receiver match and logged
+   every same-name entry on another type (`Channel.len` while resolving
+   `ArrayList.len`); visibility is now judged after the match, which is
+   also cheaper. The grep-based "80 files" upper bound counted direct imports
+   only — the closure is transitive.
+
+The predicted directory-vs-standalone disagreement for `src/types/intern.yo`
+under the seed was therefore real (a missing import), and `check ./src` had
+hidden it twice over: through the leak this issue is about, and because lazy
+bindings never forced the helper that used it (`check` is a filter, not a
+gate).
 
 ## Fix direction (as written before the fix)
 
