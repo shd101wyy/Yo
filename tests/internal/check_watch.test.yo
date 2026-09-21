@@ -465,8 +465,12 @@ test("Phase 3b: a struct-field edit (type producer) falls back to file-level", {
 // dropped `src/lexer.yo` + 143 files, ~355 s). The round now re-points the
 // binding and re-forces the importer's own definitions that mention it.
 // ---------------------------------------------------------------------------
-_RB_LIB_V1 :: "helper :: (fn() -> i32)(i32(1));\nexport(helper);\n";
-_RB_LIB_V2 :: "helper :: (fn() -> i32)(i32(2));\nexport(helper);\n";
+// `comptime(i32)`, not `i32`: the freshness oracle below is a module-level
+// `::` binding computed from `helper()`, and a `::` binding REQUIRES a
+// compile-time value ("Expected compile-time value ... Got runtime value").
+// A plain `fn() -> i32` makes the fixture itself fail to check.
+_RB_LIB_V1 :: "helper :: (fn() -> comptime(i32))(i32(1));\nexport(helper);\n";
+_RB_LIB_V2 :: "helper :: (fn() -> comptime(i32))(i32(2));\nexport(helper);\n";
 _RB_READER :: "{ helper } :: import(\"./lib.yo\");\ndoubled :: (helper() + helper());\nuse_it :: (fn() -> i32)((helper() + i32(10)));\nexport(use_it, doubled);\n";
 _RB_APP :: "reader_mod :: import(\"./reader.yo\");\nmain :: (fn() -> unit)({\n  _x := reader_mod.use_it();\n});\nexport(main);\n";
 // An import RENAME: the frame carries `h`, never `helper`, so the by-name
