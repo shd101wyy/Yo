@@ -16,7 +16,16 @@ task :: (fn(io : Io) -> Impl(Future(unit, IoExn)))(
     return(());
   })
 );
-main :: (fn(io : Io, exn : Exception) -> unit)({
+main :: (fn(io : Io) -> unit)({
+  // exn is bound here, not taken as a parameter: the runtime provides main
+  // with `io : Io` only (safe-mode D7 / the main-signature rule).
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
   e := IoExn(io : io, exn : exn);
   h := io.spawn(task(io), e);
   h.await(io);
