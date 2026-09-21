@@ -108,6 +108,15 @@ it explicitly with `c_type`:
 `c_type` spelling (`Point : c_type("struct point")` where `Point` is a Yo
 `struct`) lowers the Yo type to that spelling.
 
+When you only need to hand the C function a buffer you allocated yourself
+(an `ArrayList(u64)` sized to the struct, say), spell the parameter `*void`
+and cast the buffer pointer with `(*void)(ptr)`: C converts `void *` to any
+object pointer implicitly. Do not spell it as a pointer to the buffer's
+element type. Yo emits no prototype for a `c_include` function — the header's
+is the only one — so a parameter type that disagrees with the header is an
+incompatible pointer type at the call, and the C compile step rejects it
+with `-Werror=incompatible-pointer-types` on every platform.
+
 ## Limits
 
 - Adopting a Yo struct as a C struct (`Point : Type` where `Point` is already a

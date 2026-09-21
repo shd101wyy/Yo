@@ -552,6 +552,16 @@ For `Option(unit)` return types, the `.Some` variant has no data field — only 
   the property atom is matched by name + declared type (its ExprInfo carries
   `is_accessing_property`) in both `property_access.yo` (raw C name, no
   reserved-word prefix) and the header registration.
+- **A `c_include` pointer parameter must match the header's type, and the C
+  compile step enforces it with `-Werror=incompatible-pointer-types` at every
+  optimization level.** Yo emits no prototype for a `c_include` function, so
+  the header's is the only one and the mismatch surfaces at the CALL. Spell a
+  pointer-to-C-struct parameter as `*void` (C converts implicitly; the
+  `_localtime64_s` idiom in std/libc/windows.yo) or as `*Opaque` with
+  `Opaque : c_type("struct name")` (docs/en-US/FFI.md) — never as a pointer to
+  the buffer's element type. `*(u64)` for `PPROCESS_MEMORY_COUNTERS` compiled
+  with a warning on macOS and turned every windows-11-arm shard red
+  (issues/fixed/c-include-prototype-pointer-mismatch-was-only-a-warning.md).
 - Missing-header failures are MASKED for common headers: `emit_c_includes`
   hardcodes `<unistd.h>`/`<sys/stat.h>`/`<sys/random.h>` (POSIX) and
   `<windows.h>`/`<bcrypt.h>`/`<io.h>` (Windows), and the sys-runtime C

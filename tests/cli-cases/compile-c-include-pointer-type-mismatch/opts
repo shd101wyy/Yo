@@ -1,0 +1,11 @@
+# issues/fixed/c-include-prototype-pointer-mismatch-was-only-a-warning.md: a
+# `c_include` prototype whose pointer parameter disagrees with the header
+# (`*i32` where the header says `const char *`) compiled with a WARNING on
+# macOS and Linux and was a hard ERROR under clang 22, so the mismatch reached
+# develop and turned every windows-11-arm shard red. The C compile step now
+# passes -Werror=incompatible-pointer-types at every optimization level, so
+# the program fails to compile everywhere (rc=1). clang's own diagnostic text
+# and the generated-C path vary by platform and version, so stdout keeps only
+# the compiler's failure line.
+stdout_keep_match=compile: C compiler failed \(exit [0-9]+
+timeout=300

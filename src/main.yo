@@ -3923,6 +3923,19 @@ run_compile :: (
   // between generated code and its own generated prototype is never noise:
   // both sides are written by this compiler.
   //
+  // It is `-Werror=`, not a bare `-W`, because a WARNING is read by nobody: a
+  // `c_include` prototype spelling a struct-pointer parameter as `*(u64)`
+  // compiled with a warning on macOS and Linux and was a hard error under
+  // clang 22 (where -Wincompatible-pointer-types is an error by default),
+  // so the mismatch reached develop and turned every windows-11-arm shard red
+  // (issues/fixed/c-include-prototype-pointer-mismatch-was-only-a-warning.md).
+  // A user-written prototype that disagrees with the header is the same
+  // class as a codegen prototype that disagrees with its call: the call
+  // passes the wrong pointer, and the error must fire on the platform the
+  // developer builds on, not only on the strictest CI runner. The -O0 arm
+  // carries the same flag for the same reason (`-Wall` alone leaves it a
+  // warning there).
+  //
   // `-Werror=return-type` is on the list for the same reason, and must be
   // -Werror rather than a bare -W because a warning would still let the build
   // succeed. A function whose body codegen could not transpile becomes
@@ -3939,12 +3952,12 @@ run_compile :: (
   // prototype at -O2 while -O0 rejected it outright
   // (issues/fixed/two-externs-of-one-signature-emit-one-prototype.md).
   //
-  // The -O0 arm below needs no such re-enabling — `-Wall` and clang's
-  // defaults already include all three.
+  // The -O0 arm below needs no such re-enabling for the other three — `-Wall`
+  // and clang's defaults already include them.
   cond(
     ((optimize != "") && (optimize != "0")) => {
       cmd.arg(String.from("-Wno-everything"));
-      cmd.arg(String.from("-Wincompatible-pointer-types"));
+      cmd.arg(String.from("-Werror=incompatible-pointer-types"));
       cmd.arg(String.from("-Wint-conversion"));
       cmd.arg(String.from("-Werror=implicit-function-declaration"));
       cmd.arg(String.from("-Werror=return-type"));
@@ -3960,6 +3973,7 @@ run_compile :: (
       cmd.arg(String.from("-Wno-unused-label"));
       cmd.arg(String.from("-Wno-unused-value"));
       cmd.arg(String.from("-Wno-parentheses-equality"));
+      cmd.arg(String.from("-Werror=incompatible-pointer-types"));
       cmd.arg(String.from("-Werror=return-type"));
       cmd.arg(String.from("-O0"));
     }
@@ -4356,11 +4370,11 @@ run_compile :: (
       );
       st2 := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
       if(st2.raw != i32(0), {
-        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()} on ${c_path}`));
+        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
       });
       return(())
     });
-    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().unwrap_or(i32(-1)).to_string()} on ${c_path}`));
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
   });
   _print_compile_profile(profile_json.clone(), io, exn);
 });
@@ -4578,11 +4592,15 @@ _current_rss_mb_linux :: (fn() -> usize)({
 /// resident_size_max as u64, two `time_value_t`, policy, suspend_count) is
 /// 48 bytes = 12 `natural_t`, received in a six-u64 buffer; `resident_size`
 /// is element 1. `mach_task_self()` is a macro over the `mach_task_self_`
-/// global, which is what the binding names.
+/// global, which is what the binding names. The out parameter is `*void`
+/// (C converts `void *` to the header's `task_info_t` implicitly); spelling
+/// it `*(u64)` was an incompatible pointer type against the prototype, which
+/// clang 22 rejects
+/// (issues/fixed/c-include-prototype-pointer-mismatch-was-only-a-warning.md).
 _current_rss_mb_darwin :: (fn() -> usize)({
   { task_info, mach_task_self_ } :: c_include(
     "<mach/mach.h>",
-    task_info : (fn(target_task : u32, flavor : u32, task_info_out : *(u64), task_info_count : *(u32)) -> i32),
+    task_info : (fn(target_task : u32, flavor : u32, task_info_out : *void, task_info_count : *(u32)) -> i32),
     mach_task_self_ : u32
   );
   info := ArrayList(u64).new();
@@ -4595,7 +4613,7 @@ _current_rss_mb_darwin :: (fn() -> usize)({
   match(
     info.ptr(),
     .Some(out_ptr) => {
-      rc := unsafe(task_info(mach_task_self_, u32(20), out_ptr, &(count))); // MACH_TASK_BASIC_INFO = 20
+      rc := unsafe(task_info(mach_task_self_, u32(20), (*void)(out_ptr), &(count))); // MACH_TASK_BASIC_INFO = 20
       cond(
         (rc == i32(0)) => match(info.get(usize(1)), .Some(resident) => usize(resident / u64(1048576)), .None => usize(0)),
         true => usize(0)
@@ -4609,12 +4627,16 @@ _current_rss_mb_darwin :: (fn() -> usize)({
 /// seven SIZE_T) is 72 bytes on the 64-bit targets Yo supports = nine u64;
 /// `cb` is the low half of element 0 and `WorkingSetSize` is element 2.
 /// The `K32` spelling is kernel32's own export (Windows 7+), so no psapi
-/// import library is needed.
+/// import library is needed. The out parameter is `*void`, never `*(u64)`:
+/// the header's `PPROCESS_MEMORY_COUNTERS` is a struct pointer, and the
+/// mismatch is a hard error under clang 22 — it turned every windows-11-arm
+/// shard red on develop
+/// (issues/fixed/c-include-prototype-pointer-mismatch-was-only-a-warning.md).
 _current_rss_mb_windows :: (fn() -> usize)({
   { GetCurrentProcess } :: c_include("<windows.h>", GetCurrentProcess : (fn() -> ?*void));
   { K32GetProcessMemoryInfo } :: c_include(
     "<psapi.h>",
-    K32GetProcessMemoryInfo : (fn(process : ?*void, counters : *(u64), cb : u32) -> i32)
+    K32GetProcessMemoryInfo : (fn(process : ?*void, counters : *void, cb : u32) -> i32)
   );
   counters := ArrayList(u64).new();
   counters.push(u64(72)); // cb
@@ -4626,7 +4648,7 @@ _current_rss_mb_windows :: (fn() -> usize)({
   match(
     counters.ptr(),
     .Some(out_ptr) => {
-      ok := unsafe(K32GetProcessMemoryInfo(unsafe(GetCurrentProcess()), out_ptr, u32(72)));
+      ok := unsafe(K32GetProcessMemoryInfo(unsafe(GetCurrentProcess()), (*void)(out_ptr), u32(72)));
       cond(
         (ok != i32(0)) => match(counters.get(usize(2)), .Some(working_set) => usize(working_set / u64(1048576)), .None => usize(0)),
         true => usize(0)
