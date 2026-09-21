@@ -60,8 +60,21 @@ Sites #6 (match arm trim) build the trimmed copy and store it back.
 
 ## Emission
 
-Against the pre-sharing compiler on the same tree: identical except ONE
-dup/drop pair (`src/codegen/functions/context.yo`, `merged_part_lens` moved
-into a struct) that the pre-sharing compiler failed to cancel and the shared
-one cancels. See the plan for the same-binary A/B (`YO_ENV_NO_RING=1
-YO_ENV_ADOPT_ALIAS=1` reproduces the pre-sharing semantics) and its verdict.
+Against the pre-sharing compiler (develop) on the same tree: identical except
+ONE dup/drop pair (`src/codegen/functions/context.yo`, `merged_part_lens`
+moved into the result struct) that develop keeps and this branch cancels.
+
+**Measured (a decision probe in `_optimize_dup_drop_pairs`, built into both
+trees):** every gate is equal except `nested_dup` — `true` on develop, `false`
+here. That gate is `dup_info.env.frames.len() > v.frame_level + 1`: the
+DEPTH of the dup node's recorded env. On develop the recorded frames LIST had
+been appended to by later pushes through an alias (the exact corruption the
+`copy_frames` adoptions of §Phase 2 step 1 remove), so the dup looked deeper
+than its scope and the pair was kept — a sound but wrong-by-artifact
+decision. In the source the definition and the move sit in the same block,
+so `nested = false` is the true relation, and the container (the function's
+result struct) outlives the local, which is the optimizer's soundness
+condition. The same-binary A/B (`YO_ENV_NO_RING=1`, ring off) reproduces the
+cancellation too, so the sharing itself is emission-neutral; the fix in step
+1 is what corrected the decision. The behavioural gates (`gates_fast.sh`,
+`fixpoint_only.sh`, the language suite) are the over-cancellation canary.

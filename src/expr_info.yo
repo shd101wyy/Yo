@@ -446,10 +446,6 @@ ExprInfo :: ref(
 /// keep the old snapshot. Emission stays byte-identical to the pre-sharing
 /// compiler; only never-adopted snapshots stay shared.
 expr_info_adopt_env :: (fn(info : ExprInfo) -> Environment)({
-  // TEMP measurement knob: alias the recorded env like the pre-sharing compiler.
-  if(debug_knob(`YO_ENV_ADOPT_ALIAS`).is_some(), {
-    return(info.env);
-  });
   fresh := snapshot_env(info.env);
   info.env = fresh;
   fresh
