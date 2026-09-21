@@ -897,10 +897,40 @@ instrumented run's footprint (9.69 GB) matches the uninstrumented one
   live) and `ArrayList(String)` (48.1 M gross), which is allocation traffic,
   not retention. The peak is still the retained set.
 
-**Revised route to a sub-8 GB peak**, from 9.69: interning the `TypeValue`
-cluster is the only lever that can deliver 1.7 GB on its own, and the header
-split is the only other one in that class. Everything else in §5's table is
-now a sub-0.5 GB item.
+**Tracked vs untracked, from the same run** (a type is tracked iff its C
+constructor calls `__yo_gc_register`; `RC_HEADER_SPLIT.md` step 1 — the 16 B
+header for cycle-incapable types — has ALREADY LANDED, which is part of why
+the peak fell, so that lever is spent):
+
+| | types | live | live bytes |
+| --- | --- | --- | --- |
+| tracked (56 B header) | 115 | 38.2 M | **4.76 GB** |
+| untracked (16 B header) | 434 | 29.2 M | 1.42 GB |
+
+77 % of the live bytes are in tracked objects, and the tracked list is the
+`TypeValue` cluster plus `Variable`, `ExprInfo` and `Environment`. What that
+leaves of `RC_HEADER_SPLIT.md`:
+
+- step 2 (tracked `traverse_fn` → a `u32 type_id`, 56 → 48 B) is worth
+  **0.31 GB** at 38.2 M tracked objects — real but no longer a headline;
+- dropping one of the two intrusive GC list pairs (56 → 40 B) would be
+  ~0.61 GB on top, and it is the riskiest change in the plan.
+
+The `ArrayList(TypeValue)` row is the clearest statement of where the bytes
+are: 11.12 M objects at 80 B, of which **56 B is the RC header** — a
+two-element type-argument list costs more in header than in content. There
+are ~1.5 such lists per live `TypeValue`, because `Func` carries five and
+`Struct` two, which is why interning a type deletes far more than the type.
+
+**Revised route to a sub-8 GB peak**, from 9.69, needing 1.7 GB: no single
+remaining lever delivers it. `TypeValue` interning has the only 2.48 GB
+ceiling; the tracked-header work adds ~0.3 GB (step 2) to ~0.9 GB (also
+collapsing an intrusive list pair); everything else in §5's table is a
+sub-0.5 GB item now that the `ExprInfo` cluster is 0.445 GB. So the target is
+interning PLUS header step 2 at minimum, and interning has to deliver ~1.4 GB
+of its 2.48 GB ceiling — which is exactly what the `YO_TYPE_INTERN_PROBE`
+measurement (distinct vs total retained types) is for. Building it before
+that number is in would repeat the value-cell mistake below.
 
 ### Phase 6 — per-object layout: header and `Variable`
 
