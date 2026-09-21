@@ -4,6 +4,7 @@
 //! the affected entry files, error→fix→clean, with registry sizes stable
 //! across repeated rounds (the long-lived-process guarantee).
 { String } :: import("std/string");
+{ EvalValue } :: import("../../src/value.yo");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { assert } :: import("std/assert");
@@ -12,9 +13,9 @@
 { write_string } :: import("std/fs/file");
 { watch_round } :: import("../../src/check_watch.yo");
 { mm_load_file, mm_invalidate_document, mm_definitions_changed, mm_revalidate_plan, resolve_std_path } :: import("../../src/module_manager.yo");
-{ force_pending_count, PendingDef, set_retain_walk_contexts } :: import("../../src/evaluator/context.yo");
+{ force_pending_count, PendingDef, set_retain_walk_contexts, finished_walk_for } :: import("../../src/evaluator/context.yo");
 { AstExpr } :: import("../../src/expr.yo");
-{ RevalPlan } :: import("../../src/module_manager.yo");
+{ RevalPlan, RebindEntry } :: import("../../src/module_manager.yo");
 { type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
 
@@ -29,7 +30,8 @@ p0 :: (fn() -> RevalPlan)(
     changed : ArrayList(PendingDef).new(),
     fresh_exprs : ArrayList(AstExpr).new(),
     closure_keys : ArrayList(String).new(),
-    fallback_modules : ArrayList(String).new()
+    fallback_modules : ArrayList(String).new(),
+    rebinds : ArrayList(RebindEntry).new()
   )
 );
 /// One watch round with `lib.yo` as the changed file. Returns failed count.
@@ -452,4 +454,171 @@ test("Phase 3b: a struct-field edit (type producer) falls back to file-level", {
   delta := (force_pending_count() - before);
   assert(failed == usize(0), "unused struct edit must not fail");
   assert(delta == usize(0), `type-producer edit must stay file-level (no per-def forces), forced ${delta.to_string()}`);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 (§6) — the destructured-reader RE-BIND. `{ helper } :: import(...)`
+// binds the name BY VALUE into the importer's own module frame, so the
+// importer's definitions resolve it locally and carry no def-level edge to
+// the changed definition. That is why the importer used to be dropped whole,
+// taking its entire reverse import closure with it (a `src/token.yo` hub edit
+// dropped `src/lexer.yo` + 143 files, ~355 s). The round now re-points the
+// binding and re-forces the importer's own definitions that mention it.
+// ---------------------------------------------------------------------------
+// `comptime(i32)`, not `i32`: the freshness oracle below is a module-level
+// `::` binding computed from `helper()`, and a `::` binding REQUIRES a
+// compile-time value ("Expected compile-time value ... Got runtime value").
+// A plain `fn() -> i32` makes the fixture itself fail to check.
+_RB_LIB_V1 :: "helper :: (fn() -> comptime(i32))(i32(1));\nexport(helper);\n";
+_RB_LIB_V2 :: "helper :: (fn() -> comptime(i32))(i32(2));\nexport(helper);\n";
+_RB_READER :: "{ helper } :: import(\"./lib.yo\");\ndoubled :: (helper() + helper());\nuse_it :: (fn() -> i32)((helper() + i32(10)));\nexport(use_it, doubled);\n";
+_RB_APP :: "reader_mod :: import(\"./reader.yo\");\nmain :: (fn() -> unit)({\n  _x := reader_mod.use_it();\n});\nexport(main);\n";
+// An import RENAME: the frame carries `h`, never `helper`, so the by-name
+// re-bind cannot find it and the importer must go back to the file path.
+_RB_READER_RENAMED :: "{ helper : h } :: import(\"./lib.yo\");\nuse_it :: (fn() -> i32)((h() + i32(10)));\nexport(use_it);\n";
+// An ordered statement that COMPUTED with the old value: a re-bind refreshes
+// bindings, it cannot re-run a computation, so this importer falls back too.
+_RB_READER_ORDERED :: "{ helper } :: import(\"./lib.yo\");\n{ println } :: import(\"std/fmt\");\nuse_it :: (fn() -> i32)((helper() + i32(10)));\nexport(use_it);\n";
+
+/// The comptime value of `name` in `module_key`'s finished walk, rendered —
+/// the freshness oracle: a stale re-bind leaves the OLD number here.
+_def_int_value :: (fn(module_key : String, name : String) -> String)(
+  match(
+    finished_walk_for(module_key),
+    .Some(w) => {
+      (i : usize) = usize(0);
+      while(i < w.defs.len(), {
+        match(
+          w.defs.get(i),
+          .Some(d) => if(d.name == name, {
+            return(
+              match(
+                d.variable,
+                .Some(v) => match(
+                  v.value.get(usize(0)),
+                  .Some(val) => match(val, .IntLit(t) => t.clone(), _ => String.from("<not-int>")),
+                  .None => String.from("<no-value>")
+                ),
+                .None => String.from("<no-variable>")
+              )
+            );
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      String.from("<no-def>")
+    },
+    .None => String.from("<no-walk>")
+  )
+);
+
+test("Phase 3 re-bind: a destructured importer is re-bound, not dropped, and its value is fresh", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_rebind`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  reader_path := `${dir}/reader.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(reader_path.clone()), String.from(_RB_READER), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_RB_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _r1 := mm_invalidate_document(lib_path.clone());
+  _r2 := mm_invalidate_document(reader_path.clone());
+  _r3 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  reader_key := `file://${reader_path}`;
+  before_value := _def_int_value(reader_key.clone(), String.from("doubled"));
+  assert(before_value == "2", `doubled should start at 2, was ${before_value}`);
+  // Body edit: helper returns 2. The importer destructured `helper`, so
+  // before this change it was a file-level fallback.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
+  plan := match(
+    mm_revalidate_plan(lib_path.clone()),
+    .Some(p) => p,
+    .None => {
+      assert(false, "a body edit must still take the per-def path");
+      p0()
+    }
+  );
+  assert(plan.rebinds.len() == usize(1), `expected exactly one re-bound importer, got ${plan.rebinds.len().to_string()}`);
+  assert(
+    plan.fallback_modules.len() == usize(0),
+    `the re-bound importer must not also be a fallback, got ${plan.fallback_modules.len().to_string()}`
+  );
+  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `re-bind round must not fail: ${failed.to_string()}`);
+  after_value := _def_int_value(reader_key.clone(), String.from("doubled"));
+  assert(after_value == "4", `the re-bound importer must see helper() == 2, so doubled == 4, got ${after_value}`);
+});
+
+test("Phase 3 re-bind: an import RENAME falls back instead of re-binding", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_rebind_renamed`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  reader_path := `${dir}/reader.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(reader_path.clone()), String.from(_RB_READER_RENAMED), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_RB_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _n1 := mm_invalidate_document(lib_path.clone());
+  _n2 := mm_invalidate_document(reader_path.clone());
+  _n3 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial renamed-import app check should pass");
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
+  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `renamed-import round must not fail: ${failed.to_string()}`);
+});
+
+test("Phase 3 re-bind: an ordered statement that computed with the old value falls back", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_rebind_ordered`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  reader_path := `${dir}/reader.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(reader_path.clone()), String.from(_RB_READER_ORDERED), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_RB_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _o1 := mm_invalidate_document(lib_path.clone());
+  _o2 := mm_invalidate_document(reader_path.clone());
+  _o3 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial ordered-reader app check should pass");
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
+  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed == usize(0), `ordered-reader round must not fail: ${failed.to_string()}`);
 });

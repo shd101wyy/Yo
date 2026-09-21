@@ -63,7 +63,8 @@ env_mod :: import("std/env");
   def_dependents_closure,
   def_key_dependees,
   revalidate_walk_defs,
-  ordered_readers_of
+  ordered_readers_of,
+  rebind_destructured_name
 } :: import("./evaluator/context.yo");
 { register_evaluate_expression, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
@@ -797,6 +798,19 @@ _rev_add_module :: (fn(modules : ArrayList(String), excluded : HashSet(String), 
 });
 /// The per-def revalidation plan for one changed file: what changed, who
 /// depends on it, and who must still take the file-level drop.
+/// Phase 3 (§6): one DESTRUCTURED importer whose bindings the apply step
+/// re-points at the re-forced definitions instead of dropping the importer's
+/// whole module (and with it the importer's reverse import closure).
+RebindEntry :: ref(
+  struct(
+    /// The importer's module key.
+    reader_module : String,
+    /// The module whose definitions changed.
+    target_module : String,
+    /// The changed names this importer destructured.
+    names : ArrayList(String)
+  )
+);
 RevalPlan :: ref(
   struct(
     module_key : String,
@@ -807,9 +821,146 @@ RevalPlan :: ref(
     closure_keys : ArrayList(String),
     /// Module KEYS the caller must `mm_invalidate_document` (fs path = the
     /// key minus any `file://` prefix).
-    fallback_modules : ArrayList(String)
+    fallback_modules : ArrayList(String),
+    /// Destructured importers to re-bind rather than drop (Phase 3 §6); their
+    /// own definitions that mention a changed name are already in
+    /// `closure_keys`, so a re-bind never stands alone.
+    rebinds : ArrayList(RebindEntry)
   )
 );
+/// True when `module` is already among the importers being re-bound.
+_rebinds_contain :: (fn(rebinds : ArrayList(RebindEntry), module : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < rebinds.len(), {
+    match(
+      rebinds.get(i),
+      .Some(e) => if(e.reader_module == module, {
+        return(true);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
+/// Phase 3 (§6): admit one def key into the per-def closure, or report that it
+/// cannot be. The re-bind closure's admission, written to match the seed
+/// closure's inline one exactly: the walk must exist, the def must not be an
+/// impl, and an admitted def's name joins its module's group (the group the
+/// ordered-reader checks consume). A rejected key's MODULE goes to the
+/// file-level fallbacks, which is what the caller does with `false`.
+_admit_closure_key :: (
+  fn(
+    key : String,
+    closure_keys : ArrayList(String),
+    fallbacks : ArrayList(String),
+    names_by_module : HashMap(String, ArrayList(String))
+  ) -> bool
+)({
+  module := def_key_module(key.clone());
+  index := match(
+    def_key_index(key.clone()),
+    .Some(ix) => ix,
+    .None => {
+      fallbacks.push(module);
+      return(false);
+    }
+  );
+  w := match(
+    finished_walk_for(module.clone()),
+    .Some(found) => found,
+    .None => {
+      fallbacks.push(module);
+      return(false);
+    }
+  );
+  d := match(
+    w.by_index.get(index),
+    .Some(found) => found,
+    .None => {
+      fallbacks.push(module);
+      return(false);
+    }
+  );
+  if(d.is_impl, {
+    fallbacks.push(module);
+    return(false);
+  });
+  names := match(
+    names_by_module.get(module.clone()),
+    .Some(ns) => ns,
+    .None => ArrayList(String).new()
+  );
+  names.push(d.name.clone());
+  _ := names_by_module.insert(module.clone(), names);
+  closure_keys.push(key.clone());
+  true
+});
+/// Phase 3 (§6): true when a destructured importer can be RE-BOUND instead of
+/// dropped — every ordered statement of it that mentions a changed name is an
+/// import destructure.
+///
+/// A re-bind refreshes bindings; it cannot re-run a computation. A top-level
+/// ordered statement such as `limit :: helper()` already folded the old value
+/// into its own result, and only re-evaluating the importer recovers that, so
+/// its presence sends the importer back to the file-level path. The `import`
+/// mention is what distinguishes the destructure statement itself, which is
+/// exactly the statement the re-bind replaces.
+_reader_rebindable :: (fn(reader_module : String, names : ArrayList(String)) -> bool)({
+  rw := match(
+    finished_walk_for(reader_module),
+    .Some(w) => w,
+    .None => return(false)
+  );
+  imports := ArrayList(String).new();
+  imports.push(String.from("import"));
+  (i : usize) = usize(0);
+  while(i < rw.begin_exprs.len(), {
+    match(
+      rw.begin_exprs.get(i),
+      .Some(e) => if(
+        classify_pending_def(e, i).is_none() && !ast_expr_is_fn_call_of(e, BK_EXPORT, .None),
+        if(_expr_mentions(e, names) && !_expr_mentions(e, imports), {
+          return(false);
+        })
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  true
+});
+/// Phase 3 (§6): the def keys of `module`'s own definitions whose source
+/// mentions any of `names`.
+///
+/// These are the seeds a re-bound importer needs: its definitions resolve the
+/// name from its OWN module frame, so they carry no def-level edge to the
+/// changed definition and nothing else would pull them in. A definition that
+/// reaches the change only THROUGH a sibling is covered by the sibling's
+/// edges, which is why a syntactic mention is enough here — and why erring
+/// toward mentioning (a shadowed local of the same name, say) only
+/// re-evaluates one extra definition.
+_defs_mentioning :: (fn(module : String, names : ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  match(
+    finished_walk_for(module.clone()),
+    .Some(w) => {
+      (i : usize) = usize(0);
+      while(i < w.defs.len(), {
+        match(
+          w.defs.get(i),
+          .Some(d) => if(!d.is_impl && _expr_mentions(d.expr, names), {
+            out.push(def_key(module.clone(), d.index, d.name.clone()));
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  out
+});
 /// Compute the plan. `.None`: the edit is not per-def-able (structural, an
 /// impl/extern/type-producer changed, or the changed module's own ordered
 /// statements read a changed name) — the caller takes the file-level path for
@@ -884,6 +1035,7 @@ mm_revalidate_plan :: (fn(fs_path : String) -> Option(RevalPlan))({
   closure := def_dependents_closure(seeds.clone());
   fallbacks := ArrayList(String).new();
   closure_keys := ArrayList(String).new();
+  rebind_seeds := ArrayList(RebindEntry).new();
   // Per closure def: the walk must exist and the def must not be an impl;
   // group names per module for the ordered-reader checks. The SEEDS (the
   // changed defs) are skipped — they ride in `plan.changed` — but a
@@ -986,7 +1138,25 @@ mm_revalidate_plan :: (fn(fs_path : String) -> Option(RevalPlan))({
           while(ri < readers.len(), {
             match(
               readers.get(ri),
-              .Some(importer) => fallbacks.push(importer.clone()),
+              .Some(importer) => if(_reader_rebindable(importer.clone(), names.clone()), {
+                // Phase 3 (§6): re-point the importer's own bindings at the
+                // re-forced definitions and re-force the importer's
+                // definitions that mention them, instead of dropping the
+                // importer and its whole reverse import closure. The seeds go
+                // through the SAME admission that every closure key does, and
+                // their own dependents ride the second closure pass below —
+                // a mentioning def that cannot be admitted sends the importer
+                // back to the fallback path, so the re-bind is never partial.
+                rebind_seeds.push(
+                  RebindEntry(
+                    reader_module : importer.clone(),
+                    target_module : module.clone(),
+                    names : names.clone()
+                  )
+                );
+              }, {
+                fallbacks.push(importer.clone());
+              }),
               .None => ()
             );
             ri = (ri + usize(1));
@@ -1007,13 +1177,96 @@ mm_revalidate_plan :: (fn(fs_path : String) -> Option(RevalPlan))({
     );
     mopt = mit.next();
   });
+  // Phase 3 (§6), the re-bind closure. A re-bound importer's definitions
+  // resolve the changed name from the importer's OWN module frame, so they
+  // carry no edge to the change and nothing admitted them above. Seed them
+  // here, pull their dependents through the same closure, and admit every key
+  // the same way. A key that cannot be admitted withdraws its importer: the
+  // re-bind is all-or-nothing, never a partial refresh over a module that
+  // also needed a file-level reload.
+  rebinds := ArrayList(RebindEntry).new();
+  names2_by_module := HashMap(String, ArrayList(String)).new();
+  (rsi : usize) = usize(0);
+  while(rsi < rebind_seeds.len(), {
+    match(
+      rebind_seeds.get(rsi),
+      .Some(entry) => {
+        mentioning := _defs_mentioning(entry.reader_module.clone(), entry.names.clone());
+        extra := def_dependents_closure(mentioning.clone());
+        (ok : bool) = true;
+        (xi : usize) = usize(0);
+        while(xi < extra.len(), {
+          match(
+            extra.get(xi),
+            .Some(key) => if(
+              !(_list_contains(seeds, key.clone()) || _list_contains(closure_keys, key.clone())),
+              if(!_admit_closure_key(key.clone(), closure_keys, fallbacks, names2_by_module), {
+                ok = false;
+              })
+            ),
+            .None => ()
+          );
+          xi = (xi + usize(1));
+        });
+        if(ok, {
+          rebinds.push(entry);
+        }, {
+          fallbacks.push(entry.reader_module.clone());
+        });
+      },
+      .None => ()
+    );
+    rsi = (rsi + usize(1));
+  });
+  // The re-bind closure introduced NEW revalidated names. Their own ordered
+  // readers get the file-level path rather than a second re-bind round: one
+  // pass terminates, a fixpoint would not obviously, and over-invalidating a
+  // reader is the safe direction.
+  m2it := names2_by_module.keys();
+  m2opt := m2it.next();
+  while(m2opt.is_some(), {
+    match(
+      m2opt,
+      .Some(module2) => match(
+        names2_by_module.get(module2.clone()),
+        .Some(names2) => {
+          readers2 := ordered_readers_of(module2.clone(), names2.clone());
+          (r2i : usize) = usize(0);
+          while(r2i < readers2.len(), {
+            match(
+              readers2.get(r2i),
+              .Some(importer2) => if(!_rebinds_contain(rebinds, importer2.clone()), {
+                fallbacks.push(importer2.clone());
+              }),
+              .None => ()
+            );
+            r2i = (r2i + usize(1));
+          });
+          match(
+            finished_walk_for(module2.clone()),
+            .Some(w2) => if(_ordered_stmts_mention(w2.begin_exprs.clone(), names2.clone()), {
+              fallbacks.push(module2.clone());
+            }),
+            .None => ()
+          );
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    m2opt = m2it.next();
+  });
+  if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
+    eprintln(`[p3rebind] readers=${rebinds.len().to_string()} extra_closure=${closure_keys.len().to_string()} fallbacks=${fallbacks.len().to_string()}`);
+  });
   Option(RevalPlan).Some(
     RevalPlan(
       module_key : diff.module_key,
       changed : diff.changed,
       fresh_exprs : diff.fresh_exprs,
       closure_keys : closure_keys,
-      fallback_modules : fallbacks
+      fallback_modules : fallbacks,
+      rebinds : rebinds
     )
   )
 });
@@ -1304,6 +1557,55 @@ mm_revalidate_apply :: (
                 .None => ()
               );
               bi = (bi + usize(1));
+            });
+            // Phase 3 (§6): this module's definitions now hold their new
+            // values, so every destructured importer of them can be
+            // re-pointed. It happens HERE, inside the module's own pass and
+            // before any later module re-forces, because a re-bound
+            // importer's definitions are in the closure and resolve the name
+            // through the binding this patches. A name the importer's frame
+            // does not carry (an import rename) withdraws the importer to the
+            // file-level path — the apply-time twin of the planner's guard.
+            (rbi : usize) = usize(0);
+            while(rbi < plan.rebinds.len(), {
+              match(
+                plan.rebinds.get(rbi),
+                .Some(entry) => if(entry.target_module == module, {
+                  (rni : usize) = usize(0);
+                  while(rni < entry.names.len(), {
+                    match(
+                      entry.names.get(rni),
+                      .Some(nm) => {
+                        (found : bool) = false;
+                        (fdi : usize) = usize(0);
+                        while(fdi < defs.len(), {
+                          match(
+                            defs.get(fdi),
+                            .Some(d) => if(d.name == nm, {
+                              match(
+                                d.variable,
+                                .Some(var) => {
+                                  found = rebind_destructured_name(entry.reader_module.clone(), nm.clone(), var);
+                                },
+                                .None => ()
+                              );
+                            }),
+                            .None => ()
+                          );
+                          fdi = (fdi + usize(1));
+                        });
+                        if(!found, {
+                          fallbacks.push(entry.reader_module.clone());
+                        });
+                      },
+                      .None => ()
+                    );
+                    rni = (rni + usize(1));
+                  });
+                }),
+                .None => ()
+              );
+              rbi = (rbi + usize(1));
             });
           },
           .None => ()
@@ -2099,6 +2401,7 @@ export(
   mm_changed_definitions,
   DefDiff,
   RevalPlan,
+  RebindEntry,
   RevalOutcome,
   mm_revalidate_plan,
   mm_revalidate_apply,

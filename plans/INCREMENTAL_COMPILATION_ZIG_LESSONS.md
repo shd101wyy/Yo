@@ -6,7 +6,8 @@ answers in §3.1); Phase 1 (dev profile) LANDED 2026-09-10 (`--emit-chunks
 auto`, numbers in §4); Phase 2 (stable names) LANDED 2026-09-12 (§5 results);
 Phase 3 (per-definition deps) steps 1, 2 and 4 LANDED 2026-09-12/14, the
 stale-callee bug behind the signature-edit gate FIXED 2026-09-21 (#809; §6),
-step 3 (signature/body hash split) and the destructured-reader re-bind open;
+the destructured-reader re-bind LANDED 2026-09-21 (step 3's signature/body
+split is deliberately NOT built — see §6);
 Phase 4 (resident evaluator) steps 1, 2 and 4 LANDED 2026-09-13..18, step 3
 (`yo test` in-process) COMPLETE and deliberately OPT-IN behind
 `YO_TEST_IN_PROCESS=1` (§7) — its measured breaker FIXED 2026-09-21 (type ids
@@ -649,7 +650,40 @@ Design:
    body-edit fixture): a body edit re-forces `answer` + `main` = 2 defs
    today; with the split it re-forces 1. The hub case is the real prize:
    re-binding instead of dropping turns the ~355 s `src/lexer.yo` fallback
-   into a per-def round. Both numbers are the gate for the work.
+   into a per-def round.
+
+   **LANDED 2026-09-21 — the destructured-reader RE-BIND, without the unsafe
+   half.** The implementation does NOT try to prove which dependents consumed
+   a callee's body at comptime; that is the half with no sound derivation
+   (enumerating CTFE sites means a MISSED site silently downgrades a real
+   body dependence and leaves a stale value). Instead, when a changed
+   definition's importer destructured its name:
+
+   1. the importer's module-frame binding is re-pointed at the re-forced
+      definition (`rebind_destructured_name`, `evaluator/context.yo` — into a
+      FRESH value cell, never an alias of the definition's own, because two
+      frames sharing one cell would make a later write visible in both);
+   2. every definition of that importer whose source MENTIONS the name is
+      seeded into the closure (`_defs_mentioning`), and the existing
+      reverse-edge closure pulls in whatever reaches the change indirectly
+      through a sibling;
+   3. anything the re-bind cannot cover withdraws the importer to the old
+      file-level path — an import RENAME (`{ helper : h }`: the frame carries
+      no binding under the changed name), an ordered statement that already
+      folded the old value into a result, or any closure key that fails the
+      same admission every other key gets. The withdrawal is all-or-nothing,
+      so an importer is never partially refreshed.
+
+   Soundness comes from over-approximating, not from proving: a syntactic
+   mention re-forces one extra definition at worst, and every gap falls back
+   to the behaviour that was there before.
+
+   Gates, all green: `check_watch.test.yo` **9/9** including a FRESHNESS
+   ORACLE (the importer holds `doubled :: (helper() + helper())` and the test
+   asserts it moves 2 → 4 after the edit — a stale binding leaves it at 2)
+   plus one test per withdrawal case; `watch_verify.sh` (the live session vs
+   cold check oracle) ALL CHECKS PASSED; cold self-emit **byte-identical**
+   (the re-bind only runs in a watch round); `gates_fast` 0 failures.
 
 4. **Invalidation by definition.** `mm_invalidate_document` grows a
    sibling: given the changed file, re-lex, re-hash its definitions,
