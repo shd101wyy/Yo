@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-21 — Phase 0 steps 1/4/5 and Phase 1 landed (#805: `check src/main.yo` 19.9 → 10.2 GB, 170 → 90 s; two follow-up bugs fixed in #807); Phase 2 (F3) implemented and measured on `perf/evaluator-memory-p2-f3`: 10.16 → 9.72 GB, the guard clean; awaiting the byte-identity gate.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-21 — Phase 0 steps 1/4/5 and Phase 1 landed (#805: `check src/main.yo` 19.9 → 10.2 GB, 170 → 90 s; two follow-up bugs fixed in #807); Phase 2 (F3) LANDED (PR `perf/evaluator-memory-p2-f3`): 10.16 → 10.01 GB with copy-on-write adoption, guard clean, gates_fast + fixpoint green, emission identical to develop except one measured optimizer correction — the audit's 2–3 GB estimate for F3 was a sizing error (§Phase 2). Next by measured value: Phase 4 Design 1 (1.3 M cloned nodes), then F4/F5/F7.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
