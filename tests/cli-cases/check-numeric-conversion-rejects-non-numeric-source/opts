@@ -1,0 +1,10 @@
+# issues/fixed/numeric-conversion-of-a-non-numeric-source-checks-clean-and-emits-a-hollow-stub.md:
+# `usize(s)` with a String source (likewise a bool or a raw pointer) took the
+# evaluator's "non-numeric soft fallback" — an UnknownVal of the target type
+# and no lowering — so `check` passed and codegen emitted an abort() stub. The
+# fallback is now reserved for UNRESOLVED sources (the unit placeholder, an
+# open type variable); a concrete non-numeric source is a check error. The kept
+# substring is the diagnostic; the rest of the rendering carries the sandbox
+# path.
+stdout_keep_match=Cannot convert a value of type [^:]+ to usize
+timeout=120

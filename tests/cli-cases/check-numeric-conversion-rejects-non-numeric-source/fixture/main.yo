@@ -1,0 +1,9 @@
+// `usize(x)` is a NUMERIC conversion. A String source is not convertible, and
+// the evaluator must say so at `check` time — it used to hand every
+// non-numeric source an unknown value of the target type, so this checked
+// clean and compiled to a stub that aborts when reached.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+as_len :: (fn(s : String) -> usize)(usize(s));
+main :: (fn() -> unit)(println(as_len(String.from("abc")).to_string()));
+export(main);
