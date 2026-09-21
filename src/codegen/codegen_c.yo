@@ -34,6 +34,7 @@
 { preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
 { register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
 { assemble_chunks } :: import("./chunk_assembly.yo");
+{ registered_func_type_count } :: import("../function_value.yo");
 /// True if any field of the struct contains a SomeType (generic).
 /// On-demand recovery for a type first seen DURING emission (a lazily-minted
 /// call-site specialization's param/local type — see the hook comment in
@@ -386,7 +387,7 @@ typedef enum {
   // forces over the whole run; `collected_fns` the functions collected for
   // emission. The ratio is the ceiling for reachability-driven evaluation.
   if(debug_knob(`YO_SPEC_REPORT`).is_some(), {
-    eprintln(`[spec-report] forced_defs=${force_pending_count().to_string()} collected_fns=${base.functions.len().to_string()}`);
+    eprintln(`[spec-report] registered_fns=${registered_func_type_count().to_string()} forced_defs=${force_pending_count().to_string()} collected_fns=${base.functions.len().to_string()}`);
   });
   (prof_collect_ns : i64) = prof_collect_t0.elapsed().as_nanos();
   (prof_fn_at_collect : usize) = base.function_order.len();
