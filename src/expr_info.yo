@@ -433,11 +433,7 @@ expr_info_adopt_env :: (fn(info : ExprInfo) -> Environment)({
   fresh
 });
 /// Create an ExprInfo with the three required fields and all optional fields set to `.None`.
-new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)({
-  // §0.4' probe (YO_TYPE_INTERN_PROBE=1): this and the Variable constructor
-  // are where the live TypeValue population is HELD — 7.0 M of the 7.55 M.
-  // No-op without the knob.
-  type_intern_probe_record(ty);
+new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
   ExprInfo(
     // Snapshot the env's frame LIST (shallow — shares Frame refs) so this
     // recorded env reflects the scope at evaluation time and survives a later
@@ -457,7 +453,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)({
     rare : Option(ExprInfoRare).None,
     source_variable : Option(Variable).None
   )
-});
+);
 /// ExprInfo for a SHARED-id begin result — `evaluate_begin_expression` on a
 /// single-expression body/arm, where the result node IS the inner expression
 /// node (the id is reused, no begin wrapper is cloned). Codegen reads this ONE
@@ -965,6 +961,12 @@ expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
   info.path_collection
 });
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
+  // §0.4' probe (YO_TYPE_INTERN_PROBE=1): an ExprInfo becomes RETAINED here,
+  // which is the population being sized. Deliberately NOT in `new_expr_info`
+  // — that one is expression-bodied and wrapping it in a block to make room
+  // for a statement costs >=8x on `check`
+  // (issues/block-body-on-a-hot-constructor-makes-check-8x-slower.md).
+  type_intern_probe_record(info.ty);
   table.data.insert(id, info);
   ()
 });
@@ -1873,6 +1875,10 @@ print_spec_report_if_requested :: (fn() -> unit)({
   });
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
   eprintln(`[spec-report] ${snapshot_ring_stats()}`);
+  ti := type_intern_probe_report();
+  if(ti.len() > usize(0), {
+    eprintln(ti);
+  });
   ti := type_intern_probe_report();
   if(ti.len() > usize(0), {
     eprintln(ti);

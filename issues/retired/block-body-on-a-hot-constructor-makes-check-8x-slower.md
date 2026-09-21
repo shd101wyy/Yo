@@ -1,6 +1,31 @@
 # Wrapping `new_expr_info`'s expression body in a block makes `check` ≥8x slower
 
-**Status:** OPEN, measured 2026-09-21. Surfaced while instrumenting the
+> **RETRACTED 2026-09-21 (same day).** The analysis below is WRONG and is kept
+> as provenance. Every timing in it was taken with the SEED compiler
+> (v0.2.38) on PATH, and the seed predates the 2026-09-20 fix for the
+> exponential template-interpolation cost
+> (issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md, landed
+> in ba77dead3 — NOT an ancestor of the 0.2.38 bump). The cost was never the
+> block body: it was the probe's REPORT LINE, a ten-interpolation template,
+> which under the seed costs ~4^N (measured on a 12-line module: 5
+> interpolations 2 s, 8 → 5 s, 9 → 16 s, 10 → 64 s; the same ten-local file
+> under a tree-built compiler: 1 s). Bisecting the probe module alone found
+> it: a variant with no walk, no key hashing and only counters plus the
+> report line still timed out; a variant with ten globals but five
+> interpolations took 2 s; string concatenation of the same ten reads took
+> 1 s. The "block body" arms happened to be the ones that carried the report
+> line. The lesson is recorded in
+> `yo-run-tests-with-a-tree-built-compiler-not-the-seed`: measure `check`
+> cost with a compiler built from the tree, never with the seed.
+>
+> Consequence for the probe: `type_intern_probe_record` may sit in
+> `new_expr_info` / `make_default_variable` after all; nothing about a block
+> body is hot. The four "refuted synthetic shapes" below were refuted because
+> they had no ten-interpolation template, not because the real module is
+> special.
+
+
+**Status:** RETRACTED 2026-09-21 — see the banner. Surfaced while instrumenting the
 evaluator for the `TypeValue` interning measurement
 (plans/EVALUATOR_MEMORY_REDUCTION.md §0.4′) — the instrumentation could not
 be placed because merely making room for a statement cost an order of
