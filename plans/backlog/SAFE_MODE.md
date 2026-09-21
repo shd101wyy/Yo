@@ -488,7 +488,20 @@ document it).
 `2` both (D4 says results must be identical). A UBSan pass over the self-built
 compiler (`yo check ./src` under 0b) must report zero arithmetic UB after 3c.
 
-## 7. Phase 4 — allocation-failure coverage audit (closes H10)
+## 7. Phase 4 — allocation-failure coverage audit (closes H10) — LANDED (audit)
+
+**As built (2026-09-22):** audited every runtime allocation in
+`src/codegen/**` against the NULL-check/propagation policy. Result: the
+policy holds everywhere EXCEPT one site — the cycle collector's scratch-array
+growth (`__yo_gc_gather_white` in `src/codegen/functions/gc_runtime.yo`)
+overwrote `gc->gc_white` with realloc's NULL on failure and NULL-derefered on
+the immediate store. Fixed per the house OOM policy (cannot-propagate sites
+abort via `__yo_alloc_fail`). The checked sites (wasm/Windows I/O runtime
+`-ENOMEM` paths, TLS credential/connection allocations, the TLS buffer-grow
+helper) were verified clean. The regression oracle remains the fixed
+allocator (`--allocator fixed --heap-size 64K` makes OOM deterministic); the
+existing `compile-allocator-fixed-oom` cli-case pins the `__yo_alloc_fail`
+message path end-to-end.
 
 The policy already exists (`__yo_rc_alloc` panics via `__yo_alloc_fail`; the OOM
 section of c-codegen.instructions) and `ArrayList.push` already traps on allocation
