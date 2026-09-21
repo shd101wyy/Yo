@@ -4,7 +4,8 @@
 { ArrayList } :: import("std/collections/array_list");
 { Instant } :: import("std/time/instant");
 { ast_expr_token } :: import("../expr.yo");
-{ profile_record_phase, profile_record_function_census } :: import("../utils.yo");
+{ profile_record_phase, profile_record_function_census, debug_knob } :: import("../utils.yo");
+{ eprintln } :: import("std/fmt");
 { set_codegen_fatal_exn } :: import("./constants.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { type_key } :: import("../types/type_key.yo");
@@ -16,7 +17,7 @@
 { type_contains_some_type, type_contains_some_type_deep, can_type_form_rc_cycle } :: import("../types/utils.yo");
 { Exception } :: import("std/error");
 { Environment } :: import("../env.yo");
-{ EvalContext } :: import("../evaluator/context.yo");
+{ EvalContext, force_pending_count } :: import("../evaluator/context.yo");
 { CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
 { collect_required_functions, collect_module_level_init_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
@@ -33,6 +34,7 @@
 { preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
 { register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
 { assemble_chunks } :: import("./chunk_assembly.yo");
+{ registered_func_type_count } :: import("../function_value.yo");
 /// True if any field of the struct contains a SomeType (generic).
 /// On-demand recovery for a type first seen DURING emission (a lazily-minted
 /// call-site specialization's param/local type — see the hook comment in
@@ -379,6 +381,14 @@ typedef enum {
   // RC-function synthesis is deferred until here; it runs with the threaded ctx/exn. Must precede
   // function declarations + constructor emission (which read get_dispose_function_for_type).
   collect_dispose_methods(base, eval_ctx, module_env, info, exn);
+  // plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9: how much of what the
+  // evaluator FORCED (every top-level definition of every imported module —
+  // rule 5) does codegen actually REACH? `forced_defs` counts pending-def
+  // forces over the whole run; `collected_fns` the functions collected for
+  // emission. The ratio is the ceiling for reachability-driven evaluation.
+  if(debug_knob(`YO_SPEC_REPORT`).is_some(), {
+    eprintln(`[spec-report] registered_fns=${registered_func_type_count().to_string()} forced_defs=${force_pending_count().to_string()} collected_fns=${base.functions.len().to_string()}`);
+  });
   (prof_collect_ns : i64) = prof_collect_t0.elapsed().as_nanos();
   (prof_fn_at_collect : usize) = base.function_order.len();
   prof_emit_t0 := Instant.now();

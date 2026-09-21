@@ -11,8 +11,9 @@ Phase 4 (resident evaluator) steps 1, 2 and 4 LANDED 2026-09-13..18, step 3
 (`yo test` in-process) GATED behind `YO_TEST_IN_PROCESS=1` (§7); Phase 5
 step 1 (`--chunk-by module`) LANDED + MEASURED 2026-09-21 (#808; §8 — the C
 leg is 13 s of a 188 s loop, so steps 2–3 are dropped and step 4 stands).
-Remaining before graduation to `plans/reference/`: Phase 3 step 3, Phase 4
-step 3's un-gate (owner-tagged registry purges), the §9 number._
+Remaining before graduation to `plans/reference/`: Phase 3 step 3 and
+Phase 4 step 3's un-gate (the §9 number is measured: 73 % of registered
+functions reached on the self-build, 2 % on a hello)._
 
 This is the successor to two landed designs and should be read after them:
 
@@ -859,6 +860,25 @@ program never uses. If it is large, the decision is the user's: it trades
 "a broken unused function in std fails every build" for build time, and
 Zig's experience says users are surprised by it. Not proposed here; parked
 until the number exists.
+
+**The number (measured 2026-09-21, `YO_SPEC_REPORT=1 yo compile … --skip-c-compiler`,
+`registered_fns` = every function the evaluator registered a type for,
+`collected_fns` = the functions codegen collected for emission, both
+including specializations):**
+
+| program | registered | collected | reached |
+| --- | --- | --- | --- |
+| `src/main.yo` (the compiler) | 13,020 | 9,553 | 73 % |
+| a two-line hello (`std/fmt` + `std/string`) | 1,848 | 39 | 2.1 % |
+
+So a small program evaluates ~98 % of its std import closure for nothing,
+while the self-build wastes ~27 %. Function count is a proxy for evaluation
+cost (bodies differ in size), but the shape is unambiguous: reachability-
+driven evaluation for `compile` is a small-program lever, not a self-build
+one — and the self-build is where the memory and wall problems live
+(`plans/EVALUATOR_MEMORY_REDUCTION.md`). The decision stands as written
+above: it trades "a broken unused std function fails every build" for build
+time, and the user decides. The instrument stays in the spec report.
 
 ## 10. What is explicitly rejected, with the reason
 
