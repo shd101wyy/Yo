@@ -25,7 +25,7 @@ _APP :: "{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := 
 
 // A generic struct and two importers that each instantiate it with a
 // DIFFERENT element type (issues/fixed/warm-test-batches-doc-stability-genericimplentry.md).
-_PAIR_LIB :: "Pair :: (fn(T : type) -> type)(struct(a : T, b : T));\nexport(Pair);\n";
+_PAIR_LIB :: "Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));\nexport(Pair);\n";
 _PAIR_APP1 :: "{ Pair } :: import(\"./pair.yo\");\nmain :: (fn() -> unit)({\n  p := Pair(i32)(a : i32(1), b : i32(2));\n  _s := (p.a + p.b);\n});\nexport(main);\n";
 _PAIR_APP2 :: "{ String } :: import(\"std/string\");\n{ Pair } :: import(\"./pair.yo\");\nmain :: (fn() -> unit)({\n  q := Pair(String)(a : String.from(\"x\"), b : String.from(\"y\"));\n  _n := (q.a.len() + q.b.len());\n});\nexport(main);\n";
 
