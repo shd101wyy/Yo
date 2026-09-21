@@ -847,6 +847,43 @@ byte-identical" (they change bookkeeping, not what is emitted):
 
 ### Phase 6 — per-object layout: header and `Variable`
 
+**MEASURED 2026-09-21 — the value-cell BUFFER lever is refuted (60 MB), and
+the reason corrects how every census row in §0.4 must be read.**
+
+`value_cell_of` built each comptime value cell with `ArrayList.new()` plus one
+`push`, and the first push on an empty list grows capacity to FOUR. Reading
+§0.4's `ArrayList(EvalValue)` row (8.09 M live, `sizeof` 96 for `EvalValue`)
+as "8 M cells × 4 slots × 96 B" predicted a 2.3 GB buffer saving from
+`with_capacity(1)`. A/B on `check src/main.yo`, same tree, same `--std-path`,
+develop binary vs the change:
+
+| binary            | peak     |
+| ----------------- | -------- |
+| develop           | 9.78 GB  |
+| capacity-1 cells  | 9.72 GB  |
+
+**−0.06 GB.** The prediction was wrong by ~40x, and not because the
+population moved: `EvalValue` is `ref(enum(...))`
+(`src/value.yo`), so an `ArrayList(EvalValue)` slot is an 8-byte HANDLE, not
+a 96-byte value. The four-slot growth wastes 24 bytes per filled cell, not
+288, and macOS malloc buckets 8 and 32 close together besides.
+
+**The rule this establishes for the rest of the plan: a census row's `sizeof`
+is that OBJECT's size, never the element size of a list of it.** Every
+reference-semantics type in §0.4 — `EvalValue`, `TypeValue`, `AstExpr`,
+`Variable`, `ExprInfo`, `Frame` — is stored in lists as an 8-byte handle, so
+any lever estimated from "N × list slots × sizeof(row)" is inflated by
+sizeof/8. That is `TypeValue` 22x, `ExprInfo` 27x. Buffer-shape levers on
+handle lists are worth tens of MB. Levers that delete OBJECTS still pay at
+the row's own `sizeof`.
+
+The change ships anyway: capacity 1 is strictly correct for a cell that holds
+exactly one element for life, and the same commit closes a latent bug where
+the phase-A pre-bound fill path pushed into the SHARED empty cell
+(`g_empty_value_cell`) instead of minting its own.
+
+
+
 - `RC_HEADER_SPLIT.md` step 2 (tracked header: `traverse_fn`+`dispose_fn` →
   a `u32 type_id` into a static table; the two intrusive lists → one, or an
   array-backed roots buffer): 56 → 32 B on ~30 M tracked objects. GC-touching,
