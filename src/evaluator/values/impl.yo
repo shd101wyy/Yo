@@ -70,7 +70,8 @@ pragma(Pragma.AllowUnsafe);
   clear_provisional_trait_methods,
   type_id_or_empty,
   registration_owner,
-  owner_visible_from_current
+  owner_visible_from_current,
+  visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
@@ -1835,7 +1836,14 @@ find_methods_from_generic_impls :: (
       // An impl the current module cannot reach through its imports is not
       // a candidate (same rule as the concrete registry —
       // `owner_visible_from_current`).
-      if(!has_field_with_name || !owner_visible_from_current(fmg_owner.clone()), {
+      fmg_visible := owner_visible_from_current(fmg_owner.clone());
+      if(has_field_with_name && !fmg_visible && visibility_report_enabled(), {
+        // YO_VISIBILITY_REPORT=1: enumerate instead of rejecting (see
+        // type_trait_methods.yo).
+        eprintln(`[visibility] ${registration_owner()} cannot see generic .${method_name} registered by ${fmg_owner}`);
+        fmg_visible = true;
+      });
+      if(!has_field_with_name || !fmg_visible, {
         ei = (ei + usize(1));
       }, {
         mb_opt := try_match_generic_impl(resolved, entry, env, false);

@@ -44,7 +44,8 @@
 { set_lookup_assoc_const } :: import("../../types/substitution.yo");
 { EvalValue } :: import("../../value.yo");
 { AstExpr } :: import("../../expr.yo");
-{ canonical_module_path } :: import("../../utils.yo");
+{ canonical_module_path, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 /// Extract the unique `id` string from a `TypeValue` variant that
 /// carries one (Struct / EnumT / TraitT / SomeT). Returns
 /// the empty string for variants that don't — method lookup is
@@ -411,6 +412,8 @@ get_type_trait_methods_by_name :: (
   });
   result
 });
+(g_visibility_report : bool) = debug_knob(`YO_VISIBILITY_REPORT`).is_some();
+visibility_report_enabled :: (fn() -> bool)(g_visibility_report);
 /// `get_type_trait_methods_by_name` restricted to the entries VISIBLE from
 /// the module being evaluated (`owner_visible_from_current`). This is the
 /// getter method RESOLUTION uses (`env.yo`); codegen, the LSP and the
@@ -434,6 +437,22 @@ get_visible_type_trait_methods_by_name :: (
       .None => ()
     );
     i = (i + usize(1));
+  });
+  // `YO_VISIBILITY_REPORT=1`: ENUMERATE the sites the filter would reject
+  // instead of rejecting them — one compile lists every module that relies on
+  // an impl outside its import closure (the sweep tool for the fix; the
+  // filter itself is unchanged when the knob is unset).
+  if((result.len() == usize(0)) && (n > usize(0)) && g_visibility_report, {
+    (oi : usize) = usize(0);
+    while(oi < n, {
+      match(
+        all.get(oi),
+        .Some(e) => eprintln(`[visibility] ${_registration_owner} cannot see .${method_name} registered by ${e.owner}`),
+        .None => ()
+      );
+      oi = (oi + usize(1));
+    });
+    return(all);
   });
   result
 });
@@ -732,6 +751,7 @@ export(
   set_registration_owner,
   set_import_closure_fn,
   owner_visible_from_current,
+  visibility_report_enabled,
   get_visible_type_trait_methods_by_name,
   registration_owner,
   purge_type_trait_methods_owned_by,
