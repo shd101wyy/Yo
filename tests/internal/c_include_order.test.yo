@@ -50,12 +50,12 @@ test("windows: <windows.h> is emitted before every dependent Win32 header", {
   win := _index_of(out, String.from("<windows.h>"));
   psapi := _index_of(out, String.from("<psapi.h>"));
   bcrypt := _index_of(out, String.from("<bcrypt.h>"));
-  io := _index_of(out, String.from("<io.h>"));
+  io_h := _index_of(out, String.from("<io.h>"));
   assert(win == usize(0), `<windows.h> must be first, was at ${win.to_string()}`);
   assert(psapi < out.len(), "<psapi.h> must survive on Windows");
   assert(win < psapi, `<psapi.h> at ${psapi.to_string()} must follow <windows.h> at ${win.to_string()}`);
   assert(win < bcrypt, "<bcrypt.h> must follow <windows.h>");
-  assert(win < io, "<io.h> must follow <windows.h>");
+  assert(win < io_h, "<io.h> must follow <windows.h>");
 });
 
 test("windows: <windows.h> is emitted exactly once even though it was registered", {
