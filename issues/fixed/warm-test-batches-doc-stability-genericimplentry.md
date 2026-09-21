@@ -457,11 +457,20 @@ in-process) — red before, `35 passed` after, with the probes removed. All 92
 errors. Cold self-emit byte-IDENTICAL against the develop binary (same tree,
 same `--std-path`).
 
-**Regression fixture shape that reaches a poisoned registry** (a plain
-`Pair(i32)` / `Pair(String)` pair does NOT: its re-registration overwrites
-the field registry, so nothing stale is ever read): a RECURSIVE generic
-struct, `Node(T) = ref(struct(value : T, next : Option(Self)))`. Inside its
-own definition `Self` is a zero-field shell with the SAME struct id, and
-field reads through a shell resolve by id in `g_struct_finals` with a
-FIRST-match scan — batch 1's `Node(i32)` final answers for batch 2's
-`Node(String)`. `tests/cli-cases/test-in-process-warm-type-ids` is that pair.
+**Regression fixture shape that reaches a poisoned registry**, measured
+twice over: a RECURSIVE generic struct,
+`Node(T) = ref(struct(value : T, next : Option(Self)))`. Inside its own
+definition `Self` is a zero-field shell with the SAME struct id, and field
+reads through a shell resolve by id in `g_struct_finals` with a FIRST-match
+scan — batch 1's `Node(i32)` final answers for batch 2's `Node(String)`. A
+plain `Pair(i32)` / `Pair(String)` pair does NOT reproduce: the second
+instantiation re-registers its fields, so nothing stale is ever read.
+
+**And it needs the REAL runner, not a two-`mm_load_file` harness.** An
+internal test that loads two importers with an `emission_occurrence_reset()`
+between them passes under the unfixed binary with either shape — the collision
+needs the batch-compile path (`run_compile`'s own reset plus the shared
+`ExprInfoTable` and the codegen-era reads), which only the runner exercises.
+So the regression test is the cli-case
+`tests/cli-cases/test-in-process-warm-type-ids`, and a `tests/internal` twin
+was written, measured vacuous, and deleted rather than shipped green-on-both.
