@@ -60,7 +60,9 @@ _package_root_for :: (fn(file_dir : String) -> String)(
     .None => {
       (dir_opt : Option(Path)) = Option(Path).Some(Path.new(file_dir.clone()));
       while(dir_opt.is_some(), {
-        dir := dir_opt.unwrap();
+        // The loop condition proves Some; the panic arm carries that
+        // invariant instead of trusting unwrap (safe-mode D7).
+        dir := match(dir_opt, .Some(d) => d, .None => __yo_panic("comptime_read_file: dir_opt.is_some() held by loop condition"));
         if(file_exists_sync(dir.join(Path.new(String.from("build.yo"))).to_string()), {
           return(dir.to_string());
         });

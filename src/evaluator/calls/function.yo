@@ -25,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
   desugar_if_calls,
   BF_YO_AS
 } :: import("../../expr.yo");
-{ is_auto_generated_expansion } :: import("../memory_safety.yo");
+{ is_auto_generated_expansion, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -170,7 +170,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), env.module_path);
   create_runtime_unknown_val_with_name(ty, nm)
 });
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -304,6 +304,80 @@ _reject_private_method_call :: (
         format_error_message(
           name_tok,
           `Method "${name_tok.value}" of ${recv_str} is private to its declaring module`
+        )
+      )
+    );
+  });
+});
+/// SAFE MODE (D7, plans/backlog/SAFE_MODE.md §3 0c): `unwrap` / `expect` /
+/// `unwrap_err` on an Option/Result receiver in a safe file is a compile
+/// error — the call discards failure information the type already gave the
+/// caller and would abort on the failure case. Runs on the RESOLVED hit like
+/// the member-visibility gate above; the receiver type comes from the
+/// resolved method's OWN signature (its first parameter, Self already
+/// substituted), so no dependence on the receiver's ExprInfo — this is the
+/// net under receivers property_access's metadata gate could not see yet
+/// (fresh call results: `make(flag).unwrap()`). Static hits (no receiver)
+/// take the type from the receiver's captured VALUE (a TypeVal).
+_reject_class1_panic_method_call :: (
+  fn(
+    method_info_opt : Option(ReceiverMethodResult),
+    callee : AstExpr,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  c1_mi := match(
+    method_info_opt,
+    .Some(m) => m,
+    .None => {
+      return(());
+    }
+  );
+  c1_name_expr := match(
+    callee,
+    .FnCall(_, _, c1_pargs, _, _) => match(
+      c1_pargs.get(usize(1)),
+      .Some(a) => a,
+      .None => {
+        return(());
+      }
+    ),
+    _ => {
+      return(());
+    }
+  );
+  c1_name_tok := ast_expr_token(c1_name_expr);
+  if(!is_class1_panic_method_name(c1_name_tok.value.clone()), {
+    return(());
+  });
+  c1_recv_banned := cond(
+    c1_mi.is_static => match(
+      c1_mi.receiver_value,
+      .Some(c1_rv) => match(
+        c1_rv,
+        .TypeVal(c1_tvb) => is_class1_panic_receiver_type(c1_tvb),
+        _ => false
+      ),
+      .None => false
+    ),
+    true => match(
+      c1_mi.method_ty,
+      .Func({ param_types : c1_pts }) => match(
+        c1_pts.get(usize(0)),
+        .Some(c1_p0) => is_class1_panic_receiver_type(c1_p0),
+        .None => false
+      ),
+      _ => false
+    )
+  );
+  if(c1_recv_banned && !is_class1_panic_exempt_file(Option(String).Some(c1_name_tok.module_path.clone()), ctx.std_path.clone()), {
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          c1_name_tok,
+          `\`${c1_name_tok.value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+          Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
         )
       )
     );
@@ -6865,6 +6939,7 @@ Fix: wrap the call:
         .None => Option(ReceiverMethodResult).None
       );
       _reject_private_method_call(method_info_opt, evaluated_callee, ctx, exn);
+      _reject_class1_panic_method_call(method_info_opt, evaluated_callee, ctx, exn);
       match(
         method_info_opt,
         // Method found: build the arg list and call it. Instance methods
