@@ -569,7 +569,11 @@ assemble_chunks :: (
     fn_ranges : ArrayList(ChunkRange),
     header_ranges : ArrayList(ChunkRange),
     globals : String,
-    n_chunks : usize
+    n_chunks : usize,
+    /// Group functions by DEFINING module (`fnv1a(module) % n`) instead of by
+    /// C name — the edit-stable grouping for the `.o` cache (§8). Ranges with
+    /// no module (the header-routed runtime blocks) keep the by-name rule.
+    (by_module : bool) ?= false
   ) -> ChunkAssembly
 )({
   n := if(n_chunks < usize(1), usize(1), n_chunks);
@@ -644,7 +648,7 @@ assemble_chunks :: (
       .Some(fr) => if(_ca_is_rc_helper(fr.c_name.clone()), {
         assigned.push(n);
       }, {
-        nm := fr.c_name.clone();
+        nm := if(by_module && (fr.module.len() > usize(0)), fr.module.clone(), fr.c_name.clone());
         assigned.push(usize(hash_one(nm) % u64(n)));
       }),
       .None => {

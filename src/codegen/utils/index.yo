@@ -148,7 +148,12 @@ DynImplEntry :: ref(
 /// function (recorded AFTER its generate_function call returns — extents are
 /// final only then; see plans/reference/CHUNKED_C_EMISSION.md "Ground truth"). Sliced
 /// post-emission by `assemble_chunks` into per-chunk translation units.
-ChunkRange :: ref(struct(c_name : String, start_b : usize, end_b : usize));
+/// A recorded byte range of the `code` buffer (chunk_mode). `module` is the
+/// function's DEFINING module (`CodegenFunctionEntry.def_module`; a
+/// specialization carries its original's, through the body token) and is
+/// empty for the header-routed runtime blocks; `--chunk-by module` groups
+/// translation units by it (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §8).
+ChunkRange :: ref(struct(c_name : String, start_b : usize, end_b : usize, module : String));
 /// The base C code generation context. See header above.
 CodeGenContext :: ref(
   struct(
@@ -287,6 +292,11 @@ CodeGenContext :: ref(
     /// `assemble_chunks` can produce N linkable translation units. MUST stay
     /// false by default: the single-file emission is gated byte-identical.
     chunk_mode : bool,
+    /// `--chunk-by module`: assign each function to the chunk of its DEFINING
+    /// module (`fnv1a(module) % n`) instead of `fnv1a(c_name) % n`, so an edit
+    /// dirties the units holding the edited module's functions and the `.o`
+    /// cache serves the rest (§8 of the incremental-compilation plan).
+    chunk_by_module : bool,
     /// Per-function `code`-buffer byte ranges (chunk_mode only), recorded
     /// around each generate_function call in emission order.
     chunk_fn_ranges : ArrayList(ChunkRange),
@@ -357,6 +367,7 @@ impl(
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
       type_key_aliases : HashMap(String, String).new(),
       chunk_mode : false,
+      chunk_by_module : false,
       chunk_fn_ranges : ArrayList(ChunkRange).new(),
       chunk_header_ranges : ArrayList(ChunkRange).new(),
       chunk_globals : String.new()

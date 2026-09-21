@@ -337,7 +337,9 @@ by hand.
    ~27% of such a program's emission).
 3. **`Executable.emit_chunks` in `std/build.yo`** — the open item from
    `CHUNKED_C_EMISSION.md` step 5 — threaded through `BuildArtifact` to
-   the child argv exactly as `emit_c_to` is.
+   the child argv exactly as `emit_c_to` is. **DONE** (`std/build.yo:134`
+   `(emit_chunks : comptime_int) ?= 0`; `src/build_runner.yo` forwards it as
+   `--emit-chunks N`; verified 2026-09-20).
 4. **Dev-profile default:** when `yo build` compiles at `-O0` (the default
    when no `--optimize` is given), it passes `--emit-chunks auto`; at
    `-O1`+ the default stays single-file until §5's naming lands, because
@@ -744,6 +746,68 @@ quantifies it), recompiles the dirty TU (Phase 5) and links in 0.1 s.
 That is the ≤ 10 s target in §2.
 
 ## 8. Phase 5 — per-module translation units (the C backend's version of patching)
+
+> **Step 1 LANDED + MEASURED 2026-09-21** (branch `feat/incr-p5-module-chunks`):
+> `yo compile --chunk-by module|name` (default `name`, today's rule). With
+> `module`, a function's unit is `fnv1a(defining module) % n`
+> (`ChunkRange.module`, from `CodegenFunctionEntry.def_module` — a
+> specialization carries its ORIGINAL's module through the body token, as
+> step 1 asks); the header-routed runtime blocks keep the by-name rule.
+>
+> Two chunk-mode bugs surfaced the moment the compiler compiled ITSELF this
+> way (CI's chunked gate at N=4 had hidden both):
+> `issues/fixed/chunked-emission-drops-probed-include-flags-and-an-extern-runtime-declaration.md`.
+>
+> **The edit-loop measurement** — dev profile (`-O0`, `--emit-chunks auto`
+> = 10 units on this machine, `--jobs 8`), `yo compile src/main.yo`, the edit
+> is one added statement at the top of `handle_folding_ranges`
+> (`src/lsp/folding.yo`, a leaf module with two definitions):
+>
+> | grouping | round | wall | units recompiled |
+> | --- | --- | --- | --- |
+> | name | cold | 188.7 s | 10 / 10 |
+> | name | warm, no edit | 175.7 s | 0 / 10 |
+> | name | warm, leaf edit | 179.8 s | 3 / 10 |
+> | module | cold | 187.4 s | 10 / 10 |
+> | module | warm, no edit | 175.5 s | 0 / 10 |
+> | module | warm, leaf edit | 178.2 s | 2 / 10 |
+>
+> Peak footprint 14.1 GB (max RSS 11.0 GB) in every round — the evaluator's.
+> Reading, in order of importance:
+>
+> 1. **The C leg is ~13 s of a 188 s loop.** Cold minus fully-cached warm is
+>    13 s for all ten `-O0` units in parallel; a leaf edit costs 3–4 s of
+>    that. Everything else — 175 s — is the evaluator re-checking the whole
+>    tree and re-emitting 125 MB of C. Per-module TUs cannot move the
+>    dev-loop number; Phase 3/4 (re-evaluate only the edited definitions in
+>    a resident process, then re-emit) is the only lever left, exactly as §7
+>    says. **Step 2 (size-packing) and step 3 (header-tax sweep) are
+>    dropped: cold module grouping equals cold name grouping to within
+>    noise, and the whole leg is below the measurement floor of the loop.**
+> 2. **Module grouping does dirty fewer units (2 vs 3)** and the extra unit
+>    is not the module's: unit 0 held the edited function; unit 3 (the
+>    caller, `src/lsp/server.yo`) changed too. The clean-vs-edited chunk
+>    diff names the mechanism: the probe ALSO inserted a comment line above
+>    `handle_folding_ranges :: (`, and a fid embeds the definition's
+>    `row:col` (`stable_func_id`), so the definition was re-minted
+>    (`yo_id_5396…` → `yo_id_2461…`) and every caller's text changed with
+>    it. Every other unit differed only in its `#include` line. So: a
+>    body-only edit dirties exactly the module's unit; an edit that moves a
+>    definition's first token (any insertion above it — an import, a
+>    comment) re-mints every definition below it and dirties all their
+>    callers' units. A Phase 2 follow-up, not done here: key a NAMED
+>    top-level definition's fid on `(module, name)` and reserve the position
+>    key for anonymous functions. Latent in the same class (not measured to
+>    fire here): `__yo_ref_spill_N` and `__capture_<fid>_N` are per-EMISSION
+>    counters, so an edit that adds a spill or a capture in an early-emitted
+>    function renumbers every later one — `fresh_local_name` (per prefix ×
+>    function) is the stable shape both should use.
+> 3. Name grouping scatters one module's functions across units, so any
+>    re-minted fid dirties two units (the old and the new home). Module
+>    grouping is the right default for the dev profile; it becomes
+>    `build_runner`'s choice beside `--emit-chunks auto` only when the
+>    warm-loop number can show it (after Phase 3/4 land), so `name` stays
+>    the default for now and the flag is the opt-in.
 
 With Phase 2's stable names, `fnv1a(c_name) % N` is no longer the only
 edit-stable grouping: functions can be grouped by **defining module**, so

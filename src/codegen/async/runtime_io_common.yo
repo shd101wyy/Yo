@@ -1221,6 +1221,13 @@ static uint8_t* __yo_addrinfo_next(uint8_t* ai) {
 `
     );
     // --- Process operations ---
+    // `environ` is declared in the DECLARATIONS buffer, not inside this code
+    // block: generated code reads it too (std/libc/unistd's `environ` member —
+    // `_exec_argv`'s execve), and under `--emit-chunks` this block lands in
+    // chunk 0 while the reader may be any other unit. Darwin's <unistd.h> does
+    // not declare it, so it was undeclared there and the chunked self-build
+    // failed (issues/fixed/chunked-emission-drops-probed-include-flags-and-an-extern-runtime-declaration.md).
+    emitter.emit_declaration_line("extern char** environ;");
     emitter.emit_string_line(
       `
 // ============================================================================
@@ -1228,8 +1235,6 @@ static uint8_t* __yo_addrinfo_next(uint8_t* ai) {
 // ============================================================================
 #include <spawn.h>
 #include <sys/wait.h>
-
-extern char** environ;
 
 // posix_spawn_file_actions_addchdir_np: macOS 10.15+, glibc 2.29+, musl 1.2.5+.
 // Declared weak so a libc without it still links; the call site checks the
