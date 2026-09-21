@@ -744,8 +744,9 @@ Design:
    evaluation now shares mm's ExprInfoTable so its specializations are
    emittable by the artifact compiles.**
 3. **`yo test` batches compile in-process under one evaluator.** This is
-   the largest wall-clock consumer in the repo (22 min for
-   `tests/internal`; every batch re-evaluates prelude + std). After (1)
+   the largest wall-clock consumer in the repo (78 min for
+   `tests/internal`, measured 2026-09-21; the older 22 min figure predates
+   most of these files; every batch re-evaluates prelude + std). After (1)
    the runner evaluates prelude + std once and each batch's import
    closure on top. The compiled binaries still run in child processes with
    ASan as today. Gate: `yo test ./tests/internal` wall time, before and
@@ -770,6 +771,22 @@ Design:
    registries; `stable_type_id` (identity namespace, cold-only reset) is
    the fix, cold ids unchanged. Measured before the blocker ended the run:
    31:35 wall through file ~20 of 92, peak 14.7 GB, 10 restarts.**
+
+   **MEASURED END TO END 2026-09-21** (Mac Mini M4, one binary, `--parallel 1`,
+   all 92 files, after the type-id fix):
+
+   | mode                                      | wall  | peak    | result                      |
+   | ----------------------------------------- | ----- | ------- | --------------------------- |
+   | child process per batch (today's default) | 77:34 | 8.8 GB  | 1190 passed                 |
+   | in-process, one evaluator                 | 37:33 | 10.2 GB | 1189 passed, 0 unify errors |
+
+   **2.07x faster.** The in-process peak was taken with the RSS valve
+   INERT (`_current_rss_mb` read `/proc/self/statm`, Linux-only —
+   issues/fixed/rss-valve-reads-proc-self-statm-so-it-never-fires-off-linux.md),
+   so it is the UNBOUNDED shape, not the shape an un-gate would ship. The
+   valve now fires on every platform; the bounded re-measurement (default
+   4096 MB ceiling, restarts included) is what the un-gate decision rests
+   on, because each restart trades wall time for a bounded peak.
 4. **Memory is the constraint Zig does not have.** A self-build's
    evaluator peaks at 11–20 GB (`yo-one-heavy-job-at-a-time`,
    `YO_SELF_ENV_SHARING.md`). A resident process that accumulates
