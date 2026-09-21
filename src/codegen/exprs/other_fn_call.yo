@@ -11,6 +11,7 @@
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
 { type_is_control_bound } :: import("../../types/utils.yo");
+{ eprintln } :: import("std/fmt");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -932,8 +933,11 @@ _call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeVal
   is_direct_handler := match(func_ei.value, .Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)) || is_effect_record_member(_func_val_id(v)), false), .None => false);
   install1 := if(is_direct_handler, {
     callee_fid := match(func_ei.value, .Some(v) => _func_val_id(v), .None => String.new());
+    probe_fidx := find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value.get(usize(0)), .Some(val) => (is_func_val(val) && (_func_val_id(val) == callee_fid)), .None => false));
+    // TEMPORARY PROBE (install-frame hygiene issue): remove with the fix.
+    eprintln(`[install-probe] fid=${callee_fid} fdfl=${fdfl.to_string()} fidx=${match(probe_fidx, .Some(f) => f.to_string(), .None => String.from("none"))} frames=${env.frames.len().to_string()} begin=${match(probe_fidx, .Some(f) => match(env.frames.get(f), .Some(fr) => fr.is_begin_block.to_string(), .None => String.from("?")), .None => String.from("?"))} caller_fn=${context.base.current_function_name}`);
     match(
-      find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value.get(usize(0)), .Some(val) => (is_func_val(val) && (_func_val_id(val) == callee_fid)), .None => false)),
+      probe_fidx,
       .Some(fidx) => ((fidx > fdfl) && match(env.frames.get(fidx), .Some(fr) => fr.is_begin_block, .None => false)),
       .None => false
     )
