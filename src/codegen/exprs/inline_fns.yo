@@ -16,6 +16,9 @@
   BF_YO_OP_DIV,
   BF_YO_OP_MOD,
   BF_YO_OP_NEG,
+  BF_YO_OP_ADD_WRAP,
+  BF_YO_OP_SUB_WRAP,
+  BF_YO_OP_MUL_WRAP,
   BF_YO_OP_EQ,
   BF_YO_OP_NEQ,
   BF_YO_OP_LT,
@@ -407,6 +410,11 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     (function_name == BF_YO_OP_DIV) => _div_checked_expr(args, expr, context, "/"),
     (function_name == BF_YO_OP_MOD) => _mod_op(args, expr, context),
     (function_name == BF_YO_OP_NEG) => _neg_checked_expr(args, expr, context),
+    // Wrapping arithmetic (safe mode Phase 3a-i): the raw op — two's-
+    // complement wrap under -fwrapv, modular for unsigned. Never trapped.
+    (function_name == BF_YO_OP_ADD_WRAP) => _binop(args, "+"),
+    (function_name == BF_YO_OP_SUB_WRAP) => _binop(args, "-"),
+    (function_name == BF_YO_OP_MUL_WRAP) => _binop(args, "*"),
     (function_name == BF_YO_OP_EQ) => _binop(args, "=="),
     (function_name == BF_YO_OP_NEQ) => _binop(args, "!="),
     (function_name == BF_YO_OP_LT) => _binop(args, "<"),
