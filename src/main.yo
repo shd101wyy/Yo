@@ -2006,7 +2006,15 @@ _print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
               detail := match(
                 obl.verdict,
                 .Proved(_) => String.from("PROVED"),
-                .Refuted(ce) => `REFUTED  counter-example: ${_verify_join_strs(ce, String.from(", "))}`,
+                // A folded refutation has no model to print (the verdict
+                // came from constant folding, not a solver run) — the
+                // empty list used to render "counter-example: " with
+                // nothing after it.
+                .Refuted(ce) => if(
+                  ce.len() == usize(0),
+                  String.from("REFUTED"),
+                  `REFUTED  counter-example: ${_verify_join_strs(ce, String.from(", "))}`
+                ),
                 .Unproven(reason) => `UNPROVEN  ${reason}`,
                 .SolverError(msg) => `SOLVER-ERROR  ${msg}`
               );

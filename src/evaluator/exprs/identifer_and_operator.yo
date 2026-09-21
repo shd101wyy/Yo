@@ -29,7 +29,6 @@
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_message_with_repair_at } :: import("../../error.yo");
 { suggest_name, lookup_std_exporters, Span } :: import("../../diagnostics.yo");
-{ is_ghost_binding_name } :: import("../builtins/contracts.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 /// Evaluate an identifier or operator expression.
@@ -231,8 +230,12 @@ evaluate_identifier_and_operator :: (
       // V5 task 3: a `ghost(name := e)` binding is spec-only. Reading it
       // from ordinary code is the "ghost value escapes specification
       // context" error; contract predicates, ghost bindings and ghost_fn
-      // bodies (all under is_ghost_context) read it freely.
-      if(is_ghost_binding_name(identifier_string.clone()) && !ctx.is_ghost_context, {
+      // bodies (all under is_ghost_context) read it freely. The gate asks
+      // the RESOLVED Variable's own flag — not a global name set — so an
+      // unrelated binding that merely shares the name (another module, or
+      // another function of the same module) stays ordinary
+      // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
+      if(v.is_ghost_binding && !ctx.is_ghost_context, {
         exn.throw(
           dyn(
             format_error_message(

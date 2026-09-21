@@ -165,6 +165,23 @@ test("ghost bindings track through the walk (ghost_bump proves)", {
   assert(rp.outcome == "ok", `ghost_bump proves (the assert reads the ghost binding), got: [${_reports_dump(reports)}]`);
 });
 
+test("a ghost binding does not poison a same-named local in ANOTHER module (FV audit)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  // Poison first: this file creates ghost(prev := x), which pre-fix
+  // registered `prev` in a PROCESS-GLOBAL name set.
+  _ := _load_reports(String.from("./tests/spec/fixtures/valid/ghost_binding.yo"), io, true);
+  // An unrelated module whose plain local merely shares the name must
+  // still load and prove — the gate asks the resolved Variable, not the
+  // name
+  // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/ghost_name_collision.yo"), io, true);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "ok", `a same-named local in another module is NOT a ghost binding, got: [${_reports_dump(reports)}]`);
+});
+
 test("reading a ghost binding from ordinary code is a LOUD gate (solver-free)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/ghost_escape.yo"), io, false);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
