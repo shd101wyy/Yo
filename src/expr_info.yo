@@ -34,6 +34,7 @@ pragma(Pragma.AllowUnsafe);
 // push with the prelude's pointer-identity builtin `__yo_ptr_eq` (the same
 // direct call as env.yo / std/string/string.yo).
 { TypeValue } :: import("./types/definitions.yo");
+{ type_intern_probe_record, type_intern_probe_report } :: import("./types/intern.yo");
 { get_all_some_types } :: import("./types/utils.yo");
 { is_some_type } :: import("./types/guards.yo");
 { type_to_string } :: import("./types/string.yo");
@@ -960,6 +961,12 @@ expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
   info.path_collection
 });
 expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
+  // §0.4' probe (YO_TYPE_INTERN_PROBE=1): an ExprInfo becomes RETAINED here,
+  // which is the population being sized. Deliberately NOT in `new_expr_info`
+  // — that one is expression-bodied and wrapping it in a block to make room
+  // for a statement costs >=8x on `check`
+  // (issues/block-body-on-a-hot-constructor-makes-check-8x-slower.md).
+  type_intern_probe_record(info.ty);
   table.data.insert(id, info);
   ()
 });
@@ -1868,6 +1875,10 @@ print_spec_report_if_requested :: (fn() -> unit)({
   });
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
   eprintln(`[spec-report] ${snapshot_ring_stats()}`);
+  ti := type_intern_probe_report();
+  if(ti.len() > usize(0), {
+    eprintln(ti);
+  });
   // Top 40 by count: repeated selection (the table is a few thousand rows).
   (shown : usize) = usize(0);
   while((shown < usize(40)) && (shown < rows.len()), {

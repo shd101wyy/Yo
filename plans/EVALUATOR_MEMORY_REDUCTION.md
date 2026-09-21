@@ -504,6 +504,36 @@ are rebuilt ~11× over. The remaining population is construction-site minted
 factories is designed there and not built; the construction-site memo is the
 only form that also cuts the transient peak.
 
+**Measured 2026-09-21 (`YO_TYPE_INTERN_PROBE=1`, tree-built compiler, `check
+src/main.yo`):** the probe records every type at the two points where it
+becomes RETAINED — `expr_info_table_set` (an `ExprInfo`'s `ty`) and
+`add_variable_to_env` (a `Variable`'s `ty`) — and hashes its full structural
+key (`type_intern_key`, depth cutoff 600, cycle-safe).
+
+| retained type references | distinct structural keys | duplication |
+| ------------------------ | ------------------------ | ----------- |
+| **10,283,917**           | **17,538**               | **586×**    |
+
+So 99.83% of what the two holders retain is a structural duplicate of one of
+17.5 K types. Against the §0.4 census (7.76 M live `TypeValue`, 3.03 GB for
+the cluster) that puts the ceiling of construction-site interning at
+essentially the whole cluster minus 17.5 K objects — the largest lever left
+in this plan by a wide margin. The same walk counted the lists hanging off
+those types (per reference, so shared subtrees repeat): **44% of
+`ArrayList(TypeValue)` reached are EMPTY** (2.27 G of 5.14 G), which is the
+`Func` variant carrying five lists for a function that uses one; interning
+the parent subsumes this, a shared empty singleton would not be safe on its
+own unless every list is treated as immutable after construction (a grep for
+in-place `push`/`insert` through the TypeValue field names finds zero sites;
+destructured aliases are the audit still owed).
+
+The probe costs nothing when off (knob-off run 89 s / 10.05 GB, knob-on 134 s
+/ 10.05 GB peak footprint — the probe's own HashSet is 17.5 K entries).
+Lesson recorded on the way: the probe's ten-interpolation report line made
+`yo build` pathological under the v0.2.38 seed (~4^N interpolation cost,
+fixed on develop 2026-09-20 but not in the seed) — `src/` diagnostic lines
+stay short until a seed ships the fix.
+
 ### F6. `Variable` retention is a consequence of F1–F3, not a lever of its own
 
 The two env-sharing campaigns removed the copy-minted `Variable`s (7.4 M → the
@@ -839,6 +869,17 @@ byte-identical" (they change bookkeeping, not what is emitted):
   `src/types/intern.yo`), with one change from this audit: measure the live
   `TypeValue` count FIRST (Phase 0 step 3) — `TypeValue.clone` returning self
   already removed the clone-minted population that plan was written against.
+  MEASURED 2026-09-21 (F5): 10.28 M retained references over 17,538 distinct
+  structural keys — the lever is real and is the next thing to build. Order
+  of work: (1) audit in-place mutation of a `TypeValue`'s lists through
+  destructured aliases (the field-name grep is clean); (2) intern at the
+  RETENTION points first (`expr_info_table_set`, `add_variable_to_env`) —
+  one `HashMap(u64, TypeValue)` keyed by the structural hash, colliding
+  keys verified by the full key — which cuts the RETAINED population without
+  touching the 86 construction sites; measure; (3) then the construction-site
+  factories for the transient peak. Gate: cold self-emit byte-identical,
+  the era-split tests (`yo-identical-name-unify-error-is-an-id-era-split`),
+  `check src/main.yo` peak before/after.
 - **5b** `Symbol :: newtype(u32)` + a global intern table (`std`-free, in
   `src/utils.yo`): start with `Variable.name` and the frame index keys (one
   lookup path, `get_variables_from_frame`/`_frame_positions`), measure, then

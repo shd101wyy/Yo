@@ -30,8 +30,16 @@
 //! it can never wrong-merge; worst case it under-dedups (safe). Sound because
 //! TypeValues are rebuilt-not-mutated. Gate: differential corpus 96/96 (NOT
 //! check ./std — that skips codegen). List-of-types rendering is INLINE (not a
-//! helper) because a helper calling the key renderer would be mutual recursion,
-//! which Yo forbids; self-recursion uses `recur(child, sb, depth + 1, visited)`.
+//! helper) and self-recursion uses `recur(child, sb, depth + 1, visited)`.
+//! NOTE (measured 2026-09-21): the reason this comment used to give — "a
+//! helper calling the key renderer would be mutual recursion, which Yo
+//! forbids" — is NOT accurate. Mutual recursion between two module-level
+//! functions compiles and runs (verified on a minimal `is_even`/`is_odd` pair
+//! and on the `_ti_walk`/`_ti_walk_list` pair below). The hazard on record is
+//! narrower: a free function and a TRAIT-IMPL body calling each other emit an
+//! `abort()` stub behind a green build. The inline form here is kept because
+//! it is what the fixpoint gate has always scored, not because a helper is
+//! impossible.
 //!
 //! PERF (2026-08-04): the renderer writes into a caller-owned `StringBuilder`
 //! instead of returning a `String` per node. The returning form allocated one
@@ -46,6 +54,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue, FuncMeta } :: import("./definitions.yo");
+{ fnv1a64, debug_knob } :: import("../utils.yo");
 _append_b :: (fn(sb : StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
 );
@@ -594,6 +603,141 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : HashSet(String)) 
   _intern_key_into(t, sb, depth, visited);
   sb.to_string()
 });
+/// `YO_TYPE_INTERN_PROBE=1`: how much structural DUPLICATION the live
+/// `TypeValue` population carries — the number that decides whether interning
+/// at the constructors is worth building (§0.4′: `TypeValue` plus its two list
+/// types are 2.48 GB of 6.18 GB live, and the only cluster the campaign has
+/// not touched).
+///
+/// Counted where types are RETAINED, not where they are built: every `ty`
+/// stored on an `ExprInfo` or a `Variable`. Those two holders are 7.0 M of the
+/// 7.55 M live `TypeValue`s, so the ratio below is the share of them that
+/// interning would collapse. The key is hashed to a u64 rather than kept as a
+/// String — a String-keyed table over millions of structural renderings is the
+/// shape that ADDED 2.1 GB the last time this campaign tried a memo
+/// (`yo-self-capture-env-memo-refuted`), and measuring must not reproduce the
+/// thing being measured.
+(g_ti_probe_on : bool) = debug_knob(`YO_TYPE_INTERN_PROBE`).is_some();
+(g_ti_total : usize) = usize(0);
+(g_ti_distinct : HashSet(u64)) = HashSet(u64).new();
+/// Second question the same walk answers: WHERE the 11.12 M live
+/// `ArrayList(TypeValue)` objects come from. Each is 80 B of which 56 B is the
+/// RC header, and `Func` carries five of them (forall / param / implicit /
+/// where / variadic) against a typical function that uses one. If most are
+/// EMPTY, the lever is a shared empty singleton or a rare-group side table,
+/// not interning. Counts are AS SEEN FROM THE ROOTS — a shared subtree is
+/// counted once per reference — so read the empty/total RATIO, not the totals.
+(g_ti_nodes : usize) = usize(0);
+(g_ti_lists : usize) = usize(0);
+(g_ti_lists_empty : usize) = usize(0);
+(g_ti_func : usize) = usize(0);
+(g_ti_struct : usize) = usize(0);
+(g_ti_enum : usize) = usize(0);
+(g_ti_some : usize) = usize(0);
+(g_ti_other : usize) = usize(0);
+/// Count one list toward the empty/total ratio.
+_ti_list :: (fn(n : usize) -> unit)({
+  g_ti_lists = (g_ti_lists + usize(1));
+  if(n == usize(0), {
+    g_ti_lists_empty = (g_ti_lists_empty + usize(1));
+  });
+  ()
+});
+/// Walk `t` counting nodes by variant and child lists by emptiness. Bounded by
+/// `depth` exactly like the key renderer: a self-referential type is a cycle,
+/// and this walk keeps no visited set because it is counting occurrences.
+_ti_walk :: (fn(t : TypeValue, depth : usize) -> unit)({
+  if(depth > usize(12), {
+    return(());
+  });
+  g_ti_nodes = (g_ti_nodes + usize(1));
+  match(
+    t,
+    .Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : rs, variadic_types : vt }) => {
+      g_ti_func = (g_ti_func + usize(1));
+      _ti_list(ft.len());
+      _ti_list(pt.len());
+      _ti_list(it.len());
+      _ti_list(wt.len());
+      _ti_list(vt.len());
+      _ti_walk_list(pt, depth);
+      _ti_walk(rs, depth + usize(1));
+    },
+    .Struct({ field_types : fts, type_arguments : ta }) => {
+      g_ti_struct = (g_ti_struct + usize(1));
+      _ti_list(fts.len());
+      _ti_list(ta.len());
+      _ti_walk_list(ta, depth);
+    },
+    .EnumT({ variant_names : vns, variant_fields : vfs }) => {
+      g_ti_enum = (g_ti_enum + usize(1));
+      // `variant_fields` is a list OF LISTS — one per variant — so an enum
+      // carries 1 + N of the 80 B list objects, not 2.
+      _ti_list(vns.len());
+      _ti_list(vfs.len());
+      (i_vf : usize) = usize(0);
+      while(i_vf < vfs.len(), {
+        match(
+          vfs.get(i_vf),
+          .Some(inner) => {
+            _ti_list(inner.len());
+            _ti_walk_list(inner, depth);
+          },
+          .None => ()
+        );
+        i_vf = (i_vf + usize(1));
+      });
+    },
+    .SomeT({ required_trait_types : rtt }) => {
+      g_ti_some = (g_ti_some + usize(1));
+      _ti_list(rtt.len());
+    },
+    _ => {
+      g_ti_other = (g_ti_other + usize(1));
+    }
+  );
+  ()
+});
+/// Walk each element of a type list (a helper, because Yo forbids the mutual
+/// recursion an inline loop calling `_ti_walk` would need from inside a match
+/// Walk each element of a type list. Calls back into `_ti_walk`; see its note.
+_ti_walk_list :: (fn(xs : ArrayList(TypeValue), depth : usize) -> unit)({
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    match(
+      xs.get(i),
+      .Some(x) => _ti_walk(x, depth + usize(1)),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  ()
+});
+/// Record one retained type. No-op unless the probe knob is set.
+type_intern_probe_record :: (fn(t : TypeValue) -> unit)({
+  if(!g_ti_probe_on, {
+    return(());
+  });
+  g_ti_total = (g_ti_total + usize(1));
+  _ := g_ti_distinct.insert(fnv1a64(type_intern_key(t, usize(0), HashSet(String).new())));
+  _ti_walk(t, usize(0));
+  ()
+});
+/// The probe's verdict line, printed next to the spec report.
+type_intern_probe_report :: (fn() -> String)({
+  if(!g_ti_probe_on, {
+    return(String.from(""));
+  });
+  // Assembled from SHORT templates: under the v0.2.38 seed a template's check
+  // cost is ~4^N in its interpolation count (fixed on develop 2026-09-20, not
+  // in the seed), and `yo build` compiles src/ with the seed — one
+  // ten-interpolation line here made the self-build run 30+ minutes.
+  head := `[type-intern] retained_types=${g_ti_total.to_string()} distinct=${g_ti_distinct.len().to_string()} nodes=${g_ti_nodes.to_string()}`;
+  lists := ` lists=${g_ti_lists.to_string()} empty_lists=${g_ti_lists_empty.to_string()}`;
+  kinds := ` func=${g_ti_func.to_string()} struct=${g_ti_struct.to_string()} enum=${g_ti_enum.to_string()}`;
+  rest := ` some=${g_ti_some.to_string()} other=${g_ti_other.to_string()}`;
+  (((head + lists) + kinds) + rest)
+});
 (g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 /// Return the canonical instance for a structurally-equal type. Whole-tree.
 intern_type :: (fn(t : TypeValue) -> TypeValue)({
@@ -607,4 +751,4 @@ intern_type :: (fn(t : TypeValue) -> TypeValue)({
     }
   )
 });
-export(intern_type, type_intern_key);
+export(intern_type, type_intern_key, type_intern_probe_record, type_intern_probe_report);
