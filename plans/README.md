@@ -221,11 +221,14 @@ non-identifier C symbol),
 
 Backlog (`backlog/`) — written, not started. Recent additions:
 [`backlog/SAFE_MODE.md`](backlog/SAFE_MODE.md)
-(2026-09-21: no UB and a total failure model in safe code — the prove/type/trap
-ladder, a measured hazard inventory of the unchecked builtins (fixed-Array and
-`str.bytes` indexing, int `/ %` incl. `INT_MIN/-1`, overflow, shifts, casts) and the
-silent escaped-unwind rc=0, with phases 0–6: standalone fixes, checked builtins,
-arithmetic semantics rulings D1/D2, OOM audit, elision, and a deferred strict mode),
+(2026-09-21, amended 09-22: no UB and a total failure model in safe code — the
+prove/type/trap ladder, a measured hazard inventory of the unchecked builtins
+(fixed-Array and `str.bytes` indexing, int `/ %` incl. `INT_MIN/-1`, overflow, shifts,
+casts) and the silent escaped-unwind rc=0, with phases 0–6: standalone fixes, the
+DECIDED D7 class-1 panic ban (`unwrap` & co. are compile errors in safe files —
+criterion: a call may not discard failure information the type already carries),
+checked builtins, arithmetic semantics rulings D1/D2, OOM audit, elision, and a
+deferred strict mode),
 [`backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md`](backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md)
 (unsafety is FILE-scoped in Yo, which is what makes the D14 pointer `iter()`
 expensive — with probes and a Rust/Swift comparison),
