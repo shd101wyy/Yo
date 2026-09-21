@@ -2620,3 +2620,16 @@ test("bare exponent literal 1e5 is an f64 float", {
   big := 1.5e3;
   assert(big == f64(1500.0), "1.5e3 must evaluate to 1500.0");
 });
+
+test("assignment to the result of a function call is a check error", {
+  // issues/fixed/assignment-to-call-expression-silently-accepted.md: `f(1) = 2`
+  // was evaluated and its value discarded, at check AND at runtime. Index
+  // places (`arr(0) = v`, a value callee) and fields (`x.a = v`) stay writable.
+  { ArrayList } :: import("std/collections/array_list");
+  f :: (fn(x : i32) -> i32)(x);
+  comptime_expect_error(f(1) = 2);
+  arr := ArrayList(i32).new();
+  arr.push(i32(1));
+  arr(0) = i32(5);
+  assert(arr(0) == i32(5), "an Index-trait place must still be assignable");
+});

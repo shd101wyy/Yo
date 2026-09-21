@@ -395,6 +395,31 @@ evaluate_assignment :: (
       );
     });
     lhs_info := match(lhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
+    // A plain FUNCTION CALL is not a place: `f(1) = 2` used to be evaluated and
+    // its value silently discarded, at check AND at runtime
+    // (issues/fixed/assignment-to-call-expression-silently-accepted.md). The
+    // recognised call-shaped places are `x.a` (a `.` call) and `arr(i)` (an
+    // Index-trait callee, whose callee is a VALUE, not a function).
+    if(!(ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2)))), {
+      match(
+        lhs,
+        .FnCall(_, lhs_callee, _, _, _) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(lhs_callee)),
+          .Some(callee_info) => if(is_function_type(callee_info.ty), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(lhs),
+                  `Cannot assign to the result of a function call: ${ast_expr_to_string(lhs)}`
+                )
+              )
+            );
+          }),
+          .None => ()
+        ),
+        .Atom(_, _) => ()
+      );
+    });
     expected_ty := lhs_info.ty;
     // Step 2 — Evaluate RHS with expected type from LHS
     ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : expected_ty, env : env));

@@ -2,6 +2,15 @@
 
 **Found 2026-08-18** during the ExprInfo diet refactor (perf/exprinfo-diet).
 
+**FIXED 2026-09-21** (branch `perf/exprinfo-diet-v2`, reopened for the diet's
+re-run): in the property/index branch of `evaluate_assignment`
+(`src/evaluator/exprs/assignment.yo`), a non-`.` call LHS whose callee's
+recorded type is a function type throws `Cannot assign to the result of a
+function call`. Index places keep working (their callee is a value, not a
+function). Test: `tests/basic.test.yo` "assignment to the result of a function
+call is a check error" (the repro below was still accepted by v0.2.38's
+`check` on 2026-09-21).
+
 ## Symptom
 
 ```rust
