@@ -30,8 +30,16 @@
 //! it can never wrong-merge; worst case it under-dedups (safe). Sound because
 //! TypeValues are rebuilt-not-mutated. Gate: differential corpus 96/96 (NOT
 //! check ./std — that skips codegen). List-of-types rendering is INLINE (not a
-//! helper) because a helper calling the key renderer would be mutual recursion,
-//! which Yo forbids; self-recursion uses `recur(child, sb, depth + 1, visited)`.
+//! helper) and self-recursion uses `recur(child, sb, depth + 1, visited)`.
+//! NOTE (measured 2026-09-21): the reason this comment used to give — "a
+//! helper calling the key renderer would be mutual recursion, which Yo
+//! forbids" — is NOT accurate. Mutual recursion between two module-level
+//! functions compiles and runs (verified on a minimal `is_even`/`is_odd` pair
+//! and on the `_ti_walk`/`_ti_walk_list` pair below). The hazard on record is
+//! narrower: a free function and a TRAIT-IMPL body calling each other emit an
+//! `abort()` stub behind a green build. The inline form here is kept because
+//! it is what the fixpoint gate has always scored, not because a helper is
+//! impossible.
 //!
 //! PERF (2026-08-04): the renderer writes into a caller-owned `StringBuilder`
 //! instead of returning a `String` per node. The returning form allocated one
@@ -652,44 +660,20 @@ _ti_walk :: (fn(t : TypeValue, depth : usize) -> unit)({
       _ti_list(it.len());
       _ti_list(wt.len());
       _ti_list(vt.len());
-      (i_pt : usize) = usize(0);
-      while(i_pt < pt.len(), {
-        match(
-          pt.get(i_pt),
-          .Some(x) => _ti_walk(x, depth + usize(1)),
-          .None => ()
-        );
-        i_pt = (i_pt + usize(1));
-      });
+      _ti_walk_list(pt, depth);
       _ti_walk(rs, depth + usize(1));
     },
     .Struct({ field_types : fts, type_arguments : ta }) => {
       g_ti_struct = (g_ti_struct + usize(1));
       _ti_list(fts.len());
       _ti_list(ta.len());
-      (i_ta : usize) = usize(0);
-      while(i_ta < ta.len(), {
-        match(
-          ta.get(i_ta),
-          .Some(x) => _ti_walk(x, depth + usize(1)),
-          .None => ()
-        );
-        i_ta = (i_ta + usize(1));
-      });
+      _ti_walk_list(ta, depth);
     },
     .EnumT({ variant_types : vts, type_arguments : eta }) => {
       g_ti_enum = (g_ti_enum + usize(1));
       _ti_list(vts.len());
       _ti_list(eta.len());
-      (i_eta : usize) = usize(0);
-      while(i_eta < eta.len(), {
-        match(
-          eta.get(i_eta),
-          .Some(x) => _ti_walk(x, depth + usize(1)),
-          .None => ()
-        );
-        i_eta = (i_eta + usize(1));
-      });
+      _ti_walk_list(eta, depth);
     },
     .SomeT({ required_trait_types : rtt }) => {
       g_ti_some = (g_ti_some + usize(1));
@@ -703,6 +687,19 @@ _ti_walk :: (fn(t : TypeValue, depth : usize) -> unit)({
 });
 /// Walk each element of a type list (a helper, because Yo forbids the mutual
 /// recursion an inline loop calling `_ti_walk` would need from inside a match
+/// Walk each element of a type list. Calls back into `_ti_walk`; see its note.
+_ti_walk_list :: (fn(xs : ArrayList(TypeValue), depth : usize) -> unit)({
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    match(
+      xs.get(i),
+      .Some(x) => _ti_walk(x, depth + usize(1)),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  ()
+});
 /// Record one retained type. No-op unless the probe knob is set.
 type_intern_probe_record :: (fn(t : TypeValue) -> unit)({
   if(!g_ti_probe_on, {
