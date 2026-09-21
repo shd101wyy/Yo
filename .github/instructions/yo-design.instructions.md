@@ -309,6 +309,19 @@ JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))
 
 The `*(T)` field is required so the type parameter `T` appears in the struct fields, enabling the type synthesizer to extract `T` bindings during generic impl matching.
 
+## Trait impls are visible only through the caller's imports
+
+Method resolution (`get_visible_type_trait_methods_by_name`, env.yo; the
+generic-impl fallback in impl.yo) sees an `impl` only if its registering
+module is in the CURRENT module's transitive import closure, or is the
+prelude. A module that calls integer/`str` `to_string` therefore imports
+`std/fmt`. The closure comes from import edges recorded from each module's
+SOURCE at load time (`_record_static_import_edges`, module_manager.yo), so
+it does not depend on evaluation order. `YO_VISIBILITY_REPORT=1` enumerates
+would-be misses instead of rejecting them — run a stage-2 emit with it to
+find missing imports before they fail a batch
+(issues/fixed/a-file-that-fails-check-alone-passes-inside-a-directory-check.md).
+
 ## Traits with associated types
 
 Traits use direct `trait(...)` syntax with associated types as labeled `Type` fields:

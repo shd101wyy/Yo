@@ -2891,6 +2891,15 @@ test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 T
 { Option } :: import("./test.yo"); // 从 test.yo 导入 Option 类型
 ```
 
+#### trait impl 通过你的导入可见
+
+方法调用只在你的文件通过导入（传递地）能**到达**的模块的 `impl(...)` 块里解析，再加上 prelude。
+一个 impl 如果所在模块不在你的导入路径上任何模块导入过，它就不是候选——即便同一次 `yo check`
+或同一个程序里的其他文件碰巧加载了它。例如整数与 `str` 的 `to_string` 是 `std/fmt` 的 `ToString`
+impl，所以调用它们的模块要导入 `std/fmt`（任意一个绑定即可：`{ ToString } :: import("std/fmt")`）。
+这保证了一个文件单独检查和与其他文件一起检查时得到相同的结论。`YO_VISIBILITY_REPORT=1` 会把
+所有只能通过调用方导入之外的 impl 才能解析的调用列出来而不是拒绝——用它来补上缺失的导入行。
+
 ### 匿名模块
 
 匿名模块使用 `impl` 关键字后跟一个 `begin` 块来定义：

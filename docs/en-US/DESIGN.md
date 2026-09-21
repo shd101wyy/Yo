@@ -2934,6 +2934,20 @@ test_module :: import("./test.yo"); // Import everything from test.yo and put it
 { Option } :: import("./test.yo"); // Import Option type from test.yo
 ```
 
+#### Trait impls are visible through your imports
+
+A method call resolves against the `impl(...)` blocks of the modules your
+file can REACH through its imports (transitively) plus the prelude. An impl
+that lives in a module nobody on your import path imports is not a
+candidate, even if some other file in the same `yo check` or the same
+program happens to have loaded it. Integer and `str` `to_string`, for
+example, are `std/fmt`'s `ToString` impls, so a module that calls them
+imports `std/fmt` (any binding will do: `{ ToString } :: import("std/fmt")`).
+This is what makes a file's verdict the same whether it is checked alone or
+beside its siblings. `YO_VISIBILITY_REPORT=1` lists, instead of rejecting,
+every call that resolves only through an impl outside the caller's imports —
+the tool for adding the missing import lines.
+
 ### Anonymous module
 
 The anonymous module is defined using `impl` keyword followed by a `begin` block:
