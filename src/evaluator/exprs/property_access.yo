@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { suggest_name } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -563,6 +563,27 @@ evaluate_property_access :: (
     },
     .None => ()
   );
+  // ── Safe mode (D7): the class-1 panic vocabulary ─────────────────────---
+  // `o.unwrap` / `o.expect` / `o.unwrap_err` on an Option/Result receiver in
+  // a safe file is a compile error (plans/backlog/SAFE_MODE.md §3 0c).
+  // Metadata-driven: the receiver's ExprInfo names the type, so nothing is
+  // evaluated twice. Receivers with no info yet (fresh call results) fall
+  // through to the dispatch-time gate in calls/function.yo; type-value
+  // receivers (`Option(i32).unwrap`) are gated in the TypeVal arm below.
+  if(ast_expr_is_atom(property_expr) && is_class1_panic_method_name(ast_expr_token(property_expr).value), {
+    pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(oi_c1.ty), .None => false);
+    if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.std_path.clone()), {
+      exn.throw(
+        dyn(
+          format_error_message_with_help(
+            ast_expr_token(property_expr),
+            `\`${ast_expr_token(property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+            Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
+          )
+        )
+      );
+    });
+  });
   if(ast_expr_is_atom(property_expr) && ast_expr_is_atom_of(property_expr, "*") && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
     pa_deref_obj_ty := match(
       obj_info_opt,
@@ -818,6 +839,23 @@ Raw pointer operations may dereference invalid memory.`
     });
     // --- TypeVal + EnumT --------------------------------------------------
     if(is_enum_type(type_val_inner), {
+      // Safe mode (D7): `Option(i32).unwrap` as an EXTRACTION — the same ban
+      // as the value-receiver gate near the top of this function, with the
+      // receiver type taken from the TypeVal itself.
+      if(ast_expr_is_atom(property_expr) &&
+        is_class1_panic_method_name(ast_expr_token(property_expr).value) &&
+          is_class1_panic_receiver_type(type_val_inner) &&
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.std_path.clone()), {
+        exn.throw(
+          dyn(
+            format_error_message_with_help(
+              ast_expr_token(property_expr),
+              `\`${ast_expr_token(property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+              Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
+            )
+          )
+        );
+      });
       if(!ast_expr_is_atom(property_expr), {
         exn.throw(
           dyn(

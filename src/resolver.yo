@@ -362,8 +362,25 @@ _parse_comparator :: (fn(raw : String) -> Result(_Comparator, String))({
       if(k == usize(0), {
         return(Result(_Comparator, String).Ok(_wildcard_all()));
       });
-      major := parts(usize(0)).parse_i32().unwrap();
-      minor := if(k >= usize(2), Option(i32).Some(parts(usize(1)).parse_i32().unwrap()), Option(i32).None);
+      // A malformed component is a requirement-parse error, not a crash —
+      // report it through the Result this parser exists to return
+      // (safe-mode D7). parse_i32 yields Option(i32).
+      major := match(
+        parts(usize(0)).parse_i32(),
+        .Some(m) => m,
+        .None => return(Result(_Comparator, String).Err(`"${s}": invalid major version in "${s}"`))
+      );
+      minor := if(
+        k >= usize(2),
+        Option(i32).Some(
+          match(
+            parts(usize(1)).parse_i32(),
+            .Some(mi) => mi,
+            .None => return(Result(_Comparator, String).Err(`"${s}": invalid minor version in "${s}"`))
+          )
+        ),
+        Option(i32).None
+      );
       return(Result(_Comparator, String).Ok(_Comparator(op : _CmpOp.Wildcard, major : major, minor : minor, patch : Option(i32).None, pre : String.new())));
     },
     .None => ()
@@ -381,9 +398,35 @@ _parse_comparator :: (fn(raw : String) -> Result(_Comparator, String))({
       ii = (ii + usize(1));
     });
   });
-  major := parts(usize(0)).parse_i32().unwrap();
-  minor := if(parts.len() >= usize(2), Option(i32).Some(parts(usize(1)).parse_i32().unwrap()), Option(i32).None);
-  patch := if(parts.len() == usize(3), Option(i32).Some(parts(usize(2)).parse_i32().unwrap()), Option(i32).None);
+  // A malformed component is a requirement-parse error, not a crash —
+  // report it through the Result this parser exists to return (safe-mode D7).
+  major := match(
+    parts(usize(0)).parse_i32(),
+    .Some(m) => m,
+    .None => return(Result(_Comparator, String).Err(`"${s}": invalid major version in "${s}"`))
+  );
+  minor := if(
+    parts.len() >= usize(2),
+    Option(i32).Some(
+      match(
+        parts(usize(1)).parse_i32(),
+        .Some(mi) => mi,
+        .None => return(Result(_Comparator, String).Err(`"${s}": invalid minor version in "${s}"`))
+      )
+    ),
+    Option(i32).None
+  );
+  patch := if(
+    parts.len() == usize(3),
+    Option(i32).Some(
+      match(
+        parts(usize(2)).parse_i32(),
+        .Some(p) => p,
+        .None => return(Result(_Comparator, String).Err(`"${s}": invalid patch version in "${s}"`))
+      )
+    ),
+    Option(i32).None
+  );
   Result(_Comparator, String).Ok(_Comparator(op : op, major : major, minor : minor, patch : patch, pre : pre))
 });
 /// Parse a requirement string. Errors describe the offending comparator.
@@ -419,10 +462,16 @@ _comparator_base :: (fn(c : _Comparator) -> SemVer)(
 _next_after_partial :: (fn(c : _Comparator) -> SemVer)(
   match(
     c.patch,
-    .Some(p) => _ver(c.major, c.minor.unwrap(), p + i32(1), String.new()),
+    // patch Some implies minor Some — the parser only sets patch at a full
+    // major.minor.patch (safe-mode D7).
+    .Some(p) => match(
+      c.minor,
+      .Some(mi) => _ver(c.major, mi, p + i32(1), String.new()),
+      .None => __yo_panic("resolver: minor Some implied by patch Some (parser construction)")
+    ),
     .None => match(
       c.minor,
-      .Some(m) => _ver(c.major, m + i32(1), i32(0), String.new()),
+      .Some(mi) => _ver(c.major, mi + i32(1), i32(0), String.new()),
       .None => _ver(c.major + i32(1), i32(0), i32(0), String.new())
     )
   )
@@ -437,7 +486,11 @@ _comparator_matches :: (fn(c : _Comparator, v : SemVer) -> bool)({
     c.op,
     .Wildcard => cond(
       // `1.2.*`: the minor's patch series.
-      c.minor.is_some() => (_ge(v, base) && _lt(v, _ver(c.major, c.minor.unwrap() + i32(1), i32(0), String.new()))),
+      c.minor.is_some() => match(
+        c.minor,
+        .Some(mi) => (_ge(v, base) && _lt(v, _ver(c.major, mi + i32(1), i32(0), String.new()))),
+        .None => __yo_panic("resolver: minor Some held by cond arm")
+      ),
       // `*`: everything.
       (c.major < i32(0)) => true,
       // `1.*`: the major series.
@@ -448,12 +501,23 @@ _comparator_matches :: (fn(c : _Comparator, v : SemVer) -> bool)({
       true => (_ge(v, base) && _lt(v, _next_after_partial(c)))
     ),
     .Caret => {
+      // The original unwrap chain restructured into guarded binds: major >
+      // 0 caps the next major; otherwise minor/patch presence decides
+      // (safe-mode D7).
       upper := cond(
         (c.major > i32(0)) => _ver(c.major + i32(1), i32(0), i32(0), String.new()),
-        c.minor.is_none() => _ver(i32(1), i32(0), i32(0), String.new()),
-        (c.minor.unwrap() > i32(0)) => _ver(i32(0), c.minor.unwrap() + i32(1), i32(0), String.new()),
-        c.patch.is_none() => _ver(i32(0), i32(1), i32(0), String.new()),
-        true => _ver(i32(0), i32(0), c.patch.unwrap() + i32(1), String.new())
+        true => match(
+          c.minor,
+          .None => _ver(i32(1), i32(0), i32(0), String.new()),
+          .Some(mi) => cond(
+            (mi > i32(0)) => _ver(i32(0), mi + i32(1), i32(0), String.new()),
+            true => match(
+              c.patch,
+              .None => _ver(i32(0), i32(1), i32(0), String.new()),
+              .Some(p) => _ver(i32(0), i32(0), p + i32(1), String.new())
+            )
+          )
+        )
       );
       _ge(v, base) && _lt(v, upper)
     },
