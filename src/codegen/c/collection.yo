@@ -347,8 +347,9 @@ static inline unsigned long long __yo_add_chk_u(unsigned long long a, unsigned l
   );
   context.emitter.emit_header_string_line(
     `
-static inline unsigned long long __yo_sub_chk_u(unsigned long long a, unsigned long long b, const char* f, int r, int c) {
+static inline unsigned long long __yo_sub_chk_u(unsigned long long a, unsigned long long b, unsigned long long hi, const char* f, int r, int c) {
   unsigned long long rr = a - b;
+  (void)hi;
   if (a < b) {
     fprintf(stderr, "integer subtraction overflow (at %s:%d:%d)\\n", f, r, c);
     abort();
@@ -360,6 +361,7 @@ static inline unsigned long long __yo_sub_chk_u(unsigned long long a, unsigned l
     `
 static inline unsigned long long __yo_mul_chk_u(unsigned long long a, unsigned long long b, unsigned long long hi, const char* f, int r, int c) {
   unsigned long long rr = a * b;
+  (void)hi;
   if (b != 0 && rr / b != a) {
     fprintf(stderr, "integer multiplication overflow (at %s:%d:%d)\\n", f, r, c);
     abort();
