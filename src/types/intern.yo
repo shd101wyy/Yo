@@ -612,6 +612,86 @@ type_intern_key :: (fn(t : TypeValue, depth : usize, visited : HashSet(String)) 
 (g_ti_probe_on : bool) = debug_knob(`YO_TYPE_INTERN_PROBE`).is_some();
 (g_ti_total : usize) = usize(0);
 (g_ti_distinct : HashSet(u64)) = HashSet(u64).new();
+/// Second question the same walk answers: WHERE the 11.12 M live
+/// `ArrayList(TypeValue)` objects come from. Each is 80 B of which 56 B is the
+/// RC header, and `Func` carries five of them (forall / param / implicit /
+/// where / variadic) against a typical function that uses one. If most are
+/// EMPTY, the lever is a shared empty singleton or a rare-group side table,
+/// not interning. Counts are AS SEEN FROM THE ROOTS — a shared subtree is
+/// counted once per reference — so read the empty/total RATIO, not the totals.
+(g_ti_nodes : usize) = usize(0);
+(g_ti_lists : usize) = usize(0);
+(g_ti_lists_empty : usize) = usize(0);
+(g_ti_func : usize) = usize(0);
+(g_ti_struct : usize) = usize(0);
+(g_ti_enum : usize) = usize(0);
+(g_ti_some : usize) = usize(0);
+(g_ti_other : usize) = usize(0);
+/// Count one list toward the empty/total ratio.
+_ti_list :: (fn(n : usize) -> unit)({
+  g_ti_lists = (g_ti_lists + usize(1));
+  if(n == usize(0), {
+    g_ti_lists_empty = (g_ti_lists_empty + usize(1));
+  });
+  ()
+});
+/// Walk `t` counting nodes by variant and child lists by emptiness. Bounded by
+/// `depth` exactly like the key renderer: a self-referential type is a cycle,
+/// and this walk keeps no visited set because it is counting occurrences.
+_ti_walk :: (fn(t : TypeValue, depth : usize) -> unit)({
+  if(depth > usize(12), {
+    return(());
+  });
+  g_ti_nodes = (g_ti_nodes + usize(1));
+  match(
+    t,
+    .Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : rs, variadic_types : vt }) => {
+      g_ti_func = (g_ti_func + usize(1));
+      _ti_list(ft.len());
+      _ti_list(pt.len());
+      _ti_list(it.len());
+      _ti_list(wt.len());
+      _ti_list(vt.len());
+      _ti_walk_list(pt, depth);
+      _ti_walk(rs, depth + usize(1));
+    },
+    .Struct({ field_types : fts, type_arguments : ta }) => {
+      g_ti_struct = (g_ti_struct + usize(1));
+      _ti_list(fts.len());
+      _ti_list(ta.len());
+      _ti_walk_list(ta, depth);
+    },
+    .EnumT({ variant_types : vts, type_arguments : eta }) => {
+      g_ti_enum = (g_ti_enum + usize(1));
+      _ti_list(vts.len());
+      _ti_list(eta.len());
+      _ti_walk_list(eta, depth);
+    },
+    .SomeT({ required_trait_types : rtt }) => {
+      g_ti_some = (g_ti_some + usize(1));
+      _ti_list(rtt.len());
+    },
+    _ => {
+      g_ti_other = (g_ti_other + usize(1));
+    }
+  );
+  ()
+});
+/// Walk each element of a type list (a helper, because Yo forbids the mutual
+/// recursion an inline loop calling `_ti_walk` would need from inside a match
+/// arm of `_ti_walk` itself — this one only calls DOWN).
+_ti_walk_list :: (fn(xs : ArrayList(TypeValue), depth : usize) -> unit)({
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    match(
+      xs.get(i),
+      .Some(x) => _ti_walk(x, depth + usize(1)),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  ()
+});
 /// Record one retained type. No-op unless the probe knob is set.
 type_intern_probe_record :: (fn(t : TypeValue) -> unit)({
   if(!g_ti_probe_on, {
@@ -619,13 +699,14 @@ type_intern_probe_record :: (fn(t : TypeValue) -> unit)({
   });
   g_ti_total = (g_ti_total + usize(1));
   _ := g_ti_distinct.insert(fnv1a64(type_intern_key(t, usize(0), HashSet(String).new())));
+  _ti_walk(t, usize(0));
   ()
 });
 /// The probe's verdict line, printed next to the spec report.
 type_intern_probe_report :: (fn() -> String)(
   cond(
     !g_ti_probe_on => String.from(""),
-    true => `[type-intern] retained_types=${g_ti_total.to_string()} distinct=${g_ti_distinct.len().to_string()}`
+    true => `[type-intern] retained_types=${g_ti_total.to_string()} distinct=${g_ti_distinct.len().to_string()} nodes=${g_ti_nodes.to_string()} lists=${g_ti_lists.to_string()} empty_lists=${g_ti_lists_empty.to_string()} func=${g_ti_func.to_string()} struct=${g_ti_struct.to_string()} enum=${g_ti_enum.to_string()} some=${g_ti_some.to_string()} other=${g_ti_other.to_string()}`
   )
 );
 (g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
