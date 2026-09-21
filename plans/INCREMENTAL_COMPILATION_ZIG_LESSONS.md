@@ -6,8 +6,8 @@ answers in §3.1); Phase 1 (dev profile) LANDED 2026-09-10 (`--emit-chunks
 auto`, numbers in §4); Phase 2 (stable names) LANDED 2026-09-12 (§5 results);
 Phase 3 (per-definition deps) steps 1, 2 and 4 LANDED 2026-09-12/14, the
 stale-callee bug behind the signature-edit gate FIXED 2026-09-21 (#809; §6),
-the destructured-reader re-bind LANDED 2026-09-21 (step 3's signature/body
-split is deliberately NOT built — see §6);
+the destructured-reader re-bind LANDED 2026-09-21 (#821; step 3's
+signature/body split is deliberately NOT built — see §6);
 Phase 4 (resident evaluator) steps 1, 2 and 4 LANDED 2026-09-13..18, step 3
 (`yo test` in-process) COMPLETE and deliberately OPT-IN behind
 `YO_TEST_IN_PROCESS=1` (§7) — its measured breaker FIXED 2026-09-21 (type ids

@@ -880,6 +880,45 @@ byte-identical" (they change bookkeeping, not what is emitted):
   factories for the transient peak. Gate: cold self-emit byte-identical,
   the era-split tests (`yo-identical-name-unify-error-is-an-id-era-split`),
   `check src/main.yo` peak before/after.
+
+  **MEASURED 2026-09-21 (later): retention-point interning is a NULL result —
+  do not retry in this form.** Built on the probe (experiment branch
+  `perf/typevalue-intern-at-retention`, diff kept in the session record):
+  `intern_retained_type` at `expr_info_table_set` and the three Variable
+  binders in `env.yo`, same table and key as the `substitute` sites, SomeT-
+  bearing types passed through (a type variable's resolution cell mutates;
+  two same-id variables may legitimately hold different cells). `check
+  src/main.yo`, tree-built compiler, knob A/B in one binary:
+
+  | retention interning | wall  | peak footprint |
+  | ------------------- | ----- | -------------- |
+  | off                 | 90 s  | 9.62 GB        |
+  | on                  | 124 s | 9.63 GB        |
+
+  Cold self-emit byte-identical on vs off; gates_fast 0 failures — the
+  mechanism is SAFE, it just changes nothing. The counters say why:
+
+  | retention calls | already in the table (hit) | new key (miss) | skipped (SomeT) |
+  | --------------- | -------------------------- | -------------- | --------------- |
+  | 10,962,233      | **10,406,550 (95%)**       | 8,788          | 546,895 (5%)    |
+
+  95% of what the two holders retain is a HANDLE TO A TYPE THE TABLE ALREADY
+  HOLDS — the substitute-site interning made the retained roots shared long
+  ago, so replacing a root with "its canonical" replaces it with itself and
+  frees nothing. The 586× "duplication" the probe reported is duplication of
+  REFERENCES, not of objects. Consequence for the census: the 7.76 M live
+  `TypeValue` objects are NOT the ExprInfo/Variable roots (those are ~17.5 K
+  shared objects); they are held elsewhere — inside subtrees of types the
+  retained roots do not reach, in `FuncMeta` lists, registries
+  (`register_func_type`, MethodEntry.ty, GenericImplEntry patterns), the
+  specialization caches, or SomeT-bearing families. The next step is a
+  HOLDER census (for each live `TypeValue`, which root reaches it), not more
+  interning; construction-site interning (hash-consing proper) only pays if
+  that census shows constructed-then-dropped duplicates, which the 130 M
+  constructed / 11.6 M surviving list figure (F5) still suggests for the
+  TRANSIENT peak. Rule learned: a probe that counts references at a holder
+  says nothing about object identity — count MISSES against a table, or
+  compare handles, before sizing a lever.
 - **5b** `Symbol :: newtype(u32)` + a global intern table (`std`-free, in
   `src/utils.yo`): start with `Variable.name` and the frame index keys (one
   lookup path, `get_variables_from_frame`/`_frame_positions`), measure, then

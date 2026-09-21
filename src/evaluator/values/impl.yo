@@ -69,7 +69,9 @@ pragma(Pragma.AllowUnsafe);
   get_provisional_trait_methods_by_name,
   clear_provisional_trait_methods,
   type_id_or_empty,
-  registration_owner
+  registration_owner,
+  owner_visible_from_current,
+  visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
@@ -1831,6 +1833,9 @@ find_methods_from_generic_impls :: (
       // issues/fixed/codegen-continue-in-while-heap-corruption.md (`continue`
       // after an Rc-bound local in a while body miscompiles; this is the
       // hottest loop in the evaluator).
+      // An impl the current module cannot reach through its imports is not
+      // a candidate (same rule as the concrete registry —
+      // `owner_visible_from_current`).
       if(!has_field_with_name, {
         ei = (ei + usize(1));
       }, {
@@ -1838,7 +1843,23 @@ find_methods_from_generic_impls :: (
         if(in_def_time_trial() && debug_knob(`YO_DEBUG_DISPATCH`).is_some() && (method_name == "add"), {
           eprintln(`[fmg-try] name=${method_name} recv=${type_to_string(resolved)} pat=${type_to_string(entry.receiver_type_pattern)} matched=${mb_opt.is_some().to_string()}`);
         });
-        if(mb_opt.is_none(), {
+        // Visibility is decided among MATCHING candidates only: an impl the
+        // current module cannot reach through its imports is not a candidate
+        // (same rule as the concrete registry, `owner_visible_from_current`).
+        // Judged after the receiver match, not before — a same-name entry on
+        // another type is rejected by the match, and reporting it as a
+        // visibility miss drowned the real ones 26,849 to 1.
+        (fmg_hidden : bool) = false;
+        if(mb_opt.is_some() && !owner_visible_from_current(fmg_owner.clone()), {
+          if(visibility_report_enabled(), {
+            // YO_VISIBILITY_REPORT=1: enumerate instead of rejecting (see
+            // type_trait_methods.yo).
+            eprintln(`[visibility] ${registration_owner()} cannot see generic .${method_name} registered by ${fmg_owner}`);
+          }, {
+            fmg_hidden = true;
+          });
+        });
+        if(mb_opt.is_none() || fmg_hidden, {
           ei = (ei + usize(1));
         }, {
           match_bindings := match(mb_opt, .Some(b) => b, .None => ArrayList(TypeValue).new());

@@ -38,7 +38,8 @@ env_mod :: import("std/env");
   ast_expr_is_fn_call_of,
   clone_expr_fresh_ids,
   BK_EXPORT,
-  BK_COLON
+  BK_COLON,
+  BK_IMPORT
 } :: import("./expr.yo");
 { fnv1a64 } :: import("./utils.yo");
 { ExprInfoTable } :: import("./expr_info.yo");
@@ -85,7 +86,7 @@ env_mod :: import("std/env");
   read_file_sync,
   file_exists_sync
 } :: import("./manifest.yo");
-{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot } :: import("./evaluator/module_loader.yo");
+{ clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot, mark_owner_always_visible } :: import("./evaluator/module_loader.yo");
 { purge_type_trait_methods_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
 { purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
@@ -1826,6 +1827,80 @@ export(_eval_module_exprs_capturing_error, _take_load_error);
 /// (`demand_load_module`) surfaces it as `LoadModuleResult.module_error` so the
 /// error rethrows through the IMPORT SITE's exn (catchable by
 /// `comptime_expect_error`), instead of unwinding the stashed driver exn.
+/// Record `importer`'s import edges from its SOURCE, before anything in it is
+/// evaluated: every `import("<literal>")` call anywhere in the module,
+/// resolved exactly as the evaluator resolves it (`resolve_module_path_ex`
+/// with the importer's directory). Import edges were only recorded when an
+/// import statement was EVALUATED, and imports are lazy top-level bindings,
+/// so the import closure that scopes method visibility
+/// (`owner_visible_from_current`) was incomplete at the first lookup — a
+/// module forced early in a fresh program could not see an impl reachable
+/// through an import nobody had forced yet
+/// (issues/fixed/a-file-that-fails-check-alone-passes-inside-a-directory-check.md).
+/// A computed (non-literal) import path is still recorded lazily by
+/// `demand_load_module`; unresolvable literals are the evaluator's error to
+/// report, not this scan's.
+_record_static_import_edges :: (
+  fn(importer : String, exprs : ArrayList(AstExpr), std_path : String) -> unit
+)({
+  current_file := importer.replace(String.from("file://"), String.new());
+  current_dir := match(
+    Path.new(current_file).parent(),
+    .Some(p) => p.to_string(),
+    .None => String.from(".")
+  );
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(e) => _scan_import_literals(e, importer.clone(), current_dir.clone(), std_path.clone()),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+_scan_import_literals :: (
+  fn(e : AstExpr, importer : String, current_dir : String, std_path : String) -> unit
+)({
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func, args, _, _) => {
+      is_import := match(func, .Atom(_, ft) => (ft.value == BK_IMPORT), _ => false);
+      if(is_import && (args.len() == usize(1)), {
+        match(
+          args.get(usize(0)),
+          .Some(arg) => match(
+            arg,
+            .Atom(_, at) => {
+              raw := at.value.clone();
+              n := raw.len();
+              if((n >= usize(2)) && raw.starts_with(String.from("\"")) && raw.ends_with(String.from("\"")), {
+                match(
+                  resolve_module_path_ex(raw.substring(usize(1), n - usize(1)), current_dir.clone(), std_path.clone(), true),
+                  .Found(p) => record_import_edge(importer.clone(), p),
+                  _ => ()
+                );
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
+      });
+      _scan_import_literals(func, importer.clone(), current_dir.clone(), std_path.clone());
+      (ai : usize) = usize(0);
+      while(ai < args.len(), {
+        match(
+          args.get(ai),
+          .Some(a) => _scan_import_literals(a, importer.clone(), current_dir.clone(), std_path.clone()),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    }
+  );
+});
 _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   if(abs.ends_with(String.from("prelude.yo")), {
     return(Option(String).None);
@@ -1872,6 +1947,7 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
     .None => ()
   );
   mod_exprs := parse(src, abs.clone(), exn);
+  _record_static_import_edges(abs.clone(), mod_exprs, std_path.clone());
   (prof_parse_ns : i64) = prof_t0.elapsed().as_nanos();
   prof_eval_t0 := Instant.now();
   (prof_saved_child : i64) = g_prof_child_load_ns;
@@ -2295,6 +2371,7 @@ mm_load_file :: (
   );
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path.clone(), local_exn);
+  _record_static_import_edges(mm_resolve_entry_abs(input_path.clone(), std_path.clone()), exprs, std_path.clone());
   if(verbose, {
     emit_chatter(`check: parsed ${exprs.len().to_string()} top-level exprs`);
   });
@@ -2355,6 +2432,9 @@ mm_preload_prelude :: (
 )({
   (ok : bool) = true;
   if(g_cached_prelude_env.is_none(), {
+    // The prelude's impls are visible from every module without an import edge
+    // (`owner_visible_from_current`, type_trait_methods.yo).
+    mark_owner_always_visible(`${std_path}/prelude.yo`);
     pre_outcome := mm_load_file(`${std_path}/prelude.yo`, std_path.clone(), verbose, io, exn);
     // Print its diagnostic here, once, at this edge (the P1 single-print rule;
     // the loader's handlers only stash).
