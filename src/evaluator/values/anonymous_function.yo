@@ -36,7 +36,11 @@ pragma(Pragma.AllowUnsafe);
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  has_control_flow
+  has_control_flow,
+  expr_info_capture_type,
+  expr_info_set_capture_type,
+  expr_info_set_deferred_dup_expressions,
+  expr_info_set_is_anonymous_function_definition
 } :: import("../../expr_info.yo");
 { are_types_compatible_exact } :: import("../../types/compatibility.yo");
 {
@@ -2097,12 +2101,12 @@ Result type: ${type_to_string(decl_result_ty)}`
   });
   info := new_expr_info(env, final_lambda_ty);
   info.value = Option(EvalValue).Some(func_val);
-  info.is_anonymous_function_definition = Option(bool).Some(true);
+  expr_info_set_is_anonymous_function_definition(info, Option(bool).Some(true));
   // Phase 3: closure_function_value is not set (EvalValue is not Clone).
   // Downstream code falls back to reading info.value when closure_function_value is None.
   // io.async closures carry the capture-struct type for codegen (see above).
-  info.capture_type = closure_capture_type;
-  info.deferred_dup_expressions = closure_capture_dups;
+  expr_info_set_capture_type(info, closure_capture_type);
+  expr_info_set_deferred_dup_expressions(info, closure_capture_dups);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });

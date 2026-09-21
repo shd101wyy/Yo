@@ -42,7 +42,11 @@
   expr_info_case_executed,
   expr_info_closure_function_value,
   lookup_method_callee_value,
-  lookup_method_callee_type
+  lookup_method_callee_type,
+  expr_info_capture_type,
+  expr_info_index_method_value,
+  expr_info_is_anonymous_function_definition,
+  expr_info_macro_expansion
 } :: import("../../expr_info.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, is_unknown_val, is_type_value } :: import("../../value.yo");
@@ -313,7 +317,7 @@ impl(
       .Some(info) => {
         // A macro call's raw arguments are not what executes — the expansion is.
         match(
-          info.macro_expansion,
+          expr_info_macro_expansion(info),
           .Some(mx) => {
             return(_MsW.walk(mx, table, touched));
           },
@@ -329,7 +333,7 @@ impl(
         );
         // A function/closure DEFINITION does not run its body here.
         match(
-          info.is_anonymous_function_definition,
+          expr_info_is_anonymous_function_definition(info),
           .Some(an) => if(an, {
             return(false);
           }),
@@ -492,7 +496,7 @@ impl(
     index_callee := match(
       info_opt,
       .Some(ci) => match(
-        ci.index_method_value,
+        expr_info_index_method_value(ci),
         .Some(imv) => match(imv, .FuncVal(_, _) => Option(EvalValue).Some(imv), _ => Option(EvalValue).None),
         .None => Option(EvalValue).None
       ),
@@ -1176,7 +1180,7 @@ impl(
     match(
       expr_info_table_get(table, ast_expr_id(e)),
       .Some(ci) => match(
-        ci.index_method_value,
+        expr_info_index_method_value(ci),
         .Some(imv) => match(
           imv,
           .FuncVal(_, _) => {
@@ -1193,7 +1197,7 @@ impl(
   is_index_call : (fn(e : AstExpr, table : ExprInfoTable) -> bool)(
     match(
       expr_info_table_get(table, ast_expr_id(e)),
-      .Some(ci) => match(ci.index_method_value, .Some(imv) => match(imv, .FuncVal(_, _) => true, _ => false), .None => false),
+      .Some(ci) => match(expr_info_index_method_value(ci), .Some(imv) => match(imv, .FuncVal(_, _) => true, _ => false), .None => false),
       .None => false
     )
   ),
@@ -1394,7 +1398,7 @@ impl(
       expr_info_table_get(table, ast_expr_id(e)),
       .Some(info) => {
         match(
-          info.macro_expansion,
+          expr_info_macro_expansion(info),
           .Some(mx) => {
             _MsP.return_exprs(mx, table, out, is_tail);
             return(());
@@ -1402,7 +1406,7 @@ impl(
           .None => ()
         );
         match(
-          info.is_anonymous_function_definition,
+          expr_info_is_anonymous_function_definition(info),
           .Some(an) => if(an, {
             return(());
           }),
@@ -1492,7 +1496,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          info.macro_expansion,
+          expr_info_macro_expansion(info),
           .Some(mx) => {
             return(_MsP.classify(mx, ctx));
           },
@@ -1510,7 +1514,7 @@ impl(
         );
         // A closure value carries copies of its captures.
         match(
-          info.is_anonymous_function_definition,
+          expr_info_is_anonymous_function_definition(info),
           .Some(an) => if(an, {
             return(_msp_root(MSP_SHELL));
           }),
@@ -1717,7 +1721,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          info.macro_expansion,
+          expr_info_macro_expansion(info),
           .Some(mx) => {
             _MsP.flowing(mx, ctx, out);
             return(());
@@ -1736,7 +1740,7 @@ impl(
         );
         // A closure's captures were already rooted at its definition.
         match(
-          info.is_anonymous_function_definition,
+          expr_info_is_anonymous_function_definition(info),
           .Some(an) => if(an, {
             return(());
           }),
@@ -2029,7 +2033,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          info.macro_expansion,
+          expr_info_macro_expansion(info),
           .Some(mx) => {
             _MsP.collect(mx, ctx);
             return(());
@@ -2043,13 +2047,13 @@ impl(
           }),
           .None => ()
         );
-        is_closure := (match(info.is_anonymous_function_definition, .Some(an) => an, .None => false) || expr_info_closure_function_value(info).is_some());
+        is_closure := (match(expr_info_is_anonymous_function_definition(info), .Some(an) => an, .None => false) || expr_info_closure_function_value(info).is_some());
         if(is_closure, {
           // Captures are COPIED into the closure object, which can go
           // anywhere: whatever they name may become reachable from a
           // parameter, and the closure body's mutations run later.
           match(
-            info.capture_type,
+            expr_info_capture_type(info),
             .Some(ct) => match(
               ct,
               .Struct({ field_labels : labels }) => {
@@ -2423,7 +2427,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          info.macro_expansion,
+          expr_info_macro_expansion(info),
           .Some(mx) => {
             _MsP.strict_walk(mx, borrowed_ids, table, out);
             return(());
@@ -2440,7 +2444,7 @@ impl(
         // A closure DEFINITION runs nothing here; a call to it is checked
         // where it happens (an unresolvable callee).
         match(
-          info.is_anonymous_function_definition,
+          expr_info_is_anonymous_function_definition(info),
           .Some(an) => if(an, {
             return(());
           }),
@@ -2681,7 +2685,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          info.macro_expansion,
+          expr_info_macro_expansion(info),
           .Some(mx) => {
             return(_MsP.walk(mx, ctx));
           },
@@ -2696,7 +2700,7 @@ impl(
         );
         // A function/closure DEFINITION does not run its body here.
         match(
-          info.is_anonymous_function_definition,
+          expr_info_is_anonymous_function_definition(info),
           .Some(an) => if(an, {
             return(m);
           }),

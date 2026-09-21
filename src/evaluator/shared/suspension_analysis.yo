@@ -38,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of } :: import("../../expr.yo");
-{ ExprInfo, lookup_macro_expansion, is_module_level_global } :: import("../../expr_info.yo");
+{ ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 {
@@ -416,7 +416,7 @@ walk_expr_ :: (
           .Some(me) => Option(AstExpr).Some(me),
           .None => match(
             get_info(expr_cloned.clone()),
-            .Some(iinfo) => iinfo.macro_expansion,
+            .Some(iinfo) => expr_info_macro_expansion(iinfo),
             .None => Option(AstExpr).None
           )
         );
@@ -703,7 +703,7 @@ walk_expr_ :: (
               .None => (),
               .Some(info2) => {
                 match(
-                  info2.deferred_dup_expressions,
+                  expr_info_deferred_dup_expressions(info2),
                   .None => (),
                   .Some(dup_exprs) => {
                     (di : usize) = usize(0);

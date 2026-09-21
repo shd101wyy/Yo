@@ -24,7 +24,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_origin_type,
   expr_info_set_origin_type,
   lookup_io_builtin_struct_field,
-  ComptimeRef
+  ComptimeRef,
+  expr_info_set_comptime_ref
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, copy_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of } :: import("../context.yo");
@@ -641,7 +642,7 @@ Raw pointer operations may dereference invalid memory.`
                   );
                   out_ptr := new_expr_info(env, resolved_base);
                   out_ptr.value = Option(EvalValue).Some(deref_val);
-                  out_ptr.comptime_ref = deref_place;
+                  expr_info_set_comptime_ref(out_ptr, deref_place);
                   expr_info_set_origin_type(out_ptr, Option(TypeValue).Some(ot));
                   out_ptr.is_accessing_property = Option(bool).Some(true);
                   out_ptr.source_variable = match(
@@ -1687,8 +1688,11 @@ Raw pointer operations may dereference invalid memory.`
                         // throws "Function body is not evaluated correctly.
                         // Expected to return a compile-time known value."
                         if(lbl_via_ptr, {
-                          out_lbl.comptime_ref = Option(ComptimeRef).Some(
-                            ComptimeRef.TupleRef(flds_l, fi_lbl)
+                          expr_info_set_comptime_ref(
+                            out_lbl,
+                            Option(ComptimeRef).Some(
+                              ComptimeRef.TupleRef(flds_l, fi_lbl)
+                            )
                           );
                         });
                       },
@@ -1704,8 +1708,11 @@ Raw pointer operations may dereference invalid memory.`
                         );
                         // See the TupleVal arm above.
                         if(lbl_via_ptr, {
-                          out_lbl.comptime_ref = Option(ComptimeRef).Some(
-                            ComptimeRef.StructRef(sflds_l, fi_lbl)
+                          expr_info_set_comptime_ref(
+                            out_lbl,
+                            Option(ComptimeRef).Some(
+                              ComptimeRef.StructRef(sflds_l, fi_lbl)
+                            )
                           );
                         });
                       },

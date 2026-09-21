@@ -14,6 +14,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, fresh_local_name } :: import("../utils/index.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
 /// when the array has a result variable name. Returns `.None` when the node is
 /// not a typed array call (fall-through).
@@ -42,7 +43,7 @@ generate_anonymous_array :: (fn(expr : AstExpr, indent : String, context : Funct
             match(
               context.base.get_expr_info(arg),
               .Some(arg_ei) => match(
-                arg_ei.deferred_dup_expressions,
+                expr_info_deferred_dup_expressions(arg_ei),
                 .Some(arg_dups) => if(arg_dups.len() > usize(0), {
                   generate_deferred_dup_expressions(arg, indent.clone(), context);
                   match(

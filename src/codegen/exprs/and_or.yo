@@ -19,6 +19,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier, scope_stack_contains, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
+{ expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// Record that the short-circuit family has emitted a drop for `target` in this
 /// function. MONOTONE: never removed. See
 /// `FunctionGenerationContext.short_circuit_emitted_drop_targets`.
@@ -114,7 +115,7 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
           // identifier and an unconditional drop for a conditionally-run
           // dup.
           match(
-            ei.deferred_dup_expressions,
+            expr_info_deferred_dup_expressions(ei),
             .Some(dups) => {
               nd := dups.len();
               (di : usize) = usize(0);

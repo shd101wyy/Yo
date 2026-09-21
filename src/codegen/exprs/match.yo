@@ -22,7 +22,8 @@
   expr_info_case_executed,
   expr_info_is_primitive_match,
   expr_info_primitive_pattern_values,
-  expr_info_consumed_variable_drop_expressions
+  expr_info_consumed_variable_drop_expressions,
+  expr_info_deferred_dup_expressions
 } :: import("../../expr_info.yo");
 { is_unit_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type } :: import("../../types/guards.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
@@ -2042,7 +2043,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
       // drift-safe (never trust the recorded atom name; see
       // generate_case_body / cond.yo _emit_value_arm).
       match(
-        subject_ei.deferred_dup_expressions,
+        expr_info_deferred_dup_expressions(subject_ei),
         .Some(sdups) => if(sdups.len() > usize(0), {
           sdline := indent.clone();
           sdline.push_string(generate_dup_code_for_value(matched_value_code.clone(), match_value_type, context));

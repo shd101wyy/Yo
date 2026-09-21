@@ -72,7 +72,7 @@
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
-{ expr_info_adopt_env } :: import("../../expr_info.yo");
+{ expr_info_adopt_env, expr_info_macro_expansion } :: import("../../expr_info.yo");
 /// Evaluate any of the no-op contract markers (`requires` / `ensures` /
 /// `invariant` / `ghost` in expression position). Each argument is evaluated
 /// (so expression-level errors surface), but the call itself returns `unit`.
@@ -1722,7 +1722,7 @@ _prepare_callsite_contracts :: (
       // Macro calls: the semantics live in the expansion.
       expanded := match(
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
-        .Some(ei) => ei.macro_expansion,
+        .Some(ei) => expr_info_macro_expansion(ei),
         .None => Option(AstExpr).None
       );
       match(

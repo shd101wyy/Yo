@@ -45,7 +45,7 @@
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue } :: import("./definitions.yo");
 { is_function_type, is_reference_struct_type, is_atomic_reference_struct_type, is_pointer_type } :: import("./guards.yo");
-{ expr_info_adopt_env } :: import("../expr_info.yo");
+{ expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr_info.yo");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type }
 :: import("./utils.yo");
 /// A 1-element mutable box flagging that an error thrown during a swallowed
@@ -641,7 +641,7 @@ require_ref_own_argument_exclusivity :: (
           root_atom_opt := match(
             _info(ctx, arg),
             .Some(inf) => {
-              is_idx := match(inf.index_trait_ptr_type, .Some(_) => true, .None => false);
+              is_idx := match(expr_info_index_trait_ptr_type(inf), .Some(_) => true, .None => false);
               cond(
                 (is_idx && ast_expr_is_fn_call(arg)) => match(
                   arg,
@@ -824,8 +824,8 @@ _reject_if_container_reachable :: (
             expr_info_closure_function_value(oi),
             .Some(_) => true,
             .None => (
-              match(oi.is_anonymous_function_definition, .Some(b) => b, .None => false) &&
-                oi.capture_type.is_some()
+              match(expr_info_is_anonymous_function_definition(oi), .Some(b) => b, .None => false) &&
+                expr_info_capture_type(oi).is_some()
             )
           );
           is_closure || type_contains_rc_type(oi.ty) || type_representation_contains_raw_ptr(oi.ty)
@@ -870,7 +870,7 @@ require_valid_ref_argument_places :: (
         // heap buffer; reject when the container is reachable.
         arg_is_index_place := match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)),
-          .Some(ai_info) => match(ai_info.index_trait_ptr_type, .Some(_) => true, .None => false),
+          .Some(ai_info) => match(expr_info_index_trait_ptr_type(ai_info), .Some(_) => true, .None => false),
           .None => false
         );
         if(arg_is_index_place && ast_expr_is_fn_call(arg), {

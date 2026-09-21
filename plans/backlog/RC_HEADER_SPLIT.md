@@ -49,6 +49,8 @@ are inflated ~2x by the instrument — compare only tracked numbers.)
 | 64 B class                                 | 18.1M       | 1.08 GB     | 6.1%  |
 | 112 B (Environment) + 80 B (tracked lists) | 15.8M       | 1.39 GB     | 7.8%  |
 
+**ExprInfo diet: LANDED 2026-09-21 as `perf/exprinfo-diet-v2` — the refutation below was F8's per-call retention (fixed by #805); re-run: 10.01 → 9.61 GB, byte-identical C, source cost gone (see `plans/EVALUATOR_MEMORY_REDUCTION.md` Phase 7 step 4).** Original record:
+
 **ExprInfo diet: REFUTED AS IMPLEMENTED (2026-08-18, branch
 `perf/exprinfo-diet`, kept parked).** The accessor-based diet (15 read/write-cold
 fields into `ExprInfoRare`, write-hot four kept inline per the origin_type

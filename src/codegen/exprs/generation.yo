@@ -93,7 +93,7 @@
   ast_expr_id,
   ast_expr_is_atom
 } :: import("../../expr.yo");
-{ has_any_control_flow, ExprInfo, lookup_macro_expansion } :: import("../../expr_info.yo");
+{ has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
 { is_unit_type, is_primitive_type, is_pointer_type, is_array_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -313,7 +313,7 @@ _generate_inline_call :: (fn(expr : AstExpr, indent : String, context : Function
         final_code := match(
           context.base.get_expr_info(arg),
           .Some(aei) => match(
-            aei.deferred_dup_expressions,
+            expr_info_deferred_dup_expressions(aei),
             .Some(dups) => if(dups.len() > usize(0), {
               generate_deferred_dup_expressions(arg, indent.clone(), context);
               match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), match(context.base.get_expr_info(dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env)), .None => arg_code), .None => arg_code), arg_code), .None => arg_code)
@@ -440,7 +440,7 @@ _index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, i
 /// returned pointer unless this is an `&(value(i))` (is_index_trait_address_of).
 _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String, context : FunctionGenerationContext) -> String)({
   method_value := match(
-    ei.index_method_value,
+    expr_info_index_method_value(ei),
     .Some(v) => if(is_func_val(v), v, return(String.from("/* Error: Index trait method value missing */"))),
     .None => return(String.from("/* Error: Index trait method value missing */"))
   );
@@ -492,10 +492,10 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
   // to index, and the element VALUE is `unit`, which — like every unit
   // expression — emits no C. Its address is a null `void*`.
   if(is_unit_type(ei.ty), {
-    return(match(ei.is_index_trait_address_of, .Some(true) => String.from("((void*)0)"), _ => String.from("")));
+    return(match(expr_info_is_index_trait_address_of(ei), .Some(true) => String.from("((void*)0)"), _ => String.from("")));
   });
   // Auto-deref the returned pointer unless this is `&(value(i))`.
-  match(ei.is_index_trait_address_of, .Some(true) => call_code, _ => `(*${call_code})`)
+  match(expr_info_is_index_trait_address_of(ei), .Some(true) => call_code, _ => `(*${call_code})`)
 });
 /// Some compile-time values ALLOCATE when they materialize in C. The clearest
 /// case is a payload-free variant of a reference-semantics enum: its comptime
@@ -652,7 +652,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // pass overwrote this call's ExprInfo without `macro_expansion` (e.g. a macro
   // call like `if(...recur...)` — see record_macro_expansion in expr_info.yo).
   match(
-    ei.macro_expansion,
+    expr_info_macro_expansion(ei),
     .Some(mx) => return(_call_generate_expr(mx, indent.clone(), context)),
     .None => match(
       lookup_macro_expansion(ast_expr_id(expr)),
@@ -833,7 +833,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // stamps the specialized `index()` method FuncVal + pointer-return type on the
   // ExprInfo (function.yo's index branch). (Fixed-array
   // `a(i)` resolves to a comptime ref instead and never reaches here.)
-  if(ei.index_trait_ptr_type.is_some() && ei.index_method_type.is_some(), return(_generate_index_trait_call(expr, ei, indent.clone(), context)));
+  if(expr_info_index_trait_ptr_type(ei).is_some() && expr_info_index_method_type(ei).is_some(), return(_generate_index_trait_call(expr, ei, indent.clone(), context)));
   // Primitive infix operator (`x + y`, `a == b`, …): lower directly to the
   // builtin-inline (`__yo_op_add` → `(a + b)`) via the inline path. This avoids
   // resolving the (generic, SomeType-bearing) operator trait method in codegen,

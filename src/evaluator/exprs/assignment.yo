@@ -38,7 +38,11 @@ pragma(Pragma.AllowUnsafe);
   lookup_some_resolved_concrete,
   expr_info_paths_for_write,
   expr_info_set_converted_runtime_type,
-  register_thread_local
+  register_thread_local,
+  expr_info_capture_type,
+  expr_info_comptime_ref,
+  expr_info_index_trait_ptr_type,
+  expr_info_set_is_compile_time_only_assignment
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -395,6 +399,31 @@ evaluate_assignment :: (
       );
     });
     lhs_info := match(lhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
+    // A plain FUNCTION CALL is not a place: `f(1) = 2` used to be evaluated and
+    // its value silently discarded, at check AND at runtime
+    // (issues/fixed/assignment-to-call-expression-silently-accepted.md). The
+    // recognised call-shaped places are `x.a` (a `.` call) and `arr(i)` (an
+    // Index-trait callee, whose callee is a VALUE, not a function).
+    if(!(ast_expr_is_fn_call_of(lhs, BF_DOT, Option(usize).Some(usize(2)))), {
+      match(
+        lhs,
+        .FnCall(_, lhs_callee, _, _, _) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(lhs_callee)),
+          .Some(callee_info) => if(is_function_type(callee_info.ty), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(lhs),
+                  `Cannot assign to the result of a function call: ${ast_expr_to_string(lhs)}`
+                )
+              )
+            );
+          }),
+          .None => ()
+        ),
+        .Atom(_, _) => ()
+      );
+    });
     expected_ty := lhs_info.ty;
     // Step 2 — Evaluate RHS with expected type from LHS
     ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : expected_ty, env : env));
@@ -712,7 +741,7 @@ evaluate_assignment :: (
     });
     // Step 6 — Handle comptimeRef: direct in-place mutation of shared ArrayList.
     match(
-      lhs_info.comptime_ref,
+      expr_info_comptime_ref(lhs_info),
       .None => (),
       .Some(cr) => {
         match(
@@ -758,14 +787,14 @@ evaluate_assignment :: (
       })
     };
     if((!is_comptime_only_prop && lhs_info.value.is_some()) && prop_rhs_info.value.is_some() && base_var_is_comptime, {
-      if(lhs_info.index_trait_ptr_type.is_none(), {
+      if(expr_info_index_trait_ptr_type(lhs_info).is_none(), {
         is_comptime_only_prop = true;
       });
     });
     // Step 8 — Write ExprInfo for the whole `=` expression.
     prop_ei := new_expr_info(env, lhs_info.ty);
     prop_ei.value = lhs_info.value;
-    prop_ei.is_compile_time_only_assignment = Option(bool).Some(is_comptime_only_prop);
+    expr_info_set_is_compile_time_only_assignment(prop_ei, Option(bool).Some(is_comptime_only_prop));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), prop_ei);
     // Step 9 — Attach temp variable (no-op stub in Phase 2x; full impl in Phase 3).
     if(!is_comptime_only_prop, {
@@ -1197,7 +1226,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // stamped initialized by the FIRST arm's eval, so a sibling arm's
   // first-per-branch assignment reads as a "reassignment" here. The merge
   // keeps the LAST record per (arm window, var id).
-  record_branch_init(updated_variable.id, rhs_type, rhs_info.capture_type);
+  record_branch_init(updated_variable.id, rhs_type, expr_info_capture_type(rhs_info));
   // Store the RHS value for comptime-only variables; runtime vars don't carry a value.
   value_to_store := cond(
     updated_variable.is_compile_time_only => rhs_info.value,
@@ -1286,13 +1315,13 @@ comptime(${variable_name}) : ${dgc_ty_str}
   if(!is_mutating_defined_variable || lhs_consumed_by_rhs, {
     expr_info := new_expr_info(env, t_unit());
     expr_info.value = .Some(EvalValue.UnitVal);
-    expr_info.is_compile_time_only_assignment = .Some(variable.is_compile_time_only);
+    expr_info_set_is_compile_time_only_assignment(expr_info, .Some(variable.is_compile_time_only));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
   }, {
     // NOTE: This should return the original value of lhs.
     expr_info := new_expr_info(env, variable.ty);
     expr_info.value = variable.value.get(usize(0));
-    expr_info.is_compile_time_only_assignment = .Some(variable.is_compile_time_only);
+    expr_info_set_is_compile_time_only_assignment(expr_info, .Some(variable.is_compile_time_only));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
     // This temp variable is used to hold the old value of lhs.
     // (attach_temp_variable_to_expr takes no

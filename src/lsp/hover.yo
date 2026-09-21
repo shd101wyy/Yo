@@ -32,7 +32,7 @@
 { Token, TokenKind, is_reserved_operator_name } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_to_string } :: import("../expr.yo");
-{ ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_doc_comment } :: import("../expr_info.yo");
 { get_variables_from_env, Variable, variable_doc_comment } :: import("../env.yo");
 { type_to_string } :: import("../types/string.yo");
 { EvalValue, value_to_string } :: import("../value.yo");
@@ -565,7 +565,7 @@ handle_hover :: (
         },
         .None => ()
       );
-      doc_opt = info.doc_comment;
+      doc_opt = expr_info_doc_comment(info);
       // Env refinement: several bindings can share the name; pick the one
       // declared at/nearest the cursor. NOT for a
       // member — `p.x` is the field, never the local `x` in scope.
