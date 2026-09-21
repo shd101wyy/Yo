@@ -232,7 +232,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-`main` 可以带效应参数（`main :: (fn(io : Io) -> unit)`）；受约束的只有返回类型。
+`main` 可以带一个 `io : Io` 效应参数（`main :: (fn(io : Io) -> unit)`）；返回类型必须是 `unit`，而 `Io` 是运行时唯一能提供的参数——C 包装器会把参数零初始化，其他效应记录会携带 NULL 处理器指针并在首次使用时崩溃。其他处理器请在 `main` 内部绑定（例如：`exn := Exception(throw : ((err) -> { unwind(()); }));`）。
 
 ## CLI 用法
 
