@@ -33,7 +33,7 @@ import("std/fmt");
   evaluate_type_field,
   register_struct_fields
 } :: import("./field.yo");
-{ stable_position_id, stable_label_id } :: import("../../utils.yo");
+{ stable_position_id, stable_type_id } :: import("../../utils.yo");
 { register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
@@ -78,7 +78,7 @@ evaluate_struct_type :: (
   struct_id := if(
     ctx.ctfe_depth == usize(0),
     stable_position_id(String.from("struct_decl_"), decl_tok.module_path, decl_tok.row, decl_tok.column),
-    stable_label_id(String.from("struct_"), decl_tok.module_path, decl_tok.row, decl_tok.column)
+    stable_type_id(String.from("struct_"), decl_tok.module_path, decl_tok.row, decl_tok.column)
   );
   // Member visibility: record which module declares this type (guards.yo).
   register_type_decl_module(struct_id.clone(), decl_tok.module_path.clone());
