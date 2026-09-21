@@ -606,6 +606,48 @@ Design:
    `comptime_assert` over its value) depends on the body. The evaluator
    knows which it did at the force point. First cut: record everything as
    body-dependent (correct, over-invalidates), measure, then split.
+   **ANALYSIS 2026-09-21 — step 3 and the destructured-reader re-bind are
+   ONE item, and its hard half is a single missing signal.** Reading both
+   against the landed machinery:
+
+   - A destructured importer (`{ helper } :: import("./lib.yo")`) binds
+     `helper` BY VALUE into its own module frame, so its definitions
+     resolve the name locally and record NO def-level edge to `lib.yo`'s
+     `helper`. That is why `ordered_readers_of` must drop the whole reader
+     module (the hub case: a `src/token.yo` body edit drops `src/lexer.yo`
+     and its 143-file closure, ~355 s). Re-binding the reader's Variable
+     from the patched slot is sound for everything that merely CALLED the
+     name — and unsound for anything that CTFE'd it, because the reader's
+     `ExprInfo` already holds the baked value.
+   - Step 3's split is the same question: a dependent that only CALLED a
+     function depends on its signature; one that evaluated its body depends
+     on the body. Today every edge is body-strength, which is correct and
+     over-invalidates.
+
+   So both items need exactly one new signal: **did this dependent consume
+   that callee's BODY at comptime?** Everything else in both items is
+   mechanical (a `sig_hash` beside `src_hash`; a second edge map; a
+   re-bind loop over the reader's module frame).
+
+   **The signal must be recorded in the safe direction.** Enumerating CTFE
+   entry points (comptime calls, def-time trials, macro expansion, inline
+   builtins, generic specialization body copies) and marking those edges
+   body-strength is the tempting shape, but a MISSED site silently
+   downgrades a real body dependence to signature-strength and leaves a
+   stale value in a watch round — the failure mode this campaign has
+   already paid for twice. The defensible direction keeps body-strength as
+   the DEFAULT and derives signature-strength positively, from state the
+   evaluator already computes (the dependent's `ExprInfo` for each call of
+   the callee: a runtime call carries `.None`, a CTFE'd one carries the
+   value), so a gap in the derivation over-invalidates instead of going
+   stale.
+
+   **Measured target** (`tests/internal/check_watch.test.yo`, the Phase 3b
+   body-edit fixture): a body edit re-forces `answer` + `main` = 2 defs
+   today; with the split it re-forces 1. The hub case is the real prize:
+   re-binding instead of dropping turns the ~355 s `src/lexer.yo` fallback
+   into a per-def round. Both numbers are the gate for the work.
+
 4. **Invalidation by definition.** `mm_invalidate_document` grows a
    sibling: given the changed file, re-lex, re-hash its definitions,
    compute the set whose hash changed, and invalidate THAT set plus its
