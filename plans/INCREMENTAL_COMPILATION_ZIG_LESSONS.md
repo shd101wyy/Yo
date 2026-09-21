@@ -1,10 +1,18 @@
 # Faster edit-compile-run: what Yo can take from Zig, and what it cannot
 
-_Status: ACTIVE (2026-09-09) — Phase 0 (instrumentation) LANDED 2026-09-10
-(`--profile` / `--profile-json` real, `tests/cli-cases/compile-profile` gate,
-answers recorded in §3.1); Phase 1 (dev profile) LANDED 2026-09-10
-(`--emit-chunks auto` + the DEBUG `yo build` default + the `chunked-gate`
-CI job, numbers in §4); Phases 2–5 not started.
+_Status: ACTIVE (updated 2026-09-21) — Phase 0 (instrumentation) LANDED
+2026-09-10 (`--profile` / `--profile-json`, `tests/cli-cases/compile-profile`,
+answers in §3.1); Phase 1 (dev profile) LANDED 2026-09-10 (`--emit-chunks
+auto`, numbers in §4); Phase 2 (stable names) LANDED 2026-09-12 (§5 results);
+Phase 3 (per-definition deps) steps 1, 2 and 4 LANDED 2026-09-12/14, the
+stale-callee bug behind the signature-edit gate FIXED 2026-09-21 (#809; §6),
+step 3 (signature/body hash split) and the destructured-reader re-bind open;
+Phase 4 (resident evaluator) steps 1, 2 and 4 LANDED 2026-09-13..18, step 3
+(`yo test` in-process) GATED behind `YO_TEST_IN_PROCESS=1` (§7); Phase 5
+step 1 (`--chunk-by module`) LANDED + MEASURED 2026-09-21 (#808; §8 — the C
+leg is 13 s of a 188 s loop, so steps 2–3 are dropped and step 4 stands).
+Remaining before graduation to `plans/reference/`: Phase 3 step 3, Phase 4
+step 3's un-gate (owner-tagged registry purges), the §9 number._
 
 This is the successor to two landed designs and should be read after them:
 
@@ -747,7 +755,7 @@ That is the ≤ 10 s target in §2.
 
 ## 8. Phase 5 — per-module translation units (the C backend's version of patching)
 
-> **Step 1 LANDED + MEASURED 2026-09-21** (branch `feat/incr-p5-module-chunks`):
+> **Step 1 LANDED + MEASURED 2026-09-21** (#808, branch `feat/incr-p5-module-chunks`):
 > `yo compile --chunk-by module|name` (default `name`, today's rule). With
 > `module`, a function's unit is `fnv1a(defining module) % n`
 > (`ChunkRange.module`, from `CodegenFunctionEntry.def_module` — a
