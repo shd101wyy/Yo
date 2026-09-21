@@ -919,6 +919,42 @@ byte-identical" (they change bookkeeping, not what is emitted):
   TRANSIENT peak. Rule learned: a probe that counts references at a holder
   says nothing about object identity — count MISSES against a table, or
   compare handles, before sizing a lever.
+
+  **Second A/B, same day — types used as VALUES: also null, and it locates the
+  population.** `EvalValue.TypeVal` payloads (every type expression's result,
+  every comptime type binding) interned at the same two retention points (all
+  five Variable binders + the ExprInfo table setter; branch
+  `perf/typevalue-intern-typeval-payloads`, retired, diff in the session
+  record):
+
+  | retention interning of ty + TypeVal payloads | wall  | peak footprint |
+  | -------------------------------------------- | ----- | -------------- |
+  | off                                          | 102 s | 9.59 GB        |
+  | on                                           | 144 s | 9.64 GB        |
+
+  | calls (ty + payload) | hits       | misses | skipped (SomeT) |
+  | -------------------- | ---------- | ------ | --------------- |
+  | 12,557,745           | 11,221,663 | 10,139 | **1,325,943**   |
+
+  The payload hooks added 1.6 M retained references: 1,351 new keys, the rest
+  hits — and **0.78 M of them SomeT-bearing**, skipped. Read against §0.4
+  (7.76 M live `TypeValue`, 11.57 M live `ArrayList(TypeValue)`, ~17.5 K
+  shared roots): the unshared population is the **SomeT-bearing families** —
+  ~1.3 M roots at retention, each a generic signature or instantiation with
+  its own subtree (a `Func` carries five lists), ~5–6 objects apiece, i.e. the
+  whole cluster. They are excluded from interning by design: a type
+  variable's `resolved_concrete` cell mutates after construction and two
+  same-id variables may legitimately hold different cells
+  (`yo-identical-name-unify-error-is-an-id-era-split`), so merging them by
+  structural key is exactly the wrong merge §4.8 of the hash-consing plan
+  warns about.
+
+  **So F5 is now a DESIGN problem, not an instrumentation one:** give type
+  variables an identity that interning can key on — (id, cell identity), or
+  cells shared by construction so equal-key SomeTs ARE one object — and
+  intern the SomeT-bearing families at construction. Until that design
+  exists, no further retention/construction hook will move the peak; the two
+  null A/Bs above are the measurement.
 - **5b** `Symbol :: newtype(u32)` + a global intern table (`std`-free, in
   `src/utils.yo`): start with `Variable.name` and the frame index keys (one
   lookup path, `get_variables_from_frame`/`_frame_positions`), measure, then
