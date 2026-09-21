@@ -669,11 +669,24 @@ _ti_walk :: (fn(t : TypeValue, depth : usize) -> unit)({
       _ti_list(ta.len());
       _ti_walk_list(ta, depth);
     },
-    .EnumT({ variant_types : vts, type_arguments : eta }) => {
+    .EnumT({ variant_names : vns, variant_fields : vfs }) => {
       g_ti_enum = (g_ti_enum + usize(1));
-      _ti_list(vts.len());
-      _ti_list(eta.len());
-      _ti_walk_list(eta, depth);
+      // `variant_fields` is a list OF LISTS — one per variant — so an enum
+      // carries 1 + N of the 80 B list objects, not 2.
+      _ti_list(vns.len());
+      _ti_list(vfs.len());
+      (i_vf : usize) = usize(0);
+      while(i_vf < vfs.len(), {
+        match(
+          vfs.get(i_vf),
+          .Some(inner) => {
+            _ti_list(inner.len());
+            _ti_walk_list(inner, depth);
+          },
+          .None => ()
+        );
+        i_vf = (i_vf + usize(1));
+      });
     },
     .SomeT({ required_trait_types : rtt }) => {
       g_ti_some = (g_ti_some + usize(1));
