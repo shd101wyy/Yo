@@ -42,7 +42,8 @@ s.index_of(String.from("中"));        // .Some(usize(3)) —— 字节偏移，
 在 `substring` 上陈述一次，同样适用于 `s(a..b)` 语法糖：
 
 - **越界会被钳制（CLAMP）。** 超过 `len()` 的端点被拉回到 `len()`，
-  `start >= end` 得到空字符串。
+  `start >= end` 得到空字符串。该钳制是有意设计、经过测试的行为 —— 不是待
+  "修复" 的意外（safe-mode D5）。
 - **非边界索引会 PANIC。** 落在 rune 内部的端点是程序员错误 —— 一个来自错误
   基准的字节偏移 —— 而不是范围问题；迁就它会交出非法的 UTF-8。
 - **`try_substring(a, b)`** 是不 panic 的形式：对 `a > b`、`b > len()` 或
