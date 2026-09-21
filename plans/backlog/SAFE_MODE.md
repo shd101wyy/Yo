@@ -1,7 +1,8 @@
 # Safe mode — no undefined behavior, and every runtime failure proven, typed, or trapped
 
-**Status: BACKLOG — designed 2026-09-21 from a measured codegen survey; nothing implemented.**
-Two policy rulings from the maintainer are required before Phase 3 (§13, D1–D2); everything
+**Status: BACKLOG — designed 2026-09-21 from a measured codegen survey; amended
+2026-09-22 (D7 adopted: the class-1 panic ban, Phase 0c); nothing implemented.**
+Rulings D1–D2 are still required before Phase 3; D7 is decided (§13); everything
 else is specified to the emission site. Ground-truth anchors were verified on `develop`
 at `a1df43578`; line numbers drift, so each phase names the symbol to grep for, not just
 the line.
@@ -42,7 +43,10 @@ correct reading of "no runtime exception" for Yo. A trap (`__yo_panic`-style mes
 entirely would mean banning `assert`, `unwrap`, and every container accessor, breaking
 std's closed API window (S2: std is additive-only), and burying LLM authors in
 `get(i)`-then-match boilerplate. A trap-free *strict* mode remains possible later as an
-opt-in (Phase 6), built on the proof tier.
+opt-in (Phase 6), built on the proof tier. One slice of that strictness is pulled forward
+into Phase 0: **D7 bans the optimistic-extraction vocabulary (`unwrap` & co.) in safe
+files immediately** — it needs no verifier, because the failure information it discards
+is already in the type (§3, Phase 0c).
 
 The ladder, per hazard safe mode picks the highest affordable tier and never falls
 below tier 3:
@@ -83,6 +87,7 @@ What the code actually emits today, with evidence:
 | H9 | Escaped effect unwind past `main` | **silent rc=0** | `src/codegen/functions/generation.yo:1434` checks the flag after module init only; `:1440-1442` calls `__yo_user_main` then `return NULL` with no check (Windows arm same) | loud trap | 0 |
 | H10 | Allocation failure | mostly handled — `__yo_rc_alloc` panics via `__yo_alloc_fail` (c-codegen instructions §OOM) | policy documented; coverage unaudited | audited tier 3 | 4 |
 | H11 | `--sanitize undefined` | advertised but rejected | help `src/main.yo:7632` (en) / `:7682` (zh); validation `:3397` accepts only `address\|leak\|thread` | works | 0 |
+| H12 | Optimistic panic vocabulary callable in safe files | `Option.unwrap`/`Option.expect`, `Result.unwrap`/`Result.unwrap_err` trap on the failure case (`std/prelude.yo:7937-7943`, `:8049-8055`, `:8797-8811`); measured use 2026-09-22: 163 sites / 18 files in `src/`, 2,497 in `tests/`, 234 in `std/`, 0 in `vendor/` and `scripts/` | compile error (D7, class 1) | 0c |
 
 Already solid (no work): container-impl indexing (ArrayList `std/collections/array_list.yo:857-877`,
 Deque, `imm.Vec`, String — all panic on OOB); the Law-of-Exclusivity borrow counter
@@ -125,12 +130,13 @@ Non-goals of the *plan* itself:
   Syntax stays; semantics become defined.
 - No new required CI job without a branch-protection update (manual list — workflow rule).
 
-## 3. Phase 0 — standalone defects (no design needed, file issues first)
+## 3. Phase 0 — immediate landings: two defect fixes and the D7 policy gate
 
-Per the workflow rules each of these gets an `issues/` entry with a
-fails-before/pass-after test **before** the fix lands. Checked 2026-09-21: none of the
-three has an existing entry (the `__yo_effect_escaped` hits in `issues/` are all about
-flag cleanup during propagation, not the missing post-`main` check).
+0a and 0b are standalone defects: per the workflow rules each gets an `issues/` entry
+with a fails-before/pass-after test **before** the fix lands. Checked 2026-09-21: neither
+has an existing entry (the `__yo_effect_escaped` hits in `issues/` are all about
+flag cleanup during propagation, not the missing post-`main` check). 0c is a policy
+gate plus a migration, decided as D7 on 2026-09-22.
 
 ### 0a — an escaped unwind must be loud (closes H9)
 
@@ -177,6 +183,83 @@ compiler and the test suite under it *before* Phases 1–3 to enumerate the late
 div/shift/overflow/OOB sites, and *after* to validate that the guards themselves are
 clean. Whether it becomes a standing CI leg is D6; it does not need to for the
 campaign to use it.
+
+### 0c — ban the class-1 panic vocabulary in safe files (D7, closes H12)
+
+**The selection criterion — where does the failure information live?** Classify every
+panicking std surface by this one question, and the ban list falls out mechanically:
+
+| Class | Definition | Examples | Ruling |
+| --- | --- | --- | --- |
+| **1. Failure is in the TYPE; the call erases it** | The argument's type already says "might fail" (`Option(T)`, `Result(T,E)`) and the callee returns the payload while trapping the failure case — the caller held the information and threw it away | `Option.unwrap`, `Option.expect`, `Result.unwrap`, `Result.unwrap_err` | **compile error in safe files, now** |
+| **2. Failure is a VALUE-level precondition** | A fact about values the type does not carry | `list(i)` needs `i < len`; `/` needs `rhs != 0`; `substring` needs a rune boundary | tier-3 trap (phases 1–3); banning is Phase 6, where proofs replace checks. Typed alternatives (`get`, `try_substring`, future `checked_*`) coexist |
+| **Deliberate abort** | The author's own loud statement | `panic(msg)`, `assert(cond, msg)` | never banned — and `assert` is the test infrastructure |
+| **Environment failure, no typed alternative at this abstraction** | Runtime conditions outside the value world | allocation failure (`__yo_rc_alloc`), borrow-exclusivity aborts | keep, documented |
+
+The one-sentence test to apply to any candidate: ***would this call ignore failure
+information the type already gave the caller?*** If yes, class 1.
+
+Why this line and not "anything that can panic": banning class 1 requires no verifier
+(the discarded information is static), forks no operator types, and changes no std API
+(it is a call-site gate — the functions remain for `AllowUnsafe` files, test files, and
+comptime). Banning class 2 *today* would force tier 2 onto operators (`a / b :
+Result(...)`) — a different language — which is exactly why class 2 waits for Phase 5b/6.
+Note `String.substring` stays legal despite panicking on intra-rune offsets: its
+precondition is value-level (class 2), and classification is by the criterion, not by
+whether a `try_*` alternative happens to exist.
+
+**The comptime carve-out — unwrap is legal wherever it is decidable.** `unwrap` on a
+comptime-known `Option` stays legal: the evaluator decides Some-ness at compile time
+(the implementation must VERIFY that a comptime `unwrap` of `.None` is a compile error
+today — `std/assert`'s `panic` comptime-evaluates its message — and make it one if it
+is not; that is the carve-out's teeth). CTFE is Yo's proof engine for values today;
+Phase 5b's verifier generalizes it, at which point `opt.unwrap()` inside a verified
+function upgrades to `requires(is_some)` — the spelling survives, the semantics move
+from hope to tier 1. **The ban is "until unwrap is checkable", not forever.**
+
+**Mechanism.** Evaluator-only, beside the existing safe-mode gates
+(`src/evaluator/memory_safety.yo` family): a registry of (type, method) pairs —
+`(Option, unwrap)`, `(Option, expect)`, `(Result, unwrap)`, `(Result, unwrap_err)` —
+rejected at **two** sites, because gating calls alone is bypassable via method
+extraction (`Option(i32).unwrap` as a callable value — enum method extraction works,
+yo-design instructions): (1) method-call resolution, (2) the method-extraction path.
+New diagnostic code in the registry (`src/diagnostics_registry.yo`, an `E0xxx` with a
+`yo explain` entry and a `yo fix` repair suggesting `unwrap_or` / `unwrap_or_else` /
+`match` / propagation). Exemptions, each a deliberate documented rule, not a hole:
+
+- `*.test.yo` files — tests are where optimism is cheap: an unwrapped `.None` fails
+  the test loudly with a perfect diagnostic, which is the test doing its job. Every
+  human lint policy exempts tests for this reason. (2,497 in-tree sites stay.)
+- `std/` — the quarantine zone for this vocabulary, as it already is for raw
+  pointers; its 234 internal `unwrap` sites migrate on a ratchet, not a big bang.
+- `pragma(Pragma.AllowUnsafe)` files — exempt by definition.
+- comptime contexts, per the carve-out above.
+
+A declaration-site `panics` marker that generalizes the registry to user libraries is
+the documented future extension — build it when a second library needs it, not before.
+
+**Migration (measured 2026-09-22).** `src/`: 163 `Option.unwrap` sites across 18 files
+(`.expect`/`unwrap_err` are unused outside prelude; `vendor/` and `scripts/` are clean —
+0 uses, so no dependency or GATE-8 churn). Each migrated site gets a real decision — a
+typed default, a `match`, or a visible `panic` arm carrying the invariant — which is
+the dogfooding value: the compiler states its invariants instead of hoping. The gate
+and the migration land together in one PR (`yo check ./src` is the first gate — it
+fails otherwise).
+
+**Governance — how the list stays honest.** (1) `src/public_safe_report.yo` grows a
+class-1 section cross-checking the registry against reality, so a renamed or newly
+added class-1 function is a report diff, not a silent hole. (2) std policy, extending
+the D1 three-styles rule: **no NEW class-1 APIs** — a new accessor whose failure is in
+the type must force handling; `unwrap`-style helpers exist only as the escape
+vocabulary. (3) The accepted loophole: user code can hand-write `fn unwrap2(o :
+Option(T)) -> T` with a `match` + `panic` body — visible, greppable, carrying its
+invariant in source. That is the ban working (converting invisible optimism into a
+statement), not a hole to close.
+
+**Tests.** `comptime_expect_error` cases for each registry entry in both the call and
+the extraction form (the `tests/reserved_operators.test.yo` shape); positive tests that
+`AllowUnsafe` files, `*.test.yo` files, and comptime contexts still compile and run;
+the migrated `src/` tree under the standard battery is the large regression.
 
 ## 4. Phase 1 — bounds-checked indexing builtins (closes H1, H2, H3)
 
@@ -415,13 +498,18 @@ An opt-in (`--safe=strict`, or `pragma(Pragma.SafeStrict)`) where an unprovable,
 unhandled trapping site is a **compile error** naming the site and the remedy
 ("cannot prove `i < 10` at foo.yo:7:3 — use `get(i)`, add a guard, or install a
 handler"). Semantically it is Phase 5b plus a compiler flag that turns "guard emitted"
-into "error reported". Do not build it before 5b exists; do not make it the default
-ever (it bans `unwrap`, `assert`, and container indexing — the std-stability and
-boilerplate arguments of §0).
+into "error reported" — D7 (Phase 0c) is its first slice, already pulled forward: strict
+mode extends the same principle from class 1 (failure in the type, banned now) to class
+2 (value-level preconditions, banned where provable, checked elsewhere) and to the
+deliberate-abort vocabulary. Do not build it before 5b exists; do not make it the
+default ever (it outlaws container indexing and arithmetic-as-written — the
+std-stability and boilerplate arguments of §0).
 
 ## 10. Cross-cutting: staging, gates, traps this campaign will hit
 
-**Sequencing.** 0a → 0b → 1 → 2 → 3a → 3b → 3c → 4 → 5a → (5b, 6 deferred). Each
+**Sequencing.** 0a → 0b → 0c → 1 → 2 → 3a → 3b → 3c → 4 → 5a → (5b, 6 deferred). 0c is
+evaluator-only and independent of 0a/0b and of the codegen phases — it can land in
+parallel with Phase 1 if that helps review latency. Each
 phase (and each 3x slice) is its own PR, squash-merged; work in a worktree under
 `$HOME/Workspace/Yo-wt/`, commit and push before every heavy gate run.
 
@@ -432,9 +520,13 @@ scripts/bootstrap/fixpoint_only.sh` (stage-1 copied outside the repo, same tree)
 `BIN=/tmp/yo-s1 OUT=/tmp/hsweep bash scripts/bootstrap/hollow_sweep69.sh` with
 `known-failing.tsv` ratchet updates.
 
-**Seed staging.** Phases 0–4 change only codegen emission and one prelude comment —
-no Yo-source API changes — so no seed version is involved and no `build.yo` builtin
-rules apply. The seed keeps compiling the new compiler source unchanged; the new
+**Seed staging.** Phases 0a–0b and 1–4 change only codegen emission and one prelude
+comment — no Yo-source API changes — so no seed version is involved and no `build.yo`
+builtin rules apply. Phase 0c changes the evaluator and migrates `src/` — still plain
+Yo source with no new API, so the seed compiles it unchanged; the new gate activates
+only in binaries built from this tree, and the gate + migration must land together or
+`yo check ./src` fails (which is the first gate anyway). The seed keeps compiling the
+new compiler source unchanged; the new
 binary's *own* emitted C gains the checks from its first self-compile. That
 self-compilation is exactly where latent compiler bugs surface; treat each as a find,
 not a regression.
@@ -466,6 +558,11 @@ when over budget: (1) verify the C compiler's CSE at the shipped `-O` level, (2)
 - `docs/*/STRINGS.md`: `str.bytes` contract change (traps on OOB).
 - `docs/*/ALGEBRAIC_EFFECTS.md`: the Phase 0a guarantee — an escaped unwind aborts
   with a message instead of exiting silently.
+- With Phase 0c: `docs/*/MEMORY_SAFETY.md` documents the class-1 ban and the
+  exemptions; the new diagnostic enters `src/diagnostics_registry.yo` with its
+  `yo explain` entry and a `yo fix` repair; `.github/instructions/yo-design.instructions.md`
+  + the skills cheatsheet record the rule and the criterion (→ SEVEN cli-case
+  re-records).
 - `.github/instructions/c-codegen.instructions.md`: the new runtime helpers
   (`__yo_idx_chk`, `__yo_div_guard*`, the arithmetic family), the shared-index-emitter
   rule ("never write `->data[` outside the helper"), the no-GNU-builtins checked
@@ -481,6 +578,7 @@ when over budget: (1) verify the C compiler's CSE at the shipped `-O` level, (2)
 | --- | --- | --- | --- | --- |
 | 0a | escaped unwind aborts loudly | — | tests asserting the old silence | small |
 | 0b | `--sanitize undefined` works | — | none | tiny |
+| 0c | class-1 panic vocabulary banned in safe files (D7) | D7 (decided) | 163-site `src/` migration lands with the gate; extraction-path bypass must be gated too | small–medium |
 | 1 | checked Array/Slice/`str.bytes` indexing | 0b (as instrument) | latent compiler OOBs surface; perf | medium |
 | 2 | checked int `/` `%` incl. `MIN/-1` | 0b | latent `/0` bugs; perf | small–medium |
 | 3a | overflow + neg traps (D1) | rulings D1/D4 | perf; the biggest semantic change | medium |
@@ -512,6 +610,14 @@ when over budget: (1) verify the C compiler's CSE at the shipped `-O` level, (2)
 - **D6 — a standing UBSan CI leg.** RECOMMEND adding an optional workflow leg after
   0b proves it stable; make it a required check only with the manual
   branch-protection update the workflow rules require.
+- **D7 — panic vocabulary in safe files.** **DECIDED 2026-09-22 (maintainer): ban
+  class 1.** Safe files may not call a function whose signature erases a fallible type
+  into its payload with a trap — `Option.unwrap`/`expect`, `Result.unwrap`/`unwrap_err`
+  — because the caller is discarding failure information the type already gave them.
+  Deliberate abort (`panic`/`assert`) and class-2 value-level traps stay legal; comptime
+  `unwrap` stays legal (decidable ⇒ checked at compile time); the endgame upgrades the
+  spelling to `requires(is_some)` under Phase 5b rather than killing it. Full criterion,
+  mechanism, exemptions, and governance: §3, Phase 0c.
 
 ## Appendix A — emission-site checklist (grep anchors, `develop @ a1df43578`)
 
