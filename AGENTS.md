@@ -122,7 +122,8 @@ yo test ./std --bail
 
 # Compiler-internal tests: ONE FILE AT A TIME (macro_expansion alone needs 6.5 GB;
 # two concurrent children swap and trip the runner's 600 s deadline, manufacturing
-# failures). The whole directory takes ~22 min.
+# failures). The whole directory takes ~78 min and peaks at 8.8 GB (measured
+# 2026-09-21, Mac Mini M4; the older "~22 min" predates most of these files).
 yo test ./tests/internal/parser.test.yo --parallel 1
 
 # Verifier
