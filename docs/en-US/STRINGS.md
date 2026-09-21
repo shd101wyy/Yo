@@ -43,7 +43,8 @@ speak the same unit. So do the `Pattern` trait's methods.
 Stated once, on `substring`, and it applies to the `s(a..b)` sugar too:
 
 - **Out-of-range CLAMPS.** An endpoint past `len()` is pulled back to `len()`,
-  and `start >= end` yields the empty string.
+  and `start >= end` yields the empty string. This clamp is intended, tested
+  behavior — not an accident to be "fixed" (safe-mode D5).
 - **A non-boundary index PANICS.** An endpoint inside a rune is a programmer
   error — a byte offset that came from the wrong basis — not a range
   condition, and honouring it would hand back invalid UTF-8.
