@@ -67,15 +67,26 @@ another**. Reading the emitted C:
 
 ## The fix
 
-- **Unwind-side aborts are loud.** Both unwind-side -2 writers emit
+- **Unwind-side task aborts are loud.** Both unwind-side -2 writers emit
   `fprintf(stderr, "unhandled effect unwind aborted an async task\n");` before
   the RC decrement. The cancellation path (`__yo_task_abort`) is deliberately
   NOT touched — `race`/`timeout` abort loser tasks routinely, and warning on
   those would be constant noise. `JoinHandle.await` continues to return
   `.None` as the typed channel.
-- **The post-main flag belt.** All three arms of `generate_main_wrapper`
-  (POSIX worker, Windows worker, wasm direct call) now check the flag after
-  `__yo_user_main` and abort with a message, mirroring the module-init check.
+- **The post-`main` flag belt: DEFERRED, with the reason measured.** The
+  belt was built and CI caught it firing on LEGITIMATE programs: in a
+  handler-install frame (a local `(raise : Raise) = handler; raise(...)`
+  binding, the batch/test context), the escape path emits
+  `if (__yo_effect_escaped) { drop locals; return; }` — it exits the
+  install frame correctly but leaves the flag SET. Every later effect
+  protocol resets the flag in its prologue, so the dirt is invisible until
+  main exits — where the belt aborted. The unwind semantics are CORRECT in
+  these flows; the defect is flag hygiene at the install-frame exit
+  (`_call_is_handler_installation` rule 1 classifying the direct
+  local-handler call in the batch context as propagate instead of install,
+  or the install exit missing its clear). Filed as
+  `issues/effect-install-frame-exit-leaves-the-escaped-flag-dirty.md`; the
+  belt returns with that fix.
 
 ## Tests
 

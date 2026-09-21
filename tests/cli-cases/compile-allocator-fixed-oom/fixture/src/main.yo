@@ -23,7 +23,16 @@ Node :: ref(
     next : Option(Self)
   )
 );
-main :: (fn(io : Io, exn : Exception) -> unit)({
+main :: (fn(io : Io) -> unit)({
+  // exn is bound here, not taken as a parameter: the runtime provides main
+  // with `io : Io` only (safe-mode D7 / the main-signature rule).
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
   match(
     env.get(String.from("YO_FIXED_OOM_CHILD")),
     .Some(_) => {

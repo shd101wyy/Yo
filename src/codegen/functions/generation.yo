@@ -1439,16 +1439,6 @@ static void* __yo_main_thread_entry(void* __yo_unused_arg) {
   (void)__yo_unused_arg;
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-  // An effect unwind that escaped every handler must not exit silently.
-  // Today the async task boundaries clear the flag before it can get here
-  // (they convert an unwind into FutureState.Aborted and emit their own
-  // diagnostic), so this is the belt to the module-init check's braces: any
-  // future propagation path that leaves the flag set fails loudly instead
-  // of rc=0 (issues/fixed/effect-unwind-escaping-a-task-or-main-is-silent.md).
-  if (__yo_effect_escaped) {
-    fprintf(stderr, "unhandled effect unwind escaped to top level\\n");
-    abort();
-  }
   return NULL;
 }
 
@@ -1496,11 +1486,6 @@ static DWORD WINAPI __yo_main_thread_entry(LPVOID __yo_unused_arg) {
   (void)__yo_unused_arg;
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-  // Same escaped-unwind belt as the POSIX arm above.
-  if (__yo_effect_escaped) {
-    fprintf(stderr, "unhandled effect unwind escaped to top level\\n");
-    abort();
-  }
   return 0;
 }
 
@@ -1553,12 +1538,6 @@ int main(int argc, char** argv) {
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-  // Same escaped-unwind belt as the POSIX arm above (wasm calls main
-  // directly).
-  if (__yo_effect_escaped) {
-    fprintf(stderr, "unhandled effect unwind escaped to top level\\n");
-    abort();
-  }
 ${heap_report_call}  return 0;
 }
 `;

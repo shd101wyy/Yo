@@ -166,11 +166,15 @@ repro corrected it — recorded in
    `JoinHandle.abort()` path race/timeout use, writes the same state WITHOUT an
    unwind and is deliberately not touched — a cancelled loser must stay
    silent. `JoinHandle.await` continues to return `.None` as the typed channel.
-2. **The post-`__yo_user_main` flag belt** on all three arms of
-   `generate_main_wrapper` (POSIX worker, Windows worker, wasm direct):
-   `if (__yo_effect_escaped) { fprintf(stderr, ...); abort(); }` — unreachable
-   through today's surface (the boundaries clear the flag), kept as the
-   loud-not-silent invariant beside the module-init check.
+2. **The post-`__yo_user_main` flag belt: DEFERRED.** Built as designed, the
+   CI battery caught it firing on four legitimate `algebraic_effects` tests:
+   an install-frame unwind exit (`(raise : Raise) = handler; raise(...)`, the
+   batch/test shape) leaves the flag SET after correctly exiting the frame —
+   flag hygiene, not a swallowed error
+   (`issues/effect-install-frame-exit-leaves-the-escaped-flag-dirty.md`).
+   The belt returns with that fix; until then the module-init check remains
+   the only exit-time consumer, and the async-side diagnostics above carry
+   the loudness promise.
 
 **Validated** by patching the seed's emitted C for the fire-and-forget repro
 with the exact emitted snippets and running (diagnostic line appears, rc

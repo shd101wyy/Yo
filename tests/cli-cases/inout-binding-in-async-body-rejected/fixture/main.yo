@@ -14,7 +14,16 @@ task :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
     return(x);
   })
 );
-main :: (fn(io : Io, exn : Exception) -> unit)({
+main :: (fn(io : Io) -> unit)({
+  // exn is bound here, not taken as a parameter: the runtime provides main
+  // with `io : Io` only (safe-mode D7 / the main-signature rule).
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
   e := IoExn(io : io, exn : exn);
   r := io.await(task(io), e);
   assert(r == i32(2), "unreachable");
