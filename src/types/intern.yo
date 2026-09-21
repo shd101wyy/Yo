@@ -652,20 +652,44 @@ _ti_walk :: (fn(t : TypeValue, depth : usize) -> unit)({
       _ti_list(it.len());
       _ti_list(wt.len());
       _ti_list(vt.len());
-      _ti_walk_list(pt, depth);
+      (i_pt : usize) = usize(0);
+      while(i_pt < pt.len(), {
+        match(
+          pt.get(i_pt),
+          .Some(x) => _ti_walk(x, depth + usize(1)),
+          .None => ()
+        );
+        i_pt = (i_pt + usize(1));
+      });
       _ti_walk(rs, depth + usize(1));
     },
     .Struct({ field_types : fts, type_arguments : ta }) => {
       g_ti_struct = (g_ti_struct + usize(1));
       _ti_list(fts.len());
       _ti_list(ta.len());
-      _ti_walk_list(ta, depth);
+      (i_ta : usize) = usize(0);
+      while(i_ta < ta.len(), {
+        match(
+          ta.get(i_ta),
+          .Some(x) => _ti_walk(x, depth + usize(1)),
+          .None => ()
+        );
+        i_ta = (i_ta + usize(1));
+      });
     },
     .EnumT({ variant_types : vts, type_arguments : eta }) => {
       g_ti_enum = (g_ti_enum + usize(1));
       _ti_list(vts.len());
       _ti_list(eta.len());
-      _ti_walk_list(eta, depth);
+      (i_eta : usize) = usize(0);
+      while(i_eta < eta.len(), {
+        match(
+          eta.get(i_eta),
+          .Some(x) => _ti_walk(x, depth + usize(1)),
+          .None => ()
+        );
+        i_eta = (i_eta + usize(1));
+      });
     },
     .SomeT({ required_trait_types : rtt }) => {
       g_ti_some = (g_ti_some + usize(1));
@@ -679,19 +703,6 @@ _ti_walk :: (fn(t : TypeValue, depth : usize) -> unit)({
 });
 /// Walk each element of a type list (a helper, because Yo forbids the mutual
 /// recursion an inline loop calling `_ti_walk` would need from inside a match
-/// arm of `_ti_walk` itself — this one only calls DOWN).
-_ti_walk_list :: (fn(xs : ArrayList(TypeValue), depth : usize) -> unit)({
-  (i : usize) = usize(0);
-  while(i < xs.len(), {
-    match(
-      xs.get(i),
-      .Some(x) => _ti_walk(x, depth + usize(1)),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  ()
-});
 /// Record one retained type. No-op unless the probe knob is set.
 type_intern_probe_record :: (fn(t : TypeValue) -> unit)({
   if(!g_ti_probe_on, {
