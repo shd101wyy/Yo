@@ -539,6 +539,29 @@ construction, async task spawn, thread spawn, a deep `String` build.
 
 ### 5a Local elision (pure codegen, no Z3)
 
+**Measurement protocol (written 2026-09-22; the numbers land with the stack's
+CI runs).** The per-phase guard cost is read from CI's `test (ubuntu-latest)`
+job durations on consecutive stack branches — each branch is the previous
+plus exactly one phase, so the delta IS that phase's guard cost over the
+full corpus compile+run:
+
+```bash
+for b in safe-mode-0a safe-mode-0c safe-mode-1 safe-mode-2; do
+  id=$(gh run list --branch $b --workflow test.yml --limit 5 \
+        --json databaseId,conclusion,headSha \
+        --jq '[.[] | select(.conclusion == "success")][0].databaseId')
+  echo "$b $(gh run view $id --json jobs --jq \
+    '.jobs[] | select(.name == "test (ubuntu-latest)") |
+     ((.completed_at | fromdate) - (.started_at | fromdate))')"
+done
+```
+
+Branches 0a→0c share identical runtime codegen (0c is evaluator-only), so
+their spread measures noise; 0c→1 adds the `__yo_idx_chk` guards; 1→2 adds
+the div guards. Decision rule: if the 0c→1 delta is within noise (< ~2%),
+5a stays a documented non-change and the phase collapses into 5b; if it
+exceeds budget, build the two dominating-guard shapes below and re-measure.
+
 Two canonical dominating-guard shapes, recognized at emission:
 
 - a `while(i < LEN)` loop header dominating accesses to `i`-indexed
