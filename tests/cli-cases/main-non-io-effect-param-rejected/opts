@@ -1,0 +1,10 @@
+# main(io : Io, exn : Exception) used to compile and then SEGFAULT at the
+# first exn.throw: the C main wrapper zero-initializes parameters, and only
+# the Io record's members are name-dispatched builtins, so the Exception
+# record carried a NULL throw pointer. The entry-point signature check now
+# rejects any parameter that is not io : Io
+# (issues/fixed/main-effect-parameters-other-than-io-segfault.md).
+#
+# Recorded BY HAND (the recording binary must carry the check itself).
+stdout_keep_match=accepts at most an
+timeout=300

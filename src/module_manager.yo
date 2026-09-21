@@ -2160,8 +2160,9 @@ _reject_non_unit_main :: (fn(module_value : EvalValue, exn : Exception) -> unit)
             .Some(v) => match(
               v,
               .FuncVal(__main_fvd, _) => {
+                main_fty := get_func_type(__main_fvd.*.func_id.clone());
                 main_result := match(
-                  get_func_type(__main_fvd.*.func_id.clone()),
+                  main_fty,
                   .Func({ result : __main_res }) => __main_res,
                   _ => t_unit()
                 );
@@ -2175,6 +2176,44 @@ _reject_non_unit_main :: (fn(module_value : EvalValue, exn : Exception) -> unit)
                     )
                   );
                 });
+                // The C main wrapper zero-initializes every parameter
+                // (`_main_call_args` emits `(T){0}`), and only the `Io`
+                // record's members are name-dispatched builtins — every other
+                // effect record would carry NULL handler pointers and crash
+                // on first use. Nominal-name match, the same check the
+                // io-builtin classification uses (`struct_name == "Io"` in
+                // evaluator/calls/function.yo).
+                match(
+                  main_fty,
+                  .Func({ param_types : __main_pts }) => {
+                    (pi : usize) = usize(0);
+                    while(pi < __main_pts.len(), {
+                      match(
+                        __main_pts.get(pi),
+                        .Some(pt) => {
+                          pt_is_io := match(
+                            pt,
+                            .Struct({ name : __pt_name, is_source_namespace : __pt_sns }) => ((__pt_name == "Io") && !__pt_sns),
+                            _ => false
+                          );
+                          if(!pt_is_io, {
+                            exn.throw(
+                              dyn(
+                                format_error_message(
+                                  ast_expr_token(__main_fvd.*.body),
+                                  `"main" accepts at most an \`io : Io\` parameter, but this one takes ${type_to_string(pt)}. The runtime can only provide the Io record; any other effect record would carry NULL handler pointers and crash on first use. Bind handlers inside main instead (for example: exn := Exception(throw : ((err) -> { unwind(()); }));).`
+                                )
+                              )
+                            );
+                          });
+                        },
+                        .None => ()
+                      );
+                      pi = (pi + usize(1));
+                    });
+                  },
+                  _ => ()
+                );
               },
               _ => ()
             ),
