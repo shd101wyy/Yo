@@ -147,6 +147,16 @@ extern(
   __yo_op_mod : (fn(generic(T : Type), x : T, y : T) -> T),
   /// -
   __yo_op_neg : (fn(generic(T : Type), x : T) -> T),
+  // Wrapping arithmetic (safe mode Phase 3a-i): two's-complement wrap for
+  // signed (defined by -fwrapv), modular for unsigned. The escape hatch the
+  // + - * overflow traps are built on — for arithmetic that wraps BY DESIGN
+  // (hash mixing, counters, checksums).
+  /// wrapping add
+  __yo_op_add_wrap : (fn(generic(T : Type), x : T, y : T) -> T),
+  /// wrapping sub
+  __yo_op_sub_wrap : (fn(generic(T : Type), x : T, y : T) -> T),
+  /// wrapping mul
+  __yo_op_mul_wrap : (fn(generic(T : Type), x : T, y : T) -> T),
   // Relational Operators
   /// ==
   __yo_op_eq : (fn(generic(T : Type), x : T, y : T) -> bool),
@@ -5417,6 +5427,25 @@ impl(
       )
     )
   )
+);
+// Wrapping arithmetic (safe mode Phase 3a-i, plans/backlog/SAFE_MODE.md §6):
+// the BY-DESIGN-wrap escape hatch. The plain `+ - *` operators trap on
+// overflow (D1); these methods never do — they exist for arithmetic whose
+// SPEC is two's-complement wrap (hash mixing, sequence counters, checksums).
+// Each lowers to its own __yo_op_*_wrap builtin: the raw C op, which under
+// the unconditional -fwrapv is defined two's-complement wrap for signed and
+// modular arithmetic for unsigned. NOT comptime-evaluable (they are runtime
+// intrinsics, like every other extern-"Yo" builtin).
+impl(
+  generic(T : Type),
+  where(T <: Integer),
+  T,
+  /// `self + rhs` with two's-complement wrap on overflow.
+  wrapping_add : (fn(self : T, rhs : T) -> T)(__yo_op_add_wrap(self, rhs)),
+  /// `self - rhs` with two's-complement wrap on overflow.
+  wrapping_sub : (fn(self : T, rhs : T) -> T)(__yo_op_sub_wrap(self, rhs)),
+  /// `self * rhs` with two's-complement wrap on overflow.
+  wrapping_mul : (fn(self : T, rhs : T) -> T)(__yo_op_mul_wrap(self, rhs))
 );
 // The byte-conversion battery, written ONCE over `T` instead of four times per
 // integer type. This is what value substitution in a type position bought:

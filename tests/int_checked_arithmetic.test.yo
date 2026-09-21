@@ -549,3 +549,17 @@ test("byte conversions round-trip, including at the signed extremes", {
   assert(m(usize(1)) == u8(0), "i32.MIN be[1] == 0");
   assert(m(usize(3)) == u8(0), "i32.MIN be[3] == 0");
 });
+test("wrapping_add/sub/mul wrap two's-complement, never trap", {
+  // Unsigned: modular arithmetic.
+  assert(u64.MAX.wrapping_add(u64(1)) == u64(0), "u64 MAX+1 wraps to 0");
+  assert(u64(0).wrapping_sub(u64(1)) == u64.MAX, "u64 0-1 wraps to MAX");
+  assert(u8(250).wrapping_add(u8(10)) == u8(4), "u8 250+10 wraps to 4");
+  assert(u8(3).wrapping_mul(u8(100)) == u8(44), "u8 3*100 wraps to 44");
+  // Signed: two's-complement wrap across the sign boundary.
+  assert(i8.MAX.wrapping_add(i8(1)) == i8.MIN, "i8 MAX+1 wraps to MIN");
+  assert(i8.MIN.wrapping_sub(i8(1)) == i8.MAX, "i8 MIN-1 wraps to MAX");
+  assert(i8.MIN.wrapping_mul(i8(-1)) == i8.MIN, "i8 MIN*-1 wraps to MIN");
+  assert(i32(3).wrapping_mul(i32(4)) == i32(12), "3*4=12 without wrapping");
+  assert(i32.MAX.wrapping_add(i32(1)) == i32.MIN, "i32 MAX+1 wraps to MIN");
+  assert(i32.MIN.wrapping_sub(i32(1)) == i32.MAX, "i32 MIN-1 wraps to MAX");
+});

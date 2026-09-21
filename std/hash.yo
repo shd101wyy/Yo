@@ -92,17 +92,19 @@ impl(
     self.length = usize(0);
   }),
   _round : (fn(inout(self) : Self) -> unit)({
-    self.v0 = (self.v0 + self.v1);
+    // SipHash's mixing is DEFINED by two's-complement wrap: every add here
+    // is a wrapping_add (safe mode D1 — plain + traps on overflow).
+    self.v0 = self.v0.wrapping_add(self.v1);
     self.v1 = _rotl64(self.v1, u64(13));
     self.v1 = (self.v1 ^ self.v0);
     self.v0 = _rotl64(self.v0, u64(32));
-    self.v2 = (self.v2 + self.v3);
+    self.v2 = self.v2.wrapping_add(self.v3);
     self.v3 = _rotl64(self.v3, u64(16));
     self.v3 = (self.v3 ^ self.v2);
-    self.v0 = (self.v0 + self.v3);
+    self.v0 = self.v0.wrapping_add(self.v3);
     self.v3 = _rotl64(self.v3, u64(21));
     self.v3 = (self.v3 ^ self.v0);
-    self.v2 = (self.v2 + self.v1);
+    self.v2 = self.v2.wrapping_add(self.v1);
     self.v1 = _rotl64(self.v1, u64(17));
     self.v1 = (self.v1 ^ self.v2);
     self.v2 = _rotl64(self.v2, u64(32));
@@ -213,7 +215,9 @@ impl(
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
         // SAFETY: `size` readable bytes at `buf`, `i < size`.
-        self.state = ((self.state ^ u64(unsafe((buf.add(i)).*))) * u64(1099511628211));
+        // FNV-1a: (state ^ byte) * prime — the multiply wraps BY DESIGN
+        // (wrapping_mul, safe mode D1).
+        self.state = (self.state ^ u64(unsafe((buf.add(i)).*))).wrapping_mul(u64(1099511628211));
       });
     }),
     finish : (fn(inout(self) : Self) -> u64)(self.state)
