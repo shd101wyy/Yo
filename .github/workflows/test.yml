@@ -1462,6 +1462,65 @@ jobs:
             "$YO" test ./std --bail --verbose --c-compiler clang $TEST_SAN_FLAG
           fi
 
+  # Stage 1 built ONCE per battery and shared. Before this job, five Linux jobs
+  # (bootstrap-fixpoint, bootstrap-self-test, compiler-internal-tests-selfhosted,
+  # test-tsan, hollow-sweep) each ran their own ~12-minute `yo build` of the
+  # identical seed-built binary: ~50 redundant runner-minutes per battery, and
+  # on a runner-constrained queue that is wall-clock too. The `test` job keeps
+  # its own build: it is the multi-OS matrix and its stage 1 IS the thing under
+  # test there. `suite-candidate` stays separate as well: that artifact is a
+  # STAGE-2 binary (the candidate compiles the tree) for the cross-emit legs.
+  stage1:
+    name: Build stage 1 once (seed `yo build`, shared by the self-hosted jobs)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+      - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
+        run: |
+          # --std-path ./std is LOAD-BEARING. Without it the seed self-locates
+          # its OWN bundled std (the walk-up from its bin/ dir), so stage-1
+          # would be "current yo-self sources + the PREVIOUS RELEASE's std" —
+          # a hybrid that never ships, which both masks std regressions and
+          # can manufacture failures. Measured 2026-08-11: a seed-compiled
+          # program picked up the seed's std/env.yo (3 mi_free errors from the
+          # already-fixed cross-allocator free) and 0 with --std-path ./std.
+          # P2.5 step 24b: canonical builder is `yo build` (equivalence
+          # measured — see the `test` job's note). --std-path IS forwarded to
+          # the child compile.
+          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
+          cp "$(ls yo-out/*/bin/yo | head -1)" yo-stage1
+      - name: Upload stage 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: yo-stage1
+          path: yo-stage1
+          retention-days: 1
+          if-no-files-found: error
+
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
   # stage-2 emit had already churned the box for an hour — "the hosted
@@ -1475,7 +1534,7 @@ jobs:
   # byte-identical, first held at 65ebcdbb2.
   bootstrap-fixpoint:
     name: Bootstrap fixpoint (yo-self self-compile)
-    needs: changes
+    needs: [changes, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -1528,21 +1587,19 @@ jobs:
       # fixpoint compares mimalloc-flavored C on both sides (verified to
       # hold locally). Stage-1 is now itself a self-hosted emit (the seed),
       # so it runs niced with the zswap prep the stage-2 emit uses.
-      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
+      - name: Tune zswap for the emits
+        run: echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+      - name: "Stage 1: download the self-hosted compiler (built ONCE by the `stage1` job)"
+        # The fixpoint's stage 1 is the same seed-built binary every self-hosted
+        # job used to rebuild; `stage1` builds it once (with `--std-path ./std`,
+        # see that job's note) and this job starts at stage 2.
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+      - name: Install the stage-1 binary
         run: |
-          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
-          # --std-path ./std is LOAD-BEARING. Without it the seed self-locates
-          # its OWN bundled std (the walk-up from its bin/ dir), so stage-1
-          # would be "current yo-self sources + the PREVIOUS RELEASE's std" —
-          # a hybrid that never ships, which both masks std regressions and
-          # can manufacture failures. Measured 2026-08-11: a seed-compiled
-          # program picked up the seed's std/env.yo (3 mi_free errors from the
-          # already-fixed cross-allocator free) and 0 with --std-path ./std.
-          # P2.5 step 24b: canonical builder is `yo build` (equivalence
-          # measured — see the `test` job's note). The --std-path rationale
-          # above is unchanged and IS forwarded to the child compile.
-          nice -n 10 env YO_MAIN_STACK_MB=4096 yo build --std-path ./std
-          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
+          chmod +x yo-stage1
+          mv yo-stage1 /tmp/yo-stage1
 
       # Memory plan for the emits (measured 2026-08-04, handoff doc §1):
       # the emit holds ~9 GB live but TOUCHES ~28 GB (stage-2) / ~39 GB
@@ -1718,7 +1775,7 @@ jobs:
   # batch reporting passes while running nothing.
   bootstrap-self-test:
     name: Self-hosted `test` subcommand (yo-self tier-1 gates)
-    needs: changes
+    needs: [changes, stage1]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -1770,15 +1827,18 @@ jobs:
       - name: Fetch the project's Yo dependencies
         uses: ./.github/actions/install-deps
 
-      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
-        # --std-path ./std is load-bearing: without it the seed compiles against
-        # its own bundled std, not this checkout's. See the fixpoint job.
-        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
-        # job's note for the equivalence measurement). --std-path is forwarded
-        # to the child compile by build_runner.yo.
+      - name: "Stage 1: download the self-hosted compiler (built ONCE by the `stage1` job)"
+        # One `yo build` per battery instead of one per self-hosted job — the
+        # binary is the same seed-built stage 1 every one of these jobs used to
+        # rebuild for itself (P2.5 step 24b: `yo build` stays the canonical
+        # builder; it just runs in `stage1`).
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+      - name: Install the stage-1 binary
         run: |
-          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
-          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
+          chmod +x yo-stage1
+          mv yo-stage1 /tmp/yo-stage1
 
       # YO_MAIN_STACK_MB: compiled Yo programs run main on a worker thread whose
       # stack defaults to 1 GiB; the self-hosted compiler's deep comptime
@@ -1846,7 +1906,7 @@ jobs:
   # src/main.yo) and takes ~22 min after a ~5 min stage-1 build.
   compiler-internal-tests-selfhosted:
     name: Compiler internal tests (tests/internal, self-hosted differential shard ${{ matrix.shard }})
-    needs: changes
+    needs: [changes, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # Sharded 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md,
@@ -1906,15 +1966,18 @@ jobs:
       - name: Fetch the project's Yo dependencies
         uses: ./.github/actions/install-deps
 
-      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
-        # --std-path ./std is load-bearing: without it the seed compiles against
-        # its own bundled std, not this checkout's. See the fixpoint job.
-        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
-        # job's note for the equivalence measurement). --std-path is forwarded
-        # to the child compile by build_runner.yo.
+      - name: "Stage 1: download the self-hosted compiler (built ONCE by the `stage1` job)"
+        # One `yo build` per battery instead of one per self-hosted job — the
+        # binary is the same seed-built stage 1 every one of these jobs used to
+        # rebuild for itself (P2.5 step 24b: `yo build` stays the canonical
+        # builder; it just runs in `stage1`).
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+      - name: Install the stage-1 binary
         run: |
-          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
-          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
+          chmod +x yo-stage1
+          mv yo-stage1 /tmp/yo-stage1
 
       - name: Run tests/internal under the self-hosted binary (differential)
         env:
@@ -2156,7 +2219,7 @@ jobs:
 
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang)
-    needs: changes
+    needs: [changes, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # 60 was enough while this job's stage-1 fitted in RAM (16 min on the
@@ -2205,15 +2268,18 @@ jobs:
       - name: Fetch the project's Yo dependencies
         uses: ./.github/actions/install-deps
 
-      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
-        # --std-path ./std is load-bearing: without it the seed compiles against
-        # its own bundled std, not this checkout's. See the fixpoint job.
-        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
-        # job's note for the equivalence measurement). --std-path is forwarded
-        # to the child compile by build_runner.yo.
+      - name: "Stage 1: download the self-hosted compiler (built ONCE by the `stage1` job)"
+        # One `yo build` per battery instead of one per self-hosted job — the
+        # binary is the same seed-built stage 1 every one of these jobs used to
+        # rebuild for itself (P2.5 step 24b: `yo build` stays the canonical
+        # builder; it just runs in `stage1`).
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+      - name: Install the stage-1 binary
         run: |
-          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
-          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
+          chmod +x yo-stage1
+          mv yo-stage1 /tmp/yo-stage1
 
       # P2.5 step 21 asked for a vacuity assertion here — grep the leg's log for
       # `-fsanitize=thread`, because an UNinstrumented run passes exactly like a
@@ -2426,7 +2492,7 @@ jobs:
   # battery. They are allowlisted with that note.
   hollow-sweep:
     name: Full-corpus hollow sweep (all 188 language files, self-hosted)
-    needs: changes
+    needs: [changes, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -2470,15 +2536,18 @@ jobs:
       - name: Fetch the project's Yo dependencies
         uses: ./.github/actions/install-deps
 
-      - name: "Stage 1: build the self-hosted compiler with the SEED (previous release)"
-        # --std-path ./std is load-bearing: without it the seed compiles against
-        # its own bundled std, not this checkout's. See the fixpoint job.
-        # P2.5 step 24b: `yo build` is the canonical builder (see the `test`
-        # job's note for the equivalence measurement). --std-path is forwarded
-        # to the child compile by build_runner.yo.
+      - name: "Stage 1: download the self-hosted compiler (built ONCE by the `stage1` job)"
+        # One `yo build` per battery instead of one per self-hosted job — the
+        # binary is the same seed-built stage 1 every one of these jobs used to
+        # rebuild for itself (P2.5 step 24b: `yo build` stays the canonical
+        # builder; it just runs in `stage1`).
+        uses: actions/download-artifact@v4
+        with:
+          name: yo-stage1
+      - name: Install the stage-1 binary
         run: |
-          YO_MAIN_STACK_MB=4096 nice -n 10 yo build --std-path ./std
-          cp "$(ls yo-out/*/bin/yo | head -1)" /tmp/yo-stage1
+          chmod +x yo-stage1
+          mv yo-stage1 /tmp/yo-stage1
 
       - name: Sweep every language test file through the self-hosted binary
         env:
