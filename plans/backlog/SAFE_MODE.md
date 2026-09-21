@@ -225,58 +225,81 @@ Note `String.substring` stays legal despite panicking on intra-rune offsets: its
 precondition is value-level (class 2), and classification is by the criterion, not by
 whether a `try_*` alternative happens to exist.
 
-**The comptime carve-out — unwrap is legal wherever it is decidable.** `unwrap` on a
-comptime-known `Option` stays legal: the evaluator decides Some-ness at compile time
-(the implementation must VERIFY that a comptime `unwrap` of `.None` is a compile error
-today — `std/assert`'s `panic` comptime-evaluates its message — and make it one if it
-is not; that is the carve-out's teeth). CTFE is Yo's proof engine for values today;
-Phase 5b's verifier generalizes it, at which point `opt.unwrap()` inside a verified
-function upgrades to `requires(is_some)` — the spelling survives, the semantics move
-from hope to tier 1. **The ban is "until unwrap is checkable", not forever.**
+**The comptime carve-out — the assumption FAILED, carve-out deferred.** The
+plan assumed a comptime `unwrap` of `.None` already fails the compile.
+Measured 2026-09-22 on the seed: `o := Option(i32).None; o.unwrap();` passes
+`yo check` and **panics at runtime (rc 134)** — there is no CTFE fold of
+`unwrap`, so a comptime exemption would leave the panic reachable. V1
+therefore has NO comptime exemption; the carve-out lands together with the
+evaluator change that makes comptime `unwrap` of `.None` a compile error
+(CTFE folding), which is also what Phase 5b's `requires(is_some)` upgrade
+builds on. The spelling survives; the semantics upgrade when the machinery
+exists.
 
-**Mechanism.** Evaluator-only, beside the existing safe-mode gates
-(`src/evaluator/memory_safety.yo` family): a registry of (type, method) pairs —
-`(Option, unwrap)`, `(Option, expect)`, `(Result, unwrap)`, `(Result, unwrap_err)` —
-rejected at **two** sites, because gating calls alone is bypassable via method
-extraction (`Option(i32).unwrap` as a callable value — enum method extraction works,
-yo-design instructions): (1) method-call resolution, (2) the method-extraction path.
-New diagnostic code in the registry (`src/diagnostics_registry.yo`, an `E0xxx` with a
-`yo explain` entry and a `yo fix` repair suggesting `unwrap_or` / `unwrap_or_else` /
-`match` / propagation). Exemptions, each a deliberate documented rule, not a hole:
+**Mechanism (as built).** Evaluator-only, three gate sites over the shared
+predicates in `src/evaluator/memory_safety.yo`
+(`is_class1_panic_method_name` / `is_class1_panic_receiver_type` /
+`is_class1_panic_exempt_file` — nominal `EnumT` name match on
+Option/Result, the same rule the io-builtin classification uses):
 
-- `*.test.yo` files — tests are where optimism is cheap: an unwrapped `.None` fails
-  the test loudly with a perfect diagnostic, which is the test doing its job. Every
-  human lint policy exempts tests for this reason. (2,497 in-tree sites stay.)
-- `std/` — the quarantine zone for this vocabulary, as it already is for raw
-  pointers; its 234 internal `unwrap` sites migrate on a ratchet, not a big bang.
-- `pragma(Pragma.AllowUnsafe)` files — exempt by definition.
-- comptime contexts, per the carve-out above.
+1. property_access.yo, metadata gate — the receiver's ExprInfo names the
+   type without re-evaluating anything (variable receivers, the 99% form);
+2. property_access.yo, TypeVal arm — `Option(i32).unwrap` as an EXTRACTION
+   (the bypass form);
+3. calls/function.yo, dispatch gate beside `_reject_private_method_call` —
+   the receiver type comes from the RESOLVED method's own first parameter,
+   so it catches fresh call-result receivers the metadata gate cannot see
+   (`make(flag).unwrap()`).
 
-A declaration-site `panics` marker that generalizes the registry to user libraries is
-the documented future extension — build it when a second library needs it, not before.
+Exemptions (each a documented rule, not a hole): `*.test.yo` (2,497
+in-tree sites stay — a failed unwrap fails the test loudly, the test doing
+its job), `std/` (the quarantine zone; 234 internal sites migrate on a
+ratchet), `pragma(Pragma.AllowUnsafe)` files, compiler-synthesized
+`auto-generated://` code. New diagnostic via
+`format_error_message_with_help` (the pointer-gate precedent — the
+E0xxx/`yo fix` registry entry is deferred until the first diagnostic sweep
+of this campaign's gates). A declaration-site `panics` marker that
+generalizes the registry to user libraries is the documented future
+extension — build it when a second library needs it, not before.
 
-**Migration (measured 2026-09-22).** `src/`: 163 `Option.unwrap` sites across 18 files
-(`.expect`/`unwrap_err` are unused outside prelude; `vendor/` and `scripts/` are clean —
-0 uses, so no dependency or GATE-8 churn). Each migrated site gets a real decision — a
-typed default, a `match`, or a visible `panic` arm carrying the invariant — which is
-the dogfooding value: the compiler states its invariants instead of hoping. The gate
-and the migration land together in one PR (`yo check ./src` is the first gate — it
-fails otherwise).
+**Governance — how the list stays honest.** (1) `src/public_safe_report.yo`
+grows a class-1 section cross-checking the predicates against reality, so a
+renamed or newly added class-1 function is a report diff, not a silent
+hole. (2) std policy, extending the D1 three-styles rule: **no NEW class-1
+APIs** — a new accessor whose failure is in the type must force handling;
+`unwrap`-style helpers exist only as the escape vocabulary. (3) The
+accepted loophole: user code can hand-write `fn unwrap2(o : Option(T)) ->
+T` with a `match` + `panic` body — visible, greppable, carrying its
+invariant in source. That is the ban working (converting invisible
+optimism into a statement), not a hole to close.
 
-**Governance — how the list stays honest.** (1) `src/public_safe_report.yo` grows a
-class-1 section cross-checking the registry against reality, so a renamed or newly
-added class-1 function is a report diff, not a silent hole. (2) std policy, extending
-the D1 three-styles rule: **no NEW class-1 APIs** — a new accessor whose failure is in
-the type must force handling; `unwrap`-style helpers exist only as the escape
-vocabulary. (3) The accepted loophole: user code can hand-write `fn unwrap2(o :
-Option(T)) -> T` with a `match` + `panic` body — visible, greppable, carrying its
-invariant in source. That is the ban working (converting invisible optimism into a
-statement), not a hole to close.
+**Migration (as measured, corrected 2026-09-22).** The raw count overstated
+the work: 155 of the 163 `src/` sites already sit in
+`pragma(Pragma.AllowUnsafe)` files (exempt). The migration was **19 sites
+in 5 files**, each with a real decision: provably-Some sites (guards
+checked immediately before) carry visible `__yo_panic("invariant")` arms;
+the genuinely fallible version parsers in resolver.yo now return
+`Result.Err` naming the input instead of aborting (behavior-compatible for
+every valid input, and `parse_version_req` exists to report exactly this);
+the two post-`throw` unreachable fillers use `__yo_panic` directly.
+`vendor/` and `scripts/` were clean (0 uses). The gate and the migration
+land together in one PR (`yo check ./src` is the first gate — it fails
+otherwise).
 
-**Tests.** `comptime_expect_error` cases for each registry entry in both the call and
-the extraction form (the `tests/reserved_operators.test.yo` shape); positive tests that
-`AllowUnsafe` files, `*.test.yo` files, and comptime contexts still compile and run;
-the migrated `src/` tree under the standard battery is the large regression.
+**Mechanism.** See the as-built description above (three gate sites over
+shared predicates in `memory_safety.yo`; exemptions for `*.test.yo`, `std/`
+(ratchet), `AllowUnsafe`, auto-generated code; `public_safe_report`
+cross-check and std policy *no new class-1 APIs*; the hand-rolled
+`unwrap2` loophole is accepted — visible optimism carrying its own
+invariant is the ban working).
+
+**Tests.** cli-cases `safe-mode-unwrap-rejected` (call form),
+`safe-mode-unwrap-extraction-rejected` (extraction form),
+`safe-mode-unwrap-allowed-with-pragma` (the AllowUnsafe exemption, rc 0) —
+goldens recorded by hand, the recording binary must carry the gate; the
+exempt `*.test.yo` and `std/` corpora ARE the positive tests (2,497 +
+234 sites compile and run through every battery); the migrated `src/` tree
+under the standard battery is the large regression.
 
 ## 4. Phase 1 — bounds-checked indexing builtins (closes H1, H2, H3)
 

@@ -65,6 +65,26 @@ main :: (fn() -> unit)({
 
 原则：**任何可能让用户写出 UB 的构造都被门控。** 用户既然无法构造原始指针，就无法解引用 —— 就这样。
 
+## 乐观恐慌词汇：安全代码禁用 `unwrap`
+
+对 `Option`/`Result` 调用 `.unwrap()`、`.expect(...)`、`.unwrap_err()` 在安全文件中是**编译错误**。接收者的类型已经说明"这可能失败"，而这个调用丢弃了该信息，并在失败分支终止程序。请改为处理失败情形：
+
+```rust
+// 编译错误 —— 未处理 None 分支：
+best := scores.max().unwrap();
+
+// 处理它 —— match：
+best := match(scores.max(), .Some(s) => s, .None => i32(0));
+// ……或默认值 / 计算出的回退：
+best := scores.max().unwrap_or(i32(0));
+best := scores.max().unwrap_or_else(() => recompute());
+// ……或把 Option/Result 传播给你的调用方。
+```
+
+这是安全模式规则 D7（`plans/backlog/SAFE_MODE.md`）：调用不得抹除类型所携带的失败信息。它并不是禁止中止 —— `panic(...)` 和 `assert(...)` 仍然合法（刻意的中止是作者响亮的表态，`assert` 也是测试基础设施的基础），值级别的陷阱（如边界检查的索引）也仍然合法（它们的失败是类型从未携带的*值*前提条件，属于算术语义工作的范畴，而非本规则）。
+
+豁免：`tests/*.test.yo`（失败的 unwrap 会让该测试响亮地失败 —— 这正是测试的本职）、标准库、`pragma(Pragma.AllowUnsafe)` 文件，以及编译器合成的代码。编译期上下文目前**不**豁免：编译期已知的 `.None` 如今仍会生成运行时 unwrap（没有 CTFE 折叠），因此它仍是一个可达的陷阱。
+
 ## 原地修改：`inout(name) : T`
 
 C / Rust 用 `&mut T` 解决的模式，在安全 Yo 中由一个参数修饰符解决：

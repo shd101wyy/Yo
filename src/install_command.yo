@@ -179,8 +179,9 @@ load_project_manifest :: (fn(exn : Exception) -> Manifest)({
     .Ok(m) => m,
     .Err(msg) => {
       exn.throw(dyn(`Error: ${msg}`));
-      // unreachable — the throw unwinds
-      load_manifest(String.new(), exn).unwrap()
+      // unreachable — the throw unwinds; the diverging arm satisfies the
+      // type without an unwrap (safe-mode D7)
+      __yo_panic("install: unreachable — exn.throw above unwinds")
     }
   )
 });
@@ -364,7 +365,15 @@ run_add :: (
           tag_opt,
           .Some(tag) => {
             // `v1.2.3` → `^1.2.3`: the range that follows compatible releases.
-            sv := parse_semver(tag.clone()).unwrap();
+            // resolve_latest_tag hands back tags filtered by
+            // semver_tags_from_ls_remote, so the parse cannot fail; the panic
+            // arm carries that invariant (safe-mode D7). parse_semver yields
+            // Option(SemVer).
+            sv := match(
+              parse_semver(tag.clone()),
+              .Some(parsed) => parsed,
+              .None => __yo_panic("install: parse_semver(tag) — tag came from semver_tags_from_ls_remote")
+            );
             range := `^${sv.major.to_string()}.${sv.minor.to_string()}.${sv.patch.to_string()}`;
             Option(DependencySource).Some(DependencySource.Git(git_url.clone(), GitRequirement.Version(range), git_subdir.clone()))
           },
@@ -378,7 +387,16 @@ run_add :: (
       branch := e.io.await(resolve_default_branch(git_url.clone(), e.io, e.exn), e);
       source = Option(DependencySource).Some(DependencySource.Git(git_url.clone(), GitRequirement.Branch(branch), git_subdir.clone()));
     });
-    value := dependency_value_text(source.unwrap());
+    // source is Some here: resolved from the tag above, or the needs_latest
+    // branch pinned the default branch; the panic arm carries that invariant
+    // (safe-mode D7).
+    value := dependency_value_text(
+      match(
+        source,
+        .Some(src) => src,
+        .None => __yo_panic("install: source — resolved above (tag hit or default-branch pin)")
+      )
+    );
     table := if(options.dev, String.from("dev-dependencies"), String.from("dependencies"));
     other_table := if(options.dev, String.from("dependencies"), String.from("dev-dependencies"));
     match(
@@ -564,7 +582,9 @@ _bump_ranges_to_latest :: (
           .Ok(r) => r,
           .Err(msg) => {
             e.exn.throw(dyn(`Error: ${manifest.path}: dependency "${dep.name}": version requirement "${range_text}": ${msg}`));
-            parse_version_req(String.from("*")).unwrap()
+            // unreachable — the throw unwinds; "*" always parses, and the
+            // diverging arm satisfies the type without an unwrap (safe-mode D7)
+            __yo_panic("install: unreachable — exn.throw above unwinds")
           }
         );
         match(
