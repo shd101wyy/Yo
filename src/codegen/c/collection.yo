@@ -5,6 +5,7 @@
 //! (CodegenTypeEntry / CodegenExternFnEntry, supplied at registration) and
 //! read from there here.
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 { CodeGenContext } :: import("../utils/index.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 { emit_fixed_allocator_defines, emit_fixed_allocator_impl } :: import("./allocator_fixed.yo");
@@ -49,6 +50,66 @@ collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
     );
   });
 });
+/// The C includes to emit, IN ORDER, for one target: the registered set with
+/// platform-incompatible headers filtered out, plus the platform's own file-op
+/// headers, plus the one ordering constraint C forces on us.
+///
+/// **`<windows.h>` must come first on Windows.** Every other Win32 header —
+/// `<psapi.h>`, `<bcrypt.h>`, `<io.h>` — is written against the types and
+/// calling-convention macros `<windows.h>` defines, and including one of them
+/// first is a compile error, not a warning. The registered set is a HashSet,
+/// so its iteration order is a hash order with no relation to that
+/// dependency: a `c_include("<psapi.h>", …)` was emitted BEFORE the
+/// `<windows.h>` the platform block appended at the end, and the Windows leg
+/// would not have built
+/// (issues/fixed/windows-dependent-headers-emitted-before-windows-h.md).
+/// Hoisting it here also removes the duplicate the old trailing block left.
+///
+/// Pure and list-in/list-out so the order is unit-testable without a
+/// `CodeGenContext` (`tests/internal/c_include_order.test.yo`); non-Windows
+/// output is unchanged from the pre-hoist emission, element for element.
+ordered_c_includes :: (
+  fn(registered : ArrayList(String), is_windows : bool, is_macos : bool) -> ArrayList(String)
+)({
+  out := ArrayList(String).new();
+  if(is_windows, {
+    out.push(String.from("<windows.h>"));
+  });
+  (ri : usize) = usize(0);
+  while(ri < registered.len(), {
+    match(
+      registered.get(ri),
+      .Some(include) => {
+        // Headers that simply do not exist on the other platform. A registered
+        // c_include can leak from a comptime-eliminated platform branch —
+        // emitting it would be a fatal `file not found`. Code that genuinely
+        // uses these is platform-guarded in std, and the platform block below
+        // re-adds the right ones for the actual target.
+        skip_posix := (is_windows && ((include == "<unistd.h>") || (include == "<dirent.h>")));
+        skip_windows := (!is_windows && ((include == "<windows.h>") || (include == "<bcrypt.h>") || (include == "<io.h>")));
+        skip_macos := (!is_macos && (include == "<mach-o/dyld.h>"));
+        // Already hoisted above.
+        skip_hoisted := (is_windows && (include == "<windows.h>"));
+        if(!(((skip_posix || skip_windows) || skip_macos) || skip_hoisted), {
+          out.push(include.clone());
+        });
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  // Platform-specific includes for file operations.
+  if(is_windows, {
+    out.push(String.from("<bcrypt.h>"));
+    out.push(String.from("<io.h>"));
+    out.push(String.from("<sys/stat.h>"));
+  }, {
+    out.push(String.from("<unistd.h>"));
+    out.push(String.from("<sys/stat.h>"));
+    out.push(String.from("<sys/random.h>"));
+  });
+  out
+});
 /// Emit C include headers (platform feature macros, the collected includes
 /// with platform-incompatible headers filtered out, platform-specific file-op
 /// includes, and the allocator compatibility layer).
@@ -77,11 +138,9 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
     context.emitter.emit_header_line("#define _GNU_SOURCE  // Needed for sched_getcpu() on Linux");
   });
   context.emitter.emit_header_line("");
-  // Headers that simply do not exist on the other platform. A registered
-  // c_include can leak from a comptime-eliminated platform branch — emitting
-  // it would be a fatal `file not found`. Code that genuinely uses these is
-  // platform-guarded in std, and the guarded block below re-adds the right
-  // ones for the actual target.
+  // The registered set, in its own iteration order — `ordered_c_includes`
+  // applies the platform filters and the one C ordering constraint.
+  registered := ArrayList(String).new();
   include_iter := context.c_includes.into_iter();
   // Loop via a flag, NOT `return(())`: a bare return would exit the whole
   // function and skip the platform includes + allocator defines below.
@@ -90,30 +149,26 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
     match(
       include_iter.next(),
       .Some(include) => {
-        skip_posix := (is_windows && ((include == "<unistd.h>") || (include == "<dirent.h>")));
-        skip_windows := (!is_windows && ((include == "<windows.h>") || (include == "<bcrypt.h>") || (include == "<io.h>")));
-        skip_macos := (!is_macos && (include == "<mach-o/dyld.h>"));
-        if(!(skip_posix || skip_windows || skip_macos), {
-          line := String.from("#include ");
-          line.push_string(include);
-          context.emitter.emit_header_string_line(line);
-        });
+        registered.push(include);
       },
       .None => {
         go_inc = false;
       }
     );
   });
-  // Platform-specific includes for file operations.
-  if(is_windows, {
-    context.emitter.emit_header_line("#include <windows.h>");
-    context.emitter.emit_header_line("#include <bcrypt.h>");
-    context.emitter.emit_header_line("#include <io.h>");
-    context.emitter.emit_header_line("#include <sys/stat.h>");
-  }, {
-    context.emitter.emit_header_line("#include <unistd.h>");
-    context.emitter.emit_header_line("#include <sys/stat.h>");
-    context.emitter.emit_header_line("#include <sys/random.h>");
+  ordered := ordered_c_includes(registered, is_windows, is_macos);
+  (oi : usize) = usize(0);
+  while(oi < ordered.len(), {
+    match(
+      ordered.get(oi),
+      .Some(include) => {
+        line := String.from("#include ");
+        line.push_string(include);
+        context.emitter.emit_header_string_line(line);
+      },
+      .None => ()
+    );
+    oi = (oi + usize(1));
   });
   // Add allocator compatibility layer based on the allocator option.
   context.emitter.emit_header_line("");
@@ -210,4 +265,4 @@ static inline void* __yo_rc_alloc(size_t size) {
   );
   context.emitter.emit_header_line("");
 });
-export(collect_c_includes, emit_c_includes);
+export(collect_c_includes, emit_c_includes, ordered_c_includes);

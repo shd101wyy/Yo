@@ -5275,7 +5275,9 @@ try_to_call_function_with_arguments :: (
             // prelude:6801). The §7 warm-bug cure therefore has to clone
             // the WHOLE signature per call (fresh SomeTs substituted
             // through func_type AND bound in the env, coherently) — see
-            // issues/warm-test-batches-doc-stability-genericimplentry.md.
+            // issues/fixed/warm-test-batches-doc-stability-genericimplentry.md
+            // (measured root cause: type ids minted in the per-compile
+            // emission namespace; the signature clone was NOT needed).
             if(sg_is_forall || !(sg_already_bound), {
               add_variable_to_env(
                 callee_env,

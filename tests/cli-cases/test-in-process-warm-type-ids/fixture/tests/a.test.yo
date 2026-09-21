@@ -1,0 +1,9 @@
+{ assert } :: import("std/assert");
+{ Node } :: import("./node.yo");
+
+test("first file: Node(i32)", {
+  leaf := Node(i32)(value : i32(2), next : Option(Node(i32)).None);
+  root := Node(i32)(value : i32(1), next : Option(Node(i32)).Some(leaf));
+  total := match(root.next, .Some(n) => (root.value + n.value), .None => root.value);
+  assert(total == i32(3), "sum through the child");
+});

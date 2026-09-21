@@ -3,7 +3,7 @@
 **Status:** OPEN (mechanism measured 2026-09-20; the fix below was
 implemented and REVERTED after A/B — see the end). Found 2026-09-20 while
 characterizing the doc_stability warm bug
-(issues/warm-test-batches-doc-stability-genericimplentry.md) — the two are
+(issues/fixed/warm-test-batches-doc-stability-genericimplentry.md) — the two are
 siblings of the same shared-signature-slot disease.
 
 ## Symptom
@@ -79,6 +79,6 @@ split into two identical C structs). A/B: pairing-only still failed; both
 off passed 15/15. The pairing's invariant ("every concrete is preceded by
 its own marker") does not hold — marker-less concrete appends exist — so it
 misattributes. Both reverted; the record lives in
-issues/warm-test-batches-doc-stability-genericimplentry.md's 2026-09-20
+issues/fixed/warm-test-batches-doc-stability-genericimplentry.md's 2026-09-20
 section. Reviving this fix requires enforcing the marker-before-concrete
 invariant at every concrete append site first.

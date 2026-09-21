@@ -8,7 +8,13 @@ Phase 3 (per-definition deps) steps 1, 2 and 4 LANDED 2026-09-12/14, the
 stale-callee bug behind the signature-edit gate FIXED 2026-09-21 (#809; §6),
 step 3 (signature/body hash split) and the destructured-reader re-bind open;
 Phase 4 (resident evaluator) steps 1, 2 and 4 LANDED 2026-09-13..18, step 3
-(`yo test` in-process) GATED behind `YO_TEST_IN_PROCESS=1` (§7); Phase 5
+(`yo test` in-process) COMPLETE and deliberately OPT-IN behind
+`YO_TEST_IN_PROCESS=1` (§7) — its measured breaker FIXED 2026-09-21 (type ids
+minted in the per-compile emission namespace;
+issues/fixed/warm-test-batches-doc-stability-genericimplentry.md), all 92
+files pass in one process, and the opt-in is a MEASURED decision: the 2.07x
+needs a valve ceiling above one file's universe, which a CI runner cannot
+spare; Phase 5
 step 1 (`--chunk-by module`) LANDED + MEASURED 2026-09-21 (#808; §8 — the C
 leg is 13 s of a 188 s loop, so steps 2–3 are dropped and step 4 stands).
 Remaining before graduation to `plans/reference/`: Phase 3 step 3 and
@@ -603,6 +609,48 @@ Design:
    `comptime_assert` over its value) depends on the body. The evaluator
    knows which it did at the force point. First cut: record everything as
    body-dependent (correct, over-invalidates), measure, then split.
+   **ANALYSIS 2026-09-21 — step 3 and the destructured-reader re-bind are
+   ONE item, and its hard half is a single missing signal.** Reading both
+   against the landed machinery:
+
+   - A destructured importer (`{ helper } :: import("./lib.yo")`) binds
+     `helper` BY VALUE into its own module frame, so its definitions
+     resolve the name locally and record NO def-level edge to `lib.yo`'s
+     `helper`. That is why `ordered_readers_of` must drop the whole reader
+     module (the hub case: a `src/token.yo` body edit drops `src/lexer.yo`
+     and its 143-file closure, ~355 s). Re-binding the reader's Variable
+     from the patched slot is sound for everything that merely CALLED the
+     name — and unsound for anything that CTFE'd it, because the reader's
+     `ExprInfo` already holds the baked value.
+   - Step 3's split is the same question: a dependent that only CALLED a
+     function depends on its signature; one that evaluated its body depends
+     on the body. Today every edge is body-strength, which is correct and
+     over-invalidates.
+
+   So both items need exactly one new signal: **did this dependent consume
+   that callee's BODY at comptime?** Everything else in both items is
+   mechanical (a `sig_hash` beside `src_hash`; a second edge map; a
+   re-bind loop over the reader's module frame).
+
+   **The signal must be recorded in the safe direction.** Enumerating CTFE
+   entry points (comptime calls, def-time trials, macro expansion, inline
+   builtins, generic specialization body copies) and marking those edges
+   body-strength is the tempting shape, but a MISSED site silently
+   downgrades a real body dependence to signature-strength and leaves a
+   stale value in a watch round — the failure mode this campaign has
+   already paid for twice. The defensible direction keeps body-strength as
+   the DEFAULT and derives signature-strength positively, from state the
+   evaluator already computes (the dependent's `ExprInfo` for each call of
+   the callee: a runtime call carries `.None`, a CTFE'd one carries the
+   value), so a gap in the derivation over-invalidates instead of going
+   stale.
+
+   **Measured target** (`tests/internal/check_watch.test.yo`, the Phase 3b
+   body-edit fixture): a body edit re-forces `answer` + `main` = 2 defs
+   today; with the split it re-forces 1. The hub case is the real prize:
+   re-binding instead of dropping turns the ~355 s `src/lexer.yo` fallback
+   into a per-def round. Both numbers are the gate for the work.
+
 4. **Invalidation by definition.** `mm_invalidate_document` grows a
    sibling: given the changed file, re-lex, re-hash its definitions,
    compute the set whose hash changed, and invalidate THAT set plus its
@@ -699,8 +747,9 @@ Design:
    evaluation now shares mm's ExprInfoTable so its specializations are
    emittable by the artifact compiles.**
 3. **`yo test` batches compile in-process under one evaluator.** This is
-   the largest wall-clock consumer in the repo (22 min for
-   `tests/internal`; every batch re-evaluates prelude + std). After (1)
+   the largest wall-clock consumer in the repo (78 min for
+   `tests/internal`, measured 2026-09-21; the older 22 min figure predates
+   most of these files; every batch re-evaluates prelude + std). After (1)
    the runner evaluates prelude + std once and each batch's import
    closure on top. The compiled binaries still run in child processes with
    ASan as today. Gate: `yo test ./tests/internal` wall time, before and
@@ -717,10 +766,49 @@ Design:
    three parents; see issues/warm-compile-selfcheck.md's step-3 section).
    The gate's reason: doc_stability's WARM compile dies unifying
    GenericImplEntry with DocParam (passes standalone;
-   issues/warm-test-batches-doc-stability-genericimplentry.md) — un-gating
-   needs per-batch reachability (owner-tagged registry purges / per-
-   compile emission scoping). Measured before the blocker ended the run:
+   issues/fixed/warm-test-batches-doc-stability-genericimplentry.md) —
+   ROOT CAUSE MEASURED AND FIXED 2026-09-21: not reachability at all —
+   struct/enum/trait/union ids were minted in the per-compile EMISSION
+   namespace (`stable_label_id`), so a warm batch's fresh instantiations
+   re-counted from `_n0` and took pass-1 ids in the surviving id-keyed
+   registries; `stable_type_id` (identity namespace, cold-only reset) is
+   the fix, cold ids unchanged. Measured before the blocker ended the run:
    31:35 wall through file ~20 of 92, peak 14.7 GB, 10 restarts.**
+
+   **MEASURED END TO END 2026-09-21** (Mac Mini M4, one binary, `--parallel 1`,
+   all 92 files, after the type-id fix):
+
+   | mode                                      | wall  | peak    | result                      |
+   | ----------------------------------------- | ----- | ------- | --------------------------- |
+   | child process per batch (today's default) | 77:34 | 8.8 GB  | 1190 passed                 |
+   | in-process, one evaluator                 | 37:33 | 10.2 GB | 1189 passed, 0 unify errors |
+
+   **2.07x faster.** That in-process peak was taken with the RSS valve
+   INERT (`_current_rss_mb` read `/proc/self/statm`, Linux-only —
+   issues/fixed/rss-valve-reads-proc-self-statm-so-it-never-fires-off-linux.md),
+   so it is the UNBOUNDED shape.
+
+   **DECIDED 2026-09-21 — `YO_TEST_IN_PROCESS` STAYS OPT-IN, and the reason
+   is the valve's ceiling, not a correctness doubt.** With the valve working
+   and its default `YO_TEST_MAX_RSS_MB=4096`, the bounded re-measurement
+   restarts on almost every file: 5 exec-restarts across the first 6 files,
+   peak held to 5.6 GB, ~56 s per file against child mode's ~51 s. ONE
+   `tests/internal` file's accumulated universe already exceeds 4 GB, so the
+   valve degenerates into "restart every file", which is child mode plus a
+   re-warm. The 2.07x is real but bought entirely with resident memory: it
+   needs a ceiling above a single file's universe.
+
+   That makes the mode a developer knob rather than a CI default. A 16 GB
+   machine gets the whole suite in 37:33 against 77:34 with
+   `YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000`; a CI runner cannot spare
+   10 GB, and at a ceiling it can spare the mode buys nothing. Flipping the
+   default would trade 2 GB of peak for no wall-clock win on the machines
+   that run the suite most.
+
+   The step's machinery is therefore COMPLETE: batches compile in-process,
+   all 92 files pass that way with 0 unify errors, the valve bounds the peak
+   on every platform, and the trade-off is measured. What remained was not
+   work but a choice, and the numbers make it.
 4. **Memory is the constraint Zig does not have.** A self-build's
    evaluator peaks at 11–20 GB (`yo-one-heavy-job-at-a-time`,
    `YO_SELF_ENV_SHARING.md`). A resident process that accumulates

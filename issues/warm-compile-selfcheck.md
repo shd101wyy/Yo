@@ -308,6 +308,6 @@ set — bounded), 10 exec restarts, single process at a time.
 impl.yo:1376 — "Cannot unify incompatible struct types: GenericImplEntry and
 DocParam" — while passing STANDALONE. Cross-file eval/collect against the
 accumulated universe; the test-runner twin of #756's build-side FTT cascade.
-Tracked in issues/warm-test-batches-doc-stability-genericimplentry.md;
+Tracked in issues/fixed/warm-test-batches-doc-stability-genericimplentry.md;
 un-gating needs per-batch reachability (owner-tagged registry purges /
 per-compile emission scoping) — the §7 item-1 residue.
