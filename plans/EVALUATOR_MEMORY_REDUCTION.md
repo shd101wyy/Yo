@@ -504,6 +504,36 @@ are rebuilt ~11× over. The remaining population is construction-site minted
 factories is designed there and not built; the construction-site memo is the
 only form that also cuts the transient peak.
 
+**Measured 2026-09-21 (`YO_TYPE_INTERN_PROBE=1`, tree-built compiler, `check
+src/main.yo`):** the probe records every type at the two points where it
+becomes RETAINED — `expr_info_table_set` (an `ExprInfo`'s `ty`) and
+`add_variable_to_env` (a `Variable`'s `ty`) — and hashes its full structural
+key (`type_intern_key`, depth cutoff 600, cycle-safe).
+
+| retained type references | distinct structural keys | duplication |
+| ------------------------ | ------------------------ | ----------- |
+| **10,283,917**           | **17,538**               | **586×**    |
+
+So 99.83% of what the two holders retain is a structural duplicate of one of
+17.5 K types. Against the §0.4 census (7.76 M live `TypeValue`, 3.03 GB for
+the cluster) that puts the ceiling of construction-site interning at
+essentially the whole cluster minus 17.5 K objects — the largest lever left
+in this plan by a wide margin. The same walk counted the lists hanging off
+those types (per reference, so shared subtrees repeat): **44% of
+`ArrayList(TypeValue)` reached are EMPTY** (2.27 G of 5.14 G), which is the
+`Func` variant carrying five lists for a function that uses one; interning
+the parent subsumes this, a shared empty singleton would not be safe on its
+own unless every list is treated as immutable after construction (a grep for
+in-place `push`/`insert` through the TypeValue field names finds zero sites;
+destructured aliases are the audit still owed).
+
+The probe costs nothing when off (knob-off run 89 s / 10.05 GB, knob-on 134 s
+/ 10.05 GB peak footprint — the probe's own HashSet is 17.5 K entries).
+Lesson recorded on the way: the probe's ten-interpolation report line made
+`yo build` pathological under the v0.2.38 seed (~4^N interpolation cost,
+fixed on develop 2026-09-20 but not in the seed) — `src/` diagnostic lines
+stay short until a seed ships the fix.
+
 ### F6. `Variable` retention is a consequence of F1–F3, not a lever of its own
 
 The two env-sharing campaigns removed the copy-minted `Variable`s (7.4 M → the
@@ -839,13 +869,148 @@ byte-identical" (they change bookkeeping, not what is emitted):
   `src/types/intern.yo`), with one change from this audit: measure the live
   `TypeValue` count FIRST (Phase 0 step 3) — `TypeValue.clone` returning self
   already removed the clone-minted population that plan was written against.
+  MEASURED 2026-09-21 (F5): 10.28 M retained references over 17,538 distinct
+  structural keys — the lever is real and is the next thing to build. Order
+  of work: (1) audit in-place mutation of a `TypeValue`'s lists through
+  destructured aliases (the field-name grep is clean); (2) intern at the
+  RETENTION points first (`expr_info_table_set`, `add_variable_to_env`) —
+  one `HashMap(u64, TypeValue)` keyed by the structural hash, colliding
+  keys verified by the full key — which cuts the RETAINED population without
+  touching the 86 construction sites; measure; (3) then the construction-site
+  factories for the transient peak. Gate: cold self-emit byte-identical,
+  the era-split tests (`yo-identical-name-unify-error-is-an-id-era-split`),
+  `check src/main.yo` peak before/after.
 - **5b** `Symbol :: newtype(u32)` + a global intern table (`std`-free, in
   `src/utils.yo`): start with `Variable.name` and the frame index keys (one
   lookup path, `get_variables_from_frame`/`_frame_positions`), measure, then
   `Token.value` for identifiers (diagnostics render through the table). Each
   step is a broad mechanical refactor; land per field, byte-identical C.
 
+### 0.4′ The exit-live census RE-TAKEN at 9.69 GB (2026-09-21)
+
+Same recipe as §0.4 (`scripts/bootstrap/live_census_t.py`, `clang -O1`,
+`check src/main.yo`). §0.4 was taken at the 19.33 GB baseline and every lever
+estimate in this plan is derived from it, so it is two phases stale. The
+instrumented run's footprint (9.69 GB) matches the uninstrumented one
+(9.72 GB), so the counters still do not perturb the measurement.
+
+**6.18 GB of live struct bytes over 67.5 M objects**, down from 13.3 GB over
+130 M.
+
+| type | live | sizeof | live bytes | vs §0.4 |
+| --- | --- | --- | --- | --- |
+| `TypeValue` | 7.55 M | 176 | **1.329 GB** | 1.37 GB — unmoved |
+| `Variable` | 4.90 M | 192 | 0.941 GB | 1.95 GB |
+| `ArrayList(TypeValue)` | 11.12 M | 80 | **0.890 GB** | 0.93 GB — unmoved |
+| `ExprInfo` | 2.06 M | 216 | 0.445 GB | 3.23 GB |
+| `ArrayList(usize)` | 10.82 M | 40 | 0.433 GB | 0.48 GB |
+| `ArrayList(EvalValue)` | 4.54 M | 80 | 0.363 GB | 0.65 GB |
+| `ArrayList(u8)` (strings) | 8.32 M | 40 | 0.333 GB | 0.91 GB |
+| `ArrayList(ArrayList(TypeValue))` | 3.22 M | 80 | **0.258 GB** | 0.26 GB — unmoved |
+| `AstExpr` | 3.98 M | 64 | 0.255 GB | 0.69 GB |
+| `Token` | 2.26 M | 104 | 0.235 GB | 0.69 GB |
+| `Environment` | 1.32 M | 120 | 0.158 GB | 0.82 GB |
+| `EvalValue` | 1.36 M | 96 | 0.130 GB | 0.18 GB |
+| `ArrayList(Frame)` | 1.32 M | 80 | 0.105 GB | 0.58 GB |
+| `ExprInfoRare` | 0.17 M | 464 | 0.079 GB | 0.02 GB |
+
+**What the re-take settles, and it re-ranks the rest of the plan:**
+
+- **The `TypeValue` cluster is now the whole game.** `TypeValue` + its two
+  list types = **2.48 GB of the 6.18 GB live, 40 %**, and it is the ONLY
+  cluster the campaign has not touched: all three rows are within 4 % of
+  their 19 GB-era values while everything around them fell by half or more.
+  Lever 6 (recursive interning at the constructors, F5) is no longer one
+  candidate among several — it is the largest single lever left by a wide
+  margin, and `intern_type` already exists with only TWO call sites
+  (`types/substitution.yo`), so the mechanism is built and unused.
+- **The `ExprInfo` cluster is done.** 7.35 M → 2.06 M live and 3.23 → 0.445 GB.
+  Phase 4's specialization designs (no AST clone, drop generic-body trial
+  infos) now target a population of 2.06 M `ExprInfo` + 3.98 M `AstExpr` =
+  0.70 GB TOTAL, of which the 1.30 M cloned nodes are a part. That caps both
+  designs well under 0.5 GB and demotes them below the header split.
+- **The RC header is 56 B of every one of those 67.5 M objects = 3.78 GB**,
+  which is why 6.18 GB of struct bytes sits under a 9.69 GB peak. Lever 8
+  (56 → 32 B) is worth ~1.6 GB at today's population, second only to the
+  `TypeValue` cluster, and it is a layout change that touches the GC.
+- **Buffer-shape levers are dead** (see the value-cell refutation below): the
+  `gross` column shows the churn is in `ArrayList(u8)` (399.9 M gross, 8.32 M
+  live) and `ArrayList(String)` (48.1 M gross), which is allocation traffic,
+  not retention. The peak is still the retained set.
+
+**Tracked vs untracked, from the same run** (a type is tracked iff its C
+constructor calls `__yo_gc_register`; `RC_HEADER_SPLIT.md` step 1 — the 16 B
+header for cycle-incapable types — has ALREADY LANDED, which is part of why
+the peak fell, so that lever is spent):
+
+| | types | live | live bytes |
+| --- | --- | --- | --- |
+| tracked (56 B header) | 115 | 38.2 M | **4.76 GB** |
+| untracked (16 B header) | 434 | 29.2 M | 1.42 GB |
+
+77 % of the live bytes are in tracked objects, and the tracked list is the
+`TypeValue` cluster plus `Variable`, `ExprInfo` and `Environment`. What that
+leaves of `RC_HEADER_SPLIT.md`:
+
+- step 2 (tracked `traverse_fn` → a `u32 type_id`, 56 → 48 B) is worth
+  **0.31 GB** at 38.2 M tracked objects — real but no longer a headline;
+- dropping one of the two intrusive GC list pairs (56 → 40 B) would be
+  ~0.61 GB on top, and it is the riskiest change in the plan.
+
+The `ArrayList(TypeValue)` row is the clearest statement of where the bytes
+are: 11.12 M objects at 80 B, of which **56 B is the RC header** — a
+two-element type-argument list costs more in header than in content. There
+are ~1.5 such lists per live `TypeValue`, because `Func` carries five and
+`Struct` two, which is why interning a type deletes far more than the type.
+
+**Revised route to a sub-8 GB peak**, from 9.69, needing 1.7 GB: no single
+remaining lever delivers it. `TypeValue` interning has the only 2.48 GB
+ceiling; the tracked-header work adds ~0.3 GB (step 2) to ~0.9 GB (also
+collapsing an intrusive list pair); everything else in §5's table is a
+sub-0.5 GB item now that the `ExprInfo` cluster is 0.445 GB. So the target is
+interning PLUS header step 2 at minimum, and interning has to deliver ~1.4 GB
+of its 2.48 GB ceiling — which is exactly what the `YO_TYPE_INTERN_PROBE`
+measurement (distinct vs total retained types) is for. Building it before
+that number is in would repeat the value-cell mistake below.
+
 ### Phase 6 — per-object layout: header and `Variable`
+
+**MEASURED 2026-09-21 — the value-cell BUFFER lever is refuted (60 MB), and
+the reason corrects how every census row in §0.4 must be read.**
+
+`value_cell_of` built each comptime value cell with `ArrayList.new()` plus one
+`push`, and the first push on an empty list grows capacity to FOUR. Reading
+§0.4's `ArrayList(EvalValue)` row (8.09 M live, `sizeof` 96 for `EvalValue`)
+as "8 M cells × 4 slots × 96 B" predicted a 2.3 GB buffer saving from
+`with_capacity(1)`. A/B on `check src/main.yo`, same tree, same `--std-path`,
+develop binary vs the change:
+
+| binary            | peak     |
+| ----------------- | -------- |
+| develop           | 9.78 GB  |
+| capacity-1 cells  | 9.72 GB  |
+
+**−0.06 GB.** The prediction was wrong by ~40x, and not because the
+population moved: `EvalValue` is `ref(enum(...))`
+(`src/value.yo`), so an `ArrayList(EvalValue)` slot is an 8-byte HANDLE, not
+a 96-byte value. The four-slot growth wastes 24 bytes per filled cell, not
+288, and macOS malloc buckets 8 and 32 close together besides.
+
+**The rule this establishes for the rest of the plan: a census row's `sizeof`
+is that OBJECT's size, never the element size of a list of it.** Every
+reference-semantics type in §0.4 — `EvalValue`, `TypeValue`, `AstExpr`,
+`Variable`, `ExprInfo`, `Frame` — is stored in lists as an 8-byte handle, so
+any lever estimated from "N × list slots × sizeof(row)" is inflated by
+sizeof/8. That is `TypeValue` 22x, `ExprInfo` 27x. Buffer-shape levers on
+handle lists are worth tens of MB. Levers that delete OBJECTS still pay at
+the row's own `sizeof`.
+
+The change ships anyway: capacity 1 is strictly correct for a cell that holds
+exactly one element for life, and the same commit closes a latent bug where
+the phase-A pre-bound fill path pushed into the SHARED empty cell
+(`g_empty_value_cell`) instead of minting its own.
+
+
 
 - `RC_HEADER_SPLIT.md` step 2 (tracked header: `traverse_fn`+`dispose_fn` →
   a `u32 type_id` into a static table; the two intrusive lists → one, or an

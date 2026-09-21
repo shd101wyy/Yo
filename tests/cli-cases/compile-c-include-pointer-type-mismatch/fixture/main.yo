@@ -1,0 +1,13 @@
+// A `c_include` prototype that disagrees with the header: `strlen` takes a
+// `const char *`, this binding says `*i32`, and the call passes an `*i32`.
+// Nothing in Yo can see the mismatch — the header is the only source of
+// truth — so the C compiler must reject it, on EVERY platform.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ strlen } :: c_include("<string.h>", strlen : (fn(s : *i32) -> usize));
+main :: (fn() -> unit)({
+  (n : i32) = i32(0);
+  len := unsafe(strlen(&n));
+  println(len.to_string());
+});
+export(main);

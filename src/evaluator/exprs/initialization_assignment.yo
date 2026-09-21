@@ -41,6 +41,7 @@
 {
   Environment,
   Variable,
+  value_cell_of,
   add_variable_to_env,
   get_variables_from_env,
   variable_set_doc_comment,
@@ -1092,7 +1093,9 @@ Use \`::\` for compile-time definitions inside impl.`
           .Some(pb_v) => if(pb.value.len() > usize(0), {
             pb.value(usize(0)) = pb_v;
           }, {
-            pb.value.push(pb_v);
+            // An EMPTY cell is the shared `g_empty_value_cell` (env.yo):
+            // never push into it — mint the variable its own cell.
+            pb.value = value_cell_of(Option(EvalValue).Some(pb_v));
           }),
           .None => ()
         );

@@ -1445,16 +1445,16 @@ static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
   un->sun_path[UNIX_PATH_MAX - 1] = '\\0';
 }
 
-static const char* __yo_sockaddr_un_get_path(void* addr) {
-  return ((__yo_sockaddr_un_t*)addr)->sun_path;
+static uint8_t* __yo_sockaddr_un_get_path(void* addr) {
+  return (uint8_t*)(((__yo_sockaddr_un_t*)addr)->sun_path);
 }
 
 static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) {
   return InetPtonA(af, src, dst) == 1 ? 1 : 0;
 }
 
-static const char* __yo_inet_ntop(int32_t af, const void* src, char* dst, uint32_t size) {
-  return InetNtopA(af, src, dst, (DWORD)size);
+static uint8_t* __yo_inet_ntop(int32_t af, const void* src, char* dst, uint32_t size) {
+  return (uint8_t*)(InetNtopA(af, src, dst, (DWORD)size));
 }
 
 static uint16_t __yo_htons(uint16_t hostshort) { return htons(hostshort); }
@@ -3338,8 +3338,8 @@ static uint8_t __yo_dirent_type(void* entry) {
   return ((__yo_win_dirent_t*)entry)->d_type;
 }
 
-static const char* __yo_dirent_name(void* entry) {
-  return ((__yo_win_dirent_t*)entry)->d_name;
+static uint8_t* __yo_dirent_name(void* entry) {
+  return (uint8_t*)(((__yo_win_dirent_t*)entry)->d_name);
 }
 
 static uint64_t __yo_dirent_ino(void* entry) {

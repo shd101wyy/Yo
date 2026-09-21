@@ -439,16 +439,16 @@ static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
   strncpy(((struct sockaddr_un*)addr)->sun_path, path, sizeof(((struct sockaddr_un*)addr)->sun_path) - 1);
 }
 
-static char* __yo_sockaddr_un_get_path(void* addr) {
-  return ((struct sockaddr_un*)addr)->sun_path;
+static uint8_t* __yo_sockaddr_un_get_path(void* addr) {
+  return (uint8_t*)(((struct sockaddr_un*)addr)->sun_path);
 }
 
 static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) {
   return inet_pton(af, src, dst);
 }
 
-static char* __yo_inet_ntop(int32_t af, const void* src, char* dst, uint32_t size) {
-  return (char*)inet_ntop(af, src, dst, (socklen_t)size);
+static uint8_t* __yo_inet_ntop(int32_t af, const void* src, char* dst, uint32_t size) {
+  return (uint8_t*)((char*)inet_ntop(af, src, dst, (socklen_t)size));
 }
 
 static uint16_t __yo_htons(uint16_t hostshort) {
