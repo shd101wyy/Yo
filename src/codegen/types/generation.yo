@@ -824,9 +824,9 @@ static inline bool __yo_atomic_compare_exchange_llong(
   _Atomic long long* obj, int64_t* expected, int64_t desired,
   memory_order success, memory_order failure
 ) {
-  /* `expected` is the caller's int64_t (Yo `*i64`). On Linux/glibc int64_t is
-     `long`, a DIFFERENT type from `long long` even at the same width, so the
-     pointer cannot be handed to the generic straight — go through a local of
+  /* expected is the caller's int64_t (Yo *i64). On Linux/glibc int64_t is
+     long, a DIFFERENT type from long long even at the same width, so the
+     pointer cannot be handed to the generic straight: go through a local of
      the atomic's own type and write the observed value back. */
   long long observed = (long long)*expected;
   bool ok = atomic_compare_exchange_strong_explicit(obj, &observed, (long long)desired, success, failure);
@@ -917,8 +917,8 @@ static inline bool __yo_atomic_compare_exchange_ullong(
   _Atomic unsigned long long* obj, uint64_t* expected, uint64_t desired,
   memory_order success, memory_order failure
 ) {
-  /* Same as the llong helper: uint64_t is `unsigned long` on Linux/glibc, not
-     `unsigned long long`, so the generic must see a pointer of the atomic's own
+  /* Same as the llong helper: uint64_t is unsigned long on Linux/glibc, not
+     unsigned long long, so the generic must see a pointer of the atomic's own
      type; this was the error at the top of EVERY Linux program's shared header
      once -Wincompatible-pointer-types became an error (#822). */
   unsigned long long observed = (unsigned long long)*expected;
