@@ -24,7 +24,8 @@ pragma(Pragma.AllowUnsafe);
   get_variables_from_env,
   add_variable_to_env,
   update_existing_variable,
-  synthetic_token
+  synthetic_token,
+  copy_frames
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
@@ -832,11 +833,11 @@ _synthesize_implicit_params :: (
         );
         if(exp_id == synthesis_type_id(giv.ty), {
           res := _synthesize_types_impl(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
-          expected_env.frames = res.expected_env.frames;
+          expected_env.frames = copy_frames(res.expected_env.frames);
           expected_env.module_path = res.expected_env.module_path;
           expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
           expected_env.input_string = res.expected_env.input_string;
-          given_env.frames = res.given_env.frames;
+          given_env.frames = copy_frames(res.given_env.frames);
           given_env.module_path = res.given_env.module_path;
           given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
           given_env.input_string = res.given_env.input_string;
@@ -916,11 +917,11 @@ _synthesize_implicit_params :: (
           );
           if(exp_id == synthesis_type_id(giv.ty), {
             res := _synthesize_types_impl(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
-            expected_env.frames = res.expected_env.frames;
+            expected_env.frames = copy_frames(res.expected_env.frames);
             expected_env.module_path = res.expected_env.module_path;
             expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
             expected_env.input_string = res.expected_env.input_string;
-            given_env.frames = res.given_env.frames;
+            given_env.frames = copy_frames(res.given_env.frames);
             given_env.module_path = res.given_env.module_path;
             given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
             given_env.input_string = res.given_env.input_string;

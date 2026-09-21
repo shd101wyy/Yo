@@ -9,12 +9,14 @@
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
-  get_variables_from_env
+  get_variables_from_env,
+  snapshot_env
 } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
@@ -122,7 +124,7 @@ evaluate_consume :: (
   );
   eval_arg := evaluate_expression(arg_expr, env, ctx);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
-  (cur_env : Environment) = match(arg_info_opt, .Some(i) => i.env, .None => env);
+  (cur_env : Environment) = match(arg_info_opt, .Some(i) => expr_info_adopt_env(i), .None => env);
   match(
     arg_info_opt,
     .Some(_) => (),

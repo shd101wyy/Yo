@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("./context.yo");
-{ Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
+{ Environment, get_where_clause_constraints_for_some_type, copy_frames } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { YoError, format_error_message } :: import("../error.yo");
 {
@@ -2073,7 +2073,7 @@ _type_implements_trait_full_adapter :: (
   ) -> bool
 )({
   r := type_implements_trait(t, trait_type, env);
-  env.frames = r.env.frames;
+  env.frames = copy_frames(r.env.frames);
   r.implemented
 });
 _trait_checking_init := (fn() -> bool)({

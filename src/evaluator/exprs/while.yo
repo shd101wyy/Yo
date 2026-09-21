@@ -24,10 +24,11 @@
   expr_info_table_set,
   ControlFlowFlags,
   has_control_flow,
-  has_any_control_flow
+  has_any_control_flow,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, LoopBodyCtx, LoopKind } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
@@ -493,7 +494,7 @@ evaluate_while :: (
     // --- continue ---
     if(has_control_flow(body_info.control_flow, .Continue), {
       // Execute the step expression (if any) before re-evaluating the loop.
-      (updated_env_cont : Environment) = body_info.env;
+      (updated_env_cont : Environment) = expr_info_adopt_env(body_info);
       match(
         step_expr_opt,
         .None => (),
@@ -510,7 +511,8 @@ evaluate_while :: (
               )
             );
           });
-          updated_env_cont = match(step_info_cont_opt, .Some(si) => si.env, .None => updated_env_cont);
+          // Private copy: the loop body is re-evaluated in this env (its blocks pop).
+          updated_env_cont = match(step_info_cont_opt, .Some(si) => expr_info_adopt_env(si), .None => updated_env_cont);
         }
       );
       // If the condition is compile-time known, re-evaluate the loop.
@@ -602,7 +604,7 @@ evaluate_while :: (
     );
   });
   // Update the environment with the body's post-evaluation state.
-  env.frames = body_info.env.frames;
+  env.frames = copy_frames(body_info.env.frames);
   env.module_path = body_info.env.module_path;
   env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
   env.input_string = body_info.env.input_string;
@@ -623,7 +625,8 @@ evaluate_while :: (
           )
         );
       });
-      env = match(step_info_s_opt, .Some(si) => si.env, .None => env);
+      // Same: private copy of the recorded env.
+      env = match(step_info_s_opt, .Some(si) => expr_info_adopt_env(si), .None => env);
     }
   );
   // Comptime while loop unrolling with a RUNTIME body. When the condition is
@@ -673,7 +676,7 @@ evaluate_while :: (
           },
           .Some(ebi) => {
             unrolled_bodies.push(cloned_body);
-            current_env = ebi.env;
+            current_env = expr_info_adopt_env(ebi);
             // Execute step if provided (3-argument form).
             match(
               step_expr_opt,
@@ -684,7 +687,7 @@ evaluate_while :: (
                 match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_step_u)),
                   .Some(sui) => {
-                    current_env = sui.env;
+                    current_env = expr_info_adopt_env(sui);
                   },
                   .None => {
                     unroll_abort = true;

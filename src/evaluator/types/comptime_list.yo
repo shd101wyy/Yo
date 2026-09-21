@@ -17,9 +17,10 @@ import("std/fmt");
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
-  expr_info_table_set
+  expr_info_table_set,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -104,7 +105,7 @@ evaluate_comptime_list_type :: (
   clist_ty := t_comptime_list(child_ty);
   clist_val := create_type_value(clist_ty);
   meta_type := type_of_type(clist_ty);
-  next_env := elem_info.env;
+  next_env := expr_info_adopt_env(elem_info);
   out_info := new_expr_info(next_env, meta_type);
   out_info.value = .Some(clist_val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

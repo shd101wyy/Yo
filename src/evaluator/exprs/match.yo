@@ -37,9 +37,10 @@ pragma(Pragma.AllowUnsafe);
   merge_control_flows,
   expr_info_set_case_executed,
   expr_info_set_is_primitive_match,
-  expr_info_set_primitive_pattern_values
+  expr_info_set_primitive_pattern_values,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
-{ Environment, Variable, pop_env_frame } :: import("../../env.yo");
+{ Environment, Variable, pop_env_frame, copy_frames, snapshot_env } :: import("../../env.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -233,7 +234,7 @@ _arm_result_type :: (fn(ctx : EvalContext, body_ty : TypeValue) -> TypeValue)(
 /// `env` takes over the frames of `src` (the body-env handover the arm loop
 /// and the post-loop use).
 _adopt_env :: (fn(env : Environment, src : Environment) -> unit)({
-  env.frames = src.frames;
+  env.frames = copy_frames(src.frames);
   env.module_path = src.module_path;
   env.function_declaration_frame_level = src.function_declaration_frame_level;
   env.input_string = src.input_string;
@@ -680,8 +681,15 @@ evaluate_match :: (
         return(expr);
       });
       body_info := match(body_info_opt, .Some(bi2) => bi2, .None => new_expr_info(env, t_unit()));
-      while(body_info.env.frames.len() > base_frame_count, {
-        pop_env_frame(body_info.env);
+      // Trim the arm body's recorded env to the outer depth on a PRIVATE copy:
+      // the recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`),
+      // so popping it in place would rewrite every sharer's recorded scope.
+      if(body_info.env.frames.len() > base_frame_count, {
+        trimmed_env := expr_info_adopt_env(body_info);
+        while(trimmed_env.frames.len() > base_frame_count, {
+          pop_env_frame(trimmed_env);
+        });
+        body_info.env = trimmed_env;
       });
       consume_case_body_temp_var(evaluated_body, body_info.env, ctx);
       // NOTE: do NOT null body_info.value here for a runtime/unknown

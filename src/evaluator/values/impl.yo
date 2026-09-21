@@ -42,7 +42,8 @@ pragma(Pragma.AllowUnsafe);
   lookup_some_resolved_concrete,
   lookup_trait_ctor_fid,
   take_active_where_trait_ids,
-  restore_active_where_trait_ids
+  restore_active_where_trait_ids,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -2948,7 +2949,9 @@ _c3_eval_colon_pair :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val)),
     .None => (),
     .Some(fi) => {
-      st.env = fi.env;
+      // Adopt a private copy: the in-flight env is pushed/popped on later
+      // and a recorded snapshot is shared between ExprInfos.
+      st.env = expr_info_adopt_env(fi);
       method_val := match(fi.value, .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`
       // within the SAME trait entry. Only TYPE-valued fields
@@ -3193,7 +3196,9 @@ _c2_eval_direct_field :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_mval)),
     .None => (),
     .Some(mfi) => {
-      st.env = mfi.env;
+      // Adopt a private copy: the in-flight env is pushed/popped on later
+      // and a recorded snapshot is shared between ExprInfos.
+      st.env = expr_info_adopt_env(mfi);
       mval := match(mfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
       m_is_macro := _method_ty_skip_stamp(mfi.ty);
       (m_to_push : EvalValue) = EvalValue.UnitVal;
@@ -3262,7 +3267,9 @@ _c2_eval_inner_field :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_gval)),
     .None => (),
     .Some(gfi) => {
-      st.env = gfi.env;
+      // Adopt a private copy: the in-flight env is pushed/popped on later
+      // and a recorded snapshot is shared between ExprInfos.
+      st.env = expr_info_adopt_env(gfi);
       g_mval := match(gfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`. TYPE-valued
       // fields only — see the Case 3 counterpart.
@@ -3732,7 +3739,9 @@ evaluate_module_value :: (
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_rcv2)),
       .None => (),
       .Some(ri2) => {
-        forall_env = ri2.env;
+        // A recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`)
+        // and later pushed on (forall frame below): adopt a private shallow copy.
+        forall_env = expr_info_adopt_env(ri2);
         match(
           ri2.value,
           .None => (),
@@ -4131,7 +4140,8 @@ evaluate_module_value :: (
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_receiver)),
     .Some(ri) => {
-      local_env = ri.env;
+      // Same: `local_env` gets the impl frame pushed at the end.
+      local_env = expr_info_adopt_env(ri);
       match(
         ri.value,
         .None => (),

@@ -20,7 +20,7 @@ import("std/fmt");
   BF_YO_BORROW_CHECK,
   make_err_expr
 } :: import("../../expr.yo");
-{ get_variables_from_env } :: import("../../env.yo");
+{ get_variables_from_env, snapshot_env } :: import("../../env.yo");
 { strict_borrow_violations } :: import("../effects/mutation_summary.yo");
 { format_error_messages } :: import("../../error.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
@@ -33,6 +33,7 @@ import("std/fmt");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("./expr.yo");
+{ expr_info_adopt_env } :: import("../../expr_info.yo");
 /// Evaluate `runtime(expr)`. Side-effects only: writes an `ExprInfo` for the
 /// outer call into `ctx.expr_info_table` with `value = .None` (runtime value)
 /// and `ty = convert_comptime_type_to_runtime_type(arg.ty, env)`.
@@ -101,7 +102,7 @@ evaluate_runtime :: (
     .None => new_expr_info(env, t_i32())
   );
   // Convert comptime type to runtime type and emit a runtime ExprInfo.
-  next_env := arg_info.env;
+  next_env := expr_info_adopt_env(arg_info);
   runtime_type := convert_comptime_type_to_runtime_type(arg_info.ty, next_env);
   out_info := new_expr_info(next_env, runtime_type);
   // value stays .None — `runtime(_)` always yields a runtime value.

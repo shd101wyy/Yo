@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { stable_sns_module_id } :: import("../../utils.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, copy_frames } :: import("../../env.yo");
 { register_sns_module, EvalContext, LoadModuleResult } :: import("../context.yo");
 { Diagnostic } :: import("../../diagnostics.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
@@ -393,7 +393,7 @@ evaluate_import :: (
       new_expr_info(env, t_unit())
     }
   );
-  env.frames = arg_info.env.frames;
+  env.frames = copy_frames(arg_info.env.frames);
   env.module_path = arg_info.env.module_path;
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
   env.input_string = arg_info.env.input_string;

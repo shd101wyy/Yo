@@ -38,7 +38,8 @@ pragma(Pragma.AllowUnsafe);
 {
   Environment,
   add_variable_to_env,
-  synthetic_token
+  synthetic_token,
+  copy_frames
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -266,7 +267,7 @@ try_to_implement_closure_by_fn_module_type :: (
   match(
     body_info_opt,
     .Some(bi) => {
-      env.frames = bi.env.frames;
+      env.frames = copy_frames(bi.env.frames);
       env.module_path = bi.env.module_path;
       env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
       env.input_string = bi.env.input_string;

@@ -43,7 +43,7 @@
 } :: import("../../expr.yo");
 { ExprInfo, ExprInfoTable, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr_info.yo");
-{ Environment, add_variable_to_env } :: import("../../env.yo");
+{ snapshot_env, Environment, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom } :: import("../context.yo");
 { EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -72,6 +72,7 @@
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
+{ expr_info_adopt_env } :: import("../../expr_info.yo");
 /// Evaluate any of the no-op contract markers (`requires` / `ensures` /
 /// `invariant` / `ghost` in expression position). Each argument is evaluated
 /// (so expression-level errors surface), but the call itself returns `unit`.
@@ -110,7 +111,7 @@ _evaluate_contract_marker :: (
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
       .Some(info) => {
-        cur_env = info.env;
+        cur_env = expr_info_adopt_env(info);
       },
       .None => {
         exn.throw(
@@ -450,7 +451,7 @@ ${ast_expr_to_string(expr)}`
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
       .Some(info) => {
-        cur_env = info.env;
+        cur_env = expr_info_adopt_env(info);
         matched := false;
         match(
           info.value,
@@ -661,7 +662,7 @@ _evaluate_spec_collection :: (
         new_expr_info(cur_env, t_unit())
       }
     );
-    cur_env = bi_info.env;
+    cur_env = expr_info_adopt_env(bi_info);
     i = (i + usize(1));
   });
   // Result TYPE per builtin — the evaluator only type-checks the chain;
@@ -826,7 +827,9 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
         new_expr_info(cur_env, t_unit())
       }
     );
-    cur_env = ty_info.env;
+    // Private shallow copy: the binder frame is pushed on it below, and a
+    // recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`).
+    cur_env = expr_info_adopt_env(ty_info);
     bt := match(
       ty_info.value,
       .Some(biv) => match(
@@ -898,7 +901,7 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_body)),
     .Some(info2) => {
-      cur_env = info2.env;
+      cur_env = expr_info_adopt_env(info2);
     },
     .None => ()
   );
@@ -945,7 +948,7 @@ evaluate_implies :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, ex
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
       .Some(info) => {
-        cur_env = info.env;
+        cur_env = expr_info_adopt_env(info);
       },
       .None => {
         exn.throw(

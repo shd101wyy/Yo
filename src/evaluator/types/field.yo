@@ -29,7 +29,7 @@ import("std/fmt");
   BK_ASSIGN
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -266,7 +266,7 @@ evaluate_type_field :: (
     te := match(type_expr, .Some(t) => t, .None => make_err_expr());
     old_expected := ctx.expected_type;
     if(expected_tuple_element_type.is_some(), {
-      elem_env := match(ctx.expected_type, .Some(e) => e.env, .None => env);
+      elem_env := match(ctx.expected_type, .Some(e) => snapshot_env(e.env), .None => env);
       ctx.expected_type = Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
           ty : match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
@@ -280,7 +280,7 @@ evaluate_type_field :: (
     ctx.expected_type = old_expected;
     te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
     te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env, TypeValue.Unit));
-    env.frames = te_info.env.frames;
+    env.frames = copy_frames(te_info.env.frames);
     env.module_path = te_info.env.module_path;
     env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
     env.input_string = te_info.env.input_string;
@@ -360,7 +360,7 @@ evaluate_type_field :: (
         new_expr_info(env, TypeValue.Unit)
       }
     );
-    env.frames = av_info.env.frames;
+    env.frames = copy_frames(av_info.env.frames);
     env.module_path = av_info.env.module_path;
     env.function_declaration_frame_level = av_info.env.function_declaration_frame_level;
     env.input_string = av_info.env.input_string;
@@ -435,7 +435,7 @@ evaluate_type_field :: (
         new_expr_info(env, TypeValue.Unit)
       }
     );
-    env.frames = dv_info.env.frames;
+    env.frames = copy_frames(dv_info.env.frames);
     env.module_path = dv_info.env.module_path;
     env.function_declaration_frame_level = dv_info.env.function_declaration_frame_level;
     env.input_string = dv_info.env.input_string;

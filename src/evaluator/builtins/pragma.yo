@@ -15,8 +15,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_id, ast_expr_to_string, BF_PRAGMA } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
-{ new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get, expr_info_adopt_env } :: import("../../expr_info.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -214,7 +214,7 @@ evaluate_pragma :: (
       )
     ),
     .Some(info) => {
-      arg_env = info.env;
+      arg_env = expr_info_adopt_env(info);
       got_ty_str = type_to_string(info.ty);
       match(
         info.ty,

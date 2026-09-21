@@ -21,9 +21,10 @@ import("std/string");
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 {
   EvalValue,
@@ -545,7 +546,7 @@ evaluate_yo_expr_eq :: (
       return(make_err_expr());
     }
   );
-  cur_env := first_info.env;
+  cur_env := expr_info_adopt_env(first_info);
   eval_second := evaluate_expression(second_e, cur_env, ctx);
   second_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_second)),
@@ -588,7 +589,7 @@ evaluate_yo_expr_eq :: (
       return(make_err_expr());
     }
   );
-  final_env := second_info.env;
+  final_env := expr_info_adopt_env(second_info);
   // Compare: if both are ExprVal, use are_values_equal; otherwise unknown bool.
   bool_val := if(
     is_expr_val(first_val) && is_expr_val(second_val),

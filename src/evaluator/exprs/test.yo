@@ -33,7 +33,8 @@ pragma(Pragma.AllowUnsafe);
   Variable,
   get_variables_from_env,
   add_variable_to_env,
-  snapshot_env
+  snapshot_env,
+  copy_frames
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -190,7 +191,7 @@ evaluate_test :: (
   });
   name_info := match(name_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
   // Update env from the name evaluation.
-  env.frames = name_info.env.frames;
+  env.frames = copy_frames(name_info.env.frames);
   env.module_path = name_info.env.module_path;
   env.function_declaration_frame_level = name_info.env.function_declaration_frame_level;
   env.input_string = name_info.env.input_string;

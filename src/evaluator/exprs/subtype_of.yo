@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
   BK_SUBTYPE_OF
 } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, copy_frames } :: import("../../env.yo");
 { EvalContext, force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -85,7 +85,7 @@ evaluate_subtype_of :: (
       new_expr_info(env, t_unit())
     }
   );
-  env.frames = lhs_info.env.frames;
+  env.frames = copy_frames(lhs_info.env.frames);
   env.module_path = lhs_info.env.module_path;
   env.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
   env.input_string = lhs_info.env.input_string;
@@ -217,7 +217,7 @@ evaluate_subtype_of :: (
         new_expr_info(env, t_unit())
       }
     );
-    env.frames = te_info.env.frames;
+    env.frames = copy_frames(te_info.env.frames);
     env.module_path = te_info.env.module_path;
     env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
     env.input_string = te_info.env.input_string;

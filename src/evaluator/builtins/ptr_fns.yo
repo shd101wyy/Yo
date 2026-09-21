@@ -11,9 +11,10 @@ pragma(Pragma.AllowUnsafe);
   ComptimeRef,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
-{ Variable, Environment } :: import("../../env.yo");
+{ Variable, Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   EvalValue,
@@ -118,7 +119,7 @@ evaluate_address_call :: (
       return(expr);
     }
   );
-  (cur_env : Environment) = arg_info.env;
+  (cur_env : Environment) = expr_info_adopt_env(arg_info);
   // Error if the argument is a type value — use * for pointer-to-type.
   if(is_type_value(arg_info.value), {
     exn.throw(

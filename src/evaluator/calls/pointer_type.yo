@@ -21,9 +21,10 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_get,
   expr_info_table_set,
   expr_info_set_converted_runtime_type,
-  record_macro_expansion
+  record_macro_expansion,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_pointer_type } :: import("../../types/guards.yo");
 { is_comptime_string_type, is_u8_type, is_char_type } :: import("../../types/guards.yo");
@@ -72,7 +73,7 @@ try_to_convert_to_pointer_type :: (
     );
   });
   arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
-  env := arg_info.env;
+  env := expr_info_adopt_env(arg_info);
   arg_type := arg_info.ty;
   // -----------------------------------------------------------------------
   // Case 1: comptime_str → *(u8) or *(char)

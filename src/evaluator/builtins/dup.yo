@@ -11,9 +11,10 @@
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
-  expr_info_table_get
+  expr_info_table_get,
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -69,7 +70,7 @@ evaluate_dup :: (
       return(expr);
     }
   );
-  (cur_env : Environment) = arg_info.env;
+  (cur_env : Environment) = expr_info_adopt_env(arg_info);
   arg_type := arg_info.ty;
   // Resolve a SomeT with a filled resolved-concrete cell.
   (concrete_type : TypeValue) = arg_type;

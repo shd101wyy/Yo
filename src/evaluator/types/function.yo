@@ -37,7 +37,7 @@ import("std/fmt");
 }
 :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, copy_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
@@ -966,7 +966,7 @@ _eval_and_update_env :: (
   match(
     info_opt,
     .Some(info) => {
-      env_mut.frames = info.env.frames;
+      env_mut.frames = copy_frames(info.env.frames);
       env_mut.module_path = info.env.module_path;
       env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
       env_mut.input_string = info.env.input_string;
@@ -1563,7 +1563,7 @@ evaluate_function_parameter :: (
       match(
         info_opt,
         .Some(info) => {
-          env_mut.frames = info.env.frames;
+          env_mut.frames = copy_frames(info.env.frames);
           env_mut.module_path = info.env.module_path;
           env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
           env_mut.input_string = info.env.input_string;
@@ -2073,7 +2073,7 @@ validate_concrete_type_constraints :: (
         new_expr_info(env_mut, t_unit())
       }
     );
-    env_mut.frames = info.env.frames;
+    env_mut.frames = copy_frames(info.env.frames);
     env_mut.module_path = info.env.module_path;
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
     env_mut.input_string = info.env.input_string;
@@ -2139,7 +2139,7 @@ validate_concrete_type_constraints :: (
         );
       });
       implemented := tc_res.implemented;
-      env_mut.frames = tc_res.env.frames;
+      env_mut.frames = copy_frames(tc_res.env.frames);
       if(negated, {
         if(implemented, {
           exn.throw(
@@ -2252,7 +2252,7 @@ apply_single_trait_constraint :: (
     if(!is_type_value(info.value), {
       return(false);
     });
-    env_mut.frames = info.env.frames;
+    env_mut.frames = copy_frames(info.env.frames);
     env_mut.module_path = info.env.module_path;
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
     env_mut.input_string = info.env.input_string;
@@ -2286,7 +2286,7 @@ apply_single_trait_constraint :: (
   if(!is_type_value(info_rhs.value), {
     return(false);
   });
-  env_mut.frames = info_rhs.env.frames;
+  env_mut.frames = copy_frames(info_rhs.env.frames);
   env_mut.module_path = info_rhs.env.module_path;
   env_mut.function_declaration_frame_level = info_rhs.env.function_declaration_frame_level;
   env_mut.input_string = info_rhs.env.input_string;
@@ -2468,7 +2468,7 @@ parse_where_clause_constraints :: (
           )
         );
       });
-      env_mut.frames = lhs_info.env.frames;
+      env_mut.frames = copy_frames(lhs_info.env.frames);
       env_mut.module_path = lhs_info.env.module_path;
       env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
       env_mut.input_string = lhs_info.env.input_string;
@@ -2581,7 +2581,7 @@ parse_where_clause_constraints :: (
       if(skip_iter, {
         continue;
       });
-      env_mut.frames = trait_info.env.frames;
+      env_mut.frames = copy_frames(trait_info.env.frames);
       env_mut.module_path = trait_info.env.module_path;
       env_mut.function_declaration_frame_level = trait_info.env.function_declaration_frame_level;
       env_mut.input_string = trait_info.env.input_string;
