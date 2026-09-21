@@ -432,9 +432,34 @@ constantly — hashing, alignment, capacity math).
 
 Landed as three separately-measured PRs: 3a overflow + neg, 3b shifts, 3c casts.
 
-### 3a Overflow and negation (needs ruling D1)
+### 3a Overflow and negation — RE-SCOPED 2026-09-22: blocked on the wrapping surface
 
-**Recommended policy (D1): trap on overflow for signed AND unsigned `+ - *` and on
+**Discovery that re-frames H6:** the survey missed that Yo passes **`-fwrapv`**
+unconditionally (`src/main.yo`, documented in MEMORY_SAFETY.md "Integer
+Overflow") — signed overflow is DEFINED two's-complement wrap today, not UB;
+unsigned overflow is defined modular arithmetic. H6 is therefore NOT a
+UB-closure item but a semantics change from defined-but-silently-wrong to a
+trap, and it has a hard prerequisite: **in-tree code intentionally wraps** —
+`std/hash.yo`'s SipHash mixing (`self.v0 = (self.v0 + self.v1)` on u64) and
+Fnv1aHasher's multiply ARE the algorithm; trapping them breaks every
+HashMap/HashSet.
+
+Landed order when this phase resumes (each its own PR):
+
+1. **3a-i: wrapping builtins.** `wrapping_add` / `wrapping_sub` /
+   `wrapping_mul` on i8..i64/u8..u64/isize/usize — new BF_ builtins whose
+   codegen arm is today's raw `_binop` (evaluator registration + prelude
+   impls; runtime-only initially; comptime keeps its overflow error).
+2. **3a-ii: migrate intentional-wrap sites** (std/hash.yo at minimum;
+   inventory `std/rand`, `std/crypto` for wrap-as-algorithm arithmetic).
+3. **3a-iii: flip the traps** — the emitters/helpers below activate.
+
+Implementation state (emitters + runtime helpers, `yo check`-clean, the 64-bit
+identities validated by a 24-case C probe) is committed on `safe-mode-3-wip`
+WITHOUT a PR — landing it now would trap std's hashers at runtime.
+
+Original policy (D1, still the ruling): trap on overflow for signed AND
+unsigned `+ - *` and on
 `-MIN`** in safe files, at every `--optimize` level (D4). Rationale: comptime already
 *errors* on overflow (`check_int_overflow`) — trapping is the runtime match; unsigned
 wrap is C-defined but silently wrong, the one failure mode this campaign exists to
