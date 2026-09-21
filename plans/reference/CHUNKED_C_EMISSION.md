@@ -38,7 +38,7 @@ emits **byte-identical** C to a single-file-built one
 ## What is intentionally not done
 
 - **Chunking stays opt-in for `yo compile`.** All four default-on conditions
-  hold since Phase 1 (`plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` §4):
+  hold since Phase 1 (`plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` §4):
   `--emit-chunks auto` exists, and the ONE default flip it enabled is
   `yo build`'s DEBUG executables. Plain `yo compile` still emits one file
   unless the flag is passed — the single-file emission remains what the

@@ -104,7 +104,7 @@ CodegenExternFnEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : 
 /// A reachable function to be generated. `value` is the FuncVal EvalValue;
 /// `def_module` is the defining module's path (the body token's), recorded at
 /// registration for by-module TU grouping
-/// (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5.4).
+/// (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5.4).
 CodegenFunctionEntry :: ref(struct(value : EvalValue, c_name : String, def_module : String));
 /// An entry in `impl_closure_call_map`: the resolved concrete capture-struct
 /// type id → the generated closure implementation function for that type.
@@ -152,7 +152,7 @@ DynImplEntry :: ref(
 /// function's DEFINING module (`CodegenFunctionEntry.def_module`; a
 /// specialization carries its original's, through the body token) and is
 /// empty for the header-routed runtime blocks; `--chunk-by module` groups
-/// translation units by it (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §8).
+/// translation units by it (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §8).
 ChunkRange :: ref(struct(c_name : String, start_b : usize, end_b : usize, module : String));
 /// The base C code generation context. See header above.
 CodeGenContext :: ref(
@@ -454,7 +454,7 @@ impl(
     expr_info_table_get(self.info_table, ast_expr_id(expr))
   ),
   /// Register a reachable function to be generated (idempotent on func_id).
-  /// C names are content-derived (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5),
+  /// C names are content-derived (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5),
   /// so a sanitization collision between two DIFFERENT functions is possible —
   /// disambiguate with an `_x<k>` suffix rather than emit two definitions of one symbol.
   register_function : (fn(self : Self, func_id : String, value : EvalValue, c_name : String) -> unit)({
@@ -710,7 +710,7 @@ _is_c_identifier_byte :: (fn(b : u8) -> bool)(
   ) // _
 );
 /// A fresh LOCAL name (`<prefix><k>`) unique within `current_function_name`'s
-/// emission (Phase 2, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the
+/// emission (Phase 2, plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the
 /// k-th mint of this prefix in this function. Stable across edits anywhere
 /// else — the counter is per (prefix, function), not global — and unique
 /// within the function's C scope. NOT for file-scope names (two functions
@@ -858,7 +858,7 @@ pattern_literal_arm_guards :: (
   out
 });
 /// The default C name for a func_id
-/// (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5). Plain fids (`yo_id_<digits>`, `fn_yo_id_<digits>`,
+/// (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5). Plain fids (`yo_id_<digits>`, `fn_yo_id_<digits>`,
 /// `closure_yo_id_<digits>`, and short specializations) pass through
 /// sanitized — short, readable, and already content-stable. A specialization
 /// id carries its full compile-time signature (evaluator/calls/helper.yo),

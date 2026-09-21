@@ -275,7 +275,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 ///
 /// The smallest emission for which splitting into chunks pays — the floor of
 /// `--emit-chunks auto`'s `N = clamp(1, cap, emitted_bytes / MIN_CHUNK_BYTES)`
-/// (Phase 1, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §4). Measured
+/// (Phase 1, plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §4). Measured
 /// 2026-09-10 (clang 21 -O0): a 410-line program emits 168 KB with a 33 KB
 /// (~20%) shared header, so N=4 there costs ~155% of the single-file C work
 /// for a build that is subsecond either way; the self-build emits 163 MB.
@@ -334,7 +334,7 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   base.add_c_include(String.from("<math.h>"));
   ctx := FunctionGenerationContext.new(base);
   base.emitter.emit_declaration_line("// Module (self-hosted codegen)");
-  // Phase 0 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3): the
+  // Phase 0 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3): the
   // collection/emission split. The boundary is `generate_type_declarations` —
   // everything before it walks and collects (functions, types, includes,
   // trace/dispose synthesis, which can still mint specializations); everything
@@ -381,7 +381,7 @@ typedef enum {
   // RC-function synthesis is deferred until here; it runs with the threaded ctx/exn. Must precede
   // function declarations + constructor emission (which read get_dispose_function_for_type).
   collect_dispose_methods(base, eval_ctx, module_env, info, exn);
-  // plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9: how much of what the
+  // plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9: how much of what the
   // evaluator FORCED (every top-level definition of every imported module —
   // rule 5) does codegen actually REACH? `forced_defs` counts pending-def
   // forces over the whole run; `collected_fns` the functions collected for

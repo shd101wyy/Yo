@@ -176,7 +176,7 @@ real issues remained in this area:
   presented as a near-total file diff, and comparison jobs had to
   canonicalize `yo_id_\d+` / `__yo_t\d+` before classifying hunks.
   **RETIRED 2026-09-12 (Phase 2,
-  `plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` §5):** every id mint is
+  `plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` §5):** every id mint is
   now position- or content-derived (and the global counter is gone), so a
   stage-2/stage-3 diff points at a real divergence — diff the emissions
   as-is.

@@ -56,7 +56,7 @@ Zero non-import opens in `std/` or `src/`.
 - **Tooling.** Every opened name is bound with `ast_expr_token(arg_expr)` — the
   token of the `import(...)` argument — so LSP definition/rename/references on
   an opened `String` resolve to the `open(` line, not to the definition.
-- **Incremental compilation** (`plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md`).
+- **Incremental compilation** (`plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md`).
   A file that opens `std/string` depends on the module's whole export SET:
   adding an export anywhere in it can change name resolution in 266 files.
   Named imports give exact per-definition edges.
