@@ -8,10 +8,13 @@ Phase 3 (per-definition deps) steps 1, 2 and 4 LANDED 2026-09-12/14, the
 stale-callee bug behind the signature-edit gate FIXED 2026-09-21 (#809; §6),
 step 3 (signature/body hash split) and the destructured-reader re-bind open;
 Phase 4 (resident evaluator) steps 1, 2 and 4 LANDED 2026-09-13..18, step 3
-(`yo test` in-process) GATED behind `YO_TEST_IN_PROCESS=1` (§7) — its
-measured breaker FIXED 2026-09-21 (type ids minted in the per-compile
-emission namespace; issues/fixed/warm-test-batches-doc-stability-genericimplentry.md),
-the full in-process `tests/internal` run is the un-gate's remaining gate; Phase 5
+(`yo test` in-process) COMPLETE and deliberately OPT-IN behind
+`YO_TEST_IN_PROCESS=1` (§7) — its measured breaker FIXED 2026-09-21 (type ids
+minted in the per-compile emission namespace;
+issues/fixed/warm-test-batches-doc-stability-genericimplentry.md), all 92
+files pass in one process, and the opt-in is a MEASURED decision: the 2.07x
+needs a valve ceiling above one file's universe, which a CI runner cannot
+spare; Phase 5
 step 1 (`--chunk-by module`) LANDED + MEASURED 2026-09-21 (#808; §8 — the C
 leg is 13 s of a 188 s loop, so steps 2–3 are dropped and step 4 stands).
 Remaining before graduation to `plans/reference/`: Phase 3 step 3 and
@@ -780,13 +783,32 @@ Design:
    | child process per batch (today's default) | 77:34 | 8.8 GB  | 1190 passed                 |
    | in-process, one evaluator                 | 37:33 | 10.2 GB | 1189 passed, 0 unify errors |
 
-   **2.07x faster.** The in-process peak was taken with the RSS valve
+   **2.07x faster.** That in-process peak was taken with the RSS valve
    INERT (`_current_rss_mb` read `/proc/self/statm`, Linux-only —
    issues/fixed/rss-valve-reads-proc-self-statm-so-it-never-fires-off-linux.md),
-   so it is the UNBOUNDED shape, not the shape an un-gate would ship. The
-   valve now fires on every platform; the bounded re-measurement (default
-   4096 MB ceiling, restarts included) is what the un-gate decision rests
-   on, because each restart trades wall time for a bounded peak.
+   so it is the UNBOUNDED shape.
+
+   **DECIDED 2026-09-21 — `YO_TEST_IN_PROCESS` STAYS OPT-IN, and the reason
+   is the valve's ceiling, not a correctness doubt.** With the valve working
+   and its default `YO_TEST_MAX_RSS_MB=4096`, the bounded re-measurement
+   restarts on almost every file: 5 exec-restarts across the first 6 files,
+   peak held to 5.6 GB, ~56 s per file against child mode's ~51 s. ONE
+   `tests/internal` file's accumulated universe already exceeds 4 GB, so the
+   valve degenerates into "restart every file", which is child mode plus a
+   re-warm. The 2.07x is real but bought entirely with resident memory: it
+   needs a ceiling above a single file's universe.
+
+   That makes the mode a developer knob rather than a CI default. A 16 GB
+   machine gets the whole suite in 37:33 against 77:34 with
+   `YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000`; a CI runner cannot spare
+   10 GB, and at a ceiling it can spare the mode buys nothing. Flipping the
+   default would trade 2 GB of peak for no wall-clock win on the machines
+   that run the suite most.
+
+   The step's machinery is therefore COMPLETE: batches compile in-process,
+   all 92 files pass that way with 0 unify errors, the valve bounds the peak
+   on every platform, and the trade-off is measured. What remained was not
+   work but a choice, and the numbers make it.
 4. **Memory is the constraint Zig does not have.** A self-build's
    evaluator peaks at 11–20 GB (`yo-one-heavy-job-at-a-time`,
    `YO_SELF_ENV_SHARING.md`). A resident process that accumulates
