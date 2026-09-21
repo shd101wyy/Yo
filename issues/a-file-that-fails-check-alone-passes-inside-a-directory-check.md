@@ -1,6 +1,6 @@
 # A file that fails `yo check` alone passes inside a directory check when a sibling loaded the provider
 
-**Status:** OPEN, measured 2026-09-21 (seed v0.2.38 and a tree-built compiler
+**Status:** FIX BUILT 2026-09-21, gating (branch `fix/imported-def-forces-in-its-own-impl-scope`); measured 2026-09-21 (seed v0.2.38 and a tree-built compiler
 at eb91f7510 agree on the verdicts). Surfaced while bisecting a `check`
 slowdown: `src/types/intern.yo` as of develop cannot be checked on its own
 (`i64.to_string()` with only `std/string` imported), yet `yo check ./src`
@@ -72,7 +72,45 @@ that does not check on its own; the upper bound of the blast radius is the
   (`yo-admin-merge-needs-the-internal-shards-locally`: batches are different
   programs).
 
-## Fix direction (not started)
+## Fix (2026-09-21)
+
+Method resolution only sees impls whose owner module is reachable from the
+current module's import closure:
+
+- `owner_visible_from_current(owner)` (`src/evaluator/values/type_trait_methods.yo`):
+  no current module (owner tag `""` — codegen, the CLI, bootstrap) sees
+  everything; an entry with owner `""` is always visible; otherwise the owner
+  must be in the current module's closure. `get_visible_type_trait_methods_by_name`
+  is the filtered getter; codegen, the LSP and the registries' own bookkeeping
+  keep the unfiltered one.
+- `import_closure_of(module)` (`src/evaluator/module_loader.yo`): the
+  transitive closure over the loader's import edges, canonical spelling,
+  memoized and dropped on any edge change; the prelude is marked
+  always-visible at preload (`mark_owner_always_visible`), since it is loaded
+  through the entry path but implicitly in scope everywhere.
+- `env.yo`'s two resolution entry points use the filtered getter (7 sites);
+  the generic-impl fallback (`find_methods_from_generic_impls`, impl.yo)
+  skips entries whose owner is not visible.
+- `_force_pending_def_impl` (anonymous_module.yo) sets the registration owner
+  to the DEFINITION's module for the duration of the force
+  (`loading_key_for_module`), so a definition forced from another module's
+  lookup registers and resolves as its own module.
+
+Measured with a compiler built from the branch:
+
+| gate                                                  | result                          |
+| ----------------------------------------------------- | ------------------------------- |
+| `yo check ./src`                                      | 277/277 (0 files newly red)     |
+| `yo check ./std`                                      | 176/176                         |
+| cli-case `check-directory-verdict-matches-standalone` | E0610 + `1/2 file(s) passed`, rc=1 (seed: 2/2, rc=0 → GOLDEN-DIFF) |
+
+The blast radius predicted above (80 files) did not materialize: in `src/`
+and `std/` the provider is reachable TRANSITIVELY (`utils.yo` and friends
+import `std/fmt`), which the closure honours — the grep counted direct
+imports only. The standalone failure of `src/types/intern.yo` under the seed
+was the seed's lazy-forcing behaviour, not a missing transitive path.
+
+## Fix direction (as written before the fix)
 
 Method resolution must only see impls whose owner module is reachable from
 the CURRENT module's import closure (prelude-owned entries, owner `""`,
