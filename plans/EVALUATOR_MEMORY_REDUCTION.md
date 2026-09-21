@@ -845,6 +845,63 @@ byte-identical" (they change bookkeeping, not what is emitted):
   `Token.value` for identifiers (diagnostics render through the table). Each
   step is a broad mechanical refactor; land per field, byte-identical C.
 
+### 0.4′ The exit-live census RE-TAKEN at 9.69 GB (2026-09-21)
+
+Same recipe as §0.4 (`scripts/bootstrap/live_census_t.py`, `clang -O1`,
+`check src/main.yo`). §0.4 was taken at the 19.33 GB baseline and every lever
+estimate in this plan is derived from it, so it is two phases stale. The
+instrumented run's footprint (9.69 GB) matches the uninstrumented one
+(9.72 GB), so the counters still do not perturb the measurement.
+
+**6.18 GB of live struct bytes over 67.5 M objects**, down from 13.3 GB over
+130 M.
+
+| type | live | sizeof | live bytes | vs §0.4 |
+| --- | --- | --- | --- | --- |
+| `TypeValue` | 7.55 M | 176 | **1.329 GB** | 1.37 GB — unmoved |
+| `Variable` | 4.90 M | 192 | 0.941 GB | 1.95 GB |
+| `ArrayList(TypeValue)` | 11.12 M | 80 | **0.890 GB** | 0.93 GB — unmoved |
+| `ExprInfo` | 2.06 M | 216 | 0.445 GB | 3.23 GB |
+| `ArrayList(usize)` | 10.82 M | 40 | 0.433 GB | 0.48 GB |
+| `ArrayList(EvalValue)` | 4.54 M | 80 | 0.363 GB | 0.65 GB |
+| `ArrayList(u8)` (strings) | 8.32 M | 40 | 0.333 GB | 0.91 GB |
+| `ArrayList(ArrayList(TypeValue))` | 3.22 M | 80 | **0.258 GB** | 0.26 GB — unmoved |
+| `AstExpr` | 3.98 M | 64 | 0.255 GB | 0.69 GB |
+| `Token` | 2.26 M | 104 | 0.235 GB | 0.69 GB |
+| `Environment` | 1.32 M | 120 | 0.158 GB | 0.82 GB |
+| `EvalValue` | 1.36 M | 96 | 0.130 GB | 0.18 GB |
+| `ArrayList(Frame)` | 1.32 M | 80 | 0.105 GB | 0.58 GB |
+| `ExprInfoRare` | 0.17 M | 464 | 0.079 GB | 0.02 GB |
+
+**What the re-take settles, and it re-ranks the rest of the plan:**
+
+- **The `TypeValue` cluster is now the whole game.** `TypeValue` + its two
+  list types = **2.48 GB of the 6.18 GB live, 40 %**, and it is the ONLY
+  cluster the campaign has not touched: all three rows are within 4 % of
+  their 19 GB-era values while everything around them fell by half or more.
+  Lever 6 (recursive interning at the constructors, F5) is no longer one
+  candidate among several — it is the largest single lever left by a wide
+  margin, and `intern_type` already exists with only TWO call sites
+  (`types/substitution.yo`), so the mechanism is built and unused.
+- **The `ExprInfo` cluster is done.** 7.35 M → 2.06 M live and 3.23 → 0.445 GB.
+  Phase 4's specialization designs (no AST clone, drop generic-body trial
+  infos) now target a population of 2.06 M `ExprInfo` + 3.98 M `AstExpr` =
+  0.70 GB TOTAL, of which the 1.30 M cloned nodes are a part. That caps both
+  designs well under 0.5 GB and demotes them below the header split.
+- **The RC header is 56 B of every one of those 67.5 M objects = 3.78 GB**,
+  which is why 6.18 GB of struct bytes sits under a 9.69 GB peak. Lever 8
+  (56 → 32 B) is worth ~1.6 GB at today's population, second only to the
+  `TypeValue` cluster, and it is a layout change that touches the GC.
+- **Buffer-shape levers are dead** (see the value-cell refutation below): the
+  `gross` column shows the churn is in `ArrayList(u8)` (399.9 M gross, 8.32 M
+  live) and `ArrayList(String)` (48.1 M gross), which is allocation traffic,
+  not retention. The peak is still the retained set.
+
+**Revised route to a sub-8 GB peak**, from 9.69: interning the `TypeValue`
+cluster is the only lever that can deliver 1.7 GB on its own, and the header
+split is the only other one in that class. Everything else in §5's table is
+now a sub-0.5 GB item.
+
 ### Phase 6 — per-object layout: header and `Variable`
 
 **MEASURED 2026-09-21 — the value-cell BUFFER lever is refuted (60 MB), and
