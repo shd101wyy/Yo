@@ -58,10 +58,18 @@ header) and compiled with the same warning on every macOS run.
 `tests/cli-cases/compile-c-include-pointer-type-mismatch`: a fixture binding
 `strlen : (fn(s : *i32) -> usize)` and calling it with an `*i32`, compiled
 through the real C compiler at -O2. Under the pre-fix binary on macOS it
-compiles with a warning at rc=0 (the case scores GOLDEN-DIFF on rc); under
-the fixed binary it fails at rc=1 with `compile: C compiler failed (exit 1)`,
-which is the kept substring. rc=1 is also what clang 22 already produced, so
-the golden is platform-independent.
+compiles with a warning at rc=0 and never prints the failure line, so the
+case scores NO-GOLDEN (the kept pattern matches nothing — the harness's
+"vacuous" verdict, a failure). Under the fixed binary it fails at rc=1 and
+the kept substring is `compile: C compiler failed (exit 1`. rc=1 is also
+what clang 22 already produced, so the golden is platform-independent. The
+failed compile leaves `out.c` in the sandbox with per-run temporaries in it,
+so the case's `ignore` excludes it from the tree golden.
+
+Two of the four `C compiler failed` messages in src/main.yo dropped the
+closing parenthesis (`(exit 1 on <path>` vs `(exit 1) on <path>`); they now
+agree, and the kept pattern is written to match either spelling so the
+golden does not depend on which driver path emitted it.
 
 ## Lesson
 
