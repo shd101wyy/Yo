@@ -19,7 +19,7 @@
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_name_for_codegen, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
+{ get_type_string, get_variable_name_for_codegen, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 { is_array_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, expr_info_index_method_value, expr_info_is_index_trait_address_of } :: import("../../expr_info.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -94,10 +94,17 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       callee_code := _call_generate_expr(callee_expr, indent.clone(), context);
       index_arg_opt := match(arg, .FnCall(_, _, a2, _, _) => a2.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
       index_code := match(index_arg_opt, .Some(ia) => _call_generate_expr(ia, indent.clone(), context), .None => String.from("0"));
+      // Safe mode Phase 1: bounds-checked even when only the element's
+      // address is taken — an OOB address is already UB.
+      arr_idx := match(
+        context.base.get_expr_info(callee_expr),
+        .Some(cei) => _checked_fixed_array_subscript(index_code, cei.ty, arg),
+        .None => index_code
+      );
       out := String.from("(&((&");
       out.push_string(callee_code);
       out.push_str(")->data[");
-      out.push_string(index_code);
+      out.push_string(arr_idx);
       out.push_str("]))");
       return(out);
     });
@@ -142,10 +149,16 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
           match(
             inline_op,
             .Some(op) => if(op == BF_YO_ARRAY_INDEX, {
+              // Safe mode Phase 1: bounds-checked subscript (§4).
+              arr_idx2 := match(
+                context.base.get_expr_info(callee_expr),
+                .Some(cei) => _checked_fixed_array_subscript(index_code.clone(), cei.ty, arg),
+                .None => index_code.clone()
+              );
               out := String.from("(&((&");
               out.push_string(callee_code.clone());
               out.push_str(")->data[");
-              out.push_string(index_code.clone());
+              out.push_string(arr_idx2);
               out.push_str("]))");
               return(out);
             }),

@@ -1,0 +1,12 @@
+# Safe mode Phase 1 (plans/backlog/SAFE_MODE.md §4): a fixed Array(T, N)
+# indexed out of bounds used to emit raw C `data[idx]` - UB (garbage or a
+# fault far from the cause). Every subscript now routes through
+# __yo_idx_chk, which prints this diagnostic and aborts.
+#
+# The in-bounds read before it (a folded literal, no check) proves the fold;
+# the OOB literal (10 vs N=4) is NOT folded, so the runtime guard fires.
+# Store (`arr(i) = v`) and `&(arr(i))` share the same guard. `str.bytes(i)`
+# likewise (against the runtime length). Recorded by hand: the recording
+# binary must carry the guard.
+stdout_keep_match=index out of bounds: 10 not in \[0, 4\)
+timeout=300

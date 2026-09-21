@@ -7181,8 +7181,9 @@ impl(
   ptr : (fn(self : Self) -> *(u8))(
     __yo_str_ptr(self)
   ),
-  /// Return the byte at `idx` (bounds are the caller's responsibility,
-  /// mirroring slice indexing).
+  /// Return the byte at `idx`. Panics with an index-out-of-bounds diagnostic
+  /// when `idx >= len()` (safe mode: every subscript is checked; there is no
+  /// unchecked byte accessor).
   bytes : (fn(self : Self, idx : usize) -> u8)(
     __yo_str_byte(self, idx)
   )
