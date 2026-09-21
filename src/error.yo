@@ -45,6 +45,7 @@
   E_CANNOT_REASSIGN,
   E_MAYBE_UNINITIALIZED,
   E_NO_MATCHING_CALL,
+  E_OPTIMISTIC_PANIC,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
@@ -170,6 +171,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.starts_with(String.from("No matching call found")), {
     return(_coded(E_NO_MATCHING_CALL));
+  });
+  if(msg.contains(String.from("discards the failure case")), {
+    return(_coded(E_OPTIMISTIC_PANIC));
   });
   if(msg.contains(String.from("is not callable")), {
     return(_coded(E_ARGUMENT_NOT_CALLABLE));
