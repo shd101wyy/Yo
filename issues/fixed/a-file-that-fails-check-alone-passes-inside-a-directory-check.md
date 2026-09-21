@@ -1,6 +1,6 @@
 # A file that fails `yo check` alone passes inside a directory check when a sibling loaded the provider
 
-**Status:** FIX BUILT 2026-09-21, gating (branch `fix/imported-def-forces-in-its-own-impl-scope`); measured 2026-09-21 (seed v0.2.38 and a tree-built compiler
+**Status:** FIXED 2026-09-22 (branch `fix/imported-def-forces-in-its-own-impl-scope`); measured 2026-09-21 (seed v0.2.38 and a tree-built compiler
 at eb91f7510 agree on the verdicts). Surfaced while bisecting a `check`
 slowdown: `src/types/intern.yo` as of develop cannot be checked on its own
 (`i64.to_string()` with only `std/string` imported), yet `yo check ./src`
