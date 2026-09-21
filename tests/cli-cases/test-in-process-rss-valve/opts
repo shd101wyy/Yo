@@ -1,0 +1,12 @@
+# issues/fixed/rss-valve-reads-proc-self-statm-so-it-never-fires-off-linux.md:
+# the in-process test runner's RSS valve (YO_TEST_MAX_RSS_MB) read
+# /proc/self/statm, which does not exist on macOS or Windows — `_current_rss_mb`
+# returned 0 there, the "no valve" sentinel, and the runner accumulated every
+# batch's universe in one process. With a 1 MB ceiling the valve must fire at
+# the first file boundary on EVERY platform and the second file must still
+# pass after the exec-restart. The resident-MB figure in the restart line is
+# volatile, so only the stable substrings are kept.
+env=YO_TEST_IN_PROCESS=1
+env=YO_TEST_MAX_RSS_MB=1
+stdout_keep_match=exec-restarting the runner at file index [0-9]+|[0-9]+ passed
+timeout=300

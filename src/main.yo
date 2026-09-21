@@ -54,6 +54,7 @@ pragma(Pragma.AllowUnsafe);
   profile_fn_std
 } :: import("./utils.yo");
 { Command } :: import("std/process/command");
+{ platform, Platform } :: import("std/process");
 { exit } :: import("std/libc/stdlib");
 { environ, execve } :: import("std/libc/unistd");
 { GlobalAllocator } :: import("std/allocator");
@@ -4541,7 +4542,24 @@ TEST_BATCH_SIZE :: usize(100);
 /// process's resident set in MB, from `/proc/self/statm` field 2 (resident
 /// pages × 4 KiB). Returns 0 when the read or parse fails — callers treat
 /// that as "no valve", never as "reset".
-_current_rss_mb :: (fn() -> usize)({
+/// This process's CURRENT resident set in MB, or 0 when the platform probe
+/// fails ("no valve" — see the RSS valve's guard). One arm per platform, each
+/// a comptime `cond` arm so the platform-specific header only reaches that
+/// platform's emitted C (the std/env.yo convention). The first version read
+/// `/proc/self/statm` unconditionally, which exists only on Linux: macOS and
+/// Windows got 0, the valve never fired, and an in-process `yo test
+/// ./tests/internal` accumulated 10.2 GB in one process while `--watch`'s
+/// `--max-rss-mb` was inert too
+/// (issues/fixed/rss-valve-reads-proc-self-statm-so-it-never-fires-off-linux.md).
+_current_rss_mb :: (fn() -> usize)(
+  cond(
+    (platform == Platform.Macos) => _current_rss_mb_darwin(),
+    (platform == Platform.Windows) => _current_rss_mb_windows(),
+    true => _current_rss_mb_linux()
+  )
+);
+/// Linux: field 2 of `/proc/self/statm` is the resident page count.
+_current_rss_mb_linux :: (fn() -> usize)({
   swallow := Exception(throw : ((_err) -> unwind(usize(0))));
   statm_bytes := read_file_sync(String.from("/proc/self/statm"), swallow);
   fields := String.from_bytes(statm_bytes).split(String.from(" "));
@@ -4552,6 +4570,68 @@ _current_rss_mb :: (fn() -> usize)({
       .Some(pages) => usize((pages * u64(4096)) / u64(1048576)),
       .None => usize(0)
     ),
+    .None => usize(0)
+  )
+});
+/// macOS: `task_info(mach_task_self(), MACH_TASK_BASIC_INFO)`. The out
+/// struct (`mach_task_basic_info`: virtual_size, resident_size,
+/// resident_size_max as u64, two `time_value_t`, policy, suspend_count) is
+/// 48 bytes = 12 `natural_t`, received in a six-u64 buffer; `resident_size`
+/// is element 1. `mach_task_self()` is a macro over the `mach_task_self_`
+/// global, which is what the binding names.
+_current_rss_mb_darwin :: (fn() -> usize)({
+  { task_info, mach_task_self_ } :: c_include(
+    "<mach/mach.h>",
+    task_info : (fn(target_task : u32, flavor : u32, task_info_out : *(u64), task_info_count : *(u32)) -> i32),
+    mach_task_self_ : u32
+  );
+  info := ArrayList(u64).new();
+  (ii : usize) = usize(0);
+  while(ii < usize(6), {
+    info.push(u64(0));
+    ii = (ii + usize(1));
+  });
+  (count : u32) = u32(12); // MACH_TASK_BASIC_INFO_COUNT
+  match(
+    info.ptr(),
+    .Some(out_ptr) => {
+      rc := unsafe(task_info(mach_task_self_, u32(20), out_ptr, &(count))); // MACH_TASK_BASIC_INFO = 20
+      cond(
+        (rc == i32(0)) => match(info.get(usize(1)), .Some(resident) => usize(resident / u64(1048576)), .None => usize(0)),
+        true => usize(0)
+      )
+    },
+    .None => usize(0)
+  )
+});
+/// Windows: `K32GetProcessMemoryInfo(GetCurrentProcess(), …)`. The out
+/// struct (`PROCESS_MEMORY_COUNTERS`: cb and PageFaultCount as DWORD, then
+/// seven SIZE_T) is 72 bytes on the 64-bit targets Yo supports = nine u64;
+/// `cb` is the low half of element 0 and `WorkingSetSize` is element 2.
+/// The `K32` spelling is kernel32's own export (Windows 7+), so no psapi
+/// import library is needed.
+_current_rss_mb_windows :: (fn() -> usize)({
+  { GetCurrentProcess } :: c_include("<windows.h>", GetCurrentProcess : (fn() -> ?*void));
+  { K32GetProcessMemoryInfo } :: c_include(
+    "<psapi.h>",
+    K32GetProcessMemoryInfo : (fn(process : ?*void, counters : *(u64), cb : u32) -> i32)
+  );
+  counters := ArrayList(u64).new();
+  counters.push(u64(72)); // cb
+  (ci : usize) = usize(1);
+  while(ci < usize(9), {
+    counters.push(u64(0));
+    ci = (ci + usize(1));
+  });
+  match(
+    counters.ptr(),
+    .Some(out_ptr) => {
+      ok := unsafe(K32GetProcessMemoryInfo(unsafe(GetCurrentProcess()), out_ptr, u32(72)));
+      cond(
+        (ok != i32(0)) => match(counters.get(usize(2)), .Some(working_set) => usize(working_set / u64(1048576)), .None => usize(0)),
+        true => usize(0)
+      )
+    },
     .None => usize(0)
   )
 });
