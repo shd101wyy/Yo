@@ -58,7 +58,9 @@ identity wants an address).
 ## Gate
 
 `tests/cli-cases/check-numeric-conversion-rejects-non-numeric-source`: the
-String-source fixture under `yo check`; the seed passes it (rc=0, the bug),
-the fixed compiler rejects it (rc=1, the diagnostic is the kept substring).
+String-source fixture under `yo check`; the seed passes it (rc=0 and no
+diagnostic at all, so the case scores NO-GOLDEN — the harness's vacuous
+verdict, a failure), the fixed compiler rejects it (rc=1, the diagnostic is
+the kept substring, PASS).
 Plus `yo check ./src` and `./std` (no real site relied on the fallback — the
 extern-C opaque case has its own arm), the language suite and `gates_fast`.
