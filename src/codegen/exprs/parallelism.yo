@@ -26,7 +26,7 @@
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, get_variable_name_for_codegen, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ expr_info_closure_function_value } :: import("../../expr_info.yo");
+{ expr_info_closure_function_value, expr_info_capture_type } :: import("../../expr_info.yo");
 { get_dup_function_for_type, get_drop_function_for_type, generate_drop_code_for_value } :: import("./drop_dup.yo");
 { HashSet } :: import("std/collections/hash_set");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -299,7 +299,7 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   // the param was bound to (callable) — resolve it to the concrete capture struct
   // (via g_some_resolved_concrete) so the map key matches what the construction /
   // pre-pass registered (the capture-struct id, not the SomeT id).
-  capture_type := resolve_some_type_to_concrete(match(cei.capture_type, .Some(c) => c, .None => cei.ty));
+  capture_type := resolve_some_type_to_concrete(match(expr_info_capture_type(cei), .Some(c) => c, .None => cei.ty));
   // The impl_closure_call_map is keyed by the BARE capture-struct id at every
   // set site (closures.yo — capture-struct sids are unique per closure), NOT
   // by type_key: type_key of a cfid-empty struct with field types is now

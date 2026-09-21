@@ -48,7 +48,17 @@ pragma(Pragma.AllowUnsafe);
   adopt_receiver_struct_instance,
   mark_node_preevaluated,
   unmark_node_preevaluated,
-  expr_info_adopt_env
+  expr_info_adopt_env,
+  expr_info_capture_type,
+  expr_info_comptime_ref,
+  expr_info_index_method_type,
+  expr_info_index_method_value,
+  expr_info_set_comptime_ref,
+  expr_info_set_deferred_dup_expressions,
+  expr_info_set_index_method_type,
+  expr_info_set_index_method_value,
+  expr_info_set_index_trait_ptr_type,
+  expr_info_set_macro_expansion
 } :: import("../../expr_info.yo");
 {
   Variable,
@@ -2403,7 +2413,7 @@ _evaluate_funcval_runtime_call :: (
           match(
             evaled_arg_infos.get(_ac_i),
             .Some(_ac_ai) => {
-              _ac_aty := match(_ac_ai.capture_type, .Some(_ac_ct) => _ac_ct, .None => _ac_ai.ty);
+              _ac_aty := match(expr_info_capture_type(_ac_ai), .Some(_ac_ct) => _ac_ct, .None => _ac_ai.ty);
               match(
                 _ac_pts.get(_ac_i),
                 .Some(_ac_pty) => {
@@ -2987,7 +2997,7 @@ _evaluate_funcval_runtime_call :: (
       // Send)`) lowers to its concrete capture struct in the specialized C
       // function — the same concretion `resolved_concrete` carries
       // elsewhere.
-      (arg_ty_spec : TypeValue) = match(ainfo.capture_type, .Some(ct) => ct, .None => ainfo.ty);
+      (arg_ty_spec : TypeValue) = match(expr_info_capture_type(ainfo), .Some(ct) => ct, .None => ainfo.ty);
       // Lower a comptime-only ARG type (comptime_int/float/str) to its
       // runtime equivalent when the param is a RUNTIME param — the inline
       // arm's mirror of check_if_function_parameter_matches_argument's
@@ -3219,7 +3229,7 @@ _evaluate_funcval_runtime_call :: (
           .Some(rt_s1_ma) => match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(rt_s1_ma)),
             .Some(rt_s1_mai) => {
-              rt_s1_mai.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+              expr_info_set_deferred_dup_expressions(rt_s1_mai, Option(ArrayList(AstExpr)).None);
             },
             .None => ()
           ),
@@ -5950,7 +5960,7 @@ Fix: wrap the call:
           // an async-closure-body swallow re-raises it at `check` time.
           if(fn_constrained_param_requires_callable(resolved_decl_pt) && (pi < n_supplied_reg), {
             nc_callable := (
-              (type_is_callable_shaped(arg_info.ty) || arg_info.capture_type.is_some())
+              (type_is_callable_shaped(arg_info.ty) || expr_info_capture_type(arg_info).is_some())
               || match(arg_info.value, .Some(nc_av) => is_func_val(nc_av), .None => false)
             );
             if(!(nc_callable), {
@@ -6320,7 +6330,7 @@ Fix: wrap the call:
                 call_macro_info.value = exp_info.value;
                 call_macro_info.control_flow = exp_info.control_flow;
                 call_macro_info.variable_name = exp_info.variable_name;
-                call_macro_info.macro_expansion = Option(AstExpr).Some(expanded_expr);
+                expr_info_set_macro_expansion(call_macro_info, Option(AstExpr).Some(expanded_expr));
                 expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), call_macro_info);
                 // Durably record the expansion keyed by call id: the per-pass
                 // ExprInfo above can be overwritten by a later eval of the same
@@ -6628,7 +6638,7 @@ Fix: wrap the call:
                 .Some(fv_s1_ma) => match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(fv_s1_ma)),
                   .Some(fv_s1_mai) => {
-                    fv_s1_mai.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+                    expr_info_set_deferred_dup_expressions(fv_s1_mai, Option(ArrayList(AstExpr)).None);
                   },
                   .None => ()
                 ),
@@ -6690,15 +6700,15 @@ Fix: wrap the call:
           // Record the `*(T)` the index method returns (before auto-deref)
           // so the ref-argument place gate recognizes `xs(i)` as a pointer
           // into the container's buffer.
-          out_idx_rt.index_trait_ptr_type = Option(TypeValue).Some(idx_result_rt.ptr_type);
+          expr_info_set_index_trait_ptr_type(out_idx_rt, Option(TypeValue).Some(idx_result_rt.ptr_type));
           // Also record the specialized index() method type + value so codegen
           // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
-          out_idx_rt.index_method_type = match(idx_result_rt.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None);
-          out_idx_rt.index_method_value = idx_result_rt.index_method_value;
+          expr_info_set_index_method_type(out_idx_rt, match(idx_result_rt.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None));
+          expr_info_set_index_method_value(out_idx_rt, idx_result_rt.index_method_value);
           // ComptimeIndex place-reference: lets
           // `p(0) = v` write the struct field and `&(p(0))` build a comptime
           // pointer.
-          out_idx_rt.comptime_ref = idx_result_rt.comptime_ref;
+          expr_info_set_comptime_ref(out_idx_rt, idx_result_rt.comptime_ref);
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx_rt);
           // Attach a NON-owning temp to the index result: the element is a borrow
           // into the container's buffer, so a store of it must go through
@@ -7320,14 +7330,14 @@ Fix: wrap the call:
             out_idx.value = idx_result.value;
             // Record the index method's `*(T)` so the ref-argument place
             // gate recognizes `xs(i)` as a buffer pointer.
-            out_idx.index_trait_ptr_type = Option(TypeValue).Some(idx_result.ptr_type);
+            expr_info_set_index_trait_ptr_type(out_idx, Option(TypeValue).Some(idx_result.ptr_type));
             // Also record the specialized index() method type + value so codegen
             // can emit `*index_fn(&recv, i)` (generation.yo's index-trait branch).
-            out_idx.index_method_type = match(idx_result.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None);
-            out_idx.index_method_value = idx_result.index_method_value;
+            expr_info_set_index_method_type(out_idx, match(idx_result.index_method_type, .Some(imt) => Option(TypeValue).Some(imt), .None => Option(TypeValue).None));
+            expr_info_set_index_method_value(out_idx, idx_result.index_method_value);
             // ComptimeIndex place-reference — see the FuncVal-callee index arm
             // above.
-            out_idx.comptime_ref = idx_result.comptime_ref;
+            expr_info_set_comptime_ref(out_idx, idx_result.comptime_ref);
             expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
             // Attach a NON-owning temp — see the
             // FuncVal-callee index arm above for the full rationale.

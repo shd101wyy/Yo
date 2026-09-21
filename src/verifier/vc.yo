@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   make_err_expr
 } :: import("../expr.yo");
-{ ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
 { VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
@@ -99,7 +99,7 @@ _scan_call_edges :: (
     .FnCall(_, f, args, _, _) => {
       expanded := match(
         expr_info_table_get(table, ast_expr_id(e)),
-        .Some(ei) => ei.macro_expansion,
+        .Some(ei) => expr_info_macro_expansion(ei),
         .None => Option(AstExpr).None
       );
       match(
@@ -2086,7 +2086,7 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
       // Macro calls: the semantics live in the expansion.
       expanded := match(
         expr_info_table_get(table, ast_expr_id(e)),
-        .Some(ei) => ei.macro_expansion,
+        .Some(ei) => expr_info_macro_expansion(ei),
         .None => Option(AstExpr).None
       );
       match(

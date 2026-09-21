@@ -31,7 +31,8 @@ pragma(Pragma.AllowUnsafe);
   begin_branch_group_arm,
   pop_branch_group,
   expr_info_set_case_executed,
-  expr_info_adopt_env
+  expr_info_adopt_env,
+  expr_info_capture_type
 } :: import("../../expr_info.yo");
 { Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
@@ -600,7 +601,7 @@ evaluate_cond :: (
             match(
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(ir_body)),
               .Some(ir_bi) => match(
-                ir_bi.capture_type,
+                expr_info_capture_type(ir_bi),
                 .Some(ir_cap) => {
                   match(
                     ir_first_cap,

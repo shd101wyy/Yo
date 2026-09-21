@@ -13,7 +13,7 @@
 { _looks_like_minted_temp } :: import("./begin.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
-{ expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
+{ expr_info_consumed_variable_drop_expressions, expr_info_comptime_unrolled_bodies } :: import("../../expr_info.yo");
 /// Emit `<indent><text>` + newline.
 _emit_line :: (fn(em : Emitter, indent : String, text : String) -> unit)({
   line := indent.clone();
@@ -265,7 +265,7 @@ generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   match(
     ei_opt,
     .Some(ei) => match(
-      ei.comptime_unrolled_bodies,
+      expr_info_comptime_unrolled_bodies(ei),
       .Some(bodies) => {
         n := bodies.len();
         (i : usize) = usize(0);

@@ -34,7 +34,9 @@
   path_collection_new,
   expr_info_set_runtime_destructurings,
   register_module_level_global,
-  register_thread_local
+  register_thread_local,
+  expr_info_set_is_compile_time_only_assignment,
+  expr_info_set_macro_expansion
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -425,14 +427,14 @@ _evaluate_inout_local_binding :: (
     pin_var,
     .Some(pv) => {
       lhs_info.source_variable = Option(Variable).Some(pv);
-      lhs_info.macro_expansion = pin_expr;
+      expr_info_set_macro_expansion(lhs_info, pin_expr);
     },
     .None => ()
   );
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);
   expr_info := new_expr_info(env, t_unit());
   expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-  expr_info.is_compile_time_only_assignment = Option(bool).Some(false);
+  expr_info_set_is_compile_time_only_assignment(expr_info, Option(bool).Some(false));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
   expr
 });
@@ -1202,7 +1204,7 @@ Use \`::\` for compile-time definitions inside impl.`
     // Set ExprInfo on the whole :: / := expression.
     expr_info := new_expr_info(env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-    expr_info.is_compile_time_only_assignment = Option(bool).Some(effective_is_compile_time_only);
+    expr_info_set_is_compile_time_only_assignment(expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
     expr
   }, {
@@ -1225,7 +1227,7 @@ Use \`::\` for compile-time definitions inside impl.`
     expr_info := new_expr_info(env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_set_runtime_destructurings(expr_info, destr_result.runtime_destructurings);
-    expr_info.is_compile_time_only_assignment = Option(bool).Some(effective_is_compile_time_only);
+    expr_info_set_is_compile_time_only_assignment(expr_info, Option(bool).Some(effective_is_compile_time_only));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
     expr
   })

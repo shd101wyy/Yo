@@ -25,7 +25,8 @@
   ControlFlowFlags,
   has_control_flow,
   has_any_control_flow,
-  expr_info_adopt_env
+  expr_info_adopt_env,
+  expr_info_set_comptime_unrolled_bodies
 } :: import("../../expr_info.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
 { Environment, copy_frames, snapshot_env } :: import("../../env.yo");
@@ -421,7 +422,7 @@ evaluate_while :: (
     // unevaluated would degrade to `// Failed to transpile` markers, which
     // the honest-hollow gate counts (basic arm 26's `i :: 10; while(comptime(
     // i < 5), ...)`). Semantically identical: zero iterations.
-    out_info.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new());
+    expr_info_set_comptime_unrolled_bodies(out_info, Option(ArrayList(AstExpr)).Some(ArrayList(AstExpr).new()));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
@@ -716,7 +717,7 @@ evaluate_while :: (
                     // what we have and fall back.
                     out_rt_u := new_expr_info(current_env, t_unit());
                     out_rt_u.value = Option(EvalValue).None;
-                    out_rt_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+                    expr_info_set_comptime_unrolled_bodies(out_rt_u, Option(ArrayList(AstExpr)).Some(unrolled_bodies));
                     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt_u);
                     return(expr);
                   }
@@ -724,7 +725,7 @@ evaluate_while :: (
                 .None => {
                   out_rt_u2 := new_expr_info(current_env, t_unit());
                   out_rt_u2.value = Option(EvalValue).None;
-                  out_rt_u2.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+                  expr_info_set_comptime_unrolled_bodies(out_rt_u2, Option(ArrayList(AstExpr)).Some(unrolled_bodies));
                   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt_u2);
                   return(expr);
                 }
@@ -738,7 +739,7 @@ evaluate_while :: (
         // Loop terminates — store unrolled bodies.
         out_done_u := new_expr_info(current_env, t_unit());
         out_done_u.value = Option(EvalValue).None;
-        out_done_u.comptime_unrolled_bodies = Option(ArrayList(AstExpr)).Some(unrolled_bodies);
+        expr_info_set_comptime_unrolled_bodies(out_done_u, Option(ArrayList(AstExpr)).Some(unrolled_bodies));
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_done_u);
         return(expr);
       });

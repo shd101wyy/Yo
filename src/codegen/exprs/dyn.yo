@@ -25,7 +25,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
+{ expr_info_dyn_call_trait_values, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// For a BOXED dyn payload (`Box(Sq)`), the impl concrete type is the UNDERLYING
 /// type (`Sq`, the box's single `*` field) while the runtime data type stays
 /// `Box(Sq)`. Keeps the dyn-box / vtable / impl_key keyed on the
@@ -153,7 +153,7 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   );
   // Dup the inner value (Dyn wrapper holds a reference too).
   match(
-    value_ei.deferred_dup_expressions,
+    expr_info_deferred_dup_expressions(value_ei),
     .Some(dups) => if(dups.len() > usize(0), {
       generate_deferred_dup_expressions(value_expr, indent.clone(), context);
       match(

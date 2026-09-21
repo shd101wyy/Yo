@@ -123,7 +123,9 @@ pragma(Pragma.AllowUnsafe);
   adopt_receiver_struct_instance,
   push_active_where_trait_ids,
   pop_active_where_trait_ids,
-  expr_info_adopt_env
+  expr_info_adopt_env,
+  expr_info_capture_type,
+  expr_info_set_deferred_dup_expressions
 } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -806,7 +808,7 @@ check_if_function_parameter_matches_argument :: (
   // the error at `check` time instead of hollowing the statement.
   if(fn_constrained_param_requires_callable(resolved_pt), {
     nc_callable := (
-      (type_is_callable_shaped(arg_type) || arg_info.capture_type.is_some())
+      (type_is_callable_shaped(arg_type) || expr_info_capture_type(arg_info).is_some())
       || match(arg_value, .Some(nc_av) => is_func_val(nc_av), .None => false)
     );
     if(!(nc_callable), {
@@ -7154,7 +7156,7 @@ try_to_call_function_with_arguments :: (
               .Some(s1_ma) => match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(s1_ma)),
                 .Some(s1_mai) => {
-                  s1_mai.deferred_dup_expressions = Option(ArrayList(AstExpr)).None;
+                  expr_info_set_deferred_dup_expressions(s1_mai, Option(ArrayList(AstExpr)).None);
                 },
                 .None => {
                 }
