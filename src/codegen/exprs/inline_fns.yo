@@ -61,11 +61,11 @@
   BF_YO_ARRAY_INDEX
 } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_enum_type, is_primitive_type, is_unit_type, is_f32_type, is_f64_type } :: import("../../types/guards.yo");
-{ is_target_windows } :: import("../../target.yo");
+{ is_enum_type, is_primitive_type, is_unit_type, is_f32_type, is_f64_type, is_i8_type, is_i16_type, is_i32_type, is_i64_type, is_isize_type, is_u8_type, is_u16_type, is_u32_type, is_u64_type, is_usize_type } :: import("../../types/guards.yo");
+{ is_target_windows, is_target_wasm } :: import("../../target.yo");
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, can_optimize_as_simple_enum, _checked_index_expr, _checked_fixed_array_subscript } :: import("../utils/index.yo");
+{ get_type_string, can_optimize_as_simple_enum, _checked_index_expr, _checked_fixed_array_subscript, _idx_c_string_literal } :: import("../utils/index.yo");
 /// Argument code at index `i` (empty if absent).
 _a :: (fn(args : ArrayList(String), i : usize) -> String)(
   match(args.get(i), .Some(s) => s, .None => String.from(""))
@@ -106,6 +106,38 @@ _callop2 :: (fn(args : ArrayList(String), fname : str) -> String)({
   out.push_str("))");
   out
 });
+/// Safe mode Phase 2 (plans/backlog/SAFE_MODE.md §5): guarded integer
+/// division / remainder. The comma expression keeps `_binop`'s parenthesized
+/// shape so every consumer position stays legal; the guard runs first, so the
+/// division is only reached when defined. Signed guards divisor-zero AND
+/// MIN/-1 (both C UB, both SIGFPE on x86); unsigned guards divisor-zero.
+/// The MIN constant is spelled per width — `(-2147483647 - 1)`-style, never
+/// `1 << 63` — and isize follows the target (32-bit on wasm32).
+_div_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : FunctionGenerationContext, op : str) -> String)({
+  ty := ei_ty(expr, context);
+  a := _a(args, usize(0));
+  b := _a(args, usize(1));
+  if((a.len() == usize(0)) || (b.len() == usize(0)) || (a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile")), {
+    return(`// Failed to transpile (${a}) ${op} (${b})`);
+  });
+  tok := ast_expr_token(expr);
+  file_lit := _idx_c_string_literal(tok.module_path.clone());
+  loc := `, ${file_lit}, ${(tok.row + usize(1)).to_string()}, ${(tok.column + usize(1)).to_string()}`;
+  signed_wide := cond(
+    (is_i8_type(ty) || (is_i16_type(ty) || is_i32_type(ty))) => String.from("(-2147483647 - 1)"),
+    is_i64_type(ty) => String.from("(-9223372036854775807LL - 1)"),
+    is_isize_type(ty) => if(is_target_wasm(context.base.target_info), String.from("(-2147483647 - 1)"), String.from("(-9223372036854775807LL - 1)")),
+    true => String.new()
+  );
+  if(signed_wide.len() > usize(0), {
+    return(`(__yo_div_guard((long long)(${a}), (long long)(${b}), ${signed_wide}${loc}), ((${a}) ${op} (${b})))`);
+  });
+  if(is_u8_type(ty) || (is_u16_type(ty) || (is_u32_type(ty) || (is_u64_type(ty) || is_usize_type(ty)))), {
+    return(`(__yo_div_guard_u((unsigned long long)(${b})${loc}), ((${a}) ${op} (${b})))`);
+  });
+  // Non-integer (float) — IEEE total, no guard.
+  _binop(args, op)
+});
 /// `%` — C's `%` for integers, `fmod`/`fmodf` for floats.
 ///
 /// C's `%` is defined for INTEGER operands only, so a float pair emitted as
@@ -124,7 +156,7 @@ _mod_op :: (fn(args : ArrayList(String), expr : AstExpr, context : FunctionGener
   cond(
     is_f32_type(ty) => _callop2(args, "fmodf"),
     is_f64_type(ty) => _callop2(args, "fmod"),
-    true => _binop(args, "%")
+    true => _div_checked_expr(args, expr, context, "%")
   )
 });
 /// `(<op>(a))` — prefix unary.
@@ -219,7 +251,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     (function_name == BF_YO_OP_ADD) => _binop(args, "+"),
     (function_name == BF_YO_OP_SUB) => _binop(args, "-"),
     (function_name == BF_YO_OP_MUL) => _binop(args, "*"),
-    (function_name == BF_YO_OP_DIV) => _binop(args, "/"),
+    (function_name == BF_YO_OP_DIV) => _div_checked_expr(args, expr, context, "/"),
     (function_name == BF_YO_OP_MOD) => _mod_op(args, expr, context),
     (function_name == BF_YO_OP_NEG) => _unop_narrowed(args, "-", expr, context),
     (function_name == BF_YO_OP_EQ) => _binop(args, "=="),
