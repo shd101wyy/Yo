@@ -61,8 +61,15 @@ c_include(
   // Process control
   fork :
     (fn() -> pid_t),
+  // argv/envp are `*void`, not `**char`: Yo has no const-pointer spelling,
+  // and the Windows UCRT prototypes execve with doubly-const
+  // `char const* const*`, so an emitted `char**` cast is a hard
+  // -Werror=incompatible-pointer-types there. A `void*` argument converts
+  // to any object pointer implicitly — including the doubly-const one — on
+  // every platform. Callers build the char** array themselves.
+  // (issues/fixed/windows-ucrt-execve-const-qualifiers-break-self-build.md)
   execve :
-    (fn(pathname : *char, argv : **char, envp : **char) -> int),
+    (fn(pathname : *char, argv : *void, envp : *void) -> int),
   _exit :
     (fn(status : int) -> unit),
   getpid :

@@ -4704,7 +4704,12 @@ _exec_argv :: (fn(exec_cstrs : ArrayList(ArrayList(u8))) -> unit)({
   match(
     prog_slot,
     .Some(prog) => {
-      rc := unsafe(execve((*char)(prog), (**char)(exec_buf), (**char)(environ)));
+      // argv/envp cast through `*void`: the Windows UCRT prototypes execve
+      // with doubly-const `char const* const*`, so an emitted `char**` cast
+      // is a hard -Werror there, while `void*` converts to any object
+      // pointer implicitly on every platform
+      // (issues/fixed/windows-ucrt-execve-const-qualifiers-break-self-build.md).
+      rc := unsafe(execve((*char)(prog), (*void)(exec_buf), (*void)(environ)));
       eprintln(`exec-restart: execve failed rc=${rc.to_string()} — exiting instead`);
       unsafe(exit(int(1)));
     },
