@@ -373,7 +373,8 @@ jobs:
             ## Native bundles (bootstrap seed chain)
             The `yo-v*-<os>-<arch>.tar.gz` assets attached below are this commit's
             self-hosted compiler, built by the PREVIOUS release's compiler — the
-            seed (`bin/yo` + `std/` + `vendor/mimalloc/` + LICENSE). The
+            seed (`bin/yo` + `std/` + `vendor/mimalloc/` + `.github/skills` +
+            `pack` + LICENSE). The
             TypeScript compiler that used to build them was retired in P2.5 and
             is frozen at the `src-attic-final` tag. See
             `plans/archive/SELF_HOSTING_COMPLETION.md` Phase 2 for the trust chain and
@@ -442,8 +443,8 @@ jobs:
   # self-hosted binary "one last time" per platform; the tarballs attached to
   # the release are what the 2.3 CI migration downloads instead of setting up
   # bun/node. Bundle layout: <name>/bin/yo, <name>/std/, <name>/vendor/mimalloc/,
-  # <name>/LICENSE.md (init templates are generated inline by the binary —
-  # nothing else to ship).
+  # <name>/.github/skills, <name>/pack, <name>/LICENSE.md (init templates are
+  # generated inline by the binary — nothing else to ship).
   # CI consumers extract it, put bin/ on PATH, and set YO_STD to the bundled
   # std/. The Linux bundle is glibc + liburing dynamic for now — the
   # static-musl user-facing story is Phase 3 (distribution), not the seed.
@@ -864,6 +865,10 @@ jobs:
           # the same way it resolves std/.
           mkdir -p "$BUNDLE/.github"
           cp -R .github/skills "$BUNDLE/.github/skills"
+          # The agent context pack rides along so `yo context` works from an
+          # installed bundle: the exe-walk-up looks for pack/context.md
+          # beside the version dir, the same way it resolves std/.
+          cp -R pack "$BUNDLE/pack"
           cp LICENSE.md "$BUNDLE/"
           tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
           echo "BUNDLE=$BUNDLE" >> $GITHUB_ENV
@@ -886,6 +891,11 @@ jobs:
           if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
           echo "smoke output: $OUT"
           test "$OUT" = "hello from the yo seed"
+          # The pack lookup walks up from the binary: $BUNDLE_DIR/pack must
+          # answer `yo context` from OUTSIDE the checkout, like YO_STD.
+          CTX=$(YO_STD="$BUNDLE_DIR/std" "$YO" context | head -1)
+          echo "context smoke: $CTX"
+          case "$CTX" in yo\ *) ;; *) echo "::error::yo context did not find the bundled pack"; exit 1;; esac
 
       - name: Attach the bundle to the release
         shell: bash
@@ -1162,6 +1172,10 @@ jobs:
           # the same way it resolves std/.
           mkdir -p "$BUNDLE/.github"
           cp -R .github/skills "$BUNDLE/.github/skills"
+          # The agent context pack rides along so `yo context` works from an
+          # installed bundle: the exe-walk-up looks for pack/context.md
+          # beside the version dir, the same way it resolves std/.
+          cp -R pack "$BUNDLE/pack"
           cp LICENSE.md "$BUNDLE/"
           tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
           echo "BUNDLE=$BUNDLE" >> $GITHUB_ENV
@@ -1200,6 +1214,11 @@ jobs:
               if [ -f hello.exe ]; then OUT=$(./hello.exe); else OUT=$(./hello); fi
               echo "smoke output: $OUT"
               test "$OUT" = "hello from the yo seed"
+              # The pack lookup walks up from the binary: /w/$BUNDLE/pack must
+              # answer `yo context` from OUTSIDE the checkout.
+              CTX=$(YO_STD=/w/$BUNDLE/std $YO context | head -1)
+              echo "context smoke: $CTX"
+              case "$CTX" in yo\ *) ;; *) echo "::error::yo context did not find the bundled pack"; exit 1;; esac
             '
 
       # With the glibc legs gone this bundle is what every Linux user
@@ -1226,6 +1245,11 @@ jobs:
           OUT=$(./hello)
           echo "smoke output: $OUT"
           test "$OUT" = "hello from the yo seed"
+          # The pack lookup walks up from the binary: $BUNDLE_DIR/pack must
+          # answer `yo context` from OUTSIDE the checkout, like YO_STD.
+          CTX=$(YO_STD="$BUNDLE_DIR/std" "$BUNDLE_DIR/bin/yo" context | head -1)
+          echo "context smoke: $CTX"
+          case "$CTX" in yo\ *) ;; *) echo "::error::yo context did not find the bundled pack"; exit 1;; esac
           "$BUNDLE_DIR/bin/yo" init proj > init.log 2>&1 || { cat init.log; echo "::error::yo init failed"; exit 1; }
           cd proj
           YO_STD="$BUNDLE_DIR/std" "$BUNDLE_DIR/bin/yo" build run > build-smoke.log 2>&1 || {

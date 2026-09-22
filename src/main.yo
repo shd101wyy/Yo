@@ -73,6 +73,7 @@ pragma(Pragma.AllowUnsafe);
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
+{ run_context } :: import("./context_command.yo");
 { set_cli_lang_override, cli_lang, tr } :: import("./cli_lang.yo");
 { generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe_report.yo");
 { generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public_safe_report.yo");
@@ -7270,7 +7271,7 @@ run_version_cmd :: (
 /// them. The unknown-subcommand error prints this list; it must name exactly
 /// the subcommands the dispatch below answers (a phantom `fetch` sat here
 /// for months after the subcommand was folded into `install`).
-SUBCOMMAND_NAMES :: "compile|build|init|add|remove|install|update|cache|test|check|fix|fmt|verify|doc|effects|explain|lsp|unsafe-report|public-safe-report|version|skills";
+SUBCOMMAND_NAMES :: "compile|build|init|add|remove|install|update|cache|test|check|fix|fmt|verify|doc|effects|explain|lsp|unsafe-report|public-safe-report|version|skills|context";
 _top_level_help_text :: (fn() -> String)({
   (h : String) = String.from("The Yo Programming Language ");
   h.push_str(CURRENT_YO_VERSION);
@@ -7372,6 +7373,7 @@ Examples:
 
 yo effects <path> [--json]       Which effect capabilities each exported fn requires
 yo explain <CODE>                Explain a diagnostic code offline (--list, --format json)
+yo context                       Print the agent context pack (language guide)
 yo lsp                           Run the language server on stdio
 yo unsafe-report [path]          List unsafe(...) sites with their // SAFETY: comments
 yo public-safe-report [path]     List public fns that expose raw pointers
@@ -7475,6 +7477,7 @@ yo skills install                把 AI 代理技能文件安装到本项目
 
 yo effects <path> [--json]       列出每个导出函数需要的效果能力
 yo explain <CODE>                离线解释诊断代码（--list、--format json）
+yo context                       输出面向 AI 代理的语言上下文包
 yo lsp                           在 stdio 上运行语言服务器
 yo unsafe-report [path]          列出 unsafe(...) 站点及其 // SAFETY: 注释
 yo public-safe-report [path]     列出暴露裸指针的公开函数
@@ -8517,6 +8520,35 @@ install 动作会把 Yo 技能文件复制到当前项目中已存在的所有 a
   $ yo skills install       在当前项目中安装技能`
       )
     ),
+    (subcmd == "context") => Option(String).Some(
+      tr(
+        `Usage: yo context
+
+Print the agent context pack: the curated, language-only guide shipped with
+the toolchain (grammar rules, idioms, sharp edges — never API listings).
+Sized to sit in a model's context window; every example in it compiles.
+
+The pack is located via $YO_CONTEXT_PACK (an explicit file or directory),
+then beside the running executable, then beside the working directory —
+the same lookup yo skills install uses for .github/skills.
+
+Examples:
+  $ yo context              Print the pack
+  $ YO_CONTEXT_PACK=./pack/context.md yo context`,
+        `用法：yo context
+
+输出面向 AI 代理的上下文包：随工具链捆绑的、纯语言指南（语法规则、
+惯用法、易错点——不含 API 列表）。大小以可放入模型上下文窗口为准，
+其中每个示例均可编译。
+
+上下文包的查找顺序：$YO_CONTEXT_PACK（显式的文件或目录）、可执行文件
+旁、工作目录旁——与 yo skills install 查找 .github/skills 相同。
+
+示例：
+  $ yo context              输出上下文包
+  $ YO_CONTEXT_PACK=./pack/context.md yo context`
+      )
+    ),
     true => Option(String).None
   )
 );
@@ -8775,6 +8807,8 @@ main :: (fn(io : Io) -> unit)({
     run_public_safe_report_cmd(argv, io, exn);
   }, if(subcmd == "skills", {
     run_skills_install(argv, io, exn);
+  }, if(subcmd == "context", {
+    run_context(argv, io, exn);
   }, if(subcmd == "version", {
     run_version_cmd(argv, io, exn);
   }, {
