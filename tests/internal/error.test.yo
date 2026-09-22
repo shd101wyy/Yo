@@ -35,6 +35,8 @@ import("std/fmt");
   Diagnostic,
   render_diagnostics_human,
   render_diagnostics_short,
+  render_diagnostics_json,
+  set_color_enabled,
   suggest_name
 } :: import("../../src/diagnostics.yo");
 // Build a dummy token for testing.
@@ -294,4 +296,44 @@ test("format_error_message_with_help renders the hint block", {
     s.contains(`help: run \`yo explain E0401\` for more information`),
     `explain tail still present, got:\n${s}`
   );
+});
+
+// ─── P4: color (D14) ─────────────────────────────────────────────────────────
+test("color: human render carries SGR when on and is byte-identical when off", {
+  tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
+  set_color_enabled(false);
+  plain := render_diagnostics_human(format_error_message(tok, `Variable "x" not found.`).diagnostics);
+  assert(!plain.contains(`\u{1b}`), `plain render must not contain ESC, got:\n${plain}`);
+  set_color_enabled(true);
+  colored := render_diagnostics_human(format_error_message(tok, `Variable "x" not found.`).diagnostics);
+  // Restore BEFORE asserting so a failure cannot leak color into the rest
+  // of this file's exact-string pins (they run in this same process).
+  set_color_enabled(false);
+  assert(colored.contains(`\u{1b}[1;31merror[E0401]\u{1b}[0m: Variable "x" not found.`), `red header, got:\n${colored}`);
+  assert(colored.contains(`\u{1b}[1;34m  --> t.yo:1:1\u{1b}[0m`), `blue anchor, got:\n${colored}`);
+  assert(colored.contains(`\u{1b}[1;31m^\u{1b}[0m`), `red caret, got:\n${colored}`);
+  assert(colored.contains(`\u{1b}[1;35mhelp:\u{1b}[0m run \`yo explain E0401\``), `magenta help label, got:\n${colored}`);
+});
+test("color: a warning renders with the warning color", {
+  warns := ArrayList(Diagnostic).new();
+  warns.push(
+    Diagnostic(
+      code : Option(String).None,
+      severity : Severity.Warning,
+      message : String.from("unused variable `x`"),
+      span : Span(path : String.from("t.yo"), row : usize(0), col : usize(0), len : usize(1)),
+      source_line : String.from("x := 1;")
+    )
+  );
+  set_color_enabled(true);
+  s := render_diagnostics_human(warns);
+  set_color_enabled(false);
+  assert(s.contains(`\u{1b}[1;33mwarning\u{1b}[0m: unused variable \`x\``), `yellow header, got:\n${s}`);
+});
+test("color: the json render never carries ESC, even with color forced on", {
+  tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
+  set_color_enabled(true);
+  j := render_diagnostics_json(format_error_message(tok, `Variable "x" not found.`).diagnostics);
+  set_color_enabled(false);
+  assert(!j.contains(`\u{1b}`), `json payload must never carry ESC, got:\n${j}`);
 });

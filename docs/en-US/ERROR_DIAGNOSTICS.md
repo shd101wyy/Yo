@@ -50,6 +50,28 @@ YO_ERROR_FORMAT=json yo build           # same, via the environment
 final `N passed / M failed` style footer as one machine-readable line, so a
 harness can parse the outcome without scraping prose.
 
+### Color
+
+The human render colors its output when it is writing to a terminal: the
+severity header and its carets carry the severity color (red/yellow/cyan),
+the `-->` anchor and gutter carry blue, and `help:` labels magenta. It is a
+**global** flag like `--error-format`, with the `YO_COLOR` environment
+variable at lower precedence:
+
+```bash
+yo --color always check ./src    # force color even into a pipe
+yo --color never check ./src     # force plain text
+YO_COLOR=always yo build         # same, via the environment
+```
+
+`auto` (the default) colors only when stderr is a terminal, `NO_COLOR` is
+unset (https://no-color.org), and `TERM` is not `dumb`; an explicit
+`--color always` overrides all three. `short` output stays plain — it exists
+for grepping — and `json` output never carries ANSI escapes, including the
+human text embedded in its `rendered` field, so a machine consumer gets
+byte-identical payloads whatever `--color` says. `yo lsp` ignores the flag:
+protocol frames are a data channel.
+
 ### Repairs and `yo fix`
 
 A diagnostic carries a `repair` when exactly ONE edit fixes it; the compiler

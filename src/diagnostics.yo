@@ -255,6 +255,47 @@ _severity_prefix :: (fn(sev : Severity) -> String)(
     .Help => String.from("help")
   )
 );
+/// ── Color (P4, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md — D14) ──────────────────
+/// Whether the human renderer wraps its output in ANSI SGR sequences. The
+/// CLI front door resolves `--color auto|always|never` / `YO_COLOR` (auto =
+/// stderr is a terminal, `NO_COLOR` unset, `TERM != dumb`) and sets this
+/// once at startup; every render reads it. Only the HUMAN renderer colors —
+/// `short` stays grep-able and `json`/`sarif` stay parseable regardless of
+/// the flag, including the human text embedded in their payloads.
+(g_color_enabled : bool) = false;
+set_color_enabled :: (fn(on : bool) -> unit)({
+  g_color_enabled = on;
+});
+color_enabled :: (fn() -> bool)(g_color_enabled);
+/// Wrap `text` in the SGR sequence `code` when `color` is on, else return
+/// it byte-identical — a disabled render is exactly the pre-color output.
+/// Takes the switch EXPLICITLY rather than reading the process global: the
+/// json/sarif renderers color-proof their embedded human text by passing
+/// `false` even when `--color always` is in force.
+/// (`\u{1b}` is ESC: the lexer's escape table has no `\x` form.)
+_colorize :: (fn(text : String, code : str, color : bool) -> String)(
+  cond(
+    color => `\u{1b}[${code}m${text}\u{1b}[0m`,
+    true => text
+  )
+);
+/// SGR codes: the severity header and its carets carry the severity color;
+/// the `-->` anchor and the gutter (`|` + row number) carry the location
+/// color. Bold variants throughout, rustc-style.
+_ANSI_ERROR :: "1;31";
+_ANSI_WARNING :: "1;33";
+_ANSI_NOTE :: "1;36";
+_ANSI_HELP :: "1;35";
+_ANSI_LOCATION :: "1;34";
+_severity_ansi :: (fn(sev : Severity) -> str)(
+  match(
+    sev,
+    .Error => _ANSI_ERROR,
+    .Warning => _ANSI_WARNING,
+    .Note => _ANSI_NOTE,
+    .Help => _ANSI_HELP
+  )
+);
 /// Number of digits of `n` (≥ 1) — a row number's gutter width.
 _row_digits :: (fn(n : usize) -> usize)({
   s := `${n}`;
@@ -276,9 +317,12 @@ _first_message_line :: (fn(message : String) -> String)({
 /// message's continuation lines verbatim, and (when a path is known) the
 /// `-->` anchor plus gutter / source line / full-span underline. `w` is the
 /// shared gutter width — the max row digits over the whole group — so the
-/// `|` gutters of every block in the group align.
-_render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit)({
+/// `|` gutters of every block in the group align. `color` wraps the header,
+/// anchor, gutter, carets and `help:` labels in ANSI SGR sequences; with it
+/// off the output is byte-identical to the pre-color renderer.
+_render_block :: (fn(d : Diagnostic, w : usize, color : bool, out : ArrayList(String)) -> unit)({
   prefix := _severity_prefix(d.severity);
+  sev_ansi := _severity_ansi(d.severity);
   msg_lines := d.message.split(String.from("\n"));
   (mi : usize) = usize(0);
   while(mi < msg_lines.len(), {
@@ -288,8 +332,8 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
         if(mi == usize(0), {
           match(
             d.code,
-            .Some(c) => out.push(`${prefix}[${c}]: ${line}`),
-            .None => out.push(`${prefix}: ${line}`)
+            .Some(c) => out.push(`${_colorize(`${prefix}[${c}]`, sev_ansi, color)}: ${line}`),
+            .None => out.push(`${_colorize(prefix, sev_ansi, color)}: ${line}`)
           );
         }, {
           out.push(line);
@@ -303,21 +347,21 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
     row_plus1 := (d.span.row + usize(1));
     col_plus1 := (d.span.col + usize(1));
     indent := String.from(" ").repeat(w + usize(1));
-    out.push(`${indent}--> ${d.span.path}:${row_plus1}:${col_plus1}`);
+    out.push(_colorize(`${indent}--> ${d.span.path}:${row_plus1}:${col_plus1}`, _ANSI_LOCATION, color));
     if(d.source_line.len() > usize(0), {
-      out.push(`${indent}|`);
+      out.push(_colorize(`${indent}|`, _ANSI_LOCATION, color));
       padded := `${row_plus1}`;
       while(padded.len() < w, {
         padded = ` ${padded}`;
       });
-      out.push(`${padded} | ${d.source_line}`);
+      out.push(`${_colorize(`${padded} |`, _ANSI_LOCATION, color)} ${d.source_line}`);
       underline_len := cond(
         (d.span.len == usize(0)) => usize(1),
         true => d.span.len
       );
       col_spaces := String.from(" ").repeat(d.span.col);
       carets := String.from("^").repeat(underline_len);
-      out.push(`${indent}| ${col_spaces}${carets}`);
+      out.push(`${_colorize(`${indent}|`, _ANSI_LOCATION, color)} ${col_spaces}${_colorize(carets, sev_ansi, color)}`);
     });
   });
   if(d.help.is_some(), {
@@ -326,7 +370,7 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
       .Some(hh) => hh,
       .None => String.new()
     );
-    out.push(`help: ${h}`);
+    out.push(`${_colorize(`help:`, _ANSI_HELP, color)} ${h}`);
   });
   if(d.code.is_some(), {
     c := match(
@@ -334,14 +378,24 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
       .Some(cc) => cc,
       .None => String.new()
     );
-    out.push(`help: run \`yo explain ${c}\` for more information`);
+    out.push(`${_colorize(`help:`, _ANSI_HELP, color)} run \`yo explain ${c}\` for more information`);
   });
 });
 /// The human rendering of a diagnostic group (rustc-shaped): each entry in
 /// order — entry 0 is the primary error, the rest are notes — separated by
 /// a blank line. This is what `YoError.to_string()` returns and what the
-/// CLI edges print; one location per entry, exactly once.
-render_diagnostics_human :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
+/// CLI edges print; one location per entry, exactly once. Colored per the
+/// process-wide `color_enabled()` (P4/D14).
+render_diagnostics_human :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
+  _render_diagnostics_human_colored(diagnostics, g_color_enabled)
+);
+/// The human rendering with an EXPLICIT color switch — the one true body;
+/// `render_diagnostics_human` passes the process flag and the machine
+/// formats (json/sarif) pass `false` so their embedded human text is never
+/// colored, whatever `--color` says.
+_render_diagnostics_human_colored :: (
+  fn(diagnostics : ArrayList(Diagnostic), color : bool) -> String
+)({
   out := ArrayList(String).new();
   w := usize(1);
   (di : usize) = usize(0);
@@ -363,7 +417,7 @@ render_diagnostics_human :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
         if(dj > usize(0), {
           out.push(String.new());
         });
-        _render_block(d, w, out);
+        _render_block(d, w, color, out);
       },
       .None => ()
     );
@@ -478,7 +532,7 @@ render_diagnostics_json :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
           )
         );
         keys.push(String.from("rendered"));
-        vals.push(JsonValue.Str(value : render_diagnostics_human(single)));
+        vals.push(JsonValue.Str(value : _render_diagnostics_human_colored(single, false)));
         out.push(json.stringify(JsonValue.Object(keys : keys, values : vals)));
       },
       .None => ()
@@ -499,6 +553,7 @@ render_diagnostics_for_mode :: (fn(diagnostics : ArrayList(Diagnostic)) -> Strin
 export(Severity, Span, Label, Diagnostic, Repair);
 export(render_diagnostics_human, render_diagnostics_short, render_diagnostics_json);
 export(render_diagnostics_for_mode, set_error_format, error_format, emit_rendered_text, emit_chatter);
+export(set_color_enabled, color_enabled);
 export(edit_distance, suggest_name);
 export(register_std_export, lookup_std_exporters, std_export_index_size);
 export(E_UNEXPECTED_TOKEN, E_EXPECTED_TOKEN, E_ADJACENT_OPERATORS, E_UNTERMINATED);
