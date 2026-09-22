@@ -5512,7 +5512,18 @@ impl(
     (acc : T.Unsigned) = T.Unsigned(0);
     (i : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
-      acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(i)));
+      // The shift is skipped on the first byte: `acc << 8` on a WIDTH-8
+      // type (u8/i8, BYTES = 1) is a shift count out of range, and even for
+      // wider types shifting the initial zero was pure waste. Found by the
+      // wasm32 leg ("shift count out of range: 8 not in [0, 8)").
+      cond(
+        (i == usize(0)) => {
+          acc = T.Unsigned(bs(i));
+        },
+        true => {
+          acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(i)));
+        }
+      );
     });
     T(acc)
   }),
@@ -5522,7 +5533,14 @@ impl(
     (i : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
       j := ((T.BYTES - usize(1)) - i);
-      acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(j)));
+      cond(
+        (i == usize(0)) => {
+          acc = T.Unsigned(bs(j));
+        },
+        true => {
+          acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(j)));
+        }
+      );
     });
     T(acc)
   })

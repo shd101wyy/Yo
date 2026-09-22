@@ -144,7 +144,7 @@ impl(
         // — the wrap is the arithmetic, not an accident. Same trick as Rust's
         // `gen_range`.
         span := u64(r.end).wrapping_sub(u64(r.start));
-        r.start + i64(self.next_below(span))
+        i64(u64(r.start).wrapping_add(self.next_below(span)))
       }
     )
   ),
@@ -169,7 +169,7 @@ impl(
         // whose unsigned distance is `u64.MAX` is `i64.MIN ..= i64.MAX`, which
         // the arm above already took.
         span := (u64(r.end).wrapping_sub(u64(r.start)) + u64(1));
-        r.start + i64(self.next_below(span))
+        i64(u64(r.start).wrapping_add(self.next_below(span)))
       }
     )
   ),
@@ -298,7 +298,7 @@ rand_below :: (fn(bound : u64) -> u64)(
 rand_range :: (fn(r : Range(i64)) -> i64)(
   cond(
     (r.end <= r.start) => __yo_panic("rand_range: empty range (end <= start)"),
-    true => (r.start + i64(rand_below(u64(r.end).wrapping_sub(u64(r.start)))))
+    true => i64(u64(r.start).wrapping_add(rand_below(u64(r.end).wrapping_sub(u64(r.start)))))
   )
 );
 /// A uniform integer in the INCLUSIVE range `r`, from this thread's
@@ -309,7 +309,7 @@ rand_range_inclusive :: (fn(r : RangeInclusive(i64)) -> i64)(
     (r.end < r.start) => __yo_panic("rand_range_inclusive: empty range (end < start)"),
     ((r.end == i64(9223372036854775807)) && (r.start == i64(-9223372036854775808))) =>
       i64(rand_u64()),
-    true => (r.start + i64(rand_below(u64(r.end).wrapping_sub(u64(r.start)) + u64(1))))
+    true => i64(u64(r.start).wrapping_add(rand_below(u64(r.end).wrapping_sub(u64(r.start)) + u64(1))))
   )
 );
 export(rand_u32, rand_u64, rand_f64, rand_bool, rand_below, rand_range, rand_range_inclusive);
