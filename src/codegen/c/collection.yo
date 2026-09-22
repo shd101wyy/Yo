@@ -271,6 +271,29 @@ static inline size_t __yo_idx_chk(size_t i, size_t n, const char* f, int r, int 
   return i;
 }`
   );
+  // Safe mode Phase 2 (plans/backlog/SAFE_MODE.md §5): integer division and
+  // remainder by zero are C UB (SIGFPE on x86), and MIN / -1 likewise. The
+  // guards run BEFORE the division via a comma expression, so the division
+  // itself is only reached when defined. Floats never come through here —
+  // IEEE division/fmod are total.
+  context.emitter.emit_header_string_line(
+    `
+static inline void __yo_div_guard(long long a, long long b, long long tmin, const char* f, int r, int c) {
+  if (b == 0 || (a == tmin && b == -1)) {
+    fprintf(stderr, "integer division or remainder by zero%s (at %s:%d:%d)\\n", (b == 0) ? "" : " (MIN / -1)", f, r, c);
+    abort();
+  }
+}`
+  );
+  context.emitter.emit_header_string_line(
+    `
+static inline void __yo_div_guard_u(unsigned long long b, const char* f, int r, int c) {
+  if (b == 0) {
+    fprintf(stderr, "integer division or remainder by zero (at %s:%d:%d)\\n", f, r, c);
+    abort();
+  }
+}`
+  );
   context.emitter.emit_header_string_line(
     `
 static inline void* __yo_rc_alloc(size_t size) {
