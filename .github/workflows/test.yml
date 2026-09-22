@@ -4,17 +4,22 @@ on:
   push:
     branches:
       - develop
-  # No base filter: EVERY pull request gets a run, whatever branch it targets —
-  # stacked PRs included, so integration problems surface while the stack is
-  # open instead of at the end of the merge train (base-merge → retarget →
-  # rebase → force-push). A base-branch glob HERE is how a stacked PR silently
-  # skips CI the day the naming convention changes, which is why the scope
-  # decision lives in the `changes` job instead: a stacked PR runs a REDUCED
-  # battery (see its `full` output) rather than none, so it still has signal
-  # and the choice is visible in a job log rather than in an event filter.
+  # DEVELOP-BASE ONLY (reversed decision, 2026-09-22): `branches` on a
+  # `pull_request` trigger filters on the BASE ref, so only PRs targeting
+  # `develop` get a run. Until 2026-09-22 every PR ran a battery — stacked
+  # PRs a deliberately REDUCED one ("so it still has signal", see the
+  # `changes` job's now-unreachable REDUCED branch, kept as a guard). The
+  # maintainer reversed this to save runner cycles: a stacked PR's base has
+  # its own run, the diff is only meaningful against that base, and the
+  # retarget-to-develop (or the rebase after the base merges) fires a full
+  # battery of its own — which is the only run that gates a merge to
+  # develop. What this costs: a stacked PR carries NO CI signal while it
+  # sits on a non-develop base, by explicit choice.
   # Branch pushes alone still run nothing (the push trigger stays
   # develop-only); a PR's synchronize event covers its branch pushes.
   pull_request:
+    branches:
+      - develop
   # Merge queue support, currently INERT and deliberately kept.
   #
   # GitHub gates merge queue to ORGANIZATION-owned repositories; this repo is
@@ -181,22 +186,17 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.classify.outputs.code }}
-      # Whether to run the FULL battery. A pull request whose base is not
-      # `develop` is a STACKED PR: its diff is only meaningful against its base,
-      # the base's own run has already covered everything below it, and the
-      # retarget-to-develop that must happen before it can merge fires a full
-      # run of its own. Running ~28 jobs on every push to every level of a stack
-      # was measured costing hours of runner time and delaying the runs that do
-      # decide a merge (2026-09-12: a stacked run sat QUEUED for 40 minutes
-      # while develop-targeted work waited behind it).
-      #
-      # Stacked PRs keep the two jobs that have actually caught things —
-      # `test (ubuntu-latest)`, which is the ASan leg, and the self-hosted
-      # tier-1 gates — and skip the rest. Both bugs stacked CI caught on
-      # 2026-09-12 (a heap-use-after-free from an over-eager drop, and a
-      # reproducer left behind by an API sweep) came from exactly those two.
+      # Whether to run the FULL battery. Since 2026-09-22 the `pull_request`
+      # trigger itself is develop-base-only, so every PR that reaches this
+      # workflow is a develop-targeted one and the answer is always true for
+      # pull_request events; the REDUCED branch below is unreachable and kept
+      # ONLY as a guard for the day someone widens the trigger again (the
+      # 2026-09-12 measurements that motivated the old reduced battery —
+      # stacked runs queued 40 minutes behind develop work; the ASan leg and
+      # the tier-1 gates being the two stacked jobs that ever caught a bug —
+      # stay in the git history and in that branch).
       full: ${{ steps.scope.outputs.full }}
-      # The `test` matrix, narrowed to the ASan leg on a stacked PR.
+      # The `test` matrix. REDUCED only on the unreachable guard branch.
       test_os: ${{ steps.scope.outputs.test_os }}
     steps:
       # SEED_VERSION consistency guard (plans/backlog/SEED_VERSION_AUTOMATION.md):
@@ -219,9 +219,11 @@ jobs:
           else
             echo "full=false" >> "$GITHUB_OUTPUT"
             echo 'test_os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
-            echo "battery: REDUCED — stacked PR, base=${{ github.base_ref }}."
-            echo "Retarget to develop (or merge the base) for the full battery;"
-            echo "branch protection still requires every check before develop."
+            echo "battery: REDUCED — non-develop base=${{ github.base_ref }}."
+            echo "UNREACHABLE since 2026-09-22 (the pull_request trigger is"
+            echo "develop-base-only); kept as a guard. If you are reading this"
+            echo "from a run log, the trigger filter was widened — retarget to"
+            echo "develop or restore the full battery deliberately."
           fi
 
       - name: Checkout workflows (SEED_VERSION guard)
