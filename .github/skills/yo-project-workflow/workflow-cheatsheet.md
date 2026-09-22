@@ -15,6 +15,9 @@ These commands and patterns are aimed at normal Yo projects that use the public 
 | Run project test step     | `yo build test`                                           |
 | List build steps          | `yo build --list-steps`                                   |
 | Compile one file          | `yo compile main.yo --optimize 2 -o app`                     |
+| Re-check a tree on every save | `yo check ./src --watch`                              |
+| Rebuild on every save     | `yo build --watch --profile`                              |
+| Parallel C compile of one file | `yo compile main.yo --emit-chunks auto --jobs 8`     |
 | Inspect generated C       | `yo compile main.yo --emit-c --skip-c-compiler`           |
 | Run tests in one file     | `yo test ./tests/main.test.yo --parallel 1`               |
 | Filter tests by name      | `yo test ./tests/main.test.yo --test-name-pattern "Name"` |
@@ -109,6 +112,27 @@ yo test ./tests/main.test.yo --bail --verbose --parallel 1
 - Use `--test-name-pattern` when a file contains many tests
 - Use `--test-batch-size N` if a large `.test.yo` file generates C that compiles slowly or looks stuck
 - Use `yo build test` when the repository's main test workflow is defined in `build.yo`
+
+## Incremental loop
+
+```bash
+yo check ./src --watch                # cold pass once, then one round per save
+yo check ./src --watch-once < changed.txt   # scripting: paths on stdin, one round, rc = failures
+yo build --watch --profile            # in-process artifact rebuilds; `profile: watch round N <ms> rss=…MB`
+yo build --watch --max-rss-mb 8000    # restart the resident process past 8 GB (default: never)
+yo compile main.yo --emit-chunks auto --chunk-by module --jobs 8   # N units + `.o` cache; edits recompile dirty units only
+```
+
+- Keep ONE watch process alive per tree instead of re-running `yo check` after every edit:
+  a fn-body edit is a ~100 ms round; a comment-only edit is a no-op round.
+- A round re-forces only edited fn-literal definitions (body or signature) and their
+  dependents. Adding/removing a definition, changing a struct/enum/trait, a constant or
+  an ordered statement re-checks the changed file's importers (correct, slower).
+- `YO_DEBUG_P3DIFF=1` prints why a round was slow (`[p3round] … file-level dropped=N`).
+- A watch verdict that differs from a cold `yo check` is a compiler bug — report it with the edit sequence.
+- `YO_TEST_IN_PROCESS=1 yo test ./tests` compiles every batch in one resident evaluator
+  (~2x faster) at the cost of the whole run's memory; raise `YO_TEST_MAX_RSS_MB` (default
+  4096) or the runner restarts at every file. A developer knob, not a CI default.
 
 ## Verification patterns (formal proofs)
 
