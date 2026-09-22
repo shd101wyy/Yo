@@ -367,6 +367,25 @@ checkout's pack, the way the skills cases pin `YO_SKILLS`),
 
 ### C2 — The index builds and caches (`--list`, `--path`, `--refresh`)
 
+> **Status: LANDED (PR `feat/yo-context-c2`, stacked on C1).**
+> Measured: cold std build 28.3 s (target ≤ 40 s), warm `--list` **45 ms**
+> (target < 300 ms), 175 modules. **Open decision resolved (D4/C3):** the
+> per-module describe cost measured 0.7–1.2 s cold / ~0.15 s amortized —
+> both cheap, so C3 may slice the cached markdown (a) freely.
+> **Barrels:** the doc pipeline's evaluator path DOES document
+> house-shaped barrels (`_x :: import(...)` + `export(...(_x))`) — the
+> plan's `origin=` is set directly from each spread source module (the
+> name-matching fallback the sketch proposed was dead machinery and was
+> deleted). `std/string` indexes at 295 items with origins.
+> **Safe-mode discovery:** this phase surfaced that safe-mode 3 (#837)
+> broke every `HashMap` insert compiled by a #837-carrying compiler —
+> `mix_u64`'s wrap-by-design multiply traps (layer 1), and the prelude's
+> `wrapping_mul` fallback looped `rhs` times, i.e. ~2^64 for hash operands
+> (layer 2), plus `src/utils.yo`'s own FNV. Fixed in
+> `issues/hash-map-mix-u64-relies-on-wrapping.md` with a std regression
+> test; CI never saw it because every CI binary was built by the
+> pre-#837 seed.
+
 **Scope.** The data half's foundation. New file `src/doc/context_index.yo`.
 
 1. Builder: `context_index_build(root : String, cache_dir : String)` — walk

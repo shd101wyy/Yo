@@ -25,6 +25,7 @@ pragma(Pragma.AllowUnsafe);
 hex :: import("std/encoding/hex");
 {
   get_store_dir,
+  get_context_dir,
   store_tree_dir,
   store_verified_marker,
   get_git_mirrors_dir,
@@ -924,7 +925,10 @@ GcReport :: ref(
     trees_kept : usize,
     trees_removed : usize,
     mirrors_removed : usize,
-    indexes_removed : usize
+    indexes_removed : usize,
+    /// `yo context` index subtrees swept — the whole `context/` cache is
+    /// pure (rebuilt on demand), so every key dir goes.
+    context_dirs_removed : usize
   )
 );
 /// The store names (hex) and remote keys one project's lock references.
@@ -1059,6 +1063,7 @@ gc_store :: (
     trees_removed_dirs := e.io.await(_sweep_dir(store_dir.clone(), String.from(".verified"), tree_names, true, e.io, e.exn), e);
     mirrors_removed := e.io.await(_sweep_dir(get_git_mirrors_dir(cache_root.clone()), String.from(".git"), remote_keys, true, e.io, e.exn), e);
     indexes_removed := e.io.await(_sweep_dir(get_index_dir(cache_root.clone()), String.from(".tags"), remote_keys, false, e.io, e.exn), e);
+    context_removed := e.io.await(_sweep_dir(get_context_dir(cache_root.clone()), String.new(), ArrayList(String).new(), true, e.io, e.exn), e);
     e.io.await(release_store_lock(lock, e.io, e.exn), e);
     GcReport(
       projects_kept : kept_projects.len(),
@@ -1066,7 +1071,8 @@ gc_store :: (
       trees_kept : trees_kept,
       trees_removed : trees_removed_dirs,
       mirrors_removed : mirrors_removed,
-      indexes_removed : indexes_removed
+      indexes_removed : indexes_removed,
+      context_dirs_removed : context_removed
     )
   })
 );

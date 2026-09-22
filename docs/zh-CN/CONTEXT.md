@@ -16,14 +16,15 @@
 - 工具链循环（每次编辑后 `yo check`、`yo test`、`yo fmt`）。
 
 它刻意**不含 API 列表**——API 每个版本都在变，上下文包不能跟着漂移。
-API 发现交给 `yo doc`（渲染的文档）和 LSP；从 v0.2.40 起，`yo context`
-命令族会逐步长出基于生成的 std 索引的查询模式（`plans/YO_CONTEXT.md`
-的 C2–C5 阶段）。
+API 发现是这个命令的查询半边。
 
 ## 用法
 
 ```bash
-yo context
+yo context                                  # 上下文包（语言指南）
+yo context --list                           # 内置 std 的模块索引
+yo context --list --path <dir>              # 改为索引任意目录树
+yo context --list --refresh                 # 强制重建索引
 ```
 
 输出的第一行是引用头，标明工具链版本与上下文包修订号，便于代理引用
@@ -52,3 +53,28 @@ yo 0.2.40 — pack-version: 1
 上下文包的唯一事实来源是编译器树中的 `pack/context.md`；release
 工作流会把它复制进每个发行包，且包的冒烟测试会在检出之外断言
 `yo context` 能正常应答。
+
+## `--list`：API 索引
+
+`yo context --list` 会为内置 std（175 个模块、约 2,069 个条目）建索引，
+每个模块输出一行——模块文档首行与条目数：
+
+```text
+std/allocator  Memory allocation abstractions and global allocator interface. (5 items)
+std/assert     Runtime assertion and panic functions. (5 items)
+...
+— 175 modules; yo context <module> for its items
+```
+
+索引按 std 版本一次性建入内容寻址缓存——`$YO_CONTEXT_CACHE` 或全局
+yo 缓存（`yo cache path`）下的 `context/<key>/`，其中 key 是所有被索引
+文件「路径 + 内容哈希」的摘要。冷构建相当于对整棵树做一次 `yo doc`
+级别的求值（内置 std 约 28 秒）；之后的每次查询都以毫秒级读缓存。
+`yo cache gc` 会整体清扫 `context/` 缓存——它是纯缓存，按需重建。
+
+`--path <dir>` 改为索引任意目录树（相对路径按工作目录解析）；模块名
+以该目录名作为前缀。求值器无法加载的模块回退到仅词法的 token-only
+文档，并在输出中标注 `(untyped)`——降级必有标记，绝不静默。
+
+逐模块、逐条目的视图与全文搜索是后续阶段（`plans/YO_CONTEXT.md`
+C3–C5）：`yo context <module> [name]` 与 `yo context --search <query>`。

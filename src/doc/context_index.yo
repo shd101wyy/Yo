@@ -1,0 +1,903 @@
+//! The `yo context` index — plans/YO_CONTEXT.md C2 (D3).
+//!
+//! Builds and caches a line-oriented API index over a `.yo` tree (in
+//! practice: the bundled std) so agent queries cost milliseconds instead of
+//! a 26 s evaluator run. The cache is CONTENT-ADDRESSED: the key is a digest
+//! of every indexed file's relative path + content hash, so any std edit
+//! mints a new key and an old key is garbage a rebuild reproduces
+//! byte-for-byte.
+//!
+//! Layout under the cache root (`src/cache.yo`'s, or `$YO_CONTEXT_CACHE`):
+//!
+//!     <cache>/context/<key>/index.txt      one TSV line per item
+//!     <cache>/context/<key>/modules.txt    one TSV line per module
+//!     <cache>/context/<key>/modules/<module>.md   render_module_md output
+//!     <cache>/context/<key>/manifest.txt   key inputs + builder version
+//!     <cache>/context.lock                 flock around a build
+//!
+//! index.txt line (five fields; a barrel re-export appends a sixth):
+//!
+//!     <module>\t<name>\t<kind>\t<signature>\t<doc-first-line>[\torigin=<mod>]
+//!
+//! Line-oriented rather than JSON because `std/json.parse` takes a static
+//! `str`, not a runtime String — the cache must be parseable back in the
+//! same process that reads it (see plans/YO_CONTEXT.md §2).
+//!
+//! Degradation (the doc pipeline's token-only fallback) is MARKED, never
+//! silent: a degraded module's `modules.txt` line carries `(untyped)` and
+//! `--list` footnotes it. The builder resolves std exactly as the running
+//! binary does (`resolve_std_path`), so the installed toolchain always
+//! indexes against its own bundled std and the `--std-path` pitfall cannot
+//! fire.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ Exception, IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+{ read_dir, create_dir_all } :: import("std/fs/dir");
+{ read, write_string, exists } :: import("std/fs/file");
+{ File, OpenMode } :: import("std/fs/file");
+{ flock, LOCK_EX, LOCK_UN } :: import("std/sys/lock");
+{ sha256_hex } :: import("std/crypto/sha256");
+{ env } :: import("std/env");
+{ println } :: import("std/fmt");
+{ CURRENT_YO_VERSION } :: import("../version.yo");
+{ get_global_cache_dir, get_context_dir } :: import("../cache.yo");
+{ resolve_std_path, mm_load_file } :: import("../module_manager.yo");
+{ tokenize } :: import("../lexer.yo");
+{ Token, TokenKind } :: import("../token.yo");
+{ render_module_md } :: import("./render_markdown.yo");
+{ document_one_file, DocumentedFile } :: import("../doc_command.yo");
+{ DocModule } :: import("./model.yo");
+{ TypeValue } :: import("../types/definitions.yo");
+{ is_struct_type, is_enum_type, is_union_type, is_trait_type, is_module_type, is_function_type } :: import("../types/guards.yo");
+{ type_to_string } :: import("../types/string.yo");
+/// The index-builder version: bumped whenever the on-disk format changes so
+/// a stale cache is detected via the manifest, not just re-keyed away.
+INDEX_FORMAT_VERSION :: "1";
+/// One indexed item: everything a query needs before any file I/O.
+ContextIndexEntry :: struct(
+  /// The import-style module path (`std/collections/array_list`): the
+  /// indexed tree's directory name + the file's path under it, `index.yo`
+  /// collapsed to its directory.
+  module : String,
+  name : String,
+  /// `fn` | `method` | `type` | `trait` | `constant`
+  kind : String,
+  signature : String,
+  /// First non-empty line of the doc comment, whitespace-collapsed.
+  doc : String,
+  /// `""` when the module defines the name; the defining module's path for
+  /// a barrel re-export.
+  origin : String
+);
+/// One indexed module: the `--list` row.
+ContextIndexModule :: struct(
+  module : String,
+  /// First non-empty line of the module's `//!` doc, whitespace-collapsed
+  /// (`""` when undocumented). Degraded modules carry `(untyped)`.
+  doc : String,
+  items : usize,
+  degraded : bool
+);
+/// `<cache>/context` — the sibling of `store/`, `git/` and `index/`; the
+/// layout lives in `src/cache.yo` so `yo cache gc` and the builder share it.
+context_dir :: (fn(cache_root : String) -> String)(
+  get_context_dir(cache_root)
+);
+/// `<cache>/context/<key>` — one built index.
+context_index_dir :: (fn(cache_root : String, key : String) -> String)(
+  Path.new(context_dir(cache_root)).join(Path.new(key)).to_string()
+);
+/// The cache root for the context index: `$YO_CONTEXT_CACHE` when set (the
+/// test/CI pin, mirroring `YO_STD`/`YO_SKILLS`), else the global cache root.
+context_cache_root :: (
+  fn(io : Io, exn : Exception) -> String
+)(
+  match(
+    env.get(String.from("YO_CONTEXT_CACHE")),
+    .Some(d) => d,
+    .None => get_global_cache_dir()
+  )
+);
+/// Recursive `.yo` discovery for indexing — the same skip set as `yo doc`'s
+/// walk (dotfiles, node_modules, yo-out, out, tmp; `.test.yo` files are
+/// harness inputs, never API surface).
+_collect_index_files :: (
+  fn(
+    dir : String,
+    root : String,
+    files : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    i = (i + usize(1));
+    match(
+      entries.get(i - usize(1)),
+      .None => (),
+      .Some(entry) => {
+        skip := cond(
+          entry.name.starts_with(String.from(".")) => true,
+          (entry.name == "node_modules") => true,
+          (entry.name == "yo-out") => true,
+          (entry.name == "out") => true,
+          (entry.name == "tmp") => true,
+          true => false
+        );
+        if(!skip, {
+          full := Path.new(dir.clone()).join(Path.new(entry.name.clone())).to_string();
+          match(
+            entry.file_type,
+            .Directory => _collect_index_files(full, root, files, io, exn),
+            .File => {
+              if(entry.name.ends_with(String.from(".yo")) && !entry.name.ends_with(String.from(".test.yo")), {
+                files.push(full);
+              });
+            },
+            .Symlink => (),
+            .Other => ()
+          );
+        });
+      }
+    );
+  });
+});
+/// The import-style module path of a file under the indexed root: the
+/// root's own directory NAME is the first component (`std/...` for the
+/// bundled std — the prefix an agent types in `import("std/...")`),
+/// `index.yo` collapses to its directory (barrels are imported by their
+/// package path, `std/string`).
+context_module_name :: (fn(file_path : String, root : String) -> String)({
+  rel := Path.new(file_path).relative_to(Path.new(root)).to_string();
+  if(rel.ends_with(String.from(".yo")), {
+    rel = rel.substring(usize(0), rel.len() - usize(3));
+  });
+  if(rel.ends_with(String.from("/index")), {
+    rel = rel.substring(usize(0), rel.len() - usize(6));
+  });
+  prefix := match(
+    Path.new(root).file_name(),
+    .Some(n) => n,
+    .None => String.from("tree")
+  );
+  `${prefix}/${rel}`
+});
+/// The content-addressed key: first 12 hex of SHA-256 over the sorted
+/// `<relpath> <sha256(content)>` lines of every file the index would cover.
+/// Any std edit mints a new key; identical trees share one.
+context_tree_key :: (
+  fn(root : String, io : Io, exn : Exception) -> String
+)({
+  files := ArrayList(String).new();
+  _collect_index_files(root.clone(), root.clone(), files, io, exn);
+  files.sort();
+  corpus := String.new();
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    match(
+      files.get(fi),
+      .Some(file) => {
+        rel := Path.new(file).relative_to(Path.new(root)).to_string();
+        bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
+        corpus.push_string(`${rel} ${sha256_hex(bytes)}\n`);
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  sha256_hex(corpus.as_bytes()).substring(usize(0), usize(12))
+});
+/// Collapse runs of whitespace to single spaces and trim — the TSV fields
+/// are single-line by construction.
+_collapse_ws :: (fn(s : String) -> String)({
+  joined := String.new();
+  (pending_space : bool) = false;
+  (i : usize) = usize(0);
+  while(i < s.len(), {
+    b := s.byte_at(i);
+    is_ws := ((b == u8(32)) || (b == u8(9)) || ((b == u8(10)) || (b == u8(13))));
+    if(is_ws, {
+      pending_space = (joined.len() > usize(0));
+    }, {
+      if(pending_space, {
+        joined.push_str(" ");
+        pending_space = false;
+      });
+      joined.push_byte(b);
+    });
+    i = (i + usize(1));
+  });
+  joined
+});
+/// First non-empty line of a doc comment, whitespace-collapsed; `""` for
+/// `.None` or an all-blank comment.
+_doc_first_line :: (fn(doc : Option(String)) -> String)(
+  match(
+    doc,
+    .None => String.new(),
+    .Some(text) => {
+      lines := text.split(String.from("\n"));
+      (li : usize) = usize(0);
+      while(li < lines.len(), {
+        match(
+          lines.get(li),
+          .Some(line) => {
+            trimmed := line.trim();
+            if(trimmed.len() > usize(0), {
+              return(_collapse_ws(trimmed));
+            });
+          },
+          .None => ()
+        );
+        li = (li + usize(1));
+      });
+      String.new()
+    }
+  )
+);
+/// Build (or reuse) the index for `root`; returns the key. `refresh` skips
+/// the reuse check. Progress prints to stdout like `yo doc`'s.
+///
+/// Concurrency: `context.lock` is held (blocking, the `store.lock` pattern)
+/// across the whole build; the manifest is RE-CHECKED under the lock so a
+/// concurrent builder's finished work is reused rather than duplicated. The
+/// manifest is written LAST: an interrupted build leaves a manifestless
+/// directory that the next run rebuilds over.
+context_index_ensure :: (
+  fn(
+    root : String,
+    cache_root : String,
+    refresh : bool,
+    io : Io,
+    exn : Exception
+  ) -> String
+)({
+  key := context_tree_key(root.clone(), io, exn);
+  idx_dir := context_index_dir(cache_root.clone(), key.clone());
+  manifest := Path.new(idx_dir.clone()).join(Path.new(String.from("manifest.txt"))).to_string();
+  if(!refresh, {
+    if(io.await(exists(Path.new(manifest.clone()), io), io), {
+      return(key);
+    });
+  });
+  io.await(create_dir_all(Path.new(context_dir(cache_root.clone())), io), IoExn(io : io, exn : exn));
+  lock_path := Path.new(context_dir(cache_root.clone())).join(Path.new(String.from("context.lock"))).to_string();
+  lock_file := io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, io), IoExn(io : io, exn : exn));
+  rc := flock(lock_file.fd(), LOCK_EX);
+  if(rc < i32(0), {
+    exn.throw(dyn(`context: could not lock ${lock_path} (errno ${(i32(0) - rc).to_string()})`));
+  });
+  // Double-checked: another process may have finished this key while we
+  // waited for the lock.
+  if(!refresh, {
+    if(io.await(exists(Path.new(manifest.clone()), io), io), {
+      _lu := flock(lock_file.fd(), LOCK_UN);
+      return(key);
+    });
+  });
+  println(`Building the context index for ${root} (key ${key})...`);
+  files := ArrayList(String).new();
+  _collect_index_files(root.clone(), root.clone(), files, io, exn);
+  files.sort();
+  io.await(create_dir_all(Path.new(idx_dir.clone()).join(Path.new(String.from("modules"))), io), IoExn(io : io, exn : exn));
+  std_path := resolve_std_path();
+  index_txt := String.new();
+  modules_txt := String.new();
+  (degraded_count : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    match(
+      files.get(fi),
+      .Some(file) => {
+        module := context_module_name(file.clone(), root.clone());
+        df := document_one_file(file.clone(), root.clone(), std_path.clone(), false, io, exn);
+        match(
+          df,
+          .None => (),
+          .Some(d) => {
+            m := d.doc_module;
+            entries := _module_entries(module.clone(), m);
+            // A barrel's re-exports come from its spread sources (which
+            // carry the true origin); its own export labels would only add
+            // originless duplicates. Any other module's export surface is
+            // exactly what the label sweep is for.
+            if(file.ends_with(String.from("/index.yo")), {
+              _mark_barrel_origins(module.clone(), file.clone(), root.clone(), entries, io, exn);
+            }, {
+              _export_label_entries(module.clone(), entries, d.export_labels, d.export_types);
+            });
+            (ei : usize) = usize(0);
+            while(ei < entries.len(), {
+              match(
+                entries.get(ei),
+                .Some(e) => {
+                  index_txt.push_string(_entry_line(e));
+                  index_txt.push_str("\n");
+                },
+                .None => ()
+              );
+              ei = (ei + usize(1));
+            });
+            desc := _doc_first_line(m.doc.clone());
+            if(d.degraded, {
+              degraded_count = (degraded_count + usize(1));
+              desc = `${desc} (untyped)`;
+            });
+            modules_txt.push_string(`${module}\t${desc}\t${entries.len().to_string()}\t${cond(d.degraded => `degraded`, true => `ok`)}\n`);
+            md := render_module_md(m);
+            md_dir := _module_md_dir(idx_dir.clone(), module.clone());
+            io.await(create_dir_all(Path.new(md_dir.clone()), io), IoExn(io : io, exn : exn));
+            io.await(write_string(Path.new(md_dir).join(Path.new(`${_module_leaf(module)}.md`)), md, io), IoExn(io : io, exn : exn));
+          }
+        );
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+    println(`  [${fi.to_string()}/${files.len().to_string()}] indexed`);
+  });
+  io.await(write_string(Path.new(idx_dir.clone()).join(Path.new(String.from("index.txt"))), index_txt, io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(idx_dir.clone()).join(Path.new(String.from("modules.txt"))), modules_txt, io), IoExn(io : io, exn : exn));
+  manifest_txt := `format=${INDEX_FORMAT_VERSION}\nroot=${root}\nkey=${key}\nfiles=${files.len().to_string()}\nyo=${String.from(CURRENT_YO_VERSION)}\n`;
+  io.await(write_string(Path.new(manifest.clone()), manifest_txt, io), IoExn(io : io, exn : exn));
+  _lu2 := flock(lock_file.fd(), LOCK_UN);
+  if(degraded_count > usize(0), {
+    println(`Warning: ${degraded_count.to_string()} module(s) fell back to token-only docs (marked "(untyped)" in --list).`);
+  });
+  key
+});
+/// The index entries of one documented module. Items are emitted in the
+/// DocModule's own order (functions, types + their methods, traits,
+/// constants); the query side sorts.
+_module_entries :: (
+  fn(module : String, doc_module : DocModule) -> ArrayList(ContextIndexEntry)
+)({
+  entries := ArrayList(ContextIndexEntry).new();
+  (fi : usize) = usize(0);
+  while(fi < doc_module.functions.len(), {
+    match(
+      doc_module.functions.get(fi),
+      .Some(f) => {
+        kind := cond(f.is_method => `method`, true => `fn`);
+        entries.push(
+          ContextIndexEntry(
+            module : module.clone(),
+            name : f.name.clone(),
+            kind : kind,
+            signature : _collapse_ws(f.signature.clone()),
+            doc : _doc_first_line(f.doc.clone()),
+            origin : String.new()
+          )
+        );
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  (ti : usize) = usize(0);
+  while(ti < doc_module.types.len(), {
+    match(
+      doc_module.types.get(ti),
+      .Some(t) => {
+        entries.push(
+          ContextIndexEntry(
+            module : module.clone(),
+            name : t.name.clone(),
+            kind : `type`,
+            signature : _collapse_ws(t.signature.clone()),
+            doc : _doc_first_line(t.doc.clone()),
+            origin : String.new()
+          )
+        );
+        // A type's methods index under the type's module — the receiver
+        // type is what an agent searches by, and the signature names it.
+        (mi : usize) = usize(0);
+        while(mi < t.methods.len(), {
+          match(
+            t.methods.get(mi),
+            .Some(mm) => {
+              entries.push(
+                ContextIndexEntry(
+                  module : module.clone(),
+                  name : mm.name.clone(),
+                  kind : `method`,
+                  signature : _collapse_ws(mm.signature.clone()),
+                  doc : _doc_first_line(mm.doc.clone()),
+                  origin : String.new()
+                )
+              );
+            },
+            .None => ()
+          );
+          mi = (mi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    ti = (ti + usize(1));
+  });
+  (tri : usize) = usize(0);
+  while(tri < doc_module.traits.len(), {
+    match(
+      doc_module.traits.get(tri),
+      .Some(t) => {
+        entries.push(
+          ContextIndexEntry(
+            module : module.clone(),
+            name : t.name.clone(),
+            kind : `trait`,
+            signature : _collapse_ws(t.signature.clone()),
+            doc : _doc_first_line(t.doc.clone()),
+            origin : String.new()
+          )
+        );
+      },
+      .None => ()
+    );
+    tri = (tri + usize(1));
+  });
+  (ci : usize) = usize(0);
+  while(ci < doc_module.constants.len(), {
+    match(
+      doc_module.constants.get(ci),
+      .Some(c) => {
+        entries.push(
+          ContextIndexEntry(
+            module : module.clone(),
+            name : c.name.clone(),
+            kind : `constant`,
+            signature : _collapse_ws(c.type_.clone()),
+            doc : _doc_first_line(c.doc.clone()),
+            origin : String.new()
+          )
+        );
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  entries
+});
+/// The TSV line for one entry (no trailing newline).
+_entry_line :: (fn(e : ContextIndexEntry) -> String)({
+  base := `${e.module}\t${e.name}\t${e.kind}\t${e.signature}\t${e.doc}`;
+  if(e.origin.len() > usize(0), `${base}\torigin=${e.origin}`, base)
+});
+/// The directory of a module's rendered markdown: `modules/` plus every
+/// module-path segment but the last (`std/collections/array_list` ->
+/// `<idx>/modules/std/collections`).
+_module_md_dir :: (fn(idx_dir : String, module : String) -> String)({
+  segs := module.split(String.from("/"));
+  dir := Path.new(idx_dir).join(Path.new(String.from("modules"))).to_string();
+  (i : usize) = usize(0);
+  while((i + usize(1)) < segs.len(), {
+    match(
+      segs.get(i),
+      .Some(seg) => {
+        dir = Path.new(dir).join(Path.new(seg.clone())).to_string();
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  dir
+});
+/// The last segment of a module path.
+_module_leaf :: (fn(module : String) -> String)({
+  segs := module.split(String.from("/"));
+  segs.get(segs.len() - usize(1)).unwrap_or(module)
+});
+/// The kind letter for one exported label's type, as the query surface
+/// spells it.
+_export_kind :: (fn(tv : TypeValue) -> String)(
+  cond(
+    is_function_type(tv) => `fn`,
+    is_trait_type(tv) => `trait`,
+    is_module_type(tv) => `module`,
+    (is_struct_type(tv) || (is_enum_type(tv) || is_union_type(tv))) => `type`,
+    true => `constant`
+  )
+);
+/// Entries for the module's export-surface labels the doc pipeline did not
+/// already document — barrel glob re-exports chiefly (`export(...(_mod))`
+/// spreads names whose definitions live elsewhere, so build_doc_module has
+/// nothing for them). Signature is the exported type; the doc is empty (the
+/// comment lives at the defining module, which `origin=` resolution names).
+_export_label_entries :: (
+  fn(
+    module : String,
+    entries : ArrayList(ContextIndexEntry),
+    labels : ArrayList(String),
+    types : ArrayList(TypeValue)
+  ) -> unit
+)({
+  (li : usize) = usize(0);
+  while(li < labels.len(), {
+    match(
+      labels.get(li),
+      .Some(label) => {
+        // Skip labels the doc pipeline already covered (by name — the
+        // module's own documented items dominate; a re-export of the same
+        // name adds nothing a query could distinguish).
+        (covered : bool) = false;
+        (ei : usize) = usize(0);
+        while(ei < entries.len(), {
+          match(
+            entries.get(ei),
+            .Some(e) => {
+              if(e.name == label, {
+                covered = true;
+              });
+            },
+            .None => ()
+          );
+          ei = (ei + usize(1));
+        });
+        if(!covered, {
+          match(
+            types.get(li),
+            .Some(tv) => {
+              entries.push(
+                ContextIndexEntry(
+                  module : module.clone(),
+                  name : label.clone(),
+                  kind : _export_kind(tv),
+                  signature : _collapse_ws(type_to_string(tv)),
+                  doc : String.new(),
+                  origin : String.new()
+                )
+              );
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+});
+/// One name->path binding (an import binding or a resolved spread source).
+Pair :: struct(
+  first : String,
+  second : String
+);
+/// The significant tokens of a source (whitespace and comments dropped) —
+/// adjacency reasoning needs a filtered stream.
+_significant_tokens :: (fn(source : String) -> ArrayList(Token))({
+  exn := Exception(
+    throw : (
+      _err -> {
+        unwind(());
+      }
+    )
+  );
+  all := tokenize(source, `<barrel>`, exn);
+  out := ArrayList(Token).new();
+  (i : usize) = usize(0);
+  while(i < all.len(), {
+    match(
+      all.get(i),
+      .Some(t) => {
+        skip := cond(
+          (t.kind == TokenKind.Whitespace) => true,
+          (t.kind == TokenKind.SingleLineComment) => true,
+          (t.kind == TokenKind.MultiLineComment) => true,
+          (t.kind == TokenKind.DocLineComment) => true,
+          (t.kind == TokenKind.InnerDocLineComment) => true,
+          (t.kind == TokenKind.DocBlockComment) => true,
+          (t.kind == TokenKind.InnerDocBlockComment) => true,
+          true => false
+        );
+        if(!skip, {
+          out.push(t);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// A barrel's re-export plumbing, read from its TOKENS: `_src :: import("./p")`
+/// bindings paired with the `export(...(_src))` spreads that publish them —
+/// the house barrel shape (`std/string/index.yo` et al). Returns the spread
+/// source binding name -> its import path, in export order.
+_barrel_spreads :: (fn(source : String) -> ArrayList(Pair))({
+  tokens := _significant_tokens(source);
+  imports := ArrayList(Pair).new();
+  (i : usize) = usize(0);
+  while((i + usize(4)) < tokens.len(), {
+    a := tokens.get(i);
+    b := tokens.get(i + usize(1));
+    c := tokens.get(i + usize(2));
+    d4 := tokens.get(i + usize(3));
+    e := tokens.get(i + usize(4));
+    match(
+      a,
+      .Some(t0) => match(
+        b,
+        .Some(t1) => match(
+          c,
+          .Some(t2) => match(
+            d4,
+            .Some(t3) => match(
+              e,
+              .Some(t4) => {
+                is_import := ((t0.kind == TokenKind.Identifier) && (t1.value == "::") && (t2.value == "import") && (t3.value == "(") && (t4.kind == TokenKind.StringLit));
+                if(is_import, {
+                  imports.push(Pair(first : t0.value, second : _unquote(t4.value)));
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  spreads := ArrayList(Pair).new();
+  (si : usize) = usize(0);
+  while((si + usize(4)) < tokens.len(), {
+    a := tokens.get(si);
+    b := tokens.get(si + usize(1));
+    c := tokens.get(si + usize(2));
+    d4 := tokens.get(si + usize(3));
+    e := tokens.get(si + usize(4));
+    match(
+      a,
+      .Some(t0) => match(
+        b,
+        .Some(t1) => match(
+          c,
+          .Some(t2) => match(
+            d4,
+            .Some(t3) => match(
+              e,
+              .Some(t4) => {
+                is_spread := ((t0.value == "export") && (t1.value == "(") && (t2.value == "...") && (t3.value == "(") && (t4.kind == TokenKind.Identifier));
+                if(is_spread, {
+                  (pi : usize) = usize(0);
+                  while(pi < imports.len(), {
+                    match(
+                      imports.get(pi),
+                      .Some(p) => {
+                        if(p.first == t4.value, {
+                          spreads.push(Pair(first : p.first.clone(), second : p.second.clone()));
+                        });
+                      },
+                      .None => ()
+                    );
+                    pi = (pi + usize(1));
+                  });
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  spreads
+});
+/// Strip the quotes a StringLit token keeps.
+_unquote :: (fn(raw : String) -> String)({
+  n := raw.len();
+  if((n >= usize(2)) && raw.starts_with(String.from("\"")) && raw.ends_with(String.from("\"")), raw.substring(usize(1), n - usize(1)), raw)
+});
+/// Mark origins on a barrel module's already-documented entries: each
+/// `export(...(_src))` spread source is loaded, and every entry whose name
+/// that source defines gets `origin=` = that source module — the defining
+/// one — so describe reads the real entry. Exported names the doc pipeline
+/// did NOT document are pushed here (best effort: the sns type of a
+/// re-exported type value reads `Type`, so only non-type kinds classify).
+_mark_barrel_origins :: (
+  fn(
+    module : String,
+    file_path : String,
+    root : String,
+    entries : ArrayList(ContextIndexEntry),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  bytes := io.await(read(Path.new(file_path.clone()), io), IoExn(io : io, exn : exn));
+  source := String.from_bytes(bytes);
+  spreads := _barrel_spreads(source);
+  // The barrel's directory: everything up to the last `/`.
+  fp := file_path.clone();
+  (cut : usize) = fp.len();
+  (ci : usize) = usize(0);
+  while(ci < fp.len(), {
+    if(fp.byte_at(ci) == u8(47), {
+      cut = ci;
+    });
+    ci = (ci + usize(1));
+  });
+  dir := fp.substring(usize(0), cut);
+  (pi : usize) = usize(0);
+  while(pi < spreads.len(), {
+    match(
+      spreads.get(pi),
+      .Some(p) => {
+        src_path := Path.new(dir).join(Path.new(p.second.clone())).normalize().to_string();
+        origin := context_module_name(src_path, root);
+        // Names this spread source defines.
+        defined := ArrayList(String).new();
+        outcome := mm_load_file(src_path, resolve_std_path(), false, io, exn);
+        if(outcome.ok, {
+          match(
+            outcome.module_type,
+            .Struct({ field_labels, field_types }) => {
+              (li : usize) = usize(0);
+              while(li < field_labels.len(), {
+                match(
+                  field_labels.get(li),
+                  .Some(label) => {
+                    defined.push(label.clone());
+                  },
+                  .None => ()
+                );
+                li = (li + usize(1));
+              });
+            },
+            _ => ()
+          );
+        });
+        // Set origin on the documented entries; remember which names are
+        // barrel-covered so undocumented ones can be pushed after.
+        (ei : usize) = usize(0);
+        while(ei < entries.len(), {
+          match(
+            entries.get(ei),
+            .Some(e) => {
+              if((e.origin.len() == usize(0)) && _contains(defined, e.name), {
+                e.origin = origin.clone();
+                entries(ei) = e;
+              });
+            },
+            .None => ()
+          );
+          ei = (ei + usize(1));
+        });
+      },
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+});
+/// Does the list hold `s`?
+_contains :: (fn(list : ArrayList(String), s : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < list.len(), {
+    match(
+      list.get(i),
+      .Some(x) => {
+        if(x == s, {
+          return(true);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
+/// Load the index entries from a built cache.
+context_index_load :: (
+  fn(
+    cache_root : String,
+    key : String,
+    io : Io,
+    exn : Exception
+  ) -> ArrayList(ContextIndexEntry)
+)({
+  idx_dir := context_index_dir(cache_root.clone(), key.clone());
+  path := Path.new(idx_dir.clone()).join(Path.new(String.from("index.txt"))).to_string();
+  bytes := io.await(read(Path.new(path.clone()), io), IoExn(io : io, exn : exn));
+  content := String.from_bytes(bytes);
+  entries := ArrayList(ContextIndexEntry).new();
+  lines := content.split(String.from("\n"));
+  (li : usize) = usize(0);
+  while(li < lines.len(), {
+    match(
+      lines.get(li),
+      .Some(line) => {
+        if(line.len() > usize(0), {
+          entries.push(_parse_entry(line));
+        });
+      },
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  entries
+});
+/// Parse one TSV line (the format `_entry_line` wrote).
+_parse_entry :: (fn(line : String) -> ContextIndexEntry)({
+  fields := line.split(String.from("\t"));
+  origin := String.new();
+  if(fields.len() > usize(5), {
+    o := fields.get(usize(5)).unwrap_or(String.new());
+    if(o.starts_with(String.from("origin=")), {
+      origin = o.substring(usize(7), o.len());
+    });
+  });
+  ContextIndexEntry(
+    module : fields.get(usize(0)).unwrap_or(String.new()),
+    name : fields.get(usize(1)).unwrap_or(String.new()),
+    kind : fields.get(usize(2)).unwrap_or(String.new()),
+    signature : fields.get(usize(3)).unwrap_or(String.new()),
+    doc : fields.get(usize(4)).unwrap_or(String.new()),
+    origin : origin
+  )
+});
+/// Load the module rows from a built cache.
+context_index_load_modules :: (
+  fn(
+    cache_root : String,
+    key : String,
+    io : Io,
+    exn : Exception
+  ) -> ArrayList(ContextIndexModule)
+)({
+  idx_dir := context_index_dir(cache_root.clone(), key.clone());
+  path := Path.new(idx_dir.clone()).join(Path.new(String.from("modules.txt"))).to_string();
+  bytes := io.await(read(Path.new(path.clone()), io), IoExn(io : io, exn : exn));
+  content := String.from_bytes(bytes);
+  mods := ArrayList(ContextIndexModule).new();
+  lines := content.split(String.from("\n"));
+  (li : usize) = usize(0);
+  while(li < lines.len(), {
+    match(
+      lines.get(li),
+      .Some(line) => {
+        if(line.len() > usize(0), {
+          fields := line.split(String.from("\t"));
+          mods.push(
+            ContextIndexModule(
+              module : fields.get(usize(0)).unwrap_or(String.new()),
+              doc : fields.get(usize(1)).unwrap_or(String.new()),
+              items : match(
+                fields.get(usize(2)).unwrap_or(String.from("0")).parse_u64(),
+                .Some(n) => usize(n),
+                .None => usize(0)
+              ),
+              degraded : (fields.get(usize(3)).unwrap_or(String.from("ok")) == "degraded")
+            )
+          );
+        });
+      },
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  mods
+});
+export(
+  ContextIndexEntry,
+  ContextIndexModule,
+  context_dir,
+  context_index_dir,
+  context_cache_root,
+  context_module_name,
+  context_tree_key,
+  context_index_ensure,
+  context_index_load,
+  context_index_load_modules,
+  INDEX_FORMAT_VERSION
+);
