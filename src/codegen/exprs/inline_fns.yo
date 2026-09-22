@@ -263,34 +263,31 @@ _as_saturating_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
   if((a.len() == usize(0)) || a.starts_with("// Failed to transpile"), {
     return(Option(String).None);
   });
-  tok := ast_expr_token(expr);
-  file_lit := _idx_c_string_literal(tok.module_path.clone());
-  loc := `, ${file_lit}, ${(tok.row + usize(1)).to_string()}, ${(tok.column + usize(1)).to_string()}`;
   ct := get_type_string(ty, context.base);
   wasm := is_target_wasm(context.base.target_info);
   if(is_i8_type(ty), {
-    return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-128), 127${loc}))`));
+    return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-128), 127))`));
   });
   if(is_i16_type(ty), {
-    return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-32768), 32767${loc}))`));
+    return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-32768), 32767))`));
   });
   if(is_i32_type(ty) || (is_isize_type(ty) && wasm), {
-    return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-2147483647 - 1), 2147483647${loc}))`));
+    return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-2147483647 - 1), 2147483647))`));
   });
   if(is_i64_type(ty) || is_isize_type(ty), {
-    return(Option(String).Some(`((__yo_sat_i64((double)(${a}), (-9223372036854775807LL - 1), 9223372036854775807LL${loc})))`));
+    return(Option(String).Some(`((__yo_sat_i64((double)(${a}), (-9223372036854775807LL - 1), 9223372036854775807LL)))`));
   });
   if(is_u8_type(ty), {
-    return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 255${loc}))`));
+    return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 255))`));
   });
   if(is_u16_type(ty), {
-    return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 65535${loc}))`));
+    return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 65535))`));
   });
   if(is_u32_type(ty) || (is_usize_type(ty) && wasm), {
-    return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 4294967295ULL${loc}))`));
+    return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 4294967295ULL))`));
   });
   if(is_u64_type(ty) || is_usize_type(ty), {
-    return(Option(String).Some(`((__yo_sat_u64((double)(${a}), 18446744073709551615ULL${loc})))`));
+    return(Option(String).Some(`((__yo_sat_u64((double)(${a}), 18446744073709551615ULL)))`));
   });
   Option(String).None
 });
