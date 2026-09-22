@@ -5632,11 +5632,14 @@ impl(
   i8,
   /// The absolute difference — `|self - other|`, as the unsigned partner
   /// `u8`, so the result is representable even for
-  /// `i8.MAX.abs_diff(i8.MIN)`.
+  /// `i8.MAX.abs_diff(i8.MIN)`. The subtraction goes through wrapping_sub on
+  /// the SIGNED type before the cast: the earlier version subtracted the
+  /// unsigned BIT PATTERNS, which underflows whenever the two operands sit on
+  /// opposite sides of zero (`u64(1) - u64(-1)`).
   abs_diff : (fn(self : Self, other : Self) -> u8)(
     cond(
-      (self >= other) => (u8(self) - u8(other)),
-      true => (u8(other) - u8(self))
+      (self >= other) => u8(self.wrapping_sub(other)),
+      true => u8(other.wrapping_sub(self))
     )
   )
 );
@@ -5647,8 +5650,8 @@ impl(
   /// `i16.MAX.abs_diff(i16.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u16)(
     cond(
-      (self >= other) => (u16(self) - u16(other)),
-      true => (u16(other) - u16(self))
+      (self >= other) => u16(self.wrapping_sub(other)),
+      true => u16(other.wrapping_sub(self))
     )
   )
 );
@@ -5656,11 +5659,11 @@ impl(
   i32,
   /// The absolute difference — `|self - other|`, as the unsigned partner
   /// `u32`, so the result is representable even for
-  /// `i32.MAX.abs_diff(i32.MIN)`.
+  /// `i32.MAX.abs_diff(i32.MIN)` (see the i8 impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> u32)(
     cond(
-      (self >= other) => (u32(self) - u32(other)),
-      true => (u32(other) - u32(self))
+      (self >= other) => u32(self.wrapping_sub(other)),
+      true => u32(other.wrapping_sub(self))
     )
   )
 );
@@ -5671,8 +5674,8 @@ impl(
   /// `i64.MAX.abs_diff(i64.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u64)(
     cond(
-      (self >= other) => (u64(self) - u64(other)),
-      true => (u64(other) - u64(self))
+      (self >= other) => u64(self.wrapping_sub(other)),
+      true => u64(other.wrapping_sub(self))
     )
   )
 );
@@ -5696,11 +5699,12 @@ impl(
 impl(
   isize,
   /// The absolute difference, as the unsigned partner `usize`, so the result
-  /// is representable even for `isize.MAX.abs_diff(isize.MIN)`.
+  /// is representable even for `isize.MAX.abs_diff(isize.MIN)` (see the i8
+  /// impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> usize)(
     cond(
-      (self >= other) => (usize(self) - usize(other)),
-      true => (usize(other) - usize(self))
+      (self >= other) => usize(self.wrapping_sub(other)),
+      true => usize(other.wrapping_sub(self))
     )
   )
 );
