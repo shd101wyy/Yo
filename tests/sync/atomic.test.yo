@@ -554,8 +554,10 @@ test("AtomicUsize fetch_min / fetch_max are unsigned comparisons", {
   // `usize` is 32-bit on wasm32 and 64-bit elsewhere, so the all-ones
   // sentinel is WRAPPED from a runtime zero instead of being spelled as a
   // width-specific literal (a literal out of range hard-errors at comptime).
+  // wrapping_sub: 0 - 1 wraps by design and the raw `-` traps under the
+  // Phase 3 guards (wasm32 leg, batch line 67:91).
   (zero : usize) = usize(0);
-  (top : usize) = (zero - usize(1));
+  (top : usize) = zero.wrapping_sub(usize(1));
   a := AtomicUsize(top);
   assert(a.fetch_min(usize(1), MemoryOrder.SeqCst) == top, "fetch_min returns previous");
   assert(a.load(MemoryOrder.SeqCst) == usize(1), "usize MAX is ABOVE 1 unsigned, so min picks 1");
