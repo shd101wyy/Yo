@@ -4853,19 +4853,46 @@ impl(
   /// Accumulated with `wrapping_add` rather than by forming the product:
   /// signed overflow is undefined behaviour in C, so the overflowing multiply
   /// must never exist. Same reason `checked_mul` above tests by DIVISION.
-  /// Only reached on a path that already overflowed, so the loop is not on
-  /// the fast path.
+  ///
+  /// The fallback is SCHOOL MULTIPLICATION over 8-bit lanes — never a
+  /// primitive that can overflow (`&`, `>>`, `!=`, `wrapping_add` only), so
+  /// it is O(1): ≤ 192 adds per call. The first version looped
+  /// `wrapping_add(step)` rhs times, which safe-mode 3 (#837) turned into a
+  /// de-facto hang for every wrap-by-design call site — std's own
+  /// `hash_map.mix_u64` passes full-range u64 hashes as `rhs`
+  /// (issues/hash-map-mix-u64-relies-on-wrapping.md). Correct for signed T
+  /// as well: masking each shifted lane keeps the two's-complement bytes, and
+  /// modular arithmetic makes the sign of the operands irrelevant.
   wrapping_mul : (fn(self : T, rhs : T) -> T)(
     match(
       self.checked_mul(rhs),
       .Some(v) => v,
       .None => {
         (acc : T) = T(0);
-        (i : T) = T(0);
-        (n : T) = cond((rhs < T(0)) => (T(0) - rhs), true => rhs);
-        (step : T) = cond((rhs < T(0)) => (T(0) - self), true => self);
-        while(i < n, i = (i + T(1)), {
-          acc = acc.wrapping_add(step);
+        (x : T) = self;
+        (y : T) = rhs;
+        (lane : usize) = usize(0);
+        while(lane < usize(8), {
+          (nib : T) = (y & T(255));
+          (sh : T) = x;
+          (bit : T) = T(1);
+          (k : usize) = usize(0);
+          while(k < usize(8), {
+            if((nib & bit) != T(0), {
+              acc = acc.wrapping_add(sh);
+            });
+            sh = sh.wrapping_add(sh);
+            bit = (bit << T(1));
+            k = (k + usize(1));
+          });
+          y = (y >> T(8));
+          // x *= 256 (mod 2^BITS) for the next lane — 8 doublings.
+          (d : usize) = usize(0);
+          while(d < usize(8), {
+            x = x.wrapping_add(x);
+            d = (d + usize(1));
+          });
+          lane = (lane + usize(1));
         });
         acc
       }
