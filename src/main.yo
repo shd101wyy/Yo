@@ -139,6 +139,7 @@ json :: import("std/encoding/json");
   set_warnings_enabled,
   warnings_enabled,
   take_warnings,
+  flush_user_warnings,
   emit_rendered_text,
   emit_chatter,
   register_std_export
@@ -8544,6 +8545,10 @@ main :: (fn(io : Io) -> unit)({
         // (--error-format) on the right stream. Anything else keeps the
         // yo: error: wrapper, unless it is a rendered diagnostic rethrown
         // as a string — no doubled prefixes (P1, D4).
+        // Warnings emitted before the failure surface first — a check of
+        // several files should not lose file 1's warnings because file 2
+        // errored. A no-op when the stash is empty (arg errors, lsp, ...).
+        flush_user_warnings(resolve_std_path(), get_global_cache_dir());
         match(
           downcast(err, YoError),
           .Some(ye) => {
@@ -8857,50 +8862,6 @@ main :: (fn(io : Io) -> unit)({
     exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
   })))))))))))))))));
   print_spec_report_if_requested();
-  if(warnings_enabled(), {
-    ws := take_warnings();
-    // Warnings inside the resolved std root are the std's business —
-    // `yo check ./std` surfaces them; every other command filters them so
-    // a user's run is not noise-polluted by the std it imported.
-    std_root := resolve_std_path();
-    cache_root := get_global_cache_dir();
-    bare_root := std_root;
-    if(bare_root.starts_with(String.from("file://")), {
-      bare_root = bare_root.substring(usize(7), bare_root.len());
-    });
-    while((bare_root.len() > usize(1)) && (bare_root.substring((bare_root.len() - usize(1)), bare_root.len()) == "/"), {
-      bare_root = bare_root.substring(usize(0), (bare_root.len() - usize(1)));
-    });
-    kept := ArrayList(Diagnostic).new();
-    (kwi : usize) = usize(0);
-    while(kwi < ws.len(), {
-      match(
-        ws.get(kwi),
-        .Some(w) => {
-          wpath := w.span.path;
-          if(wpath.starts_with(String.from("file://")), {
-            wpath = wpath.substring(usize(7), wpath.len());
-          });
-          cbare := cache_root;
-          if(cbare.starts_with(String.from("file://")), {
-            cbare = cbare.substring(usize(7), cbare.len());
-          });
-          while((cbare.len() > usize(1)) && (cbare.substring((cbare.len() - usize(1)), cbare.len()) == "/"), {
-            cbare = cbare.substring(usize(0), (cbare.len() - usize(1)));
-          });
-          under_std := ((bare_root.len() > usize(0)) && wpath.starts_with(bare_root));
-          under_cache := ((cbare.len() > usize(0)) && wpath.starts_with(cbare));
-          if((!under_std && !under_cache), {
-            kept.push(w.clone());
-          });
-        },
-        .None => ()
-      );
-      kwi = (kwi + usize(1));
-    });
-    if(kept.len() > usize(0), {
-      emit_rendered_text(render_diagnostics_for_mode(kept));
-    });
-  });
+  flush_user_warnings(resolve_std_path(), get_global_cache_dir());
 });
 export(main);
