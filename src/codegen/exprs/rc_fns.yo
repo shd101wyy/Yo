@@ -18,7 +18,7 @@
 { parse_raw_int } :: import("../../evaluator/utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 { generate_drop_code_for_value, generate_dup_code_for_value, get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type } :: import("./drop_dup.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The `i`-th argument of a FnCall (or `.None`).
@@ -215,13 +215,16 @@ generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : 
       temp_var := fresh_local_name(String.from("temp_array_"), context.base.current_function_name);
       loop_var := fresh_local_name(String.from("i_"), context.base.current_function_name);
       element_c_name := get_type_string(element_type, context.base);
+      // Safe mode Phase 1: the element copy reads through a guarded subscript
+      // (plans/backlog/SAFE_MODE.md §4); N is this array's comptime length.
+      guarded_idx := _checked_fixed_array_subscript(index_code.clone(), array_type, expr);
       decl := element_c_name;
       decl.push_str(" ");
       decl.push_string(temp_var.clone());
       decl.push_str(" = (");
       decl.push_string(array_code.clone());
       decl.push_str(").data[");
-      decl.push_string(index_code.clone());
+      decl.push_string(guarded_idx);
       decl.push_str("];");
       em.emit_string_line(decl);
       hdr := String.from("for (size_t ");
@@ -253,11 +256,13 @@ generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : 
   match(
     get_dup_function_for_type(element_type, context),
     .Some(fn) => {
+      // Guarded subscript here too: same fixed array, same N (safe-mode §4).
+      guarded_idx2 := _checked_fixed_array_subscript(index_code, array_type, expr);
       out := fn;
       out.push_str("(");
       out.push_string(array_code);
       out.push_str(".data[");
-      out.push_string(index_code);
+      out.push_string(guarded_idx2);
       out.push_str("])");
       out
     },
