@@ -328,9 +328,9 @@ context_index_ensure :: (
             });
             modules_txt.push_string(`${module}\t${desc}\t${entries.len().to_string()}\t${cond(d.degraded => `degraded`, true => `ok`)}\n`);
             md := render_module_md(m);
-            md_dir := _module_md_dir(idx_dir.clone(), module.clone());
+            md_dir := module_md_dir(idx_dir.clone(), module.clone());
             io.await(create_dir_all(Path.new(md_dir.clone()), io), IoExn(io : io, exn : exn));
-            io.await(write_string(Path.new(md_dir).join(Path.new(`${_module_leaf(module)}.md`)), md, io), IoExn(io : io, exn : exn));
+            io.await(write_string(Path.new(md_dir).join(Path.new(`${module_leaf(module)}.md`)), md, io), IoExn(io : io, exn : exn));
           }
         );
       },
@@ -469,7 +469,7 @@ _entry_line :: (fn(e : ContextIndexEntry) -> String)({
 /// The directory of a module's rendered markdown: `modules/` plus every
 /// module-path segment but the last (`std/collections/array_list` ->
 /// `<idx>/modules/std/collections`).
-_module_md_dir :: (fn(idx_dir : String, module : String) -> String)({
+module_md_dir :: (fn(idx_dir : String, module : String) -> String)({
   segs := module.split(String.from("/"));
   dir := Path.new(idx_dir).join(Path.new(String.from("modules"))).to_string();
   (i : usize) = usize(0);
@@ -486,7 +486,7 @@ _module_md_dir :: (fn(idx_dir : String, module : String) -> String)({
   dir
 });
 /// The last segment of a module path.
-_module_leaf :: (fn(module : String) -> String)({
+module_leaf :: (fn(module : String) -> String)({
   segs := module.split(String.from("/"));
   segs.get(segs.len() - usize(1)).unwrap_or(module)
 });
@@ -899,5 +899,7 @@ export(
   context_index_ensure,
   context_index_load,
   context_index_load_modules,
+  module_md_dir,
+  module_leaf,
   INDEX_FORMAT_VERSION
 );

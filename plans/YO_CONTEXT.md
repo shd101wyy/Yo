@@ -417,6 +417,15 @@ gc` reclaims an orphaned key dir.
 
 ### C3 — Describe (`yo context <module>`, `<module> <name>`, bare `<name>`)
 
+> **Status: LANDED (PR `feat/yo-context-c3`, stacked).** Describe slices the
+> item's section from the cached `modules/<module>.md` (decision (a) — the
+> heading anchors are regular: `` ### `anchor` ``, methods deeper inside
+> type sections; the slice runs to the next same-or-higher heading). Module
+> resolution: exact > unique last segment > unique suffix; ambiguity lists
+> candidates (exit 1); misses offer up to three did-you-mean names.
+> `Type.method` addresses methods by plain name — the index stores them
+> unqualified.
+
 1. Module index rendering from the cache (D4 sample).
 2. Item describe. **Open decision, measured in C2**: (a) slice the item's
    section out of the cached `modules/<module>.md` (fastest; depends on
