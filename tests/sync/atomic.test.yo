@@ -182,7 +182,7 @@ test("AtomicI8 wraps like the runtime operator", {
   (seed : i8) = i8(127);
   a := AtomicI8(seed);
   assert(a.fetch_add(i8(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
-  (expected : i8) = (seed + i8(1));
+  (expected : i8) = seed.wrapping_add(i8(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
   assert(a.load(MemoryOrder.Relaxed) < i8(0), "MAX + 1 is negative");
 });
@@ -229,7 +229,7 @@ test("AtomicI16 wraps like the runtime operator", {
   (seed : i16) = i16(32767);
   a := AtomicI16(seed);
   assert(a.fetch_add(i16(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
-  (expected : i16) = (seed + i16(1));
+  (expected : i16) = seed.wrapping_add(i16(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
   assert(a.load(MemoryOrder.Relaxed) < i16(0), "MAX + 1 is negative");
 });
@@ -276,7 +276,7 @@ test("AtomicI32 wraps like the runtime operator", {
   (seed : i32) = i32(2147483647);
   a := AtomicI32(seed);
   assert(a.fetch_add(i32(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
-  (expected : i32) = (seed + i32(1));
+  (expected : i32) = seed.wrapping_add(i32(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
   assert(a.load(MemoryOrder.Relaxed) < i32(0), "MAX + 1 is negative");
 });
@@ -323,7 +323,7 @@ test("AtomicI64 wraps like the runtime operator", {
   (seed : i64) = i64(9223372036854775807);
   a := AtomicI64(seed);
   assert(a.fetch_add(i64(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
-  (expected : i64) = (seed + i64(1));
+  (expected : i64) = seed.wrapping_add(i64(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
   assert(a.load(MemoryOrder.Relaxed) < i64(0), "MAX + 1 is negative");
 });
@@ -371,7 +371,7 @@ test("AtomicU8 wraps like the runtime operator", {
   (seed : u8) = u8(255);
   a := AtomicU8(seed);
   assert(a.fetch_add(u8(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
-  (expected : u8) = (seed + u8(1));
+  (expected : u8) = seed.wrapping_add(u8(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
   assert(a.load(MemoryOrder.Relaxed) == u8(0), "MAX + 1 is 0");
 });
@@ -419,7 +419,7 @@ test("AtomicU16 wraps like the runtime operator", {
   (seed : u16) = u16(65535);
   a := AtomicU16(seed);
   assert(a.fetch_add(u16(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
-  (expected : u16) = (seed + u16(1));
+  (expected : u16) = seed.wrapping_add(u16(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
   assert(a.load(MemoryOrder.Relaxed) == u16(0), "MAX + 1 is 0");
 });
@@ -467,7 +467,7 @@ test("AtomicU32 wraps like the runtime operator", {
   (seed : u32) = u32(4294967295);
   a := AtomicU32(seed);
   assert(a.fetch_add(u32(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
-  (expected : u32) = (seed + u32(1));
+  (expected : u32) = seed.wrapping_add(u32(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
   assert(a.load(MemoryOrder.Relaxed) == u32(0), "MAX + 1 is 0");
 });
@@ -515,7 +515,7 @@ test("AtomicU64 wraps like the runtime operator", {
   (seed : u64) = u64(18446744073709551615);
   a := AtomicU64(seed);
   assert(a.fetch_add(u64(1), MemoryOrder.Relaxed) == seed, "fetch_add returns previous");
-  (expected : u64) = (seed + u64(1));
+  (expected : u64) = seed.wrapping_add(u64(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "MAX + 1 wraps exactly like the runtime +");
   assert(a.load(MemoryOrder.Relaxed) == u64(0), "MAX + 1 is 0");
 });
@@ -567,7 +567,7 @@ test("AtomicUsize wraps like the runtime operator", {
   (seed : usize) = usize(0);
   a := AtomicUsize(seed);
   assert(a.fetch_sub(usize(1), MemoryOrder.Relaxed) == usize(0), "fetch_sub returns previous");
-  (expected : usize) = (seed - usize(1));
+  (expected : usize) = seed.wrapping_sub(usize(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "0 - 1 wraps exactly like the runtime -");
 });
 
@@ -613,7 +613,7 @@ test("AtomicIsize wraps like the runtime operator", {
   (seed : isize) = isize(0);
   a := AtomicIsize(seed);
   assert(a.fetch_sub(isize(1), MemoryOrder.Relaxed) == isize(0), "fetch_sub returns previous");
-  (expected : isize) = (seed - isize(1));
+  (expected : isize) = seed.wrapping_sub(isize(1));
   assert(a.load(MemoryOrder.Relaxed) == expected, "0 - 1 wraps exactly like the runtime -");
 });
 
