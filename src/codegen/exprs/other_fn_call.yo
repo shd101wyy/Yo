@@ -15,7 +15,7 @@
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains } :: import("../utils/index.yo");
+{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -1862,7 +1862,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         });
         out := arr_code;
         out.push_str(".data[");
-        out.push_string(_call_generate_expr(idx_expr, indent.clone(), context));
+        // Safe mode Phase 1: this fast path bypassed the BF_YO_ARRAY_INDEX
+        // inline arm #833 guarded, so `arr(<literal past N>)` folded to a raw
+        // C subscript and read garbage instead of trapping (the
+        // fixed-array-oob-panics cli-case caught it: `never=132116096`).
+        // Same guarded index the inline arm uses; in-bounds literals still
+        // fold to the bare subscript.
+        out.push_string(_checked_fixed_array_subscript(_call_generate_expr(idx_expr, indent.clone(), context), function_type, expr));
         out.push_str("]");
         return(Option(String).Some(out));
       },
