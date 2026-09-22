@@ -488,7 +488,20 @@ document it).
 `2` both (D4 says results must be identical). A UBSan pass over the self-built
 compiler (`yo check ./src` under 0b) must report zero arithmetic UB after 3c.
 
-## 7. Phase 4 — allocation-failure coverage audit (closes H10)
+## 7. Phase 4 — allocation-failure coverage audit (closes H10) — LANDED (audit)
+
+**As built (2026-09-22):** audited every runtime allocation in
+`src/codegen/**` against the NULL-check/propagation policy. Result: the
+policy holds everywhere EXCEPT one site — the cycle collector's scratch-array
+growth (`__yo_gc_gather_white` in `src/codegen/functions/gc_runtime.yo`)
+overwrote `gc->gc_white` with realloc's NULL on failure and NULL-derefered on
+the immediate store. Fixed per the house OOM policy (cannot-propagate sites
+abort via `__yo_alloc_fail`). The checked sites (wasm/Windows I/O runtime
+`-ENOMEM` paths, TLS credential/connection allocations, the TLS buffer-grow
+helper) were verified clean. The regression oracle remains the fixed
+allocator (`--allocator fixed --heap-size 64K` makes OOM deterministic); the
+existing `compile-allocator-fixed-oom` cli-case pins the `__yo_alloc_fail`
+message path end-to-end.
 
 The policy already exists (`__yo_rc_alloc` panics via `__yo_alloc_fail`; the OOM
 section of c-codegen.instructions) and `ArrayList.push` already traps on allocation
@@ -616,16 +629,16 @@ when over budget: (1) verify the C compiler's CSE at the shipped `-O` level, (2)
 
 | Phase | Deliverable | Depends on | Risk | Size |
 | --- | --- | --- | --- | --- |
-| 0a | escaped unwind aborts loudly | — | tests asserting the old silence | small |
-| 0b | `--sanitize undefined` works | — | none | tiny |
-| 0c | class-1 panic vocabulary banned in safe files (D7) | D7 (decided) | 163-site `src/` migration lands with the gate; extraction-path bypass must be gated too | small–medium |
-| 1 | checked Array/Slice/`str.bytes` indexing | 0b (as instrument) | latent compiler OOBs surface; perf | medium |
-| 2 | checked int `/` `%` incl. `MIN/-1` | 0b | latent `/0` bugs; perf | small–medium |
-| 3a | overflow + neg traps (D1) | rulings D1/D4 | perf; the biggest semantic change | medium |
-| 3b | shift guards | 3a infra | low | small |
-| 3c | saturating/trapping casts (D2) | ruling D2 | low | small |
-| 4 | OOM audit + forced-OOM cli-cases | — | low | small |
-| 5a | local elision (or a documented no-op) | measure after 1–3 | over-elision = unsoundness; canary tests required | medium |
+| 0a | escaped unwind loud — LANDED (async diagnostics; belt deferred on the install-frame hygiene issue) | — | — | small |
+| 0b | `--sanitize undefined` works — LANDED (#829) | — | none | tiny |
+| 0c | class-1 panic vocabulary banned in safe files (D7) — LANDED (#831); 19-site src migration (155 of 163 were already exempt) | D7 (decided) | extraction-path bypass gated too | small–medium |
+| 1 | checked fixed-Array/`str.bytes` indexing — LANDED (#833); H3 retired (Slice deleted) | 0b (as instrument) | latent compiler OOBs surface; perf | medium |
+| 2 | checked int `/` `%` incl. `MIN/-1` — LANDED (#835) | 0b | latent `/0` bugs; perf | small–medium |
+| 3a | overflow + neg traps (D1) — RE-SCOPED (§6): `-fwrapv` discovery; std/hash wraps by design; blocked on 3a-i wrapping builtins + 3a-ii std migration; emitters/helpers done on `safe-mode-3-wip` | D1/D4 (adopted); 3a-i, 3a-ii | perf; the biggest semantic change | medium |
+| 3b | shift guards — done on `safe-mode-3-wip` (with 3a) | 3a infra | low | small |
+| 3c | saturating float→int casts (D2) — done on `safe-mode-3-wip` (with 3a) | ruling D2 (adopted) | low | small |
+| 4 | OOM audit — LANDED (#836): cycle-collector scratch realloc NULL-deref fixed | — | low | small |
+| 5a | local elision (or a documented no-op) | measure after 1–3 (needs a CI-timed tree build) | over-elision = unsoundness; canary tests required | medium |
 | 5b | verifier-driven elision | FV campaign | design not started | large, deferred |
 | 6 | strict mode | 5b | — | deferred |
 
