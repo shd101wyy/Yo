@@ -571,13 +571,6 @@ evaluate_property_access :: (
   // through to the dispatch-time gate in calls/function.yo; type-value
   // receivers (`Option(i32).unwrap`) are gated in the TypeVal arm below.
   if(ast_expr_is_atom(property_expr) && is_class1_panic_method_name(ast_expr_token(property_expr).value), {
-    // TEMPORARY PROBE: why does the D7 gate miss `make(true).unwrap()`?
-    if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-      pa_c1_dbg_ty := match(obj_info_opt, .Some(oi_c1d) => type_to_string(oi_c1d.ty), .None => String.from("<no-info>"));
-      pa_c1_dbg_val := match(obj_info_opt, .Some(oi_c1d) => match(oi_c1d.value, .Some(v) => type_to_string(type_of_eval_value(v)), .None => String.from("<runtime>")), .None => String.from("<no-info>"));
-      pa_c1_dbg_mp := ast_expr_token(property_expr).module_path;
-      eprintln(`[pa-c1] obj=${ast_expr_to_string(object_expr)} ty=${pa_c1_dbg_ty} val=${pa_c1_dbg_val} mp=${pa_c1_dbg_mp}`);
-    });
     pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(oi_c1.ty), .None => false);
     if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.std_path.clone()), {
       exn.throw(
