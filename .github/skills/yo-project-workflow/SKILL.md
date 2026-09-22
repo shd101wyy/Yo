@@ -30,8 +30,9 @@ Use this skill when you need to:
 2. For single-file experiments or reproductions, use `yo compile`.
 3. For tests, use `yo test [path]` and narrow to a file or pattern before broad runs.
 4. For source formatting, use `yo fmt`; use `yo fmt --check` in CI-style verification.
-5. To pin the project to a specific Yo version, use `yo version pin`.
-6. Consult the [workflow cheatsheet](./workflow-cheatsheet.md) for command shapes, project layout, and a minimal `build.yo`.
+5. For an edit loop over a tree, keep one `yo check <dir> --watch` (or `yo build --watch`) alive and read its per-round line instead of re-running the cold command after every edit.
+6. To pin the project to a specific Yo version, use `yo version pin`.
+7. Consult the [workflow cheatsheet](./workflow-cheatsheet.md) for command shapes, project layout, and a minimal `build.yo`.
 
 ## The agentic verification loop
 
@@ -65,6 +66,7 @@ with `yo verify` — the report is designed for machine consumption:
 - `yo build run` and `yo build test` are the standard project entry points.
 - `yo test ./tests/some.test.yo --parallel 1` is the focused single-file test pattern.
 - `yo fmt` applies the fixed Yo style with 2-space indentation; there are no formatter options.
+- `yo check ./src --watch` re-checks only the edited definitions per round (~100 ms for a function body); a structural edit (new definition, struct field, constant) re-checks the file's importers. `YO_DEBUG_P3DIFF=1` explains a slow round.
 - Dependencies are declared in `yo.toml` `[dependencies]` — `yo add user/repo[@range]` / `yo add ./path` writes the entry and fetches; `yo install` resolves the whole graph — each dependency's own `yo.toml` too, ONE version per name across every requirer, conflicts are errors naming both — fetches it and writes `yo.lock` v2 (`--locked`/`--offline`/`--frozen` for CI); `import("name")` then works in every command.
 - Use `yo version pin` to create a `.yo-version` file for reproducible builds.
 - Prefer symbolic build APIs and target constants in `build.yo` instead of ad-hoc shell logic.

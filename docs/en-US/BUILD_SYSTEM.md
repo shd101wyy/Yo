@@ -682,6 +682,10 @@ Options:
   --locked               Fail if fetching dependencies would change yo.lock
   --offline              Fail if fetching dependencies would need the network
   --frozen               --locked and --offline
+  --watch                Rebuild on source changes (artifacts recompile in-process)
+  --poll-ms <ms>         Watch poll interval (default 200)
+  --max-rss-mb <N>       Watch only: restart the resident process once it exceeds N MB
+  --profile              Per-phase timing; under --watch also one line per round
 ```
 
 ### Incremental builds
@@ -709,6 +713,50 @@ since been deleted.
 
 `YO_BUILD_NO_CACHE=1` skips the whole mechanism: nothing is hashed and every
 artifact is recompiled.
+
+### Watch mode
+
+`yo build --watch` keeps one compiler process alive. It runs the requested
+steps once, then polls the files those compiles read (`--poll-ms`, default
+200 ms) and re-runs the steps on every change. Two things make a watch round
+cheaper than a fresh `yo build`:
+
+- **Artifacts recompile in-process.** A plain build spawns one `yo compile`
+  child per artifact, and every child evaluates the standard library and the
+  project's modules from scratch. A watch round compiles the artifact inside
+  the resident process, against the modules it already evaluated; only the
+  definitions the edit touched (and whatever depends on them) are re-evaluated.
+  The C compiler still runs as a child process.
+- **The input stamp still applies.** An artifact whose recorded inputs are
+  unchanged is skipped exactly as in the previous section, so a round only
+  pays for the artifacts the edit reached.
+
+`--profile` prints one line per round, `profile: watch round N <ms>
+rss=<MB>MB`; round 1 is the cold baseline. A resident process accumulates
+memory across rounds. `--max-rss-mb N` restarts it cleanly (same process id,
+fresh image) at the first round boundary after its resident set exceeds N MB;
+the default is never.
+
+### Chunked C emission
+
+`yo compile` normally emits one C file. `--emit-chunks <n|auto>` splits the
+emitted C into `n` translation units and compiles them in parallel
+(`--jobs <n>`; `auto` picks the count from the emitted size and the core
+count, `YO_JOBS` overrides). Each unit has its own object cache beside the
+object file (`<obj>.inputs-sha256`), so a later compile of an edited program
+recompiles only the units whose C changed:
+
+```
+chunks: 10 unit(s), 7 cached, 3 to compile (jobs=8)
+```
+
+Units are grouped by C name by default; `--chunk-by module` groups a module's
+functions into one unit, so a body edit in one module dirties one unit.
+`--emit-chunks` pairs the units with ThinLTO at any `--optimize` level above
+0; `--no-chunk-lto` opts out. At `-O0` chunked parallel compilation is about three times faster than a
+single file with identical runtime behaviour; at `-O2` the LTO link is the
+floor and chunking buys little. `YO_BUILD_NO_CACHE=1` disables the object
+cache as well.
 
 ### Reading the environment: `build.env`
 

@@ -223,6 +223,97 @@ Two Windows-specific facts remain:
 - Useful as a bulk sanity pass after touching many files: `yo check ./src` or `yo check std/` before running any test.
 - **`check` is evaluator-only.** The async state-machine restrictions are enforced in CODEGEN, so `check` passes straight over them. Use `yo compile src/main.yo --skip-c-compiler` (~3 min) to catch that class.
 
+### The incremental loop: `check --watch`, `build --watch`, chunks, in-process tests
+
+All numbers measured 2026-09-22 with v0.2.39 on the Mac Mini M4 (277 `src/`
+files); the plan is `plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md`.
+
+**`yo check <dir> --watch` is the default way to iterate on a tree.** One
+resident process does the cold pass once (~105 s for `./src`), then polls
+(`--poll-ms`, default 200) and prints one line per round:
+
+```
+watch: revalidated 2 definition(s), rechecked 142 file(s), 0 failed (47158ms)
+```
+
+| edit | round |
+| --- | --- |
+| comment-only or whitespace-only | 6 ms, 0 definitions (a parse-level diff) |
+| body of one fn-literal definition that nobody destructures (`src/token.yo`'s `is_valid_identifier`) | 77 ms, 1 definition |
+| body of a leaf definition (`src/lsp/folding.yo`'s `_push_fold`) | 80 ms, 1 definition |
+| body of a hub definition that an importer destructures (`src/token.yo`'s `is_identifier_continue`, read by `src/lexer.yo`'s `tokenize`) | 47 s: 2 definitions re-forced, then 142 files re-checked |
+| cold `yo check ./src` for comparison | ~105 s |
+
+What a round does, so you can predict the row you will land in:
+
+- A **fn-literal body or signature edit** (`name :: (fn(...) -> T)(body)`)
+  re-forces that definition and the definitions with a recorded edge to it,
+  patches the exported slot in place, and re-points importers that
+  destructured the name (`{ f } :: import("./m.yo")`) at the new value.
+- **Everything else is a file-level fallback**: adding or removing a
+  definition, changing a struct/enum/trait, a constant or a type producer, or
+  an ordered statement — the changed file's reverse IMPORT closure is dropped
+  and re-checked. That is the pre-Phase-3 behaviour and it is correct, just slow.
+- The hub row above is the second-order case: `tokenize` is re-forced because
+  its body calls the edited function, and the nine modules that destructure
+  `tokenize` take the file-level path with their closures (the re-bind runs
+  ONE pass, deliberately). A hub edit therefore still costs about half a cold
+  pass, not milliseconds.
+- `YO_DEBUG_P3DIFF=1` prints the planner's reasoning on stderr:
+  `[p3diff] <file>: fallback=<bool> changed=<n>`, `[p3rebind] readers=<n>
+  extra_closure=<n> fallbacks=<n>`, `[p3round] <file>: per-def
+  revalidated=<n> …` or `file-level dropped=<n>`. Read it before calling a
+  slow round a bug.
+- **A stale verdict IS a bug.** The oracle is
+  `scripts/bootstrap/watch_verify.sh` (a live session vs a cold check over a
+  scripted edit sequence). If a watch round accepts something a cold
+  `yo check` rejects, or the reverse, file it under `issues/` with the edit
+  sequence and add the shape to `tests/internal/check_watch.test.yo`.
+- `--watch-once` is the harness form: paths on stdin (one per line), one
+  round, exit code = failures.
+- The process accumulates every round's evaluator universe; expect its RSS to
+  grow across a long session and restart it when the machine gets tight.
+
+**`yo build --watch`** does the same for a project: artifacts recompile
+in-process against the warm module cache, the `cc` leg stays a child process,
+and the artifact stamp (`<output>.inputs-sha256`, "Incremental builds" in
+`docs/en-US/BUILD_SYSTEM.md`) still decides whether an artifact needs
+compiling at all. `--profile` prints `profile: watch round N <ms> rss=…MB`
+(round 1 is the cold baseline); `--max-rss-mb N` re-execs the process at a
+round boundary once it exceeds N MB (default off).
+
+**Chunked C emission** (`yo compile … --emit-chunks <n|auto> [--chunk-by
+module] [--jobs n] [--no-chunk-lto]`) splits the emitted C into n translation
+units compiled in parallel behind a per-unit `.o` cache (`<obj>.inputs-sha256`
+beside each object; `YO_BUILD_NO_CACHE=1` disables it). The driver reports
+`chunks: 10 unit(s), 7 cached, 3 to compile (jobs=8)`. Two things to know:
+
+- The C leg is the SMALL part of a self-build loop: ~13 s of ~188 s at `-O0`
+  even cold; a leaf edit recompiles 2–3 units in 3–4 s. The rest is the
+  evaluator, which is why `check --watch` is where the iteration time goes.
+- Fids embed the definition's source position, so an INSERTION above a
+  definition (an import, a comment line) re-mints every definition below it
+  and dirties every caller's unit. A body-only edit dirties one unit.
+  `--chunk-by module` keeps one module's functions in one unit (2 units dirty
+  instead of 3 on the leaf probe).
+
+**`YO_TEST_IN_PROCESS=1`** compiles every batch of a `yo test` run in one
+resident evaluator: `tests/internal` 77:34 → 37:33 wall, verdict-identical
+(1189/1190; the one delta is a WSL2 LeakSanitizer artifact). It is OPT-IN
+because the win is bought with resident memory: one `tests/internal` file's
+universe already exceeds 4 GB, so the default valve (`YO_TEST_MAX_RSS_MB=4096`,
+an execve restart at the next file boundary) degenerates into "restart every
+file" — child mode plus a re-warm. On a 16 GB machine run it with
+`YO_TEST_MAX_RSS_MB=12000` and nothing else heavy; never in CI. The
+hollow-batch check (`__yo_user_main` is a real body, not a "Failed to
+transpile" comment) stays mandatory: an in-process regression presents exactly
+as hollow batches.
+
+**Time any of this with a tree-built binary, never the seed**: the seed lacks
+every fix merged since its release, and the v0.2.38 seed made a
+ten-interpolation template check 66× slower than the tree
+(`issues/retired/block-body-on-a-hot-constructor-makes-check-8x-slower.md`).
+
 ### Gate on the EXIT CODE — three tools here print a last line that is not the verdict
 
 Measured 2026-09-13, all three on v0.2.32:

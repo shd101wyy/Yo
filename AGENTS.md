@@ -108,6 +108,16 @@ yo check ./src                # type-check the whole compiler tree (evaluator-on
 yo check ./std                # no solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
 yo compile src/main.yo --skip-c-compiler   # ~3 min; catches async state-machine rules `check` cannot see (they fire in codegen)
 
+# Incremental loop: keep ONE resident checker alive instead of re-running the ~105 s cold `check ./src`.
+# A round re-forces only the edited fn-literal definitions (+ dependents): comment-only 6 ms, one body
+# 80 ms; a body whose readers destructure a re-forced name still re-checks that closure (`token.yo`: 47 s).
+# Structural edits (new def, struct field, constant, ordered statement) fall back to the file-level
+# reverse-import closure. `YO_DEBUG_P3DIFF=1` explains a slow round. Details: testing.instructions.md.
+yo check ./src --watch                       # `--watch-once` reads changed paths from stdin: one round, rc = failures
+yo build --watch --profile [--max-rss-mb N]  # in-process artifact rebuilds; `profile: watch round N <ms> rss=…MB`
+yo compile src/main.yo --emit-chunks auto --jobs 8 --profile   # N translation units + `.o` cache: an edit recompiles only dirty units
+YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal --parallel 1   # one evaluator, 77 → 37 min, ~10 GB resident: developer knob, never CI
+
 # Language tests. --parallel 1 for single files. Always save verbose output to a file.
 yo test ./tests/algebraic_effects.test.yo --bail -v --parallel 1 &> output.txt
 yo test ./tests/algebraic_effects.test.yo --test-name-pattern "Test fn unwind" --parallel 1

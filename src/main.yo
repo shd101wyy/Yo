@@ -7730,8 +7730,10 @@ Options:
   --locked                  Fail if fetching dependencies would change yo.lock
   --offline                 Fail if fetching dependencies would need the network
   --frozen                  --locked and --offline
-  --watch                   Rebuild on source changes
-  --poll-ms <ms>            Watch poll interval
+  --watch                   Rebuild on source changes (artifacts recompile in-process)
+  --poll-ms <ms>            Watch poll interval (default 200)
+  --max-rss-mb <N>          Watch only: restart the resident process once it exceeds N MB
+  --profile                 Per-phase timing; under --watch also one line per round
   -v, --verbose             Verbose output
   --std-path <dir>          Override the std library directory
 
@@ -7759,8 +7761,10 @@ Examples:
   --locked                  若抓取依赖会改动 yo.lock 则失败
   --offline                 若抓取依赖需要联网则失败
   --frozen                  同时 --locked 与 --offline
-  --watch                   源码变化时重新构建
-  --poll-ms <ms>            监听轮询间隔
+  --watch                   源码变化时重新构建（产物在同一进程内重新编译）
+  --poll-ms <ms>            监听轮询间隔（默认 200）
+  --max-rss-mb <N>          仅监听模式：常驻进程超过 N MB 时重启
+  --profile                 分阶段耗时；配合 --watch 时每轮额外输出一行
   -v, --verbose             详细输出
   --std-path <dir>          覆盖标准库目录
 
@@ -7808,6 +7812,9 @@ Environment:
   YO_KEEP_BATCH=1           Leave the generated batch .yo/.c files in place
   YO_TEST_SANITIZE=<kind>   Sanitizer for test binaries (default address)
   YO_TEST_LEAK_VERDICT=0    Do not fail a test on a LeakSanitizer report
+  YO_TEST_IN_PROCESS=1      Compile every batch in ONE resident evaluator (opt-in:
+                            about 2x faster, needs the memory of the whole run)
+  YO_TEST_MAX_RSS_MB=<N>    Restart the runner at a file boundary past N MB (default 4096)
 
 Examples:
   $ yo test                       All tests in the workspace
@@ -7847,6 +7854,9 @@ Examples:
   YO_KEEP_BATCH=1           保留生成的批次 .yo/.c 文件
   YO_TEST_SANITIZE=<kind>   测试二进制使用的清理器（默认 address）
   YO_TEST_LEAK_VERDICT=0    LeakSanitizer 报告不判定测试失败
+  YO_TEST_IN_PROCESS=1      所有批次在同一个常驻求值器中编译（可选：约快 2 倍，
+                            但需要整次运行的内存）
+  YO_TEST_MAX_RSS_MB=<N>    超过 N MB 时在文件边界重启运行器（默认 4096）
 
 示例：
   $ yo test                       工作区内的全部测试

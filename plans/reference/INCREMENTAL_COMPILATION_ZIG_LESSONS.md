@@ -71,6 +71,11 @@ reference docs above and `src/README.md`.
 | `yo check ./src` full pass, 262 files | 95 |
 | `yo check ./src --watch`, leaf edit (`src/lsp/folding.yo`, 3-file reverse closure) | 2.75 |
 | `yo check ./src --watch`, hub edit (`src/token.yo`, 220-file reverse closure) | 87 |
+| **after all phases (measured 2026-09-22, v0.2.39, 277 files):** cold pass | 105 |
+| — comment-only edit (`src/token.yo`) | 0.006 |
+| — leaf body edit (`src/lsp/folding.yo`, `_push_fold`): 1 definition, 0 files | 0.080 |
+| — hub body edit nobody destructures (`src/token.yo`, `is_valid_identifier`): 1 definition | 0.077 |
+| — hub body edit destructured by `src/lexer.yo` (`is_identifier_continue`): 2 definitions + 142 files (see §6) | 47 |
 | clang `-O0` single file / chunked N=4 parallel (C leg only) | 18.25 / 5.49 |
 | `yo test ./tests/internal --parallel 1` (58–65 files) | 1332 (22.2 min) |
 
@@ -734,6 +739,25 @@ Gates:
 - `check ./src --watch`, hub edit (`src/token.yo`, a body-only change):
   today 87 s. Target: the same order as the leaf edit (~3 s) when only one
   body changed. Record the number here.
+  **Recorded 2026-09-22 (v0.2.39, Mac Mini M4, 277 files, cold pass 105 s):
+  47 s** — `watch: revalidated 2 definition(s), rechecked 142 file(s)`.
+  `YO_DEBUG_P3DIFF=1` shows the mechanism: `[p3rebind] readers=1
+  extra_closure=1 fallbacks=9`. The re-bind covers `src/lexer.yo` itself
+  (the destructuring reader) and re-forces `tokenize`, whose body calls the
+  edited function; `tokenize` is then a NEW revalidated name, and its own
+  nine destructuring readers (`src/parser.yo`, the LSP modules, …) take the
+  file-level path with their import closures — the deliberate one-pass rule
+  above ("a fixpoint would not obviously [terminate]"). The same round on a
+  hub definition that nobody destructures (`is_valid_identifier`) is 77 ms,
+  and a leaf body edit is 80 ms, so the per-definition machinery meets the
+  target everywhere except this second-order shape. The termination worry is
+  answerable — the re-bound set only grows and is bounded by the definition
+  count, so iterating the re-bind over a visited set terminates — but a
+  second pass re-points readers at values whose bodies were re-forced
+  against a frame that was itself re-bound in the same round, and that
+  ordering has no test yet. Left as the one open performance item of this
+  plan: a fixpoint re-bind gated by `check_watch.test.yo` (a two-hop
+  destructuring chain with a freshness oracle) and `watch_verify.sh`.
 - Correctness backstop: a `check --watch` round's diagnostics must equal
   a cold `check` of the same tree. Add `--watch-verify` (debug flag) that
   runs both and diffs; run it over a scripted 20-edit sequence on `src/`
