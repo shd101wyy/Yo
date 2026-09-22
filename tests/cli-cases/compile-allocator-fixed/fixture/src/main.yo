@@ -20,12 +20,12 @@ _sum_block :: (fn(p : ?*void, n : usize, seed : u8) -> usize)(
       bytes := (*u8)(raw);
       (i : usize) = usize(0);
       while(i < n, {
-        unsafe((bytes.add(i)).* = (seed + u8(i)));
+        unsafe((bytes.add(i)).* = seed.wrapping_add(u8(i)));
         i = (i + usize(1));
       });
       i = usize(0);
       while(i < n, {
-        sum = ((sum + usize(unsafe((bytes.add(i)).*))) * usize(31));
+        sum = sum.wrapping_add(usize(unsafe((bytes.add(i)).*))).wrapping_mul(usize(31));
         i = (i + usize(1));
       });
       sum
@@ -37,11 +37,11 @@ main :: (fn() -> unit)({
   (sum : usize) = usize(0);
   // grow/shrink realloc: contents must survive both directions.
   (a : ?*void) = malloc(usize(64));
-  sum = (sum + _sum_block(a, usize(64), u8(1)));
+  sum = sum.wrapping_add(_sum_block(a, usize(64), u8(1)));
   a = realloc(a, usize(512));
-  sum = (sum + _sum_block(a, usize(512), u8(2)));
+  sum = sum.wrapping_add(_sum_block(a, usize(512), u8(2)));
   a = realloc(a, usize(32));
-  sum = (sum + _sum_block(a, usize(32), u8(3)));
+  sum = sum.wrapping_add(_sum_block(a, usize(32), u8(3)));
   free(a);
   // calloc zeroes every byte.
   b := calloc(usize(16), usize(8));
@@ -72,7 +72,7 @@ main :: (fn() -> unit)({
     .Some(raw) => {
       addr := unsafe.cast(raw, usize);
       if((addr % usize(4096)) == usize(0), {
-        sum = (sum + _sum_block(d, usize(100), u8(4)));
+        sum = sum.wrapping_add(_sum_block(d, usize(100), u8(4)));
       });
       aligned_free(d);
     },
@@ -83,8 +83,8 @@ main :: (fn() -> unit)({
   free(e);
   f := malloc(usize(2048));
   e2 := malloc(usize(48));
-  sum = (sum + _sum_block(e2, usize(48), u8(5)));
-  sum = (sum + _sum_block(f, usize(2048), u8(6)));
+  sum = sum.wrapping_add(_sum_block(e2, usize(48), u8(5)));
+  sum = sum.wrapping_add(_sum_block(f, usize(2048), u8(6)));
   free(f);
   free(e2);
   // RC objects: String/ArrayList headers ride __yo_rc_alloc under fixed.
