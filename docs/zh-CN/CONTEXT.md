@@ -54,6 +54,18 @@ yo 0.2.40 — pack-version: 1
 工作流会把它复制进每个发行包，且包的冒烟测试会在检出之外断言
 `yo context` 能正常应答。
 
+## 搜索
+
+```bash
+yo context --search push          # 对名称、签名、文档的排序检索
+yo context --search push --deep   # 同时扫描渲染后的模块正文（较慢）
+yo context --search add --format json
+```
+
+排序是确定性的词法规则——精确名 > 名称前缀 > 名称子串 > 签名命中 >
+文档命中；同分按模块路径排序。没有嵌入向量、没有模型——同一 std 版本
+的同一查询永远返回同样的结果。
+
 ## 描述：模块与条目
 
 `yo context <module>` 输出模块的单屏索引；追加条目名则输出该条目的完整

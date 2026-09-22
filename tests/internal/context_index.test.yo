@@ -24,6 +24,7 @@
   context_index_load_modules,
   context_module_name
 } :: import("../../src/doc/context_index.yo");
+{ search_score } :: import("../../src/context_command.yo");
 { mm_invalidate_document } :: import("../../src/module_manager.yo");
 /// The fixture: a two-module mini-std plus a barrel. `alpha` defines the
 /// API, `index.yo` re-exports it (the barrel `origin=` case), `beta` is a
@@ -93,8 +94,8 @@ test("context_tree_key: stable across builds, moves on content edit", {
   proj := _write_fixture(io, exn);
   k1 := context_tree_key(proj, io, exn);
   k2 := context_tree_key(proj, io, exn);
-  assert((k1.len() == usize(12)), `key is 12 hex, got ${k1}`);
-  assert((k1 == k2), "identical tree → identical key");
+  assert(k1.len() == usize(12), `key is 12 hex, got ${k1}`);
+  assert(k1 == k2, "identical tree → identical key");
   ioexn := IoExn(io : io, exn : exn);
   io.await(
     write_string(
@@ -105,13 +106,13 @@ test("context_tree_key: stable across builds, moves on content edit", {
     ioexn
   );
   k3 := context_tree_key(proj, io, exn);
-  assert((k1 != k3), "content edit → new key");
+  assert(k1 != k3, "content edit → new key");
 });
 test("context_module_name: root basename prefixes, index.yo collapses", {
   name := context_module_name(String.from("/w/std/alpha/index.yo"), String.from("/w/std"));
-  assert((name == "std/alpha"), `index.yo collapses to its dir, got ${name}`);
+  assert(name == "std/alpha", `index.yo collapses to its dir, got ${name}`);
   name2 := context_module_name(String.from("/w/std/beta.yo"), String.from("/w/std"));
-  assert((name2 == "std/beta"), `plain file keeps its path, got ${name2}`);
+  assert(name2 == "std/beta", `plain file keeps its path, got ${name2}`);
 });
 test("context_index_ensure + load: the fixture round-trips, barrel origin= resolves", {
   exn := Exception(
@@ -134,21 +135,21 @@ test("context_index_ensure + load: the fixture round-trips, barrel origin= resol
   entries := context_index_load(cache, key, io, exn);
   // alpha's defining entries
   add := _find_entry(entries, `t/alpha_api`, `alpha_add`);
-  assert((add.kind == "fn"), `alpha_add is a fn, got ${add.kind}`);
-  assert((add.signature.contains(String.from("i32"))), "signature carries the param types");
+  assert(add.kind == "fn", `alpha_add is a fn, got ${add.kind}`);
+  assert(add.signature.contains(String.from("i32")), "signature carries the param types");
   _a := _find_entry(entries, `t/alpha_api`, `Alpha`);
-  assert((_a.kind == "type"), "Alpha is a type");
+  assert(_a.kind == "type", "Alpha is a type");
   _l := _find_entry(entries, `t/alpha_api`, `ALPHA_LIMIT`);
-  assert((_l.kind == "constant"), "ALPHA_LIMIT is a constant");
+  assert(_l.kind == "constant", "ALPHA_LIMIT is a constant");
   _h := _find_entry(entries, `t/beta`, `beta_hi`);
   // the barrel re-exports alpha_add with origin= the defining module
   barrel := _find_entry(entries, `t/alpha`, `alpha_add`);
-  assert((barrel.origin == "t/alpha_api"), `barrel origin= t/alpha_api, got '${barrel.origin}'`);
+  assert(barrel.origin == "t/alpha_api", `barrel origin= t/alpha_api, got '${barrel.origin}'`);
   // the defining entry itself stays originless
-  assert((add.origin.len() == usize(0)), "defining entry has no origin");
+  assert(add.origin.len() == usize(0), "defining entry has no origin");
   // modules.txt: three rows, alpha documented
   mods := context_index_load_modules(cache, key, io, exn);
-  assert((mods.len() == usize(3)), `three modules, got ${mods.len().to_string()}`);
+  assert(mods.len() == usize(3), `three modules, got ${mods.len().to_string()}`);
   (saw_alpha : bool) = false;
   (i : usize) = usize(0);
   while(i < mods.len(), {
@@ -158,7 +159,7 @@ test("context_index_ensure + load: the fixture round-trips, barrel origin= resol
         if(m.module == "t/alpha_api", {
           saw_alpha = true;
           assert(m.doc.contains(String.from("Alpha")), "alpha's module doc first line survived");
-          assert((m.items == usize(3)), `alpha has 3 items, got ${m.items.to_string()}`);
+          assert(m.items == usize(3), `alpha has 3 items, got ${m.items.to_string()}`);
         });
       },
       .None => ()
@@ -169,5 +170,30 @@ test("context_index_ensure + load: the fixture round-trips, barrel origin= resol
   // Second ensure WITHOUT refresh reuses (same key, no rebuild) — the
   // manifest exists, so this must not throw and must return the same key.
   key2 := context_index_ensure(proj, cache, false, io, exn);
-  assert((key2 == key), "ensure without refresh reuses the key");
+  assert(key2 == key, "ensure without refresh reuses the key");
+});
+
+test("search scoring: exact > prefix > substring, doc weakest", {
+  mk :: (fn(nm : String, sig : String, dc : String) -> ContextIndexEntry)(
+    ContextIndexEntry(
+      module : `t/m`,
+      name : nm,
+      kind : `fn`,
+      signature : sig,
+      doc : dc,
+      origin : String.new()
+    )
+  );
+  q := String.from("add");
+  exact := search_score(mk(String.from("add"), String.from("i32"), String.new()), q);
+  prefix := search_score(mk(String.from("additional"), String.new(), String.new()), q);
+  insig := search_score(mk(String.from("x"), String.from("fn(add : i32) -> i32"), String.new()), q);
+  indict := search_score(mk(String.from("y"), String.new(), String.from("use add here")), q);
+  none := search_score(mk(String.from("z"), String.new(), String.new()), q);
+  assert(exact == usize(400), `exact 400, got ${exact.to_string()}`);
+  assert(prefix == usize(300), `prefix 300, got ${prefix.to_string()}`);
+  assert(insig == usize(100), `signature 100, got ${insig.to_string()}`);
+  assert(indict == usize(50), `doc 50, got ${indict.to_string()}`);
+  assert(none == usize(0), `no match 0, got ${none.to_string()}`);
+  assert((exact > prefix) && (prefix > insig) && (insig > indict), "ranking order holds");
 });

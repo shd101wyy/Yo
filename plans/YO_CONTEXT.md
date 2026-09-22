@@ -445,6 +445,17 @@ described from its origin), `context-not-found`, `context-ambiguous`.
 
 ### C4 — Search + JSON (`--search`, `--deep`, `--format json`)
 
+> **Status: LANDED (PR `feat/yo-context-c4`, stacked).** Lexical ranking
+> (exact 400 / prefix 300 / name-substring 200 / signature 100 / doc 50 /
+> deep-body 10), ties by (module, name); deterministic selection sort.
+> `--format json` covers list/module/item/search with stable keys.
+> **Codegen hole found en route** (issue:
+> `issues/str-literal-as-string-arg-miscompiles-in-template-interpolation.md`):
+> a str literal passed as a String argument inside template interpolation
+> type-checks but emits no str→String conversion — the C rejects it.
+> Worked around with the house `String.from(...)` idiom; proper fix
+> (codegen materialization or a check-time rejection) is open.
+
 1. Index scan + ranking (D4), `--deep` body scan over cached module files.
 2. `--format json` for every query mode, stable field names (D4); error
    objects with suggestions.

@@ -163,11 +163,18 @@ _pack_version_line :: (fn(content : String) -> Option(String))({
 });
 /// Options parsed from `yo context`'s arguments. Absent strings are "".
 ContextQuery :: struct(
+  /// `--list`: the module index of the corpus.
   list : bool,
   /// `--refresh`: rebuild the index even if its manifest exists.
   refresh : bool,
   /// `--path <dir>`: index this tree instead of the bundled std.
   path : String,
+  /// `--search <query>`: ranked search over names, signatures and docs.
+  search : String,
+  /// `--deep`: search also scans the rendered module bodies (slower).
+  deep : bool,
+  /// `--format json`: machine-readable output for every query mode.
+  as_json : bool,
   /// First positional: a module path, a module's unique last segment, or a
   /// bare item name (when it matches no module).
   subject : String,
@@ -179,7 +186,16 @@ ContextQuery :: struct(
 _parse_context_query :: (
   fn(argv : ArrayList(String), exn : Exception) -> ContextQuery
 )({
-  q := ContextQuery(list : false, refresh : false, path : String.new(), subject : String.new(), item : String.new());
+  q := ContextQuery(
+    list : false,
+    refresh : false,
+    path : String.new(),
+    search : String.new(),
+    deep : false,
+    as_json : false,
+    subject : String.new(),
+    item : String.new()
+  );
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
@@ -191,37 +207,75 @@ _parse_context_query :: (
         q.refresh = true;
         ai = (ai + usize(1));
       }, {
-        if(a == "--path", {
-          if((ai + usize(1)) >= argv.len(), {
-            exn.throw(dyn(`context: --path needs a directory argument. Usage: yo context [<module> [<name>]] [--list] [--path <dir>] [--refresh]`));
-          });
-          q.path = argv(ai + usize(1));
-          ai = (ai + usize(2));
+        if(a == "--deep", {
+          q.deep = true;
+          ai = (ai + usize(1));
         }, {
-          if(a.starts_with(String.from("--path=")), {
-            q.path = a.substring(usize(7), a.len());
-            ai = (ai + usize(1));
+          if(a == "--search", {
+            if((ai + usize(1)) >= argv.len(), {
+              exn.throw(dyn(`context: --search needs a query argument. Usage: yo context --search <query>`));
+            });
+            q.search = argv(ai + usize(1));
+            ai = (ai + usize(2));
           }, {
-            if(a.starts_with(String.from("--")), {
-              exn.throw(
-                dyn(
-                  tr(
-                    `context: unknown option '${a}'. Usage: yo context [<module> [<name>]] [--list] [--path <dir>] [--refresh]`,
-                    `context：未知选项 '${a}'。用法：yo context [<module> [<name>]] [--list] [--path <dir>] [--refresh]`
-                  )
-                )
-              );
+            if(a.starts_with(String.from("--search=")), {
+              q.search = a.substring(usize(9), a.len());
+              ai = (ai + usize(1));
             }, {
-              if(q.subject.len() == usize(0), {
-                q.subject = a.clone();
-              }, {
-                if(q.item.len() == usize(0), {
-                  q.item = a.clone();
+              if(a == "--format", {
+                if((ai + usize(1)) >= argv.len(), {
+                  exn.throw(dyn(`context: --format needs an argument (text|json)`));
+                });
+                fmt := argv(ai + usize(1));
+                if(fmt == "json", {
+                  q.as_json = true;
                 }, {
-                  exn.throw(dyn(`context: too many positional arguments ('${q.subject}', '${q.item}', '${a}'). Usage: yo context [<module> [<name>]]`));
+                  if(!(fmt == "text"), {
+                    exn.throw(dyn(`context: unknown --format '${fmt}' (text|json)`));
+                  });
+                });
+                ai = (ai + usize(2));
+              }, {
+                if(a == "--format=json", {
+                  q.as_json = true;
+                  ai = (ai + usize(1));
+                }, {
+                  if(a == "--path", {
+                    if((ai + usize(1)) >= argv.len(), {
+                      exn.throw(dyn(`context: --path needs a directory argument. Usage: yo context --path <dir>`));
+                    });
+                    q.path = argv(ai + usize(1));
+                    ai = (ai + usize(2));
+                  }, {
+                    if(a.starts_with(String.from("--path=")), {
+                      q.path = a.substring(usize(7), a.len());
+                      ai = (ai + usize(1));
+                    }, {
+                      if(a.starts_with(String.from("--")), {
+                        exn.throw(
+                          dyn(
+                            tr(
+                              `context: unknown option '${a}'. Usage: yo context [<module> [<name>]] [--list] [--search <query>] [--path <dir>] [--refresh] [--format text|json]`,
+                              `context：未知选项 '${a}'。用法：yo context [<module> [<name>]] [--list] [--search <query>] [--path <dir>] [--refresh] [--format text|json]`
+                            )
+                          )
+                        );
+                      }, {
+                        if(q.subject.len() == usize(0), {
+                          q.subject = a.clone();
+                        }, {
+                          if(q.item.len() == usize(0), {
+                            q.item = a.clone();
+                          }, {
+                            exn.throw(dyn(`context: too many positional arguments ('${q.subject}', '${q.item}', '${a}'). Usage: yo context [<module> [<name>]]`));
+                          });
+                        });
+                        ai = (ai + usize(1));
+                      });
+                    });
+                  });
                 });
               });
-              ai = (ai + usize(1));
             });
           });
         });
@@ -258,13 +312,31 @@ _context_corpus_root :: (fn(explicit : String, exn : Exception) -> String)(
 /// `--list`: the module index — one row per module, sorted, with item
 /// counts; degraded modules are footnoted, not silent (D3).
 /// `--list`: the module index — one row per module, sorted, with item
-/// counts; degraded modules are footnoted, not silent (D3).
+/// counts; degraded modules are footnoted, not silent (D3). `--format json`
+/// emits one object per module.
 _run_context_list :: (
-  fn(root : String, refresh : bool, io : Io, exn : Exception) -> unit
+  fn(root : String, refresh : bool, as_json : bool, io : Io, exn : Exception) -> unit
 )({
   cache_root := context_cache_root(io, exn);
   key := context_index_ensure(root.clone(), cache_root.clone(), refresh, io, exn);
   mods := context_index_load_modules(cache_root.clone(), key.clone(), io, exn);
+  if(as_json, {
+    println(`{"modules":[`);
+    (mi0 : usize) = usize(0);
+    while(mi0 < mods.len(), {
+      match(
+        mods.get(mi0),
+        .Some(m) => {
+          comma := cond((mi0 < (mods.len() - usize(1))) => ",", true => "");
+          println(`{${_json_str(String.from("module"))}:${_json_str(m.module)},${_json_str(String.from("doc"))}:${_json_str(m.doc)},${_json_str(String.from("items"))}:${m.items.to_string()},${_json_str(String.from("degraded"))}:${cond(m.degraded => "true", true => "false")}}${comma}`);
+        },
+        .None => ()
+      );
+      mi0 = (mi0 + usize(1));
+    });
+    println(`]}`);
+    return(());
+  });
   // Sort the FORMATTED rows (module path first) — a struct Ord would need
   // `<` on bool for the degraded flag, which does not exist.
   rows := ArrayList(String).new();
@@ -591,12 +663,254 @@ _slice_item_md :: (
   });
   out
 });
+/// One search hit with its score.
+SearchHit :: struct(
+  entry : ContextIndexEntry,
+  score : usize
+);
+/// Score one entry against the query (case-insensitive):
+/// exact name 400 > name prefix 300 > name substring 200 > signature
+/// substring 100 > doc substring 50. 0 = no match. Ties break by
+/// (module, name) in the caller's sort.
+search_score :: (fn(e : ContextIndexEntry, low_query : String) -> usize)({
+  low_name := e.name.to_lowercase();
+  if(low_name == low_query, {
+    return(usize(400));
+  });
+  if(low_name.starts_with(low_query), {
+    return(usize(300));
+  });
+  if(low_name.contains(low_query), {
+    return(usize(200));
+  });
+  if(e.signature.to_lowercase().contains(low_query), {
+    return(usize(100));
+  });
+  if((e.doc.len() > usize(0)) && e.doc.to_lowercase().contains(low_query), {
+    return(usize(50));
+  });
+  usize(0)
+});
+/// The ranked hits for a query over the index (and, with `deep`, over the
+/// rendered module bodies). Deterministic: score desc, then (module, name).
+_search_entries :: (
+  fn(
+    entries : ArrayList(ContextIndexEntry),
+    query : String,
+    deep : bool,
+    cache_root : String,
+    key : String,
+    io : Io,
+    exn : Exception
+  ) -> ArrayList(SearchHit)
+)({
+  low_query := query.to_lowercase();
+  hits := ArrayList(SearchHit).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        score := search_score(e, low_query);
+        if((score == usize(0)) && deep, {
+          if(_body_contains(cache_root, key, e.module, low_query, io, exn), {
+            score = usize(10);
+          });
+        });
+        if(score > usize(0), {
+          hits.push(SearchHit(entry : e, score : score));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // Selection sort by (score desc, module asc, name asc) — deterministic
+  // and allocation-free; the hit list is short.
+  (i2 : usize) = usize(0);
+  while(i2 < hits.len(), {
+    best := i2;
+    (j : usize) = (i2 + usize(1));
+    while(j < hits.len(), {
+      hj := match(hits.get(j), .Some(x) => x, .None => __yo_panic("search: hits"));
+      hb := match(hits.get(best), .Some(x) => x, .None => __yo_panic("search: hits"));
+      better := cond(
+        (hj.score > hb.score) => true,
+        ((hj.score == hb.score) && ((hj.entry.module < hb.entry.module) || ((hj.entry.module == hb.entry.module) && (hj.entry.name < hb.entry.name)))) => true,
+        true => false
+      );
+      if(better, {
+        best = j;
+      });
+      j = (j + usize(1));
+    });
+    if(best != i2, {
+      hb := match(hits.get(best), .Some(x) => x, .None => __yo_panic("search: hits"));
+      hi := match(hits.get(i2), .Some(x) => x, .None => __yo_panic("search: hits"));
+      hits(i2) = hb;
+      hits(best) = hi;
+    });
+    i2 = (i2 + usize(1));
+  });
+  hits
+});
+/// Does the rendered module body contain the query (deep search)?
+_body_contains :: (
+  fn(
+    cache_root : String,
+    key : String,
+    module : String,
+    low_query : String,
+    io : Io,
+    exn : Exception
+  ) -> bool
+)({
+  idx_dir := context_index_dir(cache_root, key);
+  md_dir := module_md_dir(idx_dir, module);
+  md_path := Path.new(md_dir).join(Path.new(`${module_leaf(module)}.md`)).to_string();
+  found := io.await(exists(Path.new(md_path.clone()), io), io);
+  if(!found, {
+    return(false);
+  });
+  bytes := io.await(read(Path.new(md_path.clone()), io), IoExn(io : io, exn : exn));
+  content := String.from_bytes(bytes);
+  content.to_lowercase().contains(low_query)
+});
+/// The search result page: hits with their scores, capped at 50 rows.
+_run_context_search :: (
+  fn(
+    query : String,
+    deep : bool,
+    as_json : bool,
+    entries : ArrayList(ContextIndexEntry),
+    cache_root : String,
+    key : String,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  hits := _search_entries(entries, query, deep, cache_root, key, io, exn);
+  if(as_json, {
+    println(`{"query":${_json_str(query)},"count":${hits.len().to_string()},"hits":[`);
+    (i : usize) = usize(0);
+    while(i < hits.len(), {
+      match(
+        hits.get(i),
+        .Some(h) => {
+          comma := cond((i < (hits.len() - usize(1))) => ",", true => "");
+          println(`${_hit_json(h)}${comma}`);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    println(`]}`);
+    return(());
+  });
+  if(hits.len() == usize(0), {
+    println(`no matches for '${query}'`);
+    return(());
+  });
+  (shown : usize) = usize(0);
+  (i2 : usize) = usize(0);
+  while(i2 < hits.len(), {
+    match(
+      hits.get(i2),
+      .Some(h) => {
+        if(shown < usize(50), {
+          println(`${h.entry.module}  ${h.entry.name}  ${h.entry.kind}  ${h.entry.signature}  (${h.score.to_string()})`);
+          shown = (shown + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i2 = (i2 + usize(1));
+  });
+  if(hits.len() > usize(50), {
+    println(`... ${((hits.len() - usize(50))).to_string()} more (narrow the query)`);
+  });
+  println(`— ${hits.len().to_string()} hit(s)`);
+});
+/// JSON string escape: wraps in quotes and escapes quote, backslash and
+/// control chars. All escape sequences are built from BYTES — backslash
+/// escape literals stacked through generators are where E0004s come from.
+_json_str :: (fn(v : String) -> String)({
+  q := String.from_bytes(_bytes2(u8(92), u8(34)));
+  bsnl := String.from_bytes(_bytes2(u8(92), u8(110)));
+  bstab := String.from_bytes(_bytes2(u8(92), u8(116)));
+  bs := String.from_bytes(_bytes2(u8(92), u8(92)));
+  // A lone double-quote byte as a String (byte-built; see _bytes2).
+  dq := String.from_bytes(_bytes2(u8(34), u8(34))).substring(usize(0), usize(1));
+  out := dq;
+  (i : usize) = usize(0);
+  while(i < v.len(), {
+    b := v.byte_at(i);
+    if(b == u8(34), {
+      out.push_string(q);
+    }, {
+      if(b == u8(92), {
+        out.push_string(bs);
+      }, {
+        if(b == u8(10), {
+          out.push_string(bsnl);
+        }, {
+          if(b == u8(9), {
+            out.push_string(bstab);
+          }, {
+            if(b < u8(32), {
+              out.push_str(" ");
+            }, {
+              out.push_byte(b);
+            });
+          });
+        });
+      });
+    });
+    i = (i + usize(1));
+  });
+  out.push_byte(u8(34));
+  out
+});
+/// A two-byte ArrayList(u8).
+_bytes2 :: (fn(a : u8, b : u8) -> ArrayList(u8))({
+  xs := ArrayList(u8).new();
+  xs.push(a);
+  xs.push(b);
+  xs
+});
+/// One hit as a JSON object.
+_hit_json :: (fn(h : SearchHit) -> String)({
+  origin_field := cond(
+    (h.entry.origin.len() > usize(0)) => `,"origin":${_json_str(h.entry.origin)}`,
+    true => ``
+  );
+  `{${_json_str(String.from("module"))}:${_json_str(h.entry.module)},${_json_str(String.from("name"))}:${_json_str(h.entry.name)},${_json_str(String.from("kind"))}:${_json_str(h.entry.kind)},${_json_str(String.from("signature"))}:${_json_str(h.entry.signature)},${_json_str(String.from("doc"))}:${_json_str(h.entry.doc)}${origin_field},"score":${h.score.to_string()}}`
+});
 /// `yo context <module>`: the module's one-screen index.
+/// Count a module's index entries.
+count_items :: (fn(module : String, entries : ArrayList(ContextIndexEntry)) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        if(e.module == module, {
+          n = (n + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  n
+});
 _run_context_describe_module :: (
   fn(
     module : String,
     entries : ArrayList(ContextIndexEntry),
     mods : ArrayList(ContextIndexModule),
+    as_json : bool,
     io : Io,
     exn : Exception
   ) -> unit
@@ -620,6 +934,10 @@ _run_context_describe_module :: (
   header := `${module}`;
   if(doc.len() > usize(0), {
     header = `${module} — ${doc}`;
+  });
+  if(as_json, {
+    println(`{${_json_str(String.from("module"))}:${_json_str(module)},${_json_str(String.from("doc"))}:${_json_str(doc)},${_json_str(String.from("degraded"))}:${cond(degraded => "true", true => "false")},${_json_str(String.from("items"))}:${count_items(module, entries)}`);
+    return(());
   });
   println(header);
   if(degraded, {
@@ -678,6 +996,7 @@ _run_context_describe_item :: (
     entries : ArrayList(ContextIndexEntry),
     cache_root : String,
     key : String,
+    as_json : bool,
     io : Io,
     exn : Exception
   ) -> unit
@@ -720,6 +1039,10 @@ _run_context_describe_item :: (
     .Some(x) => x,
     .None => __yo_panic("context: matches — the len checks above prove one")
   );
+  if(as_json, {
+    println(_hit_json(SearchHit(entry : e, score : usize(1))));
+    return(());
+  });
   header := cond((module.len() == usize(0)) => `${e.module} — ${e.name}`, true => `${module} — ${e.name}`);
   println(header);
   println(String.new());
@@ -778,7 +1101,7 @@ _run_context_describe_bare :: (
       .Some(x) => x,
       .None => __yo_panic("context: exact — the len check proves one")
     );
-    _run_context_describe_item(only.module, name, entries, cache_root, key, io, exn);
+    _run_context_describe_item(only.module, name, entries, cache_root, key, false, io, exn);
     return(());
   });
   lines := ArrayList(String).new();
@@ -815,7 +1138,15 @@ run_context :: (
 )({
   q := _parse_context_query(argv, exn);
   if(q.list, {
-    _run_context_list(_context_corpus_root(q.path, exn), q.refresh, io, exn);
+    _run_context_list(_context_corpus_root(q.path, exn), q.refresh, q.as_json, io, exn);
+    return(());
+  });
+  if(q.search.len() > usize(0), {
+    root := _context_corpus_root(q.path, exn);
+    cache_root := context_cache_root(io, exn);
+    key := context_index_ensure(root, cache_root, q.refresh, io, exn);
+    entries := context_index_load(cache_root, key, io, exn);
+    _run_context_search(q.search, q.deep, q.as_json, entries, cache_root, key, io, exn);
     return(());
   });
   if(q.subject.len() > usize(0), {
@@ -834,7 +1165,7 @@ run_context :: (
       // stores methods unqualified.
       item_segs := q.item.split(String.from("."));
       item_name := item_segs.get(item_segs.len() - usize(1)).unwrap_or(q.item);
-      _run_context_describe_item(module, item_name, entries, cache_root, key, io, exn);
+      _run_context_describe_item(module, item_name, entries, cache_root, key, q.as_json, io, exn);
       return(());
     });
     // One positional: a module (path or unique last segment), else a bare
@@ -880,10 +1211,15 @@ run_context :: (
         .Some(m) => m,
         .None => String.new()
       );
-      _run_context_describe_module(module, entries, mods, io, exn);
+      _run_context_describe_module(module, entries, mods, q.as_json, io, exn);
       return(());
     });
     // Not a module: a bare item name across the corpus.
+    // Bare item: reuse the item describe when unique; the bare runner
+    // itself handles ambiguity. JSON goes through the same row rendering.
+    if(q.as_json, {
+      exn.throw(dyn(`context: --format json with a bare item name is ambiguous by nature — address it as <module> <name>`));
+    });
     _run_context_describe_bare(q.subject, entries, cache_root, key, io, exn);
     return(());
   });
@@ -926,4 +1262,4 @@ run_context :: (
   println(`yo ${String.from(CURRENT_YO_VERSION)} — ${_pack_version_line(content).unwrap_or(String.from("pack-version: unknown"))}`);
   println(content);
 });
-export(run_context);
+export(run_context, search_score);
