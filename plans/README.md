@@ -59,6 +59,16 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   mutable-heap model, invariant inference, incremental verify, laws). SMT
   stays the backend; the foundations section answers "why not dependent
   types / matching logic / abstract interpretation" per alternative.
+- [`YO_CONTEXT.md`](YO_CONTEXT.md) —
+  ACTIVE 2026-09-22: the agent context surface — `yo context` as one verb
+  for the curated language pack (ROADMAP Phase 4.1, ≤ 24 KB, shipped in the
+  release bundle, anti-drift rule: language facts only, never API listings)
+  plus index/describe/search API discovery over the doc IR, with a measured
+  baseline (26.1 s full-std doc build, 175 modules / 2,069 items, a ~30k-token
+  full index — hence search + per-module browsing, never wholesale loading)
+  and a content-addressed index cache under the yo cache root. Subsumes
+  BEND_LAWS B3 tasks 1–2 (`yo guide`/`yo std`). Phases C1–C6, none started,
+  no seed gate.
 
 The formal-verification campaign's live state lives in its plan, not in a
 handover: [`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md)
