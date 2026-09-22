@@ -1335,83 +1335,83 @@ run_context :: (
   // not touch the index at all — a bare `yo context` is a pure file read.
   if(querying, {
     world := _load_world(q.deps, q.path, q.refresh, io, exn);
-  if(q.list, {
-    _run_context_list(world, q.as_json, io, exn);
-    return(());
-  });
-  if(q.search.len() > usize(0), {
-    _run_context_search(q.search, q.deep, q.as_json, world, io, exn);
-    return(());
-  });
-  if(q.subject.len() > usize(0), {
-    if(q.item.len() > usize(0), {
-      module := match(
-        _resolve_module_arg(world.mods, q.subject.clone(), exn),
-        .Some(m) => m,
-        .None => String.new()
-      );
-      // `Type.method` addresses the method by its plain name — the index
-      // stores methods unqualified.
-      item_segs := q.item.split(String.from("."));
-      item_name := item_segs.get(item_segs.len() - usize(1)).unwrap_or(q.item);
-      _run_context_describe_item(module, item_name, world.entries, world.mods, q.as_json, io, exn);
+    if(q.list, {
+      _run_context_list(world, q.as_json, io, exn);
       return(());
     });
-    // One positional: a module (path or unique last segment), else a bare
-    // item name across the corpus.
-    module_hit := false;
-    (mi : usize) = usize(0);
-    while(mi < world.mods.len(), {
-      match(
-        world.mods.get(mi),
-        .Some(m) => {
-          if(m.module == q.subject, {
-            module_hit = true;
-          });
-        },
-        .None => ()
-      );
-      mi = (mi + usize(1));
+    if(q.search.len() > usize(0), {
+      _run_context_search(q.search, q.deep, q.as_json, world, io, exn);
+      return(());
     });
-    if(!module_hit, {
-      (hits : usize) = usize(0);
-      (mj : usize) = usize(0);
-      while(mj < world.mods.len(), {
+    if(q.subject.len() > usize(0), {
+      if(q.item.len() > usize(0), {
+        module := match(
+          _resolve_module_arg(world.mods, q.subject.clone(), exn),
+          .Some(m) => m,
+          .None => String.new()
+        );
+        // `Type.method` addresses the method by its plain name — the index
+        // stores methods unqualified.
+        item_segs := q.item.split(String.from("."));
+        item_name := item_segs.get(item_segs.len() - usize(1)).unwrap_or(q.item);
+        _run_context_describe_item(module, item_name, world.entries, world.mods, q.as_json, io, exn);
+        return(());
+      });
+      // One positional: a module (path or unique last segment), else a bare
+      // item name across the corpus.
+      module_hit := false;
+      (mi : usize) = usize(0);
+      while(mi < world.mods.len(), {
         match(
-          world.mods.get(mj),
+          world.mods.get(mi),
           .Some(m) => {
-            lsegs := m.module.split(String.from("/"));
-            mlast := lsegs.get(lsegs.len() - usize(1)).unwrap_or(String.new());
-            if(mlast == q.subject, {
-              hits = (hits + usize(1));
+            if(m.module == q.subject, {
+              module_hit = true;
             });
           },
           .None => ()
         );
-        mj = (mj + usize(1));
+        mi = (mi + usize(1));
       });
-      if(hits == usize(1), {
-        module_hit = true;
+      if(!module_hit, {
+        (hits : usize) = usize(0);
+        (mj : usize) = usize(0);
+        while(mj < world.mods.len(), {
+          match(
+            world.mods.get(mj),
+            .Some(m) => {
+              lsegs := m.module.split(String.from("/"));
+              mlast := lsegs.get(lsegs.len() - usize(1)).unwrap_or(String.new());
+              if(mlast == q.subject, {
+                hits = (hits + usize(1));
+              });
+            },
+            .None => ()
+          );
+          mj = (mj + usize(1));
+        });
+        if(hits == usize(1), {
+          module_hit = true;
+        });
       });
-    });
-    if(module_hit, {
-      module := match(
-        _resolve_module_arg(world.mods, q.subject.clone(), exn),
-        .Some(m) => m,
-        .None => String.new()
-      );
-      _run_context_describe_module(module, world.entries, world.mods, q.as_json, io, exn);
+      if(module_hit, {
+        module := match(
+          _resolve_module_arg(world.mods, q.subject.clone(), exn),
+          .Some(m) => m,
+          .None => String.new()
+        );
+        _run_context_describe_module(module, world.entries, world.mods, q.as_json, io, exn);
+        return(());
+      });
+      // Not a module: a bare item name across the corpus.
+      // Bare item: reuse the item describe when unique; the bare runner
+      // itself handles ambiguity. JSON goes through the same row rendering.
+      if(q.as_json, {
+        exn.throw(dyn(`context: --format json with a bare item name is ambiguous by nature — address it as <module> <name>`));
+      });
+      _run_context_describe_bare(q.subject, world.entries, world.mods, io, exn);
       return(());
     });
-    // Not a module: a bare item name across the corpus.
-    // Bare item: reuse the item describe when unique; the bare runner
-    // itself handles ambiguity. JSON goes through the same row rendering.
-    if(q.as_json, {
-      exn.throw(dyn(`context: --format json with a bare item name is ambiguous by nature — address it as <module> <name>`));
-    });
-    _run_context_describe_bare(q.subject, world.entries, world.mods, io, exn);
-    return(());
-  });
     exn.throw(dyn(`context: --refresh/--path need --list or a module argument. Usage: yo context [<module> [<name>]] [--list] [--path <dir>] [--refresh]`));
   });
   pack_opt := _find_bundled_context_pack(io, exn);
