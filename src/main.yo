@@ -136,6 +136,9 @@ json :: import("std/encoding/json");
   error_format,
   set_color_enabled,
   color_enabled,
+  set_warnings_enabled,
+  warnings_enabled,
+  take_warnings,
   emit_rendered_text,
   emit_chatter,
   register_std_export
@@ -2937,9 +2940,13 @@ run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Excep
   });
   t0 := Instant.now();
   run_compile(argv_a, io, exn);
+  // Pass1's duration must be captured HERE: `t1.elapsed()` interpolated in
+  // the print below runs after pass2, so it measured pass1+pass2. The
+  // unused-variable lint (D15) is what surfaced this.
+  pass1_ms := t0.elapsed().as_millis().to_string();
   t1 := Instant.now();
   run_compile(argv_b, io, exn);
-  t2 := Instant.now();
+  pass2_ms := t1.elapsed().as_millis().to_string();
   exists_a := file_exists_sync(out_a.clone());
   if(!exists_a, {
     eprintln(String.from("warm-selfcheck: pass 1 emitted nothing"));
@@ -2962,7 +2969,7 @@ run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Excep
     scan = b.index_of(marker.clone(), match(scan, .Some(k) => (k + marker.len()), .None => usize(0)));
   });
   eprintln(
-    `warm-selfcheck: pass1=${t1.elapsed().as_millis().to_string()}ms pass2=${t2.elapsed().as_millis().to_string()}ms identical=${identical.to_string()} ftt_pass2=${ftt.to_string()} bytes_a=${a.len().to_string()} bytes_b=${b.len().to_string()}`
+    `warm-selfcheck: pass1=${pass1_ms}ms pass2=${pass2_ms}ms identical=${identical.to_string()} ftt_pass2=${ftt.to_string()} bytes_a=${a.len().to_string()} bytes_b=${b.len().to_string()}`
   );
   if((!(identical) || (ftt > usize(0))), {
     unsafe(exit(int(1)));
@@ -8575,7 +8582,7 @@ main :: (fn(io : Io) -> unit)({
         err_format = raw_argv0(ai0 + usize(1)).clone();
         ai0 = (ai0 + usize(1));
       }, {
-        exn.throw(dyn(`--error-format requires a value: human, short or json`));
+        exn.throw(dyn(`--error-format requires a value: human, short, json or sarif`));
       });
     }, {
       if(a0.starts_with(String.from("--error-format=")), {
@@ -8587,10 +8594,10 @@ main :: (fn(io : Io) -> unit)({
     ai0 = (ai0 + usize(1));
   });
   if(err_format.len() > usize(0), {
-    if(!((err_format == "human") || ((err_format == "short") || (err_format == "json"))), {
+    if(!(((err_format == "human") || ((err_format == "short") || (err_format == "json"))) || (err_format == "sarif")), {
       exn.throw(
         dyn(
-          `Invalid --error-format '${err_format}' (expected: human, short or json). Set --error-format or YO_ERROR_FORMAT.`
+          `Invalid --error-format '${err_format}' (expected: human, short, json or sarif). Set --error-format or YO_ERROR_FORMAT.`
         )
       );
     });
@@ -8774,6 +8781,14 @@ main :: (fn(io : Io) -> unit)({
       .None => ()
     );
   });
+  // Warnings channel (D15): exactly the edges that surface warnings turn
+  // collection on; the flush at the end of main prints whatever accumulated,
+  // in the process's current format, without touching the exit code. The
+  // LSP and `yo fix` stay off — they consume the error channel only, and
+  // the LSP's process lives long enough that an unflushed stash would leak.
+  set_warnings_enabled(
+    ((subcmd == "check") || ((subcmd == "compile") || (subcmd == "build")))
+  );
   if(subcmd == "explain", {
     run_explain(argv, io, exn);
   }, if(subcmd == "lsp", {
@@ -8842,5 +8857,50 @@ main :: (fn(io : Io) -> unit)({
     exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
   })))))))))))))))));
   print_spec_report_if_requested();
+  if(warnings_enabled(), {
+    ws := take_warnings();
+    // Warnings inside the resolved std root are the std's business —
+    // `yo check ./std` surfaces them; every other command filters them so
+    // a user's run is not noise-polluted by the std it imported.
+    std_root := resolve_std_path();
+    cache_root := get_global_cache_dir();
+    bare_root := std_root;
+    if(bare_root.starts_with(String.from("file://")), {
+      bare_root = bare_root.substring(usize(7), bare_root.len());
+    });
+    while((bare_root.len() > usize(1)) && (bare_root.substring((bare_root.len() - usize(1)), bare_root.len()) == "/"), {
+      bare_root = bare_root.substring(usize(0), (bare_root.len() - usize(1)));
+    });
+    kept := ArrayList(Diagnostic).new();
+    (kwi : usize) = usize(0);
+    while(kwi < ws.len(), {
+      match(
+        ws.get(kwi),
+        .Some(w) => {
+          wpath := w.span.path;
+          if(wpath.starts_with(String.from("file://")), {
+            wpath = wpath.substring(usize(7), wpath.len());
+          });
+          cbare := cache_root;
+          if(cbare.starts_with(String.from("file://")), {
+            cbare = cbare.substring(usize(7), cbare.len());
+          });
+          while((cbare.len() > usize(1)) && (cbare.substring((cbare.len() - usize(1)), cbare.len()) == "/"), {
+            cbare = cbare.substring(usize(0), (cbare.len() - usize(1)));
+          });
+          under_std := ((bare_root.len() > usize(0)) && wpath.starts_with(bare_root));
+          under_cache := ((cbare.len() > usize(0)) && wpath.starts_with(cbare));
+          if((!under_std && !under_cache), {
+            kept.push(w.clone());
+          });
+        },
+        .None => ()
+      );
+      kwi = (kwi + usize(1));
+    });
+    if(kept.len() > usize(0), {
+      emit_rendered_text(render_diagnostics_for_mode(kept));
+    });
+  });
 });
 export(main);

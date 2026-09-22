@@ -1197,7 +1197,7 @@ _resolve_package :: (
     // Do the requirements need the repository's tag list? (Ranges only, no
     // reusable lock entry.)
     (needs_tags : bool) = false;
-    (needs_default_branch : bool) = false;
+    (_needs_default_branch : bool) = false;
     (ri : usize) = usize(0);
     while(ri < pkg.requirements.len(), {
       match(
@@ -1206,7 +1206,7 @@ _resolve_package :: (
           needs_tags = true;
         },
         .DefaultBranch => {
-          needs_default_branch = true;
+          _needs_default_branch = true;
         },
         _ => ()
       );

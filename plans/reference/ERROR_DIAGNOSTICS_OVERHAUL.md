@@ -3,7 +3,11 @@
 > **Status: IMPLEMENTED 2026-09-03 → 2026-09-04 — all phases LANDED** (P1 PR
 > #399; P2 PR #400; P3 + P3r + the P3r-1 Stage-0 balancing-drop leak fix PR
 > #403, opened as #401 and superseded when #400's branch was deleted on
-> merge). Kept as the living reference for the shipped design. This doc was
+> merge). **P4 landed 2026-09-22**: color (PR #842), the live warnings
+> channel and SARIF output (the same PR), `yo fix` earlier through
+> plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2 — only `#line`
+> remains deferred, now designed in plans/backlog/LINE_DIRECTIVES.md. Kept
+> as the living reference for the shipped design. This doc was
 > the detailed design for ROADMAP items [Phase 2.3](../ROADMAP.md)
 > ("Error-message overhaul"), [Phase 4.2](../ROADMAP.md) ("Errors as few-shot
 > repairs") and [Phase 4.5](../ROADMAP.md) ("`yo explain <error-id>` /
@@ -599,14 +603,41 @@ both-language non-empty); suite green.
 Acceptance: corpus diff shows did-you-mean on the classic typo classes; LSP
 golden re-recorded once more; runtime-panic-touching tests audited and green.
 
-### P4 — deferred, separate decisions (cross-referenced, not scheduled here)
+### P4 — the deferred items, LANDED 2026-09-22 (except `#line`)
 
-- `#line` directives mapping emitted C to `.yo` (ROADMAP 2.4 owns it; it
-  would also let C-compiler stderr be wrapped as diagnostics).
-- Color (tty-gated, `NO_COLOR`/`TERM=dumb`) — D14; cosmetic, after data work.
-- A live warnings channel (D15) — `Severity.Warning` exists since P1; wiring
-  unused-variable/etc. detection is its own small project.
-- SARIF output; `yo fix` (ROADMAP 4.5's bigger sibling).
+- **Color (D14)** — PR #842: the human render carries rustc-style bold SGR
+  (severity header + carets, blue anchor/gutter, magenta help) under
+  `--color auto|always|never` / `YO_COLOR`; auto = stderr is a terminal,
+  `NO_COLOR` unset, `TERM != dumb` (`std/term.supports_color`). `short` and
+  the machine formats never color — the color switch is a parameter of the
+  human renderer, so json's embedded `rendered` is color-proof by
+  construction. Disabled output is byte-identical to the pre-color render.
+- **SARIF** — `--error-format=sarif`: the diagnostic group as one SARIF
+  2.1.0 log on stdout; codes become driver rules, positions 1-based per the
+  SARIF spec (`endColumn` exclusive), and a mechanical repair maps to
+  `fixes` (the field GitHub code scanning ingests). Routing (`emit_chatter`
+  / `emit_rendered_text`) matches json.
+- **Live warnings channel (D15)** — `emit_warning`/`take_warnings` in
+  diagnostics.yo behind a `warnings_enabled` gate that check/compile/build
+  switch on; the begin-block scope-end walk warns once per initialized
+  local no identifier expression ever read (`was_read` on `Variable`).
+  Silenced by a `_` name prefix; type-valued bindings (generic parameters —
+  their uses are type-level, invisible to identifier reads) and assignment
+  targets (which resolve through the value cell) never warn; warnings under
+  the resolved std root and the content-addressed cache are filtered at the
+  flush so a user's run carries no std noise, and warnings never change the
+  exit code. First family: `unused variable`. Landing it paid for itself
+  immediately — the lint surfaced `--warm-selfcheck`'s pass1 duration
+  measuring pass1+pass2
+  (issues/fixed/warm-selfcheck-pass1-timing-included-pass2.md) and six
+  computed-but-unread locals, all cleaned in the same PR.
+- **`yo fix`** — landed earlier (before this plan's P4), through
+  plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2: the `Repair`
+  channel, `run_fix`, and the LSP quickfix sharing the same edit.
+- **`#line` directives (D12 / ROADMAP 2.4)** — still deferred by design;
+  scoped in plans/backlog/LINE_DIRECTIVES.md (emitter line accounting, a
+  `--line-directives` rollout flag, and the follow-on step of wrapping
+  C-compiler stderr as structured diagnostics).
 
 ---
 
