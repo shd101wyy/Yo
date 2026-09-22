@@ -1,0 +1,18 @@
+/// HashMap under safe-mode arithmetic: the bucket mixer (`mix_u64`) relies
+/// on WRAPPING multiplication by design — a full-range u64 hash times the
+/// fmix constant overflows u64 on essentially every insert. Plain `*` traps
+/// there since safe-mode 3 (#837), so before the `wrapping_mul` fix this
+/// file aborted (rc=134) on the first insert compiled by a #837-carrying
+/// compiler. See issues/hash-map-mix-u64-relies-on-wrapping.md.
+{ HashMap } :: import("./hash_map");
+{ String } :: import("../string");
+{ assert } :: import("../assert");
+
+test("hash_map: a string-keyed insert does not trap on the bucket mixer", {
+  m := HashMap(String, i32).new();
+  m.insert(`hello`, i32(1));
+  m.insert(`world`, i32(2));
+  assert((m.get(`hello`) == Option(i32).Some(i32(1))), "first key round-trips");
+  assert((m.get(`world`) == Option(i32).Some(i32(2))), "second key round-trips");
+  assert((m.get(`missing`) == Option(i32).None), "missing key is None");
+});
