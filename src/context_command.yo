@@ -21,6 +21,15 @@
 { metadata } :: import("std/fs/metadata");
 { tr } :: import("./cli_lang.yo");
 { CURRENT_YO_VERSION } :: import("./version.yo");
+{
+  ContextIndexEntry,
+  ContextIndexModule,
+  context_cache_root,
+  context_index_ensure,
+  context_index_load,
+  context_index_load_modules
+} :: import("./doc/context_index.yo");
+{ resolve_std_path } :: import("./module_manager.yo");
 /// The pack file name inside the `pack` directory.
 PACK_FILENAME :: "context.md";
 /// Locate the bundled `pack/context.md`, or `.None` when none exists (the
@@ -148,20 +157,140 @@ _pack_version_line :: (fn(content : String) -> Option(String))({
   });
   Option(String).None
 });
-/// Run the `context` subcommand: locate the pack, print a one-line citation
-/// header, then the pack body verbatim.
+/// Options parsed from `yo context`'s arguments. Absent strings are "".
+ContextQuery :: struct(
+  /// `--list`: the module index of the corpus.
+  list : bool,
+  /// `--refresh`: rebuild the index even if its manifest exists.
+  refresh : bool,
+  /// `--path <dir>`: index this tree instead of the bundled std.
+  path : String
+);
+/// Parse the C2 query flags. Positional arguments are C3 (describe) — none
+/// are accepted yet.
+_parse_context_query :: (
+  fn(argv : ArrayList(String), exn : Exception) -> ContextQuery
+)({
+  q := ContextQuery(list : false, refresh : false, path : String.new());
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    if(a == "--list", {
+      q.list = true;
+      ai = (ai + usize(1));
+    }, {
+      if(a == "--refresh", {
+        q.refresh = true;
+        ai = (ai + usize(1));
+      }, {
+        if(a == "--path", {
+          if((ai + usize(1)) >= argv.len(), {
+            exn.throw(dyn(`context: --path needs a directory argument. Usage: yo context --list --path <dir>`));
+          });
+          q.path = argv(ai + usize(1));
+          ai = (ai + usize(2));
+        }, {
+          if(a.starts_with(String.from("--path=")), {
+            q.path = a.substring(usize(7), a.len());
+            ai = (ai + usize(1));
+          }, {
+            exn.throw(
+              dyn(
+                tr(
+                  `context: unknown option '${a}'. Usage: yo context [--list] [--path <dir>] [--refresh]`,
+                  `context：未知选项 '${a}'。用法：yo context [--list] [--path <dir>] [--refresh]`
+                )
+              )
+            );
+          });
+        });
+      });
+    });
+  });
+  q
+});
+/// The corpus root for an index query: `--path <dir>` when given, else the
+/// running binary's bundled std (`resolve_std_path`) — the doc pipeline's
+/// own resolution, so the `--std-path` pitfall cannot fire. Relative
+/// `--path` values resolve against the USER's working directory —
+/// `YO_ORIGINAL_CWD`, which main.yo records before it changes directory
+/// (the same authority `yo skills install` uses) — not against wherever the
+/// process happens to be.
+_context_corpus_root :: (fn(explicit : String, exn : Exception) -> String)(
+  if(explicit.len() > usize(0), {
+    p := Path.new(explicit);
+    if(!p.is_absolute(), {
+      base := match(
+        env.get(String.from("YO_ORIGINAL_CWD")),
+        .Some(d) => d,
+        .None => match(
+          cwd(),
+          .Ok(c) => c.to_string(),
+          .Err(_) => String.from(".")
+        )
+      );
+      return(Path.new(base).join(p).normalize().to_string());
+    });
+    explicit
+  }, resolve_std_path())
+);
+/// `--list`: the module index — one row per module, sorted, with item
+/// counts; degraded modules are footnoted, not silent (D3).
+_run_context_list :: (
+  fn(root : String, refresh : bool, io : Io, exn : Exception) -> unit
+)({
+  cache_root := context_cache_root(io, exn);
+  key := context_index_ensure(root.clone(), cache_root.clone(), refresh, io, exn);
+  mods := context_index_load_modules(cache_root.clone(), key.clone(), io, exn);
+  // Sort the FORMATTED rows (module path first) — a struct Ord would need
+  // `<` on bool for the degraded flag, which does not exist.
+  rows := ArrayList(String).new();
+  (degraded : usize) = usize(0);
+  (mi : usize) = usize(0);
+  while(mi < mods.len(), {
+    match(
+      mods.get(mi),
+      .Some(m) => {
+        if(m.degraded, {
+          degraded = (degraded + usize(1));
+        });
+        rows.push(`${m.module}  ${m.doc} (${m.items.to_string()} items)`);
+      },
+      .None => ()
+    );
+    mi = (mi + usize(1));
+  });
+  rows.sort();
+  (ri : usize) = usize(0);
+  while(ri < rows.len(), {
+    match(
+      rows.get(ri),
+      .Some(r) => {
+        println(r);
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  println(`— ${mods.len().to_string()} modules; yo context <module> for its items`);
+  if(degraded > usize(0), {
+    println(`Note: ${degraded.to_string()} module(s) are marked (untyped) — the evaluator could not load them.`);
+  });
+});
+/// Run the `context` subcommand. With no query flags: locate the pack,
+/// print a one-line citation header, then the pack body verbatim (C1).
+/// With `--list` (C2): the module index over the corpus (bundled std, or
+/// `--path <dir>`), built on first use into the content-addressed cache.
 run_context :: (
   fn(argv : ArrayList(String), io : Io, exn : Exception) -> unit
 )({
-  if(argv.len() > usize(2), {
-    exn.throw(
-      dyn(
-        tr(
-          `context: unexpected extra argument '${argv(usize(2))}'. Usage: yo context`,
-          `context: 多余的参数 '${argv(usize(2))}'。用法：yo context`
-        )
-      )
-    );
+  q := _parse_context_query(argv, exn);
+  if(q.list, {
+    _run_context_list(_context_corpus_root(q.path, exn), q.refresh, io, exn);
+    return(());
+  });
+  if(q.refresh || (q.path.len() > usize(0)), {
+    exn.throw(dyn(`context: --refresh/--path need --list in this phase (describe is C3). Usage: yo context [--list] [--path <dir>] [--refresh]`));
   });
   pack_opt := _find_bundled_context_pack(io, exn);
   if(pack_opt.is_none(), {

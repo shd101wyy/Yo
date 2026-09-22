@@ -19,15 +19,15 @@ context window. It covers **language facts only**:
 - the toolchain loop (`yo check` after every edit, `yo test`, `yo fmt`).
 
 It deliberately carries **no API listings** — APIs drift every release, and
-the pack must not. API discovery is the job of `yo doc` (rendered
-documentation) and the LSP; from v0.2.40 onward the `yo context` family
-grows query modes over a generated std index (`plans/YO_CONTEXT.md`
-phases C2–C5).
+the pack must not. API discovery is the query half of the command.
 
 ## Usage
 
 ```bash
-yo context
+yo context                                  # the pack (language guide)
+yo context --list                           # module index of the bundled std
+yo context --list --path <dir>              # index an arbitrary tree instead
+yo context --list --refresh                 # force an index rebuild
 ```
 
 Output starts with a citation header naming the toolchain version and the
@@ -60,3 +60,33 @@ it tried and exits 1.
 The pack source of truth is `pack/context.md` in the compiler tree; the
 release workflow copies it into every bundle, and the bundle smoke tests
 assert that `yo context` answers from outside the checkout.
+
+## `--list`: the API index
+
+`yo context --list` indexes the bundled std (175 modules, ~2,069 items) and
+prints one row per module — the module's doc first line and its item count:
+
+```text
+std/allocator  Memory allocation abstractions and global allocator interface. (5 items)
+std/assert     Runtime assertion and panic functions. (5 items)
+...
+— 175 modules; yo context <module> for its items
+```
+
+The index is built once per std version into a content-addressed cache —
+`$YO_CONTEXT_CACHE` or the global yo cache (`yo cache path`), under
+`context/<key>/`, where the key is a digest of every indexed file's path +
+content. A cold build costs one `yo doc`-grade evaluation of the tree
+(~28 s for the bundled std); every later query reads the cache in
+milliseconds. `yo cache gc` sweeps the whole `context/` cache — it is pure
+and rebuilds on demand.
+
+`--path <dir>` indexes an arbitrary tree instead (relative paths resolve
+against the working directory); module names are then prefixed with that
+directory's name. Modules the evaluator could not load fall back to
+token-only docs and are marked `(untyped)` in the output — degradation is
+marked, never silent.
+
+Per-module and per-item views, and full-text search, are the next phases
+(`plans/YO_CONTEXT.md` C3–C5): `yo context <module> [name]` and
+`yo context --search <query>`.

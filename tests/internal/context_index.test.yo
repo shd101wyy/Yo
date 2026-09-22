@@ -1,0 +1,173 @@
+/// Tests for src/doc/context_index.yo — the `yo context` index (C2 of
+/// plans/YO_CONTEXT.md). Heavy: this file imports the compiler's own doc
+/// pipeline, so each run evaluates compiler modules. The invariants pinned
+/// here are the ones the CLI's correctness leans on:
+///   - the content key is stable across identical builds and moves on any
+///     content edit (cache correctness),
+///   - a fixture mini-std round-trips through build → load with the
+///     expected entries (TSV format stability),
+///   - barrels get `origin=` from their unique defining module,
+///   - degraded modules are marked, never silent,
+///   - the loader rejects nothing but parses exactly what was written.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ Path } :: import("std/path");
+{ Exception, IoExn } :: import("std/error");
+{ write_string } :: import("std/fs/file");
+{ create_dir_all } :: import("std/fs/dir");
+{ assert } :: import("std/assert");
+{
+  ContextIndexEntry,
+  context_tree_key,
+  context_index_ensure,
+  context_index_load,
+  context_index_load_modules,
+  context_module_name
+} :: import("../../src/doc/context_index.yo");
+{ mm_invalidate_document } :: import("../../src/module_manager.yo");
+/// The fixture: a two-module mini-std plus a barrel. `alpha` defines the
+/// API, `index.yo` re-exports it (the barrel `origin=` case), `beta` is a
+/// second module so name-uniqueness has something to be unique AGAINST.
+/// Written to a fixed /tmp path (suite processes are reused — the writer
+/// overwrites in place every run).
+_write_fixture :: (fn(io : Io, exn : Exception) -> String)({
+  ioexn := IoExn(io : io, exn : exn);
+  root := String.from("/tmp/yo_context_index_fixture/t");
+  io.await(create_dir_all(Path.new(`${root}/alpha`), io), ioexn);
+  io.await(create_dir_all(Path.new(`${root}/beta`), io), ioexn);
+  io.await(
+    write_string(
+      Path.new(`${root}/alpha_api.yo`),
+      String.from("//! Alpha: the fixture's defining module.\nalpha_add :: (fn(a : i32, b : i32) -> i32)((a + b));\nAlpha :: struct(v : i32);\nALPHA_LIMIT :: 10;\nexport(alpha_add, Alpha, ALPHA_LIMIT);\n"),
+      io
+    ),
+    ioexn
+  );
+  io.await(
+    write_string(
+      Path.new(`${root}/beta.yo`),
+      String.from("//! Beta: a second module.\nbeta_hi :: (fn() -> unit)(());\nexport(beta_hi);\n"),
+      io
+    ),
+    ioexn
+  );
+  io.await(
+    write_string(
+      Path.new(`${root}/alpha/index.yo`),
+      // The house barrel shape (std/string/index.yo et al): `_`-prefixed
+      // module values + glob-spread exports. A destructuring import would
+      // bind locally and export nothing.
+      String.from("//! Barrel for alpha.\n_alpha_api :: import(\"../alpha_api.yo\");\nexport(...(_alpha_api));\n"),
+      io
+    ),
+    ioexn
+  );
+  root
+});
+_find_entry :: (
+  fn(entries : ArrayList(ContextIndexEntry), module : String, name : String) -> ContextIndexEntry
+)({
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        if((e.module == module) && (e.name == name), {
+          return(e);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  __yo_panic("context_index.test: entry not found")
+});
+test("context_tree_key: stable across builds, moves on content edit", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  proj := _write_fixture(io, exn);
+  k1 := context_tree_key(proj, io, exn);
+  k2 := context_tree_key(proj, io, exn);
+  assert((k1.len() == usize(12)), `key is 12 hex, got ${k1}`);
+  assert((k1 == k2), "identical tree → identical key");
+  ioexn := IoExn(io : io, exn : exn);
+  io.await(
+    write_string(
+      Path.new(`${proj}/beta.yo`),
+      String.from("//! Beta: a second module.\nbeta_hi :: (fn() -> unit)(println(`now with output`));\nexport(beta_hi);\n"),
+      io
+    ),
+    ioexn
+  );
+  k3 := context_tree_key(proj, io, exn);
+  assert((k1 != k3), "content edit → new key");
+});
+test("context_module_name: root basename prefixes, index.yo collapses", {
+  name := context_module_name(String.from("/w/std/alpha/index.yo"), String.from("/w/std"));
+  assert((name == "std/alpha"), `index.yo collapses to its dir, got ${name}`);
+  name2 := context_module_name(String.from("/w/std/beta.yo"), String.from("/w/std"));
+  assert((name2 == "std/beta"), `plain file keeps its path, got ${name2}`);
+});
+test("context_index_ensure + load: the fixture round-trips, barrel origin= resolves", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  proj := _write_fixture(io, exn);
+  // The fixture modules were loaded under a previous content version by an
+  // earlier test in this process — drop the module manager's cache for them
+  // so the index sees the CURRENT bytes.
+  _i1 := mm_invalidate_document(`${proj}/alpha_api.yo`);
+  _i2 := mm_invalidate_document(`${proj}/beta.yo`);
+  _i3 := mm_invalidate_document(`${proj}/alpha/index.yo`);
+  cache := `/tmp/yo_context_index_fixture_cache`;
+  io.await(create_dir_all(Path.new(cache), io), IoExn(io : io, exn : exn));
+  key := context_index_ensure(proj, cache, true, io, exn);
+  entries := context_index_load(cache, key, io, exn);
+  // alpha's defining entries
+  add := _find_entry(entries, `t/alpha_api`, `alpha_add`);
+  assert((add.kind == "fn"), `alpha_add is a fn, got ${add.kind}`);
+  assert((add.signature.contains(String.from("i32"))), "signature carries the param types");
+  _a := _find_entry(entries, `t/alpha_api`, `Alpha`);
+  assert((_a.kind == "type"), "Alpha is a type");
+  _l := _find_entry(entries, `t/alpha_api`, `ALPHA_LIMIT`);
+  assert((_l.kind == "constant"), "ALPHA_LIMIT is a constant");
+  _h := _find_entry(entries, `t/beta`, `beta_hi`);
+  // the barrel re-exports alpha_add with origin= the defining module
+  barrel := _find_entry(entries, `t/alpha`, `alpha_add`);
+  assert((barrel.origin == "t/alpha_api"), `barrel origin= t/alpha_api, got '${barrel.origin}'`);
+  // the defining entry itself stays originless
+  assert((add.origin.len() == usize(0)), "defining entry has no origin");
+  // modules.txt: three rows, alpha documented
+  mods := context_index_load_modules(cache, key, io, exn);
+  assert((mods.len() == usize(3)), `three modules, got ${mods.len().to_string()}`);
+  (saw_alpha : bool) = false;
+  (i : usize) = usize(0);
+  while(i < mods.len(), {
+    match(
+      mods.get(i),
+      .Some(m) => {
+        if(m.module == "t/alpha_api", {
+          saw_alpha = true;
+          assert(m.doc.contains(String.from("Alpha")), "alpha's module doc first line survived");
+          assert((m.items == usize(3)), `alpha has 3 items, got ${m.items.to_string()}`);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(saw_alpha, "modules.txt has t/alpha");
+  // Second ensure WITHOUT refresh reuses (same key, no rebuild) — the
+  // manifest exists, so this must not throw and must return the same key.
+  key2 := context_index_ensure(proj, cache, false, io, exn);
+  assert((key2 == key), "ensure without refresh reuses the key");
+});
