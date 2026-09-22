@@ -1920,7 +1920,8 @@ _parse_decimal :: (fn(s : String) -> usize)({
   (v : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < s.len(), {
-    v = ((v * usize(10)) + usize(s(i) - u8(48)));
+    // Wrapping keeps the pre-trap behaviour for absurdly long digit runs.
+    v = (v.wrapping_mul(usize(10)) + usize(s(i) - u8(48)));
     i = (i + usize(1));
   });
   v

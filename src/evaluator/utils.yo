@@ -1798,7 +1798,11 @@ _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> 
             match(
               _digit_value(b, base),
               .Some(d) => {
-                result = ((result * base) + d);
+                // The accumulator wraps through i64's boundary on purpose:
+                // u64-range literals (2^63 and above) are legal and are
+                // carried as the i64 MIN-side bit pattern, exactly like the
+                // comptime integer domain.
+                result = (result.wrapping_mul(base)).wrapping_add(d);
               },
               .None => {
                 ok = false;

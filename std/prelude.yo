@@ -5262,7 +5262,9 @@ _popcount_u64 :: (fn(x : u64) -> u32)({
   v = (v - ((v >> u64(1)) & u64(6148914691236517205)));
   v = ((v & u64(3689348814741910323)) + ((v >> u64(2)) & u64(3689348814741910323)));
   v = ((v + (v >> u64(4))) & u64(1085102592571150095));
-  u32(((v * u64(72340172838076673)) >> u64(56)))
+  // The multiply IS the byte-summation: it overflows by design (only the
+  // top byte of the product is read), so it goes through wrapping_mul.
+  u32((v.wrapping_mul(u64(72340172838076673)) >> u64(56)))
 });
 /// Number of leading zero bits in a 64-bit word (`64` for zero).
 _leading_zeros_u64 :: (fn(x : u64) -> u32)({
