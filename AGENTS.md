@@ -236,6 +236,31 @@ Three views of one rule: the only question is "does the battery I am about to tr
   Empty ⇒ the battery gates the tip. Non-empty ⇒ wait for a battery on the new tip.
 - A `cancelled` PR run with no newer run on that branch means the PR has no verdict: `gh run rerun <id>`. A PR with `mergeable=CONFLICTING` gets no runs at all: rebase and force-push. Branch protection's required-check list is manual: add every new CI job by hand.
 
+### Release notes: one curation pass per release, right after it publishes
+
+The Release workflow drafts the body from a fixed template (`release.yml`, the "Create GitHub Release" step): line 1 is `Patch|Minor release vX.Y.Z`, `## Changes` contains ONLY the last pre-bump commit's message — a squash-merge commit, with its `*` sub-commit bullets and `Co-Authored-By` trailers — and then the fixed `## Native bundles` section. That raw commit dump is never good enough to ship, so the moment a release is public, rewrite `## Changes` (`v0.2.38` is the canonical example; `v0.2.37` and `v0.2.39` shipped the raw dump and had to be fixed after the fact):
+
+```bash
+gh release view vX.Y.Z --json body --jq .body > /tmp/old-body.md   # keep the original
+# write the curated body to /tmp/new-body.md, then:
+gh release edit vX.Y.Z --notes-file /tmp/new-body.md
+```
+
+The format (modeled on v0.2.38 — read it with `gh release view v0.2.38 --json body --jq .body` before writing one):
+
+- Line 1 (`Patch release vX.Y.Z`) and the whole `## Native bundles (bootstrap seed chain)` section stay byte-for-byte. Only `## Changes` is rewritten.
+- `## Changes` groups user-visible changes under `###` headings by audience; the established section vocabulary: Type checking, Toolchain for agents (CLI, LSP, test runner, diagnostics), Compile and codegen, Async runtime, Build system and verification, Compiler performance and memory (always with the measured before → after numbers), ending with `### Known open issues filed this cycle`. Drop a section that has nothing in it this cycle.
+- One bullet per user-visible change: what a compiler user observes first, the mechanism after a dash or semicolon, the PR number `(#NNN)`. Plans-only and CI-only PRs are omitted; a research PR appears only through what it made observable (a knob, a measurement, the issues it filed).
+- Known-issue bullets are backticked `issues/<name>.md` paths — open at the tag, filed during the window — with no PR refs.
+- Derive the candidate list from the commits between the two tags, then read the PR bodies for the numbers and mechanisms:
+
+  ```bash
+  gh api repos/:owner/:repo/compare/vPREV...vX.Y.Z --jq '.commits[] | .sha[0:9] + " " + (.commit.message | split("\n")[0])'
+  gh pr list --state merged --limit 60 --json number,title,body,mergedAt   # filter on the two tags' publish times
+  ```
+
+- No `*` commit bullets, no `Co-Authored-By` trailers, no AI attribution in a release body.
+
 ---
 
 ## Common Pitfalls
