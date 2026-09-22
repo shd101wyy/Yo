@@ -166,7 +166,10 @@ fnv1a64 :: (fn(s : String) -> u64)({
   (i : usize) = usize(0);
   while(i < bytes.len(), {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
-    state = ((state ^ u64(b)) * u64(1099511628211));
+    // FNV-1a's multiply wraps BY DESIGN (the hash identity depends on the
+    // modular arithmetic; -fwrapv used to make that silent — Phase 3a-ii
+    // migrated std/hash's copy but missed this inlined one).
+    state = (state ^ u64(b)).wrapping_mul(u64(1099511628211));
     i = (i + usize(1));
   });
   state
