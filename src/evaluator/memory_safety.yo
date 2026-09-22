@@ -17,6 +17,7 @@ pragma(Pragma.AllowUnsafe);
 { cwd } :: import("std/env");
 { Path } :: import("std/path");
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
+{ type_to_string } :: import("../types/string.yo");
 { canonical_module_path } :: import("../utils.yo");
 // NOTE: the compiler reuses the language's own `Pragma` enum
 // (defined in `std/prelude.yo`, auto-loaded into every module) as the
@@ -250,17 +251,20 @@ is_class1_panic_method_name :: (fn(name : String) -> bool)(
   (name == "unwrap") || (name == "expect") || (name == "unwrap_err")
 );
 /// The receiver types whose extraction methods are class 1: the failure is
-/// IN the type. Nominal enum-name match, the same rule the io-builtin
-/// classification uses (`struct_name == "Io"` in evaluator/calls/function.yo).
-/// The match goes through `t_refine_inner` — a real `Option(i32)` carries a
-/// refinement/specialization wrapper around the `.EnumT`, so a direct match
-/// never sees it (the same reason `is_enum_type` refines first). Probe-
-/// verified 2026-09-22: the fixture's receiver ExprInfo said `Option(i32)`
-/// and this predicate still returned false.
+/// IN the type. The value must BE an enum (`Option`/`Result` are enums), and
+/// the NAME is read through `type_to_string` rather than the `.EnumT` name
+/// field: real Option/Result TypeValues frequently carry an EMPTY name (the
+/// printer falls back to the display registry), so a name-field comparison
+/// never fired — probe-verified 2026-09-22: the fixture receiver's ExprInfo
+/// said `Option(i32)` and a name-field comparison returned false. The
+/// `(` in the prefix keeps a hypothetical user `OptionEx(` from matching.
 is_class1_panic_receiver_type :: (fn(t : TypeValue) -> bool)(
   match(
     t_refine_inner(t),
-    .EnumT(_, en_name, _, _, _, _, _, _, _) => ((en_name == "Option") || (en_name == "Result")),
+    .EnumT(_, _, _, _, _, _, _, _, _) => {
+      s := type_to_string(t);
+      s.starts_with(String.from("Option(")) || s.starts_with(String.from("Result(")) || ((s == "Option") || (s == "Result"))
+    },
     // A `*(T)`-typed self parameter (`fn(self : *(Self))`-shaped impls):
     // look through the pointer.
     .Pointer(inner) => is_class1_panic_receiver_type(inner),
