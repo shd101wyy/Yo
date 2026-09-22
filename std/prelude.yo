@@ -5282,8 +5282,8 @@ _trailing_zeros_u64 :: (fn(x : u64) -> u32)(
   cond(
     (x == u64(0)) => u32(64),
     // `x & -x` isolates the lowest set bit; `x-1` then has exactly that many
-    // ones below it.
-    true => _popcount_u64(((x & (u64(0) - x)) - u64(1)))
+    // ones below it. The negation wraps by design (wrapping_sub).
+    true => _popcount_u64((x & u64(0).wrapping_sub(x)) - u64(1))
   )
 );
 /// Reverse all 64 bits.

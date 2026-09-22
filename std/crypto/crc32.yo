@@ -25,7 +25,7 @@ _crc32_byte :: (fn(crc : u32, byte : u8) -> u32)({
   (c : u32) = (crc ^ u32(byte));
   (k : usize) = usize(0);
   while(k < usize(8), k = (k + usize(1)), {
-    mask := (u32(0) - (c & u32(1)));
+    mask := u32(0).wrapping_sub(c & u32(1));
     c = ((c >> u32(1)) ^ (u32(0xedb88320) & mask));
   });
   c
