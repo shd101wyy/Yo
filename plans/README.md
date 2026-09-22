@@ -64,15 +64,15 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   stays the backend; the foundations section answers "why not dependent
   types / matching logic / abstract interpretation" per alternative.
 - [`YO_CONTEXT.md`](YO_CONTEXT.md) —
-  ACTIVE 2026-09-22: the agent context surface — `yo context` as one verb
-  for the curated language pack (ROADMAP Phase 4.1, ≤ 24 KB, shipped in the
-  release bundle, anti-drift rule: language facts only, never API listings)
-  plus index/describe/search API discovery over the doc IR, with a measured
-  baseline (26.1 s full-std doc build, 175 modules / 2,069 items, a ~30k-token
-  full index — hence search + per-module browsing, never wholesale loading)
-  and a content-addressed index cache under the yo cache root. Subsumes
-  BEND_LAWS B3 tasks 1–2 (`yo guide`/`yo std`). Phases C1–C6, none started,
-  no seed gate.
+  **C1–C6 LANDED 2026-09-22** (PRs #847/#851/#852/#853/#854 + the
+  consolidation PR): `yo context` ships the ≤ 24 KB language pack (in the
+  release bundle, `$YO_CONTEXT_PACK` authoritative), a content-addressed
+  std index (`<cache>/context/<key>`, warm queries in ms), describe,
+  ranked lexical `--search` (+`--deep`), `--format json`, `--deps`
+  (yo.lock corpora, store trees + path deps), and the init/skills/AGENTS
+  consolidation. Measured: cold std index 28.3 s, warm 45 ms, 175 modules;
+  `std/string` = 295 items with barrel `origin=`. Graduates to
+  `reference/` when the dust settles.
 
 The formal-verification campaign is **COMPLETE (2026-09-19, V1–V7)**. The
 authoritative record is the per-slice banners in

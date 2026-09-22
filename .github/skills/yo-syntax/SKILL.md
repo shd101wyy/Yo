@@ -4,6 +4,8 @@ description: Write and repair Yo source code. Use this when authoring, reviewing
 argument-hint: "[task, file, or error]"
 ---
 
+For API discovery (which module exports what), run `yo context --list` and `yo context <module>` — this skill covers language rules, not the API surface.
+
 # Yo Syntax
 
 Use this skill for source-level Yo authoring. It focuses on portable Yo syntax rules that apply across repositories.

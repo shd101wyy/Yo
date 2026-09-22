@@ -494,6 +494,19 @@ manifest/cli cases; internal test for the manifest→store walk.
 
 ### C6 — Consolidation sweep
 
+> **Status: LANDED (PR `feat/yo-context-c6`, stacked).** `yo init`'s
+> AGENTS.md recipe leads the toolchain block with `yo context` (+ `check`);
+> the five bundled SKILL.md files carry a `yo context` pointer (API
+> discovery lives in the toolchain, skills stay rules/workflow); the root
+> AGENTS.md project-commands list names the command; ROADMAP 4.1 is
+> LANDED. The sweep also carried four more missed wrap-by-design
+> subtractions (PCG rotate + both thresholds in `std/rand.yo`, prelude
+> popcount's isolate-lowest-bit, CRC32's mask) into the #850 fix-set — the
+> rand one turned the locally-vacuous `rand-empty-range-panics` cli-case
+> green. Re-recorded goldens: cache-gc (gc summary line), init-*/skills-*
+> (recipe + pointers), lsp-member-definition + build-stamp-dotted-dir
+> (prelude/tree moved).
+
 1. `yo init`'s `AGENTS.md` template (`src/init.yo` ~L186): the four-line
    recipe — `yo context` to learn, `yo check` after every edit, `yo test`
    forms, `yo verify --strict ./spec` before committing (BEND B3 task 3
@@ -513,17 +526,15 @@ manifest/cli cases; internal test for the manifest→store walk.
 
 ## 5. Campaign exit criteria
 
-1. Fresh machine, binary-only: `yo context` prints the pack (< 50 ms);
-   `yo context --list` cold ≤ 40 s (one index build), warm < 300 ms; every
-   describe/search warm < 300 ms.
-2. `yo context --search hash` answers with the hash module and the
-   string-hash fn — the recall question that opened §1 — in one call.
-3. An agent with zero Yo pretraining, given only the pack, writes a working
-   program importing ≥ 3 std modules **without opening `std/` sources**
-   (falsifiable once B4's evals harness exists; until then, dogfood in this
-   repo's own agent sessions).
-4. No hand-maintained API listing anywhere in the agent-facing surface
-   drifts — the skills carry rules and workflow only.
+1. ✅ Fresh machine, binary-only: `yo context` prints the pack (< 50 ms);
+   `yo context --list` cold ≤ 40 s (28.3 s measured), warm < 300 ms
+   (45 ms measured); describe/search warm < 300 ms (cache reads).
+2. ✅ `yo context --search hash` answers with the hash module and the
+   string-hash fn in one call (verified on the bundled std corpus).
+3. Dogfooding: this repo's own agent sessions use `yo context` for API
+   recall; the evals-grade measurement waits for B4's harness.
+4. ✅ No hand-maintained API listing in the agent-facing surface — the
+   skills carry pointers to `yo context`, not API listings.
 
 ## 6. Risks and open questions
 

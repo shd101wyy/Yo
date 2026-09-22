@@ -4,6 +4,8 @@ description: Write Yo async code and algebraic effect handlers. Use this when wo
 argument-hint: "[async task, effect, or API]"
 ---
 
+For API discovery over async modules, run `yo context --list`, `yo context std/async`, and `yo context --search <query>`.
+
 # Yo Async and Effects
 
 Use this skill for single-threaded async workflows and algebraic-effect-based APIs in Yo.
