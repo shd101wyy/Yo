@@ -61,6 +61,24 @@ The pack source of truth is `pack/context.md` in the compiler tree; the
 release workflow copies it into every bundle, and the bundle smoke tests
 assert that `yo context` answers from outside the checkout.
 
+## Describe: modules and items
+
+`yo context <module>` prints a module's one-screen index; adding an item
+name prints that item's full entry (signature, doc, examples — sliced from
+the rendered module page):
+
+```bash
+yo context collections/array_list              # module index
+yo context collections/array_list ArrayList.push   # one item (Type.method or plain name)
+yo context ArrayList.push                      # unique across the corpus
+yo context push                                # ambiguous -> ranked candidates, exit 1
+```
+
+Module arguments accept the full corpus path (`std/collections/array_list`)
+or a unique last segment (`array_list`); an ambiguous segment lists the
+candidates and exits 1, a miss offers up to three did-you-mean names.
+
+
 ## `--list`: the API index
 
 `yo context --list` indexes the bundled std (175 modules, ~2,069 items) and

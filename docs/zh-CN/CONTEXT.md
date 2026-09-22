@@ -54,6 +54,23 @@ yo 0.2.40 — pack-version: 1
 工作流会把它复制进每个发行包，且包的冒烟测试会在检出之外断言
 `yo context` 能正常应答。
 
+## 描述：模块与条目
+
+`yo context <module>` 输出模块的单屏索引；追加条目名则输出该条目的完整
+内容（签名、文档、示例——从渲染好的模块页中切出）：
+
+```bash
+yo context collections/array_list              # 模块索引
+yo context collections/array_list ArrayList.push   # 单个条目（Type.method 或裸名）
+yo context ArrayList.push                      # 全语料唯一时直接命中
+yo context push                                # 有歧义 -> 列出候选，退出码 1
+```
+
+模块参数接受完整语料路径（`std/collections/array_list`）或唯一的末段
+（`array_list`）；有歧义的末段会列出候选并以退出码 1 结束，未命中时
+最多给出三个 did-you-mean 建议。
+
+
 ## `--list`：API 索引
 
 `yo context --list` 会为内置 std（175 个模块、约 2,069 个条目）建索引，
