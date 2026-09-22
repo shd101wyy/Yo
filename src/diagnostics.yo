@@ -168,6 +168,115 @@ Repair :: struct(
 );
 derive(Repair, Clone);
 derive(Diagnostic, Clone);
+
+/// ── Color (P4, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md — D14) ──────────────────
+/// Whether the human renderer wraps its output in ANSI SGR sequences. The
+/// CLI front door resolves `--color auto|always|never` / `YO_COLOR` (auto =
+/// stderr is a terminal, `NO_COLOR` unset, `TERM != dumb`) and sets this
+/// once at startup; every render reads it. Only the HUMAN renderer colors —
+/// `short` stays grep-able and `json`/`sarif` stay parseable regardless of
+/// the flag, including the human text embedded in their payloads.
+(g_color_enabled : bool) = false;
+set_color_enabled :: (fn(on : bool) -> unit)({
+  g_color_enabled = on;
+});
+color_enabled :: (fn() -> bool)(g_color_enabled);
+/// Wrap `text` in the SGR sequence `code` when `color` is on, else return
+/// it byte-identical — a disabled render is exactly the pre-color output.
+/// Takes the switch EXPLICITLY rather than reading the process global: the
+/// json/sarif renderers color-proof their embedded human text by passing
+/// `false` even when `--color always` is in force.
+/// (`\u{1b}` is ESC: the lexer's escape table has no `\x` form.)
+_colorize :: (fn(text : String, code : str, color : bool) -> String)(
+  cond(
+    color => `\u{1b}[${code}m${text}\u{1b}[0m`,
+    true => text
+  )
+);
+/// SGR codes: the severity header and its carets carry the severity color;
+/// the `-->` anchor and the gutter (`|` + row number) carry the location
+/// color. Bold variants throughout, rustc-style.
+_ANSI_ERROR :: "1;31";
+_ANSI_WARNING :: "1;33";
+_ANSI_NOTE :: "1;36";
+_ANSI_HELP :: "1;35";
+_ANSI_LOCATION :: "1;34";
+_severity_ansi :: (fn(sev : Severity) -> str)(
+  match(
+    sev,
+    .Error => _ANSI_ERROR,
+    .Warning => _ANSI_WARNING,
+    .Note => _ANSI_NOTE,
+    .Help => _ANSI_HELP
+  )
+);
+
+/// Normalize a path for directory-prefix comparison: strip a `file://`
+/// scheme and any trailing separator, so the same resolver output spelled
+/// either way compares equal.
+_normalize_path_prefix :: (fn(p : String) -> String)({
+  out := p;
+  if(out.starts_with(String.from("file://")), {
+    out = out.substring(usize(7), out.len());
+  });
+  while((out.len() > usize(1)) && (out.substring(out.len() - usize(1), out.len()) == "/"), {
+    out = out.substring(usize(0), out.len() - usize(1));
+  });
+  out
+});
+/// True when `path` IS `dir` or lives UNDER it — a path-COMPONENT check,
+/// not a bare string prefix, so `<repo>/stdlib_extra/x.yo` does not match
+/// a `<repo>/std` root.
+_path_is_under :: (fn(path : String, dir : String) -> bool)({
+  d := _normalize_path_prefix(dir);
+  pd := _normalize_path_prefix(path);
+  if(d.len() == usize(0), {
+    return(false);
+  });
+  if(pd == d, {
+    return(true);
+  });
+  pd.starts_with(`${d}/`)
+});
+/// Take the pending warnings that belong to USER code. Warnings under
+/// `std_root` (the std this command imported — `yo check ./std` is how
+/// std's own warnings surface) or `cache_root` (content-addressed
+/// dependency sources) are dropped; everything else comes back and the
+/// stash is cleared. Pure data — edges decide where and whether to render.
+take_user_warnings :: (fn(std_root : String, cache_root : String) -> ArrayList(Diagnostic))({
+  ws := take_warnings();
+  kept := ArrayList(Diagnostic).new();
+  (kwi : usize) = usize(0);
+  while(kwi < ws.len(), {
+    match(
+      ws.get(kwi),
+      .Some(w) => {
+        under_std := _path_is_under(w.span.path, std_root);
+        under_cache := _path_is_under(w.span.path, cache_root);
+        if(!under_std && !under_cache, {
+          kept.push(w.clone());
+        });
+      },
+      .None => ()
+    );
+    kwi = (kwi + usize(1));
+  });
+  kept
+});
+/// Take + render + print the user warnings in the process's current
+/// format; a no-op while the warnings gate is off or nothing survives the
+/// filter. Edges call this wherever warnings should surface: the end of
+/// main, after each watch round, and on the error-exit path (before the
+/// error renders — warnings were emitted first).
+flush_user_warnings :: (fn(std_root : String, cache_root : String) -> unit)({
+  if(!g_warnings_enabled, {
+    return;
+  });
+  kept := take_user_warnings(std_root, cache_root);
+  if(kept.len() > usize(0), {
+    emit_rendered_text(render_diagnostics_for_mode(kept));
+  });
+});
 /// One diagnostic entry. `source_line` is the source text at `span.row`,
 /// extracted once at construction — the renderer never re-reads files.
 /// `help` (P3) carries an in-band repair hint ("did you mean …"); it
@@ -294,47 +403,6 @@ _severity_prefix :: (fn(sev : Severity) -> String)(
     .Warning => String.from("warning"),
     .Note => String.from("note"),
     .Help => String.from("help")
-  )
-);
-/// ── Color (P4, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md — D14) ──────────────────
-/// Whether the human renderer wraps its output in ANSI SGR sequences. The
-/// CLI front door resolves `--color auto|always|never` / `YO_COLOR` (auto =
-/// stderr is a terminal, `NO_COLOR` unset, `TERM != dumb`) and sets this
-/// once at startup; every render reads it. Only the HUMAN renderer colors —
-/// `short` stays grep-able and `json`/`sarif` stay parseable regardless of
-/// the flag, including the human text embedded in their payloads.
-(g_color_enabled : bool) = false;
-set_color_enabled :: (fn(on : bool) -> unit)({
-  g_color_enabled = on;
-});
-color_enabled :: (fn() -> bool)(g_color_enabled);
-/// Wrap `text` in the SGR sequence `code` when `color` is on, else return
-/// it byte-identical — a disabled render is exactly the pre-color output.
-/// Takes the switch EXPLICITLY rather than reading the process global: the
-/// json/sarif renderers color-proof their embedded human text by passing
-/// `false` even when `--color always` is in force.
-/// (`\u{1b}` is ESC: the lexer's escape table has no `\x` form.)
-_colorize :: (fn(text : String, code : str, color : bool) -> String)(
-  cond(
-    color => `\u{1b}[${code}m${text}\u{1b}[0m`,
-    true => text
-  )
-);
-/// SGR codes: the severity header and its carets carry the severity color;
-/// the `-->` anchor and the gutter (`|` + row number) carry the location
-/// color. Bold variants throughout, rustc-style.
-_ANSI_ERROR :: "1;31";
-_ANSI_WARNING :: "1;33";
-_ANSI_NOTE :: "1;36";
-_ANSI_HELP :: "1;35";
-_ANSI_LOCATION :: "1;34";
-_severity_ansi :: (fn(sev : Severity) -> str)(
-  match(
-    sev,
-    .Error => _ANSI_ERROR,
-    .Warning => _ANSI_WARNING,
-    .Note => _ANSI_NOTE,
-    .Help => _ANSI_HELP
   )
 );
 /// Number of digits of `n` (≥ 1) — a row number's gutter width.
@@ -802,12 +870,14 @@ render_diagnostics_for_mode :: (fn(diagnostics : ArrayList(Diagnostic)) -> Strin
     true => render_diagnostics_human(diagnostics)
   )
 );
+
 export(Severity, Span, Label, Diagnostic, Repair);
 export(render_diagnostics_human, render_diagnostics_short, render_diagnostics_json);
 export(render_diagnostics_sarif);
 export(render_diagnostics_for_mode, set_error_format, error_format, emit_rendered_text, emit_chatter);
 export(set_color_enabled, color_enabled);
 export(set_warnings_enabled, warnings_enabled, emit_warning, take_warnings);
+export(take_user_warnings, flush_user_warnings);
 export(edit_distance, suggest_name);
 export(register_std_export, lookup_std_exporters, std_export_index_size);
 export(E_UNEXPECTED_TOKEN, E_EXPECTED_TOKEN, E_ADJACENT_OPERATORS, E_UNTERMINATED);

@@ -43,6 +43,7 @@ json :: import("std/encoding/json");
   warnings_enabled,
   emit_warning,
   take_warnings,
+  take_user_warnings,
   set_color_enabled,
   suggest_name
 } :: import("../../src/diagnostics.yo");
@@ -433,4 +434,35 @@ test("warnings: the stash dedupes, takes clean, and honors the enabled flag", {
   assert(n == usize(2), `dedupe to one per span+message, got ${n.to_string()}`);
   assert(after == usize(0), "take clears the stash");
   assert(!warnings_enabled(), "flag restored");
+});
+
+test("take_user_warnings filters std/cache roots by path COMPONENT", {
+  mk_at :: (fn(path : String) -> Diagnostic)(
+    Diagnostic(
+      code : Option(String).None,
+      severity : Severity.Warning,
+      message : String.from("unused variable `x`"),
+      span : Span(path : path, row : usize(0), col : usize(0), len : usize(1)),
+      source_line : String.new()
+    )
+  );
+  set_warnings_enabled(true);
+  emit_warning(mk_at(String.from("file:///toolchain/std/prelude.yo")));
+  emit_warning(mk_at(String.from("file:///toolchain/cache/store/sha256/abc/src/lib.yo")));
+  emit_warning(mk_at(String.from("file:///repo/stdlib_extra/app.yo")));
+  emit_warning(mk_at(String.from("file:///repo/src/app.yo")));
+  kept := take_user_warnings(
+    String.from("file:///toolchain/std"),
+    String.from("file:///toolchain/cache")
+  );
+  n := kept.len();
+  after := take_warnings().len();
+  set_warnings_enabled(false);
+  assert(n == usize(2), `std+cache dropped, user kept, got ${n.to_string()}`);
+  match(
+    kept.get(usize(0)),
+    .Some(w) => assert(w.span.path.contains(String.from("stdlib_extra")), `stdlib_extra survives a /std root (component check), got ${w.span.path}`),
+    .None => assert(false, "first kept present")
+  );
+  assert(after == usize(0), "take clears");
 });

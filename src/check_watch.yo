@@ -28,7 +28,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { println, eprintln } :: import("std/fmt");
-{ emit_rendered_text } :: import("./diagnostics.yo");
+{ emit_rendered_text, flush_user_warnings } :: import("./diagnostics.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -38,6 +38,7 @@ pragma(Pragma.AllowUnsafe);
 { exit } :: import("std/process");
 { stdout, fflush } :: import("std/libc/stdio");
 env_mod :: import("std/env");
+{ get_global_cache_dir } :: import("./cache.yo");
 { Instant } :: import("std/time/instant");
 sleep_mod :: import("std/sys/timer");
 { BufReader } :: import("std/io/bufio");
@@ -284,6 +285,9 @@ watch_round :: (
   // Watch runs are killed, piped, and read by harnesses — flush per round so
   // buffered stdout is never lost (`fflush` takes `?(*(FILE))`).
   unsafe(fflush(.Some(stdout)));
+  // Surface this round's warnings with the round's report; the stash is
+  // taken, so the next round collects fresh (a fixed file stops warning).
+  flush_user_warnings(std_path.clone(), get_global_cache_dir());
   failed
 });
 /// Read changed paths from stdin (one per line, until EOF), run ONE round,
