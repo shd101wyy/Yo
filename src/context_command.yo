@@ -1,0 +1,202 @@
+//! `yo context` — print the agent context pack (plans/YO_CONTEXT.md, C1).
+//!
+//! The pack (`pack/context.md` in the compiler tree) is the curated,
+//! language-only guide shipped with the toolchain; this command locates it
+//! and prints it. API discovery (--list / describe / --search over the doc
+//! IR) is C2+, not here.
+//!
+//! The bundled-pack lookup mirrors `yo skills install`'s
+//! (`src/skills_command.yo`): `$YO_CONTEXT_PACK` env pin, then the running
+//! executable's ancestors (dev flow: `yo-out/<target>/bin/yo` finds the
+//! checkout's own `pack/`), then the project directory's ancestors — the
+//! same exe-walk-up-then-cwd shape `resolve_std_path` uses for `std/`.
+//! Release bundles carry `pack/` as a sibling of `std/`.
+{ String } :: import("std/string");
+{ println, eprintln } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+{ ArrayList } :: import("std/collections/array_list");
+{ env, current_exe, cwd } :: import("std/env");
+{ exists, read_to_string } :: import("std/fs/file");
+{ metadata } :: import("std/fs/metadata");
+{ tr } :: import("./cli_lang.yo");
+{ CURRENT_YO_VERSION } :: import("./version.yo");
+/// The pack file name inside the `pack` directory.
+PACK_FILENAME :: "context.md";
+/// Locate the bundled `pack/context.md`, or `.None` when none exists (the
+/// caller reports the packaging error and exits 1).
+///
+/// The lookup, in order:
+///
+/// 1. the `YO_CONTEXT_PACK` env var — AUTHORITATIVE when set: if it names
+///    an existing `context.md` (or a directory containing one) that file is
+///    THE pack; if it names nothing, the command fails rather than silently
+///    printing some other pack — a wrong explicit pin must be loud, and a
+///    deterministic error is what keeps the cli-case pin meaningful on any
+///    machine. This mirrors how the harness pins `YO_STD`/`YO_SKILLS`: a
+///    binary staged OUTSIDE its checkout (CI's stage-1 tree) can
+///    exe-walk-up to neither `std/` nor `pack/`, so the gate scripts pin
+///    the paths;
+/// 2. the running executable's ancestors (repo dev flow:
+///    `yo-out/<target>/bin/yo` finds the checkout's own `pack/`);
+/// 3. the project directory's ancestors (running an installed `yo` from
+///    inside a Yo checkout) — the same exe-walk-up-then-cwd shape
+///    `resolve_std_path` uses for `std/`.
+_find_bundled_context_pack :: (
+  fn(io : Io, exn : Exception) -> Option(Path)
+)({
+  override := env.get(String.from("YO_CONTEXT_PACK"));
+  if(override.is_some(), {
+    // AUTHORITATIVE pin: no fall-through when it names nothing.
+    p := Path.new(override.unwrap_or(String.from(".")));
+    pinned_file := p.join(Path.new(String.from(PACK_FILENAME)));
+    target := cond(
+      _is_pack_dir(p, io, exn) => pinned_file,
+      true => p
+    );
+    if(_is_pack_file(target, io, exn), {
+      return(Option(Path).Some(target));
+    });
+    return(Option(Path).None);
+  });
+  starts := ArrayList(Path).new();
+  match(
+    current_exe(),
+    .Err(_) => {},
+    .Ok(exe_path) => {
+      starts.push(exe_path);
+    }
+  );
+  match(
+    cwd(),
+    .Ok(p) => {
+      starts.push(Path.new(p.to_string()));
+    },
+    .Err(_) => {}
+  );
+  (s : usize) = usize(0);
+  while(s < starts.len(), {
+    anc := starts(s).ancestors();
+    (i : usize) = usize(0);
+    while(i < anc.len(), {
+      candidate := anc(i).join(Path.new(String.from("pack"))).join(Path.new(String.from(PACK_FILENAME)));
+      if(_is_pack_file(candidate, io, exn), {
+        return(Option(Path).Some(candidate));
+      });
+      i = (i + usize(1));
+    });
+    s = (s + usize(1));
+  });
+  return(Option(Path).None);
+});
+/// Does `p` exist and name a directory?
+_is_pack_dir :: (
+  fn(p : Path, io : Io, exn : Exception) -> bool
+)({
+  found := io.await(exists(p.clone(), io), io);
+  if(!found, {
+    return(false);
+  });
+  md := io.await(metadata(p.clone(), io), IoExn(io : io, exn : exn));
+  md.is_dir()
+});
+/// Does `p` exist and name a plain file?
+_is_pack_file :: (
+  fn(p : Path, io : Io, exn : Exception) -> bool
+)({
+  found := io.await(exists(p.clone(), io), io);
+  if(!found, {
+    return(false);
+  });
+  md := io.await(metadata(p.clone(), io), IoExn(io : io, exn : exn));
+  md.is_file()
+});
+/// The pack's `pack-version: N` citation, or `.None` when the file carries
+/// none. Token-based: the first whitespace-delimited `pack-version:` token
+/// followed by a version token wins, wherever in the header prose it sits.
+_pack_version_line :: (fn(content : String) -> Option(String))({
+  lines := content.split(String.from("\n"));
+  (li : usize) = usize(0);
+  while(li < lines.len(), {
+    match(
+      lines.get(li),
+      .Some(line) => {
+        tokens := line.trim().split(String.from(" "));
+        (ti : usize) = usize(0);
+        while(ti < tokens.len(), {
+          match(
+            tokens.get(ti),
+            .Some(tok) => {
+              if(tok == "pack-version:", {
+                match(
+                  tokens.get(ti + usize(1)),
+                  .Some(v) => {
+                    return(Option(String).Some(`pack-version: ${v}`));
+                  },
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+          ti = (ti + usize(1));
+        });
+      },
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  Option(String).None
+});
+/// Run the `context` subcommand: locate the pack, print a one-line citation
+/// header, then the pack body verbatim.
+run_context :: (
+  fn(argv : ArrayList(String), io : Io, exn : Exception) -> unit
+)({
+  if(argv.len() > usize(2), {
+    exn.throw(
+      dyn(
+        tr(
+          `context: unexpected extra argument '${argv(usize(2))}'. Usage: yo context`,
+          `context: 多余的参数 '${argv(usize(2))}'。用法：yo context`
+        )
+      )
+    );
+  });
+  pack_opt := _find_bundled_context_pack(io, exn);
+  if(pack_opt.is_none(), {
+    pin := env.get(String.from("YO_CONTEXT_PACK"));
+    match(
+      pin,
+      .Some(v) => {
+        // An AUTHORITATIVE pin that names nothing is a user error, not a
+        // packaging bug — say so, with the path that was rejected.
+        exn.throw(
+          dyn(
+            tr(
+              `context: $YO_CONTEXT_PACK='${v}' names no ${PACK_FILENAME} (a file, or a directory containing one). No fallback is attempted for an explicit pin.`,
+              `context：$YO_CONTEXT_PACK='${v}' 未指向 ${PACK_FILENAME}（文件，或包含该文件的目录）。显式指定的路径无效时不会回退。`
+            )
+          )
+        );
+      },
+      .None => {
+        exn.throw(
+          dyn(
+            tr(
+              `Error: Could not locate the bundled context pack (looked for pack/${PACK_FILENAME} beside the executable, then beside the working directory). This is likely a packaging issue — please file a bug report.`,
+              `错误：找不到随发行版捆绑的上下文包（依次查找 pack/${PACK_FILENAME}：可执行文件旁、工作目录旁）。这通常是打包问题——请提交 bug 报告。`
+            )
+          )
+        );
+      }
+    );
+  });
+  pack_path := match(pack_opt, .Some(p) => p, .None => __yo_panic("context: pack_opt — the is_none() arm threw above"));
+  content := io.await(read_to_string(pack_path, io), IoExn(io : io, exn : exn));
+  // Citation header first (D2): which toolchain version and which pack
+  // revision produced this text, so an agent can cite what it read.
+  println(`yo ${String.from(CURRENT_YO_VERSION)} — ${_pack_version_line(content).unwrap_or(String.from("pack-version: unknown"))}`);
+  println(content);
+});
+export(run_context);

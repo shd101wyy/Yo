@@ -1,9 +1,9 @@
 # Yo — context pack for coding agents
 
-`pack-version: 1` — shipped with the toolchain; `yo context` prints it. This
-file covers the LANGUAGE only. API listings come from the toolchain, never
-from here: `yo context --list` (modules), `yo context <module> [name]`
-(signatures + docs), `yo context --search <query>`. Code blocks below are
+pack-version: 1 — shipped with the toolchain; yo context prints this file.
+It covers the LANGUAGE only. API listings come from the toolchain, never
+from here: yo context --list (modules), yo context <module> [name]
+(signatures + docs), yo context --search <query>. Code blocks below are
 canonical Yo; every example compiles.
 
 ## What Yo is

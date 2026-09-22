@@ -330,6 +330,18 @@ per-subcommand usage/help block (~L8426 region), the dispatch chain
 
 ### C1 — The pack ships (`yo context` bare)
 
+> **Status: LANDED (PR `feat/yo-context-c1`).** `pack/context.md` (12.7 KB,
+> pack-version 1) + `src/context_command.yo` wired as the `context`
+> subcommand; bundles carry `pack/` and the smoke legs assert `yo context`
+> answers from outside the checkout. One deliberate deviation from the D2
+> sketch: **`$YO_CONTEXT_PACK` is AUTHORITATIVE when set** — an invalid pin
+> is a loud error, never a silent fallback — because a wrong explicit pin
+> failing quietly would print some unrelated pack and would make the
+> `context-pack-missing` cli-case non-deterministic on machines whose
+> directory ancestry happens to contain a `pack/`. The pack-version
+> citation is token-parsed from anywhere in the header prose, not a
+> fixed-position line.
+
 **Scope.** The static half, no doc-pipeline dependency.
 
 1. Write `pack/context.md` per D2's outline and cap (≤ 24 KB; the writing is
