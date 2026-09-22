@@ -806,7 +806,14 @@ static void __yo_gc_gather_white(__yo_ref_header_t* s) {
   __yo_thread_gc_state_t* gc = __yo_current_thread_gc;
   if (gc->gc_white_count == gc->gc_white_cap) {
     size_t ncap = gc->gc_white_cap == 0 ? 64 : gc->gc_white_cap * 2;
-    gc->gc_white = (__yo_ref_header_t**)realloc(gc->gc_white, ncap * sizeof(__yo_ref_header_t*));
+    __yo_ref_header_t** grown = (__yo_ref_header_t**)realloc(gc->gc_white, ncap * sizeof(__yo_ref_header_t*));
+    if (grown == NULL) {
+      // The scratch array cannot propagate failure (the collector is mid-run);
+      // a failed growth must abort with the alloc-fail diagnostic, not NULL-
+      // deref on the store below (safe mode Phase 4, plans/backlog/SAFE_MODE.md).
+      __yo_alloc_fail(ncap * sizeof(__yo_ref_header_t*));
+    }
+    gc->gc_white = grown;
     gc->gc_white_cap = ncap;
   }
   gc->gc_white[gc->gc_white_count++] = s;
