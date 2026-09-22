@@ -1,11 +1,11 @@
 # `yo context` — the agent context surface (language pack + API discovery)
 
-**Status: PROPOSED 2026-09-22 — written, not started.** Promote to `plans/`
-root when the first phase starts. Subsumes
-[`BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
+**Status: ACTIVE 2026-09-22 — design settled, implementation not started
+(phases C1–C6).** Subsumes
+[`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 B3 tasks 1–2 (`yo guide`, `yo std`); B3 task 3's `AGENTS.md` recipe lands here
 as phase C6, B4–B5 are untouched. Delivers
-[`ROADMAP.md`](../ROADMAP.md) Phase 4.1 (the canonical context pack) plus the
+[`ROADMAP.md`](ROADMAP.md) Phase 4.1 (the canonical context pack) plus the
 API-discovery half that roadmap item doesn't name. **No compiler change**: no
 syntax, no builtins, no `std/` change, therefore **no seed gate** (the one
 constraint: `src/` implementation may use only std APIs the current
