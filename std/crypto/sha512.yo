@@ -129,7 +129,8 @@ _sha512_block :: (fn(block : *u8, h : *u64) -> unit)({
   while(t < usize(80), t = (t + usize(1)), {
     s0 := (_rotr64(w(t - usize(15)), u64(1)) ^ _rotr64(w(t - usize(15)), u64(8)) ^ (w(t - usize(15)) >> u64(7)));
     s1 := (_rotr64(w(t - usize(2)), u64(19)) ^ _rotr64(w(t - usize(2)), u64(61)) ^ (w(t - usize(2)) >> u64(6)));
-    w(t) = (w(t - usize(16)) + s0 + (w(t - usize(7)) + s1));
+    // The schedule's adds wrap BY DESIGN (wrapping_add, safe mode D1).
+    w(t) = w(t - usize(16)).wrapping_add(s0).wrapping_add(w(t - usize(7)).wrapping_add(s1));
   });
   a := (h.add(usize(0))).*;
   b := (h.add(usize(1))).*;
@@ -143,27 +144,27 @@ _sha512_block :: (fn(block : *u8, h : *u64) -> unit)({
   while(i < usize(80), i = (i + usize(1)), {
     ep1 := (_rotr64(e, u64(14)) ^ _rotr64(e, u64(18)) ^ _rotr64(e, u64(41)));
     ch := ((e & f) ^ (~e & g));
-    temp1 := (hh + ep1 + (ch + _K512(i) + w(i)));
+    temp1 := hh.wrapping_add(ep1).wrapping_add(ch.wrapping_add(_K512(i)).wrapping_add(w(i)));
     ep0 := (_rotr64(a, u64(28)) ^ _rotr64(a, u64(34)) ^ _rotr64(a, u64(39)));
     maj := ((a & b) ^ (a & c) ^ (b & c));
-    temp2 := (ep0 + maj);
+    temp2 := ep0.wrapping_add(maj);
     hh = g;
     g = f;
     f = e;
-    e = (d + temp1);
+    e = d.wrapping_add(temp1);
     d = c;
     c = b;
     b = a;
-    a = (temp1 + temp2);
+    a = temp1.wrapping_add(temp2);
   });
-  (h.add(usize(0))).* = ((h.add(usize(0))).* + a);
-  (h.add(usize(1))).* = ((h.add(usize(1))).* + b);
-  (h.add(usize(2))).* = ((h.add(usize(2))).* + c);
-  (h.add(usize(3))).* = ((h.add(usize(3))).* + d);
-  (h.add(usize(4))).* = ((h.add(usize(4))).* + e);
-  (h.add(usize(5))).* = ((h.add(usize(5))).* + f);
-  (h.add(usize(6))).* = ((h.add(usize(6))).* + g);
-  (h.add(usize(7))).* = ((h.add(usize(7))).* + hh);
+  (h.add(usize(0))).* = (h.add(usize(0))).*.wrapping_add(a);
+  (h.add(usize(1))).* = (h.add(usize(1))).*.wrapping_add(b);
+  (h.add(usize(2))).* = (h.add(usize(2))).*.wrapping_add(c);
+  (h.add(usize(3))).* = (h.add(usize(3))).*.wrapping_add(d);
+  (h.add(usize(4))).* = (h.add(usize(4))).*.wrapping_add(e);
+  (h.add(usize(5))).* = (h.add(usize(5))).*.wrapping_add(f);
+  (h.add(usize(6))).* = (h.add(usize(6))).*.wrapping_add(g);
+  (h.add(usize(7))).* = (h.add(usize(7))).*.wrapping_add(hh);
 });
 /// SHA-512 streaming state (the Sha256 skeleton at 64-bit width).
 Sha512 :: ref(

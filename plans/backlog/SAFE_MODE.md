@@ -432,9 +432,41 @@ constantly — hashing, alignment, capacity math).
 
 Landed as three separately-measured PRs: 3a overflow + neg, 3b shifts, 3c casts.
 
-### 3a Overflow and negation (needs ruling D1)
+### 3a Overflow and negation — RE-SCOPED 2026-09-22: blocked on the wrapping surface
 
-**Recommended policy (D1): trap on overflow for signed AND unsigned `+ - *` and on
+**Discovery that re-frames H6:** the survey missed that Yo passes **`-fwrapv`**
+unconditionally (`src/main.yo`, documented in MEMORY_SAFETY.md "Integer
+Overflow") — signed overflow is DEFINED two's-complement wrap today, not UB;
+unsigned overflow is defined modular arithmetic. H6 is therefore NOT a
+UB-closure item but a semantics change from defined-but-silently-wrong to a
+trap, and it has a hard prerequisite: **in-tree code intentionally wraps** —
+`std/hash.yo`'s SipHash mixing (`self.v0 = (self.v0 + self.v1)` on u64) and
+Fnv1aHasher's multiply ARE the algorithm; trapping them breaks every
+HashMap/HashSet.
+
+Landed order when this phase resumes (each its own PR):
+
+1. **3a-i: wrapping builtins.** `wrapping_add` / `wrapping_sub` /
+   `wrapping_mul` on i8..i64/u8..u64/isize/usize — new BF_ builtins whose
+   codegen arm is today's raw `_binop` (evaluator registration + prelude
+   impls; runtime-only initially; comptime keeps its overflow error).
+2. **3a-ii: migrate intentional-wrap sites — COMPLETE (branch `safe-mode-3`).**
+   Done: `std/hash.yo` (SipHash's four round-adds, FNV-1a's multiply),
+   `std/rand.yo` (PCG LCG step + the two state-seed adds),
+   `std/crypto/sha256.yo` (schedule, compression, h-accumulation — its
+   helpers are shift/xor only), `std/crypto/sha512.yo`, `std/crypto/sha1.yo`,
+   `std/crypto/md5.yo`. `hmac.yo` audited clean (its adds are loop
+   counters). Length/buffer counters (`_buflen + 1`, `length + size`) are
+   NOT wrap-by-design and stay plain. `tests/crypto/` RFC/FIPS vectors are
+   the bit-exactness oracle.
+3. **3a-iii: flip the traps** — the emitters/helpers below activate.
+
+Implementation state (emitters + runtime helpers, `yo check`-clean, the 64-bit
+identities validated by a 24-case C probe) is committed on `safe-mode-3-wip`
+WITHOUT a PR — landing it now would trap std's hashers at runtime.
+
+Original policy (D1, still the ruling): trap on overflow for signed AND
+unsigned `+ - *` and on
 `-MIN`** in safe files, at every `--optimize` level (D4). Rationale: comptime already
 *errors* on overflow (`check_int_overflow`) — trapping is the runtime match; unsigned
 wrap is C-defined but silently wrong, the one failure mode this campaign exists to
@@ -519,6 +551,29 @@ construction, async task spawn, thread spawn, a deep `String` build.
 ## 8. Phase 5 — check elision: local first, verifier later
 
 ### 5a Local elision (pure codegen, no Z3)
+
+**Measurement protocol (written 2026-09-22; the numbers land with the stack's
+CI runs).** The per-phase guard cost is read from CI's `test (ubuntu-latest)`
+job durations on consecutive stack branches — each branch is the previous
+plus exactly one phase, so the delta IS that phase's guard cost over the
+full corpus compile+run:
+
+```bash
+for b in safe-mode-0a safe-mode-0c safe-mode-1 safe-mode-2; do
+  id=$(gh run list --branch $b --workflow test.yml --limit 5 \
+        --json databaseId,conclusion,headSha \
+        --jq '[.[] | select(.conclusion == "success")][0].databaseId')
+  echo "$b $(gh run view $id --json jobs --jq \
+    '.jobs[] | select(.name == "test (ubuntu-latest)") |
+     ((.completed_at | fromdate) - (.started_at | fromdate))')"
+done
+```
+
+Branches 0a→0c share identical runtime codegen (0c is evaluator-only), so
+their spread measures noise; 0c→1 adds the `__yo_idx_chk` guards; 1→2 adds
+the div guards. Decision rule: if the 0c→1 delta is within noise (< ~2%),
+5a stays a documented non-change and the phase collapses into 5b; if it
+exceeds budget, build the two dominating-guard shapes below and re-measure.
 
 Two canonical dominating-guard shapes, recognized at emission:
 

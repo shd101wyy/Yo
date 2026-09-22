@@ -292,16 +292,24 @@ Same workflow as writing FFI bindings in Swift or Go.
 
 ## Integer Overflow
 
-Yo compiles `i32(...)`, `i64(...)`, etc. to C signed integer types. By default, Yo passes `-fwrapv` to the C compiler, which defines signed-integer overflow as **two's-complement wrap-around** — not undefined behavior.
+**Integer overflow in `+`, `-`, `*`, and unary negation ABORTS with a diagnostic** — it never wraps silently and it is never undefined behavior. The same holds for division/remainder by zero (including `MIN / -1`) and for shift counts at or beyond the operand's width. Every message carries the source location; the abort is deterministic at every optimization level.
 
 ```rust
 x := i32(2147483647);   // i32 max
-y := (x + i32(1));      // y == i32(-2147483648) — defined wrap, not UB
+y := (x + i32(1));      // aborts: "integer addition overflow (at file:line:col)"
 ```
 
-Most user code never hits the limit because Yo provides `i64` / `u64` for cases where overflow is plausible. The `-fwrapv` default ensures that if your code _does_ overflow, the behavior is predictable rather than a silent miscompile.
+This is the runtime match of comptime's behavior, which already rejects overflowing constant expressions at compile time.
 
-If you measure a perf regression in a numerically-intensive loop and want to opt back into strict-overflow optimization, build with `--cflags='-fno-wrapv'`. In practice the perf delta is < 0.5% on realistic loops; this flag exists for completeness, not because you'll usually need it.
+**Arithmetic that wraps BY DESIGN** — hash mixing, sequence counters, checksums — uses the explicit wrapping methods:
+
+```rust
+h := state.wrapping_add(v);        // two's-complement wrap, never traps
+h := state.wrapping_mul(prime);
+d := state.wrapping_sub(inc);
+```
+
+For the *failure-is-a-result* style there are the checked methods: `i32(1).checked_add(i32(2))` is `.Some(3)`, `i32.MAX.checked_add(i32(1))` is `.None`. Saturating variants clamp (`saturating_add`), and **float→integer casts saturate** — out-of-range values become the target's MIN/MAX and `NaN` becomes `0` — instead of being undefined.
 
 ## What This Doesn't Guarantee
 

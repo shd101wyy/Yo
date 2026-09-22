@@ -43,6 +43,7 @@ json :: import("std/encoding/json");
   E_CANNOT_REASSIGN,
   E_MAYBE_UNINITIALIZED,
   E_NO_MATCHING_CALL,
+  E_OPTIMISTIC_PANIC,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
@@ -546,6 +547,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Point :: struct(x : i32);\nnorm :: (fn(p : Point) -> i32)(p.x);\np := Point(x : i32(1));\n_s := norm(p);\n",
       "`Point` has no `norm` method and no impl provides one, so the method-call syntax finds no candidate; define the function (or an `impl(Point, ...)` method) first. The same code fires when a trait method's impl lives in a std module that was not imported (`to_string` from `std/fmt`).",
       "`Point` 没有 `norm` 方法，也没有 impl 提供它，因此方法调用语法找不到候选者；请先定义该函数（或 `impl(Point, ...)` 方法）。当某个 trait 方法的 impl 位于未导入的 std 模块时（`std/fmt` 的 `to_string`），也会报同一错误码。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_OPTIMISTIC_PANIC,
+      "the optimistic panic vocabulary is banned in safe files",
+      "安全文件中禁用乐观恐慌词汇",
+      "`unwrap` / `expect` / `unwrap_err` on an Option/Result in a safe file discards the failure case the type already carries, and calling it would abort the program.",
+      "在安全文件中对 Option/Result 调用 `unwrap` / `expect` / `unwrap_err` 会丢弃类型已经携带的失败信息，调用它会中止程序。",
+      "Safe mode rule D7 (plans/backlog/SAFE_MODE.md §3 0c): a call may not erase a failure the receiver's type carries. Handle the failure instead — `match` on `.Some`/`.None` (or `.Ok`/`.Err`), supply a default with `unwrap_or`, compute one with `unwrap_or_else`, or propagate the Option/Result to your caller. The ban is a call-site gate: the methods still exist for `pragma(Pragma.AllowUnsafe)` files, `tests/*.test.yo`, and the standard library, where an unwrapped failure is either the point or the trusted base's decision.",
+      "安全模式规则 D7（plans/backlog/SAFE_MODE.md §3 0c）：调用不得抹掉接收者类型所携带的失败信息。请改为处理失败情形 —— 用 `match` 匹配 `.Some`/`.None`（或 `.Ok`/`.Err`），用 `unwrap_or` 提供默认值，用 `unwrap_or_else` 计算默认值，或者把 Option/Result 传播给你的调用方。该禁令是调用点门控：在 `pragma(Pragma.AllowUnsafe)` 文件、`tests/*.test.yo` 以及标准库中这些方法仍然可用。",
+      "{ println } :: import(\"std/fmt\");\n\nmain :: (fn() -> unit)({\n  best := scores.max().unwrap();\n  println(`best=${best}`);\n});\nexport(main);\n",
+      "{ println } :: import(\"std/fmt\");\n\nmain :: (fn() -> unit)({\n  best := scores.max().unwrap_or(i32(0));\n  println(`best=${best}`);\n});\nexport(main);\n",
+      "The receiver's type already says the value might be absent; `unwrap` throws that information away and aborts on the failure case, so the failure handling must be written out.",
+      "接收者的类型已经表明值可能缺失；`unwrap` 丢弃了这一信息并在失败分支中止程序，因此必须把失败处理显式写出来。"
     )
   );
   out

@@ -37,7 +37,8 @@ impl(
   /// per-thread generator both go through this one copy.
   next_u32 : (fn(inout(self) : Self) -> u32)({
     old := self.state;
-    self.state = ((old * _PCG_MULT) + self.inc);
+    // PCG's LCG step wraps BY DESIGN (wrapping_mul/add, safe mode D1).
+    self.state = old.wrapping_mul(_PCG_MULT).wrapping_add(self.inc);
     xorshifted := u32(((old >> u64(18)) ^ old) >> u64(27));
     rot := u32(old >> u64(59));
     (xorshifted >> rot) | (xorshifted << ((u32(0) - rot) & u32(31)))
@@ -86,7 +87,7 @@ impl(
   with_stream : (fn(seed : u64, stream : u64) -> Self)({
     r := Self(_st : _RngState(state : u64(0), inc : _inc_for_stream(stream)));
     _d1 := r.next_u32();
-    r._st.state = (r._st.state + seed);
+    r._st.state = r._st.state.wrapping_add(seed);
     _d2 := r.next_u32();
     r
   }),
@@ -257,7 +258,7 @@ _next_u64_thread :: (fn() -> u64)({
       _tl_state.state = u64(0);
       _tl_state.inc = _inc_for_stream(_DEFAULT_STREAM);
       _d1 := _tl_state.next_u32();
-      _tl_state.state = (_tl_state.state + _entropy_u64());
+      _tl_state.state = _tl_state.state.wrapping_add(_entropy_u64());
       _d2 := _tl_state.next_u32();
       _tl_seeded = true;
     }
