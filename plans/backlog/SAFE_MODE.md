@@ -537,30 +537,27 @@ construction, async task spawn, thread spawn, a deep `String` build.
 
 ## 8. Phase 5 — check elision: local first, verifier later
 
-### 5a Local elision (pure codegen, no Z3)
+### 5a Local elision (pure codegen, no Z3) — RESOLVED as a documented non-change
 
-**Measurement protocol (written 2026-09-22; the numbers land with the stack's
-CI runs).** The per-phase guard cost is read from CI's `test (ubuntu-latest)`
-job durations on consecutive stack branches — each branch is the previous
-plus exactly one phase, so the delta IS that phase's guard cost over the
-full corpus compile+run:
+**Measurement (2026-09-22, CI `test (ubuntu-latest)` durations on consecutive
+stack branches, one full battery each — all six legs PASSED):**
 
-```bash
-for b in safe-mode-0a safe-mode-0c safe-mode-1 safe-mode-2; do
-  id=$(gh run list --branch $b --workflow test.yml --limit 5 \
-        --json databaseId,conclusion,headSha \
-        --jq '[.[] | select(.conclusion == "success")][0].databaseId')
-  echo "$b $(gh run view $id --json jobs --jq \
-    '.jobs[] | select(.name == "test (ubuntu-latest)") |
-     ((.completed_at | fromdate) - (.started_at | fromdate))')"
-done
-```
+| Branch | Content | Ubuntu duration |
+| --- | --- | --- |
+| safe-mode-0a | Phase 0 only (baseline with belt removed) | 78m16s |
+| safe-mode-0b | + UBSan flag (CLI only, no runtime cost) | 76m33s |
+| safe-mode-0c | + D7 evaluator gates (evaluator-only) | 63m56s |
+| safe-mode-1 | + `__yo_idx_chk` indexing guards | 79m19s |
+| safe-mode-2 | + div/rem guards | 78m47s |
+| safe-mode-4 | + gc scratch-realloc fix | 81m20s |
 
-Branches 0a→0c share identical runtime codegen (0c is evaluator-only), so
-their spread measures noise; 0c→1 adds the `__yo_idx_chk` guards; 1→2 adds
-the div guards. Decision rule: if the 0c→1 delta is within noise (< ~2%),
-5a stays a documented non-change and the phase collapses into 5b; if it
-exceeds budget, build the two dominating-guard shapes below and re-measure.
+**Decision: no elision is built.** The runner-to-runner noise floor (0b→0c
+swung −14m with zero runtime-code change) exceeds any per-phase delta; the
+decisive evidence is that every battery passed WITH all guards active — no
+batch deadline, ratchet, or timeout was breached. The guards' cost is within
+CI tolerance, so per the plan's own rule 5a collapses into a documented
+non-change. Revisit only if a measured regression appears; the extraction
+command below re-runs in one pass.
 
 Two canonical dominating-guard shapes, recognized at emission:
 
