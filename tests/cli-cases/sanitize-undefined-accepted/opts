@@ -1,0 +1,15 @@
+# --sanitize undefined was ADVERTISED by `yo compile --help` (en+zh) but
+# REJECTED by the validation, which accepted only address|leak|thread
+# (plans/backlog/SAFE_MODE.md §3 0b). The flag now emits
+# -fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer.
+#
+# The case asserts ACCEPTANCE and wiring only: compile succeeds (rc=0) and
+# the emitted C lands in prog.c (ignored, it is a 70 KB machine-shape
+# artifact). A runtime UBSan trap is deliberately NOT asserted here —
+# whether the C compiler's UBSan runtime is functional is per-machine
+# (this repo already probes ASan usability for exactly that reason), and
+# the campaign's own UBSan sweeps run where the runtime works.
+#
+# fmt-clean fixture: GATE 6 scans it. Recorded by hand: the recording
+# binary must carry the fix, and a silent rc=0 needs no output golden.
+timeout=300
