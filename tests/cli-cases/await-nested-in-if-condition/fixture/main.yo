@@ -15,7 +15,16 @@ do_it :: (fn(io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
     });
   })
 );
-main :: (fn(io : Io, exn : Exception) -> unit)({
+main :: (fn(io : Io) -> unit)({
+  // exn is bound here, not taken as a parameter: the runtime provides main
+  // with `io : Io` only (safe-mode D7 / the main-signature rule).
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
   io.await(do_it(io, exn), IoExn(io : io, exn : exn));
 });
 export(main);

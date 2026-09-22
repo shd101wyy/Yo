@@ -234,8 +234,12 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-`main` may take effect parameters (`main :: (fn(io : Io) -> unit)`); only the
-result type is constrained.
+`main` may take an `io : Io` effect parameter (`main :: (fn(io : Io) -> unit)`);
+the result type must be `unit`, and `Io` is the ONLY parameter the runtime
+provides — the C wrapper zero-initializes parameters, so any other effect
+record would carry NULL handler pointers and crash on first use. Bind other
+handlers inside `main` instead (for example:
+`exn := Exception(throw : ((err) -> { unwind(()); }));`).
 
 ## CLI Usage
 

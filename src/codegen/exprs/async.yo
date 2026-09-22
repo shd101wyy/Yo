@@ -2832,6 +2832,14 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     em.emit_declaration_line("  if (__yo_effect_escaped) {");
     em.emit_declaration_line("    __yo_effect_escaped = 0;");
     em.emit_declaration_line("    sm->state = -2;");
+    // The abort itself used to be silent: a fire-and-forget spawn (the
+    // handle discarded) left nothing on stderr and rc=0, so an unhandled
+    // effect unwind was invisible. `JoinHandle.await` still returns `.None`
+    // as the typed observation, and cancellation via `JoinHandle.abort()`
+    // (race/timeout) does NOT come through here — it writes -2 in
+    // `__yo_task_abort` without an unwind, so this line fires only for
+    // genuine effect escapes.
+    em.emit_declaration_line("    fprintf(stderr, \"unhandled effect unwind aborted an async task\\n\");");
     em.emit_declaration_line("    __yo_decr_rc(ptr);");
     em.emit_declaration_line("    return;");
     em.emit_declaration_line("  }");

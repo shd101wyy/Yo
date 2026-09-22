@@ -7,6 +7,20 @@ else is specified to the emission site. Ground-truth anchors were verified on `d
 at `a1df43578`; line numbers drift, so each phase names the symbol to grep for, not just
 the line.
 
+**Maintainer rulings 2026-09-22: D1–D7 all adopt the plan's recommendations**
+(trap on signed+unsigned overflow at every `-O`; saturating float→int casts;
+abort-with-message for the escaped unwind; checks are semantics, not debug aids;
+document the slice clamp; UBSan CI leg optional; the class-1 panic ban).
+**Phase 0a LANDED as designed-plus-corrections:** implementation found that H9's
+flag-escape mechanism is unreachable (every unwind is caught at a task boundary
+or install site and the boundaries clear the flag) — the real observable defect
+was the silent task abort, now diagnosed at the unwind-side -2 writers, with the
+post-`__yo_user_main` check kept as the belt. See
+`issues/fixed/effect-unwind-escaping-a-task-or-main-is-silent.md` and
+`issues/fixed/main-effect-parameters-other-than-io-segfault.md` (the latter
+surfaced by the repro: `main` with a non-`Io` effect parameter segfaulted at
+first use; the entry-point signature check now rejects it).
+
 Companion documents that bound this design:
 
 - [`plans/backlog/DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md) — Layer 2
@@ -84,7 +98,7 @@ What the code actually emits today, with evidence:
 | H6 | Signed int `+ - *` overflow | raw C — UB | `src/codegen/exprs/inline_fns.yo:219-221` | tier 3 (D1) | 3 |
 | H7 | Shift count ≥ width | raw C — UB | `inline_fns.yo:236-237` | tier 3 | 3 |
 | H8 | Float→int cast out of range | raw C cast — UB | `__yo_as`, `inline_fns.yo:289-306` | saturate or trap (D2) | 3 |
-| H9 | Escaped effect unwind past `main` | **silent rc=0** | `src/codegen/functions/generation.yo:1434` checks the flag after module init only; `:1440-1442` calls `__yo_user_main` then `return NULL` with no check (Windows arm same) | loud trap | 0 |
+| H9 | Escaped effect unwind past `main` | **silent rc=0** (mechanism corrected on implementation: the flag itself cannot reach top level — task boundaries clear it; the observable defect is the silent task abort, see §3 0a) | `src/codegen/functions/generation.yo` checked the flag after module init only; the -2 writers at `src/codegen/exprs/async_completion.yo` (`emit_async_future_escape`) and the sync_fut resume block in `src/codegen/exprs/async.yo` printed nothing | loud diagnostic + belt | 0 (landed) |
 | H10 | Allocation failure | mostly handled — `__yo_rc_alloc` panics via `__yo_alloc_fail` (c-codegen instructions §OOM) | policy documented; coverage unaudited | audited tier 3 | 4 |
 | H11 | `--sanitize undefined` | advertised but rejected | help `src/main.yo:7632` (en) / `:7682` (zh); validation `:3397` accepts only `address\|leak\|thread` | works | 0 |
 | H12 | Optimistic panic vocabulary callable in safe files | `Option.unwrap`/`Option.expect`, `Result.unwrap`/`Result.unwrap_err` trap on the failure case (`std/prelude.yo:7937-7943`, `:8049-8055`, `:8797-8811`); measured use 2026-09-22: 163 sites / 18 files in `src/`, 2,497 in `tests/`, 234 in `std/`, 0 in `vendor/` and `scripts/` | compile error (D7, class 1) | 0c |
@@ -138,36 +152,39 @@ has an existing entry (the `__yo_effect_escaped` hits in `issues/` are all about
 flag cleanup during propagation, not the missing post-`main` check). 0c is a policy
 gate plus a migration, decided as D7 on 2026-09-22.
 
-### 0a — an escaped unwind must be loud (closes H9)
+### 0a — an escaped unwind must be loud (closes H9) — LANDED, mechanism corrected
 
-**Change.** In `src/codegen/functions/generation.yo`, on all three arms (POSIX worker
-`:1438-1443`, Windows worker `:1485+`, WASM direct call), emit after
-`__yo_user_main${main_call_args};`:
+**As implemented** (the survey's flag-escape story was a prediction and the
+repro corrected it — recorded in
+`issues/fixed/effect-unwind-escaping-a-task-or-main-is-silent.md`):
 
-```c
-  if (__yo_effect_escaped) {
-    fprintf(stderr, "unhandled effect unwind escaped to top level\n");
-    abort();
-  }
-```
+1. **Unwind-side task aborts are loud.** The two unwind-side -2 writers —
+   `emit_async_future_escape` (`src/codegen/exprs/async_completion.yo`) and the
+   sync_fut resume escape block (`src/codegen/exprs/async.yo`) — emit
+   `fprintf(stderr, "unhandled effect unwind aborted an async task\n")`.
+   `__yo_task_abort` (`src/codegen/async/runtime_core.yo`), the
+   `JoinHandle.abort()` path race/timeout use, writes the same state WITHOUT an
+   unwind and is deliberately not touched — a cancelled loser must stay
+   silent. `JoinHandle.await` continues to return `.None` as the typed channel.
+2. **The post-`__yo_user_main` flag belt: DEFERRED.** Built as designed, the
+   CI battery caught it firing on four legitimate `algebraic_effects` tests:
+   an install-frame unwind exit (`(raise : Raise) = handler; raise(...)`, the
+   batch/test shape) leaves the flag SET after correctly exiting the frame —
+   flag hygiene, not a swallowed error
+   (`issues/effect-install-frame-exit-leaves-the-escaped-flag-dirty.md`).
+   The belt returns with that fix; until then the module-init check remains
+   the only exit-time consumer, and the async-side diagnostics above carry
+   the loudness promise.
 
-Rationale for abort (D3): it is rc 134 like every other trap, needs no
-worker→`main` exit-code plumbing (the worker returns `void*`/`DWORD`), and matches the
-post-module-init precedent two lines up. The alternative — a soft distinct exit code —
-interacts with the `main`-return-value family
-(`issues/fixed/main-return-value-is-discarded-so-a-main-computed-exit-code-is-always-zero.md`)
-and buys nothing over a loud abort.
+**Validated** by patching the seed's emitted C for the fire-and-forget repro
+with the exact emitted snippets and running (diagnostic line appears, rc
+stays 0), plus the cli-cases `task-effect-unwind-diagnostic` and
+`main-non-io-effect-param-rejected` (recorded by hand — the recording binary
+must carry the fix).
 
-**Tests.** A batch test cannot exercise this (the abort kills the whole batch runner),
-so the oracle is a cli-case: `tests/cli-cases/effect-escape-top-level/` with a fixture
-whose `main` calls an effectful function through a propagation-only chain, `cmd` runs
-`yo compile fixture/main.yo -o out && ./out`, golden expects rc 134 + the message.
-Plus one *in-batch* negative test (handler installed → no abort) in
-`tests/algebraic_effects.test.yo` to prove the check does not over-trigger.
-
-**Risk.** Any existing test that silently relied on escape-past-main rc=0 will now die
-loudly. That test was asserting the bug — fix it under its own issue. Sweep: fast suite,
-`yo test ./std`, internal suite one-file-at-a-time.
+~~**Tests.**~~ (superseded by the as-built validation above; the original
+cli-case shape assumed the abort fires at top level, which the corrected
+mechanism ruled out.)
 
 ### 0b — make `--sanitize undefined` real (closes H11)
 

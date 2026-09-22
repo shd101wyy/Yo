@@ -1,0 +1,30 @@
+{ IoExn, Exception } :: import("std/error");
+{ println, ToString } :: import("std/fmt");
+
+MyError :: enum(
+  Boom
+);
+derive(
+  MyError,
+  Error(
+    .Boom => `boom`
+  )
+);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        println("handler: unwinding");
+        unwind(());
+      }
+    )
+  );
+  task := io.async((e : IoExn) => {
+    println("task: throwing");
+    e.exn.throw(dyn(MyError.Boom));
+  });
+  io.spawn(task, IoExn(io : io, exn : exn));
+  println("main: spawned fire-and-forget, returning");
+});
+export(main);
