@@ -921,6 +921,8 @@ _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeV
   ((((fid_is_control || fid_is_effect_member) || ft_is_control) || body_has_effects) || param_fn_or_ctl)
   || (is_function_type(function_type) && callee_is_atom)
 });
+/// TEMPORARY PROBE v2 gate: on for every invocation of this process.
+_ou_may_unwind_debug :: (fn(context : FunctionGenerationContext) -> bool)(true);
 /// Whether the call site is the handler-installation point (where the unwound
 /// value is extracted, vs merely propagated): the direct-control-fn
 /// given-binding check plus the Phase-2 explicit-param fallback. There is no
@@ -942,6 +944,10 @@ _call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeVal
       .None => false
     )
   }, false);
+  // TEMPORARY PROBE v2: dump for EVERY may-unwind call reaching this
+  // predicate — probe v1 (gated on is_direct_handler) printed zero lines,
+  // proving the flag never fires for the failing shape.
+  eprintln(`[install-probe2] fn=${context.base.current_function_name} is_direct_handler=${is_direct_handler.to_string()} fdfl=${fdfl.to_string()} frames=${env.frames.len().to_string()} callee_has_val=${match(func_ei.value, .Some(_) => "some", .None => "none")}`);
   if(install1, return(true));
   // (2) Phase-2 fallback: a fn-typed / ctl-bound param whose threaded argument
   //     variable is locally bound in a begin-block frame of the enclosing fn.
