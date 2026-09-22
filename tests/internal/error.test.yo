@@ -14,6 +14,7 @@
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { TokenKind, Token } :: import("../../src/token.yo");
+json :: import("std/encoding/json");
 { assert, panic } :: import("std/assert");
 {
   TokenAndError,
@@ -27,7 +28,8 @@ import("std/fmt");
   format_raw_error,
   format_warning_messages,
   _classify_message,
-  format_error_message_with_help
+  format_error_message_with_help,
+  format_error_message_with_repair
 } :: import("../../src/error.yo");
 {
   Severity,
@@ -36,6 +38,11 @@ import("std/fmt");
   render_diagnostics_human,
   render_diagnostics_short,
   render_diagnostics_json,
+  render_diagnostics_sarif,
+  set_warnings_enabled,
+  warnings_enabled,
+  emit_warning,
+  take_warnings,
   set_color_enabled,
   suggest_name
 } :: import("../../src/diagnostics.yo");
@@ -336,4 +343,94 @@ test("color: the json render never carries ESC, even with color forced on", {
   j := render_diagnostics_json(format_error_message(tok, `Variable "x" not found.`).diagnostics);
   set_color_enabled(false);
   assert(!j.contains(`\u{1b}`), `json payload must never carry ESC, got:\n${j}`);
+});
+
+// ─── P4: SARIF ───────────────────────────────────────────────────────────────
+test("sarif: a valid 2.1.0 log with rule, region and fix", {
+  tok := make_token(`t.yo`, `countr := 1;`, usize(0), usize(8), `countr`);
+  err := format_error_message_with_repair(
+    tok,
+    `Variable "countr" not found.`,
+    Option(String).None,
+    String.from("counter"),
+    String.from("rename to the closest name in scope")
+  );
+  s := render_diagnostics_sarif(err.diagnostics);
+  assert(s.contains(`"$schema":"https://json.schemastore.org/sarif-2.1.0.json"`), `schema, got:\n${s}`);
+  assert(s.contains(`"version":"2.1.0"`), `version, got:\n${s}`);
+  assert(s.contains(`"ruleId":"E0401"`), `ruleId, got:\n${s}`);
+  assert(s.contains(`"startLine":1`), `1-based startLine, got:\n${s}`);
+  assert(s.contains(`"startColumn":9`), `1-based startColumn, got:\n${s}`);
+  assert(s.contains(`"endColumn":15`), `exclusive endColumn over the token, got:\n${s}`);
+  assert(s.contains(`"tool":{"driver":{"name":"yo"`), `tool.driver nesting, got:` + s);
+  assert(s.contains(`"physicalLocation":{"artifactLocation"`), `physicalLocation nesting, got:` + s);
+  assert(s.contains(`"fixes"`), `fix present, got:\n${s}`);
+  assert(s.contains(`"deletedRegion"`), `deletedRegion, got:\n${s}`);
+  assert(
+    s.contains(`"insertedContent":{"text":"counter"}`),
+    `insertedContent object, got:
+${s}`
+  );
+  match(
+    json.parse_string(s),
+    .Ok(_) => (),
+    .Err(_) => assert(false, `sarif must round-trip through the json parser, got:\n${s}`)
+  );
+});
+test("sarif: an ownership group is ONE log with two results sharing one rule", {
+  toks := ArrayList(TokenAndError).new();
+  toks.push(
+    TokenAndError(
+      token : make_token(`t.yo`, `consume(z);`, usize(3), usize(0), `consume`),
+      error_message : `use of moved value: \`z\``
+    )
+  );
+  toks.push(
+    TokenAndError(
+      token : make_token(`t.yo`, `let z = own(T)();`, usize(1), usize(4), `z`),
+      error_message : `value moved here`
+    )
+  );
+  s := render_diagnostics_sarif(format_error_messages(toks).diagnostics);
+  assert(s.contains(`"ruleId":"E0901"`), `primary keeps its code, got:\n${s}`);
+  assert(s.contains(`"level":"error"`), `primary level, got:\n${s}`);
+  assert(s.contains(`"level":"note"`), `secondary renders as note, got:\n${s}`);
+  match(
+    json.parse_string(s),
+    .Ok(_) => (),
+    .Err(_) => assert(false, `group log must parse, got:\n${s}`)
+  );
+});
+test("sarif: never colored, even with color forced on", {
+  tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
+  set_color_enabled(true);
+  s := render_diagnostics_sarif(format_error_message(tok, `Variable "x" not found.`).diagnostics);
+  set_color_enabled(false);
+  assert(!s.contains(`\u{1b}`), `sarif must never carry ESC, got:\n${s}`);
+});
+
+// ─── P4: the warnings channel (D15) ──────────────────────────────────────────
+test("warnings: the stash dedupes, takes clean, and honors the enabled flag", {
+  mk :: (fn(name : String) -> Diagnostic)(
+    Diagnostic(
+      code : Option(String).None,
+      severity : Severity.Warning,
+      message : `unused variable \`${name}\``,
+      span : Span(path : String.from("t.yo"), row : usize(4), col : usize(2), len : usize(1)),
+      source_line : String.new()
+    )
+  );
+  set_warnings_enabled(false);
+  emit_warning(mk(String.from("a")));
+  assert(take_warnings().len() == usize(0), "emit while disabled is a no-op");
+  set_warnings_enabled(true);
+  emit_warning(mk(String.from("a")));
+  emit_warning(mk(String.from("a")));
+  emit_warning(mk(String.from("b")));
+  n := take_warnings().len();
+  after := take_warnings().len();
+  set_warnings_enabled(false);
+  assert(n == usize(2), `dedupe to one per span+message, got ${n.to_string()}`);
+  assert(after == usize(0), "take clears the stash");
+  assert(!warnings_enabled(), "flag restored");
 });

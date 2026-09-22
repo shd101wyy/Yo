@@ -414,6 +414,11 @@ evaluate_identifier_and_operator :: (
   // NOTE: `is_extern` is not consulted here; skip the runtime-value
   // special-case and always use the variable's compile-time value.
   resolved_value := variable.value.get(usize(0));
+  // The warnings channel's read marker (D15): an identifier expression that
+  // resolved to this binding is a USE of it. Assignment TARGETS resolve
+  // through the cell, not here, so `x := 1; x = 2;` stays "unread" and the
+  // scope-end walk warns — the variable's value never influenced anything.
+  variable.was_read = true;
   // Build ExprInfo
   info := new_expr_info(env, variable.ty);
   info.value = resolved_value;
