@@ -229,6 +229,15 @@ DECIDED D7 class-1 panic ban (`unwrap` & co. are compile errors in safe files �
 criterion: a call may not discard failure information the type already carries),
 checked builtins, arithmetic semantics rulings D1/D2, OOM audit, elision, and a
 deferred strict mode),
+[`backlog/YO_CONTEXT.md`](backlog/YO_CONTEXT.md)
+(PROPOSED 2026-09-22: the agent context surface — `yo context` as one verb
+for the curated language pack (ROADMAP Phase 4.1, ≤ 24 KB, shipped in the
+release bundle, anti-drift rule: language facts only, never API listings)
+plus index/describe/search API discovery over the doc IR, with a measured
+baseline (26.1 s full-std doc build, 175 modules / 2,069 items, a ~30k-token
+full index — hence search + per-module browsing, never wholesale loading)
+and a content-addressed index cache under the yo cache root; subsumes
+BEND_LAWS B3 tasks 1–2 (`yo guide`/`yo std`); phases C1–C6, no seed gate),
 [`backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md`](backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md)
 (unsafety is FILE-scoped in Yo, which is what makes the D14 pointer `iter()`
 expensive — with probes and a Rust/Swift comparison),
