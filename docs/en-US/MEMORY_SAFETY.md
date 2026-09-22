@@ -65,6 +65,26 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 
 The principle: **anything that could let a user write UB is gated.** If the user can't construct a raw pointer, they can't dereference one — full stop.
 
+## The Optimistic Panic Vocabulary: `unwrap` Is Banned in Safe Code
+
+`.unwrap()`, `.expect(...)`, and `.unwrap_err()` on an `Option`/`Result` are **compile errors in safe files**. The receiver's type already says "this might fail"; the call throws that information away and aborts the program on the failure case. Handle the failure instead:
+
+```rust
+// COMPILE ERROR — the None case is unhandled:
+best := scores.max().unwrap();
+
+// Handle it — match:
+best := match(scores.max(), .Some(s) => s, .None => i32(0));
+// ...or a default / computed fallback:
+best := scores.max().unwrap_or(i32(0));
+best := scores.max().unwrap_or_else(() => recompute());
+// ...or propagate the Option/Result to your caller.
+```
+
+This is safe-mode rule D7 (`plans/backlog/SAFE_MODE.md`): a call may not erase a failure the type carries. It is not a ban on aborting — `panic(...)` and `assert(...)` stay legal (deliberate aborts are the author's loud statement, and `assert` is the test infrastructure) — and value-level traps such as bounds-checked indexing stay legal (their failure is a *value* precondition the type never carried; they are the subject of the arithmetic-semantics work, not of this rule).
+
+Exempt: `tests/*.test.yo` (a failed unwrap fails the test loudly — the test doing its job), the standard library, `pragma(Pragma.AllowUnsafe)` files, and compiler-synthesized code. Comptime contexts are NOT exempt yet: a comptime-known `.None` still emits a runtime unwrap today (there is no CTFE fold), so it would remain a reachable trap.
+
 ## In-Place Mutation: `inout(name) : T`
 
 The pattern C/Rust solve with `&mut T` is solved in safe Yo with a parameter modifier:

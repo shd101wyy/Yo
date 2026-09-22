@@ -103,7 +103,8 @@ _copy_skills_dir :: (
   stack := ArrayList(struct(src : Path, dest : Path, prefix : String)).new();
   stack.push({ src : src.clone(), dest : dest.clone(), prefix : display_prefix.clone() });
   while(stack.len() > usize(0), {
-    item := stack.pop().unwrap();
+    // len() > 0 proves pop() returns Some (safe-mode D7).
+    item := match(stack.pop(), .Some(it) => it, .None => __yo_panic("skills: stack.pop() — len() > 0 by loop condition"));
     io.await(create_dir_all(item.dest.clone(), io), IoExn(io : io, exn : exn));
     names := _sorted_dir_names(item.src.clone(), io, exn);
     (j : usize) = usize(0);
@@ -271,7 +272,8 @@ install_skills_into :: (
   if(bundled_opt.is_none(), {
     return(Option(SkillsInstallResult).None);
   });
-  bundled_dir := bundled_opt.unwrap();
+  // The is_none() early return above proves Some (safe-mode D7).
+  bundled_dir := match(bundled_opt, .Some(bd) => bd, .None => __yo_panic("skills: bundled_opt — is_none() returned above"));
   names := _sorted_dir_names(bundled_dir.clone(), io, exn);
   if(names.len() == usize(0), {
     println(tr(`No skill files found in the bundled skills directory.`, `捆绑的技能目录里没有技能文件。`));
@@ -420,7 +422,8 @@ run_skills_install :: (
       )
     );
   });
-  res := res_opt.unwrap();
+  // The is_none() throw above proves Some (safe-mode D7).
+  res := match(res_opt, .Some(r) => r, .None => __yo_panic("skills: res_opt — the is_none() arm threw above"));
   // Empty bundled dir: the "No skill files found" message already printed.
   if(res.skills.len() == usize(0), {
     return(());
