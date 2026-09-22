@@ -563,3 +563,12 @@ test("wrapping_add/sub/mul wrap two's-complement, never trap", {
   assert(i32.MAX.wrapping_add(i32(1)) == i32.MIN, "i32 MAX+1 wraps to MIN");
   assert(i32.MIN.wrapping_sub(i32(1)) == i32.MAX, "i32 MIN-1 wraps to MAX");
 });
+test("wrapping_mul's overflow fallback is logarithmic, not linear", {
+  // The .None fallback (checked_mul overflowed) once ACCUMULATED self rhs
+  // times — with u64 hash constants (fmix64's 0xff51…, hashed on every
+  // HashMap key) that is ~10^19 iterations, and every hash effectively hung
+  // the program. These values must complete instantly and bit-exactly.
+  assert(u64(0x9E3779B97F4A7C15).wrapping_mul(u64(0xff51afd7ed558ccd)) == u64(0x2e72b4654e79d8d1), "fmix64-scale u64 product");
+  assert(i64.MIN.wrapping_mul(i64(3)) == i64.MIN, "MIN*3 wraps back to MIN through the fallback");
+  assert(u64(0x8000000000000000).wrapping_mul(u64(2)) == u64(0), "2^63*2 wraps to 0 through the fallback");
+});

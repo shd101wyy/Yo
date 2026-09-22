@@ -4853,21 +4853,32 @@ impl(
   /// Accumulated with `wrapping_add` rather than by forming the product:
   /// signed overflow is undefined behaviour in C, so the overflowing multiply
   /// must never exist. Same reason `checked_mul` above tests by DIVISION.
-  /// Only reached on a path that already overflowed, so the loop is not on
-  /// the fast path.
+  /// Only reached on a path that already overflowed. The fallback is
+  /// Russian-peasant multiplication — halve `rhs`, double `self`, O(log|rhs|)
+  /// iterations. The first version ACCUMULATED `self` `rhs` times, which for
+  /// u64 hash constants (fmix64's 0xff51… on every HashMap key) is ~10^19
+  /// iterations: a hash took effectively forever and hung the tier-1
+  /// walker/module/corpus legs at rc=124.
   wrapping_mul : (fn(self : T, rhs : T) -> T)(
     match(
       self.checked_mul(rhs),
       .Some(v) => v,
       .None => {
+        (neg : bool) = cond((rhs < T(0)) => !(self < T(0)), true => (self < T(0)));
+        (a : T) = cond((self < T(0)) => T(0).wrapping_sub(self), true => self);
+        (b : T) = cond((rhs < T(0)) => T(0).wrapping_sub(rhs), true => rhs);
         (acc : T) = T(0);
-        (i : T) = T(0);
-        (n : T) = cond((rhs < T(0)) => (T(0) - rhs), true => rhs);
-        (step : T) = cond((rhs < T(0)) => (T(0) - self), true => self);
-        while(i < n, i = (i + T(1)), {
-          acc = acc.wrapping_add(step);
+        while(b != T(0), {
+          cond(
+            ((b % T(2)) == T(1)) => {
+              acc = acc.wrapping_add(a);
+            },
+            true => ()
+          );
+          a = a.wrapping_add(a);
+          b = (b >> T(1));
         });
-        acc
+        cond(neg => T(0).wrapping_sub(acc), true => acc)
       }
     )
   ),

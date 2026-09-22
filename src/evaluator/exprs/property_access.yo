@@ -571,6 +571,13 @@ evaluate_property_access :: (
   // through to the dispatch-time gate in calls/function.yo; type-value
   // receivers (`Option(i32).unwrap`) are gated in the TypeVal arm below.
   if(ast_expr_is_atom(property_expr) && is_class1_panic_method_name(ast_expr_token(property_expr).value), {
+    // TEMPORARY PROBE: why does the D7 gate miss `make(true).unwrap()`?
+    if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
+      pa_c1_dbg_ty := match(obj_info_opt, .Some(oi_c1d) => type_to_string(oi_c1d.ty), .None => String.from("<no-info>"));
+      pa_c1_dbg_val := match(obj_info_opt, .Some(oi_c1d) => match(oi_c1d.value, .Some(v) => type_to_string(type_of_eval_value(v)), .None => String.from("<runtime>")), .None => String.from("<no-info>"));
+      pa_c1_dbg_mp := ast_expr_token(property_expr).module_path;
+      eprintln(`[pa-c1] obj=${ast_expr_to_string(object_expr)} ty=${pa_c1_dbg_ty} val=${pa_c1_dbg_val} mp=${pa_c1_dbg_mp}`);
+    });
     pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(oi_c1.ty), .None => false);
     if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.std_path.clone()), {
       exn.throw(
@@ -782,6 +789,24 @@ Raw pointer operations may dereference invalid memory.`
       //; single candidate only — multiple
       // candidates defer to function.yo's arg-type disambiguation.
       pr_prop_name := ast_expr_token(property_expr).value;
+      // Safe mode (D7): the generic-impl fallback below RESOLVES and RETURNS
+      // for `Option(i32).unwrap`-shaped extractions (Option/Result methods
+      // live in the generic-impl registry), never reaching the EnumT arm's
+      // gate — so the extraction ban is checked here as well.
+      if(ast_expr_is_atom(property_expr) &&
+        is_class1_panic_method_name(pr_prop_name.clone()) &&
+          is_class1_panic_receiver_type(type_val_inner) &&
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.std_path.clone()), {
+        exn.throw(
+          dyn(
+            format_error_message_with_help(
+              ast_expr_token(property_expr),
+              `\`${pr_prop_name}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+              Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
+            )
+          )
+        );
+      });
       generic_methods_pr := find_methods_from_generic_impls(type_val_inner, pr_prop_name, env);
       if(generic_methods_pr.len() == usize(1), {
         method_pr := match(
