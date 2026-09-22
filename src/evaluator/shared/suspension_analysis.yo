@@ -697,10 +697,7 @@ walk_expr_ :: (
         true => {
           detector.detect(expr_cloned.clone(), parent_expr, points);
           if(detector.should_skip_body(expr_cloned.clone()), {
-            // For skipped bodies, still walk deferred dup expressions —
-            // detection only, no capture: same fix as the deferred-drop walk
-            // below (dup targets are minted temps; capturing them here gave
-            // them never-stored state slots).
+            // For skipped bodies, still walk deferred dup expressions
             match(
               get_info(expr_cloned.clone()),
               .None => (),
@@ -720,14 +717,7 @@ walk_expr_ :: (
                         },
                         .Some(e) => e
                       );
-                      detector.detect(dup_e, Option(AstExpr).Some(expr_cloned.clone()), points);
-                      // Capture a dup target only when its block has closed
-                      // by the time the dup fires (see
-                      // _drop_target_block_closed); otherwise the local is
-                      // live and a state slot would never receive a store.
-                      if(_drop_target_block_closed(dup_e, info2.env), {
-                        recur(dup_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
-                      });
+                      recur(dup_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
                       di = (di + usize(1));
                     });
                   }
@@ -752,20 +742,7 @@ walk_expr_ :: (
             recur(arg3, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
             ai3 = (ai3 + usize(1));
           });
-          // Walk deferred drop expressions — for SUSPENSION DETECTION only.
-          // Their argument atoms are minted temps (`_file_..._temp_N`), and
-          // recursing with capture on made every drop target a captured
-          // variable: the state struct gained a slot, the drop's codegen read
-          // `sm->var_...`, but the temp is only live WITHIN its begin block
-          // (dead at every suspension point), so no capture-store ever wrote
-          // the slot — the per-iteration drop then fired on the empty slot
-          // while the real value died with the loop-body local. Every
-          // intermediate temp in an async loop body leaked this way
-          // (read_dir's dirent loop: four iterations = four leaked
-          // Option(String)s; the walker/file/temp/bufio batteries all fail
-          // LSan on it). A temp that genuinely crosses a suspension is
-          // captured through its USE sites in the normal walk below, not
-          // through its drop.
+          // Walk deferred drop expressions
           match(
             get_info(expr_cloned.clone()),
             .None => (),
@@ -785,18 +762,7 @@ walk_expr_ :: (
                       },
                       .Some(e) => e
                     );
-                    detector.detect(drop_e, Option(AstExpr).Some(expr_cloned.clone()), points);
-                    // Capture a drop target only when its block has closed
-                    // by the time the drop fires (the hoisted-drop shape:
-                    // the temp was declared in a deeper begin block than the
-                    // scope whose epilogue drops it, so no C local exists
-                    // there). A temp dropped in its OWN block is read as the
-                    // live local — capturing it routed the drop to a state
-                    // slot that no capture-store ever wrote, leaking the
-                    // temp once per loop iteration.
-                    if(_drop_target_block_closed(drop_e, info3.env), {
-                      recur(drop_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
-                    });
+                    recur(drop_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
                     di2 = (di2 + usize(1));
                   });
                 }
@@ -811,39 +777,6 @@ walk_expr_ :: (
 // ---------------------------------------------------------------------------
 // analyze_suspension_points
 // ---------------------------------------------------------------------------
-/// Whether the target of a deferred drop/dup expression will have NO C local
-/// in scope where that expression fires — the begin block that declared it
-/// has already closed (the temp's declaring frame is deeper than every frame
-/// in the owning expression's environment, or the name does not resolve
-/// there at all). Those targets NEED the state-machine slot. A temp whose
-/// declaring frame is still open at the owner (a loop-body temp dropped at
-/// that same body's epilogue) is read as the live local — capturing it only
-/// routed the drop to a slot no capture-store ever wrote, leaking one
-/// allocation per loop iteration (read_dir's dirent loop; see
-/// issues/async-loop-body-temp-drops-route-to-a-never-stored-state-slot.md).
-_drop_target_block_closed :: (fn(drop_e : AstExpr, owner_env : Environment) -> bool)({
-  target_name := match(
-    drop_e,
-    .FnCall(_, _, da, _, _) => match(
-      da.get(usize(0)),
-      .Some(.Atom(_, dt)) => dt.value,
-      _ => String.new()
-    ),
-    _ => String.new()
-  );
-  if(target_name.len() == usize(0), {
-    return(true);
-  });
-  vars := get_variables_from_env(owner_env, target_name);
-  if(vars.len() == usize(0), {
-    return(true);
-  });
-  match(
-    vars.get(vars.len() - usize(1)),
-    .Some(vv) => (vv.frame_level >= owner_env.frames.len()),
-    .None => true
-  )
-});
 /// Analyzes a function body to find all suspension points and captured variables.
 ///
 /// Takes `get_info`: the per-expression evaluation annotation lookup.
