@@ -71,7 +71,14 @@ D1 spellings.
 2. `wrapping_mul` (`std/prelude.yo`) fallback → lane-based modular multiplication.
 3. `fnv1a64` (`src/utils.yo` — the compiler's own inlined FNV-1a for stable
    ids, same wrap-by-design multiply, same missed site) →
-   `wrapping_mul`.
+   `wrapping_sub`.
+4. The follow-up sweep found the same missed idiom in five more wrap-by-design
+   subtractions, fixed the same way: PCG's rotate (`u32(0) - rot`) and both
+   `threshold := (0 - bound) % bound` sites in `std/rand.yo`, the
+   isolate-lowest-set-bit `x & (0 - x)` in `std/prelude.yo`'s popcount, and
+   CRC's branchless mask in `std/crypto/crc32.yo`. Guarded sites were left
+   alone (`std/string.yo`'s `i64(0) - mag` is bounded by the preceding
+   `mag <= i64.MAX` check).
 
 Test: `std/collections/hash_map.test.yo` — a string-keyed insert/get
 round-trip. Before both fixes it aborts (shape 1) on any #837-codegen

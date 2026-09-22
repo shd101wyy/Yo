@@ -4,6 +4,8 @@ description: Build Yo libraries for WebAssembly and publish as npm packages. Use
 argument-hint: "[WASM task, target, or integration question]"
 ---
 
+For API discovery over std modules, run `yo context --list` and `yo context <module>`.
+
 # Yo WASM Integration
 
 Use this skill for compiling Yo projects to WebAssembly and packaging them for JavaScript/TypeScript consumption via npm.

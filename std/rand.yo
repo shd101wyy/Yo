@@ -41,7 +41,10 @@ impl(
     self.state = old.wrapping_mul(_PCG_MULT).wrapping_add(self.inc);
     xorshifted := u32(((old >> u64(18)) ^ old) >> u64(27));
     rot := u32(old >> u64(59));
-    (xorshifted >> rot) | (xorshifted << ((u32(0) - rot) & u32(31)))
+    // The rotate's `0 - rot` wraps BY DESIGN (PCG's output mapping; with
+    // the mask it is the rotate-left), so it is `wrapping_sub` (safe mode
+    // D1 — a plain `-` traps on underflow, issues/hash-map-mix-u64-relies-on-wrapping.md).
+    (xorshifted >> rot) | (xorshifted << (u32(0).wrapping_sub(rot) & u32(31)))
   }),
   /// The next 64 uniformly random bits (two 32-bit draws).
   next_u64 : (fn(inout(self) : Self) -> u64)({
@@ -60,7 +63,9 @@ impl(
       true => {
         // threshold = 2^64 mod bound; reject draws under it so the remaining
         // range is an exact multiple of bound.
-        threshold := ((u64(0) - bound) % bound);
+        // 2^64 mod bound as `(0 - bound) % bound` — the subtraction wraps
+        // BY DESIGN (wrapping_sub, safe mode D1).
+        threshold := (u64(0).wrapping_sub(bound) % bound);
         (r : u64) = self.next_u64();
         while(r < threshold, {
           r = self.next_u64();
@@ -281,7 +286,8 @@ rand_below :: (fn(bound : u64) -> u64)(
   cond(
     (bound == u64(0)) => __yo_panic("rand_below: bound must be non-zero"),
     true => {
-      threshold := ((u64(0) - bound) % bound);
+      // wrapping_sub (safe mode D1) — see next_below.
+      threshold := (u64(0).wrapping_sub(bound) % bound);
       (r : u64) = _next_u64_thread();
       while(r < threshold, {
         r = _next_u64_thread();

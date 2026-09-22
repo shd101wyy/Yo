@@ -130,7 +130,9 @@ design constraint, not an accident:
 1. **Canonical context pack** — a single versioned file (grammar + idioms +
    the sharp edges) shipped with the toolchain (`yo context`), maintained
    like `.github/skills/` but as a product artifact. Small enough to sit in
-   any model's context.
+   any model's context. — **LANDED** (C1–C6 2026-09-22, plus the API-index
+   half this item didn't name: see [`YO_CONTEXT.md`](YO_CONTEXT.md) —
+   the pack, describe, search, `--deps`, and the init/skills consolidation)
 2. **Errors as few-shot repairs** — see Phase 2.3; the error corpus doubles
    as training/eval data. Design proposed in
    [`ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md) — the
