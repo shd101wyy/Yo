@@ -57,6 +57,28 @@ match); the same shape outside a batch currently fails to transpile the
 handler body entirely (abort-stub), which is why only batch-run tests
 exercise it.
 
+## Root cause — pinpointed 2026-09-22 via the #838 probe PR
+
+The probe (draft PR #838) instrumented `_call_is_handler_installation` and ran
+the full tier-1 battery. Result: **zero `[install-probe]` lines while the
+`algebraic_effects` battery passed** — the direct local-handler calls
+(`(raise : Raise) = lambda; raise(...)`) never route through
+`_call_is_handler_installation` at all. That predicate is consulted only on
+the method-dispatch and named-extern paths
+(`src/codegen/exprs/other_fn_call.yo:1327/1444/2027`); the plain atom-callee
+call path — `raise` is a local variable of ctl/fn type, the "cFuncName
+direct-call path" that other_fn_call.yo:993 calls "the live corpus path" —
+emits the post-call check **unconditionally in propagate form**
+(`__yo_effect_escaped = 0; call; if (escaped) { drop locals; return; }` with
+no clear), which is exactly the dirty-flag shape visible in the batch C.
+
+So the fix is: in the atom-callee direct-call path, when the callee's value is
+a locally-bound ctl handler (rule 1's own classification), emit the
+install-form check (clear + extract the unwind value at the frame exit)
+instead of the propagate form. The `#838` probe's dump (fdfl/fidx/frames/
+begin) is in place to verify what the frame bookkeeping sees in the batch
+context once the path is routed through the predicate.
+
 ## The fix (sketch)
 
 Either rule 1 must recognize the batch-frame binding (the classification the
