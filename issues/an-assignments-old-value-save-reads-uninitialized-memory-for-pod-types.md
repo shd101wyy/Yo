@@ -28,10 +28,27 @@ seed `--emit-c` of an `ArrayList(bool).push` program); exposed by running the
 battery under zig's safety checks, which the new local stage-1 build recipe
 made possible for the first time.
 
-## Fix
+## Fix attempt REFUTED (2026-09-23), to not repeat it
 
-Both save sites in `assignment.yo` (the plain local-temp save and the `sm->`
-slot variant) now carry the same `type_contains_rc_type(lhs_type)` gate the
-drop side has always had: no possible drop, no save. RC-bearing types keep
-their saves; their emitted C is unchanged (the corpus goldens + rc/arc/gc
-batteries pin that).
+Gating the save on `type_contains_rc_type(lhs_type)` (mirroring the drop
+side's condition) compiles the whole tree and passes every local gate under
+clang x86_64 — but BREAKS COMPILATION of assignment-as-expression for
+non-RC types on the wasm leg: `y := (x = array(2, 3, 4))` in
+tests/basic.test.yo dies with `use of undeclared identifier '_file_…_temp_…'`.
+The save line serves TWO roles — (a) feeding the deferred drop, and (b) the
+DECLARATION of the assignment expression's value temp that a consuming
+parent (`y := (x = …)`) reads — and the drop's RC condition does not
+distinguish them. The correct fix needs the parent's consumption context
+(read when consumed OR when the drop can fire), which the shared assignment
+emitter does not currently have. The gate was reverted; the UB stands
+unobserved under clang (CI) and observable under zig safety (local).
+
+## Where the fix belongs
+
+The save must be emitted whenever the temp serves EITHER role: the deferred
+drop can fire (RC-bearing types) OR a parent consumes the assignment
+expression's value (the `y := (x = …)` shape — on wasm and anywhere the
+consumption survives). That consumption context lives in the begin-block
+emitter (which knows whether a statement's value is the block's tail) and
+must be threaded to the assignment emitter, or the value temp must be
+declared independently of the old-value save.

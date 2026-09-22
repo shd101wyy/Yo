@@ -18,7 +18,6 @@
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME } :: import("../../expr.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
-{ type_contains_rc_type } :: import("../../types/utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -109,13 +108,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       in_sm := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
       if(
         !in_sm,
-        // The save exists ONLY to feed the deferred drop, and the drop emits
-        // nothing for a type that contains no RC value (drop_dup.yo's
-        // type_contains_rc_type gate). Saving unconditionally READ the old
-        // place — uninitialized memory when the place is fresh (ArrayList
-        // push into the _length slot), which is benign-but-real UB under
-        // clang and a hard trap under a bool-load-checking sanitizer.
-        if(!is_unit_type(lhs_type) && type_contains_rc_type(lhs_type), {
+        if(!is_unit_type(lhs_type), {
           save := indent.clone();
           save.push_string(get_variable_type_string(lhs_type, temp_var_name.clone(), context.base));
           save.push_str(" = ");
@@ -130,8 +123,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
         // same-state), a plain LOCAL temp is the correct home. This branch
         // previously emitted NOTHING, so the deferred drop either dropped
         // calloc zero (silent leak) or referenced an undeclared temp.
-        // Same RC gate as the non-sm save above: no drop, no save.
-        if(!is_unit_type(lhs_type) && type_contains_rc_type(lhs_type), {
+        if(!is_unit_type(lhs_type), {
           (sm_field : Option(String)) = Option(String).None;
           match(
             context.state_machine_variables,
