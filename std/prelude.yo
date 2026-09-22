@@ -4762,25 +4762,35 @@ impl(
   ),
   /// `self + rhs` modulo the type's range — Rust's `wrapping_add`.
   ///
-  /// The wrapped value is reconstructed from the bounds rather than by letting
-  /// the add overflow: signed overflow is undefined behaviour in C, so the
-  /// out-of-range sum must never be formed. `MAX + k` becomes `MIN + k - 1`
-  /// and `MIN - k` becomes `MAX - k + 1`; every intermediate stays in range.
-  wrapping_add : (fn(self : T, rhs : T) -> T)(
-    cond(
-      ((rhs > T(0)) && (self > (T.MAX - rhs))) => ((T.MIN + (self - (T.MAX - rhs))) - T(1)),
-      ((rhs < T(0)) && (self < (T.MIN - rhs))) => ((T.MAX - ((T.MIN - rhs) - self)) + T(1)),
-      true => (self + rhs)
-    )
-  ),
-  /// `self - rhs` modulo the type's range — Rust's `wrapping_sub`.
-  wrapping_sub : (fn(self : T, rhs : T) -> T)(
-    cond(
-      ((rhs < T(0)) && (self > (T.MAX + rhs))) => ((T.MIN + (self - (T.MAX + rhs))) - T(1)),
-      ((rhs > T(0)) && (self < (T.MIN + rhs))) => ((T.MAX - ((T.MIN + rhs) - self)) + T(1)),
-      true => (self - rhs)
-    )
-  ),
+  /// Implemented as the classic bitwise carry loop (XOR / AND / shift only):
+  /// no intermediate can overflow, which the bound-reconstruction version
+  /// could not guarantee — its `(MIN - rhs) - self` shape trapped on
+  /// `i64.MIN + i64.MIN` and its shifted domain on `MAX + MIN`, both hit by
+  /// u64 bit patterns during the self-compile. Complement arithmetic gives
+  /// the wrapped result in at most width iterations.
+  wrapping_add : (fn(self : T, rhs : T) -> T)({
+    (sum : T) = self;
+    (carry : T) = rhs;
+    while(carry != T(0), {
+      (next : T) = ((sum & carry) << T(1));
+      sum = (sum ^ carry);
+      carry = next;
+    });
+    sum
+  }),
+  /// `self - rhs` modulo the type's range — Rust's `wrapping_sub`, as the
+  /// bitwise borrow loop (same overflow-freedom argument as wrapping_add;
+  /// `x ^ T.MAX` is the bitwise NOT).
+  wrapping_sub : (fn(self : T, rhs : T) -> T)({
+    (a : T) = self;
+    (b : T) = rhs;
+    while(b != T(0), {
+      (next : T) = (((a ^ T.MAX) & b) << T(1));
+      a = (a ^ b);
+      b = next;
+    });
+    a
+  }),
   /// `(wrapped sum, did it overflow)` — Rust's `overflowing_add`.
   overflowing_add : (fn(self : T, rhs : T) -> Tuple(T, bool))(
     match(self.checked_add(rhs), .Some(v) => (v, false), .None => (self.wrapping_add(rhs), true))
