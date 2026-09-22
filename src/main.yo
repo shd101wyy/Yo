@@ -37,6 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { Duration } :: import("std/time/duration");
 { Instant } :: import("std/time/instant");
 { get_hardware_threads } :: import("std/thread");
+{ supports_color, Stream } :: import("std/term");
 {
   profile_set_enabled,
   profile_reset,
@@ -133,6 +134,8 @@ json :: import("std/encoding/json");
   render_diagnostics_for_mode,
   set_error_format,
   error_format,
+  set_color_enabled,
+  color_enabled,
   emit_rendered_text,
   emit_chatter,
   register_std_export
@@ -5377,10 +5380,16 @@ run_test :: (
           });
         });
         // Forward the error format so a batch-compile failure renders per
-        // --error-format (P3 threading).
+        // --error-format (P3 threading). Color travels too when it is ON:
+        // the child's stderr is a captured pipe, so its own `auto` would
+        // resolve off even though the parent asked for color.
         if(!(error_format() == "human"), {
           cargv.push(String.from("--error-format"));
           cargv.push(error_format());
+        });
+        if(color_enabled(), {
+          cargv.push(String.from("--color"));
+          cargv.push(String.from("always"));
         });
         // `--std-path` is a GLOBAL flag: main strips it from argv before
         // subcommand dispatch and stashes it with the module manager, so the
@@ -8587,7 +8596,55 @@ main :: (fn(io : Io) -> unit)({
     });
     set_error_format(err_format);
   });
-  raw_argv := argv0;
+  // Color (P4/D14): `--color auto|always|never` (global, stripped before
+  // subcommand dispatch, like --error-format) or the YO_COLOR env var (lower
+  // precedence). Resolution: flag > env > auto, where auto is std/term's
+  // `supports_color` on STDERR — the stream human diagnostics go to — i.e.
+  // a terminal, `NO_COLOR` unset, `TERM != dumb`. Machine formats
+  // (json, short) never color regardless; the human text embedded in json
+  // payloads is rendered uncolored inside diagnostics.yo itself.
+  (color_mode : String) = String.from("");
+  env_color := proc_env.get(String.from("YO_COLOR"));
+  if(env_color.is_some(), {
+    color_mode = env_color.unwrap_or(String.from(""));
+  });
+  argv1 := ArrayList(String).new();
+  ci0 := usize(0);
+  while(ci0 < argv0.len(), {
+    c0 := argv0(ci0);
+    if(c0 == "--color", {
+      if((ci0 + usize(1)) < argv0.len(), {
+        color_mode = argv0(ci0 + usize(1)).clone();
+        ci0 = (ci0 + usize(1));
+      }, {
+        exn.throw(dyn(`--color requires a value: auto, always or never`));
+      });
+    }, {
+      if(c0.starts_with(String.from("--color=")), {
+        color_mode = c0.substring(usize(8), c0.len());
+      }, {
+        argv1.push(c0);
+      });
+    });
+    ci0 = (ci0 + usize(1));
+  });
+  if(color_mode.len() > usize(0), {
+    if(!((color_mode == "auto") || ((color_mode == "always") || (color_mode == "never"))), {
+      exn.throw(
+        dyn(
+          `Invalid --color '${color_mode}' (expected: auto, always or never). Set --color or YO_COLOR.`
+        )
+      );
+    });
+    set_color_enabled(
+      cond(
+        (color_mode == "always") => true,
+        (color_mode == "never") => false,
+        true => supports_color(Stream.Stderr)
+      )
+    );
+  });
+  raw_argv := argv1;
   // Global `--std-path <dir>` flag: strip it from argv before subcommand
   // dispatch and stash the override with the module manager.
   // The global `--lang <lc>` flag (CLI output language, src/cli_lang.yo)
@@ -8720,6 +8777,10 @@ main :: (fn(io : Io) -> unit)({
   if(subcmd == "explain", {
     run_explain(argv, io, exn);
   }, if(subcmd == "lsp", {
+    // LSP frames are a PROTOCOL channel — ANSI in a diagnostic text would
+    // corrupt the client's rendering, so the LSP ignores --color entirely
+    // (plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §4.4).
+    set_color_enabled(false);
     run_lsp_server(io, exn);
   }, if(subcmd == "compile", {
     // The Phase-4 warm gate intercepts before run_compile ever sees the
