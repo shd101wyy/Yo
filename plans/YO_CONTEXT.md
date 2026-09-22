@@ -468,6 +468,17 @@ described from its origin), `context-not-found`, `context-ambiguous`.
 
 ### C5 — Dependencies (`--deps`)
 
+> **Status: LANDED (PR `feat/yo-context-c5`, stacked).** Dep corpora come
+> from the nearest manifest's yo.lock: git deps via the store tree
+> (`store_tree_dir` by integrity — a missing tree asks for `yo install`),
+> path deps live from their directories. Dep modules are prefixed with the
+> dependency's import NAME (`mylib/util`) — the plan's `!` separator proved
+> unnecessary: the prefix itself is the provenance, and it is exactly the
+> first path component the agent types. `context_index_ensure`/
+> `context_module_name` take an explicit prefix (`""` = tree basename);
+> `ContextIndexModule` gained a runtime (never-persisted) `index_dir` so a
+> merged-corpus query slices pages from the owning corpus.
+
 1. Nearest-manifest + lock walk (`src/manifest.yo`, `src/lock_file.yo`);
    per-dep index build over store trees (`store_tree_dir`), keyed by lock
    `integrity`; merged corpus for `--list`/`--search` under `--deps`, dep

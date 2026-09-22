@@ -109,9 +109,9 @@ test("context_tree_key: stable across builds, moves on content edit", {
   assert(k1 != k3, "content edit → new key");
 });
 test("context_module_name: root basename prefixes, index.yo collapses", {
-  name := context_module_name(String.from("/w/std/alpha/index.yo"), String.from("/w/std"));
+  name := context_module_name(String.from("/w/std/alpha/index.yo"), String.from("/w/std"), String.new());
   assert(name == "std/alpha", `index.yo collapses to its dir, got ${name}`);
-  name2 := context_module_name(String.from("/w/std/beta.yo"), String.from("/w/std"));
+  name2 := context_module_name(String.from("/w/std/beta.yo"), String.from("/w/std"), String.new());
   assert(name2 == "std/beta", `plain file keeps its path, got ${name2}`);
 });
 test("context_index_ensure + load: the fixture round-trips, barrel origin= resolves", {
@@ -131,7 +131,7 @@ test("context_index_ensure + load: the fixture round-trips, barrel origin= resol
   _i3 := mm_invalidate_document(`${proj}/alpha/index.yo`);
   cache := `/tmp/yo_context_index_fixture_cache`;
   io.await(create_dir_all(Path.new(cache), io), IoExn(io : io, exn : exn));
-  key := context_index_ensure(proj, cache, true, io, exn);
+  key := context_index_ensure(proj, cache, true, String.new(), io, exn);
   entries := context_index_load(cache, key, io, exn);
   // alpha's defining entries
   add := _find_entry(entries, `t/alpha_api`, `alpha_add`);
@@ -169,7 +169,7 @@ test("context_index_ensure + load: the fixture round-trips, barrel origin= resol
   assert(saw_alpha, "modules.txt has t/alpha");
   // Second ensure WITHOUT refresh reuses (same key, no rebuild) — the
   // manifest exists, so this must not throw and must return the same key.
-  key2 := context_index_ensure(proj, cache, false, io, exn);
+  key2 := context_index_ensure(proj, cache, false, String.new(), io, exn);
   assert(key2 == key, "ensure without refresh reuses the key");
 });
 
@@ -196,4 +196,9 @@ test("search scoring: exact > prefix > substring, doc weakest", {
   assert(indict == usize(50), `doc 50, got ${indict.to_string()}`);
   assert(none == usize(0), `no match 0, got ${none.to_string()}`);
   assert((exact > prefix) && (prefix > insig) && (insig > indict), "ranking order holds");
+});
+
+test("context_module_name: an explicit prefix names dependency modules", {
+  name := context_module_name(String.from("/w/mylib/util.yo"), String.from("/w/mylib"), String.from("mylib"));
+  assert(name == "mylib/util", `prefix override wins, got ${name}`);
 });

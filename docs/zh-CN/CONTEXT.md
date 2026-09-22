@@ -54,6 +54,20 @@ yo 0.2.40 — pack-version: 1
 工作流会把它复制进每个发行包，且包的冒烟测试会在检出之外断言
 `yo context` 能正常应答。
 
+## 依赖
+
+```bash
+yo install                      # 依赖需先安装（git 依赖存放在内容寻址存储中）
+yo context --deps --list        # std + 项目 yo.toml 的依赖
+yo context --deps mylib         # 描述一个依赖模块
+yo context --deps --search double
+```
+
+`--deps` 会把最近的 `yo.toml` 的锁文件包并入语料。git 依赖通过内容寻址
+存储解析（每个版本只索引一次——key 即树内容）；path 依赖直接从其目录
+实时读取。模块以依赖的导入名命名（`mylib/util`），命中自带出处。
+git 依赖的存储树缺失时会提示 `yo install`。
+
 ## 搜索
 
 ```bash

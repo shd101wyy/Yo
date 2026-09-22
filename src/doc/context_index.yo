@@ -77,7 +77,11 @@ ContextIndexModule :: struct(
   /// (`""` when undocumented). Degraded modules carry `(untyped)`.
   doc : String,
   items : usize,
-  degraded : bool
+  degraded : bool,
+  /// RUNTIME only (never in modules.txt): which corpus index dir this row
+  /// came from — a `--deps` query merges several corpora, and item
+  /// describe slices the module page from the owning corpus.
+  index_dir : String
 );
 /// `<cache>/context` — the sibling of `store/`, `git/` and `index/`; the
 /// layout lives in `src/cache.yo` so `yo cache gc` and the builder share it.
@@ -146,11 +150,12 @@ _collect_index_files :: (
   });
 });
 /// The import-style module path of a file under the indexed root: the
-/// root's own directory NAME is the first component (`std/...` for the
-/// bundled std — the prefix an agent types in `import("std/...")`),
-/// `index.yo` collapses to its directory (barrels are imported by their
-/// package path, `std/string`).
-context_module_name :: (fn(file_path : String, root : String) -> String)({
+/// first component is `prefix` when given (a dependency's import NAME —
+/// the first component an agent types in `import("<dep>/...")`), else the
+/// root's own directory name (`std/...` for the bundled std). `index.yo`
+/// collapses to its directory (barrels are imported by their package
+/// path, `std/string`).
+context_module_name :: (fn(file_path : String, root : String, prefix : String) -> String)({
   rel := Path.new(file_path).relative_to(Path.new(root)).to_string();
   if(rel.ends_with(String.from(".yo")), {
     rel = rel.substring(usize(0), rel.len() - usize(3));
@@ -158,12 +163,15 @@ context_module_name :: (fn(file_path : String, root : String) -> String)({
   if(rel.ends_with(String.from("/index")), {
     rel = rel.substring(usize(0), rel.len() - usize(6));
   });
-  prefix := match(
-    Path.new(root).file_name(),
-    .Some(n) => n,
-    .None => String.from("tree")
+  first := cond(
+    (prefix.len() > usize(0)) => prefix,
+    true => match(
+      Path.new(root).file_name(),
+      .Some(n) => n,
+      .None => String.from("tree")
+    )
   );
-  `${prefix}/${rel}`
+  `${first}/${rel}`
 });
 /// The content-addressed key: first 12 hex of SHA-256 over the sorted
 /// `<relpath> <sha256(content)>` lines of every file the index would cover.
@@ -251,6 +259,7 @@ context_index_ensure :: (
     root : String,
     cache_root : String,
     refresh : bool,
+    prefix : String,
     io : Io,
     exn : Exception
   ) -> String
@@ -292,7 +301,7 @@ context_index_ensure :: (
     match(
       files.get(fi),
       .Some(file) => {
-        module := context_module_name(file.clone(), root.clone());
+        module := context_module_name(file.clone(), root.clone(), prefix.clone());
         df := document_one_file(file.clone(), root.clone(), std_path.clone(), false, io, exn);
         match(
           df,
@@ -305,7 +314,7 @@ context_index_ensure :: (
             // originless duplicates. Any other module's export surface is
             // exactly what the label sweep is for.
             if(file.ends_with(String.from("/index.yo")), {
-              _mark_barrel_origins(module.clone(), file.clone(), root.clone(), entries, io, exn);
+              _mark_barrel_origins(module.clone(), file.clone(), root.clone(), prefix.clone(), entries, io, exn);
             }, {
               _export_label_entries(module.clone(), entries, d.export_labels, d.export_types);
             });
@@ -710,6 +719,7 @@ _mark_barrel_origins :: (
     module : String,
     file_path : String,
     root : String,
+    prefix : String,
     entries : ArrayList(ContextIndexEntry),
     io : Io,
     exn : Exception
@@ -735,7 +745,7 @@ _mark_barrel_origins :: (
       spreads.get(pi),
       .Some(p) => {
         src_path := Path.new(dir).join(Path.new(p.second.clone())).normalize().to_string();
-        origin := context_module_name(src_path, root);
+        origin := context_module_name(src_path, root, prefix);
         // Names this spread source defines.
         defined := ArrayList(String).new();
         outcome := mm_load_file(src_path, resolve_std_path(), false, io, exn);
@@ -877,7 +887,8 @@ context_index_load_modules :: (
                 .Some(n) => usize(n),
                 .None => usize(0)
               ),
-              degraded : (fields.get(usize(3)).unwrap_or(String.from("ok")) == "degraded")
+              degraded : (fields.get(usize(3)).unwrap_or(String.from("ok")) == "degraded"),
+              index_dir : String.new()
             )
           );
         });

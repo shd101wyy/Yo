@@ -61,6 +61,22 @@ The pack source of truth is `pack/context.md` in the compiler tree; the
 release workflow copies it into every bundle, and the bundle smoke tests
 assert that `yo context` answers from outside the checkout.
 
+## Dependencies
+
+```bash
+yo install                      # deps must be installed first (git deps live in the store)
+yo context --deps --list        # std + the project's yo.toml dependencies
+yo context --deps mylib         # describe a dependency module
+yo context --deps --search double
+```
+
+`--deps` merges the nearest `yo.toml`'s lockfile packages into the corpus.
+Git dependencies resolve through the content-addressed store (each version
+indexed once per project — the key is the tree's content); path
+dependencies are read live from their directories. Modules are named by
+the dependency's import name (`mylib/util`), so hits are self-provenancing.
+A git dependency whose store tree is missing asks for `yo install`.
+
 ## Search
 
 ```bash
