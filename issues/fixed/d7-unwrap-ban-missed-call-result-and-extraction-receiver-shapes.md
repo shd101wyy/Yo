@@ -65,6 +65,17 @@ All of `src/` stays buildable: files there either carry
 main) or contain no banned calls (resolver, install_command — migrated in
 #831). The exemption predicate is evaluated before every new check.
 
+## Second hole, found on the fixed tree (wasm32_wasi leg): test batches
+
+With the gates firing, `yo test` batches went red — `tests/cli/arg_parser.test.yo`
+compiled as part of `tests/cli/.yo_selftest_batch_34_0.yo` and was rejected
+with E0611. The runner concatenates `*.test.yo` files into a
+`.yo_selftest_batch_<n>_<m>.yo` batch, which loses the `.test.yo` suffix the
+exemption matches (files that declare `pragma(Pragma.AllowUnsafe)` themselves
+kept working, because the pragma line rides into the batch as a non-test
+statement). The batch artifact is now exempted by its distinctive
+`.yo_selftest_batch_` name.
+
 ## Verification
 
 With the fix, the three fixtures and both variable/constructor-receiver

@@ -291,6 +291,14 @@ is_class1_panic_exempt_file :: (fn(module_path : Option(String), std_path : Stri
       if(mp.starts_with(String.from("auto-generated://")), {
         return(true);
       });
+      // `yo test` concatenates *.test.yo files into
+      // `.yo_selftest_batch_<n>_<m>.yo` — the batch loses the .test.yo
+      // suffix this exemption matches, so the batch artifact is exempted by
+      // its own distinctive name (found via the wasm32_wasi leg: every test
+      // whose body unwraps a Result rejected with E0611).
+      if(mp.contains(String.from(".yo_selftest_batch_")), {
+        return(true);
+      });
       if(mp.ends_with(String.from(".test.yo")), {
         return(true);
       });
