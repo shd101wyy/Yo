@@ -61,6 +61,19 @@ The pack source of truth is `pack/context.md` in the compiler tree; the
 release workflow copies it into every bundle, and the bundle smoke tests
 assert that `yo context` answers from outside the checkout.
 
+## Search
+
+```bash
+yo context --search push          # ranked hits across names, signatures, docs
+yo context --search push --deep   # also scan rendered module bodies
+yo context --search add --format json
+```
+
+Ranking is deterministic and lexical — exact name, then name prefix, then
+name substring, then signature match, then doc match; ties break by module
+path. No embeddings, no model — the same query always returns the same
+hits for a given std version.
+
 ## Describe: modules and items
 
 `yo context <module>` prints a module's one-screen index; adding an item
