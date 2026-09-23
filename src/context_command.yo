@@ -75,10 +75,10 @@ _find_bundled_context_pack :: (
     p := Path.new(override.unwrap_or(String.from(".")));
     pinned_file := p.join(Path.new(String.from(PACK_FILENAME)));
     target := cond(
-      _is_pack_dir(p, io, exn) => pinned_file,
+      _is_dir(p, io, exn) => pinned_file,
       true => p
     );
-    if(_is_pack_file(target, io, exn), {
+    if(_is_file(target, io, exn), {
       return(Option(Path).Some(target));
     });
     return(Option(Path).None);
@@ -104,7 +104,7 @@ _find_bundled_context_pack :: (
     (i : usize) = usize(0);
     while(i < anc.len(), {
       candidate := anc(i).join(Path.new(String.from("pack"))).join(Path.new(String.from(PACK_FILENAME)));
-      if(_is_pack_file(candidate, io, exn), {
+      if(_is_file(candidate, io, exn), {
         return(Option(Path).Some(candidate));
       });
       i = (i + usize(1));
@@ -114,7 +114,7 @@ _find_bundled_context_pack :: (
   return(Option(Path).None);
 });
 /// Does `p` exist and name a directory?
-_is_pack_dir :: (
+_is_dir :: (
   fn(p : Path, io : Io, exn : Exception) -> bool
 )({
   found := io.await(exists(p.clone(), io), io);
@@ -125,7 +125,7 @@ _is_pack_dir :: (
   md.is_dir()
 });
 /// Does `p` exist and name a plain file?
-_is_pack_file :: (
+_is_file :: (
   fn(p : Path, io : Io, exn : Exception) -> bool
 )({
   found := io.await(exists(p.clone(), io), io);
@@ -330,7 +330,7 @@ _context_corpus_root :: (fn(explicit : String, io : Io, exn : Exception) -> Stri
     p.is_absolute() => explicit.clone(),
     true => Path.new(_user_cwd()).join(p).normalize().to_string()
   );
-  if(!_is_pack_dir(Path.new(root.clone()), io, exn), {
+  if(!_is_dir(Path.new(root.clone()), io, exn), {
     _fail(_EXIT_USAGE, tr(`context: --path '${explicit}' is not a directory`, `context：--path '${explicit}' 不是目录`), exn);
   });
   root
