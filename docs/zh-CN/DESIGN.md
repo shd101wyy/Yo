@@ -1311,8 +1311,8 @@ assert(old(0) == 5);    // old 保存了之前的值
 | 操作 | 行为 |
 | --- | --- |
 | `+`、`-`、`*` 溢出；`-MIN` | 中止：`integer addition overflow (at …)`。适用于所有整数宽度，有符号与无符号皆然 |
-| `/` 或 `%` 除以零；`MIN / -1` | 中止：`integer division/remainder by zero (at …)` |
-| 移位位数 ≥ 位宽 | 中止：`shift count out of range (at …)` |
+| `/` 或 `%` 除以零；`MIN / -1` | 中止：`integer division or remainder by zero (at …)` |
+| 移位位数 ≥ 位宽 | 中止：`shift count out of range: 64 not in [0, 64) (at …)` |
 | `Array(T, N)` / `str.bytes(i)` 下标越界 | 中止：`index out of bounds: i not in [0, n) (at …)` |
 | 浮点 → 整数转换 | 饱和到目标类型的 MIN/MAX；`NaN` 变为 `0` |
 | 整数 → 更窄整数转换 | 截断 |

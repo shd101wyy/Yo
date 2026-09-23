@@ -1326,8 +1326,8 @@ operation can fail falls into one of three tiers:
 | Operation | Behavior |
 | --- | --- |
 | `+`, `-`, `*` overflow; `-MIN` | abort: `integer addition overflow (at …)`. Applies to every integer width, signed and unsigned |
-| `/` or `%` by zero; `MIN / -1` | abort: `integer division/remainder by zero (at …)` |
-| shift count ≥ width | abort: `shift count out of range (at …)` |
+| `/` or `%` by zero; `MIN / -1` | abort: `integer division or remainder by zero (at …)` |
+| shift count ≥ width | abort: `shift count out of range: 64 not in [0, 64) (at …)` |
 | `Array(T, N)` / `str.bytes(i)` index out of range | abort: `index out of bounds: i not in [0, n) (at …)` |
 | float → integer cast | saturates at the target's MIN/MAX; `NaN` becomes `0` |
 | integer → narrower integer cast | truncates |
