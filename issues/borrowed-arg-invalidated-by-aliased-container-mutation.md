@@ -476,3 +476,37 @@ reproducer. That bug is now fixed and the test — "an INDEXED borrowed
 argument is protected like a field projection" — is checked into
 `tests/rc.test.yo`, passing under both compilers. The fixes here are
 additionally verified by hand (101 → 42) and by the full gate battery.
+
+## Addendum 2026-09-23: the whole-variable `inout` + by-value shape (type-system audit)
+
+MEASURED on the yo 0.2.39 seed (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5). The Stage 0 dup
+covers a *projection* aliased with its container (`f(w, w.b)`). Passing the *same variable* to
+an `inout` parameter and a by-value parameter is not covered:
+
+```rust
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+S :: struct(s : String);
+clobber :: (fn(inout(a) : S, b : S) -> unit)({
+  (i : i32) = 0;
+  while(runtime(i < 3), {
+    a = S(s : `fresh-value-${i}-xxxxxxxxxxxxxxxxxxxxxxxx`);
+    i = (i + 1);
+  });
+  println(`b.s = ${b.s}`);
+});
+main :: (fn() -> unit)({
+  x := S(s : `original-value-yyyyyyyyyyyyyyyyyyyyyyyyyyyy`);
+  clobber(x, x);
+  println(`x.s = ${x.s}`);
+});
+export(main);
+```
+
+`b.s` prints freed memory or the run traps (rc=133). An `ArrayList` variant prints `b.len = 8`
+or `0` where 5 is expected. The straight-line version (no loop) happens to be safe only because
+the drop is deferred. `src/types/flowability.yo` (~610, "Non-`own` (by-value) overlap is safe")
+and `docs/en-US/FLOWABILITY.md` ("By-value overlap is fine too") state the opposite.
+
+Fix direction: extend `require_ref_own_argument_exclusivity` to reject `inout` against any other
+argument with the same root, or dup the by-value argument as Stage 0 does for projections.

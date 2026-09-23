@@ -203,3 +203,37 @@ restriction. Either broaden it to the whole "await placement" family (recommende
 
 Verify red-first on all three: today they emit `internal compiler error` and no
 E-code.
+
+## Addendum 2026-09-23: two more codegen-only async rules (type-system audit)
+
+MEASURED on the yo 0.2.39 seed (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 4). Both pass `yo check`
+and fail `yo compile --skip-c-compiler` with an internal compiler error:
+
+1. A constant or nested pattern in a `match` arm that awaits (`src/codegen/async/state_code_gen.yo`
+   ~3533):
+
+   ```rust
+   inner :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
+   outer :: (fn(io : Io, k : Option(i32)) -> Impl(Future(i32)))(
+     io.async((e : Io) => match(k,
+       .Some(i32(3)) => e.await(inner(e, i32(1)), e),
+       _ => i32(0)
+     ))
+   );
+   ```
+
+2. `inout(y) := x` inside an `io.async` body (`src/codegen/exprs/init_assignment.yo` ~188). The
+   evaluator has its own rule for this (`src/evaluator/exprs/initialization_assignment.yo` ~200,
+   the `.AsyncBlock` arm), but it never fires: the context kind is not `AsyncBlock` at that point.
+
+   ```rust
+   outer :: (fn(io : Io) -> Impl(Future(i32)))(
+     io.async((e : Io) => {
+       x := i32(1);
+       inout(y) := x;
+       z := e.await(inner(e, y), e);
+       y = z;
+       x
+     })
+   );
+   ```

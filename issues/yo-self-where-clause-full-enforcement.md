@@ -65,3 +65,11 @@ Bad :: Mutex(NonSendObj); // rejected: Type NonSendObj does not implement requir
 ```
 
 Covered by `tests/sync/mutex.test.yo` (closed by `7a67b961` + `a821ed30`).
+
+## Addendum 2026-09-23: method and composite bounds are enforced now (type-system audit)
+
+MEASURED on the yo 0.2.39 seed (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 2): `where(T <: Foo)` with
+a method trait and a `Q` lacking `Foo` is rejected with
+`error[E0602]: Type Q does not implement required trait Foo.`, and `where(T <: (Foo, Bar))` with
+`Q` implementing only `Foo` reports `... required trait Bar.` The "marker traits only" scope
+above is therefore partly stale. The `String <: (Eq, Hash)` residual was not re-measured.

@@ -80,3 +80,28 @@ needs the differential corpus and the fixpoint check: changing the id format
 changes every derived C name, which is a byte-identity event by construction.
 Expect to re-record goldens, and confirm the change is a pure renaming rather
 than a structural one ([[yo-byte-identity-gate-for-additive-codegen-change]]).
+
+## Addendum 2026-09-23: anonymous structs share the same id scheme (type-system audit)
+
+MEASURED on the yo 0.2.39 seed (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3). `stable_type_id`
+(`src/utils.yo` ~309) is used for traits, CTFE instantiations, anonymous struct values
+(`src/evaluator/values/anonymous_struct.yo` ~89) and unions, so the collision is not trait-only.
+Two modules each export an anonymous record constant at the same row and column:
+
+```rust
+// m1.yo
+V :: { x : i32(7) };
+export(V);
+// m2.yo (V at the same row/col as in m1.yo)
+V :: { y : f64(2.5), z : bool(true) };
+export(V);
+```
+
+Importing both as `V1`/`V2` gives `Type.eq(typeof(V1), typeof(V2)) = 1` and
+`Type.is_compatible_with(...) = 1`. A later field access reports `Failed to find "x" in the type`
+for `V1`. Moving `V` in `m2.yo` down one line gives `eq=0`.
+
+Position-keyed ids also make C type names follow the source position: adding one comment line
+above `P :: struct(...)` changed its C name from `__yo_t_2236567100777795219` to
+`__yo_t_442740067331228635`, and moving the file into `sub/` changed it again. That invalidates
+`.o` chunk caches and makes emitted-C diffs noisy.
