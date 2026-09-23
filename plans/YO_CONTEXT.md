@@ -451,7 +451,7 @@ described from its origin), `context-not-found`, `context-ambiguous`.
 > deep-body 10), ties by (module, name); deterministic selection sort.
 > `--format json` covers list/module/item/search with stable keys.
 > **Codegen hole found en route** (issue:
-> `issues/str-literal-as-string-arg-miscompiles-in-template-interpolation.md`):
+> `issues/fixed/comptime-literal-argument-not-checked-against-parameter.md`):
 > a str literal passed as a String argument inside template interpolation
 > type-checks but emits no str→String conversion — the C rejects it.
 > Measured in C7: the hole was wider (any comptime literal to any concrete
