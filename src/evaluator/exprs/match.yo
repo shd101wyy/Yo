@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, pop_env_frame, copy_frames, snapshot_env } :: import("../../env.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime } :: import("../context.yo");
 {
   EvalValue,
   create_unknown_val,
@@ -653,6 +653,12 @@ evaluate_match :: (
       );
       old_executing := ctx.is_executing;
       ctx.is_executing = is_arm_executing;
+      // An arm the comptime execution does not take (see
+      // `FuncOrAsyncBlockCtx.ctfe_live`).
+      arm_untaken_ct := (!(is_arm_executing) && fn_ctx_returns_comptime(ctx));
+      if(arm_untaken_ct, {
+        ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth + usize(1));
+      });
       // Running-result-type as expected type (bare `.None`/`.Variant` inference);
       // (`expectedType: resultType ?? context.expectedType`).
       old_expected := ctx.expected_type;
@@ -664,6 +670,9 @@ evaluate_match :: (
         .None => ()
       );
       evaluated_body := evaluate_begin_expression(body_ast, env, ctx, ArrayList(Variable).new(), false, exn);
+      if(arm_untaken_ct, {
+        ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth - usize(1));
+      });
       ctx.expected_type = old_expected;
       ctx.is_executing = old_executing;
       while(env.frames.len() > base_frame_count, {

@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
-{ EvalContext, FuncOrAsyncBlockCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
+{ EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_bool, t_ptr } :: import("../../types/creators.yo");
@@ -28,23 +28,19 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { panic, assert } :: import("std/assert");
-/// Is `fn_ctx` the body of a function whose declared return is
-/// `comptime(...)` — i.e. one that only ever runs by CTFE?
-_fn_ctx_returns_comptime :: (fn(fn_ctx : FuncOrAsyncBlockCtx) -> bool)(
-  match(
-    fn_ctx.kind,
-    .FunctionBody => match(
-      fn_ctx.func_type,
-      .Some(ft) => match(
-        ft,
-        .Func({ meta : fm }) => fm.*.result_is_comptime_only,
-        _ => false
-      ),
-      .None => false
-    ),
-    _ => false
-  )
-);
+/// A `StrLit`'s raw text keeps its source delimiters; strip one matching
+/// pair for the diagnostic.
+_unquote_str_lit :: (fn(raw : String) -> String)({
+  n := raw.len();
+  if(n >= usize(2), {
+    first := raw(usize(0));
+    last := raw(n - usize(1));
+    if((first == last) && ((first == u8(34)) || (first == u8(96))), {
+      return(raw.slice_copy(usize(1) .. (n - usize(1))));
+    });
+  });
+  raw
+});
 evaluate_panic :: (
   fn(
     expr : AstExpr,
@@ -150,7 +146,7 @@ evaluate_panic :: (
           .Some(mv) => match(
             mv,
             .StrLit(raw) => {
-              ct_msg = .Some(raw);
+              ct_msg = .Some(_unquote_str_lit(raw));
             },
             _ => ()
           ),
@@ -198,18 +194,19 @@ evaluate_panic :: (
       }
     );
   });
-  // A panic REACHED while a comptime function body executes is a compile
-  // error: the failure is decided, so it must be reported now, at the panic,
-  // with its message. Without this the body produced no value and the
-  // failure resurfaced far from its cause — `Z :: Option(i32).None.comptime_unwrap()`
+  // A panic REACHED by a live compile-time execution is a compile error:
+  // the failure is decided, so it must be reported now, at the panic, with
+  // its message. Without this the body produced no value and the failure
+  // resurfaced far from its cause — `Z :: Option(i32).None.comptime_unwrap()`
   // passed `yo check` and failed in clang as `use of undeclared identifier
   // 'Z'`, and a free comptime fn reported the message-less "Function body is
   // not evaluated correctly" (issues/fixed/a-comptime-panic-is-not-a-compile-error.md).
-  // `is_executing` is already false in every untaken cond/match arm, and
-  // false during def-time validation, so only a panic the execution actually
-  // reaches fires; a runtime fn body nested in a comptime call has its own
-  // (non-comptime-result) `fn_ctx`, so its panics stay runtime panics.
-  if(ctx.is_executing && (ctx.ctfe_depth > usize(0)) && !ctx.is_validating_function_definition && _fn_ctx_returns_comptime(fn_ctx), {
+  // `ctfe_live` (set by calls/comptime_fn.yo) means every argument is known;
+  // the arm-depth equality means no untaken cond/match arm of this body
+  // encloses the panic. `is_executing` cannot serve here: a comptime call
+  // inside a runtime body's def-time evaluation runs with it false even on
+  // its taken path.
+  if(fn_ctx.ctfe_live && (ctx.ctfe_untaken_arm_depth == fn_ctx.ctfe_arm_depth), {
     exn.throw(
       dyn(
         format_error_message(

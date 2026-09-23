@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, copy_frames, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_bool_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_bool, t_unit } :: import("../../types/creators.yo");
@@ -424,6 +424,11 @@ evaluate_cond :: (
               // Evaluate body with is_executing = false (analysis only).
               old_executing := ctx.is_executing;
               ctx.is_executing = false;
+              // Not known to be taken (see `FuncOrAsyncBlockCtx.ctfe_live`).
+              arm_untaken_ct := fn_ctx_returns_comptime(ctx);
+              if(arm_untaken_ct, {
+                ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth + usize(1));
+              });
               begin_branch_group_arm();
               bir_start_a := branch_init_log_len();
               evaluated_case_body := evaluate_begin_expression(
@@ -435,6 +440,9 @@ evaluate_cond :: (
                 exn
               );
               register_arm_init_range(ast_expr_id(evaluated_case_body), bir_start_a, branch_init_log_len());
+              if(arm_untaken_ct, {
+                ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth - usize(1));
+              });
               ctx.is_executing = old_executing;
               // Consume the case body temp var to avoid phantom drops.
               body_env_for_consume := match(

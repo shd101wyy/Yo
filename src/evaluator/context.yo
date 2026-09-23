@@ -101,7 +101,16 @@ FuncOrAsyncBlockCtx :: ref(
     func_value : Option(EvalValue),
     /// The environment at the time the function / async-block body is being evaluated.
     /// Used to determine the frame level for closure variable capture.
-    eval_env : Environment
+    eval_env : Environment,
+    /// True when this body is a LIVE compile-time execution: a comptime
+    /// function called with every argument known, not reached through an
+    /// untaken arm of an enclosing comptime body. A `__yo_panic` it reaches
+    /// is a compile error (`evaluate_panic`). Set only by
+    /// `calls/comptime_fn.yo`.
+    (ctfe_live : bool) ?= false,
+    /// `EvalContext.ctfe_untaken_arm_depth` at this body's entry: a panic at
+    /// a deeper count sits in an arm the execution does not take.
+    (ctfe_arm_depth : usize) ?= usize(0)
   )
 );
 // ---------------------------------------------------------------------------
@@ -255,6 +264,9 @@ EvalContext :: ref(
     /// naive ast-id swap, and the ctfe memo's same-enum-id rule would
     /// conflate instantiations.
     ctfe_depth : usize,
+    /// How many untaken `cond`/`match` arms of comptime-result function
+    /// bodies enclose the current expression (see `FuncOrAsyncBlockCtx.ctfe_live`).
+    ctfe_untaken_arm_depth : usize,
     /// Expected return type from the surrounding context.
     expected_type : Option(ExpectedTypeCtx),
     /// The innermost function body / async block / test block being evaluated.
@@ -378,6 +390,7 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     is_executing : false,
     is_validating_function_definition : false,
     ctfe_depth : usize(0),
+    ctfe_untaken_arm_depth : usize(0),
     expected_type : Option(ExpectedTypeCtx).None,
     is_evaluating_function_body_or_async_block : Option(FuncOrAsyncBlockCtx).None,
     is_inside_impl_block : false,
@@ -1526,6 +1539,27 @@ set_force_pending_def_fn :: (fn(f : ForcePendingDefFn) -> unit)({
   g_force_pending_def_fn = Option(ForcePendingDefFn).Some(f);
   ()
 });
+/// Is the innermost function body one whose declared return is
+/// `comptime(...)` — a body that only ever runs by CTFE?
+fn_ctx_returns_comptime :: (fn(ctx : EvalContext) -> bool)(
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fc) => match(
+      fc.kind,
+      .FunctionBody => match(
+        fc.func_type,
+        .Some(ft) => match(
+          ft,
+          .Func({ meta : fm }) => fm.*.result_is_comptime_only,
+          _ => false
+        ),
+        .None => false
+      ),
+      _ => false
+    ),
+    .None => false
+  )
+);
 /// Shallow copy of an EvalContext — every field, the shared tables
 /// (`expr_info_table`, `comptime_fn_caches`, `load_module`) by reference.
 copy_eval_context :: (fn(ctx : EvalContext) -> EvalContext)(
@@ -1533,6 +1567,7 @@ copy_eval_context :: (fn(ctx : EvalContext) -> EvalContext)(
     is_executing : ctx.is_executing,
     is_validating_function_definition : ctx.is_validating_function_definition,
     ctfe_depth : ctx.ctfe_depth,
+    ctfe_untaken_arm_depth : ctx.ctfe_untaken_arm_depth,
     expected_type : ctx.expected_type,
     is_evaluating_function_body_or_async_block : ctx.is_evaluating_function_body_or_async_block,
     is_inside_impl_block : ctx.is_inside_impl_block,
@@ -2731,6 +2766,7 @@ create_function_body_evaluation_context :: (
     is_executing : false,
     is_validating_function_definition : true,
     ctfe_depth : ctx.ctfe_depth,
+    ctfe_untaken_arm_depth : ctx.ctfe_untaken_arm_depth,
     expected_type : Option(ExpectedTypeCtx).Some(
       ExpectedTypeCtx(ty : return_type, env : env)
     ),
@@ -2810,6 +2846,7 @@ export(
   LoadModuleResult,
   FuncOrAsyncBlockKind,
   FuncOrAsyncBlockCtx,
+  fn_ctx_returns_comptime,
   LoopKind,
   LoopBodyCtx,
   ExpectedTypeCtx,
