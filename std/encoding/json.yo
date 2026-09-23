@@ -1202,6 +1202,25 @@ _write_str_escaped :: (fn(s : String, out : ArrayList(u8)) -> unit)({
         out.push(u8(92));
         out.push(u8(114));
       },
+      (b == u8(8)) => {
+        out.push(u8(92));
+        out.push(u8(98));
+      },
+      (b == u8(12)) => {
+        out.push(u8(92));
+        out.push(u8(102));
+      },
+      // Every other control byte as `\u00XX`: RFC 8259 §7 requires all of
+      // U+0000-U+001F escaped, and a raw one made the output invalid JSON.
+      (b < u8(32)) => {
+        hex := `0123456789abcdef`;
+        out.push(u8(92));
+        out.push(u8(117));
+        out.push(u8(48));
+        out.push(u8(48));
+        out.push(hex.byte_at(usize(b >> u8(4))));
+        out.push(hex.byte_at(usize(b & u8(15))));
+      },
       true => {
         out.push(b);
       }

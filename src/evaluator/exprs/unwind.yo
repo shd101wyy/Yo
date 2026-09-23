@@ -37,8 +37,32 @@ import("std/fmt");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, YoError, format_eval_failure } :: import("../../error.yo");
+{ Token } :: import("../../token.yo");
+{ type_contains_some_type_deep } :: import("../../types/utils.yo");
+{ flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
 { evaluate_expression } :: import("./expr.yo");
+/// Throw the `unwind`-value / enclosing-return-type mismatch — one message
+/// for every `unwind` site (the standalone form here and the statement form
+/// in `begin.yo`).
+///
+/// When BOTH types are concrete the error cannot hinge on a closure
+/// parameter's still-unknown type, so it also goes on the flow-violation
+/// channel. The exception handler `(e) -> { unwind(v) }` is a closure, its
+/// body is trial-evaluated at definition time, and that trial SWALLOWS what
+/// the body throws: without the flag, `unwind(())` in a fn returning `i32`
+/// passed `yo check`, compiled rc=0, and the handler became an abort() stub
+/// (issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md).
+throw_unwind_type_mismatch :: (
+  fn(token : Token, expected : TypeValue, got : TypeValue, ctx : EvalContext, exn : Exception) -> unit
+)({
+  msg := `Incompatible type for \`unwind\` argument:\n- Expected (enclosing function return type): ${type_to_string(expected)}\n- Got: ${type_to_string(got)}`;
+  concrete := (!type_contains_some_type_deep(expected) && !type_contains_some_type_deep(got));
+  if(concrete && (!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending())), {
+    flag_flow_violation(msg.clone());
+  });
+  exn.throw(dyn(format_error_message(token, msg)));
+});
 evaluate_unwind :: (
   fn(
     expr : AstExpr,
@@ -102,14 +126,7 @@ evaluate_unwind :: (
   // No-argument form `unwind()` — type unit.
   if(n_args == usize(0), {
     if(!is_some_type(enclosing_ret) && !are_types_compatible(t_unit(), enclosing_ret), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Incompatible type for \`unwind\` argument:\n- Expected (enclosing function return type): ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(t_unit())}`
-          )
-        )
-      );
+      throw_unwind_type_mismatch(ast_expr_token(expr), enclosing_ret, t_unit(), ctx, exn);
     });
     unit_info := new_expr_info(env, t_unit());
     unit_info.control_flow = .Some(control_flow_of(.Unwind));
@@ -154,14 +171,7 @@ evaluate_unwind :: (
   );
   // Type-check (skip when enclosing_ret is a SomeType).
   if(!is_some_type(enclosing_ret) && !are_types_compatible(arg_info.ty, enclosing_ret), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(arg_expr),
-          `Incompatible type for \`unwind\` argument:\n- Expected (enclosing function return type): ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(arg_info.ty)}`
-        )
-      )
-    );
+    throw_unwind_type_mismatch(ast_expr_token(arg_expr), enclosing_ret, arg_info.ty, ctx, exn);
   });
   // Emit ExprInfo: type = arg type, value = .None, control_flow = unwind.
   out_info := new_expr_info(env, arg_info.ty);
@@ -169,4 +179,4 @@ evaluate_unwind :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-export(evaluate_unwind);
+export(evaluate_unwind, throw_unwind_type_mismatch);

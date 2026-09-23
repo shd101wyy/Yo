@@ -27,11 +27,11 @@ first use; the entry-point signature check now rejects it).
 
 Companion documents that bound this design:
 
-- [`plans/backlog/DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md) — Layer 2
+- [`plans/backlog/DEPENDENT_TYPES_POSITION.md`](backlog/DEPENDENT_TYPES_POSITION.md) — Layer 2
   (SMT refinements on runtime values) is the proof tier this plan builds its top rung on.
-- [`plans/backlog/FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) — owns the verifier
+- [`plans/backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md) — owns the verifier
   this plan's Phase 5b depends on; do not couple codegen to it before that campaign lands.
-- [`plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`](../reference/OPERATOR_SET_AND_PRECEDENCE.md)
+- [`plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`](reference/OPERATOR_SET_AND_PRECEDENCE.md)
   — the affirmed "mistakes are loud, not silent" rationale for LLM authorship. This plan
   is that principle extended from parsing to runtime semantics.
 - `docs/en-US/MEMORY_SAFETY.md` — already *claims* the indexing half of Phase 1

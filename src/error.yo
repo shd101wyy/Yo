@@ -271,6 +271,27 @@ impl(
   )
 );
 impl(YoError, Error());
+/// A command failure with a SPECIFIC process exit code — `yo context`'s D4
+/// family (`plans/reference/YO_CONTEXT.md`): 1 = no match, 2 = a usage or packaging
+/// error. The top-level handler in `src/main.yo` prints `message` the way it
+/// prints any other error (`yo: error: …` on stderr), or nothing when it is
+/// empty — a command that already wrote its own error output, like a JSON
+/// error object on stdout — and exits with `code`. Throw it instead of
+/// calling `exit()`: a plain exit on the normal path aborts in the
+/// self-compiled runtime's teardown, the handler's does not.
+ExitWith :: ref(
+  struct(
+    code : i32,
+    message : String
+  )
+);
+impl(
+  ExitWith,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(self.message.clone())
+  )
+);
+impl(ExitWith, Error());
 /// Wrap one diagnostic as a single-entry `YoError`.
 _yo_error_of :: (fn(entry : Diagnostic) -> YoError)({
   entries := ArrayList(Diagnostic).new();
@@ -623,7 +644,7 @@ format_warning_messages :: (
     .None => warnings
   )
 });
-export(TokenAndError, TokenAndWarning, YoError);
+export(TokenAndError, TokenAndWarning, YoError, ExitWith);
 export(yo_error_from_diagnostics);
 export(format_error_message_with_repair, format_error_message_with_repair_at);
 /// The swallowed cause WITHOUT the freshness guard and without clearing —

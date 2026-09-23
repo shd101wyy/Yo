@@ -1,0 +1,18 @@
+{ Exception } :: import("std/error");
+parse_or_zero :: (fn(fail : bool) -> i32)({
+  exn := Exception(
+    throw : (
+      _e -> {
+        unwind(());
+      }
+    )
+  );
+  if(fail, {
+    exn.throw(dyn(`boom`));
+  });
+  i32(7)
+});
+main :: (fn() -> unit)({
+  parse_or_zero(true);
+});
+export(main);

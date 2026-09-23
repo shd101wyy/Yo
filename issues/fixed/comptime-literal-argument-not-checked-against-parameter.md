@@ -1,6 +1,6 @@
 # A comptime literal argument was never checked against a concrete parameter type
 
-**Status: FIXED.** Found in `yo context` C4 (`plans/YO_CONTEXT.md`) as "a `str`
+**Status: FIXED.** Found in `yo context` C4 (`plans/reference/YO_CONTEXT.md`) as "a `str`
 literal passed as a `String` argument inside template interpolation
 miscompiles". The first write-up guessed at the mechanism and scoped it to
 `String` in interpolation; the measurements below (tree-built binary,

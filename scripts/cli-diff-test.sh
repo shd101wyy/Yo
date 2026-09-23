@@ -146,6 +146,14 @@ done
 [[ -d "$CASES_DIR" ]] || { echo "error: cases dir not found: $CASES_DIR" >&2; exit 2; }
 [[ -x "$YO_SELF_BIN" ]] || echo "warning: YO_SELF_BIN not found/executable: $YO_SELF_BIN (every case will GOLDEN-DIFF)" >&2
 
+# The version the binary reports (`yo --version` = `yo X.Y.Z`, or a
+# `git describe` form for a tree build). Output that cites the toolchain (the
+# context pack's `yo X.Y.Z — pack-version: N` header) normalizes it to
+# `yo <VERSION>`, so no golden pins a release number and every bump would
+# otherwise re-record it. Dots are escaped for the ERE below.
+YO_SELF_VERSION="$("$YO_SELF_BIN" --version 2>/dev/null | sed -n 's/^yo //p' | head -1)"
+YO_SELF_VERSION_RE="${YO_SELF_VERSION//./\\.}"
+
 # Portable timeout (macOS ships none by default).
 if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN=(timeout)
 elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN=(gtimeout)
@@ -193,6 +201,7 @@ normalize_stream() {
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{64}([^A-Za-z0-9_]|$)/\1<SHA256>\2/g' \
              -e 's/(^|[^A-Za-z0-9_])(aarch64|arm64|x86_64|i686)-(apple-|unknown-|pc-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)([^A-Za-z0-9_]|$)/\1<TARGET>\5/g' \
     | sed -E -e '\|^check: parsing .*std/prelude\.yo$|{n; s/^check: parsed [0-9]+ top-level exprs$/check: parsed <PRELUDE_EXPRS> top-level exprs/;}' \
+    | if [[ -n "$YO_SELF_VERSION_RE" ]]; then sed -E -e "s/(^|[^A-Za-z0-9_])yo ${YO_SELF_VERSION_RE}([^A-Za-z0-9_.-]|\$)/\1yo <VERSION>\2/g"; else cat; fi \
     | refit_lsp_frames
 }
 

@@ -1,4 +1,4 @@
-//! The `yo context` index — plans/YO_CONTEXT.md C2 (D3).
+//! The `yo context` index — plans/reference/YO_CONTEXT.md C2 (D3).
 //!
 //! Builds and caches a line-oriented API index over a `.yo` tree (in
 //! practice: the bundled std) so agent queries cost milliseconds instead of
@@ -13,15 +13,14 @@
 //!     <cache>/context/<key>/modules.txt    one TSV line per module
 //!     <cache>/context/<key>/modules/<module>.md   render_module_md output
 //!     <cache>/context/<key>/manifest.txt   key inputs + builder version
-//!     <cache>/context.lock                 flock around a build
+//!     <cache>/context.lock                 flock: builds, queries and gc
 //!
 //! index.txt line (five fields; a barrel re-export appends a sixth):
 //!
 //!     <module>\t<name>\t<kind>\t<signature>\t<doc-first-line>[\torigin=<mod>]
 //!
-//! Line-oriented rather than JSON because `std/json.parse` takes a static
-//! `str`, not a runtime String — the cache must be parseable back in the
-//! same process that reads it (see plans/YO_CONTEXT.md §2).
+//! Line-oriented: a query scans ~2k lines per call, and a TSV line splits
+//! with no parser and no allocation beyond its fields.
 //!
 //! Degradation (the doc pipeline's token-only fallback) is MARKED, never
 //! silent: a degraded module's `modules.txt` line carries `(untyped)` and
@@ -33,13 +32,13 @@
 { ArrayList } :: import("std/collections/array_list");
 { Exception, IoExn } :: import("std/error");
 { Path } :: import("std/path");
-{ read_dir, create_dir_all } :: import("std/fs/dir");
+{ read_dir, create_dir_all, remove_file } :: import("std/fs/dir");
 { read, write_string, exists } :: import("std/fs/file");
 { File, OpenMode } :: import("std/fs/file");
 { flock, LOCK_EX, LOCK_UN } :: import("std/sys/lock");
 { sha256_hex } :: import("std/crypto/sha256");
 { env } :: import("std/env");
-{ println } :: import("std/fmt");
+{ eprintln } :: import("std/fmt");
 { CURRENT_YO_VERSION } :: import("../version.yo");
 { get_global_cache_dir, get_context_dir } :: import("../cache.yo");
 { resolve_std_path, mm_load_file } :: import("../module_manager.yo");
@@ -53,7 +52,7 @@
 { type_to_string } :: import("../types/string.yo");
 /// The index-builder version: bumped whenever the on-disk format changes so
 /// a stale cache is detected via the manifest, not just re-keyed away.
-INDEX_FORMAT_VERSION :: "1";
+INDEX_FORMAT_VERSION :: "2";
 /// One indexed item: everything a query needs before any file I/O.
 ContextIndexEntry :: struct(
   /// The import-style module path (`std/collections/array_list`): the
@@ -163,26 +162,35 @@ context_module_name :: (fn(file_path : String, root : String, prefix : String) -
   if(rel.ends_with(String.from("/index")), {
     rel = rel.substring(usize(0), rel.len() - usize(6));
   });
-  first := cond(
+  `${context_corpus_name(root, prefix)}/${rel}`
+});
+/// The first component every module of a corpus is named with: `prefix`
+/// when given (a dependency's import name), else the root's directory name.
+context_corpus_name :: (fn(root : String, prefix : String) -> String)(
+  cond(
     (prefix.len() > usize(0)) => prefix,
     true => match(
       Path.new(root).file_name(),
       .Some(n) => n,
       .None => String.from("tree")
     )
-  );
-  `${first}/${rel}`
-});
-/// The content-addressed key: first 12 hex of SHA-256 over the sorted
-/// `<relpath> <sha256(content)>` lines of every file the index would cover.
-/// Any std edit mints a new key; identical trees share one.
+  )
+);
+/// The content-addressed key: first 12 hex of SHA-256 over everything the
+/// index's BYTES depend on — the corpus name its modules are prefixed with,
+/// the index format, the building compiler's version (the doc pipeline that
+/// renders signatures), and the sorted `<relpath> <sha256(content)>` line of
+/// every file. Any of those changing mints a new key. The name matters: two
+/// identical trees under different names (`--path vendor/my-utils` and the
+/// same tree as dependency `utils`) used to share ONE index, named after
+/// whichever was built first.
 context_tree_key :: (
-  fn(root : String, io : Io, exn : Exception) -> String
+  fn(root : String, prefix : String, io : Io, exn : Exception) -> String
 )({
   files := ArrayList(String).new();
   _collect_index_files(root.clone(), root.clone(), files, io, exn);
   files.sort();
-  corpus := String.new();
+  corpus := `name ${context_corpus_name(root.clone(), prefix)}\nformat ${INDEX_FORMAT_VERSION}\nyo ${String.from(CURRENT_YO_VERSION)}\n`;
   (fi : usize) = usize(0);
   while(fi < files.len(), {
     match(
@@ -246,14 +254,35 @@ _doc_first_line :: (fn(doc : Option(String)) -> String)(
     }
   )
 );
-/// Build (or reuse) the index for `root`; returns the key. `refresh` skips
-/// the reuse check. Progress prints to stdout like `yo doc`'s.
+/// Take `<cache>/context.lock` (blocking flock, the `store.lock` pattern) and
+/// return the open lock file; `context_unlock` releases it. A query holds it
+/// across `context_index_ensure` AND the loads that follow, and `yo cache gc`
+/// holds it while it sweeps `context/`, so no reader ever sees a directory
+/// that is half built or half deleted.
+context_lock :: (fn(cache_root : String, io : Io, exn : Exception) -> File)({
+  io.await(create_dir_all(Path.new(context_dir(cache_root.clone())), io), IoExn(io : io, exn : exn));
+  lock_path := Path.new(context_dir(cache_root)).join(Path.new(String.from("context.lock"))).to_string();
+  lock_file := io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, io), IoExn(io : io, exn : exn));
+  rc := flock(lock_file.fd(), LOCK_EX);
+  if(rc < i32(0), {
+    exn.throw(dyn(`context: could not lock ${lock_path} (errno ${(i32(0) - rc).to_string()})`));
+  });
+  lock_file
+});
+/// Release a lock `context_lock` took.
+context_unlock :: (fn(lock_file : File) -> unit)({
+  flock(lock_file.fd(), LOCK_UN);
+});
+/// Build (or reuse) the index for `root`; returns the key. The CALLER holds
+/// `context_lock`. `refresh` rebuilds even when the index exists. Progress
+/// goes to stderr, so stdout carries only the query's answer (a `--format
+/// json` document must be the whole of stdout).
 ///
-/// Concurrency: `context.lock` is held (blocking, the `store.lock` pattern)
-/// across the whole build; the manifest is RE-CHECKED under the lock so a
-/// concurrent builder's finished work is reused rather than duplicated. The
-/// manifest is written LAST: an interrupted build leaves a manifestless
-/// directory that the next run rebuilds over.
+/// The manifest is written LAST and is the index's validity marker: an
+/// interrupted build leaves a manifestless directory the next run rebuilds
+/// over. `--refresh` deletes the manifest FIRST for the same reason — a
+/// refresh killed midway must not leave a valid-looking manifest over
+/// half-rewritten files.
 context_index_ensure :: (
   fn(
     root : String,
@@ -264,30 +293,17 @@ context_index_ensure :: (
     exn : Exception
   ) -> String
 )({
-  key := context_tree_key(root.clone(), io, exn);
+  key := context_tree_key(root.clone(), prefix.clone(), io, exn);
   idx_dir := context_index_dir(cache_root.clone(), key.clone());
   manifest := Path.new(idx_dir.clone()).join(Path.new(String.from("manifest.txt"))).to_string();
-  if(!refresh, {
-    if(io.await(exists(Path.new(manifest.clone()), io), io), {
-      return(key);
-    });
+  has_manifest := io.await(exists(Path.new(manifest.clone()), io), io);
+  if(has_manifest && !refresh, {
+    return(key);
   });
-  io.await(create_dir_all(Path.new(context_dir(cache_root.clone())), io), IoExn(io : io, exn : exn));
-  lock_path := Path.new(context_dir(cache_root.clone())).join(Path.new(String.from("context.lock"))).to_string();
-  lock_file := io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, io), IoExn(io : io, exn : exn));
-  rc := flock(lock_file.fd(), LOCK_EX);
-  if(rc < i32(0), {
-    exn.throw(dyn(`context: could not lock ${lock_path} (errno ${(i32(0) - rc).to_string()})`));
+  if(has_manifest, {
+    io.await(remove_file(Path.new(manifest.clone()), io), IoExn(io : io, exn : exn));
   });
-  // Double-checked: another process may have finished this key while we
-  // waited for the lock.
-  if(!refresh, {
-    if(io.await(exists(Path.new(manifest.clone()), io), io), {
-      _lu := flock(lock_file.fd(), LOCK_UN);
-      return(key);
-    });
-  });
-  println(`Building the context index for ${root} (key ${key})...`);
+  eprintln(`Building the context index for ${root} (key ${key})...`);
   files := ArrayList(String).new();
   _collect_index_files(root.clone(), root.clone(), files, io, exn);
   files.sort();
@@ -346,15 +362,16 @@ context_index_ensure :: (
       .None => ()
     );
     fi = (fi + usize(1));
-    println(`  [${fi.to_string()}/${files.len().to_string()}] indexed`);
+    eprintln(`  [${fi.to_string()}/${files.len().to_string()}] indexed`);
   });
   io.await(write_string(Path.new(idx_dir.clone()).join(Path.new(String.from("index.txt"))), index_txt, io), IoExn(io : io, exn : exn));
   io.await(write_string(Path.new(idx_dir.clone()).join(Path.new(String.from("modules.txt"))), modules_txt, io), IoExn(io : io, exn : exn));
-  manifest_txt := `format=${INDEX_FORMAT_VERSION}\nroot=${root}\nkey=${key}\nfiles=${files.len().to_string()}\nyo=${String.from(CURRENT_YO_VERSION)}\n`;
+  // No absolute path and no timestamp: identical inputs give byte-identical
+  // caches (D3).
+  manifest_txt := `format=${INDEX_FORMAT_VERSION}\nname=${context_corpus_name(root.clone(), prefix.clone())}\nkey=${key}\nfiles=${files.len().to_string()}\nyo=${String.from(CURRENT_YO_VERSION)}\n`;
   io.await(write_string(Path.new(manifest.clone()), manifest_txt, io), IoExn(io : io, exn : exn));
-  _lu2 := flock(lock_file.fd(), LOCK_UN);
   if(degraded_count > usize(0), {
-    println(`Warning: ${degraded_count.to_string()} module(s) fell back to token-only docs (marked "(untyped)" in --list).`);
+    eprintln(`Warning: ${degraded_count.to_string()} module(s) fell back to token-only docs (marked "(untyped)" in --list).`);
   });
   key
 });
@@ -580,7 +597,7 @@ _significant_tokens :: (fn(source : String) -> ArrayList(Token))({
   exn := Exception(
     throw : (
       _err -> {
-        unwind(());
+        unwind(ArrayList(Token).new());
       }
     )
   );
@@ -775,7 +792,7 @@ _mark_barrel_origins :: (
           match(
             entries.get(ei),
             .Some(e) => {
-              if((e.origin.len() == usize(0)) && _contains(defined, e.name), {
+              if((e.origin.len() == usize(0)) && defined.contains(e.name), {
                 e.origin = origin.clone();
                 entries(ei) = e;
               });
@@ -789,23 +806,6 @@ _mark_barrel_origins :: (
     );
     pi = (pi + usize(1));
   });
-});
-/// Does the list hold `s`?
-_contains :: (fn(list : ArrayList(String), s : String) -> bool)({
-  (i : usize) = usize(0);
-  while(i < list.len(), {
-    match(
-      list.get(i),
-      .Some(x) => {
-        if(x == s, {
-          return(true);
-        });
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  false
 });
 /// Load the index entries from a built cache.
 context_index_load :: (
@@ -904,6 +904,9 @@ export(
   ContextIndexModule,
   context_dir,
   context_index_dir,
+  context_corpus_name,
+  context_lock,
+  context_unlock,
   context_cache_root,
   context_module_name,
   context_tree_key,

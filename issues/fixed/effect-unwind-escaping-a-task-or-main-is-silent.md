@@ -1,6 +1,6 @@
 # An effect unwind that aborts a task (or escapes to top level) exits silently
 
-**Status: FIXED** (safe-mode Phase 0a; `plans/backlog/SAFE_MODE.md` §3).
+**Status: FIXED** (safe-mode Phase 0a; `plans/SAFE_MODE.md` §3).
 
 ## The behavior (measured 2026-09-22, seed v0.2.38)
 
