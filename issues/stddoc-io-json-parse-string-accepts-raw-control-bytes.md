@@ -42,9 +42,12 @@ $ yo compile issues/repros/stddoc-io-json-parse-string-accepts-raw-control-bytes
 ACCEPTED raw control byte: {"a":"x\ny"}
 ```
 
-The input was the 11 bytes `{"a":"x<0x0A>y"}`. Note the round-trip through
-`json_stringify` ESCAPES the byte, so the output is valid JSON — the data is
-not corrupted, it is just that invalid input was accepted.
+The input was the 11 bytes `{"a":"x<0x0A>y"}`. The round-trip through
+`json.stringify` escapes that byte (`\n` is one of the escapes it always
+had), so this particular output is valid JSON. Other control bytes were NOT
+escaped until 2026-09-23 — stringify wrote them raw, producing invalid JSON
+(`issues/fixed/json-stringify-writes-raw-control-bytes.md`); it now escapes
+all of U+0000-U+001F.
 
 ## Reproducer
 

@@ -703,3 +703,23 @@ test("integer ToJson emits Int, so a round trip is stable", {
   fv := f64(1.5).to_json();
   assert(match(fv, .Number(_) => true, _ => false), "f64.to_json must stay Number");
 });
+// RFC 8259 §7: every control byte U+0000-U+001F must be escaped inside a
+// string. Only `\n`, `\t` and `\r` were; the rest were written raw, so the
+// output was not JSON (issues/fixed/json-stringify-writes-raw-control-bytes.md).
+test("json.stringify escapes every control byte", {
+  s := String.new();
+  s.push_byte(u8(1));
+  s.push_byte(u8(8));
+  s.push_byte(u8(12));
+  s.push_byte(u8(31));
+  s.push_byte(u8(0));
+  out := json.stringify(JsonValue.Str(s));
+  assert(out == `"\\u0001\\b\\f\\u001f\\u0000"`, "control bytes stringify as escapes");
+  (i : usize) = usize(0);
+  while(i < out.len(), {
+    assert(out.byte_at(i) >= u8(32), "no raw control byte in the output");
+    i = (i + usize(1));
+  });
+  back := json.parse_string(out).unwrap();
+  assert(match(back, .Str(v) => (v == s), _ => false), "the escapes round-trip");
+});
