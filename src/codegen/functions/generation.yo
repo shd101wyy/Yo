@@ -1387,6 +1387,10 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
   // level — the suite's abort-this-test idiom when no outer handler exists
   // ("Mixed unwind and return in effect handler") — so the batch boundary
   // clears the flag the same way task boundaries already do.
+  // Effect-unwind task aborts still unobserved when the body returns (a bound
+  // handle never awaited keeps its task alive, so no dispose reports it) are
+  // reported here, before the belt (gc_runtime.yo, emit_task_abort_registry).
+  abort_report := String.from("  __yo_task_abort_report_unobserved();\n");
   test_batch_main := main_def_module.contains(String.from(".yo_selftest_batch_"));
   belt_block := cond(
     test_batch_main =>
@@ -1475,7 +1479,7 @@ static void* __yo_main_thread_entry(void* __yo_unused_arg) {
   (void)__yo_unused_arg;
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-${belt_block}  return NULL;
+${abort_report}${belt_block}  return NULL;
 }
 
 // Main wrapper - runs program body on a worker thread (default 1 GiB stack,
@@ -1522,7 +1526,7 @@ static DWORD WINAPI __yo_main_thread_entry(LPVOID __yo_unused_arg) {
   (void)__yo_unused_arg;
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-${belt_block}  return 0;
+${abort_report}${belt_block}  return 0;
 }
 
 // Main wrapper - runs the program body on a worker thread (default 1 GiB
@@ -1574,7 +1578,7 @@ int main(int argc, char** argv) {
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-${belt_block}${heap_report_call}  return 0;
+${abort_report}${belt_block}${heap_report_call}  return 0;
 }
 `;
       em.emit_string(block);

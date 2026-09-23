@@ -1253,6 +1253,9 @@ generate_async_block_state_dispose_function :: (
   em.emit_string_line(`void ${dispose_function_name.clone()}(void* sm_ptr) {`);
   em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
   em.emit_string_line(`  ASYNC_DEBUG("${dispose_function_name.clone()}: Disposing state machine\\n");`);
+  // Its last reference is gone: an effect-unwind abort nobody observed is
+  // reported now (gc_runtime.yo, emit_task_abort_registry).
+  em.emit_line("  __yo_task_abort_released(sm_ptr);");
   em.emit_line("");
   // Drop the capture struct. The constructor receives it DUP'd (the closure
   // arg's deferred capture dups are applied at the call site — see
@@ -2832,14 +2835,14 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     em.emit_declaration_line("  if (__yo_effect_escaped) {");
     em.emit_declaration_line("    __yo_effect_escaped = 0;");
     em.emit_declaration_line("    sm->state = -2;");
-    // The abort itself used to be silent: a fire-and-forget spawn (the
-    // handle discarded) left nothing on stderr and rc=0, so an unhandled
-    // effect unwind was invisible. `JoinHandle.await` still returns `.None`
-    // as the typed observation, and cancellation via `JoinHandle.abort()`
-    // (race/timeout) does NOT come through here — it writes -2 in
-    // `__yo_task_abort` without an unwind, so this line fires only for
-    // genuine effect escapes.
-    em.emit_declaration_line("    fprintf(stderr, \"unhandled effect unwind aborted an async task\\n\");");
+    // Register the abort (gc_runtime.yo, emit_task_abort_registry): a
+    // fire-and-forget spawn (the handle discarded) or a handle never awaited
+    // prints the unhandled-unwind line when the task is released or the
+    // program body returns, while `JoinHandle.await`'s `.None` observes it
+    // silently. Cancellation via `JoinHandle.abort()` (race/timeout) does NOT
+    // come through here — it writes -2 in `__yo_task_abort` without an
+    // unwind — so only genuine effect escapes are registered.
+    em.emit_declaration_line("    __yo_task_abort_register(ptr);");
     em.emit_declaration_line("    __yo_decr_rc(ptr);");
     em.emit_declaration_line("    return;");
     em.emit_declaration_line("  }");
@@ -2922,6 +2925,9 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   });
   has_capture_inline := (capture_inline_lines.len() > usize(0));
   em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* ptr) {`);
+  // Its last reference is gone: an effect-unwind abort nobody observed is
+  // reported now (gc_runtime.yo, emit_task_abort_registry).
+  em.emit_declaration_line("  __yo_task_abort_released(ptr);");
   has_drop := (((match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false)) || has_result_inline) || has_capture_inline);
   if(has_drop, {
     em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);

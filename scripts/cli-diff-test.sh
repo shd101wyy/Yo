@@ -189,6 +189,11 @@ strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 # DIRECTLY AFTER the prelude's own `parsing` line is rewritten, so a fixture's
 # `parsed N top-level exprs` — which is exactly what those cases DO test — is
 # still compared exactly.
+# <CONTEXT_KEY> is RELEASE-specific the same way <VERSION> is: `yo context`'s
+# index key hashes the toolchain version (a new compiler must rebuild the
+# index — context_tree_key in src/doc/context_index.yo), so the progress line
+# `Building the context index for ... (key <12 hex>)...` changed in all twelve
+# context cases on the v0.2.40 bump. Only that `(key <hex>)` form is rewritten.
 # $1 = project dir, $2 = home dir
 normalize_stream() {
   local proj="$1" home="$2"
@@ -199,6 +204,7 @@ normalize_stream() {
     | sed -E -e 's/[0-9]+(\.[0-9]+)?[[:space:]]*(ms|seconds|s([^A-Za-z0-9_]|$))/<TIME>\3/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{40}([^A-Za-z0-9_]|$)/\1<SHA1>\2/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{64}([^A-Za-z0-9_]|$)/\1<SHA256>\2/g' \
+             -e 's/\(key [0-9a-f]{12}\)/(key <CONTEXT_KEY>)/g' \
              -e 's/(^|[^A-Za-z0-9_])(aarch64|arm64|x86_64|i686)-(apple-|unknown-|pc-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)([^A-Za-z0-9_]|$)/\1<TARGET>\5/g' \
     | sed -E -e '\|^check: parsing .*std/prelude\.yo$|{n; s/^check: parsed [0-9]+ top-level exprs$/check: parsed <PRELUDE_EXPRS> top-level exprs/;}' \
     | if [[ -n "$YO_SELF_VERSION_RE" ]]; then sed -E -e "s/(^|[^A-Za-z0-9_])yo ${YO_SELF_VERSION_RE}([^A-Za-z0-9_.-]|\$)/\1yo <VERSION>\2/g"; else cat; fi \

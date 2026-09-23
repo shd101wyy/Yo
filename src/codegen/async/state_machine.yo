@@ -2237,6 +2237,8 @@ _emit_dispatch_extraction_case :: (
         // dispose drops it); the anonymous slot ref is released here.
         em.emit_string_line(`          // Check if the awaited Future was aborted`);
         em.emit_string_line(`          if (${acc}->state == -2) {`);
+        // The awaiter observes the abort: the escape propagates to it below.
+        em.emit_string_line(`            __yo_task_abort_observed((void*)${acc});`);
         if(!(acc_info.is_named), {
           em.emit_string_line(`            __yo_decr_rc((void*)${slot});`);
           em.emit_string_line(`            ${slot} = NULL;`);
@@ -2371,6 +2373,8 @@ _emit_prev_await_result_extraction :: (
   // Abort check.
   em.emit_string_line(`      // Check if the awaited Future was aborted`);
   em.emit_string_line(`      if (sm->${pffn}->state == -2) {`);
+  // The awaiter observes the abort: the escape propagates to it below.
+  em.emit_string_line(`        __yo_task_abort_observed((void*)sm->${pffn});`);
   em.emit_string_line(`        __yo_decr_rc((void*)sm->${pffn});`);
   em.emit_string_line(`        sm->${pffn} = NULL;`);
   emit_async_future_escape(em, `        `, Option(String).None, Option(String).Some(async_block_id.clone()));

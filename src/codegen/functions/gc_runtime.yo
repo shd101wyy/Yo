@@ -199,6 +199,70 @@ emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
   em.emit_declaration_string_line(decl);
 });
 // ---------------------------------------------------------------------------
+// emitTaskAbortRegistry
+// ---------------------------------------------------------------------------
+/// Emit the registry of async tasks an effect unwind aborted and nobody has
+/// observed yet (safe mode 0a). The unwind-side -2 writers REGISTER the task;
+/// every read of that Aborted state by an awaiter, `JoinHandle.await`,
+/// `JoinHandle.state` or `io.state` OBSERVES it (silently); the state
+/// machine's dispose RELEASES it, printing the diagnostic if it was never
+/// observed; and the main wrapper REPORTS whatever is still registered when
+/// the program body returns (a bound handle that was never awaited keeps its
+/// task alive, so no dispose ever runs for it). Printing at abort time
+/// instead fired for every awaited handle whose `.None` the program handles
+/// (issues/fixed/an-awaited-task-abort-is-reported-as-unhandled.md).
+/// Entries are always live state machines: the dispose removes a task before
+/// it is freed, so a reused address can never match a stale entry.
+emit_task_abort_registry :: (fn(context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  em.emit_declaration_line("typedef struct { void** items; size_t len; size_t cap; } __yo_task_abort_registry_t;");
+  if(context.base.chunk_mode, {
+    em.emit_declaration_line("extern _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
+    cgb := context.base;
+    cgb.chunk_globals.push_string(String.from("_Thread_local __yo_task_abort_registry_t __yo_task_aborts;\n"));
+  }, {
+    em.emit_declaration_line("static _Thread_local __yo_task_abort_registry_t __yo_task_aborts;  // Effect-unwind task aborts nobody has observed yet");
+  });
+  em.emit_declaration_string_line(
+    `static void __yo_task_abort_register(void* fut) {
+  if (__yo_task_aborts.len == __yo_task_aborts.cap) {
+    size_t cap = (__yo_task_aborts.cap == 0) ? 8 : (__yo_task_aborts.cap * 2);
+    void** items = (void**)__yo_realloc(__yo_task_aborts.items, cap * sizeof(void*));
+    if (items == NULL) __yo_alloc_fail(cap * sizeof(void*));
+    __yo_task_aborts.items = items;
+    __yo_task_aborts.cap = cap;
+  }
+  __yo_task_aborts.items[__yo_task_aborts.len++] = fut;
+}
+static int __yo_task_abort_take(void* fut) {
+  for (size_t i = __yo_task_aborts.len; i > 0; i--) {
+    if (__yo_task_aborts.items[i - 1] == fut) {
+      __yo_task_aborts.items[i - 1] = __yo_task_aborts.items[--__yo_task_aborts.len];
+      return 1;
+    }
+  }
+  return 0;
+}
+// An awaiter or handle read the Aborted state: the abort is handled.
+static void __yo_task_abort_observed(void* fut) {
+  if (__yo_task_aborts.len != 0) (void)__yo_task_abort_take(fut);
+}
+// The task's last reference is gone: nobody can observe the abort any more.
+static void __yo_task_abort_released(void* fut) {
+  if (__yo_task_aborts.len != 0 && __yo_task_abort_take(fut)) {
+    fprintf(stderr, "unhandled effect unwind aborted an async task that was never awaited\\n");
+  }
+}
+// The program body returned: every task still registered was never observed.
+static void __yo_task_abort_report_unobserved(void) {
+  for (size_t i = 0; i < __yo_task_aborts.len; i++) {
+    fprintf(stderr, "unhandled effect unwind aborted an async task that was never awaited\\n");
+  }
+  __yo_task_aborts.len = 0;
+}`
+  );
+});
+// ---------------------------------------------------------------------------
 // generateBorrowRuntimePrimitives
 // ---------------------------------------------------------------------------
 /// Emit the Law-of-Exclusivity borrow primitives. Emitted unconditionally
@@ -316,6 +380,7 @@ static void __yo_decr_rc_atomic(void* ptr) {
     em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
   });
   emit_unwind_value_buffer(context);
+  emit_task_abort_registry(context);
   // No-op GC functions so references elsewhere compile.
   em.emit_string_line(
     `// No-op GC stubs — no types form reference cycles
@@ -502,6 +567,7 @@ static void __yo_decr_rc_atomic(void* ptr) {
     em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
   });
   emit_unwind_value_buffer(context);
+  emit_task_abort_registry(context);
   // Per-thread GC tracking state + adaptive thresholds.
   em.emit_string_line(
     `// Per-thread GC tracking state for cycle collection
@@ -1079,6 +1145,7 @@ generate_atomic_gc_runtime_functions :: (fn(context : FunctionGenerationContext)
 export(
   collect_unwind_value_ctypes,
   emit_unwind_value_buffer,
+  emit_task_abort_registry,
   generate_borrow_runtime_primitives,
   generate_lightweight_rc_functions,
   generate_full_gc_runtime_functions,

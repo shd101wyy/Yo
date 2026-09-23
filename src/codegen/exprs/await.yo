@@ -483,6 +483,9 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   em.emit_string_line(`${indent.clone()}    __await_state = ${sync_future_var.clone()}->state;`);
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}  if (__await_state == -2) {`);
+  // Awaiting an unwind-aborted task observes the abort (the unwind
+  // propagates or the handler installs here), so it is not "unhandled".
+  em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed((void*)${sync_future_var.clone()});`);
   // Determine whether the future carries algebraic effects (resolve SomeType).
   effect_opt := _first_future_effect(future_trait_type);
   effect_type_resolved := match(
@@ -636,7 +639,11 @@ generate_state :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
   result_var := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("__io_state_result"));
-  em.emit_string_line(`${indent.clone()}int ${raw_var.clone()} = ${future_code}->state;`);
+  fut_var := if(name_suffix.len() > usize(0), `__state_future_${name_suffix.clone()}`, String.from("__state_future"));
+  em.emit_string_line(`${indent.clone()}${get_type_string(future_type, context.base)} ${fut_var.clone()} = ${future_code};`);
+  em.emit_string_line(`${indent.clone()}int ${raw_var.clone()} = ${fut_var.clone()}->state;`);
+  // Reading Aborted observes an effect-unwind abort (emit_task_abort_registry).
+  em.emit_string_line(`${indent.clone()}if (${raw_var.clone()} == -2) __yo_task_abort_observed((void*)${fut_var.clone()});`);
   em.emit_string_line(`${indent.clone()}int32_t ${result_var.clone()} = (${raw_var.clone()} > 0) ? 1 : ${raw_var.clone()};`);
   result_var
 });
@@ -748,6 +755,8 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   });
   em.emit_string_line(`${indent.clone()}  } else {`);
   em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
+  // `.None` is the typed observation of the abort: the program handles it.
+  em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
   em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${none_tag.clone()} };`);
   em.emit_string_line(`${indent.clone()}  }`);
   // Release the reference the handle took at io.spawn (see _generate_io_spawn's
