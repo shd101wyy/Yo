@@ -8,8 +8,8 @@
 ///   - a fixture mini-std round-trips through build → load with the
 ///     expected entries (TSV format stability), and a barrel gets `origin=`;
 ///   - a module the evaluator cannot load is marked degraded, never silent;
-///   - an existing index is REUSED without `refresh` and rebuilt with it;
-///   - two builds of one tree are byte-identical (D3 determinism).
+///   - an existing index is REUSED without `refresh` and rebuilt with it, and
+///     the rebuild is byte-identical to the first build (D3 determinism).
 /// Every test writes its own fixture into its own temporary directory, so the
 /// tests are independent of each other and of other runs.
 { String } :: import("std/string");
@@ -96,7 +96,9 @@ test("context_module_name: the corpus name prefixes, index.yo collapses", {
   name3 := context_module_name(String.from("/w/mylib/util.yo"), String.from("/w/mylib"), String.from("dep"));
   assert(name3 == "dep/util", `an explicit prefix wins, got ${name3}`);
 });
-test("context_index_ensure + load: the fixture round-trips, barrel origin= resolves", {
+// ONE build serves the round-trip, reuse, refresh and determinism checks
+// (they used to build the same fixture five times over).
+test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, byte-identical rebuild", {
   // An IO failure fails the test. Each test binds its own handler: a fn may
   // not return one (a `ctl` handler cannot outlive its frame).
   exn := Exception(
@@ -110,7 +112,7 @@ test("context_index_ensure + load: the fixture round-trips, barrel origin= resol
   base := td.path().to_string();
   root := _write_fixture(base.clone(), io, exn);
   cache := `${base}/cache`;
-  key := context_index_ensure(root, cache.clone(), false, String.new(), io, exn);
+  key := context_index_ensure(root.clone(), cache.clone(), false, String.new(), io, exn);
   entries := context_index_load(cache.clone(), key.clone(), io, exn);
   add := match(_find_entry(entries, `t/alpha_api`, `alpha_add`), .Some(e) => e, .None => __yo_panic("alpha_add is indexed"));
   assert(add.kind == "fn", `alpha_add is a fn, got ${add.kind}`);
@@ -121,7 +123,7 @@ test("context_index_ensure + load: the fixture round-trips, barrel origin= resol
   assert(_find_entry(entries, `t/beta`, `beta_hi`).is_some(), "beta_hi is indexed");
   barrel := match(_find_entry(entries, `t/alpha`, `alpha_add`), .Some(e) => e, .None => __yo_panic("the barrel re-export is indexed"));
   assert(barrel.origin == "t/alpha_api", `barrel origin= t/alpha_api, got '${barrel.origin}'`);
-  mods := context_index_load_modules(cache, key, io, exn);
+  mods := context_index_load_modules(cache.clone(), key.clone(), io, exn);
   assert(mods.len() == usize(3), `three modules, got ${mods.len().to_string()}`);
   (saw_alpha : bool) = false;
   (i : usize) = usize(0);
@@ -136,6 +138,40 @@ test("context_index_ensure + load: the fixture round-trips, barrel origin= resol
     i = (i + usize(1));
   });
   assert(saw_alpha, "modules.txt has t/alpha_api");
+  // Snapshot the built index: the refresh below must reproduce it byte for
+  // byte (D3 determinism), with no absolute path recorded.
+  idx_dir := context_index_dir(cache.clone(), key.clone());
+  files := ArrayList(String).new();
+  files.push(String.from("index.txt"));
+  files.push(String.from("modules.txt"));
+  files.push(String.from("manifest.txt"));
+  files.push(String.from("modules/t/alpha_api.md"));
+  snapshot := ArrayList(String).new();
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    text := _read_text(Path.new(idx_dir.clone()).join(Path.new(files(fi))).to_string(), io, exn);
+    assert(!text.contains(base.clone()), `${files(fi)} records no absolute path`);
+    snapshot.push(text);
+    fi = (fi + usize(1));
+  });
+  // Plant a sentinel where a rebuild would write: a reuse must return it,
+  // a refresh must replace it.
+  index_path := Path.new(idx_dir.clone()).join(Path.new(String.from("index.txt"))).to_string();
+  io.await(write_string(Path.new(index_path), String.from("t/x\tsentinel\tfn\t()\t\n"), io), IoExn(io : io, exn : exn));
+  key2 := context_index_ensure(root.clone(), cache.clone(), false, String.new(), io, exn);
+  assert(key2 == key, "reuse keeps the key");
+  reused := context_index_load(cache.clone(), key.clone(), io, exn);
+  assert(_find_entry(reused, `t/x`, `sentinel`).is_some(), "without refresh the index is not rebuilt");
+  key3 := context_index_ensure(root, cache.clone(), true, String.new(), io, exn);
+  assert(key3 == key, "refresh keeps the key");
+  rebuilt := context_index_load(cache, key, io, exn);
+  assert(_find_entry(rebuilt, `t/x`, `sentinel`).is_none(), "refresh rebuilds the index");
+  (fj : usize) = usize(0);
+  while(fj < files.len(), {
+    again := _read_text(Path.new(idx_dir.clone()).join(Path.new(files(fj))).to_string(), io, exn);
+    assert(again == snapshot(fj), `${files(fj)} is byte-identical across builds`);
+    fj = (fj + usize(1));
+  });
 });
 test("a module the evaluator cannot load is marked degraded", {
   // An IO failure fails the test. Each test binds its own handler: a fn may
@@ -171,67 +207,6 @@ test("a module the evaluator cannot load is marked degraded", {
     i = (i + usize(1));
   });
   assert(saw == usize(2), `both modules listed, saw ${saw.to_string()}`);
-});
-test("an existing index is reused without refresh and rebuilt with it", {
-  // An IO failure fails the test. Each test binds its own handler: a fn may
-  // not return one (a `ctl` handler cannot outlive its frame).
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
-    )
-  );
-  td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
-  base := td.path().to_string();
-  root := _write_fixture(base.clone(), io, exn);
-  cache := `${base}/cache`;
-  key := context_index_ensure(root.clone(), cache.clone(), false, String.new(), io, exn);
-  // Plant a sentinel where a rebuild would write: a reuse must return it,
-  // a refresh must replace it.
-  index_path := Path.new(context_index_dir(cache.clone(), key.clone())).join(Path.new(String.from("index.txt"))).to_string();
-  io.await(write_string(Path.new(index_path), String.from("t/x\tsentinel\tfn\t()\t\n"), io), IoExn(io : io, exn : exn));
-  key2 := context_index_ensure(root.clone(), cache.clone(), false, String.new(), io, exn);
-  assert(key2 == key, "reuse keeps the key");
-  reused := context_index_load(cache.clone(), key.clone(), io, exn);
-  assert(_find_entry(reused, `t/x`, `sentinel`).is_some(), "without refresh the index is not rebuilt");
-  key3 := context_index_ensure(root, cache.clone(), true, String.new(), io, exn);
-  assert(key3 == key, "refresh keeps the key");
-  rebuilt := context_index_load(cache, key, io, exn);
-  assert(_find_entry(rebuilt, `t/x`, `sentinel`).is_none(), "refresh rebuilds the index");
-  assert(_find_entry(rebuilt, `t/beta`, `beta_hi`).is_some(), "the rebuild has the real entries");
-});
-test("two builds of one tree are byte-identical", {
-  // An IO failure fails the test. Each test binds its own handler: a fn may
-  // not return one (a `ctl` handler cannot outlive its frame).
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
-    )
-  );
-  td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
-  base := td.path().to_string();
-  root := _write_fixture(base.clone(), io, exn);
-  cache_a := `${base}/cache_a`;
-  cache_b := `${base}/cache_b`;
-  ka := context_index_ensure(root.clone(), cache_a.clone(), false, String.new(), io, exn);
-  kb := context_index_ensure(root, cache_b.clone(), false, String.new(), io, exn);
-  assert(ka == kb, "one tree, one key");
-  files := ArrayList(String).new();
-  files.push(String.from("index.txt"));
-  files.push(String.from("modules.txt"));
-  files.push(String.from("manifest.txt"));
-  files.push(String.from("modules/t/alpha_api.md"));
-  (i : usize) = usize(0);
-  while(i < files.len(), {
-    fa := _read_text(Path.new(context_index_dir(cache_a.clone(), ka.clone())).join(Path.new(files(i))).to_string(), io, exn);
-    fb := _read_text(Path.new(context_index_dir(cache_b.clone(), kb.clone())).join(Path.new(files(i))).to_string(), io, exn);
-    assert(fa == fb, `${files(i)} is byte-identical across builds`);
-    assert(!fa.contains(base.clone()), `${files(i)} records no absolute path`);
-    i = (i + usize(1));
-  });
 });
 test("search scoring: exact > prefix > substring > signature > doc", {
   mk :: (fn(nm : String, sig : String, dc : String) -> ContextIndexEntry)(
