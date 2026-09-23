@@ -690,6 +690,30 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
         },
         .None => {
           arg_code = _call_generate_expr(arg, indent.clone(), context);
+          // A bare `return(<inout binding>)`: when the atom's recorded env
+          // does not contain the binding (measured: for a scalar binding,
+          // whose value cell is comptime-known through the H27 whole-variable
+          // alias, the identifier's recorded env can lack the variable; the
+          // RC-typed case records a live env), generate_atom falls back to
+          // the BARE name — the pointer would be returned as the value. The
+          // evaluator's `source_variable` stamp survives that drift; deref
+          // explicitly from it.
+          match(
+            arg_ei_opt,
+            .Some(aei_nr) => match(
+              aei_nr.source_variable,
+              .Some(asv_nr) => {
+                sv_name := get_variable_name_for_codegen(asv_nr.name.clone(), Option(Environment).None);
+                if(asv_nr.is_ref && (arg_code == sv_name), {
+                  arg_code = String.from("(*");
+                  arg_code.push_string(sv_name);
+                  arg_code.push_str(")");
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
         }
       );
       (handled_deferred_dup : bool) = false;
@@ -815,6 +839,17 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
                 .None => ()
               );
             });
+            // The env-based lookup above is dead for locals when the atom's
+            // recorded env lacks the binding; the evaluator's
+            // `source_variable` stamp (set on every identifier read) is the
+            // authoritative is_ref answer.
+            match(
+              ra_ei.source_variable,
+              .Some(ra_sv) => if(ra_sv.is_ref, {
+                arg_is_ref_atom = true;
+              }),
+              .None => ()
+            );
           },
           .None => ()
         );

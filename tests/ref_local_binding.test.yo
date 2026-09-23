@@ -328,3 +328,33 @@ comptime_expect_error(
     consume(r);
   })
 );
+// Returning through a binding copies the POINTEE — the bare `return(y)` of a
+// scalar binding used to emit the raw pointer variable as the value (wrong
+// number + a stack-address leak) because the return-arg atom's recorded env
+// lacks the binding, so `generate_atom` fell back to the bare name
+// (issues/fixed/return-of-an-inout-local-binding-emits-the-pointer.md). RC
+// returns already went through the deferred-dup path and were correct.
+ret_scalar :: (fn() -> i32)({
+  x := i32(1);
+  inout(y) := x;
+  y = i32(2);
+  return(y);
+});
+ret_struct :: (fn() -> i32)({
+  p := Point(x : i32(1), y : i32(2));
+  inout(px) := p.x;
+  px = i32(10);
+  return(px);
+});
+ret_rc :: (fn() -> String)({
+  s := String.from("target");
+  inout(r) := s;
+  r.push_str("!");
+  return(r);
+});
+test("return through a binding copies the pointee (scalar, field, RC)", {
+  assert(ret_scalar() == i32(2), "explicit return of a scalar binding returns the pointee, not the pointer");
+  assert(ret_struct() == i32(10), "a value-struct field binding returns the field value");
+  assert(ret_rc() == "target!", "an RC binding returns the pointee copy");
+  assert(rc(ret_rc()) == 1, "the returned RC value owns its count");
+});
