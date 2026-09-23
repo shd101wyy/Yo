@@ -423,8 +423,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "变量在某些分支上初始化，但并非所有分支。",
       "The message lists the branches where it MIGHT and where it is NOT initialized. Initialize before the branch (`x : T = default`), or provide the binding in every arm, or restructure so the join always has a value.",
       "错误信息会列出可能初始化与未初始化的分支。请在分支前初始化（`x : T = default`），或在每个分支都提供绑定，或重构为汇合点总有值。",
-      "main :: (fn(c : bool) -> unit)({\n  (v : i32);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
-      "main :: (fn(c : bool) -> unit)({\n  (v : i32) = i32(0);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
+      "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
+      "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32) = i32(0);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
       "Only the first arm assigns `v`. NOTE: this check does not fire today (issues/cond-arm-initialization-merge-check-never-fires.md); initialise before the branch regardless.",
       "只有第一个分支给 `v` 赋值。注意：目前该检查不会触发（issues/cond-arm-initialization-merge-check-never-fires.md）；无论如何请在分支前初始化。"
     )
@@ -558,8 +558,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "在安全文件中对 Option/Result 调用 `unwrap` / `expect` / `unwrap_err` 会丢弃类型已经携带的失败信息，调用它会中止程序。",
       "Safe mode rule D7 (plans/backlog/SAFE_MODE.md §3 0c): a call may not erase a failure the receiver's type carries. Handle the failure instead — `match` on `.Some`/`.None` (or `.Ok`/`.Err`), supply a default with `unwrap_or`, compute one with `unwrap_or_else`, or propagate the Option/Result to your caller. The ban is a call-site gate: the methods still exist for `pragma(Pragma.AllowUnsafe)` files, `tests/*.test.yo`, and the standard library, where an unwrapped failure is either the point or the trusted base's decision.",
       "安全模式规则 D7（plans/backlog/SAFE_MODE.md §3 0c）：调用不得抹掉接收者类型所携带的失败信息。请改为处理失败情形 —— 用 `match` 匹配 `.Some`/`.None`（或 `.Ok`/`.Err`），用 `unwrap_or` 提供默认值，用 `unwrap_or_else` 计算默认值，或者把 Option/Result 传播给你的调用方。该禁令是调用点门控：在 `pragma(Pragma.AllowUnsafe)` 文件、`tests/*.test.yo` 以及标准库中这些方法仍然可用。",
-      "{ println } :: import(\"std/fmt\");\n\nmain :: (fn() -> unit)({\n  best := scores.max().unwrap();\n  println(`best=${best}`);\n});\nexport(main);\n",
-      "{ println } :: import(\"std/fmt\");\n\nmain :: (fn() -> unit)({\n  best := scores.max().unwrap_or(i32(0));\n  println(`best=${best}`);\n});\nexport(main);\n",
+      "{ println } :: import(\"std/fmt\");\n\nmain :: (fn() -> unit)({\n  scores := Option(i32).Some(i32(9));\n  best := scores.unwrap();\n  println(`best=${best}`);\n});\nexport(main);\n",
+      "{ println } :: import(\"std/fmt\");\n\nmain :: (fn() -> unit)({\n  scores := Option(i32).Some(i32(9));\n  best := scores.unwrap_or(i32(0));\n  println(`best=${best}`);\n});\nexport(main);\n",
       "The receiver's type already says the value might be absent; `unwrap` throws that information away and aborts on the failure case, so the failure handling must be written out.",
       "接收者的类型已经表明值可能缺失；`unwrap` 丢弃了这一信息并在失败分支中止程序，因此必须把失败处理显式写出来。"
     )
