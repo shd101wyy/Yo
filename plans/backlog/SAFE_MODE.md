@@ -1,7 +1,12 @@
 # Safe mode — no undefined behavior, and every runtime failure proven, typed, or trapped
 
-**Status: BACKLOG — designed 2026-09-21 from a measured codegen survey; amended
-2026-09-22 (D7 adopted: the class-1 panic ban, Phase 0c); nothing implemented.**
+**Status (trued 2026-09-23): phases 0a, 0b, 0c, 1, 2, 3 and 4 LANDED** —
+loud escaped unwinds (#828), UBSan wiring (#829), the class-1 panic ban (#831), bounds-checked subscripts (#833),
+guarded `/` `%` (#835), the allocation-failure audit (#836), arithmetic traps
+with the `wrapping_*` escape hatch and saturating casts (#837, completed by the
+std migration #841). Phases 5 (elision) and 6 (strict mode) remain. Designed
+2026-09-21 from a measured codegen survey; amended 2026-09-22 (D7 adopted).
+The phase sections below are the original plan, kept as written.**
 Rulings D1–D2 are still required before Phase 3; D7 is decided (§13); everything
 else is specified to the emission site. Ground-truth anchors were verified on `develop`
 at `a1df43578`; line numbers drift, so each phase names the symbol to grep for, not just
