@@ -926,8 +926,8 @@ GcReport :: ref(
     trees_removed : usize,
     mirrors_removed : usize,
     indexes_removed : usize,
-    /// `yo context` index subtrees swept — the whole `context/` cache is
-    /// pure (rebuilt on demand), so every key dir goes.
+    /// `yo context` index key dirs swept: every one the caller did not name
+    /// in `context_keep` (an index is pure — rebuilt on demand).
     context_dirs_removed : usize
   )
 );
@@ -1022,9 +1022,16 @@ _count_kept :: (
 /// `yo cache gc`: every recorded project's `yo.lock` is read (a project whose
 /// directory or lock is gone is forgotten); every store tree, mirror and tag
 /// index none of them references is removed. Runs under the store lock.
+///
+/// `context/` entries not named in `context_keep` are removed too. The caller
+/// holds `context.lock` across this call and keeps the lock file itself and
+/// the index of the running toolchain's std (`src/main.yo` `_cache_gc`):
+/// sweeping with an empty keep list deleted a lock another process could be
+/// holding, and the live std index a query was about to read.
 gc_store :: (
   fn(
     cache_root : String,
+    context_keep : ArrayList(String),
     io : Io,
     exn : Exception
   ) -> Impl(Future(GcReport, IoExn))
@@ -1063,7 +1070,7 @@ gc_store :: (
     trees_removed_dirs := e.io.await(_sweep_dir(store_dir.clone(), String.from(".verified"), tree_names, true, e.io, e.exn), e);
     mirrors_removed := e.io.await(_sweep_dir(get_git_mirrors_dir(cache_root.clone()), String.from(".git"), remote_keys, true, e.io, e.exn), e);
     indexes_removed := e.io.await(_sweep_dir(get_index_dir(cache_root.clone()), String.from(".tags"), remote_keys, false, e.io, e.exn), e);
-    context_removed := e.io.await(_sweep_dir(get_context_dir(cache_root.clone()), String.new(), ArrayList(String).new(), true, e.io, e.exn), e);
+    context_removed := e.io.await(_sweep_dir(get_context_dir(cache_root.clone()), String.new(), context_keep, true, e.io, e.exn), e);
     e.io.await(release_store_lock(lock, e.io, e.exn), e);
     GcReport(
       projects_kept : kept_projects.len(),

@@ -75,6 +75,7 @@ pragma(Pragma.AllowUnsafe);
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
 { run_context } :: import("./context_command.yo");
+{ context_lock, context_unlock, context_tree_key } :: import("./doc/context_index.yo");
 { set_cli_lang_override, cli_lang, tr } :: import("./cli_lang.yo");
 { generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe_report.yo");
 { generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public_safe_report.yo");
@@ -128,7 +129,7 @@ json :: import("std/encoding/json");
   _take_load_error
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
-{ YoError, render_any_error, take_error_diagnostics } :: import("./error.yo");
+{ YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
 { Diagnostic } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -6385,7 +6386,16 @@ _cache_gc :: (
     println(`Cache directory does not exist: ${cache_dir}`);
     return(());
   });
-  report := io.await(gc_store(cache_dir.clone(), io, exn), IoExn(io : io, exn : exn));
+  // `yo context`'s cache: hold its lock across the sweep, and keep the lock
+  // file and the running toolchain's own std index (the one every bare
+  // `yo context` query reads). Everything else under `context/` is pure and
+  // goes.
+  ctx_lock := context_lock(cache_dir.clone(), io, exn);
+  context_keep := ArrayList(String).new();
+  context_keep.push(String.from("context.lock"));
+  context_keep.push(context_tree_key(resolve_std_path(), String.new(), io, exn));
+  report := io.await(gc_store(cache_dir.clone(), context_keep, io, exn), IoExn(io : io, exn : exn));
+  context_unlock(ctx_lock);
   println(`Kept ${report.trees_kept.to_string()} tree(s) referenced by ${report.projects_kept.to_string()} project(s); removed ${report.trees_removed.to_string()} tree(s), ${report.mirrors_removed.to_string()} mirror(s), ${report.indexes_removed.to_string()} tag list(s), ${report.context_dirs_removed.to_string()} context index(es); forgot ${report.projects_forgotten.to_string()} project(s) whose yo.lock is gone.`);
 });
 /// Run the `add` subcommand — declare a dependency in `yo.toml`, resolve and
@@ -7390,7 +7400,7 @@ Examples:
 
 yo effects <path> [--json]       Which effect capabilities each exported fn requires
 yo explain <CODE>                Explain a diagnostic code offline (--list, --format json)
-yo context                       Print the agent context pack (language guide)
+yo context [query]               Agent context: the language pack, or std/dependency API lookup
 yo lsp                           Run the language server on stdio
 yo unsafe-report [path]          List unsafe(...) sites with their // SAFETY: comments
 yo public-safe-report [path]     List public fns that expose raw pointers
@@ -7494,7 +7504,7 @@ yo skills install                把 AI 代理技能文件安装到本项目
 
 yo effects <path> [--json]       列出每个导出函数需要的效果能力
 yo explain <CODE>                离线解释诊断代码（--list、--format json）
-yo context                       输出面向 AI 代理的语言上下文包
+yo context [query]               AI 代理上下文：语言指南包，或标准库/依赖 API 查询
 yo lsp                           在 stdio 上运行语言服务器
 yo unsafe-report [path]          列出 unsafe(...) 站点及其 // SAFETY: 注释
 yo public-safe-report [path]     列出暴露裸指针的公开函数
@@ -8539,31 +8549,80 @@ install 动作会把 Yo 技能文件复制到当前项目中已存在的所有 a
     ),
     (subcmd == "context") => Option(String).Some(
       tr(
-        `Usage: yo context
+        `Usage: yo context [<module> [<name>] | <name>] [options]
 
-Print the agent context pack: the curated, language-only guide shipped with
-the toolchain (grammar rules, idioms, sharp edges — never API listings).
-Sized to sit in a model's context window; every example in it compiles.
+The agent context surface. With no arguments, print the context pack: the
+curated, language-only guide shipped with the toolchain (grammar rules,
+idioms, sharp edges; never API listings). With a query, look the API up in
+an index of the bundled std, built once on first use and cached by content.
+
+Queries:
+  yo context --list              Every module, one line each, with item counts
+  yo context <module>            One module's items (a full path such as
+                                 std/collections/array_list, a unique last
+                                 segment such as array_list, or a unique suffix)
+  yo context <module> <name>     One item's full entry; a method is <Type>.<name>
+  yo context <name>              A name across the corpus: one hit prints its
+                                 entry, several print the ranked list
+  yo context --search <query>    Ranked search over names, signatures and docs
+
+Options:
+  --deep            With --search, also match the text of each item's docs
+  --deps            Add the nearest yo.toml's dependencies (run yo install first)
+  --path <dir>      Index this directory instead of the bundled std
+  --refresh         Rebuild the index even when it is cached
+  --verbose         With a bare <name> that has several hits, print the
+                    full entries of the top three
+  --format json     Machine-readable output for every query; a miss prints
+                    {"error": ..., "suggestions": [...]}
+
+Exit codes: 0 results, 1 no match (did-you-mean names on stderr), 2 a usage
+or packaging error.
 
 The pack is located via $YO_CONTEXT_PACK (an explicit file or directory),
-then beside the running executable, then beside the working directory —
-the same lookup yo skills install uses for .github/skills.
+then beside the running executable, then beside the working directory.
+$YO_CONTEXT_CACHE overrides where the index is cached.
 
 Examples:
-  $ yo context              Print the pack
-  $ YO_CONTEXT_PACK=./pack/context.md yo context`,
-        `用法：yo context
+  $ yo context
+  $ yo context --search hash
+  $ yo context collections/array_list ArrayList.push
+  $ yo context --deps --list --format json`,
+        `用法：yo context [<module> [<name>] | <name>] [选项]
 
-输出面向 AI 代理的上下文包：随工具链捆绑的、纯语言指南（语法规则、
-惯用法、易错点——不含 API 列表）。大小以可放入模型上下文窗口为准，
-其中每个示例均可编译。
+面向 AI 代理的上下文入口。不带参数时输出上下文包：随工具链捆绑的、纯语言
+指南（语法规则、惯用法、易错点，不含 API 列表）。带查询时，从随发行版标准
+库的索引中查找 API；索引在首次使用时构建，并按内容缓存。
 
-上下文包的查找顺序：$YO_CONTEXT_PACK（显式的文件或目录）、可执行文件
-旁、工作目录旁——与 yo skills install 查找 .github/skills 相同。
+查询：
+  yo context --list              列出全部模块，每行一个，附条目数
+  yo context <module>            某个模块的条目（完整路径如
+                                 std/collections/array_list、唯一的末段如
+                                 array_list，或唯一的后缀）
+  yo context <module> <name>     某个条目的完整说明；方法写作 <Type>.<name>
+  yo context <name>              在整个语料中查找名字：唯一命中时输出其说明，
+                                 多个命中时输出排序后的列表
+  yo context --search <query>    在名字、签名和文档中进行排序搜索
+
+选项：
+  --deep            与 --search 一起使用，同时匹配每个条目的文档正文
+  --deps            加入最近的 yo.toml 声明的依赖（需先运行 yo install）
+  --path <dir>      为该目录建立索引，而不是随发行版的标准库
+  --refresh         即使已缓存也重建索引
+  --verbose         裸 <name> 有多个命中时，输出前三个的完整说明
+  --format json     所有查询输出机器可读格式；未命中时输出
+                    {"error": ..., "suggestions": [...]}
+
+退出码：0 有结果，1 未命中（stderr 上给出“你是否想要”），2 用法或打包错误。
+
+上下文包的查找顺序：$YO_CONTEXT_PACK（显式的文件或目录）、可执行文件旁、
+工作目录旁。$YO_CONTEXT_CACHE 可覆盖索引的缓存位置。
 
 示例：
-  $ yo context              输出上下文包
-  $ YO_CONTEXT_PACK=./pack/context.md yo context`
+  $ yo context
+  $ yo context --search hash
+  $ yo context collections/array_list ArrayList.push
+  $ yo context --deps --list --format json`
       )
     ),
     true => Option(String).None
@@ -8581,21 +8640,34 @@ main :: (fn(io : Io) -> unit)({
         // several files should not lose file 1's warnings because file 2
         // errored. A no-op when the stash is empty (arg errors, lsp, ...).
         flush_user_warnings(resolve_std_path(), get_global_cache_dir());
+        // A command that owns its exit code (ExitWith) — `yo context`'s
+        // no-match = 1 / usage = 2 — prints its message the same way and
+        // exits with that code.
+        (code : int) = int(1);
         match(
-          downcast(err, YoError),
-          .Some(ye) => {
-            emit_rendered_text(render_diagnostics_for_mode(ye.diagnostics));
-          },
-          .None => {
-            text := err.to_string();
-            if(text.starts_with(String.from("error: ")), {
-              emit_rendered_text(text);
-            }, {
-              eprintln(`yo: error: ${text}`);
+          downcast(err, ExitWith),
+          .Some(ew) => {
+            code = int(ew.code);
+            if(ew.message.len() > usize(0), {
+              eprintln(`yo: error: ${ew.message}`);
             });
-          }
+          },
+          .None => match(
+            downcast(err, YoError),
+            .Some(ye) => {
+              emit_rendered_text(render_diagnostics_for_mode(ye.diagnostics));
+            },
+            .None => {
+              text := err.to_string();
+              if(text.starts_with(String.from("error: ")), {
+                emit_rendered_text(text);
+              }, {
+                eprintln(`yo: error: ${text}`);
+              });
+            }
+          )
         );
-        unsafe(exit(int(1)));
+        unsafe(exit(code));
         unwind();
       }
     )

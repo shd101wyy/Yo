@@ -1,0 +1,9 @@
+# An exception handler `(e) -> { unwind(v) }` is a closure whose body is
+# trial-evaluated at definition time, and the trial SWALLOWS what it throws.
+# An `unwind` value whose type is not the enclosing fn's return type was
+# swallowed with it: `yo check` passed, `yo compile` exited 0, and the handler
+# became an abort() stub that fired the first time the handler ran
+# (issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md). Both
+# types are concrete, so the mismatch is now re-raised: rc=1 and the E0601.
+# `comptime_expect_error` cannot pin a swallow, so the gate is `yo check`.
+stdout_keep_match=(E0601|unwind)

@@ -1,13 +1,24 @@
 # The `yo context` command
 
-`yo context` prints the **agent context pack**: the curated, language-only
-guide that ships inside the `yo` binary's distribution. It is written for AI
-coding agents — which have no Yo in pretraining — but it doubles as the
-fastest orientation for humans too.
+`yo context` is the agent context surface. With no arguments it prints the
+**context pack**, the curated, language-only guide that ships with the `yo`
+toolchain. With a query it looks the **API** up: the modules and items of the
+bundled standard library, of any directory, and of the project's
+dependencies. It is written for AI coding agents (which have no Yo in
+pretraining), but it is also the fastest orientation for a person.
 
-## What the pack contains
+```bash
+yo context                                   # the pack (language guide)
+yo context --list                            # every std module, one line each
+yo context collections/array_list            # one module's items
+yo context collections/array_list ArrayList.push   # one item's full entry
+yo context push                              # a name across the corpus
+yo context --search hash                     # ranked search
+```
 
-The pack is one markdown file, capped at 24 KB so it fits any model's
+## The pack
+
+The pack is one markdown file, capped at 24 KB so it fits in any model's
 context window. It covers **language facts only**:
 
 - the declaration forms and the brace rule (a `{ ... }` group is a record
@@ -18,17 +29,9 @@ context window. It covers **language facts only**:
 - ownership, failure (`Option`/`Result`/exceptions), async and effects,
 - the toolchain loop (`yo check` after every edit, `yo test`, `yo fmt`).
 
-It deliberately carries **no API listings** — APIs drift every release, and
-the pack must not. API discovery is the query half of the command.
-
-## Usage
-
-```bash
-yo context                                  # the pack (language guide)
-yo context --list                           # module index of the bundled std
-yo context --list --path <dir>              # index an arbitrary tree instead
-yo context --list --refresh                 # force an index rebuild
-```
+It deliberately carries **no API listings**. APIs change every release, and
+the pack must not drift with them; the queries below answer API questions
+from the toolchain itself.
 
 Output starts with a citation header naming the toolchain version and the
 pack revision, so an agent can cite what it read:
@@ -39,101 +42,116 @@ yo 0.2.40 — pack-version: 1
 ...
 ```
 
-## Where the pack is found
+### Where the pack is found
 
-The lookup order mirrors `yo skills install`'s:
+1. `$YO_CONTEXT_PACK`: an explicit path to the `context.md` file or its
+   `pack` directory. When set it is **authoritative**: an invalid value is an
+   error, never a silent fallback to some other pack.
+2. Beside the running executable, walking up its ancestors. A release bundle
+   unpacks to `bin/yo` + `std/` + `pack/`, so an installed toolchain finds its
+   own pack.
+3. Beside the working directory, walking up its ancestors. Running an
+   installed `yo` inside a Yo checkout finds the checkout's `pack/`.
 
-1. `$YO_CONTEXT_PACK` — an explicit path to the `context.md` file or its
-   `pack` directory. **Authoritative**: when set, it is THE pack — an
-   invalid value is a loud error, never a silent fallback (useful in CI,
-   and how the cli-cases pin it);
-2. beside the running executable, walking up ancestors — a release bundle
-   unpacks to `bin/yo` + `std/` + `pack/`, so an installed toolchain always
-   finds its own pack;
-3. beside the working directory, walking up ancestors — running an
-   installed `yo` from inside a Yo checkout finds the checkout's own
-   `pack/`.
+If none of them has a pack, the command names the locations it tried and
+exits 2.
 
-If nothing is found (a broken packaging), the command names the locations
-it tried and exits 1.
+## Queries
 
-The pack source of truth is `pack/context.md` in the compiler tree; the
-release workflow copies it into every bundle, and the bundle smoke tests
-assert that `yo context` answers from outside the checkout.
+| Query                         | Answer                                                        |
+| ----------------------------- | ------------------------------------------------------------- |
+| `yo context --list`           | Every module with its doc's first line and item count         |
+| `yo context <module>`         | The module's items, sorted by name: name, kind, signature     |
+| `yo context <module> <name>`  | One item's full entry: signature, complete doc, examples      |
+| `yo context <name>`           | The name across the corpus (see below)                        |
+| `yo context --search <query>` | Ranked hits over names, signatures and doc lines              |
+
+A **module** argument is the full path (`std/collections/array_list`), a
+unique last segment (`array_list`) or a unique suffix
+(`collections/array_list`). An argument that matches several modules lists
+them and exits 1.
+
+An **item** is a plain name, or `Type.name` for a method (`ArrayList.push`).
+When a module has several items of one name (two types' `new`), the plain
+name lists their qualified forms and exits 1.
+
+A **bare name** that is no module is looked up across the whole corpus. One
+hit prints its full entry. Several print the ranked list of
+`module  name  kind  signature` rows and exit 0; add `--verbose` to also
+print the full entries of the top three. A name a barrel module re-exports
+(`std/string` re-exports its submodules) counts once: the entry is described
+from the module that defines it, with a `re-exported from` note.
+
+**Search** is lexical and deterministic: an exact name match ranks first,
+then a name prefix, a name substring, a signature match and a doc match,
+with ties broken by module path. `--deep` also matches the text of each
+item's full documentation. The same query always returns the same hits for
+a given library version.
+
+### Misses and exit codes
+
+| Code | Meaning                                                         |
+| ---- | --------------------------------------------------------------- |
+| 0    | Results                                                         |
+| 1    | No match, or an ambiguous module or item                        |
+| 2    | A usage error, a packaging error, or a missing `yo install`     |
+
+A miss prints up to three did-you-mean names on stderr:
+
+```text
+yo: error: context: no module or item 'hashmap' in the corpus
+  Did you mean: std/collections/hash_map
+```
+
+### JSON output
+
+`--format json` works with every query, and stdout then holds exactly one
+JSON document (progress goes to stderr). Every item object has the same
+fields: `module`, `origin` (the defining module of a re-export, `""`
+otherwise), `name`, `kind`, `signature` and `doc`.
+
+- `--list`: `{"modules": [{"module", "doc", "items", "degraded"}, ...]}`
+- `<module>`: `{"module", "doc", "degraded", "items": [item, ...]}`
+- `<module> <name>`: the item, plus `text`, its full rendered documentation
+- `<name>` and `--search`: `{"query", "count", "hits": [...]}`; search hits
+  add a `score`
+- a miss: `{"error": "...", "suggestions": [...]}` on stdout, with exit
+  code 1
+
+## The index
+
+The first query builds an index of the corpus: one evaluation of the tree,
+the same work `yo doc` does (about 28 s for the bundled std). Later queries
+read it from the cache in milliseconds. It lives under the global yo cache
+(`yo cache path`), or `$YO_CONTEXT_CACHE`, as `context/<key>/`. The key is a
+digest of the corpus name, the index format, the toolchain version, and
+every indexed file's path and content, so editing any file, or upgrading
+`yo`, builds a fresh index. `--refresh` rebuilds regardless.
+
+`--path <dir>` indexes an arbitrary directory instead of the bundled std; a
+relative path resolves against the working directory, and module names are
+prefixed with the directory's name. A module the evaluator cannot load falls
+back to token-only documentation and is marked `(untyped)`: degradation is
+marked, never silent.
+
+`yo cache gc` keeps the index of the running toolchain's own std and removes
+every other index (old versions, `--path` trees, dependencies); they rebuild
+on demand. Builds, queries and gc share one lock, so none of them sees
+another's work half done.
 
 ## Dependencies
 
 ```bash
-yo install                      # deps must be installed first (git deps live in the store)
-yo context --deps --list        # std + the project's yo.toml dependencies
-yo context --deps mylib         # describe a dependency module
+yo install                         # git dependencies must be installed first
+yo context --deps --list           # std + the project's yo.toml dependencies
+yo context --deps mylib            # a dependency module
 yo context --deps --search double
 ```
 
-`--deps` merges the nearest `yo.toml`'s lockfile packages into the corpus.
-Git dependencies resolve through the content-addressed store (each version
-indexed once per project — the key is the tree's content); path
-dependencies are read live from their directories. Modules are named by
-the dependency's import name (`mylib/util`), so hits are self-provenancing.
-A git dependency whose store tree is missing asks for `yo install`.
-
-## Search
-
-```bash
-yo context --search push          # ranked hits across names, signatures, docs
-yo context --search push --deep   # also scan rendered module bodies
-yo context --search add --format json
-```
-
-Ranking is deterministic and lexical — exact name, then name prefix, then
-name substring, then signature match, then doc match; ties break by module
-path. No embeddings, no model — the same query always returns the same
-hits for a given std version.
-
-## Describe: modules and items
-
-`yo context <module>` prints a module's one-screen index; adding an item
-name prints that item's full entry (signature, doc, examples — sliced from
-the rendered module page):
-
-```bash
-yo context collections/array_list              # module index
-yo context collections/array_list ArrayList.push   # one item (Type.method or plain name)
-yo context ArrayList.push                      # unique across the corpus
-yo context push                                # ambiguous -> ranked candidates, exit 1
-```
-
-Module arguments accept the full corpus path (`std/collections/array_list`)
-or a unique last segment (`array_list`); an ambiguous segment lists the
-candidates and exits 1, a miss offers up to three did-you-mean names.
-
-
-## `--list`: the API index
-
-`yo context --list` indexes the bundled std (175 modules, ~2,069 items) and
-prints one row per module — the module's doc first line and its item count:
-
-```text
-std/allocator  Memory allocation abstractions and global allocator interface. (5 items)
-std/assert     Runtime assertion and panic functions. (5 items)
-...
-— 175 modules; yo context <module> for its items
-```
-
-The index is built once per std version into a content-addressed cache —
-`$YO_CONTEXT_CACHE` or the global yo cache (`yo cache path`), under
-`context/<key>/`, where the key is a digest of every indexed file's path +
-content. A cold build costs one `yo doc`-grade evaluation of the tree
-(~28 s for the bundled std); every later query reads the cache in
-milliseconds. `yo cache gc` sweeps the whole `context/` cache — it is pure
-and rebuilds on demand.
-
-`--path <dir>` indexes an arbitrary tree instead (relative paths resolve
-against the working directory); module names are then prefixed with that
-directory's name. Modules the evaluator could not load fall back to
-token-only docs and are marked `(untyped)` in the output — degradation is
-marked, never silent.
-
-Per-module and per-item views, and full-text search, are the next phases
-(`plans/YO_CONTEXT.md` C3–C5): `yo context <module> [name]` and
-`yo context --search <query>`.
+`--deps` adds every package in the nearest `yo.lock` to the corpus. Git
+dependencies are read from the content-addressed store, and path
+dependencies live from their directories. Their modules are named by the
+dependency's import name (`mylib/util`), the first path component you would
+write in `import("mylib/util")`. A missing `yo.toml`, a missing or
+unparsable `yo.lock`, and a git dependency that is not installed are errors
+that say what to run (exit 2).

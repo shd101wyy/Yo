@@ -158,10 +158,10 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 - Constructors take named fields: `Point(x : i32(1), y : i32(2))`.
 - Generic types are TYPE-FUNCTIONS:
   `Name :: (fn(comptime(T) : Type) -> comptime(Type))(...);`. Generic
-  FUNCTIONS take `comptime(T) : Type` as a first parameter with a
-  where-clause: `(fn(comptime(T) : Type, x : T, where(T <: Show)) -> String)`,
-  called as `show(Show, x)` (type argument first). Generic impls pair with a
-  concrete type: `impl(generic(T), where(T <: Show), Box(T), m : ...)`.
+  FUNCTIONS bind a type variable the arguments determine:
+  `(fn(generic(T : Type), x : T, where(T <: ToString)) -> String)`, called
+  as `show(x)`. Generic impls pair with a type: `impl(generic(T),
+  where(T <: ToString), Box(T), m : ...)`.
 - Derivable: `Eq`, `Hash`, `Clone`, `Ord`, `ToString`, `Default` (Eq/Ord
   take the type: `Eq(Point)`).
 - NO overloading: not for functions, not for inherent methods. Trait
@@ -172,13 +172,17 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 ## Strings, numbers, templates
 
 - `str` = static, immutable view of literal bytes. `String` = owned growable
-  UTF-8. Template strings produce `String`: `` `hi ${name}` ``. A backtick
-  literal WITHOUT `${...}` is a `str`.
+  UTF-8. EVERY backtick literal is a `String`, with or without `${...}`:
+  `` `hi ${name}` ``, `` `hi` ``. A `"..."` literal is a `str` and never
+  becomes a `String` implicitly — pass `` `hi` `` or `String.from("hi")`
+  where a `String` is expected.
 - No `String + str` operator. Build strings with a `StringBuilder`-style
   buffer or template strings.
-- A real newline inside `"..."` is a parse error; templates cannot nest
-  `${...}` inside `${...}`; a backtick ends a template — never emit
-  markdown fences from code that builds Yo source.
+- A real newline inside `"..."` is a parse error. Inside `${...}` write
+  ordinary code: its string literals keep their own escapes, and a brace or
+  backtick inside them is no delimiter. In a template's TEXT a backtick ends
+  the template (write `` \` ``) — never emit a raw markdown fence from code
+  that builds Yo source.
 - Integer literals are polymorphic and often need a cast or typed binding:
   `x := i32(1);` or `(x : i32) = 1;`. Distinct integer types do not mix
   implicitly: `(i32(1) + usize(1))` is an error.
@@ -213,9 +217,10 @@ data := io.await(read_to_string(p, io), IoExn(io : io, exn : swallow));
 - Values are reference-counted at compile time (dup/drop inserted by the
   compiler); a cycle collector reclaims `ref` cycles. You do not write
   refcounts.
-- Moves happen on `box(v)`, on storing into a `ref` field, and on returning
-  ownership; using a moved value is a compile error. `.clone()` when you
-  need both.
+- Passing a local to an `own(name)` parameter MOVES it; using it afterwards
+  is a `use of moved value` error. Storing a value in a field or a
+  container does not move the local: both handles stay valid (the object is
+  shared). `.clone()` when you need an independent copy.
 - NO lifetimes/borrow types. Shared mutation goes through `inout` parameter
   mode or `ref` semantics types; a runtime exclusivity backstop guards
   violations.
@@ -270,12 +275,15 @@ whose body is outside the verified subset — a green `yo verify` is not
 - `impl(...)` blocks need the trailing semicolon.
 - ArrayList indexing is CALL syntax: `xs(i)` reads, `xs(i) = v` writes,
   `xs.get(i)` is the checked form.
-- Match/cond arms are values; `push`-style mutators return `Result` — a bare
-  call in arm-tail position type-checks as a value and fails.
-- Iterator loops: `for(x : xs)` for value types; check the trait docs for
-  `inout` iteration over `ref` containers.
-- A local `(fn(...) -> T)(body)` literal cannot capture enclosing locals —
-  use a named fn or pass what you need.
+- Match/cond arms are VALUES and sibling arms must have one type: an arm
+  ending in `xs.push(v)` is `unit`, one ending in `xs.try_push(v)` is a
+  `Result` — make a statement arm a block ending in `;`, and every arm the
+  same type.
+- Loops over a collection: `for(xs, (x) => { ... })` by value;
+  `for(xs, inout(x) => { ... })` borrows each element in place (growing or
+  shrinking `xs` inside the body panics); maps: `for(m, (k, inout(v)) => ...)`.
+- Only a `=>` closure captures enclosing locals: `(x) => (x + base)`. A
+  `(fn(...) -> T)(body)` literal and a named fn capture nothing.
 - Recursive enums + `derive(Eq/Clone)` + `ArrayList` fields can form a
   circular derive dependency — derive on the `ref` wrapper or order manually.
 - Template `${...}` interpolations call `to_string()` implicitly only for
