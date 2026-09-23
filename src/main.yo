@@ -2333,10 +2333,15 @@ _probe_openssl :: (fn(io : Io) -> bool)({
     },
     .None => ()
   );
+  // A probe command that throws (no pkg-config on PATH) means "no OpenSSL
+  // found": the unwind exits THIS fn, so its value is this fn's `bool`. It was
+  // `unwind(())` — a unit where the fn returns bool, swallowed at definition
+  // time into an abort() stub
+  // (issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md).
   probe_exn := Exception(
     throw : (
       (_e) -> {
-        unwind(());
+        unwind(false);
       }
     )
   );

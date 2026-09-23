@@ -41,14 +41,19 @@ said `escape`, the keyword's old name; it now uses the shared wording.
 ## Latent instances the fix exposed
 
 With the mismatch re-raised, `yo check ./src` failed at two sites in
-`src/evaluator/calls/function_type.yo`: the verifier's soft evaluation of a
+`src/evaluator/calls/function_type.yo`, and then at one in `src/main.yo`: the verifier's soft evaluation of a
 generic fn's `requires` and `ensures` clauses. Each defined
 `Exception(throw : ((_err) -> { ...; unwind(()); }))` inline in a fn returning
 `AstExpr`, so its `unwind(())` would have exited that fn with `unit`. It was
 swallowed, the handler compiled to an abort() stub, and a deferred predicate
 that failed to evaluate killed the compiler instead of soft-failing.
 
-Both sites now go through `_soft_evaluated_for_verify`, which gives the
+A third, in `src/main.yo`: `_probe_openssl` (returns `bool`) handled a throwing
+`pkg-config` probe with `unwind(())`, so on a machine where that probe throws
+the stub would have killed `yo` instead of answering "no OpenSSL". It now
+unwinds `false`.
+
+The two verifier sites now go through `_soft_evaluated_for_verify`, which gives the
 handler a fn of its own to unwind out of (returning
 `Option(AstExpr).None`). It also restores `ctx.is_ghost_context`, which the
 unwind skips inside `evaluated_for_verify`. The same `yo check ./src` is the
