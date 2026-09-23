@@ -1,21 +1,20 @@
 # Handover — 2026-09-15, FORMAL_VERIFICATION campaign: V6 tasks 1+2(slice)+4 LANDED; #695 + #697 OPEN (task 5 slice 1); tasks 2(abstract)/3/5(slice 2)/6 remain
 
-**Status: CLOSED 2026-09-17 — everything this handover handed over has
-landed.** §0's two open PRs merged the same day: #695 (2026-09-15 09:20 UTC)
-and #697 (2026-09-15 14:16 UTC). The frontier it called "remaining" resolved
-within a day: task 5 slice 2 (#713), task 6 (#726), task 3 slice 2 `RefineT`
-(#727) and task 2's abstract half (#745) are all merged; the live frontier is
-#753 (task 3 slice 3) plus the per-slice banners in
-`plans/backlog/FORMAL_VERIFICATION.md` — the campaign's authoritative record,
-which is where live state lives now. Everything below is the frozen
-2026-09-15 state.
+**Status: CLOSED — the FORMAL_VERIFICATION campaign (V1–V7) is COMPLETE
+(2026-09-19).** §8 below is the campaign-close record: V7 landed as five PRs
+(#775/#776/#777/#778/#785), develop tip at close `28608fcfe`; §7 carries the
+09-17/18 window that closed V6. The authoritative per-slice record is
+`plans/backlog/FORMAL_VERIFICATION.md`'s banners — no live state lived here
+after 2026-09-19. Consolidated into archive/ 2026-09-22, replacing the
+2026-09-15 snapshot that had been archived at #755 before §7/§8 were written.
 
 **Was: LIVE INSTRUCTIONS (updated at the session-3 handoff, 2026-09-15
 late).** Written for the agent taking over the
 `plans/backlog/FORMAL_VERIFICATION.md` campaign ("finish everything in
 the plan; document and fix surfaced bugs; no workarounds; stacked PRs fine").
 Everything below is measured or names the PR/run it came from; beliefs are
-labelled as such. Supersedes `plans/archive/HANDOVER_2026-09-14_FV_V6_TASK1.md`
+labelled as such. Supersedes
+`plans/archive/HANDOVER_2026-09-14_FV_V6_TASK1.md`
 (marked SUPERSEDED in its header; its §3–§5 are historical).
 
 **The one-line state:** V1–V5 complete; V6 task 1 (trait variance +
@@ -527,3 +526,154 @@ construction site) — part of task 3's acceptance really.
    `issues/fixed/` write-ups for whatever the verifier surfaces (the
    campaign's payoff — budget for them).
 5. Task 2's abstract-body half and task 6 last.
+
+---
+
+## 7. Window state — 2026-09-17 (the v0.2.36 / task-2-abstract / task-3-slice-3 window)
+
+**Merged this window:** #745 (task 2 slice 1 — deferred generic bodies
+verify ABSTRACTLY) — 34/34 green, squash-merged, remote branch deleted
+clean (`git ls-remote --heads` empty). v0.2.36 RELEASED and installed
+locally — it carries #705/#727/#710, which un-gates the std-side work.
+
+**Merged this window (continued):**
+- **#713** (task 5 slice 2, the std/collections annotations) — **MERGED
+  2026-09-17 as develop 53417021b**; remote branch deleted clean. The
+  plan's exit criterion `yo verify ./std/collections --format json` is
+  now a CI step. NOTE for the record: the PR's BASE was still the old
+  stacked branch `feat/fv6-task5-slice2` — that, not a real code
+  conflict, is why GitHub reported CONFLICTING and blocked the merge;
+  `gh pr edit 713 --base develop` fixed it. The develop push battery on
+  53417021b is the annotations' first full-matrix validation — revert if
+  red.
+
+**Also fixed this window (2026-09-17, rides #753 — commit 69877664b):**
+the trait-impl clause corruption (the task-1 blocker, OPEN since
+09-14) is FIXED: the trait entry's expected fn type
+(values/impl.yo:2873) leaked through create_function_body_evaluation_
+context's copy into the def-time body trial, and the spliced contract
+guard's operator call unified its bool return against it at
+try_to_call Step 10. Fix (helper.yo): skip the return-vs-expected
+synth when the expected is a fn type the call does not itself return.
+Trial-site expected-clears were tried FIRST and REVERTED — bodies
+legitimately infer from the ambient expected (prelude trait-default
+.None shorthands broke). Regression: verifier_trait_variance 4/4 incl.
+the inline-spelling fixture; issue moved to issues/fixed/; cheatsheet
+pitfall updated; ALL SEVEN goldens re-recorded (skills-install +
+skills-install-zh pin the tree cheatsheet hash too).
+
+**Merged 2026-09-18: #760 (develop 7e0f44656)** — the check ./std
+sweep regression is FIXED: root cause = the per-file contract drain's
+STRICT missing-solver policy (in solver-less environments the
+annotated collections files' drains counted as coverage failures; the
+"varying victim with an escaped trial throw" readings were an
+output-interleaving artifact — there never was an escaped throw).
+_run_contract_verification(strict_missing_solver): compile TRUE
+(shipping unsound), check FALSE (coverage; the yo verify CI job owns
+proofs). Tier-1 gate 3 validated GREEN on the fix branch (STD_RC=0,
+176/176). #757 (peer agent) had installed Z3 in the gate env —
+complementary. NOTE: the SEED-side `yo check ./std` stays strict
+until #760 rides a release (generation split).
+BISECTION TOOLING (for the record): the check CLI takes ONE path;
+the dir walk skips symlinks — the working harness is a full copy of
+std with files[N:] as symlinks, flattened layout, YO_STD at the
+copy. The demand-import probe path has a SEPARATE latent bug
+(fails on v0.2.35 too — thread.yo's def-time trial under demand
+loads; do not conflate with the sweep regression).
+
+**Merged 2026-09-18: #753 (develop 8f9fb6232)** — task 3 slice 3 (the
+std/spec rework, composition chains, check/unchecked) PLUS the
+trait-impl clause-corruption fix. ALL 34 CHECKS GREEN — the expected
+seed-leg refine_types gate never materialized (CI's language-suite
+legs run the TREE-built binary, whose codegen has the RefineT arm —
+the "v0.2.37 gate" prediction was falsified; only a bare
+seed-run of the new refine_types test would still fail until the
+next release). Golden-conflict lesson from the final rebase: pin the
+goldens to the hash of the COMMITTED post-rebase cheatsheet — a
+mid-rebase working-file hash goes stale when the second conflict
+resolution edits the file again (cost one tier-1 cycle).
+
+**Open:**
+- V7 productization (LSP contract hover, --stats, docs completion,
+  release notes) — the last FORMAL_VERIFICATION.md frontier. NOTE for
+  --stats: the SELF_VERIFICATION B0 milestone already ships cache
+  telemetry (queries, cache hits, wall time) in the run summary + the
+  JSON summary object — V7 must STABILIZE that shape, not build a
+  parallel one; V7's JSON-stabilize and docs-rewrite tasks touch
+  B0-edited files as ordinary text merges.
+- **DONE 2026-09-18: the task-3 literal-construction CTFE folding —
+  PR #770** (feat/fv-ctfe-fold): `_fold_term`/`_fold_*` fold obligation
+  terms bottom-up in `_emit`; a literal-argument refine#N records
+  `VcObligation.pre` (PreProved/PreRefuted) and the driver honors it,
+  skipping the solver. Conservative: div/rem (zero divisor IS the AoRTE
+  obligation), shifts >= width stay symbolic; sign-bit rule for signed
+  compares; `a + (~b + 1)` forms because a literal `u64(0) - u64(1)`
+  trips E1102 even in runtime code. Solver-free proof:
+  verifier_refine's no-solver test passes a NONEXISTENT solver binary
+  and the refine_literal fixture still proves 5 != 0 / refutes 0 != 0.
+  Serialized battery 10/10 files green. WITH THIS, V6 IS COMPLETE.
+- The handover §7 itself lands on develop via THIS branch (docs-only;
+  opened as a PR only after #753's post-merge battery completes, per
+  the docs-freeze rule).
+- **#753** (task 3 slice 3 + the trait-impl fix, DRAFT — branch
+  feat/fv6-task3-spec-rework @ 7f539a695):
+  the std/spec rework (ledger entry 3). Families are real refinements via
+  the ALIAS-BODY GHOST pattern; composition = conjunction
+  (g_refine_pred_chains + _refine_pred_chain_term); check_*/unchecked_*
+  entry paths. TWO defects fixed en route: get_type_string had no
+  .RefineT arm (malformed C in refined-param prototypes;
+  issues/refined-param-signatures-emit-malformed-c.md) and the
+  comptime(p) wrapper requirement. RED-BY-DESIGN on seed CI legs until
+  v0.2.37 (the codegen fix rides it); green on self-hosted legs. Local:
+  verifier_spec_refine 3/3 (11-report inventory, 2/2 refutations,
+  runtime smoke).
+
+**Remaining after those:** V7 productization only (LSP contract hover,
+--stats stabilizing B0's telemetry shape, release notes); the
+trait-impl clause corruption issue was FIXED in #753 (issue moved to
+issues/fixed/) and the refine literal-construction CTFE folding landed
+as #770 — the campaign's remaining work is V7.
+
+---
+
+## 8. CAMPAIGN COMPLETE — 2026-09-19
+
+**V7 landed as five PRs, and with it the whole FORMAL_VERIFICATION
+campaign (V1–V7) is finished.** Develop tip at close: `28608fcfe`.
+
+- **#770** — the literal-construction CTFE folding (V6's final item;
+  see §7 above).
+- **#775** — V7 slice 1, the verify surface: folded obligations count
+  as `folded`, never as solver `queries`; the summary line gains the
+  cache hit rate; `--explain` shows the VC set of a VERIFIED function
+  too (goal terms as SMT-LIB); the JSON obligations carry
+  `folded`/`goal`.
+- **#776** — V7 task 1, LSP contract hover (requires/ensures, return
+  label, ghost_fn marker, verification mode — from the FRESH sources,
+  not the first-wins task registry). Surfaced and fixed a real bug: the
+  per-file pragma registry compared module paths raw, so the LSP's
+  `file://`-keyed registration never matched a plain-path reader
+  (`issues/fixed/pragma-registry-lookups-are-module-path-spelling-sensitive.md`).
+- **#777** — V7 tasks 3+4: the en+zh docs completed (CTFE folding,
+  editor integration, the shipped summary-line + JSON schema,
+  `--explain`) and the agentic verification loop in the
+  yo-project-workflow skill. The init goldens' AGENTS.md re-recorded —
+  `generate_agents_md` embeds the skill descriptions, so a SKILL.md
+  description edit changes every `yo init` scaffold.
+- **#778** — V7 task 6: `yo verify`/`check`/`test` as VS Code
+  workspace tasks + the `yo` problem matcher.
+- **#785** — the V7 COMPLETE banner in FORMAL_VERIFICATION.md +
+  Formal Verification in both READMEs' feature lists.
+
+V7's two deliberate non-builds are recorded in the banner: the
+counter-example inline lens (needs per-keystroke solver latency or
+stale decoration — counter-examples already flow as diagnostics) and a
+`--stats` flag (B0's always-on summary + #775's honesty supersede it).
+(#779 was the banner PR before #778's merge auto-closed it; #785 is
+its replacement.)
+
+The campaign's exit criterion holds: a user (human or LLM) can go from
+zero to a verified module using only the shipped docs
+(`docs/en-US/FORMAL_VERIFICATION.md` + the yo-project-workflow skill's
+agentic loop), and CI runs verification on std fixtures as a required
+check. This handover is now a closed record.

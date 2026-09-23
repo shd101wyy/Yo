@@ -46,9 +46,37 @@ YO_ERROR_FORMAT=json yo build           # same, via the environment
 }
 ```
 
+- `sarif` — the whole diagnostic group as one [SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+  2.1.0 log on stdout: codes become driver rules, positions are 1-based per
+  the SARIF spec, and a mechanical repair becomes a `fixes` entry — the
+  field GitHub code scanning and most CI lint pipelines ingest. Never
+  colored, whatever `--color` says.
+
 `--json-summary` (accepted by the test/check drivers) additionally prints the
 final `N passed / M failed` style footer as one machine-readable line, so a
 harness can parse the outcome without scraping prose.
+
+### Color
+
+The human render colors its output when it is writing to a terminal: the
+severity header and its carets carry the severity color (red/yellow/cyan),
+the `-->` anchor and gutter carry blue, and `help:` labels magenta. It is a
+**global** flag like `--error-format`, with the `YO_COLOR` environment
+variable at lower precedence:
+
+```bash
+yo --color always check ./src    # force color even into a pipe
+yo --color never check ./src     # force plain text
+YO_COLOR=always yo build         # same, via the environment
+```
+
+`auto` (the default) colors only when stderr is a terminal, `NO_COLOR` is
+unset (https://no-color.org), and `TERM` is not `dumb`; an explicit
+`--color always` overrides all three. `short` output stays plain — it exists
+for grepping — and `json` output never carries ANSI escapes, including the
+human text embedded in its `rendered` field, so a machine consumer gets
+byte-identical payloads whatever `--color` says. `yo lsp` ignores the flag:
+protocol frames are a data channel.
 
 ### Repairs and `yo fix`
 
@@ -67,6 +95,28 @@ The repairs the compiler computes today:
 | E0401 name not found, one close candidate in scope | rename the token (`countr` → `counter`) |
 | E0401 name not found, exported by exactly one std module | insert `{ name } :: import("std/…");` above the first non-comment line (the help names the module; two exporting modules, or a rename candidate as well, give help only) |
 | E0007 `{ f(x) }` — one expression between braces, no `;` | insert `;` before the `}` (two or more comma-separated items give the message only) |
+
+## Warnings
+
+`check`, `compile` and `build` also carry warning-severity diagnostics for
+code that compiles but looks wrong. The first family is **unused variables**:
+an initialized local whose value nothing ever reads warns once at the end of
+its scope —
+
+```text
+warning: unused variable `x`
+ --> src/main.yo:3:3
+  |
+3 |   x := i32(7);
+  |   ^
+help: prefix the name with `_` to silence this warning
+```
+
+Reading a variable marks it used; only assigning it does not (`x := 1; x = 2;`
+still warns — the value never influenced anything). A `_` name prefix silences
+the warning, parameters and module-level bindings are never warned, and
+warnings never change the exit code. In the `json` render they arrive as JSON
+Lines with `"severity":"warning"`, in `short` as `warning:` lines.
 
 ## Error codes and `yo explain`
 

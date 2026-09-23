@@ -64,7 +64,7 @@ pragma(Pragma.AllowUnsafe);
   ExpectedTypeCtx,
   ImplConcreteTypeInfo
 } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
@@ -80,6 +80,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
+{ Severity, Diagnostic, Span, warnings_enabled, emit_warning } :: import("../../diagnostics.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
   attach_temp_variable_to_expr,
@@ -2541,6 +2542,81 @@ evaluate_begin_expression :: (
     },
     .None => ()
   );
+  // Warnings channel (D15): before the block's frame dies, its initialized
+  // locals that no identifier expression ever evaluated THROUGH get one
+  // `unused variable` warning each. Assignment targets resolve through the
+  // value cell rather than the identifier evaluator, so `x := 1; x = 2;`
+  // counts as unused — the value never influenced anything. Silenced by the
+  // `_` name prefix, and skipped for the binding kinds that are not plain
+  // locals (parameters live in their own frame anyway; the rest are listed
+  // defensively). The caller-level `warnings_enabled` gate is inside
+  // `emit_warning`; this outer test skips the whole walk when the edge
+  // does not surface warnings.
+  if(warnings_enabled(), {
+    match(
+      current_frame_opt,
+      .Some(wfr) => {
+        (wvi : usize) = usize(0);
+        while(wvi < wfr.variables.len(), {
+          match(
+            wfr.variables.get(wvi),
+            .Some(wv) => {
+              (skip : bool) = (wv.was_read || (wv.is_parameter || (wv.is_module_level || (wv.is_implicit || (wv.is_ghost_binding || (wv.is_effect_param || (wv.is_from_effect_spread || wv.is_ref)))))));
+              if(wv.name.starts_with(String.from("_")), {
+                skip = true;
+              });
+              if(wv.token.module_path.starts_with(String.from("auto-generated://")), {
+                skip = true;
+              });
+              // A binding whose value is a TYPE (a generic parameter like
+              // the prelude operator tuples' `T`, a local type alias) is
+              // consumed structurally by type evaluation, which never walks
+              // through the identifier evaluator — `was_read` stays false
+              // even though the type is load-bearing. Type bindings are
+              // simply out of scope for this lint.
+              if(is_type_value(wv.value.get(usize(0))), {
+                skip = true;
+              });
+              match(
+                wv.initialized_at_token,
+                .None => {
+                  skip = true;
+                },
+                .Some(_) => ()
+              );
+              if(!skip, {
+                wspan := Span(
+                  path : wv.token.module_path,
+                  row : wv.token.row,
+                  col : wv.token.column,
+                  len : wv.token.value.chars().count()
+                );
+                wlines := wv.token.input.split(String.from("\n"));
+                wsource_line := match(
+                  wlines.get(wv.token.row),
+                  .Some(l) => l,
+                  .None => String.new()
+                );
+                emit_warning(
+                  Diagnostic(
+                    code : Option(String).None,
+                    severity : Severity.Warning,
+                    message : `unused variable \`${wv.name}\``,
+                    span : wspan,
+                    source_line : wsource_line,
+                    help : Option(String).Some(`prefix the name with \`_\` to silence this warning`)
+                  )
+                );
+              });
+            },
+            .None => ()
+          );
+          wvi = (wvi + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
   env.pop_frame_nonmutating();
   // -------------------------------------------------------------------------
   // Build ExprInfo for the begin expression itself.

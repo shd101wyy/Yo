@@ -38,7 +38,21 @@ YO_ERROR_FORMAT=json yo build           # 通过环境变量设置
 }
 ```
 
+- `sarif` —— 将整组诊断作为一份 [SARIF](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) 2.1.0 日志输出到 stdout：错误码成为 driver 规则，位置按 SARIF 规范从 1 开始计数，机械修复成为 `fixes` 条目 —— 这是 GitHub code scanning 与大多数 CI lint 流水线摄取的字段。无论 `--color` 如何设置都不着色。
+
 `--json-summary`（由 test/check 驱动接受）额外把最终的 `N passed / M failed` 式页脚输出为一行机器可读的摘要，测试工具无需抓取正文即可解析结果。
+
+### 颜色
+
+human 渲染在写入终端时会着色：严重级别头部与其插入符携带级别对应的颜色（红/黄/青），`-->` 锚点与边栏为蓝色，`help:` 标签为洋红色。它与 `--error-format` 一样是一个**全局**标志，`YO_COLOR` 环境变量以更低的优先级设置同样的内容：
+
+```bash
+yo --color always check ./src    # 即使输出到管道也强制着色
+yo --color never check ./src     # 强制纯文本
+YO_COLOR=always yo build         # 通过环境变量设置
+```
+
+`auto`（默认）仅当 stderr 是终端、`NO_COLOR` 未设置（https://no-color.org）且 `TERM` 不为 `dumb` 时着色；显式的 `--color always` 覆盖这三者。`short` 输出保持纯文本 —— 它本就是为 grep 而生 —— `json` 输出则永不携带 ANSI 转义序列，包括其 `rendered` 字段内嵌的 human 文本，因此机器使用方无论 `--color` 如何设置，得到的都是字节一致的负载。`yo lsp` 忽略该标志：协议帧是数据通道。
 
 ### 修复与 `yo fix`
 
@@ -51,6 +65,21 @@ YO_ERROR_FORMAT=json yo build           # 通过环境变量设置
 | E0401 名字未找到，作用域内有一个接近的候选 | 重命名该标记（`countr` → `counter`） |
 | E0401 名字未找到，且恰好由一个 std 模块导出 | 在第一行非注释代码之上插入 `{ name } :: import("std/…");`（帮助文本会指出模块；若有两个导出模块，或同时存在重命名候选，则只给帮助） |
 | E0007 `{ f(x) }`——花括号内只有一个表达式且没有 `;` | 在 `}` 前插入 `;`（两个及以上逗号分隔的项只给消息） |
+
+## 警告
+
+`check`、`compile` 与 `build` 还会携带警告级别的诊断，针对能编译但看起来有问题的代码。第一个家族是**未使用的变量**：已初始化但没有任何读取的局部变量，会在其作用域结束时警告一次：
+
+```text
+warning: unused variable `x`
+ --> src/main.yo:3:3
+  |
+3 |   x := i32(7);
+  |   ^
+help: prefix the name with `_` to silence this warning
+```
+
+读取变量即视为使用；仅赋值不算（`x := 1; x = 2;` 仍会警告 —— 该值从未影响任何东西）。名称加 `_` 前缀可消除警告；参数与模块级绑定从不警告；警告绝不改变退出码。在 `json` 渲染中它们以 `"severity":"warning"` 的 JSON Lines 出现，`short` 中则是 `warning:` 行。
 
 ## 错误码与 `yo explain`
 

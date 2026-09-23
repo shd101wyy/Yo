@@ -1324,7 +1324,7 @@ Result type: ${type_to_string(result_box)}`
             );
             evd_reqs := ArrayList(AstExpr).new();
             raw_reqs := get_func_requires_exprs(fn_val_id.clone());
-            pred_soft_fail := false;
+            _pred_soft_fail := false;
             (vr : usize) = usize(0);
             while(vr < raw_reqs.len(), {
               match(
@@ -1342,7 +1342,7 @@ Result type: ${type_to_string(result_box)}`
                     );
                     evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, soft_exn));
                     if(_pred_eval_failed(), {
-                      pred_soft_fail = true;
+                      _pred_soft_fail = true;
                     });
                   }, {
                     evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, exn));
@@ -1371,7 +1371,7 @@ Result type: ${type_to_string(result_box)}`
                     );
                     evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, soft_exn));
                     if(_pred_eval_failed(), {
-                      pred_soft_fail = true;
+                      _pred_soft_fail = true;
                     });
                   }, {
                     evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, exn));

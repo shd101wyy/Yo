@@ -30,7 +30,7 @@ error_format :: (fn() -> String)(g_error_format);
 /// diagnostics.
 emit_rendered_text :: (fn(text : String) -> unit)({
   cond(
-    (g_error_format == "json") => println(text),
+    ((g_error_format == "json") || (g_error_format == "sarif")) => println(text),
     true => eprintln(text)
   );
 });
@@ -38,9 +38,49 @@ emit_rendered_text :: (fn(text : String) -> unit)({
 /// `--error-format json` so the data channel stays pure JSON Lines.
 emit_chatter :: (fn(text : String) -> unit)({
   cond(
-    (g_error_format == "json") => eprintln(text),
+    ((g_error_format == "json") || (g_error_format == "sarif")) => eprintln(text),
     true => println(text)
   );
+});
+/// ── Warnings channel (P4, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md — D15) ───────
+/// Whether warning-severity diagnostics are COLLECTED during evaluation.
+/// The CLI edges that surface warnings (check / compile / build / test)
+/// switch this on for the process and flush the stash at the end; the LSP
+/// and `yo fix` leave it off — they consume the error channel only, and an
+/// unflushed stash would grow across a server's lifetime. Detection sites
+/// (the evaluator's scope-end walks) call `emit_warning`, which is a no-op
+/// while this is off, so a disabled run pays one bool test per scope.
+(g_warnings_enabled : bool) = false;
+set_warnings_enabled :: (fn(on : bool) -> unit)({
+  g_warnings_enabled = on;
+});
+warnings_enabled :: (fn() -> bool)(g_warnings_enabled);
+/// The collected warnings, deduped: a variable that lives in a frame
+/// walked twice (a re-evaluated generic body) warns once. Linear scan —
+/// per-scope emission keeps N small.
+(g_pending_warnings : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
+emit_warning :: (fn(d : Diagnostic) -> unit)({
+  if(g_warnings_enabled, {
+    (pi : usize) = usize(0);
+    while(pi < g_pending_warnings.len(), {
+      match(
+        g_pending_warnings.get(pi),
+        .Some(p) => if((p.span.path == d.span.path) && ((p.span.row == d.span.row) && ((p.span.col == d.span.col) && (p.message == d.message))), {
+          return;
+        }),
+        .None => ()
+      );
+      pi = (pi + usize(1));
+    });
+    g_pending_warnings.push(d);
+  });
+});
+/// Take (and clear) the pending warnings — the CLI edge renders whatever
+/// accumulated during the command, in the process's current format.
+take_warnings :: (fn() -> ArrayList(Diagnostic))({
+  out := g_pending_warnings;
+  g_pending_warnings = ArrayList(Diagnostic).new();
+  out
 });
 /// ── Diagnostic codes (P2, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §5) ──────────
 /// `E` + 4 digits, allocated per error FAMILY (never renumbered once
@@ -127,6 +167,116 @@ Repair :: struct(
   description : String
 );
 derive(Repair, Clone);
+derive(Diagnostic, Clone);
+
+/// ── Color (P4, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md — D14) ──────────────────
+/// Whether the human renderer wraps its output in ANSI SGR sequences. The
+/// CLI front door resolves `--color auto|always|never` / `YO_COLOR` (auto =
+/// stderr is a terminal, `NO_COLOR` unset, `TERM != dumb`) and sets this
+/// once at startup; every render reads it. Only the HUMAN renderer colors —
+/// `short` stays grep-able and `json`/`sarif` stay parseable regardless of
+/// the flag, including the human text embedded in their payloads.
+(g_color_enabled : bool) = false;
+set_color_enabled :: (fn(on : bool) -> unit)({
+  g_color_enabled = on;
+});
+color_enabled :: (fn() -> bool)(g_color_enabled);
+/// Wrap `text` in the SGR sequence `code` when `color` is on, else return
+/// it byte-identical — a disabled render is exactly the pre-color output.
+/// Takes the switch EXPLICITLY rather than reading the process global: the
+/// json/sarif renderers color-proof their embedded human text by passing
+/// `false` even when `--color always` is in force.
+/// (`\u{1b}` is ESC: the lexer's escape table has no `\x` form.)
+_colorize :: (fn(text : String, code : str, color : bool) -> String)(
+  cond(
+    color => `\u{1b}[${code}m${text}\u{1b}[0m`,
+    true => text
+  )
+);
+/// SGR codes: the severity header and its carets carry the severity color;
+/// the `-->` anchor and the gutter (`|` + row number) carry the location
+/// color. Bold variants throughout, rustc-style.
+_ANSI_ERROR :: "1;31";
+_ANSI_WARNING :: "1;33";
+_ANSI_NOTE :: "1;36";
+_ANSI_HELP :: "1;35";
+_ANSI_LOCATION :: "1;34";
+_severity_ansi :: (fn(sev : Severity) -> str)(
+  match(
+    sev,
+    .Error => _ANSI_ERROR,
+    .Warning => _ANSI_WARNING,
+    .Note => _ANSI_NOTE,
+    .Help => _ANSI_HELP
+  )
+);
+
+/// Normalize a path for directory-prefix comparison: strip a `file://`
+/// scheme and any trailing separator, so the same resolver output spelled
+/// either way compares equal.
+_normalize_path_prefix :: (fn(p : String) -> String)({
+  out := p;
+  if(out.starts_with(String.from("file://")), {
+    out = out.substring(usize(7), out.len());
+  });
+  while((out.len() > usize(1)) && (out.substring(out.len() - usize(1), out.len()) == "/"), {
+    out = out.substring(usize(0), out.len() - usize(1));
+  });
+  out
+});
+/// True when `path` IS `dir` or lives UNDER it — a path-COMPONENT check,
+/// not a bare string prefix, so `<repo>/stdlib_extra/x.yo` does not match
+/// a `<repo>/std` root.
+_path_is_under :: (fn(path : String, dir : String) -> bool)({
+  d := _normalize_path_prefix(dir);
+  pd := _normalize_path_prefix(path);
+  if(d.len() == usize(0), {
+    return(false);
+  });
+  if(pd == d, {
+    return(true);
+  });
+  pd.starts_with(`${d}/`)
+});
+/// Take the pending warnings that belong to USER code. Warnings under
+/// `std_root` (the std this command imported — `yo check ./std` is how
+/// std's own warnings surface) or `cache_root` (content-addressed
+/// dependency sources) are dropped; everything else comes back and the
+/// stash is cleared. Pure data — edges decide where and whether to render.
+take_user_warnings :: (fn(std_root : String, cache_root : String) -> ArrayList(Diagnostic))({
+  ws := take_warnings();
+  kept := ArrayList(Diagnostic).new();
+  (kwi : usize) = usize(0);
+  while(kwi < ws.len(), {
+    match(
+      ws.get(kwi),
+      .Some(w) => {
+        under_std := _path_is_under(w.span.path, std_root);
+        under_cache := _path_is_under(w.span.path, cache_root);
+        if(!under_std && !under_cache, {
+          kept.push(w.clone());
+        });
+      },
+      .None => ()
+    );
+    kwi = (kwi + usize(1));
+  });
+  kept
+});
+/// Take + render + print the user warnings in the process's current
+/// format; a no-op while the warnings gate is off or nothing survives the
+/// filter. Edges call this wherever warnings should surface: the end of
+/// main, after each watch round, and on the error-exit path (before the
+/// error renders — warnings were emitted first).
+flush_user_warnings :: (fn(std_root : String, cache_root : String) -> unit)({
+  if(!g_warnings_enabled, {
+    return;
+  });
+  kept := take_user_warnings(std_root, cache_root);
+  if(kept.len() > usize(0), {
+    emit_rendered_text(render_diagnostics_for_mode(kept));
+  });
+});
 /// One diagnostic entry. `source_line` is the source text at `span.row`,
 /// extracted once at construction — the renderer never re-reads files.
 /// `help` (P3) carries an in-band repair hint ("did you mean …"); it
@@ -276,9 +426,12 @@ _first_message_line :: (fn(message : String) -> String)({
 /// message's continuation lines verbatim, and (when a path is known) the
 /// `-->` anchor plus gutter / source line / full-span underline. `w` is the
 /// shared gutter width — the max row digits over the whole group — so the
-/// `|` gutters of every block in the group align.
-_render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit)({
+/// `|` gutters of every block in the group align. `color` wraps the header,
+/// anchor, gutter, carets and `help:` labels in ANSI SGR sequences; with it
+/// off the output is byte-identical to the pre-color renderer.
+_render_block :: (fn(d : Diagnostic, w : usize, color : bool, out : ArrayList(String)) -> unit)({
   prefix := _severity_prefix(d.severity);
+  sev_ansi := _severity_ansi(d.severity);
   msg_lines := d.message.split(String.from("\n"));
   (mi : usize) = usize(0);
   while(mi < msg_lines.len(), {
@@ -288,8 +441,8 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
         if(mi == usize(0), {
           match(
             d.code,
-            .Some(c) => out.push(`${prefix}[${c}]: ${line}`),
-            .None => out.push(`${prefix}: ${line}`)
+            .Some(c) => out.push(`${_colorize(`${prefix}[${c}]`, sev_ansi, color)}: ${line}`),
+            .None => out.push(`${_colorize(prefix, sev_ansi, color)}: ${line}`)
           );
         }, {
           out.push(line);
@@ -303,21 +456,21 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
     row_plus1 := (d.span.row + usize(1));
     col_plus1 := (d.span.col + usize(1));
     indent := String.from(" ").repeat(w + usize(1));
-    out.push(`${indent}--> ${d.span.path}:${row_plus1}:${col_plus1}`);
+    out.push(_colorize(`${indent}--> ${d.span.path}:${row_plus1}:${col_plus1}`, _ANSI_LOCATION, color));
     if(d.source_line.len() > usize(0), {
-      out.push(`${indent}|`);
+      out.push(_colorize(`${indent}|`, _ANSI_LOCATION, color));
       padded := `${row_plus1}`;
       while(padded.len() < w, {
         padded = ` ${padded}`;
       });
-      out.push(`${padded} | ${d.source_line}`);
+      out.push(`${_colorize(`${padded} |`, _ANSI_LOCATION, color)} ${d.source_line}`);
       underline_len := cond(
         (d.span.len == usize(0)) => usize(1),
         true => d.span.len
       );
       col_spaces := String.from(" ").repeat(d.span.col);
       carets := String.from("^").repeat(underline_len);
-      out.push(`${indent}| ${col_spaces}${carets}`);
+      out.push(`${_colorize(`${indent}|`, _ANSI_LOCATION, color)} ${col_spaces}${_colorize(carets, sev_ansi, color)}`);
     });
   });
   if(d.help.is_some(), {
@@ -326,7 +479,7 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
       .Some(hh) => hh,
       .None => String.new()
     );
-    out.push(`help: ${h}`);
+    out.push(`${_colorize(`help:`, _ANSI_HELP, color)} ${h}`);
   });
   if(d.code.is_some(), {
     c := match(
@@ -334,14 +487,24 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
       .Some(cc) => cc,
       .None => String.new()
     );
-    out.push(`help: run \`yo explain ${c}\` for more information`);
+    out.push(`${_colorize(`help:`, _ANSI_HELP, color)} run \`yo explain ${c}\` for more information`);
   });
 });
 /// The human rendering of a diagnostic group (rustc-shaped): each entry in
 /// order — entry 0 is the primary error, the rest are notes — separated by
 /// a blank line. This is what `YoError.to_string()` returns and what the
-/// CLI edges print; one location per entry, exactly once.
-render_diagnostics_human :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
+/// CLI edges print; one location per entry, exactly once. Colored per the
+/// process-wide `color_enabled()` (P4/D14).
+render_diagnostics_human :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
+  _render_diagnostics_human_colored(diagnostics, g_color_enabled)
+);
+/// The human rendering with an EXPLICIT color switch — the one true body;
+/// `render_diagnostics_human` passes the process flag and the machine
+/// formats (json/sarif) pass `false` so their embedded human text is never
+/// colored, whatever `--color` says.
+_render_diagnostics_human_colored :: (
+  fn(diagnostics : ArrayList(Diagnostic), color : bool) -> String
+)({
   out := ArrayList(String).new();
   w := usize(1);
   (di : usize) = usize(0);
@@ -363,7 +526,7 @@ render_diagnostics_human :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
         if(dj > usize(0), {
           out.push(String.new());
         });
-        _render_block(d, w, out);
+        _render_block(d, w, color, out);
       },
       .None => ()
     );
@@ -478,7 +641,7 @@ render_diagnostics_json :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
           )
         );
         keys.push(String.from("rendered"));
-        vals.push(JsonValue.Str(value : render_diagnostics_human(single)));
+        vals.push(JsonValue.Str(value : _render_diagnostics_human_colored(single, false)));
         out.push(json.stringify(JsonValue.Object(keys : keys, values : vals)));
       },
       .None => ()
@@ -487,18 +650,234 @@ render_diagnostics_json :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
   });
   String.from("\n").join(out)
 });
+/// One SARIF `region` for a span: 1-BASED lines/columns (SARIF's own
+/// convention — the opposite of our json render, whose 0-based basis is
+/// stated in its doc comment), `endColumn` EXCLUSIVE per SARIF §3.30.8, so
+/// a full-token span is startColumn = col+1, endColumn = col+1+len and a
+/// len-0 span (the insertion repairs) collapses to a zero-width region.
+_sarif_region :: (fn(span : Span) -> JsonValue)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  keys.push(String.from("startLine"));
+  vals.push(JsonValue.Number(value : f64(span.row + usize(1))));
+  keys.push(String.from("startColumn"));
+  vals.push(JsonValue.Number(value : f64(span.col + usize(1))));
+  keys.push(String.from("endColumn"));
+  vals.push(JsonValue.Number(value : f64(span.col + span.len + usize(1))));
+  JsonValue.Object(keys : keys, values : vals)
+});
+/// The SARIF 2.1.0 rendering (P4): the whole diagnostic group as ONE SARIF
+/// log — `runs[0].results[]` carries one result per diagnostic, so a
+/// multi-entry ownership group stays one result set. A distinct `code`
+/// becomes a driver rule (first-seen order); uncoded diagnostics omit
+/// `ruleId`. A mechanical `repair` maps to SARIF `fixes` — the field
+/// GitHub code scanning hangs its "apply fix" button on, carrying the same
+/// edit `yo fix` applies. Never colored, whatever `--color` says: data.
+render_diagnostics_sarif :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
+  // The distinct codes, first-seen order — the driver's `rules`.
+  rule_ids := ArrayList(String).new();
+  (ri : usize) = usize(0);
+  while(ri < diagnostics.len(), {
+    match(
+      diagnostics.get(ri),
+      .Some(d) => match(
+        d.code,
+        .Some(c) => {
+          (seen : bool) = false;
+          (ki : usize) = usize(0);
+          while(ki < rule_ids.len(), {
+            match(
+              rule_ids.get(ki),
+              .Some(k) => if(k == c, {
+                seen = true;
+              }),
+              .None => ()
+            );
+            ki = (ki + usize(1));
+          });
+          if(!seen, {
+            rule_ids.push(c.clone());
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  rule_vals := ArrayList(JsonValue).new();
+  (wi : usize) = usize(0);
+  while(wi < rule_ids.len(), {
+    match(
+      rule_ids.get(wi),
+      .Some(id) => {
+        rk := ArrayList(String).new();
+        rv := ArrayList(JsonValue).new();
+        rk.push(String.from("id"));
+        rv.push(JsonValue.Str(value : id.clone()));
+        rule_vals.push(JsonValue.Object(keys : rk, values : rv));
+      },
+      .None => ()
+    );
+    wi = (wi + usize(1));
+  });
+  results := ArrayList(JsonValue).new();
+  (di : usize) = usize(0);
+  while(di < diagnostics.len(), {
+    match(
+      diagnostics.get(di),
+      .Some(d) => {
+        keys := ArrayList(String).new();
+        vals := ArrayList(JsonValue).new();
+        match(
+          d.code,
+          .Some(c) => {
+            keys.push(String.from("ruleId"));
+            vals.push(JsonValue.Str(value : c.clone()));
+          },
+          .None => ()
+        );
+        keys.push(String.from("level"));
+        vals.push(
+          JsonValue.Str(
+            value : match(
+              d.severity,
+              .Error => String.from("error"),
+              .Warning => String.from("warning"),
+              .Note => String.from("note"),
+              .Help => String.from("note")
+            )
+          )
+        );
+        mkeys := ArrayList(String).new();
+        mvals := ArrayList(JsonValue).new();
+        mkeys.push(String.from("text"));
+        mvals.push(JsonValue.Str(value : d.message.clone()));
+        keys.push(String.from("message"));
+        vals.push(JsonValue.Object(keys : mkeys, values : mvals));
+        if(d.span.path.len() > usize(0), {
+          lkeys := ArrayList(String).new();
+          lvals := ArrayList(JsonValue).new();
+          lkeys.push(String.from("uri"));
+          lvals.push(JsonValue.Str(value : d.span.path.clone()));
+          pkeys := ArrayList(String).new();
+          pvals := ArrayList(JsonValue).new();
+          pkeys.push(String.from("artifactLocation"));
+          pvals.push(JsonValue.Object(keys : lkeys, values : lvals));
+          pkeys.push(String.from("region"));
+          pvals.push(_sarif_region(d.span));
+          plkeys := ArrayList(String).new();
+          plvals := ArrayList(JsonValue).new();
+          plkeys.push(String.from("physicalLocation"));
+          plvals.push(JsonValue.Object(keys : pkeys, values : pvals));
+          locs := ArrayList(JsonValue).new();
+          locs.push(JsonValue.Object(keys : plkeys, values : plvals));
+          keys.push(String.from("locations"));
+          vals.push(JsonValue.Array(items : locs));
+        });
+        match(
+          d.repair,
+          .Some(r) => {
+            fkeys := ArrayList(String).new();
+            fvals := ArrayList(JsonValue).new();
+            dsk := ArrayList(String).new();
+            dsv := ArrayList(JsonValue).new();
+            dsk.push(String.from("text"));
+            dsv.push(JsonValue.Str(value : r.description.clone()));
+            fkeys.push(String.from("description"));
+            fvals.push(JsonValue.Object(keys : dsk, values : dsv));
+            alkeys := ArrayList(String).new();
+            alvals := ArrayList(JsonValue).new();
+            alkeys.push(String.from("uri"));
+            alvals.push(JsonValue.Str(value : r.span.path.clone()));
+            rkeys := ArrayList(String).new();
+            rvals := ArrayList(JsonValue).new();
+            rkeys.push(String.from("deletedRegion"));
+            rvals.push(_sarif_region(r.span));
+            ick := ArrayList(String).new();
+            icv := ArrayList(JsonValue).new();
+            ick.push(String.from("text"));
+            icv.push(JsonValue.Str(value : r.replacement.clone()));
+            rkeys.push(String.from("insertedContent"));
+            rvals.push(JsonValue.Object(keys : ick, values : icv));
+            changes := ArrayList(JsonValue).new();
+            changes.push(
+              JsonValue.Object(
+                keys : rkeys,
+                values : rvals
+              )
+            );
+            achkeys := ArrayList(String).new();
+            achvals := ArrayList(JsonValue).new();
+            achkeys.push(String.from("artifactLocation"));
+            achvals.push(JsonValue.Object(keys : alkeys, values : alvals));
+            achkeys.push(String.from("replacements"));
+            achvals.push(JsonValue.Array(items : changes));
+            acs := ArrayList(JsonValue).new();
+            acs.push(JsonValue.Object(keys : achkeys, values : achvals));
+            fkeys.push(String.from("artifactChanges"));
+            fvals.push(JsonValue.Array(items : acs));
+            fixes := ArrayList(JsonValue).new();
+            fixes.push(JsonValue.Object(keys : fkeys, values : fvals));
+            keys.push(String.from("fixes"));
+            vals.push(JsonValue.Array(items : fixes));
+          },
+          .None => ()
+        );
+        results.push(JsonValue.Object(keys : keys, values : vals));
+      },
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  driver_keys := ArrayList(String).new();
+  driver_vals := ArrayList(JsonValue).new();
+  driver_keys.push(String.from("name"));
+  driver_vals.push(JsonValue.Str(value : String.from("yo")));
+  driver_keys.push(String.from("informationUri"));
+  driver_vals.push(JsonValue.Str(value : String.from("https://github.com/shd101wyy/Yo")));
+  driver_keys.push(String.from("rules"));
+  driver_vals.push(JsonValue.Array(items : rule_vals));
+  tool_keys := ArrayList(String).new();
+  tool_vals := ArrayList(JsonValue).new();
+  tool_keys.push(String.from("driver"));
+  tool_vals.push(JsonValue.Object(keys : driver_keys, values : driver_vals));
+  run_keys := ArrayList(String).new();
+  run_vals := ArrayList(JsonValue).new();
+  run_keys.push(String.from("tool"));
+  run_vals.push(JsonValue.Object(keys : tool_keys, values : tool_vals));
+  run_keys.push(String.from("results"));
+  run_vals.push(JsonValue.Array(items : results));
+  runs := ArrayList(JsonValue).new();
+  runs.push(JsonValue.Object(keys : run_keys, values : run_vals));
+  top_keys := ArrayList(String).new();
+  top_vals := ArrayList(JsonValue).new();
+  top_keys.push(String.from("$schema"));
+  top_vals.push(JsonValue.Str(value : String.from("https://json.schemastore.org/sarif-2.1.0.json")));
+  top_keys.push(String.from("version"));
+  top_vals.push(JsonValue.Str(value : String.from("2.1.0")));
+  top_keys.push(String.from("runs"));
+  top_vals.push(JsonValue.Array(items : runs));
+  json.stringify(JsonValue.Object(keys : top_keys, values : top_vals))
+});
 /// Render a diagnostic group in the process's current format (defined after
-/// the three renderers it dispatches to — module-level order matters).
+/// the renderers it dispatches to — module-level order matters).
 render_diagnostics_for_mode :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
   cond(
     (g_error_format == "short") => render_diagnostics_short(diagnostics),
     (g_error_format == "json") => render_diagnostics_json(diagnostics),
+    (g_error_format == "sarif") => render_diagnostics_sarif(diagnostics),
     true => render_diagnostics_human(diagnostics)
   )
 );
+
 export(Severity, Span, Label, Diagnostic, Repair);
 export(render_diagnostics_human, render_diagnostics_short, render_diagnostics_json);
+export(render_diagnostics_sarif);
 export(render_diagnostics_for_mode, set_error_format, error_format, emit_rendered_text, emit_chatter);
+export(set_color_enabled, color_enabled);
+export(set_warnings_enabled, warnings_enabled, emit_warning, take_warnings);
+export(take_user_warnings, flush_user_warnings);
 export(edit_distance, suggest_name);
 export(register_std_export, lookup_std_exporters, std_export_index_size);
 export(E_UNEXPECTED_TOKEN, E_EXPECTED_TOKEN, E_ADJACENT_OPERATORS, E_UNTERMINATED);

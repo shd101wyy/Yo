@@ -44,7 +44,11 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   callee env per specialization). Phases: durable census + per-release
   bisect, retention hygiene (byte-identical C), env-snapshot sharing,
   `Option(ref)` niche, the specialization population, interning, header
-  diet, and the super-linear compile-cost bug. Nothing implemented.
+  diet, and the super-linear compile-cost bug. Landing since 2026-09-21:
+  Phase 0 steps 1/4/5 + Phase 1 (#805, follow-ups #807: `check src/main.yo`
+  19.9 → 10.2 GB, 170 → 90 s), Phase 2 F3 copy-on-write env snapshots (#814:
+  → 10.01 GB), Phase 7 step 4 the ExprInfo diet (→ 9.61 GB). Next by
+  measured value: Phase 4 Design 1 (1.3 M cloned nodes), then F4/F5/F7.
 - [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) —
   ACTIVE 2026-09-18: **Yo verifies Yo.** The compiler as the verifier's
   flagship user, as a ladder of claims true at every rung (M0 measure/ratchet,
@@ -59,15 +63,30 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   mutable-heap model, invariant inference, incremental verify, laws). SMT
   stays the backend; the foundations section answers "why not dependent
   types / matching logic / abstract interpretation" per alternative.
+- [`YO_CONTEXT.md`](YO_CONTEXT.md) —
+  ACTIVE 2026-09-22: the agent context surface — `yo context` as one verb
+  for the curated language pack (ROADMAP Phase 4.1, ≤ 24 KB, shipped in the
+  release bundle, anti-drift rule: language facts only, never API listings)
+  plus index/describe/search API discovery over the doc IR, with a measured
+  baseline (26.1 s full-std doc build, 175 modules / 2,069 items, a ~30k-token
+  full index — hence search + per-module browsing, never wholesale loading)
+  and a content-addressed index cache under the yo cache root. Subsumes
+  BEND_LAWS B3 tasks 1–2 (`yo guide`/`yo std`). Phases C1–C6, none started,
+  no seed gate.
 
-The formal-verification campaign's live state lives in its plan, not in a
-handover: [`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md)
-carries the per-slice banners (V1–V5 complete; V6 task 5 slice 2, task 6,
-task 3 slice 2 and task 2's abstract half landed as #713/#726/#727/#745) and
-the open PR (#753, task 3 slice 3) is the frontier. Its two dated handovers
-([`HANDOVER_2026-09-14_FV_V6_TASK1.md`](archive/HANDOVER_2026-09-14_FV_V6_TASK1.md),
-[`HANDOVER_2026-09-15_FV_V6_REMAINING.md`](archive/HANDOVER_2026-09-15_FV_V6_REMAINING.md))
-closed 2026-09-17 once everything they handed over had landed.
+The formal-verification campaign is **COMPLETE (2026-09-19, V1–V7)**. The
+authoritative record is the per-slice banners in
+[`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md); the
+close-out is §8 of
+[`archive/HANDOVER_2026-09-15_FV_V6_REMAINING.md`](archive/HANDOVER_2026-09-15_FV_V6_REMAINING.md)
+— V7 landed as #775/#776/#777/#778/#785, develop tip at close `28608fcfe`.
+Its two dated handovers
+([`archive/HANDOVER_2026-09-14_FV_V6_TASK1.md`](archive/HANDOVER_2026-09-14_FV_V6_TASK1.md),
+[`archive/HANDOVER_2026-09-15_FV_V6_REMAINING.md`](archive/HANDOVER_2026-09-15_FV_V6_REMAINING.md))
+are closed records; the 09-15 one is the COMPLETE record (§7 the 09-17/18
+window, §8 the campaign close), consolidated into archive/ 2026-09-22 in
+place of the 2026-09-15 snapshot that had been archived at #755 before the
+campaign finished.
 
 Arena allocation research (backlog):
 [`backlog/ARENA_ALLOCATOR_FEASIBILITY.md`](backlog/ARENA_ALLOCATOR_FEASIBILITY.md)

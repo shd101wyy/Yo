@@ -37,6 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { Duration } :: import("std/time/duration");
 { Instant } :: import("std/time/instant");
 { get_hardware_threads } :: import("std/thread");
+{ supports_color, Stream } :: import("std/term");
 {
   profile_set_enabled,
   profile_reset,
@@ -133,6 +134,12 @@ json :: import("std/encoding/json");
   render_diagnostics_for_mode,
   set_error_format,
   error_format,
+  set_color_enabled,
+  color_enabled,
+  set_warnings_enabled,
+  warnings_enabled,
+  take_warnings,
+  flush_user_warnings,
   emit_rendered_text,
   emit_chatter,
   register_std_export
@@ -2934,9 +2941,13 @@ run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Excep
   });
   t0 := Instant.now();
   run_compile(argv_a, io, exn);
+  // Pass1's duration must be captured HERE: `t1.elapsed()` interpolated in
+  // the print below runs after pass2, so it measured pass1+pass2. The
+  // unused-variable lint (D15) is what surfaced this.
+  pass1_ms := t0.elapsed().as_millis().to_string();
   t1 := Instant.now();
   run_compile(argv_b, io, exn);
-  t2 := Instant.now();
+  pass2_ms := t1.elapsed().as_millis().to_string();
   exists_a := file_exists_sync(out_a.clone());
   if(!exists_a, {
     eprintln(String.from("warm-selfcheck: pass 1 emitted nothing"));
@@ -2959,7 +2970,7 @@ run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Excep
     scan = b.index_of(marker.clone(), match(scan, .Some(k) => (k + marker.len()), .None => usize(0)));
   });
   eprintln(
-    `warm-selfcheck: pass1=${t1.elapsed().as_millis().to_string()}ms pass2=${t2.elapsed().as_millis().to_string()}ms identical=${identical.to_string()} ftt_pass2=${ftt.to_string()} bytes_a=${a.len().to_string()} bytes_b=${b.len().to_string()}`
+    `warm-selfcheck: pass1=${pass1_ms}ms pass2=${pass2_ms}ms identical=${identical.to_string()} ftt_pass2=${ftt.to_string()} bytes_a=${a.len().to_string()} bytes_b=${b.len().to_string()}`
   );
   if((!(identical) || (ftt > usize(0))), {
     unsafe(exit(int(1)));
@@ -5377,10 +5388,16 @@ run_test :: (
           });
         });
         // Forward the error format so a batch-compile failure renders per
-        // --error-format (P3 threading).
+        // --error-format (P3 threading). Color travels too when it is ON:
+        // the child's stderr is a captured pipe, so its own `auto` would
+        // resolve off even though the parent asked for color.
         if(!(error_format() == "human"), {
           cargv.push(String.from("--error-format"));
           cargv.push(error_format());
+        });
+        if(color_enabled(), {
+          cargv.push(String.from("--color"));
+          cargv.push(String.from("always"));
         });
         // `--std-path` is a GLOBAL flag: main strips it from argv before
         // subcommand dispatch and stashes it with the module manager, so the
@@ -8528,6 +8545,10 @@ main :: (fn(io : Io) -> unit)({
         // (--error-format) on the right stream. Anything else keeps the
         // yo: error: wrapper, unless it is a rendered diagnostic rethrown
         // as a string — no doubled prefixes (P1, D4).
+        // Warnings emitted before the failure surface first — a check of
+        // several files should not lose file 1's warnings because file 2
+        // errored. A no-op when the stash is empty (arg errors, lsp, ...).
+        flush_user_warnings(resolve_std_path(), get_global_cache_dir());
         match(
           downcast(err, YoError),
           .Some(ye) => {
@@ -8566,7 +8587,7 @@ main :: (fn(io : Io) -> unit)({
         err_format = raw_argv0(ai0 + usize(1)).clone();
         ai0 = (ai0 + usize(1));
       }, {
-        exn.throw(dyn(`--error-format requires a value: human, short or json`));
+        exn.throw(dyn(`--error-format requires a value: human, short, json or sarif`));
       });
     }, {
       if(a0.starts_with(String.from("--error-format=")), {
@@ -8578,16 +8599,64 @@ main :: (fn(io : Io) -> unit)({
     ai0 = (ai0 + usize(1));
   });
   if(err_format.len() > usize(0), {
-    if(!((err_format == "human") || ((err_format == "short") || (err_format == "json"))), {
+    if(!(((err_format == "human") || ((err_format == "short") || (err_format == "json"))) || (err_format == "sarif")), {
       exn.throw(
         dyn(
-          `Invalid --error-format '${err_format}' (expected: human, short or json). Set --error-format or YO_ERROR_FORMAT.`
+          `Invalid --error-format '${err_format}' (expected: human, short, json or sarif). Set --error-format or YO_ERROR_FORMAT.`
         )
       );
     });
     set_error_format(err_format);
   });
-  raw_argv := argv0;
+  // Color (P4/D14): `--color auto|always|never` (global, stripped before
+  // subcommand dispatch, like --error-format) or the YO_COLOR env var (lower
+  // precedence). Resolution: flag > env > auto, where auto is std/term's
+  // `supports_color` on STDERR — the stream human diagnostics go to — i.e.
+  // a terminal, `NO_COLOR` unset, `TERM != dumb`. Machine formats
+  // (json, short) never color regardless; the human text embedded in json
+  // payloads is rendered uncolored inside diagnostics.yo itself.
+  (color_mode : String) = String.from("");
+  env_color := proc_env.get(String.from("YO_COLOR"));
+  if(env_color.is_some(), {
+    color_mode = env_color.unwrap_or(String.from(""));
+  });
+  argv1 := ArrayList(String).new();
+  ci0 := usize(0);
+  while(ci0 < argv0.len(), {
+    c0 := argv0(ci0);
+    if(c0 == "--color", {
+      if((ci0 + usize(1)) < argv0.len(), {
+        color_mode = argv0(ci0 + usize(1)).clone();
+        ci0 = (ci0 + usize(1));
+      }, {
+        exn.throw(dyn(`--color requires a value: auto, always or never`));
+      });
+    }, {
+      if(c0.starts_with(String.from("--color=")), {
+        color_mode = c0.substring(usize(8), c0.len());
+      }, {
+        argv1.push(c0);
+      });
+    });
+    ci0 = (ci0 + usize(1));
+  });
+  if(color_mode.len() > usize(0), {
+    if(!((color_mode == "auto") || ((color_mode == "always") || (color_mode == "never"))), {
+      exn.throw(
+        dyn(
+          `Invalid --color '${color_mode}' (expected: auto, always or never). Set --color or YO_COLOR.`
+        )
+      );
+    });
+    set_color_enabled(
+      cond(
+        (color_mode == "always") => true,
+        (color_mode == "never") => false,
+        true => supports_color(Stream.Stderr)
+      )
+    );
+  });
+  raw_argv := argv1;
   // Global `--std-path <dir>` flag: strip it from argv before subcommand
   // dispatch and stash the override with the module manager.
   // The global `--lang <lc>` flag (CLI output language, src/cli_lang.yo)
@@ -8717,9 +8786,21 @@ main :: (fn(io : Io) -> unit)({
       .None => ()
     );
   });
+  // Warnings channel (D15): exactly the edges that surface warnings turn
+  // collection on; the flush at the end of main prints whatever accumulated,
+  // in the process's current format, without touching the exit code. The
+  // LSP and `yo fix` stay off — they consume the error channel only, and
+  // the LSP's process lives long enough that an unflushed stash would leak.
+  set_warnings_enabled(
+    ((subcmd == "check") || ((subcmd == "compile") || (subcmd == "build")))
+  );
   if(subcmd == "explain", {
     run_explain(argv, io, exn);
   }, if(subcmd == "lsp", {
+    // LSP frames are a PROTOCOL channel — ANSI in a diagnostic text would
+    // corrupt the client's rendering, so the LSP ignores --color entirely
+    // (plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §4.4).
+    set_color_enabled(false);
     run_lsp_server(io, exn);
   }, if(subcmd == "compile", {
     // The Phase-4 warm gate intercepts before run_compile ever sees the
@@ -8781,5 +8862,6 @@ main :: (fn(io : Io) -> unit)({
     exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
   })))))))))))))))));
   print_spec_report_if_requested();
+  flush_user_warnings(resolve_std_path(), get_global_cache_dir());
 });
 export(main);
