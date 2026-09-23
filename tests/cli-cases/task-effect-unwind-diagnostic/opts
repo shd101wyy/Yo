@@ -2,12 +2,16 @@
 # unwinds: the task future enters the Aborted state and nobody observes it
 # (the JoinHandle is discarded). Before the fix this was completely silent
 # - rc=0, nothing on stderr (issues/fixed/effect-unwind-escaping-a-task-or-main-is-silent.md).
-# The unwind-side abort now prints one diagnostic line; cancellation via
+# The unwind-side abort now prints one diagnostic line when the task is
+# released without anyone awaiting it (the awaited shapes are
+# task-effect-unwind-observed); cancellation via
 # JoinHandle.abort() (race/timeout) writes the same state through
 # __yo_task_abort and must NOT print, which is why the assertion is on this
-# exact line and the program still exits 0.
+# exact line and the program still exits 0. The pattern is the CURRENT
+# wording, so a seed-built binary's own old-wording build-runner lines are
+# not scored as the program's.
 #
 # Recorded BY HAND: the recording binary must carry the fix itself, so no
 # seed or pre-fix self-hosted binary can produce this output.
-stdout_keep_match=unhandled effect unwind aborted an async task
+stdout_keep_match=unhandled effect unwind aborted an async task that was never awaited
 timeout=300

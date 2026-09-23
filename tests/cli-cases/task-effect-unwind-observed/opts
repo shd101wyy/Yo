@@ -1,0 +1,14 @@
+# An effect unwind that aborts a task is "unhandled" only when nobody observes
+# it. Awaiting the handle (`.None`) observes it silently — including the
+# build runner's shape, a task that spawns a fallible task and reads its
+# handle — while a handle that is never awaited is reported once, when the
+# program body returns. The diagnostic used to print at abort time for every
+# task, so `yo build` itself printed it 18 times
+# (issues/fixed/an-awaited-task-abort-is-reported-as-unhandled.md).
+#
+# The pattern keeps the program's own stderr markers and the diagnostic's
+# CURRENT wording: a seed-built self-hosted binary still prints the old
+# abort-time line from its own build-runner tasks, and those lines must not
+# be scored as this program's output.
+stdout_keep_match=(unhandled effect unwind aborted an async task that was never awaited|(main|outer): [a-z ,]+)
+timeout=300

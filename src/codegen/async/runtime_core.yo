@@ -967,6 +967,8 @@ typedef struct {
 // matching io.state's mapping (0 Pending, -1 Completed, -2 Aborted).
 static int32_t __yo_join_handle_state_raw(void* fut) {
   int s = ((__yo_spawned_future_header_t*)fut)->state;
+  // Reading Aborted through the handle observes an effect-unwind abort.
+  if (s == -2) __yo_task_abort_observed(fut);
   return (s > 0) ? 1 : s;
 }
 

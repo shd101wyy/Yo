@@ -1,0 +1,66 @@
+{ IoExn, Exception } :: import("std/error");
+{ eprintln, ToString } :: import("std/fmt");
+
+MyError :: enum(
+  Boom
+);
+derive(
+  MyError,
+  Error(
+    .Boom => `boom`
+  )
+);
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  // 1. An awaited handle: `.None` observes the abort, so nothing is printed.
+  awaited := io.spawn(
+    io.async((e : IoExn) => {
+      e.exn.throw(dyn(MyError.Boom));
+    }),
+    IoExn(io : io, exn : exn)
+  );
+  match(
+    awaited.await(io),
+    .Some(_) => eprintln("main: awaited task completed"),
+    .None => eprintln("main: awaited task aborted, observed")
+  );
+  // 2. The build runner's shape: a task spawns a fallible task and reads its
+  //    handle, so the inner abort is observed and the outer task completes.
+  outer := io.spawn(
+    io.async((e : IoExn) => {
+      inner := e.io.spawn(
+        e.io.async((e2 : IoExn) => {
+          e2.exn.throw(dyn(MyError.Boom));
+        }),
+        e
+      );
+      match(
+        inner.await(e.io),
+        .Some(_) => eprintln("outer: inner completed"),
+        .None => eprintln("outer: inner aborted, observed")
+      );
+    }),
+    IoExn(io : io, exn : exn)
+  );
+  match(
+    outer.await(io),
+    .Some(_) => eprintln("main: outer task completed"),
+    .None => eprintln("main: outer task aborted")
+  );
+  // 3. A bound handle that is never awaited: reported when the body returns.
+  never_awaited := io.spawn(
+    io.async((e : IoExn) => {
+      e.exn.throw(dyn(MyError.Boom));
+    }),
+    IoExn(io : io, exn : exn)
+  );
+  eprintln("main: returning");
+});
+export(main);

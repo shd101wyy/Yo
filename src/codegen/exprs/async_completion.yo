@@ -84,12 +84,14 @@ emit_async_future_escape :: (
     .None => ()
   );
   emitter.emit_string_line(`${indent}sm->state = -2;  // -2 = escaped`);
-  // Loud, not silent: this transition is the effect-unwind abort of a whole
-  // task. Cancellation (`JoinHandle.abort()` from race/timeout) reaches -2
-  // through `__yo_task_abort` instead, so the line never fires for a
-  // cancelled loser. `JoinHandle.await` still yields `.None` as the typed
-  // channel; the diagnostic is what a discarded handle used to swallow.
-  emitter.emit_string_line(`${indent}fprintf(stderr, "unhandled effect unwind aborted an async task\\n");`);
+  // Loud when nobody observes it: this transition is the effect-unwind abort
+  // of a whole task, so register it (gc_runtime.yo, emit_task_abort_registry).
+  // An awaiter, `JoinHandle.await` (`.None`) or a state read observes it
+  // silently; a task released or still alive at exit unobserved prints
+  // "unhandled effect unwind aborted an async task that was never awaited".
+  // Cancellation (`JoinHandle.abort()` from race/timeout) reaches -2 through
+  // `__yo_task_abort` instead and is never registered.
+  emitter.emit_string_line(`${indent}__yo_task_abort_register((void*)sm);`);
   emitter.emit_string_line(String.from(""));
   emitter.emit_string_line(`${indent}void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;`);
   emitter.emit_string_line(`${indent}void* continuation_sm = sm->continuation_sm;`);
