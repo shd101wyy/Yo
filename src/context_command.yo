@@ -779,7 +779,7 @@ _page_sections :: (fn(content : String) -> ArrayList(PageSection))({
       match(
         cur_anchor,
         .Some(a) => {
-          out.push(PageSection(anchor : a, text : cur.trim_end()));
+          out.push(PageSection(anchor : a, text : _section_body(cur.clone())));
         },
         .None => ()
       );
@@ -797,11 +797,20 @@ _page_sections :: (fn(content : String) -> ArrayList(PageSection))({
   match(
     cur_anchor,
     .Some(a) => {
-      out.push(PageSection(anchor : a, text : cur.trim_end()));
+      out.push(PageSection(anchor : a, text : _section_body(cur.clone())));
     },
     .None => ()
   );
   out
+});
+/// A section's text without the trailing `---` rule the renderer puts
+/// between items (it belongs to no item).
+_section_body :: (fn(text : String) -> String)({
+  body := text.trim_end();
+  while(body.ends_with(String.from("\n---")), {
+    body = body.substring(usize(0), body.len() - usize(4)).trim_end();
+  });
+  body
 });
 /// An anchor without its type parameters: `ArrayList(T)` → `ArrayList`.
 _anchor_base :: (fn(anchor : String) -> String)({
