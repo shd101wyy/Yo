@@ -1,0 +1,16 @@
+build :: import("std/build");
+
+// plans/SAFE_MODE.md §7 (Phase 4): the tiny-heap oracles beyond RC
+// construction. A 64 KiB fixed region makes each allocation path's
+// out-of-memory case an ordinary, reproducible input.
+exe :: build.executable({
+  name : "oom-shapes",
+  root : "./src/main.yo",
+  allocator : build.Allocator.Fixed,
+  heap_size : usize(65536)
+});
+install :: build.step("install", "Build the probe");
+install.depend_on(exe);
+run_exe :: build.run(exe);
+run :: build.step("run", "Run the probe");
+run.depend_on(run_exe);
