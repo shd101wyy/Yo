@@ -73,6 +73,18 @@ Active work (root) — **plans and handovers driving work right now, and nothing
   consolidation. Measured: cold std index 28.3 s, warm 45 ms, 175 modules;
   `std/string` = 295 items with barrel `origin=`. Graduates to
   `reference/` when the dust settles.
+- [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) —
+  ACTIVE 2026-09-23, proposed, no phase started: make `yo check` a gate, not
+  a filter. A six-part audit classified the checker (local bidirectional
+  checking over Zig-style comptime monomorphization, not Hindley–Milner) and
+  found ~60 holes where a wrong program passes `check` and fails in clang, an
+  ICE, a runtime FATAL, or runs wrong (GADT indices ignored by compatibility,
+  loop-carried moves, `inout` through a fn value, globals bypassing `Send`).
+  Eight root causes, phases 0–7: a soundness ratchet, one-site missing
+  comparisons, trait conformance/coherence + per-call unification, one type
+  identity predicate (unblocks `backlog/TYPEVALUE_HASH_CONSING.md`),
+  diagnostics and codegen-only rules, ownership/thread-safety edges, retiring
+  the def-eval swallow policy, docs sync.
 
 The formal-verification campaign is **COMPLETE (2026-09-19, V1–V7)**. The
 authoritative record is the per-slice banners in
