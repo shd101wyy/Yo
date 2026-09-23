@@ -8,7 +8,7 @@ post-`main` belt re-landed with the install-frame classification fix, #858),
 escape hatch (#837; two missed wrap-by-design sites, #841), 4 (#836); 5a
 measured and closed as a documented non-change. Open (§14): the std unwrap
 ratchet (closing), the comptime-panic diagnostic that the "comptime carve-out"
-reduces to, one Phase 1 subscript left unguarded, the per-phase docs and
+reduces to, the per-phase docs and
 instruction updates, the missing trap/OOM oracles, the UBSan acceptance run,
 the governance cross-check, 5b (its FV gate is LIFTED, V1–V7 landed; design not
 started), and 6 (gated on 5b).**
@@ -114,7 +114,8 @@ What the code actually emits today, with evidence:
 **Status (audit 2026-09-23):** H1, H2, H4, H5, H7, H8, H9, H10, H11 and H12
 are closed. H6 closed as a semantics change rather than a UB closure: `-fwrapv` meant
 signed overflow was never UB (§6). H3 was retired because the Slice builtins
-were deleted before Phase 1 landed. One H1 residue is open (§14 R3).
+were deleted before Phase 1 landed. The raw-subscript residue was audited and
+is unreachable from user indices (§14 R3).
 
 Already solid (no work): container-impl indexing (ArrayList `std/collections/array_list.yo:857-877`,
 Deque, `imm.Vec`, String — all panic on OOB); the Law-of-Exclusivity borrow counter
@@ -813,16 +814,17 @@ v0.2.40 release publishes.
   and point at the call site. Today it is `rc 0` from `check` plus a clang error,
   or a message-less "Function body is not evaluated correctly" (§3 0c
   carve-out). Needs an `issues/` entry plus a fails-before/passes-after test.
-- **R3 — the last unguarded fixed-array subscript.** `generate_yo_dup_array_element`'s
-  no-`___dup` fallback (`src/codegen/exprs/rc_fns.yo`, the `direct_ref` arm
-  taken by `ref` element types) subscripts with the raw index, while its
-  sibling arm guards the same array with `_checked_fixed_array_subscript`. If
-  a runtime index reaches it, this is a live H1 hole. Verify with a repro
-  (an `Array(RefNode, 3)` read at a runtime index ≥ 3), then guard it.
-  The other raw `.data[` sites are compiler-generated in-range loops (the
-  array drop/dup walks and the constructor fills), so Appendix A's literal
-  grep acceptance cannot pass as worded. Its intent, that no user-controlled
-  index reaches a raw subscript, is what R3 closes.
+- **R3 — raw-subscript residue: VERIFIED NOT REACHABLE (2026-09-23).** Every
+  raw `.data[` left in `src/codegen` indexes with a compiler-chosen in-range
+  value. The array drop/dup walks and the constructor fill loop over `0..N`.
+  `__yo_dup_array_element` / `__yo_drop_array_element` are generated only by
+  `src/evaluator/builtins/dup.yo` with the literal indices `0..N-1`, so the
+  unguarded `direct_ref` fallback in `rc_fns.yo` never sees a user index.
+  Measured: an `Array(Node, 3)` (`Node :: ref(...)`) read at a runtime index
+  of 3 emits `arr.data[__yo_idx_chk((size_t)(i), (size_t)(3), …)]` and aborts
+  with `index out of bounds: 3 not in [0, 3) (at r3.yo:8:8)`, rc 134.
+  Appendix A's literal grep acceptance cannot pass as worded; read it as "no
+  user-controlled index reaches a raw subscript", which holds.
 - **R4 — the §11 docs and instruction debt.** The cheatsheet overflow line
   (this re-records the seven skill cli-cases), `yo-design.instructions.md`
   (the class-1 rule and the arithmetic semantics), `c-codegen.instructions.md`
