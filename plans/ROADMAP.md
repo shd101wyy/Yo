@@ -55,6 +55,11 @@ authorship from day one.
   ([`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md)).
 - **Yo verifies Yo.** The compiler as the verifier's flagship user, rung by
   rung ([`SELF_VERIFICATION.md`](SELF_VERIFICATION.md)).
+- **Type-system soundness.** Make `yo check` a gate, not a filter: the
+  audit's holes (unchecked closure results, trait impl completeness,
+  coherence, swallowed closure-body errors) and one authoritative identity for
+  resolved type variables
+  ([`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md)).
 - **Safe mode.** No undefined behavior in safe code. Phases 0a–4 landed:
   loud escaped unwinds, bounds-checked indexing, guarded `/` and `%`,
   overflow traps with `wrapping_*` as the escape hatch, saturating casts, the
@@ -63,9 +68,6 @@ authorship from day one.
 
 ## Next
 
-- **Type identity.** One authoritative identity for resolved type variables,
-  so a type resolved once is resolved everywhere. The id/era splits behind the
-  largest bug class of the bootstrap campaign come from its absence.
 - **Agent loop.** Laws, a `yo verify --strict` gate and an evals corpus that
   measures agents writing Yo
   ([`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md),
