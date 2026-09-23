@@ -874,3 +874,30 @@ test("Binding a unit-returning call compiles and still runs the call", {
     assert(counter.* == i32(15), "nested-scope bound unit call must execute");
   };
 });
+_lit_i32 :: (fn(x : i32) -> i32)(x);
+_lit_u8 :: (fn(x : u8) -> u8)(x);
+_lit_f64 :: (fn(x : f64) -> f64)(x);
+_lit_f32 :: (fn(x : f32) -> f32)(x);
+_lit_str :: (fn(s : str) -> usize)(s.len());
+_LitPoint :: struct(a : i32);
+_lit_point :: (fn(p : _LitPoint) -> i32)(p.a);
+_lit_defaulted :: (fn(x : i32, (y : i32) ?= i32(0)) -> i32)(x + y);
+test("A comptime literal argument is checked against a concrete parameter type", {
+  { String } :: import("std/string");
+  _lit_string :: (fn(s : String) -> usize)(s.len());
+  // Widenings the literal really has.
+  assert(_lit_u8(1) == u8(1));
+  assert(_lit_f64(1) == 1.0);
+  assert(_lit_f32(1.5) == f32(1.5));
+  assert(_lit_str("abc") == usize(3));
+  assert(_lit_defaulted(2) == i32(2));
+  // A literal of the wrong kind is a type error, not a miscompile: a
+  // `"..."` literal is a `str` view, never an owned `String` (that is
+  // `String.from(...)` or a backtick literal), never an integer or a struct.
+  comptime_expect_error(_lit_i32("a"), "Cannot unify incompatible types");
+  comptime_expect_error(_lit_string("a"), "Cannot unify incompatible types");
+  comptime_expect_error(_lit_point("a"), "Cannot unify incompatible types");
+  comptime_expect_error(_lit_i32(1.5), "Cannot unify incompatible types");
+  comptime_expect_error(_lit_defaulted("a"), "Cannot unify incompatible types");
+  assert(_lit_string(`abc`) == usize(3));
+});

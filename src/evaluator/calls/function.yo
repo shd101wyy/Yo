@@ -2487,9 +2487,10 @@ _evaluate_funcval_runtime_call :: (
   //     alignment is unambiguous;
   //   * the declared parameter type is CONCRETE — a SomeT, or a type containing
   //     one, is a generic slot bound by synthesis elsewhere;
-  //   * the ARGUMENT type is concrete and not comptime — a `comptime_int`
-  //     argument to an `i32` parameter is lowered further down, and a SomeT
-  //     argument is likewise resolved elsewhere.
+  //   * the ARGUMENT type is concrete and not comptime — a comptime literal
+  //     argument is checked against its parameter at the binding loop in
+  //     `evaluate_function_call` (the one index-aligned site), and a SomeT
+  //     argument is resolved elsewhere.
   match(
     callee_func_type_opt,
     .Some(_ac_cft) => match(
@@ -6003,6 +6004,43 @@ Fix: wrap the call:
           // flag alone; the value-derived heuristic here keeps genuine
           // comptime VALUES comptime but must not claim runtime unknowns.
           (is_ct : bool) = match(arg_info.value, .Some(av) => (!(is_func_val(av)) && !(is_unknown_val(av))), .None => false);
+          // A SUPPLIED comptime literal must fit a CONCRETE declared type —
+          // the literal widenings `are_types_compatible` defines (comptime_int
+          // → any integer/float, comptime_float → any float, comptime_str →
+          // `str` / `*(u8)` / `*(char)`), never more. `_evaluate_funcval_
+          // runtime_call`'s argument gate exempts comptime arguments (and
+          // skips any call whose argument count differs from the parameter
+          // count, i.e. every defaulted call), and the coercion just below
+          // re-typed a comptime_str to WHATEVER the parameter declared, so
+          // `f :: (fn(s : String) -> …)(…); f("a")` type-checked and emitted a
+          // `__yo_str` where the C wants a String struct
+          // (issues/fixed/str-literal-as-string-arg-miscompiles-in-template-interpolation.md).
+          // This is the one site where argument `pi` is aligned with its
+          // parameter, so the check lives here. `actual` comes first: the
+          // widening rules key on the ACTUAL type being comptime.
+          if((pi < n_supplied_reg) && (
+            (is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty))
+            || is_comptime_string_type(arg_info.ty)
+          ), {
+            lit_concrete := (
+              (!(is_some_type(resolved_decl_pt)) && !(type_contains_some_type_deep(resolved_decl_pt)))
+              && (!(is_function_type(resolved_decl_pt)) && !(is_fn_trait_type(resolved_decl_pt)))
+            );
+            if(lit_concrete && !(are_types_compatible(arg_info.ty, resolved_decl_pt)), {
+              lit_msg := `Cannot unify incompatible types:\nExpected: "${type_to_string(resolved_decl_pt)}"\nGiven: "${type_to_string(arg_info.ty)}"`;
+              if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+                flag_flow_violation(lit_msg.clone());
+              });
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(match(fv_args.get(pi), .Some(ae) => ae, .None => expr)),
+                    lit_msg
+                  )
+                )
+              );
+            });
+          });
           if((is_comptime_string_type(arg_info.ty) && (!(is_some_type(resolved_decl_pt)))) && (!(is_comptime_string_type(resolved_decl_pt))), {
             bind_ty = resolved_decl_pt.clone();
             bind_val = Option(EvalValue).Some(create_unknown_val(resolved_decl_pt));
