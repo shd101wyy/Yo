@@ -1919,7 +1919,11 @@ jobs:
     # the ruleset's required check changed from the single name to the four
     # shard names in the same change — the swap must land in the ruleset
     # BEFORE this merges (see the issue's ordering trap).
-    timeout-minutes: 120
+    # 150, not 120: shard 3 measured 113 min on develop 59e2857df (run
+    # 35835442735) and was cut off at 120 min mid-file on 5498dd70b (run
+    # 35843866889) with every file passing — the tier grew into the budget.
+    # 150 keeps a hang caught while giving the heaviest shard ~30% margin.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
