@@ -65,9 +65,9 @@ h2_hash :: (fn(hash : u64) -> u8)(u8(hash & u64(127)));
 mix_u64 :: (fn(hash : u64) -> u64)({
   h := hash;
   h = (h ^ (h >> u64(33)));
-  h = (h * u64(0xff51afd7ed558ccd));
+  h = h.wrapping_mul(u64(0xff51afd7ed558ccd));
   h = (h ^ (h >> u64(33)));
-  h = (h * u64(0xc4ceb9fe1a85ec53));
+  h = h.wrapping_mul(u64(0xc4ceb9fe1a85ec53));
   h = (h ^ (h >> u64(33)));
   return(h);
 });

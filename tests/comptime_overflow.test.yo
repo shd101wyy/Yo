@@ -69,15 +69,29 @@ test("values in range are accepted — including 64-bit unsigned above i64::MAX"
   comptime_assert(big_ct > 0, "comptime_int multiplication is unchecked");
 });
 
-test("the checks do not fire on runtime arithmetic", {
-  // Only COMPILE-TIME arithmetic is range-checked; a runtime `+` keeps C's
-  // wrapping semantics and must not be rejected at compile time.
+test("bit_not and mul checks on 64-bit-boundary patterns", {
+  // u64(2^63) is the i64.MIN bit pattern; `~` once formed `0 - n - 1`
+  // directly on it, which aborts under safe-mode arithmetic.
+  boundary :: u64(9223372036854775808);
+  comptime_assert(~boundary == u64(9223372036854775807), "~ on the MIN pattern yields MAX");
+  comptime_assert(~u64(0) == u64(18446744073709551615), "~ on zero yields u64.MAX");
+  // The exact product 1.6e19 leaves i64's range: the wrapped-product probe
+  // once formed the overflowing product (and divided by the operand) itself;
+  // the overflow must be REPORTED, not trap the compiler.
+  comptime_expect_error(mul_past_i64_max :: (i64(4000000000) * i64(4000000000)));
+  comptime_expect_error(mul_below_i64_min :: (i64(-4000000000) * i64(4000000000)));
+});
+
+test("the compile-time checks do not reject runtime arithmetic", {
+  // Only COMPILE-TIME arithmetic is range-checked; a runtime `+` must not be
+  // rejected at compile time. Under safe mode the runtime `+` itself traps on
+  // overflow, so the keep-the-wrap surface is `wrapping_*`.
   x := i8(127);
   y := i8(1);
-  sum := (x + y);
-  assert(sum == i8(-128), "runtime i8 addition wraps at the C level");
+  sum := x.wrapping_add(y);
+  assert(sum == i8(-128), "wrapping_add wraps exactly at the i8 boundary");
   u := u8(255);
   one := u8(1);
-  usum := (u + one);
-  assert(usum == u8(0), "runtime u8 addition wraps at the C level");
+  usum := u.wrapping_add(one);
+  assert(usum == u8(0), "wrapping_add wraps exactly at the u8 boundary");
 });

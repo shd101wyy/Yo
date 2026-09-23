@@ -227,8 +227,10 @@ random_range :: (fn(r : Range(i64), exn : Exception) -> i64)(
       // Unsigned span: `r.end - r.start` OVERFLOWS i64 for a wide range
       // (`i64.MIN .. 0` is `0 - i64.MIN`), and signed overflow is undefined
       // behaviour in C. Yo's conversions are two's-complement bit-preserving,
-      // so `u64(end) - u64(start)` is the exact distance for `end > start`.
-      uspan := (u64(r.end) - u64(r.start));
+      // so the u64 patterns give the exact distance for `end > start` — the
+      // subtraction must go through wrapping_sub, because the plain u64 form
+      // UNDERFLOWS for any range crossing zero (`u64(5) - u64(-5)`).
+      uspan := u64(r.end).wrapping_sub(u64(r.start));
       // Largest multiple of `uspan` representable in u64, as a rejection
       // threshold: accept r only below it. (u64::MAX = 2^64 - 1, so the
       // count of full spans is ((MAX - (uspan - 1)) / uspan) + 1 — computed
@@ -244,7 +246,10 @@ random_range :: (fn(r : Range(i64), exn : Exception) -> i64)(
       while(runtime(draw > limit), {
         draw = random_u64(exn);
       });
-      r.start + i64(draw % uspan)
+      // Pattern arithmetic in u64: `r.start + offset` as a SIGNED add
+      // under/overflows for wide ranges (start = MIN, offset past 2^63) even
+      // though the drawn value itself is always representable.
+      i64(u64(r.start).wrapping_add(draw % uspan))
     }
   )
 );

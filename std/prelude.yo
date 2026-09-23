@@ -4762,25 +4762,35 @@ impl(
   ),
   /// `self + rhs` modulo the type's range — Rust's `wrapping_add`.
   ///
-  /// The wrapped value is reconstructed from the bounds rather than by letting
-  /// the add overflow: signed overflow is undefined behaviour in C, so the
-  /// out-of-range sum must never be formed. `MAX + k` becomes `MIN + k - 1`
-  /// and `MIN - k` becomes `MAX - k + 1`; every intermediate stays in range.
-  wrapping_add : (fn(self : T, rhs : T) -> T)(
-    cond(
-      ((rhs > T(0)) && (self > (T.MAX - rhs))) => ((T.MIN + (self - (T.MAX - rhs))) - T(1)),
-      ((rhs < T(0)) && (self < (T.MIN - rhs))) => ((T.MAX - ((T.MIN - rhs) - self)) + T(1)),
-      true => (self + rhs)
-    )
-  ),
-  /// `self - rhs` modulo the type's range — Rust's `wrapping_sub`.
-  wrapping_sub : (fn(self : T, rhs : T) -> T)(
-    cond(
-      ((rhs < T(0)) && (self > (T.MAX + rhs))) => ((T.MIN + (self - (T.MAX + rhs))) - T(1)),
-      ((rhs > T(0)) && (self < (T.MIN + rhs))) => ((T.MAX - ((T.MIN + rhs) - self)) + T(1)),
-      true => (self - rhs)
-    )
-  ),
+  /// Implemented as the classic bitwise carry loop (XOR / AND / shift only):
+  /// no intermediate can overflow, which the bound-reconstruction version
+  /// could not guarantee — its `(MIN - rhs) - self` shape trapped on
+  /// `i64.MIN + i64.MIN` and its shifted domain on `MAX + MIN`, both hit by
+  /// u64 bit patterns during the self-compile. Complement arithmetic gives
+  /// the wrapped result in at most width iterations.
+  wrapping_add : (fn(self : T, rhs : T) -> T)({
+    (sum : T) = self;
+    (carry : T) = rhs;
+    while(carry != T(0), {
+      (next : T) = ((sum & carry) << T(1));
+      sum = (sum ^ carry);
+      carry = next;
+    });
+    sum
+  }),
+  /// `self - rhs` modulo the type's range — Rust's `wrapping_sub`, as the
+  /// bitwise borrow loop (same overflow-freedom argument as wrapping_add;
+  /// `x ^ T.MAX` is the bitwise NOT).
+  wrapping_sub : (fn(self : T, rhs : T) -> T)({
+    (a : T) = self;
+    (b : T) = rhs;
+    while(b != T(0), {
+      (next : T) = (((a ^ T.MAX) & b) << T(1));
+      a = (a ^ b);
+      b = next;
+    });
+    a
+  }),
   /// `(wrapped sum, did it overflow)` — Rust's `overflowing_add`.
   overflowing_add : (fn(self : T, rhs : T) -> Tuple(T, bool))(
     match(self.checked_add(rhs), .Some(v) => (v, false), .None => (self.wrapping_add(rhs), true))
@@ -4853,21 +4863,32 @@ impl(
   /// Accumulated with `wrapping_add` rather than by forming the product:
   /// signed overflow is undefined behaviour in C, so the overflowing multiply
   /// must never exist. Same reason `checked_mul` above tests by DIVISION.
-  /// Only reached on a path that already overflowed, so the loop is not on
-  /// the fast path.
+  /// Only reached on a path that already overflowed. The fallback is
+  /// Russian-peasant multiplication — halve `rhs`, double `self`, O(log|rhs|)
+  /// iterations. The first version ACCUMULATED `self` `rhs` times, which for
+  /// u64 hash constants (fmix64's 0xff51… on every HashMap key) is ~10^19
+  /// iterations: a hash took effectively forever and hung the tier-1
+  /// walker/module/corpus legs at rc=124.
   wrapping_mul : (fn(self : T, rhs : T) -> T)(
     match(
       self.checked_mul(rhs),
       .Some(v) => v,
       .None => {
+        (neg : bool) = cond((rhs < T(0)) => !(self < T(0)), true => (self < T(0)));
+        (a : T) = cond((self < T(0)) => T(0).wrapping_sub(self), true => self);
+        (b : T) = cond((rhs < T(0)) => T(0).wrapping_sub(rhs), true => rhs);
         (acc : T) = T(0);
-        (i : T) = T(0);
-        (n : T) = cond((rhs < T(0)) => (T(0) - rhs), true => rhs);
-        (step : T) = cond((rhs < T(0)) => (T(0) - self), true => self);
-        while(i < n, i = (i + T(1)), {
-          acc = acc.wrapping_add(step);
+        while(b != T(0), {
+          cond(
+            ((b % T(2)) == T(1)) => {
+              acc = acc.wrapping_add(a);
+            },
+            true => ()
+          );
+          a = a.wrapping_add(a);
+          b = (b >> T(1));
         });
-        acc
+        cond(neg => T(0).wrapping_sub(acc), true => acc)
       }
     )
   ),
@@ -5251,7 +5272,9 @@ _popcount_u64 :: (fn(x : u64) -> u32)({
   v = (v - ((v >> u64(1)) & u64(6148914691236517205)));
   v = ((v & u64(3689348814741910323)) + ((v >> u64(2)) & u64(3689348814741910323)));
   v = ((v + (v >> u64(4))) & u64(1085102592571150095));
-  u32(((v * u64(72340172838076673)) >> u64(56)))
+  // The multiply IS the byte-summation: it overflows by design (only the
+  // top byte of the product is read), so it goes through wrapping_mul.
+  u32((v.wrapping_mul(u64(72340172838076673)) >> u64(56)))
 });
 /// Number of leading zero bits in a 64-bit word (`64` for zero).
 _leading_zeros_u64 :: (fn(x : u64) -> u32)({
@@ -5271,8 +5294,8 @@ _trailing_zeros_u64 :: (fn(x : u64) -> u32)(
   cond(
     (x == u64(0)) => u32(64),
     // `x & -x` isolates the lowest set bit; `x-1` then has exactly that many
-    // ones below it.
-    true => _popcount_u64(((x & (u64(0) - x)) - u64(1)))
+    // ones below it. The negation wraps by design (wrapping_sub).
+    true => _popcount_u64((x & u64(0).wrapping_sub(x)) - u64(1))
   )
 );
 /// Reverse all 64 bits.
@@ -5489,7 +5512,18 @@ impl(
     (acc : T.Unsigned) = T.Unsigned(0);
     (i : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
-      acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(i)));
+      // The shift is skipped on the first byte: `acc << 8` on a WIDTH-8
+      // type (u8/i8, BYTES = 1) is a shift count out of range, and even for
+      // wider types shifting the initial zero was pure waste. Found by the
+      // wasm32 leg ("shift count out of range: 8 not in [0, 8)").
+      cond(
+        (i == usize(0)) => {
+          acc = T.Unsigned(bs(i));
+        },
+        true => {
+          acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(i)));
+        }
+      );
     });
     T(acc)
   }),
@@ -5499,7 +5533,14 @@ impl(
     (i : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
       j := ((T.BYTES - usize(1)) - i);
-      acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(j)));
+      cond(
+        (i == usize(0)) => {
+          acc = T.Unsigned(bs(j));
+        },
+        true => {
+          acc = ((acc << T.Unsigned(8)) | T.Unsigned(bs(j)));
+        }
+      );
     });
     T(acc)
   })
@@ -5609,11 +5650,14 @@ impl(
   i8,
   /// The absolute difference — `|self - other|`, as the unsigned partner
   /// `u8`, so the result is representable even for
-  /// `i8.MAX.abs_diff(i8.MIN)`.
+  /// `i8.MAX.abs_diff(i8.MIN)`. The subtraction goes through wrapping_sub on
+  /// the SIGNED type before the cast: the earlier version subtracted the
+  /// unsigned BIT PATTERNS, which underflows whenever the two operands sit on
+  /// opposite sides of zero (`u64(1) - u64(-1)`).
   abs_diff : (fn(self : Self, other : Self) -> u8)(
     cond(
-      (self >= other) => (u8(self) - u8(other)),
-      true => (u8(other) - u8(self))
+      (self >= other) => u8(self.wrapping_sub(other)),
+      true => u8(other.wrapping_sub(self))
     )
   )
 );
@@ -5624,8 +5668,8 @@ impl(
   /// `i16.MAX.abs_diff(i16.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u16)(
     cond(
-      (self >= other) => (u16(self) - u16(other)),
-      true => (u16(other) - u16(self))
+      (self >= other) => u16(self.wrapping_sub(other)),
+      true => u16(other.wrapping_sub(self))
     )
   )
 );
@@ -5633,11 +5677,11 @@ impl(
   i32,
   /// The absolute difference — `|self - other|`, as the unsigned partner
   /// `u32`, so the result is representable even for
-  /// `i32.MAX.abs_diff(i32.MIN)`.
+  /// `i32.MAX.abs_diff(i32.MIN)` (see the i8 impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> u32)(
     cond(
-      (self >= other) => (u32(self) - u32(other)),
-      true => (u32(other) - u32(self))
+      (self >= other) => u32(self.wrapping_sub(other)),
+      true => u32(other.wrapping_sub(self))
     )
   )
 );
@@ -5648,8 +5692,8 @@ impl(
   /// `i64.MAX.abs_diff(i64.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u64)(
     cond(
-      (self >= other) => (u64(self) - u64(other)),
-      true => (u64(other) - u64(self))
+      (self >= other) => u64(self.wrapping_sub(other)),
+      true => u64(other.wrapping_sub(self))
     )
   )
 );
@@ -5673,11 +5717,12 @@ impl(
 impl(
   isize,
   /// The absolute difference, as the unsigned partner `usize`, so the result
-  /// is representable even for `isize.MAX.abs_diff(isize.MIN)`.
+  /// is representable even for `isize.MAX.abs_diff(isize.MIN)` (see the i8
+  /// impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> usize)(
     cond(
-      (self >= other) => (usize(self) - usize(other)),
-      true => (usize(other) - usize(self))
+      (self >= other) => usize(self.wrapping_sub(other)),
+      true => usize(other.wrapping_sub(self))
     )
   )
 );

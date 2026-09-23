@@ -51,19 +51,19 @@ apply_bounds :: (fn(n : i64, ty : TypeValue) -> i64)(
     ty,
     .Int(bits, signed) => cond(
       ((bits == u8(8)) && !signed) => {
-        abs_n := if(n >= i64(0), n, i64(0) - n);
+        abs_n := if(n >= i64(0), n, i64(0).wrapping_sub(n));
         abs_n % i64(256)
       },
       ((bits == u8(8)) && signed) =>
         if(n > i64(127), i64(127), if(n < i64(-128), i64(-128), n)),
       ((bits == u8(16)) && !signed) => {
-        abs_n := if(n >= i64(0), n, i64(0) - n);
+        abs_n := if(n >= i64(0), n, i64(0).wrapping_sub(n));
         abs_n % i64(65536)
       },
       ((bits == u8(16)) && signed) =>
         if(n > i64(32767), i64(32767), if(n < i64(-32768), i64(-32768), n)),
       ((bits == u8(32)) && !signed) => {
-        abs_n := if(n >= i64(0), n, i64(0) - n);
+        abs_n := if(n >= i64(0), n, i64(0).wrapping_sub(n));
         abs_n % i64(4294967296)
       },
       ((bits == u8(32)) && signed) =>
@@ -80,14 +80,16 @@ apply_bounds :: (fn(n : i64, ty : TypeValue) -> i64)(
 // ---------------------------------------------------------------------------
 // bit_not_int: bitwise NOT for integer types.
 // For types narrower than 64 bits, XOR with the type mask and sign-extend.
-// For 64-bit and comptime_int, uses the identity ~n = -(n+1).
+// For 64-bit and comptime_int, uses the identity ~n = -(n+1). The add and
+// the negation wrap (n = i64.MIN is a live u64 bit pattern), so both legs
+// go through the wrapping_* generic instead of raw `0 - n - 1`.
 // ---------------------------------------------------------------------------
 bit_not_int :: (fn(n : i64, ty : TypeValue) -> i64)(
   match(
     ty,
-    .ComptimeInt => (i64(0) - n - i64(1)),
-    .Usize => (i64(0) - n - i64(1)),
-    .Isize => (i64(0) - n - i64(1)),
+    .ComptimeInt => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
+    .Usize => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
+    .Isize => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
     .Int(bits, signed) => cond(
       (bits == u8(8)) => {
         n_lower := (n & i64(255));
@@ -116,9 +118,9 @@ bit_not_int :: (fn(n : i64, ty : TypeValue) -> i64)(
           result_u
         )
       },
-      true => (i64(0) - n - i64(1))
+      true => i64(0).wrapping_sub(n.wrapping_add(i64(1)))
     ),
-    _ => (i64(0) - n - i64(1))
+    _ => i64(0).wrapping_sub(n.wrapping_add(i64(1)))
   )
 );
 // ---------------------------------------------------------------------------
@@ -153,7 +155,18 @@ _i64_op_wrapped :: (fn(a : i64, b : i64, op_s : String) -> bool)(
       true => false
     ),
     (a == i64(0)) => false,
-    true => (((a * b) / a) != b)
+    (b == i64(0)) => false,
+    // The MIN/-1 shapes: wrapping_mul alone cannot see them (the sign test
+    // below misreads MIN*2 wrapping to 0, and MIN*(-1) wraps to MIN).
+    (a == i64.MIN) => (b != i64(1)),
+    (b == i64.MIN) => (a != i64(1)),
+    // The division probe `(a * b) / a != b` formed the overflowing product
+    // and could divide MIN by -1 — both trap under safe-mode arithmetic.
+    // The sign test detects the same wrap with wrapping_mul only: for
+    // same-sign operands the wrapped product is negative exactly when the
+    // exact product left the range, and for mixed signs it is non-negative.
+    ((a < i64(0)) == (b < i64(0))) => (a.wrapping_mul(b) < i64(0)),
+    true => (a.wrapping_mul(b) >= i64(0))
   )
 );
 // ---------------------------------------------------------------------------
@@ -424,7 +437,7 @@ evaluate_yo_comptime_numeric_functions :: (
                 av,
                 .IntLit(raw) => match(
                   parse_raw_int(raw),
-                  .Some(n) => make_int_val(i64(0) - n, numeric_type),
+                  .Some(n) => make_int_val(i64(0).wrapping_sub(n), numeric_type),
                   .None => create_unknown_val(numeric_type)
                 ),
                 _ => create_unknown_val(numeric_type)
@@ -651,10 +664,16 @@ evaluate_yo_comptime_numeric_functions :: (
             .Some(a) => match(
               rhs_n,
               .Some(b) => {
+                // The raw result is the i64 BIT PATTERN comptime integers are
+                // carried in (u64 values above i64::MAX are negative
+                // patterns), so add/sub/mul must WRAP here: the wrapping_*
+                // generic keeps every intermediate in range, and
+                // check_int_overflow below re-tests the pattern in the
+                // unsigned domain for u64/usize.
                 n_result := cond(
-                  (op_s == "add") => (a + b),
-                  (op_s == "sub") => (a - b),
-                  true => (a * b)
+                  (op_s == "add") => a.wrapping_add(b),
+                  (op_s == "sub") => a.wrapping_sub(b),
+                  true => a.wrapping_mul(b)
                 );
                 // Check the EXACT result against the type's range before
                 // building the value; `make_int_val` below only CLAMPS.

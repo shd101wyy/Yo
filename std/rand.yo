@@ -41,7 +41,9 @@ impl(
     self.state = old.wrapping_mul(_PCG_MULT).wrapping_add(self.inc);
     xorshifted := u32(((old >> u64(18)) ^ old) >> u64(27));
     rot := u32(old >> u64(59));
-    (xorshifted >> rot) | (xorshifted << ((u32(0) - rot) & u32(31)))
+    // `-rot & 31` wraps by design (the mask folds the negation back);
+    // wrapping_sub keeps that design explicit under the Phase 3 traps.
+    (xorshifted >> rot) | (xorshifted << (u32(0).wrapping_sub(rot) & u32(31)))
   }),
   /// The next 64 uniformly random bits (two 32-bit draws).
   next_u64 : (fn(inout(self) : Self) -> u64)({
@@ -59,8 +61,9 @@ impl(
       (bound == u64(0)) => __yo_panic("Rng.next_below: bound must be non-zero"),
       true => {
         // threshold = 2^64 mod bound; reject draws under it so the remaining
-        // range is an exact multiple of bound.
-        threshold := ((u64(0) - bound) % bound);
+        // range is an exact multiple of bound. `0 - bound` wraps by design
+        // (that IS the two's-complement of bound).
+        threshold := (u64(0).wrapping_sub(bound) % bound);
         (r : u64) = self.next_u64();
         while(r < threshold, {
           r = self.next_u64();
@@ -140,8 +143,8 @@ impl(
         // `u64(end) - u64(start)` is the exact distance for any `end >= start`
         // — the wrap is the arithmetic, not an accident. Same trick as Rust's
         // `gen_range`.
-        span := (u64(r.end) - u64(r.start));
-        r.start + i64(self.next_below(span))
+        span := u64(r.end).wrapping_sub(u64(r.start));
+        i64(u64(r.start).wrapping_add(self.next_below(span)))
       }
     )
   ),
@@ -165,8 +168,8 @@ impl(
         // wide range. The `+ 1` cannot overflow here because the only pair
         // whose unsigned distance is `u64.MAX` is `i64.MIN ..= i64.MAX`, which
         // the arm above already took.
-        span := ((u64(r.end) - u64(r.start)) + u64(1));
-        r.start + i64(self.next_below(span))
+        span := (u64(r.end).wrapping_sub(u64(r.start)) + u64(1));
+        i64(u64(r.start).wrapping_add(self.next_below(span)))
       }
     )
   ),
@@ -281,7 +284,7 @@ rand_below :: (fn(bound : u64) -> u64)(
   cond(
     (bound == u64(0)) => __yo_panic("rand_below: bound must be non-zero"),
     true => {
-      threshold := ((u64(0) - bound) % bound);
+      threshold := (u64(0).wrapping_sub(bound) % bound);
       (r : u64) = _next_u64_thread();
       while(r < threshold, {
         r = _next_u64_thread();
@@ -295,7 +298,7 @@ rand_below :: (fn(bound : u64) -> u64)(
 rand_range :: (fn(r : Range(i64)) -> i64)(
   cond(
     (r.end <= r.start) => __yo_panic("rand_range: empty range (end <= start)"),
-    true => (r.start + i64(rand_below(u64(r.end) - u64(r.start))))
+    true => i64(u64(r.start).wrapping_add(rand_below(u64(r.end).wrapping_sub(u64(r.start)))))
   )
 );
 /// A uniform integer in the INCLUSIVE range `r`, from this thread's
@@ -306,7 +309,7 @@ rand_range_inclusive :: (fn(r : RangeInclusive(i64)) -> i64)(
     (r.end < r.start) => __yo_panic("rand_range_inclusive: empty range (end < start)"),
     ((r.end == i64(9223372036854775807)) && (r.start == i64(-9223372036854775808))) =>
       i64(rand_u64()),
-    true => (r.start + i64(rand_below((u64(r.end) - u64(r.start)) + u64(1))))
+    true => i64(u64(r.start).wrapping_add(rand_below(u64(r.end).wrapping_sub(u64(r.start)) + u64(1))))
   )
 );
 export(rand_u32, rand_u64, rand_f64, rand_bool, rand_below, rand_range, rand_range_inclusive);

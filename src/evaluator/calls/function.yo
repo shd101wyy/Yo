@@ -371,6 +371,19 @@ _reject_class1_panic_method_call :: (
       _ => false
     )
   );
+  // The method_ty check above sees the GENERIC signature during trial
+  // dispatch (`fn(self : Option(T))` specialized against an unresolved
+  // receiver reads as `?(...)`, which no concrete ban predicate matches), so
+  // a fresh call result slipped through every gate. The receiver EXPRESSION's
+  // own ExprInfo carries the concrete type the call resolved to
+  // (`out_rt.ty = resolved_ret`), so consult it too.
+  if(!c1_recv_banned, {
+    c1_recv_banned = match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(c1_mi.receiver_expr)),
+      .Some(c1_ri) => is_class1_panic_receiver_type(c1_ri.ty),
+      .None => false
+    );
+  });
   if(c1_recv_banned && !is_class1_panic_exempt_file(Option(String).Some(c1_name_tok.module_path.clone()), ctx.std_path.clone()), {
     exn.throw(
       dyn(

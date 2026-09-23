@@ -16,7 +16,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { cwd } :: import("std/env");
 { Path } :: import("std/path");
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, t_refine_inner } :: import("../types/definitions.yo");
+{ type_to_string } :: import("../types/string.yo");
 { canonical_module_path } :: import("../utils.yo");
 // NOTE: the compiler reuses the language's own `Pragma` enum
 // (defined in `std/prelude.yo`, auto-loaded into every module) as the
@@ -250,12 +251,20 @@ is_class1_panic_method_name :: (fn(name : String) -> bool)(
   (name == "unwrap") || (name == "expect") || (name == "unwrap_err")
 );
 /// The receiver types whose extraction methods are class 1: the failure is
-/// IN the type. Nominal enum-name match, the same rule the io-builtin
-/// classification uses (`struct_name == "Io"` in evaluator/calls/function.yo).
+/// IN the type. The value must BE an enum (`Option`/`Result` are enums), and
+/// the NAME is read through `type_to_string` rather than the `.EnumT` name
+/// field: real Option/Result TypeValues frequently carry an EMPTY name (the
+/// printer falls back to the display registry), so a name-field comparison
+/// never fired — probe-verified 2026-09-22: the fixture receiver's ExprInfo
+/// said `Option(i32)` and a name-field comparison returned false. The
+/// `(` in the prefix keeps a hypothetical user `OptionEx(` from matching.
 is_class1_panic_receiver_type :: (fn(t : TypeValue) -> bool)(
   match(
-    t,
-    .EnumT(_, en_name, _, _, _, _, _, _, _) => ((en_name == "Option") || (en_name == "Result")),
+    t_refine_inner(t),
+    .EnumT(_, _, _, _, _, _, _, _, _) => {
+      s := type_to_string(t);
+      s.starts_with(String.from("Option(")) || s.starts_with(String.from("Result(")) || ((s == "Option") || (s == "Result"))
+    },
     // A `*(T)`-typed self parameter (`fn(self : *(Self))`-shaped impls):
     // look through the pointer.
     .Pointer(inner) => is_class1_panic_receiver_type(inner),
@@ -280,6 +289,14 @@ is_class1_panic_exempt_file :: (fn(module_path : Option(String), std_path : Stri
     .None => false,
     .Some(mp) => {
       if(mp.starts_with(String.from("auto-generated://")), {
+        return(true);
+      });
+      // `yo test` concatenates *.test.yo files into
+      // `.yo_selftest_batch_<n>_<m>.yo` — the batch loses the .test.yo
+      // suffix this exemption matches, so the batch artifact is exempted by
+      // its own distinctive name (found via the wasm32_wasi leg: every test
+      // whose body unwraps a Result rejected with E0611).
+      if(mp.contains(String.from(".yo_selftest_batch_")), {
         return(true);
       });
       if(mp.ends_with(String.from(".test.yo")), {

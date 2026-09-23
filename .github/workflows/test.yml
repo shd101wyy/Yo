@@ -2414,7 +2414,11 @@ jobs:
     runs-on: ubuntu-latest
     # See the emscripten leg: 360 let a deadlocked test spin for 3.4 h here
     # (issues/fixed/wasi-thread-pool-submit-deadlock.md) before anyone looked.
-    timeout-minutes: 90
+    # 120 since safe mode Phase 3: the per-op runtime guards and the
+    # wrapping_* loops (O(width) bitwise, on HashMap's fmix64 per key hash)
+    # pushed the 218-file suite past 90 — the 8bdc0f968 run was canceled at
+    # exactly 90 min with tests/time/* (the last files) mid-pass, 95% green.
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository

@@ -616,7 +616,7 @@ _validate_template_placeholders :: (
               (pi : usize) = usize(0);
               while(pi < rb2.len(), {
                 db2 := match(rb2.get(pi), .Some(b) => b, .None => u8(0));
-                pos = ((pos * usize(10)) + usize(db2 - u8(48)));
+                pos = (pos.wrapping_mul(usize(10)) + usize(db2 - u8(48)));
                 pi = (pi + usize(1));
               });
             };

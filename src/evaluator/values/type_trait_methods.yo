@@ -709,7 +709,7 @@ _parse_usize_literal :: (fn(raw : String) -> Option(usize))({
     if((c < u8(48)) || (c > u8(57)), {
       return(Option(usize).None);
     });
-    acc = ((acc * usize(10)) + usize(c - u8(48)));
+    acc = (acc.wrapping_mul(usize(10)) + usize(c - u8(48)));
     i = (i + usize(1));
   });
   Option(usize).Some(acc)

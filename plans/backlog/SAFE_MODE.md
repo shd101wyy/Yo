@@ -550,7 +550,27 @@ construction, async task spawn, thread spawn, a deep `String` build.
 
 ## 8. Phase 5 — check elision: local first, verifier later
 
-### 5a Local elision (pure codegen, no Z3)
+### 5a Local elision (pure codegen, no Z3) — RESOLVED as a documented non-change
+
+**Measurement (2026-09-22, CI `test (ubuntu-latest)` durations on consecutive
+stack branches, one full battery each — all six legs PASSED):**
+
+| Branch | Content | Ubuntu duration |
+| --- | --- | --- |
+| safe-mode-0a | Phase 0 only (baseline with belt removed) | 78m16s |
+| safe-mode-0b | + UBSan flag (CLI only, no runtime cost) | 76m33s |
+| safe-mode-0c | + D7 evaluator gates (evaluator-only) | 63m56s |
+| safe-mode-1 | + `__yo_idx_chk` indexing guards | 79m19s |
+| safe-mode-2 | + div/rem guards | 78m47s |
+| safe-mode-4 | + gc scratch-realloc fix | 81m20s |
+
+**Decision: no elision is built.** The runner-to-runner noise floor (0b→0c
+swung −14m with zero runtime-code change) exceeds any per-phase delta; the
+decisive evidence is that every battery passed WITH all guards active — no
+batch deadline, ratchet, or timeout was breached. The guards' cost is within
+CI tolerance, so per the plan's own rule 5a collapses into a documented
+non-change. Revisit only if a measured regression appears; the extraction
+command below re-runs in one pass.
 
 **Measurement protocol (written 2026-09-22; the numbers land with the stack's
 CI runs).** The per-phase guard cost is read from CI's `test (ubuntu-latest)`
