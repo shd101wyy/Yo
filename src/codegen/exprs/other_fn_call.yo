@@ -924,18 +924,51 @@ _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeV
 /// value is extracted, vs merely propagated): the direct-control-fn
 /// given-binding check plus the Phase-2 explicit-param fallback. There is no
 /// specialized-evidence branch (FuncVal has no specializedType — Gap 2).
-_call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeValue, param_types : ArrayList(TypeValue), runtime_args : ArrayList(AstExpr), context : FunctionGenerationContext) -> bool)({
+_call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeValue, param_types : ArrayList(TypeValue), runtime_args : ArrayList(AstExpr), context : FunctionGenerationContext, callee_name : Option(String)) -> bool)({
   env := func_ei.env;
   fdfl := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
   // (1) Direct call to a control/effect-record handler fn bound via a local
   //     begin-block frame (handler installation) vs a function parameter.
-  is_direct_handler := match(func_ei.value, .Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)) || is_effect_record_member(_func_val_id(v)), false), .None => false);
+  //     The registry lookup alone is blind to the BATCH shape (`yo test`
+  //     bodies inlined into __yo_user_main): the callee atom's ExprInfo
+  //     carries NO FuncVal there — only its ctl-marked Func type — so the
+  //     rule fell to propagate and the install frame exited with
+  //     __yo_effect_escaped still set (the Phase 0a belt's four false fires,
+  //     issues/effect-install-frame-exit-leaves-the-escaped-flag-dirty.md).
+  //     A ctl-marked type (the Func meta's is_control — the same flag
+  //     _call_may_unwind reads) accepts the valueless callee, and the
+  //     binding search then falls back to the callee ATOM's name.
+  _fn_meta_is_ctl := (fn(t : TypeValue) -> bool)(
+    match(t, .Func({ meta : __m }) => __m.*.is_control, _ => false)
+  );
+  callee_is_ctl := (_fn_meta_is_ctl(function_type) || _fn_meta_is_ctl(func_ei.ty));
+  is_direct_handler := match(
+    func_ei.value,
+    .Some(v) => if(
+      is_func_val(v),
+      is_control_fn(_func_val_id(v)) || is_effect_record_member(_func_val_id(v)) || callee_is_ctl,
+      false
+    ),
+    .None => callee_is_ctl
+  );
   install1 := if(is_direct_handler, {
-    callee_fid := match(func_ei.value, .Some(v) => _func_val_id(v), .None => String.new());
-    match(
-      find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value.get(usize(0)), .Some(val) => (is_func_val(val) && (_func_val_id(val) == callee_fid)), .None => false)),
+    callee_fid := match(func_ei.value, .Some(v) => if(is_func_val(v), _func_val_id(v), String.new()), .None => String.new());
+    fid_hit := match(
+      find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value.get(usize(0)), .Some(val) => (is_func_val(val) && (callee_fid.len() > usize(0)) && (_func_val_id(val) == callee_fid)), .None => false)),
       .Some(fidx) => ((fidx > fdfl) && match(env.frames.get(fidx), .Some(fr) => fr.is_begin_block, .None => false)),
       .None => false
+    );
+    cond(
+      fid_hit => true,
+      true => match(
+        callee_name,
+        .Some(cn) => match(
+          find_innermost_frame_with_given_variable(env, (v : Variable) => (v.name == cn)),
+          .Some(fidx) => ((fidx > fdfl) && match(env.frames.get(fidx), .Some(fr) => fr.is_begin_block, .None => false)),
+          .None => false
+        ),
+        .None => false
+      )
     )
   }, false);
   if(install1, return(true));
@@ -1324,7 +1357,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             cm_may_unwind := _call_may_unwind(method_fv, cm_mft, cm_ptypes, false, context);
             cm_install_ei := new_expr_info(ei.env, cm_mft);
             cm_install_ei.value = method_fv;
-            cm_is_install := _call_is_handler_installation(cm_install_ei, cm_mft, cm_ptypes, dm_runtime, context);
+            cm_is_install := _call_is_handler_installation(cm_install_ei, cm_mft, cm_ptypes, dm_runtime, context, Option(String).None);
             if(is_unit_type(ei.ty), {
               cm_em := context.base.emitter;
               // Interior-`inout` borrow flags around the method call (see the
@@ -1441,7 +1474,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), rm_mft, rm_ptypes, false, context);
             rm_install_ei := new_expr_info(ei.env, rm_mft);
             rm_install_ei.value = Option(EvalValue).Some(rmv);
-            rm_is_install := _call_is_handler_installation(rm_install_ei, rm_mft, rm_ptypes, rm_runtime, context);
+            rm_is_install := _call_is_handler_installation(rm_install_ei, rm_mft, rm_ptypes, rm_runtime, context, Option(String).None);
             if(is_unit_type(ei.ty), {
               rm_em := context.base.emitter;
               // Interior-`inout` borrow flags around the method call (see the
@@ -2030,7 +2063,12 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // unwound value is extracted + returned; elsewhere the escape propagates.
   ou_callee_atom := match(expr, .FnCall(_, __ouf, _, _, _) => ast_expr_is_atom(__ouf), _ => false);
   ou_may_unwind := _call_may_unwind(func_ei.value, function_type, param_types, ou_callee_atom, context);
-  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(func_ei, function_type, param_types, runtime_args, context), false);
+  ou_callee_name := match(
+    expr,
+    .FnCall(_, __ouf2, _, _, _) => if(ast_expr_is_atom(__ouf2), Option(String).Some(ast_expr_token(__ouf2).value), Option(String).None),
+    _ => Option(String).None
+  );
+  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(func_ei, function_type, param_types, runtime_args, context, ou_callee_name), false);
   // Registered (named) function call. A cc_early_hit callee (closure value
   // whose type resolved to a registered capture struct) must NOT take this
   // route: its FuncVal's direct C call would omit the closure_context arg —

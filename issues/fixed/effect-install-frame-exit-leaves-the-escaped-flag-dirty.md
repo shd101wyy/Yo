@@ -1,8 +1,8 @@
 # An effect install-frame exit leaves `__yo_effect_escaped` set (dirty flag rides to main)
 
-**Status: OPEN** — surfaced by the safe-mode Phase 0a belt check
-(`issues/fixed/effect-unwind-escaping-a-task-or-main-is-silent.md`); the belt is
-deferred until this is fixed.
+**Status: FIXED (2026-09-23)** — surfaced by the safe-mode Phase 0a belt check
+(`issues/fixed/effect-unwind-escaping-a-task-or-main-is-silent.md`); the belt was
+deferred until this was fixed; both landed together.
 
 ## The behavior (measured 2026-09-22, CI battery on the 0a branch + a patched
 batch binary locally)
@@ -79,15 +79,44 @@ instead of the propagate form. The `#838` probe's dump (fdfl/fidx/frames/
 begin) is in place to verify what the frame bookkeeping sees in the batch
 context once the path is routed through the predicate.
 
-## The fix (sketch)
+## The fix (landed 2026-09-23, probed locally)
 
-Either rule 1 must recognize the batch-frame binding (the classification the
-predicate already intends), or the install-frame escape path must clear the
-flag whenever the callee is a locally-bound handler value regardless of frame
-bookkeeping. Validation recipe that worked here: `YO_KEEP_BATCH=1 yo test
-./tests/algebraic_effects.test.yo --test-name-pattern "..."`, patch the kept
-batch C, run per-test with `YO_TEST_INDEX=<i>` — the belt fires on exactly
-the dirty tests (rc 134) and the flag is otherwise clean.
+The probe's own assumption was half wrong — corrected by a YO_DEBUG_INSTALL
+dump against the CURRENT tree: the predicate IS consulted for the failing
+calls (the registered-callee path passes `ou_is_install`), and the Func
+meta's `is_control` flag is TRUE on both the callee's call type and its
+ExprInfo type. What failed was rule 1's FIRST conjunct: in the batch context
+the callee atom's ExprInfo carries NO FuncVal (only its ctl-marked type), so
+`is_control_fn(_func_val_id(v))` never ran and the fid-based frame search had
+no id to search with.
+
+Three pieces landed together:
+
+1. **Rule 1 accepts a valueless ctl-typed callee** — `is_control` from the
+   Func meta (the same flag `_call_may_unwind` reads) admits the callee, and
+   a new `callee_name` parameter (the callee ATOM's token, passed by the
+   registered-callee path) lets the binding search fall back to the NAME:
+   a begin-block frame inside the current fn (`fidx > fdfl`) that binds the
+   callee's name. Params bind at the declaration frame and stay excluded —
+   propagation through handler params (the "Mixed"/"Struct-record" shapes)
+   classifies exactly as before.
+2. **The test-batch main is a boundary of last resort** — "Mixed unwind and
+   return in effect handler" DELIBERATELY lets an unwind escape to top level
+   (abort-this-test with no outer handler), so the batch main clears the flag
+   after its dispatch the way task boundaries already do. The belt is
+   emitted by `generate_main_wrapper` in two shapes keyed on the main's
+   defining module containing `.yo_selftest_batch_`.
+3. **The belt re-landed** on all three platform arms (POSIX/Windows/wasm)
+   from the 0a commit, via the shared `belt_block` snippet.
+
+Verified locally (deck box, nix clang, `YO_TEST_LEAK_VERDICT=0`):
+algebraic_effects 77/77 with the belt armed; the non-batch direct-call shape
+(a standalone program) now also transpiles and runs correctly — handler
+prints, unwind exits main early, flag clean, rc 0 — closing the
+"same shape outside a batch fails to transpile (abort-stub)" note above as a
+side effect. The belt stays a tripwire for real programs: no legitimate
+non-batch path is known to leave the flag set (the 0a analysis), and the
+deliberate-escape idiom exists only in test batches.
 
 When this lands, re-add the three post-`__yo_user_main` belt checks
 (POSIX/Windows/wasm arms of `generate_main_wrapper`) from the 0a commit.
