@@ -20,6 +20,7 @@ doc.
 - [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) — the `match` redesign (pattern IR, exhaustiveness, general lowering).
 - [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md) — cutting the evaluator's retained memory, measured per phase.
 - [`SELF_VERIFICATION.md`](SELF_VERIFICATION.md) — Yo verifies Yo: the compiler as the verifier's flagship user.
+- [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 landed, elision and strict mode next.
 
 ## Reference (`reference/`)
 
@@ -37,7 +38,7 @@ doc.
 
 `backlog/` holds the designs that are next or parked. The ones other docs lean
 on most: [`FORMAL_VERIFICATION`](backlog/FORMAL_VERIFICATION.md) (the
-verifier's design, V1–V7 landed), [`SAFE_MODE`](backlog/SAFE_MODE.md),
+verifier's design, V1–V7 landed),
 [`SEED_VERSION_AUTOMATION`](backlog/SEED_VERSION_AUTOMATION.md),
 [`DEPENDENT_TYPES_POSITION`](backlog/DEPENDENT_TYPES_POSITION.md),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)

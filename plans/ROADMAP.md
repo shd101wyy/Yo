@@ -44,10 +44,6 @@ authorship from day one.
   index
   ([`archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md`](archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md),
   [`reference/YO_CONTEXT.md`](reference/YO_CONTEXT.md)).
-- **Safe mode, phases 0–4.** No undefined behavior in safe code: bounds-checked
-  indexing, guarded `/` and `%`, overflow traps with `wrapping_*` as the escape
-  hatch, saturating casts, the panic-vocabulary ban, and an audit of
-  allocation failure ([`backlog/SAFE_MODE.md`](backlog/SAFE_MODE.md)).
 
 ## Now
 
@@ -59,14 +55,17 @@ authorship from day one.
   ([`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md)).
 - **Yo verifies Yo.** The compiler as the verifier's flagship user, rung by
   rung ([`SELF_VERIFICATION.md`](SELF_VERIFICATION.md)).
+- **Safe mode.** No undefined behavior in safe code. Phases 0a–4 landed:
+  loud escaped unwinds, bounds-checked indexing, guarded `/` and `%`,
+  overflow traps with `wrapping_*` as the escape hatch, saturating casts, the
+  panic-vocabulary ban, and an allocation-failure audit. Next are eliding
+  proven checks and the deferred strict mode ([`SAFE_MODE.md`](SAFE_MODE.md)).
 
 ## Next
 
 - **Type identity.** One authoritative identity for resolved type variables,
   so a type resolved once is resolved everywhere. The id/era splits behind the
   largest bug class of the bootstrap campaign come from its absence.
-- **Safe mode, phases 5–6.** Eliding proven checks, and the deferred strict
-  mode ([`backlog/SAFE_MODE.md`](backlog/SAFE_MODE.md)).
 - **Agent loop.** Laws, a `yo verify --strict` gate and an evals corpus that
   measures agents writing Yo
   ([`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md),
