@@ -124,6 +124,16 @@ result := unsafe.cast(ptr, *(u8));
 
 **Note:** `__yo_as` is still exported from prelude as a top-level symbol because the evaluator internally transforms type casts (e.g., `u32(x)`) into `__yo_as` calls. Do not remove `export __yo_as;`.
 
+## Safe mode: how runtime failure works (`plans/SAFE_MODE.md`)
+
+A file without `pragma(Pragma.AllowUnsafe)` gets the following guarantees. When you change one, keep the evaluator, codegen, docs, and cheatsheets in step.
+
+- **Class-1 ban (D7, E0611).** A safe file may not call `unwrap` / `expect` / `unwrap_err` on an `Option`/`Result`, because the type already carries the failure and the call would discard it. Exempt: `*.test.yo` files (and the runner's `.yo_selftest_batch_*` files), `AllowUnsafe` files, and `auto-generated://` code. **std has no blanket exemption:** its safe files follow the same rule. The predicates are `is_class1_panic_*` in `src/evaluator/memory_safety.yo`. Three gate sites use them: the two in `exprs/property_access.yo` and the dispatch gate in `calls/function.yo`. The criterion for adding a name: *does the call ignore failure information the type already gave the caller?* Value-level preconditions (indexing, `/`) are class 2. They trap at runtime and are not banned.
+- **Comptime.** `unwrap` is not comptime-evaluable. The comptime spellings are `comptime_unwrap` / `comptime_unwrap_err`, and they are legal everywhere. A `__yo_panic` reached while a `-> comptime(...)` body executes is a compile error, `compile-time panic: <msg>` (`evaluate_panic`). Untaken `cond`/`match` arms do not fire, because `is_executing` is false in them.
+- **Traps (tier 3, rc 134, `file:line:col` in the message, identical at every `-O`).** Every trap is defined behavior. The trapping operations: fixed-`Array` and `str.bytes` indexing out of bounds, integer `/` or `%` by zero, `MIN / -1`, `+ - *` overflow and `-MIN` on every width (signed and unsigned), and a shift count ≥ the width. Comptime rejects all of these at compile time already; runtime now matches.
+- **Wrapping and saturation are explicit.** Arithmetic that wraps by design must call `wrapping_add` / `wrapping_sub` / `wrapping_mul`. A new hash, PRNG, checksum, or atomic helper that uses plain `+`/`*` is a trap waiting for its first large input: #841 found two such sites only through CI. Float→int casts saturate (NaN → 0). Int→int narrowing truncates.
+- **Escaped unwinds are loud.** An unwind that aborts an async task prints `unhandled effect unwind aborted an async task`. One that escapes `main` prints `unhandled effect unwind escaped to top level` and aborts. A test-batch `main` clears the flag instead, as the test-runner boundary.
+
 ## SomeType
 
 - `SomeType` automatically implements the `Runtime` trait by default.

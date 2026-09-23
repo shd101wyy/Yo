@@ -1041,7 +1041,7 @@ match(some_ptr,
 
 ### Memory Safety
 
-For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `inout(name)` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, and `-fwrapv` for signed-integer overflow.
+For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `inout(name)` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, the `unwrap` ban, and the integer arithmetic rules (overflow, division by zero and out-of-range shifts abort).
 
 Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)):
 
@@ -1311,6 +1311,34 @@ assert(old(0) == 5);    // old has previous value
 ```
 
 For more array examples, see [array.test.yo](../tests/array.test.yo).
+
+## Arithmetic and Failure Semantics
+
+A safe Yo program never executes undefined behavior. Every way a runtime
+operation can fail falls into one of three tiers:
+
+| Tier | Mechanism | Examples |
+| --- | --- | --- |
+| Proven | a contract the verifier discharges | `requires(i < self.len())` at a call site |
+| Typed | the failure is in the return type, and the caller must handle it | `list.get(i) -> Option(T)`, `checked_add`, `Result` |
+| Trapped | a deterministic abort with `file:line:col` | the rows of the table below |
+
+| Operation | Behavior |
+| --- | --- |
+| `+`, `-`, `*` overflow; `-MIN` | abort: `integer addition overflow (at …)`. Applies to every integer width, signed and unsigned |
+| `/` or `%` by zero; `MIN / -1` | abort: `integer division/remainder by zero (at …)` |
+| shift count ≥ width | abort: `shift count out of range (at …)` |
+| `Array(T, N)` / `str.bytes(i)` index out of range | abort: `index out of bounds: i not in [0, n) (at …)` |
+| float → integer cast | saturates at the target's MIN/MAX; `NaN` becomes `0` |
+| integer → narrower integer cast | truncates |
+| float `/` and `%` | IEEE results (`inf`, `nan`); never aborts |
+
+The behavior is identical at every `--optimize` level. It is also the runtime
+match of compile time: the same expressions on constants are compile errors,
+and a comptime function that reaches a panic is a compile error that carries
+its message. Arithmetic that wraps by design calls `wrapping_add`,
+`wrapping_sub` or `wrapping_mul`. See [MEMORY_SAFETY.md](MEMORY_SAFETY.md) for
+the full rules, including the `unwrap` ban.
 
 ## Control Flow
 

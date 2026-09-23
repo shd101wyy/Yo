@@ -73,6 +73,12 @@ text := match(parsed,
 );
 ```
 
+`.unwrap()`, `.expect(...)` and `.unwrap_err()` are compile errors (E0611)
+outside `*.test.yo` and `pragma(Pragma.AllowUnsafe)` files: the type already
+says the value can be missing, so handle that case with `match`,
+`unwrap_or` / `unwrap_or_else`, or by returning the Option/Result. At compile
+time, `comptime_unwrap()` is legal, and on `.None` it is a compile error.
+
 - Use `Option(T)` when absence is expected and ordinary
 - Use `Result(T, E)` when the caller should handle failure
 - Prefer combinators for straight-line transforms: `map`, `and_then`, `map_err`, `or_else`

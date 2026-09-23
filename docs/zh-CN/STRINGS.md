@@ -7,7 +7,7 @@ Go 的模型相同。这条规则贯穿日常代码里会遇到的所有字符�
 | 类型 | `len()` | 切片 | 元素访问 |
 | --- | --- | --- | --- |
 | `String`（`std/string`） | 字节数，O(1) | `substring(a, b)` —— 字节 | `s(i)` → `u8`，`at(i)` → `Option(rune)` |
-| `str`（prelude；字符串字面量） | 字节数 | `s(a..b)` —— 零拷贝字节窗口 | `bytes(i)` → `u8` |
+| `str`（prelude；字符串字面量） | 字节数 | `s(a..b)` —— 零拷贝字节窗口 | `bytes(i)` → `u8`（越界即中止） |
 | `StringBuilder`（`std/string`） | 字节数 | — | — |
 | `comptime_str`（编译期） | 字节数 | `slice(a, b)` / `s(a..b)` —— 字节 | `s(i)` → 单 rune 的 `comptime_str` |
 

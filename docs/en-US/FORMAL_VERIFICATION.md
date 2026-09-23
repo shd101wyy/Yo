@@ -401,9 +401,11 @@ runtime assert).
 | Generic bodies verified abstractly (uninterpreted type sorts, trait-constraint axioms), `Refine` | V6 |
 | `object`/heap, string content, floats, effects, `unsafe`, FFI | outside the subset |
 
-Integers are modeled as **exact-width bitvectors matching the emitted
-C11** (`-fwrapv` two's-complement) — a proof is a proof about the
-program that runs. Overflow is defined semantics, not an obligation.
+Integers are modeled as **exact-width two's-complement bitvectors**.
+In safe code, arithmetic that would overflow aborts at runtime rather than
+wrapping, so the model agrees with the program on every run that returns: a
+proven `ensures` holds whenever the function returns. Proving that the
+overflow trap is *never taken* is not an obligation yet.
 
 Value enums are modeled as **SMT datatypes**: one
 `declare-datatypes` block per query declares every enum the obligations

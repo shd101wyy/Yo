@@ -382,6 +382,12 @@ standalone, not closures" is the implementation-side statement of the same rule.
   [Handler Functions Are Not Closures](#handler-functions-are-not-closures).
 - `return(value)` is **one-shot** — the captured continuation can be
   resumed at most once.
+- An `unwind` that no handler catches is **never silent**. One that ends an
+  async task prints `unhandled effect unwind aborted an async task`, and that
+  task's `JoinHandle.await` returns `.None`. One that escapes `main` prints
+  `unhandled effect unwind escaped to top level` and aborts the process. A
+  task cancelled through `JoinHandle.abort()` (the losers of `race` and
+  `timeout`) stays silent, because no unwind happened.
 - Handler types are enforced at the type level via `ctl(...)`. The
   evaluator does not infer ctl from body content; the user must
   annotate.
