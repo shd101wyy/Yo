@@ -80,3 +80,25 @@ test("Result method extraction from type", {
   val := f(x);
   assert(val == i32(42), "extracted Result.unwrap should work");
 });
+// === A panic REACHED during CTFE is a compile error ===
+// (issues/fixed/a-comptime-panic-is-not-a-compile-error.md)
+test("Option comptime_unwrap on None is a compile error", {
+  comptime_expect_error(Option(i32).None.comptime_unwrap());
+  assert(true, "rejected");
+});
+test("Result comptime_unwrap on Err is a compile error", {
+  comptime_expect_error(Result(i32, bool).Err(false).comptime_unwrap());
+  assert(true, "rejected");
+});
+_ct_nonzero :: (fn(comptime(x) : i32) -> comptime(i32))(
+  cond((x == i32(0)) => __yo_panic("zero at comptime"), true => x)
+);
+test("A comptime fn's untaken panic arm is not a compile error", {
+  v :: _ct_nonzero(i32(5));
+  comptime_assert(v == i32(5), "the panic arm is not reached");
+  assert(v == i32(5), "the value survives to runtime");
+});
+test("A comptime fn's reached panic arm is a compile error", {
+  comptime_expect_error(_ct_nonzero(i32(0)));
+  assert(true, "rejected");
+});
