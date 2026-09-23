@@ -255,7 +255,7 @@ ${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
     );
   });
   context.emitter.emit_header_string_line(`${alloc_fail_linkage}void __yo_alloc_fail(size_t size);`);
-  // Safe mode Phase 1 (plans/backlog/SAFE_MODE.md §4): EVERY fixed-array and
+  // Safe mode Phase 1 (plans/SAFE_MODE.md §4): EVERY fixed-array and
   // str element subscript emitted by codegen is routed through this guard —
   // raw C `p->data[i]` on an out-of-range index is UB (silent garbage or a
   // fault far from the cause). Emitted unconditionally in the header section
@@ -271,7 +271,7 @@ static inline size_t __yo_idx_chk(size_t i, size_t n, const char* f, int r, int 
   return i;
 }`
   );
-  // Safe mode Phase 2 (plans/backlog/SAFE_MODE.md §5): integer division and
+  // Safe mode Phase 2 (plans/SAFE_MODE.md §5): integer division and
   // remainder by zero are C UB (SIGFPE on x86), and MIN / -1 likewise. The
   // guards run BEFORE the division via a comma expression, so the division
   // itself is only reached when defined. Floats never come through here —
@@ -294,7 +294,7 @@ static inline void __yo_div_guard_u(unsigned long long b, const char* f, int r, 
   }
 }`
   );
-  // Safe mode Phase 3a (plans/backlog/SAFE_MODE.md §6, ruling D1): integer
+  // Safe mode Phase 3a (plans/SAFE_MODE.md §6, ruling D1): integer
   // overflow in + - * and negation of MIN abort with a diagnostic at every
   // optimization level — the runtime match of comptime's check_int_overflow.
   // Narrow widths (<= 32 bits) widen to long long / unsigned long long, do

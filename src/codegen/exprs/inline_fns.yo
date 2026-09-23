@@ -109,7 +109,7 @@ _callop2 :: (fn(args : ArrayList(String), fname : str) -> String)({
   out.push_str("))");
   out
 });
-/// Safe mode Phase 2 (plans/backlog/SAFE_MODE.md §5): guarded integer
+/// Safe mode Phase 2 (plans/SAFE_MODE.md §5): guarded integer
 /// division / remainder. The comma expression keeps `_binop`'s parenthesized
 /// shape so every consumer position stays legal; the guard runs first, so the
 /// division is only reached when defined. Signed guards divisor-zero AND
@@ -141,7 +141,7 @@ _div_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
   // Non-integer (float) — IEEE total, no guard.
   _binop(args, op)
 });
-/// Safe mode Phase 3a (plans/backlog/SAFE_MODE.md §6, ruling D1): + - * and
+/// Safe mode Phase 3a (plans/SAFE_MODE.md §6, ruling D1): + - * and
 /// negation abort on overflow (signed AND unsigned) at every -O level — the
 /// runtime match of comptime's check_int_overflow. Narrow widths widen to
 /// long long / unsigned long long math with per-width bounds; 64-bit widths
@@ -521,7 +521,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     },
     (function_name == BF_YO_STR_BYTE) => {
       // Safe mode Phase 1: `s.bytes(i)` is bounds-checked against the str's
-      // runtime length (plans/backlog/SAFE_MODE.md §4, closes H2).
+      // runtime length (plans/SAFE_MODE.md §4, closes H2).
       str_idx := _checked_index_expr(_a(args, usize(1)), `(${_a(args, usize(0))}).len`, expr);
       out := String.from("(");
       out.push_string(_a(args, usize(0)));
@@ -607,7 +607,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     (function_name == BF_YO_ARRAY_INDEX) => {
       // Safe mode Phase 1: the fixed-array subscript is bounds-checked; the
       // first argument's ExprInfo names the concrete Array(T, N) whose N is
-      // the bound (plans/backlog/SAFE_MODE.md §4, closes H1).
+      // the bound (plans/SAFE_MODE.md §4, closes H1).
       arr_expr_opt := match(expr, .FnCall(_, _, ua, _, _) => ua.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
       arr_idx := match(
         arr_expr_opt,

@@ -1,11 +1,15 @@
 # Safe mode — no undefined behavior, and every runtime failure proven, typed, or trapped
 
-**Status: BACKLOG — designed 2026-09-21 from a measured codegen survey; amended
-2026-09-22 (D7 adopted: the class-1 panic ban, Phase 0c); nothing implemented.**
-Rulings D1–D2 are still required before Phase 3; D7 is decided (§13); everything
-else is specified to the emission site. Ground-truth anchors were verified on `develop`
-at `a1df43578`; line numbers drift, so each phase names the symbol to grep for, not just
-the line.
+**Status: ACTIVE — designed 2026-09-21 from a measured codegen survey; amended
+2026-09-22 (D7 adopted: the class-1 panic ban, Phase 0c). Phases 0a/0b/0c/1/2/3/4
+landed 2026-09-22 (#828/#829/#831/#833/#835/#837/#836) and hardened 2026-09-23
+by #841 (nine follow-up defects the full battery surfaced after the stack
+merged). 5a measured and closed as a documented non-change. Open: the 0a belt
+re-land + `_call_is_handler_installation` classification fix, the std/ unwrap
+ratchet, the comptime `unwrap` carve-out, 5b (gated on the FV campaign), 6
+(gated on 5b).**
+Ground-truth anchors were verified on `develop` at `a1df43578`; line numbers
+drift, so each phase names the symbol to grep for, not just the line.
 
 **Maintainer rulings 2026-09-22: D1–D7 all adopt the plan's recommendations**
 (trap on signed+unsigned overflow at every `-O`; saturating float→int casts;
@@ -166,15 +170,17 @@ repro corrected it — recorded in
    `JoinHandle.abort()` path race/timeout use, writes the same state WITHOUT an
    unwind and is deliberately not touched — a cancelled loser must stay
    silent. `JoinHandle.await` continues to return `.None` as the typed channel.
-2. **The post-`__yo_user_main` flag belt: DEFERRED.** Built as designed, the
-   CI battery caught it firing on four legitimate `algebraic_effects` tests:
-   an install-frame unwind exit (`(raise : Raise) = handler; raise(...)`, the
-   batch/test shape) leaves the flag SET after correctly exiting the frame —
+2. **The post-`__yo_user_main` flag belt: RE-LANDED (2026-09-23).** The
+   original belt fired on four legitimate `algebraic_effects` tests: an
+   install-frame unwind exit (`(raise : Raise) = handler; raise(...)`, the
+   batch/test shape) left the flag SET after correctly exiting the frame —
    flag hygiene, not a swallowed error
-   (`issues/effect-install-frame-exit-leaves-the-escaped-flag-dirty.md`).
-   The belt returns with that fix; until then the module-init check remains
-   the only exit-time consumer, and the async-side diagnostics above carry
-   the loudness promise.
+   (`issues/fixed/effect-install-frame-exit-leaves-the-escaped-flag-dirty.md`,
+   fixed the same day: rule 1 of `_call_is_handler_installation` admits a
+   valueless ctl-typed callee via the Func-meta `is_control` flag and a
+   callee-name binding search; a test-batch main is a boundary of last
+   resort and clears the flag, while real programs abort on it — the
+   deliberate escape-to-top idiom exists only in test batches).
 
 **Validated** by patching the seed's emitted C for the fire-and-forget repro
 with the exact emitted snippets and running (diagnostic line appears, rc

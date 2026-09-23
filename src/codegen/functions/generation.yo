@@ -1346,6 +1346,7 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
   // Find __yo_user_main and its func_id.
   it := context.base.functions.keys();
   (main_func_id : String) = String.from("");
+  (main_def_module : String) = String.from("");
   (found : bool) = false;
   (go : bool) = true;
   while(go, {
@@ -1354,6 +1355,7 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
       .Some(fid) => match(
         context.base.get_function_entry(fid),
         .Some(entry) => if(entry.c_name == "__yo_user_main", {
+          main_def_module = entry.def_module.clone();
           match(
             entry.value,
             .FuncVal(__fvd1, _) => {
@@ -1375,6 +1377,40 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
     return();
   });
   main_call_args := _main_call_args(main_func_id, context);
+  // The post-main escaped-unwind belt (safe mode 0a), in two shapes. A REAL
+  // program aborts on a set flag: the async task boundaries and the install-
+  // frame exits all clear it, so a set flag here is a propagation path that
+  // leaked a dirty flag (issues/fixed/effect-unwind-escaping-a-task-or-
+  // main-is-silent.md, issues/effect-install-frame-exit-leaves-the-
+  // escaped-flag-dirty.md). A TEST BATCH main is instead the boundary of
+  // last resort: a test body may DELIBERATELY let an unwind escape to top
+  // level — the suite's abort-this-test idiom when no outer handler exists
+  // ("Mixed unwind and return in effect handler") — so the batch boundary
+  // clears the flag the same way task boundaries already do.
+  test_batch_main := main_def_module.contains(String.from(".yo_selftest_batch_"));
+  belt_block := cond(
+    test_batch_main =>
+      `  // Test-batch main: boundary of last resort. A test body may deliberately
+  // let an unwind escape to top level (abort-this-test with no outer
+  // handler), so clear the flag instead of aborting; the belt stays fully
+  // armed for real programs.
+  __yo_effect_escaped = 0;
+`,
+    true =>
+      `  // An effect unwind that escaped every handler must not exit silently.
+  // The async task boundaries clear the flag before it can get here (they
+  // convert an unwind into FutureState.Aborted and emit their own
+  // diagnostic), and the install-frame exit path clears it after extracting
+  // the unwind value — so a set flag here means a propagation path leaked a
+  // dirty flag (issues/fixed/effect-unwind-escaping-a-task-or-main-is-
+  // silent.md, issues/effect-install-frame-exit-leaves-the-escaped-flag-
+  // dirty.md).
+  if (__yo_effect_escaped) {
+    fprintf(stderr, "unhandled effect unwind escaped to top level\\n");
+    abort();
+  }
+`
+  );
   // Thread-locals are initialized lazily by their own accessor, never by
   // `__yo_main_module_init` — so a program whose only module-level variables
   // are thread-locals must not emit (or call) an empty init helper.
@@ -1439,7 +1475,7 @@ static void* __yo_main_thread_entry(void* __yo_unused_arg) {
   (void)__yo_unused_arg;
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-  return NULL;
+${belt_block}  return NULL;
 }
 
 // Main wrapper - runs program body on a worker thread (default 1 GiB stack,
@@ -1486,7 +1522,7 @@ static DWORD WINAPI __yo_main_thread_entry(LPVOID __yo_unused_arg) {
   (void)__yo_unused_arg;
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-  return 0;
+${belt_block}  return 0;
 }
 
 // Main wrapper - runs the program body on a worker thread (default 1 GiB
@@ -1538,7 +1574,7 @@ int main(int argc, char** argv) {
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-${heap_report_call}  return 0;
+${belt_block}${heap_report_call}  return 0;
 }
 `;
       em.emit_string(block);
