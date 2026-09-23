@@ -6,6 +6,9 @@ miscompiles". The first write-up guessed at the mechanism and scoped it to
 `String` in interpolation; the measurements below (tree-built binary,
 2026-09-23) show both guesses were too narrow.
 
+An earlier report of the `String` case, filed 2026-09-05 and never linked to
+this one, is `issues/fixed/comptime-str-passed-where-string-is-declared-emits-invalid-c.md`.
+
 ## Symptom
 
 A `"..."` or float literal passed to a plain function `yo check`ed clean for

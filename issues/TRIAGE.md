@@ -187,7 +187,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`c-include-global-accepted-by-comptime-binding.md`](./c-include-global-accepted-by-comptime-binding.md) | PARTIALLY FIXED 2026-09-08 — the `::` half is | — |
 | [`c-include-rvalue-macro-constant-cannot-be-addressed.md`](./c-include-rvalue-macro-constant-cannot-be-addressed.md) | OPEN | — |
 | [`cinclude-int-comparison-fails-to-transpile.md`](./cinclude-int-comparison-fails-to-transpile.md) | — | — |
-| [`comptime-str-passed-where-string-is-declared-emits-invalid-c.md`](./comptime-str-passed-where-string-is-declared-emits-invalid-c.md) | OPEN | — |
 | [`dead-yo-stat-accessor-family-emitted-into-every-program.md`](./dead-yo-stat-accessor-family-emitted-into-every-program.md) | OPEN | — |
 | [`derive-tostring-on-a-generic-struct-emits-invalid-c.md`](./derive-tostring-on-a-generic-struct-emits-invalid-c.md) | OPEN | yes |
 | [`drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`](./drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md) | OPEN for the two remaining sites | — |
