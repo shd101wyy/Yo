@@ -22,6 +22,23 @@ writing dates — the banner is the authoritative summary.
 Active work (root) — **plans and handovers driving work right now, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
+- [`SAFE_MODE.md`](SAFE_MODE.md) —
+  ACTIVE 2026-09-22: no UB and a total failure model in safe code — the
+  prove/type/trap ladder over the measured hazard inventory of the unchecked
+  builtins. **Phases 0a/0b/0c/1/2/3/4 landed 2026-09-22** (#828 loud effect
+  unwinds + main-signature tightening, #829 `--sanitize undefined`, #831 the
+  D7 class-1 panic ban, #833 bounds-checked subscripts, #835 guarded `/`/`%`,
+  #837 arithmetic traps + saturating casts + the `wrapping_*` escape hatch,
+  #836 the OOM audit) and hardened 2026-09-23 by #841 (nine follow-up defects
+  the full battery surfaced: the `wrapping_mul` O(rhs) hang, comptime-domain
+  raw ops, the dead D7 receiver predicate, the PCG/rejection-span/crc32/
+  popcount/FNV/decimal-accumulator wrap migrations, the `arr(i)` fast-path
+  bounds gap). 5a measured and closed as a documented non-change (guard cost
+  within CI noise). **Open**: the 0a belt re-land +
+  `_call_is_handler_installation` classification fix (branch
+  `install-frame-hygiene`), the std/ unwrap ratchet, the comptime `unwrap`
+  carve-out, 5b verifier-driven elision (gated on the FV campaign), 6 strict
+  mode (gated on 5b).
 - [`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md) —
   ACTIVE 2026-09-13; **P1–P3 landed 2026-09-19**: the `Pattern` IR
   (`src/pattern.yo`), the pattern compiler, one arm loop in `evaluate_match`,
@@ -239,15 +256,6 @@ non-identifier C symbol),
 ….
 
 Backlog (`backlog/`) — written, not started. Recent additions:
-[`backlog/SAFE_MODE.md`](backlog/SAFE_MODE.md)
-(2026-09-21, amended 09-22: no UB and a total failure model in safe code — the
-prove/type/trap ladder, a measured hazard inventory of the unchecked builtins
-(fixed-Array and `str.bytes` indexing, int `/ %` incl. `INT_MIN/-1`, overflow, shifts,
-casts) and the silent escaped-unwind rc=0, with phases 0–6: standalone fixes, the
-DECIDED D7 class-1 panic ban (`unwrap` & co. are compile errors in safe files —
-criterion: a call may not discard failure information the type already carries),
-checked builtins, arithmetic semantics rulings D1/D2, OOM audit, elision, and a
-deferred strict mode),
 [`backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md`](backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md)
 (unsafety is FILE-scoped in Yo, which is what makes the D14 pointer `iter()`
 expensive — with probes and a Rust/Swift comparison),
