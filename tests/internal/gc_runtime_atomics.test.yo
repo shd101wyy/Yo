@@ -124,34 +124,37 @@ fn_body :: (fn(c : String, signature : str) -> String)({
 // compiler: issues/fixed/small-rc-header-accessed-through-the-full-header-type.md).
 // Code that can see either layout must read through __yo_rc_prefix_t, and
 // may cast to the full header only after the TRACKED test.
+/// Pin: `sig`'s body reads the header only through `__yo_rc_prefix_t`.
+assert_prefix_only :: (fn(c : String, sig : str) -> unit)({
+  body := fn_body(c, sig);
+  assert(!body.contains("(__yo_ref_header_t*)"), `${sig} reads through the full header`);
+  assert(body.contains("(__yo_rc_prefix_t*)"), `${sig} reads through the prefix`);
+});
+/// Pin: `sig`'s body tests TRACKED through the prefix before its first
+/// full-header cast.
+assert_tracked_first :: (fn(c : String, sig : str) -> unit)({
+  body := fn_body(c, sig);
+  test_at := must_find(body, "((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED", usize(0));
+  cast_at := must_find(body, "(__yo_ref_header_t*)ptr", usize(0));
+  assert(test_at < cast_at, `${sig} casts to the full header before the TRACKED test`);
+});
 test("full-GC prefix-only RC paths never cast to the full header", {
   c := emit_rc_runtime(true);
-  for_prefix_only := (sig : str) => {
-    body := fn_body(c, sig);
-    assert(!body.contains("(__yo_ref_header_t*)"), `${sig} reads through the full header`);
-    assert(body.contains("(__yo_rc_prefix_t*)"), `${sig} reads through the prefix`);
-  };
-  for_prefix_only("static inline void __yo_decr_rc(void* ptr) {");
-  for_prefix_only("static inline void* __yo_incr_rc(void* ptr) {");
-  for_prefix_only("static void* __yo_incr_rc_atomic(void* ptr) {");
-  for_prefix_only("static void __yo_decr_rc_atomic(void* ptr) {");
-  for_prefix_only("static inline void __yo_borrow_acquire(void* ptr) {");
-  for_prefix_only("static inline void __yo_borrow_release(void* ptr) {");
-  for_prefix_only("static inline void __yo_borrow_assert_unborrowed(void* ptr) {");
+  assert_prefix_only(c, "static inline void __yo_decr_rc(void* ptr) {");
+  assert_prefix_only(c, "static inline void* __yo_incr_rc(void* ptr) {");
+  assert_prefix_only(c, "static void* __yo_incr_rc_atomic(void* ptr) {");
+  assert_prefix_only(c, "static void __yo_decr_rc_atomic(void* ptr) {");
+  assert_prefix_only(c, "static inline void __yo_borrow_acquire(void* ptr) {");
+  assert_prefix_only(c, "static inline void __yo_borrow_release(void* ptr) {");
+  assert_prefix_only(c, "static inline void __yo_borrow_assert_unborrowed(void* ptr) {");
 });
 test("every full-GC visitor tests TRACKED through the prefix before a full-header cast", {
   c := emit_rc_runtime(true);
-  tracked_first := (sig : str) => {
-    body := fn_body(c, sig);
-    test_at := must_find(body, "((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED", usize(0));
-    cast_at := must_find(body, "(__yo_ref_header_t*)ptr", usize(0));
-    assert(test_at < cast_at, `${sig} casts to the full header before the TRACKED test`);
-  };
-  tracked_first("static void __yo_gc_unregister(void* ptr) {");
-  tracked_first("static void __yo_gc_mark_gray_visitor(void* ptr) {");
-  tracked_first("static void __yo_gc_scan_black_visitor(void* ptr) {");
-  tracked_first("static void __yo_gc_scan_visitor(void* ptr) {");
-  tracked_first("static void __yo_gc_gather_white_visitor(void* ptr) {");
-  tracked_first("static void __yo_gc_trial_delete_visitor(void* ptr) {");
-  tracked_first("static void __yo_gc_scan_restore_visitor(void* ptr) {");
+  assert_tracked_first(c, "static void __yo_gc_unregister(void* ptr) {");
+  assert_tracked_first(c, "static void __yo_gc_mark_gray_visitor(void* ptr) {");
+  assert_tracked_first(c, "static void __yo_gc_scan_black_visitor(void* ptr) {");
+  assert_tracked_first(c, "static void __yo_gc_scan_visitor(void* ptr) {");
+  assert_tracked_first(c, "static void __yo_gc_gather_white_visitor(void* ptr) {");
+  assert_tracked_first(c, "static void __yo_gc_trial_delete_visitor(void* ptr) {");
+  assert_tracked_first(c, "static void __yo_gc_scan_restore_visitor(void* ptr) {");
 });
