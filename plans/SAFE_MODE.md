@@ -813,11 +813,15 @@ semantics.
 In landing order. Each item is its own PR, stacked; none merges before the
 v0.2.40 release publishes.
 
-- **R1 — close the std unwrap ratchet.** Migrate the 9 remaining calls in
+**Progress:** R1, R2, R3, R4 and R5 are done on the stack
+`safe-mode-5-ratchet` → `safe-mode-5-comptime-panic` → `safe-mode-5-docs` →
+`safe-mode-5-oracles`. R6, R7 and R8 are open.
+
+- **R1 — close the std unwrap ratchet. DONE.** Migrate the 9 remaining calls in
   safe std files and drop the blanket std branch of
   `is_class1_panic_exempt_file` (§3 0c exemptions). Positive test: `yo check
   ./std` and `yo test ./std` under a tree-built compiler.
-- **R2 — a comptime panic is a compile error.** A `__yo_panic` reached while a
+- **R2 — a comptime panic is a compile error. DONE** (`issues/fixed/a-comptime-panic-is-not-a-compile-error.md`). A `__yo_panic` reached while a
   comptime function body is executing must fail the compile, carry its message,
   and point at the call site. Today it is `rc 0` from `check` plus a clang error,
   or a message-less "Function body is not evaluated correctly" (§3 0c
@@ -833,16 +837,20 @@ v0.2.40 release publishes.
   with `index out of bounds: 3 not in [0, 3) (at r3.yo:8:8)`, rc 134.
   Appendix A's literal grep acceptance cannot pass as worded; read it as "no
   user-controlled index reaches a raw subscript", which holds.
-- **R4 — the §11 docs and instruction debt.** The cheatsheet overflow line
+- **R4 — the §11 docs and instruction debt. DONE.** The verifier doc's "overflow is defined semantics" claim was fixed too. Proofs stay sound for every run that returns, but trap-freedom is not an obligation yet, which is an input to 5b. The cheatsheet overflow line
   (this re-records the seven skill cli-cases), `yo-design.instructions.md`
   (the class-1 rule and the arithmetic semantics), `c-codegen.instructions.md`
   (the `__yo_idx_chk` / div / overflow / shift / cast helper family and the
   no-raw-subscript rule), `DESIGN.md` "Arithmetic and failure semantics",
   `ALGEBRAIC_EFFECTS.md` (the 0a guarantee), and `STRINGS.md` (`bytes(i)`
   traps). All of these land in both en-US and zh-CN.
-- **R5 — the missing oracles.** Trap cli-cases for integer overflow (add,
-  neg), `MIN / -1`, and `str.bytes` out of bounds; the three Phase 4 tiny-heap
-  cases (async spawn, thread spawn, deep `String`).
+- **R5 — the missing oracles. DONE.** cli-cases `int-add-overflow-panics`,
+  `int-neg-overflow-panics`, `int-min-div-neg-one-panics`,
+  `str-bytes-oob-panics`, and `compile-allocator-fixed-oom-shapes`. The last
+  one re-executes itself per shape under a 64 KiB fixed heap: async task
+  spawn, thread spawn, and `String` growth. It pins that each shape dies with
+  an allocation diagnostic and never a segfault. All three did, measured on
+  macOS.
 - **R6 — the UBSan acceptance run.** A self-built compiler with `--sanitize
   undefined` running `yo check ./src` must report zero arithmetic and indexing UB
   (Appendix A's last acceptance, never run). This takes a heavy local build.
