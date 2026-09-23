@@ -30,16 +30,6 @@
   context_module_name
 } :: import("../../src/doc/context_index.yo");
 { search_score } :: import("../../src/context_command.yo");
-/// The exception every test uses: an IO failure fails the test.
-_test_exn :: (fn() -> Exception)(
-  Exception(
-    throw : (
-      err -> {
-        assert(false, `test io failed: ${err}`);
-      }
-    )
-  )
-);
 /// Write `text` to `<root>/<rel>`, creating parent directories.
 _put :: (fn(root : String, rel : String, text : String, io : Io, exn : Exception) -> unit)({
   path := Path.new(root).join(Path.new(rel));
@@ -75,7 +65,15 @@ _read_text :: (fn(path : String, io : Io, exn : Exception) -> String)(
   String.from_bytes(io.await(read(Path.new(path), io), IoExn(io : io, exn : exn)))
 );
 test("context_tree_key: stable, moves on a content edit, moves with the corpus name", {
-  exn := _test_exn();
+  // An IO failure fails the test. Each test binds its own handler: a fn may
+  // not return one (a `ctl` handler cannot outlive its frame).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
   root := _write_fixture(td.path().to_string(), io, exn);
   k1 := context_tree_key(root.clone(), String.new(), io, exn);
@@ -99,7 +97,15 @@ test("context_module_name: the corpus name prefixes, index.yo collapses", {
   assert(name3 == "dep/util", `an explicit prefix wins, got ${name3}`);
 });
 test("context_index_ensure + load: the fixture round-trips, barrel origin= resolves", {
-  exn := _test_exn();
+  // An IO failure fails the test. Each test binds its own handler: a fn may
+  // not return one (a `ctl` handler cannot outlive its frame).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
   base := td.path().to_string();
   root := _write_fixture(base.clone(), io, exn);
@@ -132,7 +138,15 @@ test("context_index_ensure + load: the fixture round-trips, barrel origin= resol
   assert(saw_alpha, "modules.txt has t/alpha_api");
 });
 test("a module the evaluator cannot load is marked degraded", {
-  exn := _test_exn();
+  // An IO failure fails the test. Each test binds its own handler: a fn may
+  // not return one (a `ctl` handler cannot outlive its frame).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
   base := td.path().to_string();
   root := `${base}/d`;
@@ -159,7 +173,15 @@ test("a module the evaluator cannot load is marked degraded", {
   assert(saw == usize(2), `both modules listed, saw ${saw.to_string()}`);
 });
 test("an existing index is reused without refresh and rebuilt with it", {
-  exn := _test_exn();
+  // An IO failure fails the test. Each test binds its own handler: a fn may
+  // not return one (a `ctl` handler cannot outlive its frame).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
   base := td.path().to_string();
   root := _write_fixture(base.clone(), io, exn);
@@ -180,7 +202,15 @@ test("an existing index is reused without refresh and rebuilt with it", {
   assert(_find_entry(rebuilt, `t/beta`, `beta_hi`).is_some(), "the rebuild has the real entries");
 });
 test("two builds of one tree are byte-identical", {
-  exn := _test_exn();
+  // An IO failure fails the test. Each test binds its own handler: a fn may
+  // not return one (a `ctl` handler cannot outlive its frame).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
   base := td.path().to_string();
   root := _write_fixture(base.clone(), io, exn);
