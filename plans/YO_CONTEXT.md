@@ -1,7 +1,8 @@
 # `yo context` — the agent context surface (language pack + API discovery)
 
-**Status: ACTIVE 2026-09-22 — design settled, implementation not started
-(phases C1–C6).** Subsumes
+**Status: ACTIVE 2026-09-23 — C1–C6 implemented (each phase's LANDED note
+below); an audit pass (C7, §4) fixes what the first implementation got wrong
+before this doc is archived.** Subsumes
 [`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 B3 tasks 1–2 (`yo guide`, `yo std`); B3 task 3's `AGENTS.md` recipe lands here
 as phase C6, B4–B5 are untouched. Delivers
@@ -453,8 +454,10 @@ described from its origin), `context-not-found`, `context-ambiguous`.
 > `issues/str-literal-as-string-arg-miscompiles-in-template-interpolation.md`):
 > a str literal passed as a String argument inside template interpolation
 > type-checks but emits no str→String conversion — the C rejects it.
-> Worked around with the house `String.from(...)` idiom; proper fix
-> (codegen materialization or a check-time rejection) is open.
+> Measured in C7: the hole was wider (any comptime literal to any concrete
+> parameter of a plain call, interpolation or not) and is now a check-time
+> E0601, so `String.from(...)` is the correct spelling, not a workaround
+> (`issues/fixed/comptime-literal-argument-not-checked-against-parameter.md`).
 
 1. Index scan + ranking (D4), `--deep` body scan over cached module files.
 2. `--format json` for every query mode, stable field names (D4); error
@@ -523,6 +526,43 @@ manifest/cli cases; internal test for the manifest→store walk.
    to B5's `repo-shape.allow` when B5 lands (coordination note there).
 
 **Estimate**: 2–3 days.
+
+### C7 — Audit pass (2026-09-23)
+
+A read-through of C1–C6 against D1–D6, with each finding reproduced on a
+tree-built binary. Two compiler bugs came out of it and ship as their own
+PRs: the comptime-literal argument hole above, and template interpolation
+bodies scanned as template text (escapes decoded inside `${...}`, a brace in a
+string literal ending the body, every diagnostic inside `${...}` reported at
+`1:1`: `issues/fixed/template-interpolation-body-is-not-scanned-as-code.md`).
+`yo context` itself:
+
+1. **Correctness.** The cache key omits the corpus name, so two identical
+   trees share one index under the first tree's module names. Module describe's
+   JSON has no closing brace. Build progress goes to stdout ahead of JSON.
+   Item describe ends at any `#` line, even inside a doc's `## Examples` or a
+   code fence. The one-argument form skips suffix and ambiguity resolution.
+   Barrel entries are described without their origin's doc. Exit codes miss
+   D4 (usage = 2; a search with no match = 1, with did-you-mean on stderr).
+   `--refresh`/`--path` alone silently print the pack. `yo cache gc` deletes
+   `context.lock` and every key directory without taking the lock. A killed
+   `--refresh` leaves a valid manifest over half-written files. `--deps`
+   ignores a missing or unparsable `yo.lock`. `--deep` scores every item of a
+   matching module.
+2. **Workarounds removed.** `_json_str`'s byte-built escapes become std's
+   `JsonValue` + `json.stringify`; the byte-96 backtick scan and `_nl()` go.
+3. **Spec gaps.** Every user-facing string goes through `tr(...)`. `--help`
+   covers every flag. JSON errors are `{"error", "suggestions"}` objects. A
+   missed item gets did-you-mean. `--verbose` exists. The `origin` field is
+   always present. Listings are sorted per D3.
+4. **Pack.** Five factual errors are corrected (a plain backtick literal is a
+   `String`, never a `str`; `for` is `for(xs, (x) => ...)`; `push` returns
+   `unit`; named fns capture nothing, `=>` closures do; the trait-argument
+   example).
+5. **Tests.** The context cases are split so every command in a case runs;
+   the pack case stops pinning the release version; the missing cases from
+   C2–C5 are added; the internal test's fixtures get unique per-run
+   directories.
 
 ## 5. Campaign exit criteria
 
