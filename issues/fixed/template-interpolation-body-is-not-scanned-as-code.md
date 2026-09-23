@@ -1,6 +1,6 @@
 # A template interpolation body was scanned as template text, not as code
 
-**Status: FIXED.** Found while auditing `yo context` (`plans/YO_CONTEXT.md`),
+**Status: FIXED.** Found while auditing `yo context` (`plans/reference/YO_CONTEXT.md`),
 whose `src/context_command.yo` worked around it by building every escape
 sequence from raw bytes ("backslash escape literals stacked through generators
 are where E0004s come from"). Every mechanism below was measured with a

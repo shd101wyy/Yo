@@ -1,7 +1,7 @@
 # An `unwind` type mismatch inside an exception handler was swallowed
 
 **Status: FIXED** (2026-09-23). Found auditing `yo context`
-(`plans/YO_CONTEXT.md` C7): `_significant_tokens` in
+(`plans/reference/YO_CONTEXT.md` C7): `_significant_tokens` in
 `src/doc/context_index.yo` handled a lexer throw with `unwind(())` inside a fn
 returning `ArrayList(Token)`.
 

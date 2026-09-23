@@ -1,7 +1,7 @@
 # `json.stringify` wrote control bytes raw, producing invalid JSON
 
 **Status: FIXED** (2026-09-23; found auditing `yo context`'s JSON output,
-`plans/YO_CONTEXT.md` C7).
+`plans/reference/YO_CONTEXT.md` C7).
 
 ## Symptom
 

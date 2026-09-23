@@ -1,12 +1,15 @@
 # `yo context` — the agent context surface (language pack + API discovery)
 
-**Status: ACTIVE 2026-09-23 — C1–C6 implemented (each phase's LANDED note
-below); an audit pass (C7, §4) fixes what the first implementation got wrong
-before this doc is archived.** Subsumes
-[`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
+**Status: LANDED 2026-09-23 — reference.** C1–C6 shipped in #847; the C7
+audit pass (§4) and its three compiler fixes shipped in #856 and the C7 PR.
+D1–D6 describe the command as it is. The one open item is exit criterion 3's
+evals-grade measurement, which waits for the BEND B4 evals harness
+(`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`), not for this plan.
+Subsumes
+[`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](../backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 B3 tasks 1–2 (`yo guide`, `yo std`); B3 task 3's `AGENTS.md` recipe lands here
 as phase C6, B4–B5 are untouched. Delivers
-[`ROADMAP.md`](ROADMAP.md) Phase 4.1 (the canonical context pack) plus the
+[`ROADMAP.md`](../ROADMAP.md) Phase 4.1 (the canonical context pack) plus the
 API-discovery half that roadmap item doesn't name. **No compiler change**: no
 syntax, no builtins, no `std/` change, therefore **no seed gate** (the one
 constraint: `src/` implementation may use only std APIs the current
@@ -64,7 +67,7 @@ All numbers from this tree, 2026-09-22, `develop` `f76780f8a`, Mac Mini M4:
 | `doc.json` size                                   | **3.4 MB**                             |
 | One-line-per-item index, estimated tokens         | 2,069 lines ≈ **~30k tokens** — too big to load wholesale |
 | Module list (the browsable unit)                  | 175 lines ≈ **~4k tokens** — loadable  |
-| `std/json.parse`                                  | takes a **static `str`, not a runtime `String`** (`src/doc_command.yo` header) — a cached JSON index could not be parsed back at runtime |
+| `std/json.parse`                                  | takes a static `str` (`src/doc_command.yo` header). **Corrected in C7:** `json.parse_string` takes a runtime `String`, so this row never forced the format |
 | Cache root (`yo cache path`, `src/cache.yo` L36)  | `$YO_CACHE_DIR` → `$XDG_CACHE_HOME/yo` → `~/.cache/yo` (Windows: `%LOCALAPPDATA%\yo\cache`) |
 | Release bundle layout (`.github/workflows/release.yml` ~L376, ~L444) | `bin/yo + std/ + vendor/mimalloc/ + LICENSE` |
 | Bundled-skills lookup (`src/skills_command.yo` ~L186) | env pin (`YO_SKILLS`) → `current_exe()` ancestors → cwd ancestors |
@@ -77,7 +80,9 @@ Consequences, each forced by a number above:
   *per-module listing*, never "print everything"; `--list` prints the
   175-line module list (D4).
 - **`std/json.parse` is static-str** → the cached index is a line-oriented
-  text format, not JSON (D3).
+  text format, not JSON (D3). (The premise was wrong, as C7 found:
+  `json.parse_string` reads a runtime `String`. The TSV format stays on its
+  own merit: a query splits ~2k lines with no parser.)
 - **The doc pipeline degrades silently on a mismatched std** (90/173 modules
   token-only when `--std-path` is wrong; `.github/instructions/documentation.instructions.md`)
   → the index builder resolves std exactly as the running binary does
@@ -528,6 +533,19 @@ manifest/cli cases; internal test for the manifest→store walk.
 **Estimate**: 2–3 days.
 
 ### C7 — Audit pass (2026-09-23)
+
+> **Status: LANDED.** Every item below is fixed, each with a test: the
+> `context-*` cli-cases (split so every command in a case runs, plus cases
+> for exit codes, JSON misses, barrels, module ambiguity, `--deep`, `--deps`
+> without a lock and gc), and `tests/internal/context_index.test.yo`
+> (per-test temporary fixtures, name-keyed caches, degraded marking,
+> non-vacuous reuse, byte-identical rebuilds). Found along the way and fixed:
+> std's `json.stringify` wrote raw control bytes
+> (`issues/fixed/json-stringify-writes-raw-control-bytes.md`), and an
+> `unwind` type mismatch inside an exception handler was swallowed into an
+> abort() stub (`issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md`).
+> The cli harness now normalizes the toolchain version (`yo <VERSION>`), so
+> the pack case no longer pins a release.
 
 A read-through of C1–C6 against D1–D6, with each finding reproduced on a
 tree-built binary. Two compiler bugs came out of it and ship as their own
