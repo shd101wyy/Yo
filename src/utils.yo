@@ -733,7 +733,110 @@ debug_knob :: (fn(name : String) -> Option(String))(
   )
 );
 export(debug_knob);
-export(hex_digit_value, UnicodeEscape, scan_unicode_escape);
+// ---------------------------------------------------------------------------
+// Template interpolation scanning — shared by the lexer (where a template
+// ends), the parser (where each `${...}` body ends, and where it sits in the
+// file) and the formatter (the raw template text), so the three cannot
+// disagree about which `}` closes an interpolation.
+// ---------------------------------------------------------------------------
+/// Scanner states: interpolation CODE, a `{ ... }` GROUP inside code, and the
+/// literal TEXT of a template nested inside the code.
+_TS_CODE :: u8(0);
+_TS_GROUP :: u8(1);
+_TS_TEXT :: u8(2);
+/// Past-the-end index of the `"..."` / `'...'` literal whose opening quote is
+/// at `at`: a backslash escapes the next byte, and a newline ends the scan
+/// (an unterminated literal is the lexer's diagnostic, not this scanner's).
+_skip_quoted_literal :: (fn(bytes : ArrayList(u8), at : usize) -> usize)({
+  n := bytes.len();
+  quote := bytes(at);
+  (i : usize) = (at + usize(1));
+  (end : usize) = n;
+  while(i < n, {
+    b := bytes(i);
+    cond(
+      (b == u8(0x5C)) => {
+        i = (i + usize(2));
+      },
+      ((b == quote) || (b == u8(0x0A))) => {
+        end = cond((b == quote) => (i + usize(1)), true => i);
+        i = n;
+      },
+      true => {
+        i = (i + usize(1));
+      }
+    );
+  });
+  end
+});
+/// Byte index of the `}` that closes a template interpolation whose body
+/// starts at `start` (just past its `${`), or `bytes.len()` when the input
+/// ends first.
+///
+/// The body is Yo CODE, so a brace inside a string or char literal, or inside
+/// a nested template's text, is not a delimiter: `${f("}")}` closes at the
+/// LAST brace, and `${g(`{`)}` likewise. Counting every brace (what the lexer,
+/// parser and formatter each did) cut `${f("}")}` short and decoded the
+/// template escapes of the code (`${s.concat("\n")}` became an unterminated
+/// literal); see
+/// issues/fixed/template-interpolation-body-is-not-scanned-as-code.md.
+/// Byte-level on purpose: every delimiter is ASCII, and no byte of a UTF-8
+/// multi-byte sequence is.
+interpolation_body_end :: (fn(bytes : ArrayList(u8), start : usize) -> usize)({
+  n := bytes.len();
+  modes := ArrayList(u8).new();
+  modes.push(_TS_CODE);
+  (i : usize) = start;
+  (result : usize) = n;
+  while(i < n, {
+    b := bytes(i);
+    nb := cond(((i + usize(1)) < n) => bytes(i + usize(1)), true => u8(0));
+    top := modes(modes.len() - usize(1));
+    cond(
+      (top == _TS_TEXT) => cond(
+        (b == u8(0x5C)) => {
+          i = (i + usize(2));
+        },
+        ((b == u8(0x24)) && (nb == u8(0x7B))) => {
+          modes.push(_TS_CODE);
+          i = (i + usize(2));
+        },
+        (b == u8(0x60)) => {
+          modes.pop();
+          i = (i + usize(1));
+        },
+        true => {
+          i = (i + usize(1));
+        }
+      ),
+      ((b == u8(0x22)) || (b == u8(0x27))) => {
+        i = _skip_quoted_literal(bytes, i);
+      },
+      (b == u8(0x60)) => {
+        modes.push(_TS_TEXT);
+        i = (i + usize(1));
+      },
+      (b == u8(0x7B)) => {
+        modes.push(_TS_GROUP);
+        i = (i + usize(1));
+      },
+      (b == u8(0x7D)) => {
+        modes.pop();
+        if(modes.len() == usize(0), {
+          result = i;
+          i = n;
+        }, {
+          i = (i + usize(1));
+        });
+      },
+      true => {
+        i = (i + usize(1));
+      }
+    );
+  });
+  result
+});
+export(hex_digit_value, UnicodeEscape, scan_unicode_escape, interpolation_body_end);
 export(
   generate_temp_variable_name_prefix,
   generate_new_temp_variable_name,

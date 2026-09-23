@@ -4,6 +4,8 @@ description: Write everyday Yo application and library code. Use this when choos
 argument-hint: "[feature, data type, or module]"
 ---
 
+For API discovery (which module exports what), run `yo context --list` and `yo context <module>` — this skill covers recurring code patterns, not the API surface.
+
 # Yo Core Patterns
 
 Use this skill for normal Yo program structure and standard-library usage rather than compiler internals.

@@ -20,6 +20,7 @@ import("std/fmt");
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("./token.yo");
 { tokenize, _is_two_char_operator } :: import("./lexer.yo");
+{ interpolation_body_end } :: import("./utils.yo");
 { parse } :: import("./parser.yo");
 { exprs_are_equal } :: import("./expr.yo");
 // ---------------------------------------------------------------------------
@@ -2159,7 +2160,6 @@ read_raw_template_string :: (fn(input : String, start : usize) -> String)({
   bytes := input.as_bytes();
   n := bytes.len();
   (index : usize) = (start + usize(1));
-  (brace_depth : usize) = usize(0);
   (end_index : usize) = n; // default: until EOF
   (done : bool) = false;
   while((index < n) && !done, {
@@ -2169,35 +2169,15 @@ read_raw_template_string :: (fn(input : String, start : usize) -> String)({
         // backslash: skip next byte
         index = (index + usize(2));
       },
-      ((brace_depth == usize(0)) && (char_byte == u8(96))) => {
+      (char_byte == u8(96)) => {
         // closing backtick
         end_index = (index + usize(1));
         done = true;
       },
-      ((brace_depth == usize(0)) && (char_byte == u8(36))) => {
-        // '$' check if followed by '{'
-        next_byte := match(bytes.get(index + usize(1)), .Some(x) => x, .None => u8(0));
-        cond(
-          (next_byte == u8(123)) => {
-            brace_depth = usize(1);
-            index = (index + usize(2));
-          },
-          true => {
-            index = (index + usize(1));
-          }
-        );
-      },
-      (brace_depth > usize(0)) => {
-        cond(
-          (char_byte == u8(123)) => {
-            brace_depth = (brace_depth + usize(1));
-          },
-          (char_byte == u8(125)) => {
-            brace_depth = (brace_depth - usize(1));
-          },
-          true => ()
-        );
-        index = (index + usize(1));
+      ((char_byte == u8(36)) && (match(bytes.get(index + usize(1)), .Some(x) => x, .None => u8(0)) == u8(123))) => {
+        // `${`: skip the body with the lexer's own scanner — a brace or a
+        // backtick inside a literal in the code is not a delimiter.
+        index = (interpolation_body_end(bytes, index + usize(2)) + usize(1));
       },
       true => {
         index = (index + usize(1));

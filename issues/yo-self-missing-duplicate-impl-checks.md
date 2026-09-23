@@ -70,3 +70,19 @@ because they widen this issue:
 4. Pin with a differential test: a file that defines the same method for
    the same receiver in two impl blocks must produce the same error under
    both compilers (a `compile-duplicate-method` cli-case).
+
+## Addendum 2026-09-23: measured coherence outcomes (type-system audit)
+
+MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 2). Every case is
+`check` rc=0 and `compile` rc=0; "first registered wins" silently:
+
+| Case | Prints | Winner |
+| --- | --- | --- |
+| two `impl(P, Foo(f : ...))` in one module (`-> 1`, `-> 2`) | `1` | first |
+| `mod_a.yo` impls `Foo` for `i32` (`-> 1`); the importing file re-impls it (`-> 2`) | `1` | the imported one; the local impl is dead |
+| user `impl(i32, ToString(to_string : -> "mine"))` | `5` | the prelude's; the user impl is dead |
+| explicit `impl(P, Foo(-> 1))` + blanket `impl(generic(T), where(T <: Runtime), T, Foo(-> 7))` | `1` | explicit (`issues/an-overlapping-blanket-trait-impl-is-silently-dead.md`) |
+
+`src/evaluator/values/impl.yo` (~12) states "The orphan rule and duplicate-impl checks are not
+enforced"; `register_type_trait_method` appends unconditionally, and dispatch takes `hits.get(0)`
+(`src/evaluator/calls/function.yo` ~555).

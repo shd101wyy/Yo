@@ -3,7 +3,12 @@
 **Found**: 2026-09-05, while writing the regression tests for
 `issues/fixed/url-parse-validates-no-characters-so-a-crlf-url-splits-the-http-request.md` —
 a helper declared `label : String` was called with a plain `"..."` literal.
-**Status**: OPEN. Measured against `develop` at v0.2.24.
+**Status**: FIXED 2026-09-23 — the same hole as
+`issues/fixed/comptime-literal-argument-not-checked-against-parameter.md`,
+which has the root cause (the call path never checked a comptime literal
+argument against a concrete parameter type) and the fix. The reproducer below
+now fails `yo check` with E0601 at the literal. Originally: OPEN, measured
+against `develop` at v0.2.24.
 
 **Class**: missing rejection / invalid codegen. Exactly the shape of **C19**
 (`issues/fixed/`, "reject a C int passed where i32 is declared"): the evaluator

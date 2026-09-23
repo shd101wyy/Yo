@@ -66,3 +66,10 @@ method-arm twin, and this hardening — patches a stamping or comparison site
 rather than the invariant. A full fix gives `substitute()` instantiation-unique
 ids (or interposes an identity layer that does), so one eval struct id never
 serves many instantiations. That is a campaign, not a patch.
+
+## Addendum 2026-09-23: a reproduced sibling
+
+The type-system audit reproduced order-dependent memo merging through a different predicate, the
+`are_types_compatible_exact` fallback in `_ctfe_args_equal`: an anonymous struct merges with a
+named one, and `fn(inout(x) : i32)` merges with `fn(x : i32)` (SIGSEGV). See
+`issues/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md`.

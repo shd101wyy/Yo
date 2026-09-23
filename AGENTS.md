@@ -167,6 +167,7 @@ yo cache path|clean|gc
 yo version [pin [X.Y.Z] | install X.Y.Z | list [--remote] | clean]
 yo skills install                            # copy the bundled agent skills into the project
 yo explain E0xxx | yo fix <path>             # diagnostics registry / structured repairs
+yo context [<module> [<name>]] [--search q] [--deps]  # agent context pack + API index
 ```
 
 ---

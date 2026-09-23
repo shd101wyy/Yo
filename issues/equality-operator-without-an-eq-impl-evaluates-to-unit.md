@@ -205,3 +205,21 @@ belongs with the widening described above: once a `unit` receiver's `==`
 resolves like any other impl'd type, the derive works unchanged.
 `tests/unit_as_value_type.test.yo` documents the gap next to its unit-field
 tests and will gain the `derive(Eq)` assertion when this closes.
+
+## Addendum 2026-09-23: `<` without `Ord` has the same shape (type-system audit)
+
+MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1):
+
+```rust
+P :: struct(x : i32);
+main :: (fn() -> unit)({
+  a := P(x : i32(1));
+  b := P(x : i32(2));
+  d := (a < b);          // yo check rc=0
+});
+export(main);
+```
+
+Inside a condition, `cond((p < q) => println(1), true => println(2))` also passes `yo check`, and
+`yo compile` then reports an internal compiler error. The fix should cover every operator whose
+trait lookup can miss, not only `==`.

@@ -1,7 +1,8 @@
 # `yo context` — the agent context surface (language pack + API discovery)
 
-**Status: ACTIVE 2026-09-22 — design settled, implementation not started
-(phases C1–C6).** Subsumes
+**Status: ACTIVE 2026-09-23 — C1–C6 implemented (each phase's LANDED note
+below); an audit pass (C7, §4) fixes what the first implementation got wrong
+before this doc is archived.** Subsumes
 [`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 B3 tasks 1–2 (`yo guide`, `yo std`); B3 task 3's `AGENTS.md` recipe lands here
 as phase C6, B4–B5 are untouched. Delivers
@@ -330,6 +331,18 @@ per-subcommand usage/help block (~L8426 region), the dispatch chain
 
 ### C1 — The pack ships (`yo context` bare)
 
+> **Status: LANDED (PR `feat/yo-context-c1`).** `pack/context.md` (12.7 KB,
+> pack-version 1) + `src/context_command.yo` wired as the `context`
+> subcommand; bundles carry `pack/` and the smoke legs assert `yo context`
+> answers from outside the checkout. One deliberate deviation from the D2
+> sketch: **`$YO_CONTEXT_PACK` is AUTHORITATIVE when set** — an invalid pin
+> is a loud error, never a silent fallback — because a wrong explicit pin
+> failing quietly would print some unrelated pack and would make the
+> `context-pack-missing` cli-case non-deterministic on machines whose
+> directory ancestry happens to contain a `pack/`. The pack-version
+> citation is token-parsed from anywhere in the header prose, not a
+> fixed-position line.
+
 **Scope.** The static half, no doc-pipeline dependency.
 
 1. Write `pack/context.md` per D2's outline and cap (≤ 24 KB; the writing is
@@ -354,6 +367,25 @@ checkout's pack, the way the skills cases pin `YO_SKILLS`),
 **Estimate**: 4–5 days (1 for code + bundling, 3–4 for writing the pack).
 
 ### C2 — The index builds and caches (`--list`, `--path`, `--refresh`)
+
+> **Status: LANDED (PR `feat/yo-context-c2`, stacked on C1).**
+> Measured: cold std build 28.3 s (target ≤ 40 s), warm `--list` **45 ms**
+> (target < 300 ms), 175 modules. **Open decision resolved (D4/C3):** the
+> per-module describe cost measured 0.7–1.2 s cold / ~0.15 s amortized —
+> both cheap, so C3 may slice the cached markdown (a) freely.
+> **Barrels:** the doc pipeline's evaluator path DOES document
+> house-shaped barrels (`_x :: import(...)` + `export(...(_x))`) — the
+> plan's `origin=` is set directly from each spread source module (the
+> name-matching fallback the sketch proposed was dead machinery and was
+> deleted). `std/string` indexes at 295 items with origins.
+> **Safe-mode discovery:** this phase surfaced that safe-mode 3 (#837)
+> broke every `HashMap` insert compiled by a #837-carrying compiler —
+> `mix_u64`'s wrap-by-design multiply traps (layer 1), and the prelude's
+> `wrapping_mul` fallback looped `rhs` times, i.e. ~2^64 for hash operands
+> (layer 2), plus `src/utils.yo`'s own FNV. Fixed on `develop` by #841
+> (the wrap-by-design migration to `wrapping_*`, which superseded this
+> campaign's own fix, #850); CI never saw it because every CI binary was
+> built by the pre-#837 seed.
 
 **Scope.** The data half's foundation. New file `src/doc/context_index.yo`.
 
@@ -386,6 +418,15 @@ gc` reclaims an orphaned key dir.
 
 ### C3 — Describe (`yo context <module>`, `<module> <name>`, bare `<name>`)
 
+> **Status: LANDED (PR `feat/yo-context-c3`, stacked).** Describe slices the
+> item's section from the cached `modules/<module>.md` (decision (a) — the
+> heading anchors are regular: `` ### `anchor` ``, methods deeper inside
+> type sections; the slice runs to the next same-or-higher heading). Module
+> resolution: exact > unique last segment > unique suffix; ambiguity lists
+> candidates (exit 1); misses offer up to three did-you-mean names.
+> `Type.method` addresses methods by plain name — the index stores them
+> unqualified.
+
 1. Module index rendering from the cache (D4 sample).
 2. Item describe. **Open decision, measured in C2**: (a) slice the item's
    section out of the cached `modules/<module>.md` (fastest; depends on
@@ -405,6 +446,19 @@ described from its origin), `context-not-found`, `context-ambiguous`.
 
 ### C4 — Search + JSON (`--search`, `--deep`, `--format json`)
 
+> **Status: LANDED (PR `feat/yo-context-c4`, stacked).** Lexical ranking
+> (exact 400 / prefix 300 / name-substring 200 / signature 100 / doc 50 /
+> deep-body 10), ties by (module, name); deterministic selection sort.
+> `--format json` covers list/module/item/search with stable keys.
+> **Codegen hole found en route** (issue:
+> `issues/fixed/comptime-literal-argument-not-checked-against-parameter.md`):
+> a str literal passed as a String argument inside template interpolation
+> type-checks but emits no str→String conversion — the C rejects it.
+> Measured in C7: the hole was wider (any comptime literal to any concrete
+> parameter of a plain call, interpolation or not) and is now a check-time
+> E0601, so `String.from(...)` is the correct spelling, not a workaround
+> (`issues/fixed/comptime-literal-argument-not-checked-against-parameter.md`).
+
 1. Index scan + ranking (D4), `--deep` body scan over cached module files.
 2. `--format json` for every query mode, stable field names (D4); error
    objects with suggestions.
@@ -416,6 +470,17 @@ described from its origin), `context-not-found`, `context-ambiguous`.
 **Estimate**: 3–4 days.
 
 ### C5 — Dependencies (`--deps`)
+
+> **Status: LANDED (PR `feat/yo-context-c5`, stacked).** Dep corpora come
+> from the nearest manifest's yo.lock: git deps via the store tree
+> (`store_tree_dir` by integrity — a missing tree asks for `yo install`),
+> path deps live from their directories. Dep modules are prefixed with the
+> dependency's import NAME (`mylib/util`) — the plan's `!` separator proved
+> unnecessary: the prefix itself is the provenance, and it is exactly the
+> first path component the agent types. `context_index_ensure`/
+> `context_module_name` take an explicit prefix (`""` = tree basename);
+> `ContextIndexModule` gained a runtime (never-persisted) `index_dir` so a
+> merged-corpus query slices pages from the owning corpus.
 
 1. Nearest-manifest + lock walk (`src/manifest.yo`, `src/lock_file.yo`);
    per-dep index build over store trees (`store_tree_dir`), keyed by lock
@@ -431,6 +496,19 @@ manifest/cli cases; internal test for the manifest→store walk.
 **Estimate**: 4–5 days.
 
 ### C6 — Consolidation sweep
+
+> **Status: LANDED (PR `feat/yo-context-c6`, stacked).** `yo init`'s
+> AGENTS.md recipe leads the toolchain block with `yo context` (+ `check`);
+> the five bundled SKILL.md files carry a `yo context` pointer (API
+> discovery lives in the toolchain, skills stay rules/workflow); the root
+> AGENTS.md project-commands list names the command; ROADMAP 4.1 is
+> LANDED. The sweep also carried four more missed wrap-by-design
+> subtractions (PCG rotate + both thresholds in `std/rand.yo`, prelude
+> popcount's isolate-lowest-bit, CRC32's mask) into the #850 fix-set — the
+> rand one turned the locally-vacuous `rand-empty-range-panics` cli-case
+> green. Re-recorded goldens: cache-gc (gc summary line), init-*/skills-*
+> (recipe + pointers), lsp-member-definition + build-stamp-dotted-dir
+> (prelude/tree moved).
 
 1. `yo init`'s `AGENTS.md` template (`src/init.yo` ~L186): the four-line
    recipe — `yo context` to learn, `yo check` after every edit, `yo test`
@@ -449,19 +527,54 @@ manifest/cli cases; internal test for the manifest→store walk.
 
 **Estimate**: 2–3 days.
 
+### C7 — Audit pass (2026-09-23)
+
+A read-through of C1–C6 against D1–D6, with each finding reproduced on a
+tree-built binary. Two compiler bugs came out of it and ship as their own
+PRs: the comptime-literal argument hole above, and template interpolation
+bodies scanned as template text (escapes decoded inside `${...}`, a brace in a
+string literal ending the body, every diagnostic inside `${...}` reported at
+`1:1`: `issues/fixed/template-interpolation-body-is-not-scanned-as-code.md`).
+`yo context` itself:
+
+1. **Correctness.** The cache key omits the corpus name, so two identical
+   trees share one index under the first tree's module names. Module describe's
+   JSON has no closing brace. Build progress goes to stdout ahead of JSON.
+   Item describe ends at any `#` line, even inside a doc's `## Examples` or a
+   code fence. The one-argument form skips suffix and ambiguity resolution.
+   Barrel entries are described without their origin's doc. Exit codes miss
+   D4 (usage = 2; a search with no match = 1, with did-you-mean on stderr).
+   `--refresh`/`--path` alone silently print the pack. `yo cache gc` deletes
+   `context.lock` and every key directory without taking the lock. A killed
+   `--refresh` leaves a valid manifest over half-written files. `--deps`
+   ignores a missing or unparsable `yo.lock`. `--deep` scores every item of a
+   matching module.
+2. **Workarounds removed.** `_json_str`'s byte-built escapes become std's
+   `JsonValue` + `json.stringify`; the byte-96 backtick scan and `_nl()` go.
+3. **Spec gaps.** Every user-facing string goes through `tr(...)`. `--help`
+   covers every flag. JSON errors are `{"error", "suggestions"}` objects. A
+   missed item gets did-you-mean. `--verbose` exists. The `origin` field is
+   always present. Listings are sorted per D3.
+4. **Pack.** Five factual errors are corrected (a plain backtick literal is a
+   `String`, never a `str`; `for` is `for(xs, (x) => ...)`; `push` returns
+   `unit`; named fns capture nothing, `=>` closures do; the trait-argument
+   example).
+5. **Tests.** The context cases are split so every command in a case runs;
+   the pack case stops pinning the release version; the missing cases from
+   C2–C5 are added; the internal test's fixtures get unique per-run
+   directories.
+
 ## 5. Campaign exit criteria
 
-1. Fresh machine, binary-only: `yo context` prints the pack (< 50 ms);
-   `yo context --list` cold ≤ 40 s (one index build), warm < 300 ms; every
-   describe/search warm < 300 ms.
-2. `yo context --search hash` answers with the hash module and the
-   string-hash fn — the recall question that opened §1 — in one call.
-3. An agent with zero Yo pretraining, given only the pack, writes a working
-   program importing ≥ 3 std modules **without opening `std/` sources**
-   (falsifiable once B4's evals harness exists; until then, dogfood in this
-   repo's own agent sessions).
-4. No hand-maintained API listing anywhere in the agent-facing surface
-   drifts — the skills carry rules and workflow only.
+1. ✅ Fresh machine, binary-only: `yo context` prints the pack (< 50 ms);
+   `yo context --list` cold ≤ 40 s (28.3 s measured), warm < 300 ms
+   (45 ms measured); describe/search warm < 300 ms (cache reads).
+2. ✅ `yo context --search hash` answers with the hash module and the
+   string-hash fn in one call (verified on the bundled std corpus).
+3. Dogfooding: this repo's own agent sessions use `yo context` for API
+   recall; the evals-grade measurement waits for B4's harness.
+4. ✅ No hand-maintained API listing in the agent-facing surface — the
+   skills carry pointers to `yo context`, not API listings.
 
 ## 6. Risks and open questions
 

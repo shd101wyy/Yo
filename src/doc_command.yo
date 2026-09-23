@@ -18,6 +18,9 @@
 { cwd } :: import("std/env");
 { Instant } :: import("std/time/instant");
 { tokenize } :: import("./lexer.yo");
+{ TypeValue } :: import("./types/definitions.yo");
+{ is_struct_type, is_enum_type, is_union_type, is_trait_type, is_module_type, is_function_type } :: import("./types/guards.yo");
+{ type_to_string } :: import("./types/string.yo");
 { Token } :: import("./token.yo");
 { extract_doc_comments, DocExtractionResult } :: import("./doc/extractor.yo");
 {
@@ -333,10 +336,26 @@ _infer_project_name :: (
     .None => base_path.clone()
   )
 });
+/// One documented file: the DocModule plus whether the evaluator load failed
+/// and the token-only fallback had to step in (a DEGRADED module — every
+/// member an untyped `(unknown)` constant with no doc). `yo context`'s index
+/// marks degraded modules in its output; `yo doc` just renders them.
+DocumentedFile :: struct(
+  doc_module : DocModule,
+  degraded : bool,
+  /// The module's exported names straight from the module TYPE's
+  /// field_labels, paired with their types — the full export surface,
+  /// including re-exports a barrel glob-spreads (which build_doc_module
+  /// does not document, since their definitions live elsewhere). The
+  /// `yo context` index emits an entry per label the doc pipeline did not
+  /// already cover.
+  export_labels : ArrayList(String),
+  export_types : ArrayList(TypeValue)
+);
 /// Document a single `.yo` file. `mm_load_file` already catches evaluator
 /// throws (its local exception handler returns a not-ok outcome) — a failed
-/// load goes straight to the token-only fallback.
-_document_file :: (
+/// load goes straight to the token-only fallback with `degraded` set.
+document_one_file :: (
   fn(
     file_path : String,
     base_path : String,
@@ -344,7 +363,7 @@ _document_file :: (
     verbose : bool,
     io : Io,
     exn : Exception
-  ) -> Option(DocModule)
+  ) -> Option(DocumentedFile)
 )({
   module_name := _module_name_from_path(file_path.clone(), base_path.clone());
   if(verbose, {
@@ -356,7 +375,7 @@ _document_file :: (
   lex_exn := Exception(
     throw : (
       err -> {
-        unwind(Option(DocModule).None);
+        unwind(Option(DocumentedFile).None);
       }
     )
   );
@@ -364,22 +383,44 @@ _document_file :: (
   extraction := extract_doc_comments(tokens);
   outcome := mm_load_file(file_path.clone(), std_path.clone(), false, io, exn);
   if(outcome.ok, {
+    (labels : ArrayList(String)) = ArrayList(String).new();
+    (types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+    match(
+      outcome.module_type,
+      .Struct({ field_labels, field_types }) => {
+        labels = field_labels;
+        types = field_types;
+      },
+      _ => ()
+    );
     return(
-      Option(DocModule).Some(
-        build_doc_module(
-          module_name.clone(),
-          module_name.clone(),
-          outcome.module_value,
-          outcome.module_type,
-          extraction,
-          tokens,
-          outcome.env
+      Option(DocumentedFile).Some(
+        DocumentedFile(
+          doc_module : build_doc_module(
+            module_name.clone(),
+            module_name.clone(),
+            outcome.module_value,
+            outcome.module_type,
+            extraction,
+            tokens,
+            outcome.env
+          ),
+          degraded : false,
+          export_labels : labels,
+          export_types : types
         )
       )
     );
   });
   eprintln(`  Warning: ${module_name} evaluation failed, using token-only docs`);
-  Option(DocModule).Some(build_doc_module_from_tokens(module_name.clone(), module_name.clone(), extraction, tokens))
+  Option(DocumentedFile).Some(
+    DocumentedFile(
+      doc_module : build_doc_module_from_tokens(module_name.clone(), module_name.clone(), extraction, tokens),
+      degraded : true,
+      export_labels : ArrayList(String).new(),
+      export_types : ArrayList(TypeValue).new()
+    )
+  )
 });
 /// Render the Markdown site: README.md index + one page per module under
 /// module/.
@@ -453,9 +494,9 @@ run_doc :: (
     match(
       files.get(fi),
       .Some(file) => match(
-        _document_file(file, base_path.clone(), std_path.clone(), options.verbose, io, exn),
-        .Some(m) => {
-          modules.push(m);
+        document_one_file(file, base_path.clone(), std_path.clone(), options.verbose, io, exn),
+        .Some(df) => {
+          modules.push(df.doc_module);
         },
         .None => ()
       ),
@@ -527,4 +568,4 @@ run_doc :: (
   println(`  ${modules.len()} module${m_plural}, ${total_items} item${i_plural} documented in ${elapsed}s`);
   println(`  Output: ${abs_output_dir}/${output_file}`);
 });
-export(DocCommandOptions, run_doc, detect_git_version);
+export(DocCommandOptions, run_doc, detect_git_version, DocumentedFile, document_one_file);

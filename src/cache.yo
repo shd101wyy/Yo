@@ -73,6 +73,12 @@ get_global_cache_dir :: (fn() -> String)({
     }
   )
 });
+/// `<cache_root>/context` — the `yo context` index cache, one content-keyed
+/// subtree per indexed tree (plans/YO_CONTEXT.md D3). A PURE cache: `yo
+/// cache gc` sweeps it wholesale, and a query rebuilds any missing key.
+get_context_dir :: (fn(cache_root : String) -> String)(
+  Path.new(cache_root).join(Path.new(String.from("context"))).to_string()
+);
 /// The lock's `integrity` values start with this; the store strips it.
 INTEGRITY_PREFIX :: "sha256-";
 /// `<cache_root>/store/sha256` — the package trees, one directory per hash.
@@ -230,6 +236,7 @@ export(
   get_global_cache_dir,
   INTEGRITY_PREFIX,
   get_store_dir,
+  get_context_dir,
   store_tree_dir,
   store_verified_marker,
   get_git_mirrors_dir,
