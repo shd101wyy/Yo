@@ -1,0 +1,1453 @@
+//! `yo context` — print the agent context pack (plans/YO_CONTEXT.md, C1).
+//!
+//! The pack (`pack/context.md` in the compiler tree) is the curated,
+//! language-only guide shipped with the toolchain; this command locates it
+//! and prints it. API discovery (--list / describe / --search over the doc
+//! IR) is C2+, not here.
+//!
+//! The bundled-pack lookup mirrors `yo skills install`'s
+//! (`src/skills_command.yo`): `$YO_CONTEXT_PACK` env pin, then the running
+//! executable's ancestors (dev flow: `yo-out/<target>/bin/yo` finds the
+//! checkout's own `pack/`), then the project directory's ancestors — the
+//! same exe-walk-up-then-cwd shape `resolve_std_path` uses for `std/`.
+//! Release bundles carry `pack/` as a sibling of `std/`.
+{ String } :: import("std/string");
+{ println, eprintln } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+{ ArrayList } :: import("std/collections/array_list");
+{ env, current_exe, cwd } :: import("std/env");
+{ exists, read, read_to_string } :: import("std/fs/file");
+{ metadata } :: import("std/fs/metadata");
+{ tr } :: import("./cli_lang.yo");
+{ CURRENT_YO_VERSION } :: import("./version.yo");
+{
+  ContextIndexEntry,
+  ContextIndexModule,
+  context_cache_root,
+  context_index_dir,
+  context_index_ensure,
+  context_index_load,
+  context_index_load_modules,
+  module_md_dir,
+  module_leaf
+} :: import("./doc/context_index.yo");
+{ find_manifest } :: import("./manifest.yo");
+{ LockFile, parse_lock_file } :: import("./lock_file.yo");
+{ get_global_cache_dir, store_tree_dir } :: import("./cache.yo");
+{ resolve_std_path } :: import("./module_manager.yo");
+/// The pack file name inside the `pack` directory.
+PACK_FILENAME :: "context.md";
+/// Locate the bundled `pack/context.md`, or `.None` when none exists (the
+/// caller reports the packaging error and exits 1).
+///
+/// The lookup, in order:
+///
+/// 1. the `YO_CONTEXT_PACK` env var — AUTHORITATIVE when set: if it names
+///    an existing `context.md` (or a directory containing one) that file is
+///    THE pack; if it names nothing, the command fails rather than silently
+///    printing some other pack — a wrong explicit pin must be loud, and a
+///    deterministic error is what keeps the cli-case pin meaningful on any
+///    machine. This mirrors how the harness pins `YO_STD`/`YO_SKILLS`: a
+///    binary staged OUTSIDE its checkout (CI's stage-1 tree) can
+///    exe-walk-up to neither `std/` nor `pack/`, so the gate scripts pin
+///    the paths;
+/// 2. the running executable's ancestors (repo dev flow:
+///    `yo-out/<target>/bin/yo` finds the checkout's own `pack/`);
+/// 3. the project directory's ancestors (running an installed `yo` from
+///    inside a Yo checkout) — the same exe-walk-up-then-cwd shape
+///    `resolve_std_path` uses for `std/`.
+_find_bundled_context_pack :: (
+  fn(io : Io, exn : Exception) -> Option(Path)
+)({
+  override := env.get(String.from("YO_CONTEXT_PACK"));
+  if(override.is_some(), {
+    // AUTHORITATIVE pin: no fall-through when it names nothing.
+    p := Path.new(override.unwrap_or(String.from(".")));
+    pinned_file := p.join(Path.new(String.from(PACK_FILENAME)));
+    target := cond(
+      _is_pack_dir(p, io, exn) => pinned_file,
+      true => p
+    );
+    if(_is_pack_file(target, io, exn), {
+      return(Option(Path).Some(target));
+    });
+    return(Option(Path).None);
+  });
+  starts := ArrayList(Path).new();
+  match(
+    current_exe(),
+    .Err(_) => {},
+    .Ok(exe_path) => {
+      starts.push(exe_path);
+    }
+  );
+  match(
+    cwd(),
+    .Ok(p) => {
+      starts.push(Path.new(p.to_string()));
+    },
+    .Err(_) => {}
+  );
+  (s : usize) = usize(0);
+  while(s < starts.len(), {
+    anc := starts(s).ancestors();
+    (i : usize) = usize(0);
+    while(i < anc.len(), {
+      candidate := anc(i).join(Path.new(String.from("pack"))).join(Path.new(String.from(PACK_FILENAME)));
+      if(_is_pack_file(candidate, io, exn), {
+        return(Option(Path).Some(candidate));
+      });
+      i = (i + usize(1));
+    });
+    s = (s + usize(1));
+  });
+  return(Option(Path).None);
+});
+/// Does `p` exist and name a directory?
+_is_pack_dir :: (
+  fn(p : Path, io : Io, exn : Exception) -> bool
+)({
+  found := io.await(exists(p.clone(), io), io);
+  if(!found, {
+    return(false);
+  });
+  md := io.await(metadata(p.clone(), io), IoExn(io : io, exn : exn));
+  md.is_dir()
+});
+/// Does `p` exist and name a plain file?
+_is_pack_file :: (
+  fn(p : Path, io : Io, exn : Exception) -> bool
+)({
+  found := io.await(exists(p.clone(), io), io);
+  if(!found, {
+    return(false);
+  });
+  md := io.await(metadata(p.clone(), io), IoExn(io : io, exn : exn));
+  md.is_file()
+});
+/// The pack's `pack-version: N` citation, or `.None` when the file carries
+/// none. Token-based: the first whitespace-delimited `pack-version:` token
+/// followed by a version token wins, wherever in the header prose it sits.
+_pack_version_line :: (fn(content : String) -> Option(String))({
+  lines := content.split(String.from("\n"));
+  (li : usize) = usize(0);
+  while(li < lines.len(), {
+    match(
+      lines.get(li),
+      .Some(line) => {
+        tokens := line.trim().split(String.from(" "));
+        (ti : usize) = usize(0);
+        while(ti < tokens.len(), {
+          match(
+            tokens.get(ti),
+            .Some(tok) => {
+              if(tok == "pack-version:", {
+                match(
+                  tokens.get(ti + usize(1)),
+                  .Some(v) => {
+                    return(Option(String).Some(`pack-version: ${v}`));
+                  },
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+          ti = (ti + usize(1));
+        });
+      },
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  Option(String).None
+});
+/// Options parsed from `yo context`'s arguments. Absent strings are "".
+ContextQuery :: struct(
+  /// `--list`: the module index of the corpus.
+  list : bool,
+  /// `--refresh`: rebuild the index even if its manifest exists.
+  refresh : bool,
+  /// `--path <dir>`: index this tree instead of the bundled std.
+  path : String,
+  /// `--search <query>`: ranked search over names, signatures and docs.
+  search : String,
+  /// `--deep`: search also scans the rendered module bodies (slower).
+  deep : bool,
+  /// `--format json`: machine-readable output for every query mode.
+  as_json : bool,
+  /// `--deps`: merge the project's yo.toml dependencies into the corpus.
+  deps : bool,
+  /// First positional: a module path, a module's unique last segment, or a
+  /// bare item name (when it matches no module).
+  subject : String,
+  /// Second positional: an item name within `subject` (methods spell
+  /// `Type.name` or just `name`).
+  item : String
+);
+/// Parse the query flags and positionals.
+_parse_context_query :: (
+  fn(argv : ArrayList(String), exn : Exception) -> ContextQuery
+)({
+  q := ContextQuery(
+    list : false,
+    refresh : false,
+    path : String.new(),
+    search : String.new(),
+    deep : false,
+    as_json : false,
+    deps : false,
+    subject : String.new(),
+    item : String.new()
+  );
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    if(a == "--list", {
+      q.list = true;
+      ai = (ai + usize(1));
+    }, {
+      if(a == "--refresh", {
+        q.refresh = true;
+        ai = (ai + usize(1));
+      }, {
+        if(a == "--deep", {
+          q.deep = true;
+          ai = (ai + usize(1));
+        }, {
+          if(a == "--deps", {
+            q.deps = true;
+            ai = (ai + usize(1));
+          }, {
+            if(a == "--search", {
+              if((ai + usize(1)) >= argv.len(), {
+                exn.throw(dyn(`context: --search needs a query argument. Usage: yo context --search <query>`));
+              });
+              q.search = argv(ai + usize(1));
+              ai = (ai + usize(2));
+            }, {
+              if(a.starts_with(String.from("--search=")), {
+                q.search = a.substring(usize(9), a.len());
+                ai = (ai + usize(1));
+              }, {
+                if(a == "--format", {
+                  if((ai + usize(1)) >= argv.len(), {
+                    exn.throw(dyn(`context: --format needs an argument (text|json)`));
+                  });
+                  fmt := argv(ai + usize(1));
+                  if(fmt == "json", {
+                    q.as_json = true;
+                  }, {
+                    if(!(fmt == "text"), {
+                      exn.throw(dyn(`context: unknown --format '${fmt}' (text|json)`));
+                    });
+                  });
+                  ai = (ai + usize(2));
+                }, {
+                  if(a == "--format=json", {
+                    q.as_json = true;
+                    ai = (ai + usize(1));
+                  }, {
+                    if(a == "--path", {
+                      if((ai + usize(1)) >= argv.len(), {
+                        exn.throw(dyn(`context: --path needs a directory argument. Usage: yo context --path <dir>`));
+                      });
+                      q.path = argv(ai + usize(1));
+                      ai = (ai + usize(2));
+                    }, {
+                      if(a.starts_with(String.from("--path=")), {
+                        q.path = a.substring(usize(7), a.len());
+                        ai = (ai + usize(1));
+                      }, {
+                        if(a.starts_with(String.from("--")), {
+                          exn.throw(
+                            dyn(
+                              tr(
+                                `context: unknown option '${a}'. Usage: yo context [<module> [<name>]] [--list] [--search <query>] [--path <dir>] [--refresh] [--format text|json]`,
+                                `context：未知选项 '${a}'。用法：yo context [<module> [<name>]] [--list] [--search <query>] [--path <dir>] [--refresh] [--format text|json]`
+                              )
+                            )
+                          );
+                        }, {
+                          if(q.subject.len() == usize(0), {
+                            q.subject = a.clone();
+                          }, {
+                            if(q.item.len() == usize(0), {
+                              q.item = a.clone();
+                            }, {
+                              exn.throw(dyn(`context: too many positional arguments ('${q.subject}', '${q.item}', '${a}'). Usage: yo context [<module> [<name>]]`));
+                            });
+                          });
+                          ai = (ai + usize(1));
+                        });
+                      });
+                    });
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+  q
+});
+/// The corpus root for an index query: `--path <dir>` when given, else the
+/// running binary's bundled std (`resolve_std_path`) — the doc pipeline's
+/// own resolution, so the `--std-path` pitfall cannot fire. Relative
+/// `--path` values resolve against the USER's working directory —
+/// `YO_ORIGINAL_CWD`, which main.yo records before it changes directory
+/// (the same authority `yo skills install` uses) — not against wherever the
+/// process happens to be.
+_context_corpus_root :: (fn(explicit : String, exn : Exception) -> String)(
+  if(explicit.len() > usize(0), {
+    p := Path.new(explicit);
+    if(!p.is_absolute(), {
+      base := match(
+        env.get(String.from("YO_ORIGINAL_CWD")),
+        .Some(d) => d,
+        .None => match(
+          cwd(),
+          .Ok(c) => c.to_string(),
+          .Err(_) => String.from(".")
+        )
+      );
+      return(Path.new(base).join(p).normalize().to_string());
+    });
+    explicit
+  }, resolve_std_path())
+);
+/// One indexed corpus: where its tree lives, the module-name prefix its
+/// files get, and the index dir its cache was built into.
+Corpus :: struct(
+  root : String,
+  prefix : String,
+  index_dir : String
+);
+/// The merged corpora a query runs over: entries and module rows
+/// concatenated; module rows carry their owning corpus's index dir.
+LoadedWorld :: struct(
+  entries : ArrayList(ContextIndexEntry),
+  mods : ArrayList(ContextIndexModule)
+);
+/// The dependency corpora of the nearest manifest: every yo.lock package,
+/// git deps resolved through the content-addressed store, path deps read
+/// live from their directories. Requires `yo install` for git deps (the
+/// store tree must exist); path deps are live by design.
+_dep_corpora :: (
+  fn(io : Io, exn : Exception) -> ArrayList(Corpus)
+)({
+  out := ArrayList(Corpus).new();
+  start := match(
+    env.get(String.from("YO_ORIGINAL_CWD")),
+    .Some(d) => d,
+    .None => match(
+      cwd(),
+      .Ok(c) => c.to_string(),
+      .Err(_) => String.from(".")
+    )
+  );
+  manifest_path := match(
+    find_manifest(start),
+    .Some(p) => p,
+    .None => {
+      return(out);
+    }
+  );
+  lock_path := Path.new(manifest_path).parent().unwrap_or(Path.new(String.from("."))).join(Path.new(String.from("yo.lock"))).to_string();
+  has_lock := io.await(exists(Path.new(lock_path.clone()), io), io);
+  if(!has_lock, {
+    return(out);
+  });
+  text := io.await(read_to_string(Path.new(lock_path.clone()), io), IoExn(io : io, exn : exn));
+  match(
+    parse_lock_file(text),
+    .Ok(l) => {
+      (pi : usize) = usize(0);
+      while(pi < l.packages.len(), {
+        match(
+          l.packages.get(pi),
+          .Some(pkg) => {
+            if(pkg.is_git(), {
+              cache_root := get_global_cache_dir();
+              match(
+                store_tree_dir(cache_root, pkg.integrity.clone()),
+                .Ok(tree) => {
+                  present := io.await(exists(Path.new(tree.clone()), io), io);
+                  if(!present, {
+                    exn.throw(
+                      dyn(
+                        tr(
+                          `context: dependency '${pkg.name}' is not installed (its store tree is missing). Run yo install.`,
+                          `context：依赖 '${pkg.name}' 未安装（存储树缺失）。请运行 yo install。`
+                        )
+                      )
+                    );
+                  });
+                  out.push(Corpus(root : tree, prefix : pkg.name.clone(), index_dir : String.new()));
+                },
+                .Err(msg) => {
+                  exn.throw(dyn(`context: dependency '${pkg.name}': ${msg} Run yo install.`));
+                }
+              );
+            }, {
+              rel := pkg.path();
+              if(rel.len() > usize(0), {
+                base := Path.new(manifest_path).parent().unwrap_or(Path.new(String.from(".")));
+                root := base.join(Path.new(rel)).normalize().to_string();
+                present := io.await(exists(Path.new(root.clone()), io), io);
+                if(!present, {
+                  exn.throw(dyn(`context: path dependency '${pkg.name}' not found at ${root}`));
+                });
+                out.push(Corpus(root : root, prefix : pkg.name.clone(), index_dir : String.new()));
+              });
+            });
+          },
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+    },
+    .Err(_) => ()
+  );
+  out
+});
+/// Ensure + load every corpus a query needs: the bundled std (or --path
+/// override) always, the dependency corpora when --deps is set.
+_load_world :: (
+  fn(
+    include_deps : bool,
+    path_override : String,
+    refresh : bool,
+    io : Io,
+    exn : Exception
+  ) -> LoadedWorld
+)({
+  world := LoadedWorld(
+    entries : ArrayList(ContextIndexEntry).new(),
+    mods : ArrayList(ContextIndexModule).new()
+  );
+  corpora := ArrayList(Corpus).new();
+  corpora.push(Corpus(root : _context_corpus_root(path_override, exn), prefix : String.new(), index_dir : String.new()));
+  if(include_deps, {
+    (di : usize) = usize(0);
+    deps := _dep_corpora(io, exn);
+    while(di < deps.len(), {
+      match(
+        deps.get(di),
+        .Some(c) => {
+          corpora.push(c);
+        },
+        .None => ()
+      );
+      di = (di + usize(1));
+    });
+  });
+  (ci : usize) = usize(0);
+  while(ci < corpora.len(), {
+    match(
+      corpora.get(ci),
+      .Some(c) => {
+        cache_root := context_cache_root(io, exn);
+        key := context_index_ensure(c.root, cache_root, refresh, c.prefix, io, exn);
+        idx_dir := context_index_dir(cache_root, key);
+        centries := context_index_load(cache_root, key, io, exn);
+        cmods := context_index_load_modules(cache_root, key, io, exn);
+        (i : usize) = usize(0);
+        while(i < centries.len(), {
+          match(
+            centries.get(i),
+            .Some(e) => {
+              world.entries.push(e);
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        (j : usize) = usize(0);
+        while(j < cmods.len(), {
+          match(
+            cmods.get(j),
+            .Some(m) => {
+              m.index_dir = idx_dir.clone();
+              world.mods.push(m);
+            },
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  world
+});
+/// `--list`: the module index — one row per module, sorted, with item/// `--list`: the module index — one row per module, sorted, with item
+/// counts; degraded modules are footnoted, not silent (D3).
+/// `--list`: the module index — one row per module, sorted, with item
+/// counts; degraded modules are footnoted, not silent (D3). `--format json`
+/// emits one object per module.
+_run_context_list :: (
+  fn(world : LoadedWorld, as_json : bool, io : Io, exn : Exception) -> unit
+)({
+  mods := world.mods;
+  if(as_json, {
+    println(`{"modules":[`);
+    (mi0 : usize) = usize(0);
+    while(mi0 < mods.len(), {
+      match(
+        mods.get(mi0),
+        .Some(m) => {
+          comma := cond((mi0 < (mods.len() - usize(1))) => ",", true => "");
+          println(`{${_json_str(String.from("module"))}:${_json_str(m.module)},${_json_str(String.from("doc"))}:${_json_str(m.doc)},${_json_str(String.from("items"))}:${m.items.to_string()},${_json_str(String.from("degraded"))}:${cond(m.degraded => "true", true => "false")}}${comma}`);
+        },
+        .None => ()
+      );
+      mi0 = (mi0 + usize(1));
+    });
+    println(`]}`);
+    return(());
+  });
+  // Sort the FORMATTED rows (module path first) — a struct Ord would need
+  // `<` on bool for the degraded flag, which does not exist.
+  rows := ArrayList(String).new();
+  (degraded : usize) = usize(0);
+  (mi : usize) = usize(0);
+  while(mi < mods.len(), {
+    match(
+      mods.get(mi),
+      .Some(m) => {
+        if(m.degraded, {
+          degraded = (degraded + usize(1));
+        });
+        rows.push(`${m.module}  ${m.doc} (${m.items.to_string()} items)`);
+      },
+      .None => ()
+    );
+    mi = (mi + usize(1));
+  });
+  rows.sort();
+  (ri : usize) = usize(0);
+  while(ri < rows.len(), {
+    match(
+      rows.get(ri),
+      .Some(r) => {
+        println(r);
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  println(`— ${mods.len().to_string()} modules; yo context <module> for its items`);
+  if(degraded > usize(0), {
+    println(`Note: ${degraded.to_string()} module(s) are marked (untyped) — the evaluator could not load them.`);
+  });
+});
+/// A one-newline string, byte-built: a "\n" escape inside a template
+/// interpolation trips the lexer's template scanner (E0004).
+_nl :: (fn() -> String)(String.from("\n"));
+/// Join a list of strings with `sep` (ArrayList(String) has no join).
+_join_strings :: (fn(ls : ArrayList(String), sep : String) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < ls.len(), {
+    match(
+      ls.get(i),
+      .Some(l) => {
+        if(i > usize(0), {
+          out.push_string(sep.clone());
+        });
+        out.push_string(l.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// Did-you-mean: up to three corpus names sharing a case-insensitive prefix
+/// or substring with `target`, prefix matches first, then alphabetical.
+_did_you_mean :: (
+  fn(names : ArrayList(String), target : String) -> ArrayList(String)
+)({
+  low := target.to_lowercase();
+  prefix := ArrayList(String).new();
+  substring := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    match(
+      names.get(i),
+      .Some(n) => {
+        low_n := n.to_lowercase();
+        if(low_n.starts_with(low), {
+          prefix.push(n.clone());
+        }, {
+          if(low_n.contains(low), {
+            substring.push(n.clone());
+          });
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  prefix.sort();
+  substring.sort();
+  out := ArrayList(String).new();
+  (i2 : usize) = usize(0);
+  while((i2 < prefix.len()) && (out.len() < usize(3)), {
+    match(
+      prefix.get(i2),
+      .Some(n) => {
+        out.push(n.clone());
+      },
+      .None => ()
+    );
+    i2 = (i2 + usize(1));
+  });
+  (i3 : usize) = usize(0);
+  while((i3 < substring.len()) && (out.len() < usize(3)), {
+    match(
+      substring.get(i3),
+      .Some(n) => {
+        out.push(n.clone());
+      },
+      .None => ()
+    );
+    i3 = (i3 + usize(1));
+  });
+  out
+});
+/// Resolve a module argument: exact module-name match wins; otherwise the
+/// argument must be exactly ONE module's last path segment. Prints the
+/// ambiguity candidates (or the did-you-mean list) to stdout and returns
+/// .None when it cannot resolve uniquely — the caller is done (exit 1 via
+/// the thrown error).
+_resolve_module_arg :: (
+  fn(
+    mods : ArrayList(ContextIndexModule),
+    arg : String,
+    exn : Exception
+  ) -> Option(String)
+)({
+  names := ArrayList(String).new();
+  exact := ArrayList(String).new();
+  segment := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < mods.len(), {
+    match(
+      mods.get(i),
+      .Some(m) => {
+        names.push(m.module.clone());
+        if(m.module == arg, {
+          exact.push(m.module.clone());
+        });
+        segs := m.module.split(String.from("/"));
+        last := segs.get(segs.len() - usize(1)).unwrap_or(String.new());
+        if(last == arg, {
+          segment.push(m.module.clone());
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(exact.len() == usize(1), {
+    return(match(exact.get(usize(0)), .Some(x) => Option(String).Some(x), .None => Option(String).None));
+  });
+  if(exact.len() > usize(1), {
+    exn.throw(dyn(`context: module '${arg}' is ambiguous`));
+  });
+  if(segment.len() == usize(1), {
+    return(match(segment.get(usize(0)), .Some(x) => Option(String).Some(x), .None => Option(String).None));
+  });
+  // Suffix tier: a multi-segment argument without the corpus prefix
+  // (`collections/array_list` for `std/collections/array_list`).
+  suffix := ArrayList(String).new();
+  (si : usize) = usize(0);
+  while(si < mods.len(), {
+    match(
+      mods.get(si),
+      .Some(m) => {
+        if(m.module.ends_with(String.from("/").concat(arg)), {
+          suffix.push(m.module.clone());
+        });
+      },
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  if(suffix.len() == usize(1), {
+    return(match(suffix.get(usize(0)), .Some(x) => Option(String).Some(x), .None => Option(String).None));
+  });
+  if(segment.len() > usize(1), {
+    lines := ArrayList(String).new();
+    (j : usize) = usize(0);
+    while(j < segment.len(), {
+      match(
+        segment.get(j),
+        .Some(x) => {
+          lines.push(`  ${x}`);
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    exn.throw(dyn(`context: '${arg}' matches ${segment.len().to_string()} modules:\n${_join_strings(lines, _nl())}\nSpell more of the path.`));
+  });
+  hints := _did_you_mean(names, arg);
+  hint_txt := String.new();
+  (k : usize) = usize(0);
+  while(k < hints.len(), {
+    match(
+      hints.get(k),
+      .Some(x) => {
+        hint_txt.push_string(`\nDid you mean: ${x}`);
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  exn.throw(dyn(`context: no module '${arg}' in the corpus${hint_txt}`));
+  __yo_panic("context: resolve — the throw above exits")
+});
+/// Slice one item's markdown section out of a rendered module page: the
+/// heading (any `#`-level) whose backticked anchor IS `name`, ends with
+/// `.name`, or starts with `name<`; the slice runs to the next heading of
+/// the same-or-higher level. "" when no heading matches.
+_slice_item_md :: (
+  fn(md_path : String, name : String, io : Io, exn : Exception) -> String
+)({
+  bytes := io.await(read(Path.new(md_path.clone()), io), IoExn(io : io, exn : exn));
+  content := String.from_bytes(bytes);
+  lines := content.split(String.from("\n"));
+  (start : usize) = usize(0);
+  (level : usize) = usize(0);
+  (found : bool) = false;
+  (li : usize) = usize(0);
+  while(li < lines.len(), {
+    match(
+      lines.get(li),
+      .Some(line) => {
+        if(!found && line.starts_with(String.from("#")), {
+          hashes := usize(0);
+          (h : usize) = usize(0);
+          while(h < line.len(), {
+            if(line.byte_at(h) == u8(35), {
+              hashes = (hashes + usize(1));
+            }, {
+              h = line.len();
+            });
+            h = (h + usize(1));
+          });
+          // The anchor sits between the heading's first two backtick
+          // bytes (96) — a backtick literal cannot appear in source here
+          // (the lexer starts a template at any backtick, even inside a
+          // double-quoted string), so the scan is by byte value.
+          (bt_first : usize) = usize(0);
+          (bt_second : usize) = usize(0);
+          (seen : usize) = usize(0);
+          (scan : usize) = usize(0);
+          while(scan < line.len(), {
+            if(line.byte_at(scan) == u8(96), {
+              seen = (seen + usize(1));
+              if(seen == usize(1), {
+                bt_first = scan;
+              }, {
+                if(seen == usize(2), {
+                  bt_second = scan;
+                });
+              });
+            });
+            scan = (scan + usize(1));
+          });
+          if(seen >= usize(2), {
+            anchor := line.substring(bt_first + usize(1), bt_second);
+            base := anchor;
+            match(
+              base.index_of(String.from("<"), usize(0)),
+              .Some(ltpos) => {
+                base = base.substring(usize(0), ltpos);
+              },
+              .None => ()
+            );
+            if((base == name) || base.ends_with(String.from(".").concat(name)), {
+              found = true;
+              start = li;
+              level = hashes;
+            });
+          });
+        }, {
+          if(found && line.starts_with(String.from("#")), {
+            hashes := usize(0);
+            (h : usize) = usize(0);
+            while(h < line.len(), {
+              if(line.byte_at(h) == u8(35), {
+                hashes = (hashes + usize(1));
+              }, {
+                h = line.len();
+              });
+              h = (h + usize(1));
+            });
+            if(hashes <= level, {
+              li = lines.len();
+              continue;
+            });
+          });
+        });
+      },
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
+  if(!found, {
+    return(String.new());
+  });
+  out := String.new();
+  (oi : usize) = start;
+  while(oi < lines.len(), {
+    match(
+      lines.get(oi),
+      .Some(line) => {
+        if((oi > start) && line.starts_with(String.from("#")), {
+          hashes := usize(0);
+          (h : usize) = usize(0);
+          while(h < line.len(), {
+            if(line.byte_at(h) == u8(35), {
+              hashes = (hashes + usize(1));
+            }, {
+              h = line.len();
+            });
+            h = (h + usize(1));
+          });
+          if(hashes <= level, {
+            oi = lines.len();
+            continue;
+          });
+        });
+        out.push_string(line.clone());
+        out.push_str("\n");
+      },
+      .None => ()
+    );
+    oi = (oi + usize(1));
+  });
+  out
+});
+/// One search hit with its score.
+SearchHit :: struct(
+  entry : ContextIndexEntry,
+  score : usize
+);
+/// Score one entry against the query (case-insensitive):
+/// exact name 400 > name prefix 300 > name substring 200 > signature
+/// substring 100 > doc substring 50. 0 = no match. Ties break by
+/// (module, name) in the caller's sort.
+search_score :: (fn(e : ContextIndexEntry, low_query : String) -> usize)({
+  low_name := e.name.to_lowercase();
+  if(low_name == low_query, {
+    return(usize(400));
+  });
+  if(low_name.starts_with(low_query), {
+    return(usize(300));
+  });
+  if(low_name.contains(low_query), {
+    return(usize(200));
+  });
+  if(e.signature.to_lowercase().contains(low_query), {
+    return(usize(100));
+  });
+  if((e.doc.len() > usize(0)) && e.doc.to_lowercase().contains(low_query), {
+    return(usize(50));
+  });
+  usize(0)
+});
+/// The ranked hits for a query over the index (and, with `deep`, over the
+/// rendered module bodies). Deterministic: score desc, then (module, name).
+_search_entries :: (
+  fn(
+    entries : ArrayList(ContextIndexEntry),
+    query : String,
+    deep : bool,
+    mods : ArrayList(ContextIndexModule),
+    io : Io,
+    exn : Exception
+  ) -> ArrayList(SearchHit)
+)({
+  low_query := query.to_lowercase();
+  hits := ArrayList(SearchHit).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        score := search_score(e, low_query);
+        if((score == usize(0)) && deep, {
+          if(_body_contains(mods, e.module, low_query, io, exn), {
+            score = usize(10);
+          });
+        });
+        if(score > usize(0), {
+          hits.push(SearchHit(entry : e, score : score));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // Selection sort by (score desc, module asc, name asc) — deterministic
+  // and allocation-free; the hit list is short.
+  (i2 : usize) = usize(0);
+  while(i2 < hits.len(), {
+    best := i2;
+    (j : usize) = (i2 + usize(1));
+    while(j < hits.len(), {
+      hj := match(hits.get(j), .Some(x) => x, .None => __yo_panic("search: hits"));
+      hb := match(hits.get(best), .Some(x) => x, .None => __yo_panic("search: hits"));
+      better := cond(
+        (hj.score > hb.score) => true,
+        ((hj.score == hb.score) && ((hj.entry.module < hb.entry.module) || ((hj.entry.module == hb.entry.module) && (hj.entry.name < hb.entry.name)))) => true,
+        true => false
+      );
+      if(better, {
+        best = j;
+      });
+      j = (j + usize(1));
+    });
+    if(best != i2, {
+      hb := match(hits.get(best), .Some(x) => x, .None => __yo_panic("search: hits"));
+      hi := match(hits.get(i2), .Some(x) => x, .None => __yo_panic("search: hits"));
+      hits(i2) = hb;
+      hits(best) = hi;
+    });
+    i2 = (i2 + usize(1));
+  });
+  hits
+});
+/// The index dir of a module's owning corpus ("" when unknown).
+_index_dir_of :: (
+  fn(mods : ArrayList(ContextIndexModule), module : String) -> String
+)({
+  (i : usize) = usize(0);
+  while(i < mods.len(), {
+    match(
+      mods.get(i),
+      .Some(m) => {
+        if(m.module == module, {
+          return(m.index_dir);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  String.new()
+});
+/// Does the rendered module body contain the query (deep search)?
+_body_contains :: (
+  fn(
+    mods : ArrayList(ContextIndexModule),
+    module : String,
+    low_query : String,
+    io : Io,
+    exn : Exception
+  ) -> bool
+)({
+  idx_dir := _index_dir_of(mods, module);
+  if(idx_dir.len() == usize(0), {
+    return(false);
+  });
+  md_dir := module_md_dir(idx_dir, module);
+  md_path := Path.new(md_dir).join(Path.new(`${module_leaf(module)}.md`)).to_string();
+  found := io.await(exists(Path.new(md_path.clone()), io), io);
+  if(!found, {
+    return(false);
+  });
+  bytes := io.await(read(Path.new(md_path.clone()), io), IoExn(io : io, exn : exn));
+  content := String.from_bytes(bytes);
+  content.to_lowercase().contains(low_query)
+});
+/// The search result page: hits with their scores, capped at 50 rows.
+_run_context_search :: (
+  fn(
+    query : String,
+    deep : bool,
+    as_json : bool,
+    world : LoadedWorld,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  hits := _search_entries(world.entries, query, deep, world.mods, io, exn);
+  if(as_json, {
+    println(`{"query":${_json_str(query)},"count":${hits.len().to_string()},"hits":[`);
+    (i : usize) = usize(0);
+    while(i < hits.len(), {
+      match(
+        hits.get(i),
+        .Some(h) => {
+          comma := cond((i < (hits.len() - usize(1))) => ",", true => "");
+          println(`${_hit_json(h)}${comma}`);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    println(`]}`);
+    return(());
+  });
+  if(hits.len() == usize(0), {
+    println(`no matches for '${query}'`);
+    return(());
+  });
+  (shown : usize) = usize(0);
+  (i2 : usize) = usize(0);
+  while(i2 < hits.len(), {
+    match(
+      hits.get(i2),
+      .Some(h) => {
+        if(shown < usize(50), {
+          println(`${h.entry.module}  ${h.entry.name}  ${h.entry.kind}  ${h.entry.signature}  (${h.score.to_string()})`);
+          shown = (shown + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i2 = (i2 + usize(1));
+  });
+  if(hits.len() > usize(50), {
+    println(`... ${((hits.len() - usize(50))).to_string()} more (narrow the query)`);
+  });
+  println(`— ${hits.len().to_string()} hit(s)`);
+});
+/// JSON string escape: wraps in quotes and escapes quote, backslash and
+/// control chars. All escape sequences are built from BYTES — backslash
+/// escape literals stacked through generators are where E0004s come from.
+_json_str :: (fn(v : String) -> String)({
+  q := String.from_bytes(_bytes2(u8(92), u8(34)));
+  bsnl := String.from_bytes(_bytes2(u8(92), u8(110)));
+  bstab := String.from_bytes(_bytes2(u8(92), u8(116)));
+  bs := String.from_bytes(_bytes2(u8(92), u8(92)));
+  // A lone double-quote byte as a String (byte-built; see _bytes2).
+  dq := String.from_bytes(_bytes2(u8(34), u8(34))).substring(usize(0), usize(1));
+  out := dq;
+  (i : usize) = usize(0);
+  while(i < v.len(), {
+    b := v.byte_at(i);
+    if(b == u8(34), {
+      out.push_string(q);
+    }, {
+      if(b == u8(92), {
+        out.push_string(bs);
+      }, {
+        if(b == u8(10), {
+          out.push_string(bsnl);
+        }, {
+          if(b == u8(9), {
+            out.push_string(bstab);
+          }, {
+            if(b < u8(32), {
+              out.push_str(" ");
+            }, {
+              out.push_byte(b);
+            });
+          });
+        });
+      });
+    });
+    i = (i + usize(1));
+  });
+  out.push_byte(u8(34));
+  out
+});
+/// A two-byte ArrayList(u8).
+_bytes2 :: (fn(a : u8, b : u8) -> ArrayList(u8))({
+  xs := ArrayList(u8).new();
+  xs.push(a);
+  xs.push(b);
+  xs
+});
+/// One hit as a JSON object.
+_hit_json :: (fn(h : SearchHit) -> String)({
+  origin_field := cond(
+    (h.entry.origin.len() > usize(0)) => `,"origin":${_json_str(h.entry.origin)}`,
+    true => ``
+  );
+  `{${_json_str(String.from("module"))}:${_json_str(h.entry.module)},${_json_str(String.from("name"))}:${_json_str(h.entry.name)},${_json_str(String.from("kind"))}:${_json_str(h.entry.kind)},${_json_str(String.from("signature"))}:${_json_str(h.entry.signature)},${_json_str(String.from("doc"))}:${_json_str(h.entry.doc)}${origin_field},"score":${h.score.to_string()}}`
+});
+/// `yo context <module>`: the module's one-screen index.
+/// Count a module's index entries.
+count_items :: (fn(module : String, entries : ArrayList(ContextIndexEntry)) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        if(e.module == module, {
+          n = (n + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  n
+});
+_run_context_describe_module :: (
+  fn(
+    module : String,
+    entries : ArrayList(ContextIndexEntry),
+    mods : ArrayList(ContextIndexModule),
+    as_json : bool,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  (doc : String) = String.new();
+  (degraded : bool) = false;
+  (mi : usize) = usize(0);
+  while(mi < mods.len(), {
+    match(
+      mods.get(mi),
+      .Some(m) => {
+        if(m.module == module, {
+          doc = m.doc.clone();
+          degraded = m.degraded;
+        });
+      },
+      .None => ()
+    );
+    mi = (mi + usize(1));
+  });
+  header := `${module}`;
+  if(doc.len() > usize(0), {
+    header = `${module} — ${doc}`;
+  });
+  if(as_json, {
+    println(`{${_json_str(String.from("module"))}:${_json_str(module)},${_json_str(String.from("doc"))}:${_json_str(doc)},${_json_str(String.from("degraded"))}:${cond(degraded => "true", true => "false")},${_json_str(String.from("items"))}:${count_items(module, entries)}`);
+    return(());
+  });
+  println(header);
+  if(degraded, {
+    println(`  (untyped — the evaluator could not load this module)`);
+  });
+  println(String.new());
+  // The module's items in index order (already sorted by the writer).
+  (width : usize) = usize(0);
+  (count : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        if(e.module == module, {
+          count = (count + usize(1));
+          if(e.name.len() > width, {
+            width = e.name.len();
+          });
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < entries.len(), {
+    match(
+      entries.get(j),
+      .Some(e) => {
+        if(e.module == module, {
+          pad := (width - e.name.len());
+          (p : usize) = usize(0);
+          padtxt := String.new();
+          while(p < pad, {
+            padtxt.push_str(" ");
+            p = (p + usize(1));
+          });
+          println(`  ${e.name}${padtxt}  ${e.kind}  ${e.signature}`);
+        });
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  if(count == usize(0), {
+    println(`  (no documented items)`);
+  });
+});
+/// The full entry of one item: the index row, then the item's rendered
+/// markdown section (signature, doc, examples) sliced from the module page.
+_run_context_describe_item :: (
+  fn(
+    module : String,
+    name : String,
+    entries : ArrayList(ContextIndexEntry),
+    mods : ArrayList(ContextIndexModule),
+    as_json : bool,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  matches := ArrayList(ContextIndexEntry).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        in_module := cond((module.len() == usize(0)) => true, true => (e.module == module));
+        if(in_module && ((e.name == name) || e.name.ends_with(String.from(".").concat(name))), {
+          matches.push(e);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(matches.len() == usize(0), {
+    exn.throw(dyn(`context: no item '${name}' in ${cond((module.len() == usize(0)) => `the corpus`, true => module)}`));
+  });
+  if(matches.len() > usize(1), {
+    lines := ArrayList(String).new();
+    (j : usize) = usize(0);
+    while(j < matches.len(), {
+      match(
+        matches.get(j),
+        .Some(m) => {
+          lines.push(`  ${m.module}  ${m.name}  ${m.kind}`);
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    exn.throw(dyn(`context: '${name}' is ambiguous:\n${_join_strings(lines, _nl())}`));
+  });
+  e := match(
+    matches.get(usize(0)),
+    .Some(x) => x,
+    .None => __yo_panic("context: matches — the len checks above prove one")
+  );
+  if(as_json, {
+    println(_hit_json(SearchHit(entry : e, score : usize(1))));
+    return(());
+  });
+  header := cond((module.len() == usize(0)) => `${e.module} — ${e.name}`, true => `${module} — ${e.name}`);
+  println(header);
+  println(String.new());
+  println(`${e.kind}  ${e.signature}`);
+  if(e.doc.len() > usize(0), {
+    println(String.new());
+    println(e.doc);
+  });
+  md_path := _index_dir_of(mods, e.module);
+  if(md_path.len() == usize(0), {
+    return(());
+  });
+  md_dir := module_md_dir(md_path, e.module);
+  sliced := _slice_item_md(Path.new(md_dir).join(Path.new(`${module_leaf(e.module)}.md`)).to_string(), name, io, exn);
+  if(sliced.len() > usize(0), {
+    println(String.new());
+    println(sliced);
+  });
+});
+/// `yo context <name>` when the name is no module: ranked hits across the
+/// corpus — exact name first, then `Type.name` suffix matches — and exit 1
+/// with the list when ambiguous.
+_run_context_describe_bare :: (
+  fn(
+    name : String,
+    entries : ArrayList(ContextIndexEntry),
+    mods : ArrayList(ContextIndexModule),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  exact := ArrayList(ContextIndexEntry).new();
+  suffix := ArrayList(ContextIndexEntry).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        if(e.name == name, {
+          exact.push(e);
+        }, {
+          if(e.name.ends_with(String.from(".").concat(name)), {
+            suffix.push(e);
+          });
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  total := (exact.len() + suffix.len());
+  if(total == usize(0), {
+    exn.throw(dyn(`context: no module or item '${name}' in the corpus`));
+  });
+  if((exact.len() == usize(1)) && (suffix.len() == usize(0)), {
+    only := match(
+      exact.get(usize(0)),
+      .Some(x) => x,
+      .None => __yo_panic("context: exact — the len check proves one")
+    );
+    _run_context_describe_item(only.module, name, entries, mods, false, io, exn);
+    return(());
+  });
+  lines := ArrayList(String).new();
+  (j : usize) = usize(0);
+  while(j < exact.len(), {
+    match(
+      exact.get(j),
+      .Some(m) => {
+        lines.push(`  ${m.module}  ${m.name}  ${m.kind}  ${m.signature}`);
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  (k : usize) = usize(0);
+  while(k < suffix.len(), {
+    match(
+      suffix.get(k),
+      .Some(m) => {
+        lines.push(`  ${m.module}  ${m.name}  ${m.kind}  ${m.signature}`);
+      },
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  exn.throw(dyn(`context: '${name}' matches ${total.to_string()} items — name one:\n${_join_strings(lines, _nl())}`));
+});
+/// Run the `context` subcommand. With no query flags: locate the pack,
+/// print a one-line citation header, then the pack body verbatim (C1).
+/// With `--list` (C2): the module index over the corpus (bundled std, or
+/// `--path <dir>`), built on first use into the content-addressed cache.
+run_context :: (
+  fn(argv : ArrayList(String), io : Io, exn : Exception) -> unit
+)({
+  q := _parse_context_query(argv, exn);
+  querying := (q.list || (q.search.len() > usize(0)) || (q.subject.len() > usize(0)));
+  // All query modes live inside this branch; the bare pack path below must
+  // not touch the index at all — a bare `yo context` is a pure file read.
+  if(querying, {
+    world := _load_world(q.deps, q.path, q.refresh, io, exn);
+    if(q.list, {
+      _run_context_list(world, q.as_json, io, exn);
+      return(());
+    });
+    if(q.search.len() > usize(0), {
+      _run_context_search(q.search, q.deep, q.as_json, world, io, exn);
+      return(());
+    });
+    if(q.subject.len() > usize(0), {
+      if(q.item.len() > usize(0), {
+        module := match(
+          _resolve_module_arg(world.mods, q.subject.clone(), exn),
+          .Some(m) => m,
+          .None => String.new()
+        );
+        // `Type.method` addresses the method by its plain name — the index
+        // stores methods unqualified.
+        item_segs := q.item.split(String.from("."));
+        item_name := item_segs.get(item_segs.len() - usize(1)).unwrap_or(q.item);
+        _run_context_describe_item(module, item_name, world.entries, world.mods, q.as_json, io, exn);
+        return(());
+      });
+      // One positional: a module (path or unique last segment), else a bare
+      // item name across the corpus.
+      module_hit := false;
+      (mi : usize) = usize(0);
+      while(mi < world.mods.len(), {
+        match(
+          world.mods.get(mi),
+          .Some(m) => {
+            if(m.module == q.subject, {
+              module_hit = true;
+            });
+          },
+          .None => ()
+        );
+        mi = (mi + usize(1));
+      });
+      if(!module_hit, {
+        (hits : usize) = usize(0);
+        (mj : usize) = usize(0);
+        while(mj < world.mods.len(), {
+          match(
+            world.mods.get(mj),
+            .Some(m) => {
+              lsegs := m.module.split(String.from("/"));
+              mlast := lsegs.get(lsegs.len() - usize(1)).unwrap_or(String.new());
+              if(mlast == q.subject, {
+                hits = (hits + usize(1));
+              });
+            },
+            .None => ()
+          );
+          mj = (mj + usize(1));
+        });
+        if(hits == usize(1), {
+          module_hit = true;
+        });
+      });
+      if(module_hit, {
+        module := match(
+          _resolve_module_arg(world.mods, q.subject.clone(), exn),
+          .Some(m) => m,
+          .None => String.new()
+        );
+        _run_context_describe_module(module, world.entries, world.mods, q.as_json, io, exn);
+        return(());
+      });
+      // Not a module: a bare item name across the corpus.
+      // Bare item: reuse the item describe when unique; the bare runner
+      // itself handles ambiguity. JSON goes through the same row rendering.
+      if(q.as_json, {
+        exn.throw(dyn(`context: --format json with a bare item name is ambiguous by nature — address it as <module> <name>`));
+      });
+      _run_context_describe_bare(q.subject, world.entries, world.mods, io, exn);
+      return(());
+    });
+    exn.throw(dyn(`context: --refresh/--path need --list or a module argument. Usage: yo context [<module> [<name>]] [--list] [--path <dir>] [--refresh]`));
+  });
+  pack_opt := _find_bundled_context_pack(io, exn);
+  if(pack_opt.is_none(), {
+    pin := env.get(String.from("YO_CONTEXT_PACK"));
+    match(
+      pin,
+      .Some(v) => {
+        // An AUTHORITATIVE pin that names nothing is a user error, not a
+        // packaging bug — say so, with the path that was rejected.
+        exn.throw(
+          dyn(
+            tr(
+              `context: $YO_CONTEXT_PACK='${v}' names no ${PACK_FILENAME} (a file, or a directory containing one). No fallback is attempted for an explicit pin.`,
+              `context：$YO_CONTEXT_PACK='${v}' 未指向 ${PACK_FILENAME}（文件，或包含该文件的目录）。显式指定的路径无效时不会回退。`
+            )
+          )
+        );
+      },
+      .None => {
+        exn.throw(
+          dyn(
+            tr(
+              `Error: Could not locate the bundled context pack (looked for pack/${PACK_FILENAME} beside the executable, then beside the working directory). This is likely a packaging issue — please file a bug report.`,
+              `错误：找不到随发行版捆绑的上下文包（依次查找 pack/${PACK_FILENAME}：可执行文件旁、工作目录旁）。这通常是打包问题——请提交 bug 报告。`
+            )
+          )
+        );
+      }
+    );
+  });
+  pack_path := match(pack_opt, .Some(p) => p, .None => __yo_panic("context: pack_opt — the is_none() arm threw above"));
+  content := io.await(read_to_string(pack_path, io), IoExn(io : io, exn : exn));
+  // Citation header first (D2): which toolchain version and which pack
+  // revision produced this text, so an agent can cite what it read.
+  println(`yo ${String.from(CURRENT_YO_VERSION)} — ${_pack_version_line(content).unwrap_or(String.from("pack-version: unknown"))}`);
+  println(content);
+});
+export(run_context, search_score);

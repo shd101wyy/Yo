@@ -4,6 +4,8 @@ description: Build, test, verify, scaffold, format, and manage Yo projects. Use 
 argument-hint: "[project task or command]"
 ---
 
+For API discovery, run `yo context --list` and `yo context <module>`; the language pack (`yo context`) is the fastest orientation.
+
 # Yo Project Workflow
 
 Use this skill for repository setup, build and test execution, and authoring `build.yo` in normal Yo projects.

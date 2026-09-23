@@ -668,10 +668,11 @@ install_dist() {
     tar -xzf "$YO_TEMP_DIR/$bundle.tar.gz" -C "$YO_TEMP_DIR" \
       || stop "Failed to extract $bundle.tar.gz"
 
-    # The bundle keeps bin/, std/ and vendor/ as SIBLINGS: the compiler finds
-    # its standard library by walking up from its own executable, and resolves
-    # the vendored mimalloc as <std>/../vendor. Installing them apart breaks
-    # both. Move the extracted tree in one piece.
+    # The bundle keeps bin/, std/, vendor/, .github/ and pack/ as SIBLINGS:
+    # the compiler finds its standard library by walking up from its own
+    # executable, resolves the vendored mimalloc as <std>/../vendor, and the
+    # skills/pack lookups walk up the same way. Installing them apart breaks
+    # that. Move the extracted tree in one piece.
     if [ ! -d "$YO_TEMP_DIR/$bundle/std" ] || [ ! -d "$YO_TEMP_DIR/$bundle/bin" ]; then
       stop "Unexpected bundle layout in $bundle.tar.gz (missing bin/ or std/)"
     fi
