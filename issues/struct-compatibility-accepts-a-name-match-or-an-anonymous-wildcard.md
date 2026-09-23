@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
 **Status:** OPEN. Green `yo check`; clang error or ICE in `yo compile`.
-**Measured:** yo 0.2.39 seed.
+**Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro 1: two modules each export a differently-shaped `P`
 

@@ -208,7 +208,7 @@ tests and will gain the `derive(Eq)` assertion when this closes.
 
 ## Addendum 2026-09-23: `<` without `Ord` has the same shape (type-system audit)
 
-MEASURED on the yo 0.2.39 seed (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1):
+MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1):
 
 ```rust
 P :: struct(x : i32);

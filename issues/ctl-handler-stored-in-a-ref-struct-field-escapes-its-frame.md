@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5).
 **Status:** OPEN. Effects-typing hole: control flow silently skips the rest of `main`.
-**Measured:** yo 0.2.39 seed.
+**Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro
 

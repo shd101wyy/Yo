@@ -2,7 +2,9 @@
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3).
 **Status:** OPEN. **Wrong code** with a green `check` and `compile`.
-**Measured:** yo 0.2.39 seed (re-run by the auditor: prints `v=6` and `v=5`).
+**Measured:** the yo 0.2.39 seed prints `v=6` and `v=5` (wrong). A develop build `d455b6a67` prints the expected
+`v=7` and `v=6`, but emits the identical truncating cast shown below, so the correct output there is
+undefined behaviour that happens to work, not a fix.
 
 ## Repro 1: through a fn-typed local
 

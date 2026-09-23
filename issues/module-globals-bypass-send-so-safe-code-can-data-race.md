@@ -3,7 +3,7 @@
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5).
 **Status:** OPEN. **Thread-safety design gap**: `docs/en-US/THREAD_SAFETY.md` says sharing
 unsynchronized state across threads is a compile error; this program is green.
-**Measured:** yo 0.2.39 seed.
+**Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro
 

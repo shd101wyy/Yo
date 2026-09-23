@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5).
 **Status:** OPEN. **Memory-safety hole** in safe code: green `check` and `compile`.
-**Measured:** yo 0.2.39 seed.
+**Measured:** yo 0.2.39 seed; re-verified on a develop build `d455b6a67`.
 
 ## Repro
 
@@ -25,7 +25,8 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-Output: `top 1`, `sink 1`, `top 8589934593`, ... The second iteration reads freed memory, and
+Output: `top 1`, `sink 1`, `top 8589934593`, ... with the seed, and `top 4294967297` with the develop
+build. The second iteration reads freed memory, and
 each iteration frees `xs` again. The emitted C passes `xs` to `sink` on every iteration with no
 dup.
 

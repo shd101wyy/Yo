@@ -83,23 +83,26 @@ than a structural one ([[yo-byte-identity-gate-for-additive-codegen-change]]).
 
 ## Addendum 2026-09-23: anonymous structs share the same id scheme (type-system audit)
 
-MEASURED on the yo 0.2.39 seed (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3). `stable_type_id`
+MEASURED on a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 3). `stable_type_id`
 (`src/utils.yo` ~309) is used for traits, CTFE instantiations, anonymous struct values
 (`src/evaluator/values/anonymous_struct.yo` ~89) and unions, so the collision is not trait-only.
 Two modules each export an anonymous record constant at the same row and column:
 
 ```rust
 // m1.yo
+{ String } :: import("std/string");
 V :: { x : i32(7) };
 export(V);
 // m2.yo (V at the same row/col as in m1.yo)
-V :: { y : f64(2.5), z : bool(true) };
+{ String } :: import("std/string");
+V :: { y : f64(2.5), z : true };
 export(V);
 ```
 
-Importing both as `V1`/`V2` gives `Type.eq(typeof(V1), typeof(V2)) = 1` and
-`Type.is_compatible_with(...) = 1`. A later field access reports `Failed to find "x" in the type`
-for `V1`. Moving `V` in `m2.yo` down one line gives `eq=0`.
+Importing both as `V1`/`V2` gives `Type.eq(typeof(V1), typeof(V2)) = 1`. Adding one blank line
+above `V` in `m2.yo` gives `eq=0`. (`Type.is_compatible_with` is 1 in both cases, which is the
+separate anonymous-wildcard bug in
+`issues/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`.)
 
 Position-keyed ids also make C type names follow the source position: adding one comment line
 above `P :: struct(...)` changed its C name from `__yo_t_2236567100777795219` to

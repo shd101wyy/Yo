@@ -63,7 +63,7 @@ program that passes both `check` and `compile`:
 | --- | --- | --- |
 | `(y : Value(bool)) = Value(i32).IntVal(77)` then `eval_value(y)` | prints `77` from a `bool` | `issues/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md` |
 | move an `ArrayList` into an `own` param inside a `while` | use-after-free, prints garbage | `issues/moving-a-variable-inside-a-loop-body-is-not-rejected.md` |
-| call an `inout` fn through a fn value | the mutation is lost | `issues/inout-call-through-a-fn-value-loses-the-mutation.md` |
+| call an `inout` fn through a fn value | the pointer is truncated to `int32_t`; the seed's binary loses the mutation | `issues/inout-call-through-a-fn-value-loses-the-mutation.md` |
 | push to a module-global `ArrayList` from two threads | data race, contract failure | `issues/module-globals-bypass-send-so-safe-code-can-data-race.md` |
 | `Iso` a wrapper whose interior is aliased | data race | `issues/iso-checks-only-the-wrapper-refcount-not-the-interior.md` |
 | `apply(x => true, 3)` where `Fn(x : i32) -> i32` is expected | prints `1` | `issues/closure-result-type-is-not-checked-against-the-expected-fn-type.md` |
@@ -97,9 +97,10 @@ Each phase in §5 attacks one or two of them.
   `tests/internal` files that import the touched evaluator modules, and the fixpoint battery. Any
   change to type keys or ids (Phase 3) additionally needs the emitted-C byte-identity/renaming
   check.
-- **Seed gate.** Evaluator changes that newly reject programs do not need a seed bump. Changes
-  that alter emitted C symbol names do, when `std/` or `src/` must be adjusted in the same
-  step; follow `plans/backlog/SEED_VERSION_AUTOMATION.md`.
+- **Seed gate.** A new rejection needs no seed bump: the fix and the `std/`/`src/` cleanups it
+  forces land together. A new type form that `std/` or `src/` would *use* (such as `never` in
+  Phase 3.6) is seed-gated: the compiler support ships in a release first, and `std/`/`src/`
+  adopt it after `SEED_VERSION` carries it (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 ## 5. Phases
 
@@ -135,6 +136,7 @@ Each item is one check at one site, with a test. No architecture change.
 | 1.6 | An operator whose trait lookup misses is an error, never `unit` (`==`, `<`, and the rest) | `equality-operator-without-an-eq-impl-evaluates-to-unit` |
 | 1.7 | Check enum payloads at construction | `enum-variant-payload-type-is-not-checked-at-construction` |
 | 1.8 | A closure is not a bare `fn(...)` pointer; a runtime arg is not a `comptime(v)` arg | `bare-fn-type-param-accepts-a-closure-then-emits-invalid-c`, `a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c` |
+| 1.9 | Codegen lowers `param_is_ref` parameters to `T*` in every fn-pointer type string (a codegen one-liner in effect, but it is wrong code today) | `inout-call-through-a-fn-value-loses-the-mutation` |
 
 Already landed or in flight from a parallel session: comptime literal arguments are checked
 against concrete parameters (#856, which closed
@@ -224,9 +226,9 @@ Exit: each issue's test flips; `check ./std` and `check ./src` are green with co
 4. **The CTFE memo uses the identity predicate**, not exact compatibility
    (`ctfe-memo-merges-an-anonymous-struct-with-a-named-struct`,
    `ctfe-memo-shared-struct-id-fast-path-smell`).
-5. **Param modes are part of fn types, end to end.** The evaluator distinguishes
-   `fn(inout(x) : T)` from `fn(x : T)`, and codegen lowers `param_is_ref` to `T*` in every
-   fn-pointer type (`inout-call-through-a-fn-value-loses-the-mutation`).
+5. **Param modes are part of fn types.** The evaluator distinguishes `fn(inout(x) : T)`,
+   `fn(own(x) : T)` and `fn(x : T)`, completing Phase 1.9's codegen half
+   (`inout-call-through-a-fn-value-loses-the-mutation`).
 6. **A bottom type.** Add `never`, the join identity for arms. Type `return`, `unwind`,
    `__yo_panic`, `std/assert.panic` and `exit` with it
    (`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type`).
@@ -339,7 +341,7 @@ Each phase also updates these docs for the rules it adds.
 | Phase | Depends on | Size | Why this position |
 | --- | --- | --- | --- |
 | 0 | – | S | gives every other phase a metric |
-| 1 | 0 | S–M, 8 independent PRs | the critical GADT hole and most "compiles and runs wrong" cases, each one site |
+| 1 | 0 | S–M, 9 independent PRs | the critical GADT hole and most "compiles and runs wrong" cases, each one site |
 | 4.1–4.2 | – | S | turns silent holes loud immediately; can run in parallel with 1 |
 | 2.1–2.3, 2.7 | 0 | M | conformance and coherence decisions |
 | 2.4–2.6 | 1 | L | the architectural unification change |
@@ -353,8 +355,20 @@ Each phase also updates these docs for the rules it adds.
 
 The six audit parts were run against develop `7e0187d59` with the v0.2.39 seed. Probes that the
 audit marks MEASURED were run with `yo check` and, where check was green, `yo compile
---optimize 2` and the binary. The eight headline programs in §2 were re-run by hand. Each new
-issue doc carries its own "Measured" line, including its result on a develop-built compiler
-(`d455b6a67`, built with `YO_STD` pointing at the tree's std). Findings marked READ come from
-reading code and give file and approximate line numbers; line numbers drift, so the function
-name is the durable anchor.
+--optimize 2` and the binary.
+
+All 46 reproducers behind the new issues and addenda were then replayed on a compiler built from
+develop `d455b6a67` (with `YO_STD` pointing at the tree's std, because `yo build` otherwise
+compiles `src/` against the seed bundle's std). Every one still reproduces. Three differ from the
+seed in detail, and each doc says how:
+
+- The `inout` fn-value probes print the right numbers on develop, but both compilers emit the
+  same truncating cast, so that output is undefined behaviour that happens to work.
+- The GADT wrong-index program prints `1` instead of `0`; the value is unspecified.
+- The cross-module anonymous-id probe needed rebuilding, because the audit's copy used
+  `bool(true)` inside a record, which fails under both compilers with an internal "Phase 5"
+  message (added to the diagnostics issue).
+
+Each new issue doc carries its own "Measured" line. Findings marked READ come from reading code
+and give file and approximate line numbers; line numbers drift, so the function name is the
+durable anchor.

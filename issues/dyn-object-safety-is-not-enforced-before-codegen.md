@@ -4,7 +4,7 @@
 **Status:** OPEN. Green `yo check`; `yo compile` fails inside clang. `docs/en-US/DYN_DESIGN.md`
 says object safety "is enforced at method call time"; no such check exists (grep of `src/` for
 object safety finds nothing).
-**Measured:** yo 0.2.39 seed.
+**Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro 1: a method that returns `Self`
 

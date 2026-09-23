@@ -479,7 +479,7 @@ additionally verified by hand (101 → 42) and by the full gate battery.
 
 ## Addendum 2026-09-23: the whole-variable `inout` + by-value shape (type-system audit)
 
-MEASURED on the yo 0.2.39 seed (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5). The Stage 0 dup
+MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5). The Stage 0 dup
 covers a *projection* aliased with its container (`f(w, w.b)`). Passing the *same variable* to
 an `inout` parameter and a by-value parameter is not covered:
 

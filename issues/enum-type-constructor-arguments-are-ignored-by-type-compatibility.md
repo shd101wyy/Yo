@@ -3,7 +3,7 @@
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
 **Status:** OPEN. **Critical soundness hole**: GADT indices and phantom enum parameters are not
 part of type identity, so a program can read an `i32` through a `bool`-typed binding.
-**Measured:** yo 0.2.39 seed.
+**Measured:** yo 0.2.39 seed; re-verified on a develop build `d455b6a67` (same results, except Repro 2's printed value).
 
 ## Repro 1: GADT index laundering (runs, wrong type)
 
@@ -40,7 +40,8 @@ main :: (fn() -> unit)({ x := Value(i32).BoolVal(true); println(only(x)); });
 ```
 
 `Value(i32).BoolVal(true)` is accepted even though `BoolVal` constructs `Value(bool)`. `only`
-omits the `BoolVal` arm (correctly, per GADT refinement) and the program prints `0`.
+omits the `BoolVal` arm (correctly, per GADT refinement), and the match falls off: the program
+prints `0` with the seed and `1` with the develop build, an unspecified value.
 
 ## Repro 3: a plain phantom enum
 

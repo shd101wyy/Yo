@@ -3,7 +3,8 @@
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 4).
 **Status:** OPEN. Diagnostics quality; complements
 `issues/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md`.
-**Measured:** yo 0.2.39 seed (`yo explain --list` knows 30 codes).
+**Measured:** yo 0.2.39 seed (`yo explain --list` knows 30 codes); the unknown-field row re-verified
+on a develop build `d455b6a67`.
 
 ## Findings
 
@@ -24,6 +25,7 @@
 | 13 | tuple pattern `match(t, (1, _) => ...)` | `... comparing them yields unit, not bool` | leaks the `==`-yields-unit mechanism |
 | 14 | `Box` payload pattern | `... has type Box(<enum:enum_decl_b1_r1c5__self_shell>)` | leaks `__self_shell` |
 | 15 | `unwind` in a plain fn | `...function that has an enclosing function` | misleading wording |
+| 16 | `V :: { z : bool(true) }` (a cast inside a record field) | `evaluate_function_call: TypeVal callee with unsupported type (Phase 5)` | internal fn name and a porting-phase label in a user error |
 
 `docs/en-US/ERROR_DIAGNOSTICS.md` states that "the same underlying mistake always produces the same
 code"; #4/#5 and #6/#7 contradict it.

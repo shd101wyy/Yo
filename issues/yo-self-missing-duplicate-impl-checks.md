@@ -73,7 +73,7 @@ because they widen this issue:
 
 ## Addendum 2026-09-23: measured coherence outcomes (type-system audit)
 
-MEASURED on the yo 0.2.39 seed (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 2). Every case is
+MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 2). Every case is
 `check` rc=0 and `compile` rc=0; "first registered wins" silently:
 
 | Case | Prints | Winner |

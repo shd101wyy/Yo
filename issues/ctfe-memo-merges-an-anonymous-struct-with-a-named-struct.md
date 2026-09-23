@@ -5,7 +5,7 @@
 depending only on which instantiation ran first. This is a live, reproduced sibling of the
 hypothesis in `issues/ctfe-memo-shared-struct-id-fast-path-smell.md`, through a different
 predicate.
-**Measured:** yo 0.2.39 seed.
+**Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro 1: `Type.eq` depends on what ran before it
 
