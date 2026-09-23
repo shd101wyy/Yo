@@ -91,3 +91,28 @@ test("a long template and long chains evaluate the receiver once and still forma
   nested := `${`${`${a}${n}`}${b}`}${a}`;
   assert(nested == `a7truea`, "nested templates");
 });
+_interp_id :: (fn(s : str) -> str)(s);
+// An interpolation body is CODE: a string literal in it keeps its own
+// escapes, and a brace or backtick inside that literal is not a delimiter
+// (issues/fixed/template-interpolation-body-is-not-scanned-as-code.md). Each
+// of these failed to lex (E0004) or cut the body short before the fix.
+test("an interpolation body is scanned as code, not template text", {
+  a := `x`;
+  nl := `${a.concat(String.from("\n"))}`;
+  assert(nl.len() == usize(2));
+  assert(nl.byte_at(usize(1)) == u8(10));
+  q := `[${_interp_id("q\"q")}]`;
+  assert(q == `[q"q]`);
+  close := `[${_interp_id("}")}]`;
+  assert(close == `[}]`);
+  open_brace := `[${_interp_id("{")}]`;
+  assert(open_brace == `[{]`);
+  tick := `[${_interp_id("`")}]`;
+  assert(tick.len() == usize(3));
+  nested := `<${`in${i32(1)}`}>`;
+  assert(nested == `<in1>`);
+  // The literal text around a body still decodes its escapes.
+  tab := `a\t${i32(2)}\n`;
+  assert(tab.len() == usize(4));
+  assert(tab.byte_at(usize(1)) == u8(9));
+});

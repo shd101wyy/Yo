@@ -6,7 +6,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue } :: import("./token.yo");
 { format_lexer_error } :: import("./error.yo");
-{ UnicodeEscape, scan_unicode_escape } :: import("./utils.yo");
+{ UnicodeEscape, scan_unicode_escape, interpolation_body_end } :: import("./utils.yo");
 // Identifier/operator INTERN table: one canonical String instance per
 // distinct token text, so every same-named token shares one buffer and
 // downstream `String ==` hits the interned ptr+len fast path
@@ -67,6 +67,28 @@ tokenize :: (
     module_path : String,
     exn : Exception
   ) -> ArrayList(Token)
+)(tokenize_span(input, module_path, usize(0), input.len(), usize(0), usize(0), usize(0), exn));
+/// Tokenizes the byte range `[start_byte, end_byte)` of `input` as if it sat
+/// at its real place in the file: the first rune is at `base_row` /
+/// `base_col` / `base_char` (0-based row and column, rune index), and every
+/// token — and every lexer diagnostic — carries positions and the `input`
+/// of the WHOLE file.
+///
+/// The parser lexes each template interpolation body through this, so an
+/// error inside `${...}` points at the file line it is on instead of `1:1` of
+/// the body text alone
+/// (issues/fixed/template-interpolation-body-is-not-scanned-as-code.md).
+tokenize_span :: (
+  fn(
+    input : String,
+    module_path : String,
+    start_byte : usize,
+    end_byte : usize,
+    base_row : usize,
+    base_col : usize,
+    base_char : usize,
+    exn : Exception
+  ) -> ArrayList(Token)
 )({
   tokens := ArrayList(Token).new();
   chars := ArrayList(rune).new();
@@ -79,7 +101,11 @@ tokenize :: (
   // stop at the same byte on malformed input, so they stay in lockstep.
   char_byte_offsets := ArrayList(usize).new();
   {
-    c_iter := input.char_indices();
+    span := cond(
+      ((start_byte == usize(0)) && (end_byte == input.len())) => input,
+      true => input.substring(start_byte, end_byte)
+    );
+    c_iter := span.char_indices();
     while(true, {
       match(
         c_iter.next(),
@@ -93,9 +119,9 @@ tokenize :: (
           // U+FEFF is an ordinary identifier rune. Windows PowerShell 5.1
           // (`Set-Content -Encoding UTF8`) and several Windows editors emit
           // BOM'd UTF-8 (issues/fixed/lexer-rejects-leading-utf8-bom.md).
-          is_leading_bom := ((pair._0 == usize(0)) && (pair._1.char == u32(0xFEFF)));
+          is_leading_bom := (((start_byte + pair._0) == usize(0)) && (pair._1.char == u32(0xFEFF)));
           if(!is_leading_bom, {
-            char_byte_offsets.push(pair._0);
+            char_byte_offsets.push(start_byte + pair._0);
             chars.push(pair._1);
           });
         }
@@ -104,16 +130,17 @@ tokenize :: (
   };
   // One-past-the-end byte offset, so a token that starts at EOF still gets a
   // usable (empty-slice) offset rather than 0.
-  input_byte_len := input.len();
+  input_byte_len := end_byte;
+  input_bytes := input.as_bytes();
   null_rune := rune(u32(0));
   n := chars.len();
   i := usize(0);
-  line := usize(0);
+  line := base_row;
   line_start := usize(0);
   while(i < n, {
     c := chars.get(i).unwrap_or(null_rune);
-    col := (i - line_start);
-    char_idx := i;
+    col := ((i - line_start) + cond((line == base_row) => base_col, true => usize(0)));
+    char_idx := (base_char + i);
     byte_idx := char_byte_offsets.get(i).unwrap_or(input_byte_len);
     next_c := chars.get(i + usize(1)).unwrap_or(null_rune);
     is_fwd_slash := (c.char == u32(0x2F));
@@ -466,7 +493,6 @@ tokenize :: (
       (c.char == u32(0x60)) => {
         k := (i + usize(1));
         ts_sb := StringBuilder.new();
-        brace_depth := usize(0);
         template_closed := false;
         while(k < n, {
           ck := chars.get(k).unwrap_or(null_rune);
@@ -572,27 +598,30 @@ tokenize :: (
                 }
               );
             },
-            // Start of interpolation ${
-            ((brace_depth == usize(0)) && (ck.char == u32(0x24)) && (nck.char == u32(0x7B))) => {
+            // Start of interpolation `${`. The body is CODE: it is copied
+            // VERBATIM — no template escape decoding, which belongs to the
+            // literal text only — up to the `}` the shared scanner says
+            // closes it (a brace inside a string literal in the code does
+            // not). The parser re-lexes the body from the file.
+            ((ck.char == u32(0x24)) && (nck.char == u32(0x7B))) => {
               ts_sb.write_str("${");
-              brace_depth = usize(1);
               k = (k + usize(2));
+              body_end := interpolation_body_end(input_bytes, char_byte_offsets.get(k).unwrap_or(input_byte_len));
+              while((k < n) && (char_byte_offsets.get(k).unwrap_or(input_byte_len) < body_end), {
+                bk := chars.get(k).unwrap_or(null_rune);
+                if(bk.char == u32(0x0A), {
+                  line = (line + usize(1));
+                  line_start = (k + usize(1));
+                });
+                ts_sb.write_rune(bk);
+                k = (k + usize(1));
+              });
+              if(k < n, {
+                ts_sb.write_rune(rune(u32(0x7D)));
+                k = (k + usize(1));
+              });
             },
-            // Inside interpolation: track nested braces
-            (brace_depth > usize(0)) => {
-              cond(
-                (ck.char == u32(0x7B)) => {
-                  brace_depth = (brace_depth + usize(1));
-                },
-                (ck.char == u32(0x7D)) => {
-                  brace_depth = (brace_depth - usize(1));
-                },
-                true => ()
-              );
-              ts_sb.write_rune(ck);
-              k = (k + usize(1));
-            },
-            // Closing backtick (only outside interpolation)
+            // Closing backtick
             (ck.char == u32(0x60)) => {
               i = k;
               template_closed = true;
@@ -845,4 +874,4 @@ tokenize :: (
 // their concatenation is in this table, so the formatter's prefix-chain
 // tightening (`?*i32`, `**i32`) consults it instead of assuming every
 // operator pair would merge (the retired maximal-munch behavior).
-export(tokenize, _is_two_char_operator);
+export(tokenize, tokenize_span, _is_two_char_operator);
