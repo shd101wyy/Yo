@@ -83,7 +83,7 @@ best := scores.max().unwrap_or_else(() => recompute());
 
 This is safe-mode rule D7: a call may not erase a failure the type carries. It is not a ban on aborting — `panic(...)` and `assert(...)` stay legal (deliberate aborts are the author's loud statement, and `assert` is the test infrastructure) — and value-level traps such as bounds-checked indexing stay legal (their failure is a *value* precondition the type never carried; they are the subject of the arithmetic-semantics work, not of this rule).
 
-Exempt: `tests/*.test.yo` (a failed unwrap fails the test loudly — the test doing its job), the standard library, `pragma(Pragma.AllowUnsafe)` files, and compiler-synthesized code. Comptime contexts are NOT exempt yet: a comptime-known `.None` still emits a runtime unwrap today (there is no CTFE fold), so it would remain a reachable trap.
+Exempt: `tests/*.test.yo` (a failed unwrap fails the test loudly — the test doing its job), `pragma(Pragma.AllowUnsafe)` files, and compiler-synthesized code. The standard library follows the same rule as your code: its safe files contain no `unwrap`, and only its `AllowUnsafe` files use one. Comptime contexts are NOT exempt yet: a comptime-known `.None` still emits a runtime unwrap today (there is no CTFE fold), so it would remain a reachable trap.
 
 ## In-Place Mutation: `inout(name) : T`
 

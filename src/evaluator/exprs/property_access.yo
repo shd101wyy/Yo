@@ -572,7 +572,7 @@ evaluate_property_access :: (
   // receivers (`Option(i32).unwrap`) are gated in the TypeVal arm below.
   if(ast_expr_is_atom(property_expr) && is_class1_panic_method_name(ast_expr_token(property_expr).value), {
     pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(oi_c1.ty), .None => false);
-    if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.std_path.clone()), {
+    if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
       exn.throw(
         dyn(
           format_error_message_with_help(
@@ -789,7 +789,7 @@ Raw pointer operations may dereference invalid memory.`
       if(ast_expr_is_atom(property_expr) &&
         is_class1_panic_method_name(pr_prop_name.clone()) &&
           is_class1_panic_receiver_type(type_val_inner) &&
-            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.std_path.clone()), {
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
         exn.throw(
           dyn(
             format_error_message_with_help(
@@ -863,7 +863,7 @@ Raw pointer operations may dereference invalid memory.`
       if(ast_expr_is_atom(property_expr) &&
         is_class1_panic_method_name(ast_expr_token(property_expr).value) &&
           is_class1_panic_receiver_type(type_val_inner) &&
-            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.std_path.clone()), {
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
         exn.throw(
           dyn(
             format_error_message_with_help(
