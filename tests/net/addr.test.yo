@@ -336,7 +336,9 @@ _ok_v6 :: (fn(s : String) -> IpAddr)({
       err -> {
         eprintln(`  parse_v6 rejected a valid address: ${err}`);
         assert(false, "parse_v6 must accept this");
-        unwind(());
+        // Unreachable past the assert, but an `unwind` value is the enclosing
+        // fn's result type — this fn returns an IpAddr, not unit.
+        unwind(IpAddr.V4(u8(0), u8(0), u8(0), u8(0)));
       }
     )
   );
