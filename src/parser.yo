@@ -8,7 +8,8 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 { ArrayList, array_list } :: import("std/collections/array_list");
 { TokenKind, Token, find_matching_bracket } :: import("./token.yo");
-{ tokenize } :: import("./lexer.yo");
+{ tokenize, tokenize_span } :: import("./lexer.yo");
+{ interpolation_body_end } :: import("./utils.yo");
 { YoError, format_error_message, format_raw_error, format_error_message_with_repair_at } :: import("./error.yo");
 { Span } :: import("./diagnostics.yo");
 {
@@ -91,6 +92,67 @@ _SpecSplit :: struct(
   expr_text : String,
   spec : String
 );
+/// Where one template interpolation body starts in the FILE: its byte offset
+/// and the 0-based row / column / rune index `tokenize_span` takes.
+_TemplateBodyOrigin :: struct(
+  byte : usize,
+  row : usize,
+  col : usize,
+  ch : usize
+);
+/// `pos` moved past byte `b`: a newline starts the next row, and only the
+/// FIRST byte of a UTF-8 sequence is a rune (the lexer counts runes).
+_advance_body_origin :: (fn(pos : _TemplateBodyOrigin, b : u8) -> _TemplateBodyOrigin)(
+  cond(
+    (b == u8(0x0A)) => _TemplateBodyOrigin(byte : (pos.byte + usize(1)), row : (pos.row + usize(1)), col : usize(0), ch : (pos.ch + usize(1))),
+    ((b & u8(0xC0)) != u8(0x80)) => _TemplateBodyOrigin(byte : (pos.byte + usize(1)), row : pos.row, col : (pos.col + usize(1)), ch : (pos.ch + usize(1))),
+    true => _TemplateBodyOrigin(byte : (pos.byte + usize(1)), row : pos.row, col : pos.col, ch : pos.ch)
+  )
+);
+/// The file origin of every `${...}` body of the template token `tok`, in
+/// order, read from the RAW source at `tok.byte_offset` (the token value has
+/// its literal escapes decoded, so offsets into it are not file offsets).
+/// Empty when `tok` has no backtick in its source — a synthetic token — and
+/// the caller lexes the body text on its own.
+_template_body_origins :: (fn(tok : Token) -> ArrayList(_TemplateBodyOrigin))({
+  out := ArrayList(_TemplateBodyOrigin).new();
+  bytes := tok.input.as_bytes();
+  n := bytes.len();
+  if((tok.byte_offset < n) && (bytes(tok.byte_offset) == u8(0x60)), {
+    (pos : _TemplateBodyOrigin) = _TemplateBodyOrigin(byte : (tok.byte_offset + usize(1)), row : tok.row, col : (tok.column + usize(1)), ch : (tok.character + usize(1)));
+    (done : bool) = false;
+    while((pos.byte < n) && !(done), {
+      b := bytes(pos.byte);
+      nb := cond(((pos.byte + usize(1)) < n) => bytes(pos.byte + usize(1)), true => u8(0));
+      cond(
+        (b == u8(0x60)) => {
+          done = true;
+        },
+        (b == u8(0x5C)) => {
+          pos = _advance_body_origin(pos, b);
+          if(pos.byte < n, {
+            pos = _advance_body_origin(pos, nb);
+          });
+        },
+        ((b == u8(0x24)) && (nb == u8(0x7B))) => {
+          pos = _advance_body_origin(_advance_body_origin(pos, b), nb);
+          out.push(pos);
+          body_end := interpolation_body_end(bytes, pos.byte);
+          while(pos.byte < body_end, {
+            pos = _advance_body_origin(pos, bytes(pos.byte));
+          });
+          if(pos.byte < n, {
+            pos = _advance_body_origin(pos, bytes(pos.byte));
+          });
+        },
+        true => {
+          pos = _advance_body_origin(pos, b);
+        }
+      );
+    });
+  });
+  out
+});
 Parser :: struct(
   input_string : String,
   module_path : String,
@@ -113,6 +175,32 @@ impl(
     ) -> Self
   )({
     toks := tokenize(input_string, module_path, exn);
+    Parser(
+      input_string : input_string,
+      module_path : module_path,
+      tokens : toks,
+      program : ArrayList(AstExpr).new(),
+      has_template_string : false,
+      has_template_spec : false,
+      next_expr_id : usize(0)
+    )
+  }),
+  /// A parser over the byte range `[start_byte, end_byte)` of `input`, its
+  /// tokens positioned in the whole file (`tokenize_span`). Template
+  /// interpolation bodies are parsed through this.
+  new_span : (
+    fn(
+      input_string : String,
+      module_path : String,
+      start_byte : usize,
+      end_byte : usize,
+      base_row : usize,
+      base_col : usize,
+      base_char : usize,
+      exn : Exception
+    ) -> Self
+  )({
+    toks := tokenize_span(input_string, module_path, start_byte, end_byte, base_row, base_col, base_char, exn);
     Parser(
       input_string : input_string,
       module_path : module_path,
@@ -304,87 +392,49 @@ impl(
   parse_template_string : (fn(inout(self) : Self, tok : Token, index : usize, exn : Exception) -> ParseResult)({
     self.has_template_string = true;
     template_value := tok.value;
-    // Collect chars of the template string into an ArrayList(rune)
-    ts_chars := ArrayList(rune).new();
-    {
-      c_iter := template_value.chars();
-      while(true, {
-        match(
-          c_iter.next(),
-          .None => {
-            break;
-          },
-          .Some(c) => {
-            ts_chars.push(c);
-          }
-        );
-      });
-    };
-    n := ts_chars.len();
+    // Byte-wise: every delimiter here is ASCII, and a UTF-8 multi-byte
+    // sequence never contains an ASCII byte, so literal runes pass through
+    // byte by byte unchanged.
+    ts_bytes := template_value.as_bytes();
+    n := ts_bytes.len();
     // Parts: each part is either a literal string or an interpolated expression
     part_is_expr := ArrayList(bool).new();
     part_content := ArrayList(String).new();
     cur_sb := StringBuilder.new();
     i := usize(0);
     while(i < n, {
-      c := match(ts_chars.get(i), .Some(r) => r, .None => rune(u32(0)));
+      c := ts_bytes(i);
+      nc := cond(((i + usize(1)) < n) => ts_bytes(i + usize(1)), true => u8(0));
       cond(
         // Escaped dollar: \$  →  $
-        (
-          (c.char == u32(0x5C)) && {
-            nc := match(ts_chars.get(i + usize(1)), .Some(r) => r, .None => rune(u32(0)));
-            nc.char == u32(0x24)
-          }
-        ) => {
+        ((c == u8(0x5C)) && (nc == u8(0x24))) => {
           cur_sb.write_byte(u8(0x24));
           i = (i + usize(2));
         },
         // Interpolation start: ${
-        (
-          (c.char == u32(0x24)) && {
-            nc := match(ts_chars.get(i + usize(1)), .Some(r) => r, .None => rune(u32(0)));
-            nc.char == u32(0x7B)
-          }
-        ) => {
+        ((c == u8(0x24)) && (nc == u8(0x7B))) => {
           // Save current string part if non-empty
           if(cur_sb.len() > usize(0), {
             part_is_expr.push(false);
             part_content.push(cur_sb.to_string());
             cur_sb = StringBuilder.new();
           });
-          // Scan for matching closing brace
-          brace_depth := usize(1);
-          expr_sb := StringBuilder.new();
-          j := (i + usize(2));
-          while((j < n) && (brace_depth > usize(0)), {
-            cj := match(ts_chars.get(j), .Some(r) => r, .None => rune(u32(0)));
-            cond(
-              (cj.char == u32(0x7B)) => {
-                brace_depth = (brace_depth + usize(1));
-              },
-              (cj.char == u32(0x7D)) => {
-                brace_depth = (brace_depth - usize(1));
-              },
-              true => ()
-            );
-            if(brace_depth > usize(0), {
-              expr_sb.write_rune(cj);
-            });
-            j = (j + usize(1));
-          });
+          // The body is code the lexer copied verbatim; the shared scanner
+          // finds the `}` that closes it (not a brace inside a literal).
+          body_end := interpolation_body_end(ts_bytes, i + usize(2));
           part_is_expr.push(true);
-          part_content.push(expr_sb.to_string());
-          i = j;
+          part_content.push(template_value.substring(i + usize(2), body_end));
+          i = cond((body_end < n) => (body_end + usize(1)), true => n);
         },
         true => {
           cond(
-            (c.char == u32(0x5C)) => cur_sb.write_str("\\\\"),
-            (c.char == u32(0x22)) => cur_sb.write_str("\\\""),
-            (c.char == u32(0x0A)) => cur_sb.write_str("\\n"),
-            (c.char == u32(0x09)) => cur_sb.write_str("\\t"),
-            (c.char == u32(0x0D)) => cur_sb.write_str("\\r"),
-            (c.char == u32(0x00)) => cur_sb.write_str("\\0"),
-            true => cur_sb.write_rune(c)
+            (c == u8(0x5C)) => cur_sb.write_str("\\\\"),
+            (c == u8(0x22)) => cur_sb.write_str("\\\""),
+            (c == u8(0x0A)) => cur_sb.write_str("\\n"),
+            (c == u8(0x09)) => cur_sb.write_str("\\t"),
+            (c == u8(0x0D)) => cur_sb.write_str("\\r"),
+            (c == u8(0x00)) => cur_sb.write_str("\\0"),
+            true => cur_sb.write_byte(c)
           );
           i = (i + usize(1));
         }
@@ -532,6 +582,8 @@ impl(
     });
     num_parts := part_content.len();
     (result_expr_opt : Option(AstExpr)) = .None;
+    body_origins := _template_body_origins(tok);
+    (expr_ordinal : usize) = usize(0);
     pi := usize(0);
     while(pi < num_parts, {
       is_expr := match(part_is_expr.get(pi), .Some(b) => b, .None => false);
@@ -546,7 +598,27 @@ impl(
           // `get_expression_program`); a `:spec` the inner source used has to
           // reach THIS parser, because the enclosing module's import is the
           // one that has to become `std/fmt/format`.
-          sub_parser := Parser.new(sp.expr_text, self.module_path, exn);
+          // Lexed IN PLACE in the file when the body's origin is known, so its
+          // tokens (and every diagnostic about them) carry the real row and
+          // column instead of `1:1` of the body text.
+          sub_parser := match(
+            body_origins.get(expr_ordinal),
+            .Some(o) => cond(
+              (((o.byte + sp.expr_text.len()) <= tok.input.len()) && (tok.input.substring(o.byte, o.byte + sp.expr_text.len()) == sp.expr_text)) => Parser.new_span(
+                tok.input,
+                self.module_path,
+                o.byte,
+                o.byte + sp.expr_text.len(),
+                o.row,
+                o.col,
+                o.ch,
+                exn
+              ),
+              true => Parser.new(sp.expr_text, self.module_path, exn)
+            ),
+            .None => Parser.new(sp.expr_text, self.module_path, exn)
+          );
+          expr_ordinal = (expr_ordinal + usize(1));
           (inner_prog : ArrayList(AstExpr)) = sub_parser.get_expression_program(exn);
           if(sub_parser.has_template_spec, {
             self.has_template_spec = true;
