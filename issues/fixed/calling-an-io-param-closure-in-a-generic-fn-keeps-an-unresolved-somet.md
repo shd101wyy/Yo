@@ -1,6 +1,6 @@
 # Calling an `Impl(Fn(io : Io) -> T)` parameter inside a generic function types the result as an unresolved `SomeT` — the C is invalid and nothing says so
 
-**Status: OPEN.** Severity: **silent invalid C** (undeclared symbol / link
+**Status: FIXED** (by 2026-09-24; the fixing change was not identified — see Verification). Severity: **silent invalid C** (undeclared symbol / link
 failure / hard clang type error, depending on `T`), plus a latent **32-bit
 truncation** on `wasm32-wasip1`. `yo check` is green, the emitted `.c` carries
 **zero** `// Failed to transpile` markers, and only the C compiler — or, on
@@ -331,3 +331,12 @@ reproducers pass it. The test must be a compile-and-run case.
   the capture-struct half and point it here.
 * `plans/archive/HANDOVER_STD_AUDIT_NEXT.md` item 12 and
   `plans/archive/STD_API_AUDIT.md` D7 — the row is BLOCKED, on this.
+
+## Verification (2026-09-24)
+
+Re-measured for Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`: Reproducer 1 compiles and prints
+`ok` on the v0.2.41 seed and on develop `a0573eea7`; boundary row 2 (`(r : T) = cb(io)`) at
+T = i32, u64 and f64 prints the values. Reproducer 2 needs `Thread(unit).spawn` since `Thread`
+became generic, and prints `ok`. No commit between v0.2.24 and v0.2.41 was bisected, so which
+change closed it is not recorded. The shape is pinned by
+`tests/type_soundness.test.yo` ("an io-param closure's result inside a generic body").

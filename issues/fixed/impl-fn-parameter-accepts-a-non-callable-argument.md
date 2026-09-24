@@ -70,7 +70,7 @@ C-convertible to a pointer the C compiler catches it. The same file with
 So the SILENT face is confined to
 scalar arguments — integers, `bool`, `char`, pointers — which is the common case
 and the dangerous one. This is the same containment shape recorded for C29
-(`issues/generic-type-var-rebinds-per-argument.md`).
+(`issues/fixed/generic-type-var-rebinds-per-argument.md`).
 
 ## Symptom 2 — `io.async` takes a bare block, or any value at all
 

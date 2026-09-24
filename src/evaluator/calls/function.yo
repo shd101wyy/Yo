@@ -2066,7 +2066,7 @@ _fv_order_is_permuted :: (fn(order : ArrayList(usize)) -> bool)({
 /// own occurrences in the parameter type (name + frame level), so a caller's
 /// binder of the same name (`_outer`'s `T` around `_inner(idx, n, (a, b) =>
 /// …)`) can no longer answer for the callee's
-/// (issues/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md).
+/// (issues/fixed/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md).
 _fv_refine_closure_expected :: (
   fn(
     param_ty : TypeValue,
@@ -2469,6 +2469,25 @@ _funcval_bind_foralls :: (
                 );
                 fa_bound = true;
               },
+              // A kind-annotated binder (`F` in `x : F(A)`) inferred as a
+              // type CONSTRUCTOR value (the synthesizer's TypeApp-vs-nominal
+              // case): bind the value, typed by its kind.
+              .FuncVal(_, _) => {
+                fa_bound_names.push(fa_name.clone());
+                fa_bound_types.push(se_var.ty);
+                _add_forall_fv := add_variable_to_env(
+                  fresh_env,
+                  fa_name,
+                  se_var.ty,
+                  Option(EvalValue).Some(se_val),
+                  true,
+                  false,
+                  false,
+                  false,
+                  synthetic_token(fa_name, env.module_path)
+                );
+                fa_bound = true;
+              },
               _ => ()
             ),
             .None => ()
@@ -2592,7 +2611,7 @@ _funcval_bind_foralls :: (
   // that only mentions it inside a type (`f : Impl(Fn(x : T) -> T)`), so
   // `apply(x => true, i32(3))` bound T = i32 from `v` while the closure's
   // result said bool, and the closure body was never checked against i32
-  // (issues/closure-result-type-is-not-checked-against-the-expected-fn-type.md,
+  // (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md,
   // generic half). Each such parameter is synthesized against its argument
   // in its own scratch env and every concrete binding it produces is compared.
   if(fa_bound_names.len() > usize(0), {
@@ -5594,7 +5613,7 @@ Fix: wrap the call:
         // closure met `Impl(Fn(x : T) -> T)` with `T` unbound, so its body was
         // typed on its own and `apply(x => true, i32(3))` was accepted with a
         // bool result for T = i32
-        // (issues/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
+        // (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
         // The per-argument lists are put back in source order after the loop.
         fv_eval_order := _fv_argument_eval_order(fv_args, n_p, resolved_param_types, forall_names);
         fv_reordered := _fv_order_is_permuted(fv_eval_order);

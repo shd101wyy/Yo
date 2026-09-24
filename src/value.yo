@@ -998,3 +998,19 @@ lookup_enum_cfid :: (fn(enum_id : String) -> String)(
   match(g_enum_cfids.get(enum_id), .Some(f) => f, .None => String.from(""))
 );
 export(register_enum_cfid, lookup_enum_cfid);
+// Type-constructor VALUES by func_id: the comptime function (`Option`,
+// `ArrayList`, a user's `Box`) whose call produced a type. Lets the synthesizer
+// infer a kind-annotated binder `F` in `x : F(A)` from an argument of type
+// `Option(i32)` — the instantiation's constructor id (`Struct.constructor_func_id`
+// / `lookup_enum_cfid`) names the function, this table hands back its value
+// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.4,
+// issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md).
+// The first registration wins, as for `g_enum_cfids`.
+(g_type_ctor_values : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+register_type_ctor_value :: (fn(func_id : String, v : EvalValue) -> unit)({
+  if((func_id.len() > usize(0)) && !g_type_ctor_values.contains_key(func_id), {
+    _prev := g_type_ctor_values.insert(func_id, v);
+  });
+});
+lookup_type_ctor_value :: (fn(func_id : String) -> Option(EvalValue))(g_type_ctor_values.get(func_id));
+export(register_type_ctor_value, lookup_type_ctor_value);

@@ -67,8 +67,8 @@ program that passes both `check` and `compile`:
 | call an `inout` fn through a fn value | the pointer is truncated to `int32_t`; the seed's binary loses the mutation | `issues/inout-call-through-a-fn-value-loses-the-mutation.md` |
 | push to a module-global `ArrayList` from two threads | data race, contract failure | `issues/module-globals-bypass-send-so-safe-code-can-data-race.md` |
 | `Iso` a wrapper whose interior is aliased | data race | `issues/iso-checks-only-the-wrapper-refcount-not-the-interior.md` |
-| `apply(x => true, 3)` where `Fn(x : i32) -> i32` is expected | prints `1` | `issues/closure-result-type-is-not-checked-against-the-expected-fn-type.md` |
-| `pair_same(String, i32)` with `fn(generic(A), x : A, y : A)` | runs | `issues/generic-type-var-rebinds-per-argument.md` |
+| `apply(x => true, 3)` where `Fn(x : i32) -> i32` is expected | prints `1` | `issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md` |
+| `pair_same(String, i32)` with `fn(generic(A), x : A, y : A)` | runs | `issues/fixed/generic-type-var-rebinds-per-argument.md` |
 | `Wrap(fn(x : i32))` then `Wrap(fn(inout(x) : i32))` | SIGSEGV | `issues/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md` |
 
 ## 3. Root causes (themes)

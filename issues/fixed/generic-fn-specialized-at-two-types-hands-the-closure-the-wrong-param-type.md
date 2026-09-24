@@ -1,6 +1,6 @@
 # A generic fn instantiated at two `T` hands one closure the other's parameter type
 
-**Status: OPEN** (found 2026-09-07, while implementing D17's stable sort).
+**Status: FIXED 2026-09-24** (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`; found 2026-09-07, while implementing D17's stable sort).
 
 **Severity: emitted C does not compile.** Not silent — clang rejects it — but
 the diagnostic names a generated symbol and a `__yo_tN` type, so the user has
@@ -63,3 +63,28 @@ appears to pick the parameter type from the enclosing specialization rather
 than from the closure's own resolved type — the `SomeT` resolution-cell
 family (see `yo-varbound-receiver-cell-recovery`, C27). Confirming that needs
 a walk of the specialization keys for the two instantiations.
+
+## Root cause (2026-09-24)
+
+The closure literal `(a, b) => …` was evaluated against `_inner`'s parameter type
+`Impl(Fn(a : T, b : T) -> bool)` with `_inner`'s `T` still unbound, and that `T` was then
+resolved BY NAME in the environment — where the enclosing `_outer` specialization binds its own
+`T = Rec`. So the closure's parameters were typed `Rec` while `_inner` was specialized at `usize`.
+The "suspected area" above (the SomeT resolution cells) was close: it is the name-keyed half of
+the same shared-binder resolution.
+
+## Fix
+
+Function-literal arguments are evaluated after the other arguments, against their parameter type
+with the callee's binders substituted at the callee's OWN occurrences (name + frame level) by the
+types the other arguments fixed — here structurally, `ptr : *(T)` given `*(usize)` — so a
+caller's same-named binder cannot answer (`_fv_refine_closure_expected`,
+`src/evaluator/calls/function.yo`; the same ordering in `try_to_call`'s Step 7).
+
+## Verification
+
+`issues/repros/generic-fn-at-two-types-wrong-closure-param.yo` compiles and prints
+`outer=true`. `tests/type_soundness.test.yo` ("a closure keeps the inner instantiation's
+parameter type") fails on the Phase 0–2.3 compiler with the clang error above and passes now.
+The monomorphic index merge in `std/collections/array_list.yo` can use the generic helper again;
+that is left as is (the shipped sort is correct either way).

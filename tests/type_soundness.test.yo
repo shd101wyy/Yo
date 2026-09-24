@@ -358,3 +358,41 @@ test("soundness canary: the expected type infers a result-only type parameter", 
   (z : Option(u8)) = m.mk();
   assert(z.is_none(), "a method's result-only binder from the expected type");
 });
+// issues/fixed/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md
+// (Phase 2.4): an outer generic instantiating an inner one at a DIFFERENT
+// type, with a closure over the outer T's data. The closure's parameter type
+// came from the OUTER `T` (resolved by name), so the emitted C passed a
+// `usize` index where the closure took a `_Rec`.
+_TwoTRec :: struct(key : i32, tag : i32);
+_inner_at :: (fn(generic(T : Type), a : T, b : T, less : Impl(Fn(x : T, y : T) -> bool)) -> bool)(less(a, b));
+_outer_at :: (fn(generic(T : Type), xs : ArrayList(T), less : Impl(Fn(x : T, y : T) -> bool)) -> bool)(
+  _inner_at(usize(0), usize(1), (i, j) => less(xs(i), xs(j)))
+);
+test("soundness canary: a closure keeps the inner instantiation's parameter type", {
+  xs := ArrayList(_TwoTRec).new();
+  xs.push(_TwoTRec(key : i32(1), tag : i32(0)));
+  xs.push(_TwoTRec(key : i32(2), tag : i32(1)));
+  assert(_outer_at(xs, (p, q) => (p.key < q.key)), "compares the records through indices");
+});
+// issues/fixed/calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md:
+// calling an `Impl(Fn(io : Io) -> T)` parameter inside a generic body typed the
+// result as an unresolved SomeT (undeclared symbol / clang type error).
+_IoCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(struct(v : T));
+impl(
+  generic(T : Type),
+  where(T <: Send),
+  _IoCell(T),
+  put : (fn(inout(self) : Self, value : T) -> unit)({
+    self.v = value;
+  })
+);
+_io_run :: (fn(generic(T : Type), io : Io, seed : T, cb : Impl(Fn(io : Io) -> T), where(T <: Send)) -> T)({
+  b := _IoCell(T)(v : seed);
+  b.put(cb(io));
+  b.v
+});
+test("soundness canary: an io-param closure's result inside a generic body", {
+  assert(_io_run(io, i32(0), (io2 : Io) => i32(42)) == i32(42), "i32");
+  assert(_io_run(io, u64(0), (io2 : Io) => u64(18446744073709551615)) == u64(18446744073709551615), "u64");
+  assert(_io_run(io, f64(0.0), (io2 : Io) => f64(2.5)) == f64(2.5), "f64");
+});
