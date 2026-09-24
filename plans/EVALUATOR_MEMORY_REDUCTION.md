@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-21 — Phase 0 steps 1/4/5 and Phase 1 landed (#805: `check src/main.yo` 19.9 → 10.2 GB, 170 → 90 s; two follow-up bugs fixed in #807); Phase 2 (F3) LANDED (PR `perf/evaluator-memory-p2-f3`): 10.16 → 10.01 GB with copy-on-write adoption, guard clean, gates_fast + fixpoint green, emission identical to develop except one measured optimizer correction — the audit's 2–3 GB estimate for F3 was a sizing error (§Phase 2). Phase 7 step 4 (ExprInfo diet) LANDED: 10.01 → 9.61 GB. Next by measured value: Phase 4 Design 1 (1.3 M cloned nodes), then F4/F5/F7.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-24 — `check src/main.yo` 19.9 → 6.84 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`). Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: re-take the census on the leak-free compiler, land the CI memory ratchet (a leak fence), then header step 2 / Option(ref) niche / Variable diet by the new numbers.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1047,6 +1047,100 @@ interning PLUS header step 2 at minimum, and interning has to deliver ~1.4 GB
 of its 2.48 GB ceiling — which is exactly what the `YO_TYPE_INTERN_PROBE`
 measurement (distinct vs total retained types) is for. Building it before
 that number is in would repeat the value-cell mistake below.
+
+### 0.5 The TypeValue cluster was a leak (2026-09-24)
+
+**Audit of the plan against develop `251522b21`** (every item checked in the
+tree, not from the status line):
+
+| item | state |
+| --- | --- |
+| Phase 0.1 per-type census (`live_census_t.py`) | done |
+| Phase 0.2 `peak_histogram.py` | **not built** |
+| Phase 0.3a exit census / 0.3b peak composition / 0.3c holder attribution | done / **open** / answered for TypeValue by §0.5 (allocation-site attribution), open for the rest |
+| Phase 0.4 `YO_SPEC_REPORT`, 0.5 per-release series | done |
+| Phase 0.6 CI memory ratchet | **not built** (no job in `.github/`) |
+| Phase 1.1 walk-context release | done (`g_retain_walk_contexts`; `ModuleWalk.env` is still retained) |
+| Phase 1.2 `YO_DEBUG_WALKS` assertion build | not built (a released ctx falls back to a file-level reload instead) |
+| Phase 1.3 LSP retains only OPEN documents | **not built** — `yo lsp` retains every walk (`set_retain_walk_contexts(true)`) |
+| Phase 1.4 `SpecializedFunctionCache.env` removed | done |
+| Phase 1.5 registry sweep of the module globals | **not done** |
+| Phase 2 (F3) | done (−0.15 GB) |
+| Phase 3 `Option(ref)` niche | not started |
+| Phase 4 specialization without AST clones | not started (demoted, §0.4′) |
+| Phase 5a TypeValue interning | superseded — see below |
+| Phase 5b `Symbol` | not started |
+| Phase 6 value-cell capacity / header step 2 / `Variable` inline slot | done (60 MB) / not started / not started |
+| Phase 7 F8 fix + ExprInfo diet | done |
+| `_find_specialization_cache` linear scan (time lever, §0.2d) | not changed |
+
+**Baseline re-measured** (quiet machine, v0.2.41 seed = develop): `check
+src/main.yo` **9.86 GB / 120 s**; self-emit (`compile src/main.yo --emit-c
+--skip-c-compiler --optimize 2`) **13.04 GB / 206 s** (22.27 GB on 2026-09-20).
+
+**Instrument 1 — exit heap walk** (`scripts/bootstrap/heap_walk_census_t.py`):
+walks the GC's tracked-object list at exit and reads each object's
+`dispose_fn` to type it, the TypeValue tag, and ArrayList lengths. Same run,
+9.77 GB:
+
+| TypeValue variant | live |
+| --- | --- |
+| `EnumT` | 3,277,418 |
+| `Struct` | 2,340,364 |
+| `Pointer` | 1,662,837 |
+| `Func` | 149,436 |
+| `SomeT` | **29,406** |
+| everything else | < 12 K |
+
+`ArrayList(ArrayList(TypeValue))` 3.22 M (2.44 M of length 2) and
+`ArrayList(TypeValue)` 11.14 M (4.37 M empty, 4.89 M of length 1): the shape of
+`Option(T)`-like `EnumT`s, `variant_fields = [[], [T]]`. **The §Phase 5a
+conclusion that the unshared population is "the SomeT-bearing families" was
+wrong** — SomeT is 0.4 % of the cluster.
+
+**Instrument 2 — allocation sites** (`scripts/bootstrap/alloc_site_census_t.py`
++ `fid_name_map.py`): each TypeValue constructor records its two return
+addresses; live objects at exit are histogrammed by (variant, caller).
+**7.34 M of the 7.47 M live TypeValues (98 %) were minted by `_substitute_at`
+calling itself** (`src/types/substitution.yo`) — the inner nodes of
+substituted types.
+
+**Instrument 3 — the intern table** (a probe build): `g_type_intern` held
+**9,364 keys (20.6 MB of key strings)** after 12.97 M `intern_type` calls. So
+the table was not the holder: the substitute results were canonicalized, and
+the 7.3 M fresh nodes were simply never freed. `_substitute_at` returns
+`intern_type(match(ty, ...))`; a 50-line reproducer showed any `match`/`cond`
+passed directly as a call argument leaked its result (2,000 built, 0
+disposed), present since at least v0.2.32. Root cause: codegen declared the
+match/cond result temp with a raw type string that bypassed
+`declared_c_var_names`, so the deferred-drop pass discarded the evaluator's
+scheduled `___drop` as an "undeclared temp".
+
+| compiler | `check src/main.yo` peak | wall |
+| --- | --- | --- |
+| develop (v0.2.41) | 9.86 GB | 120 s |
+| probe: only `_substitute_at` rewritten to bind the match first | 7.59 GB | 97 s |
+| **codegen fix, stage-2 compiler** | **6.84 GB** | **93 s** |
+
+The codegen fix is worth 0.75 GB more than the one-site rewrite: other
+`f(match(...))` / `f(cond(...))` sites in `src/` leaked too.
+
+**What this changes in the plan:**
+
+- Phase 5a (interning) is superseded: the TypeValue population was leaked
+  temporaries, not missed sharing. Re-take the census on the leak-free
+  compiler before building anything there; the "SomeT identity" design
+  problem stated in 5a is not a memory blocker. `plans/TYPE_SYSTEM_SOUNDNESS.md`
+  2.4 (per-call SomeT minting) is correspondingly not a GB-scale memory risk.
+- Rule learned: **a retained population whose holder cannot be found is a leak
+  until proven otherwise.** Two null interning A/Bs (§5a) measured the holders
+  that exist and could not see objects that no holder references; the
+  allocation-site census found it in one run.
+- The CI memory ratchet (Phase 0.6) is now the most valuable open item: a
+  leak like this one is invisible to every functional gate.
+- The remaining levers (§0.4′: tracked header, `Variable`, `Option(ref)`)
+  must be re-ranked on the post-fix census; their estimates were taken over a
+  population that was 40 % leak.
 
 ### Phase 6 — per-object layout: header and `Variable`
 
