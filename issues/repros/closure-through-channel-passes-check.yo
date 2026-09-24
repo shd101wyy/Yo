@@ -1,0 +1,23 @@
+{ Thread } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  items := ArrayList(i32).new();
+  (f : Impl(Fn() -> unit)) = (
+    () => {
+      items.push(i32(1));
+    }
+  );
+  ch := Channel(typeof(f)).new(usize(1));
+  t := Thread(unit).spawn((io : Io) => {
+    g := ch.recv().unwrap();
+    g();
+    ()
+  });
+  ch.send(f);
+  items.push(i32(2));
+  t.join();
+  println(`len=${items.len()}`);
+});
+export(main);

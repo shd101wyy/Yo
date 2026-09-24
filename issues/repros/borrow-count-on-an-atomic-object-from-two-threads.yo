@@ -1,0 +1,23 @@
+pragma(Pragma.AllowUnsafe);
+{ Thread } :: import("std/thread");
+{ println } :: import("std/fmt");
+Cell :: atomic(ref(struct(items : Array(i32, 4))));
+impl(
+  Cell,
+  Index(usize)(
+    Output : i32,
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(__yo_array_index(&self.items, idx))
+  )
+);
+read :: (fn(inout(x) : i32) -> i32)(x);
+main :: (fn() -> unit)({
+  c := Cell(items : Array(i32, 4)(i32(1), i32(2), i32(3), i32(4)));
+  t := Thread(unit).spawn((io : Io) => {
+    _v := read(c(usize(0)));
+    ()
+  });
+  _w := read(c(usize(1)));
+  t.join();
+  println(`ok`);
+});
+export(main);

@@ -1,0 +1,13 @@
+{ Thread } :: import("std/thread");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  x := Box(i32)(42);
+  i1 := Iso(Box(i32))(x);
+  t := Thread(unit).spawn((io : Io) => {
+    _i2 := i1;
+    ()
+  });
+  t.join();
+  println(`rc=${rc(i1)}`);
+});
+export(main);

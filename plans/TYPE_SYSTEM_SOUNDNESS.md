@@ -362,6 +362,11 @@ Phase 0 corpus program produces "internal compiler error".
 Each item starts with a short decision recorded in `plans/reference/` because each changes what
 safe code may write.
 
+**Items 3 and 4 are owned by [`PARALLELISM_SOUNDNESS.md`](PARALLELISM_SOUNDNESS.md)** (2026-09-25,
+agreed between the two sessions): the parallelism audit found the same two holes plus the rest of
+the thread-safety surface, and fixes them in its Phases 2 and 3 with the reference decisions there.
+Items 1, 2, 5 and 6 stay here.
+
 1. **Loop-carried moves.** A variable consumed in a loop body and not re-assigned before the back
    edge is an error (`moving-a-variable-inside-a-loop-body-is-not-rejected`).
 2. **`inout` exclusivity.** An `inout` argument may not share a root with any other argument,
