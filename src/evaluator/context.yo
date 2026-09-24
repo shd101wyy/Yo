@@ -42,7 +42,7 @@
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
-{ fnv1a64, debug_knob } :: import("../utils.yo");
+{ fnv1a64, debug_knob, canonical_module_path } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
 // ---------------------------------------------------------------------------
@@ -1143,13 +1143,69 @@ ModuleWalk :: ref(
 /// walk is over. Only names this mechanism bound are ever served — never a
 /// runtime module global, which a stripped fn env must keep hiding.
 (g_finished_walks : HashMap(String, ModuleWalk)) = HashMap(String, ModuleWalk).new();
-/// Whether a finished walk keeps its evaluation context (see `ModuleWalk.ctx`).
-/// Off by default; `yo check --watch` / `--watch-once` and `yo lsp` turn it on
-/// before their first evaluation.
+/// Whether EVERY finished walk keeps its evaluation context (see
+/// `ModuleWalk.ctx`). Off by default; `yo check --watch` / `--watch-once` turn
+/// it on before their first evaluation (a watched edit can land in any file).
 (g_retain_walk_contexts : bool) = false;
 set_retain_walk_contexts :: (fn(v : bool) -> unit)({
   g_retain_walk_contexts = v;
 });
+/// Module paths (canonical spelling) whose finished walks keep their context
+/// even with the global flag off: the LSP's OPEN documents — the only modules
+/// an editor edits, so the only walks a per-definition revalidation re-forces
+/// in place. Every other module's walk releases its context like a one-shot
+/// command's, and a revalidation that would need one falls back to the
+/// file-level reload (`mm_revalidate_plan`). Retaining every walk kept each
+/// imported module's whole `ExprInfoTable` alive for the life of the server
+/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3).
+(g_retained_walk_paths : HashSet(String)) = HashSet(String).new();
+/// Start (`keep`) or stop keeping the walk context of the module at `path`.
+/// Stopping also releases the context of its already-finished walk.
+set_walk_context_retained :: (fn(path : String, keep : bool) -> unit)({
+  canon := canonical_module_path(path);
+  if(keep, {
+    g_retained_walk_paths.insert(canon);
+  }, {
+    _removed := g_retained_walk_paths.remove(canon.clone());
+    // `ModuleWalk` is a ref struct: releasing through the value handle
+    // releases the table's walk.
+    walk_values := g_finished_walks.values();
+    wopt := walk_values.next();
+    while(wopt.is_some(), {
+      match(
+        wopt,
+        .Some(w) => if(canonical_module_path(w.module_path.clone()) == canon, {
+          w.ctx = Option(EvalContext).None;
+        }),
+        .None => ()
+      );
+      wopt = walk_values.next();
+    });
+  });
+  ()
+});
+/// Whether the finished walk of the module at `path` (either spelling) still
+/// holds its evaluation context; `.None` when that module has no finished walk.
+finished_walk_has_context :: (fn(path : String) -> Option(bool))({
+  canon := canonical_module_path(path);
+  walk_values := g_finished_walks.values();
+  wopt := walk_values.next();
+  while(wopt.is_some(), {
+    match(
+      wopt,
+      .Some(w) => if(canonical_module_path(w.module_path.clone()) == canon, {
+        return(Option(bool).Some(w.ctx.is_some()));
+      }),
+      .None => ()
+    );
+    wopt = walk_values.next();
+  });
+  Option(bool).None
+});
+/// Whether a walk of the module at `module_path` keeps its context when it finishes.
+walk_context_retained_for :: (fn(module_path : String) -> bool)(
+  g_retain_walk_contexts || ((g_retained_walk_paths.len() > usize(0)) && g_retained_walk_paths.contains(canonical_module_path(module_path)))
+);
 /// Phase 3 (§6) — per-definition dependency tracking.
 ///
 /// Def key: `<module_path>#<index>#<row>#<name>` — index (the statement's
@@ -1937,7 +1993,7 @@ begin_module_walk :: (
 /// inside its importer's walk and returns before it continues).
 end_module_walk :: (fn(walk : ModuleWalk) -> unit)({
   g_module_walks.pop();
-  if(!g_retain_walk_contexts, {
+  if(!walk_context_retained_for(walk.module_path.clone()), {
     walk.ctx = Option(EvalContext).None;
   });
   g_finished_walks.insert(walk.module_path.clone(), walk);
@@ -2900,6 +2956,9 @@ export(
   begin_module_walk,
   end_module_walk,
   set_retain_walk_contexts,
+  set_walk_context_retained,
+  walk_context_retained_for,
+  finished_walk_has_context,
   walk_pending_def_at,
   force_pending_def,
   force_pending_count,

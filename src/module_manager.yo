@@ -65,7 +65,8 @@ env_mod :: import("std/env");
   def_key_dependees,
   revalidate_walk_defs,
   ordered_readers_of,
-  rebind_destructured_name
+  rebind_destructured_name,
+  set_walk_context_retained
 } :: import("./evaluator/context.yo");
 { register_evaluate_expression, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
@@ -333,6 +334,9 @@ _open_doc_index :: (fn(fs_path : String) -> Option(usize))({
 });
 /// Record (or replace) the open-buffer text for `fs_path`.
 mm_set_open_document :: (fn(fs_path : String, text : String) -> unit)({
+  // An open document is the only kind of module an editor revalidates in
+  // place, so only its walks keep their evaluation context.
+  set_walk_context_retained(fs_path.clone(), true);
   match(
     _open_doc_index(fs_path.clone()),
     .Some(i) => {
@@ -346,6 +350,7 @@ mm_set_open_document :: (fn(fs_path : String, text : String) -> unit)({
 });
 /// Drop the overlay for `fs_path` (didClose — disk becomes the truth again).
 mm_forget_open_document :: (fn(fs_path : String) -> unit)({
+  set_walk_context_retained(fs_path.clone(), false);
   match(
     _open_doc_index(fs_path.clone()),
     .Some(i) => {
@@ -1057,7 +1062,11 @@ mm_revalidate_plan :: (fn(fs_path : String) -> Option(RevalPlan))({
             .Some(w) => match(
               w.by_index.get(match(index, .Some(ix) => ix, .None => usize(0))),
               .Some(d) => {
-                def_ok = !d.is_impl;
+                // A walk that released its evaluation context (only the watch
+                // modes retain every walk; the LSP retains OPEN documents',
+                // `set_walk_context_retained`) cannot re-force in place: its
+                // module takes the file-level fallback.
+                def_ok = (!d.is_impl && w.ctx.is_some());
                 if(def_ok, {
                   names := match(
                     names_by_module.get(module.clone()),

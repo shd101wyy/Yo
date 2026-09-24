@@ -27,6 +27,7 @@
   resolve_std_path
 } :: import("../../src/module_manager.yo");
 { type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
+{ finished_walk_has_context } :: import("../../src/evaluator/context.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
 
 _IMPL_DOC :: "Point :: struct(x : i32);\nimpl(\n  Point,\n  get_x : (fn(self : Self) -> i32)(self.x)\n);\nmain :: (fn() -> unit)({\n  p := Point(x : i32(1));\n  _y := p.get_x();\n});\nexport(main);\n";
@@ -135,4 +136,43 @@ test("B2: repeated re-analysis keeps registry entry counts stable", {
   assert(ttm3 == ttm2, `trait-method registry leaked: ${ttm2} -> ${ttm3}`);
   assert(gi2 == gi1, `generic-impl registry leaked: ${gi1} -> ${gi2}`);
   assert(gi3 == gi2, `generic-impl registry leaked: ${gi2} -> ${gi3}`);
+});
+
+// plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3: the LSP keeps a
+// finished walk's evaluation context (the module's whole ExprInfoTable) only
+// for OPEN documents — the only modules a per-definition revalidation
+// re-forces in place. An imported, unopened module's walk releases it like a
+// one-shot command's, and closing a document releases its own.
+test("B3: only open documents keep their walk context", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_b3_retention_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_APP), io), ioexn);
+  std_path := resolve_std_path();
+  mm_set_open_document(app_path.clone(), String.from(_APP));
+  _inv := mm_invalidate_document(app_path.clone());
+  assert(_analyze_app_ok(app_path.clone(), std_path.clone(), io), "the open document analyzes clean");
+  assert(
+    finished_walk_has_context(app_path.clone()) == Option(bool).Some(true),
+    "the open document's walk keeps its evaluation context"
+  );
+  assert(
+    finished_walk_has_context(lib_path.clone()) == Option(bool).Some(false),
+    "an imported, unopened module's walk releases its evaluation context"
+  );
+  mm_forget_open_document(app_path.clone());
+  assert(
+    finished_walk_has_context(app_path.clone()) == Option(bool).Some(false),
+    "closing the document releases its walk's context"
+  );
 });
