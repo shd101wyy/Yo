@@ -1418,3 +1418,39 @@ test("a nested match argument and a match moved into an own parameter", {
   };
   assert(g_at_disposed == (before + i32(2)), "a match moved into an own param is disposed once (by the callee)");
 });
+// Regression (issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md):
+// an explicit `return(...)` flushed the enclosing scopes' pending drops but
+// skipped the result temp of a `match` / `cond` passed directly as a call
+// argument, and nothing after the `return` runs — so the temp's reference
+// leaked on every early return (the evaluator's labeled-field access leaked
+// the object's PathCollection this way). The borrowed arm is the over-release
+// canary: the caller's value must survive and be disposed exactly once.
+at_ret_nested :: (fn(flag : bool, keep : Option(ArgTemp)) -> i32)({
+  if(flag, {
+    v := at_read(match(keep, .Some(p) => p, .None => ArgTemp(n : i32(50))));
+    return(v);
+  });
+  i32(-1)
+});
+at_ret_top :: (fn(keep : Option(ArgTemp)) -> i32)({
+  v := at_read(cond(keep.is_some() => keep.unwrap(), true => ArgTemp(n : i32(51))));
+  return(v);
+});
+test("a match or cond call argument is released on an explicit return", {
+  before := g_at_disposed;
+  {
+    _a := at_ret_nested(true, Option(ArgTemp).None);
+    _b := at_ret_top(Option(ArgTemp).None);
+    assert((_a + _b) == i32(101), "both fresh arms were read");
+  };
+  assert(g_at_disposed == (before + i32(2)), "each fresh argument temp is disposed once despite the early return");
+  {
+    keep := ArgTemp(n : i32(52));
+    ko := Option(ArgTemp).Some(keep);
+    assert(at_ret_nested(true, ko) == i32(52), "borrowed arm (match)");
+    assert(at_ret_top(ko) == i32(52), "borrowed arm (cond)");
+    assert(at_ret_nested(true, ko) == i32(52), "the borrowed value survives repeated early returns");
+    assert(g_at_disposed == (before + i32(2)), "and is still alive");
+  };
+  assert(g_at_disposed == (before + i32(3)), "the caller's value is disposed once, at its scope end");
+});

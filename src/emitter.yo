@@ -300,6 +300,16 @@ impl(
     self.code.push_string(c);
     self.code.push_str("\n");
   }),
+  /// Record `name` in the CURRENT C block of the block-scope stack. For a
+  /// declaration the line scan cannot see: a result temp declared bare
+  /// (`T tv;`, no ` = `) and assigned inside the branches of the `switch`/`if`
+  /// chain that follows. Its owner calls this once that chain is CLOSED, so an
+  /// early exit inside a branch (before the assignment) still skips the temp
+  /// and every exit after it releases the value
+  /// (issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md).
+  mark_declared_in_scope : (fn(inout(self) : Self, name : String) -> unit)(
+    match(self.scope_ref, .Some(st) => st.push(name), .None => ())
+  ),
   /// Return the full C source: headers + "\n" + declarations + "\n" + code.
   print : (fn(inout(self) : Self) -> String)({
     result := String.new();

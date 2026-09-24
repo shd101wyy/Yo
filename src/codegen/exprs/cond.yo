@@ -888,6 +888,19 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
     em.emit_string_line(cl);
     c = (c + usize(1));
   });
+  // The result temp was declared bare above and is assigned in the branches;
+  // now that they are closed, register it in the block-scope stack so a later
+  // explicit `return` / escape releases it (see generate_match_expression).
+  if(
+    !is_unit && !can_opt,
+    match(
+      temp_var_opt,
+      .Some(tv) => {
+        em.mark_declared_in_scope(tv.clone());
+      },
+      .None => ()
+    )
+  );
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 export(generate_cond_expression);
