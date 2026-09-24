@@ -48,6 +48,7 @@
   E_OPTIMISTIC_PANIC,
   E_CONFLICTING_IMPL,
   E_CANNOT_INFER,
+  E_DYN_UNCALLABLE,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
@@ -185,6 +186,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.starts_with(String.from("Cannot infer the type parameter")), {
     return(_coded(E_CANNOT_INFER));
+  });
+  if(msg.contains(String.from("cannot be called through Dyn")), {
+    return(_coded(E_DYN_UNCALLABLE));
   });
   if(msg.contains(String.from("is already implemented for type")) || msg.contains(String.from("Duplicate inherent method impls are not allowed")), {
     return(_coded(E_CONFLICTING_IMPL));

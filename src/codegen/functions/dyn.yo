@@ -21,7 +21,7 @@
 { FunctionGenerationContext } :: import("./context.yo");
 { type_key, get_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
-{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_contains_rc_type, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
 _func_val_id :: (fn(v : EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
@@ -465,7 +465,29 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     // unconditionally (a `label.clone()` inside a short-circuit
                     // `||` mis-scopes its drop).
                     label_reserved := _is_reserved_dyn_label(label.clone());
-                    is_reserved := ((label == "Self") || label_reserved);
+                    // A wrapper only for a vtable slot (the typedef's rule):
+                    // a member a Dyn cannot call has no slot to fill.
+                    is_slot := match(
+                      req_traits.get(mi),
+                      .Some(rt) => match(
+                        rt,
+                        .TraitT({ field_labels : tfl, field_types : tft }) => {
+                          (sl_found : bool) = false;
+                          (sl_j : usize) = usize(0);
+                          while((sl_j < tfl.len()) && !sl_found, {
+                            if(match(tfl.get(sl_j), .Some(l) => (l == label), .None => false), {
+                              sl_ty := match(tft.get(sl_j), .Some(t) => t, .None => TypeValue.Unit);
+                              sl_found = (dyn_member_is_method(sl_ty) && dyn_member_unsafe_reason(sl_ty).is_none());
+                            });
+                            sl_j = (sl_j + usize(1));
+                          });
+                          sl_found
+                        },
+                        _ => false
+                      ),
+                      .None => false
+                    );
+                    is_reserved := ((label == "Self") || label_reserved || !is_slot);
                     if(!is_reserved, {
                       match(
                         field_values.get(fi),
@@ -645,10 +667,12 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                     is_skip := ((label == "Self") || label_reserved || label_processed);
                     if(!is_skip, {
                       processed.insert(label.clone());
-                      // Only emit a slot for a method whose first param is `self`.
+                      // Only emit a slot for a method a Dyn can call: first
+                      // param `self`, no `generic(...)`, `Self` only as the
+                      // receiver (the vtable typedef's rule, types/utils.yo).
                       has_self := match(
                         field_types.get(fi),
-                        .Some(ft) => if(is_function_type(ft.clone()), match(ft, .Func({ meta : __fm2 }) => match(__fm2.*.param_labels.get(usize(0)), .Some(pl) => (pl == "self"), .None => false), _ => false), false),
+                        .Some(ft) => (dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none()),
                         .None => false
                       );
                       if(has_self, {

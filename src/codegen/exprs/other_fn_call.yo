@@ -10,7 +10,7 @@
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string } :: import("../functions/declarations.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
-{ type_is_control_bound } :: import("../../types/utils.yo");
+{ type_is_control_bound, dyn_type_has_vtable_slot } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -1145,7 +1145,22 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     // prepended arg; explicit args still come from runtime-args[1..].
     dot_recv_is_dyn := match(dmethod_args.get(usize(0)), .Some(dr) => match(context.base.get_expr_info(dr), .Some(dri) => is_dyn_type(dri.ty), .None => false), .None => false);
     method_atom_ok := match(dmethod_args.get(usize(1)), .Some(ma) => ast_expr_is_atom(ma), .None => false);
-    if(dot_recv_is_dyn && method_atom_ok, {
+    // Only a method with a vtable SLOT dispatches through the vtable. A blanket
+    // INHERENT method over a trait bound (`impl(generic(E), where(E <: Error),
+    // E, is : ...)`) resolves for a `Dyn(Error)` receiver too, but it is not a
+    // trait member: it has no slot, so it is an ordinary call to the method the
+    // evaluator specialized, with the Dyn as its receiver
+    // (issues/fixed/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md).
+    dm_has_slot := (dot_recv_is_dyn && method_atom_ok) && match(
+      dmethod_args.get(usize(0)),
+      .Some(dr) => match(
+        context.base.get_expr_info(dr),
+        .Some(dri) => dyn_type_has_vtable_slot(dri.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value),
+        .None => false
+      ),
+      .None => false
+    );
+    if(dm_has_slot, {
       recv_expr := match(dmethod_args.get(usize(0)), .Some(rv) => rv, .None => make_err_expr());
       recv_code := _call_generate_expr(recv_expr, indent.clone(), context);
       method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value, false);

@@ -12,7 +12,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_uses_small_rc_header } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
@@ -1322,8 +1322,10 @@ _dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed :
       field_ty,
       .Func({ param_types, result, meta : __fm1 }) => {
         param_labels := __fm1.*.param_labels;
-        // Only methods whose first param is `self` go in the vtable.
-        if((param_labels.len() > usize(0)) && match(param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false), {
+        // Only methods whose first param is `self`, and that a Dyn can call
+        // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
+        // receiver), go in the vtable.
+        if(dyn_member_is_method(field_ty) && dyn_member_unsafe_reason(field_ty).is_none(), {
           ret_str := get_type_string(result, context);
           plist := String.new();
           np := param_labels.len();
