@@ -737,6 +737,21 @@ instruments durable and answer the three questions the ranking depends on.
    `g_func_*` side tables, add the owner tag the B2 purge already uses for
    trait methods/impls so `mm_invalidate_document` can purge them too
    (LSP steady-state leak; measure with step 3's long session).
+   **PARTLY LANDED 2026-09-25, by measurement rather than the full table.**
+   The holder census over 1 vs 5 LSP rounds (after §0.8) named ONE root that
+   grows: `g_funcval_cap_vars` (+81.5 K reachable objects over four rounds,
+   plus the capture-type lists behind untracked `Box(FuncValData)`s that only
+   look unreached). Its entries are now owner-tagged at
+   `register_funcval_cap_vars` (`registration_owner()`, which lazy forcing
+   already sets to the definition's module), and
+   `purge_funcval_cap_vars_owned_by` runs in `mm_invalidate_document` beside
+   the four B2 purges. Test: the B2 test in
+   `tests/internal/module_invalidation.test.yo` now also holds the registry's
+   count flat (red without the purge). Stage-2 `yo lsp`, 10 std documents:
+   1 round 0.44 → 0.42 GB, **5 rounds 1.19 → 0.98 GB**; `check src/main.yo`
+   unchanged (interleaved 2.71/2.80 vs 2.76/2.73 GB). About 0.14 GB per
+   round remains. The next census names the next holder; the full 288-global
+   table is still not written.
 6. Measure `check src/main.yo` and the self-emit (footprint + tracked live);
    update §0.
 
