@@ -350,7 +350,7 @@ test("ranges feed the iterator combinators directly", {
   // min taken on the RANGE receiver directly, and the mapped chain checked
   // via count (binds no Item) — an Item-binding combinator on a chain
   // receiver at a second Item type hits the pre-existing shared-stamp
-  // pollution (issues/iterator-chain-shared-stamp-cross-item-pollution.md).
+  // pollution (issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md).
   m := (i64(-3) .. i64(4)).min();
   assert(m.unwrap() == i64(-3), "min of signed range");
   c := (i64(-3) .. i64(4)).map(x => (x * i64(2))).count();
@@ -477,7 +477,7 @@ test("next and next_back meet in the middle", {
 // --- D3.4: collect / FromIterator (plans/archive/STD_API_AUDIT.md) ------------------
 // NOTE: every `.map(...).collect(...)` here stays at ONE Item type (i32). A
 // second Item type through the same combinator stamp trips the pre-existing
-// shared-stamp pollution — issues/iterator-chain-shared-stamp-cross-item-pollution.md.
+// shared-stamp pollution — issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md.
 test("collect into an ArrayList", {
   got := (i32(0) .. i32(4)).collect(ArrayList(i32));
   assert(got.to_string() == `[0, 1, 2, 3]`, "range collects in order");
