@@ -124,8 +124,33 @@ Goal: a number that goes down, so progress is not a matter of opinion.
 Exit: both counts recorded in this doc; the corpus runs in CI.
 
 **Landed 2026-09-24.** `tests/type_soundness.test.yo` (in the fast suite, so in CI),
-`scripts/soundness/census.sh` and `scripts/soundness/swallow-census.sh`. Counts: see
-"Census log" at the end of this section.
+`scripts/soundness/census.sh` and `scripts/soundness/swallow-census.sh`.
+
+Census log (408 programs: issue repros, the cited docs' inline repros, `tests/**` programs; the
+headline is ICE + COMPILE_RED + CC_RED + FTT + RUN_FTT):
+
+| Compiler | OK | CHECK_RED | ICE | CC_RED | RUN_FTT | RUN_SIGNAL | RUN_TIMEOUT | Headline |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| develop before this PR | 287 | 88 | 9 | 11 | 4 | 8 | 1 | **24** |
+| Phases 0–2.3 (PR #876) | 281 | 102 | 5 | 8 | 3 | 8 | 1 | **16** |
+
+Transitions: 7 fixed repros OK → CHECK_RED (they compiled and printed the wrong value),
+3 CC_RED → CHECK_RED, 4 ICE → CHECK_RED, 1 RUN_FTT → CHECK_RED (the mutual-recursion repro, now a
+wrong check-time error, see `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`),
+and the 1.5 canary CHECK_RED → OK. No OK program regressed except fixed-issue repros.
+
+Swallow census (`YO_DEBUG_SWALLOW=1 yo check`, all channels):
+
+| Compiler | `./std` | `./src` |
+| --- | --- | --- |
+| develop before this PR | 98 (22 distinct) | 63 (16 distinct) |
+| Phases 0–2.3 (PR #876) | 102 (23 distinct) | 63 (16 distinct) |
+
+The four new `./std` swallows are the new checks firing INSIDE a definition-time trial whose
+receiver is still abstract — e.g. `std/imm/set.yo:64`, `self._inner.contains_key(elem)` on
+`Map(T, bool)` types `unit` in the trial and now also reports E0604 against `-> bool`. They are
+SomeT-pending deferrals, exactly what Phase 6 step 1 classifies; none is a real std error (each
+specialization of those bodies type-checks).
 
 ### Phase 1: missing comparisons (R1), the cheap high-value fixes
 

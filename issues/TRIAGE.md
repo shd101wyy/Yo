@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 243 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 234 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -29,14 +29,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 14 | 1 |
 | Async / effects | 32 | 9 |
-| Codegen / emitted C | 21 | 4 |
-| Evaluator / types | 39 | 7 |
-| Std library | 56 | 14 |
+| Codegen / emitted C | 20 | 3 |
+| Evaluator / types | 37 | 7 |
+| Std library | 55 | 14 |
 | Tooling (fmt/doc/lsp) | 15 | 1 |
-| Self-hosting legacy | 18 | 2 |
+| Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 45 | 7 |
-| **Total** | **243** | **45** |
+| Other | 41 | 6 |
+| **Total** | **234** | **43** |
 
 ## Cross-cutting buckets
 
@@ -114,7 +114,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 - [`calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md`](./calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md) — 17 KB
 - [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 16 KB
 - [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) — 16 KB
-- [`a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md`](./a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md) — 14 KB
+- [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) — 14 KB
 
 ---
 
@@ -177,7 +177,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | OPEN — a PERFORMANCE observation, not a corre | — |
 | [`yield-resumption-order-diverges-on-macos-ci.md`](./yield-resumption-order-diverges-on-macos-ci.md) | — | — |
 
-### Codegen / emitted C (21)
+### Codegen / emitted C (20)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -185,7 +185,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md`](./address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md) | OPEN | — |
 | [`asm-documented-target-and-register-validation-does-not-exist.md`](./asm-documented-target-and-register-validation-does-not-exist.md) | OPEN | — |
 | [`assign-to-by-value-closure-param-under-generic-result-types-unit.md`](./assign-to-by-value-closure-param-under-generic-result-types-unit.md) | — | yes |
-| [`bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md`](./bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md) | OPEN | yes |
 | [`c-include-global-accepted-by-comptime-binding.md`](./c-include-global-accepted-by-comptime-binding.md) | PARTIALLY FIXED 2026-09-08 — the `::` half is | — |
 | [`c-include-rvalue-macro-constant-cannot-be-addressed.md`](./c-include-rvalue-macro-constant-cannot-be-addressed.md) | OPEN | — |
 | [`cinclude-int-comparison-fails-to-transpile.md`](./cinclude-int-comparison-fails-to-transpile.md) | — | — |
@@ -203,7 +202,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (39)
+### Evaluator / types (37)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -229,11 +228,9 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md`](./dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md) | OPEN | — |
 | [`dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`](./dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md) | OPEN | — |
 | [`env-sharing-live-frame-membership-leak.md`](./env-sharing-live-frame-membership-leak.md) | OPEN — found during the env-sharing implement | — |
-| [`equality-operator-without-an-eq-impl-evaluates-to-unit.md`](./equality-operator-without-an-eq-impl-evaluates-to-unit.md) | — | — |
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | OPEN | — |
 | [`forward-referenced-definition-fails-to-type-check-when-forced-early.md`](./forward-referenced-definition-fails-to-type-check-when-forced-early.md) | OPEN — observed once, NOT REPRODUCIBLE on dev | — |
 | [`function-info-is-closure-is-always-false.md`](./function-info-is-closure-is-always-false.md) | OPEN | — |
-| [`generic-fn-body-is-not-checked-against-its-declared-result-type.md`](./generic-fn-body-is-not-checked-against-its-declared-result-type.md) | OPEN | — |
 | [`generic-fn-forall-unresolved-when-argument-is-a-method-call.md`](./generic-fn-forall-unresolved-when-argument-is-a-method-call.md) | open — root-caused, NOT fixed | — |
 | [`generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md`](./generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md) | — | yes |
 | [`generic-fn-type-compatibility-is-not-alpha-equivalent.md`](./generic-fn-type-compatibility-is-not-alpha-equivalent.md) | — | — |
@@ -247,7 +244,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (56)
+### Std library (55)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -278,7 +275,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md`](./std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md) | OPEN | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | OPEN | — |
 | [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | — | — |
-| [`stddoc-coll-duplicate-fromiterator-impl-on-hashset.md`](./stddoc-coll-duplicate-fromiterator-impl-on-hashset.md) | OPEN | — |
 | [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | OPEN — | yes |
 | [`stddoc-core-doc-comment-attached-by-bare-member-name.md`](./stddoc-core-doc-comment-attached-by-bare-member-name.md) | OPEN | yes |
 | [`stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md`](./stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md) | OPEN | — |
@@ -328,7 +324,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | open | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | — | — |
 
-### Self-hosting legacy (18)
+### Self-hosting legacy (17)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -342,7 +338,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) | — | — |
 | [`yo-self-ctfe-nested-fn-analysis-gap.md`](./yo-self-ctfe-nested-fn-analysis-gap.md) | — | — |
 | [`yo-self-dup-eval-inside-macro-generated-body-corrupts-module-eval.md`](./yo-self-dup-eval-inside-macro-generated-body-corrupts-module-eval.md) | SIDESTEPPED for Stage 0 (fix direction 2 belo | — |
-| [`yo-self-missing-duplicate-impl-checks.md`](./yo-self-missing-duplicate-impl-checks.md) | — | — |
 | [`yo-self-rc-depth-cap-skips-deep-teardown.md`](./yo-self-rc-depth-cap-skips-deep-teardown.md) | — | yes |
 | [`yo-self-rc-teardown-not-factored-into-dispose.md`](./yo-self-rc-teardown-not-factored-into-dispose.md) | — | — |
 | [`yo-self-test-runner-cannot-run-wasm-batches.md`](./yo-self-test-runner-cannot-run-wasm-batches.md) | — | — |
@@ -359,11 +354,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (45)
+### Other (41)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md`](./a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md) | OPEN, and narrowed by measurement rather than | — |
 | [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
 | [`a-two-line-comment-change-in-std-prelude-fails-check-std.md`](./a-two-line-comment-change-in-std-prelude-fails-check-std.md) | OPEN | — |
@@ -372,23 +366,18 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-extern-opaque-type-unifies-with-every-dyn.md`](./an-extern-opaque-type-unifies-with-every-dyn.md) | OPEN | yes |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | OPEN | yes |
-| [`an-overlapping-blanket-trait-impl-is-silently-dead.md`](./an-overlapping-blanket-trait-impl-is-silently-dead.md) | OPEN | — |
 | [`arraylist-of-a-trait-object-cannot-be-indexed.md`](./arraylist-of-a-trait-object-cannot-be-indexed.md) | open | — |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
-| [`closure-result-type-is-not-checked-against-the-expected-fn-type.md`](./closure-result-type-is-not-checked-against-the-expected-fn-type.md) | OPEN | — |
+| [`closure-result-type-is-not-checked-against-the-expected-fn-type.md`](./closure-result-type-is-not-checked-against-the-expected-fn-type.md) | PARTIALLY FIXED 2026-09-24 (Phase 1 | — |
 | [`cond-arm-initialization-merge-check-never-fires.md`](./cond-arm-initialization-merge-check-never-fires.md) | — | yes |
-| [`cond-arm-type-unification-depends-on-arm-order.md`](./cond-arm-type-unification-depends-on-arm-order.md) | OPEN | — |
-| [`context-typed-integer-literal-is-not-range-checked.md`](./context-typed-integer-literal-is-not-range-checked.md) | OPEN | — |
 | [`ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md`](./ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md) | OPEN | — |
-| [`enum-type-constructor-arguments-are-ignored-by-type-compatibility.md`](./enum-type-constructor-arguments-are-ignored-by-type-compatibility.md) | OPEN | — |
-| [`enum-variant-payload-type-is-not-checked-at-construction.md`](./enum-variant-payload-type-is-not-checked-at-construction.md) | OPEN | yes |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
+| [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`higher-kinded-return-type-is-never-applied-at-the-call-site.md`](./higher-kinded-return-type-is-never-applied-at-the-call-site.md) | OPEN | — |
-| [`impl-is-not-checked-against-the-trait-members.md`](./impl-is-not-checked-against-the-trait-members.md) | OPEN | — |
-| [`impl-trait-return-bound-is-not-checked.md`](./impl-trait-return-bound-is-not-checked.md) | OPEN | — |
-| [`inout-call-through-a-fn-value-loses-the-mutation.md`](./inout-call-through-a-fn-value-loses-the-mutation.md) | OPEN | — |
+| [`inout-call-through-a-fn-value-loses-the-mutation.md`](./inout-call-through-a-fn-value-loses-the-mutation.md) | PARTIALLY FIXED 2026-09-24 | — |
 | [`iso-checks-only-the-wrapper-refcount-not-the-interior.md`](./iso-checks-only-the-wrapper-refcount-not-the-interior.md) | OPEN | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
+| [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
 | [`match-redundancy-and-range-exhaustiveness-gaps.md`](./match-redundancy-and-range-exhaustiveness-gaps.md) | OPEN | — |
 | [`module-globals-bypass-send-so-safe-code-can-data-race.md`](./module-globals-bypass-send-so-safe-code-can-data-race.md) | OPEN | — |
 | [`moving-a-variable-inside-a-loop-body-is-not-rejected.md`](./moving-a-variable-inside-a-loop-body-is-not-rejected.md) | OPEN | — |
@@ -398,13 +387,15 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
+| [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |
 | [`struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`](./struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md) | OPEN | — |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | — | — |
-| [`trait-ids-omit-the-module-so-two-traits-can-share-one-id.md`](./trait-ids-omit-the-module-so-two-traits-can-share-one-id.md) | OPEN | — |
 | [`type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md`](./type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md) | OPEN | — |
 | [`uninferable-generic-result-passes-check-and-ices-in-compile.md`](./uninferable-generic-result-passes-check-and-ices-in-compile.md) | OPEN | — |
 | [`unknown-struct-field-has-no-diagnostic.md`](./unknown-struct-field-has-no-diagnostic.md) | OPEN | — |
+| [`unknown-type-argument-in-typed-binding-reports-expected-comptime.md`](./unknown-type-argument-in-typed-binding-reports-expected-comptime.md) | — | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | OPEN | — |
+| [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | — | — |

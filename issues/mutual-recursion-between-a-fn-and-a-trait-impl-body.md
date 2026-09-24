@@ -95,3 +95,20 @@ still be a cycle error, not silently accepted.
 Related: `issues/fixed/self-hosted-compile-swallows-undefined-call.md` (the
 same "swallowed, then a runnable no-op" class), and the entry-point FTT gate in
 `src/codegen/functions/generation.yo` that made this visible at all.
+
+## 2026-09-24: the swallowed error now reaches `check`
+
+Since `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 1.6 (an operator whose trait lookup misses is an
+error, never `unit`), `yo check` on the reproducer is no longer green:
+
+```
+error[E0610]: No matching call found for operator "!=" with receiver type "<enum:enum_decl_repros__mutual_recursion_through_a_trait_impl_operator_r1c5>"
+  --> issues/repros/mutual-recursion-through-a-trait-impl-operator.yo:9:13
+```
+
+That is the error the definition-time trial of `_kids_eq` used to swallow: the trial runs while
+`E`'s `Eq` impl is still being registered, so `!=` on `E` finds no impl. The program is valid, so
+the error is still wrong — the root cause (the order in which the impl member and the helper are
+forced) is unchanged — but it now fails at check time instead of as an FTT stub at run time. The
+receiver type prints an internal id instead of `E` (Phase 4.4, diagnostics).
+Soundness census class: RUN_FTT → CHECK_RED.
