@@ -147,6 +147,25 @@ _div_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
 /// long long / unsigned long long math with per-width bounds; 64-bit widths
 /// use the overflow identities in the __yo_*_chk_*64 helpers. isize/usize
 /// follow the target (32-bit on wasm32). Floats keep the plain op.
+/// `wrapping_add` / `wrapping_sub` / `wrapping_mul`: two's-complement wrap
+/// at the RESULT's width. Computed in `unsigned long long` — modular for every
+/// width, so defined without relying on `-fwrapv` — and cast back: the low bits
+/// of a sum, difference or product are the same for signed and unsigned
+/// operands. The bare `(a + b)` this replaced was never narrowed, so under C's
+/// integer promotion `u8(250).wrapping_add(u8(10))` compared as 260
+/// (issues/fixed/wrapping-methods-shadowed-by-a-loop-based-duplicate.md).
+_wrap_binop :: (fn(args : ArrayList(String), expr : AstExpr, context : FunctionGenerationContext, op : str) -> String)({
+  raw := _binop(args, op);
+  if(raw.starts_with("// Failed to transpile"), {
+    return(raw);
+  });
+  ty := ei_ty(expr, context);
+  if(!is_primitive_type(ty) || is_unit_type(ty), {
+    return(raw);
+  });
+  ct := get_type_string(ty, context.base);
+  `((${ct})((unsigned long long)(${_a(args, usize(0))}) ${op} (unsigned long long)(${_a(args, usize(1))})))`
+});
 _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : FunctionGenerationContext, op : str) -> String)({
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
@@ -407,11 +426,11 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     (function_name == BF_YO_OP_DIV) => _div_checked_expr(args, expr, context, "/"),
     (function_name == BF_YO_OP_MOD) => _mod_op(args, expr, context),
     (function_name == BF_YO_OP_NEG) => _neg_checked_expr(args, expr, context),
-    // Wrapping arithmetic (safe mode Phase 3a-i): the raw op — two's-
-    // complement wrap under -fwrapv, modular for unsigned. Never trapped.
-    (function_name == BF_YO_OP_ADD_WRAP) => _binop(args, "+"),
-    (function_name == BF_YO_OP_SUB_WRAP) => _binop(args, "-"),
-    (function_name == BF_YO_OP_MUL_WRAP) => _binop(args, "*"),
+    // Wrapping arithmetic (safe mode Phase 3a-i): modular at the result's
+    // width (see `_wrap_binop`). Never trapped.
+    (function_name == BF_YO_OP_ADD_WRAP) => _wrap_binop(args, expr, context, "+"),
+    (function_name == BF_YO_OP_SUB_WRAP) => _wrap_binop(args, expr, context, "-"),
+    (function_name == BF_YO_OP_MUL_WRAP) => _wrap_binop(args, expr, context, "*"),
     (function_name == BF_YO_OP_EQ) => _binop(args, "=="),
     (function_name == BF_YO_OP_NEQ) => _binop(args, "!="),
     (function_name == BF_YO_OP_LT) => _binop(args, "<"),
