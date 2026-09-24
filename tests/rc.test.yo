@@ -1276,3 +1276,74 @@ test("|| chain ending in Option.is_some() inside a match arm inside a cond arm",
   _ := result;
   assert(g_sc_disposed == (before + i32(1)), "the Option temp's payload is disposed exactly once");
 });
+
+// Regression (issues/fixed/match-or-cond-call-argument-result-is-never-released.md):
+// a `match` / `cond` passed DIRECTLY as a call argument declared its result
+// temp with a raw type string, so the temp never reached
+// `declared_c_var_names` and the deferred-drop pass skipped the evaluator's
+// scheduled scope-end `___drop` as an "undeclared temp" — every RC value such
+// an argument produced leaked (the compiler's own `intern_type(match(...))`
+// in `_substitute_at` leaked ~7 M TypeValues per self-check). The borrowed-arm
+// cases are the over-release canaries: an arm that hands back a caller-owned
+// value must not lose a reference when the temp is dropped.
+(g_at_disposed : i32) = i32(0);
+ArgTemp :: ref(struct(n : i32));
+impl(
+  ArgTemp,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_at_disposed = (g_at_disposed + i32(1));
+    })
+  )
+);
+at_read :: (fn(a : ArgTemp) -> i32)(a.n);
+at_sink :: (fn(own(a) : ArgTemp) -> i32)(a.n);
+at_pick_match :: (fn(flag : bool, keep : ArgTemp) -> i32)(at_read(match(flag, true => ArgTemp(n : i32(1)), false => keep)));
+at_pick_cond :: (fn(flag : bool, keep : ArgTemp) -> i32)(at_read(cond(flag => ArgTemp(n : i32(2)), true => keep)));
+test("a match passed as a call argument releases its fresh result", {
+  before := g_at_disposed;
+  flag := (before >= i32(0));
+  {
+    _n := at_read(match(flag, true => ArgTemp(n : i32(3)), false => ArgTemp(n : i32(4))));
+  };
+  assert(g_at_disposed == (before + i32(1)), "the match result is disposed exactly once");
+  {
+    at_read(match(flag, true => ArgTemp(n : i32(5)), false => ArgTemp(n : i32(6))));
+  };
+  assert(g_at_disposed == (before + i32(2)), "also when the call is a bare statement");
+});
+test("a cond passed as a call argument releases its fresh result", {
+  before := g_at_disposed;
+  flag := (before >= i32(0));
+  {
+    _n := at_read(cond(flag => ArgTemp(n : i32(7)), true => ArgTemp(n : i32(8))));
+  };
+  assert(g_at_disposed == (before + i32(1)), "the cond result is disposed exactly once");
+});
+test("a match/cond argument arm that returns a borrowed value does not over-release it", {
+  before := g_at_disposed;
+  {
+    keep := ArgTemp(n : i32(9));
+    assert(at_pick_match(false, keep) == i32(9), "borrowed arm (match) reads the caller's value");
+    assert(at_pick_cond(false, keep) == i32(9), "borrowed arm (cond) reads the caller's value");
+    assert(g_at_disposed == before, "the caller's value is still alive");
+    assert(rc(keep) == 1, "and holds exactly its own reference");
+    assert(at_pick_match(true, keep) == i32(1), "fresh arm (match)");
+    assert(at_pick_cond(true, keep) == i32(2), "fresh arm (cond)");
+    assert(g_at_disposed == (before + i32(2)), "each fresh arm result is disposed once");
+    assert(rc(keep) == 1, "the kept value is untouched by the fresh arms");
+  };
+  assert(g_at_disposed == (before + i32(3)), "the caller's value is disposed once, at its scope end");
+});
+test("a nested match argument and a match moved into an own parameter", {
+  before := g_at_disposed;
+  flag := (before >= i32(0));
+  {
+    _n := at_read(match(flag, true => match(flag, true => ArgTemp(n : i32(10)), false => ArgTemp(n : i32(11))), false => ArgTemp(n : i32(12))));
+  };
+  assert(g_at_disposed == (before + i32(1)), "nested match result disposed once");
+  {
+    _m := at_sink(match(flag, true => ArgTemp(n : i32(13)), false => ArgTemp(n : i32(14))));
+  };
+  assert(g_at_disposed == (before + i32(2)), "a match moved into an own param is disposed once (by the callee)");
+});
