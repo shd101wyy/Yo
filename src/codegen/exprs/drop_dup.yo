@@ -805,11 +805,20 @@ _drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerati
     .None => false
   )
 );
-/// Whether `expr` still carries a not-yet-emitted PARAM-targeted drop (the
-/// own-param scope-end release a function-level emission point flushes with
-/// `only_param_drops`). The bare-expression tail return uses it to decide
-/// whether the tail must be materialized before those drops run.
-has_pending_param_drop :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+/// Emit the evaluator-deferred drop expressions for `expr` (closure-capture and
+/// short-circuit-handled drops are skipped).
+/// `skip_param_drops` / `only_param_drops` split ownership of PARAM-targeted
+/// drops between expression-level and function-level emission points — see
+/// `_drop_target_is_parameter`.
+{ _looks_like_minted_temp } :: import("./begin.yo");
+/// Whether `expr` still carries a not-yet-emitted drop that the node flush
+/// would EMIT now: a param-targeted one (the own-param scope-end release), or
+/// one whose target is declared (a temp minted while rendering the tail, e.g.
+/// the argument temp of a call inside a struct-literal field). Mirrors
+/// `generate_deferred_drop_expressions`'s closure-capture and undeclared-temp
+/// gates. The bare-expression tail return uses it to decide whether the tail
+/// must be materialized before those drops run.
+has_pending_emittable_drop :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -820,8 +829,24 @@ has_pending_param_drop :: (fn(expr : AstExpr, context : FunctionGenerationContex
         while((i < drops.len()) && !found, {
           match(
             drops.get(i),
-            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(d)) && _drop_target_is_parameter(d, context), {
-              found = true;
+            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(d)) && !is_deferred_drop_for_closure_capture(d, context.current_closure_captures), {
+              emittable := if(
+                _drop_target_is_parameter(d, context),
+                true,
+                match(
+                  get_deferred_drop_target_atom_name(d),
+                  .Some(nm) => {
+                    cn := sanitize_for_c_identifier(nm, false);
+                    is_tmp := (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone()));
+                    declared := context.base.declared_c_var_names.contains(cn);
+                    !is_tmp || declared
+                  },
+                  .None => true
+                )
+              );
+              if(emittable, {
+                found = true;
+              });
             }),
             .None => ()
           );
@@ -834,12 +859,6 @@ has_pending_param_drop :: (fn(expr : AstExpr, context : FunctionGenerationContex
     .None => false
   )
 );
-/// Emit the evaluator-deferred drop expressions for `expr` (closure-capture and
-/// short-circuit-handled drops are skipped).
-/// `skip_param_drops` / `only_param_drops` split ownership of PARAM-targeted
-/// drops between expression-level and function-level emission points — see
-/// `_drop_target_is_parameter`.
-{ _looks_like_minted_temp } :: import("./begin.yo");
 generate_deferred_drop_expressions :: (
   fn(
     expr : AstExpr,
@@ -1264,7 +1283,7 @@ export(
   generate_dup_code_for_value,
   generate_deferred_drop_expressions,
   generate_deferred_dup_expressions,
-  has_pending_param_drop,
+  has_pending_emittable_drop,
   emit_deferred_dup_or_code,
   arm_value_with_dups
 );

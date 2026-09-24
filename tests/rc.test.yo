@@ -1364,6 +1364,16 @@ test("a HashMap that rehashes releases every value once when it dies", {
   };
   assert(g_at_disposed == (before + i32(100)), "a rehash releases the old slots, so the map's death disposes all 100 values");
 });
+AtHolder :: ref(struct(a : i32));
+at_build_struct_tail :: (fn() -> AtHolder)(AtHolder(a : at_read(ArgTemp(n : i32(20)))));
+test("a call argument inside a struct-literal tail is released", {
+  before := g_at_disposed;
+  {
+    h := at_build_struct_tail();
+    assert(h.a == i32(20), "the field holds the call's result");
+  };
+  assert(g_at_disposed == (before + i32(1)), "the argument temp of the call inside the struct literal is disposed once");
+});
 test("a nested match argument and a match moved into an own parameter", {
   before := g_at_disposed;
   flag := (before >= i32(0));

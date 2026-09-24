@@ -22,7 +22,7 @@
 { t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
 
-{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, has_pending_param_drop } :: import("./drop_dup.yo");
+{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
@@ -1137,17 +1137,22 @@ generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, conte
       // ("non-void function should return a value", the install_command
       // batch). Emit nothing: control cannot reach past the statement form.
       if(final_code.trim().len() > usize(0), {
-        // Own-param scope-end drops: after the tail's statements/dups (the
-        // expression-level flushes skip param targets), before the return.
-        // The rendered tail may still READ the param (`(fn(own(a) : T) -> i32)(a.n)`
-        // renders `a->n`), so when such a drop is pending, materialize the
-        // tail first — the begin path's B1 `__yo_scope_ret` order
+        // Scope-end drops of the shared-id body node, before the return: the
+        // own-param releases (the expression-level flushes skip param
+        // targets), and any drop whose temp only became declared while the
+        // tail rendered — the argument temp of a call inside a struct-literal
+        // field (`Frame(id : f(String.from("x")))`), which the pre-body flush
+        // skipped as undeclared and no call's post-flush emits
+        // (issues/fixed/struct-literal-tail-call-argument-temp-is-never-released.md).
+        // The rendered tail may still READ what they release (`a->n`, or the
+        // temp itself), so materialize it first — the begin path's B1
+        // `__yo_scope_ret` order
         // (issues/fixed/own-param-released-before-a-bare-expression-body-reads-it.md).
         ret_ty := match(context.current_function_type, .Some(ft) => match(ft, .Func({ result : r }) => r, _ => t_unit()), .None => t_unit());
         ret_cty := match(context.override_return_type_str, .Some(s) => s, .None => get_type_string(ret_ty, context.base));
-        if(has_pending_param_drop(expr, context) && !is_unit_type(ret_ty) && !(ret_cty == "void"), {
+        if(has_pending_emittable_drop(expr, context) && !is_unit_type(ret_ty) && !(ret_cty == "void"), {
           em.emit_string_line(`${indent.clone()}${ret_cty} __yo_scope_ret = ${final_code};`);
-          generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+          generate_deferred_drop_expressions(expr, indent.clone(), context);
           em.emit_string_line(`${indent.clone()}return __yo_scope_ret;`);
         }, {
           generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
