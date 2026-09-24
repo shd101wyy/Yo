@@ -123,6 +123,8 @@ pragma(Pragma.AllowUnsafe);
   type_is_callable_shaped,
   fn_constrained_param_requires_callable,
   fn_argument_not_callable_message,
+  impl_param_unmet_trait,
+  impl_argument_unmet_trait_message,
   type_implements_future
 } :: import("../trait_checking.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
@@ -6182,6 +6184,21 @@ Fix: wrap the call:
                 )
               );
             });
+          });
+          // ...and an `Impl(Trait)` parameter takes only an argument that
+          // implements the trait (trait_checking.yo `impl_param_unmet_trait`).
+          if(pi < n_supplied_reg, {
+            match(
+              impl_param_unmet_trait(resolved_decl_pt, arg_info.ty, env),
+              .Some(um_tr) => {
+                um_msg := impl_argument_unmet_trait_message(pname.clone(), resolved_decl_pt, arg_info.ty, um_tr);
+                if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+                  flag_flow_violation(um_msg.clone());
+                });
+                exn.throw(dyn(format_error_message(ast_expr_token(match(fv_args.get(pi), .Some(um_ae) => um_ae, .None => expr)), um_msg)));
+              },
+              .None => ()
+            );
           });
           p_is_ref := match(fv_param_is_ref.get(pi), .Some(b) => b, .None => false);
           // Bind via add_parameter_to_env (NOT add_variable_to_env, which

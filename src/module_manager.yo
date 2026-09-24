@@ -88,8 +88,8 @@ env_mod :: import("std/env");
   file_exists_sync
 } :: import("./manifest.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot, mark_owner_always_visible } :: import("./evaluator/module_loader.yo");
-{ purge_type_trait_methods_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
-{ purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
+{ purge_type_trait_methods_owned_by, purge_trait_impl_sites_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
+{ purge_generic_impls_owned_by, purge_concrete_trait_impls_owned_by } :: import("./evaluator/values/impl.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { clear_type_display_names, type_to_string } :: import("./types/string.yo");
@@ -558,6 +558,8 @@ mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
       removed.get(i),
       .Some(owner) => {
         purge_type_trait_methods_owned_by(owner.clone());
+        purge_trait_impl_sites_owned_by(owner.clone());
+        purge_concrete_trait_impls_owned_by(owner.clone());
         purge_generic_impls_owned_by(owner);
       },
       .None => ()

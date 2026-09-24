@@ -66,6 +66,7 @@ pragma(Pragma.AllowUnsafe);
   MethodEntry,
   register_type_trait_method,
   note_inherent_method_site,
+  note_trait_impl_site,
   get_type_trait_methods_by_name,
   get_trait_default,
   register_provisional_trait_method,
@@ -115,6 +116,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
 { format_error_message, render_any_error } :: import("../../error.yo");
+{ Token } :: import("../../token.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { synthesize_types, SynthesizeOptions, TypePair }
 :: import("../types/synthesizer.yo");
@@ -232,8 +234,17 @@ GenericImplEntry :: struct(
   /// leaks onto non-Iterator types (e.g. ArrayList), shadowing the type's own
   /// method. See issues/fixed/yo-self-p1-transpile-tail.md.
   where_constraint_some_types : ArrayList(TypeValue),
-  where_constraint_traits : ArrayList(TypeValue)
+  where_constraint_traits : ArrayList(TypeValue),
+  /// The impl's source site (`module_path:row:column`, 1-based) — named by
+  /// the coherence diagnostics (plans/reference/TRAIT_COHERENCE.md).
+  site : String
 );
+/// Trait coherence (plans/reference/TRAIT_COHERENCE.md): a registered CONCRETE trait impl, kept so a generic impl registered LATER
+/// can be checked against it (rule 3 is order-independent). Owner-tagged and
+/// purged with the generic registry (LSP invalidation).
+ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty : TypeValue, site : String);
+(g_concrete_trait_impls : ArrayList(ConcreteTraitImpl)) = ArrayList(ConcreteTraitImpl).new();
+(g_concrete_trait_impl_owners : ArrayList(String)) = ArrayList(String).new();
 // Registry storage (two parallel ArrayLists — avoids HashMap dependency).
 (g_impl_registry_keys : ArrayList(String)) = ArrayList(String).new();
 (g_impl_registry_entry_lists : ArrayList(ArrayList(GenericImplEntry))) =
@@ -431,6 +442,21 @@ purge_generic_impls_owned_by :: (fn(owner : String) -> unit)({
       .None => ()
     );
     ki = (ki + usize(1));
+  });
+});
+/// Drop the concrete trait-impl records `owner` registered (coherence index;
+/// the LSP calls this beside `purge_generic_impls_owned_by`).
+purge_concrete_trait_impls_owned_by :: (fn(owner : String) -> unit)({
+  if(owner.len() == usize(0), {
+    return(());
+  });
+  (i : usize) = g_concrete_trait_impl_owners.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    if(match(g_concrete_trait_impl_owners.get(i), .Some(o) => (o == owner), .None => false) && (i < g_concrete_trait_impls.len()), {
+      g_concrete_trait_impls.drain(i .. (i + usize(1)));
+      g_concrete_trait_impl_owners.drain(i .. (i + usize(1)));
+    });
   });
 });
 /// Total generic-impl entries across all buckets (LSP leak gate).
@@ -1503,6 +1529,170 @@ find_matching_generic_impl :: (
     ei = (ei + usize(1));
   });
   false
+});
+// ---------------------------------------------------------------------------
+// Trait coherence (plans/reference/TRAIT_COHERENCE.md)
+// ---------------------------------------------------------------------------
+/// `module_path:row:column` (1-based) of an impl, as the coherence
+/// diagnostics name it.
+_impl_site_string :: (fn(tok : Token) -> String)(
+  `${tok.module_path}:${(tok.row + usize(1)).to_string()}:${(tok.column + usize(1)).to_string()}`
+);
+/// Does the generic entry's trait, with the forall BINDINGS a receiver match
+/// produced substituted in, name the same trait instantiation as `concrete`?
+/// Traits carry no argument list, so the instantiations are compared by
+/// member: every member of `concrete` must exist in the generic trait with a
+/// compatible type (`Eq(str)` vs `Eq(Box(T))` differ in `(==)`'s `rhs`).
+_trait_instances_agree :: (fn(entry : GenericImplEntry, bindings : ArrayList(TypeValue), concrete : TypeValue) -> bool)({
+  ta_s := subst_new();
+  (ta_i : usize) = usize(0);
+  while((ta_i < entry.forall_some_types.len()) && (ta_i < bindings.len()), {
+    match(
+      entry.forall_some_types.get(ta_i),
+      .Some(ta_f) => match(
+        ta_f,
+        .SomeT({ name : ta_n, frame_level : ta_l }) => subst_add(ta_s, ta_n, ta_l, match(bindings.get(ta_i), .Some(b) => b, .None => t_unit())),
+        _ => ()
+      ),
+      .None => ()
+    );
+    ta_i = (ta_i + usize(1));
+  });
+  g_tr := substitute(ta_s, entry.trait_type);
+  match(
+    concrete,
+    .TraitT({ field_labels : c_labels, field_types : c_types }) => {
+      (ok : bool) = true;
+      (ci : usize) = usize(0);
+      while((ci < c_labels.len()) && ok, {
+        c_lbl := match(c_labels.get(ci), .Some(l) => l, .None => String.new());
+        c_ty := match(c_types.get(ci), .Some(t) => t, .None => t_unit());
+        match(
+          _trait_field_type_by_label(Option(TypeValue).Some(g_tr), c_lbl),
+          .Some(g_ty) => if(!(are_types_compatible(c_ty, g_ty)) && !(are_types_compatible(g_ty, c_ty)), {
+            ok = false;
+          }),
+          .None => {
+            ok = false;
+          }
+        );
+        ci = (ci + usize(1));
+      });
+      ok
+    },
+    _ => false
+  )
+});
+/// The generic-impl bucket for a base trait key (empty when none).
+_generic_impl_bucket :: (fn(key : String) -> ArrayList(GenericImplEntry))({
+  (ki : usize) = usize(0);
+  while(ki < g_impl_registry_keys.len(), {
+    if(match(g_impl_registry_keys.get(ki), .Some(k) => (k == key), .None => false), {
+      return(match(g_impl_registry_entry_lists.get(ki), .Some(l) => l, .None => ArrayList(GenericImplEntry).new()));
+    });
+    ki = (ki + usize(1));
+  });
+  ArrayList(GenericImplEntry).new()
+});
+/// Coherence at a CONCRETE trait impl (rules 1–3): no second impl of the pair
+/// (`note_trait_impl_site`, checked by the caller), and no registered generic
+/// impl of the same trait instantiation that covers this receiver. Records the
+/// impl for the reverse direction.
+_check_concrete_impl_coherence :: (fn(receiver_ty : TypeValue, trait_ty : TypeValue, site : String, env : Environment, tok : Token, exn : Exception) -> unit)({
+  base := get_base_trait_key(trait_ty);
+  if(base.len() == usize(0), {
+    return(());
+  });
+  bucket := _generic_impl_bucket(base);
+  (bi : usize) = usize(0);
+  while(bi < bucket.len(), {
+    match(
+      bucket.get(bi),
+      .Some(ge) => if(ge.site != site, {
+        match(
+          try_match_generic_impl(receiver_ty, ge, env, true),
+          .Some(ge_b) => if(_trait_instances_agree(ge, ge_b, trait_ty), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  tok,
+                  `Trait "${type_to_string(trait_ty)}" is already implemented for type "${type_to_string(receiver_ty)}" by the generic impl at ${ge.site}, which covers it. A type implements a trait at most once; there is no specialization (plans/reference/TRAIT_COHERENCE.md).`
+                )
+              )
+            );
+          }),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  g_concrete_trait_impls.push(ConcreteTraitImpl(base_key : base, receiver_ty : receiver_ty, trait_ty : trait_ty, site : site));
+  g_concrete_trait_impl_owners.push(registration_owner());
+});
+/// Coherence at a GENERIC trait impl: an identical impl (same receiver
+/// pattern and trait, binders renamed by position) from another site is a
+/// duplicate (rule 1), and a registered concrete impl the new entry covers is
+/// an overlap (rule 3, the direction `_check_concrete_impl_coherence` cannot
+/// see). Inherent generic impls (no trait) are not judged here.
+_check_generic_impl_coherence :: (fn(entry : GenericImplEntry, env : Environment, tok : Token, exn : Exception) -> unit)({
+  if(!(match(entry.trait_type, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false)), {
+    return(());
+  });
+  canon := subst_new();
+  (cn_i : usize) = usize(0);
+  while(cn_i < entry.forall_some_types.len(), {
+    match(
+      entry.forall_some_types.get(cn_i),
+      .Some(cn_f) => match(
+        cn_f,
+        .SomeT({ name : cn_n, frame_level : cn_l }) => subst_add(canon, cn_n, cn_l, t_some_t(`$${cn_i.to_string()}`, usize(0))),
+        _ => ()
+      ),
+      .None => ()
+    );
+    cn_i = (cn_i + usize(1));
+  });
+  shape := `${type_to_string(substitute(canon, entry.receiver_type_pattern))}\n${type_to_string(substitute(canon, entry.trait_type))}`;
+  match(
+    note_trait_impl_site(String.from("generic"), shape, entry.site),
+    .Some(prev) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            `Trait "${type_to_string(entry.trait_type)}" is already implemented for type "${type_to_string(entry.receiver_type_pattern)}" (first impl: ${prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+  (ci : usize) = usize(0);
+  while(ci < g_concrete_trait_impls.len(), {
+    match(
+      g_concrete_trait_impls.get(ci),
+      .Some(cr) => if((cr.base_key == entry.trait_key) && (cr.site != entry.site), {
+        match(
+          try_match_generic_impl(cr.receiver_ty, entry, env, true),
+          .Some(cr_b) => if(_trait_instances_agree(entry, cr_b, cr.trait_ty), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  tok,
+                  `Trait "${type_to_string(cr.trait_ty)}" is already implemented for type "${type_to_string(cr.receiver_ty)}" (first impl: ${cr.site}), and this generic impl covers it too. A type implements a trait at most once; there is no specialization (plans/reference/TRAIT_COHERENCE.md).`
+                )
+              )
+            );
+          }),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
 });
 /// Negative generic impl registry. Holds
 /// `impl(generic(...), Pattern, !(Trait))` entries (reusing
@@ -3930,7 +4120,8 @@ evaluate_module_value :: (
               ArrayList(EvalValue).new(),
               forall_env,
               impl_where_some_types,
-              impl_where_traits
+              impl_where_traits,
+              _impl_site_string(ast_expr_token(expr))
             );
             register_negative_generic_impl(neg_entry);
           },
@@ -4123,8 +4314,11 @@ evaluate_module_value :: (
           // 9. definition_env
           impl_where_some_types,
           // 10. where_constraint_some_types
-          impl_where_traits // 11. where_constraint_traits
+          impl_where_traits,
+          // 11. where_constraint_traits
+          _impl_site_string(ast_expr_token(expr)) // 12. site
         );
+        _check_generic_impl_coherence(g_entry, forall_env, ast_expr_token(expr), exn);
         register_generic_impl(g_entry);
       });
     });
@@ -4174,7 +4368,9 @@ evaluate_module_value :: (
       // 9. definition_env
       impl_where_some_types,
       // 10. where_constraint_some_types
-      impl_where_traits // 11. where_constraint_traits
+      impl_where_traits,
+      // 11. where_constraint_traits
+      _impl_site_string(ast_expr_token(expr)) // 12. site
     );
     register_generic_impl(entry);
     // Return the original local_env (without the generic frame leaked into scope).
@@ -4465,6 +4661,28 @@ evaluate_module_value :: (
                 ),
                 .None => ()
               );
+              // Coherence (plans/reference/TRAIT_COHERENCE.md rules 1–2): a
+              // second impl of this trait instantiation for this type —
+              // here, in an imported module or in the prelude — is an error.
+              // It used to register beside the first, and dispatch took the
+              // first hit, so the second was dead code that looked live
+              // (issues/yo-self-missing-duplicate-impl-checks.md).
+              coh_tok := ast_expr_token(field_expr);
+              match(
+                note_trait_impl_site(receiver_type_id.clone(), get_trait_key(ctt), _impl_site_string(coh_tok)),
+                .Some(coh_prev) => {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        coh_tok,
+                        `Trait "${type_to_string(ctt)}" is already implemented for type "${type_to_string(receiver_ty)}" (first impl: ${coh_prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+                      )
+                    )
+                  );
+                },
+                .None => ()
+              );
+              _check_concrete_impl_coherence(receiver_ty, ctt, _impl_site_string(coh_tok), local_env, coh_tok, exn);
               match(
                 g_register_trait_value_fn,
                 .Some(rf) => rf(receiver_type_id.clone(), ctt),
@@ -4885,7 +5103,7 @@ export(evaluate_module_value);
 export(GenericImplEntry, MethodCandidate);
 export(TypeImplementsTraitFullFn);
 export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, get_trait_key);
-export(register_generic_impl);
+export(register_generic_impl, purge_concrete_trait_impls_owned_by);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);
 export(find_matching_generic_impl);

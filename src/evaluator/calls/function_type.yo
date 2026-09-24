@@ -67,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
   resolve_verify_mode
 } :: import("../builtins/contracts.yo");
 { EvalValue, FuncValData, create_unknown_val, create_type_value, is_unknown_val } :: import("../../value.yo");
-{ type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
+{ type_contains_some_type_for_codegen_param, impl_param_unmet_trait } :: import("../trait_checking.yo");
 {
   is_flowable_expr,
   flow_options_default,
@@ -157,6 +157,10 @@ _soft_evaluated_for_verify_inner :: (
   );
   Option(AstExpr).Some(evaluated_for_verify(p, env, ctx, soft_exn))
 });
+/// E0602 text for a body whose type misses a trait of its `Impl(...)` result.
+_impl_result_unmet_message :: (fn(body_ty : TypeValue, trait_ty : TypeValue, result_ty : TypeValue) -> String)(
+  `Function body has type ${type_to_string(body_ty)}, which does not implement required trait ${type_to_string(trait_ty)} of the declared result ${type_to_string(result_ty)}`
+);
 /// Trial-evaluate a function body at definition time, swallowing any eval
 // --- deferred def-eval re-run (fn arm 14: mutual comptime recursion) -------
 /// One fn whose def-time body eval ran while a forward-declared comptime fn
@@ -1720,6 +1724,19 @@ Result type: ${type_to_string(result_box)}`
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(ub_body)),
               .Some(ub_info) => {
                 ub_ty := ub_info.ty;
+                // An `Impl(Trait)` result is judged by its traits, not by
+                // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
+                // the deferred-generic twin is below.
+                if(!(has_any_control_flow(ub_info.control_flow)), {
+                  match(
+                    impl_param_unmet_trait(result_box, ub_ty, flow_env),
+                    .Some(ub_rt) => {
+                      mark_fn_unemittable(fn_val_id.clone());
+                      exn.throw(dyn(format_error_message(ast_expr_token(fb), _impl_result_unmet_message(ub_ty, ub_rt, result_box))));
+                    },
+                    .None => ()
+                  );
+                });
                 ub_skip := ((((has_any_control_flow(ub_info.control_flow) || is_void_type(result_box)) || is_type_hierarchy_type(result_box)) || (type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(ub_ty, ArrayList(String).new()))) || result_is_ref);
                 if(!(ub_skip) && !(are_types_compatible(ub_ty, result_box)), {
                   // The registration above already happened; a definition
@@ -2008,6 +2025,26 @@ Result type: ${type_to_string(result_box)}`
                   // check alone cannot convict (unresolved SomeT unifies with
                   // anything).
                   dg_expected_is_some := is_some_type(dg_expected);
+                  // An `Impl(Trait, ...)` RESULT (a SomeT that is not one of
+                  // this fn's binders, carrying required traits) is satisfied
+                  // by ANY concrete body type — but only one that implements
+                  // every required trait. The own-forall skip above waved it
+                  // through unchecked, so `(fn() -> Impl(Foo))(Q(...))` for a
+                  // `Q` without `Foo` passed `check` and reached codegen as an
+                  // ICE (issues/fixed/impl-trait-return-bound-is-not-checked.md).
+                  if(((dg_own_forall_skip && !(dg_skip_cf)) && !(dg_trial_abstract)) && !(dg_trial_degenerate), {
+                    match(
+                      impl_param_unmet_trait(dg_expected, dg_trial_ty, dg_env),
+                      .Some(dg_rt) => {
+                        dg_bound_msg := _impl_result_unmet_message(dg_trial_ty, dg_rt, dg_expected);
+                        if(!(ctx.is_in_function_call_checking_phase) && (!(propagate_def_time_errors()) && !(flow_violation_pending())), {
+                          flag_flow_violation(dg_bound_msg.clone());
+                        });
+                        exn.throw(dyn(format_error_message(tok, dg_bound_msg)));
+                      },
+                      .None => ()
+                    );
+                  });
                   if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_exact(dg_trial_ty, dg_expected))), {
                     dg_exp_str := type_to_string(dg_expected);
                     dg_got_str := type_to_string(dg_trial_ty);

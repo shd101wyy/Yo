@@ -85,7 +85,9 @@ pragma(Pragma.AllowUnsafe);
   extract_future_trait_from_type,
   type_is_callable_shaped,
   fn_constrained_param_requires_callable,
-  fn_argument_not_callable_message
+  fn_argument_not_callable_message,
+  impl_param_unmet_trait,
+  impl_argument_unmet_trait_message
 } :: import("../trait_checking.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call } :: import("../async/await_analysis.yo");
 {
@@ -828,6 +830,20 @@ check_if_function_parameter_matches_argument :: (
       exn.throw(dyn(format_error_message(ast_expr_token(actual_arg), nc_msg)));
     });
   });
+  // Step 3c: an `Impl(Trait)` parameter takes only an argument that
+  // implements the trait (the non-`Fn` twin of Step 3b; see
+  // trait_checking.yo `impl_param_unmet_trait`).
+  match(
+    impl_param_unmet_trait(resolved_pt, arg_type, caller_env_r),
+    .Some(um_tr) => {
+      um_msg := impl_argument_unmet_trait_message(param_label.clone(), resolved_pt, arg_type, um_tr);
+      if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+        flag_flow_violation(um_msg.clone());
+      });
+      exn.throw(dyn(format_error_message(ast_expr_token(actual_arg), um_msg)));
+    },
+    .None => ()
+  );
   // Step 4: Append to runtime arg list if not comptime-only.
   if(!(is_ct_only), {
     runtime_arg_exprs_in_order.push(evaled_arg);

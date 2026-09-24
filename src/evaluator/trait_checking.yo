@@ -35,7 +35,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../types/env_lookup.yo");
 {
   type_contains_some_type,
-  type_implements_runtime_builtin
+  type_implements_runtime_builtin,
+  get_all_some_types
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("./context.yo");
@@ -1625,6 +1626,50 @@ closure (x => ...), an arrow literal ((x) -> ...), a named fn passed by name,
 or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 );
 // ---------------------------------------------------------------------------
+// impl_param_unmet_trait / impl_argument_unmet_trait_message
+// ---------------------------------------------------------------------------
+/// The first trait an `Impl(Trait, ...)` PARAMETER requires that a concrete
+/// argument type does not implement, or `.None`. Only the `Impl` carrier is
+/// judged (a `where(T <: X)` binder is the where-clause validation's job);
+/// `Fn` traits are the callable check's (`fn_constrained_param_requires_callable`);
+/// an argument type still carrying a SomeT is judged at its specialization.
+/// Without it a `Q` bound to `v : Impl(Foo)` was accepted, and the first use
+/// of a `Foo` method in the body failed as E0610 on `(v.f)()`
+/// (issues/fixed/impl-trait-return-bound-is-not-checked.md).
+impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env : Environment) -> Option(TypeValue))(
+  match(
+    param_type,
+    .SomeT({ name : ip_nm, required_trait_types : ip_req, is_effects_row : ip_row }) => cond(
+      (((ip_nm != "Impl") || ip_row) || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
+      true => {
+        (ip_miss : Option(TypeValue)) = Option(TypeValue).None;
+        (ip_i : usize) = usize(0);
+        while((ip_i < ip_req.len()) && ip_miss.is_none(), {
+          match(
+            ip_req.get(ip_i),
+            .Some(ip_t) => if(!(is_fn_trait_type(ip_t)) && !(type_implements_trait_bool(arg_type, ip_t, env)), {
+              ip_miss = Option(TypeValue).Some(ip_t);
+            }),
+            .None => ()
+          );
+          ip_i = (ip_i + usize(1));
+        });
+        ip_miss
+      }
+    ),
+    _ => Option(TypeValue).None
+  )
+);
+/// The shared E0602 text for an argument that misses a trait of its
+/// `Impl(...)` parameter (both call paths emit it verbatim).
+impl_argument_unmet_trait_message :: (
+  fn(param_label : String, param_type : TypeValue, arg_type : TypeValue, trait_ty : TypeValue) -> String
+)(
+  `Argument for parameter "${param_label}" does not implement required trait ${type_to_string(trait_ty)}:
+- Parameter: ${type_to_string(param_type)}
+- Argument : ${type_to_string(arg_type)}`
+);
+// ---------------------------------------------------------------------------
 // type_implements_future
 // ---------------------------------------------------------------------------
 /// Check if a type implements Future (is a future-like type).
@@ -2112,6 +2157,7 @@ export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
 export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message);
+export(impl_param_unmet_trait, impl_argument_unmet_trait_message);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);
 export(extract_future_trait_from_type);

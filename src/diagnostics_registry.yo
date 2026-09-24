@@ -44,6 +44,7 @@ json :: import("std/encoding/json");
   E_MAYBE_UNINITIALIZED,
   E_NO_MATCHING_CALL,
   E_OPTIMISTIC_PANIC,
+  E_CONFLICTING_IMPL,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
@@ -562,6 +563,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "{ println } :: import(\"std/fmt\");\n\nmain :: (fn() -> unit)({\n  scores := Option(i32).Some(i32(9));\n  best := scores.unwrap_or(i32(0));\n  println(`best=${best}`);\n});\nexport(main);\n",
       "The receiver's type already says the value might be absent; `unwrap` throws that information away and aborts on the failure case, so the failure handling must be written out.",
       "接收者的类型已经表明值可能缺失；`unwrap` 丢弃了这一信息并在失败分支中止程序，因此必须把失败处理显式写出来。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CONFLICTING_IMPL,
+      "a trait is implemented twice for one type",
+      "同一类型的某个 trait 被实现了两次",
+      "A type implements a trait at most once; a second impl of the same trait for the same type — in this module, in an imported one, or in the prelude — has no meaning to give it.",
+      "一个类型最多实现某个 trait 一次；同一 trait 对同一类型的第二个 impl —— 无论在本模块、被导入的模块还是 prelude 中 —— 都无法赋予意义。",
+      "Yo has no overloading and no specialization, so two impls of one (type, trait) pair would be two answers to one question; the first used to win silently and the second was dead code. Keep one impl: delete the duplicate, or, if the second really is a different behaviour, give it its own trait or its own wrapper type. A blanket impl over a bound (`impl(generic(T), where(T <: X), T, Trait(...))`) conflicts the same way with a concrete impl of the trait for a type the bound covers. See plans/reference/TRAIT_COHERENCE.md.",
+      "Yo 没有重载也没有特化，所以对同一 (类型, trait) 的两个 impl 等于对同一个问题给出两个答案；过去第一个会静默胜出，第二个成为死代码。只保留一个 impl：删除重复的那个；如果第二个确实代表不同行为，就给它单独的 trait 或包装类型。覆盖某个约束的一揽子 impl（`impl(generic(T), where(T <: X), T, Trait(...))`）与该约束所覆盖类型的具体 impl 也以同样方式冲突。见 plans/reference/TRAIT_COHERENCE.md。",
+      "Speak :: trait(speak : (fn(self : Self) -> i32));\nDog :: struct(x : i32);\nimpl(Dog, Speak(speak : (self -> self.x)));\nimpl(Dog, Speak(speak : (self -> i32(2))));\n",
+      "Speak :: trait(speak : (fn(self : Self) -> i32));\nDog :: struct(x : i32);\nimpl(Dog, Speak(speak : (self -> self.x)));\n",
+      "The second `impl(Dog, Speak(...))` is a second answer to one question; keep one.",
+      "第二个 `impl(Dog, Speak(...))` 是对同一个问题的第二个答案；只保留一个。"
     )
   );
   out
