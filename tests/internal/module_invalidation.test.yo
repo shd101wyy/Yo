@@ -32,6 +32,9 @@
 { funcval_cap_vars_entry_count } :: import("../../src/env.yo");
 { function_side_table_entry_count } :: import("../../src/evaluator/types/function.yo");
 { expr_side_table_entry_count } :: import("../../src/expr_info.yo");
+{ ifc_memo_entry_count } :: import("../../src/evaluator/values/impl.yo");
+{ trait_default_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
+{ type_intern_entry_count } :: import("../../src/types/intern.yo");
 
 _IMPL_DOC :: "Point :: struct(x : i32);\nimpl(\n  Point,\n  get_x : (fn(self : Self) -> i32)(self.x)\n);\nmain :: (fn() -> unit)({\n  p := Point(x : i32(1));\n  _y := p.get_x();\n});\nexport(main);\n";
 _LIB_V1 :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
@@ -41,13 +44,21 @@ _APP :: "{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := 
 /// One server-shaped analysis round of the impl doc: overlay + invalidate
 /// (purges the previous generation's registry entries) + analyze. Returns
 /// the outcome's `ok`.
-_impl_doc_round :: (fn(doc_path : String, std_path : String, io : Io) -> bool)({
-  mm_set_open_document(doc_path.clone(), String.from(_IMPL_DOC));
+_impl_doc_round :: (fn(doc_path : String, std_path : String, io : Io) -> bool)(
+  _doc_round(doc_path, String.from(_IMPL_DOC), std_path, io)
+);
+/// The same round for any document text.
+_doc_round :: (fn(doc_path : String, text : String, std_path : String, io : Io) -> bool)({
+  mm_set_open_document(doc_path.clone(), text.clone());
   _inv := mm_invalidate_document(doc_path.clone());
   out := ArrayList(AnalyzeOutcome).new();
-  _diags := analyze_document(doc_path.clone(), String.from(_IMPL_DOC), std_path.clone(), io, out);
+  _diags := analyze_document(doc_path.clone(), text, std_path.clone(), io, out);
   match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false)
 });
+/// A trait with a DEFAULT method, reached through a generic impl on a
+/// comptime-built type: exercises the trait-default registry, the forall
+/// injection memo and type interning, all keyed by the doc's re-minted ids.
+_TRAIT_DOC :: "Named :: trait(\n  name : (fn(self : Self) -> i32),\n  (twice : (fn(self : Self) -> i32)) ?= (self -> (self.name() + self.name()))\n);\nBox1 :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));\nimpl(generic(T : Type), Box1(T), Named(name : (fn(self : Self) -> i32)(i32(7))));\nTag :: struct(n : i32);\nmain :: (fn() -> unit)({\n  b := Box1(Tag)(v : Tag(n : i32(1)));\n  _t := b.twice();\n});\nexport(main);\n";
 
 /// Analyze the app document; return the outcome's `ok`.
 _analyze_app_ok :: (fn(app_path : String, std_path : String, io : Io) -> bool)({
@@ -162,6 +173,32 @@ test("B2: repeated re-analysis keeps registry entry counts stable", {
   // by fresh expression ids (the doc's `p.get_x()` method call).
   assert(est2 == est1, `expr-id side tables leaked: ${est1} -> ${est2}`);
   assert(est3 == est2, `expr-id side tables leaked: ${est2} -> ${est3}`);
+});
+
+test("B2: re-analysis keeps the memo and trait-default registries flat", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_b2_memo_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/trait_doc.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_TRAIT_DOC), io), ioexn);
+  std_path := resolve_std_path();
+  assert(_doc_round(doc_path.clone(), String.from(_TRAIT_DOC), std_path.clone(), io), "round 1 should analyze clean");
+  total1 := (ifc_memo_entry_count() + trait_default_entry_count() + type_intern_entry_count());
+  assert(_doc_round(doc_path.clone(), String.from(_TRAIT_DOC), std_path.clone(), io), "round 2 should analyze clean");
+  total2 := (ifc_memo_entry_count() + trait_default_entry_count() + type_intern_entry_count());
+  assert(_doc_round(doc_path.clone(), String.from(_TRAIT_DOC), std_path.clone(), io), "round 3 should analyze clean");
+  total3 := (ifc_memo_entry_count() + trait_default_entry_count() + type_intern_entry_count());
+  // Every round re-mints the doc's trait and types, so without the owner
+  // purges each round added its defaults, memo entries and interned shapes.
+  assert(total2 == total1, `memo/default/intern registries leaked: ${total1} -> ${total2}`);
+  assert(total3 == total2, `memo/default/intern registries leaked: ${total2} -> ${total3}`);
 });
 
 // plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3: the LSP keeps a

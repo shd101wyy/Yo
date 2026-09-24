@@ -44,7 +44,7 @@
 { set_lookup_assoc_const } :: import("../../types/substitution.yo");
 { EvalValue } :: import("../../value.yo");
 { AstExpr } :: import("../../expr.yo");
-{ canonical_module_path, debug_knob } :: import("../../utils.yo");
+{ canonical_module_path, debug_knob, set_current_owner, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 /// Extract the unique `id` string from a `TypeValue` variant that
 /// carries one (Struct / EnumT / TraitT / SomeT). Returns
@@ -164,6 +164,7 @@ MethodEntry :: ref(
 /// module would close the module_loader → env → type_trait_methods cycle.
 (_registration_owner : String) = String.new();
 set_registration_owner :: (fn(owner : String) -> unit)({
+  set_current_owner(owner.clone());
   _registration_owner = owner;
 });
 /// Function ids by owner, for the per-function side tables
@@ -636,8 +637,30 @@ purge_trait_impl_sites_owned_by :: (fn(owner : String) -> unit)({
 /// dispatch) fall back to this when a concrete type implements the trait WITHOUT
 /// overriding a defaulted method (e.g. `Error.source ?= (self) -> .None`).
 (_trait_method_defaults : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+/// `_trait_method_defaults` keys by owner (the trait's module).
+(_trait_default_owned : OwnedKeys) = owned_keys_new();
 register_trait_default :: (fn(trait_id : String, label : String, value : EvalValue) -> unit)({
-  _trait_method_defaults.insert(trait_id + String.from("::") + label, value);
+  key := (trait_id + String.from("::") + label);
+  owned_keys_record(_trait_default_owned, key.clone());
+  _trait_method_defaults.insert(key, value);
+});
+/// Registered trait defaults (the B2 plateau test's probe).
+trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.len());
+/// Drop the trait defaults `owner`'s evaluation registered (its traits are
+/// re-minted under fresh ids when it is re-evaluated).
+purge_trait_defaults_owned_by :: (fn(owner : String) -> unit)({
+  keys := owned_keys_take(_trait_default_owned, owner);
+  (i : usize) = usize(0);
+  while(i < keys.len(), {
+    match(
+      keys.get(i),
+      .Some(k) => {
+        _r := _trait_method_defaults.remove(k);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
 });
 get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue))(
   _trait_method_defaults.get(trait_id + String.from("::") + label)
@@ -893,6 +916,8 @@ export(
   take_owned_func_ids,
   record_owned_expr_id,
   take_owned_expr_ids,
+  purge_trait_defaults_owned_by,
+  trait_default_entry_count,
   purge_type_trait_methods_owned_by,
   type_trait_methods_entry_count
 );
