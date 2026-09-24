@@ -805,6 +805,35 @@ _drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerati
     .None => false
   )
 );
+/// Whether `expr` still carries a not-yet-emitted PARAM-targeted drop (the
+/// own-param scope-end release a function-level emission point flushes with
+/// `only_param_drops`). The bare-expression tail return uses it to decide
+/// whether the tail must be materialized before those drops run.
+has_pending_param_drop :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.deferred_drop_expressions,
+      .Some(drops) => {
+        (found : bool) = false;
+        (i : usize) = usize(0);
+        while((i < drops.len()) && !found, {
+          match(
+            drops.get(i),
+            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(d)) && _drop_target_is_parameter(d, context), {
+              found = true;
+            }),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        found
+      },
+      .None => false
+    ),
+    .None => false
+  )
+);
 /// Emit the evaluator-deferred drop expressions for `expr` (closure-capture and
 /// short-circuit-handled drops are skipped).
 /// `skip_param_drops` / `only_param_drops` split ownership of PARAM-targeted
@@ -1235,6 +1264,7 @@ export(
   generate_dup_code_for_value,
   generate_deferred_drop_expressions,
   generate_deferred_dup_expressions,
+  has_pending_param_drop,
   emit_deferred_dup_or_code,
   arm_value_with_dups
 );
