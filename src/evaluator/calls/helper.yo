@@ -4622,7 +4622,12 @@ resolve_param_types_from_expected :: (
     expected_env : Environment,
     caller_env : Environment,
     ctx : EvalContext,
-    out : ArrayList(TypeValue)
+    out : ArrayList(TypeValue),
+    /// OUT (optional): each `generic(...)` binder the expected type binds to
+    /// a CONCRETE type, and that type — for a caller whose arguments cannot
+    /// bind a result-only binder.
+    (forall_out_names : ArrayList(String)) ?= ArrayList(String).new(),
+    (forall_out_types : ArrayList(TypeValue)) ?= ArrayList(TypeValue).new()
   ) -> unit
 )({
   default_pts := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
@@ -4664,6 +4669,19 @@ resolve_param_types_from_expected :: (
   (rps_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
   rps_synth := synthesize_types(temp_ret, synth_env, expected_ty, expected_env, rps_checked, rps_opts, rps_exn);
   resolved_env := rps_synth.expected_env;
+  (fo_i : usize) = usize(0);
+  while(fo_i < forall_lbls.len(), {
+    fo_lbl := match(forall_lbls.get(fo_i), .Some(l) => l, .None => String.new());
+    match(
+      _forall_binding_now(resolved_env, fo_lbl.clone()),
+      .Some(fo_t) => {
+        forall_out_names.push(fo_lbl);
+        forall_out_types.push(fo_t);
+      },
+      .None => ()
+    );
+    fo_i = (fo_i + usize(1));
+  });
   (pj : usize) = usize(0);
   while(pj < default_pts.len(), {
     p_orig := match(default_pts.get(pj), .Some(t) => t, .None => t_unit());

@@ -314,16 +314,20 @@ test("soundness canary: fn values and capture-free closures are Send", {
 // ---------------------------------------------------------------------------
 _pair_same :: (fn(generic(A : Type), x : A, y : A) -> A)(x);
 _apply_g :: (fn(generic(T : Type), f : Impl(Fn(x : T) -> T), v : T) -> T)(f(v));
+_apply_v :: (fn(generic(T : Type), v : T, f : Impl(Fn(x : T) -> T)) -> T)(f(v));
 test("soundness: two arguments cannot bind one type parameter to two types", {
   comptime_expect_error(_pair_same(String.from("hello"), i32(2)), "Incompatible types for generic parameter");
   comptime_expect_error(_pair_same(i32(3), String.from("world")), "Incompatible types for generic parameter");
-  comptime_expect_error(_apply_g(x => true, i32(3)), "");
+  comptime_expect_error(_apply_g(x => true, i32(3)), "declared result type");
+  comptime_expect_error(_apply_g(x -> true, i32(3)), "declared result type");
   assert(true, "rejected");
 });
 test("soundness canary: arguments that agree on a type parameter", {
   assert(_pair_same(i32(3), i32(4)) == i32(3), "same type");
   assert(_pair_same(i32(3), 4) == i32(3), "a literal adopts the binder");
   assert(_apply_g(x => (x + i32(1)), i32(3)) == i32(4), "closure result agrees");
+  assert(_apply_g(x -> (x * i32(2)), i32(3)) == i32(6), "function literal first");
+  assert(_apply_v(i32(3), x -> (x * i32(2))) == i32(6), "function literal last");
 });
 // ---------------------------------------------------------------------------
 // issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md
