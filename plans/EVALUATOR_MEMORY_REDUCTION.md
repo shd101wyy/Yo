@@ -595,6 +595,7 @@ problem is what stays, not what is allocated.
 | Share live `Frame` handles into def-time envs                | `issues/env-sharing-live-frame-membership-leak.md` | frames append in place → membership leaks → statements silently dropped from the C      |
 | `Frame.where_clause_constraints` eager HashMap               | `backlog/YO_SELF_ENV_SHARING.md` §4            | 157 k frames × 496 B ≈ 78 MB, not GB                                                       |
 | An arena / bump allocator for the compiler                   | `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`       | the footprint is retention; a no-free region turns 1.5 B gross constructions into ~150 GB  |
+| Owner-purge the specialization cache on LSP invalidation     | §5 Phase 1 step 5 (2026-09-25)                 | 5-round `yo lsp` 0.98 vs 0.99 GB: stable type ids make re-evaluation HIT the old entries (124 flat in a focused test) |
 
 ---
 
@@ -752,6 +753,32 @@ instruments durable and answer the three questions the ranking depends on.
    unchanged (interleaved 2.71/2.80 vs 2.76/2.73 GB). About 0.14 GB per
    round remains. The next census names the next holder; the full 288-global
    table is still not written.
+   **Batches 1–2, 2026-09-25.** A census row per container global's LENGTH
+   (`L` rows, `holder_census_t.py`) found **56 registries growing every LSP
+   round**, in three key families: function ids, type ids, expression ids.
+   Their entries are mostly UNTRACKED (`HashMap(String, EvalValue)` and the
+   like take the small header), so the traverse-based H rows never saw them.
+   The `HOLDER_DEEP` walk (precise `traverse_fn` for tracked objects,
+   header-restricted conservative scan for untracked ones, bytes per root)
+   ranks the 1→5-round growth: `g_method_callee_values` +264 MB,
+   `g_ifc_memo` +94 MB, unreachable +69 MB, `g_macro_expansions` +47 MB,
+   `g_frame_indexes` +31 MB, `g_type_intern` +24 MB,
+   `_trait_method_defaults` +17 MB, then a long tail. (A first version that
+   scanned every word of every object attributed 0.5 GB to a trait registry:
+   an enum's union tail holds a previous occupant's stale words.)
+   - **Batch 1 (#883), function-id family**: the 17 `g_func_*`/`g_macro_*`
+     side tables and two `function_value.yo` registries. A function id is
+     recorded in `g_owned_func_ids` at its FIRST registration only;
+     specialization copies (`to_id`) are shared across modules through the
+     specialization cache and stay. 5 rounds 0.98 → 0.97 GB.
+   - **Batch 2, expression-id family**: `g_method_callee_values`/`_types`,
+     `g_macro_expansions`, `g_arm_init_ranges`, `g_io_builtin_calls`,
+     recorded in `g_owned_expr_ids` at insert and purged by
+     `purge_expr_side_tables`. **5 rounds 0.96/0.97 → 0.90/0.91 GB.**
+   Both are gated by the B2 test (flat counts across rounds, red without the
+   purge). Next: `g_ifc_memo`, the type-id family, `g_frame_indexes`, and
+   the unreachable set (mostly `ArrayList(u8)` string buffers in one-shot
+   `check`: 4.65 M objects / 223 MB at exit — holder or leak, not yet split).
 6. Measure `check src/main.yo` and the self-emit (footprint + tracked live);
    update §0.
 
