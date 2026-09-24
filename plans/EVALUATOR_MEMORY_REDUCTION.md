@@ -775,8 +775,14 @@ instruments durable and answer the three questions the ranking depends on.
      `g_macro_expansions`, `g_arm_init_ranges`, `g_io_builtin_calls`,
      recorded in `g_owned_expr_ids` at insert and purged by
      `purge_expr_side_tables`. **5 rounds 0.96/0.97 → 0.90/0.91 GB.**
-   Both are gated by the B2 test (flat counts across rounds, red without the
-   purge). Next: `g_ifc_memo`, the type-id family, `g_frame_indexes`, and
+   - **Batch 3, memo registries**: `g_ifc_memo` (impl.yo), `_trait_method_defaults`
+     and `g_type_intern` via a shared `OwnedKeys` log in `utils.yo` (the
+     owner mirror lives there so `types/intern.yo` can tag without importing
+     the evaluator). Memo and intern entries carry no identity contract, so a
+     purge costs at most a recompute. **5 rounds 0.90 → 0.79 GB**;
+     `check src/main.yo` unchanged (2.75 vs 2.78 GB).
+   All three are gated by B2 tests (flat counts across rounds, red without
+   the purge). Next: the rest of the type-id family, `g_frame_indexes`, and
    the unreachable set (mostly `ArrayList(u8)` string buffers in one-shot
    `check`: 4.65 M objects / 223 MB at exit — holder or leak, not yet split).
 6. Measure `check src/main.yo` and the self-emit (footprint + tracked live);

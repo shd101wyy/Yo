@@ -264,7 +264,7 @@ static void __ho_scan_heap(FILE* f) {
     __yo_ref_header_t* h = (__yo_ref_header_t*)__ho_un_k[i];
     if ((long long)h->ref_count > (long long)__ho_un_c[i]) __hs_mark(h);
   }
-  __hs_marks_done = 1; __hs_dump();
+  if (!getenv("HOLDER_DEEP")) { __hs_marks_done = 1; __hs_dump(); } /* deep mode marks more, then dumps */
 #endif
   for (size_t i = 0; i < __HO_UCAP; i++) if (__ho_un_k[i]) { unsigned h = __ho_hits[i]; hist[h > 3 ? 3 : h]++; int ts = __ho_slot_peek((void*)((__yo_ref_header_t*)__ho_un_k[i])->dispose_fn); if (ts >= 0) __ho_hist_t[(size_t)ts * 4 + (h > 3 ? 3 : h)]++; }
   fprintf(f, "S hits-per-unreached-object 0:%%lld 1:%%lld 2:%%lld 3+:%%lld internal-words:%%lld raw-words:%%lld raw-blocks:%%zu\n", hist[0], hist[1], hist[2], hist[3], __ho_hold_internal, __ho_hold_raw, __ho_raw_n);
@@ -303,7 +303,10 @@ static long __hd_find(void* p) { size_t i = __hd_h(p); while (__hd_bk[i]) { if (
 static void __hd_rec(task_t t, void* ctx, unsigned type, vm_range_t* r, unsigned n) {
   for (unsigned k = 0; k < n; k++) {
     void* b = (void*)r[k].address;
-    if (b == (void*)__ho_seen || b == (void*)__ho_un_k || b == (void*)__ho_stack || b == (void*)__ho_raw_k || b == (void*)__ho_scan_skip || b == (void*)__hd_bk || b == (void*)__hd_bs || b == (void*)__hd_br || b == (void*)__hd_st) continue;
+    if (b == (void*)__ho_seen || b == (void*)__ho_un_k || b == (void*)__ho_stack || b == (void*)__ho_raw_k || b == (void*)__ho_scan_skip || b == (void*)__hd_bk || b == (void*)__hd_bs || b == (void*)__hd_br || b == (void*)__hd_st || b == (void*)__hd_par) continue;
+#ifdef __HS_PRESENT
+    if (b == (void*)__hs_t) continue; /* alloc_site_census_t.py's table lists every instrumented object */
+#endif
     if (__hd_bn * 4 >= (size_t)__HD_BCAP * 3) return;
     size_t i = __hd_h(b); while (__hd_bk[i]) i = (i + 1) & (__HD_BCAP - 1);
     __hd_bk[i] = b; __hd_bs[i] = r[k].size; __hd_br[i] = -1; __hd_bn++;
@@ -393,6 +396,41 @@ static void __ho_deep(FILE* f) {
   for (size_t i = 0; i < __HD_BCAP; i++) if (__hd_bk[i] && __hd_br[i] < 0) {
     int s = __hd_rc_slot((long)i); if (s < 0) continue;
     __hd_cnt[(size_t)(%(nr)d + 1) * %(nb)d + s]++; __hd_bytes[(size_t)(%(nr)d + 1) * %(nb)d + s] += (long long)__hd_bs[i];
+  }
+  /* Split the unreached RC objects: does ANY heap word point at them? A hit
+     from a block the walk did not follow (a raw block that is not container
+     storage, or an unreached RC object) names a holder kind the walk is
+     blind to; zero hits means a missing release. Rows:
+     `K <type> zero:<n> hit:<n>` and `KH <words> <target type> <- <holder>`. */
+  {
+    long long* kz = (long long*)calloc(%(nb)d, sizeof(long long)); long long* kh = (long long*)calloc(%(nb)d, sizeof(long long));
+    unsigned* hits = (unsigned*)calloc(__HD_BCAP, sizeof(unsigned));
+    long long* holder = (long long*)calloc((size_t)(%(nb)d + 9) * %(nb)d, sizeof(long long));
+    for (size_t i = 0; i < __HD_BCAP; i++) if (__hd_bk[i]) {
+      void** w = (void**)__hd_bk[i]; size_t nw = __hd_bs[i] / sizeof(void*);
+      int hs = __hd_rc_slot((long)i); int hrow;
+      if (hs >= 0) hrow = hs; else { size_t sz = __hd_bs[i]; int c = 0; while (sz > 64 && c < 8) { sz >>= 2; c++; } hrow = %(nb)d + c; }
+      for (size_t j = 0; j < nw; j++) {
+        void* v = w[j]; if (((size_t)v & 7) || (size_t)v < 4096) continue;
+        long t = __hd_find(v); if (t < 0 || __hd_br[t] >= 0 || (size_t)t == i) continue;
+        int ts = __hd_rc_slot(t); if (ts < 0) continue;
+        hits[t]++; holder[(size_t)hrow * %(nb)d + ts]++;
+      }
+    }
+    for (size_t i = 0; i < __HD_BCAP; i++) if (__hd_bk[i] && __hd_br[i] < 0) {
+      int ts = __hd_rc_slot((long)i); if (ts < 0) continue;
+      if (hits[i]) kh[ts]++; else {
+        kz[ts]++;
+#ifdef __HS_PRESENT
+        __hs_mark(__hd_bk[i]); /* zero-hit unreached: alloc_site_census_t.py dumps its site/event log */
+#endif
+      }
+    }
+#ifdef __HS_PRESENT
+    __hs_marks_done = 1; __hs_dump();
+#endif
+    for (int t = 0; t < %(nb)d; t++) if (kz[t] + kh[t] > 100) fprintf(f, "K %%s zero:%%lld hit:%%lld\n", __ho_types[t], kz[t], kh[t]);
+    for (int h = 0; h < %(nb)d + 9; h++) for (int t = 0; t < %(nb)d; t++) { long long c = holder[(size_t)h * %(nb)d + t]; if (c > 100) { if (h < %(nb)d) fprintf(f, "KH %%lld %%s <- %%s\n", c, __ho_types[t], __ho_types[h]); else fprintf(f, "KH %%lld %%s <- raw<=%%d\n", c, __ho_types[t], 64 << (2 * (h - %(nb)d))); } }
   }
   /* HOLDER_DEEP_PATH=<type substring> [HOLDER_DEEP_PATH_ROOT=<root substring>]:
      print the discovery chain (types, object -> root) of up to 12 objects of
