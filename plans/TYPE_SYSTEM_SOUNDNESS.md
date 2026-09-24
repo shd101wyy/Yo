@@ -1,7 +1,7 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1 and 2.1–2.3 LANDED 2026-09-24 (the
-per-phase "Landed" notes below); 2.4–7 open. Source: a six-part audit of the type system on
+**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1, 2.1–2.3 and part of 2.4 LANDED 2026-09-24 (the
+per-phase "Landed" notes below); the rest of 2.4, 2.5–7 open. Source: a six-part audit of the type system on
 develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
 Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
 
@@ -224,6 +224,30 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
    `generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type`). Measure the
    memory effect with the census from `plans/EVALUATOR_MEMORY_REDUCTION.md`, since each call now
    mints SomeTs.
+
+   **Landed 2026-09-24, part 1** (per-call consistency, argument order, inference):
+   - a binder bound to two incompatible types by two arguments is E0601 on both call paths
+     (`issues/fixed/generic-type-var-rebinds-per-argument.md`);
+   - function-literal (`=>` / `->`) arguments are matched after the others, against the
+     signature they solved — fixing the generic half of
+     `issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md`, two
+     pre-existing closure-first failures, and
+     `issues/fixed/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md`
+     (the closure's `T` no longer resolves by name to a caller's `T`);
+   - the expected type binds a result-only binder, and one nothing binds is the new E0613
+     (`issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md`);
+   - the Step 10 "adopt the expected type" gate is deep
+     (`issues/fixed/generic-fn-forall-unresolved-when-argument-is-a-method-call.md`);
+   - `F(A)` infers a kind-annotated `F` from an instantiation and the result is applied
+     (`issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md`);
+   - `issues/fixed/calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md` was
+     already fixed on the v0.2.41 seed; a regression test pins it.
+
+   Open, part 2: retiring the shared cell (`iterator-chain-shared-stamp-cross-item-pollution`
+   still reproduces: two `.map` calls share one substituted `IterMap` instance and `min` reads the
+   first call's `Item`), `order-dependent-generic-slot-stranding-e0605` (no deterministic repro),
+   and alpha-equivalence of generic fn types.
+
 5. **Unify the three parameter-binding sites.** `_build_def_time_body_env`,
    `check_if_function_parameter_matches_argument` and `_evaluate_funcval_runtime_call` each
    implement a subset of the arg/param rule (self-documented in `src/evaluator/calls/function.yo`).

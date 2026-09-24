@@ -692,6 +692,30 @@ A generic body is type-checked when it is specialized: its result must match the
 result type at every instantiation (`(fn(generic(T : Type), x : T) -> i32)(true)` is an E0604 at
 the first call).
 
+A type parameter stands for ONE type in a call, and the call's arguments, not their order,
+decide it:
+
+```rust
+pair_same :: (fn(generic(A : Type), x : A, y : A) -> A)(x);
+pair_same(i32(3), i32(4));          // A = i32
+pair_same(String.from("a"), i32(2)); // E0601: A is String from argument 1 but i32 from argument 2
+
+apply :: (fn(generic(T : Type), f : Impl(Fn(x : T) -> T), v : T) -> T)(f(v));
+apply((x) => (x + i32(1)), i32(3)); // 4 — the closure is checked after `v` fixed T = i32
+apply((x) => true, i32(3));         // E0604: the closure's body is bool, T is i32
+```
+
+A closure (`=>`) or function literal (`->`) argument is checked last, against the parameter type
+the other arguments solved. A type parameter that appears only in the result is fixed by the
+expected type; with none it is E0613:
+
+```rust
+mk :: (fn(generic(T : Type)) -> Option(T))(.None);
+(x : Option(i32)) = mk();  // T = i32 from the annotation
+y := mk(generic(bool));    // T = bool, explicitly
+z := mk();                 // E0613: cannot infer T
+```
+
 A `comptime(x) : T` parameter is specialized on its VALUE, so its argument must be known at
 compile time — a literal, a `::` constant or the result of a comptime function. A runtime value is
 an error:
@@ -1613,7 +1637,12 @@ identity :: (fn(
 // Usage:
 (x : Option(i32)) = .Some(i32(42));
 result := identity(generic(Option, i32), x);  // result: Option(i32)
+inferred := identity(x);                      // F = Option, A = i32 from the argument
 ```
+
+A kind-annotated parameter is inferred from an argument's instantiation: `x : F(A)` given an
+`Option(i32)` binds `F` to the constructor `Option` and `A` to `i32`, and a result `F(A)` is
+then the same `Option(i32)` a direct call would build.
 
 #### HKT traits
 

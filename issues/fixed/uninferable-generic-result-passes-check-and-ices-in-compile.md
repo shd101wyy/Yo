@@ -23,7 +23,7 @@ could not be inferred.
 At the end of forall binding for a call, if a binder that appears in the result type is still an
 unresolved SomeT and no expected type is available, raise a coded error:
 `cannot infer T for mk(); annotate the binding, e.g. (x : Option(i32)) = mk()`.
-Related: `issues/generic-fn-forall-unresolved-when-argument-is-a-method-call.md` (a different path
+Related: `issues/fixed/generic-fn-forall-unresolved-when-argument-is-a-method-call.md` (a different path
 that also leaves a binder unresolved).
 
 ## Fix (2026-09-24)
