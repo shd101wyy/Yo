@@ -21,7 +21,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_some_t } :: import("../../types/creators.yo");
+{ t_unit, t_some_t, register_enum_type_arguments, lookup_enum_type_arguments } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_extern_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
@@ -182,6 +182,20 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
             });
           });
           vfi = (vfi + usize(1));
+        });
+        // Era instances of ONE instantiation also agree on its recorded
+        // type arguments: `P(i32)` and `P(bool)` of a phantom-indexed enum
+        // have identical variant fields and must still be two memo keys.
+        a_eta := lookup_enum_type_arguments(a_eid);
+        b_eta := lookup_enum_type_arguments(b_eid);
+        if((vf_ok && (a_eta.len() > usize(0))) && (a_eta.len() == b_eta.len()), {
+          (etai : usize) = usize(0);
+          while((etai < a_eta.len()) && vf_ok, {
+            if(!(recur(match(a_eta.get(etai), .Some(t) => t, .None => t_unit()), match(b_eta.get(etai), .Some(t) => t, .None => t_unit()), d + usize(1))), {
+              vf_ok = false;
+            });
+            etai = (etai + usize(1));
+          });
         });
         if(vf_ok, {
           return(true);
@@ -1246,6 +1260,23 @@ evaluate_comptime_fn_call :: (
     );
     tai = (tai + usize(1));
   });
+  // Record an enum instantiation's type arguments (the enum analogue of the
+  // `type_arguments` stamped on a Struct below; EnumT has no field for them —
+  // types/creators.yo `register_enum_type_arguments`). Only an enum MINTED in
+  // CTFE is an instantiation of this constructor: a module-level declaration
+  // (`enum_decl_` id) returned by an alias constructor is the same type
+  // whatever the alias's arguments are.
+  match(
+    return_value,
+    .TypeVal(rv_eta) => match(
+      rv_eta,
+      .EnumT({ id : eta_id }) => if(!(eta_id.starts_with("enum_decl_")), {
+        register_enum_type_arguments(eta_id, inst_type_args.clone());
+      }),
+      _ => ()
+    ),
+    _ => ()
+  );
   // Stamp the returned type's display name `Box(arg)` for the prelude `Box`
   // constructor only. Naming every instantiation is NOT possible: the
   // compatibility layer treats the struct NAME as nominal identity

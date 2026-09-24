@@ -51,6 +51,8 @@ pragma(Pragma.AllowUnsafe);
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 { TokenKind } :: import("../../token.yo");
+{ gadt_branch_reachable } :: import("../../pattern.yo");
+{ get_gadt_variant_args } :: import("../types/gadt_registry.yo");
 { Exception } :: import("std/error");
 { find_methods_from_generic_impls, MethodCandidate, get_base_trait_key }
 :: import("../values/impl.yo");
@@ -115,6 +117,43 @@ _attach_owned_temp_for_rc_unit_variant :: (
   attach_temp_variable_to_expr(expr, true, ctx);
 });
 /// Return the last index in `labels` where `labels[i] == name`, or `.None`.
+/// A GADT variant constructs only the instantiation its `-> recur(...)` index
+/// names: `BoolVal(b : bool) -> recur(bool)` builds a `Value(bool)`, so
+/// `Value(i32).BoolVal(true)` (or `.BoolVal(true)` where a `Value(i32)` is
+/// expected) is a type error — the constructed value would claim an index the
+/// variant cannot have, and a match that omits the GADT-unreachable arm
+/// would then fall off (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
+/// An instantiation whose index is still a SomeT (a generic body) is not
+/// judged here: `gadt_branch_reachable` treats unresolved positions as a match.
+_reject_gadt_unreachable_variant :: (
+  fn(enum_ty : TypeValue, enum_id : String, variant_idx : usize, variant_name : String, at : AstExpr, exn : Exception) -> unit
+)({
+  if(!gadt_branch_reachable(enum_id.clone(), variant_idx), {
+    idx := match(
+      get_gadt_variant_args(enum_id),
+      .Some(all) => match(all.get(variant_idx), .Some(g) => g, .None => ArrayList(TypeValue).new()),
+      .None => ArrayList(TypeValue).new()
+    );
+    idx_s := String.from("");
+    (ii : usize) = usize(0);
+    while(ii < idx.len(), {
+      if(ii > usize(0), {
+        idx_s.push_str(", ");
+      });
+      idx_s.push_string(type_to_string(match(idx.get(ii), .Some(t) => t, .None => t_unit())));
+      ii = (ii + usize(1));
+    });
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          ast_expr_token(at),
+          `Incompatible types: GADT variant "${variant_name}" is declared \`-> recur(${idx_s})\`, so it cannot construct a ${type_to_string(enum_ty)}`,
+          Option(String).Some(String.from("construct the variant through the instantiation its index names, or pick a variant whose `-> recur(...)` index matches"))
+        )
+      )
+    );
+  });
+});
 find_last_field_index :: (fn(labels : ArrayList(String), name : String) -> Option(usize))({
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
@@ -461,6 +500,7 @@ evaluate_property_access :: (
                 return(expr);
               },
               .Some(vi_1) => {
+                _reject_gadt_unreachable_variant(exp_ctx_1.ty, en_id_1.clone(), vi_1, variant_name_1.clone(), prop_expr_1, exn);
                 new_en_ty_1 := TypeValue.EnumT(
                   en_id_1,
                   en_name_1,
@@ -947,6 +987,7 @@ Raw pointer operations may dereference invalid memory.`
               return(expr);
             },
             .Some(tv_vi) => {
+              _reject_gadt_unreachable_variant(type_val_inner, tv_en_id.clone(), tv_vi, variant_name_tv.clone(), property_expr, exn);
               new_en_tv := TypeValue.EnumT(
                 tv_en_id,
                 tv_en_name,

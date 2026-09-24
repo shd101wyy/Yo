@@ -1,0 +1,74 @@
+// Type-system soundness ratchet (plans/TYPE_SYSTEM_SOUNDNESS.md, Phase 0).
+//
+// One `comptime_expect_error` per fixed soundness issue whose reproducer fits
+// in one file, each naming its issue doc. A case is added in the PR that fixes
+// the issue, so this file is always green; the programs still waiting for a
+// fix are counted by `scripts/soundness/census.sh` instead.
+//
+// Each case passes the diagnostic's text as the second argument, so a case
+// cannot go green on some unrelated error the snippet happens to hit. Shapes
+// that `comptime_expect_error` cannot observe — a check-level swallow
+// (the expression is judged in propagate mode), a multi-file program, a
+// runtime-only effect — are gated by `tests/cli-cases/` cases instead, and
+// listed at the bottom so the ratchet stays one place to read.
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+// ---------------------------------------------------------------------------
+// issues/fixed/comptime-str-passed-where-string-is-declared-emits-invalid-c.md
+// (landed in #856): a comptime literal argument is checked against a concrete
+// parameter type.
+// ---------------------------------------------------------------------------
+_takes_string :: (fn(s : String) -> usize)(s.len());
+test("soundness: a comptime_str is not a String argument", {
+  comptime_expect_error(_takes_string("raw literal"), "Incompatible");
+  assert(true, "rejected");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md
+// (Phase 1.1): a generic enum's type arguments are part of its identity, and
+// a GADT variant constructs only the instantiation its index names.
+// ---------------------------------------------------------------------------
+_Value :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    IntVal(i : i32) -> recur(i32),
+    BoolVal(b : bool) -> recur(bool),
+    PairVal(a : i32, b : bool) -> recur(i32)
+  )
+);
+_Phantom :: (fn(comptime(T) : Type) -> comptime(Type))(enum(A(x : i32), B(y : bool)));
+test("soundness: a GADT instantiation does not flow into another index", {
+  comptime_expect_error({
+    x := _Value(i32).IntVal(i32(77));
+    (_y : _Value(bool)) = x;
+  }, "Incompatible types");
+  assert(true, "rejected");
+});
+test("soundness: a phantom enum parameter is part of the type", {
+  comptime_expect_error({
+    x := _Phantom(i32).A(i32(1));
+    (_y : _Phantom(bool)) = x;
+  }, "Incompatible types");
+  assert(true, "rejected");
+});
+test("soundness: a GADT variant cannot construct another index", {
+  comptime_expect_error(_Value(i32).BoolVal(true), "GADT variant \"BoolVal\"");
+  comptime_expect_error({
+    (_v : _Value(i32)) = .BoolVal(true);
+  }, "GADT variant \"BoolVal\"");
+  assert(true, "rejected");
+});
+test("soundness canary: same-index GADT and phantom instantiations still flow", {
+  x := _Value(i32).PairVal(i32(1), false);
+  (y : _Value(i32)) = x;
+  p := _Phantom(bool).B(true);
+  (q : _Phantom(bool)) = p;
+  (v : _Value(bool)) = .BoolVal(true);
+  assert(match(y, .PairVal(a, _) => (a == i32(1)), .IntVal(_) => false), "same index flows");
+  assert(match(q, .B(b) => b, .A(_) => false), "same phantom index flows");
+  assert(match(v, .BoolVal(b) => b), "shorthand at the declared index");
+});
+// ---------------------------------------------------------------------------
+// Gated elsewhere (not expressible as comptime_expect_error):
+//   issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md
+//     -> tests/cli-cases/check-unwind-type-mismatch-in-handler
+// ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
-{ type_value_tag, resolve_enum_shell, trial_flag_get } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_extern_type_name } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
@@ -921,6 +921,41 @@ _compat_impl :: (
           // SomeT-bearing positions stay wildcards; variant lists of different
           // length are left to the old rule (an empty-name reconstruction may
           // be partial).
+          // Two instantiations of one generic enum whose recorded type
+          // arguments disagree are different types, even when no variant
+          // payload mentions the parameter — a phantom index, or a GADT
+          // index named only by `-> recur(...)`: `Value(i32)` is not a
+          // `Value(bool)` (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
+          // The enum twin of the Struct arms' `type_arguments` checks, with
+          // one difference: the arguments live in a side table keyed by id
+          // (types/creators.yo), and substitution rewrites an instance's
+          // variant fields but keeps its id, so a substituted instance still
+          // reports its DEFINITION-era arguments (`*(T)` where the fields
+          // already say `*(u8)`). A position that mentions a SomeT anywhere
+          // (the deep scan — `*(T)` is not a top-level SomeT) is therefore a
+          // wildcard under both rules, as is a `Type`-kind position; the
+          // exact rule then compares the remaining positions exactly.
+          ({
+            (eta_differ : bool) = false;
+            a_eta := lookup_enum_type_arguments(aid);
+            e_eta := lookup_enum_type_arguments(eid);
+            vkey_eta := ((aid + String.from("=>eta")) + eid);
+            if((((aid != eid) && (a_eta.len() > usize(0))) && (a_eta.len() == e_eta.len())) && !(_visited_contains(visited, vkey_eta)), {
+              visited.push(vkey_eta);
+              (etai : usize) = usize(0);
+              while((etai < a_eta.len()) && !(eta_differ), {
+                aet := match(a_eta.get(etai), .Some(v) => v, .None => TypeValue.Unit);
+                eet := match(e_eta.get(etai), .Some(v) => v, .None => TypeValue.Unit);
+                eta_kind := (match(aet, .TypeUni(_) => true, _ => false) || match(eet, .TypeUni(_) => true, _ => false));
+                eta_open := ((get_all_some_types(aet).len() > usize(0)) || (get_all_some_types(eet).len() > usize(0)));
+                if(((!(eta_kind)) && !(eta_open)) && !(recur(aet, eet, require_exact, visited)), {
+                  eta_differ = true;
+                });
+                etai = (etai + usize(1));
+              });
+            });
+            eta_differ
+          }) => false,
           !(require_exact) => cond(
             ({
               (vp_differ : bool) = false;
