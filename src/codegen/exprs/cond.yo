@@ -202,10 +202,11 @@ _emit_unassigned_arm_code :: (fn(value : AstExpr, value_code : String, indent : 
     .None => false
   );
   if((value_code.len() > usize(0)) && !bare_temp, {
+    em := context.base.emitter;
     line := indent.clone();
     line.push_string(value_code);
     line.push_str(";");
-    context.base.emitter.emit_string_line(line);
+    em.emit_string_line(line);
   });
 });
 /// Emit a non-begin arm value: control-flow statements emit directly, a value
