@@ -59,7 +59,7 @@ bug class the audit keeps brushing against — it is "face 3" of the era-copy
 under-resolution family, whose root is explicitly still OPEN:
 
 - `issues/iterator-chain-shared-stamp-cross-item-pollution.md` (face 2)
-- `issues/varbound-combinator-receiver-impl-match.md` (face 1, flat_map residual)
+- `issues/fixed/varbound-combinator-receiver-impl-match.md` (face 1, flat_map residual)
 
 Until the root is fixed, the batch-composition dependence means any future
 change can silently re-trigger the C-compile failure and the suite will stay

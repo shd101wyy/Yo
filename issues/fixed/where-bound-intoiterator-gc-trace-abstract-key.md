@@ -12,7 +12,7 @@ trait, independent of the D3.6 std impls). Found 2026-08-24 implementing S1
 D3.6 (IntoIterator trait impls on every collection, branch `s1-intoiter`). Third face of the
 under-resolution family: same root class as
 issues/iterator-chain-shared-stamp-cross-item-pollution.md (face 2) and the
-flat_map residual in issues/varbound-combinator-receiver-impl-match.md
+flat_map residual in issues/fixed/varbound-combinator-receiver-impl-match.md
 (face 1).
 
 ## Symptom

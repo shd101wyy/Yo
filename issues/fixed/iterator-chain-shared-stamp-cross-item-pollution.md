@@ -4,7 +4,7 @@
 iteration) on branch `fix/range-op-era-split`. Pre-existing on develop —
 reproduced with a develop-content binary and no ranges involved. Related to
 (but distinct from) the flat_map residual in
-issues/varbound-combinator-receiver-impl-match.md.
+issues/fixed/varbound-combinator-receiver-impl-match.md.
 
 ## Symptom
 

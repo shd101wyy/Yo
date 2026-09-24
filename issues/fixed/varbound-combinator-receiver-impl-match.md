@@ -1,13 +1,11 @@
 # Variable-bound combinator receivers fail generic-impl matching — `m := xs.map(f); m.for_each(g)` never worked
 
-**Status: PARTIALLY FIXED 2026-08-24 (branch s1-iterators).** The cell-chain
-recovery below fixes the variable-bound `map`/`filter_map`/`chain` cases
-(measured: the chunk-3 iterator suite arms flip). **REMAINING OPEN:** a
-variable-bound `flat_map` receiver still fails — `IterFlatMap`'s stamped `F`
-marker has an EMPTY resolution cell (`F : (Fn(A) -> MyRange)`, constraint
-still raw `A`), so no recovery channel reaches the concrete capture; the
-`B` slot is likewise a bare SomeT. The chained form works (on-demand
-receiver re-specialization). Repro:
+**Status: FIXED.** The cell-chain recovery below (2026-08-24) fixed the variable-bound
+`map`/`filter_map`/`chain` cases. The `flat_map` residual recorded here next — a doubly-derived
+`B` whose `F` cell was empty — no longer reproduces: std never shipped `flat_map` (it was deferred
+in #242), and a user-written blanket `flat_map` combinator bound to a variable and consumed by
+`for_each` works on the v0.2.41 seed and on develop `b03c8b741` (re-measured 2026-09-25, see the
+end). The original residual repro, kept for history:
 
 ```rust
 it := my_range(i32(1), i32(4)).flat_map((x) => my_range(i32(0), x));
@@ -79,3 +77,15 @@ lookup stays as the second channel (async outputs).
 Regression coverage: tests/iterator_combinators.test.yo — the chunk-3
 variable-bound `for_each`-on-`chain`/`filter_map`/`flat_map` tests plus the
 minimal `map`+`for_each` case, which fail without the cell walk.
+
+## Closed 2026-09-25
+
+Re-measured for `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.4: a user-level `FlatMap(I, J, F)`
+combinator with `impl(generic(I, A, J, B, F), where(I <: Iterator(Item := A), J <: Iterator(Item :=
+B), F <: (Fn(item : A) -> J)), FlatMap(I, J, F), Iterator(Item : B, …))` and a blanket
+`flat_map` method, bound to a variable and consumed by `for_each`, yields all 6 items on the
+v0.2.41 seed, on develop and on the Phase 2.4 branch. Pinned by
+`tests/iterator_combinators.test.yo` ("a variable-bound doubly-derived combinator (user flat_map)
+is still an Iterator"). The same combinator written as a FREE function (`flat_map(src, f)` with
+`where(I <: Iterator(Item := A))`) is rejected with E0602 — that is
+`plans/backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md` (Phase 2.6), not this issue.
