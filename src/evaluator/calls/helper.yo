@@ -4819,13 +4819,20 @@ _evaluated_expr_type :: (
   )
 });
 /// Is an argument of type `ty` with value `value` a RUNTIME value, as far as
-/// a `comptime(...)` parameter is concerned? A value of a comptime-only type
-/// (`comptime_int`, `Type`, `Expr`, a `ComptimeList`, …) is compile-time by
-/// construction — an unknown one is a definition-time placeholder (a macro
-/// body's `quote` parameter), not a runtime value — and a SomeT-typed one is
-/// still generic. Otherwise a missing value or an UnknownVal is runtime.
+/// a `comptime(...)` parameter is concerned? The rule of Step 5 of
+/// `check_if_function_parameter_matches_argument`: no value, a RUNTIME-ONLY
+/// UnknownVal (a runtime call's result), or a `VarRef` (a runtime binding).
+/// An ordinary UnknownVal is a compile-time placeholder — a definition-time
+/// trial's parameter, a macro body's `quote` parameter — and the operator
+/// overload trials rely on that distinction to pick `comptime_not` or `not`.
+/// A value of a comptime-only type is compile-time by construction, and a
+/// SomeT-typed one is still generic.
 runtime_value_for_comptime_param :: (fn(ty : TypeValue, value : Option(EvalValue)) -> bool)(
-  (!(type_requires_comptime_modifier(ty)) && (get_all_some_types(ty).len() == usize(0))) && match(value, .Some(v) => is_unknown_val(v), .None => true)
+  (!(type_requires_comptime_modifier(ty)) && (get_all_some_types(ty).len() == usize(0))) && match(
+    value,
+    .None => true,
+    .Some(v) => match(v, .UnknownVal(_, ro) => ro, .VarRef(_) => true, _ => false)
+  )
 );
 /// A `comptime(...)` parameter needs a compile-time argument. A runtime one
 /// (no value, or an UnknownVal: `c(i32.default())`) used to specialize with

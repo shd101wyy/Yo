@@ -731,6 +731,22 @@ _compat_impl :: (
             });
             pay_differ
           }) => false,
+          // An empty name is a wildcard only between types that could be the
+          // SAME declaration. A generic instantiation (a constructor id) is
+          // never a declared non-generic struct (a non-empty name, no
+          // constructor id), and two instantiations of DIFFERENT constructors
+          // are never one type — `String` flowed into an
+          // `ArrayList(String)` payload through the wildcard, because the
+          // instantiation's name is empty
+          // (issues/fixed/enum-variant-payload-type-is-not-checked-at-construction.md).
+          // Types that still carry a SomeT keep the old rule (a def-time
+          // placeholder may be either).
+          (
+            (((aid != eid) && (get_all_some_types(actual).len() == usize(0))) && (get_all_some_types(expected).len() == usize(0))) && (
+              ((((acfid.len() > usize(0)) && (ecfid.len() > usize(0))) && (acfid != ecfid)) || (((acfid.len() > usize(0)) && (ecfid.len() == usize(0))) && (ename.len() > usize(0))))
+              || (((ecfid.len() > usize(0)) && (acfid.len() == usize(0))) && (aname.len() > usize(0)))
+            )
+          ) => false,
           (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) => true,
           ((!(type_contains_some_type(actual)) && !(type_contains_some_type(expected))) && !((acfid.len() > usize(0)) && (acfid == ecfid))) => false,
           (alabels.len() != elabels.len()) => false,
