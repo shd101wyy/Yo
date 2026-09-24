@@ -1,0 +1,21 @@
+{ Thread } :: import("std/thread");
+{ ArrayList } :: import("std/collections/array_list");
+{ eprintln } :: import("std/fmt");
+Wrap :: ref(struct(items : ArrayList(i32)));
+main :: (fn() -> unit)({
+  shared := ArrayList(i32).new();
+  w := Wrap(items : shared);
+  iso := Iso(Wrap)(w);
+  eprintln(`before spawn shared=${shared.len()}`);
+  t := Thread(unit).spawn((io : Io) => {
+    inner := iso.extract();
+    inner.items.push(i32(1));
+    eprintln(`child inner=${inner.items.len()}`);
+    ()
+  });
+  shared.push(i32(2));
+  eprintln(`parent after push shared=${shared.len()}`);
+  t.join();
+  eprintln(`after join shared=${shared.len()} w=${w.items.len()}`);
+});
+export(main);

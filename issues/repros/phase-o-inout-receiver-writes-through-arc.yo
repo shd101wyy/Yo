@@ -1,0 +1,18 @@
+{ println } :: import("std/fmt");
+Counter :: struct(n : i32);
+impl(
+  Counter,
+  bump : (fn(inout(self) : Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+bump2 :: (fn(inout(c) : Counter) -> unit)({
+  c.n = (c.n + i32(10));
+});
+main :: (fn() -> unit)({
+  a := arc(Counter(n : i32(0)));
+  a.*.bump();
+  bump2(a.*);
+  println(`n=${a.*.n}`);
+});
+export(main);

@@ -13,6 +13,19 @@ below is the frozen 2026-08-25 state, and
 `issues/fixed/thread-safety-phase-p-never-landed-but-plan-says-complete.md`
 is its resolution record. Vector 27 is closed for real.
 
+**CORRECTION 2026-09-25 (`plans/PARALLELISM_SOUNDNESS.md`, the parallelism-soundness
+audit): four rows of the vector table below are NOT closed as written, and one Phase H
+claim never landed.** Row 6 / Phase H: the emitted `extract()` checks only a one-shot
+flag, never `rc == 1`, and the raw `Iso(T)(v)` constructor runs none of the `^` macro's
+checks (`issues/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`).
+Row 17: a module-level `:=` binding IS a mutable static reachable from every thread
+(`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`). Row 26: no call-site
+rule exists; `inout(self)` receivers, `inout` arguments and index assignment write through
+an atomic object in safe code
+(`issues/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`).
+Row 15/16: `RawMutex` is exported and `Cond.wait_with` does not check lock ownership, so
+safe code reaches mutex/condvar UB. The rest of this document is the frozen record.
+
 **Status:** 13 of 14 phases implemented. **Phase P (field visibility) NEVER
 LANDED** — `_`-prefixed fields are file-private by CONVENTION ONLY, verified
 2026-08-25: a file outside `std/sync` reads `mutex._value` and `yo check` passes

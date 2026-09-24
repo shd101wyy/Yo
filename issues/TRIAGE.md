@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 226 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 238 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 32 | 9 |
 | Codegen / emitted C | 21 | 3 |
 | Evaluator / types | 30 | 5 |
-| Std library | 55 | 14 |
+| Std library | 56 | 14 |
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 39 | 7 |
-| **Total** | **226** | **42** |
+| Other | 50 | 12 |
+| **Total** | **238** | **47** |
 
 ## Cross-cutting buckets
 
@@ -238,7 +238,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | OPEN (deliberate scope boundary, not regressi | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (55)
+### Std library (56)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -265,6 +265,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`redirect-resolution-never-removes-dot-segments.md`](./redirect-resolution-never-removes-dot-segments.md) | — | — |
 | [`s3-fs-wrappers-windows-semantics-audit.md`](./s3-fs-wrappers-windows-semantics-audit.md) | OPEN | — |
 | [`std-doc-examples-use-parenless-import-which-does-not-parse.md`](./std-doc-examples-use-parenless-import-which-does-not-parse.md) | OPEN | — |
+| [`std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`](./std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md) | OPEN | — |
 | [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | — | yes |
 | [`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md`](./std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md) | OPEN | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | OPEN | — |
@@ -348,10 +349,14 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (39)
+### Other (50)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
+| [`a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`](./a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md) | OPEN | yes |
+| [`a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`](./a-closure-capturing-an-inout-lock-body-parameter-passes-check.md) | OPEN | yes |
+| [`a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md`](./a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md) | OPEN | — |
+| [`a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md`](./a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md) | OPEN | — |
 | [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
 | [`a-two-line-comment-change-in-std-prelude-fails-check-std.md`](./a-two-line-comment-change-in-std-prelude-fails-check-std.md) | OPEN | — |
@@ -364,24 +369,31 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`arraylist-of-a-trait-object-cannot-be-indexed.md`](./arraylist-of-a-trait-object-cannot-be-indexed.md) | open | — |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
 | [`cond-arm-initialization-merge-check-never-fires.md`](./cond-arm-initialization-merge-check-never-fires.md) | — | yes |
+| [`cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md`](./cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md) | OPEN | — |
 | [`ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md`](./ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md) | OPEN | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`inout-call-through-a-fn-value-loses-the-mutation.md`](./inout-call-through-a-fn-value-loses-the-mutation.md) | PARTIALLY FIXED 2026-09-24 | — |
 | [`iso-checks-only-the-wrapper-refcount-not-the-interior.md`](./iso-checks-only-the-wrapper-refcount-not-the-interior.md) | OPEN | — |
+| [`iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`](./iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md) | OPEN | yes |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
 | [`match-redundancy-and-range-exhaustiveness-gaps.md`](./match-redundancy-and-range-exhaustiveness-gaps.md) | OPEN | — |
 | [`module-globals-bypass-send-so-safe-code-can-data-race.md`](./module-globals-bypass-send-so-safe-code-can-data-race.md) | OPEN | — |
 | [`moving-a-variable-inside-a-loop-body-is-not-rejected.md`](./moving-a-variable-inside-a-loop-body-is-not-rejected.md) | OPEN | — |
+| [`once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md`](./once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md) | OPEN | — |
 | [`option-of-a-trait-object-never-emits-its-inherent-methods.md`](./option-of-a-trait-object-never-emits-its-inherent-methods.md) | OPEN | yes |
 | [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |
 | [`order-dependent-generic-slot-stranding-e0605.md`](./order-dependent-generic-slot-stranding-e0605.md) | OPEN (mechanism measured 2026-09-20; the fix | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
+| [`phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`](./phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md) | OPEN | yes |
+| [`rawmutex-is-exported-with-an-unbalanced-unlock.md`](./rawmutex-is-exported-with-an-unbalanced-unlock.md) | OPEN | — |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
 | [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |
+| [`safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`](./safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md) | OPEN | yes |
 | [`struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`](./struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md) | OPEN | — |
+| [`threadpool-join-all-barrier-is-defeated-by-a-second-pool-and-shutdown-races-spawn.md`](./threadpool-join-all-barrier-is-defeated-by-a-second-pool-and-shutdown-races-spawn.md) | OPEN | — |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | — | — |
 | [`type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md`](./type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md) | OPEN | — |
 | [`unknown-struct-field-has-no-diagnostic.md`](./unknown-struct-field-has-no-diagnostic.md) | OPEN | — |
