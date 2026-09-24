@@ -8,7 +8,7 @@ rule 4 pulled forward from Phase 3.3 because rules 1–3 cannot be checked witho
 Before this decision nothing rejected a second impl of a trait for a type. Registration appended
 (`register_type_trait_method`), and dispatch took the first hit, so the second impl was dead code
 that looked live. Measured on the v0.2.39 seed and develop `d455b6a67`
-(`issues/yo-self-missing-duplicate-impl-checks.md` addendum): two `impl(P, Foo(...))` in one
+(`issues/fixed/yo-self-missing-duplicate-impl-checks.md` addendum): two `impl(P, Foo(...))` in one
 module, a local re-impl of a trait an import already implements for `i32`, a user
 `impl(i32, ToString(...))` against the prelude's, and an explicit impl beside a blanket impl that
 covers the same type — all `check` and `compile` green, first registration wins, silently.
@@ -46,7 +46,9 @@ one (type, trait) pair has no meaning to give it.
 - **Negative impls** (`impl(T, !(Send))`) are a separate registry and conflict only with the
   positive marker (unchanged).
 - **Inherent methods** have their own rule (`plans/reference/FUNCTION_OVERLOADING_POLICY.md`,
-  duplicate-inherent-method rejection).
+  duplicate-inherent-method rejection), which now also covers a GENERIC receiver: two blanket
+  inherent impls over the same receiver pattern and the same bounds may not define one method
+  name (over different bounds they may). Its diagnostic shares E0612.
 
 ## Diagnostic
 

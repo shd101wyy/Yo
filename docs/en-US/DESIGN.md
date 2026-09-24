@@ -1931,6 +1931,22 @@ notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)
 });
 ```
 
+### Coherence: one impl per type and trait
+
+A type implements a trait at most once, in the whole program
+(`plans/reference/TRAIT_COHERENCE.md`). Each of these is error E0612:
+
+- a second `impl(P, Summary(...))`, in the same module or another one;
+- an impl of a trait that an imported module or the prelude already implements for that type,
+  such as `impl(i32, ToString(...))`;
+- a blanket impl (`impl(generic(T), where(T <: Bound), T, Summary(...))`) together with a
+  concrete impl of `Summary` for a type that satisfies `Bound`, in either order.
+
+Yo has no specialization, so a more specific impl does not override a general one; before this
+rule the first impl registered won silently and the other was dead code. Two instantiations of a
+generic trait are different traits (`Eq(String)` and `Eq(str)`), and blanket impls whose bounds
+do not overlap are fine.
+
 ## Pattern Matching
 
 The compiler performs exhaustive checking on pattern matching.
@@ -2091,8 +2107,16 @@ Width is counted in CHARACTERS, and zero padding on a number goes between the
 sign or radix prefix and the digits (`${i32(-(42)):08}` is `-0000042`, not
 `000-0042`).
 
-Any value that implements `ToString` accepts the width, fill, alignment and
-truncation parts; numbers additionally accept sign, radix and zero-fill.
+Numbers accept every part: sign, radix and zero-fill as well as width, fill, alignment and
+truncation. Text, `bool`, `Option`, `Result`, `ArrayList` and the other std types that implement
+`ToString` accept width, fill, alignment and truncation, through `Format`'s default member. A
+type of your own opts in with one line, since there is no blanket impl (see Coherence above):
+
+```rust
+impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
+impl(Point, Format());
+`[${Point(x : i32(1), y : i32(2)):>8}]`   // "[  (1, 2)]"
+```
 
 The spec is separated from the expression by a colon with **no space before it**.
 A spaced colon is left alone, so an ordinary colon pair inside an interpolation

@@ -4423,6 +4423,7 @@ evaluate_module_value :: (
       // 11. where_constraint_traits
       _impl_site_string(ast_expr_token(expr)) // 12. site
     );
+    _check_generic_impl_coherence(entry, forall_env, ast_expr_token(expr), exn);
     register_generic_impl(entry);
     // Return the original local_env (without the generic frame leaked into scope).
     out_info := new_expr_info(local_env, t_unit());
@@ -4717,7 +4718,7 @@ evaluate_module_value :: (
               // here, in an imported module or in the prelude — is an error.
               // It used to register beside the first, and dispatch took the
               // first hit, so the second was dead code that looked live
-              // (issues/yo-self-missing-duplicate-impl-checks.md).
+              // (issues/fixed/yo-self-missing-duplicate-impl-checks.md).
               coh_tok := ast_expr_token(field_expr);
               match(
                 note_trait_impl_site(receiver_type_id.clone(), get_trait_key(ctt), _impl_site_string(coh_tok)),

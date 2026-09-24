@@ -1904,6 +1904,16 @@ notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)
 });
 ```
 
+### 一致性：每个类型对每个 trait 只有一个 impl
+
+在整个程序中，一个类型最多实现某个 trait 一次（`plans/reference/TRAIT_COHERENCE.md`）。以下情况都是错误 E0612：
+
+- 第二个 `impl(P, Summary(...))`，无论在同一模块还是其他模块；
+- 被导入的模块或 prelude 已经为该类型实现过的 trait，再写一个 impl，例如 `impl(i32, ToString(...))`；
+- 一揽子 impl（`impl(generic(T), where(T <: Bound), T, Summary(...))`）与某个满足 `Bound` 的类型的 `Summary` 具体 impl 同时存在，无论注册顺序。
+
+Yo 没有特化，更具体的 impl 不会覆盖更一般的 impl；在此规则之前，先注册的 impl 会静默胜出，另一个成为死代码。泛型 trait 的两个实例是不同的 trait（`Eq(String)` 与 `Eq(str)`），约束互不重叠的一揽子 impl 也没有问题。
+
 ## 模式匹配
 
 编译器会对模式匹配进行穷尽性检查。
@@ -2053,7 +2063,13 @@ pi := f64(3.14159);
 宽度以**字符**计。数字补零时，零位于符号或进制前缀与数字之间——`${i32(-(42)):08}`
 得到 `-0000042`，而非 `000-0042`。
 
-任何实现了 `ToString` 的值都支持宽度、填充、对齐与截断；数字另外支持符号、进制与补零。
+数字支持全部部分：符号、进制与补零，以及宽度、填充、对齐与截断。文本、`bool`、`Option`、`Result`、`ArrayList` 以及其他实现了 `ToString` 的 std 类型通过 `Format` 的默认成员支持宽度、填充、对齐与截断。由于没有一揽子 impl（见上文“一致性”），自定义类型用一行代码接入：
+
+```rust
+impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
+impl(Point, Format());
+`[${Point(x : i32(1), y : i32(2)):>8}]`   // "[  (1, 2)]"
+```
 
 说明符与表达式之间以冒号分隔，且**冒号前不能有空格**。带空格的冒号不会被拆分，因此插值中
 普通的冒号对保持原义；位于调用参数或字符串字面量内部的冒号——如 `${parts.join(":")}`

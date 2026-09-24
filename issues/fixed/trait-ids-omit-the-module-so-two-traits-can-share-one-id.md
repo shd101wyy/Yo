@@ -1,8 +1,7 @@
 # Trait ids omit the module, so two traits at the same row/column share one id
 
-**Status:** OPEN. Found 2026-09-16 while investigating
-`a-two-line-comment-change-in-std-prelude-fails-check-std.md`. A COLLISION
-EXISTS IN THE TREE TODAY.
+**Status:** FIXED 2026-09-24 (Phase 2.3/3.3 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Found
+2026-09-16 while investigating `a-two-line-comment-change-in-std-prelude-fails-check-std.md`.
 
 ## The defect
 
@@ -108,3 +107,37 @@ Position-keyed ids also make C type names follow the source position: adding one
 above `P :: struct(...)` changed its C name from `__yo_t_2236567100777795219` to
 `__yo_t_442740067331228635`, and moving the file into `sub/` changed it again. That invalidates
 `.o` chunk caches and makes emitted-C diffs noisy.
+
+## 2026-09-24: structs collide too, and it was visible
+
+Since this doc was written, trait, struct, enum (inside CTFE), union and anonymous-struct ids all
+moved to `stable_type_id` (`src/utils.yo`), which had the same module-free shape
+`<prefix>r<row>c<col>_n<k>`. Trait coherence (`plans/reference/TRAIT_COHERENCE.md`) was the first
+consumer to key a DECISION on the id, and `check ./std` failed at once:
+
+```
+error[E0612]: Trait "Dispose" is already implemented for type "ArrayList(T)" (first impl: …/std/collections/array_list.yo:878:1)
+    --> std/collections/deque.yo:207:1
+```
+
+`Deque`'s struct (`deque.yo:38:5`) and `ArrayList`'s (`array_list.yo:38:5`) minted one id, so the
+impl of `Dispose` for `Deque(T)` looked like a second impl for `ArrayList(T)` — and
+`type_to_string` itself printed `Deque(T)` as `ArrayList(T)`, which is how far the share reached.
+
+## Fix
+
+`stable_type_id` is `<prefix><module_stem>_r<row>c<col>_n<k>` (the stem is
+`_stable_id_module_stem`, the last two path segments, as `stable_position_id` uses), and a mint
+registry `g_stable_type_id_owner` maps each id to the canonical path of the module that minted
+it: a second module whose stem coincides takes `_x2`, `_x3`, …. The occurrence counter `k` is
+unchanged, so a module's two path spellings still mint the same id.
+
+Every emitted C name derived from a type id changes once (a pure renaming): the fixpoint and the
+CLI corpus were re-run on the change.
+
+## Verification
+
+- `check ./std` 176/176 and `check ./src` 279/279 with coherence on; before the fix, the
+  Deque/ArrayList share failed `std/collections/deque.yo`.
+- `tests/cli-cases/check-coherence-legitimate-impls`: two structs at the same row and column of
+  different modules each implement one trait, and both dispatch to their own impl (`3`, `8`).

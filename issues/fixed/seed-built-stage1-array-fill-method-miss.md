@@ -81,7 +81,7 @@ only as the cached cloned env. `mm_load_file`'s prelude branch called
 prelude evaluations into the process-wide impl registries, and yo-self
 (unlike TS) has NO duplicate-registration checks, so the corruption is
 silent until the first fresh `Array(T,N)` specialization fails (see
-issues/yo-self-missing-duplicate-impl-checks.md for that parity gap). Fix:
+issues/fixed/yo-self-missing-duplicate-impl-checks.md for that parity gap). Fix:
 evaluation-level populate-once — `mm_load_file` now returns a cached-hit
 outcome for any `prelude.yo` target once `g_cached_prelude_env` is set
 (mirrors a TS module-cache hit). Plus `collect_check_files` now sorts
@@ -91,7 +91,7 @@ readdir hash order a verdict lottery.
 
 Item 2 (registry collision) resolved as: TS already has the designed
 idempotence + loud-reject (repaired by canonical keys); yo-self's missing
-checks are filed as issues/yo-self-missing-duplicate-impl-checks.md — with
+checks are filed as issues/fixed/yo-self-missing-duplicate-impl-checks.md — with
 both double-evaluation sources closed, no shipped path re-registers today.
 
 ---

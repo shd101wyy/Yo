@@ -1,7 +1,8 @@
 # yo-self is missing TS's duplicate-impl registration checks — re-registration silently corrupts instead of erroring loudly
 
-**Status: OPEN** (found 2026-08-14 while fixing
-issues/fixed/seed-built-stage1-array-fill-method-miss.md).
+**Status: FIXED 2026-09-24** by trait coherence (`plans/reference/TRAIT_COHERENCE.md`, Phase 2.3
+of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Found 2026-08-14 while fixing
+issues/fixed/seed-built-stage1-array-fill-method-miss.md.
 
 ## The parity gap
 
@@ -81,8 +82,34 @@ MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYST
 | two `impl(P, Foo(f : ...))` in one module (`-> 1`, `-> 2`) | `1` | first |
 | `mod_a.yo` impls `Foo` for `i32` (`-> 1`); the importing file re-impls it (`-> 2`) | `1` | the imported one; the local impl is dead |
 | user `impl(i32, ToString(to_string : -> "mine"))` | `5` | the prelude's; the user impl is dead |
-| explicit `impl(P, Foo(-> 1))` + blanket `impl(generic(T), where(T <: Runtime), T, Foo(-> 7))` | `1` | explicit (`issues/an-overlapping-blanket-trait-impl-is-silently-dead.md`) |
+| explicit `impl(P, Foo(-> 1))` + blanket `impl(generic(T), where(T <: Runtime), T, Foo(-> 7))` | `1` | explicit (`issues/fixed/an-overlapping-blanket-trait-impl-is-silently-dead.md`) |
 
 `src/evaluator/values/impl.yo` (~12) states "The orphan rule and duplicate-impl checks are not
 enforced"; `register_type_trait_method` appends unconditionally, and dispatch takes `hits.get(0)`
 (`src/evaluator/calls/function.yo` ~555).
+
+## Fix (2026-09-24)
+
+Every row of the 2026-09-23 table is now E0612, and the generic-receiver gap of the
+2026-09-24 section is closed:
+
+| Case | Now |
+| --- | --- |
+| two `impl(P, Foo(...))` in one module | E0612 naming the first impl (`note_trait_impl_site`) |
+| a local re-impl of an imported module's impl | E0612 (the site table is process-wide, so imports and the prelude count) |
+| `impl(i32, ToString(...))` against std's | E0612 |
+| explicit impl + a blanket impl covering the type | E0612 in either order (`_check_concrete_impl_coherence` / `_check_generic_impl_coherence`) |
+| two identical generic trait impls (`HashSet(T)`'s two `FromIterator`) | E0612 (binders compared by position) |
+| two blanket INHERENT impls over the same bound defining one name | "Method … is already defined for type … under the same bounds" (keyed on receiver pattern + sorted bounds + name; different bounds stay legal) |
+
+Sites are the canonical `path:row:col` of the impl (`_impl_site_string`), so the loader's replay
+of a module under its other path spelling is not a second impl, and the LSP purges a module's
+sites before re-evaluating it (`purge_trait_impl_sites_owned_by`,
+`purge_concrete_trait_impls_owned_by`, called from `src/module_manager.yo`).
+
+## Verification
+
+`tests/cli-cases/check-coherence-{duplicate-impl,imported-impl,cross-module-duplicate,blanket-after-concrete,concrete-after-blanket}`,
+`check-duplicate-inherent-method`, `check-duplicate-blanket-inherent-method` (each rc=1 with the
+diagnostic) and the canary `check-coherence-legitimate-impls` (rc=0). `check ./std` 176/176,
+`check ./src` 279/279.
