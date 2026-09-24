@@ -50,9 +50,10 @@ authorship from day one.
 - **`match` redesign.** P1–P3 landed; tuple and struct scrutinees, the async
   lowering and the adoption sweep remain
   ([`MATCH_PATTERN_MATCHING.md`](MATCH_PATTERN_MATCHING.md)).
-- **Evaluator memory.** `check src/main.yo` went from 19.9 to 5.5 GB (the
-  last 3 GB was a codegen leak in `f(match(...))` arguments); a CI memory
-  ratchet, the header diet, `Option(ref)` and LSP open-document retention remain
+- **Evaluator memory.** `check src/main.yo` went from 19.9 to 2.6 GB (two
+  codegen leaks were most of it: `f(match(...))` arguments, 3 GB, and every
+  `HashMap` rehash leaking its RC entries, 2.9 GB); a CI memory ratchet, the
+  LSP per-round growth, the header diet and `Option(ref)` remain
   ([`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md)).
 - **Yo verifies Yo.** The compiler as the verifier's flagship user, rung by
   rung ([`SELF_VERIFICATION.md`](SELF_VERIFICATION.md)).

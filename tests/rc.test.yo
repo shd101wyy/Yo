@@ -3,6 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 Point :: struct(x : i32, y : i32);
 Wrapper :: struct(v : Box(i32));
 test("Test 'rc' function", {
@@ -1349,6 +1350,19 @@ test("an own parameter read by a bare-expression body is released after the read
     assert(_s == i32(42), "also inside an arithmetic tail");
   };
   assert(g_at_disposed == (before + i32(2)), "each owned argument is disposed exactly once, by the callee");
+});
+test("a HashMap that rehashes releases every value once when it dies", {
+  before := g_at_disposed;
+  {
+    m := HashMap(i32, ArgTemp).new();
+    (i : i32) = i32(0);
+    while(i < i32(100), i = (i + i32(1)), {
+      node := ArgTemp(n : i);
+      _old := m.insert(i, node);
+    });
+    assert(m.len() == usize(100), "every key inserted");
+  };
+  assert(g_at_disposed == (before + i32(100)), "a rehash releases the old slots, so the map's death disposes all 100 values");
 });
 test("a nested match argument and a match moved into an own parameter", {
   before := g_at_disposed;

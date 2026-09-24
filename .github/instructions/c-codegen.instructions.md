@@ -276,6 +276,20 @@ To confirm a suspected leak, use a `Dispose` counter on a `ref(struct)` /
 `ref(enum)` and read it after the scope that owns the value (statement temps are
 released at SCOPE end, not after the statement).
 
+### An arm emitter must emit the rendered code of a unit arm
+
+Some generators RETURN their statement instead of emitting it: `___drop`
+(`unsafe.drop(x)`) renders `__yo_decr_rc(x)` and hands the text back. An arm
+emitter that assigns a value arm to its result temp and emits NOTHING for a
+unit arm therefore loses the statement. Both `cond` lowerings did, which
+emptied `HashMap._resize`'s old-slot release loop: every map with RC keys or
+values leaked one reference per entry per rehash, 2.9 GB of `check
+src/main.yo` (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). An
+unassigned unit arm's non-empty code goes out as `code;` (a bare temp name
+excepted): `_emit_unassigned_arm_code` in `cond.yo`, `_emit_case_body_no_break`
+in `match.yo`. A C function whose body is suspiciously empty (an `if` with two
+empty branches, a loop that only computes a pointer) is this class.
+
 ## Index trait codegen
 
 Array/Slice indexing through the Index trait uses compiler builtins that are inlined at call sites.

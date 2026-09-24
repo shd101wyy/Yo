@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-24 — `check src/main.yo` 19.9 → 5.47 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7). Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1242,6 +1242,50 @@ capture prefix by reference — `(parent env_key, own appended handles, own
 values)` with `capture_env_for` concatenating at first call, which it already
 memoises per key — removes all four copies. It needs a `cap_vals`
 representation that is not a flat per-FuncVal list, so it is its own step.
+
+### 0.8 Every HashMap rehash leaked its RC entries (2026-09-25)
+
+The LSP plateau failure (`issues/lsp-memory-grows-per-open-edit-close-round.md`)
+led here. The holder census (`scripts/bootstrap/holder_census_t.py`) found
+~392 K `ExprInfo`s after five LSP rounds that no module global reaches, all of
+them leak roots (refcount above what the unreached set explains, ~2 extra
+references each), and a full collection freed none. Three instruments
+narrowed it:
+
+1. **Conservative scan** (`HOLDER_SCAN=1`): every in-use malloc block, the
+   exiting thread's stack and the image's data segments, read word by word.
+   67 % of the leaked ExprInfos had **no pointer anywhere**, so this was a
+   missing release, not a holder. `check` of an EMPTY file showed the same
+   ~28 K, so it was the evaluator in general, not the LSP.
+2. **Allocation sites of the marked leak roots** (`alloc_site_census_t.py`
+   with `HS_ONLY_MARKED=1`): the ordinary `new_expr_info` sites.
+3. **Per-object refcount event log** (`--rc-events`,
+   `scripts/bootstrap/rc_event_report.py`): each leaked object went through
+   `+,+,−` inside a `HashMap.insert` on behalf of an UNRELATED key, then a
+   single release from the table's dispose. That is a rehash: `_resize`
+   duplicates every live bucket into the new table and was meant to release
+   the old slot with `cond(Type.contains_rc_type(V) => unsafe.drop(...), true => ())`.
+
+The emitted C of that loop was empty. `unsafe.drop` expands to `___drop`,
+whose generator returns its statement text, and both `cond` lowerings
+discarded the rendered code of a non-control-flow unit arm (`match` never
+did). So every map with RC keys or values leaked one reference per entry per
+rehash, and the compiler's ExprInfo tables grow through many rehashes. Fix:
+`_emit_unassigned_arm_code` in `src/codegen/exprs/cond.yo`. The self-emit
+gains exactly the missing releases (61 `(*bucket_ptr).value` drops across the
+map instantiations, 15 enum-value drop switches) plus 7 unreachable
+placeholder statements after `abort()` of the shape `match` already emits.
+
+| measurement (stage-2 compilers, same tree) | develop | fixed |
+| --- | --- | --- |
+| `check src/main.yo` peak footprint | 5.54 GB | **2.59 GB** |
+| `check src/main.yo` wall | 92 s | 95 s |
+| `yo lsp`, 10 std documents × 1 round | 0.61 GB | 0.40 GB |
+| `yo lsp`, 10 std documents × 5 rounds | 1.83 GB | 1.14 GB |
+
+The LSP still grows (~0.18 GB per round, down from ~0.30): a second
+per-round holder remains, see the issue. The CI memory ratchet baseline (#872,
+5,333,612 kB Linux RSS) predates this fix and must be re-recorded.
 
 ### Phase 6 — per-object layout: header and `Variable`
 

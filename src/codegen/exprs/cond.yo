@@ -187,8 +187,34 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
   );
   out
 });
-/// Emit a non-begin arm value: control-flow statements emit directly, unit
-/// values emit nothing, otherwise assign to the cond temp.
+/// Emit the rendered code of a cond arm whose value is not assigned to a
+/// result temp (a unit arm, or a cond without one) as a statement. Some
+/// generators RETURN their statement instead of emitting it —
+/// `c => unsafe.drop(x)` renders `__yo_decr_rc(x)` — and discarding that text
+/// lost HashMap._resize's old-slot releases, so every RC key/value leaked one
+/// reference per rehash (issues/fixed/cond-unit-arm-statement-is-dropped.md).
+/// match.yo's `_emit_case_body_no_break` already does this.
+_emit_unassigned_arm_code :: (fn(value : AstExpr, value_code : String, indent : String, context : FunctionGenerationContext) -> unit)({
+  // Only a UNIT value is a statement: a non-unit arm in unassigned position
+  // renders a pure placeholder (a panicking arm's `(*((void*)NULL))` after
+  // its `abort()`), and a bare temp name is a value the arm's own statements
+  // already computed.
+  is_stmt := match(
+    context.base.get_expr_info(value),
+    .Some(vei) => (is_unit_type(vei.ty) && !is_temp_variable_name(vei.env.module_path.clone(), value_code.clone())),
+    .None => false
+  );
+  if((value_code.len() > usize(0)) && is_stmt, {
+    em := context.base.emitter;
+    line := indent.clone();
+    line.push_string(value_code);
+    line.push_str(";");
+    em.emit_string_line(line);
+  });
+});
+/// Emit a non-begin arm value: control-flow statements emit directly, a value
+/// is assigned to the cond temp, and an unassigned (unit) arm's rendered
+/// statement is emitted as a statement.
 _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> unit)({
   // The bare arm's scope-end drops ride the value node's list; feed them
   // into the pending path for the arm's generation, as `_emit_begin_arm`
@@ -351,10 +377,8 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
     line.push_string(value_code.clone());
     line.push_str(";");
     em.emit_string_line(line);
-  }, if(
-    value_code.len() == usize(0),
-    (),
-    match(
+  }, if(value_code.len() == usize(0), (), {
+    assigned := match(
       temp_var_opt,
       .Some(tv) => if(!is_unit, {
         line := value_indent.clone();
@@ -363,10 +387,12 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
         line.push_string(_maybe_address_of(value, value_code.clone(), cond_outer_is_ptr, context));
         line.push_str(";");
         em.emit_string_line(line);
-      }),
-      .None => ()
-    )
-  ));
+        true
+      }, false),
+      .None => false
+    );
+    if(!assigned, _emit_unassigned_arm_code(value, value_code.clone(), value_indent.clone(), context));
+  }));
 });
 /// Inline a `begin` block arm: emit each statement (stopping at control flow),
 /// then assign the final expression to the cond temp (or emit it if it is a
@@ -657,13 +683,18 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
             // the tests/sync/atomic wasi trap: `if(arch == Arch.Wasm32,
             // return(()))` folds true only on wasm32, so the loss was
             // invisible on every native leg).
+            // A non-control-flow unit arm whose generator returned its
+            // statement text goes through the same helper as the chain path.
             cf_unit := (_is_cf_code(value, value_code.clone(), context) && (value_code.len() > usize(0)));
-            if(cf_unit && (is_unit || temp_var_opt.is_none()), {
-              cf_line := indent.clone();
-              cf_line.push_string(value_code.clone());
-              cf_line.push_str(";");
-              em.emit_string_line(cf_line);
-            });
+            if(
+              is_unit || temp_var_opt.is_none(),
+              if(cf_unit, {
+                cf_line := indent.clone();
+                cf_line.push_string(value_code.clone());
+                cf_line.push_str(";");
+                em.emit_string_line(cf_line);
+              }, _emit_unassigned_arm_code(value, value_code.clone(), indent.clone(), context))
+            );
             match(
               temp_var_opt,
               .Some(tv) => if(!is_unit, {
