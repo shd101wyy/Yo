@@ -9,7 +9,17 @@ open, in priority order:** the `Iterable` marker trait (also refuses plain
 `inout(e)` on maps/sets), the compile-time same-variable diagnostic (§8 C4),
 last-use live ranges, a user-facing codegen error channel (the async-body
 rejection still surfaces through `codegen_fatal`'s "internal compiler error"
-wrapper, like the await-position rules). Everything below is the frozen
+wrapper, like the await-position rules). **Corrections to the frozen record
+(2026-09-23):** §8 C5's "exactly" assert list describes a granularity that
+never landed — the emitter keys on the per-parameter mutation mask, so
+memory-safe slot moves/overwrites (`sort`/`set`/`swap`) panic under a live
+borrow too (§9's third pass and the mask section are the accurate
+description; permitting safe moves is an untracked possible refinement;
+issues/fixed/inout-audit-c5-exact-assert-list-contradicts-the-landed-borrow-asserts.md),
+and §2's "copies copy the pointee" was wrong code on the RETURN channel for
+non-RC types until 2026-09-23 (`return(<inout local>)` returned the raw
+pointer as the value; issues/fixed/return-of-an-inout-local-binding-emits-the-pointer.md).
+Everything below is the frozen
 audit record.
 
 Status: **IMPLEMENTED 2026-09-07 (Phases A–C, D1, D3)** — decision in §7,

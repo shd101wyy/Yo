@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 214 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 243 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -27,16 +27,16 @@ Three things are worth knowing before trusting any row.
 
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
-| CI/Release/Build | 13 | 0 |
-| Async / effects | 31 | 9 |
-| Codegen / emitted C | 22 | 4 |
-| Evaluator / types | 37 | 7 |
-| Std library | 54 | 14 |
+| CI/Release/Build | 14 | 1 |
+| Async / effects | 32 | 9 |
+| Codegen / emitted C | 21 | 4 |
+| Evaluator / types | 39 | 7 |
+| Std library | 56 | 14 |
 | Tooling (fmt/doc/lsp) | 15 | 1 |
-| Self-hosting legacy | 19 | 2 |
+| Self-hosting legacy | 18 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 20 | 5 |
-| **Total** | **214** | **42** |
+| Other | 45 | 7 |
+| **Total** | **243** | **45** |
 
 ## Cross-cutting buckets
 
@@ -108,20 +108,20 @@ stale reference there, and 'repairing' it reverts someone else's work.
 ### Largest docs (usually clusters, not single defects)
 
 - [`yo-self-async-emission-cluster.md`](./yo-self-async-emission-cluster.md) — 40 KB
-- [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) — 27 KB
-- [`array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md`](./array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md) — 23 KB
+- [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) — 28 KB
+- [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) — 19 KB
 - [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) — 17 KB
 - [`calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md`](./calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md) — 17 KB
 - [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 16 KB
 - [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) — 16 KB
-- [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) — 15 KB
+- [`a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md`](./a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md) — 14 KB
 
 ---
 
 ## By area
 
 
-### CI/Release/Build (13)
+### CI/Release/Build (14)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -134,12 +134,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md`](./manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md) | OPEN | — |
 | [`release-gate-accepts-a-docs-only-fast-path-success.md`](./release-gate-accepts-a-docs-only-fast-path-success.md) | open (found 2026-09-10 while cutting v0 | — |
 | [`seed-early-return-drops-later-local-through-shadowing-pattern-name.md`](./seed-early-return-drops-later-local-through-shadowing-pattern-name.md) | — | — |
+| [`seed-emitted-unknown-type-comment-breaks-the-musl-gcc-leg.md`](./seed-emitted-unknown-type-comment-breaks-the-musl-gcc-leg.md) | OPEN (blocked on a seed bump) | yes |
 | [`v0.2.23-seed-build-lottery-corrupts-shifted-trees.md`](./v0.2.23-seed-build-lottery-corrupts-shifted-trees.md) | — | — |
 | [`version-install-cross-device-link.md`](./version-install-cross-device-link.md) | — | — |
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (31)
+### Async / effects (32)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -153,6 +154,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`async-cond-value-with-await-arm-inside-while-yields-zero.md`](./async-cond-value-with-await-arm-inside-while-yields-zero.md) | — | — |
 | [`async-cond-value-with-throwing-arm-after-await-undeclared-temp.md`](./async-cond-value-with-throwing-arm-after-await-undeclared-temp.md) | — | — |
 | [`async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`](./async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md) | — | — |
+| [`async-loop-body-temp-drops-leak-one-allocation-per-iteration.md`](./async-loop-body-temp-drops-leak-one-allocation-per-iteration.md) | — | — |
 | [`async-nested-cond-await-duplicate-while-labels.md`](./async-nested-cond-await-duplicate-while-labels.md) | — | — |
 | [`async-postwhile-multiple-await-ifs.md`](./async-postwhile-multiple-await-ifs.md) | OPEN — std uses ONE post-cond awaiting `if` | — |
 | [`async-sm-fn-typed-local-across-suspension.md`](./async-sm-fn-typed-local-across-suspension.md) | — | — |
@@ -175,7 +177,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | OPEN — a PERFORMANCE observation, not a corre | — |
 | [`yield-resumption-order-diverges-on-macos-ci.md`](./yield-resumption-order-diverges-on-macos-ci.md) | — | — |
 
-### Codegen / emitted C (22)
+### Codegen / emitted C (21)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -201,14 +203,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (37)
+### Evaluator / types (39)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`annotated-local-from-a-trait-constrained-receiver-loses-every-method.md`](./annotated-local-from-a-trait-constrained-receiver-loses-every-method.md) | — | — |
 | [`anonymous-module-trial-swallows-a-top-level-derive.md`](./anonymous-module-trial-swallows-a-top-level-derive.md) | — | yes |
 | [`arraylist-private-ptr-read-across-module-boundaries.md`](./arraylist-private-ptr-read-across-module-boundaries.md) | OPEN | — |
-| [`assignment-to-call-expression-silently-accepted.md`](./assignment-to-call-expression-silently-accepted.md) | — | — |
 | [`blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md`](./blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md) | OPEN | — |
 | [`blanket-into-iter-is-not-an-intoiterator-impl.md`](./blanket-into-iter-is-not-an-intoiterator-impl.md) | OPEN | — |
 | [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) | — | — |
@@ -218,11 +219,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`comptime-enum-payload-field-assignment-is-a-silent-no-op.md`](./comptime-enum-payload-field-assignment-is-a-silent-no-op.md) | — | — |
 | [`comptime-float-negation-loses-the-sign-of-zero.md`](./comptime-float-negation-loses-the-sign-of-zero.md) | OPEN | — |
 | [`comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md`](./comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md) | — | — |
+| [`ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md`](./ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md) | OPEN | — |
 | [`ctfe-memo-shared-struct-id-fast-path-smell.md`](./ctfe-memo-shared-struct-id-fast-path-smell.md) | OPEN as a hardening opportunity — | yes |
 | [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) | open (found 2026-09-09 while adding `Encoding | yes |
 | [`derived-eq-ref-enum-self-payload-hollow-at-runtime.md`](./derived-eq-ref-enum-self-payload-hollow-at-runtime.md) | — | — |
 | [`dyn-as-a-direct-downcast-argument-reports-got-option.md`](./dyn-as-a-direct-downcast-argument-reports-got-option.md) | OPEN | — |
 | [`dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`](./dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md) | OPEN | — |
+| [`dyn-object-safety-is-not-enforced-before-codegen.md`](./dyn-object-safety-is-not-enforced-before-codegen.md) | OPEN | — |
 | [`dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md`](./dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md) | OPEN | — |
 | [`dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`](./dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md) | OPEN | — |
 | [`env-sharing-live-frame-membership-leak.md`](./env-sharing-live-frame-membership-leak.md) | OPEN — found during the env-sharing implement | — |
@@ -230,6 +233,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | OPEN | — |
 | [`forward-referenced-definition-fails-to-type-check-when-forced-early.md`](./forward-referenced-definition-fails-to-type-check-when-forced-early.md) | OPEN — observed once, NOT REPRODUCIBLE on dev | — |
 | [`function-info-is-closure-is-always-false.md`](./function-info-is-closure-is-always-false.md) | OPEN | — |
+| [`generic-fn-body-is-not-checked-against-its-declared-result-type.md`](./generic-fn-body-is-not-checked-against-its-declared-result-type.md) | OPEN | — |
 | [`generic-fn-forall-unresolved-when-argument-is-a-method-call.md`](./generic-fn-forall-unresolved-when-argument-is-a-method-call.md) | open — root-caused, NOT fixed | — |
 | [`generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md`](./generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md) | — | yes |
 | [`generic-fn-type-compatibility-is-not-alpha-equivalent.md`](./generic-fn-type-compatibility-is-not-alpha-equivalent.md) | — | — |
@@ -243,7 +247,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`varbound-combinator-receiver-impl-match.md`](./varbound-combinator-receiver-impl-match.md) | — | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (54)
+### Std library (56)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -271,7 +275,9 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`s3-fs-wrappers-windows-semantics-audit.md`](./s3-fs-wrappers-windows-semantics-audit.md) | OPEN | — |
 | [`std-doc-examples-use-parenless-import-which-does-not-parse.md`](./std-doc-examples-use-parenless-import-which-does-not-parse.md) | OPEN | — |
 | [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | — | yes |
+| [`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md`](./std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md) | OPEN | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | OPEN | — |
+| [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | — | — |
 | [`stddoc-coll-duplicate-fromiterator-impl-on-hashset.md`](./stddoc-coll-duplicate-fromiterator-impl-on-hashset.md) | OPEN | — |
 | [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | OPEN — | yes |
 | [`stddoc-core-doc-comment-attached-by-bare-member-name.md`](./stddoc-core-doc-comment-attached-by-bare-member-name.md) | OPEN | yes |
@@ -322,12 +328,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | open | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | — | — |
 
-### Self-hosting legacy (19)
+### Self-hosting legacy (18)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`compiler-holds-emit-memory-during-cc.md`](./compiler-holds-emit-memory-during-cc.md) | — | — |
-| [`debug-probe-line-costs-gigabytes-at-compile-time.md`](./debug-probe-line-costs-gigabytes-at-compile-time.md) | — | — |
 | [`desugar-token-clones-evaluator-regression.md`](./desugar-token-clones-evaluator-regression.md) | — | — |
 | [`self-hosted-emit-leaks-remaining-classes.md`](./self-hosted-emit-leaks-remaining-classes.md) | — | — |
 | [`yo-self-async-await-argcount-overpermissive.md`](./yo-self-async-await-argcount-overpermissive.md) | — | — |
@@ -354,27 +359,52 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (20)
+### Other (45)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
 | [`a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md`](./a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md) | OPEN, and narrowed by measurement rather than | — |
-| [`a-function-generic-array-length-breaks-fill.md`](./a-function-generic-array-length-breaks-fill.md) | OPEN | yes |
 | [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
 | [`a-two-line-comment-change-in-std-prelude-fails-check-std.md`](./a-two-line-comment-change-in-std-prelude-fails-check-std.md) | OPEN | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | OPEN | — |
+| [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | — | — |
 | [`an-extern-opaque-type-unifies-with-every-dyn.md`](./an-extern-opaque-type-unifies-with-every-dyn.md) | OPEN | yes |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | OPEN | — |
+| [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | OPEN | yes |
 | [`an-overlapping-blanket-trait-impl-is-silently-dead.md`](./an-overlapping-blanket-trait-impl-is-silently-dead.md) | OPEN | — |
-| [`array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md`](./array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md) | OPEN | yes |
 | [`arraylist-of-a-trait-object-cannot-be-indexed.md`](./arraylist-of-a-trait-object-cannot-be-indexed.md) | open | — |
+| [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
+| [`closure-result-type-is-not-checked-against-the-expected-fn-type.md`](./closure-result-type-is-not-checked-against-the-expected-fn-type.md) | OPEN | — |
+| [`cond-arm-initialization-merge-check-never-fires.md`](./cond-arm-initialization-merge-check-never-fires.md) | — | yes |
+| [`cond-arm-type-unification-depends-on-arm-order.md`](./cond-arm-type-unification-depends-on-arm-order.md) | OPEN | — |
+| [`context-typed-integer-literal-is-not-range-checked.md`](./context-typed-integer-literal-is-not-range-checked.md) | OPEN | — |
+| [`ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md`](./ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md) | OPEN | — |
+| [`enum-type-constructor-arguments-are-ignored-by-type-compatibility.md`](./enum-type-constructor-arguments-are-ignored-by-type-compatibility.md) | OPEN | — |
+| [`enum-variant-payload-type-is-not-checked-at-construction.md`](./enum-variant-payload-type-is-not-checked-at-construction.md) | OPEN | yes |
+| [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
+| [`higher-kinded-return-type-is-never-applied-at-the-call-site.md`](./higher-kinded-return-type-is-never-applied-at-the-call-site.md) | OPEN | — |
+| [`impl-is-not-checked-against-the-trait-members.md`](./impl-is-not-checked-against-the-trait-members.md) | OPEN | — |
+| [`impl-trait-return-bound-is-not-checked.md`](./impl-trait-return-bound-is-not-checked.md) | OPEN | — |
+| [`inout-call-through-a-fn-value-loses-the-mutation.md`](./inout-call-through-a-fn-value-loses-the-mutation.md) | OPEN | — |
+| [`iso-checks-only-the-wrapper-refcount-not-the-interior.md`](./iso-checks-only-the-wrapper-refcount-not-the-interior.md) | OPEN | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
+| [`match-redundancy-and-range-exhaustiveness-gaps.md`](./match-redundancy-and-range-exhaustiveness-gaps.md) | OPEN | — |
+| [`module-globals-bypass-send-so-safe-code-can-data-race.md`](./module-globals-bypass-send-so-safe-code-can-data-race.md) | OPEN | — |
+| [`moving-a-variable-inside-a-loop-body-is-not-rejected.md`](./moving-a-variable-inside-a-loop-body-is-not-rejected.md) | OPEN | — |
 | [`option-of-a-trait-object-never-emits-its-inherent-methods.md`](./option-of-a-trait-object-never-emits-its-inherent-methods.md) | OPEN | yes |
+| [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |
+| [`order-dependent-generic-slot-stranding-e0605.md`](./order-dependent-generic-slot-stranding-e0605.md) | OPEN (mechanism measured 2026-09-20; the fix | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | OPEN | yes |
-| [`per-def-dependent-trial-resolves-stale-callee.md`](./per-def-dependent-trial-resolves-stale-callee.md) | — | — |
+| [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
+| [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
+| [`struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`](./struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md) | OPEN | — |
+| [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | — | — |
 | [`trait-ids-omit-the-module-so-two-traits-can-share-one-id.md`](./trait-ids-omit-the-module-so-two-traits-can-share-one-id.md) | OPEN | — |
-| [`trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`](./trait-impl-method-contract-clauses-corrupt-operator-dispatch.md) | — | — |
+| [`type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md`](./type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md) | OPEN | — |
+| [`uninferable-generic-result-passes-check-and-ices-in-compile.md`](./uninferable-generic-result-passes-check-and-ices-in-compile.md) | OPEN | — |
+| [`unknown-struct-field-has-no-diagnostic.md`](./unknown-struct-field-has-no-diagnostic.md) | OPEN | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | — | — |
+| [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | OPEN | — |

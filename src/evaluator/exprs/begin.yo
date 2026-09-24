@@ -2300,16 +2300,23 @@ evaluate_begin_expression :: (
   );
   throw_expr_is_implicit_variable_error(check_expr, env, ctx, exn);
   // -------------------------------------------------------------------------
-  // Ownership / RC optimizations — all stubbed (type_contains_rc_type = false)
+  // Ownership / RC optimizations (ported — LIVE, not the Phase 2aa stubs)
   // -------------------------------------------------------------------------
   //
-  // The following passes are no-ops in Phase 2aa:
-  //   - Loop traversal borrow-chain optimisation
-  //   - dup/drop pair elimination (OPTIMIZE_DUP_AND_DROP_PAIRS)
-  //   - Deferred drop expression generation
-  //   - Own-parameter drop for nested returns inside function bodies
-  //
-  // These will be ported in Phase 3 once the RC type system is complete.
+  // The frame below is scheduled by `_schedule_scope_end_drops` (deferred
+  // drop generation; the function-body params-frame pass calls it with
+  // params_only = true), and its deferred dups are paired against those
+  // drops by `_optimize_dup_drop_pairs` (dup/drop pair elimination). A
+  // variable that is the root of a live `inout` binding is excluded from the
+  // MOVE optimization only (`variable_is_inout_borrow_root`, B2′ in
+  // plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md) — the scheduler must keep
+  // scheduling its own scope-end drop.
+  // The TypeScript-era "Loop traversal borrow-chain optimisation" was never
+  // ported (its stub was deleted in #788). If it ever is, it MUST treat
+  // `variable_is_inout_borrow_root` roots as live through the binding's
+  // scope and carry the TS-era mutation/escape guard
+  // (issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md — the TS
+  // version had a use-after-free when the loop mutated the structure).
   // -------------------------------------------------------------------------
   // Save the current frame before popping it
   // -------------------------------------------------------------------------

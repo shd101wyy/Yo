@@ -9843,10 +9843,18 @@ __borrow_guard :: (fn(generic(C : Type), c : C) -> __BorrowGuard(C))({
 ///     iterator; object elements are handles, so mutating `x` in the
 ///     body mutates the element in place.
 ///
-/// The old borrow form `for(coll, inout(x) => body)` was REMOVED: it
-/// required `ref`s into reallocatable storage, which is no longer
-/// expressible. Object elements mutate in place through the value
-/// handle; struct elements use an index loop with `get`/`set`.
+///   `for(coll, inout(x) => body)` — the borrowed form
+///     (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7): the collection is
+///     pinned by a hidden local, its runtime borrow flag is held for the
+///     whole loop, and each element is bound in place as an `inout` local
+///     through the pointer iterator `iter()` (no per-element dup; struct
+///     elements mutate in place). Any container operation that could
+///     invalidate an element (growth, shrink, removal) — reached through ANY
+///     handle — panics deterministically instead of leaving `x` dangling.
+///     Maps take `for(map, (k, inout(v)) => body)`: the key by value, only
+///     the value borrowed, so a body can never rewrite a key in place.
+///     Value-type collections (`Array(T, N)`) and combinator chains have no
+///     `iter()`; use the value form.
 ///
 /// Combinator chains (`coll.into_iter().map(f)`, etc.) work
 /// transparently: a blanket `into_iter` impl on `Iterator` (below)
@@ -9861,6 +9869,11 @@ __borrow_guard :: (fn(generic(C : Type), c : C) -> __BorrowGuard(C))({
 ///
 /// // Consume an iterator chain.
 /// for(list.into_iter(), x => print(x));
+///
+/// // Borrow struct elements in place (read AND write).
+/// for(enemies, inout(e) => {
+///   e.hp = (e.hp - i32(1));
+/// });
 /// ```
 for :: (
   fn(
