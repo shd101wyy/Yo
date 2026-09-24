@@ -1389,6 +1389,23 @@ test("a call argument under ! or == in an if condition is released", {
   assert(y == i32(2), "the conditions evaluated as expected");
   assert(g_at_disposed == (before + i32(2)), "both condition argument temps are disposed");
 });
+test("a call argument under an operator in a cond or match arm value is released", {
+  before := g_at_disposed;
+  flag := (before >= i32(0));
+  {
+    a := cond(
+      flag => (at_read(ArgTemp(n : i32(30))) > i32(0)),
+      true => false
+    );
+    b := match(
+      flag,
+      true => (at_read(ArgTemp(n : i32(31))) > i32(0)),
+      false => false
+    );
+    assert(a && b, "both arms evaluated");
+  };
+  assert(g_at_disposed == (before + i32(2)), "both arm argument temps are disposed");
+});
 test("a nested match argument and a match moved into an own parameter", {
   before := g_at_disposed;
   flag := (before >= i32(0));

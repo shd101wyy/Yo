@@ -230,7 +230,15 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
   prev_consumed := context.consumed_var_pending_drops;
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_drops, prev_pending));
   context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cur_consumed, prev_consumed));
-  _emit_value_arm_body(value, value_indent, temp_var_opt, is_unit, cond_outer_is_ptr, context);
+  _emit_value_arm_body(value, value_indent.clone(), temp_var_opt, is_unit, cond_outer_is_ptr, context);
+  // A call nested under an operator in the arm value (`c => (f(tmp) > 0)`)
+  // records its argument temps' drops on the VALUE node, which no call's
+  // post-call flush emits: flush them now that the value is in the cond temp
+  // (or ran as a statement). Same class as the condition flush in
+  // `_emit_cond_if_head` (issues/fixed/cond-condition-operand-call-temp-is-never-released.md).
+  if(has_pending_emittable_drop(value, context), {
+    generate_deferred_drop_expressions(value, value_indent, context);
+  });
   context.pending_deferred_drops = prev_pending;
   context.consumed_var_pending_drops = prev_consumed;
 });
@@ -769,6 +777,18 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
           .None => ()
         );
       }),
+      .None => ()
+    );
+    // The collapsed arm's value node drops (see `_emit_value_arm`).
+    match(
+      args.get(first_nf),
+      .Some(arg) => match(
+        _arg_args(arg).get(usize(1)),
+        .Some(cv) => if(has_pending_emittable_drop(cv, context), {
+          generate_deferred_drop_expressions(cv, indent.clone(), context);
+        }),
+        .None => ()
+      ),
       .None => ()
     );
     return(if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from(""))));
