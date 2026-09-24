@@ -1,6 +1,6 @@
 # Yo
 
-<img src="./Yo_logo.png" width=96 height=96 />
+<img src="./docs/assets/yo-logo.svg" alt="Yo logo" width=96 height=96 />
 
 **English** | [简体中文](./docs/zh-CN/README.md)
 
@@ -14,6 +14,12 @@ A multi-paradigm, general-purpose, compiled programming language.
 Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 > The name `Yo` comes from the Chinese word `柚` (yòu), meaning `pomelo`, a large citrus fruit similar to grapefruit. It's my daughter's nickname.
+
+<img src="./docs/assets/yo-mascot.svg" alt="The Yo panda" width=160 align="right" />
+
+**Meet the Yo panda.** Rust has a crab; Yo has a panda hugging a halved pomelo. The logo is the same pomelo: the white pith between its three segments draws a **Y**, and the round rind around it is the **o**.
+
+<br clear="right" />
 
 📖 [My Story with Programming Languages](./docs/en-US/MY_STORY_WITH_PROGRAMMING_LANGUAGES.md) — the journey from Java at 16 to building Yo.
 
