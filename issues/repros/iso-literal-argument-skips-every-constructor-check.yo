@@ -1,0 +1,11 @@
+{ ArrayList } :: import("std/collections/array_list");
+Wrap :: ref(struct(items : ArrayList(i32)));
+main :: (fn() -> unit)({
+  shared := ArrayList(i32).new();
+  alias := shared;
+  iso := Iso(Wrap)(Wrap(items : shared));
+  inner := iso.extract();
+  inner.items.push(i32(1));
+  alias.push(i32(2));
+});
+export(main);

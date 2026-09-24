@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 238 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 245 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 50 | 12 |
-| **Total** | **238** | **47** |
+| Other | 57 | 14 |
+| **Total** | **245** | **49** |
 
 ## Cross-cutting buckets
 
@@ -349,7 +349,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (50)
+### Other (57)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -367,6 +367,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | OPEN | yes |
 | [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | — | yes |
 | [`arraylist-of-a-trait-object-cannot-be-indexed.md`](./arraylist-of-a-trait-object-cannot-be-indexed.md) | open | — |
+| [`borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md`](./borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md) | OPEN | yes |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
 | [`cond-arm-initialization-merge-check-never-fires.md`](./cond-arm-initialization-merge-check-never-fires.md) | — | yes |
 | [`cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md`](./cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md) | OPEN | — |
@@ -378,6 +379,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`](./iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md) | OPEN | yes |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
+| [`macos-io-notify-races-io-cleanup-on-the-notify-handle.md`](./macos-io-notify-races-io-cleanup-on-the-notify-handle.md) | OPEN | — |
 | [`match-redundancy-and-range-exhaustiveness-gaps.md`](./match-redundancy-and-range-exhaustiveness-gaps.md) | OPEN | — |
 | [`module-globals-bypass-send-so-safe-code-can-data-race.md`](./module-globals-bypass-send-so-safe-code-can-data-race.md) | OPEN | — |
 | [`moving-a-variable-inside-a-loop-body-is-not-rejected.md`](./moving-a-variable-inside-a-loop-body-is-not-rejected.md) | OPEN | — |
@@ -389,6 +391,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | — | yes |
 | [`phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`](./phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md) | OPEN | yes |
 | [`rawmutex-is-exported-with-an-unbalanced-unlock.md`](./rawmutex-is-exported-with-an-unbalanced-unlock.md) | OPEN | — |
+| [`rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md`](./rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md) | OPEN | yes |
 | [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | — | — |
 | [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |
 | [`safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`](./safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md) | OPEN | yes |
@@ -401,5 +404,9 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | — | — |
+| [`windows-socket-fd-registry-is-an-unlocked-process-global-list.md`](./windows-socket-fd-registry-is-an-unlocked-process-global-list.md) | OPEN | — |
+| [`windows-thread-gc-state-is-never-released-at-thread-exit.md`](./windows-thread-gc-state-is-never-released-at-thread-exit.md) | OPEN | — |
+| [`windows-worker-pool-mutex-lazy-init-is-a-check-then-init-race.md`](./windows-worker-pool-mutex-lazy-init-is-a-check-then-init-race.md) | OPEN | — |
+| [`worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task.md`](./worker-pool-atexit-shutdown-joins-workers-blocked-in-a-task.md) | OPEN | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | — | — |

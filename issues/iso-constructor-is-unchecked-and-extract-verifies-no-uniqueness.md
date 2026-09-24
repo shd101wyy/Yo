@@ -27,10 +27,15 @@ which is called by the `^` macro at CONSTRUCTION, and only `Box(T)` implements `
 
 1. `^v` works only for `Box(T)` and user types with a manual impl; `^xs` on an `ArrayList`
    fails to compile (`Type "…" does not implement trait "Isolation"`).
-2. The raw constructor `Iso(T)(v)` is public, is what `docs/en-US/ISOLATED.md` teaches, and
-   runs NONE of the macro's four checks (contains-rc, can-form-cycle, owning, no-aliases) and no
-   runtime check. Nothing in `src/evaluator` mentions `Iso` except the `extract` builtin's
-   result type (`src/evaluator/builtins/rc_fns.yo` ~240).
+2. The raw constructor `Iso(T)(v)` is public and is what `docs/en-US/ISOLATED.md` teaches.
+   Its evaluator (`src/evaluator/calls/iso.yo`, `evaluate_iso_value_call` ~280-380) checks
+   three things ONLY when the argument is a named variable: the type cannot form RC cycles, the
+   variable owns its RC value, and no other variable aliases it; then it marks the variable
+   consumed. It never checks that `T` contains a reference type (the macro's first check), it
+   never looks inside the value, and when the argument is not a variable
+   (`Iso(Wrap)(Wrap(items : shared))`,
+   `issues/repros/iso-literal-argument-skips-every-constructor-check.yo`, green) it checks
+   nothing at all. There is no runtime check on either path.
 
 ## Repro 1 — aliased interior, consistent SIGSEGV
 
