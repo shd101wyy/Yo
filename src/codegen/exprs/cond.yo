@@ -187,6 +187,27 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
   );
   out
 });
+/// Emit the rendered code of a cond arm whose value is not assigned to a
+/// result temp (a unit arm, or a cond without one) as a statement. Some
+/// generators RETURN their statement instead of emitting it —
+/// `c => unsafe.drop(x)` renders `__yo_decr_rc(x)` — and discarding that text
+/// lost HashMap._resize's old-slot releases, so every RC key/value leaked one
+/// reference per rehash (issues/fixed/cond-unit-arm-statement-is-dropped.md).
+/// match.yo's `_emit_case_body_no_break` already does this. A bare temp name
+/// is a value computed by the arm's own statements, not a statement.
+_emit_unassigned_arm_code :: (fn(value : AstExpr, value_code : String, indent : String, context : FunctionGenerationContext) -> unit)({
+  bare_temp := match(
+    context.base.get_expr_info(value),
+    .Some(vei) => is_temp_variable_name(vei.env.module_path.clone(), value_code.clone()),
+    .None => false
+  );
+  if((value_code.len() > usize(0)) && !bare_temp, {
+    line := indent.clone();
+    line.push_string(value_code);
+    line.push_str(";");
+    context.base.emitter.emit_string_line(line);
+  });
+});
 /// Emit a non-begin arm value: control-flow statements emit directly, a value
 /// is assigned to the cond temp, and an unassigned (unit) arm's rendered
 /// statement is emitted as a statement.
@@ -366,26 +387,7 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
       }, false),
       .None => false
     );
-    // A unit (or unassigned) arm whose generator RETURNED its statement
-    // instead of emitting it — `c => unsafe.drop(x)` renders
-    // `__yo_decr_rc(x)` — must still run: emit it as a statement, as
-    // match.yo's `_emit_case_body_no_break` does. Dropping the text lost
-    // HashMap._resize's old-slot releases, so every RC key/value leaked one
-    // reference per rehash (issues/fixed/cond-unit-arm-statement-is-dropped.md).
-    // A bare temp name is a value already computed above, not a statement.
-    if(!assigned, {
-      bare_temp := match(
-        context.base.get_expr_info(value),
-        .Some(vei) => is_temp_variable_name(vei.env.module_path.clone(), value_code.clone()),
-        .None => false
-      );
-      if(!bare_temp, {
-        line := value_indent.clone();
-        line.push_string(value_code.clone());
-        line.push_str(";");
-        em.emit_string_line(line);
-      });
-    });
+    if(!assigned, _emit_unassigned_arm_code(value, value_code.clone(), value_indent.clone(), context));
   }));
 });
 /// Inline a `begin` block arm: emit each statement (stopping at control flow),
@@ -677,13 +679,18 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
             // the tests/sync/atomic wasi trap: `if(arch == Arch.Wasm32,
             // return(()))` folds true only on wasm32, so the loss was
             // invisible on every native leg).
+            // A non-control-flow unit arm whose generator returned its
+            // statement text goes through the same helper as the chain path.
             cf_unit := (_is_cf_code(value, value_code.clone(), context) && (value_code.len() > usize(0)));
-            if(cf_unit && (is_unit || temp_var_opt.is_none()), {
-              cf_line := indent.clone();
-              cf_line.push_string(value_code.clone());
-              cf_line.push_str(";");
-              em.emit_string_line(cf_line);
-            });
+            if(
+              is_unit || temp_var_opt.is_none(),
+              if(cf_unit, {
+                cf_line := indent.clone();
+                cf_line.push_string(value_code.clone());
+                cf_line.push_str(";");
+                em.emit_string_line(cf_line);
+              }, _emit_unassigned_arm_code(value, value_code.clone(), indent.clone(), context))
+            );
             match(
               temp_var_opt,
               .Some(tv) => if(!is_unit, {
