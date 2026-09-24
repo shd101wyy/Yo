@@ -236,6 +236,89 @@ _wrapper_carrier_args_concrete :: (fn(rtts : ArrayList(TypeValue)) -> bool)({
   });
   ok
 });
+/// Alpha-equivalence of generic function types
+/// (issues/fixed/generic-fn-type-compatibility-is-not-alpha-equivalent.md):
+/// while two `Func` types are compared, their `generic(...)` binders
+/// correspond BY POSITION, so `fn(generic(T), x : T) -> T` and
+/// `fn(generic(Z), a : Z) -> Z` are one type. The correspondence is a stack of
+/// (actual binder, expected binder) pairs — name + frame level, a SomeT's
+/// identity here — pushed for the duration of ONE `.Func` comparison and
+/// consulted only at a SomeT leaf, so SomeT identity is never relaxed
+/// anywhere else (the cache-identity collisions the file's comments record).
+AlphaPair :: struct(a_name : String, a_level : usize, e_name : String, e_level : usize);
+(g_alpha_pairs : ArrayList(AlphaPair)) = ArrayList(AlphaPair).new();
+_alpha_pair_active :: (fn(a_name : String, a_level : usize, e_name : String, e_level : usize) -> bool)({
+  (i : usize) = g_alpha_pairs.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      g_alpha_pairs.get(i),
+      .Some(p) => if((((p.a_name == a_name) && (p.a_level == a_level)) && (p.e_name == e_name)) && (p.e_level == e_level), {
+        return(true);
+      }),
+      .None => ()
+    );
+  });
+  false
+});
+/// The frame level of the first SomeT named `label` among `types`.
+_binder_level :: (fn(types : ArrayList(TypeValue), label : String) -> Option(usize))({
+  (i : usize) = usize(0);
+  while(i < types.len(), {
+    t := match(types.get(i), .Some(x) => x, .None => TypeValue.Unit);
+    somes := get_all_some_types(t);
+    match(t, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => somes.push(t), _ => ());
+    (j : usize) = usize(0);
+    while(j < somes.len(), {
+      match(
+        somes.get(j),
+        .Some(st) => match(
+          st,
+          .SomeT({ name : nm, frame_level : lv }) => if(nm == label, {
+            return(Option(usize).Some(lv));
+          }),
+          _ => ()
+        ),
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
+/// Push the binder correspondence of an (actual, expected) `Func` pair;
+/// returns how many pairs were pushed (the caller pops that many).
+_push_alpha_pairs :: (fn(a_labels : ArrayList(String), a_types : ArrayList(TypeValue), e_labels : ArrayList(String), e_types : ArrayList(TypeValue)) -> usize)({
+  if(a_labels.len() != e_labels.len(), {
+    return(usize(0));
+  });
+  (pushed : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < a_labels.len(), {
+    an := match(a_labels.get(i), .Some(l) => l, .None => String.new());
+    en := match(e_labels.get(i), .Some(l) => l, .None => String.new());
+    match(
+      _binder_level(a_types, an.clone()),
+      .Some(al) => match(
+        _binder_level(e_types, en.clone()),
+        .Some(el) => {
+          g_alpha_pairs.push(AlphaPair(a_name : an, a_level : al, e_name : en, e_level : el));
+          pushed = (pushed + usize(1));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  pushed
+});
+_pop_alpha_pairs :: (fn(n : usize) -> unit)({
+  if(n > usize(0), {
+    _d := g_alpha_pairs.drain((g_alpha_pairs.len() - n) .. g_alpha_pairs.len());
+  });
+});
 _compat_impl :: (
   fn(
     actual : TypeValue,
@@ -625,10 +708,12 @@ _compat_impl :: (
       },
       _ => false
     ),
-    // Function types: compare generic count, param count, types, return
-    .Func({ forall_types : afts, param_types : apts, result : aret }) => match(
+    // Function types: compare generic count, param count, types, return —
+    // with the two functions' binders corresponding by position
+    // (`_push_alpha_pairs`).
+    .Func({ forall_types : afts, param_types : apts, result : aret, meta : ameta }) => match(
       expected,
-      .Func({ forall_types : efts, param_types : epts, result : eret }) => {
+      .Func({ forall_types : efts, param_types : epts, result : eret, meta : emeta }) => {
         if(afts.len() != efts.len(), {
           return(false);
         });
@@ -644,16 +729,32 @@ _compat_impl :: (
           });
           i = (i + usize(1));
         });
+        a_sig := ArrayList(TypeValue).new();
+        e_sig := ArrayList(TypeValue).new();
+        (si : usize) = usize(0);
+        while(si < apts.len(), {
+          match(apts.get(si), .Some(v) => a_sig.push(v), .None => ());
+          match(epts.get(si), .Some(v) => e_sig.push(v), .None => ());
+          si = (si + usize(1));
+        });
+        a_sig.push(aret);
+        e_sig.push(eret);
+        n_alpha := _push_alpha_pairs(ameta.*.forall_labels, a_sig, emeta.*.forall_labels, e_sig);
+        (func_ok : bool) = true;
         i = usize(0);
-        while(i < apts.len(), {
+        while((i < apts.len()) && func_ok, {
           at := match(apts.get(i), .Some(v) => v, .None => TypeValue.Unit);
           et := match(epts.get(i), .Some(v) => v, .None => TypeValue.Unit);
           if(!(recur(at, et, require_exact, visited)), {
-            return(false);
+            func_ok = false;
           });
           i = (i + usize(1));
         });
-        recur(aret, eret, require_exact, visited)
+        if(func_ok, {
+          func_ok = recur(aret, eret, require_exact, visited);
+        });
+        _pop_alpha_pairs(n_alpha);
+        func_ok
       },
       _ => false
     ),
@@ -1112,6 +1213,8 @@ _compat_impl :: (
       expected,
       .SomeT(name : ename, frame_level : elvl, required_trait_types : ertt) => cond(
         ((aname == ename) && (alvl == elvl)) => true,
+        // Corresponding binders of the two `Func` types being compared.
+        _alpha_pair_active(aname.clone(), alvl, ename.clone(), elvl) => true,
         // Definition-time-trial acceptance: two distinct type
         // parameters are compatible when the GIVEN side satisfies every
         // constraint the EXPECTED side carries — trivially true for an

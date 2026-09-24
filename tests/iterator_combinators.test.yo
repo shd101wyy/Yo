@@ -323,7 +323,7 @@ test("map then for_each — self-marker must not clobber the concrete F binding"
   // Pre-existing bug surfaced by chunk 3: matching IterMap's Iterator impl
   // inside for_each's where-check wrote the impl's F self-marker over
   // for_each's already-resolved concrete closure binding
-  // (issues/varbound-combinator-receiver-impl-match.md).
+  // (issues/fixed/varbound-combinator-receiver-impl-match.md).
   out := ArrayList(i32).new();
   my_range(i32(1), i32(4)).map(x => (x * i32(2))).for_each(x => {
     out.push(x);
@@ -350,7 +350,7 @@ test("ranges feed the iterator combinators directly", {
   // min taken on the RANGE receiver directly, and the mapped chain checked
   // via count (binds no Item) — an Item-binding combinator on a chain
   // receiver at a second Item type hits the pre-existing shared-stamp
-  // pollution (issues/iterator-chain-shared-stamp-cross-item-pollution.md).
+  // pollution (issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md).
   m := (i64(-3) .. i64(4)).min();
   assert(m.unwrap() == i64(-3), "min of signed range");
   c := (i64(-3) .. i64(4)).map(x => (x * i64(2))).count();
@@ -477,7 +477,7 @@ test("next and next_back meet in the middle", {
 // --- D3.4: collect / FromIterator (plans/archive/STD_API_AUDIT.md) ------------------
 // NOTE: every `.map(...).collect(...)` here stays at ONE Item type (i32). A
 // second Item type through the same combinator stamp trips the pre-existing
-// shared-stamp pollution — issues/iterator-chain-shared-stamp-cross-item-pollution.md.
+// shared-stamp pollution — issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md.
 test("collect into an ArrayList", {
   got := (i32(0) .. i32(4)).collect(ArrayList(i32));
   assert(got.to_string() == `[0, 1, 2, 3]`, "range collects in order");
@@ -512,4 +512,73 @@ test("collect into a String concatenates", {
   parts := array_list(`a`, `b`, `c`);
   joined := parts.into_iter().collect(String);
   assert(joined == `abc`, "strings concatenate in order");
+});
+// issues/fixed/varbound-combinator-receiver-impl-match.md, the flat_map
+// residual: a user-written combinator whose Item is DOUBLY derived (B from the
+// inner iterator J that F returns), bound to a variable before a closure-taking
+// consumer. std never shipped a flat_map, so the shape is pinned here.
+_UserFlatMap :: (fn(comptime(I) : Type, comptime(J) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_outer : I, _f : F, _cur : Option(J))
+);
+impl(
+  generic(I : Type, A : Type, J : Type, B : Type, F : Type),
+  where(I <: Iterator(Item := A), J <: Iterator(Item := B), F <: (Fn(item : A) -> J)),
+  _UserFlatMap(I, J, F),
+  Iterator(
+    Item : B,
+    next : (fn(inout(self) : Self) -> Option(B))({
+      (res : Option(B)) = .None;
+      (going : bool) = true;
+      while(going, {
+        got := match(
+          self._cur,
+          .Some(inner) => {
+            it := inner;
+            r := it.next();
+            self._cur = .Some(it);
+            r
+          },
+          .None => Option(B).None
+        );
+        match(
+          got,
+          .Some(v) => {
+            res = .Some(v);
+            going = false;
+          },
+          .None => match(
+            self._outer.next(),
+            .Some(a) => {
+              self._cur = .Some((self._f)(a));
+            },
+            .None => {
+              going = false;
+            }
+          )
+        );
+      });
+      res
+    })
+  )
+);
+impl(
+  generic(I : Type),
+  where(I <: Iterator),
+  I,
+  _user_flat_map : (
+    fn(
+      generic(A : Type, J : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> J))
+    ) -> _UserFlatMap(Self, J, F)
+  )(_UserFlatMap(Self, J, F)(_outer : self, _f : f, _cur : .None))
+);
+test("a variable-bound doubly-derived combinator (user flat_map) is still an Iterator", {
+  out := ArrayList(i32).new();
+  it := my_range(i32(1), i32(4))._user_flat_map(x => my_range(i32(0), x));
+  it.for_each(x => {
+    out.push(x);
+  });
+  assert(out.len() == usize(6), "0 | 0 1 | 0 1 2");
 });

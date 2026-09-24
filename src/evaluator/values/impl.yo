@@ -71,6 +71,8 @@ pragma(Pragma.AllowUnsafe);
   note_inherent_method_site,
   note_trait_impl_site,
   get_type_trait_methods_by_name,
+  get_assoc_type_entries,
+  assoc_type_registry_key,
   get_trait_default,
   register_provisional_trait_method,
   get_provisional_trait_methods_by_name,
@@ -862,7 +864,7 @@ _bind_forall_from_type_args :: (
           // stamp — without the cell walk the impl match left `F` unbound
           // and `m := xs.map(f); m.for_each(g)` failed "does not implement
           // required trait Iterator"
-          // (issues/varbound-combinator-receiver-impl-match.md).
+          // (issues/fixed/varbound-combinator-receiver-impl-match.md).
           {
             (cell_cur : TypeValue) = ct;
             (cell_seen : ArrayList(String)) = ArrayList(String).new();
@@ -1339,7 +1341,7 @@ try_match_generic_impl :: (
                             {
                               wcr_tid := type_id_or_empty(wcr_subj_bound);
                               if(wcr_tid.len() > usize(0), {
-                                wcr_regs := get_type_trait_methods_by_name(wcr_tid, wcr_lbl.clone());
+                                wcr_regs := get_assoc_type_entries(wcr_subj_bound, wcr_lbl.clone());
                                 (wcr_ri : usize) = usize(0);
                                 while((wcr_ri < wcr_regs.len()) && wcr_bound.is_none(), {
                                   match(
@@ -1419,7 +1421,9 @@ try_match_generic_impl :: (
   // closure arg's ExprInfo (repair 1 of
   // issues/fixed/def-eval-swallow-remaining-roots.md).
   if(all_bound && !in_def_time_trial(), {
-    dar_tid := type_id_or_empty(resolved_concrete);
+    // Keyed by the exact instantiation (`assoc_type_registry_key`), not the
+    // bare id two instantiations can share.
+    dar_tid := assoc_type_registry_key(resolved_concrete);
     if(dar_tid.len() > usize(0), {
       dar_s := subst_new();
       (dar_i : usize) = usize(0);

@@ -112,7 +112,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
-{ type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
+{ type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -4073,7 +4073,7 @@ evaluate_function_call :: (
         assoc_nm := match(resolved_ret, .SomeT(name : nm) => nm, _ => String.new());
         recv_id := type_id_or_empty(receiver_ty);
         if((assoc_nm.len() > usize(0)) && (recv_id.len() > usize(0)), {
-          assoc_entries := get_type_trait_methods_by_name(recv_id, assoc_nm);
+          assoc_entries := get_assoc_type_entries(receiver_ty, assoc_nm.clone());
           (agreed : Option(TypeValue)) = Option(TypeValue).None;
           (diverged : bool) = false;
           (ai : usize) = usize(0);

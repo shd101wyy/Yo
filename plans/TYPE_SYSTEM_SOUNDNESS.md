@@ -1,7 +1,7 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1, 2.1–2.3 and part of 2.4 LANDED 2026-09-24 (the
-per-phase "Landed" notes below); the rest of 2.4, 2.5–7 open. Source: a six-part audit of the type system on
+**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1, 2.1–2.4 LANDED 2026-09-24/25 (the
+per-phase "Landed" notes below); 2.5–7 open. Source: a six-part audit of the type system on
 develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
 Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
 
@@ -243,10 +243,25 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
    - `issues/fixed/calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md` was
      already fixed on the v0.2.41 seed; a regression test pins it.
 
-   Open, part 2: retiring the shared cell (`iterator-chain-shared-stamp-cross-item-pollution`
-   still reproduces: two `.map` calls share one substituted `IterMap` instance and `min` reads the
-   first call's `Item`), `order-dependent-generic-slot-stranding-e0605` (no deterministic repro),
-   and alpha-equivalence of generic fn types.
+   **Landed 2026-09-25, part 2:**
+   - `issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md`: two instantiations that
+     share one struct id (`IterMap` over two different closures) no longer share their
+     impl-provided associated types. The durable assoc registry is keyed by the exact instantiation
+     (`assoc_type_registry_key`: id + `type_key`), and every reader goes through
+     `get_assoc_type_entries`;
+   - `issues/fixed/generic-fn-type-compatibility-is-not-alpha-equivalent.md`: two generic fn types
+     are compared up to renaming of their binders (a pair stack in `types/compatibility.yo`), so
+     `fn(generic(T), x : T) -> T` accepts `fn(generic(U), x : U) -> U` and still rejects
+     `fn(generic(U, V), x : U) -> V`;
+   - `issues/fixed/varbound-combinator-receiver-impl-match.md`: a user-defined `flat_map`-shaped
+     combinator over a variable-bound receiver resolves its impl (regression test in
+     `tests/iterator_combinators.test.yo`).
+
+   The shared `resolved_concrete` cell itself is NOT retired: every observable issue it caused
+   is fixed where it arose, so removing the cell moved to Phase 3.7 and is no longer a 2.4
+   prerequisite. `order-dependent-generic-slot-stranding-e0605` is
+   still open. It depends on the iteration order of registries keyed by timestamp-minted ids, and
+   that order stops varying only with Phase 3.3's position-independent ids, so it is tracked there.
 
 5. **Unify the three parameter-binding sites.** `_build_def_time_body_env`,
    `check_if_function_parameter_matches_argument` and `_evaluate_funcval_runtime_call` each
@@ -302,7 +317,9 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    (`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type`).
 7. **Interning without the mutable cell.** Never intern a SomeT node, or leave its resolution
    cell out of the intern key and give each interned SomeT a fresh cell (`src/types/intern.yo`
-   ~459). After Phase 2.4 there is no shared cell left to leak.
+   ~459). Phase 2.4 fixed every observable leak of the shared `resolved_concrete` cell where it
+   arose, but it did not remove the cell; this step removes it, together with
+   `g_some_resolved_concrete`.
 8. **Unblocks** `plans/backlog/TYPEVALUE_HASH_CONSING.md`. Its measured blocker is "the intern key
    must equal codegen's `_type_key_at`". Once steps 1–4 make the evaluator's identity equal to
    the codegen key, hash-consing is a memory project, not a soundness risk. It is also where the
