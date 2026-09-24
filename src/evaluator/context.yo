@@ -16,7 +16,7 @@
 { TypeValue } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable, Frame, _frame_positions, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
+{ Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -688,7 +688,7 @@ track_variable_usage_resolved :: (
         return(());
       });
       // Find the variable in the evaluation environment. Per-frame, use the
-      // name index when available (see Frame.name_index / _frame_positions —
+      // name index when available (see Frame.name_index / _frame_first_position —
       // the same fast path get_variables_from_env uses) with the original
       // linear scan as the small-frame fallback: this walk runs once per
       // tracked identifier read under scope-end drop evaluation, and the
@@ -705,25 +705,18 @@ track_variable_usage_resolved :: (
           frame_opt,
           .Some(frame) => {
             match(
-              _frame_positions(frame, variable_name),
-              .Some(ps) => {
-                if(ps.len() > usize(0), {
-                  match(
-                    ps.get(usize(0)),
-                    .Some(pos) => match(
-                      frame.variables.get(pos),
-                      .Some(v) => {
-                        var_found = Option(Variable).Some(v);
-                        actual_frame_level = fi;
-                        fi = n_frames; // break outer loop
-                      },
-                      .None => ()
-                    ),
-                    .None => ()
-                  );
-                });
-              },
-              .None => {
+              _frame_first_position(frame, variable_name),
+              .At(pos) => match(
+                frame.variables.get(pos),
+                .Some(v) => {
+                  var_found = Option(Variable).Some(v);
+                  actual_frame_level = fi;
+                  fi = n_frames; // break outer loop
+                },
+                .None => ()
+              ),
+              .Absent => (),
+              .Unindexed => {
                 vi := usize(0);
                 n_vars := frame.variables.len();
                 while(vi < n_vars, {
