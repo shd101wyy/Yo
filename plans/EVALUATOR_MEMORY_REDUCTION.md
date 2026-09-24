@@ -1355,8 +1355,10 @@ no flush emitted:
 
 Zero-hit `String` buffers in a sample `check` fell 121,976 → 2,636 (−98 %).
 `check src/main.yo` Linux max RSS: 2,761,036 → 2,654,636 kB after #888 (the
-ratchet baseline moves with each PR); the stage-2 macOS footprint median fell
-2.93 → 2.63 GB with #891's condition part.
+ratchet baseline moves with each PR), then 2,654,636 → **2,486,124 kB** after
+#891 (CI wall 4:32 → 3:18); the stage-2 macOS footprint median fell 2.93 →
+2.63 GB with #891's condition part. Zero-hit `String` buffers at
+`check src/main.yo` exit: 1,095,546 → 3,873.
 
 ### Phase 6 — per-object layout: header and `Variable`
 
