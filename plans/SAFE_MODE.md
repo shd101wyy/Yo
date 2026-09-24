@@ -1,13 +1,17 @@
 # Safe mode — no undefined behavior, and every runtime failure proven, typed, or trapped
 
 **Status: ACTIVE — designed 2026-09-21 from a measured codegen survey; amended
-2026-09-22 (D7 adopted: the class-1 panic ban, Phase 0c). Phases 0a/0b/0c/1/2/3/4
-landed 2026-09-22 (#828/#829/#831/#833/#835/#837/#836) and hardened 2026-09-23
-by #841 (nine follow-up defects the full battery surfaced after the stack
-merged). 5a measured and closed as a documented non-change. Open: the 0a belt
-re-land + `_call_is_handler_installation` classification fix, the std/ unwrap
-ratchet, the comptime `unwrap` carve-out, 5b (gated on the FV campaign), 6
-(gated on 5b).**
+2026-09-22 (D7 adopted: the class-1 panic ban, Phase 0c); audited 2026-09-23
+(§14, which is the authoritative open-work list).** Landed: 0a (#828; the
+post-`main` belt re-landed with the install-frame classification fix, #858),
+0b (#829), 0c (#831), 1 (#833), 2 (#835), 3a/3b/3c with the `wrapping_*`
+escape hatch (#837; two missed wrap-by-design sites, #841), 4 (#836); 5a
+measured and closed as a documented non-change. Open (§14): the std unwrap
+ratchet (closing), the comptime-panic diagnostic that the "comptime carve-out"
+reduces to, the per-phase docs and
+instruction updates, the missing trap/OOM oracles, the UBSan acceptance run,
+the governance cross-check, 5b (its FV gate is LIFTED, V1–V7 landed; design not
+started), and 6 (gated on 5b).**
 Ground-truth anchors were verified on `develop` at `a1df43578`; line numbers
 drift, so each phase names the symbol to grep for, not just the line.
 
@@ -106,6 +110,12 @@ What the code actually emits today, with evidence:
 | H10 | Allocation failure | mostly handled — `__yo_rc_alloc` panics via `__yo_alloc_fail` (c-codegen instructions §OOM) | policy documented; coverage unaudited | audited tier 3 | 4 |
 | H11 | `--sanitize undefined` | advertised but rejected | help `src/main.yo:7632` (en) / `:7682` (zh); validation `:3397` accepts only `address\|leak\|thread` | works | 0 |
 | H12 | Optimistic panic vocabulary callable in safe files | `Option.unwrap`/`Option.expect`, `Result.unwrap`/`Result.unwrap_err` trap on the failure case (`std/prelude.yo:7937-7943`, `:8049-8055`, `:8797-8811`); measured use 2026-09-22: 163 sites / 18 files in `src/`, 2,497 in `tests/`, 234 in `std/`, 0 in `vendor/` and `scripts/` | compile error (D7, class 1) | 0c |
+
+**Status (audit 2026-09-23):** H1, H2, H4, H5, H7, H8, H9, H10, H11 and H12
+are closed. H6 closed as a semantics change rather than a UB closure: `-fwrapv` meant
+signed overflow was never UB (§6). H3 was retired because the Slice builtins
+were deleted before Phase 1 landed. The raw-subscript residue was audited and
+is unreachable from user indices (§14 R3).
 
 Already solid (no work): container-impl indexing (ArrayList `std/collections/array_list.yo:857-877`,
 Deque, `imm.Vec`, String — all panic on OOB); the Law-of-Exclusivity borrow counter
@@ -231,16 +241,28 @@ Note `String.substring` stays legal despite panicking on intra-rune offsets: its
 precondition is value-level (class 2), and classification is by the criterion, not by
 whether a `try_*` alternative happens to exist.
 
-**The comptime carve-out — the assumption FAILED, carve-out deferred.** The
-plan assumed a comptime `unwrap` of `.None` already fails the compile.
-Measured 2026-09-22 on the seed: `o := Option(i32).None; o.unwrap();` passes
-`yo check` and **panics at runtime (rc 134)** — there is no CTFE fold of
-`unwrap`, so a comptime exemption would leave the panic reachable. V1
-therefore has NO comptime exemption; the carve-out lands together with the
-evaluator change that makes comptime `unwrap` of `.None` a compile error
-(CTFE folding), which is also what Phase 5b's `requires(is_some)` upgrade
-builds on. The spelling survives; the semantics upgrade when the machinery
-exists.
+**The comptime carve-out — RE-MEASURED 2026-09-23: nothing to exempt; the
+real defect is a lost comptime panic.** The 2026-09-22 probe (`o :=
+Option(i32).None; o.unwrap();` panics at runtime) measured a *runtime*
+binding, not a comptime context. Two measurements on v0.2.39 retire the
+carve-out's premise:
+
+1. `unwrap` is not comptime-evaluable at all. `Z :: Option(i32).Some(i32(7)).unwrap();`
+   fails with `Expected compile-time value for "Z"`, so no comptime `unwrap`
+   call exists for an exemption to cover.
+2. The comptime spelling already exists and is legal in safe files:
+   `comptime_unwrap` / `comptime_unwrap_err` (`comptime(self)` methods in the
+   prelude). They are outside the class-1 name list by construction.
+
+So D7's "comptime `unwrap` stays legal" already holds for the spelling that
+exists. What does not hold is "decidable ⇒ checked at compile time":
+`Z :: Option(i32).None.comptime_unwrap();` passes `yo check` (rc 0). When `Z`
+is used, compilation fails only in clang (`use of undeclared identifier 'Z'`),
+and a free comptime fn that reaches `__yo_panic` reports `Function body is not
+evaluated correctly…` with the panic's message lost. The fix belongs in
+`evaluate_panic`, not in the class-1 predicates: a `__yo_panic` reached while a
+comptime function body is *executing* becomes a compile error that carries
+its message (§14 R2). The Phase 5b `requires(is_some)` upgrade is unaffected.
 
 **Mechanism (as built).** Evaluator-only, three gate sites over the shared
 predicates in `src/evaluator/memory_safety.yo`
@@ -259,9 +281,14 @@ Option/Result, the same rule the io-builtin classification uses):
 
 Exemptions (each a documented rule, not a hole): `*.test.yo` (2,497
 in-tree sites stay — a failed unwrap fails the test loudly, the test doing
-its job), `std/` (the quarantine zone; 234 internal sites migrate on a
-ratchet), `pragma(Pragma.AllowUnsafe)` files, compiler-synthesized
-`auto-generated://` code. New diagnostic via
+its job), `pragma(Pragma.AllowUnsafe)` files, and compiler-synthesized
+`auto-generated://` code. `std/` was a fourth, temporary exemption and the
+ratchet closed it on 2026-09-23. Of std's 233 sites, 207 sit in `AllowUnsafe`
+files and are exempt by the pragma, exactly as a user's would be. 17 are doc
+comments. The remaining 9 calls, in two safe files (`std/http/http.yo` and
+`std/encoding/html_entities.yo`), were migrated. The blanket std branch of
+`is_class1_panic_exempt_file` is gone, so a new unwrap in a safe std file now
+fails like one in user code. New diagnostic via
 `format_error_message_with_help` (the pointer-gate precedent — the
 E0xxx/`yo fix` registry entry is deferred until the first diagnostic sweep
 of this campaign's gates). A declaration-site `panics` marker that
@@ -291,13 +318,6 @@ the two post-`throw` unreachable fillers use `__yo_panic` directly.
 `vendor/` and `scripts/` were clean (0 uses). The gate and the migration
 land together in one PR (`yo check ./src` is the first gate — it fails
 otherwise).
-
-**Mechanism.** See the as-built description above (three gate sites over
-shared predicates in `memory_safety.yo`; exemptions for `*.test.yo`, `std/`
-(ratchet), `AllowUnsafe`, auto-generated code; `public_safe_report`
-cross-check and std policy *no new class-1 APIs*; the hand-rolled
-`unwrap2` loophole is accepted — visible optimism carrying its own
-invariant is the ban working).
 
 **Tests.** cli-cases `safe-mode-unwrap-rejected` (call form),
 `safe-mode-unwrap-extraction-rejected` (extraction form),
@@ -438,38 +458,32 @@ constantly — hashing, alignment, capacity math).
 
 Landed as three separately-measured PRs: 3a overflow + neg, 3b shifts, 3c casts.
 
-### 3a Overflow and negation — RE-SCOPED 2026-09-22: blocked on the wrapping surface
+### 3a Overflow and negation — LANDED (#837; follow-ups #841)
 
-**Discovery that re-frames H6:** the survey missed that Yo passes **`-fwrapv`**
-unconditionally (`src/main.yo`, documented in MEMORY_SAFETY.md "Integer
-Overflow") — signed overflow is DEFINED two's-complement wrap today, not UB;
-unsigned overflow is defined modular arithmetic. H6 is therefore NOT a
-UB-closure item but a semantics change from defined-but-silently-wrong to a
-trap, and it has a hard prerequisite: **in-tree code intentionally wraps** —
-`std/hash.yo`'s SipHash mixing (`self.v0 = (self.v0 + self.v1)` on u64) and
-Fnv1aHasher's multiply ARE the algorithm; trapping them breaks every
-HashMap/HashSet.
+**Discovery that re-framed H6:** the survey missed that Yo passes **`-fwrapv`**
+unconditionally (`src/main.yo`), so signed overflow was already DEFINED as
+two's-complement wrap, and unsigned overflow is defined modular arithmetic.
+H6 was therefore never a UB closure. It is a semantics change from
+defined-but-silently-wrong to a trap, with a hard prerequisite: in-tree code
+wraps on purpose. SipHash's mixing adds and FNV-1a's multiply ARE the
+algorithm, and trapping them breaks every HashMap/HashSet.
 
-Landed order when this phase resumes (each its own PR):
+That prerequisite is why the escape hatch shipped in the same PR as the traps
+(#837):
 
 1. **3a-i: wrapping builtins.** `wrapping_add` / `wrapping_sub` /
-   `wrapping_mul` on i8..i64/u8..u64/isize/usize — new BF_ builtins whose
-   codegen arm is today's raw `_binop` (evaluator registration + prelude
-   impls; runtime-only initially; comptime keeps its overflow error).
-2. **3a-ii: migrate intentional-wrap sites — COMPLETE (branch `safe-mode-3`).**
-   Done: `std/hash.yo` (SipHash's four round-adds, FNV-1a's multiply),
-   `std/rand.yo` (PCG LCG step + the two state-seed adds),
-   `std/crypto/sha256.yo` (schedule, compression, h-accumulation — its
-   helpers are shift/xor only), `std/crypto/sha512.yo`, `std/crypto/sha1.yo`,
-   `std/crypto/md5.yo`. `hmac.yo` audited clean (its adds are loop
-   counters). Length/buffer counters (`_buflen + 1`, `length + size`) are
-   NOT wrap-by-design and stay plain. `tests/crypto/` RFC/FIPS vectors are
-   the bit-exactness oracle.
-3. **3a-iii: flip the traps** — the emitters/helpers below activate.
-
-Implementation state (emitters + runtime helpers, `yo check`-clean, the 64-bit
-identities validated by a 24-case C probe) is committed on `safe-mode-3-wip`
-WITHOUT a PR — landing it now would trap std's hashers at runtime.
+   `wrapping_mul` on all ten integer widths. One generic prelude impl over
+   `where(T <: Integer)` sits on three `__yo_op_*_wrap` builtins whose codegen
+   arm is the raw op. These are the only way to wrap in safe code.
+2. **3a-ii: intentional-wrap sites migrated.** `std/hash.yo`, `std/rand.yo`,
+   and `std/crypto/{sha256,sha512,sha1,md5}.yo` in #837. Two sites the
+   inventory missed were caught by CI and migrated in #841:
+   `std/collections/hash_map.yo`'s `mix_u64` (murmur3 fmix64) and
+   `std/sync/atomic.yo`'s CAS-loop `fetch_add`/`fetch_sub`. Length and buffer
+   counters are not wrap-by-design and stay plain. The `tests/crypto/`
+   RFC/FIPS vectors are the bit-exactness oracle.
+3. **3a-iii: the traps.** `integer {addition,subtraction,multiplication,negation}
+   overflow (at file:r:c)` at every `--optimize` level.
 
 Original policy (D1, still the ruling): trap on overflow for signed AND
 unsigned `+ - *` and on
@@ -540,6 +554,10 @@ helper) were verified clean. The regression oracle remains the fixed
 allocator (`--allocator fixed --heap-size 64K` makes OOM deterministic); the
 existing `compile-allocator-fixed-oom` cli-case pins the `__yo_alloc_fail`
 message path end-to-end.
+
+**Open (§14 R5):** only one of the five tiny-heap oracles below exists.
+`compile-allocator-fixed-oom` covers RC construction. Async task spawn,
+thread spawn, and a deep `String` build have no case yet.
 
 The policy already exists (`__yo_rc_alloc` panics via `__yo_alloc_fail`; the OOM
 section of c-codegen.instructions) and `ArrayList.push` already traps on allocation
@@ -614,7 +632,15 @@ the C compiler already does it** — the guard helper returns the index, so a do
 `-O0`/`-O1` self-builds are the only candidates. If `-O2` recovers everything, 5a
 shrinks to a documented non-change and the phase collapses into 5b.
 
-### 5b Verifier-driven elision (tier 1; gated on the FV campaign)
+### 5b Verifier-driven elision (tier 1) — FV gate LIFTED 2026-09-23, design not started
+
+The gate this section named is closed: FV V1–V7 landed, including V6's remaining
+slices and the `assumed()`/`outside-subset` visibility work
+(`plans/backlog/FORMAL_VERIFICATION.md`, V7 COMPLETE banner, #785). What
+remains is design, and it belongs in its own plan when picked up (§14 R8). The
+three questions it must answer are listed below the original sketch.
+
+Original sketch:
 
 Attach Layer-2 refinements — `requires(rhs != i32(0))` on the Div contracts,
 `requires(i < self.len())` on Index contracts — and let `yo verify` discharge them at
@@ -625,6 +651,19 @@ slices, on the `assumed()`/`outside-subset` holes being visible (the yo-design
 instructions' verifier section), and on a real decision about coupling codegen to an
 offline, optional-Z3 tool (`yo check` today skips-without-hint when Z3 is missing —
 #760 — and that split must survive). Sketch only until then.
+
+The questions for the 5b plan (added by the 2026-09-23 audit):
+
+1. **No Z3 dependency in codegen.** `yo compile` without a solver must keep
+   emitting every guard. Elision is an optimization, enabled only by a
+   discharged-obligation set that `yo verify` produced for the same source.
+2. **The channel.** How a discharged obligation names its guard site: a
+   stable per-site id that survives between `yo verify` and `yo compile`,
+   including across `--emit-chunks` units.
+3. **Soundness of the set.** `assumed()`, `outside-subset`, timeout, and
+   `unknown` outcomes must never elide a guard. Over-elision needs the canary
+   discipline 5a specified: a test that fails if a guard disappears without a
+   proof.
 
 ## 9. Phase 6 — strict mode (deferred sketch)
 
@@ -683,6 +722,14 @@ when over budget: (1) verify the C compiler's CSE at the shipped `-O` level, (2)
 
 ## 11. Documentation and instruction updates (per phase, not a cleanup at the end)
 
+**Audit 2026-09-23.** Done: `MEMORY_SAFETY.md` en+zh (the class-1 ban and the
+integer-overflow table), the `bytes` doc comment in the prelude, and the
+E0611 registry entry with `yo explain`. Not done: everything else in this
+list (§14 R4). The worst gap is in `.github/skills/yo-syntax/syntax-cheatsheet.md`,
+which still teaches that *runtime signed overflow wraps (`-fwrapv`)*. Since
+#837 that is false, and every agent reading the cheatsheet learns the wrong
+semantics.
+
 - `docs/en-US/MEMORY_SAFETY.md` + `docs/zh-CN/MEMORY_SAFETY.md`: after Phase 1 the
   "All indexing is bounds-checked" claim becomes true; after 2–3 add the arithmetic
   semantics table (trap on div-by-zero/MIN-div/overflow/shift, saturating casts) and
@@ -710,20 +757,20 @@ when over budget: (1) verify the C compiler's CSE at the shipped `-O` level, (2)
 
 | Phase | Deliverable | Depends on | Risk | Size |
 | --- | --- | --- | --- | --- |
-| 0a | escaped unwind loud — LANDED (async diagnostics; belt deferred on the install-frame hygiene issue) | — | — | small |
+| 0a | escaped unwind loud — LANDED (#828); belt re-landed with the install-frame fix (#858) | — | — | small |
 | 0b | `--sanitize undefined` works — LANDED (#829) | — | none | tiny |
 | 0c | class-1 panic vocabulary banned in safe files (D7) — LANDED (#831); 19-site src migration (155 of 163 were already exempt) | D7 (decided) | extraction-path bypass gated too | small–medium |
 | 1 | checked fixed-Array/`str.bytes` indexing — LANDED (#833); H3 retired (Slice deleted) | 0b (as instrument) | latent compiler OOBs surface; perf | medium |
 | 2 | checked int `/` `%` incl. `MIN/-1` — LANDED (#835) | 0b | latent `/0` bugs; perf | small–medium |
-| 3a | overflow + neg traps (D1) — RE-SCOPED (§6): `-fwrapv` discovery; std/hash wraps by design; blocked on 3a-i wrapping builtins + 3a-ii std migration; emitters/helpers done on `safe-mode-3-wip` | D1/D4 (adopted); 3a-i, 3a-ii | perf; the biggest semantic change | medium |
-| 3b | shift guards — done on `safe-mode-3-wip` (with 3a) | 3a infra | low | small |
-| 3c | saturating float→int casts (D2) — done on `safe-mode-3-wip` (with 3a) | ruling D2 (adopted) | low | small |
+| 3a | overflow + neg traps (D1) — LANDED (#837) with the `wrapping_*` escape hatch and the wrap-site migration; #841 caught two more sites | D1/D4 (adopted) | perf; the biggest semantic change | medium |
+| 3b | shift guards — LANDED (#837) | 3a infra | low | small |
+| 3c | saturating float→int casts (D2) — LANDED (#837) | ruling D2 (adopted) | low | small |
 | 4 | OOM audit — LANDED (#836): cycle-collector scratch realloc NULL-deref fixed | — | low | small |
-| 5a | local elision (or a documented no-op) | measure after 1–3 (needs a CI-timed tree build) | over-elision = unsoundness; canary tests required | medium |
-| 5b | verifier-driven elision | FV campaign | design not started | large, deferred |
+| 5a | local elision — CLOSED as a documented non-change (§8 measurement) | — | — | — |
+| 5b | verifier-driven elision | FV campaign (LANDED V1–V7; gate lifted) | design not started (§8 questions) | large |
 | 6 | strict mode | 5b | — | deferred |
 
-## 13. Open decisions (recommendations included — maintainer rulings needed)
+## 13. Decisions (all ruled 2026-09-22: every recommendation adopted)
 
 - **D1 — overflow policy.** RECOMMEND trap on signed *and* unsigned overflow and
   `-MIN`, all `--optimize` levels. Alternatives: unsigned-wraps (C-defined, but
@@ -752,6 +799,52 @@ when over budget: (1) verify the C compiler's CSE at the shipped `-O` level, (2)
   `unwrap` stays legal (decidable ⇒ checked at compile time); the endgame upgrades the
   spelling to `requires(is_some)` under Phase 5b rather than killing it. Full criterion,
   mechanism, exemptions, and governance: §3, Phase 0c.
+
+## 14. Remaining work (audit 2026-09-23)
+
+In landing order. Each item is its own PR, stacked; none merges before the
+v0.2.40 release publishes.
+
+- **R1 — close the std unwrap ratchet.** Migrate the 9 remaining calls in
+  safe std files and drop the blanket std branch of
+  `is_class1_panic_exempt_file` (§3 0c exemptions). Positive test: `yo check
+  ./std` and `yo test ./std` under a tree-built compiler.
+- **R2 — a comptime panic is a compile error.** A `__yo_panic` reached while a
+  comptime function body is executing must fail the compile, carry its message,
+  and point at the call site. Today it is `rc 0` from `check` plus a clang error,
+  or a message-less "Function body is not evaluated correctly" (§3 0c
+  carve-out). Needs an `issues/` entry plus a fails-before/passes-after test.
+- **R3 — raw-subscript residue: VERIFIED NOT REACHABLE (2026-09-23).** Every
+  raw `.data[` left in `src/codegen` indexes with a compiler-chosen in-range
+  value. The array drop/dup walks and the constructor fill loop over `0..N`.
+  `__yo_dup_array_element` / `__yo_drop_array_element` are generated only by
+  `src/evaluator/builtins/dup.yo` with the literal indices `0..N-1`, so the
+  unguarded `direct_ref` fallback in `rc_fns.yo` never sees a user index.
+  Measured: an `Array(Node, 3)` (`Node :: ref(...)`) read at a runtime index
+  of 3 emits `arr.data[__yo_idx_chk((size_t)(i), (size_t)(3), …)]` and aborts
+  with `index out of bounds: 3 not in [0, 3) (at r3.yo:8:8)`, rc 134.
+  Appendix A's literal grep acceptance cannot pass as worded; read it as "no
+  user-controlled index reaches a raw subscript", which holds.
+- **R4 — the §11 docs and instruction debt.** The cheatsheet overflow line
+  (this re-records the seven skill cli-cases), `yo-design.instructions.md`
+  (the class-1 rule and the arithmetic semantics), `c-codegen.instructions.md`
+  (the `__yo_idx_chk` / div / overflow / shift / cast helper family and the
+  no-raw-subscript rule), `DESIGN.md` "Arithmetic and failure semantics",
+  `ALGEBRAIC_EFFECTS.md` (the 0a guarantee), and `STRINGS.md` (`bytes(i)`
+  traps). All of these land in both en-US and zh-CN.
+- **R5 — the missing oracles.** Trap cli-cases for integer overflow (add,
+  neg), `MIN / -1`, and `str.bytes` out of bounds; the three Phase 4 tiny-heap
+  cases (async spawn, thread spawn, deep `String`).
+- **R6 — the UBSan acceptance run.** A self-built compiler with `--sanitize
+  undefined` running `yo check ./src` must report zero arithmetic and indexing UB
+  (Appendix A's last acceptance, never run). This takes a heavy local build.
+  After it is clean, D6's optional CI leg.
+- **R7 — governance cross-check.** §3's `public_safe_report` class-1 section,
+  which turns a renamed or newly added `Option`/`Result` extraction method that
+  can reach `__yo_panic` into a report diff. Nothing in-tree exercises it yet,
+  because the list is three names on two types. Lowest priority.
+- **R8 — the 5b plan.** A separate design doc answering §8's three questions.
+  Phase 6 waits on it.
 
 ## Appendix A — emission-site checklist (grep anchors, `develop @ a1df43578`)
 

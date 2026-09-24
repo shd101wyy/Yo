@@ -271,19 +271,22 @@ is_class1_panic_receiver_type :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
-/// Files exempt from the class-1 ban: the standard library (the trusted
-/// base; its own `unwrap` sites migrate on a ratchet, not a big bang),
-/// test files (`*.test.yo` — an unwrapped `.None` fails the test loudly
+/// Files exempt from the class-1 ban: test files (`*.test.yo` — an unwrapped `.None` fails the test loudly
 /// with a perfect diagnostic, which is the test doing its job),
 /// compiler-synthesized expansions (inheriting the caller's policy, like
 /// every gate here), and `pragma(Pragma.AllowUnsafe)` files.
+///
+/// The standard library gets NO blanket exemption: its safe files are
+/// held to the same rule as user code (the ratchet closed 2026-09-23 with
+/// the last safe-file sites migrated), and its `AllowUnsafe` files are
+/// exempt by the pragma exactly as a user's would be.
 ///
 /// NOT exempt: comptime contexts. Verified 2026-09-22 on the seed: a
 /// comptime-known `Option(i32).None` receiver still emits a runtime unwrap
 /// (no CTFE folding), so a comptime carve-out would leave the panic
 /// reachable. The carve-out lands when comptime `unwrap` of `.None`
 /// becomes a compile error (the plan's VERIFY-and-make-so step).
-is_class1_panic_exempt_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
+is_class1_panic_exempt_file :: (fn(module_path : Option(String)) -> bool)(
   match(
     module_path,
     .None => false,
@@ -300,9 +303,6 @@ is_class1_panic_exempt_file :: (fn(module_path : Option(String), std_path : Stri
         return(true);
       });
       if(mp.ends_with(String.from(".test.yo")), {
-        return(true);
-      });
-      if(_is_std_module_path(mp.clone(), std_path.clone()), {
         return(true);
       });
       file_has_pragma(Option(String).Some(mp.clone()), Pragma.AllowUnsafe)

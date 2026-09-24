@@ -58,7 +58,7 @@ _build_entity_map :: (fn() -> HashMap(String, String))({
   while(i < n, {
     // Entity name: bytes up to the ','.
     (name_start : usize) = i;
-    while(bytes.get(i).unwrap() != comma, {
+    while(bytes(i) != comma, {
       i = (i + usize(1));
     });
     name := String.from_bytes(bytes.slice_copy(name_start .. i));
@@ -68,12 +68,12 @@ _build_entity_map :: (fn() -> HashMap(String, String))({
     (record_done : bool) = false;
     while(!record_done, {
       (cp : i32) = i32(0);
-      while((bytes.get(i).unwrap() >= zero) && (bytes.get(i).unwrap() <= nine), {
-        cp = ((cp * i32(10)) + i32(bytes.get(i).unwrap() - zero));
+      while((bytes(i) >= zero) && (bytes(i) <= nine), {
+        cp = ((cp * i32(10)) + i32(bytes(i) - zero));
         i = (i + usize(1));
       });
       value = `${value}${from_code_point(cp)}`;
-      if(bytes.get(i).unwrap() == semi, {
+      if(bytes(i) == semi, {
         record_done = true;
       });
       i = (i + usize(1));
@@ -99,7 +99,7 @@ _build_legacy_set :: (fn() -> HashSet(String))({
   (i : usize) = usize(0);
   while(i < n, {
     (name_start : usize) = i;
-    while((i < n) && (bytes.get(i).unwrap() != comma), {
+    while((i < n) && (bytes(i) != comma), {
       i = (i + usize(1));
     });
     s.insert(String.from_bytes(bytes.slice_copy(name_start .. i)));

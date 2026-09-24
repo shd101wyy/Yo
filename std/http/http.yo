@@ -595,14 +595,13 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
     },
     true => ()
   );
-  sp1_opt := status_line.index_of(` `);
-  cond(
-    sp1_opt.is_none() => {
+  sp1 := match(
+    status_line.index_of(` `),
+    .Some(p) => p,
+    .None => {
       return(.Err(HttpParseError.InvalidStatusLine(status_line)));
-    },
-    true => ()
+    }
   );
-  sp1 := sp1_opt.unwrap();
   version := status_line.substring(usize(0), sp1);
   rest := status_line.substring(sp1 + usize(1), status_line.len());
   // The reason phrase is OPTIONAL (RFC 9112 SS4): `HTTP/1.1 204` with no
@@ -614,14 +613,13 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
     (sp2 < rest.len()) => rest.substring(sp2 + usize(1), rest.len()),
     true => String.new()
   );
-  code_opt := code_str.parse_i32();
-  cond(
-    code_opt.is_none() => {
+  raw_code := match(
+    code_str.parse_i32(),
+    .Some(c) => c,
+    .None => {
       return(.Err(HttpParseError.InvalidStatusCode(code_str)));
-    },
-    true => ()
+    }
   );
-  raw_code := code_opt.unwrap();
   // A code outside 100-599 is not a status. It used to be accepted, so a
   // garbled `HTTP/1.1 -1 x` produced a response whose every class predicate
   // answered false.
@@ -640,16 +638,15 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
     cond(
       hline.is_empty() => (),
       true => {
-        colon_opt := hline.index_of(`:`);
-        cond(
-          colon_opt.is_some() => {
-            colon := colon_opt.unwrap();
+        match(
+          hline.index_of(`:`),
+          .Some(colon) => {
             hname := hline.substring(usize(0), colon).trim();
             hval := hline.substring(colon + usize(1), hline.len()).trim();
             // APPEND: a repeated field (Set-Cookie) must keep every value.
             resp.headers.append(hname, hval);
           },
-          true => ()
+          .None => ()
         );
       }
     );

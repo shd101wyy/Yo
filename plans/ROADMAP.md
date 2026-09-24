@@ -63,8 +63,10 @@ authorship from day one.
 - **Safe mode.** No undefined behavior in safe code. Phases 0a–4 landed:
   loud escaped unwinds, bounds-checked indexing, guarded `/` and `%`,
   overflow traps with `wrapping_*` as the escape hatch, saturating casts, the
-  panic-vocabulary ban, and an allocation-failure audit. Remaining: the std
-  `unwrap` ratchet, verifier-driven check elision, and strict mode
+  panic-vocabulary ban, and an allocation-failure audit. Remaining (its §14): the
+  comptime-panic diagnostic, the docs debt, the trap oracles, the UBSan
+  acceptance run, verifier-driven check elision (its FV gate is lifted), and
+  strict mode
   ([`SAFE_MODE.md`](SAFE_MODE.md)).
 
 ## Next
