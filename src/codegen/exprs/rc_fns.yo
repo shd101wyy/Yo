@@ -414,12 +414,12 @@ generate_rc_call :: (fn(expr : AstExpr, indent : String, context : FunctionGener
       // Linux (libatomic is not linked) — the tier-1 `imm_string` failure. On macOS
       // it linked and merely read garbage in the high bits, so every
       // `rc(self) == 1` copy-on-write check in `std/imm/*` silently went false.
-      out := String.from("atomic_load_explicit((_Atomic uint32_t*)&((__yo_ref_header_t*)(");
+      out := String.from("atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)(");
       out.push_string(arg_code);
       out.push_str("))->ref_count, memory_order_acquire)");
       out
     }, {
-      out := String.from("((__yo_ref_header_t*)(");
+      out := String.from("((__yo_rc_prefix_t*)(");
       out.push_string(arg_code);
       out.push_str("))->ref_count");
       out

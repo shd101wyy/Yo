@@ -813,9 +813,10 @@ semantics.
 In landing order. Each item is its own PR, stacked; none merges before the
 v0.2.40 release publishes.
 
-**Progress:** R1, R2, R3, R4 and R5 are done on the stack
-`safe-mode-5-ratchet` → `safe-mode-5-comptime-panic` → `safe-mode-5-docs` →
-`safe-mode-5-oracles`. R6, R7 and R8 are open.
+**Progress:** R1–R5 are done on the stack `safe-mode-5-ratchet` →
+`safe-mode-5-comptime-panic` → `safe-mode-5-docs` → `safe-mode-5-oracles`. R6
+ran on `safe-mode-5-ubsan`: one finding fixed, one class awaiting a ruling. R7
+and R8 are open.
 
 - **R1 — close the std unwrap ratchet. DONE.** Migrate the 9 remaining calls in
   safe std files and drop the blanket std branch of
@@ -851,10 +852,25 @@ v0.2.40 release publishes.
   spawn, thread spawn, and `String` growth. It pins that each shape dies with
   an allocation diagnostic and never a segfault. All three did, measured on
   macOS.
-- **R6 — the UBSan acceptance run.** A self-built compiler with `--sanitize
-  undefined` running `yo check ./src` must report zero arithmetic and indexing UB
-  (Appendix A's last acceptance, never run). This takes a heavy local build.
-  After it is clean, D6's optional CI leg.
+- **R6 — the UBSan acceptance run. RUN 2026-09-23; one class open.** A
+  self-built compiler with `--sanitize undefined` was run over `yo check ./src`.
+  - **Run 1** aborted on the first RC increment: small RC headers were read
+    through the full 56-byte header type. Fixed on `safe-mode-5-ubsan`
+    (`issues/fixed/small-rc-header-accessed-through-the-full-header-type.md`).
+  - **Run 2** aborted on `header->dispose_fn(ptr)`: every runtime callback is
+    called through `void (*)(void*)` while defined with a typed parameter
+    (4,910 casts in the compiler's own C). This is still open
+    (`issues/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`)
+    and needs a ruling: emit `void*`-typed callbacks, or accept and document
+    the ABI reliance.
+  - **Run 3** (`--cflags '-fno-sanitize=function -fsanitize-recover=all'`, so
+    every site is reported) finished `check ./src` 279/279 with **zero** UBSan
+    reports across div/rem, shift, bounds, pointer-overflow, type-mismatch
+    (object size and alignment), and float-cast checks. The handler set was
+    verified from the binary's imports, so this is not a vacuous zero. Signed
+    overflow has no UBSan check here: `-fwrapv` defines it, and Phase 3 traps it.
+  - D6's optional CI leg waits on the function-type ruling, because that
+    class aborts at the first dispose.
 - **R7 — governance cross-check.** §3's `public_safe_report` class-1 section,
   which turns a renamed or newly added `Option`/`Result` extraction method that
   can reach `__yo_panic` into a report diff. Nothing in-tree exercises it yet,

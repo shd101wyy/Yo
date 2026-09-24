@@ -281,19 +281,19 @@ generate_borrow_runtime_primitives :: (fn(context : FunctionGenerationContext) -
 // predicted-not-taken branch (measured ~0% even on a tight push loop).
 static inline void __yo_borrow_acquire(void* ptr) {
   if (ptr == NULL) return;
-  if (((__yo_ref_header_t*)ptr)->borrow_count == 0xFFFF) {
+  if (((__yo_rc_prefix_t*)ptr)->borrow_count == 0xFFFF) {
     fprintf(stderr, "panic: too many live interior references into one container (borrow counter saturated)\\n");
     abort();
   }
-  ((__yo_ref_header_t*)ptr)->borrow_count++;
+  ((__yo_rc_prefix_t*)ptr)->borrow_count++;
 }
 static inline void __yo_borrow_release(void* ptr) {
   if (ptr == NULL) return;
-  ((__yo_ref_header_t*)ptr)->borrow_count--;
+  ((__yo_rc_prefix_t*)ptr)->borrow_count--;
 }
 static inline void __yo_borrow_assert_unborrowed(void* ptr) {
   if (ptr == NULL) return;
-  if (((__yo_ref_header_t*)ptr)->borrow_count != 0) {
+  if (((__yo_rc_prefix_t*)ptr)->borrow_count != 0) {
     fprintf(stderr, "panic: container operation while an interior reference (a 'ref' into an element/field) borrows from it\\n");
     abort();
   }
@@ -354,14 +354,14 @@ static inline void* __yo_incr_rc(void* ptr) {
 //   - rc() check: acquire (see all prior writes before acting on uniqueness)
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
-  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
-  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
   if (old_count == 1) {
     if (header->type_id) {
@@ -443,7 +443,7 @@ static _Thread_local size_t __yo_gc_full_pct = 200;            // Full-scan grow
   em.emit_string_line(
     `static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
-  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
 
   // FAST PATH: untracked objects (their type cannot form reference cycles).
   // No thread-local reads, no cycle bookkeeping: untracked objects are never
@@ -476,7 +476,7 @@ static _Thread_local size_t __yo_gc_full_pct = 200;            // Full-scan grow
 
 static inline void* __yo_incr_rc(void* ptr) {
   if (ptr == NULL) return NULL;
-  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   header->ref_count++;
   GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, (size_t)header->ref_count);
   return ptr;
@@ -538,14 +538,14 @@ static void __yo_decr_rc_tracked(void* ptr) {
 //   - rc() check: acquire (see all prior writes before acting on uniqueness)
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
-  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
-  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
   uint32_t old_count = atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel);
 
   if (old_count == 1) {
@@ -742,15 +742,14 @@ static void __yo_gc_init_thread() {
 }
 
 static void __yo_gc_unregister(void* ptr) {
-  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-
   if (__yo_current_thread_gc == NULL) {
     return;
   }
 
-  if (!(header->gc_flags & __YO_GC_TRACKED)) {
+  if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) {
     return;
   }
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
 
   // Remove from tracking list (O(1) with doubly-linked list)
   if (header->gc_prev != NULL) {
@@ -817,8 +816,8 @@ static void __yo_gc_remove_root(void* ptr) {
 static void __yo_gc_mark_gray(__yo_ref_header_t* s);
 static void __yo_gc_mark_gray_visitor(void* ptr) {
   if (ptr == NULL) return;
+  if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
-  if (!(h->gc_flags & __YO_GC_TRACKED)) return;
   if (h->ref_count > 0) h->ref_count--;
   __yo_gc_mark_gray(h);
 }
@@ -832,8 +831,8 @@ static void __yo_gc_mark_gray(__yo_ref_header_t* s) {
 static void __yo_gc_scan_black(__yo_ref_header_t* s);
 static void __yo_gc_scan_black_visitor(void* ptr) {
   if (ptr == NULL) return;
+  if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* h = (__yo_ref_header_t*)ptr;
-  if (!(h->gc_flags & __YO_GC_TRACKED)) return;
   h->ref_count++;
   if (h->gc_mark != __YO_GC_UNMARKED) __yo_gc_scan_black(h);
 }
@@ -846,6 +845,10 @@ static void __yo_gc_scan_black(__yo_ref_header_t* s) {
 static void __yo_gc_scan(__yo_ref_header_t* s);
 static void __yo_gc_scan_visitor(void* ptr) {
   if (ptr == NULL) return;
+  // An untracked child is never TRIAL_DELETED (mark_gray descends only into
+  // tracked objects), so __yo_gc_scan would return at once; test the flag
+  // through the prefix before the full-header cast.
+  if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_gc_scan((__yo_ref_header_t*)ptr);
 }
 static void __yo_gc_scan(__yo_ref_header_t* s) {
@@ -863,6 +866,7 @@ static void __yo_gc_scan(__yo_ref_header_t* s) {
 static void __yo_gc_gather_white(__yo_ref_header_t* s);
 static void __yo_gc_gather_white_visitor(void* ptr) {
   if (ptr == NULL) return;
+  if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_gc_gather_white((__yo_ref_header_t*)ptr);
 }
 static void __yo_gc_gather_white(__yo_ref_header_t* s) {
@@ -936,14 +940,14 @@ static void __yo_gc_collect_incremental() {
 // Full-heap trial-deletion visitor (for the thorough collector below).
 static void __yo_gc_trial_delete_visitor(void* ptr) {
   if (ptr == NULL) return;
+  if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  if (!(header->gc_flags & __YO_GC_TRACKED)) return;
   if (header->ref_count > 0) header->ref_count--;
 }
 static void __yo_gc_scan_restore_visitor(void* ptr) {
   if (ptr == NULL) return;
+  if (!(((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED)) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  if (!(header->gc_flags & __YO_GC_TRACKED)) return;
   header->ref_count++;
   if (header->gc_mark == __YO_GC_GARBAGE) {
     header->gc_mark = __YO_GC_UNMARKED;

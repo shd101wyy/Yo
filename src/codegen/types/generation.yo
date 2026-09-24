@@ -987,9 +987,12 @@ typedef struct __yo_ref_header_t {
 // on !(gc_flags & __YO_GC_TRACKED), so these objects' traverse_fn and GC
 // list pointers were never read; this drops them (56 -> 16 B on the
 // majority class — see plans/backlog/RC_HEADER_SPLIT.md). A strict prefix
-// of __yo_ref_header_t: generic code (__yo_incr_rc/__yo_decr_rc, borrow
-// checks, visitor flag reads) casts every object to __yo_ref_header_t* and
-// touches only the shared prefix on untracked objects.
+// of __yo_ref_header_t. Generic code that may see EITHER layout (incr/decr,
+// the borrow checks, rc(), every GC visitor's TRACKED test) reads through
+// __yo_rc_prefix_t and casts to __yo_ref_header_t* only once the object is
+// known to be TRACKED: a member access through the 56-byte type on a 16-byte
+// object is undefined behavior, not merely an unused tail
+// (issues/fixed/small-rc-header-accessed-through-the-full-header-type.md).
 typedef struct __yo_ref_header_small_t {
   uint32_t ref_count;
   uint8_t gc_flags;
@@ -997,6 +1000,7 @@ typedef struct __yo_ref_header_small_t {
   uint16_t borrow_count;
   void (*dispose_fn)(void*);
 } __yo_ref_header_small_t;
+typedef __yo_ref_header_small_t __yo_rc_prefix_t;
 
 // Per-thread GC state
 struct __yo_thread_gc_state {
@@ -1022,7 +1026,9 @@ typedef struct __yo_ref_header_t {
   uint32_t ref_count;     // u32 (matches the atomic-RC casts; 4B refs >> addressable memory)
   uint16_t type_id;
   uint16_t borrow_count;
-} __yo_ref_header_t;`
+} __yo_ref_header_t;
+// One layout here, so the layout-agnostic view is the header itself.
+typedef __yo_ref_header_t __yo_rc_prefix_t;`
     );
   });
   // Generic Future + I/O Future struct types.
