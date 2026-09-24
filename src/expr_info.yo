@@ -56,6 +56,7 @@ pragma(Pragma.AllowUnsafe);
 { cloned_expr_node_count } :: import("./expr.yo");
 { Environment, Variable, expr_info_env_snapshot, snapshot_env, snapshot_ring_stats } :: import("./env.yo");
 { Token } :: import("./token.yo");
+{ record_owned_expr_id } :: import("./evaluator/values/type_trait_methods.yo");
 { AwaitAnalysisResult } :: import("./evaluator/async/await_analysis_types.yo");
 { EffectAnalysisResult } :: import("./evaluator/effects/effect_analysis_types.yo");
 { debug_knob } :: import("./utils.yo");
@@ -994,6 +995,7 @@ expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInf
 (g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
 /// Record the resolved method `Func` type for a method-call expr id.
 record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
+  record_owned_expr_id(call_id);
   g_method_callee_types.insert(call_id, ty);
   ()
 });
@@ -1029,6 +1031,7 @@ lookup_io_builtin_struct_field :: (fn(struct_id : String, field_label : String) 
 (g_io_builtin_calls : HashMap(ExprId, String)) = HashMap(ExprId, String).new();
 /// Record the io-builtin marker for a call expr id.
 record_io_builtin_call :: (fn(call_id : ExprId, marker : String) -> unit)({
+  record_owned_expr_id(call_id);
   g_io_builtin_calls.insert(call_id, marker);
   ()
 });
@@ -1045,6 +1048,7 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 (g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
 record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
+  record_owned_expr_id(call_id);
   g_method_callee_values.insert(call_id, v);
   ()
 });
@@ -1369,6 +1373,7 @@ register_arm_init_range :: (fn(arm_expr_id : usize, start : usize, end : usize) 
   rng := ArrayList(usize).new();
   rng.push(start);
   rng.push(end);
+  record_owned_expr_id(arm_expr_id);
   g_arm_init_ranges.insert(arm_expr_id, rng);
   ()
 });
@@ -1666,6 +1671,7 @@ fid_fully_specialized :: (fn(fid : String) -> bool)({
 (g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
+  record_owned_expr_id(call_id);
   g_macro_expansions.insert(call_id, expanded);
   ()
 });
@@ -1944,4 +1950,30 @@ print_spec_report_if_requested :: (fn() -> unit)({
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
 export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated);
 export(record_macro_expansion, lookup_macro_expansion);
+/// Drop the given expression ids from this module's ExprId-keyed side tables.
+/// `mm_invalidate_document` passes each removed module's ids
+/// (`take_owned_expr_ids`): the nodes they key died with the module
+/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5).
+purge_expr_side_tables :: (fn(ids : ArrayList(usize)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _t := g_method_callee_types.remove(id);
+        _b := g_io_builtin_calls.remove(id);
+        _v := g_method_callee_values.remove(id);
+        _a := g_arm_init_ranges.remove(id);
+        _m := g_macro_expansions.remove(id);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Total entries across those tables (the B2 plateau test's probe).
+expr_side_table_entry_count :: (fn() -> usize)(
+  ((((g_method_callee_types.len() + g_io_builtin_calls.len()) + g_method_callee_values.len()) + g_arm_init_ranges.len()) + g_macro_expansions.len())
+);
 export(record_module_level_init_expr, get_module_level_init_exprs);
+export(purge_expr_side_tables, expr_side_table_entry_count);
