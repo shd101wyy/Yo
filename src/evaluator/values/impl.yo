@@ -80,7 +80,8 @@ pragma(Pragma.AllowUnsafe);
 { FuncMeta, TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type } :: import("../../types/guards.yo");
+{ are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
@@ -2964,6 +2965,24 @@ _c3_eval_colon_pair :: (
     ),
     .None => Option(TypeValue).None
   );
+  // A label the trait does not declare is rejected before its value is
+  // evaluated (with no expected type a `self -> ...` literal would fail first
+  // with a message about the literal, not the impl) — Phase 2.1 conformance,
+  // issues/fixed/impl-is-not-checked-against-the-trait-members.md.
+  match(
+    current_trait_ty,
+    .Some(unk_tt) => if(expected_method_ty.is_none(), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            name_tok,
+            `Type "${type_to_string(st.receiver_ty)}" does not implement required trait "${type_to_string(unk_tt)}" as written: "${method_name}" is not a member of the trait`
+          )
+        )
+      );
+    }),
+    .None => ()
+  );
   saved2 := ctx.expected_type;
   ctx.expected_type = match(
     expected_method_ty_resolved,
@@ -2976,6 +2995,32 @@ _c3_eval_colon_pair :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val)),
     .None => (),
     .Some(fi) => {
+      // Trait conformance (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.1): a member
+      // of `impl(T, Trait(...))` must be a member of the trait, and its type
+      // must be the trait's after `Self` (and the entry's associated types)
+      // are substituted. The impl path used to register whatever it was given,
+      // so a wrong signature surfaced — if at all — at some unrelated call
+      // (issues/fixed/impl-is-not-checked-against-the-trait-members.md).
+      // Types still carrying a SomeT (a generic member, a trait generic over
+      // its own binder) are left to the call-site checks.
+      match(
+        current_trait_ty,
+        .Some(conf_tt) => match(
+          expected_method_ty_resolved,
+          .None => (),
+          .Some(conf_exp) => if((((get_all_some_types(conf_exp).len() == usize(0)) && (get_all_some_types(fi.ty).len() == usize(0))) && !(is_type_hierarchy_type(conf_exp))) && !(are_types_compatible(fi.ty, conf_exp)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  name_tok,
+                  `Type "${type_to_string(st.receiver_ty)}" does not implement required trait "${type_to_string(conf_tt)}" as written: member "${method_name}" has type ${type_to_string(fi.ty)}, but the trait requires ${type_to_string(conf_exp)}`
+                )
+              )
+            );
+          })
+        ),
+        .None => ()
+      );
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(fi);
@@ -4581,6 +4626,25 @@ evaluate_module_value :: (
                     .None => ()
                   );
                   dmi = (dmi + usize(1));
+                });
+                // A trait member the impl does not provide must have a
+                // `?=` default (Phase 2.1 conformance): a missing method used
+                // to be registered as simply absent, and the first call to it
+                // reported E0610 against neither the trait nor the impl
+                // (issues/fixed/impl-is-not-checked-against-the-trait-members.md).
+                // An associated type (`Output : Type`) has no default form,
+                // so it must always be provided.
+                if(!d_provided && (is_function_type(d_ty) || is_type_hierarchy_type(d_ty)), {
+                  if(!(is_function_type(d_ty)) || get_trait_default(dtf_trait_id.clone(), d_label.clone()).is_none(), {
+                    exn.throw(
+                      dyn(
+                        format_error_message(
+                          ast_expr_token(field_expr),
+                          `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(ctt2)}": member "${d_label}" is not provided and has no default`
+                        )
+                      )
+                    );
+                  });
                 });
                 if(!d_provided && is_function_type(d_ty) && (receiver_type_id != ""), {
                   match(

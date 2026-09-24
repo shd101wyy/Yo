@@ -252,6 +252,28 @@ test("soundness: an inout call through a fn value mutates the argument", {
   assert(v == i32(8), "fn-typed struct field mutates");
 });
 // ---------------------------------------------------------------------------
+// issues/fixed/impl-is-not-checked-against-the-trait-members.md (Phase 2.1):
+// an `impl(T, Trait(...))` is checked against the trait's members.
+// ---------------------------------------------------------------------------
+_Foo :: trait(f : (fn(self : Self) -> i32), g : (fn(self : Self) -> i32));
+_Bar :: trait(f : (fn(self : Self) -> i32), (h : (fn(self : Self) -> i32)) ?= (self -> i32(9)));
+_ImplP :: struct(x : i32);
+_ImplQ :: struct(x : i32);
+_ImplR :: struct(x : i32);
+_ImplS :: struct(x : i32);
+impl(_ImplS, _Bar(f : (self -> self.x)));
+test("soundness: an impl must match its trait's members", {
+  comptime_expect_error(impl(_ImplP, _Foo(f : (self -> self.x))), "member \"g\" is not provided and has no default");
+  comptime_expect_error(impl(_ImplQ, _Foo(f : (self -> self.x), g : (fn(self : Self) -> bool)(true))), "member \"g\" has type");
+  comptime_expect_error(impl(_ImplR, _Foo(f : (self -> self.x), g : (self -> self.x), k : (self -> self.x))), "\"k\" is not a member of the trait");
+  assert(true, "rejected");
+});
+test("soundness canary: a trait default fills an omitted member", {
+  s := _ImplS(x : i32(4));
+  assert(s.f() == i32(4), "provided member");
+  assert(s.h() == i32(9), "default member");
+});
+// ---------------------------------------------------------------------------
 // Gated elsewhere (not expressible as comptime_expect_error):
 //   issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md
 //     -> tests/cli-cases/check-unwind-type-mismatch-in-handler

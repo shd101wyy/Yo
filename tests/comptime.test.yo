@@ -492,7 +492,9 @@ test("Test comptime i8", {
     // Operations with min value
     min_sum :: (min_val + i8(1)); // -127i8
     comptime_expect_error(min_val - i8(1)); // overflow behavior
-    min_neg :: -(min_val); // overflow: -(-128) should be handled
+    // `-MIN` traps at run time, so on a constant it is a compile error
+    // (issues/fixed/comptime-integer-folding-clamps-instead-of-wrapping.md).
+    comptime_expect_error(min_neg :: -(min_val));
     // Operations with max value
     comptime_expect_error(max_sum :: (max_val + i8(1))); // overflow
     max_sub :: (max_val - i8(1)); // 126i8
@@ -663,7 +665,8 @@ test("Test comptime i16", {
     // Operations with min value
     min_sum :: (min_val + i16(1)); // -32767i16
     comptime_expect_error(min_sub :: (min_val - i16(1))); // overflow behavior
-    min_neg :: -(min_val); // overflow: -(-32768) should be handled
+    // `-MIN` traps at run time, so on a constant it is a compile error.
+    comptime_expect_error(min_neg :: -(min_val));
     // Operations with max value
     comptime_expect_error(max_sum :: (max_val + i16(1))); // overflow
     max_sub :: (max_val - i16(1)); // 32766i16
@@ -848,7 +851,8 @@ test("Test comptime i32", {
     // Operations with min value
     min_sum :: (min_val + i32(1)); // -2147483647i32
     comptime_expect_error(min_sub :: (min_val - i32(1))); // overflow behavior
-    min_neg :: -(min_val); // overflow: -(-2147483648) should be handled
+    // `-MIN` traps at run time, so on a constant it is a compile error.
+    comptime_expect_error(min_neg :: -(min_val));
     // Operations with max value
     comptime_expect_error(max_sum :: (max_val + i32(1))); // overflow
     max_sub :: (max_val - i32(1)); // 2147483646i32
@@ -1063,7 +1067,8 @@ test("Test comptime i64", {
     // Operations with min value
     min_sum :: (min_val + i64(1)); // -9223372036854775807i64
     comptime_expect_error(min_sub :: (min_val - i64(1))); // overflow behavior
-    min_neg :: -(min_val); // overflow: -(-9223372036854775808) should be handled
+    // `-MIN` traps at run time, so on a constant it is a compile error.
+    comptime_expect_error(min_neg :: -(min_val));
     // Operations with max value
     comptime_expect_error(max_sum :: (max_val + i64(1))); // overflow
     max_sub :: (max_val - i64(1)); // 9223372036854775806i64
