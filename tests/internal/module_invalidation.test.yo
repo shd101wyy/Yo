@@ -40,13 +40,21 @@ _APP :: "{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := 
 /// One server-shaped analysis round of the impl doc: overlay + invalidate
 /// (purges the previous generation's registry entries) + analyze. Returns
 /// the outcome's `ok`.
-_impl_doc_round :: (fn(doc_path : String, std_path : String, io : Io) -> bool)({
-  mm_set_open_document(doc_path.clone(), String.from(_IMPL_DOC));
+_impl_doc_round :: (fn(doc_path : String, std_path : String, io : Io) -> bool)(
+  _doc_round(doc_path, String.from(_IMPL_DOC), std_path, io)
+);
+/// The same round for any document text.
+_doc_round :: (fn(doc_path : String, text : String, std_path : String, io : Io) -> bool)({
+  mm_set_open_document(doc_path.clone(), text.clone());
   _inv := mm_invalidate_document(doc_path.clone());
   out := ArrayList(AnalyzeOutcome).new();
-  _diags := analyze_document(doc_path.clone(), String.from(_IMPL_DOC), std_path.clone(), io, out);
+  _diags := analyze_document(doc_path.clone(), text, std_path.clone(), io, out);
   match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false)
 });
+/// Calls a std generic function (`assert`, generic over `T <: ToString`) with
+/// a type the document defines, so every re-evaluation requests a new
+/// specialization of the cached std function.
+_GENERIC_CALL_DOC :: "{ assert } :: import(\"std/assert\");\n{ String } :: import(\"std/string\");\n{ ToString } :: import(\"std/fmt\");\nTag :: struct(n : i32);\nimpl(Tag, ToString(to_string : (fn(self : Self) -> String)(String.from(\"tag\"))));\nmain :: (fn() -> unit)({\n  assert(true, Tag(n : i32(1)));\n});\nexport(main);\n";
 
 /// Analyze the app document; return the outcome's `ok`.
 _analyze_app_ok :: (fn(app_path : String, std_path : String, io : Io) -> bool)({
@@ -129,17 +137,14 @@ test("B2: repeated re-analysis keeps registry entry counts stable", {
   ttm1 := type_trait_methods_entry_count();
   gi1 := generic_impl_entry_count();
   fcv1 := funcval_cap_vars_entry_count();
-  sc1 := specialization_cache_count();
   assert(_impl_doc_round(doc_path.clone(), std_path.clone(), io), "round 2 should analyze clean");
   ttm2 := type_trait_methods_entry_count();
   gi2 := generic_impl_entry_count();
   fcv2 := funcval_cap_vars_entry_count();
-  sc2 := specialization_cache_count();
   assert(_impl_doc_round(doc_path.clone(), std_path.clone(), io), "round 3 should analyze clean");
   ttm3 := type_trait_methods_entry_count();
   gi3 := generic_impl_entry_count();
   fcv3 := funcval_cap_vars_entry_count();
-  sc3 := specialization_cache_count();
   assert(ttm2 == ttm1, `trait-method registry leaked: ${ttm1} -> ${ttm2}`);
   assert(ttm3 == ttm2, `trait-method registry leaked: ${ttm2} -> ${ttm3}`);
   assert(gi2 == gi1, `generic-impl registry leaked: ${gi1} -> ${gi2}`);
@@ -150,8 +155,32 @@ test("B2: repeated re-analysis keeps registry entry counts stable", {
   // function surface per round.
   assert(fcv2 == fcv1, `capture-handle registry leaked: ${fcv1} -> ${fcv2}`);
   assert(fcv3 == fcv2, `capture-handle registry leaked: ${fcv2} -> ${fcv3}`);
-  // Specializations the doc requested of cached (std) functions are keyed by
-  // the doc's types, which every re-evaluation re-mints.
+});
+
+test("B2: re-analysis does not accumulate specializations of cached functions", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_b2_spec_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/generic_call_doc.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_GENERIC_CALL_DOC), io), ioexn);
+  std_path := resolve_std_path();
+  // Each round re-mints the doc's `Tag`, so `assert(T = Tag)` is a NEW
+  // specialization of the cached std function; the previous round's is
+  // keyed by a type nothing can name again. Without the owner purge the
+  // specialization cache grew by one entry per round.
+  assert(_doc_round(doc_path.clone(), String.from(_GENERIC_CALL_DOC), std_path.clone(), io), "round 1 should analyze clean");
+  sc1 := specialization_cache_count();
+  assert(_doc_round(doc_path.clone(), String.from(_GENERIC_CALL_DOC), std_path.clone(), io), "round 2 should analyze clean");
+  sc2 := specialization_cache_count();
+  assert(_doc_round(doc_path.clone(), String.from(_GENERIC_CALL_DOC), std_path.clone(), io), "round 3 should analyze clean");
+  sc3 := specialization_cache_count();
   assert(sc2 == sc1, `specialization cache leaked: ${sc1} -> ${sc2}`);
   assert(sc3 == sc2, `specialization cache leaked: ${sc2} -> ${sc3}`);
 });
