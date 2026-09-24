@@ -41,6 +41,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../../types/definitions.yo");
+{ type_key } :: import("../../types/type_key.yo");
 { set_lookup_assoc_const } :: import("../../types/substitution.yo");
 { EvalValue } :: import("../../value.yo");
 { AstExpr } :: import("../../expr.yo");
@@ -879,8 +880,42 @@ _assoc_const_len_init := (fn() -> bool)({
   set_lookup_assoc_const(find_associated_const_usize);
   true
 })();
+/// The registry key of a DURABLE associated-type registration for `t`
+/// (`Item : B` of a generic impl matched against `t`, stored substituted):
+/// `t`'s id, plus its `type_key` when `t` is an instantiation. Two
+/// instantiations can share one id — `substitute()` rewrites a struct's
+/// `type_arguments` but keeps the declaration-era id — so an id-only key let
+/// the first `.map(...)`'s `IterMap(MyRange, i32, F1)` answer `Item = i32`
+/// for a later `IterMap(MyRange64, i64, F2)`
+/// (issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md).
+assoc_type_registry_key :: (fn(t : TypeValue) -> String)({
+  tid := type_id_or_empty(t);
+  has_args := match(
+    t,
+    .Struct({ type_arguments : ta }) => (ta.len() > usize(0)),
+    .EnumT(_, _, _, _, _, _, _, _, _) => true,
+    _ => false
+  );
+  cond(
+    ((tid.len() > usize(0)) && has_args) => `${tid}#${type_key(t)}`,
+    true => tid
+  )
+});
+/// The associated-type registrations of `label` for `t`: the exact
+/// instantiation's durable entries (`assoc_type_registry_key`) first, else the
+/// ones under the plain type id (a concrete impl's `Item : i32`, registered
+/// with the impl).
+get_assoc_type_entries :: (fn(t : TypeValue, label : String) -> ArrayList(MethodEntry))({
+  exact := get_type_trait_methods_by_name(assoc_type_registry_key(t), label.clone());
+  cond(
+    (exact.len() > usize(0)) => exact,
+    true => get_type_trait_methods_by_name(type_id_or_empty(t), label)
+  )
+});
 export(
   MethodEntry,
+  assoc_type_registry_key,
+  get_assoc_type_entries,
   find_associated_const_usize,
   register_trait_default,
   get_trait_default,

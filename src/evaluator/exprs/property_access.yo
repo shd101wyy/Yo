@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 { find_methods_from_generic_impls, MethodCandidate, get_base_trait_key }
 :: import("../values/impl.yo");
-{ get_type_trait_methods_by_name, type_id_or_empty }
+{ get_type_trait_methods_by_name, type_id_or_empty, get_assoc_type_entries }
 :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -324,7 +324,9 @@ _try_resolve_associated_type :: (
   //     under JsonValue's type id before the `index` method is evaluated).
   type_id := type_id_or_empty(type_val_inner);
   if(type_id != "", {
-    registry_methods := get_type_trait_methods_by_name(type_id, prop_name);
+    // Exact-instantiation durable assoc entries first (they are not under
+    // the bare id two instantiations can share; `get_assoc_type_entries`).
+    registry_methods := get_assoc_type_entries(type_val_inner, prop_name.clone());
     // OVERLOAD DEFER: when a type carries MULTIPLE overloads of this method
     // (e.g. `String` implements both `Eq(String).==` (other:String) and
     // `Eq(str).==` (other:str)), do NOT commit to the first one here — resolving
@@ -1128,7 +1130,7 @@ Raw pointer operations may dereference invalid memory.`
       su_type_id := type_id_or_empty(type_val_inner);
       if(su_type_id != "", {
         _reject_private_static_member(su_type_id.clone(), prop_name_su.clone(), type_val_inner, property_expr, exn);
-        registry_methods := get_type_trait_methods_by_name(su_type_id, prop_name_su);
+        registry_methods := get_assoc_type_entries(type_val_inner, prop_name_su.clone());
         // OVERLOAD DEFER — the struct-arm twin of
         // _try_resolve_associated_type's rule (:216-231): when the type
         // carries MULTIPLE fn-typed overloads of this member (HeteroEqW's
@@ -1286,7 +1288,7 @@ Raw pointer operations may dereference invalid memory.`
           );
           tt_recv_id := type_id_or_empty(tt_recv_ty);
           if(tt_recv_id != "", {
-            tt_conc := get_type_trait_methods_by_name(tt_recv_id, prop_name_tt.clone());
+            tt_conc := get_assoc_type_entries(tt_recv_ty, prop_name_tt.clone());
             (tt_ki : usize) = usize(0);
             while(tt_ki < tt_conc.len(), {
               match(

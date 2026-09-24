@@ -62,7 +62,7 @@ pragma(Pragma.AllowUnsafe);
   TypePair,
   SynthesizeOptions
 } :: import("./types/synthesizer.yo");
-{ type_id_or_empty, get_type_trait_methods_by_name } :: import("./values/type_trait_methods.yo");
+{ type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries } :: import("./values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Auto-derived trait registry (folded from former
 // `evaluator/types/trait_registry.yo`).
@@ -460,7 +460,7 @@ resolve_assoc_type_for_target :: (
   {
     rat_tid := type_id_or_empty(target_type);
     if(rat_tid != "", {
-      rat_entries := get_type_trait_methods_by_name(rat_tid, label);
+      rat_entries := get_assoc_type_entries(target_type, label.clone());
       (rat_i : usize) = usize(0);
       while((rat_i < rat_entries.len()) && resolved_opt.is_none(), {
         match(
@@ -537,7 +537,7 @@ _check_associated_type_constraints :: (
     {
       atc_tid := type_id_or_empty(target_type);
       if(atc_tid != "", {
-        atc_entries := get_type_trait_methods_by_name(atc_tid, label);
+        atc_entries := get_assoc_type_entries(target_type, label.clone());
         (ae_i : usize) = usize(0);
         while((ae_i < atc_entries.len()) && resolved_opt.is_none(), {
           match(

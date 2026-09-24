@@ -421,3 +421,51 @@ test("soundness canary: F(A) infers F and A and the result is Option(i32)", {
   ys := _hk_identity(xs);
   assert(ys.len() == usize(1), "a struct constructor too");
 });
+// issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md (Phase 2.4):
+// two `.map` calls at different Item types share one substituted `IterMap`
+// instance id; the durable `Item` registration was keyed by that id, so the
+// second chain's `min` read the first call's `i32`.
+_SoundRange :: struct(_cur : i32, _end : i32);
+impl(
+  _SoundRange,
+  Iterator(
+    Item : i32,
+    next : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self._cur >= self._end) => .None,
+        true => {
+          v := self._cur;
+          self._cur = (self._cur + i32(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+_SoundRange64 :: struct(_cur : i64, _end : i64);
+impl(
+  _SoundRange64,
+  Iterator(
+    Item : i64,
+    next : (fn(inout(self) : Self) -> Option(i64))(
+      cond(
+        (self._cur >= self._end) => .None,
+        true => {
+          v := self._cur;
+          self._cur = (self._cur + i64(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+test("soundness canary: two .map chains at different Item types keep their own Item", {
+  out := ArrayList(i32).new();
+  it := _SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x * i32(2)));
+  it.for_each(x => {
+    out.push(x);
+  });
+  m := _SoundRange64(_cur : i64(-3), _end : i64(4)).map(x => (x * i64(2))).min();
+  assert(out.len() == usize(3), "the i32 chain");
+  assert(match(m, .Some(v) => v, .None => i64(99)) == i64(-6), "the i64 chain's min");
+});
