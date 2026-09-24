@@ -230,7 +230,13 @@ SpecializedFunctionCache :: ref(
     /// The specialized function value (EvalValue.FuncVal with updated func_id).
     /// (A retained `env : Environment` field used to sit here; it was never
     /// read back — plans/EVALUATOR_MEMORY_REDUCTION.md F2a.)
-    specialized_func_value : EvalValue
+    specialized_func_value : EvalValue,
+    /// The loading key of the module whose evaluation requested this
+    /// specialization (`registration_owner()`, `""` outside any module load).
+    /// `purge_specialization_caches_owned_by` drops the entry when that
+    /// module is invalidated: its types are re-minted by the re-evaluation,
+    /// so the entry could only ever be a stale duplicate.
+    owner : String
   )
 );
 /// Per-function bucket of specialization caches, keyed by `func_id`.

@@ -189,6 +189,7 @@ pragma(Pragma.AllowUnsafe);
 { enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo } :: import("../utils/closure.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
+{ registration_owner } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // extract_function_value
 // ---------------------------------------------------------------------------
@@ -1586,7 +1587,8 @@ _store_specialization_cache :: (
   new_cache := SpecializedFunctionCache(
     compile_time_arg_values : compile_time_arg_values,
     runtime_parameter_types : runtime_parameter_types,
-    specialized_func_value : specialized_func_val
+    specialized_func_value : specialized_func_val,
+    owner : registration_owner()
   );
   // Find existing entry for this func_id
   n_entries := g_specialized_fn_caches.len();
@@ -1618,6 +1620,54 @@ _store_specialization_cache :: (
       )
     );
   });
+});
+/// Drop every cached specialization `owner`'s evaluation requested
+/// (plans/reference/INCREMENTAL_COMPILATION.md Phase B2,
+/// plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5). `mm_invalidate_document`
+/// calls it for each removed module. The re-evaluation mints fresh types, so
+/// an old entry is never hit again. Without this purge, every `yo lsp` edit
+/// round kept that round's specializations of cached (std) functions, and
+/// the argument types, FuncVal boxes and capture Variables behind them,
+/// alive for the whole session. Entries outside any module load (`""`) stay.
+purge_specialization_caches_owned_by :: (fn(owner : String) -> unit)({
+  if(owner.len() == usize(0), {
+    return(());
+  });
+  (ei : usize) = usize(0);
+  while(ei < g_specialized_fn_caches.len(), {
+    match(
+      g_specialized_fn_caches.get(ei),
+      .Some(entry) => {
+        (ci : usize) = entry.caches.len();
+        while(ci > usize(0), {
+          ci = (ci - usize(1));
+          hit := match(entry.caches.get(ci), .Some(c) => (c.owner == owner), .None => false);
+          if(hit, {
+            entry.caches.drain(ci .. (ci + usize(1)));
+          });
+        });
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+});
+/// Number of cached specializations across all functions (the B2 plateau
+/// test's probe).
+specialization_cache_count :: (fn() -> usize)({
+  (n : usize) = usize(0);
+  (ei : usize) = usize(0);
+  while(ei < g_specialized_fn_caches.len(), {
+    match(
+      g_specialized_fn_caches.get(ei),
+      .Some(entry) => {
+        n = (n + entry.caches.len());
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  n
 });
 /// Render the impl-generic bindings a generic-impl method carries as `TypeVal`
 /// captures (`_inject_forall_captures`, evaluator/values/impl.yo) into a
@@ -7356,6 +7406,7 @@ try_to_call_function_with_arguments :: (
   )
 });
 export(try_to_call_function_with_arguments);
+export(purge_specialization_caches_owned_by, specialization_cache_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);
