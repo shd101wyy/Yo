@@ -1,0 +1,13 @@
+# `yo build` itself must print no effect-unwind diagnostic. The build runner
+# makes its read_dir / read_bytes / stamp-write tasks fallible on purpose: a
+# swallow handler unwinds the task and the spawner reads `.None` at the
+# awaited handle. v0.2.40 reported every one of those aborts as unhandled
+# (18 lines on a plain build) — issues/fixed/an-awaited-task-abort-is-reported-as-unhandled.md.
+# The program aborts nothing, so any unwind line here is the compiler's own.
+#
+# This case measures the SELF-HOSTED binary's own runtime, which follows the
+# SEED's codegen, so it could only be added once the seed carried the fix
+# (v0.2.41). The pattern keeps both wordings of the diagnostic plus the
+# build's header line, so the case is never vacuous.
+stdout_keep_match=(unhandled effect unwind[a-z ]*|Building [a-z]+)
+timeout=300
