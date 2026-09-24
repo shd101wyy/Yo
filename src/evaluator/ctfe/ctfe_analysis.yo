@@ -25,7 +25,9 @@ pragma(Pragma.AllowUnsafe);
   Environment,
   add_variable_to_env,
   synthetic_token,
-  snapshot_env
+  snapshot_env,
+  fv_capture_names,
+  fv_capture_tys
 } :: import("../../env.yo");
 {
   EvalContext,
@@ -443,8 +445,10 @@ analyze_ctfe_capability :: (
         .None => (),
         .Some(comptime_func_type) => {
           body_box := match(func_value, .FuncVal(__fvd1, _) => __fvd1.*.body, _ => make_err_expr());
-          cap_names := match(func_value, .FuncVal(__fvd2, _) => __fvd2.*.cap_names, _ => ArrayList(String).new());
-          cap_tys := match(func_value, .FuncVal(__fvd3, _) => __fvd3.*.cap_tys, _ => ArrayList(TypeValue).new());
+          // Materialized: a registered FuncVal stores its capture names/types
+          // on the shared handles (memory plan §0.7).
+          cap_names := match(func_value, .FuncVal(__fvd2, _) => fv_capture_names(__fvd2.*), _ => ArrayList(String).new());
+          cap_tys := match(func_value, .FuncVal(__fvd3, _) => fv_capture_tys(__fvd3.*), _ => ArrayList(TypeValue).new());
           cap_vals := match(func_value, .FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
           param_labels := match(func_type, .Func({ meta : m }) => m.*.param_labels, _ => ArrayList(String).new());
           ok := ArrayList(bool).new();

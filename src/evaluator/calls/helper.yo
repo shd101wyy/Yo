@@ -46,6 +46,12 @@ pragma(Pragma.AllowUnsafe);
   snapshot_env,
   capture_env_for,
   get_funcval_cap_vars,
+  fv_capture_names,
+  fv_capture_tys,
+  fv_capture_has_name,
+  fv_capture_source,
+  fv_source_name,
+  fv_source_ty,
   make_capture_variable,
   mint_funcval_env_key,
   register_funcval_cap_vars,
@@ -1612,7 +1618,7 @@ _impl_type_captures_sig :: (fn(fv : EvalValue) -> String)({
   match(
     fv,
     .FuncVal(__fvs1, cvs) => {
-      cns := __fvs1.*.cap_names;
+      csrc := fv_capture_source(__fvs1.*);
       n := cvs.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -1621,7 +1627,7 @@ _impl_type_captures_sig :: (fn(fv : EvalValue) -> String)({
           .Some(cv) => match(
             cv,
             .TypeVal(tv) => {
-              out.push_string(match(cns.get(i), .Some(nm) => nm, .None => String.from("_")));
+              out.push_string(fv_source_name(csrc, i));
               out.push_str("=");
               out.push_string(sanitize_for_sig(value_to_signature_string(EvalValue.TypeVal(tv))));
               out.push_str(";");
@@ -3105,22 +3111,7 @@ create_specialized_function_inline :: (
             // has no `Self` variable, and an unconditional clear made every
             // such body fail with E0401 "Variable Self not found" (same
             // issue doc, the 2026-09-17 first attempt).
-            (spec_has_self_cap : bool) = false;
-            {
-              (hsc : usize) = usize(0);
-              while(hsc < cap_names.len(), {
-                match(
-                  cap_names.get(hsc),
-                  .Some(hn) => {
-                    if((hn == "Self"), {
-                      spec_has_self_cap = true;
-                    });
-                  },
-                  .None => ()
-                );
-                hsc = (hsc + usize(1));
-              });
-            };
+            spec_has_self_cap := fv_capture_has_name(__fvm2.*, String.from("Self"));
             if(spec_has_self_cap, {
               ctx.self_type = Option(TypeValue).None;
               spec_self_set = true;
@@ -3290,16 +3281,17 @@ create_specialized_function_inline :: (
             },
             .None => ()
           );
-          // Re-use existing captures from original function
+          // Re-use existing captures from original function. A registered
+          // original stores no flat names/types (its handles carry them, and
+          // `new_cap_vars` inherits those) — so neither does this derivation.
           (oci : usize) = usize(0);
-          n_oc := cap_names.len();
+          n_oc := cap_vals.len();
           while(oci < n_oc, {
-            cn := match(cap_names.get(oci), .Some(s) => s, .None => String.new());
-            ct := match(cap_tys.get(oci), .Some(t) => t, .None => t_unit());
-            cv := match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal);
-            new_cap_names.push(cn);
-            new_cap_tys.push(ct);
-            new_cap_vals.push(cv);
+            if(!(have_cap_vars), {
+              new_cap_names.push(match(cap_names.get(oci), .Some(s) => s, .None => String.new()));
+              new_cap_tys.push(match(cap_tys.get(oci), .Some(t) => t, .None => t_unit()));
+            });
+            new_cap_vals.push(match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
             oci = (oci + usize(1));
           });
           // Add compile-time args as additional captures (generic type bindings)
@@ -3324,11 +3316,12 @@ create_specialized_function_inline :: (
                   match(
                     ev.value.get(usize(0)),
                     .Some(v) => {
-                      new_cap_names.push(label);
-                      new_cap_tys.push(ev.ty);
                       new_cap_vals.push(v);
                       if(have_cap_vars, {
                         new_cap_vars.push(ev);
+                      }, {
+                        new_cap_names.push(label);
+                        new_cap_tys.push(ev.ty);
                       });
                     },
                     .None => ()
@@ -3601,9 +3594,10 @@ create_specialized_function_inline :: (
                                   // infos overwrite the stale ones in place.
                                   cw_benv := Environment.new(callee_env.module_path);
                                   (cw_cvi : usize) = usize(0);
-                                  while(cw_cvi < cc_fvd.*.cap_names.len(), {
-                                    cw_cn := match(cc_fvd.*.cap_names.get(cw_cvi), .Some(x) => x, .None => String.new());
-                                    cw_ct := match(cc_fvd.*.cap_tys.get(cw_cvi), .Some(x) => x, .None => t_unit());
+                                  cw_src := fv_capture_source(cc_fvd.*);
+                                  while(cw_cvi < cc_capvals.len(), {
+                                    cw_cn := fv_source_name(cw_src, cw_cvi);
+                                    cw_ct := fv_source_ty(cw_src, cw_cvi);
                                     // TYPE captures (generic bindings) stay
                                     // comptime; VALUE captures bind as RUNTIME
                                     // UnknownVals — binding their comptime
@@ -4247,11 +4241,15 @@ evaluate_ctl_function_body_inline :: (
     },
     .None => ()
   );
+  // A registered original stores no flat names/types (its handles carry
+  // them, inherited into `ctl_cap_vars`) — so neither does this derivation.
   (oci : usize) = usize(0);
-  n_oc := orig_cap_names.len();
+  n_oc := orig_cap_vals.len();
   while(oci < n_oc, {
-    ctl_cap_names.push(match(orig_cap_names.get(oci), .Some(s) => s, .None => String.new()));
-    ctl_cap_tys.push(match(orig_cap_tys.get(oci), .Some(t) => t, .None => TypeValue.Unit));
+    if(!(ctl_have_vars), {
+      ctl_cap_names.push(match(orig_cap_names.get(oci), .Some(s) => s, .None => String.new()));
+      ctl_cap_tys.push(match(orig_cap_tys.get(oci), .Some(t) => t, .None => TypeValue.Unit));
+    });
     ctl_cap_vals.push(match(orig_cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
     oci = (oci + usize(1));
   });
@@ -4260,8 +4258,6 @@ evaluate_ctl_function_body_inline :: (
   while(fi3 < n_forall, {
     fl3 := match(forall_labels.get(fi3), .Some(s) => s, .None => String.new());
     ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => TypeValue.Unit);
-    ctl_cap_names.push(fl3.clone());
-    ctl_cap_tys.push(ft3);
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
     if(ctl_have_vars, {
       ctl_cap_vars.push(
@@ -4272,6 +4268,9 @@ evaluate_ctl_function_body_inline :: (
           specialized_env.module_path
         )
       );
+    }, {
+      ctl_cap_names.push(fl3.clone());
+      ctl_cap_tys.push(ft3);
     });
     fi3 = (fi3 + usize(1));
   });

@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
 // codegen->evaluator direction (the evaluator is codegen-free, so no import
 // cycle).
 { Exception } :: import("std/error");
-{ Environment, clone_env, add_variable_to_env, synthetic_token, get_variables_from_env } :: import("../../env.yo");
+{ Environment, clone_env, add_variable_to_env, synthetic_token, get_variables_from_env, fv_capture_source, fv_source_name } :: import("../../env.yo");
 { EvalContext, ArgValues, ArgEntry, VarArgEntry } :: import("../../evaluator/context.yo");
 { find_methods_from_generic_impls } :: import("../../evaluator/values/impl.yo");
 { create_specialized_function_inline } :: import("../../evaluator/calls/helper.yo");
@@ -1027,10 +1027,10 @@ _specialize_and_register_trace :: (
   match(
     fv,
     .FuncVal(__fvd, cap_vals) => {
-      cns := __fvd.*.cap_names;
+      csrc := fv_capture_source(__fvd.*);
       (ci : usize) = usize(0);
-      while(ci < cns.len(), {
-        cn := match(cns.get(ci), .Some(s) => s, .None => String.from(""));
+      while(ci < cap_vals.len(), {
+        cn := fv_source_name(csrc, ci);
         match(
           cap_vals.get(ci),
           .Some(cv) => match(
