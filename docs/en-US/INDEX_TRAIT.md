@@ -6,12 +6,11 @@ The `Index` trait provides a unified interface for accessing elements of a colle
 
 ```rust
 // Built-in arrays and custom types use the same syntax:
-(arr : [i32; 3]) = [i32(10), i32(20), i32(30)];
-v := arr(usize(1));  // 20
-
+(arr : [i32 ; 3]) = [i32(10), i32(20), i32(30)];
+v := arr(usize(1)); // 20
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
-v := list(usize(0));  // 42
+v := list(usize(0)); // 42
 ```
 
 ## The Index Trait
@@ -22,7 +21,7 @@ The `Index` trait is defined in the prelude and is available to all Yo programs:
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(inout(self) : Self, idx : Idx) -> *(Self.Output))
+    index : (fn(inout(self) : Self, idx : Idx) -> *Self.Output)
   )
 );
 ```
@@ -35,13 +34,11 @@ The `index` method returns `*(Output)` (a pointer), which is automatically deref
 
 ```rust
 // Read: auto-deref happens
-v := collection(idx);        // calls index(collection, idx).*
-
+v := collection(idx); // calls index(collection, idx).*
 // Write via call-syntax assignment (preferred)
-collection(idx) = val;       // calls index(collection, idx), writes through pointer
-
+collection(idx) = val; // calls index(collection, idx), writes through pointer
 // Address-of: returns pointer directly
-p := &(collection(idx));     // calls index(collection, idx), no deref
+p := &collection(idx); // calls index(collection, idx), no deref
 ```
 
 ## Implementing Index
@@ -49,24 +46,27 @@ p := &(collection(idx));     // calls index(collection, idx), no deref
 ### Basic Implementation
 
 ```rust
-MyArray :: struct(data0: i32, data1: i32, data2: i32);
+MyArray :: struct(data0 : i32, data1 : i32, data2 : i32);
 
-impl(MyArray, Index(usize)(
-  Output : i32,
-  index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
-    cond(
-      (idx == usize(0)) => &(self.data0),
-      (idx == usize(1)) => &(self.data1),
-      (idx == usize(2)) => &(self.data2),
-      true => panic("MyArray: index out of bounds")
+impl(
+  MyArray,
+  Index(usize)(
+    Output : i32,
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
+      cond(
+        (idx == usize(0)) => &self.data0,
+        (idx == usize(1)) => &self.data1,
+        (idx == usize(2)) => &self.data2,
+        true => panic("MyArray: index out of bounds")
+      )
     )
   )
-));
+);
 
 // Usage:
 (arr : MyArray) = MyArray(i32(10), i32(20), i32(30));
-assert((arr(usize(0)) == i32(10)), "should be 10");
-assert((arr(usize(1)) == i32(20)), "should be 20");
+assert(arr(usize(0)) == i32(10), "should be 10");
+assert(arr(usize(1)) == i32(20), "should be 20");
 ```
 
 ### Generic Implementation
@@ -74,16 +74,21 @@ assert((arr(usize(1)) == i32(20)), "should be 20");
 For generic types like `ArrayList(T)`, use `generic` in the impl:
 
 ```rust
-impl(generic(T : Type), ArrayList(T), Index(usize)(
-  Output : T,
-  index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
-    assert((idx < self._length), "ArrayList: index out of bounds");
-    match(self._ptr,
-      .Some(_ptr) => (_ptr.add(idx)),
-      .None => panic("ArrayList: index on empty list")
-    )
-  })
-));
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  Index(usize)(
+    Output : T,
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
+      assert(idx < self._length, "ArrayList: index out of bounds");
+      match(
+        self._ptr,
+        .Some(_ptr) => _ptr.add(idx),
+        .None => panic("ArrayList: index on empty list")
+      )
+    })
+  )
+);
 ```
 
 ## Address-of Optimization
@@ -111,7 +116,7 @@ list.push(i32(100));
 
 // Mutate via call-syntax assignment
 list(usize(0)) = i32(999);
-assert((list(usize(0)) == i32(999)), "should be 999");
+assert(list(usize(0)) == i32(999), "should be 999");
 ```
 
 ## Range Slicing
@@ -119,32 +124,32 @@ assert((list(usize(0)) == i32(999)), "should be 999");
 Arrays and slices support range-based slicing with `..` (exclusive end) and `..=` (inclusive end):
 
 ```rust
-(arr : [i32; 5]) = [i32(10), i32(20), i32(30), i32(40), i32(50)];
+(arr : [i32 ; 5]) = [i32(10), i32(20), i32(30), i32(40), i32(50)];
 
 // Exclusive range: elements at indices 1, 2, 3
-s := arr(usize(1)..usize(4));
-assert((s.len() == usize(3)), "length is 3");
-assert((s(usize(0)) == i32(20)), "first element is 20");
+s := arr(usize(1) .. usize(4));
+assert(s.len() == usize(3), "length is 3");
+assert(s(usize(0)) == i32(20), "first element is 20");
 
 // Inclusive range: elements at indices 1, 2, 3
-s2 := arr(usize(1)..=usize(3));
-assert((s2.len() == usize(3)), "length is 3");
-assert((s2(usize(0)) == i32(20)), "first element is 20");
+s2 := arr(usize(1) ..= usize(3));
+assert(s2.len() == usize(3), "length is 3");
+assert(s2(usize(0)) == i32(20), "first element is 20");
 
 // Slicing a slice
-sub := s(usize(0)..usize(2));
-assert((sub.len() == usize(2)), "sub-slice length is 2");
+sub := s(usize(0) .. usize(2));
+assert(sub.len() == usize(2), "sub-slice length is 2");
 ```
 
 The `..` and `..=` operators produce `Range(usize)` and `RangeInclusive(usize)` types, which are defined in the prelude:
 
 ```rust
 Range :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(start: T, end: T)
+  struct(start : T, end : T)
 );
 
 RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(start: T, end: T)
+  struct(start : T, end : T)
 );
 ```
 
@@ -166,15 +171,15 @@ Custom types and standard library collections (like `ArrayList`) use the Index t
 Index expressions work seamlessly with operators. The result is auto-dereferenced before being passed to operators:
 
 ```rust
-(arr : [i32; 3]) = [i32(10), i32(20), i32(30)];
+(arr : [i32 ; 3]) = [i32(10), i32(20), i32(30)];
 
 // Comparison
-assert((arr(usize(0)) == i32(10)), "works with ==");
-assert((arr(usize(0)) < arr(usize(1))), "works with <");
+assert(arr(usize(0)) == i32(10), "works with ==");
+assert(arr(usize(0)) < arr(usize(1)), "works with <");
 
 // Arithmetic
 sum := (arr(usize(0)) + arr(usize(1)));
-assert((sum == i32(30)), "works with +");
+assert(sum == i32(30), "works with +");
 ```
 
 ## Standard Library Implementations
@@ -186,8 +191,8 @@ The following standard library types implement the `Index` trait:
 ```rust
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
-v := list(usize(0));             // 42
-&(list(usize(0))).* = i32(99);  // mutate in place
+v := list(usize(0)); // 42
+&(list(usize(0))).* = i32(99); // mutate in place
 ```
 
 ### HashMap(K, V) — `Index(K)`
@@ -195,8 +200,8 @@ v := list(usize(0));             // 42
 ```rust
 (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
 map.insert(i32(1), i32(100));
-v := map(i32(1));               // 100
-&(map(i32(1))).* = i32(999);   // mutate in place
+v := map(i32(1)); // 100
+&(map(i32(1))).* = i32(999); // mutate in place
 // map(i32(99))                 // panics: key not found
 ```
 
@@ -207,8 +212,8 @@ Requires `K <: (Eq(K), Hash)`.
 ```rust
 (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
 map.insert(i32(5), i32(500));
-v := map(i32(5));               // 500
-&(map(i32(5))).* = i32(77);   // mutate in place
+v := map(i32(5)); // 500
+&(map(i32(5))).* = i32(77); // mutate in place
 // map(i32(99))                 // panics: key not found
 ```
 
@@ -220,8 +225,8 @@ Requires `K <: Ord(K)`.
 (d : Deque(i32)) = Deque(i32).new();
 d.push_back(i32(10));
 d.push_back(i32(20));
-v := d(usize(0));               // 10
-&(d(usize(0))).* = i32(555);  // mutate in place
+v := d(usize(0)); // 10
+&(d(usize(0))).* = i32(555); // mutate in place
 ```
 
 O(1) random access, correctly handles ring buffer wrapping.
@@ -230,7 +235,7 @@ O(1) random access, correctly handles ring buffer wrapping.
 
 ```rust
 (s : String) = `Hello`;
-b := s(usize(0));  // u8(72) — byte-level access ('H')
+b := s(usize(0)); // u8(72) — byte-level access ('H')
 ```
 
 Returns `u8` — byte-level indexing into the internal UTF-8 buffer. For character-level access, use the `chars()` iterator. All other string indices (`substring`, `index_of`, the `s(a..b)` sugar, …) are byte offsets too — see [STRINGS.md](./STRINGS.md) for the full contract.
@@ -245,9 +250,9 @@ list.push(i32(42));
 
 // Panics on OOB:
 // v := list(usize(99));  // ← panic!
-
 // Safe access:
-match(list.get(usize(99)),
+match(
+  list.get(usize(99)),
   .Some(v) => println(`got: ${v}`),
   .None => println(`not found`)
 );

@@ -1,10 +1,11 @@
 # Yo — context pack for coding agents
 
-pack-version: 1 — shipped with the toolchain; yo context prints this file.
+pack-version: 2 — shipped with the toolchain; yo context prints this file.
 It covers the LANGUAGE only. API listings come from the toolchain, never
 from here: yo context --list (modules), yo context <module> [name]
 (signatures + docs), yo context --search <query>. Code blocks below are
-canonical Yo; every example compiles.
+canonical, `yo fmt`-clean Yo; every example parses, and complete examples
+compile.
 
 ## What Yo is
 
@@ -38,14 +39,15 @@ yo fix file.yo            # apply structured repairs from diagnostics
 ## Declarations and bindings
 
 ```rust
-{ println } :: import("std/fmt");       // import (destructuring)
-name :: "yo";                           // top-level binding, order-independent
-main :: (fn() -> unit)({                // fn def: TYPE then BODY
-  x := i32(1);                          // local bind, inferred
-  (msg : str) = "hello";                // typed local bind
+{ println } :: import("std/fmt"); // import (destructuring)
+name :: "yo"; // top-level binding, order-independent
+// fn def: TYPE then BODY
+main :: (fn() -> unit)({
+  x := i32(1); // local bind, inferred
+  (msg : str) = "hello"; // typed local bind
   println(msg);
 });
-export(main);                           // only exported names are public
+export(main); // only exported names are public
 ```
 
 - Top-level `name :: value;` bindings and `impl` registrations are
@@ -62,10 +64,10 @@ THE rule that breaks Rust instincts. A `{ ... }` group is a **record
 and a **block only when it contains semicolons**:
 
 ```rust
-p := { x : i32(1), y : i32(2) };        // record literal (named fields)
+p := { x : i32(1), y : i32(2) }; // record literal (named fields)
 block := {
   a := i32(1);
-  (a + i32(2))                          // block: `;`-sequenced, value = tail
+  a + i32(2) // block: `;`-sequenced, value = tail
 };
 ```
 
@@ -79,8 +81,8 @@ There is NO operator precedence table. Parenthesize every compound
 expression; `yo fmt` preserves your parens:
 
 ```rust
-y := ((a + b) * c);                     // never  a + b * c
-ok := ((x > i32(0)) && (y < i32(9)));   // parenthesize comparisons too
+y := ((a + b) * c); // never  a + b * c
+ok := ((x > i32(0)) && (y < i32(9))); // parenthesize comparisons too
 ```
 
 A binary right-hand side must be parenthesized (`E0003`): `x := (a + b);`,
@@ -93,10 +95,11 @@ not `x := a + b;`. The operator set is closed and fixed; `&&`/`||` chains of
 grade := cond(
   (s >= i32(90)) => "A",
   (s >= i32(60)) => "B",
-  true => "F"                           // `true` closes a cond
+  true => "F" // `true` closes a cond
 );
 
-label := match(opt,
+label := match(
+  opt,
   .Some(v) => v,
   .None => "none"
 );
@@ -115,14 +118,18 @@ if(done, println("yes"), println("no")); // sugar over cond
 
 ```rust
 // int scrutinee: ranges, guards, whole-value bindings
-category := match(n,
-  (0..10) => "small",
-  (v && (v < i32(0))) => "negative",     // guard sees the binding
-  (big := 100) => "exactly a hundred",   // whole-value binding
+category := match(
+  n,
+  (0 .. 10) => "small",
+  (v && (v < i32(0))) => "negative",
+  // guard sees the binding
+  (big := 100) => "exactly a hundred",
+  // whole-value binding
   _ => "large"
 );
 // variant scrutinee: payloads bind, or-patterns group
-text := match(shape,
+text := match(
+  shape,
   .Circle(r) => `r=${r}`,
   (.Rect(_) | .Unit) => `other`,
   _ => `?`
@@ -138,10 +145,11 @@ the arm over `.Some(true)`/`.Some(false)` sibling arms.
 ## Types
 
 ```rust
-Point :: struct(x : i32, y : i32);            // value semantics
-Node :: ref(struct(next : Option(Self), v : i32));   // reference semantics (RC)
+Point :: struct(x : i32, y : i32); // value semantics
+Node :: ref(struct(next : Option(Self), v : i32)); // reference semantics (RC)
 Shape :: enum(Circle(r : f64), Rect(w : f64, h : f64), Unit);
-Tree :: (fn(comptime(T) : Type) -> comptime(Type))(   // generic TYPE = type-fn
+// generic TYPE = type-fn:
+Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(enum(Leaf, Node2(l : Self, v : T, r : Self)))
 );
 
@@ -150,6 +158,7 @@ Counter :: trait(
 );
 
 impl(Point, Counter(count : (fn(self : Self) -> i32)(self.x)));
+{ ToString } :: import("std/fmt"); // the ToString derive rule lives in std/fmt
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 ```
 
@@ -163,7 +172,9 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
   as `show(x)`. Generic impls pair with a type: `impl(generic(T),
   where(T <: ToString), Box(T), m : ...)`.
 - Derivable: `Eq`, `Hash`, `Clone`, `Ord`, `ToString`, `Default` (Eq/Ord
-  take the type: `Eq(Point)`).
+  take the type: `Eq(Point)`). The prelude registers Eq/Hash/Clone/Ord/
+  Default; `ToString`'s rule comes with `std/fmt` and `Error`'s with
+  `std/error` — import the module before the `derive`.
 - NO overloading: not for functions, not for inherent methods. Trait
   methods may share names — dispatch picks by argument types.
 - NO operator precedence (above) and a closed operator set; traits implement
@@ -186,21 +197,26 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 - Integer literals are polymorphic and often need a cast or typed binding:
   `x := i32(1);` or `(x : i32) = 1;`. Distinct integer types do not mix
   implicitly: `(i32(1) + usize(1))` is an error.
-- Fixed arrays: `[i32, 3]`, literal `[i32(1), i32(2), i32(3),]` (trailing
-  comma required for 1-element arrays). Slices are `[]i32`.
+- Fixed arrays: `[i32; 3]`, literal `[1, 2, 3]` (a 1-element literal needs
+  a trailing comma: `[7,]`). No slice type exists: range indexing copies
+  (`xs(a..b)` on an ArrayList yields a new list; a `str` range is a
+  zero-copy static window).
 
 ## Option, Result, errors
 
 ```rust
-(maybe : Option(i32)) = Option(i32).Some(i32(7));   // .Some(v) | .None
-DivError :: enum(DivByZero);                        // recoverable: Error enum
+(maybe : Option(i32)) = Option(i32).Some(i32(7)); // .Some(v) | .None
+{ Exception, IoExn } :: import("std/error"); // brings the Error derive rule
+{ ToString } :: import("std/fmt"); // Error's derive needs ToString
+DivError :: enum(DivByZero); // recoverable: Error enum
 derive(DivError, Error(.DivByZero => `division by zero`));
 (res : Result(i32, DivError)) = .Ok(i32(6));
 
 // Exception-style: Exception + throw; awaited IO rethrows via an exn
-{ Exception, IoExn } :: import("std/error");
-swallow := Exception(throw : ((_e) -> unwind(())));
-data := io.await(read_to_string(p, io), IoExn(io : io, exn : swallow));
+read :: (fn(p : Path, io : Io) -> String)({
+  swallow := Exception(throw : (_e -> unwind(())));
+  io.await(read_to_string(p, io), IoExn(io : io, exn : swallow))
+});
 ```
 
 - `unwrap`/`expect` and the panic vocabulary are COMPILE ERRORS in safe
@@ -245,8 +261,8 @@ data := io.await(read_to_string(p, io), IoExn(io : io, exn : swallow));
 ## Modules and projects
 
 ```rust
-{ a, b } :: import("std/string");       // named destructuring
-{ ... } :: import("std/collections");   // glob
+{ String, StringBuilder } :: import("std/string"); // named destructuring
+{ ... } :: import("std/assert"); // glob
 ```
 
 - Dependencies live in `yo.toml` (`yo add user/repo`), fetched by
@@ -298,7 +314,10 @@ whose body is outside the verified subset — a green `yo verify` is not
 - `yo context --list` then `yo context <module>` — the real API surface.
 - `yo explain E0xxx` for any diagnostic; `yo fix` for machine-applicable
   repairs.
-- Docs: `docs/en-US/` (GRAMMAR, DESIGN, ASYNC_AWAIT, MEMORY_SAFETY,
-  ALGEBRAIC_EFFECTS, FORMAL_VERIFICATION).
+- The in-depth manuals live in the repository (an installed bundle ships
+  no docs/ directory):
+  https://github.com/shd101wyy/Yo/tree/develop/docs/en-US — GRAMMAR, DESIGN,
+  ASYNC_AWAIT, MEMORY_SAFETY, ALGEBRAIC_EFFECTS, FORMAL_VERIFICATION
+  (zh-CN translations under `docs/zh-CN/`).
 - The LSP (`yo lsp`, VS Code extension) gives hover/completion/go-to-def in
   editors.

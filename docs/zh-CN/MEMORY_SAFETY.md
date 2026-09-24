@@ -39,7 +39,7 @@ main :: (fn() -> unit)({
   list.push(i32(3));
 
   total := i32(0);
-  for(list, (item) => {
+  for(list, item => {
     total = (total + item);
   });
   println("total = ${total}");
@@ -99,8 +99,8 @@ swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // 调用处不需要 &() —— `inout` 性质在参数定义中
-  assert((x == i32(2)), "swapped");
+  swap(x, y); // 调用处不需要 &() —— `inout` 性质在参数定义中
+  assert(x == i32(2), "swapped");
 });
 ```
 
@@ -147,7 +147,7 @@ pragma(Pragma.AllowUnsafe);
 pragma(Pragma.AllowUnsafe);
 { memcpy } :: import("std/libc/string");
 
-copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
+copy_bytes :: (fn(dst : *u8, src : *u8, n : usize) -> unit)({
   // extern 调用必须包在 unsafe(...) 里 —— 见下面的"逐调用审计标记"。
   unsafe(memcpy((*void)(dst), (*void)(src), n));
 });
@@ -188,7 +188,7 @@ match(
   // SAFETY: idx has been bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer, alive while self
   // holds the Rc.
-  .Some(_ptr) => (_ptr.add(idx)),
+  .Some(_ptr) => _ptr.add(idx),
   .None => panic("ArrayList: index on empty list")
 )
 ```
@@ -294,8 +294,8 @@ main :: (fn() -> unit)({
 **`+`、`-`、`*` 以及一元取负的整数溢出会直接中止并给出诊断信息** —— 既不会静默回卷，也不是未定义行为。除以零（包括 `MIN / -1`）和移位位数达到或超过操作数宽度的移位同样如此。每条消息都带有源码位置；中止行为在所有优化级别上都是确定的。
 
 ```rust
-x := i32(2147483647);   // i32 最大值
-y := (x + i32(1));      // 中止："integer addition overflow (at file:line:col)"
+x := i32(2147483647); // i32 最大值
+y := (x + i32(1)); // 中止："integer addition overflow (at file:line:col)"
 ```
 
 这与编译期行为在运行时保持一致 —— 编译期本就会拒绝溢出的常量表达式。
@@ -303,7 +303,7 @@ y := (x + i32(1));      // 中止："integer addition overflow (at file:line:col
 **按设计就要回卷的算术** —— 哈希混合、序列计数器、校验和 —— 使用显式的 wrapping 方法：
 
 ```rust
-h := state.wrapping_add(v);        // 二补码回卷，绝不中止
+h := state.wrapping_add(v); // 二补码回卷，绝不中止
 h := state.wrapping_mul(prime);
 d := state.wrapping_sub(inc);
 ```

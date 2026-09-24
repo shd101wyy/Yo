@@ -30,18 +30,18 @@
 ## 快速开始
 
 ```rust
-{ List } :: import "std/imm/list";
-{ Map } :: import "std/imm/map";
-{ SortedSet } :: import "std/imm/sorted_set";
+{ List } :: import("std/imm/list");
+{ Map } :: import("std/imm/map");
+{ SortedSet } :: import("std/imm/sorted_set");
 
 xs := List(i32).new().prepend(i32(3)).prepend(i32(2)).prepend(i32(1));
-assert((xs.head().unwrap() == i32(1)), "head is 1");
+assert(xs.head().unwrap() == i32(1), "head is 1");
 
 m := Map(i32, i32).new();
 m = m.insert(i32(1), i32(100));
 m2 := m.insert(i32(2), i32(200));
-assert((m.len() == usize(1)), "原始映射不变");
-assert((m2.len() == usize(2)), "新映射包含两个条目");
+assert(m.len() == usize(1), "原始映射不变");
+assert(m2.len() == usize(2), "新映射包含两个条目");
 
 s := SortedSet(i32).new();
 s = s.insert(i32(5)).insert(i32(1)).insert(i32(3));
@@ -104,7 +104,7 @@ impl(generic(T : Type), where(T <: Send), ListNode(T), Acyclic());
 变更方法获取 `self` 的所有权而非借用：
 
 ```rust
-push : (fn(own(self): Self, val: T) -> Self)
+push : (fn(own(self) : Self, val : T) -> Self)
 ```
 
 方法内部检查 `rc(self) == usize(1)`：
@@ -115,16 +115,15 @@ push : (fn(own(self): Self, val: T) -> Self)
 ### 使用方式
 
 ```rust
-{ Vec } :: import "std/imm/vec";
+{ Vec } :: import("std/imm/vec");
 
 // 正常用法——每次 push 都是 O(1)，因为 v 是唯一的：
 v := Vec(i32).new();
-v = v.push(i32(1));    // rc=1，原地修改
-v = v.push(i32(2));    // rc=1，原地修改
-
+v = v.push(i32(1)); // rc=1，原地修改
+v = v.push(i32(2)); // rc=1，原地修改
 // 保留旧版本——因为 v 被共享，push 会复制：
-old := v;              // dup，rc=2
-v = v.push(i32(3));    // rc=2，走复制路径
+old := v; // dup，rc=2
+v = v.push(i32(3)); // rc=2，走复制路径
 // old 仍然是 [1, 2]，v 是 [1, 2, 3]
 ```
 

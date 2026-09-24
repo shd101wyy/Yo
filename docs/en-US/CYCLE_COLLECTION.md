@@ -7,15 +7,14 @@ Yo uses **non-atomic reference counting** with **thread-local cycle collection**
 Reference counting cannot reclaim cycles:
 
 ```rust
+Node :: ref(struct(value : i32, next : Option(Self)));
+
 // Create a cycle
-node_a := ref(struct(value: 1, next: .None));
-node_b := ref(struct(value: 2, next: .Some(node_a)));
-node_a.next = .Some(node_b);  // Creates cycle: A → B → A
-
-// Drop external references
-node_a = .None;  // RC of A: 2 → 1 (B still holds reference)
-node_b = .None;  // RC of B: 2 → 1 (A still holds reference)
-
+node_a := Node(value : i32(1), next : Option(Node).None);
+node_b := Node(value : i32(2), next : Option(Node).Some(node_a));
+node_a.next = Option(Node).Some(node_b); // Creates cycle: A → B → A
+// Drop external references (end the scope holding node_a / node_b):
+// RC of A: 2 → 1 (B still holds a reference), RC of B: 2 → 1 likewise
 // Memory leak! Both objects have RC = 1 but are unreachable
 ```
 
@@ -96,13 +95,13 @@ After creating 400 more objects → GC runs, 300 survive → threshold = max(256
 **Explicit collection** can also be triggered via `gc.collect()`:
 
 ```rust
-import std/gc;
+{ collect, tracked_count } :: import("std/gc");
 
 // Force cycle collection
-gc.collect();
+collect();
 
 // Query tracked object count
-count := gc.tracked_count();
+count := tracked_count();
 ```
 
 **When to track:**
@@ -224,15 +223,14 @@ Yo uses **complete thread isolation** - spawned tasks run on separate threads wi
 ```rust
 // Parent thread
 x := 42;
-node := Node(1, .None);  // Cycle-forming type, stays on this thread
-
+node := Node(1, .None); // Cycle-forming type, stays on this thread
 // Spawn an isolated OS thread — `Thread(T).spawn` from std/thread.
 // (There is no `Task` type; the async API is `io.async` / `io.await` / `io.spawn`,
 // which are single-threaded and do NOT create threads.)
-handle := Thread(unit).spawn((io) => {
+handle := Thread(unit).spawn(io => {
   // The plain ref(...) `node` above is thread-local and cannot be captured here.
   // Only Send values cross: value types, Arc(T), and the std/imm structures.
-  ()
+  ();
 });
 handle.join();
 ```
@@ -268,10 +266,10 @@ main :: (fn(io : Io) -> unit)({
   tree := ComplexTree();
 
   ch := Channel(i32).new();
-  worker := Thread(unit).spawn((io) => {
+  worker := Thread(unit).spawn(io => {
     // Only Send values cross: value types, Arc(T), std/imm structures.
     ch.send(expensive_computation());
-    ()
+    ();
   });
 
   match(ch.recv(), .Some(result) => tree.update(result), .None => ());
@@ -352,8 +350,8 @@ Global impact: Zero (other threads continue running)
 ```rust
 { collect, tracked_count } :: import("std/gc");
 
-collect();          // Trigger an immediate cycle collection
-tracked_count();    // u64 — objects currently tracked by the collector
+collect(); // Trigger an immediate cycle collection
+tracked_count(); // u64 — objects currently tracked by the collector
 ```
 
 That is the whole surface (`std/gc.yo`). There is no statistics struct and no
@@ -373,10 +371,10 @@ Compiler generates tracking code for cycle-forming types:
 
 ```rust
 // User code
-Node :: ref(struct(value: i32, next: Option(Node)));
+Node :: ref(struct(value : i32, next : Option(Node)));
 
 // Generated tracking
-node := Node(42, .None);  // Calls __yo_gc_track(node)
+node := Node(42, .None); // Calls __yo_gc_track(node)
 ```
 
 ### Traverse Function Generation
@@ -472,7 +470,9 @@ so the container must trace each element slot itself. `ArrayList` (in
 `std/collections/array_list.yo`):
 
 ```rust
-impl(generic(T : Type), ArrayList(T),
+impl(
+  generic(T : Type),
+  ArrayList(T),
   Trace(
     trace : (fn(self : Self, tracer : GcTracer) -> unit)({
       match(
@@ -480,7 +480,7 @@ impl(generic(T : Type), ArrayList(T),
         .Some(base) => {
           (i : usize) = usize(0);
           while(i < self._length, {
-            tracer.visit(base.add(i));  // pass the element's SLOT POINTER
+            tracer.visit(base.add(i)); // pass the element's SLOT POINTER
             i = (i + usize(1));
           });
         },
@@ -496,10 +496,10 @@ impl(generic(T : Type), ArrayList(T),
 `GcTracer` is an opaque handle that carries the collector's edge-registration callback:
 
 ```rust
-GcTracer :: newtype(_callback : *(u8));
+GcTracer :: newtype(_callback : *u8);
 
 // (in `impl(GcTracer, ...)`)
-visit : (fn(generic(T : Type), self : Self, slot : *(T)) -> unit)
+visit : (fn(generic(T : Type), self : Self, slot : *T) -> unit)
 ```
 
 `visit` takes a **pointer to where the child lives** (a struct field or a buffer slot),

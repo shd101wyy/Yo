@@ -41,7 +41,11 @@ safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
 
 // 安装处理器 — 类型已注解为 ctl，函数体可用 `unwind`。
 // 注意：Yo 没有运算符优先级，等号右边的 lambda 需要额外的括号。
-(raise : Raise) = ((msg) -> { unwind(i32(42)); });
+(raise : Raise) = (
+  msg -> {
+    unwind(i32(42));
+  }
+);
 
 // 调用点 — 显式传参
 result := safe_divide(1, 0, raise);
@@ -57,7 +61,7 @@ Raise :: (ctl(msg : String) -> i32);
 
 // Unwind 处理器：丢弃续延。所在函数最终以 i64(42) 返回。
 (raise : Raise) = (
-  (msg) -> {
+  msg -> {
     println(msg);
     unwind(i64(42));
   }
@@ -65,7 +69,7 @@ Raise :: (ctl(msg : String) -> i32);
 
 // Resume 处理器：继续执行效应调用之后的代码，效应调用处的结果是 i32(0)。
 (raise : Raise) = (
-  (msg) -> {
+  msg -> {
     println(msg);
     return(i32(0));
   }
@@ -112,9 +116,10 @@ wrapper :: (fn(x : i32, raise : Raise) -> i32)(
 
 ```rust
 run :: (
-  fn(generic(T : Type, E : Type.Struct),
-     f : (fn(e : E) -> T),
-     e : E
+  fn(
+    generic(T : Type, E : Type.Struct),
+    f : (fn(e : E) -> T),
+    e : E
   ) -> T
 )(f(e));
 
@@ -136,7 +141,7 @@ result := run(pure_func, {});
 
 ```rust
 // 单个捆绑（最常见）
-fut1 : Impl(Future(i32, IoExn));            // IoExn = { io, exn }
+fut1 : Impl(Future(i32, IoExn)); // IoExn = { io, exn }
 y := io.await(fut1, { io, exn });
 
 // 单效应 future — 直接传递效应值
@@ -161,9 +166,11 @@ result := io.await(fut, effects);
 ```
 
 ```rust
+{ Exception, IoExn } :: import("std/error");
+
 // 函数体内、返回类型已标注 — E 由返回类型固定，闭包参数可不标注：
 do_work :: (fn(io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     e.io.await(some_io_call(...), e.io);
     e.exn.throw(...);
   })
@@ -229,9 +236,9 @@ Raise :: (ctl(msg : String) -> i32);
 // 调用方在帧 F 安装处理器
 do_caller :: (fn() -> i32)({
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
-      unwind(i32(0));        // unwind 跳回 do_caller 的帧
+      unwind(i32(0)); // unwind 跳回 do_caller 的帧
     }
   );
   // compute 运行于 F 之下；对 raise 的调用 unwind 回到 F
@@ -319,8 +326,18 @@ log_and_check :: (fn(x : i32, logger : Logger) -> i32)({
 });
 
 (my_logger : Logger) = Logger(
-  info : ((msg) -> { println(msg); return(()); }),
-  warn : ((msg) -> { println(`WARNING: ${msg}`); unwind(()); })
+  info : (
+    msg -> {
+      println(msg);
+      return(());
+    }
+  ),
+  warn : (
+    msg -> {
+      println(`WARNING: ${msg}`);
+      unwind(());
+    }
+  )
 );
 
 result := log_and_check(42, my_logger);

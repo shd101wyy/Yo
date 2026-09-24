@@ -13,10 +13,10 @@ Yo uses a simplified ownership model with clear rules:
 Both `:=` (initialization) and `=` (reassignment) make the LHS **own** the value:
 
 ```rust
-x := Point(3, 4);   // temp_var owns Point(3, 4), RC = 1
-                    // ___dup(temp_var), x owns, RC = 2
-y := x;             // ___dup(x), y owns, RC = 3
-z = y;              // ___dup(y), ___drop(old z), z owns, RC = 4
+x := Point(x : i32(3), y : i32(4)); // temp_var owns Point(x: i32(3), y: i32(4)), RC = 1
+// ___dup(temp_var), x owns, RC = 2
+y := x; // ___dup(x), y owns, RC = 3
+z = y; // ___dup(y), ___drop(old z), z owns, RC = 4
 // End of scope: ___drop(z), ___drop(y), ___drop(x), ___drop(temp_var)
 ```
 
@@ -27,12 +27,12 @@ z = y;              // ___dup(y), ___drop(old z), z owns, RC = 4
 Function parameters **borrow** by default (no reference count change). The absence of `own()` explicitly means the parameter borrows:
 
 ```rust
-print_point :: (fn(p : Point) -> unit) {
-  printf("(%d, %d)", p.x, p.y);  // Just reading, no RC overhead
-}
+print_point :: (fn(p : Point) -> unit)({
+  printf("(%d, %d)", p.x, p.y); // Just reading, no RC overhead
+});
 
-point := Point(3, 4);
-print_point(point);  // No ___dup at call site, p borrows point
+point := Point(x : i32(3), y : i32(4));
+print_point(point); // No ___dup at call site, p borrows point
 ```
 
 **Rule:** Parameters borrow unless explicitly marked with `own()`. Not having `own()` means borrow.
@@ -41,11 +41,12 @@ print_point(point);  // No ___dup at call site, p borrows point
 
 ```rust
 // Destructuring assignment borrows
-Point(x, y) := point;  // x and y borrow from point, no dup
-
+Point(x, y) := point; // x and y borrow from point, no dup
 // Match destructuring borrows
-match(result,
-  .Ok(value) => printf("%d", value),  // value borrows from result
+match(
+  result,
+  .Ok(value) => printf("%d", value),
+  // value borrows from result
   .Err(e) => printf("error")
 );
 ```
@@ -55,14 +56,14 @@ match(result,
 You can mutate **through** a parameter (modify fields), but cannot **reassign** the parameter itself:
 
 ```rust
-move_point :: (fn(p : Point, dx : i32, dy : i32) -> unit) {
-  p.x = (p.x + dx);  // ✅ OK: Mutating field through parameter
-  p.y = (p.y + dy);  // ✅ OK: Mutating field through parameter
-}
+move_point :: (fn(p : Point, dx : i32, dy : i32) -> unit)({
+  p.x = (p.x + dx); // ✅ OK: Mutating field through parameter
+  p.y = (p.y + dy); // ✅ OK: Mutating field through parameter
+});
 
-broken :: (fn(p : Point) -> unit) {
-  p = Point(0, 0);   // ❌ ERROR: Cannot reassign parameter
-}
+broken :: (fn(p : Point) -> unit)({
+  p = Point(x : i32(0), y : i32(0)); // ❌ ERROR: Cannot reassign parameter
+});
 ```
 
 **Rule:** Parameters are **not reassignable** to prevent ownership state changes.
@@ -77,24 +78,25 @@ Use `own()` to transfer ownership to a function parameter.
 - If the argument is only **borrowed / non-owning** (e.g. a borrowed parameter), the compiler inserts `___dup` to materialize an owned temporary for the callee, and the original binding is still **consumed** (becomes unusable) to keep `own()` calls linear/consuming.
 
 ```rust
-consume :: (fn(own(box): Box(i32)) -> unit) {
-  printf("value: %d\n", box.(*));
+consume :: (fn(own(box) : Box(i32)) -> unit)({
+  printf("value: %d\n", box.*);
   // box is dropped at end of function
-}
+});
 
-b := box(42);      // b owns
-consume(b);        // b cannot be used after this point
-
-call_consume :: (fn(p : Box(i32)) -> unit) { // p borrows by default
+b := box(42); // b owns
+consume(b); // b cannot be used after this point
+call_consume :: (fn(p : Box(i32)) -> unit)({
+  // p borrows by default
   consume(p); // compiler inserts ___dup(p) to satisfy own(box)
   // p is NOT usable here (moved/consumed by the own() call)
-}
+});
 
-call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit) { // p borrows by default
-  p2 := p;    // compiler inserts ___dup(p); p2 owns
+call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit)({
+  // p borrows by default
+  p2 := p; // compiler inserts ___dup(p); p2 owns
   consume(p2); // p2 is consumed
   // p is still usable here
-}
+});
 ```
 
 **Rule:** `own()` parameters take ownership; passing an owned value moves it, passing a borrowed value clones it via `___dup` and still consumes the argument binding.
@@ -108,7 +110,7 @@ Each heap allocated ARC value starts with a single owner. Its reference counter 
 ```rust
 Point :: ref(struct(x : i32, y : i32));
 
-Point(3, 4); // temp_var owns the Point(3, 4), RC = 1
+Point(x : i32(3), y : i32(4)); // temp_var owns the Point(x: i32(3), y: i32(4)), RC = 1
 ```
 
 ### Assignment Creates Ownership
@@ -116,19 +118,18 @@ Point(3, 4); // temp_var owns the Point(3, 4), RC = 1
 Using `:=` for initialization calls `___dup` to create a new owner:
 
 ```rust
-p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
-                   // ___dup(temp_var)
-                   // p1 now owns the value, RC = 2
+p1 := Point(x : i32(3), y : i32(4)); // temp_var owns Point(x: i32(3), y: i32(4)), RC = 1
+// ___dup(temp_var)
+// p1 now owns the value, RC = 2
 ```
 
 When an owned variable goes out of scope, we automatically call `___drop` on it:
 
 ```rust
-p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
-                   // ___dup(temp_var), p1 owns, RC = 2
-
+p1 := Point(x : i32(3), y : i32(4)); // temp_var owns Point(x: i32(3), y: i32(4)), RC = 1
+// ___dup(temp_var), p1 owns, RC = 2
 // End of scope
-___drop(p1);       // RC = 1
+___drop(p1); // RC = 1
 ___drop(temp_var); // RC = 0, memory freed
 ```
 
@@ -137,13 +138,13 @@ ___drop(temp_var); // RC = 0, memory freed
 Function parameters do not increment the reference count:
 
 ```rust
-use_point :: (fn(p : Point) -> unit) {
-  printf("(%d, %d)", p.x, p.y);  // p borrows, no RC change
-}
+use_point :: (fn(p : Point) -> unit)({
+  printf("(%d, %d)", p.x, p.y); // p borrows, no RC change
+});
 
-point := Point(3, 4);  // temp_var owns, RC = 1
-                       // ___dup(temp_var), point owns, RC = 2
-use_point(point);      // No ___dup, p borrows point
+point := Point(x : i32(3), y : i32(4)); // temp_var owns, RC = 1
+// ___dup(temp_var), point owns, RC = 2
+use_point(point); // No ___dup, p borrows point
 // End of scope: ___drop(point), ___drop(temp_var)
 ```
 
@@ -152,16 +153,15 @@ use_point(point);      // No ___dup, p borrows point
 **Critical Issue**: Naive borrowing without lifetime analysis leads to use-after-free bugs!
 
 ```rust
-x := box(12);      // temp_var_x owns box(12), RC = 1
-                   // ___dup(temp_var_x), x owns, RC = 2
+x := box(12); // temp_var_x owns box(12), RC = 1
+// ___dup(temp_var_x), x owns, RC = 2
 {
-  y := box(13);    // temp_var_y owns box(13), RC = 1
-                   // ___dup(temp_var_y), y owns, RC = 2
-  x = y;           // DANGER if x just borrows from y...
-
+  y := box(13); // temp_var_y owns box(13), RC = 1
+  // ___dup(temp_var_y), y owns, RC = 2
+  x = y; // DANGER if x just borrows from y...
   // End of inner scope
-  ___drop(y);           // RC = 1
-  ___drop(temp_var_y);  // RC = 0, memory freed
+  ___drop(y); // RC = 1
+  ___drop(temp_var_y); // RC = 0, memory freed
 };
 
 printf("%d\n", x.*); // BUG: x would point to freed memory!
@@ -172,19 +172,18 @@ printf("%d\n", x.*); // BUG: x would point to freed memory!
 With our model (assignments always own):
 
 ```rust
-x := box(12);      // ___dup, x owns, RC = 2
+x := box(12); // ___dup, x owns, RC = 2
 {
-  y := box(13);    // ___dup, y owns, RC = 2
-  x = y;           // ___dup(y), ___drop(old x), x owns new value
-                   // New box(13): RC = 3, old box(12): RC = 1
-
-  ___drop(y);           // box(13): RC = 2
-  ___drop(temp_var_y);  // box(13): RC = 1
-  ___drop(temp_var_x);  // box(12): RC = 0, freed
+  y := box(13); // ___dup, y owns, RC = 2
+  x = y; // ___dup(y), ___drop(old x), x owns new value
+  // New box(13): RC = 3, old box(12): RC = 1
+  ___drop(y); // box(13): RC = 2
+  ___drop(temp_var_y); // box(13): RC = 1
+  ___drop(temp_var_x); // box(12): RC = 0, freed
 };
 
 printf("%d\n", x.*); // ✅ Safe: x owns box(13), RC = 1
-___drop(x);          // box(13): RC = 0, freed
+___drop(x); // box(13): RC = 0, freed
 ```
 
 ## Our Approach: Simple Ownership with Optimization
@@ -202,8 +201,8 @@ Yo prioritizes **safety and simplicity** with a path to optimization:
 x := box(12);
 {
   y := box(13);
-  x = y;  // Always safe: ___dup(y), ___drop(old x)
-}
+  x = y; // Always safe: ___dup(y), ___drop(old x)
+};
 printf("%d\n", x.*); // Always works: x owns a valid reference
 ```
 
@@ -250,14 +249,12 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 **Always call `___dup` on the RHS when assigning ARC values:**
 
 ```rust
-p1 := Point(3, 4); // ___dup(temp_var), p1 owns
+p1 := Point(x : i32(3), y : i32(4)); // ___dup(temp_var), p1 owns
 p2 := Point(5, 6); // ___dup(temp_var2), p2 owns
-
-p2 = p1;           // ___dup(p1), ___drop(old p2), p2 owns copy of p1's value
-
+p2 = p1; // ___dup(p1), ___drop(old p2), p2 owns copy of p1's value
 // End of scope
-___drop(p2);       // Decrement RC
-___drop(p1);       // Decrement RC
+___drop(p2); // Decrement RC
+___drop(p1); // Decrement RC
 ___drop(temp_var2);
 ___drop(temp_var);
 ```
@@ -265,8 +262,8 @@ ___drop(temp_var);
 **Field/index assignment also calls `___dup`:**
 
 ```rust
-data.point = p1;   // ___dup(p1), storing into data structure
-arr(0) = p1;       // ___dup(p1), storing into array
+data.point = p1; // ___dup(p1), storing into data structure
+arr(0) = p1; // ___dup(p1), storing into array
 ```
 
 ### Rule 2: Passing to Constructors
@@ -274,9 +271,9 @@ arr(0) = p1;       // ___dup(p1), storing into array
 **Always call `___dup` when passing to struct/enum/array constructors:**
 
 ```rust
-p1 := Point(3, 4);           // p1 owns
-data := Data(p1);            // ___dup(p1), data owns a copy
-arr := [p1,];                 // ___dup(p1), array owns a copy
+p1 := Point(x : i32(3), y : i32(4)); // p1 owns
+data := Data(p1); // ___dup(p1), data owns a copy
+arr := [p1,]; // ___dup(p1), array owns a copy
 result := Result(Point).Ok(p1); // ___dup(p1), enum owns a copy
 ```
 
@@ -285,15 +282,16 @@ result := Result(Point).Ok(p1); // ___dup(p1), enum owns a copy
 **Call `___dup` when returning a borrowed parameter:**
 
 ```rust
-identity :: (fn(p : Point) -> Point) {  // p borrows (parameter)
-  return p;  // ___dup(p), return value owns a copy
-}
+identity :: (fn(p : Point) -> Point)({
+  // p borrows (parameter)
+  return(p); // ___dup(p), return value owns a copy
+});
 
-create :: (fn() -> Point) {
-  p := Point(3, 4);  // p owns
-  return p;          // ___dup(p), return value owns a copy
+create :: (fn() -> Point)({
+  p := Point(x : i32(3), y : i32(4)); // p owns
+  return(p); // ___dup(p), return value owns a copy
   // ___drop(p) after return
-}
+});
 ```
 
 ### Rule 4: Scope Exit
@@ -306,7 +304,7 @@ create :: (fn() -> Point) {
 x := box(1);
 y := {
   ();
-  x  // ___dup(x) when returning from begin block
+  x // ___dup(x) when returning from begin block
 };
 // y now owns a copy, x still owns its copy
 ```
@@ -315,16 +313,13 @@ y := {
 
 ```rust
 optional := Option(Box(i32)).Some(box(42)); // optional owns
-x := match(optional,
-  .Some(value) => // `value` here is borrowed, not owned
-    value
-    // ___dup(value) inserted here
-  ,
-  .None => {
-    // Handle None case
-    box(0)
-  }
-)
+x := match(
+  optional,
+  // `value` here is borrowed, not owned
+  // ___dup(value) inserted here
+  .Some(value) => value,
+  .None => box(0)
+);
 ```
 
 **Note:** The Phase 1.5 optimization often cancels these dup calls when they're paired with corresponding drop calls, effectively transferring ownership rather than creating unnecessary copies.
@@ -355,20 +350,19 @@ executes unconditionally on every path that reaches the scope end**. The optimiz
 **`own()` parameters take ownership (move if possible, otherwise dup):**
 
 ```rust
-consume :: (fn(own(box): Box(i32)) -> unit) {
-  printf("value: %d\n", box.(*));
+consume :: (fn(own(box) : Box(i32)) -> unit)({
+  printf("value: %d\n", box.*);
   // box is dropped at end of function
-}
+});
 
-b := box(42);      // b owns
-consume(b);        // b is consumed
+b := box(42); // b owns
+consume(b); // b is consumed
 // b cannot be used after this point
-
 // If the argument is borrowed/non-owning, the compiler inserts ___dup.
 // Example: borrowed parameter passing to an own() parameter.
-call_consume :: (fn(p : Box(i32)) -> unit) {
+call_consume :: (fn(p : Box(i32)) -> unit)({
   consume(p); // inserts ___dup(p); p is consumed (not usable after this)
-}
+});
 ```
 
 ### Exception: Function Parameters (Borrow by Default)
@@ -376,18 +370,20 @@ call_consume :: (fn(p : Box(i32)) -> unit) {
 **No `___dup` when passing to borrowed parameters (parameters without `own()`):**
 
 ```rust
-print_point :: (fn(p : Point) -> unit) {  // p borrows (no own keyword)
+print_point :: (fn(p : Point) -> unit)({
+  // p borrows (no own keyword)
   printf("(%d, %d)", p.x, p.y);
-}
+});
 
-point := Point(3, 4);  // point owns
-print_point(point);    // No ___dup! p borrows point
+point := Point(x : i32(3), y : i32(4)); // point owns
+print_point(point); // No ___dup! p borrows point
 ```
 
 **Destructuring in match expressions also borrows:**
 
 ```rust
-match(optional,
+match(
+  optional,
   .Some(value) => {
     // `value` borrows from optional, no ___dup
     // `value` is also not reassignable.
@@ -404,18 +400,17 @@ In loops, assignments follow the same "always own" rule:
 ### Example: Linked List Traversal
 
 ```rust
-current_opt := self.head;  // ___dup(self.head), current_opt owns
-
-while runtime(true), {
-  match(current_opt,
-    .None => return false,
+current_opt := self.head; // ___dup(self.head), current_opt owns
+while(true, {
+  match(
+    current_opt,
+    .None => return(false),
     .Some(current) => {
-      current_opt = current.next;  // ___dup(current.next)
-                                   // ___drop(old current_opt)
+      current_opt = current.next; // ___dup(current.next)
+      // ___drop(old current_opt)
     }
   );
-}
-
+});
 // End of scope: ___drop(current_opt)
 ```
 

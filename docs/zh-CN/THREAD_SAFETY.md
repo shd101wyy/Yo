@@ -41,7 +41,7 @@ MyObj :: ref(struct(data : Vec(i32)));
 
 ```rust
 a := arc(i32(0));
-a.* = i32(5);  // 错误：不能写入原子对象字段
+a.* = i32(5); // 错误：不能写入原子对象字段
 ```
 
 要修改共享状态，请组合正确的原语：
@@ -92,10 +92,9 @@ println(`count = ${counter.load(MemoryOrder.Acquire)}`);
 
 // 完整的读-改-写族，适用于每一种整数原子类型：
 bits := AtomicU32(u32(0));
-bits.fetch_or(u32(4), MemoryOrder.AcqRel);   // 置位
+bits.fetch_or(u32(4), MemoryOrder.AcqRel); // 置位
 bits.fetch_and(u32(4294967291), MemoryOrder.AcqRel); // 清位
-bits.fetch_xor(u32(1), MemoryOrder.AcqRel);  // 翻转
-
+bits.fetch_xor(u32(1), MemoryOrder.AcqRel); // 翻转
 high_water := AtomicUsize(usize(0));
 high_water.fetch_max(usize(512), MemoryOrder.AcqRel);
 ```
@@ -132,8 +131,10 @@ compare-exchange 循环。该循环是无锁的，产生相同的返回值和相
 { Mutex } :: import("std/sync/mutex");
 
 counter := Mutex(i32).new(i32(0));
-counter.with_lock((v) => { v = (v + i32(1)); });
-new_value := counter.with_lock((v) => (v + i32(1)));
+counter.with_lock(v => {
+  v = (v + i32(1));
+});
+new_value := counter.with_lock(v => (v + i32(1)));
 ```
 
 闭包接收 `inout(v) : T` — 一个**二级引用**，不能逃逸闭包作用域。
@@ -145,7 +146,7 @@ new_value := counter.with_lock((v) => (v + i32(1)));
 可以通过 `!(Send)` 明确退出自动派生的 `Send`：
 
 ```rust
-impl(MyHandle, !(Send()));   // MyHandle 不是 Send
+impl(MyHandle, !Send()); // MyHandle 不是 Send
 ```
 
 标准库中用于：**`JoinHandle(T)`**（异步任务句柄）和 **`Io`**（异步运行时）。负向实现不需要 `pragma`。
@@ -156,9 +157,9 @@ impl(MyHandle, !(Send()));   // MyHandle 不是 Send
 
 ```rust
 data := Box(MyData).new(...);
-iso := ^(data);
-Thread(unit).spawn((io) => {
-  inner := iso.extract();  // rc != 1 或已提取时 panic
+iso := ^data;
+Thread(unit).spawn(io => {
+  inner := iso.extract(); // rc != 1 或已提取时 panic
 });
 ```
 

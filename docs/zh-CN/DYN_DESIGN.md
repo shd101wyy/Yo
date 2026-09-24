@@ -20,7 +20,7 @@ main :: (fn() -> unit) {
   use_id(dyn(box(true)));
 
   // 引用语义类型可以直接使用
-  point := Point(3, 4);
+  point := Point(x: 3, y: 4);
   use_id(dyn(point));
 };
 ```
@@ -63,14 +63,16 @@ void* data = point;                // 存储 Point 指针
 **Box 类型定义：**
 
 ```rust
-Box :: (fn(comptime(V) : Type) -> comptime(Type))
-  ref(struct(
-    (*) : V
-  ))
-;
-box :: (fn(generic(V : Type), value : V) -> Box(V))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      (*) : V
+    )
+  )
+);
+box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
-;
+);
 ```
 
 **为什么有此约束？**
@@ -137,16 +139,14 @@ TestDyn :: trait(
 
 ```rust
 // 值类型必须装箱
-dyn(box(42));           // OK：box(42) 返回 Box(i32)，这是一个引用语义类型
-dyn(box(true));         // OK：box(true) 返回 Box(bool)
-
+dyn(box(42)); // OK：box(42) 返回 Box(i32)，这是一个引用语义类型
+dyn(box(true)); // OK：box(true) 返回 Box(bool)
 // 引用语义类型可以直接使用
-point := Point(3, 4);   // point : Point，Point 是引用语义类型
-dyn(point);             // OK：point 是引用语义类型
-
+point := Point(x : 3, y : 4); // point : Point，Point 是引用语义类型
+dyn(point); // OK：point 是引用语义类型
 // 直接传值会自动装箱
-dyn(42);                // 42 自动变为 box(42)
-dyn(true);              // true 自动变为 box(true)
+dyn(42); // 42 自动变为 box(42)
+dyn(true); // true 自动变为 box(true)
 ```
 
 ### 4. 静态虚表和包装函数
@@ -238,16 +238,19 @@ downcast(dyn_value, T) -> Option(T)
 ```rust
 Animal :: trait(speak : (fn(self : Self) -> unit));
 // ... impl(Cat, Animal(...)); impl(Dog, Animal(...));
-
 animal := dyn(Cat.new());
 
-match(downcast(animal, Cat),
-  .Some(cat) => cat.purr(),      // 具体的 Cat，已计数且被拥有
+match(
+  downcast(animal, Cat),
+  .Some(cat) => cat.purr(),
+  // 具体的 Cat，已计数且被拥有
   .None => println(`not a cat`)
 );
 
 // 只做判断、不使用值：
-if(downcast(animal, Dog).is_some(), { println(`a dog`); });
+if(downcast(animal, Dog).is_some(), {
+  println(`a dog`);
+});
 ```
 
 **检查是怎么做的。** 每个 `Dyn` 虚表都带一个 `__yo_type_id` 字段，每个具体类型都有

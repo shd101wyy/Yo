@@ -64,20 +64,20 @@ yo-out/
 The build file is a regular Yo source file that imports the `std/build` module. All build functions run at compile time and register artifacts and steps. What the package IS — its name, the modules other packages may import, and its dependencies — lives in the data file `yo.toml` next to it (see [Dependencies](#dependencies)); `build.yo` only says how to build it.
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // Define artifacts — each returns a Step for dependency wiring
 exe :: build.executable({
-  name: "my-project",
-  root: "./src/main.yo"
+  name : "my-project",
+  root : "./src/main.yo"
 });
 
 lib :: build.static_library({
-  name: "my-project-lib",
-  root: "./src/lib.yo"
+  name : "my-project-lib",
+  root : "./src/lib.yo"
 });
 
-tests :: build.test({ name: "tests", root: "./tests/" });
+tests :: build.test({ name : "tests", root : "./tests/" });
 
 // Register a run step (compile + execute)
 run_exe :: build.run(exe);
@@ -210,9 +210,9 @@ Steps are named targets that define what `yo build <step>` does. Every build fun
 
 ```rust
 // Each build function returns a Step
-exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
-lib :: build.static_library({ name: "my-lib", root: "./src/lib.yo" });
-tests :: build.test({ name: "tests", root: "./tests/" });
+exe :: build.executable({ name : "my-app", root : "./src/main.yo" });
+lib :: build.static_library({ name : "my-lib", root : "./src/lib.yo" });
+tests :: build.test({ name : "tests", root : "./tests/" });
 run_exe :: build.run(exe);
 
 // Create named steps and wire dependencies
@@ -335,18 +335,18 @@ shapes  = "src/shapes.yo"
 `build.yo` refers to a module when it needs to attach system libraries to it. When another package imports the module, its system libraries are propagated to the consumer's build:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 raylib :: build.system_library({
-  name: "raylib",
-  defines: "NOMINMAX NOGDI NOUSER"
+  name : "raylib",
+  defines : "NOMINMAX NOGDI NOUSER"
 });
 
 // Name a [modules] entry of yo.toml and link the system libraries it needs
-mod :: build.module({ name: "default" });
+mod :: build.module({ name : "default" });
 mod.link(raylib);
 
-exe :: build.executable({ name: "raylib_yo", root: "./src/main.yo" });
+exe :: build.executable({ name : "raylib_yo", root : "./src/main.yo" });
 exe.link(raylib);
 
 install :: build.step("install", "Build all artifacts");
@@ -372,8 +372,8 @@ Returned by `build.module()` and `dep.module()`. Has one method:
 Nothing to wire in `build.yo`: a dependency declared in `yo.toml` is importable by its name, and its named modules as `name/module`:
 
 ```rust
-raylib_yo :: import "raylib_yo";          // the dependency's [modules] default
-{ Circle } :: import "raylib_yo/shapes";  // its [modules] shapes
+raylib_yo :: import("raylib_yo"); // the dependency's [modules] default
+{ Circle } :: import("raylib_yo/shapes"); // its [modules] shapes
 ```
 
 This works in every command — `yo build`, `yo compile`, `yo check`, `yo test`, `yo doc` and the language server — because the compiler finds the nearest `yo.toml` above the file it is compiling and resolves the manifest's dependency closure (see [Importing a dependency](#importing-a-dependency)).
@@ -383,22 +383,22 @@ This works in every command — `yo build`, `yo compile`, `yo check`, `yo test`,
 Use `step.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // Yo libraries
 lib :: build.shared_library({
-  name: "mylib",
-  root: "./src/lib.yo"
+  name : "mylib",
+  root : "./src/lib.yo"
 });
 
 // System libraries (via pkg-config)
 openssl :: build.system_library({
-  name: "openssl"
+  name : "openssl"
 });
 
 exe :: build.executable({
-  name: "my-app",
-  root: "./src/main.yo"
+  name : "my-app",
+  root : "./src/main.yo"
 });
 
 // Link libraries using Step method
@@ -422,11 +422,11 @@ Static libraries export Yo functions that other modules can call using `extern "
 **Library module** (`add.yo`):
 
 ```rust
-add :: (fn(a: i32, b: i32) -> i32)(
-  (a + b)
+add :: (fn(a : i32, b : i32) -> i32)(
+  a + b
 );
 
-export add;
+export(add);
 ```
 
 **Executable module** (`demo.yo`):
@@ -448,16 +448,16 @@ export(main);
 **Build file** (`build.yo`):
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 lib :: build.static_library({
-  name: "add",
-  root: "./add.yo"
+  name : "add",
+  root : "./add.yo"
 });
 
 exe :: build.executable({
-  name: "demo",
-  root: "./demo.yo"
+  name : "demo",
+  root : "./demo.yo"
 });
 
 exe.link(lib);
@@ -496,19 +496,19 @@ yo compile demo.yo --extern libadd.a -o demo
 Like Zig's `b.option()`, declare user-configurable build options that can be set from the CLI with `-Dname=value`:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // Declare a build option with a default value
 strip :: build.option({
-  name: "strip",
-  description: "Strip debug symbols",
-  default: "false"
+  name : "strip",
+  description : "Strip debug symbols",
+  default : "false"
 });
 
 opt_level :: build.option({
-  name: "opt",
-  description: "Optimization level",
-  default: "debug"
+  name : "opt",
+  description : "Optimization level",
+  default : "debug"
 });
 ```
 
@@ -562,10 +562,10 @@ Yo supports targeting WASM via target triples. Specify the target in `build.yo` 
 
 ```rust
 build.executable({
-  name: "my-app-wasm",
-  root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
-  optimize: build.Optimize.ReleaseSmall
+  name : "my-app-wasm",
+  root : "./src/main.yo",
+  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+  optimize : build.Optimize.ReleaseSmall
 });
 ```
 
@@ -573,10 +573,10 @@ You can also use raw target strings if preferred:
 
 ```rust
 build.executable({
-  name: "my-app-wasm",
-  root: "./src/main.yo",
-  target: "wasm32-unknown-emscripten",
-  optimize: build.Optimize.ReleaseSmall
+  name : "my-app-wasm",
+  root : "./src/main.yo",
+  target : "wasm32-unknown-emscripten",
+  optimize : build.Optimize.ReleaseSmall
 });
 ```
 
@@ -648,7 +648,7 @@ exe_wasm.add_c_flags("-sNODERAWFS=1");
 Use `std/process` to write platform-aware code:
 
 ```rust
-{ platform, arch, Platform, Arch } :: import "std/process";
+{ platform, arch, Platform, Arch } :: import("std/process");
 
 cond(
   (platform == Platform.Linux) => { /* Linux-specific */ },
@@ -765,7 +765,7 @@ A build file may read environment variables. Nothing else may:
 ```rust
 build :: import("std/build");
 
-ci      :: build.env_is_set("CI");
+ci :: build.env_is_set("CI");
 pkgpath :: build.env("PKG_CONFIG_PATH", "");
 ```
 
@@ -824,24 +824,23 @@ fresh project) and writes two entry points for AI coding agents:
 Define multiple artifacts with different targets in a single `build.yo`:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // Module definition
-
 // Native build
 native :: build.executable({
-  name: "my-app",
-  root: "./src/main.yo",
-  optimize: build.Optimize.ReleaseFast
+  name : "my-app",
+  root : "./src/main.yo",
+  optimize : build.Optimize.ReleaseFast
 });
 
 // WASM build (Emscripten)
 wasm :: build.executable({
-  name: "my-app-wasm",
-  root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
-  optimize: build.Optimize.ReleaseSmall,
-  allocator: build.Allocator.System
+  name : "my-app-wasm",
+  root : "./src/main.yo",
+  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+  optimize : build.Optimize.ReleaseSmall,
+  allocator : build.Allocator.System
 });
 
 // Per-artifact C flags — useful for Emscripten-specific linker settings
@@ -1026,8 +1025,8 @@ The path is relative to `yo.toml`. Nothing is fetched and nothing is locked: the
 ### Importing a dependency
 
 ```rust
-mylib :: import "mylib";             // the dependency's default module
-{ triple } :: import "mylib/extra";  // a named module, or a sibling file of the default root
+mylib :: import("mylib"); // the dependency's default module
+{ triple } :: import("mylib/extra"); // a named module, or a sibling file of the default root
 ```
 
 What `import("name")` resolves to, for a dependency `name`:
@@ -1050,12 +1049,11 @@ Each dependency's own `yo.toml` is read in turn, so its dependencies are importa
 `build.dependency("name")` returns the handle of a dependency declared in `yo.toml` — the name must be one the manifest declares, or the build fails. Its `.module("x")` names one of the dependency's modules (to propagate the system libraries it links) and `.artifact("lib")` names a static library the dependency's `build.yo` defines:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 dep :: build.dependency("dep_lib");
-add_lib :: dep.artifact("add");   // a build.static_library of dep_lib's build.yo
-
-exe :: build.executable({ name: "demo", root: "./src/main.yo" });
+add_lib :: dep.artifact("add"); // a build.static_library of dep_lib's build.yo
+exe :: build.executable({ name : "demo", root : "./src/main.yo" });
 exe.link(add_lib);
 ```
 
@@ -1149,11 +1147,11 @@ Link against system C libraries discovered via `pkg-config`:
 
 ```rust
 build.system_library({
-  name: "openssl",
-  fallback_include: "/usr/include/openssl",
-  fallback_lib: "/usr/lib",
-  fallback_link: "ssl crypto",
-  defines: "OPENSSL_API_COMPAT=0x10100000L"
+  name : "openssl",
+  fallback_include : "/usr/include/openssl",
+  fallback_lib : "/usr/lib",
+  fallback_link : "ssl crypto",
+  defines : "OPENSSL_API_COMPAT=0x10100000L"
 });
 ```
 
@@ -1165,8 +1163,8 @@ For example, `raylib` on Windows needs a few Win32 macros defined before includi
 
 ```rust
 raylib :: build.system_library({
-  name: "raylib",
-  defines: "NOMINMAX NOGDI NOUSER"
+  name : "raylib",
+  defines : "NOMINMAX NOGDI NOUSER"
 });
 ```
 
@@ -1302,16 +1300,16 @@ yo doc --version v1.0.0     # Set version (auto-detects from git if omitted)
 For advanced projects, configure documentation generation in `build.yo`:
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // Define doc config
 docs :: build.doc({
-  name: "docs",
-  root: "./src",
-  output: "yo-out/doc",
-  format: build.DocFormat.Html,
-  title: "My Project API",
-  version: "v1.0.0"
+  name : "docs",
+  root : "./src",
+  output : "yo-out/doc",
+  format : build.DocFormat.Html,
+  title : "My Project API",
+  version : "v1.0.0"
 });
 
 // Wire into the build DAG
@@ -1333,9 +1331,11 @@ yo build --list-steps # See all steps including doc
 
 ```rust
 DocFormat :: enum(
-  Html,       // Fully offline static HTML site (default)
-  Markdown,   // README.md + module/<name>.md files
-  Json        // Machine-readable doc.json
+  Html,
+  // Fully offline static HTML site (default)
+  Markdown,
+  // README.md + module/<name>.md files
+  Json // Machine-readable doc.json
 );
 ```
 
@@ -1343,14 +1343,21 @@ DocFormat :: enum(
 
 ```rust
 DocConfig :: struct(
-  name : comptime_str,                            // Step name
-  root : comptime_str,                            // Source root file/directory
-  (output : comptime_str) ?= "yo-out/doc",       // Output directory
-  (format : DocFormat) ?= DocFormat.Html,             // Output format
-  (include_private : bool) ?= false,                 // Document non-exported items
-  (title : comptime_str) ?= "",                   // Custom site title
-  (logo : comptime_str) ?= "",                    // Sidebar header image
-  (favicon : comptime_str) ?= ""                  // Site icon
+  name : comptime_str,
+  // Step name
+  root : comptime_str,
+  // Source root file/directory
+  (output : comptime_str) ?= "yo-out/doc",
+  // Output directory
+  (format : DocFormat) ?= DocFormat.Html,
+  // Output format
+  (include_private : bool) ?= false,
+  // Document non-exported items
+  (title : comptime_str) ?= "",
+  // Custom site title
+  (logo : comptime_str) ?= "",
+  // Sidebar header image
+  (favicon : comptime_str) ?= "" // Site icon
 );
 ```
 

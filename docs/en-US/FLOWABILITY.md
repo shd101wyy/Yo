@@ -18,12 +18,12 @@ rest of the enclosing block, to the storage `place` denotes:
 
 ```rust
 x := i32(1);
-inout(y) := x;        // y names x's slot
-y = i32(2);           // writes x
-x = i32(5);           // y reads 5: the binding names the SLOT, not a value
-inout(n) := h.n;      // a field of an RC object: h's object is pinned for the scope
-inout(px) := p.x;     // a field of a value struct
-copy := y;            // copies the pointee — there is no "inout type" to store
+inout(y) := x; // y names x's slot
+y = i32(2); // writes x
+x = i32(5); // y reads 5: the binding names the SLOT, not a value
+inout(n) := h.n; // a field of an RC object: h's object is pinned for the scope
+inout(px) := p.x; // a field of a value struct
+copy := y; // copies the pointee — there is no "inout type" to store
 ```
 
 A local binding accepts the same **places** an argument does (below), with
@@ -81,24 +81,32 @@ borrows from it"`) instead of corrupting memory. Same-cache-line load
 Containers hand out **values**, never pointers into their buffers:
 
 ```rust
-e := xs.get(i);          // object elements: a HANDLE to the element
-e.push_str("!");         //   mutates the element in place; the handle
-                         //   survives xs.push / realloc — it points at
-                         //   the String object, not into xs's buffer
-xs(i) = v;               // index WRITE for in-place element replacement
+e := xs.get(i); // object elements: a HANDLE to the element
+e.push_str("!"); //   mutates the element in place; the handle
+//   survives xs.push / realloc — it points at
+//   the String object, not into xs's buffer
+xs(i) = v; // index WRITE for in-place element replacement
 t := xs.get(i).unwrap(); // struct elements: copy out …
-xs(i) = t2;              //   … write back
-for(xs, (x) => { ... }); // iteration is the value form (into_iter)
+xs(i) = t2; //   … write back
+for(xs, x => { ... }); // iteration is the value form (into_iter)
 ```
 
 Elements can also be **borrowed**, in exactly one place: the borrowed
 `for`.
 
 ```rust
-for(enemies, inout(e) => { e.hp = (e.hp - i32(1)); });   // struct elements, in place
-for(names, inout(s) => { s.push_str("!"); });            // RC elements, no dup per element
-for(counts, inout(c) => { bump(c); });                   // hand the element to an inout param
-for(scores, (k, inout(v)) => { v = (v + i32(10)); });    // maps: key by value, value borrowed
+for(enemies, inout(e) => {
+  e.hp = (e.hp - i32(1));
+}); // struct elements, in place
+for(names, inout(s) => {
+  s.push_str("!");
+}); // RC elements, no dup per element
+for(counts, inout(c) => {
+  bump(c);
+}); // hand the element to an inout param
+for(scores, (k, inout(v)) => {
+  v = (v + i32(10));
+}); // maps: key by value, value borrowed
 ```
 
 The macro binds the collection to a hidden local (it cannot be freed while

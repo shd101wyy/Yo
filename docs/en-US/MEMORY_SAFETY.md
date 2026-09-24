@@ -39,7 +39,7 @@ main :: (fn() -> unit)({
   list.push(i32(3));
 
   total := i32(0);
-  for(list, (item) => {
+  for(list, item => {
     total = (total + item);
   });
   println("total = ${total}");
@@ -99,8 +99,8 @@ swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // no &() at the call site — `inout` is in the param spec
-  assert((x == i32(2)), "swapped");
+  swap(x, y); // no &() at the call site — `inout` is in the param spec
+  assert(x == i32(2), "swapped");
 });
 ```
 
@@ -147,7 +147,7 @@ Within a privileged file you still write the operations explicitly:
 pragma(Pragma.AllowUnsafe);
 { memcpy } :: import("std/libc/string");
 
-copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
+copy_bytes :: (fn(dst : *u8, src : *u8, n : usize) -> unit)({
   // The extern call MUST be wrapped in unsafe(...) — see "Per-Call
   // Audit Marker" below.
   unsafe(memcpy((*void)(dst), (*void)(src), n));
@@ -189,7 +189,7 @@ match(
   // SAFETY: idx has been bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer, alive while self
   // holds the Rc.
-  .Some(_ptr) => (_ptr.add(idx)),
+  .Some(_ptr) => _ptr.add(idx),
   .None => panic("ArrayList: index on empty list")
 )
 ```
@@ -295,8 +295,8 @@ Same workflow as writing FFI bindings in Swift or Go.
 **Integer overflow in `+`, `-`, `*`, and unary negation ABORTS with a diagnostic** — it never wraps silently and it is never undefined behavior. The same holds for division/remainder by zero (including `MIN / -1`) and for shift counts at or beyond the operand's width. Every message carries the source location; the abort is deterministic at every optimization level.
 
 ```rust
-x := i32(2147483647);   // i32 max
-y := (x + i32(1));      // aborts: "integer addition overflow (at file:line:col)"
+x := i32(2147483647); // i32 max
+y := (x + i32(1)); // aborts: "integer addition overflow (at file:line:col)"
 ```
 
 This is the runtime match of comptime's behavior, which already rejects overflowing constant expressions at compile time.
@@ -304,7 +304,7 @@ This is the runtime match of comptime's behavior, which already rejects overflow
 **Arithmetic that wraps BY DESIGN** — hash mixing, sequence counters, checksums — uses the explicit wrapping methods:
 
 ```rust
-h := state.wrapping_add(v);        // two's-complement wrap, never traps
+h := state.wrapping_add(v); // two's-complement wrap, never traps
 h := state.wrapping_mul(prime);
 d := state.wrapping_sub(inc);
 ```

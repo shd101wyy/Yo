@@ -57,7 +57,7 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     MInt(i : i32) -> recur(i32),
     MBool(b : bool) -> recur(bool),
-    MGeneric(v : T)  // no GADT annotation — unconstrained
+    MGeneric(v : T) // no GADT annotation — unconstrained
   )
 );
 ```
@@ -68,16 +68,19 @@ The core GADT feature: when pattern matching on a GADT value, the type system re
 
 ```rust
 eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
-  match(v,
-    .IntVal(i) => i,      // T refined to i32, so i : i32 and return i32 ✓
-    .BoolVal(b) => b,     // T refined to bool, so b : bool and return bool ✓
-    .PairVal(a, b) => a   // T refined to i32, so a : i32 and return i32 ✓
+  match(
+    v,
+    .IntVal(i) => i,
+    // T refined to i32, so i : i32 and return i32 ✓
+    .BoolVal(b) => b,
+    // T refined to bool, so b : bool and return bool ✓
+    .PairVal(a, b) => a // T refined to i32, so a : i32 and return i32 ✓
   )
 );
 
 // Usage:
 v := Value(i32).IntVal(i32(42));
-result := eval_value(v);  // result : i32 = 42
+result := eval_value(v); // result : i32 = 42
 ```
 
 Each branch can return a different concrete type — the type checker verifies each branch's return type matches the GADT-refined type parameter.
@@ -90,7 +93,8 @@ When matching a GADT value with a concrete type, the type system filters out unr
 // Value(i32) can only be IntVal or PairVal
 // BoolVal is unreachable (it returns Value(bool), not Value(i32))
 eval_int_only :: (fn(v : Value(i32)) -> i32)(
-  match(v,
+  match(
+    v,
     .IntVal(i) => i,
     .PairVal(a, b) => a
     // No .BoolVal needed — it's unreachable for Value(i32)

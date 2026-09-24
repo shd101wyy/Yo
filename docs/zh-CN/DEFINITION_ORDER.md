@@ -112,7 +112,8 @@ definition in the source
 
 ```rust
 N :: struct(value : i32);
-impl(N,
+impl(
+  N,
   is_even : (fn(n : i32) -> bool)(cond((n == i32(0)) => true, true => Self.is_odd(n - i32(1)))),
   is_odd : (fn(n : i32) -> bool)(cond((n == i32(0)) => false, true => Self.is_even(n - i32(1))))
 );

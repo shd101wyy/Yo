@@ -27,11 +27,11 @@ of a rune, or `len()`). ASCII text is unaffected — every byte is a boundary.
 
 //        a=1B @0   é=2B @1   中=3B @3   𝄞=4B @6   — 10 bytes, 4 runes
 s := String.from("aé中𝄞");
-s.len();                              // usize(10) — BYTES, O(1)
-s.chars().count();                    // usize(4)  — runes, O(n)
-s.substring(usize(3), usize(6));      // "中" — byte range [3, 6)
-s.index_of(String.from("中"));        // .Some(usize(3)) — a byte offset,
-                                      //   feed it straight back into substring
+s.len(); // usize(10) — BYTES, O(1)
+s.chars().count(); // usize(4)  — runes, O(n)
+s.substring(usize(3), usize(6)); // "中" — byte range [3, 6)
+s.index_of(String.from("中")); // .Some(usize(3)) — a byte offset,
+//   feed it straight back into substring
 ```
 
 `index_of`, `last_index_of`, the `s(a..b)` / `s(a..=b)` range sugar, and the
@@ -58,10 +58,10 @@ Stated once, on `substring`, and it applies to the `s(a..b)` sugar too:
 
 ```rust
 s := String.from("aé中𝄞");
-s.substring(usize(1), usize(2));      // PANICS — byte 2 is inside é
-s.try_substring(usize(1), usize(2));  // .None — same range, refused politely
-s.floor_char_boundary(usize(2));      // usize(1) — snap back to é's start
-s.substring(usize(0), usize(99));     // "aé中𝄞" — out-of-range clamps
+s.substring(usize(1), usize(2)); // PANICS — byte 2 is inside é
+s.try_substring(usize(1), usize(2)); // .None — same range, refused politely
+s.floor_char_boundary(usize(2)); // usize(1) — snap back to é's start
+s.substring(usize(0), usize(99)); // "aé中𝄞" — out-of-range clamps
 ```
 
 `at(i)` decodes the rune **starting** at byte `i` and answers `.None` for the
@@ -105,9 +105,8 @@ s := String.from("aé中𝄞");
 // the call site (`len()` is O(1) everywhere in std; Rust reserves `len()`
 // for ExactSizeIterator, which a chars iterator is not).
 n := s.chars().count(); // usize(4)
-
 // Walk runes with their byte offsets: p._0 = byte offset, p._1 = rune.
-for(s.char_indices(), (p) => { ... });
+for(s.char_indices(), p => { ... });
 
 // Truncate to at most n runes: the byte offset where rune n starts is the
 // cut point; fewer than n+1 runes means keep the whole string.
@@ -116,7 +115,6 @@ cut := match(
   .Some(p) => s.substring(usize(0), p._0),
   .None => s
 ); // "aé"
-
 // First rune + the rest.
 first := s.chars().next(); // Option(rune)
 ```
@@ -141,10 +139,10 @@ Since D4 PR 7 the `comptime_str` operations are byte-based too:
 
 ```rust
 s :: "aé中𝄞";
-comptime_assert(s.len() == 10);        // bytes, like the runtime len()
+comptime_assert(s.len() == 10); // bytes, like the runtime len()
 comptime_assert(s.slice(3, 6) == "中"); // byte offsets, like substring
-comptime_assert(s(1) == "é");           // the rune STARTING at byte 1
-comptime_assert(s(3 .. 6) == "中");     // byte range
+comptime_assert(s(1) == "é"); // the rune STARTING at byte 1
+comptime_assert(s(3 .. 6) == "中"); // byte range
 ```
 
 Two comptime-specific points:

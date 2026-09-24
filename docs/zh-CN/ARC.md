@@ -8,15 +8,19 @@
 ## 当前定义
 
 ```rust
-Arc :: (fn(comptime(V) : Type, where(V <: Send)) -> comptime(Type))
-  atomic(ref(struct(
-    (*) : V
-  )))
-;
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
+  atomic(
+    ref(
+      struct(
+        (*) : V
+      )
+    )
+  )
+);
 
-arc :: (fn(generic(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(
   Arc(V)(value)
-;
+);
 ```
 
 ## 什么时候使用 `Arc`
@@ -43,12 +47,12 @@ same := Arc(i32)(i32(42));
 
 ### 解引用
 
-通过 `.(*)` 访问内部值，它返回借用访问：
+通过 `.*` 访问内部值，它返回借用访问：
 
 ```rust
 value := arc(i32(42));
-copied := value.(*);
-assert((copied == i32(42)), "inner value is 42");
+copied := value.*;
+assert(copied == i32(42), "inner value is 42");
 ```
 
 ### 复制
@@ -60,23 +64,23 @@ a := arc(i32(42));
 b := a;
 c := b;
 
-assert((a.(*) == b.(*)), "same shared value");
-assert((b.(*) == c.(*)), "same shared value");
+assert(a.* == b.*, "same shared value");
+assert(b.* == c.*, "same shared value");
 ```
 
 ### 跨线程共享
 
 ```rust
-{ Thread } :: import "std/thread";
+{ Thread } :: import("std/thread");
 
 shared := arc(i32(42));
 
-t := Thread(unit).spawn((io) => {
-  assert((shared.(*) == i32(42)), "thread sees shared value");
+t := Thread(unit).spawn(io => {
+  assert(shared.* == i32(42), "thread sees shared value");
 });
 
 t.join();
-assert((shared.(*) == i32(42)), "main still sees shared value");
+assert(shared.* == i32(42), "main still sees shared value");
 ```
 
 ## `Arc`、`atomic(ref(struct(...)))` 与 `Iso` 的区别
@@ -91,7 +95,7 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 - **原子引用计数**：`Arc` 使用原子递增/递减操作。
 - **共享所有权**：复制 `Arc` 不会复制底层分配，只会共享它。
-- **借用解引用**：`.(*)` 提供对内部值的借用访问。
+- **借用解引用**：`.*` 提供对内部值的借用访问。
 - **销毁行为**：最后一个引用被释放时，会先 drop 内部值，再释放分配。
 - **闭包捕获**：闭包捕获 `Arc` 时会复制这份共享引用。
 

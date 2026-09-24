@@ -20,7 +20,7 @@ main :: (fn() -> unit) {
   use_id(dyn(box(true)));
 
   // Reference-semantics types can be used directly
-  point := Point(3, 4);
+  point := Point(x: 3, y: 4);
   use_id(dyn(point));
 };
 ```
@@ -63,14 +63,16 @@ void* data = point;                // Store Point pointer
 **Box Type Definition:**
 
 ```rust
-Box :: (fn(comptime(V) : Type) -> comptime(Type))
-  ref(struct(
-    (*) : V
-  ))
-;
-box :: (fn(generic(V : Type), value : V) -> Box(V))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      (*) : V
+    )
+  )
+);
+box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
-;
+);
 ```
 
 **Why this constraint?**
@@ -137,16 +139,14 @@ The constraint is **enforced at method call time**, not at trait definition. You
 
 ```rust
 // Value types must be boxed
-dyn(box(42));           // OK: box(42) returns Box(i32), which is an reference-semantics type
-dyn(box(true));         // OK: box(true) returns Box(bool)
-
+dyn(box(42)); // OK: box(42) returns Box(i32), which is an reference-semantics type
+dyn(box(true)); // OK: box(true) returns Box(bool)
 // Reference-semantics types can be used directly
-point := Point(3, 4);   // point : Point, Point is reference-semantics type
-dyn(point);             // OK: point is an reference-semantics type
-
+point := Point(x : 3, y : 4); // point : Point, Point is reference-semantics type
+dyn(point); // OK: point is an reference-semantics type
 // Direct value will be automatically boxed
-dyn(42);                // 42 becomes box(42) automatically
-dyn(true);              // true becomes box(true) automatically
+dyn(42); // 42 becomes box(42) automatically
+dyn(true); // true becomes box(true) automatically
 ```
 
 ### 4. Static Vtables and Wrappers
@@ -239,16 +239,19 @@ compile time, so `T` is never a runtime value).
 ```rust
 Animal :: trait(speak : (fn(self : Self) -> unit));
 // ... impl(Cat, Animal(...)); impl(Dog, Animal(...));
-
 animal := dyn(Cat.new());
 
-match(downcast(animal, Cat),
-  .Some(cat) => cat.purr(),      // the concrete Cat, RC'd and owned
+match(
+  downcast(animal, Cat),
+  .Some(cat) => cat.purr(),
+  // the concrete Cat, RC'd and owned
   .None => println(`not a cat`)
 );
 
 // Testing only, without using the value:
-if(downcast(animal, Dog).is_some(), { println(`a dog`); });
+if(downcast(animal, Dog).is_some(), {
+  println(`a dog`);
+});
 ```
 
 **How the check works.** Every `Dyn` vtable carries a `__yo_type_id` field, and

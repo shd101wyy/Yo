@@ -45,12 +45,12 @@ asm(template, operands..., options...)
 asm("nop");
 
 // Read timestamp counter — single output
-tsc := asm("rdtsc",
+tsc := asm(
+  "rdtsc",
   out("eax", u32),
   out("edx", u32)
 );
 // tsc : tuple(u32, u32) — destructure with: (lo, hi) := ...
-
 // Add with clobber
 result := asm(
   "add {dst}, {src}",
@@ -107,7 +107,8 @@ Modifiers control **which sub-register name** is emitted for a placeholder. This
 
 ```rust
 result := asm(
-  "movzx {out}, {in:l}",    // Use 8-bit low name of {in}
+  "movzx {out}, {in:l}",
+  // Use 8-bit low name of {in}
   out("out", reg, u32),
   in("in", reg, byte_val)
 );
@@ -131,7 +132,8 @@ result := asm(
 Use `\n` or `;` to separate instructions within a single template:
 
 ```rust
-asm("push {val}\npop {out}",
+asm(
+  "push {val}\npop {out}",
   in("val", reg, x),
   out("out", reg, u64)
 );
@@ -186,14 +188,15 @@ The `Type` is a Yo type (not a value) — `asm` returns this type.
 
 ```rust
 // Single output
-count := asm("popcnt {out}, {in}",
+count := asm(
+  "popcnt {out}, {in}",
   out("out", reg, u64),
   in("in", reg, value)
 );
 // count : u64
-
 // Specific register output
-result := asm("rdtsc",
+result := asm(
+  "rdtsc",
   out("eax", u32),
   out("edx", u32)
 );
@@ -211,8 +214,9 @@ inout(name?, constraint, value)
 The output type is inferred from the input expression's type.
 
 ```rust
-x : i32 = 42;
-result := asm("add {val}, {addend}",
+(x : i32) = i32(42);
+result := asm(
+  "add {val}, {addend}",
   inout("val", reg, x),
   in("addend", reg, i32(10))
 );
@@ -228,7 +232,8 @@ lateout(name?, constraint, Type)
 ```
 
 ```rust
-result := asm("compute {out}, {a}, {b}",
+result := asm(
+  "compute {out}, {a}, {b}",
   lateout("out", reg, u64),
   in("a", reg, x),
   in("b", reg, y)
@@ -258,7 +263,8 @@ const_val(name?, value)
 
 ```rust
 // Inline a syscall number as an immediate
-asm("mov rax, {num}\nsyscall",
+asm(
+  "mov rax, {num}\nsyscall",
   const_val("num", u64(60)),
   in("rdi", u64(0)),
   clobber("rcx", "r11", "memory")
@@ -266,7 +272,8 @@ asm("mov rax, {num}\nsyscall",
 
 // Inline a computed constant
 BUFFER_SIZE :: 4096;
-asm("sub rsp, {size}",
+asm(
+  "sub rsp, {size}",
   const_val("size", BUFFER_SIZE)
 );
 ```
@@ -294,11 +301,14 @@ sym(name?, symbol)
 | `symbol`  | extern function or global    | The symbol whose address to reference |
 
 ```rust
-extern "C",
-  memcpy : (fn(dest: *(u8), src: *(u8), n: usize) -> *(u8));
+extern(
+  "c",
+  memcpy : (fn(dest : *u8, src : *u8, n : usize) -> *u8)
+);
 
 // Call an extern function from inline asm
-asm("call {func}",
+asm(
+  "call {func}",
   sym("func", memcpy),
   in("rdi", dest),
   in("rsi", src),
@@ -319,11 +329,13 @@ Use `_` as the output target to **clobber a specific register** without binding 
 
 ```rust
 // CPUID: we only need eax and ecx, discard ebx and edx
-(out_eax, out_ecx) := asm("cpuid",
+(out_eax, out_ecx) := asm(
+  "cpuid",
   inout("eax", leaf),
-  out("ebx", _),          // clobbered, value discarded
+  out("ebx", _),
+  // clobbered, value discarded
   inout("ecx", subleaf),
-  out("edx", _)           // clobbered, value discarded
+  out("edx", _) // clobbered, value discarded
 );
 ```
 
@@ -384,19 +396,27 @@ Use a specific register by passing its name as a `comptime_str`:
 
 ```rust
 // x86_64 specific registers
-asm("syscall",
-  in("rax", u64(1)),     // syscall number
-  in("rdi", u64(1)),     // fd = stdout
-  in("rsi", buf_ptr),    // buffer
-  in("rdx", u64(13))     // length
+asm(
+  "syscall",
+  in("rax", u64(1)),
+  // syscall number
+  in("rdi", u64(1)),
+  // fd = stdout
+  in("rsi", buf_ptr),
+  // buffer
+  in("rdx", u64(13)) // length
 );
 
 // aarch64 specific registers
-asm("svc #0",
-  in("x8", u64(64)),    // syscall number (write)
-  in("x0", u64(1)),     // fd
-  in("x1", buf_ptr),    // buffer
-  in("x2", u64(13))     // length
+asm(
+  "svc #0",
+  in("x8", u64(64)),
+  // syscall number (write)
+  in("x0", u64(1)),
+  // fd
+  in("x1", buf_ptr),
+  // buffer
+  in("x2", u64(13)) // length
 );
 ```
 
@@ -414,9 +434,12 @@ Supported explicit register names per architecture:
 For advanced use, pass a raw GCC constraint string (prefixed with `=` or `+` automatically for outputs):
 
 ```rust
-asm("divq {divisor}",
-  inout(raw("a"), lo),       // rax: quotient + low input
-  lateout(raw("d"), u64),    // rdx: remainder
+asm(
+  "divq {divisor}",
+  inout(raw("a"), lo),
+  // rax: quotient + low input
+  lateout(raw("d"), u64),
+  // rdx: remainder
   in("divisor", reg, divisor),
   clobber("cc")
 );
@@ -444,7 +467,8 @@ Special clobber values:
 | `"cc"`     | Assembly modifies the condition/status flags           |
 
 ```rust
-asm("lock; xadd {old}, ({ptr})",
+asm(
+  "lock; xadd {old}, ({ptr})",
   out("old", reg, i32),
   in("ptr", reg, &counter),
   clobber("memory", "cc")
@@ -454,8 +478,9 @@ asm("lock; xadd {old}, ({ptr})",
 Multiple clobbers can be passed as separate arguments or in a single call:
 
 ```rust
-clobber("memory", "cc")       // multiple in one call
-clobber("memory"), clobber("cc")  // separate calls — equivalent
+clobber("memory", "cc"); // multiple in one call
+clobber("memory");
+clobber("cc"); // separate calls — equivalent
 ```
 
 ### 6.2. `clobber_abi` — ABI Register Clobbers
@@ -494,7 +519,8 @@ asm_options(option1, option2, ...)
 
 ```rust
 // Pure computation — optimizer can move/eliminate
-tsc := asm("rdtsc",
+tsc := asm(
+  "rdtsc",
   out("eax", u32),
   out("edx", u32),
   asm_options(pure, nomem, nostack)
@@ -512,7 +538,8 @@ When `noreturn` is specified, the assembly block **never returns** to the follow
 asm("ud2", asm_options(noreturn));
 
 // Kernel entry point — jumps and never comes back
-asm("jmp {entry}",
+asm(
+  "jmp {entry}",
   sym("entry", kernel_main),
   asm_options(noreturn)
 );
@@ -542,7 +569,8 @@ asm(
 );
 
 // Equivalent single-string form:
-asm("push {val}\nshl {val}, 2\npop {out}",
+asm(
+  "push {val}\nshl {val}, 2\npop {out}",
   in("val", reg, x),
   out("out", reg, u64)
 );
@@ -564,11 +592,12 @@ When the last argument to `out` / `lateout` is a **type**, the output becomes pa
 // Single return-value output
 result := asm("rdtsc", out("eax", u32));
 // result : u32
-
 // Multiple return-value outputs → tuple
-(lo, hi) := asm("rdtsc",
-  out("eax", u32),   // tuple field 0
-  out("edx", u32)    // tuple field 1
+(lo, hi) := asm(
+  "rdtsc",
+  out("eax", u32),
+  // tuple field 0
+  out("edx", u32) // tuple field 1
 );
 // (lo, hi) : tuple(u32, u32)
 ```
@@ -590,13 +619,15 @@ When the last argument to `out` / `lateout` is a **variable**, the assembly writ
 
 ```rust
 // Declare uninitialized variables
-(lo : u32);
-(hi : u32);
+lo : u32;
+hi : u32;
 
 // asm writes to them — marks them as initialized
-asm("rdtsc",
-  out("eax", lo),    // writes to lo
-  out("edx", hi)     // writes to hi
+asm(
+  "rdtsc",
+  out("eax", lo),
+  // writes to lo
+  out("edx", hi) // writes to hi
 );
 
 // lo and hi are now initialized and usable
@@ -615,12 +646,11 @@ Since Yo does not allow variable shadowing, there is no ambiguity between type n
 The evaluator marks variable-target outputs as **initialized** after the `asm` expression. Before the `asm`, using the variable is a compile-time error:
 
 ```rust
-(x : i32);
+x : i32;
 // print(x);  // ERROR: variable 'x' is not initialized
-
 asm("mov {0}, $42", out(reg, x));
 
-print(x);  // OK: x is now initialized by asm
+print(x); // OK: x is now initialized by asm
 ```
 
 **Variable-target outputs do NOT contribute to the return type.** Only return-value outputs and `inout` operands determine the return type.
@@ -630,11 +660,14 @@ print(x);  // OK: x is now initialized by asm
 Variable-target and return-value outputs can coexist:
 
 ```rust
-(remainder : u64);
+remainder : u64;
 
-quotient := asm("divq {divisor}",
-  inout("eax", lo),               // return-value (inout always returns)
-  out("edx", remainder),          // variable-target (writes to remainder)
+quotient := asm(
+  "divq {divisor}",
+  inout("eax", lo),
+  // return-value (inout always returns)
+  out("edx", remainder),
+  // variable-target (writes to remainder)
   in("divisor", reg, divisor),
   clobber("cc")
 );
@@ -647,8 +680,8 @@ quotient := asm("divq {divisor}",
 **Yo source:**
 
 ```rust
-(lo : u32);
-(hi : u32);
+lo : u32;
+hi : u32;
 asm("rdtsc", out("eax", lo), out("edx", hi));
 ```
 
@@ -701,7 +734,8 @@ Yo template placeholders are transformed to GCC operand references:
 **Yo source:**
 
 ```rust
-(lo, hi) := asm("rdtsc",
+(lo, hi) := asm(
+  "rdtsc",
   out("lo", "eax", u32),
   out("hi", "edx", u32)
 );
@@ -726,7 +760,8 @@ __asm__ __volatile__ (
 **Yo source:**
 
 ```rust
-result := asm("add {val}, {addend}",
+result := asm(
+  "add {val}, {addend}",
   inout("val", reg, x),
   in("addend", reg, y),
   clobber("cc")
@@ -765,7 +800,8 @@ __asm__ __volatile__ ("mfence" ::: "memory");
 **Yo source:**
 
 ```rust
-result := asm("mov {out}, {in}",
+result := asm(
+  "mov {out}, {in}",
   out("out", reg, u64),
   in("in", reg, value),
   asm_options(intel_syntax)
@@ -796,9 +832,7 @@ For assembly that lives **outside** any function (data sections, function prolog
 global_asm(".section .note.GNU-stack,\"\",@progbits");
 
 global_asm(
-  ".global my_asm_func\n"
-  "my_asm_func:\n"
-  "  ret"
+  ".global my_asm_func\nmy_asm_func:\n  ret"
 );
 ```
 
@@ -853,7 +887,8 @@ arch :: __yo_process_arch();
 rdtsc :: (fn() -> u64)(
   cond(
     (arch == Arch.X86_64) => {
-      (lo, hi) := asm("rdtsc",
+      (lo, hi) := asm(
+        "rdtsc",
         out("eax", u32),
         out("edx", u32),
         asm_options(pure, nomem, nostack)
@@ -861,7 +896,8 @@ rdtsc :: (fn() -> u64)(
       (u64(hi) << u64(32)) | u64(lo);
     },
     (arch == Arch.Aarch64) => {
-      asm("mrs {0}, cntvct_el0",
+      asm(
+        "mrs {0}, cntvct_el0",
         out(reg, u64),
         asm_options(pure, nomem, nostack)
       );
@@ -925,13 +961,16 @@ The compile-time validation catches structural errors (bad template, wrong types
 ### 12.1. x86_64 Syscall (Linux write)
 
 ```rust
-sys_write :: (fn(fd: u64, buf: *(u8), len: u64) -> i64)(
-  asm("syscall",
-    in("rax", u64(1)),     // SYS_write
+sys_write :: (fn(fd : u64, buf : *u8, len : u64) -> i64)(
+  asm(
+    "syscall",
+    in("rax", u64(1)),
+    // SYS_write
     in("rdi", fd),
     in("rsi", buf),
     in("rdx", len),
-    out("rax", i64),       // return value
+    out("rax", i64),
+    // return value
     clobber("rcx", "r11", "memory")
   )
 );
@@ -940,19 +979,17 @@ sys_write :: (fn(fd: u64, buf: *(u8), len: u64) -> i64)(
 ### 12.2. Atomic Compare-and-Swap (x86_64)
 
 ```rust
-cas :: (fn(ptr: *(i32), expected: i32, desired: i32) -> tuple(i32, bool))(
-  {
-    prev := asm(
-      "lock cmpxchg {ptr_mem}, {desired}",
-      inout("eax", expected),
-      in("desired", reg, desired),
-      in("ptr_mem", mem, ptr),
-      clobber("cc", "memory")
-    );
-    (old, success) := (prev, (prev == expected));
-    (old, success);
-  }
-);
+cas :: (fn(ptr : *i32, expected : i32, desired : i32) -> tuple(i32, bool))({
+  prev := asm(
+    "lock cmpxchg {ptr_mem}, {desired}",
+    inout("eax", expected),
+    in("desired", reg, desired),
+    in("ptr_mem", mem, ptr),
+    clobber("cc", "memory")
+  );
+  (old, success) := (prev, prev == expected);
+  (old, success);
+});
 ```
 
 ### 12.3. ARM64 Memory Barrier
@@ -966,19 +1003,18 @@ dmb_ish :: (fn() -> unit)(
 ### 12.4. CPUID (x86_64)
 
 ```rust
-CpuidResult :: struct(eax: u32, ebx: u32, ecx: u32, edx: u32);
+CpuidResult :: struct(eax : u32, ebx : u32, ecx : u32, edx : u32);
 
-cpuid :: (fn(leaf: u32, subleaf: u32) -> CpuidResult)(
-  {
-    (out_eax, out_ebx, out_ecx, out_edx) := asm("cpuid",
-      inout("eax", leaf),
-      out("ebx", u32),
-      inout("ecx", subleaf),
-      out("edx", u32)
-    );
-    CpuidResult(out_eax, out_ebx, out_ecx, out_edx);
-  }
-);
+cpuid :: (fn(leaf : u32, subleaf : u32) -> CpuidResult)({
+  (out_eax, out_ebx, out_ecx, out_edx) := asm(
+    "cpuid",
+    inout("eax", leaf),
+    out("ebx", u32),
+    inout("ecx", subleaf),
+    out("edx", u32)
+  );
+  CpuidResult(out_eax, out_ebx, out_ecx, out_edx);
+});
 ```
 
 ### 12.5. Spin-Wait Hint
@@ -988,7 +1024,7 @@ spin_hint :: (fn() -> unit)(
   cond(
     (arch == Arch.X86_64) => asm("pause"),
     (arch == Arch.Aarch64) => asm("yield"),
-    true => ()  // no-op on other architectures
+    true => () // no-op on other architectures
   )
 );
 ```
@@ -999,15 +1035,17 @@ spin_hint :: (fn() -> unit)(
 perf_counter :: (fn() -> u64)(
   cond(
     (arch == Arch.X86_64) => {
-      (lo, hi) := asm("rdtsc",
+      (lo, hi) := asm(
+        "rdtsc",
         out("eax", u32),
         out("edx", u32),
         asm_options(pure, nomem, nostack)
       );
-      ((u64(hi) << u64(32)) | u64(lo));
+      (u64(hi) << u64(32)) | u64(lo);
     },
     (arch == Arch.Aarch64) =>
-      asm("mrs {0}, cntvct_el0",
+      asm(
+        "mrs {0}, cntvct_el0",
         out(reg, u64),
         asm_options(pure, nomem, nostack)
       ),
@@ -1019,25 +1057,27 @@ perf_counter :: (fn() -> u64)(
 ### 12.7. Byte Swap
 
 ```rust
-bswap32 :: (fn(value: u32) -> u32)(
+bswap32 :: (fn(value : u32) -> u32)(
   cond(
     (arch == Arch.X86_64) =>
-      asm("bswap {0}",
+      asm(
+        "bswap {0}",
         inout(reg, value),
         asm_options(pure, nomem, nostack)
       ),
     (arch == Arch.Aarch64) =>
-      asm("rev {0}, {1}",
+      asm(
+        "rev {0}, {1}",
         out(reg, u32),
         in(reg, value),
         asm_options(pure, nomem, nostack)
       ),
     true => {
       // Fallback: manual byte swap
-      (((value >> u32(24)) & u32(0xFF)) |
-       (((value >> u32(16)) & u32(0xFF)) << u32(8)) |
-       (((value >> u32(8)) & u32(0xFF)) << u32(16)) |
-       ((value & u32(0xFF)) << u32(24)));
+      ((value >> u32(24)) & u32(0xFF)) |
+        (((value >> u32(16)) & u32(0xFF)) << u32(8)) |
+          (((value >> u32(8)) & u32(0xFF)) << u32(16)) |
+            ((value & u32(0xFF)) << u32(24));
     }
   )
 );
@@ -1053,10 +1093,10 @@ A standard library module providing portable wrappers for common intrinsics:
 
 ```rust
 // std/arch/x86_64.yo
-open import "std/arch/x86_64";
+{ ... } :: import("std/arch/x86_64");
 
-result := _mm_add_ps(a, b);  // SSE add
-tsc := rdtsc();               // wraps asm("rdtsc", ...)
+result := _mm_add_ps(a, b); // SSE add
+tsc := rdtsc(); // wraps asm("rdtsc", ...)
 ```
 
 ### 13.2. MSVC Intrinsic Mapping
