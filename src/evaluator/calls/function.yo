@@ -71,7 +71,11 @@ pragma(Pragma.AllowUnsafe);
   get_receiver_methods_by_name_from_env,
   get_type_trait_methods_by_name_from_env,
   snapshot_env,
-  capture_env_for
+  capture_env_for,
+  FvCaptureSource,
+  fv_capture_source,
+  fv_source_name,
+  fv_source_ty
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep } :: import("../types/function.yo");
@@ -1932,7 +1936,7 @@ _funcval_bind_foralls :: (
     forall_names : ArrayList(String),
     param_type_names : ArrayList(String),
     evaled_arg_infos : ArrayList(ExprInfo),
-    cap_names : ArrayList(String),
+    cap_src : FvCaptureSource,
     cap_vals : ArrayList(EvalValue),
     recv_type_args : ArrayList(TypeValue),
     fresh_env : Environment,
@@ -2169,8 +2173,8 @@ _funcval_bind_foralls :: (
     // issues/fixed/generic-impl-fromjson-container-decode-failures.md.
     if(!(fa_bound), {
       (fcap_i : usize) = usize(0);
-      while((fcap_i < cap_names.len()) && !(fa_bound), {
-        if(match(cap_names.get(fcap_i), .Some(cn) => (cn == fa_name), .None => false), {
+      while((fcap_i < cap_vals.len()) && !(fa_bound), {
+        if(fv_source_name(cap_src, fcap_i) == fa_name, {
           match(
             cap_vals.get(fcap_i),
             .Some(cvv) => match(
@@ -3743,12 +3747,11 @@ evaluate_function_call :: (
           op_fv,
           .FuncVal(__fvm4, op_cvals) => {
             op_pnames := __fvm4.*.params;
-            op_cnames := __fvm4.*.cap_names;
-            op_ctys := __fvm4.*.cap_tys;
+            op_csrc := fv_capture_source(__fvm4.*);
             (oci : usize) = usize(0);
-            while(oci < op_cnames.len(), {
-              ocn := match(op_cnames.get(oci), .Some(n) => n, .None => String.from(""));
-              oct := match(op_ctys.get(oci), .Some(t) => t, .None => t_unit());
+            while(oci < op_cvals.len(), {
+              ocn := fv_source_name(op_csrc, oci);
+              oct := fv_source_ty(op_csrc, oci);
               ocv := match(op_cvals.get(oci), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
               _oac := add_variable_to_env(op_env, ocn, oct, ocv, match(ocv, .Some(_) => true, .None => false), false, false, false, synthetic_token(ocn, op_env.module_path));
               oci = (oci + usize(1));
@@ -5874,7 +5877,7 @@ Fix: wrap the call:
           forall_names,
           param_type_names,
           evaled_arg_infos,
-          cap_names,
+          fv_capture_source(__fvm7.*),
           cap_vals,
           recv_type_args,
           fresh_env,
@@ -7262,12 +7265,11 @@ Fix: wrap the call:
               m_fv,
               .FuncVal(__fvm5, m_cvals) => {
                 m_pnames := __fvm5.*.params;
-                m_cnames := __fvm5.*.cap_names;
-                m_ctys := __fvm5.*.cap_tys;
+                m_csrc := fv_capture_source(__fvm5.*);
                 (mci : usize) = usize(0);
-                while(mci < m_cnames.len(), {
-                  mcn := match(m_cnames.get(mci), .Some(n) => n, .None => String.from(""));
-                  mct := match(m_ctys.get(mci), .Some(t) => t, .None => t_unit());
+                while(mci < m_cvals.len(), {
+                  mcn := fv_source_name(m_csrc, mci);
+                  mct := fv_source_ty(m_csrc, mci);
                   mcv := match(m_cvals.get(mci), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
                   _mac := add_variable_to_env(m_env, mcn, mct, mcv, match(mcv, .Some(_) => true, .None => false), false, false, false, synthetic_token(mcn, m_env.module_path));
                   mci = (mci + usize(1));

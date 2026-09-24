@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-24 — `check src/main.yo` 19.9 → 5.96 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6). Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the flat capture triple (~0.8 GB), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-24 — `check src/main.yo` 19.9 → 5.47 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7). Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1189,6 +1189,44 @@ for lists, by live capacity):
 - **Frame variable lists:** 273 K `ArrayList(Variable)` hold 27.5 M handles
   (5 M distinct `Variable`s) in 42.3 M slots — frames rebuilt per capture/def
   env. Covered partly by the capture work above.
+
+### 0.7 Capture names and types from the shared handles (2026-09-24)
+
+The first half of the `FUNCVAL_ENV_SHARING.md` "endgame deletion": a FuncVal
+made at a **definition site** (`try_to_implement_function_by_function_type`,
+`evaluate_anonymous_function_implementation`) no longer stores `cap_names` /
+`cap_tys`. Its registered `Variable` handles were built by the same walk, in
+the same order, as `cap_vals`, so position `i` of the handle list names and
+types value `i`. Readers go through `FvCaptureSource` (`src/env.yo`), resolved
+once per loop (`fv_capture_source` / `fv_source_name` / `fv_source_ty`, plus
+`fv_capture_has_name` and the materializing `fv_capture_names` / `_tys` for
+the few sites that pass lists on). `cap_vals`, the def-time value snapshot,
+stays on every FuncVal. `check src/main.yo` **5.96 → 5.47 GB (−0.49 GB, −8 %)**,
+wall 92 → 90.5 s; the self-emit is byte-identical to develop's.
+
+**Why DERIVED FuncVals keep flat lists (found the hard way).** The first
+version dropped the lists at the specialization / ctl / impl-inject sites too,
+and stage 1 then failed to compile `src/main.yo` ("Type mismatch for type
+member `value`: expected `*(u8)`, got `*(ArrayList(u8))`"). A registered list
+only ever grows at its END: `adopt_resolved_definition` appends a forced
+definition to the shared capture frame, which aliases the list. A derived site
+copies the parent's WHOLE handle list — appended definitions included — and
+then appends its own bindings, while its `cap_vals` copies only the parent's
+original values. From that point handle position ≠ value position, and the
+forall lookup by name read the wrong slot. Definition-site lists stay aligned
+(the appended definitions sit after every original position; the two shrink
+sites — `comptime_expect_error`'s stranded-variable pop and the c_include /
+extern scratch truncation — only undo entries added during the current
+evaluation). Derived sites now build flat names/types from the parent's
+`FvCaptureSource`.
+
+**Next lever here (~0.5 GB, not built):** derived FuncVals still COPY their
+parent's handle list, flat names/types and values (the impl-inject and
+specialization sites hold ~12 M live slots of each). Sharing the parent's
+capture prefix by reference — `(parent env_key, own appended handles, own
+values)` with `capture_env_for` concatenating at first call, which it already
+memoises per key — removes all four copies. It needs a `cap_vals`
+representation that is not a flat per-FuncVal list, so it is its own step.
 
 ### Phase 6 — per-object layout: header and `Variable`
 

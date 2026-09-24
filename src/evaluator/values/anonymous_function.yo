@@ -983,8 +983,8 @@ evaluate_anonymous_function_implementation :: (
   // This must happen BEFORE pushing the parameter frame so we only capture
   // the outer lexical scope (params are bound fresh at each call site).
   // -------------------------------------------------------------------------
-  cap_names := ArrayList(String).new();
-  cap_tys := ArrayList(TypeValue).new();
+  // Names and types come from `cap_vars` (registered below); only the value
+  // snapshot is kept flat (`fv_capture_names`, §0.7 of the memory plan).
   cap_vals := ArrayList(EvalValue).new();
   // Campaign 2 (plans/backlog/FUNCVAL_ENV_SHARING.md): the same walk also snapshots
   // the ORIGINAL Variable handles, so `capture_env_for` can build the call
@@ -1004,8 +1004,6 @@ evaluate_anonymous_function_implementation :: (
             .Some(cv) => {
               cond(
                 !(cv.name == "__recur_fn") => {
-                  cap_names.push(cv.name);
-                  cap_tys.push(cv.ty);
                   cap_val := match(
                     cv.value.get(usize(0)),
                     .Some(actual) => actual,
@@ -1257,8 +1255,8 @@ evaluate_anonymous_function_implementation :: (
         param_type_names : param_type_names,
         evidence_params : implicit_labels,
         body : body_expr,
-        cap_names : cap_names,
-        cap_tys : cap_tys,
+        cap_names : ArrayList(String).new(),
+        cap_tys : ArrayList(TypeValue).new(),
         func_id : func_id.clone(),
         env_key : fv_env_key
       )

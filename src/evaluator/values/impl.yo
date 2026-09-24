@@ -53,6 +53,9 @@ pragma(Pragma.AllowUnsafe);
   snapshot_env,
   synthetic_token,
   get_funcval_cap_vars,
+  fv_capture_source,
+  fv_source_name,
+  fv_source_ty,
   make_capture_variable,
   mint_funcval_env_key,
   register_funcval_cap_vars,
@@ -1597,8 +1600,7 @@ _inject_forall_captures :: (
         ptns := __fvm9.*.param_type_names;
         evs := __fvm9.*.evidence_params;
         body := __fvm9.*.body;
-        cns := __fvm9.*.cap_names;
-        cts := __fvm9.*.cap_tys;
+        csrc := fv_capture_source(__fvm9.*);
         fid := __fvm9.*.func_id;
         ifc_orig_env_key := __fvm9.*.env_key;
         memo_key := fid.clone();
@@ -1671,9 +1673,9 @@ _inject_forall_captures :: (
             );
             // Copy existing captures (do not mutate the registry's arrays).
             (ci : usize) = usize(0);
-            while(ci < cns.len(), {
-              new_cns.push(match(cns.get(ci), .Some(x) => x, .None => String.from("")));
-              new_cts.push(match(cts.get(ci), .Some(x) => x, .None => t_unit()));
+            while(ci < cvs.len(), {
+              new_cns.push(fv_source_name(csrc, ci));
+              new_cts.push(fv_source_ty(csrc, ci));
               new_cvs.push(match(cvs.get(ci), .Some(x) => x, .None => EvalValue.UnitVal));
               ci = (ci + usize(1));
             });
@@ -1749,6 +1751,8 @@ _inject_forall_captures :: (
               ifc_env_key = mint_funcval_env_key();
               register_funcval_cap_vars(ifc_env_key, new_cvars);
             });
+            // Flat names/types (a derived handle list is not parallel to its
+            // values — see create_specialized_function_inline, memory plan §0.7).
             injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
             g_ifc_memo.insert(memo_key, injected);
             Option(EvalValue).Some(injected)
