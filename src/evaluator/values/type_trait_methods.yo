@@ -178,6 +178,34 @@ set_registration_owner :: (fn(owner : String) -> unit)({
 /// The current owner tag ("" outside any module evaluation). Read by this
 /// module's own registration and by impl.yo's generic-impl registry.
 registration_owner :: (fn() -> String)(_registration_owner.clone());
+/// Expression ids by owner, for the ExprId-keyed side tables in
+/// `src/expr_info.yo` (method-callee values/types, macro expansions, arm
+/// init ranges, io-builtin calls). An id is recorded when a table is written
+/// while `owner`'s evaluation (or a lazily forced definition of it) is active;
+/// the tables are keyed by that module's AST nodes or their evaluation-time
+/// clones, which die with the module (plans/EVALUATOR_MEMORY_REDUCTION.md
+/// Phase 1 step 5).
+(g_owned_expr_ids : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
+/// Record expression id `id` under the current owner (no-op outside a module load).
+record_owned_expr_id :: (fn(id : usize) -> unit)({
+  if(_registration_owner.len() == usize(0), {
+    return(());
+  });
+  match(
+    g_owned_expr_ids.get(_registration_owner.clone()),
+    .Some(ids) => ids.push(id),
+    .None => {
+      ids := ArrayList(usize).new();
+      ids.push(id);
+      g_owned_expr_ids.insert(_registration_owner.clone(), ids);
+      ()
+    }
+  );
+});
+/// Remove and return the expression ids `owner`'s evaluation recorded.
+take_owned_expr_ids :: (fn(owner : String) -> ArrayList(usize))(
+  match(g_owned_expr_ids.remove(owner), .Some(ids) => ids, .None => ArrayList(usize).new())
+);
 /// Record `func_id` under the current owner (no-op outside a module load).
 record_owned_func_id :: (fn(func_id : String) -> unit)({
   if(_registration_owner.len() == usize(0), {
@@ -863,6 +891,8 @@ export(
   registration_owner,
   record_owned_func_id,
   take_owned_func_ids,
+  record_owned_expr_id,
+  take_owned_expr_ids,
   purge_type_trait_methods_owned_by,
   type_trait_methods_entry_count
 );

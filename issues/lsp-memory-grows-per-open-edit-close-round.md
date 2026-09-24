@@ -37,9 +37,17 @@ different holder).
 | 10 documents × 1 round | 0.44 GB | 0.42 GB |
 | 10 documents × 5 rounds | 1.19 GB | 0.98 GB |
 
-Still open: ~0.14 GB per round. Next step: re-run the holder census
-(`scripts/bootstrap/holder_census_t.py`, 1 vs 5 rounds) on the current tree
-and compare the `H` rows per root.
+Third and fourth steps (plans §5 Phase 1 step 5, batches 1–2): the
+per-function side tables (#883) and the ExprId-keyed side tables:
+
+| session (stage-2 compilers) | before | after |
+| --- | --- | --- |
+| 10 documents × 5 rounds, batch 1 | 0.98 GB | 0.97 GB |
+| 10 documents × 5 rounds, batch 2 | 0.96 GB | 0.90 GB |
+
+Still open: 56 registries grew per round before these batches; the
+`HOLDER_DEEP` census ranks what remains (`g_ifc_memo`, the type-id
+registries, `g_frame_indexes`, unreachable objects).
 
 ## Expected
 

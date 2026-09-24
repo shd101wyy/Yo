@@ -42,7 +42,7 @@ env_mod :: import("std/env");
   BK_IMPORT
 } :: import("./expr.yo");
 { fnv1a64 } :: import("./utils.yo");
-{ ExprInfoTable } :: import("./expr_info.yo");
+{ ExprInfoTable, purge_expr_side_tables } :: import("./expr_info.yo");
 { parse } :: import("./parser.yo");
 { Environment, clone_env, build_prelude_var_cache, purge_funcval_cap_vars_owned_by } :: import("./env.yo");
 {
@@ -88,7 +88,7 @@ env_mod :: import("std/env");
   file_exists_sync
 } :: import("./manifest.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot, mark_owner_always_visible } :: import("./evaluator/module_loader.yo");
-{ purge_type_trait_methods_owned_by, purge_trait_impl_sites_owned_by, take_owned_func_ids } :: import("./evaluator/values/type_trait_methods.yo");
+{ purge_type_trait_methods_owned_by, purge_trait_impl_sites_owned_by, take_owned_func_ids, take_owned_expr_ids } :: import("./evaluator/values/type_trait_methods.yo");
 { purge_function_side_tables } :: import("./evaluator/types/function.yo");
 { purge_function_value_tables } :: import("./function_value.yo");
 { purge_generic_impls_owned_by, purge_concrete_trait_impls_owned_by } :: import("./evaluator/values/impl.yo");
@@ -564,9 +564,10 @@ mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
         purge_concrete_trait_impls_owned_by(owner.clone());
         purge_generic_impls_owned_by(owner.clone());
         purge_funcval_cap_vars_owned_by(owner.clone());
-        owned_fids := take_owned_func_ids(owner);
+        owned_fids := take_owned_func_ids(owner.clone());
         purge_function_side_tables(owned_fids.clone());
         purge_function_value_tables(owned_fids);
+        purge_expr_side_tables(take_owned_expr_ids(owner));
       },
       .None => ()
     );
