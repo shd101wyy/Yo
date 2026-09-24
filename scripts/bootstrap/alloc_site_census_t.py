@@ -1,84 +1,116 @@
-"""Allocation-site attribution for live TypeValue objects (on top of heap_walk_census.py output).
+"""Allocation-site attribution for the objects still live at exit.
 
-Each TypeValue variant ctor becomes noinline and records (obj -> return address
-depth 0 and 1) in an open-addressing side table; the TypeValue dispose fn clears
-it; the heap walk histograms live objects by (tag, ra0, ra1).
-
-plans/EVALUATOR_MEMORY_REDUCTION.md §0.5 (found the substitute-path leak).
+plans/EVALUATOR_MEMORY_REDUCTION.md §0.5 (this is what found the
+`f(match(...))` argument leak). For every constructor of the selected types
+(tracked OR untracked), the instrumented binary records obj -> (return address
+depth 0, depth 1) in an open-addressing side table, clears the entry in the
+type's dispose function, and at exit histograms the surviving entries by
+(type, variant tag for ref enums, ra0, ra1). Because the table itself is the
+live set, untracked (16 B header) types are covered, unlike the heap walk.
 macOS-only as written (`_dyld_get_image_header` for the ASLR base).
 
-Usage (after heap_walk_census_t.py):
-  python3 scripts/bootstrap/alloc_site_census_t.py /tmp/re/c2.c /tmp/re/c3.c /tmp/re/sites_dump.txt
-  clang ... -O1 -fno-omit-frame-pointer -o /tmp/re/yo_sites /tmp/re/c3.c ...   (same flags as above)
-  /tmp/re/yo_sites check src/main.yo --std-path ./std
-  python3 scripts/bootstrap/fid_name_map.py /tmp/re/fresh.c /tmp/re/fidmap.tsv
-  # symbolize: atos -o /tmp/re/yo_sites -l <base from the dump's first line> <addrs>, then join
-  # the yo_id_ names against fidmap.tsv. Rows: `S <live> <tag> <ra0> <ra1>`.
+Usage:
+  python3 scripts/bootstrap/alloc_site_census_t.py IN.c OUT.c sites_dump.txt LABEL [LABEL...]
+    LABEL matches a type's struct comment (`Variable`, `ArrayList(usize)`), or
+    `TypeValue` (the compiler's ref enum, found by its SomeT constructor).
+  clang -std=c11 -fno-strict-aliasing -fwrapv -w -O1 -fno-omit-frame-pointer \\
+        -I$(brew --prefix openssl@3)/include -o yo_sites OUT.c \\
+        -L$(brew --prefix openssl@3)/lib -lssl -lcrypto -lm
+  ./yo_sites check src/main.yo --std-path ./std       # writes sites_dump.txt at exit
+  python3 scripts/bootstrap/fid_name_map.py IN.c fidmap.tsv
+  python3 scripts/bootstrap/alloc_site_report.py sites_dump.txt yo_sites fidmap.tsv
+Dump rows: `S <live> <type label> <tag or -1> <ra0> <ra1> <summed capacity>` (capacity
+is 0 for non-ArrayList types); line 1 is the image base.
+IN.c may already carry live_census_t.py / heap_walk_census_t.py instrumentation.
 """
 import re, sys
 from pathlib import Path
 
 src_path, out_path, dump_path = sys.argv[1], sys.argv[2], sys.argv[3]
+labels = sys.argv[4:] or ["TypeValue"]
 src = Path(src_path).read_text()
-tv = re.search(r"static (__yo_t_?\d+)\* __yo_new_\1_SomeT\(", src).group(1)
 
-# ctor definitions: noinline + record before `return obj;`
-pat = re.compile(r"\nstatic (%s\* __yo_new_%s_\w+\([^)]*\)) \{(.*?)\n  return obj;\n\}" % (tv, tv), re.S)
-def repl(m):
-    return "\n__attribute__((noinline)) static %s {%s\n  __hs_put(obj, __builtin_return_address(0), __builtin_return_address(1));\n  return obj;\n}" % (m.group(1), m.group(2))
-src, n_ctor = pat.subn(repl, src)
-disp = re.search(r"static %s\* __yo_new_%s_\w+\([^)]*\) \{.*?header\.dispose_fn = \(void\(\*\)\(void\*\)\)(yo_id_\d+);" % (tv, tv), src, re.S).group(1)
-dpat = re.compile(r"\nstatic (?:inline )?void %s\(%s\* (\w+)\) \{" % (disp, tv))
-src, n_disp = dpat.subn(lambda m: m.group(0) + "\n  __hs_del(%s);" % m.group(1), src)
-assert n_ctor >= 30 and n_disp == 1, (n_ctor, n_disp)
+tyname = {}
+for m in re.finditer(r"struct (__yo_t_?\d+)_struct \{ // ([^\n]*)", src):
+    tyname[m.group(1)] = m.group(2).replace("(reference counted)", "").strip()
 
+def base_for(label):
+    if label == "TypeValue":
+        return re.search(r"static (__yo_t_?\d+)\* __yo_new_\1_SomeT\(", src).group(1)
+    exact = [b for b, n in tyname.items() if n == label or n.startswith(label + " :") or n.endswith(": " + label)]
+    if len(exact) != 1:
+        raise SystemExit("label %r matched %r" % (label, exact))
+    return exact[0]
+
+bases = [base_for(l) for l in labels]
+def is_arraylist(base):
+    m = re.search(r"struct %s_struct \{ // [^\n]*\n((?:  [^\n]*\n){1,6})\};" % re.escape(base), src)
+    return bool(m and re.search(r"\*\* _ptr;\n  size_t _length;\n  size_t _capacity;\n$", m.group(1)))
+al_flags = ",".join("1" if is_arraylist(b) else "0" for b in bases)
+n_ctor_total = 0
+for k, (label, base) in enumerate(zip(labels, bases)):
+    is_enum = re.search(r"\n  %s_tag tag;\n" % re.escape(base), src) is not None
+    tag_expr = "(int)obj->tag" if is_enum else "-1"
+    pat = re.compile(r"\nstatic (%s\* __yo_new_%s(?:_\w+)?\([^)]*\)) \{(.*?)\n  return obj;\n\}" % (base, base), re.S)
+    def repl(m, k=k, tag_expr=tag_expr):
+        return ("\n__attribute__((noinline)) static %s {%s\n  __hs_put(obj, %d, %s, __builtin_return_address(0), __builtin_return_address(1));\n  return obj;\n}"
+                % (m.group(1), m.group(2), k, tag_expr))
+    src, n_ctor = pat.subn(repl, src)
+    n_ctor_total += n_ctor
+    d = re.search(r"static %s\* __yo_new_%s(?:_\w+)?\([^)]*\) \{.*?header\.dispose_fn = \(void\(\*\)\(void\*\)\)(yo_id_\d+);" % (base, base), src, re.S)
+    if not d or n_ctor == 0:
+        raise SystemExit("no ctor/dispose for %s (%s)" % (label, base))
+    dpat = re.compile(r"\nstatic (?:inline )?void %s\(%s\* (\w+)\) \{" % (d.group(1), base))
+    src, n_disp = dpat.subn(lambda m: m.group(0) + "\n  __hs_del(%s);" % m.group(1), src)
+    if n_disp != 1:
+        raise SystemExit("dispose fn for %s matched %d times" % (label, n_disp))
+    print("instrumented", label, base, "ctors:", n_ctor)
+
+label_list = ",".join('"%s"' % l.replace('"', "'") for l in labels)
 table = r"""
 #include <mach-o/dyld.h>
-typedef struct { void* k; void* a0; void* a1; } __hs_e;
-#define __HS_CAP (1u << 25)
+#include <stdio.h>
+typedef struct { void* k; void* a0; void* a1; int ty; int tag; } __hs_e;
+#define __HS_CAP (1u << 26)
 static __hs_e* __hs_t;
 static void* const __HS_TOMB = (void*)1;
+static const char* __hs_labels[] = {%(labels)s};
 static inline size_t __hs_h(void* p) { size_t x = (size_t)p >> 4; x ^= x >> 17; x *= 0x9E3779B97F4A7C15ull; return (x >> 20) & (__HS_CAP - 1); }
-static void __hs_put(void* k, void* a0, void* a1) {
+static void __hs_put(void* k, int ty, int tag, void* a0, void* a1) {
   if (!__hs_t) __hs_t = (__hs_e*)calloc(__HS_CAP, sizeof(__hs_e));
   size_t i = __hs_h(k);
   while (__hs_t[i].k != NULL && __hs_t[i].k != __HS_TOMB && __hs_t[i].k != k) i = (i + 1) & (__HS_CAP - 1);
-  __hs_t[i].k = k; __hs_t[i].a0 = a0; __hs_t[i].a1 = a1;
+  __hs_t[i].k = k; __hs_t[i].ty = ty; __hs_t[i].tag = tag; __hs_t[i].a0 = a0; __hs_t[i].a1 = a1;
 }
-static __hs_e* __hs_get(void* k) {
-  if (!__hs_t) return NULL;
+static void __hs_del(void* k) {
+  if (!__hs_t) return;
   size_t i = __hs_h(k);
-  while (__hs_t[i].k != NULL) { if (__hs_t[i].k == k) return &__hs_t[i]; i = (i + 1) & (__HS_CAP - 1); }
-  return NULL;
+  while (__hs_t[i].k != NULL) { if (__hs_t[i].k == k) { __hs_t[i].k = __HS_TOMB; return; } i = (i + 1) & (__HS_CAP - 1); }
 }
-static void __hs_del(void* k) { __hs_e* e = __hs_get(k); if (e) e->k = __HS_TOMB; }
-/* site histogram: (tag, a0, a1) -> count */
-typedef struct { void* a0; void* a1; int tag; long long n; } __hs_s;
-#define __HS_SCAP (1u << 18)
-static __hs_s __hs_sites[__HS_SCAP];
-static void __hs_count(void* o, int tag) {
-  __hs_e* e = __hs_get(o);
-  void* a0 = e ? e->a0 : NULL; void* a1 = e ? e->a1 : NULL;
-  size_t i = (((size_t)a0 * 31u) ^ ((size_t)a1 * 7u) ^ (size_t)tag) & (__HS_SCAP - 1);
-  while (__hs_sites[i].n && !(__hs_sites[i].a0 == a0 && __hs_sites[i].a1 == a1 && __hs_sites[i].tag == tag)) i = (i + 1) & (__HS_SCAP - 1);
-  __hs_sites[i].a0 = a0; __hs_sites[i].a1 = a1; __hs_sites[i].tag = tag; __hs_sites[i].n++;
-}
-static void __hs_dump(void) {
+typedef struct { void* a0; void* a1; int ty; int tag; long long n; long long cap; } __hs_s;
+static const char __hs_is_al[] = {%(al)s};
+#define __HS_SCAP (1u << 20)
+static __hs_s* __hs_sites;
+__attribute__((destructor)) static void __hs_dump(void) {
+  if (!__hs_t) return;
+  __hs_sites = (__hs_s*)calloc(__HS_SCAP, sizeof(__hs_s));
+  for (size_t j = 0; j < __HS_CAP; j++) {
+    __hs_e* e = &__hs_t[j];
+    if (e->k == NULL || e->k == __HS_TOMB) continue;
+    size_t i = (((size_t)e->a0 * 31u) ^ ((size_t)e->a1 * 7u) ^ ((size_t)e->ty << 8) ^ (size_t)(e->tag + 1)) & (__HS_SCAP - 1);
+    while (__hs_sites[i].n && !(__hs_sites[i].a0 == e->a0 && __hs_sites[i].a1 == e->a1 && __hs_sites[i].ty == e->ty && __hs_sites[i].tag == e->tag)) i = (i + 1) & (__HS_SCAP - 1);
+    __hs_sites[i].a0 = e->a0; __hs_sites[i].a1 = e->a1; __hs_sites[i].ty = e->ty; __hs_sites[i].tag = e->tag; __hs_sites[i].n++;
+    if (__hs_is_al[e->ty]) __hs_sites[i].cap += (long long)((size_t*)((char*)e->k + sizeof(__yo_ref_header_t)))[2];
+  }
   FILE* f = fopen("%(dump)s", "w"); if (!f) return;
   fprintf(f, "# base %%p\n", (void*)_dyld_get_image_header(0));
-  for (size_t i = 0; i < __HS_SCAP; i++) if (__hs_sites[i].n) fprintf(f, "S %%lld %%d %%p %%p\n", __hs_sites[i].n, __hs_sites[i].tag, __hs_sites[i].a0, __hs_sites[i].a1);
+  for (size_t i = 0; i < __HS_SCAP; i++) if (__hs_sites[i].n)
+    fprintf(f, "S %%lld %%s %%d %%p %%p %%lld\n", __hs_sites[i].n, __hs_labels[__hs_sites[i].ty], __hs_sites[i].tag, __hs_sites[i].a0, __hs_sites[i].a1, __hs_sites[i].cap);
   fclose(f);
 }
-""" % dict(dump=dump_path)
-
-# hook into the heap walk: count per site in the TypeValue branch, dump after
-anchor = "      if (tg >= 0 && tg < "
-assert src.count(anchor) == 1
-src = src.replace(anchor, "      __hs_count(o, tg);\n" + anchor, 1)
-src = src.replace("  __hc_dump();\n}", "  __hc_dump();\n  __hs_dump();\n}", 1)
-# the table must precede the ctors: put it right before the first ctor definition
-first = src.find("\n__attribute__((noinline)) static %s* __yo_new_" % tv)
-fwd_pos = src.rfind("\n\n", 0, first)
-src = src[:fwd_pos] + "\n" + table + src[fwd_pos:]
+""" % dict(labels=label_list, dump=dump_path, al=al_flags)
+inc = src.find("#include")
+eol = src.find("\n", inc)
+src = src[:eol + 1] + "static void __hs_put(void* k, int ty, int tag, void* a0, void* a1);\nstatic void __hs_del(void* k);\n" + src[eol + 1:] + table
 Path(out_path).write_text(src)
-print("ctors:", n_ctor, "dispose:", disp)
+print("ctors instrumented:", n_ctor_total)

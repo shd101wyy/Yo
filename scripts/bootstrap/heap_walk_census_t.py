@@ -76,6 +76,17 @@ for var, fields in groups:
         k += 1
     empty_code.append("    if (tg == %d) {\n%s\n    }" % (tv_tag[vu], "\n".join(lines)))
 n_empty = k
+# EvalValue (the compiler's value enum, found by its UnknownVal ctor) and its
+# ArrayList — a 1-element ArrayList(EvalValue) is a Variable's value cell.
+ev_m = re.search(r"static (__yo_t_?\d+)\* __yo_new_\1_UnknownVal\(", src)
+ev = ev_m.group(1) if ev_m else None
+ev_variants, ev_list_slot = [], -1
+if ev:
+    evm = re.search(r"typedef enum \{\n((?:  %s_\w+ = \d+,?\n)+)\} %s_tag;" % (re.escape(ev.upper()), re.escape(ev)), src)
+    ev_variants = [re.match(r"  %s_(\w+) = (\d+)" % re.escape(ev.upper()), l).group(1) for l in evm.group(1).splitlines()]
+    for b in bases:
+        if b in arraylist and re.search(r"struct %s_struct \{[^\n]*\n  __yo_ref_header_t header;[^\n]*\n  %s\*\* _ptr;" % (re.escape(b), re.escape(ev)), src):
+            ev_list_slot = slot[b]
 
 cases = "\n".join("  if (fn == (void*)%s) return %d;" % (d, slot[b]) for d, b in sorted(disp.items()))
 labels_c = ",\n".join('  "%s %s"' % (b, tyname.get(b, b).replace('"', "'").replace("\\", "/")[:150]) for b in bases)
@@ -91,8 +102,9 @@ static const char* __hc_labels[%(n)d] = {
 static const char __hc_is_al[%(n)d] = {%(al)s};
 static const char* __hc_vlabels[%(nv)d] = {%(vlabels)s};
 static const char* __hc_elabels[%(ne)d] = {%(elabels)s};
-static long long __hc_live[%(n)d], __hc_len[%(n)d][6], __hc_cap[%(n)d], __hc_unknown, __hc_tv[%(nv)d], __hc_empty[%(ne)d];
+static long long __hc_live[%(n)d], __hc_len[%(n)d][6], __hc_capb[%(n)d][6], __hc_lensum[%(n)d], __hc_cap[%(n)d], __hc_unknown, __hc_tv[%(nv)d], __hc_empty[%(ne)d];
 static int __hc_done = 0;
+static long long __hc_cell_tag[64];
 static int __hc_slot(void* fn) {
 %(cases)s
   return -1;
@@ -107,7 +119,13 @@ static void __hc_walk(__yo_ref_header_t* head) {
       size_t len = ((size_t*)((char*)o + sizeof(__yo_ref_header_t)))[1];
       size_t cap = ((size_t*)((char*)o + sizeof(__yo_ref_header_t)))[2];
       int b = len == 0 ? 0 : len == 1 ? 1 : len == 2 ? 2 : len <= 4 ? 3 : len <= 8 ? 4 : 5;
-      __hc_len[s][b]++; __hc_cap[s] += (long long)cap;
+      int cb = cap == 0 ? 0 : cap == 1 ? 1 : cap <= 4 ? 2 : cap <= 8 ? 3 : cap <= 64 ? 4 : 5;
+      __hc_len[s][b]++; __hc_capb[s][cb]++; __hc_lensum[s] += (long long)len; __hc_cap[s] += (long long)cap;
+    }
+    if (s == %(evlist)d && ((size_t*)((char*)o + sizeof(__yo_ref_header_t)))[1] == 1) {
+      int* const* elems = *(int* const**)((char*)o + sizeof(__yo_ref_header_t));
+      int etag = *(int*)((char*)elems[0] + sizeof(__yo_ref_header_t));
+      if (etag >= 0 && etag < 64) __hc_cell_tag[etag]++;
     }
     if (s == %(tvslot)d) {
       int tg = (int)((%(tv)s*)o)->tag;
@@ -122,10 +140,12 @@ static void __hc_dump(void) {
   for (int i = 0; i < %(n)d; i++) if (__hc_live[i]) {
     fprintf(f, "T %%lld %%s", __hc_live[i], __hc_labels[i]);
     if (__hc_is_al[i]) fprintf(f, " | len0 %%lld len1 %%lld len2 %%lld len3-4 %%lld len5-8 %%lld len>8 %%lld cap %%lld", __hc_len[i][0], __hc_len[i][1], __hc_len[i][2], __hc_len[i][3], __hc_len[i][4], __hc_len[i][5], __hc_cap[i]);
+    if (__hc_is_al[i]) fprintf(f, " | lensum %%lld slack %%lld | cap0 %%lld cap1 %%lld cap2-4 %%lld cap5-8 %%lld cap9-64 %%lld cap>64 %%lld", __hc_lensum[i], __hc_cap[i] - __hc_lensum[i], __hc_capb[i][0], __hc_capb[i][1], __hc_capb[i][2], __hc_capb[i][3], __hc_capb[i][4], __hc_capb[i][5]);
     fprintf(f, "\n");
   }
   for (int i = 0; i < %(nv)d; i++) if (__hc_tv[i]) fprintf(f, "V %%lld %%s\n", __hc_tv[i], __hc_vlabels[i]);
   for (int i = 0; i < %(ne)d; i++) fprintf(f, "E %%lld %%s\n", __hc_empty[i], __hc_elabels[i]);
+  { static const char* evl[] = {%(evlabels)s}; for (int i = 0; i < %(nev)d && i < 64; i++) if (__hc_cell_tag[i]) fprintf(f, "C %%lld %%s\n", __hc_cell_tag[i], evl[i]); }
   fclose(f);
 }
 static void __hc_census_state(void* st) {
@@ -139,7 +159,8 @@ __attribute__((destructor)) static void __hc_census_atexit(void) {
   for (__yo_thread_gc_state_t* g = __yo_all_thread_gcs; g != NULL; g = g->next) __hc_census_state(g);
 }
 """ % dict(n=n, labels=labels_c, al=al_flags, nv=len(variants), vlabels=vlabels_c, ne=max(n_empty, 1),
-           elabels=elabels_c or '""', cases=cases, tvslot=slot[tv], tv=tv, empty="\n".join(empty_code), dump=dump_path)
+           elabels=elabels_c or '""', cases=cases, tvslot=slot[tv], tv=tv, empty="\n".join(empty_code), dump=dump_path,
+           evlist=ev_list_slot, evlabels=",".join('"%s"' % v for v in ev_variants) or '""', nev=max(len(ev_variants), 1))
 
 # forward decl near the top of the cleanup fn; call at its entry
 fwd = "static void __hc_census_state(void* st);\n"

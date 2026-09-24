@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-24 — `check src/main.yo` 19.9 → 6.84 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`). Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: re-take the census on the leak-free compiler, land the CI memory ratchet (a leak fence), then header step 2 / Option(ref) niche / Variable diet by the new numbers.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-24 — `check src/main.yo` 19.9 → 5.96 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6). Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the flat capture triple (~0.8 GB), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1141,6 +1141,54 @@ The codegen fix is worth 0.75 GB more than the one-site rewrite: other
 - The remaining levers (§0.4′: tracked header, `Variable`, `Option(ref)`)
   must be re-ranked on the post-fix census; their estimates were taken over a
   population that was 40 % leak.
+
+### 0.6 The census re-taken on the leak-free compiler (2026-09-24)
+
+Same recipe as §0.5 on develop `9750f44e8` (instrumented run 7.51 GB):
+**45.9 M live objects, 3.75 GB of struct bytes** (from 67.5 M / 6.18 GB in
+§0.4′). Live `TypeValue` 7.47 M → **191 K**. Top rows:
+
+| type | live | live bytes |
+| --- | --- | --- |
+| `Variable` | 4.98 M | 0.96 GB |
+| `ExprInfo` | 2.10 M | 0.45 GB |
+| `ArrayList(usize)` | 11.18 M | 0.45 GB + buffers |
+| `ArrayList(EvalValue)` | 4.61 M | 0.37 GB |
+| `ArrayList(u8)` (strings) | 8.49 M | 0.34 GB + buffers |
+| `AstExpr` / `Token` | 3.41 M / 1.94 M | 0.22 / 0.20 GB |
+| `Environment` + `ArrayList(Frame)` | 1.34 M each | 0.27 GB |
+
+What the new instruments attribute (allocation sites weighted by count and,
+for lists, by live capacity):
+
+- **All 11.18 M `ArrayList(usize)` were the frame name index**
+  (`_frame_positions`, `src/env.yo`): one positions list per distinct name
+  in every indexed frame (64+ bindings), up to 2048 indexes of big frames with
+  thousands of names each. **Fixed:** same-named bindings are now chained
+  through one `prev` array per index (`FrameNameIndex.last` +
+  `FrameNameIndex.prev`); the hot "last binding" and "first binding" lookups
+  allocate nothing, and the ascending list the two all-bindings callers need
+  is built per call. `check src/main.yo` **6.84 → 5.96 GB (−0.88 GB, −13 %)**,
+  wall unchanged (92 s); the compiler's self-emit is byte-identical to
+  develop's.
+- **Capture snapshots are the largest remaining buffer cost.** Three parallel
+  lists of the same live capacity — `ArrayList(Variable)`,
+  `ArrayList(TypeValue)`, `ArrayList(EvalValue)`, ~13.6 M slots each — come
+  from `try_to_implement_function_by_function_type`'s capture loop, another
+  5.8 M-slot triple from `_inject_forall_captures`, ~6 M from
+  `create_specialized_function_inline`; plus the parallel `cap_names`
+  `ArrayList(String)` (16 B/slot). That is the flat triple
+  `plans/backlog/FUNCVAL_ENV_SHARING.md` left as its "endgame deletion": the
+  shared `Variable` handles registered under `env_key` already carry the same
+  bindings. Estimated ~0.8 GB.
+- **Value cells:** 3.38 M of the 4.58 M one-element cells (74 %) hold an
+  `UnknownVal` — runtime bindings that still get a private 80 B tracked cell.
+  Sharing needs a copy-on-take rule where a cell becomes a `PtrVal` target
+  (`builtins/ptr_fns.yo`) or is written in place
+  (`initialization_assignment.yo`). Estimated ~0.3 GB.
+- **Frame variable lists:** 273 K `ArrayList(Variable)` hold 27.5 M handles
+  (5 M distinct `Variable`s) in 42.3 M slots — frames rebuilt per capture/def
+  env. Covered partly by the capture work above.
 
 ### Phase 6 — per-object layout: header and `Variable`
 
