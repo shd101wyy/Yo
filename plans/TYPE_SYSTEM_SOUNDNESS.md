@@ -1,8 +1,9 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. No phase started. Source: a six-part audit of the type
-system on develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler
-(see §7). Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
+**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1 and 2.1–2.3 LANDED 2026-09-24 (the
+per-phase "Landed" notes below); 2.4–7 open. Source: a six-part audit of the type system on
+develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
+Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
 
 ## 1. What kind of type system Yo has
 
@@ -122,6 +123,10 @@ Goal: a number that goes down, so progress is not a matter of opinion.
 
 Exit: both counts recorded in this doc; the corpus runs in CI.
 
+**Landed 2026-09-24.** `tests/type_soundness.test.yo` (in the fast suite, so in CI),
+`scripts/soundness/census.sh` and `scripts/soundness/swallow-census.sh`. Counts: see
+"Census log" at the end of this section.
+
 ### Phase 1: missing comparisons (R1), the cheap high-value fixes
 
 Each item is one check at one site, with a test. No architecture change.
@@ -144,6 +149,13 @@ against concrete parameters (#856, which closed
 
 Exit: each step's test flips in the Phase 0 ratchet; the census count drops by at least the
 number of steps.
+
+**Landed 2026-09-24**, all nine steps; each issue is in `issues/fixed/` with its Fix and
+Verification sections. Two stay open for their other halves: the generic-callee half of
+`closure-result-type-is-not-checked-against-the-expected-fn-type` needs step 2.4, and the
+evaluator half of `inout-call-through-a-fn-value-loses-the-mutation` is step 3.5. Found on the way
+and fixed: `issues/fixed/comptime-integer-folding-clamps-instead-of-wrapping.md`. Split out and
+open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`.
 
 ### Phase 2: traits and generics (R3, R6)
 
@@ -200,6 +212,13 @@ number of steps.
    `blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable`)
 
 Exit: each issue's test flips; `check ./std` and `check ./src` are green with coherence enabled.
+
+**Landed 2026-09-24: steps 1–3.** Conformance (E0602 "does not implement required trait … as
+written", in `_c3_eval_colon_pair` and the default fill), `Impl(Trait)` bounds at results and arguments, and coherence
+(`plans/reference/TRAIT_COHERENCE.md`, E0612). Step 3 needed step 3.3's module-qualified type ids
+first — std had two live id collisions — so that part of 3.3 landed with it. The std fallout:
+`HashSet(T)`'s duplicate `FromIterator`, and `std/fmt`'s blanket `Format` over `ToString` (which
+overlapped every numeric impl) became a defaulted trait member with per-type impls.
 
 ### Phase 3: one notion of type identity (R4, R5)
 

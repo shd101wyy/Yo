@@ -889,6 +889,17 @@ type_implements_trait :: (
         .Tuple({ field_types : tuple_fts }) => {
           fields_opt = Option(ArrayList(TypeValue)).Some(tuple_fts);
         },
+        // A `fn(...)` type is a code pointer: it carries no state, so it is
+        // Send and Acyclic. A closure's state is judged where it is captured
+        // ("Captured variable … does not implement Send", the capture rule),
+        // and a capturing closure cannot flow into a bare `fn` slot
+        // (issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md).
+        // Without this arm the `Impl(Fn() -> T, Send)` argument check
+        // (issues/fixed/impl-trait-return-bound-is-not-checked.md) rejected
+        // every closure passed to `spawn_blocking`.
+        .Func({ result : _ }) => if((tn == "Send") || (tn == "Acyclic"), {
+          direct_true = true;
+        }),
         // `*(T)`: Send/Acyclic iff `T` is (mirrors the prelude
         // `impl(generic(T), where(T <: Send), *(T), Send())`).
         .Pointer(pointee_box) => if((tn == "Send") || (tn == "Acyclic"), {
