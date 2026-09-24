@@ -8,7 +8,7 @@ task_fn :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
 );
 
 main :: (fn(io : Io) -> unit)({
-  swallow := Exception(throw : ((err) -> unwind(())));
+  swallow := Exception(throw : (err -> unwind(())));
   result := io.await(task_fn(io), IoExn(io : io, exn : swallow));
 });
 export(main);
