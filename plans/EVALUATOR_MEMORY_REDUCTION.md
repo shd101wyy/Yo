@@ -709,6 +709,21 @@ instruments durable and answer the three questions the ranking depends on.
    restores full retention on the next walk. Gate with the LSP tests under
    `tests/internal/` and a long-lived `yo lsp` session (open/edit/close 50
    documents, footprint must plateau).
+   **LANDED 2026-09-24.** `yo lsp` no longer sets the global retention flag;
+   `mm_set_open_document` / `mm_forget_open_document` add and remove the
+   document's canonical path in `g_retained_walk_paths`
+   (`set_walk_context_retained`, `src/evaluator/context.yo`), and
+   `end_module_walk` keeps a context only for those (or for everything under
+   `check --watch`). The revalidation planner treats a closure module whose
+   walk released its context as a per-module file-level fallback instead of
+   re-forcing into it (forcing without a context is an internal error). Test:
+   `tests/internal/module_invalidation.test.yo` "B3" (red on the old rule).
+   Measured, seed-built binaries: `yo lsp` opening `src/main.yo`
+   **9.39 → 8.48 GB (−0.91 GB)**. **The plateau gate FAILED — before and
+   after this change:** cycling the same 10 std documents through
+   open/edit/close grows the peak 0.63 GB (1 round) → 1.89 GB (5 rounds), a
+   pre-existing per-round leak (step 5's concern), filed as
+   `issues/lsp-memory-grows-per-open-edit-close-round.md`.
 4. **`SpecializedFunctionCache.env`**: the field is write-only today —
    `_find_specialization_cache` (`helper.yo:1455-1600`) returns only
    `specialized_func_value`, and its `caller_env` parameter appears once, as
