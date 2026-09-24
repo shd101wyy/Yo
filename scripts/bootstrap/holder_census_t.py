@@ -22,7 +22,9 @@ explains — held by an untracked object or a missing release); `U <objects> <ty
 objects no root reaches (held only by locals / leaked). HOLDER_SCAN=1 adds a
 conservative heap scan: `X <words> <target> <- <holder>` = RC objects of <holder> (reached or
 untracked) pointing at unreached <target> objects, `T <type> hits` = per-type hit histogram, `Y` = holders of the raw buffers that do
-(`S` rows: per-object hit histogram; 0 hits = no pointer anywhere, a missing release). HOLDER_MIN=<n> lowers the
+(`S` rows: per-object hit histogram; 0 hits = no pointer anywhere, a missing release).
+HOLDER_CONS=1 (with HOLDER_SCAN=1) adds conservative reachability through UNTRACKED holders:
+`C <objects> <type> <- <root global | <other-data> | <stack> | LEAK>` for the unreached objects. HOLDER_MIN=<n> lowers the
 1,000,000-tracked-object threshold for small runs; HOLDER_COLLECT=1 runs the full
 cycle collector first (what then stays unreached is a refcount leak, not cycle garbage).
 """
@@ -241,6 +243,77 @@ static void __ho_scan_heap(FILE* f) {
   for (int t = 0; t < %(nb)d; t++) if (__ho_raw_by[t]) fprintf(f, "Y %%lld %%s\n", __ho_raw_by[t], __ho_types[t]);
   fprintf(f, "Y-raw %%lld Y-unknown %%lld\n", __ho_raw_raw, __ho_raw_unk);
 }
+
+/* HOLDER_CONS=1: conservative reachability. Every in-use malloc block is a
+   node; a word equal to a block's START is an edge. BFS from each pointer
+   global in declaration order (then the rest of the image's data and the
+   exiting thread's stack as "<other-data>" / "<stack>"), recording the first
+   root that reaches each block. An unreached TRACKED object that a root
+   reaches this way is RETAINED through untracked holders (no traverse_fn:
+   FuncVal boxes, EvalValue enums, caches); one no root reaches is a LEAK (the
+   whole chain above it is unreferenced). Rows: `C <objects> <type> <- <root|LEAK>`. */
+#define __HC_BCAP (1u << 25)
+static void** __hc_bk; static size_t* __hc_bs; static int* __hc_br; static size_t __hc_bn;
+static void** __hc_q; static size_t __hc_qn, __hc_qcap;
+static size_t __hc_h(void* p) { size_t x = (size_t)p >> 4; x ^= x >> 17; x *= 0x9E3779B97F4A7C15ull; return (x >> 25) & (__HC_BCAP - 1); }
+static long __hc_find(void* p) { size_t i = __hc_h(p); while (__hc_bk[i]) { if (__hc_bk[i] == p) return (long)i; i = (i + 1) & (__HC_BCAP - 1); } return -1; }
+static void __hc_rec(task_t t, void* ctx, unsigned type, vm_range_t* r, unsigned n) {
+  for (unsigned k = 0; k < n; k++) {
+    void* b = (void*)r[k].address;
+    if (b == (void*)__ho_seen || b == (void*)__ho_un_k || b == (void*)__ho_stack || b == (void*)__ho_raw_k || b == (void*)__ho_scan_skip || b == (void*)__hc_bk || b == (void*)__hc_bs || b == (void*)__hc_br || b == (void*)__hc_q) continue;
+#ifdef __HS_PRESENT
+    if (b == (void*)__hs_t) continue;
+#endif
+    if (__hc_bn * 4 >= (size_t)__HC_BCAP * 3) return;
+    size_t i = __hc_h(b); while (__hc_bk[i]) i = (i + 1) & (__HC_BCAP - 1);
+    __hc_bk[i] = b; __hc_bs[i] = r[k].size; __hc_br[i] = -1; __hc_bn++;
+  }
+}
+static void __hc_push(void* v, int root) {
+  if (((size_t)v & 7) || (size_t)v < 4096) return;
+  long i = __hc_find(v); if (i < 0 || __hc_br[i] >= 0) return;
+  __hc_br[i] = root;
+  if (__hc_qn == __hc_qcap) { __hc_qcap = __hc_qcap ? __hc_qcap * 2 : 1 << 20; __hc_q = (void**)realloc(__hc_q, __hc_qcap * sizeof(void*)); }
+  __hc_q[__hc_qn++] = (void*)i;
+}
+static void __hc_drain(int root) {
+  while (__hc_qn) {
+    size_t i = (size_t)__hc_q[--__hc_qn];
+    void** w = (void**)__hc_bk[i]; size_t nw = __hc_bs[i] / sizeof(void*);
+    for (size_t j = 0; j < nw; j++) __hc_push(w[j], root);
+  }
+}
+static void __ho_cons_reach(FILE* f) {
+  __hc_bk = (void**)calloc(__HC_BCAP, sizeof(void*)); __hc_bs = (size_t*)calloc(__HC_BCAP, sizeof(size_t)); __hc_br = (int*)calloc(__HC_BCAP, sizeof(int));
+  vm_address_t* zones = NULL; unsigned nz = 0;
+  malloc_get_all_zones(mach_task_self(), __ho_reader, &zones, &nz);
+  for (unsigned z = 0; z < nz; z++) {
+    malloc_zone_t* zone = (malloc_zone_t*)zones[z];
+    if (zone && zone->introspect && zone->introspect->enumerator)
+      zone->introspect->enumerator(mach_task_self(), NULL, MALLOC_PTR_IN_USE_RANGE_TYPE, zones[z], __ho_reader, __hc_rec);
+  }
+  for (int r = 0; r < %(nr)d; r++) { __hc_push(*(void* const*)__ho_root_addrs[r], r); __hc_drain(r); }
+  const struct mach_header_64* mh = (const struct mach_header_64*)_dyld_get_image_header(0);
+  const char* sects[] = {"__data", "__bss", "__common"};
+  for (int k = 0; k < 3; k++) {
+    unsigned long sz = 0; uint8_t* d = getsectiondata(mh, "__DATA", sects[k], &sz);
+    for (size_t j = 0; d && j + sizeof(void*) <= sz; j += sizeof(void*)) __hc_push(*(void**)(d + j), %(nr)d);
+  }
+  __hc_drain(%(nr)d);
+  void** lo = (void**)__builtin_frame_address(0); void** hi = (void**)pthread_get_stackaddr_np(pthread_self());
+  for (void** w = lo; w < hi; w++) __hc_push(*w, %(nr)d + 1);
+  __hc_drain(%(nr)d + 1);
+  long long* cnt = (long long*)calloc((size_t)(%(nr)d + 3) * %(nb)d, sizeof(long long));
+  for (size_t i = 0; i < __HO_UCAP; i++) if (__ho_un_k[i]) {
+    __yo_ref_header_t* h = (__yo_ref_header_t*)__ho_un_k[i];
+    int s = __ho_slot_peek((void*)h->dispose_fn); if (s < 0) continue;
+    long b = __hc_find(h); int r = (b < 0) ? %(nr)d + 2 : (__hc_br[b] < 0 ? %(nr)d + 2 : __hc_br[b]);
+    cnt[(size_t)r * %(nb)d + s]++;
+  }
+  for (int r = 0; r < %(nr)d + 3; r++) for (int t = 0; t < %(nb)d; t++) if (cnt[(size_t)r * %(nb)d + t])
+    fprintf(f, "C %%lld %%s <- %%s\n", cnt[(size_t)r * %(nb)d + t], __ho_types[t], r < %(nr)d ? __ho_roots[r] : (r == %(nr)d ? "<other-data>" : (r == %(nr)d + 1 ? "<stack>" : "LEAK")));
+  fprintf(f, "S cons-blocks %%zu\n", __hc_bn);
+}
 static void __ho_census(void* st) {
   __yo_thread_gc_state_t* gc = (__yo_thread_gc_state_t*)st;
   long long min = getenv("HOLDER_MIN") ? atoll(getenv("HOLDER_MIN")) : 1000000;
@@ -283,6 +356,7 @@ static void __ho_census(void* st) {
   for (int t = 0; t < %(nb)d; t++) { long long c = __ho_count[(size_t)%(nr)d * %(nb)d + t]; if (c) fprintf(f, "U %%lld %%s\n", c, __ho_types[t]); }
   for (int t = 0; t < %(nb)d; t++) if (__ho_extn && __ho_extn[t]) fprintf(f, "R %%lld %%lld %%s\n", __ho_extn[t], __ho_ext[t], __ho_types[t]);
   if (getenv("HOLDER_SCAN")) { __ho_scan_skip = (void*)gc->gc_white; __ho_scan_heap(f); }
+  if (getenv("HOLDER_CONS")) { __ho_scan_skip = (void*)gc->gc_white; __ho_cons_reach(f); }
   fclose(f);
 }
 __attribute__((destructor)) static void __ho_census_atexit(void) {
