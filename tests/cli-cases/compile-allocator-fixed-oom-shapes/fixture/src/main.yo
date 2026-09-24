@@ -1,0 +1,97 @@
+// OOM behaviour under --allocator fixed for three allocation paths the
+// RC-constructor case (compile-allocator-fixed-oom) does not reach: async task
+// spawn, OS thread spawn, and String growth. Each must die with an allocation
+// diagnostic, never a NULL dereference.
+//
+// Abort exit codes differ by platform, so the program re-executes ITSELF once
+// per shape in child mode, and only the PARENT, which exits 0 portably,
+// prints one verdict line per shape.
+{ Command } :: import("std/process/command");
+{ Exception, IoExn } :: import("std/error");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+{ env, args } :: import("std/env");
+{ Thread } :: import("std/thread");
+
+/// Keeps every spawned thread's handle alive, so the handles accumulate in the
+/// heap instead of being joined and freed.
+ThreadChain :: ref(
+  struct(
+    t : Thread(unit),
+    next : Option(Self)
+  )
+);
+_child_task :: (fn(io : Io) -> unit)({
+  // Spawned tasks do not run until the loop yields, so every task's state
+  // stays allocated.
+  (i : usize) = usize(0);
+  while(i < usize(65536), {
+    io.spawn(io.async((io : Io) => i32(0)), io);
+    i = (i + usize(1));
+  });
+});
+_child_thread :: (fn() -> unit)({
+  (head : Option(ThreadChain)) = Option(ThreadChain).None;
+  (i : usize) = usize(0);
+  while(i < usize(65536), {
+    head = Option(ThreadChain).Some(ThreadChain(t : Thread(unit).spawn(io => ()), next : head));
+    i = (i + usize(1));
+  });
+});
+_child_string :: (fn() -> unit)({
+  (s : String) = String.new();
+  (i : usize) = usize(0);
+  while(i < usize(65536), {
+    s.push_str("0123456789abcdef");
+    i = (i + usize(1));
+  });
+});
+_is_alloc_diagnostic :: (fn(line : String) -> bool)(
+  line.contains(String.from("out of memory")) || line.contains(String.from("allocation failed"))
+);
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  match(
+    env.get(String.from("YO_OOM_SHAPE")),
+    .Some(shape) => {
+      cond(
+        (shape == "task") => _child_task(io),
+        (shape == "thread") => _child_thread(),
+        true => _child_string()
+      );
+      // Unreachable inside a 64 KiB heap; reaching it means the oracle broke.
+      println(`${shape}: child kept allocating (BUG)`);
+      return(());
+    },
+    .None => ()
+  );
+  shapes := ArrayList(String).new();
+  shapes.push(String.from("task"));
+  shapes.push(String.from("thread"));
+  shapes.push(String.from("string"));
+  argv := args();
+  for(shapes, shape => {
+    env.set(String.from("YO_OOM_SHAPE"), shape.clone());
+    out := io.await(Command.new(argv(usize(0))).output(io), IoExn(io : io, exn : exn));
+    text := String.from_bytes(out.stderr);
+    (found : bool) = false;
+    for(text.split("\n"), line => {
+      if(_is_alloc_diagnostic(line), {
+        found = true;
+      });
+    });
+    cond(
+      out.status.success() => println(`${shape}: child exited 0 (BUG)`),
+      found => println(`${shape}: died with an allocation diagnostic`),
+      true => println(`${shape}: died WITHOUT an allocation diagnostic: ${text}`)
+    );
+  });
+});
+export(main);
