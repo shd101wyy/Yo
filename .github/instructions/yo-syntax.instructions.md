@@ -1290,6 +1290,7 @@ before hunting elsewhere.
 - A `=>` closure or `->` function literal argument is matched AFTER the other arguments, against the parameter type they solved — so `apply((x) => (x + i32(1)), i32(3))` works with the closure first, and a closure whose body disagrees with the solved result is E0604.
 - A binder only the RESULT mentions (`mk :: fn(generic(T)) -> Option(T)`) comes from the expected type (`(x : Option(i32)) = mk()`) or `generic(...)`; `x := mk()` is E0613.
 - A kind-annotated binder is inferred from an instantiation: `x : F(A)` given `Option(i32)` binds `F = Option`, `A = i32` (explicit `generic(Option, i32)` still works).
+- An associated-type binding in a `where` binds a binder: `where(I <: Iterator(Item := A))` fixes `A` from the argument's impl (a source or a chain), a self-referential `A <: Add(A)` is checked at that binding, blanket combinators (`it.fold(...)`, `s.collect(io)`) work on the parameter, and `J` in `F <: (Fn(item : A) -> J)` comes from the closure's body. `Dyn(Fn(x : A) -> B)` parameters infer `A`/`B` too.
 
 ## A `fn` literal does NOT capture — only `=>` closures do
 

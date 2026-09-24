@@ -66,7 +66,7 @@ import("std/fmt");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ type_implements_trait, TraitCheckResult } :: import("../trait_checking.yo");
+{ type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -2010,6 +2010,33 @@ use_id :: (fn(generic(T : Type),
     assigned_value
   )
 });
+/// The E0602 text for a concrete type that fails a where-clause bound. When
+/// the type does implement the trait but an associated-type binding differs
+/// (`where(I <: Iterator(Item := i32))` given a `String` iterator), say which
+/// one: "does not implement required trait Iterator" alone read as a false
+/// statement about a type that plainly implements it
+/// (plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md, option 3).
+_unmet_trait_message :: (fn(concrete : TypeValue, tv : TypeValue, env : Environment) -> String)({
+  base := `Type ${type_to_string(concrete)} does not implement required trait ${type_to_string(tv)}`;
+  labels := match(tv, .TraitT(_, _, _, _, _, _, _, _, l, _) => l, _ => ArrayList(String).new());
+  wants := match(tv, .TraitT(_, _, _, _, _, _, _, _, _, t) => t, _ => ArrayList(TypeValue).new());
+  (i : usize) = usize(0);
+  while(i < labels.len(), {
+    label := match(labels.get(i), .Some(l) => l, .None => String.new());
+    want := match(wants.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    i = (i + usize(1));
+    if(!(is_some_type(want)) && (get_all_some_types(want).len() == usize(0)), {
+      match(
+        resolve_assoc_type_for_target(concrete, label.clone(), env),
+        .Some(got) => if(!(are_types_compatible(got, want)), {
+          return(`${base}: its associated type ${label} is ${type_to_string(got)}, not ${type_to_string(want)}.`);
+        }),
+        .None => ()
+      );
+    });
+  });
+  `${base}.`
+});
 // ---------------------------------------------------------------------------
 // validate_concrete_type_constraints
 // ---------------------------------------------------------------------------
@@ -2170,14 +2197,7 @@ validate_concrete_type_constraints :: (
         });
       }, {
         if(!implemented, {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(constraint_expr),
-                String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" does not implement required trait ")).concat(type_to_string(tv)).concat(String.from("."))
-              )
-            )
-          );
+          exn.throw(dyn(format_error_message(ast_expr_token(constraint_expr), _unmet_trait_message(concrete_type, tv, env_mut))));
         });
       });
     }, {

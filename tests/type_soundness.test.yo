@@ -469,3 +469,49 @@ test("soundness canary: two .map chains at different Item types keep their own I
   assert(out.len() == usize(3), "the i32 chain");
   assert(match(m, .Some(v) => v, .None => i64(99)) == i64(-6), "the i64 chain's min");
 });
+// ---------------------------------------------------------------------------
+// plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md (Phase 2.6): a free
+// function's `where(I <: Iterator(Item := A))` binds `A` from the argument's
+// impl, a self-referential bound on `A` is judged at that binding, and the
+// blanket combinators can be called on the parameter.
+// ---------------------------------------------------------------------------
+_sound_count :: (fn(generic(I : Type, A : Type), it : I, where(I <: Iterator(Item := A))) -> usize)(
+  it.fold(usize(0), (n, x) => (n + usize(1)))
+);
+_sound_sum :: (fn(generic(I : Type, A : Type), it : I, zero : A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(
+  it.fold(zero, (acc, x) => (acc + x))
+);
+_sound_collect :: (fn(generic(I : Type, A : Type), it : I, where(I <: Iterator(Item := A))) -> ArrayList(A))(
+  it.collect(ArrayList(A))
+);
+// `J` is fixed only by `F <: (Fn(item : A) -> J)` and the closure's body.
+_sound_map_all :: (fn(generic(I : Type, A : Type, J : Type, F : Type), it : I, f : F, where(I <: Iterator(Item := A), F <: (Fn(item : A) -> J))) -> ArrayList(J))(
+  it.map(f).collect(ArrayList(J))
+);
+_sound_sum_i32 :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := i32))) -> i32)(
+  it.fold(i32(0), (acc, x) => (acc + x))
+);
+test("soundness: a free fn binds an associated type from its where-clause", {
+  assert(_sound_count(_SoundRange(_cur : i32(1), _end : i32(4))) == usize(3), "a source");
+  assert(_sound_count(_SoundRange(_cur : i32(1), _end : i32(4)).map(x => (x * i32(2)))) == usize(3), "a chain");
+  assert(_sound_sum(_SoundRange(_cur : i32(1), _end : i32(4)), i32(0)) == i32(6), "A <: Add(A) at i32");
+  assert(_sound_sum(_SoundRange64(_cur : i64(1), _end : i64(4)), i64(0)) == i64(6), "A <: Add(A) at i64");
+  got := _sound_collect(_SoundRange(_cur : i32(1), _end : i32(4)));
+  assert(got.len() == usize(3), "a blanket combinator on the parameter");
+  wide := _sound_map_all(_SoundRange(_cur : i32(1), _end : i32(4)), x => i64(x));
+  assert(match(wide.get(usize(2)), .Some(v) => v, .None => i64(0)) == i64(3), "J from the closure body");
+  comptime_expect_error(_sound_sum_i32(_SoundRange64(_cur : i64(1), _end : i64(4))), "its associated type Item is i64, not i32");
+  // The self-referential bound is still judged, at the candidate.
+  flags := ArrayList(bool).new();
+  flags.push(true);
+  comptime_expect_error(_sound_sum(flags.into_iter(), false), "Type bool does not implement required trait");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/fn-trait-pairs-are-never-synthesized.md (Phase 2.6): binders
+// inside a `Dyn(Fn(...))` parameter are inferred from the argument.
+// ---------------------------------------------------------------------------
+_sound_apply_dyn :: (fn(generic(A : Type, B : Type), f : Dyn(Fn(x : A) -> B), v : A) -> B)(f(v));
+test("soundness: Dyn(Fn(x : A) -> B) binds A and B from the argument", {
+  (inc : Dyn(Fn(y : i32) -> i32)) = dyn(y => (y + i32(1)));
+  assert(_sound_apply_dyn(inc, i32(41)) == i32(42), "B inferred");
+});

@@ -946,12 +946,12 @@ consumer needs no `Exception` handler.
    });
    ```
 
-3. **A generic consumer takes a bare or a concrete bound.**
-   `where(S <: Stream)` and `where(S <: Stream(Item := i32))` both accept
-   sources and combinator chains; `where(S <: Stream(Item := A))` with a
-   generic `A` binds nothing and rejects both. A consumer that must be
-   generic over the item type is written as a blanket impl method, which is
-   how `collect` and `for_each` themselves are written.
+3. **A generic consumer is an ordinary generic function.**
+   `where(S <: Stream)`, `where(S <: Stream(Item := i32))` and
+   `where(S <: Stream(Item := A))` with a generic `A` all accept sources and
+   combinator chains. A generic `A` is bound from the argument's `Stream` impl,
+   so the body can use it (`ArrayList(A)`, `A <: Add(A)`), and the blanket
+   combinators (`s.collect(io)`, `s.map(f)`) can be called on the parameter.
 
 4. **`.None` is terminal.** A consumer stops on it, so an implementor must
    keep answering `.None` afterwards — never resume after finishing.

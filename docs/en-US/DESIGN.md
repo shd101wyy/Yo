@@ -731,6 +731,23 @@ compare_and_add :: (
 );
 ```
 
+An associated-type binding in a bound binds a generic parameter: `A` below is fixed by the
+argument's `Iterator` impl, so the body can use it, and the blanket combinators (`fold`, `map`,
+`collect`, ...) can be called on the parameter. A bound may mention the parameter it constrains
+(`A <: Add(A)`); it is checked once `A` is bound:
+
+```rust
+sum :: (fn(generic(I : Type, A : Type), it : I, zero : A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(
+  it.fold(zero, (acc, x) => (acc + x))
+);
+total := sum(list.into_iter(), i32(0));   // A = i32
+```
+
+A parameter fixed only by an `Fn` bound's result (`J` in `where(F <: (Fn(item : A) -> J))`) is
+bound from the closure argument's body type. When an associated type does not match, the error
+says which one: `Type ArrayListIter(String) does not implement required trait Iterator: its
+associated type Item is String, not i32.`
+
 ### Trait Method Disambiguation
 
 When a type implements multiple traits that define methods with the same name, `where` clause constraints determine which trait's method is used:

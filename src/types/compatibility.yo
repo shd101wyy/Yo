@@ -151,6 +151,55 @@ _flatten_effects :: (
     i = (i + usize(1));
   });
 });
+/// Does the bound `req` mention the SomeT `self_var` (same name and frame
+/// level)? Looks inside a trait's member types and an Fn trait's signature,
+/// which `get_all_some_types` does not enter.
+_bound_mentions_some :: (fn(req : TypeValue, self_var : TypeValue) -> bool)({
+  (sv_n, sv_l) := match(self_var, .SomeT({ name : n, frame_level : l }) => (n, l), _ => (String.new(), usize(0)));
+  if(sv_n.len() == usize(0), {
+    return(false);
+  });
+  parts := ArrayList(TypeValue).new();
+  parts.push(req);
+  match(
+    req,
+    .TraitT({ field_types : fts, assoc_constraint_types : acts }) => {
+      (i : usize) = usize(0);
+      while(i < fts.len(), {
+        match(fts.get(i), .Some(t) => parts.push(t), .None => ());
+        i = (i + usize(1));
+      });
+      (j : usize) = usize(0);
+      while(j < acts.len(), {
+        match(acts.get(j), .Some(t) => parts.push(t), .None => ());
+        j = (j + usize(1));
+      });
+    },
+    .FnTraitT({ call_param_types : cpts, call_result : cr }) => {
+      (i : usize) = usize(0);
+      while(i < cpts.len(), {
+        match(cpts.get(i), .Some(t) => parts.push(t), .None => ());
+        i = (i + usize(1));
+      });
+      parts.push(cr);
+    },
+    _ => ()
+  );
+  (p : usize) = usize(0);
+  while(p < parts.len(), {
+    somes := get_all_some_types(match(parts.get(p), .Some(t) => t, .None => TypeValue.Unit));
+    p = (p + usize(1));
+    (k : usize) = usize(0);
+    while(k < somes.len(), {
+      hit := match(somes.get(k), .Some(st) => match(st, .SomeT({ name : n, frame_level : l }) => ((n == sv_n) && (l == sv_l)), _ => false), .None => false);
+      if(hit, {
+        return(true);
+      });
+      k = (k + usize(1));
+    });
+  });
+  false
+});
 // ---------------------------------------------------------------------------
 // trait-implements hook (types/ -> evaluator/ cycle breaker)
 // ---------------------------------------------------------------------------
@@ -508,6 +557,13 @@ _compat_impl :: (
     });
     return(true);
   });
+  // A bound that mentions the SomeT itself (`A <: Add(A)`) is skipped here: it
+  // can be judged only with its trait constructor re-applied at the candidate
+  // (`Add(i32)` is a different trait value from `Add(A)`), which the call's
+  // where-clause re-application does once the binding is made. Judging the
+  // unapplied `Add(A)` rejected every candidate, so
+  // `where(S <: Iterator(Item := A), A <: Add(A))` refused an `i32` iterator
+  // (issues/fixed/self-referential-bound-rejects-every-candidate.md).
   // --- Concrete (actual) vs SomeType (expected) ------------------------------
   // An UNCONSTRAINED SomeType (bare generic param, e.g. a ctl
   // handler's free `ResumeType`) accepts ANY concrete type — non-exact only
@@ -537,7 +593,7 @@ _compat_impl :: (
         (ri2 : usize) = usize(0);
         while((ri2 < erts2.len()) && all_ok, {
           req2 := match(erts2.get(ri2), .Some(v) => v, .None => TypeValue.Unit);
-          if(!(impl_check(actual, req2)), {
+          if(!(_bound_mentions_some(req2, expected)) && !(impl_check(actual, req2)), {
             all_ok = false;
           });
           ri2 = (ri2 + usize(1));
