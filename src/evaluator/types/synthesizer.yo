@@ -1989,12 +1989,12 @@ _synthesize_types_impl :: (
       .SomeT({ id : hk_id, name : hk_name, kind_function_type : hk_kind }) => match(
         hk_ctor,
         .Some(hk_cv) => if(hk_targs.len() == hk_args.len(), {
-          hk_kind_ty := match(hk_kind, .Some(k) => k, .None => t_unit());
+          hk_kind_ty := match(hk_kind, .Some(k) => k, .None => TypeValue.Unit);
           _bind_some_type(ee, hk_name, hk_id, hk_cv, hk_kind_ty, opts_token(opts, ee), exn);
           (hk_i : usize) = usize(0);
           while(hk_i < hk_args.len(), {
-            hk_e := match(hk_args.get(hk_i), .Some(t) => t, .None => t_unit());
-            hk_g := match(hk_targs.get(hk_i), .Some(t) => t, .None => t_unit());
+            hk_e := match(hk_args.get(hk_i), .Some(t) => t, .None => TypeValue.Unit);
+            hk_g := match(hk_targs.get(hk_i), .Some(t) => t, .None => TypeValue.Unit);
             hk_res := _synthesize_types_impl(hk_e, ee, hk_g, ge, checked, opts, exn);
             ee = hk_res.expected_env;
             ge = hk_res.given_env;

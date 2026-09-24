@@ -396,3 +396,28 @@ test("soundness canary: an io-param closure's result inside a generic body", {
   assert(_io_run(io, u64(0), (io2 : Io) => u64(18446744073709551615)) == u64(18446744073709551615), "u64");
   assert(_io_run(io, f64(0.0), (io2 : Io) => f64(2.5)) == f64(2.5), "f64");
 });
+// issues/fixed/generic-fn-forall-unresolved-when-argument-is-a-method-call.md
+// (Phase 2.4): a method call passed straight to a generic `Option(U)`
+// parameter adopted `Option(U)` as its own result (a shallow "is the expected
+// type concrete" test), so `U` stayed a type variable and the callee was
+// specialized abstractly — an FTT stub at run time.
+impl(i32, _wrap_some : (fn(self : i32) -> Option(i32))(Option(i32).Some(self)));
+_take_opt :: (fn(generic(U : Type), o : Option(U)) -> bool)(match(o, .Some(_) => true, .None => false));
+test("soundness canary: a method-call argument binds the callee's type parameter", {
+  x := i32(1);
+  assert(_take_opt(x._wrap_some()), "Some through the method call");
+});
+// issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md
+// (Phase 2.4): a kind-annotated binder is inferred from an argument's
+// instantiation, and `F(A)` in the result is applied.
+_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
+test("soundness canary: F(A) infers F and A and the result is Option(i32)", {
+  o := Option(i32).Some(i32(7));
+  r := _hk_identity(o);
+  (r2 : Option(i32)) = r;
+  assert(match(r2, .Some(v) => v, .None => i32(0)) == i32(7), "the constructor was applied");
+  xs := ArrayList(i32).new();
+  xs.push(i32(3));
+  ys := _hk_identity(xs);
+  assert(ys.len() == usize(1), "a struct constructor too");
+});
