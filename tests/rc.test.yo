@@ -1335,6 +1335,21 @@ test("a match/cond argument arm that returns a borrowed value does not over-rele
   };
   assert(g_at_disposed == (before + i32(3)), "the caller's value is disposed once, at its scope end");
 });
+at_sink_plus :: (fn(own(a) : ArgTemp) -> i32)(a.n + i32(1));
+test("an own parameter read by a bare-expression body is released after the read", {
+  before := g_at_disposed;
+  {
+    x := ArgTemp(n : i32(40));
+    _r := at_sink(x);
+    assert(_r == i32(40), "the field read happens before the release");
+  };
+  {
+    y := ArgTemp(n : i32(41));
+    _s := at_sink_plus(y);
+    assert(_s == i32(42), "also inside an arithmetic tail");
+  };
+  assert(g_at_disposed == (before + i32(2)), "each owned argument is disposed exactly once, by the callee");
+});
 test("a nested match argument and a match moved into an own parameter", {
   before := g_at_disposed;
   flag := (before >= i32(0));
