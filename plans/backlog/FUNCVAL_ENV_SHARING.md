@@ -60,6 +60,11 @@ which the post-allocator-flip system malloc absorbs cheaply — the durable
 saving is the live share (the −1.11 GB). Remaining follow-ups: the endgame
 deletion of the flat triple lists (blocked on the generic-binding-channel
 consumers), and re-running the live census to re-rank the §4 levers.
+**2026-09-24:** half done — definition-site FuncVals read capture
+names/types from their registered handles (`FvCaptureSource`,
+`plans/EVALUATOR_MEMORY_REDUCTION.md` §0.7, −0.49 GB); derived FuncVals keep
+flat lists because an inherited handle list is not aligned with their
+`cap_vals` (§0.7 explains why), and `cap_vals` itself stays.
 
 Original design below kept for the record (its §1/§2 ground-truth research
 and §6 risk checklist remain valid).** Successor to the landed §3 def-time
