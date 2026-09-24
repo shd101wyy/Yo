@@ -2118,4 +2118,34 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : TypeValue, name : String) -> bool)(
     _ => false
   )
 );
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot);
+/// The note a type mismatch appends when a `Dyn` with more traits is given
+/// where one with a subset is expected (`Dyn(Sp, Ot)` for `Dyn(Sp)`): Yo does
+/// not upcast `Dyn` values (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.7,
+/// docs/en-US/DYN_DESIGN.md). Empty for every other pair.
+dyn_upcast_note :: (fn(expected : TypeValue, given : TypeValue) -> String)(
+  match(
+    expected,
+    .DynT({ required_trait_types : ert }) => match(
+      given,
+      .DynT({ required_trait_types : grt }) => {
+        (all_in : bool) = (ert.len() < grt.len());
+        (i : usize) = usize(0);
+        while((i < ert.len()) && all_in, {
+          es := type_to_string(match(ert.get(i), .Some(t) => t, .None => TypeValue.Unit));
+          (hit : bool) = false;
+          (j : usize) = usize(0);
+          while((j < grt.len()) && !hit, {
+            hit = (type_to_string(match(grt.get(j), .Some(t) => t, .None => TypeValue.Unit)) == es);
+            j = (j + usize(1));
+          });
+          all_in = hit;
+          i = (i + usize(1));
+        });
+        if(all_in, String.from("\nA Dyn value is not converted to a Dyn with fewer traits (Yo does not upcast Dyn): call dyn(...) on the concrete value with the traits the destination needs."), String.new())
+      },
+      _ => String.new()
+    ),
+    _ => String.new()
+  )
+);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note);

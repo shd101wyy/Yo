@@ -72,7 +72,8 @@ pragma(Pragma.AllowUnsafe);
   get_all_some_types,
   type_contains_some_type,
   type_somes_all_resolve_concrete,
-  type_requires_comptime_modifier
+  type_requires_comptime_modifier,
+  dyn_upcast_note
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -1112,7 +1113,7 @@ ${ast_expr_to_string(actual_arg)}`
       dyn(
         format_error_message(
           ast_expr_token(actual_arg),
-          `Type mismatch for parameter "${param_label}":\n- Expected: ${type_to_string(final_pt)}\n- Got     : ${type_to_string(arg_type)}`
+          `Type mismatch for parameter "${param_label}":\n- Expected: ${type_to_string(final_pt)}\n- Got     : ${type_to_string(arg_type)}${dyn_upcast_note(final_pt, arg_type)}`
         )
       )
     );

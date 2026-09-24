@@ -98,36 +98,31 @@ typedef struct {
 
 ## 对象安全约束（遵循 Rust）
 
-**约束**：与 `Dyn()` 一起使用的 trait **不能**有以下类型的方法：
+一个方法满足以下条件时，可以通过 `Dyn(Trait)` 接收者调用：
 
-1. 按值接收 `Self` — 必须使用 `inout(self) : Self` 替代
-2. 返回 `Self`
-3. 返回包含 `Self` 的类型（如 `Option(Self)`、`Result(Self, E)` 等）
+1. 第一个参数是 `self`（`self : Self`、`inout(self) : Self` 或 `self : *(Self)`，因为 vtable 包装函数会为接收者拆箱）；
+2. `Self` 不出现在签名的其他位置：既不是其他参数，也不是结果，也不在其中出现（`Option(Self)`、`Result(Self, E)`）；
+3. 不带 `generic(...)` 参数。
 
-这遵循了 Rust 的"对象安全"规则（dyn 兼容性）。原因如下：
+原因如下：
 
-- 按值接收 `Self`：不同的具体类型具有不同的大小（i32 vs MyBox*），无法通过统一的 `void*` 参数传递
-- 返回 `Self`：不同的具体类型产生不同的返回类型，使统一的虚表签名成为不可能
+- `Dyn` 擦除了具体类型，因此 `Self` 参数或结果在调用处没有唯一的 C 类型：同一个 `Dyn` 背后的两个具体类型大小和表示都不同。
+- 泛型方法是一族函数（每个实例化一个），而一个 vtable 槽位只能放一个。
 
-**可用于**动态分派的：
+只有这些方法拥有 vtable 槽位。trait 仍可以声明其他方法，也可以构造它的 `Dyn` 并使用可调用的方法；通过 `Dyn` 调用其他方法会在调用处报错 E0614（`yo explain E0614`）：
 
-```typescript
-TestDyn :: trait(
-  return_i32 : (fn(inout(self) : Self) -> i32),  // 接收 inout(Self)，返回具体类型 — OK！
-  print : (fn(inout(self) : Self) -> unit)        // 接收 inout(Self)，返回 unit — OK！
-);
+```rust
+Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));
+(d : Dyn(Sp)) = dyn(Cat(n : i32(3)));
+d.speak();   // OK：`Self` 只作为接收者
+d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through Dyn(Sp): it returns Self, which the Dyn erases.
 ```
 
-**不可用于**动态分派的（违反对象安全）：
+基于 trait 约束的一揽子固有方法（`impl(generic(E), where(E <: Named), E, shout : ...)`）同样接受 `Dyn(Named)` 接收者。它不是 trait 成员，没有 vtable 槽位：这个调用是对该方法（针对 `Dyn` 特化）的普通调用，而方法内部的 `self.name()` 通过 vtable 分派。
 
-```typescript
-TestDyn :: trait(
-  by_value : (fn(self : Self) -> unit),        // 按值接收 Self — 不满足对象安全！
-  id : (fn(inout(self) : Self) -> Self)           // 返回 Self — 不满足对象安全！
-);
-```
+通过泛型 impl 实现的 trait（`T <: ToString` 时 `ArrayList(T)` 的 `ToString`）可以放进 `Dyn`：`dyn(xs)` 会针对具体类型特化泛型 impl 的方法。
 
-该约束在**方法调用时**强制检查，而非在 trait 定义时。你可以定义包含非对象安全方法的 trait，但不能在 Dyn 值上调用这些方法。
+**不支持向上转换。** `Dyn(Sp, Ot)` 不会被转换为 `Dyn(Sp)`：两者的 vtable 布局不同，而构造较小 vtable 所需的具体类型已被擦除。请对具体值调用 `dyn(...)`，并带上目标所需的 trait。该决定记录在 `plans/TYPE_SYSTEM_SOUNDNESS.md`（Phase 2.7）中。
 
 ## dyn(...) 的引用语义类型要求
 
