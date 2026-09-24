@@ -1,0 +1,10 @@
+{ println } :: import("std/fmt");
+
+// `comptime_unwrap` runs by CTFE, so a `.None` receiver is a DECIDED
+// failure: the compile must stop here, with the panic's own message.
+LIMIT :: Option(i32).None.comptime_unwrap();
+
+main :: (fn() -> unit)({
+  println(`limit=${LIMIT}`);
+});
+export(main);

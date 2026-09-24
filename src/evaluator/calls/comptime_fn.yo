@@ -1098,12 +1098,30 @@ evaluate_comptime_fn_call :: (
   old_executing := ctx.is_executing;
   old_ret_impl := ctx.function_return_impl_concrete_type;
   old_force_ct := ctx.force_compile_time_bindings;
+  // LIVE execution (a panic it reaches is a compile error): every argument
+  // is known, and the call is not inside an untaken arm of an enclosing
+  // comptime body — `ctfe_untaken_arm_depth` counts only those arms, so it
+  // must still equal the depth the nearest live body entered at (0 when no
+  // comptime body encloses the call; a runtime body's arms are not counted,
+  // because the value of a comptime call there is needed for codegen either
+  // way).
+  ctfe_outer_depth := match(
+    old_fn_ctx,
+    .Some(ofc) => cond(
+      ofc.ctfe_live => ofc.ctfe_arm_depth,
+      true => usize(0)
+    ),
+    .None => usize(0)
+  );
+  ctfe_live := (!(any_arg_unknown) && (ctx.ctfe_untaken_arm_depth == ctfe_outer_depth));
   ctx.is_evaluating_function_body_or_async_block = Option(FuncOrAsyncBlockCtx).Some(
     FuncOrAsyncBlockCtx(
       kind : FuncOrAsyncBlockKind.FunctionBody,
       func_type : Option(TypeValue).Some(function_type),
       func_value : Option(EvalValue).Some(function_value),
-      eval_env : snapshot_env(callee_env)
+      eval_env : snapshot_env(callee_env),
+      ctfe_live : ctfe_live,
+      ctfe_arm_depth : ctx.ctfe_untaken_arm_depth
     )
   );
   ctx.is_evaluating_loop_body = .None;

@@ -28,6 +28,19 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { panic, assert } :: import("std/assert");
+/// A `StrLit`'s raw text keeps its source delimiters; strip one matching
+/// pair for the diagnostic.
+_unquote_str_lit :: (fn(raw : String) -> String)({
+  n := raw.len();
+  if(n >= usize(2), {
+    first := raw(usize(0));
+    last := raw(n - usize(1));
+    if((first == last) && ((first == u8(34)) || (first == u8(96))), {
+      return(raw.slice_copy(usize(1) .. (n - usize(1))));
+    });
+  });
+  raw
+});
 evaluate_panic :: (
   fn(
     expr : AstExpr,
@@ -99,6 +112,9 @@ evaluate_panic :: (
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (cur_env : Environment) = env;
+  // The message text when it is compile-time known (a `comptime_str`
+  // literal) — the comptime-panic diagnostic below carries it.
+  (ct_msg : Option(String)) = .None;
   if(args.len() > usize(0), {
     msg_expr := match(
       args.get(usize(0)),
@@ -125,6 +141,17 @@ evaluate_panic :: (
         cur_env = expr_info_adopt_env(info);
         msg_type := info.ty;
         msg_value := info.value;
+        match(
+          msg_value,
+          .Some(mv) => match(
+            mv,
+            .StrLit(raw) => {
+              ct_msg = .Some(_unquote_str_lit(raw));
+            },
+            _ => ()
+          ),
+          .None => ()
+        );
         // `str` is the fieldless `.Str` TypeValue variant (NOT a Struct named
         // "str") — use the is_str_type guard. The old inline `.Struct(name=="str")`
         // check never matched a real `str` param, so a `panic(msg : str)` body
@@ -165,6 +192,32 @@ evaluate_panic :: (
           );
         });
       }
+    );
+  });
+  // A panic REACHED by a live compile-time execution is a compile error:
+  // the failure is decided, so it must be reported now, at the panic, with
+  // its message. Without this the body produced no value and the failure
+  // resurfaced far from its cause — `Z :: Option(i32).None.comptime_unwrap()`
+  // passed `yo check` and failed in clang as `use of undeclared identifier
+  // 'Z'`, and a free comptime fn reported the message-less "Function body is
+  // not evaluated correctly" (issues/fixed/a-comptime-panic-is-not-a-compile-error.md).
+  // `ctfe_live` (set by calls/comptime_fn.yo) means every argument is known;
+  // the arm-depth equality means no untaken cond/match arm of this body
+  // encloses the panic. `is_executing` cannot serve here: a comptime call
+  // inside a runtime body's def-time evaluation runs with it false even on
+  // its taken path.
+  if(fn_ctx.ctfe_live && (ctx.ctfe_untaken_arm_depth == fn_ctx.ctfe_arm_depth), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          match(
+            ct_msg,
+            .Some(m) => `compile-time panic: ${m}`,
+            .None => String.from("compile-time panic")
+          )
+        )
+      )
     );
   });
   // Annotate with the surrounding function's return type (panic diverges).
