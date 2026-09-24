@@ -173,9 +173,13 @@ ContentLength :: enum(
   /// unrecoverable framing — never "no body". `msg` names the defect.
   Invalid(msg : String)
 );
-// The largest `Content-Length` accepted (~1.15 EiB): far past any real body,
-// and small enough that the `(n * 10) + digit` accumulation cannot wrap.
-_MAX_CONTENT_LENGTH :: usize(0x0FFFFFFFFFFFFFFF);
+// The largest `Content-Length` accepted: `usize.MAX >> 4` — ~1.15 EiB on a
+// 64-bit target, ~268 MB on a 32-bit one — far past any real body there, and
+// small enough that the `(n * 10) + digit` accumulation cannot wrap
+// (`(MAX >> 4) + 9 < MAX` at every width). A literal `usize(0x0FFFFFFFFFFFFFFF)`
+// does not fit a 32-bit `usize` and is a compile error on wasm32
+// (issues/fixed/http-wire-max-content-length-overflows-32-bit-usize.md).
+_MAX_CONTENT_LENGTH :: (usize.MAX >> usize(4));
 // RFC 9112 §6.2 is `Content-Length = 1*DIGIT`: no sign, no leading `+`, no
 // trailing junk, no comma list. `String.parse_i32` accepts `-5` and `+5` and
 // collapses every other rejection into the same `.None`, so the digits are
