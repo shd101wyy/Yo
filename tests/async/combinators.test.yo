@@ -245,16 +245,13 @@ impl(
 /// and the deadline is what turns "a combinator loops forever because `.None`
 /// stopped being terminal" into a failed assertion instead of a burnt CI job.
 ///
-/// It takes the FUTURE, not the stream, and that is not a style choice: a
-/// blanket-impl combinator method cannot be called on a generic stream
-/// PARAMETER. `s.collect(io)` where `s : S` with `where(S <: Stream(Item :=
-/// i32))` fails with `No matching call found with arguments: (s.collect)(io)`
-/// — the method's own `where(Self <: Stream(Item := A))` has no concrete impl
-/// to read `Item` off. The trait's own `next` is fine on such a parameter
-/// (see `_count_items`); only the blanket methods need a concrete receiver.
-/// Details and options: `plans/backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`.
-_bounded :: (fn(fut : Impl(Future(ArrayList(i32), Io)), io : Io) -> ArrayList(i32))({
-  h := io.spawn(fut, io);
+/// It takes the stream and calls the blanket `collect` on the generic
+/// parameter itself. That used to fail (`No matching call found with
+/// arguments: (s.collect)(io)`), so this helper took the collect future
+/// instead; it is the shape `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
+/// (Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) made work.
+_bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))({
+  h := io.spawn(s.collect(io), io);
   match(
     timeout(h, Duration.from_millis(i64(5000)), io),
     .Ok(list) => list,
@@ -268,13 +265,9 @@ _bounded :: (fn(fut : Impl(Future(ArrayList(i32), Io)), io : Io) -> ArrayList(i3
 /// the thing that was impossible before the trait existed. It never names the
 /// item type, and accepts stream sources and combinator chains alike.
 ///
-/// A bare `where(S <: Stream)` and a CONCRETE binding (`Item := i32`, as in
-/// `_sum_i32`) both work here. What does not is a generic one: a free
-/// function's `where(S <: Stream(Item := A))` with `generic(A : Type)` binds
-/// nothing and rejects every argument, source and chain alike — and
-/// `Iterator` behaves identically, so it is a general property of
-/// associated-type bounds and not something about streams
-/// (`plans/backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`).
+/// A bare `where(S <: Stream)`, a CONCRETE binding (`Item := i32`, as in
+/// `_sum_i32`) and a GENERIC one (`Item := A`, as in `_collect_all`) all work
+/// here, for sources and chains alike.
 _count_items :: (
   fn(generic(S : Type), s : S, io : Io, where(S <: Stream)) -> Impl(Future(usize, Io))
 )(
@@ -295,6 +288,11 @@ _count_items :: (
     });
     n
   })
+);
+/// Generic over the item type: `A` is bound from the argument's `Stream` impl,
+/// so the body can name `ArrayList(A)` and call the blanket `collect` on `s`.
+_collect_all :: (fn(generic(S : Type, A : Type), s : S, io : Io, where(S <: Stream(Item := A))) -> ArrayList(A))(
+  io.await(s.collect(io), io)
 );
 /// The same idea with the item type spelled out, so the body can use the
 /// values.
@@ -363,31 +361,34 @@ test("Test a consumer generic over Stream", {
   assert(total == i32(6), "a concrete-Item consumer sums a source");
   chained := io.await(_sum_i32(Countdown(_n : i32(3)).map(x => (x * i32(2))), io), io);
   assert(chained == i32(12), "and it accepts a combinator chain, not just a source");
+  all := _collect_all(Countdown(_n : i32(3)).map(x => (x * i32(2))), io);
+  assert(all.len() == usize(3), "a generic-Item consumer collects a chain");
+  assert(all(usize(0)) == i32(6), "and keeps the values");
 });
 // ---------------------------------------------------------------------------
 // S4. Each combinator, awaited from inside a spawned task
 // ---------------------------------------------------------------------------
 test("Test Stream map inside a spawned task", {
-  got := _bounded(Countdown(_n : i32(3)).map(x => (x * i32(10))).collect(io), io);
+  got := _bounded(Countdown(_n : i32(3)).map(x => (x * i32(10))), io);
   assert(got.len() == usize(3), "map is length-preserving");
   assert(got(usize(0)) == i32(30), "first mapped");
   assert(got(usize(2)) == i32(10), "last mapped");
 });
 test("Test Stream filter inside a spawned task", {
-  got := _bounded(Countdown(_n : i32(6)).filter(x => ((x % i32(2)) == i32(0))).collect(io), io);
+  got := _bounded(Countdown(_n : i32(6)).filter(x => ((x % i32(2)) == i32(0))), io);
   assert(got.len() == usize(3), "three even values in 6..1");
   assert(got(usize(0)) == i32(6), "6 first");
   assert(got(usize(2)) == i32(2), "2 last");
 });
 test("Test Stream filter that keeps nothing", {
-  got := _bounded(Countdown(_n : i32(4)).filter(x => (x > i32(100))).collect(io), io);
+  got := _bounded(Countdown(_n : i32(4)).filter(x => (x > i32(100))), io);
   assert(got.len() == usize(0), "a predicate no item satisfies drains to empty, it does not hang");
 });
 test("Test Stream filter_map inside a spawned task", {
   got := _bounded(
     Countdown(_n : i32(5)).filter_map(
       x => cond((x > i32(3)) => Option(i32).Some(x + i32(100)), true => Option(i32).None)
-    ).collect(io),
+    ),
     io
   );
   assert(got.len() == usize(2), "5 and 4 pass the filter half");
@@ -395,26 +396,26 @@ test("Test Stream filter_map inside a spawned task", {
   assert(got(usize(1)) == i32(104), "second");
 });
 test("Test Stream take inside a spawned task", {
-  got := _bounded(Countdown(_n : i32(10)).take(usize(3)).collect(io), io);
+  got := _bounded(Countdown(_n : i32(10)).take(usize(3)), io);
   assert(got.len() == usize(3), "take(3) stops at three");
   assert(got(usize(0)) == i32(10), "first");
   assert(got(usize(2)) == i32(8), "third");
 });
 test("Test Stream take beyond the end of the stream", {
-  got := _bounded(Countdown(_n : i32(2)).take(usize(9)).collect(io), io);
+  got := _bounded(Countdown(_n : i32(2)).take(usize(9)), io);
   assert(got.len() == usize(2), "take(9) over a 2-item stream yields 2, then finishes");
 });
 test("Test Stream take(0) yields nothing", {
-  got := _bounded(Countdown(_n : i32(5)).take(usize(0)).collect(io), io);
+  got := _bounded(Countdown(_n : i32(5)).take(usize(0)), io);
   assert(got.len() == usize(0), "take(0) is an empty stream");
 });
 test("Test Stream skip inside a spawned task", {
-  got := _bounded(Countdown(_n : i32(5)).skip(usize(2)).collect(io), io);
+  got := _bounded(Countdown(_n : i32(5)).skip(usize(2)), io);
   assert(got.len() == usize(3), "5 items minus the first 2");
   assert(got(usize(0)) == i32(3), "the third item is first now");
 });
 test("Test Stream skip past the end of the stream", {
-  got := _bounded(Countdown(_n : i32(2)).skip(usize(5)).collect(io), io);
+  got := _bounded(Countdown(_n : i32(2)).skip(usize(5)), io);
   assert(got.len() == usize(0), "skipping more items than exist finishes the stream");
 });
 // ---------------------------------------------------------------------------
@@ -422,7 +423,7 @@ test("Test Stream skip past the end of the stream", {
 // ---------------------------------------------------------------------------
 test("Test a Stream combinator chain", {
   // 10..1 -> evens (10 8 6 4 2) -> +1 (11 9 7 5 3) -> first two.
-  got := _bounded(Countdown(_n : i32(10)).filter(x => ((x % i32(2)) == i32(0))).map(x => (x + i32(1))).take(usize(2)).collect(io), io);
+  got := _bounded(Countdown(_n : i32(10)).filter(x => ((x % i32(2)) == i32(0))).map(x => (x + i32(1))).take(usize(2)), io);
   assert(got.len() == usize(2), "the chain yields two items");
   assert(got(usize(0)) == i32(11), "first");
   assert(got(usize(1)) == i32(9), "second");

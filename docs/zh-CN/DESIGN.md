@@ -711,6 +711,21 @@ compare_and_add :: (
 );
 ```
 
+约束中的关联类型绑定会绑定泛型参数：下面的 `A` 由实参的 `Iterator` impl 确定，函数体可以使用它，
+也可以在该参数上调用 blanket 组合子（`fold`、`map`、`collect` 等）。约束可以提到它所约束的参数本身
+（`A <: Add(A)`），这个约束会在 `A` 绑定之后检查：
+
+```rust
+sum :: (fn(generic(I : Type, A : Type), it : I, zero : A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(
+  it.fold(zero, (acc, x) => (acc + x))
+);
+total := sum(list.into_iter(), i32(0));   // A = i32
+```
+
+只由 `Fn` 约束的结果确定的参数（`where(F <: (Fn(item : A) -> J))` 中的 `J`）从闭包实参的函数体类型绑定。
+关联类型不匹配时，错误会指出是哪一个：`Type ArrayListIter(String) does not implement required trait
+Iterator: its associated type Item is String, not i32.`
+
 ### Trait 方法消歧义
 
 当一个类型实现了多个定义了同名方法的 trait 时，`where` 子句约束决定使用哪个 trait 的方法：

@@ -21,6 +21,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom,
   ast_expr_is_atom_of,
   BF_DOT,
+  BK_TUPLE,
   is_function_boundary_arrow,
   desugar_if_calls,
   BF_YO_AS
@@ -78,7 +79,7 @@ pragma(Pragma.AllowUnsafe);
   fv_source_ty
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -125,7 +126,8 @@ pragma(Pragma.AllowUnsafe);
   fn_argument_not_callable_message,
   impl_param_unmet_trait,
   impl_argument_unmet_trait_message,
-  type_implements_future
+  type_implements_future,
+  resolve_assoc_type_for_target
 } :: import("../trait_checking.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
 { try_to_implement_module_with_arguments_by_module_type } :: import("./record_type.yo");
@@ -150,8 +152,8 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
-{ get_func_type, register_func_type, is_control_fn } :: import("../../function_value.yo");
+{ try_to_call_function_with_arguments, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ get_func_type, register_func_type, is_control_fn, get_closure_body_type } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val, value_to_string } :: import("../../value.yo");
@@ -1928,6 +1930,92 @@ _funcval_try_synthesize_param :: (
   _r := synthesize_types(declared_pt, scratch_env, arg_ty, arg_env, checked, synth_opts, local_exn);
   ()
 });
+/// `ftt` (an `Fn` trait) with its call result replaced by `result` when the
+/// current result still mentions a type variable.
+_fv_fn_trait_with_result :: (fn(ftt : TypeValue, result : TypeValue) -> TypeValue)(
+  match(
+    ftt,
+    .FnTraitT(bn, cpl, cpt, cr, il, it, is, cpr) => if(
+      (is_some_type(cr) || (get_all_some_types(cr).len() > usize(0))),
+      TypeValue.FnTraitT(bn, cpl, cpt, result, il, it, is, cpr),
+      ftt
+    ),
+    _ => ftt
+  )
+);
+/// A closure argument's type as binder inference sees it. A closure checked
+/// against `F : (Fn(item : i32) -> J)` adopts that carrier as its type, so the
+/// result binder `J` is the callee's own and says nothing; the closure's
+/// evaluated body type (`get_closure_body_type`) is what fixes it. An `Fn`
+/// carrier whose result still mentions a type variable takes the body type as
+/// its result, and so does a `Func` whose result is one. This is the
+/// argument-side twin of the method path's closure-argument return
+/// refinement in `check_if_function_parameter_matches_argument` (Phase 2.6).
+_fv_closure_arg_synth_type :: (fn(info : ExprInfo) -> TypeValue)({
+  body_opt := match(
+    info.value,
+    .Some(v) => match(v, .FuncVal(fvd, _) => get_closure_body_type(fvd.*.func_id.clone()), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
+  match(
+    body_opt,
+    .Some(body) => cond(
+      (is_some_type(body) || (get_all_some_types(body).len() > usize(0))) => info.ty,
+      true => match(
+        info.ty,
+        .Func({
+          forall_types : cb_ft,
+          param_types : cb_pt,
+          implicit_types : cb_it,
+          where_types : cb_wt,
+          result : cb_res,
+          meta : cb_meta
+        }) => if(
+          (is_some_type(cb_res) || (get_all_some_types(cb_res).len() > usize(0))),
+          TypeValue.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, ArrayList(TypeValue).new()),
+          info.ty
+        ),
+        .SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_ier, rf_kft, rf_rc) => {
+          new_rtt := ArrayList(TypeValue).new();
+          (rf_i : usize) = usize(0);
+          while(rf_i < rf_rtt.len(), {
+            match(rf_rtt.get(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(rt, body)), .None => ());
+            rf_i = (rf_i + usize(1));
+          });
+          TypeValue.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_ier, rf_kft, rf_rc)
+        },
+        .FnTraitT(_, _, _, _, _, _, _, _) => _fv_fn_trait_with_result(info.ty, body),
+        _ => info.ty
+      )
+    ),
+    .None => info.ty
+  )
+});
+/// Synthesize one declared parameter type against its argument into a
+/// structural-inference scratch env. A closure argument goes through
+/// `_fv_closure_arg_synth_type`; when the parameter is an `Fn`-bounded binder
+/// the closure adopted as its own type, the two carriers share one SomeT id
+/// and the synthesizer's SomeT arm stops there, so the two `Fn` bounds are
+/// synthesized against each other directly, which binds `J` in
+/// `F <: (Fn(item : A) -> J)` from the closure's body type.
+_fv_synthesize_arg_into :: (fn(declared_pt : TypeValue, scratch_env : Environment, info : ExprInfo, arg_env : Environment) -> unit)({
+  arg_ty := _fv_closure_arg_synth_type(info);
+  _funcval_try_synthesize_param(declared_pt, scratch_env, arg_ty, arg_env);
+  if(is_some_type(declared_pt), {
+    match(
+      extract_fn_trait_from_type(declared_pt),
+      .Some(d_ft) => match(
+        cond(
+          is_function_type(arg_ty) => Option(TypeValue).Some(arg_ty),
+          true => extract_fn_trait_from_type(arg_ty)
+        ),
+        .Some(a_ft) => _funcval_try_synthesize_param(d_ft, scratch_env, a_ft, arg_env),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+});
 /// The type a `generic(...)` binder is inferred as from one argument whose
 /// declared parameter type IS the binder (`v : T`). The lowering rules:
 ///
@@ -2059,6 +2147,69 @@ _fv_order_is_permuted :: (fn(order : ArrayList(usize)) -> bool)({
   });
   false
 });
+/// The where-clause channel of `_fv_refine_closure_expected`: the type a
+/// `where(L <: Trait(Assoc := X))` constraint gives the binder `X` once `L` is
+/// concretely bound in `se` — the associated type `Assoc` of `L`'s impl. A free
+/// generic function's `A` in `where(I <: Iterator(Item := A))` is fixed by no
+/// argument, so without this a closure checked against
+/// `F : (Fn(item : A) -> J)` saw `A` unresolved (Phase 2.6). The method path
+/// resolves the same thing in its Step-6c durable assoc binding.
+_fv_where_assoc_binding :: (fn(name : String, where_exprs : ArrayList(AstExpr), se : Environment, env : Environment) -> Option(TypeValue))({
+  (w : usize) = usize(0);
+  while(w < where_exprs.len(), {
+    we := match(where_exprs.get(w), .Some(e) => e, .None => make_err_expr());
+    w = (w + usize(1));
+    if(!(ast_expr_is_fn_call_of(we, "<:", Option(usize).Some(usize(2)))), {
+      continue;
+    });
+    we_args := match(we, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    lhs := match(we_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    rhs := match(we_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+    if(!(ast_expr_is_atom(lhs)), {
+      continue;
+    });
+    match(
+      _scratch_concrete_binding(se, ast_expr_token(lhs).value),
+      .Some(target) => {
+        traits := cond(
+          ast_expr_is_fn_call_of(rhs, BK_TUPLE, Option(usize).None) => match(rhs, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()),
+          true => {
+            one := ArrayList(AstExpr).new();
+            one.push(rhs);
+            one
+          }
+        );
+        (t : usize) = usize(0);
+        while(t < traits.len(), {
+          tr := match(traits.get(t), .Some(e) => e, .None => make_err_expr());
+          t = (t + usize(1));
+          tr_args := match(tr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+          (a : usize) = usize(0);
+          while(a < tr_args.len(), {
+            ta := match(tr_args.get(a), .Some(e) => e, .None => make_err_expr());
+            a = (a + usize(1));
+            if(ast_expr_is_fn_call_of(ta, ":=", Option(usize).Some(usize(2))), {
+              pair := match(ta, .FnCall(_, _, p, _, _) => p, _ => ArrayList(AstExpr).new());
+              al := match(pair.get(usize(0)), .Some(e) => e, .None => make_err_expr());
+              av := match(pair.get(usize(1)), .Some(e) => e, .None => make_err_expr());
+              if((ast_expr_is_atom(al) && ast_expr_is_atom(av)) && (ast_expr_token(av).value == name), {
+                match(
+                  resolve_assoc_type_for_target(target, ast_expr_token(al).value, env),
+                  .Some(r) => if((get_all_some_types(r).len() == usize(0)) && !(is_some_type(r)), {
+                    return(Option(TypeValue).Some(r));
+                  }),
+                  .None => ()
+                );
+              });
+            });
+          });
+        });
+      },
+      .None => ()
+    );
+  });
+  Option(TypeValue).None
+});
 /// A deferred function-literal argument's expected type: its parameter type
 /// with every binder an already-evaluated argument fixes substituted by that
 /// type — by name from a `v : T` parameter, else structurally from a composite
@@ -2076,6 +2227,7 @@ _fv_refine_closure_expected :: (
     infos : ArrayList(ExprInfo),
     info_arg_idx : ArrayList(usize),
     param_ct : ArrayList(bool),
+    where_exprs : ArrayList(AstExpr),
     env : Environment
   ) -> TypeValue
 )({
@@ -2129,6 +2281,9 @@ _fv_refine_closure_expected :: (
         }
       );
       f_ty = _scratch_concrete_binding(se, f_name.clone());
+      if(f_ty.is_none(), {
+        f_ty = _fv_where_assoc_binding(f_name.clone(), where_exprs, se, env);
+      });
     });
     match(
       f_ty,
@@ -2205,6 +2360,109 @@ _fv_restore_order_exprs :: (fn(list : ArrayList(AstExpr), idx : ArrayList(usize)
       }
     );
     emitted = (emitted + usize(1));
+  });
+  out
+});
+/// Bind every `generic(...)` binder of `callee_ty` that no argument bound to
+/// its own signature SomeT in `fresh_env`, so a where-clause applied after it
+/// has a slot to bind (Phase 2.6). Returns the labels bound this way.
+_fv_bind_unbound_forall_placeholders :: (
+  fn(
+    callee_ty : TypeValue,
+    forall_names : ArrayList(String),
+    bound_names : ArrayList(String),
+    fresh_env : Environment,
+    env : Environment,
+    call_expr : AstExpr
+  ) -> ArrayList(String)
+)({
+  out := ArrayList(String).new();
+  sig_somes := get_all_some_types(callee_ty);
+  match(
+    callee_ty,
+    .Func({ where_types : wts }) => {
+      (wi : usize) = usize(0);
+      while(wi < wts.len(), {
+        wsomes := collect_somes_with_fn_sigs(match(wts.get(wi), .Some(t) => t, .None => TypeValue.Unit));
+        (wj : usize) = usize(0);
+        while(wj < wsomes.len(), {
+          match(wsomes.get(wj), .Some(x) => sig_somes.push(x), .None => ());
+          wj = (wj + usize(1));
+        });
+        wi = (wi + usize(1));
+      });
+    },
+    _ => ()
+  );
+  (fi : usize) = usize(0);
+  while(fi < forall_names.len(), {
+    fname := match(forall_names.get(fi), .Some(n) => n, .None => String.new());
+    fi = (fi + usize(1));
+    (already : bool) = false;
+    (bi : usize) = usize(0);
+    while((bi < bound_names.len()) && !(already), {
+      if(match(bound_names.get(bi), .Some(n) => (n == fname), .None => false), {
+        already = true;
+      });
+      bi = (bi + usize(1));
+    });
+    if(already, {
+      continue;
+    });
+    (sig_st : Option(TypeValue)) = Option(TypeValue).None;
+    (si : usize) = usize(0);
+    while((si < sig_somes.len()) && sig_st.is_none(), {
+      match(
+        sig_somes.get(si),
+        .Some(st) => match(
+          st,
+          .SomeT({ name : sn }) => if(sn == fname, {
+            sig_st = Option(TypeValue).Some(st);
+          }),
+          _ => ()
+        ),
+        .None => ()
+      );
+      si = (si + usize(1));
+    });
+    // No signature occurrence (the label appears only in the where-clause):
+    // mint a per-call SomeT keyed by the call expression, as the method
+    // path's Step-6 marker loop does, so two calls never share a lineage.
+    if(sig_st.is_none(), {
+      sig_st = Option(TypeValue).Some(
+        TypeValue.SomeT(
+          `${fname}_wcforall_${ast_expr_id(call_expr).to_string()}`,
+          fname.clone(),
+          usize(0),
+          t_type(),
+          ArrayList(TypeValue).new(),
+          ArrayList(usize).new(),
+          ArrayList(TypeValue).new(),
+          ArrayList(usize).new(),
+          false,
+          Option(TypeValue).None,
+          ArrayList(TypeValue).new()
+        )
+      );
+    });
+    match(
+      sig_st,
+      .Some(st) => {
+        _add_ph := add_variable_to_env(
+          fresh_env,
+          fname.clone(),
+          TypeValue.TypeUni(usize(0)),
+          Option(EvalValue).Some(EvalValue.TypeVal(st)),
+          true,
+          false,
+          false,
+          false,
+          synthetic_token(fname.clone(), env.module_path)
+        );
+        out.push(fname);
+      },
+      .None => ()
+    );
   });
   out
 });
@@ -2382,7 +2640,7 @@ _funcval_bind_foralls :: (
               .Some(i) => i,
               .None => new_expr_info(env, t_unit())
             );
-            _funcval_try_synthesize_param(dpt, se_new, sp_info.ty, env);
+            _fv_synthesize_arg_into(dpt, se_new, sp_info, env);
             (sn_i : usize) = usize(0);
             while(sn_i < forall_names.len(), {
               sn_name := match(forall_names.get(sn_i), .Some(n) => n, .None => String.new());
@@ -5960,7 +6218,7 @@ Fix: wrap the call:
                 cond(
                   (!(fv_keeps_source_order) && fn_literal_arg_is_deferred(fv_args, ai, n_p, resolved_param_types, forall_names)) => match(
                     resolved_param_types.get(ai),
-                    .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(r_apt, forall_names, param_type_names, fv_param_types, evaled_arg_infos, fv_eai_idx, fv_param_ct, env)),
+                    .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(r_apt, forall_names, param_type_names, fv_param_types, evaled_arg_infos, fv_eai_idx, fv_param_ct, get_func_where_clause_exprs(func_id_fv.clone()), env)),
                     .None => Option(TypeValue).None
                   ),
                   true => resolved_param_types.get(ai)
@@ -6843,12 +7101,37 @@ Fix: wrap the call:
         // the default-args side table), so the Step-8b validation from
         // helper.yo must run here too. Rejects e.g. `Mutex(NonSendObj)`
         // against `where(T <: Send)`.
+        // A binder that ONLY a where-clause determines (`A` in
+        // `fn(generic(I, A), it : I, where(I <: Iterator(Item := A)))`) is not
+        // bound by any argument, so it had no slot in `fresh_env`: the
+        // re-applied `Iterator(Item := A)` could not bind it and the check
+        // reported "Type … does not implement required trait Iterator" for a
+        // type that plainly does (plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md,
+        // Phase 2.6). Give each still-unbound binder its signature SomeT as a
+        // placeholder — the method path's Step 6 does the same — and adopt
+        // what the where-clause binds below.
+        fv_where_placeholders := _fv_bind_unbound_forall_placeholders(fv_callee_ty, forall_names, fa_bound_names, fresh_env, env, expr);
         validate_where_constraints_for_call(func_id_fv.clone(), fresh_env, tok, exn);
         // Where-clause EXPR re-application. Internally
         // guarded: a spec-cache-hit reuse leaves the forall params bound to
         // non-type values in `fresh_env`, and the guard skips that state
         // (see reapply_where_clause_exprs_for_call in helper.yo).
         reapply_where_clause_exprs_for_call(func_id_fv.clone(), fresh_env, ctx, exn);
+        // The where-clause bound the placeholders: record them as bound so the
+        // specialization and the return type see them.
+        (wp_i : usize) = usize(0);
+        while(wp_i < fv_where_placeholders.len(), {
+          wp_label := match(fv_where_placeholders.get(wp_i), .Some(l) => l, .None => String.new());
+          wp_i = (wp_i + usize(1));
+          match(
+            forall_binding_now(fresh_env, wp_label.clone()),
+            .Some(wp_ty) => {
+              fa_bound_names.push(wp_label);
+              fa_bound_types.push(wp_ty);
+            },
+            .None => ()
+          );
+        });
         // Set function body context on ctx.
         // We need the declared return type from the callee's type (if available).
         ret_type := match(

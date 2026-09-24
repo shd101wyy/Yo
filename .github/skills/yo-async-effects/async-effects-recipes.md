@@ -314,12 +314,10 @@ io.await(conns.for_each(c => serve(c), io), io);
 - Implementors: `TcpListener.incoming()`, `Watcher`, `Channel(T)`.
   Combinators: `map`, `filter`, `filter_map`, `take`, `skip`; consumers:
   `for_each`, `collect`.
-- A generic consumer uses a BARE bound (`where(S <: Stream)`) or a CONCRETE
-  one (`Item := i32`). `where(S <: Stream(Item := A))` with a generic `A`
-  binds nothing and rejects every argument — `Iterator` behaves the same way
-  (`plans/backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`). A blanket-impl
-  combinator method also cannot be called on a generic stream PARAMETER
-  (`s.collect(io)` → `No matching call found`); the trait's own `next` can.
+- A generic consumer takes a bare bound (`where(S <: Stream)`), a concrete one
+  (`Item := i32`), or a generic one (`where(S <: Stream(Item := A))`, with `A`
+  bound from the argument's impl). The blanket combinators (`s.collect(io)`,
+  `s.map(f)`) can be called on such a parameter. `Iterator` bounds work the same.
 
 ## Waking a task from another task — `Waker` / `Park`, and `yield_now`
 

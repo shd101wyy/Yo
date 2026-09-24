@@ -1755,6 +1755,23 @@ _synthesize_types_impl :: (
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
+  // Case: FutureTraitT + FutureTraitT. Before the TraitT case below:
+  // `is_trait_type` is true for the Fn and Future traits too, so that case
+  // used to take these pairs, find no trait fields, and bind nothing
+  // (issues/fixed/fn-trait-pairs-are-never-synthesized.md).
+  if(is_future_trait_type(expected_ty) && is_future_trait_type(given_ty), {
+    res := _synthesize_future_traits(expected_ty, ee, given_ty, ge, checked, opts, exn);
+    ee = res.expected_env;
+    ge = res.given_env;
+    return(SynthesizeResult(expected_env : ee, given_env : ge));
+  });
+  // Case: FnTraitT + FnTraitT
+  if(is_fn_trait_type(expected_ty) && is_fn_trait_type(given_ty), {
+    res := _synthesize_fn_traits(expected_ty, ee, given_ty, ge, checked, opts, exn);
+    ee = res.expected_env;
+    ge = res.given_env;
+    return(SynthesizeResult(expected_env : ee, given_env : ge));
+  });
   // Case: TraitT + TraitT (same constructor)
   if(is_trait_type(expected_ty) && is_trait_type(given_ty), {
     exp_trait_id := match(expected_ty, .TraitT(_, _, _, _, id, _, _, _, _, _) => id, _ => ``);
@@ -1807,6 +1824,41 @@ _synthesize_types_impl :: (
     ge = res.given_env;
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
+  // Case: Dyn + Dyn. Each expected trait is synthesized against the given
+  // trait of the same kind (the same Fn base, a Future, or the same trait
+  // id), so `f : Dyn(Fn(x : A) -> B)` given a `Dyn(Fn(y : i32) -> i32)` binds
+  // A and B. There was no Dyn case: the pair fell through every arm, and a
+  // result-only `B` reached codegen unresolved
+  // (issues/fixed/fn-trait-pairs-are-never-synthesized.md).
+  if(match(expected_ty, .DynT(_, _, _, _) => true, _ => false) && match(given_ty, .DynT(_, _, _, _) => true, _ => false), {
+    exp_dts := match(expected_ty, .DynT(rts, _, _, _) => rts, _ => ArrayList(TypeValue).new());
+    giv_dts := match(given_ty, .DynT(rts, _, _, _) => rts, _ => ArrayList(TypeValue).new());
+    (di : usize) = usize(0);
+    while(di < exp_dts.len(), {
+      et := match(exp_dts.get(di), .Some(t) => t, .None => TypeValue.Unit);
+      di = (di + usize(1));
+      (gj : usize) = usize(0);
+      (paired : bool) = false;
+      while((gj < giv_dts.len()) && !(paired), {
+        gt := match(giv_dts.get(gj), .Some(t) => t, .None => TypeValue.Unit);
+        gj = (gj + usize(1));
+        same_kind := match(
+          et,
+          .FnTraitT(eb, _, _, _, _, _, _, _) => match(gt, .FnTraitT(gb, _, _, _, _, _, _, _) => (eb == gb), _ => false),
+          .FutureTraitT(_, _, _, _, _) => is_future_trait_type(gt),
+          .TraitT(_, _, _, _, eid, _, _, _, _, _) => match(gt, .TraitT(_, _, _, _, gid, _, _, _, _, _) => (eid == gid), _ => false),
+          _ => false
+        );
+        if(same_kind, {
+          paired = true;
+          res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
+          ee = res.expected_env;
+          ge = res.given_env;
+        });
+      });
+    });
+    return(SynthesizeResult(expected_env : ee, given_env : ge));
+  });
   // Case: Array + Array
   if(is_array_type(expected_ty) && is_array_type(given_ty), {
     exp_elem := match(expected_ty, .Array(e, _, _) => e, _ => TypeValue.Unit);
@@ -1855,20 +1907,6 @@ _synthesize_types_impl :: (
     exp_elem := match(expected_ty, .ComptimeListT(e) => e, _ => TypeValue.Unit);
     giv_elem := match(given_ty, .ComptimeListT(e) => e, _ => TypeValue.Unit);
     res := _synthesize_types_impl(exp_elem, ee, giv_elem, ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
-    return(SynthesizeResult(expected_env : ee, given_env : ge));
-  });
-  // Case: FutureTraitT + FutureTraitT
-  if(is_future_trait_type(expected_ty) && is_future_trait_type(given_ty), {
-    res := _synthesize_future_traits(expected_ty, ee, given_ty, ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
-    return(SynthesizeResult(expected_env : ee, given_env : ge));
-  });
-  // Case: FnTraitT + FnTraitT
-  if(is_fn_trait_type(expected_ty) && is_fn_trait_type(given_ty), {
-    res := _synthesize_fn_traits(expected_ty, ee, given_ty, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
     return(SynthesizeResult(expected_env : ee, given_env : ge));

@@ -930,10 +930,11 @@ impl(
    });
    ```
 
-3. **泛型消费者要用裸约束或具体约束。** `where(S <: Stream)` 与
-   `where(S <: Stream(Item := i32))` 都能接受流的源头和组合链；而带泛型 `A` 的
-   `where(S <: Stream(Item := A))` 什么也绑不上，两者都会被拒绝。需要对项类型泛型
-   的消费者应写成 blanket impl 方法 —— `collect` 和 `for_each` 本身就是这样写的。
+3. **泛型消费者就是普通的泛型函数。** `where(S <: Stream)`、
+   `where(S <: Stream(Item := i32))` 以及带泛型 `A` 的 `where(S <: Stream(Item := A))`
+   都能接受流的源头和组合链。泛型 `A` 会从实参的 `Stream` impl 中绑定，函数体可以使用它
+   （`ArrayList(A)`、`A <: Add(A)`），也可以在该参数上调用 blanket 组合子
+   （`s.collect(io)`、`s.map(f)`）。
 
 4. **`.None` 是终止状态。** 消费者据此停止，所以实现者结束之后必须继续回答
    `.None`，绝不能“结束后又恢复”。

@@ -43,7 +43,9 @@
 > a free function's `where(S <: Stream(Item := A))` with a GENERIC `A` binds
 > nothing and rejects every argument (a bare bound or a concrete item type
 > works, and `Iterator` behaves the same —
-> `plans/backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`), and a chain built
+> `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`; lifted 2026-09-25 by
+> `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 2.6, and a blanket combinator can now be
+> called on a generic stream parameter), and a chain built
 > INSIDE an `io.async` body loses the future's result type
 > (`issues/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`)
 > — build the chain outside, await it inside.

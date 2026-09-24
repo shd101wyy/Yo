@@ -1,7 +1,7 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1, 2.1–2.4 LANDED 2026-09-24/25 (the
-per-phase "Landed" notes below); 2.5–7 open. Source: a six-part audit of the type system on
+**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1, 2.1–2.4 and 2.6 LANDED 2026-09-24/25
+(the per-phase "Landed" notes below); 2.5, 2.7 and 3–7 open. Source: a six-part audit of the type system on
 develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
 Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
 
@@ -267,8 +267,23 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
    `check_if_function_parameter_matches_argument` and `_evaluate_funcval_runtime_call` each
    implement a subset of the arg/param rule (self-documented in `src/evaluator/calls/function.yo`).
    Factor the rule into one helper that all three call, so a fix made at one site applies to all.
-6. **Associated types in free-fn `where`.** Execute `plans/backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
+6. **Associated types in free-fn `where`.** Execute `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
    on top of step 4, because both are about binding a variable from a bound.
+
+   **Landed 2026-09-25**, all three of that plan's options:
+   - a binder that only a where-clause fixes (`A` in `where(I <: Iterator(Item := A))`) gets a
+     per-call slot before the where-clause is applied, so the bound binds it on the inline
+     `FuncVal` path, as the method path's Step 6c already did. A deferred closure's expected type
+     reads it too (`_fv_where_assoc_binding`);
+   - a closure argument's evaluated body type fixes a binder that only an `Fn` bound's result
+     mentions (`J` in `F <: (Fn(item : A) -> J)`);
+   - blanket combinators work on such a parameter (`it.fold`, `it.map(f).collect(...)`,
+     `s.collect(io)` on a `Stream`). `tests/async/combinators.test.yo`'s `_bounded` now takes the
+     stream instead of its collect future;
+   - E0602 names a mismatched associated type ("its associated type Item is String, not i32");
+   - two bugs found on the way: `issues/fixed/fn-trait-pairs-are-never-synthesized.md` (the
+     synthesizer's TraitT case swallowed Fn/Future pairs, and `Dyn` had no case) and
+     `issues/fixed/self-referential-bound-rejects-every-candidate.md` (`A <: Add(A)`).
 7. **Dyn object safety in the evaluator.** Reject, with a code, trait members whose signature
    mentions `Self` outside the receiver or takes `generic(...)` binders, when forming `Dyn(Trait)`
    or calling through it. Decide whether upcasting `Dyn(A, B)` to `Dyn(A)` is supported.
