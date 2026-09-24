@@ -30,11 +30,11 @@
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { TokenKind } :: import("../../token.yo");
-{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups } :: import("./drop_dup.yo");
+{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop } :: import("./drop_dup.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings } :: import("../../pattern.yo");
@@ -375,9 +375,32 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
         _call_generate_expr(body_expr, indent.clone(), context)
       }
     );
+    // A call nested under an operator in the arm value (`p => (f(tmp) > 0)`)
+    // records its argument temps' drops on the BODY node, which no call's
+    // post-call flush emits and the caller only assigns `code`: materialize
+    // the value, flush those drops, and hand back the temp
+    // (issues/fixed/cond-condition-operand-call-temp-is-never-released.md).
+    out := if((code.len() > usize(0)) && !_is_control_flow_code(code) && has_pending_emittable_drop(body_expr, context), {
+      em := context.base.emitter;
+      body_ty := match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(bei.ty), .None => Option(TypeValue).None);
+      match(
+        body_ty,
+        .Some(bt) => if(is_unit_type(bt), {
+          em.emit_string_line(`${indent.clone()}${code};`);
+          generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+          String.from("")
+        }, {
+          av := fresh_local_name(String.from("__yo_arm_"), context.base.current_function_name);
+          em.emit_string_line(`${indent.clone()}${get_type_string(bt, context.base)} ${av.clone()} = ${code};`);
+          generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+          av
+        }),
+        .None => code
+      )
+    }, code);
     context.pending_deferred_drops = prev_pending;
     context.consumed_var_pending_drops = prev_consumed;
-    code
+    out
   })
 );
 /// Emit one case body + temp assignment WITHOUT the trailing `break` — for

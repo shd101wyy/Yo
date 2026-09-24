@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1334,6 +1334,31 @@ placeholder statements after `abort()` of the shape `match` already emits.
 The LSP still grows (~0.18 GB per round, down from ~0.30): a second
 per-round holder remains, see the issue. The CI memory ratchet baseline (#872,
 5,333,612 kB Linux RSS) predates this fix and must be re-recorded.
+
+### 0.9 Missing releases in expression positions: the String leaks (2026-09-25)
+
+After §0.8 the `HOLDER_DEEP` census (`scripts/bootstrap/holder_census_t.py`)
+still found **4.65 M `ArrayList(u8)` string buffers alive at `check src/main.yo`
+exit (223 MB) with NO pointer anywhere**: a missing release, not a holder.
+The unreached-object split marks these zero-hit objects for
+`alloc_site_census_t.py --rc-events`. Its event log separates "created and
+never touched" from "an increment never matched", and the allocation site
+plus the emitted C of the caller then name the shape. Three codegen shapes
+leaked a call's argument temp because its drop sat on an enclosing node that
+no flush emitted:
+
+| shape | example in the compiler | fix |
+| --- | --- | --- |
+| struct literal as a bare-expression tail | `new_frame :: (fn(..) -> Frame)(Frame(id : generate_variable_id(String.from(""), String.from("frame")), …))` | #888: the tail is materialized when ANY emittable drop is pending (`has_pending_emittable_drop`) |
+| call under an operator in an `if`/`cond` condition | `if(!p.starts_with(String.from("/")), …)` (201 conditions) | #891: `_emit_cond_if_head` materializes the condition and flushes |
+| call under an operator in a `cond`/`match` arm value | `c => (get_variables_from_env(env, identifier.clone()).len() > usize(0))` | #891: the arm value is assigned/materialized, then flushed |
+
+Zero-hit `String` buffers in a sample `check` fell 121,976 → 2,636 (−98 %).
+`check src/main.yo` Linux max RSS: 2,761,036 → 2,654,636 kB after #888 (the
+ratchet baseline moves with each PR), then 2,654,636 → **2,486,124 kB** after
+#891 (CI wall 4:32 → 3:18); the stage-2 macOS footprint median fell 2.93 →
+2.63 GB with #891's condition part. Zero-hit `String` buffers at
+`check src/main.yo` exit: 1,095,546 → 3,873.
 
 ### Phase 6 — per-object layout: header and `Variable`
 
