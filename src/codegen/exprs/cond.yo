@@ -193,15 +193,18 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 /// `c => unsafe.drop(x)` renders `__yo_decr_rc(x)` — and discarding that text
 /// lost HashMap._resize's old-slot releases, so every RC key/value leaked one
 /// reference per rehash (issues/fixed/cond-unit-arm-statement-is-dropped.md).
-/// match.yo's `_emit_case_body_no_break` already does this. A bare temp name
-/// is a value computed by the arm's own statements, not a statement.
+/// match.yo's `_emit_case_body_no_break` already does this.
 _emit_unassigned_arm_code :: (fn(value : AstExpr, value_code : String, indent : String, context : FunctionGenerationContext) -> unit)({
-  bare_temp := match(
+  // Only a UNIT value is a statement: a non-unit arm in unassigned position
+  // renders a pure placeholder (a panicking arm's `(*((void*)NULL))` after
+  // its `abort()`), and a bare temp name is a value the arm's own statements
+  // already computed.
+  is_stmt := match(
     context.base.get_expr_info(value),
-    .Some(vei) => is_temp_variable_name(vei.env.module_path.clone(), value_code.clone()),
+    .Some(vei) => (is_unit_type(vei.ty) && !is_temp_variable_name(vei.env.module_path.clone(), value_code.clone())),
     .None => false
   );
-  if((value_code.len() > usize(0)) && !bare_temp, {
+  if((value_code.len() > usize(0)) && is_stmt, {
     em := context.base.emitter;
     line := indent.clone();
     line.push_string(value_code);
