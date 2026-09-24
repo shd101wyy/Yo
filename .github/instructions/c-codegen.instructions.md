@@ -276,6 +276,16 @@ To confirm a suspected leak, use a `Dispose` counter on a `ref(struct)` /
 `ref(enum)` and read it after the scope that owns the value (statement temps are
 released at SCOPE end, not after the statement).
 
+That set covers only the scope-end release. The early-exit gates (explicit
+`return`, `if (__yo_effect_escaped)`) additionally require the target in the
+emitter's block-scope stack (`_emitter_track_scope`), which records only
+`<type> <name> = …` lines. A temp declared bare (`T tv;`) and assigned in later
+branches must be pushed with `em.mark_declared_in_scope(tv)` once those branches
+are closed, not at the declaration. Otherwise every `return` after it skips the
+release, and a push at the declaration would release an unassigned temp on an
+exit inside a branch
+(`issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md`).
+
 ### An arm emitter must emit the rendered code of a unit arm
 
 Some generators RETURN their statement instead of emitting it: `___drop`
