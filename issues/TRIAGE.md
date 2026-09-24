@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 234 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 228 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -29,14 +29,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 14 | 1 |
 | Async / effects | 32 | 9 |
-| Codegen / emitted C | 20 | 3 |
-| Evaluator / types | 37 | 7 |
+| Codegen / emitted C | 21 | 3 |
+| Evaluator / types | 33 | 5 |
 | Std library | 55 | 14 |
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 41 | 6 |
-| **Total** | **234** | **43** |
+| Other | 38 | 6 |
+| **Total** | **228** | **41** |
 
 ## Cross-cutting buckets
 
@@ -111,10 +111,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 - [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) — 28 KB
 - [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) — 19 KB
 - [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) — 17 KB
-- [`calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md`](./calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md) — 17 KB
 - [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 16 KB
 - [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) — 16 KB
 - [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) — 14 KB
+- [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) — 13 KB
 
 ---
 
@@ -177,7 +177,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | OPEN — a PERFORMANCE observation, not a corre | — |
 | [`yield-resumption-order-diverges-on-macos-ci.md`](./yield-resumption-order-diverges-on-macos-ci.md) | — | — |
 
-### Codegen / emitted C (20)
+### Codegen / emitted C (21)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -193,6 +193,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`](./drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md) | OPEN for the two remaining sites | — |
 | [`emitted-c-flipped-once-under-extreme-load-unexplained.md`](./emitted-c-flipped-once-under-extreme-load-unexplained.md) | — | — |
 | [`emitted-c-hardcodes-linux-at-fdcwd.md`](./emitted-c-hardcodes-linux-at-fdcwd.md) | — | — |
+| [`emitted-c-identifiers-collide-with-header-macros.md`](./emitted-c-identifiers-collide-with-header-macros.md) | OPEN | — |
 | [`ftt-stub-in-live-closure-falls-off-non-void-function.md`](./ftt-stub-in-live-closure-falls-off-non-void-function.md) | — | yes |
 | [`match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md`](./match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md) | — | — |
 | [`no-volatile-so-black-box-needs-inline-asm.md`](./no-volatile-so-black-box-needs-inline-asm.md) | OPEN — missing capability, not a defect | — |
@@ -202,7 +203,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | OPEN | — |
 
-### Evaluator / types (37)
+### Evaluator / types (33)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -213,7 +214,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`blanket-into-iter-is-not-an-intoiterator-impl.md`](./blanket-into-iter-is-not-an-intoiterator-impl.md) | OPEN | — |
 | [`borrowed-arg-invalidated-by-aliased-container-mutation.md`](./borrowed-arg-invalidated-by-aliased-container-mutation.md) | — | — |
 | [`builtin-name-shadows-user-definition.md`](./builtin-name-shadows-user-definition.md) | — | yes |
-| [`calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md`](./calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md) | — | yes |
 | [`comments-preceding-definitions-can-hollow-the-definition.md`](./comments-preceding-definitions-can-hollow-the-definition.md) | — | — |
 | [`comptime-enum-payload-field-assignment-is-a-silent-no-op.md`](./comptime-enum-payload-field-assignment-is-a-silent-no-op.md) | — | — |
 | [`comptime-float-negation-loses-the-sign-of-zero.md`](./comptime-float-negation-loses-the-sign-of-zero.md) | OPEN | — |
@@ -231,10 +231,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | OPEN | — |
 | [`forward-referenced-definition-fails-to-type-check-when-forced-early.md`](./forward-referenced-definition-fails-to-type-check-when-forced-early.md) | OPEN — observed once, NOT REPRODUCIBLE on dev | — |
 | [`function-info-is-closure-is-always-false.md`](./function-info-is-closure-is-always-false.md) | OPEN | — |
-| [`generic-fn-forall-unresolved-when-argument-is-a-method-call.md`](./generic-fn-forall-unresolved-when-argument-is-a-method-call.md) | open — root-caused, NOT fixed | — |
-| [`generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md`](./generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md) | — | yes |
 | [`generic-fn-type-compatibility-is-not-alpha-equivalent.md`](./generic-fn-type-compatibility-is-not-alpha-equivalent.md) | — | — |
-| [`generic-type-var-rebinds-per-argument.md`](./generic-type-var-rebinds-per-argument.md) | OPEN — the io-builtin face is fixed by a cont | — |
 | [`iterator-chain-shared-stamp-cross-item-pollution.md`](./iterator-chain-shared-stamp-cross-item-pollution.md) | — | — |
 | [`method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md`](./method-call-on-a-comptime-only-type-param-is-rejected-at-definition-time.md) | OPEN | — |
 | [`module-level-control-bound-binding-not-rejected.md`](./module-level-control-bound-binding-not-rejected.md) | — | — |
@@ -354,7 +351,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (41)
+### Other (38)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -368,12 +365,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | OPEN | yes |
 | [`arraylist-of-a-trait-object-cannot-be-indexed.md`](./arraylist-of-a-trait-object-cannot-be-indexed.md) | open | — |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
-| [`closure-result-type-is-not-checked-against-the-expected-fn-type.md`](./closure-result-type-is-not-checked-against-the-expected-fn-type.md) | PARTIALLY FIXED 2026-09-24 (Phase 1 | — |
 | [`cond-arm-initialization-merge-check-never-fires.md`](./cond-arm-initialization-merge-check-never-fires.md) | — | yes |
 | [`ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md`](./ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md) | OPEN | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
-| [`higher-kinded-return-type-is-never-applied-at-the-call-site.md`](./higher-kinded-return-type-is-never-applied-at-the-call-site.md) | OPEN | — |
 | [`inout-call-through-a-fn-value-loses-the-mutation.md`](./inout-call-through-a-fn-value-loses-the-mutation.md) | PARTIALLY FIXED 2026-09-24 | — |
 | [`iso-checks-only-the-wrapper-refcount-not-the-interior.md`](./iso-checks-only-the-wrapper-refcount-not-the-interior.md) | OPEN | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |
@@ -391,7 +386,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`](./struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md) | OPEN | — |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | — | — |
 | [`type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md`](./type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md) | OPEN | — |
-| [`uninferable-generic-result-passes-check-and-ices-in-compile.md`](./uninferable-generic-result-passes-check-and-ices-in-compile.md) | OPEN | — |
 | [`unknown-struct-field-has-no-diagnostic.md`](./unknown-struct-field-has-no-diagnostic.md) | OPEN | — |
 | [`unknown-type-argument-in-typed-binding-reports-expected-comptime.md`](./unknown-type-argument-in-typed-binding-reports-expected-comptime.md) | — | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |

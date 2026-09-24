@@ -1,6 +1,6 @@
 # A generic fn's forall stays `unknown` when its argument is a METHOD CALL, minting an abstract spec the emitter skips
 
-**Status:** open — root-caused, NOT fixed. Needs dedicated evaluator work.
+**Status:** FIXED 2026-09-24 (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
 **Found:** 2026-09-08, writing the Core-numerics tests
 **Supersedes:** `generic-impl-method-result-passed-directly-to-a-generic-fn-fails-to-transpile.md`,
 whose stated cause was WRONG (see "Corrections" below).
@@ -85,3 +85,24 @@ and byte-identity gates run against it, not a fold-in to an std batch.
 
 **Not worked around in std**: no std code hits this shape. The Core-numerics
 tests use an inline `match`, which is the idiomatic form there regardless.
+
+## Root cause (2026-09-24)
+
+The "generic-era Option" in point 3 above was the method call's own result type: `x.wrap()` is
+evaluated with `_take`'s parameter type `Option(U)` as its expected type, and Step 10 of
+`try_to_call_function_with_arguments` ADOPTS the expected type as the call's result when it is
+compatible and "fully concrete". That concreteness test was `type_contains_some_type`, which is
+TOP-LEVEL only — `Option(U)` passed it — so the method call's result became `Option(U)` and `_take`
+then bound `U` to its own type variable. UFCS (`i32.wrap(x)`) and a local took the other call
+path, and a bare `U` parameter is a top-level SomeT, so each workaround in the isolation table
+missed the adopt.
+
+## Fix
+
+The adopt test also requires `get_all_some_types(expected).len() == 0` (deep). The method call
+keeps its own `Option(i32)`, and `_take` binds `U = i32`.
+
+## Verification
+
+The reproducer compiles and runs (rc 0). `tests/type_soundness.test.yo` ("a method-call argument
+binds the callee's type parameter").

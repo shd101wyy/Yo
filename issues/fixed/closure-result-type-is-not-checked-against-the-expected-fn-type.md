@@ -1,9 +1,8 @@
 # A closure's result type is never checked against the expected `Fn(...) -> R`
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
-**Status:** PARTIALLY FIXED 2026-09-24 (Phase 1.2 of `plans/TYPE_SYSTEM_SOUNDNESS.md`): every
-shape against a CONCRETE `Fn(...) -> R` is rejected. OPEN for a generic callee
-(`Impl(Fn(x : T) -> T)`), which needs the per-call unification of Phase 2.4 — see "Remaining".
+**Status:** FIXED 2026-09-24 — the concrete half in Phase 1.2, the generic-callee half in
+Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md` (see "Fix (2026-09-24, generic callee)").
 Originally: soundness hole, wrong program, green `yo check`, runs and prints a wrong value.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
@@ -77,5 +76,30 @@ main :: (fn() -> unit)({ println(`${applyg(x => true, i32(3))}`); });
 still prints `1`. The closure is evaluated while `T` is unbound (argument order), and its bare
 `-> T` result is then bound to `bool` from the body while `v` binds `T` to `i32` — two concrete
 bindings of one binder that nothing compares. That is
-`issues/generic-type-var-rebinds-per-argument.md`; Phase 2.4 (solve non-lambda arguments first,
+`issues/fixed/generic-type-var-rebinds-per-argument.md`; Phase 2.4 (solve non-lambda arguments first,
 reject a second disagreeing binding) closes it, and this doc moves to `fixed/` with it.
+
+## Fix (2026-09-24, generic callee)
+
+Function-literal arguments are matched LAST, against the signature the other arguments solved
+(the plan's "synthesize the non-lambda arguments first"):
+
+- inline FuncVal path (`src/evaluator/calls/function.yo`): the argument loop runs in
+  `_fv_argument_eval_order`; a deferred `=>` closure or `->` function literal is evaluated with
+  its parameter type refined by `_fv_refine_closure_expected` — the binders already fixed by name
+  (`v : T`) or structurally (`ptr : *(T)`) substituted at the callee's own occurrences — and the
+  per-argument lists are restored to source order after the loop;
+- `try_to_call` (Step 7): the same order (`_step7_param_order`), so Step 2's re-evaluation of
+  the literal's parameter type sees the bound binders; `arg_vals` and the runtime-argument spans
+  are restored afterwards.
+
+`apply_g(x => true, i32(3))` and `apply_g((x) -> true, i32(3))` are now E0604 against `i32`.
+Two pre-existing failures of the same ordering are fixed with it: a VALID closure-first call
+failed at run time on the FuncVal path (`apply_g((x) => (x + i32(1)), i32(3))`, an FTT stub, also
+on the 0.2.41 seed) and at check time on the method path (`p.app((x) => …, i32(3))`,
+`Cannot unify incompatible types: "unit" and "i32"`, also on the seed); both now run.
+
+## Verification
+
+`tests/type_soundness.test.yo`: the two rejections, the closure-first and function-literal
+canaries (`_apply_g`, `_apply_v`), all green; `check ./std` 176/176 and `check ./src` 279/279.

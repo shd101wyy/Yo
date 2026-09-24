@@ -28,7 +28,7 @@ non-functional on the dev box, and the garbage `exn` field was never invoked.
 ## Why the type system missed it
 
 Two stacked holes (both remain OPEN as general problems, see
-`issues/generic-type-var-rebinds-per-argument.md`):
+`issues/fixed/generic-type-var-rebinds-per-argument.md`):
 
 1. **Per-argument re-binding of call generics** — the signature's two `E`
    mentions (`fut : Impl(Future(T, E))`, `e : E`) resolve through SEPARATE

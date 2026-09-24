@@ -47,6 +47,7 @@
   E_NO_MATCHING_CALL,
   E_OPTIMISTIC_PANIC,
   E_CONFLICTING_IMPL,
+  E_CANNOT_INFER,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
@@ -181,6 +182,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.contains(String.from("Argument count mismatch")), {
     return(_coded(E_ARGUMENT_COUNT_MISMATCH));
+  });
+  if(msg.starts_with(String.from("Cannot infer the type parameter")), {
+    return(_coded(E_CANNOT_INFER));
   });
   if(msg.contains(String.from("is already implemented for type")) || msg.contains(String.from("Duplicate inherent method impls are not allowed")), {
     return(_coded(E_CONFLICTING_IMPL));

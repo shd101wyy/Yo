@@ -1279,6 +1279,13 @@ before hunting elsewhere.
 ## Closure arguments: `->` literals and `=>` closures both infer the result type
 - **Either arrow binds an inferred result type.** When an argument's return type must be INFERRED into a type variable (`o.map((x) -> ...)`, `m.with_lock((v) => ...)`, any `Impl(Fn(..) -> R)` / `where(F <: Fn(..) -> R)` param), a capture-free `->` fn literal and a `=>` closure both bind `R` (fixed 2026-08-29, `issues/fixed/arrow-fn-literal-result-type-not-inferred.md`, C55). Pick `=>` only when the body needs to capture. `->` stays required for effect handlers, whose declared result is the per-call-site `ResumeType` and is never bound at the literal.
 
+## Generic calls: one type per binder, literals checked last, result-only binders need an expected type
+
+- Two arguments binding one `generic(A)` to different types is E0601 ("it is String from argument 1 but i32 from argument 2"); a literal and the type it adopts are one binding (`pair_same(i32(3), 4)` is fine).
+- A `=>` closure or `->` function literal argument is matched AFTER the other arguments, against the parameter type they solved — so `apply((x) => (x + i32(1)), i32(3))` works with the closure first, and a closure whose body disagrees with the solved result is E0604.
+- A binder only the RESULT mentions (`mk :: fn(generic(T)) -> Option(T)`) comes from the expected type (`(x : Option(i32)) = mk()`) or `generic(...)`; `x := mk()` is E0613.
+- A kind-annotated binder is inferred from an instantiation: `x : F(A)` given `Option(i32)` binds `F = Option`, `A = i32` (explicit `generic(Option, i32)` still works).
+
 ## A `fn` literal does NOT capture — only `=>` closures do
 
 A `(fn(...) -> T)(body)` literal is a plain function, not a closure. It cannot

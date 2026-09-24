@@ -4622,7 +4622,12 @@ resolve_param_types_from_expected :: (
     expected_env : Environment,
     caller_env : Environment,
     ctx : EvalContext,
-    out : ArrayList(TypeValue)
+    out : ArrayList(TypeValue),
+    /// OUT (optional): each `generic(...)` binder the expected type binds to
+    /// a CONCRETE type, and that type — for a caller whose arguments cannot
+    /// bind a result-only binder.
+    (forall_out_names : ArrayList(String)) ?= ArrayList(String).new(),
+    (forall_out_types : ArrayList(TypeValue)) ?= ArrayList(TypeValue).new()
   ) -> unit
 )({
   default_pts := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
@@ -4664,6 +4669,19 @@ resolve_param_types_from_expected :: (
   (rps_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
   rps_synth := synthesize_types(temp_ret, synth_env, expected_ty, expected_env, rps_checked, rps_opts, rps_exn);
   resolved_env := rps_synth.expected_env;
+  (fo_i : usize) = usize(0);
+  while(fo_i < forall_lbls.len(), {
+    fo_lbl := match(forall_lbls.get(fo_i), .Some(l) => l, .None => String.new());
+    match(
+      _forall_binding_now(resolved_env, fo_lbl.clone()),
+      .Some(fo_t) => {
+        forall_out_names.push(fo_lbl);
+        forall_out_types.push(fo_t);
+      },
+      .None => ()
+    );
+    fo_i = (fo_i + usize(1));
+  });
   (pj : usize) = usize(0);
   while(pj < default_pts.len(), {
     p_orig := match(default_pts.get(pj), .Some(t) => t, .None => t_unit());
@@ -4894,6 +4912,349 @@ reject_runtime_comptime_arguments :: (
     },
     _ => ()
   );
+});
+/// Is `arg` (a colon label stripped) a closure (`x => …`) or a regular
+/// function literal (`(x) -> …`)? Only `=>` makes a closure, but both take
+/// their parameter types from an expected `Impl(Fn(...))`, which is what the
+/// "evaluated after the other arguments" rule is about.
+_is_fn_literal_arg :: (fn(arg : AstExpr) -> bool)({
+  (a : AstExpr) = arg;
+  if(ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
+    a = match(a, .FnCall(_, _, cl_as, _, _) => match(cl_as.get(usize(1)), .Some(v) => v, .None => a), _ => a);
+  });
+  (ast_expr_is_fn_call_of(a, "=>", .Some(usize(2))) || ast_expr_is_fn_call_of(a, "->", .Some(usize(2))))
+});
+/// Does `t` mention a SomeT named after one of `forall_names`?
+/// Every SomeT `t` mentions, including those inside an `Impl(Fn(...))`
+/// SomeT's signature constraint, which the structural walk does not enter.
+collect_somes_with_fn_sigs :: (fn(t : TypeValue) -> ArrayList(TypeValue))({
+  somes := get_all_some_types(t);
+  // An `Impl(Fn(...))` SomeT carries its signature as a constraint, which the
+  // structural walk does not enter.
+  match(
+    extract_fn_trait_from_type(t),
+    .Some(ftt) => match(
+      ftt,
+      .FnTraitT(_, _, ftt_pts, ftt_res, _, _, _, _) => {
+        ft_parts := ArrayList(TypeValue).new();
+        (pi : usize) = usize(0);
+        while(pi < ftt_pts.len(), {
+          match(ftt_pts.get(pi), .Some(x) => ft_parts.push(x), .None => ());
+          pi = (pi + usize(1));
+        });
+        ft_parts.push(ftt_res);
+        (fi : usize) = usize(0);
+        while(fi < ft_parts.len(), {
+          part := match(ft_parts.get(fi), .Some(x) => x, .None => t_unit());
+          match(part, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => somes.push(part), _ => ());
+          part_somes := get_all_some_types(part);
+          (pk : usize) = usize(0);
+          while(pk < part_somes.len(), {
+            match(part_somes.get(pk), .Some(x) => somes.push(x), .None => ());
+            pk = (pk + usize(1));
+          });
+          fi = (fi + usize(1));
+        });
+      },
+      _ => ()
+    ),
+    .None => ()
+  );
+  somes
+});
+/// Does `t` mention a SomeT named after one of `forall_names`?
+_mentions_forall_binder :: (fn(t : TypeValue, forall_names : ArrayList(String)) -> bool)({
+  somes := collect_somes_with_fn_sigs(t);
+  (i : usize) = usize(0);
+  while(i < somes.len(), {
+    nm := match(somes.get(i), .Some(st) => match(st, .SomeT({ name : n }) => n, _ => String.new()), .None => String.new());
+    (j : usize) = usize(0);
+    while(j < forall_names.len(), {
+      if(match(forall_names.get(j), .Some(f) => (f == nm), .None => false), {
+        return(true);
+      });
+      j = (j + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Is argument `i` a function literal (`=>` closure or `->` function) whose
+/// parameter is an `Impl(Fn(...))` mentioning one of the callee's binders?
+/// Such an argument is matched AFTER the others, against its parameter type
+/// with the binders they fixed (Phase 2.4): in source order it met
+/// `Impl(Fn(x : T) -> T)` with `T` unbound, so a closure-first call was
+/// rejected (`Cannot unify unit and i32`) or its body was never checked against
+/// the solved `T`
+/// (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
+fn_literal_arg_is_deferred :: (fn(args : ArrayList(AstExpr), i : usize, n_p : usize, param_types : ArrayList(TypeValue), forall_names : ArrayList(String)) -> bool)({
+  a := match(args.get(i), .Some(x) => x, .None => make_err_expr());
+  pt := match(param_types.get(i), .Some(t) => t, .None => t_unit());
+  (((((i < n_p) && _is_fn_literal_arg(a)) && is_some_type(pt)) && extract_fn_trait_from_type(pt).is_some()) && _mentions_forall_binder(pt, forall_names))
+});
+/// Step 7's parameter order: every parameter in order, the deferred function
+/// literals (`fn_literal_arg_is_deferred`) last.
+_step7_param_order :: (fn(args : ArrayList(AstExpr), n_args : usize, n_params : usize, param_types : ArrayList(TypeValue), forall_labels : ArrayList(String)) -> ArrayList(usize))({
+  first := ArrayList(usize).new();
+  last := ArrayList(usize).new();
+  (i : usize) = usize(0);
+  while(i < n_params, {
+    if((forall_labels.len() > usize(0)) && fn_literal_arg_is_deferred(args, i, n_args, param_types, forall_labels), {
+      last.push(i);
+    }, {
+      first.push(i);
+    });
+    i = (i + usize(1));
+  });
+  (li : usize) = usize(0);
+  while(li < last.len(), {
+    first.push(match(last.get(li), .Some(x) => x, .None => usize(0)));
+    li = (li + usize(1));
+  });
+  first
+});
+_order_is_permuted :: (fn(order : ArrayList(usize)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < order.len(), {
+    if(match(order.get(i), .Some(o) => (o != i), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// `list[q]` belongs to parameter `idx[q]` (each parameter once): return the
+/// entries in parameter order.
+_restore_argentries_by_index :: (fn(list : ArrayList(ArgEntry), idx : ArrayList(usize)) -> ArrayList(ArgEntry))({
+  out := ArrayList(ArgEntry).new();
+  (t : usize) = usize(0);
+  while(t < list.len(), {
+    (q : usize) = usize(0);
+    while(q < idx.len(), {
+      if(match(idx.get(q), .Some(ix) => (ix == t), .None => false), {
+        match(list.get(q), .Some(v) => out.push(v), .None => ());
+      });
+      q = (q + usize(1));
+    });
+    t = (t + usize(1));
+  });
+  out
+});
+/// The runtime argument expressions a parameter's matching pushed are the
+/// span `[start, end)` of `list`; return the spans concatenated in parameter
+/// order.
+_restore_rt_spans :: (fn(list : ArrayList(AstExpr), span_param : ArrayList(usize), span_start : ArrayList(usize), span_end : ArrayList(usize)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  (covered : usize) = usize(0);
+  (t : usize) = usize(0);
+  while(t < span_param.len(), {
+    (q : usize) = usize(0);
+    while(q < span_param.len(), {
+      if(match(span_param.get(q), .Some(ix) => (ix == t), .None => false), {
+        st := match(span_start.get(q), .Some(v) => v, .None => usize(0));
+        en := match(span_end.get(q), .Some(v) => v, .None => usize(0));
+        (k : usize) = st;
+        while(k < en, {
+          match(list.get(k), .Some(v) => out.push(v), .None => ());
+          k = (k + usize(1));
+        });
+        covered = (covered + (en - st));
+      });
+      q = (q + usize(1));
+    });
+    t = (t + usize(1));
+  });
+  // Anything pushed outside a parameter's span (none today) keeps its place
+  // at the end rather than being dropped.
+  if(covered < list.len(), {
+    (k2 : usize) = usize(0);
+    while(k2 < list.len(), {
+      (in_span : bool) = false;
+      (q2 : usize) = usize(0);
+      while((q2 < span_start.len()) && !(in_span), {
+        st2 := match(span_start.get(q2), .Some(v) => v, .None => usize(0));
+        en2 := match(span_end.get(q2), .Some(v) => v, .None => usize(0));
+        if((k2 >= st2) && (k2 < en2), {
+          in_span = true;
+        });
+        q2 = (q2 + usize(1));
+      });
+      if(!(in_span), {
+        match(list.get(k2), .Some(v) => out.push(v), .None => ());
+      });
+      k2 = (k2 + usize(1));
+    });
+  });
+  out
+});
+/// The name of a binder among `binder_ids` that `t` still mentions with no
+/// resolution (empty cell, nothing registered) and that no inference channel
+/// bound (`bound_names`), or `.None`.
+unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), bound_names : ArrayList(String)) -> Option(String))({
+  somes := get_all_some_types(t);
+  match(t, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => somes.push(t), _ => ());
+  (si : usize) = usize(0);
+  while(si < somes.len(), {
+    match(
+      somes.get(si),
+      .Some(st) => match(
+        st,
+        .SomeT({ id : ub_id, name : ubn_label, resolved_concrete : ub_cell }) => {
+          (own : bool) = false;
+          (bi : usize) = usize(0);
+          while((bi < binder_ids.len()) && !(own), {
+            if(match(binder_ids.get(bi), .Some(b) => (b == ub_id), .None => false), {
+              own = true;
+            });
+            bi = (bi + usize(1));
+          });
+          (bound : bool) = false;
+          (ni : usize) = usize(0);
+          while((ni < bound_names.len()) && !(bound), {
+            if(match(bound_names.get(ni), .Some(n) => (n == ubn_label), .None => false), {
+              bound = true;
+            });
+            ni = (ni + usize(1));
+          });
+          if(((own && !(bound)) && (ub_cell.len() == usize(0))) && lookup_some_resolved_concrete(ub_id).is_none(), {
+            return(Option(String).Some(ubn_label));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  Option(String).None
+});
+/// The CONCRETE type a call's `generic(...)` binder `label` is bound to in
+/// `env` right now, or `.None` while it is still a type variable. Reads the
+/// binding the way Step 8 extracts it (last binding; a SomeT through its
+/// resolution cell, then the id registry).
+_forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValue))({
+  vars := get_variables_from_env(env, label);
+  if(vars.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  bound := match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => match(
+      v.value.get(usize(0)),
+      .Some(ev) => match(
+        ev,
+        .TypeVal(t) => match(
+          t,
+          .SomeT({ id : fb_id, resolved_concrete : fb_cell }) => cond(
+            (fb_cell.len() > usize(0)) => fb_cell.get(fb_cell.len() - usize(1)),
+            true => lookup_some_resolved_concrete(fb_id)
+          ),
+          _ => Option(TypeValue).Some(t)
+        ),
+        _ => Option(TypeValue).None
+      ),
+      .None => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  );
+  match(
+    bound,
+    .Some(b) => cond(
+      (get_all_some_types(b).len() > usize(0)) => Option(TypeValue).None,
+      true => Option(TypeValue).Some(b)
+    ),
+    .None => Option(TypeValue).None
+  )
+});
+/// Is `label`'s binding in `env` still the signature's own binder `sig_id`,
+/// bound to nothing — no concrete type, no resolution, and not even another
+/// type variable (a generic caller's `U` flowing in is a binding)?
+_forall_binder_unbound :: (fn(env : Environment, label : String, sig_id : String) -> bool)({
+  vars := get_variables_from_env(env, label);
+  if(vars.len() == usize(0), {
+    return(false);
+  });
+  match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => match(
+      v.value.get(usize(0)),
+      .Some(ev) => match(
+        ev,
+        .TypeVal(t) => match(
+          t,
+          .SomeT({ id : ub_id, resolved_concrete : ub_cell }) => (((ub_id == sig_id) && (ub_cell.len() == usize(0))) && lookup_some_resolved_concrete(ub_id).is_none()),
+          _ => false
+        ),
+        _ => false
+      ),
+      .None => false
+    ),
+    .None => false
+  )
+});
+/// One call's binding of a `generic(...)` binder: the concrete type and the
+/// 0-based argument that first fixed it.
+ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize);
+/// Per-call binder consistency (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.4,
+/// issues/fixed/generic-type-var-rebinds-per-argument.md). Each argument is
+/// matched on its own and a later argument's synthesis REBINDS the binder in
+/// place ("last write wins"), so `pair_same(String, i32)` with
+/// `fn(generic(A), x : A, y : A)` specialized at whichever came last and
+/// nothing compared the two. After argument `arg_index` is matched, every
+/// binder that is now concrete is compared with the binding an earlier
+/// argument fixed; two bindings neither of which is compatible with the other
+/// are an E0601 naming both arguments.
+_check_forall_bindings_after_arg :: (
+  fn(
+    forall_labels : ArrayList(String),
+    env : Environment,
+    arg_index : usize,
+    param_labels : ArrayList(String),
+    seen : ArrayList(ForallBindingSeen),
+    tok : Token,
+    exn : Exception
+  ) -> unit
+)({
+  (fi : usize) = usize(0);
+  while(fi < forall_labels.len(), {
+    label := match(forall_labels.get(fi), .Some(l) => l, .None => String.new());
+    fi = (fi + usize(1));
+    now_opt := _forall_binding_now(env, label.clone());
+    now := match(
+      now_opt,
+      .Some(t) => t,
+      .None => {
+        continue;
+      }
+    );
+    (si : usize) = usize(0);
+    (found : bool) = false;
+    while((si < seen.len()) && !(found), {
+      match(
+        seen.get(si),
+        .Some(prev) => if(prev.label == label, {
+          found = true;
+          if(!(are_types_compatible(prev.ty, now)) && !(are_types_compatible(now, prev.ty)), {
+            prev_name := match(param_labels.get(prev.arg_index), .Some(n) => n, .None => String.new());
+            now_name := match(param_labels.get(arg_index), .Some(n) => n, .None => String.new());
+            exn.throw(
+              dyn(
+                format_error_message(
+                  tok,
+                  `Incompatible types for generic parameter "${label}": it is ${type_to_string(prev.ty)} from argument ${(prev.arg_index + usize(1)).to_string()} (${prev_name}) but ${type_to_string(now)} from argument ${(arg_index + usize(1)).to_string()} (${now_name}). Every mention of a type parameter in one call stands for one type.`
+                )
+              )
+            );
+          });
+        }),
+        .None => ()
+      );
+      si = (si + usize(1));
+    });
+    if(!(found), {
+      seen.push(ForallBindingSeen(label : label, ty : now, arg_index : arg_index));
+    });
+  });
 });
 try_to_call_function_with_arguments :: (
   fn(
@@ -6093,6 +6454,8 @@ try_to_call_function_with_arguments :: (
       // Step 7: Process regular parameters.
       // ----------------------------------------------------------------
       forall_arg_vals := ArrayList(ArgEntry).new();
+      // The binder label of each `forall_arg_vals` entry (Step 10b).
+      forall_arg_labels := ArrayList(String).new();
       arg_vals := ArrayList(ArgEntry).new();
       rt_args := ArrayList(AstExpr).new();
       (callee_env_m : Environment) = callee_env;
@@ -6148,6 +6511,7 @@ try_to_call_function_with_arguments :: (
       );
       io_async_param_direct := (is_io_async_call(expr) && !(io_async_has_ret_constraint));
       (pi : usize) = usize(0);
+      forall_seen := ArrayList(ForallBindingSeen).new();
       // Aliasing Stage 0: per-call `___drop(<dup temp>)`s from the params
       // (CheckParamResult.s0_drop) — attached to the call node via
       // FuncCallResult.deferred_drop_expressions (post-call flush).
@@ -6156,7 +6520,23 @@ try_to_call_function_with_arguments :: (
       // unmarked below when the callee specialization proves read-only.
       s0_marked_args := ArrayList(AstExpr).new();
       (s1_elided : bool) = false;
-      while(pi < n_params, {
+      // Function-literal arguments LAST (Phase 2.4; `fn_literal_arg_is_deferred`):
+      // a `=>` closure or `->` function literal whose parameter is an
+      // `Impl(Fn(...))` mentioning a binder is matched after the other
+      // arguments, so Step 2's re-evaluation of its parameter type sees the
+      // binders they fixed. `arg_vals` and `rt_args` are put back in parameter
+      // order after the loop.
+      s7_order := _step7_param_order(adjusted_args, n_args, n_params, pt, fl);
+      s7_permuted := _order_is_permuted(s7_order);
+      s7_argval_idx := ArrayList(usize).new();
+      s7_rt_span_param := ArrayList(usize).new();
+      s7_rt_span_start := ArrayList(usize).new();
+      s7_rt_span_end := ArrayList(usize).new();
+      (s7_k : usize) = usize(0);
+      while(s7_k < n_params, {
+        pi = match(s7_order.get(s7_k), .Some(o) => o, .None => s7_k);
+        s7_k = (s7_k + usize(1));
+        s7_rt_before := rt_args.len();
         plabel := match(pl.get(pi), .Some(l) => l, .None => String.from(""));
         ptype := match(pt.get(pi), .Some(t) => t, .None => t_unit());
         p_owning := match(pio.get(pi), .Some(o) => o, .None => false);
@@ -6213,6 +6593,7 @@ try_to_call_function_with_arguments :: (
                   arg_type : dpr.arg_type
                 )
               );
+              s7_argval_idx.push(pi);
             },
             .None => {
               // Defensive fallback when no default expr is recorded: bind the
@@ -6248,8 +6629,12 @@ try_to_call_function_with_arguments :: (
                   arg_type : ptype
                 )
               );
+              s7_argval_idx.push(pi);
             }
           );
+          s7_rt_span_param.push(pi);
+          s7_rt_span_start.push(s7_rt_before);
+          s7_rt_span_end.push(rt_args.len());
           pi = (pi + usize(1));
           continue;
         });
@@ -6291,6 +6676,7 @@ try_to_call_function_with_arguments :: (
         );
         callee_env_m = pr.callee_env;
         caller_env_m = pr.caller_env;
+        _check_forall_bindings_after_arg(fl, callee_env_m, pi, pl, forall_seen, ast_expr_token(parg), exn);
         arg_vals.push(
           ArgEntry(
             value : pr.arg_value,
@@ -6298,7 +6684,15 @@ try_to_call_function_with_arguments :: (
             arg_type : pr.arg_type
           )
         );
+        s7_argval_idx.push(pi);
+        s7_rt_span_param.push(pi);
+        s7_rt_span_start.push(s7_rt_before);
+        s7_rt_span_end.push(rt_args.len());
         pi = (pi + usize(1));
+      });
+      if(s7_permuted, {
+        arg_vals = _restore_argentries_by_index(arg_vals, s7_argval_idx);
+        rt_args = _restore_rt_spans(rt_args, s7_rt_span_param, s7_rt_span_start, s7_rt_span_end);
       });
       // Step 7b: Variadic arguments — the args beyond the fixed parameters.
       // A variadic function is modeled only as `has_variadic : bool` (no
@@ -6336,7 +6730,7 @@ try_to_call_function_with_arguments :: (
       // `are_types_compatible` can catch it: the signature's two `E` mentions
       // resolve through separate SomeT lineages, and struct compatibility is
       // structurally lenient in BOTH directions
-      // (issues/generic-type-var-rebinds-per-argument.md). Enforced here by
+      // (issues/fixed/generic-type-var-rebinds-per-argument.md). Enforced here by
       // LAYOUT: when both the future's effect type and the effect argument
       // are top-level structs, they must share the struct id or the exact
       // field-label list (an anonymous `{ io, exn }` record has IoExn's
@@ -6503,6 +6897,7 @@ try_to_call_function_with_arguments :: (
                       arg_type : last_v.ty
                     )
                   );
+                  forall_arg_labels.push(flabel2.clone());
                 },
                 .None => ()
               );
@@ -6827,12 +7222,48 @@ try_to_call_function_with_arguments :: (
             // `(y : u8) = (200 + 100)`'s sum as a `u8` holding 300, which
             // the slot then accepted and C truncated to 44
             // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
-            if((are_types_compatible(ret_for_adopt, et.ty) && !(type_contains_some_type(et.ty))) && !(is_comptime_int_type(ret_for_adopt)), {
+            // "Fully concrete" is DEEP: `type_contains_some_type` is top-level
+            // only, so an expected `Option(U)` (a generic callee's parameter,
+            // passed down as the argument's expected type) counted as concrete
+            // and `_take(x.wrap())` adopted `Option(U)` as the method call's
+            // result — `U` was then bound to its own type variable and
+            // `_take` specialized abstractly (an FTT stub)
+            // (issues/fixed/generic-fn-forall-unresolved-when-argument-is-a-method-call.md).
+            if(((are_types_compatible(ret_for_adopt, et.ty) && !(type_contains_some_type(et.ty))) && (get_all_some_types(et.ty).len() == usize(0))) && !(is_comptime_int_type(ret_for_adopt)), {
               return_type = et.ty;
             });
           },
           .None => ()
         );
+      });
+      // Step 10b: a binder only the EXPECTED type fixes (`(x : Option(i32)) =
+      // mk()` with `mk : fn(generic(T)) -> Option(T)`) was bound by Step 10's
+      // synthesis AFTER Step 8 extracted the specialization's forall values,
+      // so the call specialized `mk` at the unresolved `T` and emitted a hole
+      // (issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md).
+      // Refresh every extracted value that is still abstract from the env.
+      if(ctx.expected_type.is_some() && (forall_arg_vals.len() > usize(0)), {
+        s10b_vals := ArrayList(ArgEntry).new();
+        (s10b_i : usize) = usize(0);
+        while(s10b_i < forall_arg_vals.len(), {
+          s10b_e := match(forall_arg_vals.get(s10b_i), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
+          s10b_abstract := match(s10b_e.value, .Some(ev) => match(ev, .TypeVal(ev_t) => (get_all_some_types(ev_t).len() > usize(0)), _ => false), .None => false);
+          s10b_now := cond(
+            s10b_abstract => _forall_binding_now(callee_env_m, match(forall_arg_labels.get(s10b_i), .Some(l) => l, .None => String.new())),
+            true => Option(TypeValue).None
+          );
+          match(
+            s10b_now,
+            .Some(s10b_c) => {
+              s10b_vals.push(ArgEntry(value : Option(EvalValue).Some(EvalValue.TypeVal(s10b_c)), parameter_type : s10b_e.parameter_type, arg_type : s10b_e.arg_type));
+            },
+            .None => {
+              s10b_vals.push(s10b_e);
+            }
+          );
+          s10b_i = (s10b_i + usize(1));
+        });
+        forall_arg_vals = s10b_vals;
       });
       // A CONTROL (`ctl`) function whose result stays the generic ResumeType
       // SomeT (e.g. `Exception.throw : ctl(generic(ResumeType), ...) ->
@@ -7042,6 +7473,66 @@ try_to_call_function_with_arguments :: (
       // Step 12: Validate return type and build FuncCallResult.
       // ----------------------------------------------------------------
       validate_function_return_type(return_type, expr, callee_env_m, ctx, exn);
+      // A result that still mentions one of this callee's own binders,
+      // unresolved, with the binder's env binding still the signature's own
+      // SomeT: nothing — no argument, no expected type (Step 10/10b), no
+      // where-clause, no closure-identity cell — fixed it, so there is no type
+      // to specialize at: E0613
+      // (issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md).
+      // Both channels are consulted: a binder resolved only through a cell
+      // chain (`ch.filter(x => …)`'s per-call `F`) is resolved in the result
+      // even though its env slot still holds the marker. A control function's
+      // `ResumeType` is exempt (resolved per call site above), as are externs.
+      if((!(callee_is_extern) && !(__fm8.*.is_control)) && !(ctx.is_evaluating_function_type), {
+        s12_own_ids := ArrayList(String).new();
+        s12_somes := collect_somes_with_fn_sigs(ret_b);
+        match(ret_b, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => s12_somes.push(ret_b), _ => ());
+        (s12_i : usize) = usize(0);
+        while(s12_i < s12_somes.len(), {
+          match(
+            s12_somes.get(s12_i),
+            .Some(st) => match(
+              st,
+              .SomeT({ id : s12_id, name : s12_nm }) => {
+                (s12_j : usize) = usize(0);
+                while(s12_j < fl.len(), {
+                  if(match(fl.get(s12_j), .Some(l) => (l == s12_nm), .None => false), {
+                    s12_own_ids.push(s12_id.clone());
+                  });
+                  s12_j = (s12_j + usize(1));
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+          s12_i = (s12_i + usize(1));
+        });
+        match(
+          unresolved_own_binder(return_type, s12_own_ids, ArrayList(String).new()),
+          .Some(s12_name) => {
+            (s12_env_unbound : bool) = false;
+            (s12_k : usize) = usize(0);
+            while((s12_k < s12_own_ids.len()) && !(s12_env_unbound), {
+              if(_forall_binder_unbound(callee_env_m, s12_name.clone(), match(s12_own_ids.get(s12_k), .Some(x) => x, .None => String.new())), {
+                s12_env_unbound = true;
+              });
+              s12_k = (s12_k + usize(1));
+            });
+            if(s12_env_unbound, {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    tok,
+                    `Cannot infer the type parameter "${s12_name}" of this call: it appears in the result type ${type_to_string(ret_b)}, and neither an argument nor the expected type determines it. Annotate the binding the result lands in, or pass the type with generic(...).`
+                  )
+                )
+              );
+            });
+          },
+          .None => ()
+        );
+      });
       implicit_args_result := if(
         implicit_arg_vals.len() > usize(0),
         Option(ArrayList(ArgEntry)).Some(implicit_arg_vals),
@@ -7355,7 +7846,7 @@ try_to_call_function_with_arguments :: (
     }
   )
 });
-export(try_to_call_function_with_arguments);
+export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);

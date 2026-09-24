@@ -308,3 +308,116 @@ test("soundness canary: fn values and capture-free closures are Send", {
   assert(_run_send(() => (k + i32(1))) == i32(6), "a Send capture");
   assert(_run_send(_plain_fn) == i32(8), "a named fn");
 });
+// ---------------------------------------------------------------------------
+// issues/fixed/generic-type-var-rebinds-per-argument.md (Phase 2.4): every
+// mention of a type parameter in one call stands for one type.
+// ---------------------------------------------------------------------------
+_pair_same :: (fn(generic(A : Type), x : A, y : A) -> A)(x);
+_apply_g :: (fn(generic(T : Type), f : Impl(Fn(x : T) -> T), v : T) -> T)(f(v));
+_apply_v :: (fn(generic(T : Type), v : T, f : Impl(Fn(x : T) -> T)) -> T)(f(v));
+test("soundness: two arguments cannot bind one type parameter to two types", {
+  comptime_expect_error(_pair_same(String.from("hello"), i32(2)), "Incompatible types for generic parameter");
+  comptime_expect_error(_pair_same(i32(3), String.from("world")), "Incompatible types for generic parameter");
+  comptime_expect_error(_apply_g(x => true, i32(3)), "declared result type");
+  comptime_expect_error(_apply_g(x -> true, i32(3)), "declared result type");
+  assert(true, "rejected");
+});
+test("soundness canary: arguments that agree on a type parameter", {
+  assert(_pair_same(i32(3), i32(4)) == i32(3), "same type");
+  assert(_pair_same(i32(3), 4) == i32(3), "a literal adopts the binder");
+  assert(_apply_g(x => (x + i32(1)), i32(3)) == i32(4), "closure result agrees");
+  assert(_apply_g(x -> (x * i32(2)), i32(3)) == i32(6), "function literal first");
+  assert(_apply_v(i32(3), x -> (x * i32(2))) == i32(6), "function literal last");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md
+// (Phase 2.4): a result-only type parameter comes from the expected type, or
+// is E0613.
+// ---------------------------------------------------------------------------
+_mk_none :: (fn(generic(T : Type)) -> Option(T))(.None);
+_Maker :: struct(k : i32);
+impl(_Maker, mk : (fn(generic(T : Type), self : Self) -> Option(T))(.None));
+test("soundness: a result-only type parameter with nothing to infer it from", {
+  comptime_expect_error({
+    x := _mk_none();
+    x
+  }, "Cannot infer the type parameter");
+  comptime_expect_error({
+    m := _Maker(k : i32(1));
+    y := m.mk();
+    y
+  }, "Cannot infer the type parameter");
+  assert(true, "rejected");
+});
+test("soundness canary: the expected type infers a result-only type parameter", {
+  (x : Option(i32)) = _mk_none();
+  assert(match(x, .Some(v) => v, .None => i32(9)) == i32(9), "annotated binding");
+  y := _mk_none(generic(bool));
+  assert(y.is_none(), "explicit generic argument");
+  m := _Maker(k : i32(1));
+  (z : Option(u8)) = m.mk();
+  assert(z.is_none(), "a method's result-only binder from the expected type");
+});
+// issues/fixed/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md
+// (Phase 2.4): an outer generic instantiating an inner one at a DIFFERENT
+// type, with a closure over the outer T's data. The closure's parameter type
+// came from the OUTER `T` (resolved by name), so the emitted C passed a
+// `usize` index where the closure took a `_Rec`.
+_TwoTRec :: struct(key : i32, tag : i32);
+_inner_at :: (fn(generic(T : Type), a : T, b : T, less : Impl(Fn(x : T, y : T) -> bool)) -> bool)(less(a, b));
+_outer_at :: (fn(generic(T : Type), xs : ArrayList(T), less : Impl(Fn(x : T, y : T) -> bool)) -> bool)(
+  _inner_at(usize(0), usize(1), (i, j) => less(xs(i), xs(j)))
+);
+test("soundness canary: a closure keeps the inner instantiation's parameter type", {
+  xs := ArrayList(_TwoTRec).new();
+  xs.push(_TwoTRec(key : i32(1), tag : i32(0)));
+  xs.push(_TwoTRec(key : i32(2), tag : i32(1)));
+  assert(_outer_at(xs, (p, q) => (p.key < q.key)), "compares the records through indices");
+});
+// issues/fixed/calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md:
+// calling an `Impl(Fn(io : Io) -> T)` parameter inside a generic body typed the
+// result as an unresolved SomeT (undeclared symbol / clang type error).
+_IoCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(struct(v : T));
+impl(
+  generic(T : Type),
+  where(T <: Send),
+  _IoCell(T),
+  put : (fn(inout(self) : Self, value : T) -> unit)({
+    self.v = value;
+  })
+);
+_io_run :: (fn(generic(T : Type), io : Io, seed : T, cb : Impl(Fn(io : Io) -> T), where(T <: Send)) -> T)({
+  b := _IoCell(T)(v : seed);
+  b.put(cb(io));
+  b.v
+});
+test("soundness canary: an io-param closure's result inside a generic body", {
+  assert(_io_run(io, i32(0), (io2 : Io) => i32(42)) == i32(42), "i32");
+  assert(_io_run(io, u64(0), (io2 : Io) => u64(18446744073709551615)) == u64(18446744073709551615), "u64");
+  assert(_io_run(io, f64(0.0), (io2 : Io) => f64(2.5)) == f64(2.5), "f64");
+});
+// issues/fixed/generic-fn-forall-unresolved-when-argument-is-a-method-call.md
+// (Phase 2.4): a method call passed straight to a generic `Option(U)`
+// parameter adopted `Option(U)` as its own result (a shallow "is the expected
+// type concrete" test), so `U` stayed a type variable and the callee was
+// specialized abstractly — an FTT stub at run time.
+impl(i32, _wrap_some : (fn(self : i32) -> Option(i32))(Option(i32).Some(self)));
+_take_opt :: (fn(generic(U : Type), o : Option(U)) -> bool)(match(o, .Some(_) => true, .None => false));
+test("soundness canary: a method-call argument binds the callee's type parameter", {
+  x := i32(1);
+  assert(_take_opt(x._wrap_some()), "Some through the method call");
+});
+// issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md
+// (Phase 2.4): a kind-annotated binder is inferred from an argument's
+// instantiation, and `F(A)` in the result is applied.
+_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
+test("soundness canary: F(A) infers F and A and the result is Option(i32)", {
+  o := Option(i32).Some(i32(7));
+  r := _hk_identity(o);
+  (r2 : Option(i32)) = r;
+  assert(match(r2, .Some(v) => v, .None => i32(0)) == i32(7), "the constructor was applied");
+  xs := ArrayList(i32).new();
+  xs.push(i32(3));
+  ys := _hk_identity(xs);
+  assert(ys.len() == usize(1), "a struct constructor too");
+});

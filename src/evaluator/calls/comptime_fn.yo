@@ -35,6 +35,7 @@ pragma(Pragma.AllowUnsafe);
   create_unknown_val_with_name,
   register_enum_cfid,
   lookup_enum_cfid,
+  register_type_ctor_value,
   value_to_string
 } :: import("../../value.yo");
 { stable_module_id, debug_knob } :: import("../../utils.yo");
@@ -1228,11 +1229,16 @@ evaluate_comptime_fn_call :: (
   // Record enum constructor identity (EnumT has no cfid field to stamp).
   match(
     return_value,
-    .TypeVal(rv_eb) => match(
-      rv_eb,
-      .EnumT(eid, _, _, _, _, _, _, _, _) => register_enum_cfid(eid, func_id_str),
-      _ => ()
-    ),
+    .TypeVal(rv_eb) => {
+      match(
+        rv_eb,
+        .EnumT(eid, _, _, _, _, _, _, _, _) => register_enum_cfid(eid, func_id_str.clone()),
+        _ => ()
+      );
+      // The constructor's own value, for inferring a kind-annotated binder
+      // from an instantiation (value.yo `g_type_ctor_values`).
+      register_type_ctor_value(func_id_str.clone(), function_value);
+    },
     _ => ()
   );
   // Collect this instantiation's type-valued arguments, in parameter order, to

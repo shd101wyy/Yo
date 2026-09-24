@@ -680,6 +680,27 @@ y := identity(true);   // 类型推断：y: bool
 泛型函数体在特化时做类型检查：每个实例化处，函数体的结果都必须与声明的返回类型一致
 （`(fn(generic(T : Type), x : T) -> i32)(true)` 在第一次调用处报 E0604）。
 
+在一次调用中，一个类型参数只代表**一个**类型，由调用的实参共同决定，与实参顺序无关：
+
+```rust
+pair_same :: (fn(generic(A : Type), x : A, y : A) -> A)(x);
+pair_same(i32(3), i32(4));          // A = i32
+pair_same(String.from("a"), i32(2)); // E0601：A 由实参 1 得到 String，由实参 2 得到 i32
+
+apply :: (fn(generic(T : Type), f : Impl(Fn(x : T) -> T), v : T) -> T)(f(v));
+apply((x) => (x + i32(1)), i32(3)); // 4 —— 闭包在 `v` 确定 T = i32 之后才检查
+apply((x) => true, i32(3));         // E0604：闭包体是 bool，而 T 是 i32
+```
+
+闭包（`=>`）或函数字面量（`->`）实参最后检查，对照的是其他实参已经解出的参数类型。只出现在结果中的类型参数由期望类型确定；没有期望类型时报 E0613：
+
+```rust
+mk :: (fn(generic(T : Type)) -> Option(T))(.None);
+(x : Option(i32)) = mk();  // 由类型标注得到 T = i32
+y := mk(generic(bool));    // 显式给出 T = bool
+z := mk();                 // E0613：无法推断 T
+```
+
 `comptime(x) : T` 参数按其**值**特化，因此实参必须在编译期已知——字面量、`::` 常量或 comptime 函数的结果。
 运行时值是错误：
 
@@ -1588,7 +1609,10 @@ identity :: (fn(
 // 使用：
 (x : Option(i32)) = .Some(i32(42));
 result := identity(generic(Option, i32), x);  // result: Option(i32)
+inferred := identity(x);                      // 由实参得到 F = Option，A = i32
 ```
+
+带种类标注的参数可以从实参的实例化推断：`x : F(A)` 接收 `Option(i32)` 时，`F` 绑定到构造器 `Option`，`A` 绑定到 `i32`，结果 `F(A)` 就是直接调用所构造的同一个 `Option(i32)`。
 
 #### HKT Trait
 

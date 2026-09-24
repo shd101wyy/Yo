@@ -150,7 +150,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -1928,6 +1928,286 @@ _funcval_try_synthesize_param :: (
   _r := synthesize_types(declared_pt, scratch_env, arg_ty, arg_env, checked, synth_opts, local_exn);
   ()
 });
+/// The type a `generic(...)` binder is inferred as from one argument whose
+/// declared parameter type IS the binder (`v : T`). The lowering rules:
+///
+/// - A comptime_str VALUE argument (`"hi"` to `fn(generic(T), v : T)`) binds
+///   the RUNTIME type `str`, not `comptime_str` — else the specialized body
+///   dispatches `v.to_string()` against comptime_str (→ comptime_int → i32),
+///   throwing "Cannot unify i32 and str" when specializing println/print
+///   (Gap-6). A comptime TYPE arg is a `Type` value, not comptime_str, so this
+///   only catches string-literal value args.
+/// - comptime_int/float literal args lower the same way: `box(1)` must infer
+///   `T = i32`, not `T = comptime_int` — the C mapping hides the difference
+///   until a trait dispatch inside the instantiated impl differs:
+///   Box(comptime_int)'s `Eq` resolved to `__yo_comptime_int_eq`, a
+///   comptime-only builtin that can never be emitted (the prelude Box test;
+///   issues/repros/box-eq-comptime-int-generic-leak.yo). GATED on the matched
+///   param being RUNTIME: a `comptime(v) : T` param binds T to the RAW
+///   comptime type — lowering there broke ComptimeOrd/ComptimeEq dispatch
+///   inside comptime-fn bodies (tests/comptime.test.yo regression).
+/// - A closure/fn (or unit under def-eval) argument prefers the
+///   EXPECTED-RETURN-resolved param type when that is an Impl SomeT:
+///   `box((x) => ...)` with expected `Box(Impl(Fn...))` binds `V` to that
+///   SomeT (arg-driven V := <fn type>/unit produced `Box(fn(...))`/`Box(unit)`
+///   with a void*/void payload — the Dyn(Fn) family).
+_funcval_infer_forall_ty :: (fn(arg_ty : TypeValue, exp_pt : TypeValue, param_is_ct : bool, env : Environment) -> TypeValue)(
+  cond(
+    is_comptime_string_type(arg_ty) => TypeValue.Str,
+    ((!(param_is_ct)) && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
+    (((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) || is_unit_type(arg_ty)) && is_some_type(exp_pt)) => exp_pt,
+    true => arg_ty
+  )
+);
+/// Do two concrete bindings of one binder disagree? Only SomeT-free types are
+/// judged (a type variable binds later), and the lenient relation is used in
+/// both directions, so a literal's comptime type and the numeric type it
+/// adopts are one binding.
+_forall_types_conflict :: (fn(a : TypeValue, b : TypeValue) -> bool)(
+  cond(
+    ((get_all_some_types(a).len() > usize(0)) || (get_all_some_types(b).len() > usize(0))) => false,
+    true => (!(are_types_compatible(a, b)) && !(are_types_compatible(b, a)))
+  )
+);
+/// The E0601 text for a binder two arguments bind to different types.
+/// `first_from` names where the first binding came from.
+_forall_conflict_message :: (fn(label : String, first : TypeValue, first_from : String, later : TypeValue, later_arg : usize) -> String)(
+  `Incompatible types for generic parameter "${label}": it is ${type_to_string(first)} from ${first_from} but ${type_to_string(later)} from argument ${(later_arg + usize(1)).to_string()}. Every mention of a type parameter in one call stands for one type.`
+);
+/// "argument N" (1-based) for a conflict message.
+_forall_arg_phrase :: (fn(i : usize) -> String)(`argument ${(i + usize(1)).to_string()}`);
+/// A binder's CONCRETE binding in a structural-inference scratch env, or
+/// `.None` while it is unbound or still a type variable.
+_scratch_concrete_binding :: (fn(se : Environment, name : String) -> Option(TypeValue))({
+  vars := get_variables_from_env(se, name);
+  if(vars.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  match(
+    vars.get(vars.len() - usize(1)),
+    .Some(v) => match(
+      v.value.get(usize(0)),
+      .Some(ev) => match(
+        ev,
+        .TypeVal(t) => cond(
+          ((get_all_some_types(t).len() > usize(0)) || is_some_type(t)) => Option(TypeValue).None,
+          true => Option(TypeValue).Some(t)
+        ),
+        _ => Option(TypeValue).None
+      ),
+      .None => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  )
+});
+/// The order the inline FuncVal arm evaluates a call's arguments in: every
+/// argument in source order, except that a closure literal whose parameter is
+/// an `Impl(Fn(...))` mentioning one of the callee's binders goes after the
+/// others (Phase 2.4, "function-literal arguments last"). A call with an `undefined`
+/// argument keeps source order: its default may read the earlier arguments'
+/// evaluated infos by position.
+_fv_argument_eval_order :: (fn(args : ArrayList(AstExpr), n_p : usize, param_types : ArrayList(TypeValue), forall_names : ArrayList(String)) -> ArrayList(usize))({
+  first := ArrayList(usize).new();
+  last := ArrayList(usize).new();
+  (i : usize) = usize(0);
+  (keep_source_order : bool) = (forall_names.len() == usize(0));
+  while(i < args.len(), {
+    a := match(args.get(i), .Some(x) => x, .None => make_err_expr());
+    if(ast_expr_is_atom_of(a, "undefined"), {
+      keep_source_order = true;
+    });
+    if(fn_literal_arg_is_deferred(args, i, n_p, param_types, forall_names), {
+      last.push(i);
+    }, {
+      first.push(i);
+    });
+    i = (i + usize(1));
+  });
+  if(keep_source_order || (last.len() == usize(0)), {
+    identity := ArrayList(usize).new();
+    (k : usize) = usize(0);
+    while(k < args.len(), {
+      identity.push(k);
+      k = (k + usize(1));
+    });
+    return(identity);
+  });
+  (li : usize) = usize(0);
+  while(li < last.len(), {
+    first.push(match(last.get(li), .Some(x) => x, .None => usize(0)));
+    li = (li + usize(1));
+  });
+  first
+});
+_fv_has_undefined_arg :: (fn(args : ArrayList(AstExpr)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    if(match(args.get(i), .Some(a) => ast_expr_is_atom_of(a, "undefined"), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+_fv_order_is_permuted :: (fn(order : ArrayList(usize)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < order.len(), {
+    if(match(order.get(i), .Some(o) => (o != i), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// A deferred function-literal argument's expected type: its parameter type
+/// with every binder an already-evaluated argument fixes substituted by that
+/// type — by name from a `v : T` parameter, else structurally from a composite
+/// one (`ptr : *(T)` given `*(usize)`). Substitution is keyed by the binder's
+/// own occurrences in the parameter type (name + frame level), so a caller's
+/// binder of the same name (`_outer`'s `T` around `_inner(idx, n, (a, b) =>
+/// …)`) can no longer answer for the callee's
+/// (issues/fixed/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md).
+_fv_refine_closure_expected :: (
+  fn(
+    param_ty : TypeValue,
+    forall_names : ArrayList(String),
+    param_type_names : ArrayList(String),
+    declared_param_types : ArrayList(TypeValue),
+    infos : ArrayList(ExprInfo),
+    info_arg_idx : ArrayList(usize),
+    param_ct : ArrayList(bool),
+    env : Environment
+  ) -> TypeValue
+)({
+  sb := subst_new();
+  (any : bool) = false;
+  mentioned := collect_somes_with_fn_sigs(param_ty);
+  // The structural channel's scratch env, built on first need.
+  (se_opt : Option(Environment)) = Option(Environment).None;
+  (k : usize) = usize(0);
+  while(k < forall_names.len(), {
+    f_name := match(forall_names.get(k), .Some(n) => n, .None => String.new());
+    k = (k + usize(1));
+    (f_ty : Option(TypeValue)) = Option(TypeValue).None;
+    (p : usize) = usize(0);
+    while((p < param_type_names.len()) && f_ty.is_none(), {
+      if(match(param_type_names.get(p), .Some(n) => (n == f_name), .None => false), {
+        (q : usize) = usize(0);
+        while((q < info_arg_idx.len()) && f_ty.is_none(), {
+          if(match(info_arg_idx.get(q), .Some(ix) => (ix == p), .None => false), {
+            q_info := match(infos.get(q), .Some(i) => i, .None => new_expr_info(env, t_unit()));
+            q_ty := _funcval_infer_forall_ty(q_info.ty, t_unit(), match(param_ct.get(p), .Some(c) => c, .None => false), env);
+            if((get_all_some_types(q_ty).len() == usize(0)) && !(is_some_type(q_ty)), {
+              f_ty = Option(TypeValue).Some(q_ty);
+            });
+          });
+          q = (q + usize(1));
+        });
+      });
+      p = (p + usize(1));
+    });
+    if(f_ty.is_none(), {
+      se := match(
+        se_opt,
+        .Some(e) => e,
+        .None => {
+          se_new := Environment.new(env.module_path);
+          (sq : usize) = usize(0);
+          while(sq < info_arg_idx.len(), {
+            sp := match(info_arg_idx.get(sq), .Some(ix) => ix, .None => usize(0));
+            s_info := match(infos.get(sq), .Some(i) => i, .None => new_expr_info(env, t_unit()));
+            s_dpt := match(declared_param_types.get(sp), .Some(t) => t, .None => t_unit());
+            // Function-typed arguments are provisional here (see the
+            // composite cross-check); only value arguments inform.
+            if(!((is_function_type(s_info.ty) || is_fn_trait_type(s_info.ty)) || is_some_type(s_info.ty)), {
+              _funcval_try_synthesize_param(s_dpt, se_new, s_info.ty, env);
+            });
+            sq = (sq + usize(1));
+          });
+          se_opt = Option(Environment).Some(se_new);
+          se_new
+        }
+      );
+      f_ty = _scratch_concrete_binding(se, f_name.clone());
+    });
+    match(
+      f_ty,
+      .Some(ft) => {
+        (ms_i : usize) = usize(0);
+        while(ms_i < mentioned.len(), {
+          match(
+            mentioned.get(ms_i),
+            .Some(ms) => match(
+              ms,
+              .SomeT({ name : sg_n, frame_level : sg_l }) => if(sg_n == f_name, {
+                subst_add(sb, sg_n, sg_l, ft);
+                any = true;
+              }),
+              _ => ()
+            ),
+            .None => ()
+          );
+          ms_i = (ms_i + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
+  cond(
+    any => substitute(sb, param_ty),
+    true => param_ty
+  )
+});
+/// Put per-argument infos evaluated out of order (`idx[i]` is the argument
+/// index of `list[i]`; every argument appears once) back in source order.
+_fv_restore_order_infos :: (fn(list : ArrayList(ExprInfo), idx : ArrayList(usize)) -> ArrayList(ExprInfo))({
+  out := ArrayList(ExprInfo).new();
+  (t : usize) = usize(0);
+  while(t < list.len(), {
+    (q : usize) = usize(0);
+    while(q < idx.len(), {
+      if(match(idx.get(q), .Some(ix) => (ix == t), .None => false), {
+        match(list.get(q), .Some(v) => out.push(v), .None => ());
+      });
+      q = (q + usize(1));
+    });
+    t = (t + usize(1));
+  });
+  out
+});
+/// `_fv_restore_order_infos` for the runtime argument expressions, a SUBSET of
+/// the arguments (comptime ones are not C arguments): ascending by index.
+_fv_restore_order_exprs :: (fn(list : ArrayList(AstExpr), idx : ArrayList(usize)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  (bound : usize) = usize(0);
+  (emitted : usize) = usize(0);
+  while(emitted < list.len(), {
+    // The smallest index >= bound.
+    (best_q : Option(usize)) = Option(usize).None;
+    (best_ix : usize) = usize(0);
+    (q : usize) = usize(0);
+    while(q < idx.len(), {
+      ix := match(idx.get(q), .Some(v) => v, .None => usize(0));
+      if((ix >= bound) && (best_q.is_none() || (ix < best_ix)), {
+        best_q = Option(usize).Some(q);
+        best_ix = ix;
+      });
+      q = (q + usize(1));
+    });
+    match(
+      best_q,
+      .Some(bq) => {
+        match(list.get(bq), .Some(v) => out.push(v), .None => ());
+        bound = (best_ix + usize(1));
+      },
+      .None => {
+        return(out);
+      }
+    );
+    emitted = (emitted + usize(1));
+  });
+  out
+});
 /// Extracted generic-binding loop of evaluate_function_call's
 /// FuncVal arm. Runs during call SETUP (before the recursive CTFE descent), so
 /// moving its loop temps into this helper's frame removes them from
@@ -1957,7 +2237,12 @@ _funcval_bind_foralls :: (
     // inference entirely.
     pre_forall_names : ArrayList(String),
     pre_forall_vals : ArrayList(EvalValue),
-    pre_forall_types : ArrayList(TypeValue)
+    pre_forall_types : ArrayList(TypeValue),
+    // OUT: binder conflicts (Phase 2.4) — one message per binder that two
+    // arguments bind to incompatible types, and the 0-based index of the
+    // argument that disagreed. The caller throws (this helper has no exn).
+    fa_conflicts : ArrayList(String),
+    fa_conflict_args : ArrayList(usize)
   ) -> unit
 )({
   // Structural-inference scratch env, built LAZILY on the first generic the
@@ -2002,53 +2287,49 @@ _funcval_bind_foralls :: (
         pfa_i = (pfa_i + usize(1));
       });
     };
-    while((ptn_i < n_ptn) && (!(fa_bound)), {
+    // The binder's first binding (explicit or from an argument) and the
+    // argument that made it, for the per-call consistency check below.
+    (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.get(fa_bound_types.len() - usize(1)), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
+    (fa_first_arg : Option(usize)) = Option(usize).None;
+    while(ptn_i < n_ptn, {
       ptn := match(param_type_names.get(ptn_i), .Some(n) => n, .None => String.from(""));
-      if(ptn == fa_name, {
+      // A LATER parameter spelled with the same binder: its argument must
+      // agree with the first binding. The name-match used to stop at the
+      // first match, so `pair_same(String.from("a"), i32(2))` with
+      // `fn(generic(A), x : A, y : A)` bound A = String and never looked at
+      // y (issues/fixed/generic-type-var-rebinds-per-argument.md).
+      if((ptn == fa_name) && fa_bound, {
+        match(
+          fa_first_ty,
+          .Some(fa_prev) => {
+            later_info := match(evaled_arg_infos.get(ptn_i), .Some(i) => i, .None => new_expr_info(env, t_unit()));
+            later_ty := _funcval_infer_forall_ty(
+              later_info.ty,
+              match(expected_param_types.get(ptn_i), .Some(t) => t, .None => t_unit()),
+              match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
+              env
+            );
+            if(_forall_types_conflict(fa_prev, later_ty), {
+              fa_conflicts.push(_forall_conflict_message(fa_name.clone(), fa_prev, match(fa_first_arg, .Some(i) => _forall_arg_phrase(i), .None => String.from("the explicit generic(...) argument")), later_ty, ptn_i));
+              fa_conflict_args.push(ptn_i);
+            });
+          },
+          .None => ()
+        );
+      });
+      if((ptn == fa_name) && !(fa_bound), {
         arg_info := match(
           evaled_arg_infos.get(ptn_i),
           .Some(i) => i,
           .None => new_expr_info(env, t_unit())
         );
-        // A generic type param inferred from a comptime_str VALUE argument (a
-        // string literal `"hi"` to `fn(generic(T), v : T)`) must bind to the
-        // RUNTIME type `str`, not `comptime_str` — else the specialized body
-        // dispatches `v.to_string()` against comptime_str (→ comptime_int →
-        // i32), throwing "Cannot unify i32 and str" when specializing
-        // println/print (Gap-6). A comptime TYPE arg is a `Type` value, not
-        // comptime_str, so this only catches string-literal value args.
-        // Prefer the EXPECTED-RETURN-resolved param type over the raw arg
-        // type when the arg is a closure/fn (or unit under def-eval) and the
-        // expected resolution produced an Impl SomeT: `box((x) => ...)` with
-        // expected `Box(Impl(Fn...)-SomeT)` must bind `V` to that SomeT (bind
-        // foralls from expected FIRST and never override with the arg;
-        // arg-driven V:=<fn type>/unit produced `Box(fn(...))`/`Box(unit)`
-        // with a void*/void payload — the Dyn(Fn) family). Narrowly gated so
-        // ordinary value calls keep arg-driven inference.
-        exp_pt := match(expected_param_types.get(ptn_i), .Some(t) => t, .None => t_unit());
-        fa_infer_ty := cond(
-          is_comptime_string_type(arg_info.ty) => TypeValue.Str,
-          // Same lowering for comptime_int/float literal args: `box(1)` must
-          // infer `T = i32`, not `T = comptime_int` — the C mapping hides the
-          // difference (int32_t either way) until a trait dispatch inside the
-          // instantiated impl differs: Box(comptime_int)'s `Eq` `==` on
-          // `lhs.* == rhs.*` resolved to ComptimeEq(comptime_int).== —
-          // `__yo_comptime_int_eq`, a comptime-only builtin that can never be
-          // emitted ("call to undeclared function 'fn_yo_id_173'", the
-          // prelude Box test). Inference must see the CONVERTED runtime type
-          // (the spec keys read `R_gs_..._comptime_int` where they should
-          // say `box_i32_idi32`). Mirrors the comptime_str arm above;
-          // convert_… lowers comptime_int→i32 / comptime_float→f64. Repro:
-          // issues/repros/box-eq-comptime-int-generic-leak.yo.
-          // GATED on the matched param being RUNTIME: a
-          // `comptime(v) : T` param must bind T to the RAW comptime type —
-          // lowering there broke ComptimeOrd/ComptimeEq dispatch inside
-          // comptime-fn bodies (tests/comptime.test.yo regression, r3
-          // sweep 2026-07-25).
-          ((!(match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false))) && (is_comptime_int_type(arg_info.ty) || is_comptime_float_type(arg_info.ty))) =>
-            convert_comptime_type_to_runtime_type(arg_info.ty, env),
-          (((is_function_type(arg_info.ty) || is_fn_trait_type(arg_info.ty)) || is_unit_type(arg_info.ty)) && is_some_type(exp_pt)) => exp_pt,
-          true => arg_info.ty
+        // The lowering rules (comptime literals, closure args) are
+        // `_funcval_infer_forall_ty`'s.
+        fa_infer_ty := _funcval_infer_forall_ty(
+          arg_info.ty,
+          match(expected_param_types.get(ptn_i), .Some(t) => t, .None => t_unit()),
+          match(param_ct_flags.get(ptn_i), .Some(f) => f, .None => false),
+          env
         );
         _add_forall := add_variable_to_env(
           fresh_env,
@@ -2062,8 +2343,10 @@ _funcval_bind_foralls :: (
           synthetic_token(fa_name, env.module_path)
         );
         fa_bound_names.push(fa_name.clone());
-        fa_bound_types.push(fa_infer_ty);
+        fa_bound_types.push(fa_infer_ty.clone());
         fa_bound = true;
+        fa_first_ty = Option(TypeValue).Some(fa_infer_ty);
+        fa_first_arg = Option(usize).Some(ptn_i);
       });
       ptn_i = (ptn_i + usize(1));
     });
@@ -2084,6 +2367,13 @@ _funcval_bind_foralls :: (
         .None => {
           se_new := Environment.new(env.module_path);
           n_dp := declared_param_types.len();
+          // Per-call consistency for binders reached STRUCTURALLY
+          // (`x : Option(A), y : Option(A)`): the synthesizer rebinds in
+          // place, so each binder's binding is read after every parameter
+          // and compared with the one an earlier parameter fixed.
+          se_seen_names := ArrayList(String).new();
+          se_seen_tys := ArrayList(TypeValue).new();
+          se_seen_args := ArrayList(usize).new();
           (sp_i : usize) = usize(0);
           while(sp_i < n_dp, {
             dpt := match(declared_param_types.get(sp_i), .Some(t) => t, .None => t_unit());
@@ -2093,6 +2383,36 @@ _funcval_bind_foralls :: (
               .None => new_expr_info(env, t_unit())
             );
             _funcval_try_synthesize_param(dpt, se_new, sp_info.ty, env);
+            (sn_i : usize) = usize(0);
+            while(sn_i < forall_names.len(), {
+              sn_name := match(forall_names.get(sn_i), .Some(n) => n, .None => String.new());
+              sn_i = (sn_i + usize(1));
+              sn_now := match(
+                _scratch_concrete_binding(se_new, sn_name.clone()),
+                .Some(t) => t,
+                .None => {
+                  continue;
+                }
+              );
+              (sn_k : usize) = usize(0);
+              (sn_found : bool) = false;
+              while((sn_k < se_seen_names.len()) && !(sn_found), {
+                if(match(se_seen_names.get(sn_k), .Some(n) => (n == sn_name), .None => false), {
+                  sn_found = true;
+                  sn_prev := match(se_seen_tys.get(sn_k), .Some(t) => t, .None => t_unit());
+                  if(_forall_types_conflict(sn_prev, sn_now), {
+                    fa_conflicts.push(_forall_conflict_message(sn_name.clone(), sn_prev, _forall_arg_phrase(match(se_seen_args.get(sn_k), .Some(i) => i, .None => usize(0))), sn_now, sp_i));
+                    fa_conflict_args.push(sp_i);
+                  });
+                });
+                sn_k = (sn_k + usize(1));
+              });
+              if(!(sn_found), {
+                se_seen_names.push(sn_name);
+                se_seen_tys.push(sn_now);
+                se_seen_args.push(sp_i);
+              });
+            });
             sp_i = (sp_i + usize(1));
           });
           fa_synth_env = Option(Environment).Some(se_new);
@@ -2141,6 +2461,25 @@ _funcval_bind_foralls :: (
                   fa_name,
                   se_var.ty,
                   Option(EvalValue).Some(EvalValue.IntLit(se_il)),
+                  true,
+                  false,
+                  false,
+                  false,
+                  synthetic_token(fa_name, env.module_path)
+                );
+                fa_bound = true;
+              },
+              // A kind-annotated binder (`F` in `x : F(A)`) inferred as a
+              // type CONSTRUCTOR value (the synthesizer's TypeApp-vs-nominal
+              // case): bind the value, typed by its kind.
+              .FuncVal(_, _) => {
+                fa_bound_names.push(fa_name.clone());
+                fa_bound_types.push(se_var.ty);
+                _add_forall_fv := add_variable_to_env(
+                  fresh_env,
+                  fa_name,
+                  se_var.ty,
+                  Option(EvalValue).Some(se_val),
                   true,
                   false,
                   false,
@@ -2266,6 +2605,58 @@ _funcval_bind_foralls :: (
       );
     });
     fa_i = (fa_i + usize(1));
+  });
+  // Cross-check COMPOSITE parameters against the binders already bound. A
+  // binder bound by name from `v : T` is never re-derived from a parameter
+  // that only mentions it inside a type (`f : Impl(Fn(x : T) -> T)`), so
+  // `apply(x => true, i32(3))` bound T = i32 from `v` while the closure's
+  // result said bool, and the closure body was never checked against i32
+  // (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md,
+  // generic half). Each such parameter is synthesized against its argument
+  // in its own scratch env and every concrete binding it produces is compared.
+  if(fa_bound_names.len() > usize(0), {
+    (cx_p : usize) = usize(0);
+    while(cx_p < declared_param_types.len(), {
+      cx_dpt := match(declared_param_types.get(cx_p), .Some(t) => t, .None => t_unit());
+      cx_ptn := match(param_type_names.get(cx_p), .Some(n) => n, .None => String.new());
+      cx_i := cx_p;
+      cx_p = (cx_p + usize(1));
+      (cx_is_bare : bool) = false;
+      (cx_k : usize) = usize(0);
+      while((cx_k < forall_names.len()) && !(cx_is_bare), {
+        if(match(forall_names.get(cx_k), .Some(n) => (n == cx_ptn), .None => false), {
+          cx_is_bare = true;
+        });
+        cx_k = (cx_k + usize(1));
+      });
+      if(cx_is_bare || (get_all_some_types(cx_dpt).len() == usize(0)), {
+        continue;
+      });
+      cx_info := match(evaled_arg_infos.get(cx_i), .Some(i) => i, .None => new_expr_info(env, t_unit()));
+      // A closure or fn argument is checked by being EVALUATED against the
+      // solved signature ("closure arguments last" in the arg loop); its
+      // type as first synthesized is provisional (a def-time trial types an
+      // un-typeable body `unit`), so it is not compared here.
+      if((is_function_type(cx_info.ty) || is_fn_trait_type(cx_info.ty)) || is_some_type(cx_info.ty), {
+        continue;
+      });
+      cx_env := Environment.new(env.module_path);
+      _funcval_try_synthesize_param(cx_dpt, cx_env, cx_info.ty, env);
+      (cx_b : usize) = usize(0);
+      while(cx_b < fa_bound_names.len(), {
+        cx_name := match(fa_bound_names.get(cx_b), .Some(n) => n, .None => String.new());
+        cx_prev := match(fa_bound_types.get(cx_b), .Some(t) => t, .None => t_unit());
+        cx_b = (cx_b + usize(1));
+        match(
+          _scratch_concrete_binding(cx_env, cx_name.clone()),
+          .Some(cx_now) => if(_forall_types_conflict(cx_prev, cx_now), {
+            fa_conflicts.push(_forall_conflict_message(cx_name, cx_prev, String.from("the other arguments"), cx_now, cx_i));
+            fa_conflict_args.push(cx_i);
+          }),
+          .None => ()
+        );
+      });
+    });
   });
 });
 /// Extracted runtime-return branch of the FuncVal arm of
@@ -2801,6 +3192,26 @@ _evaluate_funcval_runtime_call :: (
       .None => ()
     );
   });
+  // A result that still mentions one of this callee's OWN binders, unresolved,
+  // after every inference channel (arguments, the expected type, where-clauses
+  // via the re-evaluation above) has nothing to specialize the callee at:
+  // E0613 (issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md).
+  // A binder bound to a generic CALLER's type variable is a different SomeT,
+  // so a call inside a generic body is not judged here.
+  match(
+    unresolved_own_binder(resolved_ret, rre_binder_ids, fa_bound_names),
+    .Some(ubn_label) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(expr),
+            `Cannot infer the type parameter "${ubn_label}" of this call: it appears in the result type ${type_to_string(ret_type)}, and neither an argument nor the expected type determines it. Annotate the binding the result lands in, or pass the type with generic(...).`
+          )
+        )
+      );
+    },
+    .None => ()
+  );
   // For functions returning a plain Impl(...) (SomeType), stamp the call
   // result's resolved-concrete from the callee BODY's def-time-evaluated
   // type. This is the
@@ -5150,12 +5561,16 @@ Fix: wrap the call:
         fv_has_explicit_forall := fv_forall_arg_exprs.is_some();
         (resolved_param_types : ArrayList(TypeValue)) = fv_param_types;
         (rpt_from_expected : bool) = false;
+        // The binders the expected type alone fixes (bound below when no
+        // argument binds them).
+        fv_exp_forall_names := ArrayList(String).new();
+        fv_exp_forall_types := ArrayList(TypeValue).new();
         if(((forall_names.len() > usize(0)) && !(fv_has_explicit_forall)) && ctx.expected_type.is_some(), {
           match(
             ctx.expected_type,
             .Some(fv_exp) => {
               rpt_holder := ArrayList(TypeValue).new();
-              resolve_param_types_from_expected(fv_func_type, fv_exp.ty, fv_exp.env, env, ctx, rpt_holder);
+              resolve_param_types_from_expected(fv_func_type, fv_exp.ty, fv_exp.env, env, ctx, rpt_holder, fv_exp_forall_names, fv_exp_forall_types);
               if(rpt_holder.len() == fv_param_types.len(), {
                 resolved_param_types = rpt_holder;
                 rpt_from_expected = true;
@@ -5190,8 +5605,28 @@ Fix: wrap the call:
         // imm_map/imm_set family). The specialized callee's registered type
         // drops comptime params symmetrically (helper.yo create_specialized).
         rt_ct_flags_args := get_func_param_comptime(func_id_fv.clone());
+        // Function-literal arguments LAST (Phase 2.4): a closure (`=>`) or
+        // function (`->`) literal whose parameter
+        // mentions a `generic(...)` binder is evaluated after the other
+        // arguments, against its parameter type with the binders those
+        // arguments fixed substituted in. Evaluated in source order, the
+        // closure met `Impl(Fn(x : T) -> T)` with `T` unbound, so its body was
+        // typed on its own and `apply(x => true, i32(3))` was accepted with a
+        // bool result for T = i32
+        // (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
+        // The per-argument lists are put back in source order after the loop.
+        fv_eval_order := _fv_argument_eval_order(fv_args, n_p, resolved_param_types, forall_names);
+        fv_reordered := _fv_order_is_permuted(fv_eval_order);
+        // An `undefined` argument pins source order AND disables refinement
+        // (see _fv_argument_eval_order).
+        fv_keeps_source_order := _fv_has_undefined_arg(fv_args);
+        fv_eai_idx := ArrayList(usize).new();
+        fv_rt_idx := ArrayList(usize).new();
+        (fv_ord_k : usize) = usize(0);
         (ai : usize) = usize(0);
-        while(ai < n_a, {
+        while(fv_ord_k < n_a, {
+          ai = match(fv_eval_order.get(fv_ord_k), .Some(o) => o, .None => fv_ord_k);
+          fv_ord_k = (fv_ord_k + usize(1));
           arg_expr := match(fv_args.get(ai), .Some(a) => a, .None => make_err_expr());
           // Quoted parameter: bind the raw argument AST as an `Expr` value
           // WITHOUT evaluating it (early-continue shape). The 2026-06-07
@@ -5226,6 +5661,7 @@ Fix: wrap the call:
             q_info := new_expr_info(env, t_expr_t());
             q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(clone_expr_fresh_ids(q_arg_expr)));
             evaled_arg_infos.push(q_info);
+            fv_eai_idx.push(ai);
             ai = (ai + usize(1));
             continue;
           });
@@ -5521,7 +5957,14 @@ Fix: wrap the call:
               vs_override,
               .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : vs_ovr, env : env)),
               .None => match(
-                resolved_param_types.get(ai),
+                cond(
+                  (!(fv_keeps_source_order) && fn_literal_arg_is_deferred(fv_args, ai, n_p, resolved_param_types, forall_names)) => match(
+                    resolved_param_types.get(ai),
+                    .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(r_apt, forall_names, param_type_names, fv_param_types, evaled_arg_infos, fv_eai_idx, fv_param_ct, env)),
+                    .None => Option(TypeValue).None
+                  ),
+                  true => resolved_param_types.get(ai)
+                ),
                 .Some(apt) => cond(
                   // Skip Type params (constructor args) AND unresolved
                   // SomeTs — only the SPECIALIZED parameter type may be
@@ -5576,6 +6019,7 @@ Fix: wrap the call:
               eprintln(`[arg-eval] expr=${ast_expr_to_string(arg_expr_eff)} ty=${type_to_string(arg_info.ty)} val=${ae_val_str}`);
             });
             evaled_arg_infos.push(arg_info);
+            fv_eai_idx.push(ai);
             // A COMPTIME variadic's trailing args (indices >= n_p) are not C
             // arguments either — `rt_ct_flags_args` only covers the FIXED
             // params, so without this they fell through the `.None => false`
@@ -5586,6 +6030,7 @@ Fix: wrap the call:
             );
             if(!(rt_arg_is_ct), {
               runtime_arg_exprs.push(evaled_arg);
+              fv_rt_idx.push(ai);
             });
             // Step 4b own-consume (helper.yo:543):
             // this inline FuncVal arg loop BYPASSES
@@ -5658,6 +6103,10 @@ Fix: wrap the call:
             });
           };
           ai = (ai + usize(1));
+        });
+        if(fv_reordered, {
+          evaled_arg_infos = _fv_restore_order_infos(evaled_arg_infos, fv_eai_idx);
+          runtime_arg_exprs = _fv_restore_order_exprs(runtime_arg_exprs, fv_rt_idx);
         });
         ctx.is_inside_io_async_call = prev_io_async_ctx;
         // ----------------------------------------------------------------
@@ -5918,6 +6367,8 @@ Fix: wrap the call:
         // runtime-return path below).
         fa_bound_names := ArrayList(String).new();
         fa_bound_types := ArrayList(TypeValue).new();
+        fv_forall_conflicts := ArrayList(String).new();
+        fv_forall_conflict_args := ArrayList(usize).new();
         _funcval_bind_foralls(
           forall_names,
           param_type_names,
@@ -5936,8 +6387,48 @@ Fix: wrap the call:
           match(fv_callee_ty, .Func({ forall_types : fk_fts }) => fk_fts, _ => ArrayList(TypeValue).new()),
           fv_pre_forall_names,
           fv_pre_forall_vals,
-          fv_pre_forall_tys
+          fv_pre_forall_tys,
+          fv_forall_conflicts,
+          fv_forall_conflict_args
         );
+        if(fv_forall_conflicts.len() > usize(0), {
+          fc_arg := match(fv_forall_conflict_args.get(usize(0)), .Some(i) => i, .None => usize(0));
+          fc_tok := match(fv_args.get(fc_arg), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
+          exn.throw(dyn(format_error_message(fc_tok, match(fv_forall_conflicts.get(usize(0)), .Some(m) => m, .None => String.new()))));
+        });
+        // A binder no argument fixed, bound from the EXPECTED type instead:
+        // `(x : Option(i32)) = mk()` with `mk : fn(generic(T)) -> Option(T)`
+        // used to specialize `mk` at the unresolved `T` and emit a hole
+        // (issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md).
+        (fve_i : usize) = usize(0);
+        while(fve_i < fv_exp_forall_names.len(), {
+          fve_name := match(fv_exp_forall_names.get(fve_i), .Some(n) => n, .None => String.new());
+          fve_ty := match(fv_exp_forall_types.get(fve_i), .Some(t) => t, .None => t_unit());
+          fve_i = (fve_i + usize(1));
+          (fve_bound : bool) = false;
+          (fve_j : usize) = usize(0);
+          while((fve_j < fa_bound_names.len()) && !(fve_bound), {
+            if(match(fa_bound_names.get(fve_j), .Some(n) => (n == fve_name), .None => false), {
+              fve_bound = true;
+            });
+            fve_j = (fve_j + usize(1));
+          });
+          if(!(fve_bound), {
+            _add_forall_exp := add_variable_to_env(
+              fresh_env,
+              fve_name.clone(),
+              TypeValue.TypeUni(usize(0)),
+              Option(EvalValue).Some(EvalValue.TypeVal(fve_ty.clone())),
+              true,
+              false,
+              false,
+              false,
+              synthetic_token(fve_name.clone(), env.module_path)
+            );
+            fa_bound_names.push(fve_name);
+            fa_bound_types.push(fve_ty);
+          });
+        });
         // Validate the PLACES bound to ref parameters (after argument
         // evaluation so the chain types are resolved); this inline FuncVal
         // arm is a second call path, so the gate runs here too.

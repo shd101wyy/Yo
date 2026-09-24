@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { register_some_resolved_concrete, lookup_some_resolved_concrete, lookup_struct_ctor_fid } :: import("../../expr_info.yo");
-{ type_value_tag, t_effects_row, t_usize, resolve_enum_shell } :: import("../../types/creators.yo");
+{ type_value_tag, t_effects_row, t_usize, resolve_enum_shell, lookup_enum_type_arguments } :: import("../../types/creators.yo");
 {
   is_some_type,
   is_function_type,
@@ -68,7 +68,7 @@ _is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
 { get_value_of_some_type_from_env }
 :: import("../../types/env_lookup.yo");
 { type_to_string, type_to_string_key } :: import("../../types/string.yo");
-{ EvalValue, lookup_enum_cfid, value_to_string } :: import("../../value.yo");
+{ EvalValue, lookup_enum_cfid, lookup_type_ctor_value, value_to_string } :: import("../../value.yo");
 { get_gadt_type_constructor_args } :: import("./gadt_registry.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -1958,6 +1958,54 @@ _synthesize_types_impl :: (
       ge = res.given_env;
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
+  });
+  // Case: TypeApplication (a kind-annotated binder applied, `F(A)`) + a
+  // NOMINAL instantiation (`Option(i32)`): bind `F` to the instantiation's
+  // constructor and each `A` to the matching type argument. Without this no
+  // argument could infer `F` — `identity(o)` for `fn(generic(F : …, A),
+  // x : F(A)) -> F(A)` left `F` unbound and the result `TypeApp(F, [A])`
+  // (issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md).
+  if(is_type_application_type(expected_ty) && !(is_type_application_type(given_ty)), {
+    hk_con := match(expected_ty, .TypeAppT(c, _) => c, _ => TypeValue.Unit);
+    hk_args := match(expected_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
+    hk_cfid := match(
+      given_ty,
+      .Struct({ constructor_func_id : c }) => c,
+      .EnumT({ id : eid }) => lookup_enum_cfid(eid),
+      _ => String.new()
+    );
+    hk_targs := match(
+      given_ty,
+      .Struct({ type_arguments : ta }) => ta,
+      .EnumT({ id : eid }) => lookup_enum_type_arguments(eid),
+      _ => ArrayList(TypeValue).new()
+    );
+    hk_ctor := cond(
+      (hk_cfid.len() == usize(0)) => Option(EvalValue).None,
+      true => lookup_type_ctor_value(hk_cfid)
+    );
+    match(
+      hk_con,
+      .SomeT({ id : hk_id, name : hk_name, kind_function_type : hk_kind }) => match(
+        hk_ctor,
+        .Some(hk_cv) => if(hk_targs.len() == hk_args.len(), {
+          hk_kind_ty := match(hk_kind, .Some(k) => k, .None => TypeValue.Unit);
+          _bind_some_type(ee, hk_name, hk_id, hk_cv, hk_kind_ty, opts_token(opts, ee), exn);
+          (hk_i : usize) = usize(0);
+          while(hk_i < hk_args.len(), {
+            hk_e := match(hk_args.get(hk_i), .Some(t) => t, .None => TypeValue.Unit);
+            hk_g := match(hk_targs.get(hk_i), .Some(t) => t, .None => TypeValue.Unit);
+            hk_res := _synthesize_types_impl(hk_e, ee, hk_g, ge, checked, opts, exn);
+            ee = hk_res.expected_env;
+            ge = hk_res.given_env;
+            hk_i = (hk_i + usize(1));
+          });
+          return(SynthesizeResult(expected_env : ee, given_env : ge));
+        }),
+        .None => ()
+      ),
+      _ => ()
+    );
   });
   // Case: TypeApplication + TypeApplication
   if(is_type_application_type(expected_ty) && is_type_application_type(given_ty), {
