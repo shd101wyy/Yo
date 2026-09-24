@@ -187,8 +187,9 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
   );
   out
 });
-/// Emit a non-begin arm value: control-flow statements emit directly, unit
-/// values emit nothing, otherwise assign to the cond temp.
+/// Emit a non-begin arm value: control-flow statements emit directly, a value
+/// is assigned to the cond temp, and an unassigned (unit) arm's rendered
+/// statement is emitted as a statement.
 _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> unit)({
   // The bare arm's scope-end drops ride the value node's list; feed them
   // into the pending path for the arm's generation, as `_emit_begin_arm`
@@ -351,10 +352,8 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
     line.push_string(value_code.clone());
     line.push_str(";");
     em.emit_string_line(line);
-  }, if(
-    value_code.len() == usize(0),
-    (),
-    match(
+  }, if(value_code.len() == usize(0), (), {
+    assigned := match(
       temp_var_opt,
       .Some(tv) => if(!is_unit, {
         line := value_indent.clone();
@@ -363,10 +362,31 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
         line.push_string(_maybe_address_of(value, value_code.clone(), cond_outer_is_ptr, context));
         line.push_str(";");
         em.emit_string_line(line);
-      }),
-      .None => ()
-    )
-  ));
+        true
+      }, false),
+      .None => false
+    );
+    // A unit (or unassigned) arm whose generator RETURNED its statement
+    // instead of emitting it — `c => unsafe.drop(x)` renders
+    // `__yo_decr_rc(x)` — must still run: emit it as a statement, as
+    // match.yo's `_emit_case_body_no_break` does. Dropping the text lost
+    // HashMap._resize's old-slot releases, so every RC key/value leaked one
+    // reference per rehash (issues/fixed/cond-unit-arm-statement-is-dropped.md).
+    // A bare temp name is a value already computed above, not a statement.
+    if(!assigned, {
+      bare_temp := match(
+        context.base.get_expr_info(value),
+        .Some(vei) => is_temp_variable_name(vei.env.module_path.clone(), value_code.clone()),
+        .None => false
+      );
+      if(!bare_temp, {
+        line := value_indent.clone();
+        line.push_string(value_code.clone());
+        line.push_str(";");
+        em.emit_string_line(line);
+      });
+    });
+  }));
 });
 /// Inline a `begin` block arm: emit each statement (stopping at control flow),
 /// then assign the final expression to the cond temp (or emit it if it is a
