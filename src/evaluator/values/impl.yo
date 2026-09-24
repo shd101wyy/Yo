@@ -90,7 +90,7 @@ pragma(Pragma.AllowUnsafe);
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_key } :: import("../../types/type_key.yo");
-{ stable_func_id, debug_knob, display_module_path } :: import("../../utils.yo");
+{ stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../../utils.yo");
 { parse_raw_int } :: import("../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
@@ -1812,6 +1812,24 @@ MethodCandidate :: struct(
 // on func_id + binding type_keys + value-binder raws collapses ~167k
 // RETAINED copies (3.87 GB live in a self-emit) to the distinct set.
 (g_ifc_memo : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+/// `g_ifc_memo` keys by owner. A memo entry is only a cache, so dropping the
+/// entries a removed module's evaluation wrote costs at most a recompute.
+(g_ifc_memo_owned : OwnedKeys) = owned_keys_new();
+/// Drop the memo entries `owner`'s evaluation wrote (Phase 1 step 5).
+purge_ifc_memo_owned_by :: (fn(owner : String) -> unit)({
+  keys := owned_keys_take(g_ifc_memo_owned, owner);
+  (i : usize) = usize(0);
+  while(i < keys.len(), {
+    match(
+      keys.get(i),
+      .Some(k) => {
+        _r := g_ifc_memo.remove(k);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 /// Inject the impl's `generic` type-param bindings into a matched method's
 /// closure captures, so the method body resolves `K`, `V`, … to the
 /// receiver's concrete type arguments: impl methods carry no
@@ -1996,6 +2014,7 @@ _inject_forall_captures :: (
             // Flat names/types (a derived handle list is not parallel to its
             // values — see create_specialized_function_inline, memory plan §0.7).
             injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
+            owned_keys_record(g_ifc_memo_owned, memo_key.clone());
             g_ifc_memo.insert(memo_key, injected);
             Option(EvalValue).Some(injected)
           }
@@ -5153,6 +5172,9 @@ _impl_generic_impl_fallback_init := (fn() -> bool)({
 })();
 export(evaluate_module_value);
 export(GenericImplEntry, MethodCandidate);
+/// Entries in the injection memo (the B2 plateau test's probe).
+ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.len());
+export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
 export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, get_trait_key);
 export(register_generic_impl, purge_concrete_trait_impls_owned_by);

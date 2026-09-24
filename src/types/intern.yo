@@ -54,7 +54,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue, FuncMeta } :: import("./definitions.yo");
-{ fnv1a64, debug_knob } :: import("../utils.yo");
+{ fnv1a64, debug_knob, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../utils.yo");
 { ToString } :: import("std/fmt");
 _append_b :: (fn(sb : StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
@@ -740,6 +740,28 @@ type_intern_probe_report :: (fn() -> String)({
   (((head + lists) + kinds) + rest)
 });
 (g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+/// `g_type_intern` keys by owner. Interning is a structural dedupe with no
+/// identity contract (every consumer compares structurally), so dropping a
+/// removed module's entries is safe: live nodes stay valid, and the next
+/// intern of that shape canonicalises a fresh node (Phase 1 step 5).
+(g_type_intern_owned : OwnedKeys) = owned_keys_new();
+/// Interned shapes (the B2 plateau test's probe).
+type_intern_entry_count :: (fn() -> usize)(g_type_intern.len());
+/// Drop the intern entries `owner`'s evaluation added.
+purge_type_intern_owned_by :: (fn(owner : String) -> unit)({
+  keys := owned_keys_take(g_type_intern_owned, owner);
+  (i : usize) = usize(0);
+  while(i < keys.len(), {
+    match(
+      keys.get(i),
+      .Some(k) => {
+        _r := g_type_intern.remove(k);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 /// Return the canonical instance for a structurally-equal type. Whole-tree.
 intern_type :: (fn(t : TypeValue) -> TypeValue)({
   key := type_intern_key(t, usize(0), HashSet(String).new());
@@ -747,9 +769,10 @@ intern_type :: (fn(t : TypeValue) -> TypeValue)({
     g_type_intern.get(key),
     .Some(canon) => canon,
     .None => {
+      owned_keys_record(g_type_intern_owned, key.clone());
       g_type_intern.insert(key.clone(), t);
       match(g_type_intern.get(key), .Some(c) => c, .None => TypeValue.Unit)
     }
   )
 });
-export(intern_type, type_intern_key, type_intern_probe_record, type_intern_probe_report);
+export(intern_type, type_intern_key, type_intern_probe_record, type_intern_probe_report, purge_type_intern_owned_by, type_intern_entry_count);

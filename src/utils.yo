@@ -780,6 +780,41 @@ debug_knob :: (fn(name : String) -> Option(String))(
     }
   )
 );
+/// The loading key of the module whose evaluation is registering things
+/// (mirrored here by `type_trait_methods.set_registration_owner`, which the
+/// module loader drives), so low-level modules such as `types/intern.yo` can
+/// owner-tag their registries without importing the evaluator.
+(g_current_owner : String) = String.new();
+set_current_owner :: (fn(owner : String) -> unit)({
+  g_current_owner = owner;
+});
+current_owner :: (fn() -> String)(g_current_owner.clone());
+/// Keys a registry wrote, grouped by the owner current at the write
+/// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5): `owned_keys_record`
+/// at insert, `owned_keys_take` when `mm_invalidate_document` drops that owner.
+OwnedKeys :: ref(struct(by_owner : HashMap(String, ArrayList(String))));
+owned_keys_new :: (fn() -> OwnedKeys)(OwnedKeys(by_owner : HashMap(String, ArrayList(String)).new()));
+/// Record `key` under the current owner (no-op outside a module load).
+owned_keys_record :: (fn(log : OwnedKeys, key : String) -> unit)({
+  if(g_current_owner.len() == usize(0), {
+    return(());
+  });
+  match(
+    log.by_owner.get(g_current_owner.clone()),
+    .Some(keys) => keys.push(key),
+    .None => {
+      keys := ArrayList(String).new();
+      keys.push(key);
+      log.by_owner.insert(g_current_owner.clone(), keys);
+      ()
+    }
+  );
+});
+/// Remove and return the keys recorded under `owner`.
+owned_keys_take :: (fn(log : OwnedKeys, owner : String) -> ArrayList(String))(
+  match(log.by_owner.remove(owner), .Some(keys) => keys, .None => ArrayList(String).new())
+);
+export(set_current_owner, current_owner, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take);
 export(debug_knob);
 // ---------------------------------------------------------------------------
 // Template interpolation scanning — shared by the lexer (where a template

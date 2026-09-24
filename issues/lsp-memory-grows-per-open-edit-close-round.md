@@ -44,6 +44,7 @@ per-function side tables (#883) and the ExprId-keyed side tables:
 | --- | --- | --- |
 | 10 documents × 5 rounds, batch 1 | 0.98 GB | 0.97 GB |
 | 10 documents × 5 rounds, batch 2 | 0.96 GB | 0.90 GB |
+| 10 documents × 5 rounds, batch 3 (memo, trait defaults, type intern) | 0.90 GB | 0.79 GB |
 
 Still open: 56 registries grew per round before these batches; the
 `HOLDER_DEEP` census ranks what remains (`g_ifc_memo`, the type-id
