@@ -1741,6 +1741,49 @@ jobs:
             exit 1
           fi
 
+
+  # Evaluator memory ratchet (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0.6).
+  # `check src/main.yo` by the STAGE-2 compiler (the tree's own codegen — a
+  # seed-built stage 1 inherits the previous release's codegen, and the
+  # 2026-09-24 argument-temp leak that cost 3 GB lived there). Linux max RSS
+  # against scripts/bootstrap/memory-ratchet.tsv, failing BOTH ways (±10%):
+  # a regression fails, and so does an unrecorded win. No functional gate saw
+  # that leak; this one would have.
+  memory-ratchet:
+    name: Evaluator memory ratchet
+    needs: [changes, bootstrap-fixpoint]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing and GNU time
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev time
+
+      - name: Download stage-2 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-stage2
+          path: /tmp/stage2
+
+      - name: Make the stage-2 binary executable
+        run: chmod +x /tmp/stage2/yo-stage2-bin
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: /tmp/stage2/yo-stage2-bin
+
+      - name: Measure `check src/main.yo` against the ratchet
+        run: bash scripts/bootstrap/memory_ratchet.sh /tmp/stage2/yo-stage2-bin
   # The self-hosted binary's OWN `test` subcommand. When this job was written CI
   # ran `./tests` through the TypeScript compiler (deleted with the TS src/ in Group E;
   # the `test` job now runs the corpus under stage-1), and the bootstrap-fixpoint
