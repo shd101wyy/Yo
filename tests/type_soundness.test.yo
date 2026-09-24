@@ -335,10 +335,17 @@ test("soundness canary: arguments that agree on a type parameter", {
 // is E0613.
 // ---------------------------------------------------------------------------
 _mk_none :: (fn(generic(T : Type)) -> Option(T))(.None);
+_Maker :: struct(k : i32);
+impl(_Maker, mk : (fn(generic(T : Type), self : Self) -> Option(T))(.None));
 test("soundness: a result-only type parameter with nothing to infer it from", {
   comptime_expect_error({
     x := _mk_none();
     x
+  }, "Cannot infer the type parameter");
+  comptime_expect_error({
+    m := _Maker(k : i32(1));
+    y := m.mk();
+    y
   }, "Cannot infer the type parameter");
   assert(true, "rejected");
 });
@@ -347,4 +354,7 @@ test("soundness canary: the expected type infers a result-only type parameter", 
   assert(match(x, .Some(v) => v, .None => i32(9)) == i32(9), "annotated binding");
   y := _mk_none(generic(bool));
   assert(y.is_none(), "explicit generic argument");
+  m := _Maker(k : i32(1));
+  (z : Option(u8)) = m.mk();
+  assert(z.is_none(), "a method's result-only binder from the expected type");
 });

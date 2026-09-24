@@ -4913,6 +4913,180 @@ reject_runtime_comptime_arguments :: (
     _ => ()
   );
 });
+/// Is `arg` (a colon label stripped) a closure (`x => …`) or a regular
+/// function literal (`(x) -> …`)? Only `=>` makes a closure, but both take
+/// their parameter types from an expected `Impl(Fn(...))`, which is what the
+/// "evaluated after the other arguments" rule is about.
+_is_fn_literal_arg :: (fn(arg : AstExpr) -> bool)({
+  (a : AstExpr) = arg;
+  if(ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
+    a = match(a, .FnCall(_, _, cl_as, _, _) => match(cl_as.get(usize(1)), .Some(v) => v, .None => a), _ => a);
+  });
+  (ast_expr_is_fn_call_of(a, "=>", .Some(usize(2))) || ast_expr_is_fn_call_of(a, "->", .Some(usize(2))))
+});
+/// Does `t` mention a SomeT named after one of `forall_names`?
+/// Every SomeT `t` mentions, including those inside an `Impl(Fn(...))`
+/// SomeT's signature constraint, which the structural walk does not enter.
+collect_somes_with_fn_sigs :: (fn(t : TypeValue) -> ArrayList(TypeValue))({
+  somes := get_all_some_types(t);
+  // An `Impl(Fn(...))` SomeT carries its signature as a constraint, which the
+  // structural walk does not enter.
+  match(
+    extract_fn_trait_from_type(t),
+    .Some(ftt) => match(
+      ftt,
+      .FnTraitT(_, _, ftt_pts, ftt_res, _, _, _, _) => {
+        ft_parts := ArrayList(TypeValue).new();
+        (pi : usize) = usize(0);
+        while(pi < ftt_pts.len(), {
+          match(ftt_pts.get(pi), .Some(x) => ft_parts.push(x), .None => ());
+          pi = (pi + usize(1));
+        });
+        ft_parts.push(ftt_res);
+        (fi : usize) = usize(0);
+        while(fi < ft_parts.len(), {
+          part := match(ft_parts.get(fi), .Some(x) => x, .None => t_unit());
+          match(part, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => somes.push(part), _ => ());
+          part_somes := get_all_some_types(part);
+          (pk : usize) = usize(0);
+          while(pk < part_somes.len(), {
+            match(part_somes.get(pk), .Some(x) => somes.push(x), .None => ());
+            pk = (pk + usize(1));
+          });
+          fi = (fi + usize(1));
+        });
+      },
+      _ => ()
+    ),
+    .None => ()
+  );
+  somes
+});
+/// Does `t` mention a SomeT named after one of `forall_names`?
+_mentions_forall_binder :: (fn(t : TypeValue, forall_names : ArrayList(String)) -> bool)({
+  somes := collect_somes_with_fn_sigs(t);
+  (i : usize) = usize(0);
+  while(i < somes.len(), {
+    nm := match(somes.get(i), .Some(st) => match(st, .SomeT({ name : n }) => n, _ => String.new()), .None => String.new());
+    (j : usize) = usize(0);
+    while(j < forall_names.len(), {
+      if(match(forall_names.get(j), .Some(f) => (f == nm), .None => false), {
+        return(true);
+      });
+      j = (j + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Is argument `i` a function literal (`=>` closure or `->` function) whose
+/// parameter is an `Impl(Fn(...))` mentioning one of the callee's binders?
+/// Such an argument is matched AFTER the others, against its parameter type
+/// with the binders they fixed (Phase 2.4): in source order it met
+/// `Impl(Fn(x : T) -> T)` with `T` unbound, so a closure-first call was
+/// rejected (`Cannot unify unit and i32`) or its body was never checked against
+/// the solved `T`
+/// (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
+fn_literal_arg_is_deferred :: (fn(args : ArrayList(AstExpr), i : usize, n_p : usize, param_types : ArrayList(TypeValue), forall_names : ArrayList(String)) -> bool)({
+  a := match(args.get(i), .Some(x) => x, .None => make_err_expr());
+  pt := match(param_types.get(i), .Some(t) => t, .None => t_unit());
+  (((((i < n_p) && _is_fn_literal_arg(a)) && is_some_type(pt)) && extract_fn_trait_from_type(pt).is_some()) && _mentions_forall_binder(pt, forall_names))
+});
+/// Step 7's parameter order: every parameter in order, the deferred function
+/// literals (`fn_literal_arg_is_deferred`) last.
+_step7_param_order :: (fn(args : ArrayList(AstExpr), n_args : usize, n_params : usize, param_types : ArrayList(TypeValue), forall_labels : ArrayList(String)) -> ArrayList(usize))({
+  first := ArrayList(usize).new();
+  last := ArrayList(usize).new();
+  (i : usize) = usize(0);
+  while(i < n_params, {
+    if((forall_labels.len() > usize(0)) && fn_literal_arg_is_deferred(args, i, n_args, param_types, forall_labels), {
+      last.push(i);
+    }, {
+      first.push(i);
+    });
+    i = (i + usize(1));
+  });
+  (li : usize) = usize(0);
+  while(li < last.len(), {
+    first.push(match(last.get(li), .Some(x) => x, .None => usize(0)));
+    li = (li + usize(1));
+  });
+  first
+});
+_order_is_permuted :: (fn(order : ArrayList(usize)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < order.len(), {
+    if(match(order.get(i), .Some(o) => (o != i), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// `list[q]` belongs to parameter `idx[q]` (each parameter once): return the
+/// entries in parameter order.
+_restore_argentries_by_index :: (fn(list : ArrayList(ArgEntry), idx : ArrayList(usize)) -> ArrayList(ArgEntry))({
+  out := ArrayList(ArgEntry).new();
+  (t : usize) = usize(0);
+  while(t < list.len(), {
+    (q : usize) = usize(0);
+    while(q < idx.len(), {
+      if(match(idx.get(q), .Some(ix) => (ix == t), .None => false), {
+        match(list.get(q), .Some(v) => out.push(v), .None => ());
+      });
+      q = (q + usize(1));
+    });
+    t = (t + usize(1));
+  });
+  out
+});
+/// The runtime argument expressions a parameter's matching pushed are the
+/// span `[start, end)` of `list`; return the spans concatenated in parameter
+/// order.
+_restore_rt_spans :: (fn(list : ArrayList(AstExpr), span_param : ArrayList(usize), span_start : ArrayList(usize), span_end : ArrayList(usize)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  (covered : usize) = usize(0);
+  (t : usize) = usize(0);
+  while(t < span_param.len(), {
+    (q : usize) = usize(0);
+    while(q < span_param.len(), {
+      if(match(span_param.get(q), .Some(ix) => (ix == t), .None => false), {
+        st := match(span_start.get(q), .Some(v) => v, .None => usize(0));
+        en := match(span_end.get(q), .Some(v) => v, .None => usize(0));
+        (k : usize) = st;
+        while(k < en, {
+          match(list.get(k), .Some(v) => out.push(v), .None => ());
+          k = (k + usize(1));
+        });
+        covered = (covered + (en - st));
+      });
+      q = (q + usize(1));
+    });
+    t = (t + usize(1));
+  });
+  // Anything pushed outside a parameter's span (none today) keeps its place
+  // at the end rather than being dropped.
+  if(covered < list.len(), {
+    (k2 : usize) = usize(0);
+    while(k2 < list.len(), {
+      (in_span : bool) = false;
+      (q2 : usize) = usize(0);
+      while((q2 < span_start.len()) && !(in_span), {
+        st2 := match(span_start.get(q2), .Some(v) => v, .None => usize(0));
+        en2 := match(span_end.get(q2), .Some(v) => v, .None => usize(0));
+        if((k2 >= st2) && (k2 < en2), {
+          in_span = true;
+        });
+        q2 = (q2 + usize(1));
+      });
+      if(!(in_span), {
+        match(list.get(k2), .Some(v) => out.push(v), .None => ());
+      });
+      k2 = (k2 + usize(1));
+    });
+  });
+  out
+});
 /// The CONCRETE type a call's `generic(...)` binder `label` is bound to in
 /// `env` right now, or `.None` while it is still a type variable. Reads the
 /// binding the way Step 8 extracts it (last binding; a SomeT through its
@@ -6305,7 +6479,23 @@ try_to_call_function_with_arguments :: (
       // unmarked below when the callee specialization proves read-only.
       s0_marked_args := ArrayList(AstExpr).new();
       (s1_elided : bool) = false;
-      while(pi < n_params, {
+      // Function-literal arguments LAST (Phase 2.4; `fn_literal_arg_is_deferred`):
+      // a `=>` closure or `->` function literal whose parameter is an
+      // `Impl(Fn(...))` mentioning a binder is matched after the other
+      // arguments, so Step 2's re-evaluation of its parameter type sees the
+      // binders they fixed. `arg_vals` and `rt_args` are put back in parameter
+      // order after the loop.
+      s7_order := _step7_param_order(adjusted_args, n_args, n_params, pt, fl);
+      s7_permuted := _order_is_permuted(s7_order);
+      s7_argval_idx := ArrayList(usize).new();
+      s7_rt_span_param := ArrayList(usize).new();
+      s7_rt_span_start := ArrayList(usize).new();
+      s7_rt_span_end := ArrayList(usize).new();
+      (s7_k : usize) = usize(0);
+      while(s7_k < n_params, {
+        pi = match(s7_order.get(s7_k), .Some(o) => o, .None => s7_k);
+        s7_k = (s7_k + usize(1));
+        s7_rt_before := rt_args.len();
         plabel := match(pl.get(pi), .Some(l) => l, .None => String.from(""));
         ptype := match(pt.get(pi), .Some(t) => t, .None => t_unit());
         p_owning := match(pio.get(pi), .Some(o) => o, .None => false);
@@ -6362,6 +6552,7 @@ try_to_call_function_with_arguments :: (
                   arg_type : dpr.arg_type
                 )
               );
+              s7_argval_idx.push(pi);
             },
             .None => {
               // Defensive fallback when no default expr is recorded: bind the
@@ -6397,8 +6588,12 @@ try_to_call_function_with_arguments :: (
                   arg_type : ptype
                 )
               );
+              s7_argval_idx.push(pi);
             }
           );
+          s7_rt_span_param.push(pi);
+          s7_rt_span_start.push(s7_rt_before);
+          s7_rt_span_end.push(rt_args.len());
           pi = (pi + usize(1));
           continue;
         });
@@ -6448,7 +6643,15 @@ try_to_call_function_with_arguments :: (
             arg_type : pr.arg_type
           )
         );
+        s7_argval_idx.push(pi);
+        s7_rt_span_param.push(pi);
+        s7_rt_span_start.push(s7_rt_before);
+        s7_rt_span_end.push(rt_args.len());
         pi = (pi + usize(1));
+      });
+      if(s7_permuted, {
+        arg_vals = _restore_argentries_by_index(arg_vals, s7_argval_idx);
+        rt_args = _restore_rt_spans(rt_args, s7_rt_span_param, s7_rt_span_start, s7_rt_span_end);
       });
       // Step 7b: Variadic arguments — the args beyond the fixed parameters.
       // A variadic function is modeled only as `has_variadic : bool` (no
@@ -7019,25 +7222,31 @@ try_to_call_function_with_arguments :: (
       // specialize at: E0613. A control function's `ResumeType` is exempt (the
       // per-call-site rule below resolves it), as are externs (no body).
       if(!(callee_is_extern) && !(__fm8.*.is_control), {
+        // The binder's OWN occurrences in the declared result (name match);
+        // `forall_types` holds the binders' kinds, not their SomeTs.
         s10c_ret_somes := get_all_some_types(ret_b);
+        match(ret_b, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => s10c_ret_somes.push(ret_b), _ => ());
         (s10c_i : usize) = usize(0);
         while(s10c_i < fl.len(), {
           s10c_label := match(fl.get(s10c_i), .Some(l) => l, .None => String.new());
-          s10c_sig := match(ft.get(s10c_i), .Some(t) => t, .None => t_unit());
           s10c_i = (s10c_i + usize(1));
-          s10c_sig_id := match(s10c_sig, .SomeT({ id : sid }) => sid, _ => String.new());
-          if(s10c_sig_id.len() == usize(0), {
-            continue;
-          });
-          (s10c_in_ret : bool) = false;
+          (s10c_unbound : bool) = false;
           (s10c_r : usize) = usize(0);
-          while((s10c_r < s10c_ret_somes.len()) && !(s10c_in_ret), {
-            if(match(s10c_ret_somes.get(s10c_r), .Some(rs) => match(rs, .SomeT({ id : rid }) => (rid == s10c_sig_id), _ => false), .None => false), {
-              s10c_in_ret = true;
-            });
+          while((s10c_r < s10c_ret_somes.len()) && !(s10c_unbound), {
+            match(
+              s10c_ret_somes.get(s10c_r),
+              .Some(rs) => match(
+                rs,
+                .SomeT({ id : rid, name : rnm }) => if(rnm == s10c_label, {
+                  s10c_unbound = _forall_binder_unbound(callee_env_m, s10c_label.clone(), rid);
+                }),
+                _ => ()
+              ),
+              .None => ()
+            );
             s10c_r = (s10c_r + usize(1));
           });
-          if(s10c_in_ret && _forall_binder_unbound(callee_env_m, s10c_label.clone(), s10c_sig_id), {
+          if(s10c_unbound, {
             exn.throw(
               dyn(
                 format_error_message(
@@ -7570,7 +7779,7 @@ try_to_call_function_with_arguments :: (
     }
   )
 });
-export(try_to_call_function_with_arguments);
+export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);

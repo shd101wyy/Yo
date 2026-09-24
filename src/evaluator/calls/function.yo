@@ -150,7 +150,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -2000,80 +2000,6 @@ _scratch_concrete_binding :: (fn(se : Environment, name : String) -> Option(Type
     .None => Option(TypeValue).None
   )
 });
-/// Is `arg` (a colon label stripped) a closure (`x => …`) or a regular
-/// function literal (`(x) -> …`)? Only `=>` makes a closure, but both take
-/// their parameter types from an expected `Impl(Fn(...))`, which is what the
-/// "evaluated after the other arguments" rule is about.
-_fv_is_fn_literal_arg :: (fn(arg : AstExpr) -> bool)({
-  (a : AstExpr) = arg;
-  if(ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
-    a = match(a, .FnCall(_, _, cl_as, _, _) => match(cl_as.get(usize(1)), .Some(v) => v, .None => a), _ => a);
-  });
-  (ast_expr_is_fn_call_of(a, "=>", .Some(usize(2))) || ast_expr_is_fn_call_of(a, "->", .Some(usize(2))))
-});
-/// Does `t` mention a SomeT named after one of `forall_names`?
-/// Every SomeT `t` mentions, including those inside an `Impl(Fn(...))`
-/// SomeT's signature constraint, which the structural walk does not enter.
-_fv_collect_somes :: (fn(t : TypeValue) -> ArrayList(TypeValue))({
-  somes := get_all_some_types(t);
-  // An `Impl(Fn(...))` SomeT carries its signature as a constraint, which the
-  // structural walk does not enter.
-  match(
-    extract_fn_trait_from_type(t),
-    .Some(ftt) => match(
-      ftt,
-      .FnTraitT(_, _, ftt_pts, ftt_res, _, _, _, _) => {
-        ft_parts := ArrayList(TypeValue).new();
-        (pi : usize) = usize(0);
-        while(pi < ftt_pts.len(), {
-          match(ftt_pts.get(pi), .Some(x) => ft_parts.push(x), .None => ());
-          pi = (pi + usize(1));
-        });
-        ft_parts.push(ftt_res);
-        (fi : usize) = usize(0);
-        while(fi < ft_parts.len(), {
-          part := match(ft_parts.get(fi), .Some(x) => x, .None => t_unit());
-          match(part, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => somes.push(part), _ => ());
-          part_somes := get_all_some_types(part);
-          (pk : usize) = usize(0);
-          while(pk < part_somes.len(), {
-            match(part_somes.get(pk), .Some(x) => somes.push(x), .None => ());
-            pk = (pk + usize(1));
-          });
-          fi = (fi + usize(1));
-        });
-      },
-      _ => ()
-    ),
-    .None => ()
-  );
-  somes
-});
-/// Does `t` mention a SomeT named after one of `forall_names`?
-_fv_mentions_forall :: (fn(t : TypeValue, forall_names : ArrayList(String)) -> bool)({
-  somes := _fv_collect_somes(t);
-  (i : usize) = usize(0);
-  while(i < somes.len(), {
-    nm := match(somes.get(i), .Some(st) => match(st, .SomeT({ name : n }) => n, _ => String.new()), .None => String.new());
-    (j : usize) = usize(0);
-    while(j < forall_names.len(), {
-      if(match(forall_names.get(j), .Some(f) => (f == nm), .None => false), {
-        return(true);
-      });
-      j = (j + usize(1));
-    });
-    i = (i + usize(1));
-  });
-  false
-});
-/// Is argument `i` a function literal whose parameter is an `Impl(Fn(...))`
-/// mentioning one of the callee's binders (evaluated last, against the
-/// refined parameter type)?
-_fv_arg_is_deferred :: (fn(args : ArrayList(AstExpr), i : usize, n_p : usize, param_types : ArrayList(TypeValue), forall_names : ArrayList(String)) -> bool)({
-  a := match(args.get(i), .Some(x) => x, .None => make_err_expr());
-  pt := match(param_types.get(i), .Some(t) => t, .None => t_unit());
-  (((((i < n_p) && _fv_is_fn_literal_arg(a)) && is_some_type(pt)) && extract_fn_trait_from_type(pt).is_some()) && _fv_mentions_forall(pt, forall_names))
-});
 /// The order the inline FuncVal arm evaluates a call's arguments in: every
 /// argument in source order, except that a closure literal whose parameter is
 /// an `Impl(Fn(...))` mentioning one of the callee's binders goes after the
@@ -2090,7 +2016,7 @@ _fv_argument_eval_order :: (fn(args : ArrayList(AstExpr), n_p : usize, param_typ
     if(ast_expr_is_atom_of(a, "undefined"), {
       keep_source_order = true;
     });
-    if(_fv_arg_is_deferred(args, i, n_p, param_types, forall_names), {
+    if(fn_literal_arg_is_deferred(args, i, n_p, param_types, forall_names), {
       last.push(i);
     }, {
       first.push(i);
@@ -2149,7 +2075,7 @@ _fv_refine_closure_expected :: (
 )({
   sb := subst_new();
   (any : bool) = false;
-  mentioned := _fv_collect_somes(param_ty);
+  mentioned := collect_somes_with_fn_sigs(param_ty);
   (k : usize) = usize(0);
   while(k < forall_names.len(), {
     f_name := match(forall_names.get(k), .Some(n) => n, .None => String.new());
@@ -6019,7 +5945,7 @@ Fix: wrap the call:
               .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : vs_ovr, env : env)),
               .None => match(
                 cond(
-                  (!(fv_keeps_source_order) && _fv_arg_is_deferred(fv_args, ai, n_p, resolved_param_types, forall_names)) => match(
+                  (!(fv_keeps_source_order) && fn_literal_arg_is_deferred(fv_args, ai, n_p, resolved_param_types, forall_names)) => match(
                     resolved_param_types.get(ai),
                     .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(r_apt, forall_names, param_type_names, evaled_arg_infos, fv_eai_idx, fv_param_ct, env)),
                     .None => Option(TypeValue).None
