@@ -1,8 +1,9 @@
 # Type system soundness: make `yo check` a gate, not a filter
 
-**Status:** ACTIVE, proposed 2026-09-23. No phase started. Source: a six-part audit of the type
-system on develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler
-(see §7). Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
+**Status:** ACTIVE, proposed 2026-09-23. Phases 0, 1 and 2.1–2.3 LANDED 2026-09-24 (the
+per-phase "Landed" notes below); 2.4–7 open. Source: a six-part audit of the type system on
+develop `7e0187d59` with the v0.2.39 seed, re-verified on a develop-built compiler (see §7).
+Every finding is filed under `issues/`. This doc is the roadmap for fixing them.
 
 ## 1. What kind of type system Yo has
 
@@ -122,6 +123,35 @@ Goal: a number that goes down, so progress is not a matter of opinion.
 
 Exit: both counts recorded in this doc; the corpus runs in CI.
 
+**Landed 2026-09-24.** `tests/type_soundness.test.yo` (in the fast suite, so in CI),
+`scripts/soundness/census.sh` and `scripts/soundness/swallow-census.sh`.
+
+Census log (408 programs: issue repros, the cited docs' inline repros, `tests/**` programs; the
+headline is ICE + COMPILE_RED + CC_RED + FTT + RUN_FTT):
+
+| Compiler | OK | CHECK_RED | ICE | CC_RED | RUN_FTT | RUN_SIGNAL | RUN_TIMEOUT | Headline |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| develop before this PR | 287 | 88 | 9 | 11 | 4 | 8 | 1 | **24** |
+| Phases 0–2.3 (PR #876) | 281 | 102 | 5 | 8 | 3 | 8 | 1 | **16** |
+
+Transitions: 7 fixed repros OK → CHECK_RED (they compiled and printed the wrong value),
+3 CC_RED → CHECK_RED, 4 ICE → CHECK_RED, 1 RUN_FTT → CHECK_RED (the mutual-recursion repro, now a
+wrong check-time error, see `issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md`),
+and the 1.5 canary CHECK_RED → OK. No OK program regressed except fixed-issue repros.
+
+Swallow census (`YO_DEBUG_SWALLOW=1 yo check`, all channels):
+
+| Compiler | `./std` | `./src` |
+| --- | --- | --- |
+| develop before this PR | 98 (22 distinct) | 63 (16 distinct) |
+| Phases 0–2.3 (PR #876) | 102 (23 distinct) | 63 (16 distinct) |
+
+The four new `./std` swallows are the new checks firing INSIDE a definition-time trial whose
+receiver is still abstract — e.g. `std/imm/set.yo:64`, `self._inner.contains_key(elem)` on
+`Map(T, bool)` types `unit` in the trial and now also reports E0604 against `-> bool`. They are
+SomeT-pending deferrals, exactly what Phase 6 step 1 classifies; none is a real std error (each
+specialization of those bodies type-checks).
+
 ### Phase 1: missing comparisons (R1), the cheap high-value fixes
 
 Each item is one check at one site, with a test. No architecture change.
@@ -144,6 +174,13 @@ against concrete parameters (#856, which closed
 
 Exit: each step's test flips in the Phase 0 ratchet; the census count drops by at least the
 number of steps.
+
+**Landed 2026-09-24**, all nine steps; each issue is in `issues/fixed/` with its Fix and
+Verification sections. Two stay open for their other halves: the generic-callee half of
+`closure-result-type-is-not-checked-against-the-expected-fn-type` needs step 2.4, and the
+evaluator half of `inout-call-through-a-fn-value-loses-the-mutation` is step 3.5. Found on the way
+and fixed: `issues/fixed/comptime-integer-folding-clamps-instead-of-wrapping.md`. Split out and
+open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`.
 
 ### Phase 2: traits and generics (R3, R6)
 
@@ -200,6 +237,13 @@ number of steps.
    `blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable`)
 
 Exit: each issue's test flips; `check ./std` and `check ./src` are green with coherence enabled.
+
+**Landed 2026-09-24: steps 1–3.** Conformance (E0602 "does not implement required trait … as
+written", in `_c3_eval_colon_pair` and the default fill), `Impl(Trait)` bounds at results and arguments, and coherence
+(`plans/reference/TRAIT_COHERENCE.md`, E0612). Step 3 needed step 3.3's module-qualified type ids
+first — std had two live id collisions — so that part of 3.3 landed with it. The std fallout:
+`HashSet(T)`'s duplicate `FromIterator`, and `std/fmt`'s blanket `Format` over `ToString` (which
+overlapped every numeric impl) became a defaulted trait member with per-type impls.
 
 ### Phase 3: one notion of type identity (R4, R5)
 

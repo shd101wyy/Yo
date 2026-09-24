@@ -70,6 +70,7 @@ pragma(Pragma.AllowUnsafe);
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
+{ check_comptime_int_value_fits } :: import("../values/integer.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
 { merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -825,7 +826,10 @@ evaluate_match :: (
             .Some(rt) => {
               if(!(are_types_compatible(body_info.ty, rt)), {
                 rt_rt := convert_comptime_type_to_runtime_type(rt, env);
-                if(are_types_compatible(body_info.ty, rt_rt), {
+                // Symmetric comptime-numeric join, as in exprs/cond.yo: a
+                // previous comptime arm joins at this arm's concrete type
+                // (issues/fixed/cond-arm-type-unification-depends-on-arm-order.md).
+                if((((is_comptime_int_type(rt) || is_comptime_float_type(rt)) && are_types_compatible(rt, body_info.ty))) || are_types_compatible(body_info.ty, rt_rt), {
                   result_type_em = Option(TypeValue).Some(body_info.ty);
                 }, {
                   exn.throw(
@@ -910,6 +914,24 @@ evaluate_match :: (
       });
     });
     rt_em := match(result_type_em, .Some(t) => t, .None => t_unit());
+    // A `comptime_int` arm joined at a fixed-width integer type must fit it
+    // (the cond twin in exprs/cond.yo).
+    (ci_mi : usize) = usize(0);
+    while(ci_mi < bodies.len(), {
+      ci_mb := match(bodies.get(ci_mi), .Some(b2) => b2, .None => make_err_expr());
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(ci_mb)),
+        .Some(ci_mbi) => if(is_comptime_int_type(ci_mbi.ty) && !(has_any_control_flow(ci_mbi.control_flow)), {
+          match(
+            ci_mbi.value,
+            .Some(ci_mv) => match(ci_mv, .IntLit(ci_mraw) => check_comptime_int_value_fits(ci_mraw, rt_em, ast_expr_token(ci_mb), exn), _ => ()),
+            .None => ()
+          );
+        }),
+        .None => ()
+      );
+      ci_mi = (ci_mi + usize(1));
+    });
     // Select environment: concrete CT scrutinee → use matched body's env
     non_return_em := ArrayList(AstExpr).new();
     (nrem_i : usize) = usize(0);

@@ -568,6 +568,26 @@ println(x); // 编译错误：x 未初始化。
 x = 1; // x : i32，已初始化
 ```
 
+#### 整数字面量与编译期整数
+
+整数字面量、`::` 常量和折叠后的常量表达式的类型是 `comptime_int`，它没有位宽上限。只有进入某个定宽类型的“槽位”——
+带类型的绑定、赋值、实参、结构体或枚举字段、返回值、`cond`/`match` 汇合后的分支，或 `T(x)` 转换——时，它才取得该类型，
+并且其值必须放得下：
+
+```rust
+(a : u8) = 255;        // 正确
+(b : u8) = 300;        // error[E1102]: the literal 300 does not fit in u8 (0..=255)
+(c : i8) = -128;       // 正确
+(d : u8) = (200 + 100); // error[E1102]: the compile-time value 300 does not fit in u8
+k :: 3;
+(e : u8) = k;          // 正确：comptime_int 常量取得槽位的类型
+f := u8(300);          // error[E1102]
+g := u8(i32(300));     // 正确：两个带类型整数之间的转换按定义截断（g == 44）
+```
+
+没有槽位时，`comptime_int` 在成为运行时值时默认取 `i32`（`comptime_float` 取 `f64`）。在 `cond` 或 `match` 中，
+comptime 分支无论顺序如何都会在其具体兄弟分支的类型处汇合：`cond(c => 1, true => i64(2))` 的类型是 `i64`。
+
 ## 函数声明
 
 函数使用 `::` 运算符进行编译期定义，或使用 `:=` 作为运行时值。
@@ -655,6 +675,18 @@ identity :: (fn(generic(T : Type), arg : T) -> T)
 
 x := identity(12);     // 类型推断：x: i32
 y := identity(true);   // 类型推断：y: bool
+```
+
+泛型函数体在特化时做类型检查：每个实例化处，函数体的结果都必须与声明的返回类型一致
+（`(fn(generic(T : Type), x : T) -> i32)(true)` 在第一次调用处报 E0604）。
+
+`comptime(x) : T` 参数按其**值**特化，因此实参必须在编译期已知——字面量、`::` 常量或 comptime 函数的结果。
+运行时值是错误：
+
+```rust
+scale :: (fn(comptime(factor) : i32, x : i32) -> i32)((factor * x));
+scale(3, n);               // 正确
+scale(i32.default(), n);   // error[E1101]: Parameter `factor` is `comptime` and requires a compile-time argument
 ```
 
 ### 类型约束
@@ -1650,6 +1682,11 @@ eval_int_only :: (fn(v : Value(i32)) -> i32)(
 );
 ```
 
+#### GADT 索引属于类型本身
+
+`Value(i32)` 与 `Value(bool)` 是不同的类型，即使它们的负载形状相同；一个变体只能构造其 `-> recur(...)` 索引所指的实例：
+`Value(i32).BoolVal(true)` 与 `(v : Value(i32)) = .BoolVal(true)` 都是 E0601 错误。详见 [GADTS.md](GADTS.md)。
+
 #### 多参数 GADTs
 
 ```rust
@@ -1867,6 +1904,16 @@ notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)
 });
 ```
 
+### 一致性：每个类型对每个 trait 只有一个 impl
+
+在整个程序中，一个类型最多实现某个 trait 一次（`plans/reference/TRAIT_COHERENCE.md`）。以下情况都是错误 E0612：
+
+- 第二个 `impl(P, Summary(...))`，无论在同一模块还是其他模块；
+- 被导入的模块或 prelude 已经为该类型实现过的 trait，再写一个 impl，例如 `impl(i32, ToString(...))`；
+- 一揽子 impl（`impl(generic(T), where(T <: Bound), T, Summary(...))`）与某个满足 `Bound` 的类型的 `Summary` 具体 impl 同时存在，无论注册顺序。
+
+Yo 没有特化，更具体的 impl 不会覆盖更一般的 impl；在此规则之前，先注册的 impl 会静默胜出，另一个成为死代码。泛型 trait 的两个实例是不同的 trait（`Eq(String)` 与 `Eq(str)`），约束互不重叠的一揽子 impl 也没有问题。
+
 ## 模式匹配
 
 编译器会对模式匹配进行穷尽性检查。
@@ -2016,7 +2063,13 @@ pi := f64(3.14159);
 宽度以**字符**计。数字补零时，零位于符号或进制前缀与数字之间——`${i32(-(42)):08}`
 得到 `-0000042`，而非 `000-0042`。
 
-任何实现了 `ToString` 的值都支持宽度、填充、对齐与截断；数字另外支持符号、进制与补零。
+数字支持全部部分：符号、进制与补零，以及宽度、填充、对齐与截断。文本、`bool`、`Option`、`Result`、`ArrayList` 以及其他实现了 `ToString` 的 std 类型通过 `Format` 的默认成员支持宽度、填充、对齐与截断。由于没有一揽子 impl（见上文“一致性”），自定义类型用一行代码接入：
+
+```rust
+impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
+impl(Point, Format());
+`[${Point(x : i32(1), y : i32(2)):>8}]`   // "[  (1, 2)]"
+```
 
 说明符与表达式之间以冒号分隔，且**冒号前不能有空格**。带空格的冒号不会被拆分，因此插值中
 普通的冒号对保持原义；位于调用参数或字符串字面量内部的冒号——如 `${parts.join(":")}`
@@ -2369,6 +2422,20 @@ test_error :: (fn() -> unit)({
   // 错误：即使两个闭包完全相同，它们的类型也不同
 });
 ```
+
+闭包永远不是裸函数指针。声明为 `fn(...) -> R` 的参数或字段只能容纳具名函数或不捕获任何变量的 `->` 字面量；
+`=>` 闭包需要能携带闭包的类型：
+
+```rust
+takes_ptr :: (fn(f : (fn(a : i32) -> i32), v : i32) -> i32)(f(v));
+takes_fn :: (fn(f : Impl(Fn(a : i32) -> i32), v : i32) -> i32)(f(v));
+k := i32(10);
+takes_ptr(double, 5);            // 正确：具名函数
+takes_ptr((y) => (y + k), 5);    // error[E0605]: a closure (`=>`) cannot be used where the function-pointer type ... is expected
+takes_fn((y) => (y + k), 5);     // 正确
+```
+
+闭包的函数体会与它所传入的 `Fn(...) -> R` 的返回类型做比较：`takes_fn(x => true, 5)` 是 E0604。
 
 ### 闭包与引用语义类型
 

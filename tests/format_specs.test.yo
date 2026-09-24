@@ -1,6 +1,6 @@
 { assert } :: import("std/assert");
 { rune, String } :: import("std/string");
-{ ToString, FormatSpec } :: import("std/fmt");
+{ ToString, FormatSpec, Format } :: import("std/fmt");
 // D3.10 format specs — the `Format` protocol and the spec grammar
 // (plans/archive/STD_API_AUDIT.md). Width/fill/alignment/truncation come from one
 // blanket impl over `ToString`; numerics add radix and sign-aware zero fill.
@@ -110,4 +110,16 @@ test("pad_numeric counts its sign, prefix and digits in RUNES", {
   // The rune counts are what the width promises, and the bytes are not.
   assert(FormatSpec.parse("08").pad_numeric(`é`, `中`, `12`).chars().count() == usize(8), "eight runes wide");
   assert(FormatSpec.parse("08").pad_numeric(`é`, `中`, `12`).len() == usize(11), "eleven bytes, not eight");
+});
+// plans/reference/TRAIT_COHERENCE.md: `Format` has no blanket impl over
+// `ToString` (it overlapped every numeric impl). A user type opts in with the
+// trait's default `format`, which pads `to_string()`.
+_FmtPoint :: struct(x : i32, y : i32);
+impl(_FmtPoint, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
+impl(_FmtPoint, Format());
+test("a user ToString type opts into Format with the default member", {
+  p := _FmtPoint(x : i32(1), y : i32(2));
+  assert(p.format(">8") == `  (1, 2)`, "right align through the default");
+  assert(`[${p:<7}]` == `[(1, 2) ]`, "template spec through the default");
+  assert(String.from("xy").format("*>4") == `**xy`, "String through the default");
 });

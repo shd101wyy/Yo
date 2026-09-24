@@ -2,9 +2,9 @@
 //!
 //! The spec grammar lives in `./spec.yo`; this module is the dispatch layer.
 //! Numeric types get radix and sign-aware zero padding; everything else that
-//! implements `ToString` gets width, fill, alignment and truncation through one
-//! blanket impl — Rust's model, where fill/align/width are post-processing over
-//! whatever the value rendered as.
+//! implements `ToString` gets width, fill, alignment and truncation from the
+//! trait's default `format` — Rust's model, where fill/align/width are
+//! post-processing over whatever the value rendered as.
 //!
 //! ## Example
 //!
@@ -16,13 +16,20 @@
 //! `ada`.format("<8");        // "ada     "
 //! ```
 //!
-//! Dispatch is by impl specificity: the eighteen numeric impls and the four
-//! text ones are concrete, and a single blanket `impl(T <: ToString)` at the
-//! bottom of the file catches everything else — so any type that can render
-//! itself gets width, fill, alignment and truncation for free, and a concrete
-//! impl always wins over the blanket one. `f32` delegates to `f64`; every
-//! integer funnels into one `_format_int` after splitting itself into sign and
-//! magnitude in its own width.
+//! A type implements `Format` at most once (`plans/reference/TRAIT_COHERENCE.md`):
+//! the numeric impls below are the only ones with a body of their own, and
+//! every other std type that implements `ToString` implements `Format` with
+//! the trait's DEFAULT `format` — width, fill, alignment and truncation over
+//! `to_string()`. A type of your own opts in the same way, in one line:
+//!
+//! ```yo
+//! impl(Point, Format());   // needs `impl(Point, ToString(...))`
+//! ```
+//!
+//! There is no blanket `impl(T <: ToString)`: it would overlap every numeric
+//! impl, and with no specialization one of the two would be dead code. `f32`
+//! delegates to `f64`; every integer funnels into one `_format_int` after
+//! splitting itself into sign and magnitude in its own width.
 //!
 //! ## Stability
 //!
@@ -37,16 +44,23 @@
 //! settled.
 { FormatSpec } :: import("./spec");
 { ArrayList } :: import("../collections/array_list");
-{ rune, String, Alignment, StringBuilder } :: import("../string");
+{ rune, String, Alignment, StringBuilder, ParseIntError, ParseFloatError, ParseBoolError } :: import("../string");
 { ToString } :: import("./to_string");
-/// Format a value according to a spec string.
+/// Format a value according to a spec string. Every `Format` type is also
+/// `ToString`: an unrecognised spec degrades to its `to_string()`.
 Format :: trait(
   /// Render `self` under `spec`. An unrecognised spec degrades to the plain
-  /// `to_string()` rendering rather than failing.
-  format :
+  /// `to_string()` rendering rather than failing. The default applies width,
+  /// fill, alignment and truncation to `to_string()`.
+  (format : (fn(inout(self) : Self, spec : str) -> String)) ?=
     (
-      fn(inout(self) : Self, spec : str) -> String
-    )
+      (self, spec) -> {
+        s := FormatSpec.parse(spec);
+        body := self.to_string();
+        s.pad(body, Alignment.Left)
+      }
+    ),
+  where(Self <: ToString)
 );
 _DIGITS_LOWER :: "0123456789abcdef";
 _DIGITS_UPPER :: "0123456789ABCDEF";
@@ -235,18 +249,27 @@ impl(
     )
   )
 );
-/// Every other `ToString` type: width, fill, alignment and truncation only.
-/// A concrete impl above always wins over this one.
-impl(
-  generic(T : Type),
-  where(T <: ToString),
-  T,
-  Format(
-    format : (fn(inout(self) : Self, spec : str) -> String)({
-      s := FormatSpec.parse(spec);
-      body := self.to_string();
-      s.pad(body, Alignment.Left)
-    })
-  )
-);
+// Every other std type that implements `ToString`: the default `format`.
+impl(bool, Format());
+impl(char, Format());
+impl(rune, Format());
+impl(str, Format());
+impl(String, Format());
+impl(unit, Format());
+impl(int, Format());
+impl(uint, Format());
+impl(short, Format());
+impl(ushort, Format());
+impl(long, Format());
+impl(ulong, Format());
+impl(longlong, Format());
+impl(ulonglong, Format());
+impl(longdouble, Format());
+impl(generic(T : Type), where(T <: ToString), Option(T), Format());
+impl(generic(T : Type, E : Type), where(T <: ToString, E <: ToString), Result(T, E), Format());
+impl(generic(T : Type), where(T <: ToString), ArrayList(T), Format());
+impl(generic(T : Type, N : usize), where(T <: ToString), Array(T, N), Format());
+impl(ParseIntError, Format());
+impl(ParseFloatError, Format());
+impl(ParseBoolError, Format());
 export(Format);

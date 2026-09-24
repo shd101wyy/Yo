@@ -123,6 +123,48 @@ get_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
     _ => .None
   )
 );
+/// The range of a fixed-width integer type AT THE COMPILATION TARGET:
+/// `get_integer_type_range` with `usize`/`isize` narrowed to the target's
+/// pointer width (32-bit on wasm32), so a comptime integer checked against it
+/// is checked against the type the emitted C actually has.
+target_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
+  match(
+    ty,
+    .Usize => if(g_target_pointer_size_bits == u32(32), Option(IntRange).Some({ min : i64(0), max : u64(4294967295) }), get_integer_type_range(ty)),
+    .Isize => if(g_target_pointer_size_bits == u32(32), Option(IntRange).Some({ min : i64(-2147483648), max : u64(2147483647) }), get_integer_type_range(ty)),
+    _ => get_integer_type_range(ty)
+  )
+);
+/// Does the integer `-magnitude` (when `negative`) or `magnitude` fit the
+/// fixed-width integer type `ty`? `.None` when `ty` has no fixed range
+/// (`comptime_int`, floats, non-integers). The value is taken as sign +
+/// magnitude rather than an `i64` because a comptime integer above
+/// `i64::MAX` is carried as its `i64` bit pattern (evaluator/utils.yo
+/// `parse_raw_int`), which would read as negative.
+integer_value_fits_type :: (fn(negative : bool, magnitude : u64, ty : TypeValue) -> Option(bool))(
+  match(
+    target_integer_type_range(ty),
+    .Some(r) => Option(bool).Some(
+      cond(
+        !negative => (magnitude <= r.max),
+        (magnitude == u64(0)) => true,
+        (r.min == i64(0)) => false,
+        // |min| = -(min + 1) + 1, computed without negating i64::MIN.
+        true => (magnitude <= (u64(-(r.min + i64(1))) + u64(1)))
+      )
+    ),
+    .None => Option(bool).None
+  )
+);
+/// `min..=max` of a fixed-width integer type at the target, for diagnostics
+/// (empty for a type without a fixed range).
+integer_type_range_string :: (fn(ty : TypeValue) -> String)(
+  match(
+    target_integer_type_range(ty),
+    .Some(r) => `${r.min.to_string()}..=${r.max.to_string()}`,
+    .None => String.new()
+  )
+);
 // ---------------------------------------------------------------------------
 // Comptime cast checks
 // ---------------------------------------------------------------------------
@@ -1933,6 +1975,7 @@ export(get_target_pointer_size_bytes);
 export(get_integer_type_bits);
 export(IntRange);
 export(get_integer_type_range);
+export(target_integer_type_range, integer_value_fits_type, integer_type_range_string);
 export(can_comptime_int_cast_to);
 export(can_comptime_float_cast_to);
 // create_str_type, convert_comptime_type_to_runtime_type, and

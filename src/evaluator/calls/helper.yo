@@ -71,9 +71,10 @@ pragma(Pragma.AllowUnsafe);
 {
   get_all_some_types,
   type_contains_some_type,
-  type_somes_all_resolve_concrete
+  type_somes_all_resolve_concrete,
+  type_requires_comptime_modifier
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0 } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -84,7 +85,9 @@ pragma(Pragma.AllowUnsafe);
   extract_future_trait_from_type,
   type_is_callable_shaped,
   fn_constrained_param_requires_callable,
-  fn_argument_not_callable_message
+  fn_argument_not_callable_message,
+  impl_param_unmet_trait,
+  impl_argument_unmet_trait_message
 } :: import("../trait_checking.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call } :: import("../async/await_analysis.yo");
 {
@@ -132,7 +135,8 @@ pragma(Pragma.AllowUnsafe);
   pop_active_where_trait_ids,
   expr_info_adopt_env,
   expr_info_capture_type,
-  expr_info_set_deferred_dup_expressions
+  expr_info_set_deferred_dup_expressions,
+  has_any_control_flow
 } :: import("../../expr_info.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -166,7 +170,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
@@ -826,6 +830,20 @@ check_if_function_parameter_matches_argument :: (
       exn.throw(dyn(format_error_message(ast_expr_token(actual_arg), nc_msg)));
     });
   });
+  // Step 3c: an `Impl(Trait)` parameter takes only an argument that
+  // implements the trait (the non-`Fn` twin of Step 3b; see
+  // trait_checking.yo `impl_param_unmet_trait`).
+  match(
+    impl_param_unmet_trait(resolved_pt, arg_type, caller_env_r),
+    .Some(um_tr) => {
+      um_msg := impl_argument_unmet_trait_message(param_label.clone(), resolved_pt, arg_type, um_tr);
+      if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+        flag_flow_violation(um_msg.clone());
+      });
+      exn.throw(dyn(format_error_message(ast_expr_token(actual_arg), um_msg)));
+    },
+    .None => ()
+  );
   // Step 4: Append to runtime arg list if not comptime-only.
   if(!(is_ct_only), {
     runtime_arg_exprs_in_order.push(evaled_arg);
@@ -3202,6 +3220,58 @@ create_specialized_function_inline :: (
             exn
           );
           pop_active_where_trait_ids();
+          // Result-type check for a SPECIALIZED body (E0604): the concrete
+          // path's check in calls/function_type.yo skips any signature that
+          // mentions a SomeT, deferring to this point, where both sides are
+          // concrete. Nothing compared them here, so `(fn(comptime(T) :
+          // Type, x : T) -> i32)(true)` and `(fn(generic(T : Type), x : T) ->
+          // i32)(true)` compiled and returned a reinterpreted `bool`
+          // (issues/fixed/generic-fn-body-is-not-checked-against-its-declared-result-type.md).
+          // Same guards as the concrete path: a control-flow tail never
+          // falls through; `void`, `Type`-kinded and `ref` results are judged
+          // elsewhere; a SomeT that is still open after specialization (an
+          // impl-level binder the call does not bind) resolves further out.
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(specialized_body)),
+            .Some(sb_info) => {
+              sb_ty := sb_info.ty;
+              sb_ret_is_ref := match(func_type, .Func({ meta : sb_m }) => sb_m.*.result_is_ref, _ => false);
+              sb_skip := (((((has_any_control_flow(sb_info.control_flow) || is_void_type(spec_ret_ty)) || is_type_hierarchy_type(spec_ret_ty)) || (get_all_some_types(spec_ret_ty).len() > usize(0))) || (get_all_some_types(sb_ty).len() > usize(0))) || sb_ret_is_ref);
+              if(!(sb_skip) && !(are_types_compatible(sb_ty, spec_ret_ty)), {
+                sb_inst := String.new();
+                (sbi : usize) = usize(0);
+                while((sbi < forall_names.len()) && (sbi < arg_values.forall_args.len()), {
+                  match(
+                    arg_values.forall_args.get(sbi),
+                    .Some(sb_fa) => match(
+                      sb_fa.value,
+                      .Some(sb_fv) => {
+                        sb_inst.push_str(if(sb_inst.len() == usize(0), " (instantiated with ", ", "));
+                        sb_inst.push_string(match(forall_names.get(sbi), .Some(n) => n, .None => String.new()));
+                        sb_inst.push_str(" = ");
+                        sb_inst.push_string(value_to_string(sb_fv));
+                      },
+                      .None => ()
+                    ),
+                    .None => ()
+                  );
+                  sbi = (sbi + usize(1));
+                });
+                if(sb_inst.len() > usize(0), {
+                  sb_inst.push_str(")");
+                });
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(cloned_body),
+                      `Function body has type \`${type_to_string(sb_ty)}\`, but the declared result type is \`${type_to_string(spec_ret_ty)}\`${sb_inst}.`
+                    )
+                  )
+                );
+              });
+            },
+            .None => ()
+          );
           // Snapshot the closure-spec capture recording BEFORE restoring.
           spec_recorded_caps := if(spec_is_closure, ctx.captured_variables, Option(HashMap(String, CapturedVarInfo)).None);
           // Restore context
@@ -4763,6 +4833,67 @@ _evaluated_expr_type :: (
       _ => Option(TypeValue).None
     )
   )
+});
+/// Is an argument of type `ty` with value `value` a RUNTIME value, as far as
+/// a `comptime(...)` parameter is concerned? The rule of Step 5 of
+/// `check_if_function_parameter_matches_argument`: no value, a RUNTIME-ONLY
+/// UnknownVal (a runtime call's result), or a `VarRef` (a runtime binding).
+/// An ordinary UnknownVal is a compile-time placeholder — a definition-time
+/// trial's parameter, a macro body's `quote` parameter — and the operator
+/// overload trials rely on that distinction to pick `comptime_not` or `not`.
+/// A value of a comptime-only type is compile-time by construction, and a
+/// SomeT-typed one is still generic.
+runtime_value_for_comptime_param :: (fn(ty : TypeValue, value : Option(EvalValue)) -> bool)(
+  (!(type_requires_comptime_modifier(ty)) && (get_all_some_types(ty).len() == usize(0))) && match(
+    value,
+    .None => true,
+    .Some(v) => match(v, .UnknownVal(_, ro) => ro, .VarRef(_) => true, _ => false)
+  )
+);
+/// A `comptime(...)` parameter needs a compile-time argument. A runtime one
+/// (no value, or an UnknownVal: `c(i32.default())`) used to specialize with
+/// the parameter unbound — the specialization kept the parameter in its C
+/// prototype while the call site elided the argument, so only the C compiler
+/// objected ("too few arguments")
+/// (issues/fixed/a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md).
+/// A definition-time trial and a CTFE-capability analysis bind the caller's
+/// own parameters to unknowns by construction, so only a real call is judged.
+reject_runtime_comptime_arguments :: (
+  fn(fv : EvalValue, args : ArrayList(ArgEntry), tok : Token, ctx : EvalContext, exn : Exception) -> unit
+)({
+  if(in_def_time_trial() || ctx.is_analyzing_ctfe_capability, {
+    return(());
+  });
+  match(
+    fv,
+    .FuncVal(rc_d, _) => {
+      rc_flags := get_func_param_comptime(rc_d.*.func_id.clone());
+      rc_params := rc_d.*.params;
+      (rci : usize) = usize(0);
+      while(rci < args.len(), {
+        if(match(rc_flags.get(rci), .Some(f) => f, .None => false), {
+          match(
+            args.get(rci),
+            .Some(rc_ae) => if(runtime_value_for_comptime_param(rc_ae.arg_type, rc_ae.value), {
+              rc_pname := match(rc_params.get(rci), .Some(l) => l, .None => String.from("?"));
+              exn.throw(
+                dyn(
+                  format_error_message_with_help(
+                    tok,
+                    `Parameter \`${rc_pname}\` is \`comptime\` and requires a compile-time argument, but the argument is a runtime value of type ${type_to_string(rc_ae.arg_type)}`,
+                    Option(String).Some(String.from("pass a literal or a `::` constant, or compute the value with a comptime function; drop `comptime(...)` from the parameter if it may be runtime"))
+                  )
+                )
+              );
+            }),
+            .None => ()
+          );
+        });
+        rci = (rci + usize(1));
+      });
+    },
+    _ => ()
+  );
 });
 try_to_call_function_with_arguments :: (
   fn(
@@ -6689,7 +6820,14 @@ try_to_call_function_with_arguments :: (
             if(is_some_type(ret_for_adopt), {
               ret_for_adopt = get_value_of_some_type_from_env(callee_env_m, ret_for_adopt);
             });
-            if(are_types_compatible(ret_for_adopt, et.ty) && !(type_contains_some_type(et.ty)), {
+            // A `comptime_int` result is NOT adopted: it stays comptime until
+            // the slot it lands in coerces it, and every coercion site
+            // range-checks the value (values/integer.yo
+            // check_comptime_int_value_fits). Adopting it here typed
+            // `(y : u8) = (200 + 100)`'s sum as a `u8` holding 300, which
+            // the slot then accepted and C truncated to 44
+            // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
+            if((are_types_compatible(ret_for_adopt, et.ty) && !(type_contains_some_type(et.ty))) && !(is_comptime_int_type(ret_for_adopt)), {
               return_type = et.ty;
             });
           },
@@ -7097,6 +7235,7 @@ try_to_call_function_with_arguments :: (
           });
           // Regular specialization if ctl path did not produce a result.
           if(spec_func_val.is_none(), {
+            reject_runtime_comptime_arguments(fv2, arg_vals, tok, ctx, exn);
             spec_av := ArgValues(
               forall_args : forall_arg_vals,
               args : arg_vals,
@@ -7217,6 +7356,7 @@ try_to_call_function_with_arguments :: (
   )
 });
 export(try_to_call_function_with_arguments);
+export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);
 export(validate_where_constraints_for_call);

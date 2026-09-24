@@ -1,0 +1,241 @@
+# `a == b` on a type with no `Eq` impl silently evaluates to `unit` instead of erroring
+
+**Status: FIXED 2026-09-24** (Phase 1.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) for every CONCRETE nominal receiver and every operator. The `unit` receiver follow-up below was fixed separately by `issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md` (`unit == unit` and `derive(Eq)` over a `unit` field compare correctly; re-measured 2026-09-24). Originally OPEN.
+implementation is accepted, prints `()`, and in one position is reported as an
+"internal compiler error … please report it" against the user's own type error.
+
+**Found**: 2026-09-04, measuring the `net` row of the std API audit. It is the
+mechanism that made
+`issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`
+silent, but it reproduces standalone with no derive and no `Array` in sight —
+and it STILL DOES: that fix gave `Array(T, N)` an `Eq` impl, so the `Array`
+half of the symptom below is gone, while a user struct with no `Eq` still
+compares to `()`.
+
+## Symptom
+
+Three positions, three different wrong behaviours, one cause.
+
+**1. A unit-accepting position — accepted, prints `()`.**
+
+```rust
+pragma(Pragma.AllowUnsafe);
+open(import("std/libc/stdio"));
+open(import("std/string"));
+open(import("std/fmt"));
+
+NoEq :: struct(x : i32);
+
+main :: (fn() -> unit)({
+  a := NoEq(x : i32(1));
+  b := NoEq(x : i32(2));
+  s := Array(u16, usize(4)).fill(u16(0));
+  t := Array(u16, usize(4)).fill(u16(0));
+  println(`struct  == : ${a == b}`);
+  println(`array   == : ${s == t}`);
+});
+export(main);
+```
+
+```
+$ yo compile noeq.yo --std-path ./std --optimize 2 -o noeq.out && ./noeq.out
+struct  == : ()
+array   == : ()
+```
+
+Expected: `No matching call found for operator "==" with receiver type
+"NoEq"`. Neither `NoEq` nor `Array(u16, 4)` has an `Eq` impl —
+`std/prelude.yo:5695-5698` gives `Array(T, U)` only `Send`, `Acyclic`,
+`Comptime` and `Runtime`.
+
+**2. As a `cond` condition — `yo check` passes, `yo compile` blames itself.**
+
+```rust
+  cond((a == b) => { unsafe(printf("eq\n")); }, true => { unsafe(printf("ne\n")); });
+```
+
+```
+$ yo check noeq3.yo --std-path ./std
+check: noeq3.yo — evaluator OK
+
+$ yo compile noeq3.yo --std-path ./std --optimize 2 -o noeq3.out
+yo: error: internal compiler error: Failed to transpile part of main's body — the emitted C for "__yo_user_main" contains an untranspiled expression, so the program would run without it
+This is a bug in the Yo compiler, not in your program — please report it:
+https://github.com/shd101wyy/Yo/issues
+```
+
+The program has an ordinary type error and the compiler tells the user to file
+a compiler bug.
+
+**3. Statement position — same ICE.** `(a == b);` on its own line passes
+`yo check` and produces the identical "internal compiler error" from
+`yo compile`.
+
+The one position that behaves is a `bool`-typed binding, where the unit is
+caught downstream by the ordinary type check:
+
+```
+error[E0601]: Incompatible types:
+- Expected: bool
+- Given   : unit
+  --> noeq2.yo:9:4
+  |
+9 |   (r : bool) = (a == b);
+```
+
+That diagnostic is honest about the type but still names the wrong problem —
+the defect is the missing `Eq` impl, not a `unit` that appeared from nowhere.
+
+## Root cause
+
+`src/evaluator/calls/function.yo:2716-2783`, the infix-operator → trait-method
+dispatch. It looks the operator up on the receiver:
+
+```rust
+op_methods := get_receiver_methods_by_name_from_env(env, op_name.clone(), receiver_ty, true);
+```
+
+and when the lookup finds nothing it throws only for a narrow set of receivers
+(`:2771-2780`):
+
+```rust
+if((op_methods.len() == usize(0)) && ((is_primitive_type(receiver_ty) && !(is_unit_type(receiver_ty))) || is_type_hierarchy_type(receiver_ty)), {
+  exn.throw(dyn(format_error_message(ast_expr_token(expr),
+    `No matching call found for operator "${op_name}" with receiver type "${type_to_string(receiver_ty)}"`)));
+});
+```
+
+A user struct, a user enum and `Array(T, N)` are none of `is_primitive_type`,
+`is_unit_type` or `is_type_hierarchy_type`, so they fall through to the soft
+callee-atom path and the whole operator call evaluates to `unit`.
+
+The narrow scoping was deliberate, and the comment above the gate records the
+measurement behind it: across `check ./std` (153 files) the fall-through fires
+8 times, with the receiver being `unit` (5), a bare `SomeT` (2) or an anonymous
+struct (1) — never a primitive. The gate was therefore opened only as far as
+the evidence went. What that measurement did not cover is a CONCRETE NOMINAL
+receiver, which is exactly the case here and which cannot legitimately need the
+soft path: if a named struct/enum/`Array` type has no `==`, that is a fact
+known at the call site, not a deferred generic question.
+
+Downstream, the `unit` result is what makes higher-level failures silent:
+`__derive_eq`'s generated `&&` chain receives a `unit`, reports "Expected bool
+type for \"and\" argument", the def-time trial swallows it, and the enclosing
+function becomes an `abort()` stub.
+
+## Fix
+
+Widen the hard-error gate at `src/evaluator/calls/function.yo:2771` from
+"primitive or type-hierarchy" to "primitive, type-hierarchy, or a CONCRETE
+NOMINAL type" — a named struct, a named enum, a `ref` struct and `Array(T, N)`
+with a resolved length. Keep the three shapes the existing comment names as
+deliberate fall-throughs (`unit`, a bare unresolved `SomeT`, an anonymous
+struct), because those are the generic/def-time contexts where the receiver
+type is not yet known.
+
+Two things must go with it:
+
+- **An over-rejection canary per exempt shape.** Add a test that a generic body
+  comparing two values of an unresolved `SomeT` still type-checks, and one that
+  an anonymous-struct receiver still falls through. Widening a rejection
+  without those is how a gate change goes green over the cases it broke.
+- **Do not settle for the downstream `E0601`.** Reporting `Expected bool, Given
+  unit` at the binding is not a fix: it names the symptom, and it does not fire
+  at all in positions 1-3 above.
+
+The `cond`-condition and statement-position ICE (symptoms 2 and 3) then
+disappear on their own — those are `__yo_user_main` carrying a "Failed to
+transpile" marker (`src/codegen/functions/generation.yo:790-795`) because the
+evaluator handed codegen a `unit` where a `bool` was needed.
+
+## Breaking change
+
+Yes, in the sense that programs which compile today will start failing —
+specifically any program comparing values of a type with no `Eq` impl in a
+unit-accepting position. Every such comparison is meaningless today (it
+computes nothing and yields `()`), so the break is the point, but it must be
+called out in the release notes.
+
+## Regression test
+
+`tests/comptime.test.yo` already owns the `comptime_expect_error` idiom used
+for the sibling primitive/`TypeUni` gates (see
+`issues/fixed/yo-self-cee-in-function-body.md`), so the rejections belong
+beside them:
+
+- `NoEq :: struct(x : i32)` compared with `==`, `!=`, `<` in each of the four
+  positions above — string interpolation, `cond` condition, statement, and a
+  `bool`-typed binding — must all be compile errors naming the operator and the
+  receiver type.
+- `Array(u16, usize(4)) == Array(u16, usize(4))` now COMPARES rather than
+  yielding `unit`: the `Array(T, N)` `Eq` impl landed 2026-09-05 with
+  `issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`
+  and `tests/array.test.yo` covers it. Only the NOMINAL-receiver half of this
+  issue is left — `NoEq :: struct(x : i32)` still compares to `()`.
+- The two over-rejection canaries above.
+
+## Follow-up 2026-09-06 — the `unit` receiver, measured while landing ZST parity
+
+While making `unit` a true zero-sized type (PR #437) the prelude gained
+`impl(unit, Eq(unit)(...))`, `Ord(unit)`, `Hash` and `Clone` — Rust's `()` has
+all four, and without them `derive(Eq)` over a struct with a `unit` field
+generates `lhs.u == rhs.u` with nothing to resolve to. Measured with a fresh
+stage-1 against the tree std:
+
+- `Type.impls(unit, Eq(unit))` and `Type.impls(unit, Clone)` are **true** —
+  the impls register under `type_id_or_empty(.Unit) == "__yo_t_unit"`.
+- DOT dispatch works: `x.clone()` with `x : unit` compiles and runs.
+- Infix dispatch does **not**: `x == y` with both operands `unit`, inside ANY
+  function body, compiles to the `abort()` stub (`yo: the body of … failed to
+  transpile`), and directly in `main` it is the "Failed to transpile part of
+  main's body" ICE. The impl's C function (`return true;`) IS emitted and is
+  never called. The `(==)` method exists, is found by `Type.impls`, and the
+  evaluator raises no error (`yo check` passes; a module-level `_f((), ())`
+  CTFE call evaluates to a *runtime* bool without complaint) — so the miss is
+  between the evaluator's operator resolution and the call emitter, and it is
+  specific to the `unit` receiver, which the hard-error gate at
+  `function.yo:2771` deliberately exempts.
+- This is PRE-EXISTING: the v0.2.24 seed aborts identically on
+  `derive(S, Eq(S))` for `S :: struct(a : i32, u : unit)` (masked there as the
+  "next name not found" symptom that #434 fixed).
+
+Consequence: `derive(Eq)` (and by the same route `Ord`) over a struct with a
+`unit` field is still an abort stub, even with the impls in place. The fix
+belongs with the widening described above: once a `unit` receiver's `==`
+resolves like any other impl'd type, the derive works unchanged.
+`tests/unit_as_value_type.test.yo` documents the gap next to its unit-field
+tests and will gain the `derive(Eq)` assertion when this closes.
+
+## Addendum 2026-09-23: `<` without `Ord` has the same shape (type-system audit)
+
+MEASURED on the yo 0.2.39 seed and a develop build `d455b6a67` (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1):
+
+```rust
+P :: struct(x : i32);
+main :: (fn() -> unit)({
+  a := P(x : i32(1));
+  b := P(x : i32(2));
+  d := (a < b);          // yo check rc=0
+});
+export(main);
+```
+
+Inside a condition, `cond((p < q) => println(1), true => println(2))` also passes `yo check`, and
+`yo compile` then reports an internal compiler error. The fix should cover every operator whose
+trait lookup can miss, not only `==`.
+
+## Fix (2026-09-24)
+
+`src/evaluator/calls/function.yo`, the infix-operator dispatch: the hard-error gate now also
+covers `_is_concrete_nominal_operand` — a struct (not a source-namespace module struct), enum,
+union or `Array(T, N)` with a resolved length, with no SomeT anywhere in it. The gate is on the
+operator LOOKUP, so it covers `==`, `!=`, `<`, `<=`, the arithmetic operators and the rest alike.
+The measured fall-through shapes stay exempt: `unit` (also the placeholder an unevaluated
+operand leaves), a SomeT-bearing type, and a source-namespace struct.
+
+## Verification
+
+`NoEq == NoEq`, `!=`, `<` and an enum without `Eq` are E0610 `No matching call found for operator
+"==" with receiver type "NoEq"` (`tests/type_soundness.test.yo`); the over-rejection canaries
+(a generic `where(T <: Eq(T))` comparison at `i32` and `String`) still compile, and
+`check ./std` / `check ./src` found no violation.

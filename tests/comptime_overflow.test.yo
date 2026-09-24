@@ -95,3 +95,25 @@ test("the compile-time checks do not reject runtime arithmetic", {
   usum := u.wrapping_add(one);
   assert(usum == u8(0), "wrapping_add wraps exactly at the u8 boundary");
 });
+
+test("shifts, negation and division fold like the run time", {
+  // A left shift WRAPS the bits it shifts out, as at run time — the fold used
+  // to CLAMP (`i32(1) << 31` folded to i32::MAX)
+  // (issues/fixed/comptime-integer-folding-clamps-instead-of-wrapping.md).
+  sign_bit :: (i32(1) << 31);
+  assert(sign_bit == i32(-2147483648), "i32(1) << 31 is the sign bit");
+  byte_shl :: (u8(255) << u8(1));
+  assert(byte_shl == u8(254), "u8 shl drops the high bit");
+  top_bit :: (u64(1) << u64(63));
+  assert(top_bit == u64(9223372036854775808), "u64 bit 63");
+  masked :: (i8(-1) & i8(127));
+  assert(masked == i8(127), "bitwise ops are unaffected");
+  // The trapping cases are compile errors on constants.
+  comptime_expect_error(shl_count :: (i32(1) << i32(40)), "shift count 40 is out of range for i32");
+  comptime_expect_error(shr_count :: (u8(1) >> u8(8)), "shift count 8 is out of range for u8");
+  comptime_expect_error(shl_negative :: (i32(1) << i32(-1)), "shift count -1 is out of range");
+  comptime_expect_error(neg_min :: -i8(-128), "does not fit in i8");
+  comptime_expect_error(div_min :: (i32(-2147483648) / i32(-1)), "does not fit in i32");
+  comptime_expect_error(mod_min :: ((i64(-9223372036854775807) - i64(1)) % i64(-1)), "does not fit in i64");
+  assert(true, "rejected");
+});

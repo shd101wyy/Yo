@@ -467,6 +467,11 @@ get_visible_type_trait_methods_by_name :: (
 /// so codegen-time synthetic registrations (codegen/functions/collection.yo)
 /// never participate.
 (_inherent_method_sites : HashMap(String, String)) = HashMap(String, String).new();
+/// Trait-impl sites (plans/reference/TRAIT_COHERENCE.md) — see
+/// `note_trait_impl_site` below; declared here because runtime module-level
+/// bindings are evaluated in order and `clear_type_trait_methods` resets them.
+(_trait_impl_sites : HashMap(String, String)) = HashMap(String, String).new();
+(_trait_impl_site_owners : HashMap(String, String)) = HashMap(String, String).new();
 /// Drop all registered methods. Used by test harnesses to reset
 /// global state between runs. Same pattern as the cleanup helpers in
 /// `evaluator/values/impl.yo` for the generic-impl registry.
@@ -475,6 +480,10 @@ clear_type_trait_methods :: (fn() -> unit)({
   _type_trait_methods = fresh;
   fresh_sites := HashMap(String, String).new();
   _inherent_method_sites = fresh_sites;
+  fresh_ti_sites := HashMap(String, String).new();
+  _trait_impl_sites = fresh_ti_sites;
+  fresh_ti_owners := HashMap(String, String).new();
+  _trait_impl_site_owners = fresh_ti_owners;
 });
 /// Record `site` as the defining site of inherent method `label` on
 /// `type_id`. Returns `.Some(previous_site)` when the pair was already
@@ -495,6 +504,58 @@ note_inherent_method_site :: (
       Option(String).None
     }
   )
+});
+/// TRAIT-IMPL sites (plans/reference/TRAIT_COHERENCE.md rules 1–2), keyed by
+/// `type_id` + newline + the trait's instantiation key, valued by the impl's
+/// `module_path:row:column`. A registration from a DIFFERENT site is a second
+/// impl of the pair — the caller rejects it; a same-site replay (loader
+/// re-evaluation, a generic impl re-registering per instantiation) is not.
+/// Each key remembers its registering owner so the LSP can purge a module's
+/// sites before re-evaluating it (`purge_trait_impl_sites_owned_by`).
+/// Record `site` as the impl of trait `trait_key` for `type_id`. Returns
+/// `.Some(previous_site)` for a second impl from a different site, `.None`
+/// for a first impl or a same-site replay.
+note_trait_impl_site :: (fn(type_id : String, trait_key : String, site : String) -> Option(String))({
+  key := `${type_id}\n${trait_key}`;
+  match(
+    _trait_impl_sites.get(key.clone()),
+    .Some(prev) => cond(
+      (prev == site) => Option(String).None,
+      true => Option(String).Some(prev)
+    ),
+    .None => {
+      _trait_impl_sites.insert(key.clone(), site);
+      _trait_impl_site_owners.insert(key, registration_owner());
+      Option(String).None
+    }
+  )
+});
+/// Drop every trait-impl site registered by `owner` (LSP invalidation).
+purge_trait_impl_sites_owned_by :: (fn(owner : String) -> unit)({
+  if(owner.len() == usize(0), {
+    return(());
+  });
+  stale := ArrayList(String).new();
+  it := _trait_impl_site_owners.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(k) => if(match(_trait_impl_site_owners.get(k.clone()), .Some(o) => (o == owner), .None => false), {
+        stale.push(k.clone());
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  (si : usize) = usize(0);
+  while(si < stale.len(), {
+    sk := match(stale.get(si), .Some(k) => k, .None => String.new());
+    _trait_impl_sites.remove(sk.clone());
+    _trait_impl_site_owners.remove(sk);
+    si = (si + usize(1));
+  });
 });
 /// Trait-method DEFAULT values (`?=` defaults). `TraitT` does not store
 /// per-field default values (see trait_type.yo:6-8), so the trait
@@ -741,6 +802,8 @@ export(
   hook_register_func_contracts,
   register_type_trait_method,
   note_inherent_method_site,
+  note_trait_impl_site,
+  purge_trait_impl_sites_owned_by,
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,
   clear_type_trait_methods,

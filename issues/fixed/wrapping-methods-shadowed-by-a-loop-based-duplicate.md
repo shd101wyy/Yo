@@ -42,7 +42,7 @@ defined `wrapping_add` / `wrapping_sub` / `wrapping_mul`:
 
 Two blanket impls over the same bound do not collide. The first one in the
 file silently wins dispatch (the class in
-`issues/an-overlapping-blanket-trait-impl-is-silently-dead.md`), so the
+`issues/fixed/an-overlapping-blanket-trait-impl-is-silently-dead.md`), so the
 builtins never ran. #841 also moved `std/collections/hash_map.yo`'s
 `mix_u64` (murmur3 fmix64, run on every HashMap key) onto `wrapping_mul`. Its
 constants always overflow, so every hash took the fallback: up to 64
@@ -83,4 +83,4 @@ error, as a duplicate `impl(T, m)` already is. The duplicate gate in
 `src/evaluator/values/impl.yo` skips generic receivers (`recv_id == ""`).
 The key needs the bound as well as the name, so that blanket impls over
 *different* bounds stay legal. Recorded in
-`issues/an-overlapping-blanket-trait-impl-is-silently-dead.md`.
+`issues/fixed/an-overlapping-blanket-trait-impl-is-silently-dead.md`.

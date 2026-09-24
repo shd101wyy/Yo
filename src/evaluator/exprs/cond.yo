@@ -44,8 +44,11 @@ pragma(Pragma.AllowUnsafe);
   is_bool_type,
   is_some_type,
   is_pointer_type,
+  is_comptime_int_type,
+  is_comptime_float_type,
   is_function_type_and_returns_comptime_value
 } :: import("../../types/guards.yo");
+{ check_comptime_int_value_fits } :: import("../values/integer.yo");
 { type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -535,9 +538,21 @@ evaluate_cond :: (
                     },
                     .Some(vt) => {
                       if(!are_types_compatible(body_einfo.ty, vt.ty), {
-                        // Try widening the previous type to runtime and check again.
+                        // The join is symmetric for the comptime numerics: a
+                        // PREVIOUS `comptime_int`/`comptime_float` arm that
+                        // widens into this arm's concrete type joins AT that
+                        // type, exactly as the reverse order already did —
+                        // `cond(c => 1, true => i64(2))` was rejected while
+                        // `cond(c => i64(2), true => 1)` was accepted
+                        // (issues/fixed/cond-arm-type-unification-depends-on-arm-order.md).
+                        // Only when every arm is comptime does the join stay
+                        // comptime (and default to i32/f64 at a runtime use).
+                        // The comptime arms' VALUES are range-checked against
+                        // the joined type after the loop.
                         runtime_vt_ty := convert_comptime_type_to_runtime_type(vt.ty, vt.env);
-                        if(are_types_compatible(body_einfo.ty, runtime_vt_ty), {
+                        if((is_comptime_int_type(vt.ty) || is_comptime_float_type(vt.ty)) && are_types_compatible(vt.ty, body_einfo.ty), {
+                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_einfo.ty, env : body_einfo.env));
+                        }, if(are_types_compatible(body_einfo.ty, runtime_vt_ty), {
                           value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_einfo.ty, env : body_einfo.env));
                         }, {
                           exn.throw(
@@ -548,7 +563,7 @@ evaluate_cond :: (
                               )
                             )
                           );
-                        });
+                        }));
                       });
                     }
                   );
@@ -580,6 +595,24 @@ evaluate_cond :: (
           value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_unit(), env : env));
         });
         vts := match(value_type, .Some(vt) => vt, .None => ValueTypeState(ty : t_unit(), env : env));
+        // A `comptime_int` arm joined at a fixed-width integer type must fit
+        // it: `cond(c => 300, true => u8(1))` would emit a truncated constant.
+        (ci_bi : usize) = usize(0);
+        while(ci_bi < bodies.len(), {
+          ci_body := match(bodies.get(ci_bi), .Some(b) => b, .None => make_err_expr());
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(ci_body)),
+            .Some(ci_info) => if(is_comptime_int_type(ci_info.ty) && !has_any_control_flow(ci_info.control_flow), {
+              match(
+                ci_info.value,
+                .Some(ci_v) => match(ci_v, .IntLit(ci_raw) => check_comptime_int_value_fits(ci_raw, vts.ty, ast_expr_token(ci_body), exn), _ => ()),
+                .None => ()
+              );
+            }),
+            .None => ()
+          );
+          ci_bi = (ci_bi + usize(1));
+        });
         // Merge environments from arms that don't return/unwind.
         filtered_bodies := ArrayList(AstExpr).new();
         (fb_i : usize) = usize(0);

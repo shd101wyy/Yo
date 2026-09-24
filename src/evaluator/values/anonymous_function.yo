@@ -37,12 +37,13 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   expr_info_table_get,
   has_control_flow,
+  has_any_control_flow,
   expr_info_capture_type,
   expr_info_set_capture_type,
   expr_info_set_deferred_dup_expressions,
   expr_info_set_is_anonymous_function_definition
 } :: import("../../expr_info.yo");
-{ are_types_compatible_exact } :: import("../../types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 {
   copy_func_param_defaults,
   copy_func_param_default_exprs,
@@ -81,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
   ExpectedTypeCtx
 } :: import("../context.yo");
 { stable_func_id, debug_knob } :: import("../../utils.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { Exception } :: import("std/error");
 {
   register_definition_site_return,
@@ -107,7 +108,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
-{ is_some_type, is_unit_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
+{ is_some_type, is_unit_type, is_void_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
 {
@@ -743,6 +744,22 @@ evaluate_anonymous_function_implementation :: (
       TypeValue.Unit
     }
   );
+  // A closure is not a function pointer. A bare `fn(...)` type (not a `ctl`
+  // handler type) is a C code pointer; a `=>` closure is a capture struct, so
+  // checking one against the other emitted C that calls a struct
+  // (issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md).
+  // The closure-carrying slot types are `Impl(Fn(...))` and `Dyn(Fn(...))`.
+  if(is_creating_closure && match(expected_ty, .Func({ meta : bf_m }) => !(bf_m.*.is_control), _ => false), {
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          tok,
+          `Type mismatch: a closure (\`${op_str}\`) cannot be used where the function-pointer type \`${type_to_string(expected_ty)}\` is expected — a closure carries its captures, a \`fn(...)\` value is a bare code pointer`,
+          Option(String).Some(String.from("declare the slot `Impl(Fn(...))` (monomorphized) or `Dyn(Fn(...))` (boxed), or write a `->` function literal, which captures nothing"))
+        )
+      )
+    );
+  });
   // -------------------------------------------------------------------------
   // Extract Func fields.
   // -------------------------------------------------------------------------
@@ -1576,6 +1593,43 @@ Result type: ${type_to_string(decl_result_ty)}`
             )
           );
         });
+        // The closure's result type against its body (E0604), the check the
+        // named-fn path makes in calls/function_type.yo. A closure checked
+        // against an expected `Fn(...) -> R` ADOPTS that signature as its
+        // own, so without this nothing compared the body with `R`:
+        // `apply(x => true, i32(3))` where `Fn(x : i32) -> i32` is expected
+        // typed the closure `-> i32`, emitted it `-> bool`, and C's implicit
+        // conversion printed `1`
+        // (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
+        // Same guards as the named path: a control-flow tail (`return`,
+        // `unwind`) never falls through; a SomeT on either side is resolved
+        // at the call (a generic callee's `Fn(x : T) -> T`, an io.async
+        // `_ret`); `void` and `Type`-kinded results are judged elsewhere. A
+        // ctl handler's result is its resume type, delivered by `return(...)`
+        // (a control-flow tail).
+        match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
+          .Some(cr_info) => {
+            cr_body_ty := cr_info.ty;
+            cr_ret_ty := match(function_type, .Func({ result : cr_r }) => cr_r, _ => t_unit());
+            cr_skip := ((((has_any_control_flow(cr_info.control_flow) || is_void_type(cr_ret_ty)) || is_type_hierarchy_type(cr_ret_ty)) || (get_all_some_types(cr_ret_ty).len() > usize(0))) || (get_all_some_types(cr_body_ty).len() > usize(0)));
+            if(!(cr_skip) && !(are_types_compatible(cr_body_ty, cr_ret_ty)), {
+              cr_hint := cond(
+                is_unit_type(cr_body_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),
+                true => String.new()
+              );
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(body_expr),
+                    `Function body has type \`${type_to_string(cr_body_ty)}\`, but the declared result type is \`${type_to_string(cr_ret_ty)}\`.${cr_hint}`
+                  )
+                )
+              );
+            });
+          },
+          .None => ()
+        );
         // When the declared return type CONTAINS SomeTypes but is not itself
         // one (`Option(B)`) and the body evaluated to a fully concrete type,
         // synthesize the declared return against the body type so every

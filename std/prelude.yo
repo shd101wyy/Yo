@@ -338,17 +338,19 @@ RangeInclusiveOp :: trait(
   (..=) : (fn(start : Self, end : Self) -> RangeInclusive(Self))
 );
 export(RangeInclusiveOp);
-// comptime array/slice/string indexing builtins (used by ComptimeIndex trait impls)
+// comptime array/slice/string indexing builtins (used by ComptimeIndex trait impls).
+// Each returns `comptime(*(...))`, the `ComptimeIndex.index` protocol: a
+// comptime pointer the index dispatcher dereferences.
 extern(
   "Yo",
   __yo_comptime_array_index :
     (fn(generic(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
   __yo_comptime_string_index :
-    (fn(comptime(self) : comptime_str, comptime(idx) : comptime_int) -> comptime(comptime_str)),
+    (fn(comptime(self) : comptime_str, comptime(idx) : comptime_int) -> comptime(*(comptime_str))),
   __yo_comptime_string_index_range :
-    (fn(comptime(self) : comptime_str, comptime(idx) : Range(comptime_int)) -> comptime(comptime_str)),
+    (fn(comptime(self) : comptime_str, comptime(idx) : Range(comptime_int)) -> comptime(*(comptime_str))),
   __yo_comptime_string_index_range_inclusive :
-    (fn(comptime(self) : comptime_str, comptime(idx) : RangeInclusive(comptime_int)) -> comptime(comptime_str)),
+    (fn(comptime(self) : comptime_str, comptime(idx) : RangeInclusive(comptime_int)) -> comptime(*(comptime_str))),
   __yo_comptime_list_index :
     (fn(generic(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
   __yo_comptime_list_index_range :

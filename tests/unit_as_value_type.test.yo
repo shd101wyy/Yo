@@ -304,10 +304,8 @@ test("a unit field is erased from the C layout but still reads, writes and compa
   s.u = ();
   assert(s.a == i32(5), "the non-unit field survives a unit read and write");
   // `unit` implements Clone (and Eq/Ord/Hash) in the prelude, as Rust's `()`
-  // does. NOTE: infix `==` on two unit operands still does not dispatch to
-  // that impl (pre-existing — issues/equality-operator-without-an-eq-impl-evaluates-to-unit.md,
-  // "Follow-up 2026-09-06"), so `derive(Eq)` over a struct with a unit field
-  // is not asserted here yet.
+  // does; the `==`/`derive(Eq)` side is asserted by the unit-operand tests
+  // below (issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md).
   k4 := k.clone();
   r := _RefWithUnit(a : i32(9), u : (), s : String.from("nine"));
   k2 := r.u;

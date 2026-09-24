@@ -1,0 +1,310 @@
+// Type-system soundness ratchet (plans/TYPE_SYSTEM_SOUNDNESS.md, Phase 0).
+//
+// One `comptime_expect_error` per fixed soundness issue whose reproducer fits
+// in one file, each naming its issue doc. A case is added in the PR that fixes
+// the issue, so this file is always green; the programs still waiting for a
+// fix are counted by `scripts/soundness/census.sh` instead.
+//
+// Each case passes the diagnostic's text as the second argument, so a case
+// cannot go green on some unrelated error the snippet happens to hit. Shapes
+// that `comptime_expect_error` cannot observe — a check-level swallow
+// (the expression is judged in propagate mode), a multi-file program, a
+// runtime-only effect — are gated by `tests/cli-cases/` cases instead, and
+// listed at the bottom so the ratchet stays one place to read.
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+// ---------------------------------------------------------------------------
+// issues/fixed/comptime-str-passed-where-string-is-declared-emits-invalid-c.md
+// (landed in #856): a comptime literal argument is checked against a concrete
+// parameter type.
+// ---------------------------------------------------------------------------
+_takes_string :: (fn(s : String) -> usize)(s.len());
+test("soundness: a comptime_str is not a String argument", {
+  comptime_expect_error(_takes_string("raw literal"), "Incompatible");
+  assert(true, "rejected");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md
+// (Phase 1.1): a generic enum's type arguments are part of its identity, and
+// a GADT variant constructs only the instantiation its index names.
+// ---------------------------------------------------------------------------
+_Value :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    IntVal(i : i32) -> recur(i32),
+    BoolVal(b : bool) -> recur(bool),
+    PairVal(a : i32, b : bool) -> recur(i32)
+  )
+);
+_Phantom :: (fn(comptime(T) : Type) -> comptime(Type))(enum(A(x : i32), B(y : bool)));
+test("soundness: a GADT instantiation does not flow into another index", {
+  comptime_expect_error({
+    x := _Value(i32).IntVal(i32(77));
+    (_y : _Value(bool)) = x;
+  }, "Incompatible types");
+  assert(true, "rejected");
+});
+test("soundness: a phantom enum parameter is part of the type", {
+  comptime_expect_error({
+    x := _Phantom(i32).A(i32(1));
+    (_y : _Phantom(bool)) = x;
+  }, "Incompatible types");
+  assert(true, "rejected");
+});
+test("soundness: a GADT variant cannot construct another index", {
+  comptime_expect_error(_Value(i32).BoolVal(true), "GADT variant \"BoolVal\"");
+  comptime_expect_error({
+    (_v : _Value(i32)) = .BoolVal(true);
+  }, "GADT variant \"BoolVal\"");
+  assert(true, "rejected");
+});
+test("soundness canary: same-index GADT and phantom instantiations still flow", {
+  x := _Value(i32).PairVal(i32(1), false);
+  (y : _Value(i32)) = x;
+  p := _Phantom(bool).B(true);
+  (q : _Phantom(bool)) = p;
+  (v : _Value(bool)) = .BoolVal(true);
+  assert(match(y, .PairVal(a, _) => (a == i32(1)), .IntVal(_) => false), "same index flows");
+  assert(match(q, .B(b) => b, .A(_) => false), "same phantom index flows");
+  assert(match(v, .BoolVal(b) => b), "shorthand at the declared index");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md
+// (Phase 1.2): a closure's body is checked against the result of the
+// `Fn(...) -> R` it adopts.
+// ---------------------------------------------------------------------------
+_apply :: (fn(f : Impl(Fn(x : i32) -> i32), v : i32) -> i32)(f(v));
+test("soundness: a closure body must have the adopted Fn result type", {
+  comptime_expect_error(_apply(x => true, i32(3)), "Function body has type `bool`");
+  comptime_expect_error(_apply(x -> true, i32(3)), "Function body has type `bool`");
+  comptime_expect_error(
+    _apply(x => {
+      x + i32(1);
+    }, i32(3)),
+    "Function body has type `unit`"
+  );
+  assert(true, "rejected");
+});
+test("soundness canary: a well-typed closure still flows into Fn(x : i32) -> i32", {
+  k := i32(10);
+  assert(_apply(x => (x + k), i32(3)) == i32(13), "closure result i32");
+  assert(_apply(x -> (x * i32(2)), i32(3)) == i32(6), "fn literal result i32");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/generic-fn-body-is-not-checked-against-its-declared-result-type.md
+// (Phase 1.3): a specialized body is checked against its declared result.
+// ---------------------------------------------------------------------------
+_bad_ct :: (fn(comptime(T) : Type, x : T) -> i32)(true);
+_bad_generic :: (fn(generic(T : Type), x : T) -> i32)(true);
+_good_generic :: (fn(generic(T : Type), x : T) -> T)(x);
+test("soundness: a specialized generic body must have its declared result type", {
+  comptime_expect_error(_bad_ct(i32, i32(1)), "Function body has type `bool`");
+  comptime_expect_error(_bad_generic(i32(1)), "Function body has type `bool`");
+  // A `-> T` result answered concretely is already caught at definition
+  // (the deferred-generic compare), before any call.
+  comptime_expect_error(_bad_generic_t :: (fn(generic(T : Type), x : T) -> T)(true), "Incompatible function return type");
+  assert(true, "rejected");
+});
+test("soundness canary: a well-typed generic body still specializes", {
+  assert(_good_generic(i32(7)) == i32(7), "T = i32");
+  assert(_good_generic(true), "T = bool");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/context-typed-integer-literal-is-not-range-checked.md
+// (Phase 1.4): a comptime integer entering a fixed-width slot must fit it.
+// ---------------------------------------------------------------------------
+_takes_u8 :: (fn(a : u8) -> u8)(a);
+_U8Field :: struct(x : u8);
+_big_constant :: 300;
+test("soundness: a comptime integer that does not fit its slot is E1102", {
+  comptime_expect_error({
+    (_y : u8) = 300;
+  }, "does not fit in u8");
+  comptime_expect_error({
+    (_z : u8) = -1;
+  }, "does not fit in u8");
+  comptime_expect_error({
+    (_w : i8) = -129;
+  }, "does not fit in i8");
+  comptime_expect_error(_takes_u8(300), "does not fit in u8");
+  comptime_expect_error(_takes_u8(200 + 100), "does not fit in u8");
+  comptime_expect_error(u8(300), "does not fit in u8");
+  comptime_expect_error({
+    (_v : u8) = (200 + 100);
+  }, "does not fit in u8");
+  comptime_expect_error({
+    (_c : u8) = _big_constant;
+  }, "does not fit in u8");
+  comptime_expect_error(_U8Field(x : (200 + 100)), "does not fit in u8");
+  assert(true, "rejected");
+});
+test("soundness canary: in-range comptime integers take their slot's type", {
+  (a : i8) = -128;
+  (b : u64) = 18446744073709551615;
+  (c : i64) = -9223372036854775808;
+  k :: 3;
+  (d : u8) = k;
+  (e : u8) = (200 + 55);
+  (f : f64) = (1 + 2);
+  g := _U8Field(x : k);
+  h := u64(18446744073709551615);
+  // A conversion between TYPED integers keeps its truncating semantics.
+  i := u32(i32(-1));
+  assert(a == i8(-128), "i8 minimum");
+  assert(b == u64.MAX, "u64 maximum");
+  assert(c == i64.MIN, "i64 minimum");
+  assert(d == u8(3), "comptime constant into u8");
+  assert(e == u8(255), "folded sum at the boundary");
+  assert(f == 3.0, "comptime_int into f64");
+  assert(g.x == u8(3), "comptime constant into a u8 field");
+  assert(h == u64.MAX, "u64(max) conversion");
+  assert(i == u32(4294967295), "typed conversion truncates");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/cond-arm-type-unification-depends-on-arm-order.md
+// (Phase 1.5): the comptime-numeric arm join is symmetric.
+// ---------------------------------------------------------------------------
+test("soundness: the arm join does not depend on arm order", {
+  c := true;
+  x := cond(c => 1, true => i64(2));
+  y := cond(c => i64(2), true => 1);
+  m := match(c, true => 1, false => i64(2));
+  (xi : i64) = x;
+  (yi : i64) = y;
+  (mi : i64) = m;
+  assert((xi == i64(1)) && ((yi == i64(2)) && (mi == i64(1))), "both orders join at i64");
+  comptime_expect_error(cond(c => 300, true => u8(1)), "does not fit in u8");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/equality-operator-without-an-eq-impl-evaluates-to-unit.md
+// (Phase 1.6): an operator whose trait lookup misses on a concrete type is
+// an error, never `unit`.
+// ---------------------------------------------------------------------------
+_NoEq :: struct(x : i32);
+_NoEqE :: enum(A, B);
+_generic_eq :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);
+test("soundness: a missing operator impl is an error", {
+  a := _NoEq(x : i32(1));
+  b := _NoEq(x : i32(2));
+  comptime_expect_error(a == b, "No matching call found for operator \"==\"");
+  comptime_expect_error(a != b, "No matching call found for operator");
+  comptime_expect_error(a < b, "No matching call found for operator \"<\"");
+  comptime_expect_error(_NoEqE.A == _NoEqE.B, "No matching call found for operator \"==\"");
+  assert(true, "rejected");
+});
+test("soundness canary: generic and impl'd comparisons still resolve", {
+  assert(_generic_eq(i32(1), i32(1)), "generic Eq over i32");
+  assert(!_generic_eq(String.from("a"), String.from("b")), "generic Eq over String");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/enum-variant-payload-type-is-not-checked-at-construction.md
+// (Phase 1.7): a generic instantiation is never a declared non-generic
+// struct, so a wrong payload is rejected at construction.
+// ---------------------------------------------------------------------------
+{ ArrayList } :: import("std/collections/array_list");
+_Verdict :: enum(Proved(core : ArrayList(String)), Nope);
+test("soundness: an enum payload is checked at construction", {
+  comptime_expect_error(_Verdict.Proved(String.from("unsat")), "Type mismatch for type member \"core\"");
+  assert(true, "rejected");
+});
+test("soundness canary: the declared payload type still constructs", {
+  v := _Verdict.Proved(ArrayList(String).new());
+  assert(match(v, .Proved(c) => (c.len() == usize(0)), .Nope => false), "payload flows");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md
+// and issues/fixed/a-comptime-parameter-given-a-non-comptime-argument-emits-broken-c.md
+// (Phase 1.8): a closure is not a function pointer; a runtime value is not a
+// comptime argument.
+// ---------------------------------------------------------------------------
+_takes_bare :: (fn(f : (fn(a : i32) -> i32), v : i32) -> i32)(f(v));
+_double :: (fn(a : i32) -> i32)(a * i32(2));
+_ct_param :: (fn(comptime(v) : i32) -> i32)(v);
+test("soundness: a closure is not a bare fn(...) argument", {
+  k := i32(10);
+  comptime_expect_error(_takes_bare(y => (y + k), i32(5)), "cannot be used where the function-pointer type");
+  assert(true, "rejected");
+});
+test("soundness: a runtime value is not a comptime(...) argument", {
+  comptime_expect_error(_ct_param(i32.default()), "requires a compile-time argument");
+  assert(true, "rejected");
+});
+test("soundness canary: named fns and literals still fit those slots", {
+  assert(_takes_bare(_double, i32(5)) == i32(10), "named fn as fn pointer");
+  assert(_ct_param(i32(3)) == i32(3), "literal comptime argument");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md
+// (Phase 1.9): an `inout` parameter is a pointer in every fn-pointer call.
+// ---------------------------------------------------------------------------
+_bump :: (fn(inout(x) : i32) -> unit)({
+  x = (x + i32(1));
+  ()
+});
+_Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
+test("soundness: an inout call through a fn value mutates the argument", {
+  (f : (fn(inout(x) : i32) -> unit)) = _bump;
+  (v : i32) = i32(5);
+  f(v);
+  _bump(v);
+  assert(v == i32(7), "fn-typed local and direct call both mutate");
+  (w : _Wrap((fn(inout(x) : i32) -> unit))) = _Wrap((fn(inout(x) : i32) -> unit))(inner : _bump);
+  w.inner(v);
+  assert(v == i32(8), "fn-typed struct field mutates");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/impl-is-not-checked-against-the-trait-members.md (Phase 2.1):
+// an `impl(T, Trait(...))` is checked against the trait's members.
+// ---------------------------------------------------------------------------
+_Foo :: trait(f : (fn(self : Self) -> i32), g : (fn(self : Self) -> i32));
+_Bar :: trait(f : (fn(self : Self) -> i32), (h : (fn(self : Self) -> i32)) ?= (self -> i32(9)));
+_ImplP :: struct(x : i32);
+_ImplQ :: struct(x : i32);
+_ImplR :: struct(x : i32);
+_ImplS :: struct(x : i32);
+impl(_ImplS, _Bar(f : (self -> self.x)));
+test("soundness: an impl must match its trait's members", {
+  comptime_expect_error(impl(_ImplP, _Foo(f : (self -> self.x))), "member \"g\" is not provided and has no default");
+  comptime_expect_error(impl(_ImplQ, _Foo(f : (self -> self.x), g : (fn(self : Self) -> bool)(true))), "member \"g\" has type");
+  comptime_expect_error(impl(_ImplR, _Foo(f : (self -> self.x), g : (self -> self.x), k : (self -> self.x))), "\"k\" is not a member of the trait");
+  assert(true, "rejected");
+});
+test("soundness canary: a trait default fills an omitted member", {
+  s := _ImplS(x : i32(4));
+  assert(s.f() == i32(4), "provided member");
+  assert(s.h() == i32(9), "default member");
+});
+// ---------------------------------------------------------------------------
+// Gated elsewhere (not expressible as comptime_expect_error):
+//   issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md
+//     -> tests/cli-cases/check-unwind-type-mismatch-in-handler
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// issues/fixed/impl-trait-return-bound-is-not-checked.md (Phase 2.2): an
+// `Impl(Trait)` result or parameter takes only a type that implements it.
+// ---------------------------------------------------------------------------
+_Speaks :: trait(speak : (fn(self : Self) -> i32));
+_Dog :: struct(x : i32);
+_Rock :: struct(y : i32);
+impl(_Dog, _Speaks(speak : (self -> self.x)));
+_make_dog :: (fn() -> Impl(_Speaks))(_Dog(x : i32(3)));
+_hear :: (fn(v : Impl(_Speaks)) -> i32)(v.speak());
+test("soundness: an Impl(Trait) result or argument must implement the trait", {
+  comptime_expect_error(_bad_make :: (fn() -> Impl(_Speaks))(_Rock(y : i32(4))), "which does not implement required trait");
+  comptime_expect_error(_hear(_Rock(y : i32(4))), "does not implement required trait");
+  assert(true, "rejected");
+});
+test("soundness canary: an implementing type flows through Impl(Trait)", {
+  assert(_make_dog().speak() == i32(3), "Impl result");
+  assert(_hear(_Dog(x : i32(5))) == i32(5), "Impl argument");
+});
+// Canary for the Impl(Trait) argument check: a fn value is a code pointer,
+// Send and Acyclic; a closure's captures are judged by the capture rule.
+_run_send :: (fn(generic(T : Type), cb : Impl(Fn() -> T, Send), where(T <: Send)) -> T)(cb());
+_plain_fn :: (fn() -> i32)(i32(8));
+test("soundness canary: fn values and capture-free closures are Send", {
+  comptime_assert(Type.impls(fn() -> i32, Send));
+  assert(_run_send(() => (i32(20) + i32(22))) == i32(42), "closure through Impl(Fn, Send)");
+  k := i32(5);
+  assert(_run_send(() => (k + i32(1))) == i32(6), "a Send capture");
+  assert(_run_send(_plain_fn) == i32(8), "a named fn");
+});

@@ -3,8 +3,6 @@
 //! Phase 2bm — partial implementation.
 //!
 //! Exports:
-//!   `check_deferred_generic_return_type`      — trial-evaluates a generic function body
-//!                                               to catch return-type mismatches at definition time.
 //!   `try_to_implement_function_by_function_type` — registers a function body against a function type,
 //!                                               creating a `FuncVal`.
 //!
@@ -13,7 +11,10 @@
 //!     Creates a `FuncVal` from the function type + body. Body evaluation at
 //!     definition time is deferred (only done at call time). This means early
 //!     return-type mismatches are not caught at definition time.
-//!   - `check_deferred_generic_return_type`: no-op stub (deferred to Phase 3).
+//!   - A generic body's result is compared with its declared result twice:
+//!     here, by the deferred-generic trial, for a SomeT-bearing result that
+//!     the body answers concretely; and at the specialization cache miss
+//!     (calls/helper.yo), where both sides are concrete.
 //!
 //! `create_function_body_evaluation_context` used to live here; it moved to
 //! `evaluator/context.yo` (where `EvalContext` and `FuncOrAsyncBlockCtx` are
@@ -53,7 +54,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind } :: import("../../types/creators.yo");
-{ is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type } :: import("../../types/guards.yo");
+{ is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type } :: import("../../types/guards.yo");
+{ comptime_int_value_misfit } :: import("../values/integer.yo");
 {
   wrap_function_body_with_contracts,
   VerifyTask,
@@ -65,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
   resolve_verify_mode
 } :: import("../builtins/contracts.yo");
 { EvalValue, FuncValData, create_unknown_val, create_type_value, is_unknown_val } :: import("../../value.yo");
-{ type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
+{ type_contains_some_type_for_codegen_param, impl_param_unmet_trait } :: import("../trait_checking.yo");
 {
   is_flowable_expr,
   flow_options_default,
@@ -155,29 +157,10 @@ _soft_evaluated_for_verify_inner :: (
   );
   Option(AstExpr).Some(evaluated_for_verify(p, env, ctx, soft_exn))
 });
-/// Check if a generic function body returns a type incompatible with the
-/// declared generic return type.
-///
-/// Phase 2bm: no-op stub. Full trial-evaluation deferred to Phase 3.
-///
-///
-check_deferred_generic_return_type :: (
-  fn(
-    function_body_expr : AstExpr,
-    function_type : TypeValue,
-    function_value : EvalValue,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
-  ) -> unit
-)({
-  function_body_expr;
-  function_type;
-  function_value;
-  env;
-  ctx;
-  ()
-});
+/// E0602 text for a body whose type misses a trait of its `Impl(...)` result.
+_impl_result_unmet_message :: (fn(body_ty : TypeValue, trait_ty : TypeValue, result_ty : TypeValue) -> String)(
+  `Function body has type ${type_to_string(body_ty)}, which does not implement required trait ${type_to_string(trait_ty)} of the declared result ${type_to_string(result_ty)}`
+);
 /// Trial-evaluate a function body at definition time, swallowing any eval
 // --- deferred def-eval re-run (fn arm 14: mutual comptime recursion) -------
 /// One fn whose def-time body eval ran while a forward-declared comptime fn
@@ -214,7 +197,7 @@ PendingDefEval :: ref(
 //
 // Definition-time body evaluation has TWO dispositions:
 //
-//   - the DEFERRED-GENERIC trial (check_deferred_generic_return_type) wraps
+//   - the DEFERRED-GENERIC trial (the `.None` arm of the def-time body eval) wraps
 //     its body eval in a swallowing handler — errors are
 //     DISCARDED.
 //   - the CONCRETE path has NO swallow — a body-eval error is FATAL.
@@ -1724,7 +1707,8 @@ Result type: ${type_to_string(result_box)}`
           });
           _clear_trial_swallow();
           // Result-type check for a CONCRETE body (the deferred-generic path
-          // has its own, checkDeferredGenericReturnType below). Nothing else
+          // has its own below, and the specialization cache miss in calls/helper.yo
+          // checks every instantiated body). Nothing else
           // compared the evaluated body type against the declared result:
           // `(fn() -> i32)(String.from("x"))` and `(fn() -> i32)(true)` passed
           // `check` and were caught — or not — by clang. Only a body whose
@@ -1740,6 +1724,19 @@ Result type: ${type_to_string(result_box)}`
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(ub_body)),
               .Some(ub_info) => {
                 ub_ty := ub_info.ty;
+                // An `Impl(Trait)` result is judged by its traits, not by
+                // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
+                // the deferred-generic twin is below.
+                if(!(has_any_control_flow(ub_info.control_flow)), {
+                  match(
+                    impl_param_unmet_trait(result_box, ub_ty, flow_env),
+                    .Some(ub_rt) => {
+                      mark_fn_unemittable(fn_val_id.clone());
+                      exn.throw(dyn(format_error_message(ast_expr_token(fb), _impl_result_unmet_message(ub_ty, ub_rt, result_box))));
+                    },
+                    .None => ()
+                  );
+                });
                 ub_skip := ((((has_any_control_flow(ub_info.control_flow) || is_void_type(result_box)) || is_type_hierarchy_type(result_box)) || (type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(ub_ty, ArrayList(String).new()))) || result_is_ref);
                 if(!(ub_skip) && !(are_types_compatible(ub_ty, result_box)), {
                   // The registration above already happened; a definition
@@ -1758,6 +1755,19 @@ Result type: ${type_to_string(result_box)}`
                         `Function body has type \`${type_to_string(ub_ty)}\`, but the declared result type is \`${type_to_string(result_box)}\`.${ub_hint}`
                       )
                     )
+                  );
+                });
+                // A `comptime_int` body VALUE returned as a fixed-width
+                // integer must fit it — the compatibility above is
+                // value-blind (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
+                if(!(ub_skip) && is_comptime_int_type(ub_ty), {
+                  match(
+                    match(ub_info.value, .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(ub_raw, result_box), _ => Option(String).None), .None => Option(String).None),
+                    .Some(ub_fit_msg) => {
+                      mark_fn_unemittable(fn_val_id.clone());
+                      exn.throw(dyn(format_error_message(ast_expr_token(fb), ub_fit_msg)));
+                    },
+                    .None => ()
                   );
                 });
               },
@@ -1864,7 +1874,6 @@ Result type: ${type_to_string(result_box)}`
         },
         .None => {
           // Deferred (generic) definition —
-          // check_deferred_generic_return_type:
           // trial-evaluate a CLONE of the body to catch
           // `fn(generic(T), value : T) -> T` returning a concrete type.
           // A trial that itself throws is silently skipped (the body is
@@ -2016,6 +2025,26 @@ Result type: ${type_to_string(result_box)}`
                   // check alone cannot convict (unresolved SomeT unifies with
                   // anything).
                   dg_expected_is_some := is_some_type(dg_expected);
+                  // An `Impl(Trait, ...)` RESULT (a SomeT that is not one of
+                  // this fn's binders, carrying required traits) is satisfied
+                  // by ANY concrete body type — but only one that implements
+                  // every required trait. The own-forall skip above waved it
+                  // through unchecked, so `(fn() -> Impl(Foo))(Q(...))` for a
+                  // `Q` without `Foo` passed `check` and reached codegen as an
+                  // ICE (issues/fixed/impl-trait-return-bound-is-not-checked.md).
+                  if(((dg_own_forall_skip && !(dg_skip_cf)) && !(dg_trial_abstract)) && !(dg_trial_degenerate), {
+                    match(
+                      impl_param_unmet_trait(dg_expected, dg_trial_ty, dg_env),
+                      .Some(dg_rt) => {
+                        dg_bound_msg := _impl_result_unmet_message(dg_trial_ty, dg_rt, dg_expected);
+                        if(!(ctx.is_in_function_call_checking_phase) && (!(propagate_def_time_errors()) && !(flow_violation_pending())), {
+                          flag_flow_violation(dg_bound_msg.clone());
+                        });
+                        exn.throw(dyn(format_error_message(tok, dg_bound_msg)));
+                      },
+                      .None => ()
+                    );
+                  });
                   if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_exact(dg_trial_ty, dg_expected))), {
                     dg_exp_str := type_to_string(dg_expected);
                     dg_got_str := type_to_string(dg_trial_ty);
@@ -2060,5 +2089,4 @@ Result type: ${type_to_string(result_box)}`
     }
   )
 );
-export(check_deferred_generic_return_type);
 export(try_to_implement_function_by_function_type, register_rerun_pending_def_evals);

@@ -713,22 +713,38 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 
 Enforced at function-type evaluation (`src/evaluator/types/function.yo`). See `tests/ref_return_ban.test.yo`.
 
-### Signed-integer overflow is defined (wrap-around)
+### Integer overflow TRAPS at run time and is a compile error on constants
 
-Yo passes `-fwrapv` to clang/gcc/zig by default, so signed-integer overflow is two's-complement wrap-around, not UB. `x := i32(2147483647); y := (x + i32(1));` evaluates to `i32(-2147483648)`, not silent miscompilation. Opt-out: `--cflags='-fno-wrapv'`.
+Integer `+`, `-`, `*` overflow, `-MIN`, `/`/`%` by zero or `MIN / -1`, and a shift count outside
+`[0, width)` abort at run time with `file:line:col` (safe mode, #837 — `docs/en-US/DESIGN.md`,
+"Arithmetic and Failure Semantics"). Arithmetic that wraps BY DESIGN calls `wrapping_add` /
+`wrapping_sub` / `wrapping_mul`. (This section used to say `-fwrapv` makes signed overflow wrap;
+that predates the traps.)
 
-**COMPTIME arithmetic is the opposite: it REJECTS overflow.** The wrap-around above is a property of the *runtime* operator. Whenever both operands are compile-time constants the `Comptime*` overload is selected instead (`__yo_comptime_i32_add` and friends in `std/prelude.yo`), and that one raises a hard error rather than wrapping:
+On compile-time constants the same expressions are compile errors (E1102), and a left shift
+wraps the bits it shifts out exactly as at run time:
 
 ```rust
-y := (i32(2147483647) + i32(1));   // ERROR: Integer overflow in compile-time evaluation
-                                    //   2147483647 + 1 = 2147483648
-                                    //   Result 2147483648 exceeds i32 range [-2147483648, 2147483647]
-
+y := (i32(2147483647) + i32(1));   // ERROR E1102: Integer overflow in compile-time evaluation
+z :: (i32(1) << 31);               // OK: i32(-2147483648), like the run time
+w :: (i32(1) << 40);               // ERROR E1102: shift count 40 is out of range for i32 (0..32)
+v :: (-(i8(-128)));                // ERROR E1102: -(-128) does not fit in i8
 x := i32(2147483647);
-y := (x + i32(1));                  // OK — runtime add, wraps to i32(-2147483648)
+q := (x + i32(1));                  // runtime add: ABORTS (use x.wrapping_add(i32(1)) to wrap)
 ```
 
-The two forms look nearly identical, so this bites when writing a test that asserts wrap-around: the *expected* value must also be built from a runtime binding, e.g. `(seed : i32) = i32(2147483647); (expected : i32) = (seed + i32(1));`. Writing the expectation as a folded constant fails the compile instead of the assertion. (Measured 2026-08-25 while adding the atomic `fetch_*` family — `tests/sync/atomic.test.yo` "wraps like the runtime operator".)
+A test that asserts wrap-around therefore needs `wrapping_*` on runtime values; a folded
+expectation fails the compile. Until 2026-09-24 comptime folding CLAMPED instead
+(`issues/fixed/comptime-integer-folding-clamps-instead-of-wrapping.md`).
+
+### A `comptime_int` must fit the slot it enters (E1102)
+
+A literal, a `::` constant or a folded `comptime_int` expression takes a fixed-width type only in
+a slot of that type (binding, assignment, argument, field, return, joined arm, `T(x)`), and
+must fit: `(y : u8) = 300`, `f(200 + 100)` for `a : u8`, `u8(300)` are E1102; `(y : i8) = -128`
+and `k :: 3; (y : u8) = k` are fine. A conversion between two TYPED integers (`u8(some_i32)`)
+truncates and is not checked. `1 << 40` is an error because a bare literal receiver of an
+operator `comptime_int` lacks defaults to `i32` — write `u64(1) << u64(40)`.
 
 ### `// SAFETY:` comment convention
 
@@ -1300,6 +1316,18 @@ f := (() => { calls.push(i32(1)); i32(7) });
 That by-value rule is why an `i32` counter mutated inside a closure never comes
 back out, while pushing to a captured `ArrayList` does — see
 `.github/skills/yo-core-patterns/` and the `inout` audit note.
+
+## A `=>` closure never fills a bare `fn(...)` slot (E0605)
+
+A `fn(...) -> R` parameter or field is a C function pointer: it takes a named `fn` or a
+capture-free `->` literal. A `=>` closure there is E0605 ("a closure (`=>`) cannot be used where
+the function-pointer type ... is expected"); declare the slot `Impl(Fn(...))` or `Dyn(Fn(...))`.
+Before 2026-09-24 it passed `check` and emitted C that called a struct
+(`issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md`).
+
+A closure's body is checked against the `Fn(...) -> R` it adopts (E0604 when it does not
+match), and a `comptime(x) : T` parameter needs a compile-time argument (E1101 for a runtime
+value such as `c(i32.default())`).
 
 ## An `Impl(Fn(...))` parameter only accepts a CALLABLE argument (E0606)
 

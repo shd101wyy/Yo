@@ -28,11 +28,12 @@ pragma(Pragma.AllowUnsafe);
   is_unsigned_integer_type,
   is_c_compatible_type,
   is_float_type,
-  is_comptime_float_type
+  is_comptime_float_type,
+  is_comptime_int_type
 } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ IntRange, get_integer_type_range, get_integer_type_bits } :: import("../../types/utils.yo");
+{ IntRange, get_integer_type_range, get_integer_type_bits, target_integer_type_range, get_target_pointer_size_bits } :: import("../../types/utils.yo");
 { Token } :: import("../../token.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { parse_raw_int, parse_raw_float, f64_raw_roundtrip } :: import("../utils.yo");
@@ -47,36 +48,61 @@ str_lit_quote :: (fn(s : String) -> String)(
 // apply_bounds: clamp i64 to the representable range of type `ty`.
 // ---------------------------------------------------------------------------
 apply_bounds :: (fn(n : i64, ty : TypeValue) -> i64)(
+  // Two's-complement WRAP to the type's width — the run-time semantics of
+  // every operation that can leave the range without trapping (a left shift
+  // drops the bits it shifts out). It used to CLAMP signed values and take
+  // `|n| mod 2^w` for unsigned ones, so `i32(1) << 31` folded to i32::MAX
+  // where the run time computes i32::MIN
+  // (issues/fixed/comptime-integer-folding-clamps-instead-of-wrapping.md).
+  // The trapping cases (add/sub/mul overflow, a shift count out of range,
+  // `-MIN`, `MIN / -1`) are rejected BEFORE the value is built.
   match(
-    ty,
-    .Int(bits, signed) => cond(
-      ((bits == u8(8)) && !signed) => {
-        abs_n := if(n >= i64(0), n, i64(0).wrapping_sub(n));
-        abs_n % i64(256)
-      },
-      ((bits == u8(8)) && signed) =>
-        if(n > i64(127), i64(127), if(n < i64(-128), i64(-128), n)),
-      ((bits == u8(16)) && !signed) => {
-        abs_n := if(n >= i64(0), n, i64(0).wrapping_sub(n));
-        abs_n % i64(65536)
-      },
-      ((bits == u8(16)) && signed) =>
-        if(n > i64(32767), i64(32767), if(n < i64(-32768), i64(-32768), n)),
-      ((bits == u8(32)) && !signed) => {
-        abs_n := if(n >= i64(0), n, i64(0).wrapping_sub(n));
-        abs_n % i64(4294967296)
-      },
-      ((bits == u8(32)) && signed) =>
-        if(
-          n > i64(2147483647),
-          i64(2147483647),
-          if(n < i64(-2147483648), i64(-2147483648), n)
-        ),
-      true => n
-    ),
-    _ => n
+    comptime_int_width(ty),
+    .Some(w) => if(w >= u32(64), n, {
+      span := (i64(1) << i64(w));
+      m := (n & (span - i64(1)));
+      signed := match(target_integer_type_range(ty), .Some(r) => (r.min < i64(0)), .None => false);
+      if(signed && (m >= (span >> i64(1))), m - span, m)
+    }),
+    .None => n
   )
 );
+/// The bit width of a fixed-width integer type at the target (usize/isize
+/// follow the target's pointer width); `.None` for `comptime_int` and
+/// non-integers.
+comptime_int_width :: (fn(ty : TypeValue) -> Option(u32))(
+  match(
+    ty,
+    .Int(bits, _) => Option(u32).Some(u32(bits)),
+    .Usize => Option(u32).Some(get_target_pointer_size_bits()),
+    .Isize => Option(u32).Some(get_target_pointer_size_bits()),
+    _ => Option(u32).None
+  )
+);
+/// `MIN / -1` and `MIN % -1` trap at run time (the quotient does not fit),
+/// so on constants they are compile errors; the fold used to clamp the
+/// quotient (or trap inside the compiler for i64::MIN).
+_reject_min_by_minus_one :: (fn(a : i64, b : i64, ty : TypeValue, unsigned_64 : bool, tok : Token, exn : Exception) -> unit)({
+  mn := match(
+    target_integer_type_range(ty),
+    .Some(r) => if(r.min < i64(0), Option(i64).Some(r.min), Option(i64).None),
+    .None => if(is_comptime_int_type(ty), Option(i64).Some(i64.MIN), Option(i64).None)
+  );
+  match(
+    mn,
+    .Some(m) => if(!unsigned_64 && (a == m) && (b == i64(-1)), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            `Integer overflow in compile-time evaluation: ${a.to_string()} / -1 does not fit in ${type_to_string(ty)}`
+          )
+        )
+      );
+    }),
+    .None => ()
+  );
+});
 // ---------------------------------------------------------------------------
 // bit_not_int: bitwise NOT for integer types.
 // For types narrower than 64 bits, XOR with the type mask and sign-extend.
@@ -437,7 +463,26 @@ evaluate_yo_comptime_numeric_functions :: (
                 av,
                 .IntLit(raw) => match(
                   parse_raw_int(raw),
-                  .Some(n) => make_int_val(i64(0).wrapping_sub(n), numeric_type),
+                  .Some(n) => {
+                    // `-MIN` traps at run time; on a constant it is a compile
+                    // error (it used to fold to MIN again, or clamp).
+                    neg_min := match(
+                      target_integer_type_range(numeric_type),
+                      .Some(r) => ((r.min < i64(0)) && (n == r.min)),
+                      .None => (is_comptime_int_type(numeric_type) && (n == i64.MIN))
+                    );
+                    if(neg_min, {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(expr),
+                            `Integer overflow in compile-time evaluation: -(${raw}) does not fit in ${type_to_string(numeric_type)}`
+                          )
+                        )
+                      );
+                    });
+                    make_int_val(i64(0).wrapping_sub(n), numeric_type)
+                  },
                   .None => create_unknown_val(numeric_type)
                 ),
                 _ => create_unknown_val(numeric_type)
@@ -705,6 +750,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     )
                   );
                 });
+                _reject_min_by_minus_one(a, b, numeric_type, unsigned_64, ast_expr_token(expr), exn);
                 result_val = make_int_val(
                   cond(
                     unsigned_64 => i64(u64(a) / u64(b)),
@@ -738,6 +784,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     )
                   );
                 });
+                _reject_min_by_minus_one(a, b, numeric_type, unsigned_64, ast_expr_token(expr), exn);
                 result_val = make_int_val(
                   cond(
                     unsigned_64 => i64(u64(a) % u64(b)),
@@ -818,6 +865,33 @@ evaluate_yo_comptime_numeric_functions :: (
             .Some(a) => match(
               rhs_n,
               .Some(b) => {
+                // The run-time rule: a shift count outside [0, width) traps,
+                // so on constants it is a compile error — computing it here
+                // CLAMPED (`i32(1) << 40` folded to i32::MAX), and a count
+                // of 64 or more would trap inside the compiler itself. A
+                // `comptime_int` is unbounded but carried as an i64, so a
+                // left shift whose value leaves the i64 is rejected too.
+                sh_w := match(comptime_int_width(numeric_type), .Some(w) => w, .None => u32(64));
+                if((b < i64(0)) || (b >= i64(sh_w)), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        `Integer overflow in compile-time evaluation: shift count ${b.to_string()} is out of range for ${type_to_string(numeric_type)} (0..${sh_w.to_string()})`
+                      )
+                    )
+                  );
+                });
+                if((op_s == "shl") && is_comptime_int_type(numeric_type) && ((a != i64(0)) && (((a << b) >> b) != a)), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        `Integer overflow in compile-time evaluation: ${a.to_string()} << ${b.to_string()} exceeds the compile-time integer range`
+                      )
+                    )
+                  );
+                });
                 n_result := cond(
                   (op_s == "shl") => (a << b),
                   unsigned_64 => i64(u64(a) >> u64(b)),
