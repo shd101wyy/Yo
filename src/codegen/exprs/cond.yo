@@ -25,8 +25,8 @@ import("std/fmt");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
-{ generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
-{ get_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
+{ get_type_string, get_variable_name_for_codegen, fresh_local_name } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
@@ -582,6 +582,35 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
   context.pending_deferred_drops = prev_pending;
   context.consumed_var_pending_drops = prev_consumed;
 });
+/// Emit `if (<condition>) {` for a cond arm. A call nested INSIDE the
+/// condition (`!f(tmp)`, `f(tmp) == false`) records its argument temps' drops
+/// on the CONDITION node rather than on its own call node, so the call's
+/// post-call flush does not emit them, and nothing else did: the temp leaked
+/// on every evaluation (`_mg_canon`'s `!p.starts_with(String.from("/"))`
+/// leaked a String per call). When such a drop is still pending after the
+/// condition renders, materialize the condition into a bool, flush the
+/// condition's drops, then branch on the bool
+/// (issues/fixed/cond-condition-operand-call-temp-is-never-released.md).
+_emit_cond_if_head :: (fn(condition : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  cnd_drops := match(context.base.get_expr_info(condition), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+  cnd_prev := context.pending_deferred_drops;
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cnd_drops, cnd_prev));
+  cc := _call_generate_expr(condition, indent.clone(), context);
+  context.pending_deferred_drops = cnd_prev;
+  if(has_pending_emittable_drop(condition, context), {
+    cv := fresh_local_name(String.from("__yo_cond_"), context.base.current_function_name);
+    em.emit_string_line(`${indent.clone()}bool ${cv.clone()} = ${cc};`);
+    generate_deferred_drop_expressions(condition, indent.clone(), context);
+    em.emit_string_line(`${indent.clone()}if (${cv}) {`);
+  }, {
+    h := indent.clone();
+    h.push_str("if (");
+    h.push_string(cc);
+    h.push_str(") {");
+    em.emit_string_line(h);
+  });
+});
 /// Generate a conditional (`cond`) expression.
 generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"cond\" expression is not evaluated */")));
@@ -787,16 +816,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                     // drop IN-branch (emitDropsForConditionalBranch) instead
                     // of the call-site flush emitting it after the branch's
                     // C scope closed ("use of undeclared identifier").
-                    cnd_drops := match(context.base.get_expr_info(condition), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
-                    cnd_prev := context.pending_deferred_drops;
-                    context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cnd_drops, cnd_prev));
-                    cc := _call_generate_expr(condition, current_indent.clone(), context);
-                    context.pending_deferred_drops = cnd_prev;
-                    h := current_indent.clone();
-                    h.push_str("if (");
-                    h.push_string(cc);
-                    h.push_str(") {");
-                    em.emit_string_line(h);
+                    _emit_cond_if_head(condition, current_indent.clone(), context);
                   });
                   has_emitted = true;
                 }, {
@@ -806,17 +826,8 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                   else_depth = (else_depth + usize(1));
                   current_indent.push_str("  ");
                   if(!is_ct_true, {
-                    // Same pending window as the first-condition site above.
-                    cnd_drops2 := match(context.base.get_expr_info(condition), .Some(cnd_ei2) => cnd_ei2.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
-                    cnd_prev2 := context.pending_deferred_drops;
-                    context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(cnd_drops2, cnd_prev2));
-                    cc := _call_generate_expr(condition, current_indent.clone(), context);
-                    context.pending_deferred_drops = cnd_prev2;
-                    h := current_indent.clone();
-                    h.push_str("if (");
-                    h.push_string(cc);
-                    h.push_str(") {");
-                    em.emit_string_line(h);
+                    // Same pending window and condition flush as the first-condition site.
+                    _emit_cond_if_head(condition, current_indent.clone(), context);
                   });
                 });
                 value_indent := if(has_emitted && is_ct_true, current_indent.clone(), {

@@ -1374,6 +1374,21 @@ test("a call argument inside a struct-literal tail is released", {
   };
   assert(g_at_disposed == (before + i32(1)), "the argument temp of the call inside the struct literal is disposed once");
 });
+at_ok :: (fn(a : ArgTemp) -> bool)(a.n > i32(0));
+test("a call argument under ! or == in an if condition is released", {
+  before := g_at_disposed;
+  (y : i32) = i32(0);
+  {
+    if(!at_ok(ArgTemp(n : i32(1))), {
+      y = i32(1);
+    });
+    if(at_ok(ArgTemp(n : i32(0))) == false, {
+      y = i32(2);
+    });
+  };
+  assert(y == i32(2), "the conditions evaluated as expected");
+  assert(g_at_disposed == (before + i32(2)), "both condition argument temps are disposed");
+});
 test("a nested match argument and a match moved into an own parameter", {
   before := g_at_disposed;
   flag := (before >= i32(0));
