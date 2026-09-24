@@ -15,9 +15,9 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 > The name `Yo` comes from the Chinese word `柚` (yòu), meaning `pomelo`, a large citrus fruit similar to grapefruit. It's my daughter's nickname.
 
-<img src="./docs/assets/yo-mascot.svg" alt="The Yo panda" width=160 align="right" />
+<img src="./docs/assets/yo-mascot.svg" alt="Youyou, the Yo panda" width=160 align="right" />
 
-**Meet the Yo panda.** Rust has a crab; Yo has a panda hugging a halved pomelo. The logo is the same pomelo: the white pith between its three segments draws a **Y**, and the round rind around it is the **o**.
+**Meet Youyou (柚柚), the Yo panda.** Rust has Ferris the crab; Yo has Youyou, a panda hugging a halved pomelo. The logo is the same pomelo: the white pith between its three segments draws a **Y**, and the round rind around it is the **o**.
 
 <br clear="right" />
 
