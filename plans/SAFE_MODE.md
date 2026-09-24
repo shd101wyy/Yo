@@ -180,6 +180,14 @@ repro corrected it — recorded in
    `JoinHandle.abort()` path race/timeout use, writes the same state WITHOUT an
    unwind and is deliberately not touched — a cancelled loser must stay
    silent. `JoinHandle.await` continues to return `.None` as the typed channel.
+   **Revised after v0.2.40:** printing at abort time fired even when the handle
+   was awaited, so a plain `yo build` printed the line 18 times. An abort is now
+   *registered*, and any read of the Aborted state observes it silently. A task
+   nobody observed prints `unhandled effect unwind aborted an async task that
+   was never awaited`, once, when its last reference is released or when the
+   program body returns
+   (`issues/fixed/an-awaited-task-abort-is-reported-as-unhandled.md`, branch
+   `fix/post-release-goldens`).
 2. **The post-`__yo_user_main` flag belt: RE-LANDED (2026-09-23).** The
    original belt fired on four legitimate `algebraic_effects` tests: an
    install-frame unwind exit (`(raise : Raise) = handler; raise(...)`, the

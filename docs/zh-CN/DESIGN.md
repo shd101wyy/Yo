@@ -1032,7 +1032,7 @@ match(some_ptr,
 
 ### 内存安全
 
-面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`inout(name)` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`，以及处理有符号整数溢出的 `-fwrapv`。
+面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`inout(name)` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`、`unwrap` 禁令，以及整数算术规则（溢出、除以零和越界移位都会中止程序）。
 
 Yo 的安全模型是分层的（设计计划见 [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)）：
 
@@ -1297,6 +1297,28 @@ assert(old(0) == 5);    // old 保存了之前的值
 ```
 
 更多数组示例请参阅 [array.test.yo](../tests/array.test.yo)。
+
+## 算术与失败语义
+
+安全的 Yo 程序从不执行未定义行为。运行时操作的每一种失败方式都属于以下三个层级之一：
+
+| 层级 | 机制 | 示例 |
+| --- | --- | --- |
+| 证明 | 由验证器结算的契约 | 调用点上的 `requires(i < self.len())` |
+| 类型 | 失败体现在返回类型中，调用方必须处理 | `list.get(i) -> Option(T)`、`checked_add`、`Result` |
+| 陷阱 | 带 `file:line:col` 的确定性中止 | 下表各行 |
+
+| 操作 | 行为 |
+| --- | --- |
+| `+`、`-`、`*` 溢出；`-MIN` | 中止：`integer addition overflow (at …)`。适用于所有整数宽度，有符号与无符号皆然 |
+| `/` 或 `%` 除以零；`MIN / -1` | 中止：`integer division or remainder by zero (at …)` |
+| 移位位数 ≥ 位宽 | 中止：`shift count out of range: 64 not in [0, 64) (at …)` |
+| `Array(T, N)` / `str.bytes(i)` 下标越界 | 中止：`index out of bounds: i not in [0, n) (at …)` |
+| 浮点 → 整数转换 | 饱和到目标类型的 MIN/MAX；`NaN` 变为 `0` |
+| 整数 → 更窄整数转换 | 截断 |
+| 浮点 `/` 与 `%` | IEEE 结果（`inf`、`nan`）；从不中止 |
+
+该行为在所有 `--optimize` 级别下完全一致。它也与编译期保持一致：对常量的同样表达式是编译错误，而到达 panic 的编译期函数也是编译错误，并携带其消息。按设计需要回绕的算术请调用 `wrapping_add`、`wrapping_sub` 或 `wrapping_mul`。完整规则（包括 `unwrap` 禁令）见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md)。
 
 ## 控制流
 

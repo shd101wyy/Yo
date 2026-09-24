@@ -332,6 +332,11 @@ result := log_and_check(42, my_logger);
   （兄弟处理器、周围的变量）。代码生成通过内联处理器 / 状态机
   线程化实现这一点。
 - `return(value)` 是**一次性**的 — 捕获的续延最多恢复一次。
+- 没有被任何处理器捕获的 `unwind` **绝不会丢失**。
+  - 结束了某个异步任务的 unwind 会中止该任务，且只有在无人观察到这次中止时才会报告。观察是静默的：`JoinHandle.await` 返回 `.None`、等待方的 `io.await`（unwind 会传播到等待方，等待方自身的中止随后以同样方式被跟踪）、`JoinHandle.state()` / `is_finished()`，或 `io.state`。
+  - 无人观察的任务会打印一次 `unhandled effect unwind aborted an async task that was never awaited`。打印时机是该任务的最后一个引用被释放时（fire-and-forget 的 spawn），或程序主体返回时（绑定了但从未被 await 的句柄）。
+  - 逃逸出 `main` 的 unwind 会打印 `unhandled effect unwind escaped to top level` 并中止进程。
+  - 通过 `JoinHandle.abort()` 取消的任务（`race` 与 `timeout` 的落败者）从不被报告，因为这里并没有发生 unwind。
 - 处理器类型在类型层通过 `ctl(...)` 强制约束。求值器不会从体内容
   推断 `ctl`；用户必须显式注解。
 

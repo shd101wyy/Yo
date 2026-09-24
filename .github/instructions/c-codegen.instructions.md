@@ -219,10 +219,23 @@ New runtime C must use `__yo_rc_alloc` for unchecked allocations — never a bar
 `__yo_malloc` whose result is used without a NULL check (an explicit
 `if (!p) return -ENOMEM;` path is still preferred where one exists).
 
+## Safe-mode runtime guards (`plans/SAFE_MODE.md` phases 1–3)
+
+Every guard is a `static inline` C11 helper emitted by `src/codegen/c/collection.yo`. Each one prints `<what> (at %s:%d:%d)` to stderr and calls `abort()`. The helpers:
+
+- `__yo_idx_chk(i, n, f, r, c)` returns `i`. Every fixed-array / `str` element subscript routes its index through `_checked_index_expr` / `_checked_fixed_array_subscript` (`src/codegen/utils/index.yo`). **Rule: never write a `->data[` / `.ptr[` subscript with a user-reachable index outside those helpers.** Only compiler-chosen in-range indices may stay raw: drop/dup walks over `0..N` and constructor fill loops. A bare-decimal index into a bare-decimal length folds to the raw index when it is in range.
+- `__yo_div_guard` / `__yo_div_guard_u` in comma form in front of `/` and `%` for integer results (`_div_checked_expr`). Float `/` and `%` stay unguarded, because IEEE results are total.
+- `__yo_{add,sub,mul}_chk_{s,u,s64,u64}` and the `__yo_neg_chk*` family. Widths ≤ 32 bits widen to `long long` and range-check. 64-bit widths use the xor identities, and multiplication uses the division-free ladder (the naive identity misses `MIN * -1`). The `__yo_op_*_wrap` builtins behind `wrapping_*` are the raw op.
+- `__yo_sh_chk(sh, bits, …)` in comma form. An in-range literal count folds to the plain shift.
+- `__yo_sat_i64` / `__yo_sat_u64` for float→int casts.
+
+**No GNU builtins** (`__builtin_*_overflow`): the MSVC target makes C11 the ceiling. Derive width bounds from the type, never from hard-coded 61/63, because `usize` is 32 bits on wasm32. Validate new helper arithmetic with a standalone C probe before splicing it in. `--sanitize undefined` (with `-fno-sanitize-recover=all`) is the instrument for checking that the guards themselves are UB-free.
+
 ## Memory leak detection
 
 - `--sanitize address` — AddressSanitizer for memory error and leak detection
 - `--sanitize leak` — LeakSanitizer for leak detection only
+- `--sanitize undefined` — UBSan, non-recovering (`-fno-sanitize-recover=all`): the first UB aborts
 - Example: `yo compile tmp/fixme.yo --optimize 2 --sanitize address --allocator system -o test && ./test`
 
 ## Debug flags

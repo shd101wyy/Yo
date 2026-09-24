@@ -7,7 +7,7 @@ ordinary code and at compile time:
 | type | `len()` | slicing | element access |
 | --- | --- | --- | --- |
 | `String` (`std/string`) | bytes, O(1) | `substring(a, b)` — bytes | `s(i)` → `u8`, `at(i)` → `Option(rune)` |
-| `str` (prelude; string literals) | bytes | `s(a..b)` — zero-copy byte window | `bytes(i)` → `u8` |
+| `str` (prelude; string literals) | bytes | `s(a..b)` — zero-copy byte window | `bytes(i)` → `u8` (aborts out of range) |
 | `StringBuilder` (`std/string`) | bytes | — | — |
 | `comptime_str` (compile time) | bytes | `slice(a, b)` / `s(a..b)` — bytes | `s(i)` → 1-rune `comptime_str` |
 
