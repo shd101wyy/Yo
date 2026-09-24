@@ -21,7 +21,12 @@ the LEAK ROOTS among the unreached (refcount above what the unreached set itself
 explains — held by an untracked object or a missing release); `U <objects> <type>` for tracked
 objects no root reaches (held only by locals / leaked). `L <length> <root>` rows give
 each container global's length (size for maps) — the only view of registries whose
-entries are untracked. HOLDER_SCAN=1 adds a
+entries are untracked. HOLDER_DEEP=1 (with HOLDER_SCAN=1) walks tracked AND untracked
+RC objects from each root (`D <objects> <bytes> <root> <type>`, unreached ones as LEAK);
+HOLDER_DEEP_LAST=<substr>[,<substr>...] walks the matching roots last, giving the group's
+EXCLUSIVE share. HOLDER_DEEP_PATH=<type> [HOLDER_DEEP_PATH_ROOT=<root>] prints sampled
+discovery chains (`P <root>: <- type <- ...`).
+HOLDER_SCAN=1 adds a
 conservative heap scan: `X <words> <target> <- <holder>` = RC objects of <holder> (reached or
 untracked) pointing at unreached <target> objects, `T <type> hits` = per-type hit histogram, `Y` = holders of the raw buffers that do
 (`S` rows: per-object hit histogram; 0 hits = no pointer anywhere, a missing release). HOLDER_MIN=<n> lowers the
@@ -60,6 +65,18 @@ for i, (t, n) in enumerate(roots):
         len_exprs.append((i, "(long long)((%s*)p)->_length" % t))
     elif re.search(r"\bsize_t size;", body):
         len_exprs.append((i, "(long long)((%s*)p)->size" % t))
+# HOLDER_DEEP container layouts: ArrayList-like (`_ptr`/`_length`) and
+# HashMap-like (`ctrl`/`data`/`capacity`) structs, by dispose fn.
+al_rows, hm_rows = [], []
+for d, b in sorted(disp.items()):
+    body = struct_body.get(b, "")
+    st = "struct %s_struct" % b
+    if re.search(r"\* _ptr;", body) and re.search(r"\bsize_t _length;", body):
+        al_rows.append("  { (void*)%s, offsetof(%s, _ptr), offsetof(%s, _length), sizeof(*((%s*)0)->_ptr) }" % (d, st, st, st))
+    elif re.search(r"\buint8_t\* ctrl;", body) and re.search(r"\* data;", body) and re.search(r"\bsize_t capacity;", body):
+        hm_rows.append("  { (void*)%s, offsetof(%s, ctrl), offsetof(%s, data), offsetof(%s, capacity), sizeof(*((%s*)0)->data) }" % (d, st, st, st, st))
+al_c = ",\n".join(al_rows) or "  { 0, 0, 0, 0 }"
+hm_c = ",\n".join(hm_rows) or "  { 0, 0, 0, 0, 0 }"
 len_c = "\n".join("  { void* p = *(void* const*)__ho_root_addrs[%d]; if (p) fprintf(f, \"L %%lld %%s\\n\", %s, __ho_roots[%d]); }" % (i, e, i) for i, e in len_exprs)
 
 labels_c = ",\n".join('  "%s"' % tyname.get(b, b).replace('"', "'").replace("\\", "/")[:120] for b in bases)
@@ -257,6 +274,146 @@ static void __ho_scan_heap(FILE* f) {
   for (int t = 0; t < %(nb)d; t++) if (__ho_raw_by[t]) fprintf(f, "Y %%lld %%s\n", __ho_raw_by[t], __ho_types[t]);
   fprintf(f, "Y-raw %%lld Y-unknown %%lld\n", __ho_raw_raw, __ho_raw_unk);
 }
+
+/* HOLDER_DEEP=1 (with HOLDER_SCAN=1): retention through UNTRACKED objects.
+   Walks every RC object (tracked or not) from each pointer global in
+   declaration order, then the image's data as "<other-data>". An edge is a
+   word equal to the START of an in-use block whose +8 word is a known
+   dispose_fn (an RC header). A tracked object's children come from its traverse_fn
+   (precise); an untracked object is scanned conservatively: ArrayList storage only up to
+   _length and HashMap data only in live slots, so buffer slack's stale
+   words add no edges. Rows: `D <objects> <bytes> <root> <type>`, bytes =
+   the object's block plus its container storage; RC objects no root
+   reaches are attributed to LEAK. */
+#include <stddef.h>
+typedef struct { void* fn; size_t off_ptr, off_len, esz; } __hd_al_t;
+typedef struct { void* fn; size_t off_ctrl, off_data, off_cap, esz; } __hd_hm_t;
+static const __hd_al_t __hd_al[] = {
+%(al_c)s
+};
+static const __hd_hm_t __hd_hm[] = {
+%(hm_c)s
+};
+#define __HD_BCAP (1u << 25)
+static void** __hd_bk; static size_t* __hd_bs; static int* __hd_br; static long* __hd_par; static long __hd_cur = -1; static size_t __hd_bn;
+static void** __hd_st; static size_t __hd_sp, __hd_head, __hd_scap;
+static long long* __hd_cnt; static long long* __hd_bytes;
+static size_t __hd_h(void* p) { size_t x = (size_t)p >> 4; x ^= x >> 17; x *= 0x9E3779B97F4A7C15ull; return (x >> 25) & (__HD_BCAP - 1); }
+static long __hd_find(void* p) { size_t i = __hd_h(p); while (__hd_bk[i]) { if (__hd_bk[i] == p) return (long)i; i = (i + 1) & (__HD_BCAP - 1); } return -1; }
+static void __hd_rec(task_t t, void* ctx, unsigned type, vm_range_t* r, unsigned n) {
+  for (unsigned k = 0; k < n; k++) {
+    void* b = (void*)r[k].address;
+    if (b == (void*)__ho_seen || b == (void*)__ho_un_k || b == (void*)__ho_stack || b == (void*)__ho_raw_k || b == (void*)__ho_scan_skip || b == (void*)__hd_bk || b == (void*)__hd_bs || b == (void*)__hd_br || b == (void*)__hd_st) continue;
+    if (__hd_bn * 4 >= (size_t)__HD_BCAP * 3) return;
+    size_t i = __hd_h(b); while (__hd_bk[i]) i = (i + 1) & (__HD_BCAP - 1);
+    __hd_bk[i] = b; __hd_bs[i] = r[k].size; __hd_br[i] = -1; __hd_bn++;
+  }
+}
+static int __hd_rc_slot(long bi) { if (bi < 0 || __hd_bs[bi] < 16) return -1; return __ho_slot_peek(*(void**)((char*)__hd_bk[bi] + 8)); }
+static void __hd_push(void* v, int root) {
+  if (((size_t)v & 7) || (size_t)v < 4096) return;
+  long i = __hd_find(v); if (i < 0 || __hd_br[i] >= 0) return;
+  if (__hd_rc_slot(i) < 0) return;
+  __hd_br[i] = root; __hd_par[i] = __hd_cur;
+  if (__hd_sp == __hd_scap) { __hd_scap = __hd_scap ? __hd_scap * 2 : 1 << 20; __hd_st = (void**)realloc(__hd_st, __hd_scap * sizeof(void*)); }
+  __hd_st[__hd_sp++] = (void*)(size_t)i;
+}
+static int __hd_root;
+static void __hd_visit(void* p) { __hd_push(p, __hd_root); }
+static void __hd_scan_range(void* lo, size_t bytes, int root) {
+  void** w = (void**)lo; size_t nw = bytes / sizeof(void*);
+  for (size_t j = 0; j < nw; j++) __hd_push(w[j], root);
+}
+/* breadth-first, so HOLDER_DEEP_PATH chains are shortest paths */
+static void __hd_drain(int root) {
+  while (__hd_head < __hd_sp) {
+    long bi = (long)(size_t)__hd_st[__hd_head++];
+    __hd_cur = bi;
+    char* b = (char*)__hd_bk[bi]; void* fn = *(void**)(b + 8);
+    int s = __ho_slot_peek(fn);
+    long long bytes = (long long)__hd_bs[bi];
+    /* A TRACKED object's traverse_fn visits exactly its RC children, which
+       is precise for enums whose union tail may hold a previous occupant's
+       stale words; only untracked objects are scanned conservatively. */
+    if ((((__yo_rc_prefix_t*)b)->gc_flags & __YO_GC_TRACKED) && ((__yo_ref_header_t*)b)->traverse_fn) {
+      __hd_root = root;
+      ((__yo_ref_header_t*)b)->traverse_fn(b, __hd_visit);
+      /* the container storage bytes still count toward this object */
+      for (size_t a = 0; a < sizeof(__hd_al) / sizeof(__hd_al[0]); a++) if (__hd_al[a].fn == fn) { char* ptr = *(char**)(b + __hd_al[a].off_ptr); long pi = ptr ? __hd_find(ptr) : -1; if (pi >= 0) bytes += (long long)__hd_bs[pi]; break; }
+      for (size_t a = 0; a < sizeof(__hd_hm) / sizeof(__hd_hm[0]); a++) if (__hd_hm[a].fn == fn) { uint8_t* ctrl = *(uint8_t**)(b + __hd_hm[a].off_ctrl); char* data = *(char**)(b + __hd_hm[a].off_data); long ci = ctrl ? __hd_find(ctrl) : -1, di = data ? __hd_find(data) : -1; if (ci >= 0) bytes += (long long)__hd_bs[ci]; if (di >= 0) bytes += (long long)__hd_bs[di]; break; }
+      if (s >= 0) { __hd_cnt[(size_t)root * %(nb)d + s]++; __hd_bytes[(size_t)root * %(nb)d + s] += bytes; }
+      continue;
+    }
+    __hd_scan_range(b + 16, __hd_bs[bi] > 16 ? __hd_bs[bi] - 16 : 0, root);
+    for (size_t a = 0; a < sizeof(__hd_al) / sizeof(__hd_al[0]); a++) if (__hd_al[a].fn == fn) {
+      char* ptr = *(char**)(b + __hd_al[a].off_ptr); size_t len = *(size_t*)(b + __hd_al[a].off_len);
+      if (ptr && len) { long pi = __hd_find(ptr); if (pi >= 0) { size_t used = len * __hd_al[a].esz; if (used > __hd_bs[pi]) used = __hd_bs[pi]; __hd_scan_range(ptr, used, root); bytes += (long long)__hd_bs[pi]; } }
+      break;
+    }
+    for (size_t a = 0; a < sizeof(__hd_hm) / sizeof(__hd_hm[0]); a++) if (__hd_hm[a].fn == fn) {
+      uint8_t* ctrl = *(uint8_t**)(b + __hd_hm[a].off_ctrl); char* data = *(char**)(b + __hd_hm[a].off_data); size_t cap = *(size_t*)(b + __hd_hm[a].off_cap);
+      if (ctrl && data) {
+        long ci = __hd_find(ctrl), di = __hd_find(data);
+        if (ci >= 0) bytes += (long long)__hd_bs[ci];
+        if (di >= 0) { bytes += (long long)__hd_bs[di]; for (size_t k = 0; k < cap && (k + 1) * __hd_hm[a].esz <= __hd_bs[di]; k++) if (ctrl[k] < 0x80) __hd_scan_range(data + k * __hd_hm[a].esz, __hd_hm[a].esz, root); }
+      }
+      break;
+    }
+    if (s >= 0) { __hd_cnt[(size_t)root * %(nb)d + s]++; __hd_bytes[(size_t)root * %(nb)d + s] += bytes; }
+  }
+  __hd_sp = __hd_head = 0;
+}
+static void __ho_deep(FILE* f) {
+  __hd_bk = (void**)calloc(__HD_BCAP, sizeof(void*)); __hd_bs = (size_t*)calloc(__HD_BCAP, sizeof(size_t)); __hd_br = (int*)calloc(__HD_BCAP, sizeof(int)); __hd_par = (long*)calloc(__HD_BCAP, sizeof(long));
+  __hd_cnt = (long long*)calloc((size_t)(%(nr)d + 2) * %(nb)d, sizeof(long long)); __hd_bytes = (long long*)calloc((size_t)(%(nr)d + 2) * %(nb)d, sizeof(long long));
+  vm_address_t* zones = NULL; unsigned nz = 0;
+  malloc_get_all_zones(mach_task_self(), __ho_reader, &zones, &nz);
+  for (unsigned z = 0; z < nz; z++) {
+    malloc_zone_t* zone = (malloc_zone_t*)zones[z];
+    if (zone && zone->introspect && zone->introspect->enumerator)
+      zone->introspect->enumerator(mach_task_self(), NULL, MALLOC_PTR_IN_USE_RANGE_TYPE, zones[z], __ho_reader, __hd_rec);
+  }
+  /* HOLDER_DEEP_LAST=<substring>: walk the matching roots LAST, so what they
+     reach is what ONLY they retain (their exclusive share). */
+  const char* last = getenv("HOLDER_DEEP_LAST");
+  for (int pass = 0; pass < 2; pass++)
+    for (int r = 0; r < %(nr)d; r++) {
+      int is_last = 0;
+      if (last) { const char* q = last; while (*q) { const char* e = strchr(q, ','); size_t n = e ? (size_t)(e - q) : strlen(q); char buf[128]; if (n >= sizeof buf) n = sizeof buf - 1; memcpy(buf, q, n); buf[n] = 0; if (n && strstr(__ho_roots[r], buf)) { is_last = 1; break; } q += n; if (*q == ',') q++; } }
+      if (is_last != pass) continue;
+      __hd_cur = -1; __hd_push(*(void* const*)__ho_root_addrs[r], r); __hd_drain(r);
+    }
+  const struct mach_header_64* mh = (const struct mach_header_64*)_dyld_get_image_header(0);
+  const char* sects[] = {"__data", "__bss", "__common"};
+  for (int k = 0; k < 3; k++) {
+    unsigned long sz = 0; uint8_t* d = getsectiondata(mh, "__DATA", sects[k], &sz);
+    for (size_t j = 0; d && j + sizeof(void*) <= sz; j += sizeof(void*)) __hd_push(*(void**)(d + j), %(nr)d);
+  }
+  __hd_drain(%(nr)d);
+  for (size_t i = 0; i < __HD_BCAP; i++) if (__hd_bk[i] && __hd_br[i] < 0) {
+    int s = __hd_rc_slot((long)i); if (s < 0) continue;
+    __hd_cnt[(size_t)(%(nr)d + 1) * %(nb)d + s]++; __hd_bytes[(size_t)(%(nr)d + 1) * %(nb)d + s] += (long long)__hd_bs[i];
+  }
+  /* HOLDER_DEEP_PATH=<type substring> [HOLDER_DEEP_PATH_ROOT=<root substring>]:
+     print the discovery chain (types, object -> root) of up to 12 objects of
+     that type — the path along which a root retains them. */
+  const char* pt = getenv("HOLDER_DEEP_PATH"); const char* pr = getenv("HOLDER_DEEP_PATH_ROOT");
+  if (pt) {
+    int shown = 0;
+    for (size_t i = 0; i < __HD_BCAP && shown < 12; i++) {
+      if (!__hd_bk[i] || __hd_br[i] < 0 || __hd_br[i] >= %(nr)d) continue;
+      int s0 = __hd_rc_slot((long)i); if (s0 < 0 || !strstr(__ho_types[s0], pt)) continue;
+      if (pr && !strstr(__ho_roots[__hd_br[i]], pr)) continue;
+      if ((i * 2654435761u) %% 97 != 0) continue; /* sample */
+      fprintf(f, "P %%s:", __ho_roots[__hd_br[i]]);
+      long c = (long)i; int depth = 0;
+      while (c >= 0 && depth < 40) { int sc = __hd_rc_slot(c); fprintf(f, " <- %%s", sc >= 0 ? __ho_types[sc] : "?"); c = __hd_par[c]; depth++; }
+      fprintf(f, "\n"); shown++;
+    }
+  }
+  for (int r = 0; r < %(nr)d + 2; r++) for (int t = 0; t < %(nb)d; t++) if (__hd_cnt[(size_t)r * %(nb)d + t])
+    fprintf(f, "D %%lld %%lld %%s %%s\n", __hd_cnt[(size_t)r * %(nb)d + t], __hd_bytes[(size_t)r * %(nb)d + t], r < %(nr)d ? __ho_roots[r] : (r == %(nr)d ? "<other-data>" : "LEAK"), __ho_types[t]);
+}
 static void __ho_census(void* st) {
   __yo_thread_gc_state_t* gc = (__yo_thread_gc_state_t*)st;
   long long min = getenv("HOLDER_MIN") ? atoll(getenv("HOLDER_MIN")) : 1000000;
@@ -299,13 +456,14 @@ static void __ho_census(void* st) {
   for (int t = 0; t < %(nb)d; t++) { long long c = __ho_count[(size_t)%(nr)d * %(nb)d + t]; if (c) fprintf(f, "U %%lld %%s\n", c, __ho_types[t]); }
   for (int t = 0; t < %(nb)d; t++) if (__ho_extn && __ho_extn[t]) fprintf(f, "R %%lld %%lld %%s\n", __ho_extn[t], __ho_ext[t], __ho_types[t]);
   if (getenv("HOLDER_SCAN")) { __ho_scan_skip = (void*)gc->gc_white; __ho_scan_heap(f); }
+  if (getenv("HOLDER_SCAN") && getenv("HOLDER_DEEP")) __ho_deep(f);
 %(len_c)s
   fclose(f);
 }
 __attribute__((destructor)) static void __ho_census_atexit(void) {
   for (__yo_thread_gc_state_t* g = __yo_all_thread_gcs; g != NULL; g = g->next) __ho_census(g);
 }
-""" % dict(nb=nb, nr=nr, labels=labels_c, roots=roots_c, ptrs=root_ptrs, cases=cases, dump=dump_path, disp_fns=disp_fns_c, len_c=len_c)
+""" % dict(nb=nb, nr=nr, labels=labels_c, roots=roots_c, ptrs=root_ptrs, cases=cases, dump=dump_path, disp_fns=disp_fns_c, len_c=len_c, al_c=al_c, hm_c=hm_c)
 
 cl = "static void __yo_cleanup_thread_gc() {"
 pos = src.find("\n" + cl)
