@@ -84,3 +84,16 @@ main :: (fn() -> unit)(println(`${i32.default()}`));   // prints 0, not 7
 
 Expected today: `rc=0`, prints `0`. A fix under option 1 makes it a compile
 error; under option 2 it prints `0` **by a stated rule**.
+
+## 2026-09-24: an inherent instance shipped a 4x slowdown
+
+Two blanket INHERENT impls over the same bound (`impl(generic(T : Type),
+where(T <: Integer), T, …)`, both defining `wrapping_add` / `wrapping_sub` /
+`wrapping_mul`) compiled silently, and the first one in the file won
+dispatch. The winner was a loop-based copy, so every HashMap hash ran a
+nested loop and `yo check` was 4x slower in v0.2.40
+(`issues/fixed/wrapping-methods-shadowed-by-a-loop-based-duplicate.md`).
+The duplicate-inherent gate in `src/evaluator/values/impl.yo`
+(`_c3_eval_colon_pair`) skips generic receivers because `recv_id == ""`. A
+fix keys blanket impls on (bound, name), so impls over different bounds stay
+legal.
