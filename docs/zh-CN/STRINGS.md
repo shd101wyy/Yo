@@ -26,11 +26,11 @@ Go 的模型相同。这条规则贯穿日常代码里会遇到的所有字符�
 
 //        a=1B @0   é=2B @1   中=3B @3   𝄞=4B @6   —— 共 10 字节，4 个 rune
 s := String.from("aé中𝄞");
-s.len();                              // usize(10) —— 字节数，O(1)
-s.chars().count();                    // usize(4)  —— rune 数量，O(n)
-s.substring(usize(3), usize(6));      // "中" —— 字节区间 [3, 6)
-s.index_of(String.from("中"));        // .Some(usize(3)) —— 字节偏移，
-                                      //   可直接回喂给 substring
+s.len(); // usize(10) —— 字节数，O(1)
+s.chars().count(); // usize(4)  —— rune 数量，O(n)
+s.substring(usize(3), usize(6)); // "中" —— 字节区间 [3, 6)
+s.index_of(String.from("中")); // .Some(usize(3)) —— 字节偏移，
+//   可直接回喂给 substring
 ```
 
 `index_of`、`last_index_of`、`s(a..b)` / `s(a..=b)` 区间语法糖，以及
@@ -55,10 +55,10 @@ s.index_of(String.from("中"));        // .Some(usize(3)) —— 字节偏移，
 
 ```rust
 s := String.from("aé中𝄞");
-s.substring(usize(1), usize(2));      // PANIC —— 字节 2 在 é 内部
-s.try_substring(usize(1), usize(2));  // .None —— 同一区间，礼貌地拒绝
-s.floor_char_boundary(usize(2));      // usize(1) —— 吸附回 é 的起点
-s.substring(usize(0), usize(99));     // "aé中𝄞" —— 越界钳制
+s.substring(usize(1), usize(2)); // PANIC —— 字节 2 在 é 内部
+s.try_substring(usize(1), usize(2)); // .None —— 同一区间，礼貌地拒绝
+s.floor_char_boundary(usize(2)); // usize(1) —— 吸附回 é 的起点
+s.substring(usize(0), usize(99)); // "aé中𝄞" —— 越界钳制
 ```
 
 `at(i)` 解码**从**字节 `i` 开始的 rune，对字节偏移无法命名 rune 的三种情况
@@ -98,9 +98,8 @@ s := String.from("aé中𝄞");
 // 处处都是 O(1)；Rust 把 `len()` 留给 ExactSizeIterator，而 chars 迭代器
 // 不是）。
 n := s.chars().count(); // usize(4)
-
 // 携带字节偏移遍历 rune：p._0 = 字节偏移，p._1 = rune。
-for(s.char_indices(), (p) => { ... });
+for(s.char_indices(), p => { ... });
 
 // 截断到至多 n 个 rune：第 n 个 rune 的起始字节偏移就是切点；
 // 不足 n+1 个 rune 时保留整个字符串。
@@ -109,7 +108,6 @@ cut := match(
   .Some(p) => s.substring(usize(0), p._0),
   .None => s
 ); // "aé"
-
 // 第一个 rune + 其余部分。
 first := s.chars().next(); // Option(rune)
 ```
@@ -133,10 +131,10 @@ first := s.chars().next(); // Option(rune)
 
 ```rust
 s :: "aé中𝄞";
-comptime_assert(s.len() == 10);        // 字节数，与运行期 len() 一致
+comptime_assert(s.len() == 10); // 字节数，与运行期 len() 一致
 comptime_assert(s.slice(3, 6) == "中"); // 字节偏移，与 substring 一致
-comptime_assert(s(1) == "é");           // 从字节 1 开始的那个 rune
-comptime_assert(s(3 .. 6) == "中");     // 字节区间
+comptime_assert(s(1) == "é"); // 从字节 1 开始的那个 rune
+comptime_assert(s(3 .. 6) == "中"); // 字节区间
 ```
 
 两个编译期特有的要点：

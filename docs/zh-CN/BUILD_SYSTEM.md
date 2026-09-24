@@ -63,20 +63,20 @@ yo-out/
 构建文件是一个普通的 Yo 源文件，通过导入 `std/build` 模块来使用。所有构建函数在编译期执行，用于注册产物和步骤。
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // 定义产物——每个都返回一个 Step 用于依赖连接
 exe :: build.executable({
-  name: "my-project",
-  root: "./src/main.yo"
+  name : "my-project",
+  root : "./src/main.yo"
 });
 
 lib :: build.static_library({
-  name: "my-project-lib",
-  root: "./src/lib.yo"
+  name : "my-project-lib",
+  root : "./src/lib.yo"
 });
 
-tests :: build.test({ name: "tests", root: "./tests/" });
+tests :: build.test({ name : "tests", root : "./tests/" });
 
 // 注册运行步骤（编译 + 执行）
 run_exe :: build.run(exe);
@@ -207,9 +207,9 @@ libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执�
 
 ```rust
 // 每个构建函数都返回一个 Step
-exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
-lib :: build.static_library({ name: "my-lib", root: "./src/lib.yo" });
-tests :: build.test({ name: "tests", root: "./tests/" });
+exe :: build.executable({ name : "my-app", root : "./src/main.yo" });
+lib :: build.static_library({ name : "my-lib", root : "./src/lib.yo" });
+tests :: build.test({ name : "tests", root : "./tests/" });
 run_exe :: build.run(exe);
 
 // 创建命名步骤并连接依赖
@@ -332,18 +332,18 @@ shapes  = "src/shapes.yo"
 `build.yo` 在需要给模块附加系统库时才引用它。当另一个包导入该模块时，其系统库会传播到使用方的构建：
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 raylib :: build.system_library({
-  name: "raylib",
-  defines: "NOMINMAX NOGDI NOUSER"
+  name : "raylib",
+  defines : "NOMINMAX NOGDI NOUSER"
 });
 
 // 指名 yo.toml [modules] 中的一项，并链接它需要的系统库
-mod :: build.module({ name: "default" });
+mod :: build.module({ name : "default" });
 mod.link(raylib);
 
-exe :: build.executable({ name: "raylib_yo", root: "./src/main.yo" });
+exe :: build.executable({ name : "raylib_yo", root : "./src/main.yo" });
 exe.link(raylib);
 
 install :: build.step("install", "Build all artifacts");
@@ -369,8 +369,8 @@ install.depend_on(exe);
 `build.yo` 中无需任何接线：在 `yo.toml` 中声明的依赖可按其名称导入，其命名模块按 `name/module` 导入：
 
 ```rust
-raylib_yo :: import "raylib_yo";          // 依赖的 [modules] default
-{ Circle } :: import "raylib_yo/shapes";  // 它的 [modules] shapes
+raylib_yo :: import("raylib_yo"); // 依赖的 [modules] default
+{ Circle } :: import("raylib_yo/shapes"); // 它的 [modules] shapes
 ```
 
 这在每个命令中都成立——`yo build`、`yo compile`、`yo check`、`yo test`、`yo doc` 和语言服务器——因为编译器会在被编译文件之上找到最近的 `yo.toml`，并解析清单的依赖闭包（见[导入依赖](#导入依赖)）。
@@ -380,22 +380,22 @@ raylib_yo :: import "raylib_yo";          // 依赖的 [modules] default
 使用 `step.link()` 将任何库链接到产物 —— 支持静态库、共享库和系统库。类似 Zig 的 `exe.linkLibrary(lib)`：
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // Yo 库
 lib :: build.shared_library({
-  name: "mylib",
-  root: "./src/lib.yo"
+  name : "mylib",
+  root : "./src/lib.yo"
 });
 
 // 系统库（通过 pkg-config）
 openssl :: build.system_library({
-  name: "openssl"
+  name : "openssl"
 });
 
 exe :: build.executable({
-  name: "my-app",
-  root: "./src/main.yo"
+  name : "my-app",
+  root : "./src/main.yo"
 });
 
 // 使用 Step 方法链接库
@@ -419,11 +419,11 @@ install.depend_on(lib);
 **库模块**（`add.yo`）：
 
 ```rust
-add :: (fn(a: i32, b: i32) -> i32)(
-  (a + b)
+add :: (fn(a : i32, b : i32) -> i32)(
+  a + b
 );
 
-export add;
+export(add);
 ```
 
 **可执行模块**（`demo.yo`）：
@@ -445,16 +445,16 @@ export(main);
 **构建文件**（`build.yo`）：
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 lib :: build.static_library({
-  name: "add",
-  root: "./add.yo"
+  name : "add",
+  root : "./add.yo"
 });
 
 exe :: build.executable({
-  name: "demo",
-  root: "./demo.yo"
+  name : "demo",
+  root : "./demo.yo"
 });
 
 exe.link(lib);
@@ -493,19 +493,19 @@ yo compile demo.yo --extern libadd.a -o demo
 类似 Zig 的 `b.option()`，可以声明用户可配置的构建选项，并通过 CLI 的 `-Dname=value` 设置：
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // 声明带有默认值的构建选项
 strip :: build.option({
-  name: "strip",
-  description: "Strip debug symbols",
-  default: "false"
+  name : "strip",
+  description : "Strip debug symbols",
+  default : "false"
 });
 
 opt_level :: build.option({
-  name: "opt",
-  description: "Optimization level",
-  default: "debug"
+  name : "opt",
+  description : "Optimization level",
+  default : "debug"
 });
 ```
 
@@ -557,10 +557,10 @@ Yo 通过目标三元组支持 WASM 目标。可以在 `build.yo` 中或命令�
 
 ```rust
 build.executable({
-  name: "my-app-wasm",
-  root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
-  optimize: build.Optimize.ReleaseSmall
+  name : "my-app-wasm",
+  root : "./src/main.yo",
+  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+  optimize : build.Optimize.ReleaseSmall
 });
 ```
 
@@ -568,10 +568,10 @@ build.executable({
 
 ```rust
 build.executable({
-  name: "my-app-wasm",
-  root: "./src/main.yo",
-  target: "wasm32-unknown-emscripten",
-  optimize: build.Optimize.ReleaseSmall
+  name : "my-app-wasm",
+  root : "./src/main.yo",
+  target : "wasm32-unknown-emscripten",
+  optimize : build.Optimize.ReleaseSmall
 });
 ```
 
@@ -643,7 +643,7 @@ exe_wasm.add_c_flags("-sNODERAWFS=1");
 使用 `std/process` 编写平台相关代码：
 
 ```rust
-{ platform, arch, Platform, Arch } :: import "std/process";
+{ platform, arch, Platform, Arch } :: import("std/process");
 
 cond(
   (platform == Platform.Linux) => { /* Linux 专用 */ },
@@ -744,7 +744,7 @@ chunks: 10 unit(s), 7 cached, 3 to compile (jobs=8)
 ```rust
 build :: import("std/build");
 
-ci      :: build.env_is_set("CI");
+ci :: build.env_is_set("CI");
 pkgpath :: build.env("PKG_CONFIG_PATH", "");
 ```
 
@@ -799,24 +799,23 @@ Options:
 可以在单个 `build.yo` 中定义针对不同目标的多个产物：
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // 模块定义
-
 // 原生构建
 native :: build.executable({
-  name: "my-app",
-  root: "./src/main.yo",
-  optimize: build.Optimize.ReleaseFast
+  name : "my-app",
+  root : "./src/main.yo",
+  optimize : build.Optimize.ReleaseFast
 });
 
 // WASM 构建（Emscripten）
 wasm :: build.executable({
-  name: "my-app-wasm",
-  root: "./src/main.yo",
-  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
-  optimize: build.Optimize.ReleaseSmall,
-  allocator: build.Allocator.System
+  name : "my-app-wasm",
+  root : "./src/main.yo",
+  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+  optimize : build.Optimize.ReleaseSmall,
+  allocator : build.Allocator.System
 });
 
 // 每个产物的 C 标志——适用于 Emscripten 特定的链接器设置
@@ -998,8 +997,8 @@ mylib = { path = "../mylib" }
 ### 导入依赖
 
 ```rust
-mylib :: import "mylib";             // 依赖的默认模块
-{ triple } :: import "mylib/extra";  // 命名模块，或默认根文件旁的同级文件
+mylib :: import("mylib"); // 依赖的默认模块
+{ triple } :: import("mylib/extra"); // 命名模块，或默认根文件旁的同级文件
 ```
 
 对依赖 `name`，`import("name")` 解析为：
@@ -1022,12 +1021,11 @@ mylib :: import "mylib";             // 依赖的默认模块
 `build.dependency("name")` 返回 `yo.toml` 中已声明依赖的句柄——名称必须是清单声明的，否则构建失败。其 `.module("x")` 指名依赖的某个模块（以传播它链接的系统库），`.artifact("lib")` 指名依赖 `build.yo` 定义的静态库：
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 dep :: build.dependency("dep_lib");
-add_lib :: dep.artifact("add");   // dep_lib 的 build.yo 中的一个 build.static_library
-
-exe :: build.executable({ name: "demo", root: "./src/main.yo" });
+add_lib :: dep.artifact("add"); // dep_lib 的 build.yo 中的一个 build.static_library
+exe :: build.executable({ name : "demo", root : "./src/main.yo" });
 exe.link(add_lib);
 ```
 
@@ -1121,11 +1119,11 @@ integrity = "sha256-9a0b2e..."
 
 ```rust
 build.system_library({
-  name: "openssl",
-  fallback_include: "/usr/include/openssl",
-  fallback_lib: "/usr/lib",
-  fallback_link: "ssl crypto",
-  defines: "OPENSSL_API_COMPAT=0x10100000L"
+  name : "openssl",
+  fallback_include : "/usr/include/openssl",
+  fallback_lib : "/usr/lib",
+  fallback_link : "ssl crypto",
+  defines : "OPENSSL_API_COMPAT=0x10100000L"
 });
 ```
 
@@ -1137,8 +1135,8 @@ build.system_library({
 
 ```rust
 raylib :: build.system_library({
-  name: "raylib",
-  defines: "NOMINMAX NOGDI NOUSER"
+  name : "raylib",
+  defines : "NOMINMAX NOGDI NOUSER"
 });
 ```
 
@@ -1242,7 +1240,7 @@ Yo 支持四种文档注释样式，与 Rust 的约定一致：
 /// assert((result == i32(3)), "1 + 2 = 3");
 /// ```
 add :: (fn(a : i32, b : i32) -> i32)((a + b));
-export add;
+export(add);
 ````
 
 ### `yo doc` 命令
@@ -1274,16 +1272,16 @@ yo doc --version v1.0.0     # 设置版本号（未指定时自动从 git 检测
 对于高级项目，可在 `build.yo` 中配置文档生成：
 
 ```rust
-build :: import "std/build";
+build :: import("std/build");
 
 // 定义文档配置
 docs :: build.doc({
-  name: "docs",
-  root: "./src",
-  output: "yo-out/doc",
-  format: build.DocFormat.Html,
-  title: "My Project API",
-  version: "v1.0.0"
+  name : "docs",
+  root : "./src",
+  output : "yo-out/doc",
+  format : build.DocFormat.Html,
+  title : "My Project API",
+  version : "v1.0.0"
 });
 
 // 接入构建 DAG
@@ -1305,9 +1303,11 @@ yo build --list-steps # 查看所有步骤（包括 doc）
 
 ```rust
 DocFormat :: enum(
-  Html,       // 完全离线的静态 HTML 网站（默认）
-  Markdown,   // README.md + module/<name>.md 文件
-  Json        // 机器可读的 doc.json
+  Html,
+  // 完全离线的静态 HTML 网站（默认）
+  Markdown,
+  // README.md + module/<name>.md 文件
+  Json // 机器可读的 doc.json
 );
 ```
 
@@ -1315,14 +1315,21 @@ DocFormat :: enum(
 
 ```rust
 DocConfig :: struct(
-  name : comptime_str,                            // 步骤名称
-  root : comptime_str,                            // 源码根文件/目录
-  (output : comptime_str) ?= "yo-out/doc",       // 输出目录
-  (format : DocFormat) ?= DocFormat.Html,             // 输出格式
-  (include_private : bool) ?= false,                 // 文档化非导出项
-  (title : comptime_str) ?= "",                   // 自定义站点标题
-  (logo : comptime_str) ?= "",                    // 侧边栏顶部图片
-  (favicon : comptime_str) ?= ""                  // 站点图标
+  name : comptime_str,
+  // 步骤名称
+  root : comptime_str,
+  // 源码根文件/目录
+  (output : comptime_str) ?= "yo-out/doc",
+  // 输出目录
+  (format : DocFormat) ?= DocFormat.Html,
+  // 输出格式
+  (include_private : bool) ?= false,
+  // 文档化非导出项
+  (title : comptime_str) ?= "",
+  // 自定义站点标题
+  (logo : comptime_str) ?= "",
+  // 侧边栏顶部图片
+  (favicon : comptime_str) ?= "" // 站点图标
 );
 ```
 

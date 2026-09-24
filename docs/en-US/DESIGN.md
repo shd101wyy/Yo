@@ -285,39 +285,30 @@ For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md
     Like this
   */
 */
-
 // Yo syntax is inspired by Lisp, so there are no keywords
 // It uses atoms and function calls only
-x // an atom (identifier)
-func(x, y) // a function call with two arguments x and y.
-           // Please note there is no space between function name and parentheses
-           // Paren-less calls such as func x, y are invalid.
-
+x; // an atom (identifier)
+func(x, y); // a function call with two arguments x and y.
+// Please note there is no space between function name and parentheses
+// Paren-less calls such as func x, y are invalid.
 // Calls must use immediate parentheses. These are invalid:
 // func x, y
 // func (x, y)
-
 // Yo is case sensitive, so `X` and `x` are different identifiers
-
-// In Yo, everything is a function:
-x := true;
-y :: 14;
-
-// can be written as:
-(:=)(x, true);
-(::)(y, 14);
+// In Yo, everything is a function: `x := true;` and `y :: 14;` are the
+// reserved operators `:=` / `::` applied to two arguments, callable in
+// prefix form too (here binding fresh names — shadowing is not allowed):
+(:=)(x2, true);
+(::)(y2, 14);
 // although normally we won't write like this ^
-
 // There is no arithmetic precedence in Yo
 // Except for the "." which is not treated as an operator, but it has the highest precedence.
 // "." has its own parsing rules, for example a.b + c.d is parsed as .(a, b) + .(c, d)
-
 // Every infix operator takes two arguments on its left and right.
 //
 // Yo has NO operator precedence. A chain of the SAME operator is
 // left-associative, so no parentheses are needed:
 3 + 4 + 5; // parsed as (3 + 4) + 5
-
 // But adjacent DIFFERENT operators are ambiguous and must be
 // disambiguated with explicit parentheses:
 //
@@ -446,15 +437,16 @@ A type can have the following **Kind**:
 ```rust
 // Value type - stack-allocated, copied
 Point :: struct(x : i32, y : i32);
-p1 := Point(3, 4);
-p2 := p1;  // p2 is a copy of p1
-
+p1 := Point(x : 3, y : 4);
+p2 := p1; // p2 is a copy of p1
 // Reference-semantics type - heap-allocated, reference-counted
-MyString :: ref(struct(
-  _bytes : ArrayList(u8)
-));
+MyString :: ref(
+  struct(
+    _bytes : ArrayList(u8)
+  )
+);
 s1 := MyString.from("Hello");
-s2 := s1;  // s2 and s1 point to the same object (reference counted)
+s2 := s1; // s2 and s1 point to the same object (reference counted)
 ```
 
 ### Variable Declaration
@@ -462,10 +454,9 @@ s2 := s1;  // s2 and s1 point to the same object (reference counted)
 Variables in Yo are declared with `:=` (runtime) or `::` (compile-time).
 
 ```rust
-               // "comptime" here means compile-time known
-x := 5;        // x: i32, runtime variable
-y :: 5;        // y: comptime_int, compile-time variable
-
+// "comptime" here means compile-time known
+x := 5; // x: i32, runtime variable
+y :: 5; // y: comptime_int, compile-time variable
 // with explicit type declaration
 (x : i32) = 5; // x: i32, runtime variable
 (comptime(y) : comptime_int) = 5; // y: comptime_int, compile-time variable
@@ -474,17 +465,14 @@ comptime(y) := 5;
 
 // All variables are mutable by default
 x := 1;
-x = 2;  // OK: reassignment is allowed
-
+x = 2; // OK: reassignment is allowed
 // (:) function is used to denote a type
 // (=) function is used to update a variable with a new value, or initialize a variable with a value
 // (:=) function is used to denote a runtime variable with type inferred
 // (::) function is used to denote a comptime variable with type inferred
-
-x : i32;        // Define a runtime variable
+x : i32; // Define a runtime variable
 comptime(x) : i32; // Define a compile-time variable
 // All variables are mutable by default. There is no immutable variable, for simplicity.
-
 // Initialize variables
 (comptime(x) : comptime_int) = 12;
 (y : i32) = 14;
@@ -526,10 +514,10 @@ Variables can be shadowed in different block scopes:
 ```rust
 {
   x := 1;
-}
+};
 {
   x := 2; // Allowed: different scope
-}
+};
 ```
 
 #### Discarding a call result
@@ -552,18 +540,14 @@ _ := unsafe(unistd.close(fd));
 // String is an reference-semantics type with automatic reference counting
 (my_string : String) = String.from("Hello, world"); // Heap-allocated
 my_string_2 := my_string; // Both point to the same object (RC incremented)
-
 // Primitive types are copied
 my_int := 1; // Stack-allocated
 my_int_2 := my_int; // my_int_2 is a copy
-
 // Fixed-size arrays are value types
 (my_int_array : Array(i32, 3)) = [1, 2, 3]; // Stack-allocated
 my_int_array := [1, 2, 3]; // Array(i32, 3)
-
 // ArrayList is an reference-semantics type
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
-
 // Enum/ADT can be value or reference-semantics type depending on definition
 Person :: struct(name : String, age : i32); // Value type (but holds a reference-semantics field)
 p := Person(name : String.from("Alice"), age : 30);
@@ -574,10 +558,8 @@ _(name, age) := p; // name : String, age : i32
 
 ```rust
 x : i32; // x : i32, uninitialized
-
 // Compiler prevents using uninitialized variable.
 println(x); // Compiler Error: x is uninitialized.
-
 x = 1; // x : i32, initialized
 ```
 
@@ -616,17 +598,14 @@ add :: (fn(x : i32, y : i32) -> i32)(
   x + y // Function body
 );
 // calling a function type with function body creates a function value
-
 // Or define type first, then implementation
 comptime(add) : (fn(x : i32, y : i32) -> i32);
 add = _(x + y); // `_` here infers the function type from `add`
-
 // or define the function body with anonymous function
-add = ((a, b) -> (a + b));  // Type inferred from usage. Can have different parameter names
-
+add = ((a, b) -> (a + b)); // Type inferred from usage. Can have different parameter names
 // With explicit return type
 multiply :: (fn(x : i32, y : i32) -> i32)({
-  return((x * y));  // Explicit return
+  return(x * y); // Explicit return
 });
 
 // Last expression is the return value
@@ -634,16 +613,18 @@ divide :: (fn(x : i32, y : i32) -> i32)(x / y);
 
 // Function can take `comptime` parameter and can return `comptime` value, like Type:
 Point :: (fn(comptime(T) : Type) -> comptime(Type))({
-  return(struct(
-    x : T,
-    y : T
-  ));
+  return(
+    struct(
+      x : T,
+      y : T
+    )
+  );
 });
 I32Point :: Point(i32);
 BoolPoint :: Point(bool);
 
-p1 := I32Point(3, 4);
-p2 := BoolPoint(true, false);
+p1 := I32Point(x : 3, y : 4);
+p2 := BoolPoint(x : true, y : false);
 ```
 
 ### Named arguments
@@ -651,12 +632,12 @@ p2 := BoolPoint(true, false);
 Named arguments in Yo must be provided in the same order as they are defined in the function signature:
 
 ```rust
-add :: (fn(x : i32, y : i32) -> i32)((x + y));
+add :: (fn(x : i32, y : i32) -> i32)(x + y);
 
-add(3, 4);        // OK: Positional arguments
-add(x: 3, y: 4);  // OK: Named arguments in correct order
-add(3, y: 4);     // OK: Mixed (positional then named)
-add(y: 4, x: 3);  // Error: Named arguments must be in order (x before y)
+add(3, 4); // OK: Positional arguments
+add(x : 3, y : 4); // OK: Named arguments in correct order
+add(3, y : 4); // OK: Mixed (positional then named)
+add(y : 4, x : 3); // Error: Named arguments must be in order (x before y)
 ```
 
 ### Default parameter values
@@ -664,15 +645,12 @@ add(y: 4, x: 3);  // Error: Named arguments must be in order (x before y)
 Default parameter values can be defined using `?=` syntax:
 
 ```rust
-create_user :: (fn(
-    name: String,
-    (age: i32) ?= 18,
-  ) -> User)(
-  User(name: name, age: age)
+create_user :: (fn(name : String, (age : i32) ?= i32(18)) -> User)(
+  User(name : name, age : age)
 );
 
-create_user(name: "Alice");  // Uses defaults: age=18
-create_user(name: "Bob", age: 30);  // Explicit age
+create_user(name : `Alice`); // Uses defaults: age=18
+create_user(name : `Bob`, age : i32(30)); // Explicit age
 ```
 
 > Note: Default parameters must use compile-time known values.
@@ -684,8 +662,8 @@ You can use `generic` to define generic functions:
 ```rust
 identity :: (fn(generic(T : Type), arg : T) -> T)(arg);
 
-x := identity(12);     // Type inferred: x: i32
-y := identity(true);   // Type inferred: y: bool
+x := identity(12); // Type inferred: x: i32
+y := identity(true); // Type inferred: y: bool
 ```
 
 A generic body is type-checked when it is specialized: its result must match the declared
@@ -731,19 +709,21 @@ scale(i32.default(), n);   // error[E1101]: Parameter `factor` is `comptime` and
 You can use `where` clause to add type constraints on generic parameters:
 
 ```rust
-add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)((x + y));
+add :: (fn(generic(T : Type), x : T, y : T, where(T <: Add(T))) -> T)(x + y);
 ```
 
 `where` clause can specify multiple constraints:
 
 ```rust
-compare_and_add :: (fn(
+compare_and_add :: (
+  fn(
     generic(T : Type),
-    x: T,
-    y: T,
-    z: T,
+    x : T,
+    y : T,
+    z : T,
     where(T <: (Add(T), Eq(T)))
-  ) -> T)(
+  ) -> T
+)(
   cond(
     (x == y) => (x + z),
     true => (y + z)
@@ -765,17 +745,17 @@ impl(Point, T2(get_number : (self -> self.y)));
 
 // Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
 use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
-  return(self.get_number());  // Returns self.x (10)
+  return(self.get_number()); // Returns self.x (10)
 });
 
 // Explicit dispatch — (T <: T2).method(self) syntax
 use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
-  return((T <: T2).get_number(self));  // Returns self.y (20)
+  return((T <: T2).get_number(self)); // Returns self.y (20)
 });
 
 point := Point(10, 20);
-use_t1(point);  // 10
-use_t2(point);  // 20
+use_t1(point); // 10
+use_t2(point); // 20
 ```
 
 ### Partial Application with `_`
@@ -785,11 +765,10 @@ Multi-parameter type constructors can be partially applied using `_` as a placeh
 ```rust
 // Result has kind: (Type, Type) -> Type
 // Partial application fixes one parameter:
-IntResult :: Result(_, i32);    // kind: Type -> Type
-StrOkResult :: Result(str, _);  // kind: Type -> Type
-
+IntResult :: Result(_, i32); // kind: Type -> Type
+StrOkResult :: Result(str, _); // kind: Type -> Type
 // Use like any type constructor:
-(r : IntResult(bool)) = .Ok(true);      // = Result(bool, i32)
+(r : IntResult(bool)) = .Ok(true); // = Result(bool, i32)
 (r2 : StrOkResult(i32)) = .Err(i32(404)); // = Result(str, i32)
 ```
 
@@ -797,12 +776,11 @@ Partial application works **only** on comptime functions (functions whose return
 
 ```rust
 // Type constructors (return comptime(Type)):
-IntResult :: Result(_, i32);    // kind: Type -> Type
-
+IntResult :: Result(_, i32); // kind: Type -> Type
 // Comptime value functions (return comptime(i32), comptime(bool), etc.):
 add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
-add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
-result :: add1(i32(2));   // 3
+add1 :: add(i32(1), _); // fn(comptime(y) : i32) -> comptime(i32)
+result :: add1(i32(2)); // 3
 ```
 
 Partially applied type constructors can be used as HKT generic arguments:
@@ -827,26 +805,27 @@ Point :: struct(
   x : i32,
   y : i32
 );
-impl(Point,
+impl(
+  Point,
   // Type methods are defined in the struct's trait
-  distance_from_origin : (fn(self: Self) -> f64)(
+  distance_from_origin : (fn(self : Self) -> f64)(
     f64(
       sqrt(
         (self.x * self.x) +
-        (self.y * self.y)))
+          (self.y * self.y)
+      )
+    )
   ),
-
   move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
 );
 
-p := Point(3, 4);
-d := p.distance_from_origin();  // Type method call - OK
-
-p2 := Point(0, 0);
-p2.move_by(5, 10);  // `inout(self)` lowers to `Self*` — &(p2) is taken automatically
+p := Point(x : 3, y : 4);
+d := p.distance_from_origin(); // Type method call - OK
+p2 := Point(x : 0, y : 0);
+p2.move_by(5, 10); // `inout(self)` lowers to `Self*` — &(p2) is taken automatically
 // p2 is now Point(5, 10)
 ```
 
@@ -856,14 +835,15 @@ p2.move_by(5, 10);  // `inout(self)` lowers to `Self*` — &(p2) is taken automa
 
 ```rust
 Point :: struct(x : i32, y : i32);
-impl(Point,
+impl(
+  Point,
   set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
 
-p := Point(3, 4);
-p.set_x(10);  // No `&(p)` required — the compiler inserts it
+p := Point(x : 3, y : 4);
+p.set_x(10); // No `&(p)` required — the compiler inserts it
 ```
 
 ### Private members
@@ -873,7 +853,8 @@ A struct field or impl method whose name starts with `_` is **private**, and the
 ```rust
 // counter.yo
 Counter :: struct(_count : i32, label : String);
-impl(Counter,
+impl(
+  Counter,
   new : (fn(label : String) -> Counter)(Counter(_count : i32(0), label : label)),
   _bump : (fn(self : Self, by : i32) -> Counter)(
     Counter(_count : (self._count + by), label : self.label.clone())
@@ -886,13 +867,13 @@ export(Counter);
 // app/main.yo — a different directory
 { Counter } :: import("../counter.yo");
 c := Counter.new(String.from("clicks")).add(i32(2));
-c.count();                                  // OK — public method
-c.label;                                    // OK — public field
-c._count;                                   // error[E0405]: Field "_count" of Counter is private to its declaring module
-c._bump(i32(1));                            // error[E0405]: Method "_bump" of Counter is private to its declaring module
-Counter(_count : i32(9), label : c.label);  // error[E0405]: Cannot construct Counter outside its declaring module: field "_count" is private
-{ _count } := c;                            // error[E0405]: Cannot destructure field "_count" of Counter outside its declaring module: it is private
-{ label } := c;                             // OK — naming only public fields
+c.count(); // OK — public method
+c.label; // OK — public field
+c._count; // error[E0405]: Field "_count" of Counter is private to its declaring module
+c._bump(i32(1)); // error[E0405]: Method "_bump" of Counter is private to its declaring module
+Counter(_count : i32(9), label : c.label); // error[E0405]: Cannot construct Counter outside its declaring module: field "_count" is private
+{ _count } := c; // error[E0405]: Cannot destructure field "_count" of Counter outside its declaring module: it is private
+{ label } := c; // OK — naming only public fields
 ```
 
 The rules that follow from this:
@@ -946,28 +927,29 @@ Reference-semantics types are heap-allocated types with automatic reference coun
 
 ```rust
 // Define a reference-semantics type
-MyString :: ref(struct(
-  _bytes : ArrayList(u8)
-));
-impl(MyString,
+MyString :: ref(
+  struct(
+    _bytes : ArrayList(u8)
+  )
+);
+impl(
+  MyString,
   // Methods
   from : (fn(s : str) -> Self)({
     // Implementation...
   }),
-
   length : (fn(self : Self) -> usize)({
     // Implementation...
   }),
-
   dispose : (fn(self : Self) -> unit)({
     // The `dispose` function is called when the reference count reaches zero
   })
 );
 
 // Usage
-s1 := MyString.from("Hello");  // RC = 1
-s2 := s1;                    // RC = 2 (both point to same object)
-s3 := s2;                    // RC = 3
+s1 := MyString.from("Hello"); // RC = 1
+s2 := s1; // RC = 2 (both point to same object)
+s3 := s2; // RC = 3
 // When s1, s2, s3 go out of scope, RC decrements
 // When RC reaches 0, memory is freed
 // In practice, we eliminate many RC operations via ownership analysis
@@ -988,13 +970,15 @@ Yo uses pointers (`*(T)`) for direct memory access, similar to C. Operations tha
 x := 1;
 y := 2;
 
-swap :: (fn(a : *(i32), b : *(i32)) -> unit)(unsafe({
-  tmp := a.*;  // Dereference pointer
-  a.* = b.*;
-  b.* = tmp;
-}));
+swap :: (fn(a : *i32, b : *i32) -> unit)(
+  unsafe({
+    tmp := a.*; // Dereference pointer
+    a.* = b.*;
+    b.* = tmp;
+  })
+);
 
-swap(&(x), &(y));  // Pass pointers to x and y
+swap(&x, &y); // Pass pointers to x and y
 // Now x == 2, y == 1
 ```
 
@@ -1005,22 +989,18 @@ For day-to-day in-place mutation, prefer the `inout(name) : T` parameter form (s
 ```rust
 // Create pointer with & operator
 x := 42;
-ptr := &(x);  // ptr: *(i32)
-
+ptr := &x; // ptr: *(i32)
 // Dereference with .* (requires unsafe — may read invalid memory)
-value := unsafe(ptr.*);  // value == 42
-
+value := unsafe(ptr.*); // value == 42
 // Modify through pointer (requires unsafe — could write to invalid memory)
-unsafe(ptr.* = 100);  // x is now 100
-
+unsafe(ptr.* = 100); // x is now 100
 // Pointer arithmetic (requires unsafe — could produce OOB address)
 arr := [1, 2, 3, 4, 5];
-ptr := &(arr(0));  // Pointer to first element
-ptr2 := unsafe(ptr.add(2));  // Point to third element
-value := unsafe(ptr2.*);  // value == 3
-
+ptr := &arr(0); // Pointer to first element
+ptr2 := unsafe(ptr.add(2)); // Point to third element
+value := unsafe(ptr2.*); // value == 3
 // Pointer casting (safe — just changes type label on the address)
-float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
+float_ptr := (*f32)(ptr); // Cast pointer to *(f32)
 ```
 
 ### Pointer Arithmetic and Comparison
@@ -1030,24 +1010,22 @@ Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` �
 ```rust
 test("Pointer arithmetic", {
   x := 12;
-  p := &(x);
+  p := &x;
 
   // Addition and subtraction (require unsafe — could produce
   // out-of-bounds addresses):
-  q := unsafe(p.add(2));   // Advance pointer by 2 elements
-  z := unsafe(q.sub(2));   // Go back 2 elements
-
+  q := unsafe(p.add(2)); // Advance pointer by 2 elements
+  z := unsafe(q.sub(2)); // Go back 2 elements
   // Comparison operators (safe — addresses are just data):
-  assert(q > p);  // q is after p
-  assert(p < q);  // p is before q
+  assert(q > p); // q is after p
+  assert(p < q); // p is before q
   assert(q >= p); // Greater or equal
   assert(p <= q); // Less or equal
   assert(z == p); // Equal (same address)
   assert(p != q); // Not equal
-
   // Pointer difference also requires unsafe (assumes both point
   // into the same object):
-  diff := unsafe(q.offset_from(p));  // Distance: 2 elements
+  diff := unsafe(q.offset_from(p)); // Distance: 2 elements
   assert(diff == 2);
 });
 ```
@@ -1071,8 +1049,7 @@ Comparison (ordinary operators via `Eq`/`Ord` on `*(T)`, safe):
 
 ```rust
 // Without consume - Error: tries to drop uninitialized value
-ptr.* = some_value;  // Danger!
-
+ptr.* = some_value; // Danger!
 // With consume - OK: initialization, no drop
 consume(ptr.* = some_value);
 ```
@@ -1086,7 +1063,8 @@ Yo uses `Option(*(T))` for nullable pointers:
 ```rust
 // malloc returns Option(*(void)) — it is NOT generic, so cast before use.
 some_ptr := malloc(sizeof(i32));
-match(some_ptr,
+match(
+  some_ptr,
   .Some(vp) => {
     ptr := (*i32)(vp);
     ptr.* = i32(42);
@@ -1113,17 +1091,19 @@ Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.
 
 ```rust
 // Pointer deref requires unsafe:
-read :: (fn(p : *(i32)) -> i32)(unsafe(p.*));
+read :: (fn(p : *i32) -> i32)(unsafe(p.*));
 
 // Pointer arithmetic likewise:
-advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p.add(n)));
+advance :: (fn(p : *i32, n : usize) -> *i32)(unsafe(p.add(n)));
 
 // Multi-statement unsafe with begin-block (semicolons required —
 // `{ ... }` without semicolons is a struct literal, not a block):
-write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
-  p.* = v;
-  p.*
-}));
+write_and_read :: (fn(p : *i32, v : i32) -> i32)(
+  unsafe({
+    p.* = v;
+    p.*
+  })
+);
 
 // Pointer comparison (==, <, etc.) and *(T) casts (e.g., (*u8)(p))
 // stay safe — they don't dereference, so they're not gated.
@@ -1141,9 +1121,9 @@ For an at-a-glance audit, run `yo unsafe-report` (or `yo unsafe-report ./std` fo
 // File without pragma — `unsafe(...)` is rejected:
 main :: (fn() -> unit)({
   x := i32(42);
-  v := unsafe(x);   // error: 'unsafe(...)' is not available in safe code.
-                    //        To use raw pointer operations, declare at the top:
-                    //            pragma(Pragma.AllowUnsafe);
+  v := unsafe(x); // error: 'unsafe(...)' is not available in safe code.
+  //        To use raw pointer operations, declare at the top:
+  //            pragma(Pragma.AllowUnsafe);
 });
 
 // Opt in by adding the pragma at the top of the file:
@@ -1151,8 +1131,8 @@ pragma(Pragma.AllowUnsafe);
 
 main :: (fn() -> unit)({
   x := i32(42);
-  p := &(x);
-  v := unsafe(p.*);  // OK
+  p := &x;
+  v := unsafe(p.*); // OK
 });
 ```
 
@@ -1174,14 +1154,14 @@ increment :: (fn(inout(n) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // no `&()` syntax at the call site
-  assert((x == i32(2)), "swapped");
-  assert((y == i32(1)), "swapped");
+  swap(x, y); // no `&()` syntax at the call site
+  assert(x == i32(2), "swapped");
+  assert(y == i32(1), "swapped");
 
   counter := i32(0);
   increment(counter);
   increment(counter);
-  assert((counter == i32(2)), "incremented");
+  assert(counter == i32(2), "incremented");
 });
 ```
 
@@ -1193,7 +1173,7 @@ double :: (fn(inout(n) : i32) -> unit)({
 });
 
 double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
-  double(x);  // passes &x through to double's inout-param
+  double(x); // passes &x through to double's inout-param
   double(y);
 });
 ```
@@ -1204,7 +1184,7 @@ Yo automatically manages memory for reference-semantics types through reference 
 
 ```rust
 test :: (fn() -> unit)({
-  x := String.from("World!");  // RC = 1
+  x := String.from("World!"); // RC = 1
   // ... use x ...
   // At end of scope, RC is decremented
   // If RC reaches 0, memory is automatically freed
@@ -1217,39 +1197,42 @@ A tuple is defined as a sequence of elements of different types, separated by co
 
 ```rust
 my_unit := (); // my_unit: unit.
-
-my_i32_tuple := (12);  // my_i32_tuple: i32
+my_i32_tuple := 12; // my_i32_tuple: i32
 // Needs extra comma to make it a tuple
 my_i32_tuple := (12,); // my_i32_tuple: (i32;). Free type
-
 // NOTE the separator: tuple VALUES use commas, tuple TYPES use SEMICOLONS.
-(i32_tuple : (i32; i32; i32)) = (1, 2, 3);
+(
+  i32_tuple : (
+    i32;
+    i32;
+    i32
+  )
+) = (1, 2, 3);
 
 mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32; bool; str)
-
 (a, b, c) := mixed_tuple; // a: i32, b: bool, c: str
-
 a := mixed_tuple.0;
 b := mixed_tuple.1;
 c := mixed_tuple.2;
 
 // NOTE: a 1-element tuple TYPE still needs the separator, or it is just the
 // element type itself.
-MyTuple :: (i32);
+MyTuple :: i32;
 // is equivalent to
 MyTuple :: i32;
 // to make it a 1-element tuple type:
-MyTuple :: (i32;);
+MyTuple :: (
+  i32;
+);
 ```
 
 ## Array & Ranges
 
 ```rust
-i32_array := [i32;_](1, 2, 3); // i32_array: [i32; 3]
-                              // In C: int i32_array[3] = {1, 2, 3};
+i32_array := [i32 ; _](1, 2, 3); // i32_array: [i32; 3]
+// In C: int i32_array[3] = {1, 2, 3};
 i32_array.len(); // 3, compile-time known
-
-(i32_array2 : [i32; _]) = [1, 2, 3]; // i32_array2: [i32; 3]
+(i32_array2 : [i32 ; _]) = [1, 2, 3]; // i32_array2: [i32; 3]
 ```
 
 There is no heap-backed slice type in Yo. Views that could dangle when
@@ -1270,14 +1253,15 @@ the underlying buffer is freed are excluded by construction:
 
 ```rust
 list := ArrayList(i32).new();
-list.push(i32(1)); list.push(i32(2)); list.push(i32(3)); list.push(i32(4));
+list.push(i32(1));
+list.push(i32(2));
+list.push(i32(3));
+list.push(i32(4));
 
 // Copy of elements 1..3 (end-exclusive) — an independent ArrayList(i32)
-part := list(usize(1)..usize(3));   // [2, 3]
-
+part := list(usize(1) .. usize(3)); // [2, 3]
 // End-inclusive variant
-part2 := list(usize(1)..=usize(3)); // [2, 3, 4]
-
+part2 := list(usize(1) ..= usize(3)); // [2, 3, 4]
 // Mutating the copy does not affect the source
 part(usize(0)) = i32(99);
 assert(list(usize(1)) == i32(2));
@@ -1292,13 +1276,11 @@ Arrays in Yo come with useful methods:
 Create an array filled with a value:
 
 ```rust
-// `fill` requires a COMPILE-TIME value (it is defined under `where(T <: Comptime)`
-// and takes a `comptime(val)`), so there is no runtime fill. The two forms below
-// differ only in binding the comptime result to a runtime (`:=`) or comptime (`::`) name.
-zeros := Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
-
-// Fill at compile-time
-ones :: Array(i32, 5).fill(1);    // [1,1,1,1,1]
+// `fill` requires a COMPILE-TIME value argument (it is defined under
+// `where(T <: Comptime)` and takes a `comptime(val)`), but its RESULT is a
+// runtime value — bind it with `:=` (`::` is rejected: "Got runtime value").
+zeros := Array(i32, 10).fill(0); // [0,0,0,0,0,0,0,0,0,0]
+ones := Array(i32, 5).fill(1); // [1,1,1,1,1]
 ```
 
 #### Array.len
@@ -1306,12 +1288,11 @@ ones :: Array(i32, 5).fill(1);    // [1,1,1,1,1]
 Get the length of an array:
 
 ```rust
-arr := [1, 2, 3, 4, 5];
-len := arr.len();  // 5 (a runtime value; the length is in the TYPE, reachable
-                   //    at compile time via Type.get_info([i32; 5]) -> .Array(_, n))
-
+arr :: [1, 2, 3, 4, 5];
+len := arr.len(); // 5 (a runtime value; the length is in the TYPE, reachable
+//    at compile time via Type.get_info([i32; 5]) -> .Array(_, n))
 // Works with generic arrays
-generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T; n]) -> usize)(arr.len());  // Returns n
+generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T ; n]) -> usize)(arr.len()); // Returns n
 ```
 
 ### Array Length Inference
@@ -1320,31 +1301,28 @@ Yo can infer array lengths using `_`:
 
 ```rust
 // Infer length from initializer
-arr1 := Array(i32, _)(1, 2, 3);         // Array(i32, 3)
-arr2 := [i32; _](10, 20, 30, 40);       // Array(i32, 4)
-
+arr1 :: Array(i32, _)(1, 2, 3); // Array(i32, 3)
+arr2 :: [i32 ; _](10, 20, 30, 40); // Array(i32, 4)
 // Literal syntax with inferred length
-arr3 := [1, 2, 3];                      // Array(i32, 3)
-
+arr3 :: [1, 2, 3]; // Array(i32, 3)
 // Empty array
-empty := Array(i32, _)();               // Array(i32, 0)
-
+empty :: Array(i32, _)(); // Array(i32, 0)
 // Nested arrays with inference
-nested := Array(Array(i32, _), _)(
+nested :: Array(Array(i32, _), _)(
   Array(i32, _)(1, 2, 3),
   Array(i32, _)(4, 5, 6)
-);                                       // Array(Array(i32, 3), 2)
+); // Array(Array(i32, 3), 2)
 ```
 
 **Restriction**: Cannot use `_` in variable bindings without initialization:
 
 ```rust
 // Error: Cannot infer length
-arr : Array(i32, _);  // Not allowed!
+arr : Array(i32, _); // Not allowed!
 arr = [1, 2, 3];
 
 // Correct: Use concrete length or initialize immediately
-arr := Array(i32, _)(1, 2, 3);  // OK
+arr := Array(i32, _)(1, 2, 3); // OK
 ```
 
 ### Array Assignment and Copying
@@ -1353,21 +1331,13 @@ Arrays are value types and are copied on assignment:
 
 ```rust
 // Create arrays
-arr1 := [1, 2, 3];
-arr2 := arr1;       // arr2 is a copy of arr1
-
+arr1 := [i32(1), i32(2), i32(3)];
+arr2 := arr1; // arr2 is a copy of arr1
 // Modify arr2
-arr2(0) = 10;
+arr2(usize(0)) = i32(10);
 
-assert(arr1(0) == 1);   // arr1 unchanged
-assert(arr2(0) == 10);  // arr2 modified
-
-// Assignment returns old value
-arr3 := [5, 6, 7];
-old := (arr3 = [8, 9, 10]);
-
-assert(arr3(0) == 8);   // arr3 has new value
-assert(old(0) == 5);    // old has previous value
+assert(arr1(usize(0)) == i32(1), "arr1 unchanged");
+assert(arr2(usize(0)) == i32(10), "arr2 modified");
 ```
 
 For more array examples, see [array.test.yo](../tests/array.test.yo).
@@ -1405,7 +1375,7 @@ the full rules, including the `unwrap` ban.
 ### cond
 
 ```rust
-use_cond :: (fn(x: i32) -> unit)(
+use_cond :: (fn(x : i32) -> unit)(
   cond(
     (x == 1) => println("x is 1"),
     (x == 2) => println("x is 2"),
@@ -1429,11 +1399,13 @@ specification and as a fallback for dynamically constructed ASTs (see
 
 ```rust
 // Definition in prelude.yo (spec/fallback — normally desugared at parse time)
-if :: (fn(
-        quote(condition): Expr,
-        quote(then): Expr,
-        (quote(else): Expr) ?= quote(())
-      ) -> unquote(Expr))(
+if :: (
+  fn(
+    quote(condition) : Expr,
+    quote(then) : Expr,
+    (quote(else) : Expr) ?= quote(())
+  ) -> unquote(Expr)
+)(
   quote(
     cond(
       unquote(condition) => unquote(then),
@@ -1447,11 +1419,15 @@ main :: (fn() -> unit)({
   // If no return type, it is unit
   number := 3;
 
-  if(number < 5, then: {
-    println("condition was true");
-  }, else: {
-    println("condition was false");
-  });
+  if(
+    number < 5,
+    then : {
+      println("condition was true");
+    },
+    else : {
+      println("condition was false");
+    }
+  );
 
   if(number < 5, println("condition was true"), println("condition was false"));
 });
@@ -1463,7 +1439,7 @@ main :: (fn() -> unit)({
 `while(condition, step, body)`
 
 ```rust
-factorial :: (fn(n: i32) -> i32)({
+factorial :: (fn(n : i32) -> i32)({
   result := 1;
   i := 1;
   while(i <= n, {
@@ -1473,10 +1449,10 @@ factorial :: (fn(n: i32) -> i32)({
   result
 });
 
-factorial2 :: (fn(n: i32) -> i32)({
+factorial2 :: (fn(n : i32) -> i32)({
   result := 1;
   i := 1;
-  while((i <= n), (i = (i + 1)), {
+  while(i <= n, i = (i + 1), {
     result = (result * i);
   });
   result
@@ -1499,17 +1475,22 @@ To implement `Iterator` for a type, provide the `Item` type and a `next` functio
 ```rust
 Counter :: struct(_current : i32, _max : i32);
 
-impl(Counter, Iterator(
-  Item : i32,
-  next : (self -> cond(
-    (self._current >= self._max) => .None,
-    true => {
-      val := self._current;
-      self._current = (self._current + i32(1));
-      .Some(val)
-    }
-  ))
-));
+impl(
+  Counter,
+  Iterator(
+    Item : i32,
+    next : (
+      self -> cond(
+        (self._current >= self._max) => .None,
+        true => {
+          val := self._current;
+          self._current = (self._current + i32(1));
+          .Some(val)
+        }
+      )
+    )
+  )
+);
 ```
 
 The `IntoIterator` trait converts a collection into an iterator. It has a `where` clause that constrains the `IntoIter` associated type to implement `Iterator` with the matching `Item` type:
@@ -1527,7 +1508,7 @@ The `for` macro provides syntactic sugar for iterating. It calls `.next()` in a 
 
 ```rust
 // for loop syntax
-for(iter_expr, (variable) => {
+for(iter_expr, variable => {
   // body
 });
 ```
@@ -1539,12 +1520,12 @@ The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `co
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
-for(list, (value) => {
+for(list, value => {
   println(value);
 });
 
 // Reference-semantics elements are handles — mutation lands in the collection.
-for(names, (s) => {
+for(names, s => {
   s.push_str("!");
 });
 
@@ -1580,22 +1561,22 @@ There is also some optimization on the ADT. For example, if the ADT has only one
 In addition, if there is only one variant with one field, the field type will be used directly instead of wrapping it in a record. This is like the [newtype](https://wiki.haskell.org/Newtype) in Haskell.
 
 ```rust
-Option :: (fn(comptime(T) : Type) -> comptime(Type))
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Some(value : T),
     None
   )
-;
+);
 
-(none: Option(i32)) = .None;
-(some: Option(i32)) = .Some(42);
+(none : Option(i32)) = .None;
+(some : Option(i32)) = .Some(i32(42));
 
 IpAddr :: enum(
   V4(a : u8, b : u8, c : u8, d : u8),
   V6(v : String)
 );
 
-home := IpAddr.V4(127, 0, 0, 1);
+home := IpAddr.V4(u8(127), u8(0), u8(0), u8(1));
 loopback := IpAddr.V6(String.from("::1"));
 
 // Use record as variant
@@ -1607,8 +1588,8 @@ Message :: enum(
 );
 
 m := Message.Write(String.from("hello"));
-m := Message.Move(x: 3, y: 4);
-m := Message.ChangeColor(r: 1, g: 2, b: 3);
+m = Message.Move(i32(3), i32(4));
+m = Message.ChangeColor(i32(1), i32(2), i32(3));
 ```
 
 ## Advanced Type System
@@ -1629,15 +1610,17 @@ Declare a generic parameter with a function-type kind to accept type constructor
 
 ```rust
 // F is a type constructor (kind: Type → Type)
-identity :: (fn(
-  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
-  x: F(A)
-) -> F(A))(x);
+identity :: (
+  fn(
+    generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+    x : F(A)
+  ) -> F(A)
+)(x);
 
 // Usage:
 (x : Option(i32)) = .Some(i32(42));
-result := identity(generic(Option, i32), x);  // result: Option(i32)
-inferred := identity(x);                      // F = Option, A = i32 from the argument
+result := identity(generic(Option, i32), x); // result: Option(i32)
+inferred := identity(x); // F = Option, A = i32 from the argument
 ```
 
 A kind-annotated parameter is inferred from an argument's instantiation: `x : F(A)` given an
@@ -1652,40 +1635,47 @@ Define traits parameterized by type constructors:
 // Functor trait — F is a type constructor
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    map : (fn(generic(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
   )
 );
 
 // Implement Functor for Option
-impl(generic(A : Type), Option(A), Functor(Option)(
-  map : (fn(generic(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
-    match(self,
-      .Some(v) => .Some(f(v)),
-      .None => .None
+impl(
+  generic(A : Type),
+  Option(A),
+  Functor(Option)(
+    map : (fn(generic(A : Type, B : Type), self : Option(A), f : (fn(a : A) -> B)) -> Option(B))(
+      match(
+        self,
+        .Some(v) => .Some(f(v)),
+        .None => .None
+      )
     )
   )
-));
+);
 
 // Use the trait method
 (x : Option(i32)) = .Some(i32(42));
-result := x.map(generic(i32), (fn(a: i32) -> i32)((a + i32(1))));
+result := x.map(generic(i32), (fn(a : i32) -> i32)(a + i32(1)));
 // result = .Some(i32(43))
 ```
 
 #### Generic functions with HKT where clauses
 
 ```rust
-do_map :: (fn(
-  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
-  container: F(A),
-  f: (fn(a : A) -> B),
-  where(F(A) <: Functor(F))
-) -> F(B))(
+do_map :: (
+  fn(
+    generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+    container : F(A),
+    f : (fn(a : A) -> B),
+    where(F(A) <: Functor(F))
+  ) -> F(B)
+)(
   container.map(generic(B), f)
 );
 
 (x : Option(i32)) = .Some(i32(10));
-result := do_map(generic(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+result := do_map(generic(Option, i32, i32), x, (fn(a : i32) -> i32)(a * i32(2)));
 // result = .Some(i32(20))
 ```
 
@@ -1709,15 +1699,18 @@ When pattern matching on a GADT value, the type system refines type variables in
 
 ```rust
 eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
-  match(v,
-    .IntVal(i) => i,      // T refined to i32, returns i32 ✓
-    .BoolVal(b) => b,     // T refined to bool, returns bool ✓
-    .PairVal(a, b) => a   // T refined to i32, returns i32 ✓
+  match(
+    v,
+    .IntVal(i) => i,
+    // T refined to i32, returns i32 ✓
+    .BoolVal(b) => b,
+    // T refined to bool, returns bool ✓
+    .PairVal(a, b) => a // T refined to i32, returns i32 ✓
   )
 );
 
 v := Value(i32).IntVal(i32(42));
-result := eval_value(v);  // result : i32 = 42
+result := eval_value(v); // result : i32 = 42
 ```
 
 #### GADT exhaustiveness
@@ -1728,7 +1721,8 @@ When matching a GADT value with a concrete type, unreachable variants are exclud
 // Value(i32) can only be IntVal or PairVal
 // BoolVal is unreachable (it returns Value(bool), not Value(i32))
 eval_int_only :: (fn(v : Value(i32)) -> i32)(
-  match(v,
+  match(
+    v,
     .IntVal(i) => i,
     .PairVal(a, b) => a
     // No .BoolVal needed — it's unreachable for Value(i32)
@@ -1754,7 +1748,8 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
 );
 
 my_fst :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> A)(
-  match(p,
+  match(
+    p,
     .MkIntBool(x, y) => x,
     .MkBoolInt(x, y) => x
   )
@@ -1779,7 +1774,7 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     MInt(i : i32) -> recur(i32),
     MBool(b : bool) -> recur(bool),
-    MGeneric(v : T)  // no GADT annotation — unconstrained
+    MGeneric(v : T) // no GADT annotation — unconstrained
   )
 );
 ```
@@ -1789,13 +1784,12 @@ GADTs have the same runtime representation as regular enums — all type refinem
 ## C struct
 
 ```rust
-Point :: struct(x: i32, y: i32);
+Point :: struct(x : i32, y : i32);
 
 my_point := Point(
-  x: i32(10),
-  y: i32(20)
+  x : i32(10),
+  y : i32(20)
 );
-
 ```
 
 Compiles to C
@@ -1834,7 +1828,8 @@ newtype(
 rune :: newtype(
   char : u32
 );
-impl(rune,
+impl(
+  rune,
   // Constructor with validation
   from_u32 : (fn(value : u32) -> Option(Self))(
     cond(
@@ -1842,16 +1837,13 @@ impl(rune,
       true => .None
     )
   ),
-
   to_u32 : (fn(self : Self) -> u32)(self.char),
-
   is_ascii : (fn(self : Self) -> bool)(self.char <= u32(0x7F)),
-
   // Constants
-  NUL        : Self(char : 0x00),
-  TAB        : Self(char : 0x09),
-  NEWLINE    : Self(char : 0x0A),
-  SPACE      : Self(char : 0x20)
+  NUL : Self(char : 0x00),
+  TAB : Self(char : 0x09),
+  NEWLINE : Self(char : 0x0A),
+  SPACE : Self(char : 0x20)
 );
 ```
 
@@ -1901,8 +1893,10 @@ State :: enum(
   Failed
 );
 Week :: enum(
-  Monday, // 0
-  Tuesday, // 1
+  Monday,
+  // 0
+  Tuesday,
+  // 1
   Wednesday // 2
 );
 
@@ -1930,23 +1924,31 @@ Display :: trait(
 NewsArticle :: struct(
   headline : String,
   location : String,
-  author   : String,
-  content  : String
+  author : String,
+  content : String
 );
 
 // Implement the Summary trait for NewsArticle
-impl(NewsArticle, Summary(
-  summarize : ((self) ->
-    `${self.headline}, by ${self.author} (${self.location})`
+impl(
+  NewsArticle,
+  Summary(
+    summarize : (
+      self ->
+        `${self.headline}, by ${self.author} (${self.location})`
+    )
   )
-));
+);
 
 // Implement the Display trait for NewsArticle
-impl(NewsArticle, Display(
-  display : ((self) ->
-    `Headline: ${self.headline}\n`
+impl(
+  NewsArticle,
+  Display(
+    display : (
+      self ->
+        `Headline: ${self.headline}\n`
+    )
   )
-));
+);
 
 // Pass in function
 notify :: (fn(inout(item) : NewsArticle) -> unit)({
@@ -1991,8 +1993,9 @@ Coin :: enum(
 // Reference:
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-value_in_cents :: (fn(coin: Coin) -> u8)(
-  match(coin,
+value_in_cents :: (fn(coin : Coin) -> u8)(
+  match(
+    coin,
     .Penny => {
       printf("Lucky penny!\n");
       1
@@ -2005,11 +2008,12 @@ value_in_cents :: (fn(coin: Coin) -> u8)(
 
 Shape :: enum(
   Circle(r : i32),
-  Rectangle(w : i32 , h: i32)
+  Rectangle(w : i32, h : i32)
 );
 
-area :: (fn(shape: Shape) -> i32)(
-  match(shape,
+area :: (fn(shape : Shape) -> i32)(
+  match(
+    shape,
     .Circle(r) => (i32(3) * (r * r)),
     .Rectangle(w, h) => (w * h)
   )
@@ -2035,7 +2039,8 @@ parentheses.
 
 ```rust
 classify :: (fn(r : Result(Option(i32), str)) -> i32)(
-  match(r,
+  match(
+    r,
     .Ok(.Some(0)) => i32(0),
     (.Ok(.Some(v)) && (v < i32(0))) => i32(-1),
     .Ok(.Some(v)) => v,
@@ -2046,9 +2051,10 @@ classify :: (fn(r : Result(Option(i32), str)) -> i32)(
 );
 
 bucket :: (fn(n : i32) -> str)(
-  match(n,
-    (0..10) => "small",
-    (10..=99) => "medium",
+  match(
+    n,
+    (0 .. 10) => "small",
+    (10 ..= 99) => "medium",
     other => cond((other < i32(0)) => "negative", true => "large")
   )
 );
@@ -2075,7 +2081,7 @@ loudly at codegen; bind the payload and match again inside the arm).
 
 ```rust
 s := "Hello"; // s : str — a string literal is the builtin static string view `str`.
-(s2 : *(u8)) = "Hi"; // You can explicitly declare a C string pointer (unsafe-capable files only).
+(s2 : *u8) = "Hi"; // You can explicitly declare a C string pointer (unsafe-capable files only).
 s3 := (*u8)("Hi"); // Or use a pointer cast to get a C string pointer.
 ```
 
@@ -2122,14 +2128,14 @@ name := `ada`;
 n := i32(255);
 pi := f64(3.14159);
 
-`[${name:>8}]`    // "[     ada]"   right-align to width 8
-`[${name:<6}]`    // "[ada   ]"     left-align
-`[${name:^7}]`    // "[  ada  ]"    center
-`[${name:*>6}]`   // "[***ada]"     custom fill character
-`${n:x}`          // "ff"           lowercase hex
-`${n:#06x}`       // "0x00ff"       alternate form, zero-padded
-`${pi:.2}`        // "3.14"         two decimals
-`${pi:>8.3}`      // "   3.142"     width applies after precision
+`[${name:>8}]`; // "[     ada]"   right-align to width 8
+`[${name:<6}]`; // "[ada   ]"     left-align
+`[${name:^7}]`; // "[  ada  ]"    center
+`[${name:*>6}]`; // "[***ada]"    custom fill character
+`${n:x}`; // "ff"           lowercase hex
+`${n:#06x}`; // "0x00ff"       alternate form, zero-padded
+`${pi:.2}`; // "3.14"         two decimals
+`${pi:>8.3}`; // "   3.142"     width applies after precision
 ```
 
 Width is counted in CHARACTERS, and zero padding on a number goes between the
@@ -2178,7 +2184,8 @@ printf("Capacity: %zu\n", list.capacity());
 
 // Get elements by index
 first := list.get(usize(0));
-match(first,
+match(
+  first,
   .Some(value) => printf("First element: %d\n", value),
   .None => printf("No first element\n")
 );
@@ -2188,7 +2195,8 @@ list(usize(1)) = i32(150);
 
 // Pop an element
 popped := list.pop();
-match(popped,
+match(
+  popped,
   .Some(value) => printf("Popped: %d\n", value),
   .None => printf("List is empty\n")
 );
@@ -2213,8 +2221,10 @@ map := HashMap(i32, i32).new();
 
 // Insert key-value pairs
 result := map.insert(i32(1), i32(100));
-match(result,
-  .Ok(opt) => match(opt,
+match(
+  result,
+  .Ok(opt) => match(
+    opt,
     .None => printf("Inserted new key\n"),
     .Some(old_val) => printf("Updated, old value: %d\n", old_val)
   ),
@@ -2223,20 +2233,22 @@ match(result,
 
 // Get a value
 value_opt := map.get(i32(1));
-match(value_opt,
+match(
+  value_opt,
   .Some(v) => printf("Value: %d\n", v),
   .None => printf("Key not found\n")
 );
 
 // Check if key exists
 cond(
-  (map.contains_key(i32(1))) => printf("Contains key 1\n"),
+  map.contains_key(i32(1)) => printf("Contains key 1\n"),
   true => printf("Does not contain key 1\n")
 );
 
 // Remove a key
 removed := map.remove(i32(1));
-match(removed,
+match(
+  removed,
   .Some(v) => printf("Removed value: %d\n", v),
   .None => printf("Key not found\n")
 );
@@ -2244,7 +2256,7 @@ match(removed,
 // Check length and empty
 printf("Length: %zu\n", map.len());
 cond(
-  (map.is_empty()) => printf("Map is empty\n"),
+  map.is_empty() => printf("Map is empty\n"),
   true => printf("Map is not empty\n")
 );
 
@@ -2264,7 +2276,8 @@ set := HashSet(i32).new();
 
 // Insert elements
 result := set.insert(i32(42));
-match(result,
+match(
+  result,
   .Ok(was_new) => cond(
     was_new => printf("Inserted new element\n"),
     true => printf("Element already exists\n")
@@ -2274,7 +2287,7 @@ match(result,
 
 // Check if has
 cond(
-  (set.contains(i32(42))) => printf("Contains 42\n"),
+  set.contains(i32(42)) => printf("Contains 42\n"),
   true => printf("Does not contain 42\n")
 );
 
@@ -2299,14 +2312,16 @@ set2.insert(i32(4));
 
 // Union
 union_result := set1.union(set2);
-match(union_result,
+match(
+  union_result,
   .Ok(union_set) => printf("Union size: %zu\n", union_set.len()),
   .Error(_) => printf("Union failed\n")
 );
 
 // Intersection
 inter_result := set1.intersection(set2);
-match(inter_result,
+match(
+  inter_result,
   .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.len()),
   .Error(_) => printf("Intersection failed\n")
 );
@@ -2337,37 +2352,44 @@ list.push_front(i32(0));
 printf("Length: %zu\n", list.len());
 
 // Access front and back
-match(list.front(),
+match(
+  list.front(),
   .Some(v) => printf("Front: %d\n", v),
   .None => printf("List is empty\n")
 );
 
-match(list.back(),
+match(
+  list.back(),
   .Some(v) => printf("Back: %d\n", v),
   .None => printf("List is empty\n")
 );
 
 // Pop from front and back
-match(list.pop_front(),
+match(
+  list.pop_front(),
   .Some(v) => printf("Popped front: %d\n", v),
   .None => printf("List is empty\n")
 );
 
-match(list.pop_back(),
+match(
+  list.pop_back(),
   .Some(v) => printf("Popped back: %d\n", v),
   .None => printf("List is empty\n")
 );
 
 // Get by index
-match(list.get(usize(0)),
+match(
+  list.get(usize(0)),
   .Some(v) => printf("At index 0: %d\n", v),
   .None => printf("Index out of bounds\n")
 );
 
 // Insert at index
-match(list.insert(usize(1), i32(20)),
+match(
+  list.insert(usize(1), i32(20)),
   .Ok(_) => printf("Inserted at index 1\n"),
-  .Error(err) => match(err,
+  .Error(err) => match(
+    err,
     .IndexOutOfBounds => printf("Index out of bounds\n"),
     .EmptyList => printf("List is empty\n")
   )
@@ -2383,7 +2405,7 @@ drained := list.drain(usize(1) .. usize(3));
 
 // Check if has
 cond(
-  (list.contains(i32(20))) => printf("Contains 20\n"),
+  list.contains(i32(20)) => printf("Contains 20\n"),
   true => printf("Does not contain 20\n")
 );
 
@@ -2419,15 +2441,16 @@ test_closure :: (fn() -> unit)({
   x := 1;
 
   // Explicit closure type using Impl
-  (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
-    x = (x + y);
-    return(x);
-  });
+  (closure : Impl(Fn(y : i32) -> i32)) = (
+    y => {
+      x = (x + y);
+      return(x);
+    }
+  );
 
   closure(1); // x is now 2
   closure(1); // x is now 3
   result := closure(2); // x is now 5
-
   assert(result == 5);
 });
 ```
@@ -2439,7 +2462,7 @@ test_closure :: (fn() -> unit)({
   x := 1;
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
-  closure := (ClosureType {
+  closure := ClosureType({
     x = (x + y);
     return(x);
   });
@@ -2460,16 +2483,18 @@ Closures capture variables from their environment:
 ```rust
 test_capture :: (fn() -> unit)({
   // Value type - captured by value
-  counter := 0;
+  counter := i32(0);
 
   // Reference-semantics type - captured by reference
-  data := Box(i32)(42);
+  data := Box(i32)(i32(42));
 
-  closure := ((increment : i32) => {
-    counter = (counter + increment);  // Modifies local copy
-    data.* = (data.* + increment);     // Modifies shared object
-    return(counter);
-  });
+  (closure : Impl(Fn(increment : i32) -> i32)) = (
+    increment => {
+      counter = (counter + increment); // Modifies local copy
+      data.* = (data.* + increment); // Modifies shared object
+      return(counter);
+    }
+  );
 
   closure(5);
   // counter is still 0 (closure has its own copy)
@@ -2489,11 +2514,11 @@ test_error :: (fn() -> unit)({
   cond(
     some_condition() => {
       a := 1;
-      closure = ((y) => (y + a));  // Type 1
+      closure = (y => (y + a)); // Type 1
     },
     true => {
       b := 1;
-      closure = ((y) => (y + b));  // Type 2 - different!
+      closure = (y => (y + b)); // Type 2 - different!
     }
   );
   // Error: no two closures, even if identical, have the same type
@@ -2520,12 +2545,14 @@ The closure's body is checked against the result of the `Fn(...) -> R` it is pas
 Closures work seamlessly with reference-semantics types:
 
 ```rust
-MyBox :: ref(struct(
-  (*) : i32
-));
+MyBox :: ref(
+  struct(
+    (*) : i32
+  )
+);
 
 make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32))({
-  return((unit) => {
+  return(() => {
     start.* = (start.* + 1);
     return(start.*);
   });
@@ -2577,9 +2604,11 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 ```rust
 // Box is defined in std/prelude.yo
 Box :: (fn(comptime(V) : Type) -> comptime(Type))(
-  ref(struct(
-    (*) : V
-  ))
+  ref(
+    struct(
+      (*) : V
+    )
+  )
 );
 
 // box function creates a Box
@@ -2592,17 +2621,15 @@ box :: (fn(generic(V : Type), value : V) -> Box(V))(
 
 ```rust
 // Box a primitive value
-i := box(42);              // i: Box(i32)
-assert(i.* == 42);         // Dereference with .*
-
+i := box(42); // i: Box(i32)
+assert(i.* == 42); // Dereference with .*
 // Box a struct
-Point :: struct(x: i32, y: i32);
-p := box(Point(3, 4));     // p: Box(Point)
+Point :: struct(x : i32, y : i32);
+p := box(Point(x : 3, y : 4)); // p: Box(Point)
 assert(p.*.x == 3);
 
 // Box with explicit type
-b := Box(i32)(100);        // Same as box(100)
-
+b := Box(i32)(100); // Same as box(100)
 // Modify boxed value
 m := box(10);
 m.* = 20;
@@ -2614,10 +2641,9 @@ assert(m.* == 20);
 ```rust
 test("Box assignment behavior", {
   x := box(1);
-  y := (x = box(2));  // y gets the old value
-
-  assert(x.* == 2);   // x now points to new Box
-  assert(y.* == 1);   // y has the old Box
+  y := (x = box(2)); // y gets the old value
+  assert(x.* == 2); // x now points to new Box
+  assert(y.* == 1); // y has the old Box
 });
 ```
 
@@ -2628,13 +2654,12 @@ test("Box assignment behavior", {
 ```rust
 test("Box reference counting", {
   original := box(42);
-  copy := original;        // RC increment
-  another := copy;         // RC increment
-
+  copy := original; // RC increment
+  another := copy; // RC increment
   // All three point to the same Box
   assert(original.* == 42);
   original.* = 100;
-  assert(copy.* == 100);   // Shared!
+  assert(copy.* == 100); // Shared!
   assert(another.* == 100);
 
   // RC decrements when variables go out of scope
@@ -2653,10 +2678,10 @@ test("Box reference counting", {
 impl(i32, SomeTrait(...));
 
 // Value types must be boxed for Dyn
-use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({ ... };
+use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
 
 // Box the i32 for use with Dyn
-use_dyn(dyn box(42));
+use_dyn(dyn(box(i32(42))));
 ```
 
 ## Impl Types
@@ -2672,24 +2697,31 @@ Id :: trait(
 );
 
 // Function accepting any type implementing Id
-use_id :: (fn(
-  generic(T : Type),
-  value : T,
-  where(T <: Id)
-) -> T)({
+use_id :: (
+  fn(
+    generic(T : Type),
+    value : T,
+    where(T <: Id)
+  ) -> T
+)({
   return(value.id());
 });
 
 // Implement Id for i32
-impl(i32, Id(
-  id : ((self) -> {
-    printf("i32: %d\n", self);
-    return(self);
-  })
-));
+impl(
+  i32,
+  Id(
+    id : (
+      self -> {
+        printf("i32: %d\n", self);
+        return(self);
+      }
+    )
+  )
+);
 
 // Use it
-result := use_id(42);  // Prints "i32: 42", returns 42
+result := use_id(42); // Prints "i32: 42", returns 42
 ```
 
 ### Impl as Return Type
@@ -2734,11 +2766,13 @@ Run :: trait(
 );
 
 // Type must implement both Speak and Run
-perform :: (fn(
-  generic(T : Type),
-  actor : T,
-  where(T <: (Speak, Run))
-) -> unit)({
+perform :: (
+  fn(
+    generic(T : Type),
+    actor : T,
+    where(T <: (Speak, Run))
+  ) -> unit
+)({
   actor.speak();
   actor.run();
 });
@@ -2765,32 +2799,42 @@ Use `Dyn` to define dynamic dispatch types that can hold any object implementing
 
 ```rust
 Speak :: trait(
-  speak: (fn(self : Self) -> i32)
+  speak : (fn(self : Self) -> i32)
 );
 
 Run :: trait(
-  run: (fn(self : Self) -> i32)
+  run : (fn(self : Self) -> i32)
 );
 
 // Must be a reference-semantics type to work with Dyn
 Dog :: ref(struct());
 
-DogSpeak :: impl(Dog, Speak(
-  speak: ((self: Self) -> {
-    printf("Woof!\n");
-    return(1);
-  })
-));
+DogSpeak :: impl(
+  Dog,
+  Speak(
+    speak : (
+      (self : Self) -> {
+        printf("Woof!\n");
+        return(1);
+      }
+    )
+  )
+);
 
-DogRun :: impl(Dog, Run(
-  run: ((self: Self) -> {
-    printf("The dog is running!\n");
-    return(2);
-  })
-));
+DogRun :: impl(
+  Dog,
+  Run(
+    run : (
+      (self : Self) -> {
+        printf("The dog is running!\n");
+        return(2);
+      }
+    )
+  )
+);
 
 // Dyn type is reference counted - no & needed
-act :: (fn(s: Dyn(Speak, Run)) -> i32)((s.speak() + s.run()));
+act :: (fn(s : Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
 
 main :: (fn() -> unit)({
   dog := Dog();
@@ -2809,13 +2853,13 @@ main :: (fn() -> unit)({
 
 ```rust
 // Impl - static dispatch (monomorphization)
-use_impl :: (fn(generic(T), value: T, where(T <: SomeTrait)) -> unit)({
-  value.method();  // Statically dispatched
+use_impl :: (fn(generic(T : Type), value : T, where(T <: SomeTrait)) -> unit)({
+  value.method(); // Statically dispatched
 });
 
 // Dyn - dynamic dispatch (vtable)
-use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({
-  value.method();  // Dynamically dispatched
+use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({
+  value.method(); // Dynamically dispatched
 });
 ```
 
@@ -2862,18 +2906,20 @@ DivisionError :: enum(
 );
 
 // Function that can fail
-safe_div :: (fn(a: i32, b: i32) -> Result(i32, DivisionError))(
+safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivisionError))(
   cond(
     (b == i32(0)) => .Error(.DivideByZero),
-    true => .Ok((a / b))
+    true => .Ok(a / b)
   )
 );
 
 // Handle errors with pattern matching
 result := safe_div(10, 2);
-match(result,
+match(
+  result,
   .Ok(value) => printf("Result: %d\n", value),
-  .Error(error) => match(error,
+  .Error(error) => match(
+    error,
     .DivideByZero => printf("Error: Cannot divide by zero\n"),
     .Overflow => printf("Error: Overflow\n")
   )
@@ -2893,22 +2939,25 @@ MathError :: enum(
   DivisionByZero,
   NegativeSqrt
 );
-derive(MathError, Error(
-  .DivisionByZero => `Division by zero`,
-  .NegativeSqrt => `Square root of a negative number`
-));
+derive(
+  MathError,
+  Error(
+    .DivisionByZero => `Division by zero`,
+    .NegativeSqrt => `Square root of a negative number`
+  )
+);
 
 // The message is ordinary Yo, spliced into the arm that binds the payload, so
 // a variant's own fields interpolate by name:
 //   .NotFound(path : String)  =>  `not found: ${path}`
 // Writing the two impls by hand still works, and is the way to go when the
 // message is not a simple per-variant string.
-
 // AnyError is Dyn(Error) — any type implementing Error can be wrapped:
 (err : AnyError) = dyn(MathError.DivisionByZero);
 
 // Downcast back to the concrete type:
-match(downcast(err, MathError),
+match(
+  downcast(err, MathError),
   .Some(math_err) => printf("Got MathError\n"),
   .None => printf("Not a MathError\n")
 );
@@ -2924,7 +2973,7 @@ from the enclosing function:
 ```rust
 { Exception } :: import("std/error");
 
-safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
+safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   cond(
     (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
     true => (x / y)
@@ -2935,15 +2984,15 @@ safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
 // (Yo has no operator precedence).
 (exn : Exception) = Exception(
   throw : (
-    (err) -> {
-      println(`Error: ${err}`);  // prints "Error: Division by zero"
-      unwind(());                // discard continuation, return from enclosing fn
+    err -> {
+      println(`Error: ${err}`); // prints "Error: Division by zero"
+      unwind(()); // discard continuation, return from enclosing fn
     }
   )
 );
 
-result := safe_divide(6, 3, exn);     // result = 2
-safe_divide(10, 0, exn);         // handler fires, unwinds — code after this is unreached
+result := safe_divide(6, 3, exn); // result = 2
+safe_divide(10, 0, exn); // handler fires, unwinds — code after this is unreached
 ```
 
 ### ResumableException
@@ -2955,7 +3004,7 @@ recovery value:
 ```rust
 { ResumableException } :: import("std/error");
 
-safe_divide :: (fn(x: i32, y: i32, exn : ResumableException(i32)) -> i32)(
+safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(
     (y == i32(0)) => exn.throw(dyn(`division by zero`)),
     true => (x / y)
@@ -2964,15 +3013,15 @@ safe_divide :: (fn(x: i32, y: i32, exn : ResumableException(i32)) -> i32)(
 
 (exn : ResumableException(i32)) = ResumableException(i32)(
   throw : (
-    (err) -> {
+    err -> {
       println(`Error: ${err}`);
-      return(i32(0));  // resume with recovery value 0
+      return(i32(0)); // resume with recovery value 0
     }
   )
 );
 
-result := safe_divide(6, 3, exn);    // result = 2
-result2 := safe_divide(10, 0, exn);  // handler resumes with 0, result2 = 0
+result := safe_divide(6, 3, exn); // result = 2
+result2 := safe_divide(10, 0, exn); // handler resumes with 0, result2 = 0
 ```
 
 For more examples, see [error.test.yo](../tests/error.test.yo).
@@ -2985,17 +3034,17 @@ Yo uses **async/await with state machine transformation** for efficient **single
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  task1 := io.async((io : Io)=> {
+  task1 := io.async((io : Io) => {
     io.await(yield(io), io);
     return(i32(1));
   });
-  task2 := io.async((io : Io)=> {
+  task2 := io.async((io : Io) => {
     io.await(yield(io), io);
     return(i32(2));
   });
-  handle1 := io.spawn(task1, io);  // start task1, returns JoinHandle(i32)
-  handle2 := io.spawn(task2, io);  // start task2, returns JoinHandle(i32)
-  r1 := handle1.await(io);  // wait → Option(i32)
+  handle1 := io.spawn(task1, io); // start task1, returns JoinHandle(i32)
+  handle2 := io.spawn(task2, io); // start task2, returns JoinHandle(i32)
+  r1 := handle1.await(io); // wait → Option(i32)
   r2 := handle2.await(io);
 });
 export(main);
@@ -3032,19 +3081,17 @@ Use `atomic(ref(struct(...)))` when defining your own shared types.
 shared := arc(i32(42));
 
 // Dereference with .(*)  (borrowed, read-only)
-val := shared.(*);          // val == 42
-
+val := shared.*; // val == 42
 // Copying increments refcount
-copy := shared;             // refcount: 1 → 2
-
+copy := shared; // refcount: 1 → 2
 // Cross-thread sharing
 { Thread } :: import("std/thread");
 shared := arc(i32(42));
-t := Thread(unit).spawn((io) => {
-  assert((shared.(*) == i32(42)), "thread sees shared value");
+t := Thread(unit).spawn(io => {
+  assert(shared.* == i32(42), "thread sees shared value");
 });
 t.join();
-assert((shared.(*) == i32(42)), "main still sees shared value");
+assert(shared.* == i32(42), "main still sees shared value");
 ```
 
 See [ARC.md](./ARC.md) for full details.
@@ -3060,7 +3107,7 @@ export(test);
 
 // module2.yo
 // Export the type
-Option :: (fn(comptime(T): Type) -> comptime(Type))(
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Some(value : T),
     None
@@ -3167,8 +3214,8 @@ Yo has a built-in testing framework accessible via the `test` keyword.
 ```rust
 test("Test description", {
   // Test code here
-  x := 1 + 1;
-  assert(x == 2);
+  x := (1 + 1);
+  assert(x == 2, "x should be 2");
 });
 
 // Io is implicitly available via `io` in all test bodies
@@ -3247,24 +3294,21 @@ Verify that certain code produces compile-time errors:
 test("Expected compile errors", {
   // Expect an error without specific message
   comptime_expect_error({
-    x :: (1 / 0);  // Division by zero
+    x :: (1 / 0); // Division by zero
   });
 
   // Expect an error with specific message
-  comptime_expect_error(
-    {
-      arr : Array(i32, _);
-      arr = [1, 2, 3];
-    },
-    "Cannot infer array length in binding"
-  );
+  comptime_expect_error({
+    arr : Array(i32, _);
+    arr = [1, 2, 3];
+  }, "Cannot infer array length in binding");
 
   // Test that certain patterns are invalid
   comptime_expect_error({
-    closure1 := ((x) => (x + 1));
-    closure2 := ((x) => (x + 1));
+    closure1 := (x => (x + 1));
+    closure2 := (x => (x + 1));
     // Each closure has unique type
-    (c : typeof(closure1)) = closure2;  // Error!
+    (c : typeof(closure1)) = closure2; // Error!
   }, "no two closures have the same type");
 });
 ```
@@ -3275,7 +3319,6 @@ Organize related tests in the same file:
 
 ```rust
 // arithmetic.test.yo
-
 test("Addition", {
   assert((1 + 1) == 2);
   assert((5 + 3) == 8);
@@ -3302,14 +3345,21 @@ test("Division", {
 Test cleanup and disposal:
 
 ```rust
-MyBox :: ref(struct(
-  (*) : i32
-));
-impl(MyBox, Dispose(
-  dispose : (self -> {
-    printf("Disposing MyBox with value: %d\n", self.*);
-  })
-));
+MyBox :: ref(
+  struct(
+    (*) : i32
+  )
+);
+impl(
+  MyBox,
+  Dispose(
+    dispose : (
+      self -> {
+        printf("Disposing MyBox with value: %d\n", self.*);
+      }
+    )
+  )
+);
 
 test("Object disposal", {
   // Box is automatically disposed at end of scope
@@ -3340,12 +3390,9 @@ For comprehensive test examples, see the [tests/](../tests/) directory.
 `unquote_splicing` can only be used in `quote` to splice the values into the AST.
 
 ```rust
-x := quote(2); // comptime(x) : Expr
-
-list := quote((1, unquote(x), 3)); // tuple (1, 2, 3)
-
-list2 = quote((1, x, 3)); // tuple (1, x, 3)
-
+x :: quote(2); // comptime(x) : Expr
+list :: quote((1, unquote(x), 3)); // tuple (1, 2, 3)
+list2 :: quote((1, x, 3)); // tuple (1, x, 3)
 quote((0, unquote_splicing(list.get_args()), 4)); // tuple (0, 1, 2, 3, 4)
 ```
 
@@ -3376,7 +3423,7 @@ literals) never needs the pragma, and neither does working with quoted
 pragma(Pragma.AllowMacroDef);
 
 // Custom macro example — a lazy-body `unless`
-unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
+unless :: (fn(quote(condition) : Expr, quote(do) : Expr) -> unquote(Expr))(
   quote(
     cond(unquote(condition) => (), true => unquote(do))
   )
@@ -3388,10 +3435,13 @@ desugar `if(...)` calls to `cond(...)` at parse time, keeping this
 definition as the spec/fallback):
 
 ```rust
-if :: (fn(quote(condition): Expr,
-        quote(then): Expr,
-        (quote(else): Expr) ?= quote(())
-      ) -> unquote(Expr))(
+if :: (
+  fn(
+    quote(condition) : Expr,
+    quote(then) : Expr,
+    (quote(else) : Expr) ?= quote(())
+  ) -> unquote(Expr)
+)(
   quote(
     cond(
       unquote(condition) => unquote(then),
@@ -3426,10 +3476,10 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 
 // Now Point supports ==, !=, hashing, cloning, comparison, and string conversion
 main :: (fn() -> unit)({
-  p1 := Point(1, 2);
-  p2 := Point(1, 2);
-  assert((p1 == p2), "equal");
-  assert((p1.to_string() == `Point(1, 2)`), "to_string");
+  p1 := Point(x : 1, y : 2);
+  p2 := Point(x : 1, y : 2);
+  assert(p1 == p2, "equal");
+  assert(p1.to_string() == `Point(1, 2)`, "to_string");
 });
 export(main);
 ```
@@ -3451,16 +3501,18 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
     ),
     quote(&&)
   );
-  ctx.make_impl(quote(
-    MyEq(...#(trait_params))(
-      my_eq : ((self, other) -> #(eq_body))
+  ctx.make_impl(
+    quote(
+      MyEq(...#(trait_params))(
+        my_eq : ((self, other) -> #(eq_body))
+      )
     )
-  ))
+  )
 });
 derive_rule(MyEq, my_derive_eq);
 
 Point :: struct(x : i32, y : i32);
-derive(Point, MyEq(Point));  // Uses the registered derive_rule
+derive(Point, MyEq(Point)); // Uses the registered derive_rule
 ```
 
 ## Type Reflection
@@ -3480,19 +3532,20 @@ Compound variants carry metadata that can be extracted via `match`:
 
 ```rust
 // Extract array element type and length
-arr_info :: Type.get_info([i32; 3]);
+arr_info :: Type.get_info([i32 ; 3]);
 elem :: match(arr_info, .Array(e, _) => e, _ => unit);
 len :: match(arr_info, .Array(_, l) => l, _ => 0);
-comptime_assert((len == 3), "array length is 3");
+comptime_assert(len == 3, "array length is 3");
 
 // Inspect struct fields
 pt_info :: Type.get_info(Point);
 field_count :: match(pt_info, .Struct(f, _) => f.len(), _ => usize(0));
-comptime_assert((field_count == usize(2)), "Point has 2 fields");
+comptime_assert(field_count == usize(2), "Point has 2 fields");
 
 // Match dispatch on type info
 describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
-  match(Type.get_info(T),
+  match(
+    Type.get_info(T),
     .I32 => "32-bit signed integer",
     .Struct(_, _) => "struct type",
     .Enum(_) => "enum type",
@@ -3518,13 +3571,11 @@ Variables declared with `::` are compile-time constants:
 
 ```rust
 // Compile-time integer
-x :: 42;                    // comptime_int
-y :: (x + 10);              // comptime_int = 52
-
+x :: 42; // comptime_int
+y :: (x + 10); // comptime_int = 52
 // Compile-time type
-MyInt :: i32;               // comptime(Type)
-value := MyInt(100);        // Runtime i32
-
+MyInt :: i32; // comptime(Type)
+value := MyInt(100); // Runtime i32
 // Compile-time computation
 factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))(
   cond(
@@ -3532,7 +3583,7 @@ factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))(
     true => (n * recur(n - 1))
   )
 );
-result :: factorial(5);     // Computed at compile time: 120
+result :: factorial(5); // Computed at compile time: 120
 ```
 
 ### Compile-Time Arithmetic
@@ -3543,28 +3594,25 @@ All primitive operations can be performed at compile time:
 // Integer operations
 a :: 100;
 b :: 25;
-sum :: (a + b);            // 125
-diff :: (a - b);           // 75
-prod :: (a * b);           // 2500
-quot :: (a / b);           // 4
-rem :: (a % b);            // 0
-
+sum :: (a + b); // 125
+diff :: (a - b); // 75
+prod :: (a * b); // 2500
+quot :: (a / b); // 4
+rem :: (a % b); // 0
 // Comparison operations
-eq :: (a == b);            // false
-lt :: (b < a);             // true
-gte :: (a >= b);           // true
-
+eq :: (a == b); // false
+lt :: (b < a); // true
+gte :: (a >= b); // true
 // Floating-point operations
 pi :: f32(3.14159);
 radius :: f32(5.0);
-area :: (pi * (radius * radius));  // ~78.54
-
+area :: (pi * (radius * radius)); // ~78.54
 // Boolean operations
 flag1 :: true;
 flag2 :: false;
-and_result :: (flag1 && flag2);    // false
-or_result :: (flag1 || flag2);     // true
-not_result :: not(flag1);          // false
+and_result :: (flag1 && flag2); // false
+or_result :: (flag1 || flag2); // true
+not_result :: not(flag1); // false
 ```
 
 ### Compile-Time Arrays
@@ -3573,16 +3621,14 @@ Arrays with compile-time known lengths:
 
 ```rust
 // Inferred length
-arr :: [1, 2, 3, 4, 5];    // Array(i32, 5)
-len :: arr.len();          // 5 (compile-time)
-
-// Array.fill at compile time
-zeros :: Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
-
+arr :: [1, 2, 3, 4, 5]; // Array(i32, 5)
+len := arr.len(); // 5 (runtime read; the length also lives in the type)
+// Array.fill takes a comptime value, returns a runtime array
+zeros := Array(i32, 10).fill(0); // [0,0,0,0,0,0,0,0,0,0]
 // Generic array function
-create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T; n])(Array(T, n).fill(value));
+create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T ; n])(Array(T, n).fill(value));
 
-int_array :: create_array(i32, 5, 42);  // [42,42,42,42,42]
+int_array := create_array(i32, 5, 42); // [42,42,42,42,42]
 ```
 
 ### Compile-Time Assertions
@@ -3610,12 +3656,13 @@ Test that code produces compile-time errors:
 test("Expected compile errors", {
   // Verify that this code produces an error
   comptime_expect_error(
-    x :: (1 / 0),  // Division by zero
+    x :: (1 / 0),
+    // Division by zero
     "Division by zero"
   );
 
   comptime_expect_error({
-    arr : Array(i32, _);  // Cannot infer length in binding
+    arr : Array(i32, _); // Cannot infer length in binding
     arr = [1, 2, 3];
   });
 });
@@ -3627,26 +3674,22 @@ Understanding when things happen:
 
 ```rust
 // Compile-time: declared with :: or comptime(...)
-COMPT_VALUE :: 42;                // Computed at compile time
-ComptimeType :: i32;                 // Type selected at compile time
-
+COMPT_VALUE :: 42; // Computed at compile time
+ComptimeType :: i32; // Type selected at compile time
 // Runtime: declared with :=
-runtime_value := 42;              // Computed at runtime
-runtime_type := i32(100);         // Value created at runtime
-
+runtime_value := 42; // Computed at runtime
+runtime_type := i32(100); // Value created at runtime
 // Mixed: compile-time type, runtime value
-(x : i32) = 42;                   // Type known at compile time
-                                  // Value computed at runtime
-
+(x : i32) = 42; // Type known at compile time
+// Value computed at runtime
 // Compile-time function parameter
-array_fn :: (fn(comptime(n) : usize) -> Array(i32, n))
+array_fn :: (fn(comptime(n) : usize) -> Array(i32, n))(
   Array(i32, n).fill(0)
-;                                 // n must be known at compile time
-
+); // n must be known at compile time
 // Runtime function parameter
-increment :: (fn(x : i32) -> i32)
-  (x + 1)
-;                                 // x is runtime value
+increment :: (fn(x : i32) -> i32)(
+  x + 1
+); // x is runtime value
 ```
 
 ### Benefits of Compile-Time Evaluation

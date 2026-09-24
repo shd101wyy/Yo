@@ -86,10 +86,10 @@ std/sys/
 **导入模式**：使用命名空间导入以避免命名冲突，例如：
 
 ```rust
-file   :: import "std/sys/file";
-dir    :: import "std/sys/dir";
-tcp    :: import "std/sys/tcp";
-timer  :: import "std/sys/timer";
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+tcp :: import("std/sys/tcp");
+timer :: import("std/sys/timer");
 ```
 
 ---

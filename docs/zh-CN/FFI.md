@@ -78,7 +78,7 @@ c_include("<stdlib.h>", abs : (fn(x : int) -> int));
 
 ```rust
 { strlen, memcpy } :: import("std/libc/string");
-fcntl :: import("std/libc/fcntl");   // fcntl.open、fcntl.O_RDONLY
+fcntl :: import("std/libc/fcntl"); // fcntl.open、fcntl.O_RDONLY
 ```
 
 ## 名字不是 Yo 标识符的 C 类型

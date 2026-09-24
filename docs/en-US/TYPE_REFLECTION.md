@@ -23,17 +23,33 @@ comptime_assert(info2.is_struct(), "Point is a struct");
 ```rust
 TypeInfo :: enum(
   // === Primitives (fieldless) ===
-  Unit, Bool,
-  Usize, Isize,
-  U8, I8, U16, I16, U32, I32, U64, I64,
-  F32, F64,
-
+  Unit,
+  Bool,
+  Usize,
+  Isize,
+  U8,
+  I8,
+  U16,
+  I16,
+  U32,
+  I32,
+  U64,
+  I64,
+  F32,
+  F64,
   // === C-compatible primitives (fieldless) ===
-  Char, Short, UShort, Int, UInt,
-  Long, ULong, LongLong, ULongLong, LongDouble,
+  Char,
+  Short,
+  UShort,
+  Int,
+  UInt,
+  Long,
+  ULong,
+  LongLong,
+  ULongLong,
+  LongDouble,
   Void,
   Str,
-
   // === Compound types (with metadata) ===
   Array(element : Type, length : comptime_int),
   Tuple(fields : ComptimeList(TypeFieldInfo)),
@@ -44,19 +60,24 @@ TypeInfo :: enum(
   Ptr(pointee : Type),
   Iso(child : Type),
   Dyn(required_traits : ComptimeList(TraitInfo), negative_traits : ComptimeList(TraitInfo)),
-
   // === Meta types ===
   Trait(fields : ComptimeList(TraitFieldInfo), kind : TraitKind),
   Type(level : comptime_int),
-  Some(name : comptime_str, required_traits : ComptimeList(TraitInfo),
-       negative_traits : ComptimeList(TraitInfo), resolved_type : Type),
-
+  Some(
+    name : comptime_str,
+    required_traits : ComptimeList(TraitInfo),
+    negative_traits : ComptimeList(TraitInfo),
+    resolved_type : Type
+  ),
   // === Comptime only ===
-  ComptimeInt, ComptimeFloat, ComptimeStr,
+  ComptimeInt,
+  ComptimeFloat,
+  ComptimeStr,
   ComptimeList(element : Type),
-
   // === Metaprogramming (fieldless) ===
-  Expr, EffectsRow, TypeApplication
+  Expr,
+  EffectsRow,
+  TypeApplication
 );
 ```
 
@@ -94,14 +115,14 @@ Use `match` to extract metadata from compound variants:
 ### Array
 
 ```rust
-Arr3 :: [i32; 3];
+Arr3 :: [i32 ; 3];
 info :: Type.get_info(Arr3);
 
 elem :: match(info, .Array(e, _) => e, _ => unit);
 comptime_assert(__yo_are_types_compatible(elem, i32), "element is i32");
 
 len :: match(info, .Array(_, l) => l, _ => 0);
-comptime_assert((len == 3), "length is 3");
+comptime_assert(len == 3, "length is 3");
 ```
 
 ### Struct
@@ -111,9 +132,10 @@ Point :: struct(x : i32, y : i32);
 info :: Type.get_info(Point);
 
 field_count :: match(info, .Struct(f, _) => f.len(), _ => usize(0));
-comptime_assert((field_count == usize(2)), "Point has 2 fields");
+comptime_assert(field_count == usize(2), "Point has 2 fields");
 
-is_struct_kind :: match(info,
+is_struct_kind :: match(
+  info,
   .Struct(_, k) => match(k, .Struct => true, _ => false),
   _ => false
 );
@@ -127,7 +149,7 @@ Color :: enum(Red, Green, Blue);
 info :: Type.get_info(Color);
 
 variant_count :: match(info, .Enum(v) => v.len(), _ => usize(0));
-comptime_assert((variant_count == usize(3)), "Color has 3 variants");
+comptime_assert(variant_count == usize(3), "Color has 3 variants");
 ```
 
 ### Function
@@ -137,9 +159,10 @@ FnType :: (fn(x : i32, y : i32) -> bool);
 info :: Type.get_info(FnType);
 
 param_count :: match(info, .Function(fi) => fi.params.len(), _ => usize(0));
-comptime_assert((param_count == usize(2)), "2 parameters");
+comptime_assert(param_count == usize(2), "2 parameters");
 
-ret_is_bool :: match(info,
+ret_is_bool :: match(
+  info,
   .Function(fi) => __yo_are_types_compatible(fi.return_type, bool),
   _ => false
 );
@@ -149,7 +172,7 @@ comptime_assert(ret_is_bool, "returns bool");
 ### Pointer
 
 ```rust
-PtrI32 :: *(i32);
+PtrI32 :: *i32;
 info :: Type.get_info(PtrI32);
 
 pointee :: match(info, .Ptr(p) => p, _ => unit);
@@ -177,8 +200,9 @@ Represents an enum variant:
 VariantInfo :: struct(
   name : comptime_str,
   fields : ComptimeList(TypeFieldInfo),
-  _enum_type : Type,        // internal: parent enum type
-  _variant_index : usize  // internal: variant index
+  _enum_type : Type,
+  // internal: parent enum type
+  _variant_index : usize // internal: variant index
 );
 ```
 
@@ -287,7 +311,8 @@ Use `match` on `TypeInfo` for compile-time type dispatch:
 
 ```rust
 describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
-  match(Type.get_info(T),
+  match(
+    Type.get_info(T),
     .I32 => "32-bit signed integer",
     .Struct(_, _) => "struct type",
     .Enum(_) => "enum type",
@@ -297,8 +322,8 @@ describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
   )
 );
 
-comptime_assert((describe(i32) == "32-bit signed integer"), "i32 description");
-comptime_assert((describe(Point) == "struct type"), "Point description");
+comptime_assert(describe(i32) == "32-bit signed integer", "i32 description");
+comptime_assert(describe(Point) == "struct type", "Point description");
 ```
 
 ## Using with derive_rule
@@ -308,11 +333,14 @@ comptime_assert((describe(Point) == "struct type"), "Point description");
 ```rust
 // Using TypeInfo to check type kind in a derive rule (a derive rule is a
 // plain comptime function returning comptime(Expr) — not a macro)
-derive_rule(MyTrait, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
-  info :: Type.get_info(T);
-  comptime_assert(info.is_struct(), "MyTrait can only be derived for structs");
-  // ... generate the impl Expr using info, then ctx.make_impl(...)
-}));
+derive_rule(
+  MyTrait,
+  (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+    info :: Type.get_info(T);
+    comptime_assert(info.is_struct(), "MyTrait can only be derived for structs");
+    // ... generate the impl Expr using info, then ctx.make_impl(...)
+  })
+);
 ```
 
 For the full derive system documentation, see [DERIVE_TRAITS.md](./DERIVE_TRAITS.md).

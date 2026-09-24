@@ -45,12 +45,12 @@ asm(template, operands..., options...)
 asm("nop");
 
 // 读取时间戳计数器 — 单个输出
-tsc := asm("rdtsc",
+tsc := asm(
+  "rdtsc",
   out("eax", u32),
   out("edx", u32)
 );
 // tsc : tuple(u32, u32) — 通过以下方式解构：(lo, hi) := ...
-
 // 带 clobber 的加法
 result := asm(
   "add {dst}, {src}",
@@ -107,7 +107,8 @@ asm("", clobber("memory"));
 
 ```rust
 result := asm(
-  "movzx {out}, {in:l}",    // 使用 {in} 的 8 位低字节名称
+  "movzx {out}, {in:l}",
+  // 使用 {in} 的 8 位低字节名称
   out("out", reg, u32),
   in("in", reg, byte_val)
 );
@@ -131,7 +132,8 @@ result := asm(
 使用 `\n` 或 `;` 在单个模板中分隔指令：
 
 ```rust
-asm("push {val}\npop {out}",
+asm(
+  "push {val}\npop {out}",
   in("val", reg, x),
   out("out", reg, u64)
 );
@@ -186,14 +188,15 @@ out(name?, constraint, Type)
 
 ```rust
 // 单个输出
-count := asm("popcnt {out}, {in}",
+count := asm(
+  "popcnt {out}, {in}",
   out("out", reg, u64),
   in("in", reg, value)
 );
 // count : u64
-
 // 指定寄存器输出
-result := asm("rdtsc",
+result := asm(
+  "rdtsc",
   out("eax", u32),
   out("edx", u32)
 );
@@ -211,8 +214,9 @@ inout(name?, constraint, value)
 输出类型从输入表达式的类型推断。
 
 ```rust
-x : i32 = 42;
-result := asm("add {val}, {addend}",
+(x : i32) = i32(42);
+result := asm(
+  "add {val}, {addend}",
   inout("val", reg, x),
   in("addend", reg, i32(10))
 );
@@ -228,7 +232,8 @@ lateout(name?, constraint, Type)
 ```
 
 ```rust
-result := asm("compute {out}, {a}, {b}",
+result := asm(
+  "compute {out}, {a}, {b}",
   lateout("out", reg, u64),
   in("a", reg, x),
   in("b", reg, y)
@@ -258,7 +263,8 @@ const_val(name?, value)
 
 ```rust
 // 将系统调用号作为立即数内联
-asm("mov rax, {num}\nsyscall",
+asm(
+  "mov rax, {num}\nsyscall",
   const_val("num", u64(60)),
   in("rdi", u64(0)),
   clobber("rcx", "r11", "memory")
@@ -266,7 +272,8 @@ asm("mov rax, {num}\nsyscall",
 
 // 内联计算得到的常量
 BUFFER_SIZE :: 4096;
-asm("sub rsp, {size}",
+asm(
+  "sub rsp, {size}",
   const_val("size", BUFFER_SIZE)
 );
 ```
@@ -294,11 +301,14 @@ sym(name?, symbol)
 | `symbol` | 外部函数或全局变量        | 要引用地址的符号                  |
 
 ```rust
-extern "C",
-  memcpy : (fn(dest: *(u8), src: *(u8), n: usize) -> *(u8));
+extern(
+  "c",
+  memcpy : (fn(dest : *u8, src : *u8, n : usize) -> *u8)
+);
 
 // 在内联汇编中调用外部函数
-asm("call {func}",
+asm(
+  "call {func}",
   sym("func", memcpy),
   in("rdi", dest),
   in("rsi", src),
@@ -319,11 +329,13 @@ __asm__ __volatile__ ("call %[func]" :: [func] "i" (memcpy), ... : /* clobbers *
 
 ```rust
 // CPUID：我们只需要 eax 和 ecx，丢弃 ebx 和 edx
-(out_eax, out_ecx) := asm("cpuid",
+(out_eax, out_ecx) := asm(
+  "cpuid",
   inout("eax", leaf),
-  out("ebx", _),          // 被破坏，值丢弃
+  out("ebx", _),
+  // 被破坏，值丢弃
   inout("ecx", subleaf),
-  out("edx", _)           // 被破坏，值丢弃
+  out("edx", _) // 被破坏，值丢弃
 );
 ```
 
@@ -384,19 +396,27 @@ __asm__ __volatile__ (
 
 ```rust
 // x86_64 特定寄存器
-asm("syscall",
-  in("rax", u64(1)),     // 系统调用号
-  in("rdi", u64(1)),     // fd = stdout
-  in("rsi", buf_ptr),    // 缓冲区
-  in("rdx", u64(13))     // 长度
+asm(
+  "syscall",
+  in("rax", u64(1)),
+  // 系统调用号
+  in("rdi", u64(1)),
+  // fd = stdout
+  in("rsi", buf_ptr),
+  // 缓冲区
+  in("rdx", u64(13)) // 长度
 );
 
 // aarch64 特定寄存器
-asm("svc #0",
-  in("x8", u64(64)),    // 系统调用号（write）
-  in("x0", u64(1)),     // fd
-  in("x1", buf_ptr),    // 缓冲区
-  in("x2", u64(13))     // 长度
+asm(
+  "svc #0",
+  in("x8", u64(64)),
+  // 系统调用号（write）
+  in("x0", u64(1)),
+  // fd
+  in("x1", buf_ptr),
+  // 缓冲区
+  in("x2", u64(13)) // 长度
 );
 ```
 
@@ -414,9 +434,12 @@ asm("svc #0",
 对于高级用法，可以传入原始 GCC 约束字符串（输出操作数会自动添加 `=` 或 `+` 前缀）：
 
 ```rust
-asm("divq {divisor}",
-  inout(raw("a"), lo),       // rax：商 + 低位输入
-  lateout(raw("d"), u64),    // rdx：余数
+asm(
+  "divq {divisor}",
+  inout(raw("a"), lo),
+  // rax：商 + 低位输入
+  lateout(raw("d"), u64),
+  // rdx：余数
   in("divisor", reg, divisor),
   clobber("cc")
 );
@@ -444,7 +467,8 @@ clobber(register_or_special...)
 | `"cc"`     | 汇编修改了条件/状态标志位        |
 
 ```rust
-asm("lock; xadd {old}, ({ptr})",
+asm(
+  "lock; xadd {old}, ({ptr})",
   out("old", reg, i32),
   in("ptr", reg, &counter),
   clobber("memory", "cc")
@@ -454,8 +478,9 @@ asm("lock; xadd {old}, ({ptr})",
 多个 clobber 可以作为单独的参数传递，也可以在一次调用中传递：
 
 ```rust
-clobber("memory", "cc")       // 一次调用中传递多个
-clobber("memory"), clobber("cc")  // 分开调用 — 效果等同
+clobber("memory", "cc"); // 一次调用中传递多个
+clobber("memory");
+clobber("cc"); // 分开调用 — 效果等同
 ```
 
 ### 6.2. `clobber_abi` — ABI 寄存器 Clobber
@@ -494,7 +519,8 @@ asm_options(option1, option2, ...)
 
 ```rust
 // 纯计算 — 优化器可移动/消除
-tsc := asm("rdtsc",
+tsc := asm(
+  "rdtsc",
   out("eax", u32),
   out("edx", u32),
   asm_options(pure, nomem, nostack)
@@ -512,7 +538,8 @@ tsc := asm("rdtsc",
 asm("ud2", asm_options(noreturn));
 
 // 内核入口点 — 跳转后永不返回
-asm("jmp {entry}",
+asm(
+  "jmp {entry}",
   sym("entry", kernel_main),
   asm_options(noreturn)
 );
@@ -542,7 +569,8 @@ asm(
 );
 
 // 等价的单字符串形式：
-asm("push {val}\nshl {val}, 2\npop {out}",
+asm(
+  "push {val}\nshl {val}, 2\npop {out}",
   in("val", reg, x),
   out("out", reg, u64)
 );
@@ -564,11 +592,12 @@ asm("push {val}\nshl {val}, 2\npop {out}",
 // 单个返回值输出
 result := asm("rdtsc", out("eax", u32));
 // result : u32
-
 // 多个返回值输出 → 元组
-(lo, hi) := asm("rdtsc",
-  out("eax", u32),   // 元组第 0 个字段
-  out("edx", u32)    // 元组第 1 个字段
+(lo, hi) := asm(
+  "rdtsc",
+  out("eax", u32),
+  // 元组第 0 个字段
+  out("edx", u32) // 元组第 1 个字段
 );
 // (lo, hi) : tuple(u32, u32)
 ```
@@ -590,13 +619,15 @@ result := asm("rdtsc", out("eax", u32));
 
 ```rust
 // 声明未初始化变量
-(lo : u32);
-(hi : u32);
+lo : u32;
+hi : u32;
 
 // asm 写入它们 — 标记为已初始化
-asm("rdtsc",
-  out("eax", lo),    // 写入 lo
-  out("edx", hi)     // 写入 hi
+asm(
+  "rdtsc",
+  out("eax", lo),
+  // 写入 lo
+  out("edx", hi) // 写入 hi
 );
 
 // lo 和 hi 现在已初始化，可以使用
@@ -615,12 +646,11 @@ total := ((u64(hi) << u64(32)) | u64(lo));
 求值器在 `asm` 表达式之后将变量目标输出标记为**已初始化**。在 `asm` 之前使用该变量是编译期错误：
 
 ```rust
-(x : i32);
+x : i32;
 // print(x);  // 错误：变量 'x' 未初始化
-
 asm("mov {0}, $42", out(reg, x));
 
-print(x);  // 正常：x 已被 asm 初始化
+print(x); // 正常：x 已被 asm 初始化
 ```
 
 **变量目标输出不计入返回类型。** 只有返回值输出和 `inout` 操作数决定返回类型。
@@ -630,11 +660,14 @@ print(x);  // 正常：x 已被 asm 初始化
 变量目标输出和返回值输出可以共存：
 
 ```rust
-(remainder : u64);
+remainder : u64;
 
-quotient := asm("divq {divisor}",
-  inout("eax", lo),               // 返回值（inout 始终返回）
-  out("edx", remainder),          // 变量目标（写入 remainder）
+quotient := asm(
+  "divq {divisor}",
+  inout("eax", lo),
+  // 返回值（inout 始终返回）
+  out("edx", remainder),
+  // 变量目标（写入 remainder）
   in("divisor", reg, divisor),
   clobber("cc")
 );
@@ -647,8 +680,8 @@ quotient := asm("divq {divisor}",
 **Yo 源码：**
 
 ```rust
-(lo : u32);
-(hi : u32);
+lo : u32;
+hi : u32;
 asm("rdtsc", out("eax", lo), out("edx", hi));
 ```
 
@@ -701,7 +734,8 @@ Yo 模板占位符被转换为 GCC 操作数引用：
 **Yo 源码：**
 
 ```rust
-(lo, hi) := asm("rdtsc",
+(lo, hi) := asm(
+  "rdtsc",
   out("lo", "eax", u32),
   out("hi", "edx", u32)
 );
@@ -726,7 +760,8 @@ __asm__ __volatile__ (
 **Yo 源码：**
 
 ```rust
-result := asm("add {val}, {addend}",
+result := asm(
+  "add {val}, {addend}",
   inout("val", reg, x),
   in("addend", reg, y),
   clobber("cc")
@@ -765,7 +800,8 @@ __asm__ __volatile__ ("mfence" ::: "memory");
 **Yo 源码：**
 
 ```rust
-result := asm("mov {out}, {in}",
+result := asm(
+  "mov {out}, {in}",
   out("out", reg, u64),
   in("in", reg, value),
   asm_options(intel_syntax)
@@ -796,9 +832,7 @@ __asm__ __volatile__ (
 global_asm(".section .note.GNU-stack,\"\",@progbits");
 
 global_asm(
-  ".global my_asm_func\n"
-  "my_asm_func:\n"
-  "  ret"
+  ".global my_asm_func\nmy_asm_func:\n  ret"
 );
 ```
 
@@ -853,7 +887,8 @@ arch :: __yo_process_arch();
 rdtsc :: (fn() -> u64)(
   cond(
     (arch == Arch.X86_64) => {
-      (lo, hi) := asm("rdtsc",
+      (lo, hi) := asm(
+        "rdtsc",
         out("eax", u32),
         out("edx", u32),
         asm_options(pure, nomem, nostack)
@@ -861,7 +896,8 @@ rdtsc :: (fn() -> u64)(
       (u64(hi) << u64(32)) | u64(lo);
     },
     (arch == Arch.Aarch64) => {
-      asm("mrs {0}, cntvct_el0",
+      asm(
+        "mrs {0}, cntvct_el0",
         out(reg, u64),
         asm_options(pure, nomem, nostack)
       );
@@ -925,13 +961,16 @@ Yo 没有 `unsafe` 块。内联汇编天生是不安全的 — 它可以破坏�
 ### 12.1. x86_64 系统调用（Linux write）
 
 ```rust
-sys_write :: (fn(fd: u64, buf: *(u8), len: u64) -> i64)(
-  asm("syscall",
-    in("rax", u64(1)),     // SYS_write
+sys_write :: (fn(fd : u64, buf : *u8, len : u64) -> i64)(
+  asm(
+    "syscall",
+    in("rax", u64(1)),
+    // SYS_write
     in("rdi", fd),
     in("rsi", buf),
     in("rdx", len),
-    out("rax", i64),       // 返回值
+    out("rax", i64),
+    // 返回值
     clobber("rcx", "r11", "memory")
   )
 );
@@ -940,19 +979,17 @@ sys_write :: (fn(fd: u64, buf: *(u8), len: u64) -> i64)(
 ### 12.2. 原子比较并交换（x86_64）
 
 ```rust
-cas :: (fn(ptr: *(i32), expected: i32, desired: i32) -> tuple(i32, bool))(
-  {
-    prev := asm(
-      "lock cmpxchg {ptr_mem}, {desired}",
-      inout("eax", expected),
-      in("desired", reg, desired),
-      in("ptr_mem", mem, ptr),
-      clobber("cc", "memory")
-    );
-    (old, success) := (prev, (prev == expected));
-    (old, success);
-  }
-);
+cas :: (fn(ptr : *i32, expected : i32, desired : i32) -> tuple(i32, bool))({
+  prev := asm(
+    "lock cmpxchg {ptr_mem}, {desired}",
+    inout("eax", expected),
+    in("desired", reg, desired),
+    in("ptr_mem", mem, ptr),
+    clobber("cc", "memory")
+  );
+  (old, success) := (prev, prev == expected);
+  (old, success);
+});
 ```
 
 ### 12.3. ARM64 内存屏障
@@ -966,19 +1003,18 @@ dmb_ish :: (fn() -> unit)(
 ### 12.4. CPUID（x86_64）
 
 ```rust
-CpuidResult :: struct(eax: u32, ebx: u32, ecx: u32, edx: u32);
+CpuidResult :: struct(eax : u32, ebx : u32, ecx : u32, edx : u32);
 
-cpuid :: (fn(leaf: u32, subleaf: u32) -> CpuidResult)(
-  {
-    (out_eax, out_ebx, out_ecx, out_edx) := asm("cpuid",
-      inout("eax", leaf),
-      out("ebx", u32),
-      inout("ecx", subleaf),
-      out("edx", u32)
-    );
-    CpuidResult(out_eax, out_ebx, out_ecx, out_edx);
-  }
-);
+cpuid :: (fn(leaf : u32, subleaf : u32) -> CpuidResult)({
+  (out_eax, out_ebx, out_ecx, out_edx) := asm(
+    "cpuid",
+    inout("eax", leaf),
+    out("ebx", u32),
+    inout("ecx", subleaf),
+    out("edx", u32)
+  );
+  CpuidResult(out_eax, out_ebx, out_ecx, out_edx);
+});
 ```
 
 ### 12.5. 自旋等待提示
@@ -988,7 +1024,7 @@ spin_hint :: (fn() -> unit)(
   cond(
     (arch == Arch.X86_64) => asm("pause"),
     (arch == Arch.Aarch64) => asm("yield"),
-    true => ()  // 其他架构上为空操作
+    true => () // 其他架构上为空操作
   )
 );
 ```
@@ -999,15 +1035,17 @@ spin_hint :: (fn() -> unit)(
 perf_counter :: (fn() -> u64)(
   cond(
     (arch == Arch.X86_64) => {
-      (lo, hi) := asm("rdtsc",
+      (lo, hi) := asm(
+        "rdtsc",
         out("eax", u32),
         out("edx", u32),
         asm_options(pure, nomem, nostack)
       );
-      ((u64(hi) << u64(32)) | u64(lo));
+      (u64(hi) << u64(32)) | u64(lo);
     },
     (arch == Arch.Aarch64) =>
-      asm("mrs {0}, cntvct_el0",
+      asm(
+        "mrs {0}, cntvct_el0",
         out(reg, u64),
         asm_options(pure, nomem, nostack)
       ),
@@ -1019,25 +1057,27 @@ perf_counter :: (fn() -> u64)(
 ### 12.7. 字节交换
 
 ```rust
-bswap32 :: (fn(value: u32) -> u32)(
+bswap32 :: (fn(value : u32) -> u32)(
   cond(
     (arch == Arch.X86_64) =>
-      asm("bswap {0}",
+      asm(
+        "bswap {0}",
         inout(reg, value),
         asm_options(pure, nomem, nostack)
       ),
     (arch == Arch.Aarch64) =>
-      asm("rev {0}, {1}",
+      asm(
+        "rev {0}, {1}",
         out(reg, u32),
         in(reg, value),
         asm_options(pure, nomem, nostack)
       ),
     true => {
       // 回退方案：手动字节交换
-      (((value >> u32(24)) & u32(0xFF)) |
-       (((value >> u32(16)) & u32(0xFF)) << u32(8)) |
-       (((value >> u32(8)) & u32(0xFF)) << u32(16)) |
-       ((value & u32(0xFF)) << u32(24)));
+      ((value >> u32(24)) & u32(0xFF)) |
+        (((value >> u32(16)) & u32(0xFF)) << u32(8)) |
+          (((value >> u32(8)) & u32(0xFF)) << u32(16)) |
+            ((value & u32(0xFF)) << u32(24));
     }
   )
 );
@@ -1053,10 +1093,10 @@ bswap32 :: (fn(value: u32) -> u32)(
 
 ```rust
 // std/arch/x86_64.yo
-open import "std/arch/x86_64";
+{ ... } :: import("std/arch/x86_64");
 
-result := _mm_add_ps(a, b);  // SSE 加法
-tsc := rdtsc();               // 包装 asm("rdtsc", ...)
+result := _mm_add_ps(a, b); // SSE 加法
+tsc := rdtsc(); // 包装 asm("rdtsc", ...)
 ```
 
 ### 13.2. MSVC 内置函数映射

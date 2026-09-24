@@ -15,12 +15,12 @@ Yo 在编译期保证：安全代码无法构造出悬垂引用。这一设计�
 
 ```rust
 x := i32(1);
-inout(y) := x;        // y 命名 x 的槽位
-y = i32(2);           // 写入 x
-x = i32(5);           // y 读到 5：绑定命名的是槽位，不是某个值
-inout(n) := h.n;      // RC 对象的字段：h 指向的对象在此作用域内被钉住
-inout(px) := p.x;     // 值结构体的字段
-copy := y;            // 拷贝被指向的值 —— 不存在可存储的"inout 类型"
+inout(y) := x; // y 命名 x 的槽位
+y = i32(2); // 写入 x
+x = i32(5); // y 读到 5：绑定命名的是槽位，不是某个值
+inout(n) := h.n; // RC 对象的字段：h 指向的对象在此作用域内被钉住
+inout(px) := p.x; // 值结构体的字段
+copy := y; // 拷贝被指向的值 —— 不存在可存储的"inout 类型"
 ```
 
 局部绑定接受与实参相同的**位置（place）**（见下），并多出一种：经过 RC
@@ -68,23 +68,31 @@ borrows from it"`）而非内存破坏。同缓存行加载 + 预测分支 —�
 容器只交出**值**，从不交出指向其缓冲区内部的指针：
 
 ```rust
-e := xs.get(i);          // object 元素：指向元素对象的句柄
-e.push_str("!");         //   就地变异元素；句柄在 xs.push / realloc 之后
-                         //   依然有效 —— 它指向 String 对象本身，
-                         //   而不是 xs 的缓冲区内部
-xs(i) = v;               // 索引写：就地替换元素
+e := xs.get(i); // object 元素：指向元素对象的句柄
+e.push_str("!"); //   就地变异元素；句柄在 xs.push / realloc 之后
+//   依然有效 —— 它指向 String 对象本身，
+//   而不是 xs 的缓冲区内部
+xs(i) = v; // 索引写：就地替换元素
 t := xs.get(i).unwrap(); // struct 元素：拷出 ……
-xs(i) = t2;              //   …… 再写回
-for(xs, (x) => { ... }); // 迭代是值形式（into_iter）
+xs(i) = t2; //   …… 再写回
+for(xs, x => { ... }); // 迭代是值形式（into_iter）
 ```
 
 元素也可以被**借用**，但只在一个地方：借用形式的 `for`。
 
 ```rust
-for(enemies, inout(e) => { e.hp = (e.hp - i32(1)); });   // struct 元素就地修改
-for(names, inout(s) => { s.push_str("!"); });            // RC 元素：每个元素不再 dup
-for(counts, inout(c) => { bump(c); });                   // 把元素交给 inout 参数
-for(scores, (k, inout(v)) => { v = (v + i32(10)); });    // map：键按值、值被借用
+for(enemies, inout(e) => {
+  e.hp = (e.hp - i32(1));
+}); // struct 元素就地修改
+for(names, inout(s) => {
+  s.push_str("!");
+}); // RC 元素：每个元素不再 dup
+for(counts, inout(c) => {
+  bump(c);
+}); // 把元素交给 inout 参数
+for(scores, (k, inout(v)) => {
+  v = (v + i32(10));
+}); // map：键按值、值被借用
 ```
 
 宏会把集合绑定到一个隐藏局部变量（循环期间它不可能被释放），在整个循环

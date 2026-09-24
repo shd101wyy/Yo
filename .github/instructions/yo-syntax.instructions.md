@@ -1142,6 +1142,11 @@ p := Point(i32(1), i32(2));
 (v : Option(i32)) = .Some(i32(42));
 ```
 
+Two traps measured 2026-09-24 while auditing the docs' code blocks:
+
+- **`derive(X, ToString)` / `derive(X, Error(...))` need their rule's module imported first.** The prelude registers derive rules for `Eq`, `Hash`, `Clone`, `Ord`, `Default` only; `ToString`'s rule is registered by `std/fmt` and `Error`'s by `std/error` (`derive_rule(ToString, ...)` in `std/fmt/to_string.yo`). Without `{ ToString } :: import("std/fmt");` above the call the derive fails with `derive: trait 'ToString' does not have a derive rule` (or, for `Error`, `Variable "ToString" not found`).
+- **A module-level `:=` of a comptime-known value demands `::`.** Array literals of untyped elements (`arr := [1, 2, 3];`) are `Array(comptime_int, N)` — comptime — so at module level they are rejected with `Expected "::" instead of ":="`; write `arr :: [1, 2, 3];` or type the elements (`arr := [i32(1), i32(2)];` is a runtime array and may use `:=`). Conversely `Array(T, n).fill(v)`'s RESULT is a runtime value: bind it with `:=` (`::` is rejected with `Got runtime value`), even though the fill argument is comptime.
+
 ## Design-by-contract clauses (`requires` / `ensures` / `invariant` / `ghost`)
 
 Phase 0 of `plans/backlog/FORMAL_VERIFICATION.md` adds a contract surface. The

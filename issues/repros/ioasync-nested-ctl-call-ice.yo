@@ -1,0 +1,14 @@
+{ Exception, IoExn } :: import("std/error");
+
+task_fn :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    e.exn.throw(`boom`);
+    return(i32(42));
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  swallow := Exception(throw : ((err) -> unwind(())));
+  result := io.await(task_fn(io), IoExn(io : io, exn : swallow));
+});
+export(main);

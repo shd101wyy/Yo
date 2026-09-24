@@ -7,16 +7,16 @@ Yo performs **Compile-Time Function Evaluation** (CTFE) whenever possible to imp
 CTFE allows the compiler to execute functions at compile-time when all inputs are known at compile-time. The result is embedded directly into the generated code, eliminating runtime computation.
 
 ```rust
-// This function can be evaluated at compile-time
-factorial :: (fn(n : i32) -> i32) {
+// comptime parameters + comptime return: evaluated at compile time
+factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
   result := i32(1);
   i := i32(1);
-  while i <= n, {
+  while(comptime(i <= n), {
     result = (result * i);
-    i = (i + 1);
-  };
-  return result;
-};
+    i = (i + i32(1));
+  });
+  return(result);
+});
 
 // The compiler evaluates factorial(10) at compile-time
 // The generated code simply contains the constant 3628800
@@ -25,22 +25,24 @@ value :: factorial(10);
 
 ## Key Features
 
-### 1. Automatic CTFE Analysis
+### 1. CTFE Through `comptime` Parameters
 
-Yo automatically analyzes functions to determine if they can be evaluated at compile-time. When a function is called with all compile-time known arguments, Yo attempts to execute it during compilation.
+A function evaluates at compile time when its inputs are `comptime(...)`
+parameters and its return type is `comptime(...)`. A loop whose condition
+depends on comptime values must opt into compile-time unrolling explicitly
+with `while(comptime(cond), body)`.
 
 ```rust
-// No special annotation needed - Yo automatically detects
-// that this can be evaluated at compile-time
-sum_squares :: (fn(n : i32) -> i32) {
+// comptime(n) + comptime return: this runs during compilation
+sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
   result := i32(0);
   i := i32(1);
-  while i <= n, {
+  while(comptime(i <= n), {
     result = (result + (i * i));
-    i = (i + 1);
-  };
-  return result;
-};
+    i = (i + i32(1));
+  });
+  return(result);
+});
 
 // Evaluated at compile-time: 1 + 4 + 9 + 16 + 25 = 55
 total :: sum_squares(5);
@@ -59,20 +61,21 @@ Yo's CTFE supports all control flow constructs:
 
 ```rust
 // Example: Sum only odd numbers using continue
-sum_odd :: (fn(max : i32) -> i32) {
+sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
   result := i32(0);
   i := i32(0);
-  while i < max, {
-    i = (i + 1);
+  while(comptime(i < max), {
+    i = (i + i32(1));
     cond(
-      ((i % 2) == 0) => continue,  // Skip even numbers
+      ((i % 2) == 0) => continue,
+      // Skip even numbers
       true => {
         result = (result + i);
       }
     );
-  };
-  return result;
-};
+  });
+  return(result);
+});
 
 // Evaluated at compile-time: 1 + 3 + 5 + 7 + 9 = 25
 odd_sum :: sum_odd(10);
@@ -84,11 +87,13 @@ Types are values in Yo, enabling powerful compile-time type manipulation:
 
 ```rust
 // Create a generic container type at compile-time
-Container :: (fn(comptime(T) : Type) -> comptime(Type))
-  ref(struct(
-    value : T
-  ))
-;
+Container :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      value : T
+    )
+  )
+);
 
 // Types are computed at compile-time
 IntContainer :: Container(i32);
@@ -100,17 +105,18 @@ StringContainer :: Container(String);
 Use `comptime_assert` to verify conditions at compile-time:
 
 ```rust
-fib :: (fn(n : i32) -> i32) {
+fib :: (fn(comptime(n) : i32) -> comptime(i32))(
   cond(
-    (n <= 1) => n,
-    true => (fib((n - 1)) + fib((n - 2)))
+    (n <= i32(1)) => n,
+    true => (recur(n - i32(1)) + recur(n - i32(2)))
   )
-};
+);
 
 // These assertions are checked at compile-time
-comptime_assert(fib(0) == 0);
-comptime_assert(fib(1) == 1);
-comptime_assert(fib(10) == 55);
+fib0 :: fib(0);
+fib10 :: fib(10);
+comptime_assert(fib0 == 0, "fib(0) = 0");
+comptime_assert(fib10 == 55, "fib(10) = 55");
 ```
 
 ### 5. Compile-Time Parameters
@@ -119,11 +125,11 @@ Use `comptime` to require compile-time known parameters:
 
 ```rust
 // T must be known at compile-time for monomorphization
-Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))
+Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   struct(
-    data : [T; N]
+    data : [T ; N]
   )
-;
+);
 
 // Create a fixed-size array type
 IntArray5 :: Array(i32, 5);
@@ -136,9 +142,9 @@ yields its bytes as a `comptime_str` — Zig's `@embedFile`:
 
 ```rust
 VERSION :: comptime_read_file("./VERSION");
-SHADER  :: comptime_read_file("./shaders/blit.wgsl");
+SHADER :: comptime_read_file("./shaders/blit.wgsl");
 
-comptime_assert(VERSION == "0.4.1\n");   // checked at compile time
+comptime_assert(VERSION == "0.4.1\n"); // checked at compile time
 ```
 
 Two rules keep it predictable:
@@ -174,7 +180,7 @@ CFG :: comptime_json_parse(comptime_read_file("./config.json"));
 PORT :: CFG.get("port").as_int(8080);
 NAME :: CFG.get("name").as_str("unnamed");
 
-comptime_assert(PORT == 8080);        // a wrong parse fails to COMPILE
+comptime_assert(PORT == 8080); // a wrong parse fails to COMPILE
 ```
 
 `ComptimeValue` is an enum — `Null`, `Bool`, `Int`, `Float`, `Str`, `List`, and
@@ -215,16 +221,20 @@ Yo's CTFE is more flexible than Rust's `const fn` in several ways:
 | Mutable variables in loops | ✅ Yes                        | ✅ Yes (since 1.46)               |
 | `while` loops              | ✅ Yes                        | ✅ Yes (since 1.46)               |
 | `continue`/`break` in CTFE | ✅ Yes                        | ✅ Yes (since 1.46)               |
-| Automatic CTFE inference   | ✅ Yes                        | ❌ Requires `const fn` annotation |
+| Compile-time opt-in        | ✅ `comptime` parameters      | ❌ Requires `const fn` annotation |
 | First-class types          | ✅ Yes                        | ❌ No (uses generics/macros)      |
 | Runtime fallback           | ✅ Same code works at runtime | ⚠️ Must duplicate for runtime     |
 | Trait methods in const     | ✅ N/A (uses different model) | ⚠️ Limited (`const impl`)         |
 
 ### Key Advantages
 
-1. **No Annotation Required**: In Yo, you don't need to mark functions as `const fn`. The compiler automatically determines if a function can be evaluated at compile-time based on its inputs.
+1. **One Spelling, Both Worlds**: a `comptime` function is ordinary Yo —
+   the same operators, loops and `match` you write at runtime — evaluated
+   during compilation when its parameters are comptime. In Rust you learn a
+   second dialect (`const fn` restrictions).
 
-2. **Unified Code**: The same function works both at compile-time and runtime without modification. In Rust, you often need separate `const fn` and non-const versions.
+2. **Unified Code**: a `comptime(...)` parameter keeps the same body usable
+   at runtime by taking a plain runtime parameter instead; no duplication.
 
 3. **First-Class Types**: Types are values in Yo, so type-level computation is natural function evaluation, not a separate type system feature.
 
@@ -268,17 +278,19 @@ CTFE cannot be used when:
 
 3. **Leverage Type Parameters**: Use `comptime(T) : Type` for generic functions that need monomorphization.
 
-4. **Trust the Compiler**: Don't over-annotate. Let Yo's automatic CTFE analysis do its job.
+4. **State Comptime Intent Explicitly**: mark the parameters and return
+   `comptime` when you want compile-time evaluation; keep them plain for the
+   runtime version.
 
 ```rust
-// Good: Clean, simple code that Yo can analyze
-is_prime :: (fn(n : i32) -> bool) {
+// Good: clean, simple code evaluated at compile-time
+is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
   cond(
     (n < 2) => false,
     true => {
       i := i32(2);
       result := true;
-      while ((i * i) <= n), {
+      while(comptime((i * i) <= n), {
         cond(
           ((n % i) == 0) => {
             result = false;
@@ -286,15 +298,15 @@ is_prime :: (fn(n : i32) -> bool) {
           },
           true => ()
         );
-        i = (i + 1);
-      };
+        i = (i + i32(1));
+      });
       result
     }
   )
-};
+);
 
 // All evaluated at compile-time
-comptime_assert(is_prime(2) == true);
-comptime_assert(is_prime(17) == true);
-comptime_assert(is_prime(18) == false);
+comptime_assert(is_prime(2) == true, "2 is prime");
+comptime_assert(is_prime(17) == true, "17 is prime");
+comptime_assert(is_prime(18) == false, "18 is not prime");
 ```

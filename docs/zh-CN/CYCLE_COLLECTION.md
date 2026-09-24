@@ -7,15 +7,14 @@ Yo 使用**非原子引用计数**结合**线程局部循环回收**来回收循
 引用计数无法回收循环引用：
 
 ```rust
+Node :: ref(struct(value : i32, next : Option(Self)));
+
 // 创建循环引用
-node_a := ref(struct(value: 1, next: .None));
-node_b := ref(struct(value: 2, next: .Some(node_a)));
-node_a.next = .Some(node_b);  // 产生循环：A → B → A
-
-// 释放外部引用
-node_a = .None;  // A 的 RC：2 → 1（B 仍持有引用）
-node_b = .None;  // B 的 RC：2 → 1（A 仍持有引用）
-
+node_a := Node(value : i32(1), next : Option(Node).None);
+node_b := Node(value : i32(2), next : Option(Node).Some(node_a));
+node_a.next = Option(Node).Some(node_b); // 产生循环：A → B → A
+// 释放外部引用（结束持有 node_a / node_b 的作用域）：
+// A 的 RC：2 → 1（B 仍持有引用），B 的 RC 同理：2 → 1
 // 内存泄漏！两个对象的 RC 都是 1，但已不可达
 ```
 
@@ -96,13 +95,13 @@ Yo 使用**自适应的被跟踪对象数量阈值**来触发循环回收：
 **显式回收**也可以通过 `gc.collect()` 触发：
 
 ```rust
-import std/gc;
+{ collect, tracked_count } :: import("std/gc");
 
 // 强制执行循环回收
-gc.collect();
+collect();
 
 // 查询被跟踪的对象数量
-count := gc.tracked_count();
+count := tracked_count();
 ```
 
 **何时跟踪：**
@@ -224,17 +223,16 @@ Yo 采用**完全线程隔离**——spawn 的任务运行在独立线程上，*
 ```rust
 // 父线程
 x := 42;
-node := Node(1, .None);  // 可能形成循环引用的类型，留在当前线程
-
-// spawn 隔离任务——运行在不同线程上
-task := Task(i32, unit).spawn((parent) -> async {
-  // ❌ 无法在此访问 node——完全隔离！
-  // ✅ 只能接收值类型的副本
-  value := await parent.recv();
+node := Node(1, .None); // 可能形成循环引用的类型，留在当前线程
+// spawn 一个隔离的 OS 线程——来自 std/thread 的 `Thread(T).spawn`。
+// （不存在 `Task` 类型；异步 API 是 `io.async` / `io.await` / `io.spawn`，
+// 它们是单线程的，不会创建线程。）
+handle := Thread(unit).spawn(io => {
+  // 上面普通的 ref(...) `node` 是线程局部的，无法在这里被捕获。
+  // 只有 Send 值能跨越边界：值类型、Arc(T) 和 std/imm 结构。
+  ();
 });
-
-await task.send(x);  // 发送 x 的副本（值类型）
-// 无法发送 node——引用类型留在其所属线程
+handle.join();
 ```
 
 **可以在线程间传递的类型（仅限值类型）：**
@@ -259,30 +257,24 @@ await task.send(x);  // 发送 x 的副本（值类型）
 **常见模式：**
 
 ```rust
-// ✅ 使用值类型进行消息传递
-task := Task(Message, Response).spawn((parent) -> async {
-  msg := await parent.recv();  // 接收 Message 的副本
-  await parent.send(Response(ok: true));
+{ Thread } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
+
+// ✅ 通过 channel 用 Send 值进行消息传递
+main :: (fn(io : Io) -> unit)({
+  // 主线程拥有可能形成循环引用的数据结构；它留在主线程。
+  tree := ComplexTree();
+
+  ch := Channel(i32).new();
+  worker := Thread(unit).spawn(io => {
+    // 只有 Send 值能跨越边界：值类型、Arc(T)、std/imm 结构。
+    ch.send(expensive_computation());
+    ();
+  });
+
+  match(ch.recv(), .Some(result) => tree.update(result), .None => ());
+  worker.join();
 });
-
-// ✅ 每个线程拥有自己的复杂数据
-main :: (fn() -> unit) {
-  // 主线程拥有复杂数据结构
-  tree := ComplexTree();  // 有循环引用，留在主线程
-
-  async {
-    // spawn 工作线程执行 CPU 密集型计算
-    task := Task(Array(i32), i32).spawn((parent) -> async {
-      data := await parent.recv();
-      result := expensive_computation(data);
-      await parent.send(result);
-    });
-
-    await task.send([1, 2, 3, 4, 5]);  // 发送值数组
-    result := await task.recv();       // 接收值结果
-    tree.update(result);               // 更新本地数据
-  };
-};
 ```
 
 **GC 回收过程：**
@@ -353,18 +345,19 @@ void __yo_gc_collect_thread_local() {
 ## API
 
 ```rust
-// 运行时循环回收控制
-gc_collect :: (fn() -> unit);  // 立即触发回收
-gc_set_threshold :: (fn(threshold: usize) -> unit);  // 设置回收频率
-gc_get_stats :: (fn() -> GCStats);  // 获取回收统计信息
+{ collect, tracked_count } :: import("std/gc");
 
-GCStats :: struct(
-  collections: usize,
-  objects_collected: usize,
-  objects_tracked: usize,
-  last_pause_ns: u64,
-);
+collect(); // 立即触发一次循环回收
+tracked_count(); // u64——回收器当前跟踪的对象数
 ```
+
+这就是全部接口（`std/gc.yo`）。没有统计结构，也没有设置阈值的函数；
+回收频率通过运行时读取的环境变量调节：
+
+| 变量 | 作用 |
+|---|---|
+| `YO_GC_THRESHOLD` | 提高触发回收的分配阈值——也可以完全禁用回收器 |
+| `YO_GC_FULL_PCT` | 全量扫描的增长因子，以回收后存活集的百分比表示（默认 200，即 2 倍存活）。调低以限制峰值内存；调高以减少扫描次数但增大单次规模 |
 
 ## 编译器支持
 
@@ -374,10 +367,10 @@ GCStats :: struct(
 
 ```rust
 // 用户代码
-Node :: ref(struct(value: i32, next: Option(Node)));
+Node :: ref(struct(value : i32, next : Option(Node)));
 
 // 生成的跟踪代码
-node := Node(42, .None);  // 调用 __yo_gc_track(node)
+node := Node(42, .None); // 调用 __yo_gc_track(node)
 ```
 
 ### 遍历函数生成
@@ -463,7 +456,9 @@ Trace :: trait(
 元素槽位。`ArrayList`（位于 `std/collections/array_list.yo`）：
 
 ```rust
-impl(generic(T : Type), ArrayList(T),
+impl(
+  generic(T : Type),
+  ArrayList(T),
   Trace(
     trace : (fn(self : Self, tracer : GcTracer) -> unit)({
       match(
@@ -471,7 +466,7 @@ impl(generic(T : Type), ArrayList(T),
         .Some(base) => {
           (i : usize) = usize(0);
           while(i < self._length, {
-            tracer.visit(base.add(i));  // 传入元素的槽位指针
+            tracer.visit(base.add(i)); // 传入元素的槽位指针
             i = (i + usize(1));
           });
         },
@@ -487,10 +482,10 @@ impl(generic(T : Type), ArrayList(T),
 `GcTracer` 是一个不透明句柄，承载回收器的边注册回调：
 
 ```rust
-GcTracer :: newtype(_callback : *(u8));
+GcTracer :: newtype(_callback : *u8);
 
 // （位于 `impl(GcTracer, ...)` 中）
-visit : (fn(generic(T : Type), self : Self, slot : *(T)) -> unit)
+visit : (fn(generic(T : Type), self : Self, slot : *T) -> unit)
 ```
 
 `visit` 接收一个**指向子节点所在位置的指针**（结构体字段或缓冲区槽位），而非按值传入子节点。这是关键的

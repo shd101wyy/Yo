@@ -86,10 +86,10 @@ std/sys/
 **Import pattern**: Use namespace import to avoid naming conflicts, e.g.:
 
 ```rust
-file   :: import "std/sys/file";
-dir    :: import "std/sys/dir";
-tcp    :: import "std/sys/tcp";
-timer  :: import "std/sys/timer";
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+tcp :: import("std/sys/tcp");
+timer :: import("std/sys/timer");
 ```
 
 ---

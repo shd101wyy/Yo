@@ -58,10 +58,8 @@ impl(
   // 派生一个新的操作系统线程，运行给定的闭包。
   // 该闭包会获得自己的每线程 Io 事件循环。
   spawn : (fn(own(cb) : Impl(Fn(io : Io) -> T, Send)) -> Self),
-
   // 等待线程完成（阻塞），并取回它的结果。第二次调用会 panic。
   join : (fn(self : Self) -> T),
-
   is_joined : (fn(self : Self) -> bool)
 );
 ```
@@ -71,10 +69,10 @@ impl(
 `join()` 返回线程体的返回值，途径是句柄自己持有的容量为 1 的 `Channel(T)`：
 
 ```rust
-{ Thread } :: import "std/thread";
+{ Thread } :: import("std/thread");
 
 t := Thread(i32).spawn((io : Io) => i32(42));
-answer := t.join();   // 42
+answer := t.join(); // 42
 ```
 
 `Thread(unit)` 就是下文示例使用的无返回值线程，它的 `join()` 返回 `()`。
@@ -83,11 +81,11 @@ answer := t.join();   // 42
 ### 用法
 
 ```rust
-{ Thread } :: import "std/thread";
-{ yield } :: import "std/async";
+{ Thread } :: import("std/thread");
+{ yield } :: import("std/async");
 
 // 派生一个专用线程（不使用异步）
-thread := Thread(unit).spawn((io) => {
+thread := Thread(unit).spawn(io => {
   printf("Hello from thread\n");
 });
 thread.join();
@@ -95,10 +93,10 @@ thread.join();
 // 派生一个支持异步 I/O 的线程
 thread := Thread(unit).spawn((io : Io) => {
   task := io.async((io : Io) => {
-    io.await(yield());
-    return i32(42);
+    io.await(yield(io), io);
+    return(i32(42));
   });
-  result := io.await(task);
+  result := io.await(task, io);
   assert(result == i32(42), "async result");
 });
 thread.join();
@@ -120,7 +118,7 @@ thread.join();
 ### API
 
 ```rust
-{ ThreadPool, spawn } :: import "std/thread";
+{ ThreadPool, spawn } :: import("std/thread");
 
 // 创建线程池，请求 num_threads 个工作线程
 ThreadPool.new : (fn(num_threads : usize) -> ThreadPool);
@@ -145,8 +143,8 @@ ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
 ### 用法
 
 ```rust
-{ ThreadPool, spawn } :: import "std/thread";
-{ yield } :: import "std/async";
+{ ThreadPool, spawn } :: import("std/thread");
+{ yield } :: import("std/async");
 
 pool := ThreadPool.new(usize(4));
 
@@ -206,18 +204,18 @@ pool.shutdown();
 Channel（`std/sync/channel.yo`）提供有界的多生产者多消费者线程间通信。
 
 ```rust
-{ Channel } :: import "std/sync/channel";
+{ Channel } :: import("std/sync/channel");
 
 // 创建一个有界 Channel（容量为 10）
 ch := Channel(i32).new(usize(10));
 
 // 生产者线程
-Thread(unit).spawn((io) => {
+Thread(unit).spawn(io => {
   ch.send(i32(42));
 });
 
 // 消费者线程
-Thread(unit).spawn((io) => {
+Thread(unit).spawn(io => {
   val := ch.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
@@ -238,18 +236,17 @@ Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 
 自动关闭 Channel。
 
 ```rust
-{ Channel } :: import "std/sync/channel";
+{ Channel } :: import("std/sync/channel");
 
 rx := Channel(i32).receiver(usize(4)); // 队列及其唯一的消费者
 {
-  tx := rx.sender();                   // 一个被计数的生产者
+  tx := rx.sender(); // 一个被计数的生产者
   tx.send(i32(1));
   tx.send(i32(2));
-};                                     // 最后一个 sender 被丢弃 -> Channel 关闭
-
-rx.recv().unwrap();                    // 1  - 已缓冲的值先被取出
-rx.recv().unwrap();                    // 2
-rx.recv();                             // .Err(TryRecvError.Disconnected)
+}; // 最后一个 sender 被丢弃 -> Channel 关闭
+rx.recv().unwrap(); // 1  - 已缓冲的值先被取出
+rx.recv().unwrap(); // 2
+rx.recv(); // .Err(TryRecvError.Disconnected)
 ```
 
 - `Sender` 可克隆（`tx.clone()`）；每个克隆都是又一个被计数的生产者，只有**最后**一个被丢弃时
@@ -268,13 +265,13 @@ rx.recv();                             // .Err(TryRecvError.Disconnected)
 ```rust
 rx := Channel(i32).receiver(usize(16));
 {
-  keeper := rx.sender();               // 保证计数不会归零
-  w := Thread(unit).spawn((io) => {
-    tx := rx.sender();                 // 本线程的生产者
+  keeper := rx.sender(); // 保证计数不会归零
+  w := Thread(unit).spawn(io => {
+    tx := rx.sender(); // 本线程的生产者
     tx.send(i32(7));
-  });                                  // 线程体结束时 tx 被丢弃
+  }); // 线程体结束时 tx 被丢弃
   w.join();
-};                                     // keeper 被丢弃 -> Channel 关闭
+}; // keeper 被丢弃 -> Channel 关闭
 ```
 
 把 `Sender` **移入** `Thread(T).spawn` 闭包会正常关闭 Channel：线程体返回时，spawn 包装函数会
@@ -293,15 +290,15 @@ issues/a-closure-typed-slot-never-releases-its-captures.md）。异步任务
 
 ```rust
 // ✅ 可发送
-Point :: struct(x: i32, y: i32);
-Thread(unit).spawn((io) => {
-  p := Point(1, 2);  // OK：在线程内部创建
+Point :: struct(x : i32, y : i32);
+Thread(unit).spawn(io => {
+  p := Point(1, 2); // OK：在线程内部创建
 });
 
 // ❌ 不可发送
-Node :: ref(struct(value: i32));
+Node :: ref(struct(value : i32));
 node := Node(42);
-Thread(unit).spawn((io) => {
+Thread(unit).spawn(io => {
   // 错误：无法捕获 `node`（ref(struct(...)) 不是 Send）
   // node.value;
 });
@@ -349,14 +346,16 @@ Thread(unit).spawn((io) => {
 ### 快速参考
 
 ```rust
-{ Thread, ThreadPool, spawn } :: import "std/thread";
-{ Channel } :: import "std/sync/channel";
+{ Thread, ThreadPool, spawn } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
 
 // 带异步 I/O 的专用线程
 thread := Thread(unit).spawn((io : Io) => {
   // 此线程拥有自己的事件循环
-  task := io.async((io : Io) => { io.await(yield()); });
-  io.await(task);
+  task := io.async((io : Io) => {
+    io.await(yield(io), io);
+  });
+  io.await(task, io);
 });
 thread.join();
 

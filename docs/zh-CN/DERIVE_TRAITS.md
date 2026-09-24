@@ -7,15 +7,16 @@
 ## 基本用法
 
 ```rust
+{ ToString } :: import("std/fmt"); // ToString 的 derive 规则位于 std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   p1 := Point(i32(1), i32(2));
   p2 := Point(i32(1), i32(2));
-  assert((p1 == p2), "points should be equal");
-};
-export main;
+  assert(p1 == p2, "points should be equal");
+});
+export(main);
 ```
 
 `derive` 接受一个类型作为第一个参数，后面跟一个或多个特征表达式。参数化特征如 `Eq` 和 `Ord` 需要显式类型参数（例如 `Eq(Point)`）。无参数特征如 `Hash`、`Clone` 和 `ToString` 可以直接使用名称。
@@ -31,7 +32,7 @@ Color :: struct(r : u8, g : u8, b : u8);
 derive(Color, Eq(Color));
 
 // 现在可以使用 == 和 !=
-assert((Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0))), "same color");
+assert(Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0)), "same color");
 ```
 
 对于枚举类型，相等性先检查变体标签，然后在变体匹配时比较字段：
@@ -40,7 +41,7 @@ assert((Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0))), "same col
 Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
 derive(Shape, Eq(Shape));
 
-assert((.Circle(i32(5)) == .Circle(i32(5))), "same circle");
+assert(.Circle(i32(5)) == .Circle(i32(5)), "same circle");
 ```
 
 ### Hash
@@ -51,8 +52,8 @@ assert((.Circle(i32(5)) == .Circle(i32(5))), "same circle");
 { hash_one, DefaultHasher } :: import("std/hash");
 derive(Point, Hash);
 // Point 现在实现了 Hash 特征
-h := hash_one(Point(i32(1), i32(2)));   // 单个值 → u64
-hasher := DefaultHasher.new();          // 或把多个值流式喂进同一个 hasher
+h := hash_one(Point(i32(1), i32(2))); // 单个值 → u64
+hasher := DefaultHasher.new(); // 或把多个值流式喂进同一个 hasher
 Point(i32(1), i32(2)).hash(hasher);
 Point(i32(3), i32(4)).hash(hasher);
 combined := hasher.finish();
@@ -80,7 +81,7 @@ derive(Point, Ord(Point));
 
 p1 := Point(i32(1), i32(2));
 p2 := Point(i32(1), i32(3));
-assert((p1 < p2), "p1 < p2");
+assert(p1 < p2, "p1 < p2");
 ```
 
 ### ToString
@@ -133,11 +134,14 @@ JsonError :: enum(
   UnexpectedEnd,
   Other(msg : String)
 );
-derive(JsonError, Error(
-  .UnexpectedChar => `unexpected character at position ${pos}`,
-  .UnexpectedEnd  => `unexpected end of input`,
-  .Other          => `JSON error: ${msg}`
-));
+derive(
+  JsonError,
+  Error(
+    .UnexpectedChar => `unexpected character at position ${pos}`,
+    .UnexpectedEnd => `unexpected end of input`,
+    .Other => `JSON error: ${msg}`
+  )
+);
 ```
 
 消息就是**普通的 Yo 代码**，会被拼接进绑定负载的那条 match 分支，因此 `${pos}` 是该变体自己的字段，而不是位置参数 `{0}`。字段名写错就是一个普通的「变量未找到」错误。
@@ -214,29 +218,29 @@ impl(i32, MyEq(i32)(my_eq : ((self, other) -> (self == other))));
 impl(bool, MyEq(bool)(my_eq : ((self, other) -> (self == other))));
 
 // 注册 MyEq 的派生规则
-my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
-  {
-    info :: Type.get_info(T);
-    eq_body :: cond(
-      info.is_struct() => cond(
-        (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
-        true => Type.join_fields(
-          T,
-          (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-            quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
-          ),
-          quote(&&)
-        )
-      ),
-      true => quote(false)
-    );
-    ctx.make_impl(quote(
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  info :: Type.get_info(T);
+  eq_body :: cond(
+    info.is_struct() => cond(
+      (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
+      true => Type.join_fields(
+        T,
+        (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+          quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+        ),
+        quote(&&)
+      )
+    ),
+    true => quote(false)
+  );
+  ctx.make_impl(
+    quote(
       MyEq(...#(trait_params))(
         my_eq : ((self, other) -> #(eq_body))
       )
-    ))
-  }
-);
+    )
+  )
+});
 
 derive_rule(MyEq, my_derive_eq);
 
@@ -285,7 +289,7 @@ Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(first : A, second : B)
 );
 
-derive(generic(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(Pair(T1, T2)));
+derive(generic(T1, T2), Pair(T1, T2), where(T1 <: MyEq(T1), T2 <: MyEq(T2)), MyEq(Pair(T1, T2)));
 ```
 
 `DeriveContext.make_impl` 方法会自动在生成的 impl 中包含 generic/where 子句。

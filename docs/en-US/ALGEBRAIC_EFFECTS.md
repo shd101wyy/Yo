@@ -43,7 +43,11 @@ safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
 // Install a handler — annotated to ctl so the body may `unwind`.
 // Note: there is no operator precedence in Yo; wrap the lambda in
 // extra parens.
-(raise : Raise) = ((msg) -> { unwind(i32(42)); });
+(raise : Raise) = (
+  msg -> {
+    unwind(i32(42));
+  }
+);
 
 // Call site — explicit parameter passing
 result := safe_divide(1, 0, raise);
@@ -62,7 +66,7 @@ Raise :: (ctl(msg : String) -> i32);
 // Unwind handler: discards continuation. The enclosing function
 // returns with i64(42).
 (raise : Raise) = (
-  (msg) -> {
+  msg -> {
     println(msg);
     unwind(i64(42));
   }
@@ -70,7 +74,7 @@ Raise :: (ctl(msg : String) -> i32);
 
 // Resume handler: continues after the effect call with i32(0).
 (raise : Raise) = (
-  (msg) -> {
+  msg -> {
     println(msg);
     return(i32(0));
   }
@@ -123,9 +127,10 @@ separate C parameters at specialization.
 
 ```rust
 run :: (
-  fn(generic(T : Type, E : Type.Struct),
-     f : (fn(e : E) -> T),
-     e : E
+  fn(
+    generic(T : Type, E : Type.Struct),
+    f : (fn(e : E) -> T),
+    e : E
   ) -> T
 )(f(e));
 
@@ -148,7 +153,7 @@ containing the actual handlers:
 
 ```rust
 // Single bundle (most common)
-fut1 : Impl(Future(i32, IoExn));            // IoExn = { io, exn }
+fut1 : Impl(Future(i32, IoExn)); // IoExn = { io, exn }
 y := io.await(fut1, { io, exn });
 
 // Single-effect future — pass the effect value directly
@@ -174,10 +179,12 @@ result := io.await(fut, effects);
 ```
 
 ```rust
+{ Exception, IoExn } :: import("std/error");
+
 // Inside a function with annotated return type — the return type
 // pins E, so `(e)` without an annotation is fine:
 do_work :: (fn(io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     e.io.await(some_io_call(...), e.io);
     e.exn.throw(...);
   })
@@ -257,9 +264,9 @@ Raise :: (ctl(msg : String) -> i32);
 // Caller installs the handler at frame F.
 do_caller :: (fn() -> i32)({
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
-      unwind(i32(0));        // unwind targets `do_caller` frame
+      unwind(i32(0)); // unwind targets `do_caller` frame
     }
   );
   // `compute` runs *below* F in the call stack; calls into `raise`
@@ -351,8 +358,18 @@ log_and_check :: (fn(x : i32, logger : Logger) -> i32)({
 });
 
 (my_logger : Logger) = Logger(
-  info : ((msg) -> { println(msg); return(()); }),
-  warn : ((msg) -> { println(`WARNING: ${msg}`); unwind(()); })
+  info : (
+    msg -> {
+      println(msg);
+      return(());
+    }
+  ),
+  warn : (
+    msg -> {
+      println(`WARNING: ${msg}`);
+      unwind(());
+    }
+  )
 );
 
 result := log_and_check(42, my_logger);

@@ -7,16 +7,16 @@ Yo 会尽可能地执行**编译期函数求值**（Compile-Time Function Evalua
 CTFE 允许编译器在所有输入在编译期已知的情况下，于编译期执行函数。其结果会直接嵌入到生成的代码中，从而消除运行时计算开销。
 
 ```rust
-// 这个函数可以在编译期求值
-factorial :: (fn(n : i32) -> i32) {
+// comptime 参数 + comptime 返回值：在编译期求值
+factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
   result := i32(1);
   i := i32(1);
-  while i <= n, {
+  while(comptime(i <= n), {
     result = (result * i);
-    i = (i + 1);
-  };
-  return result;
-};
+    i = (i + i32(1));
+  });
+  return(result);
+});
 
 // 编译器在编译期求值 factorial(10)
 // 生成的代码中直接包含常量 3628800
@@ -25,22 +25,23 @@ value :: factorial(10);
 
 ## 主要特性
 
-### 1. 自动 CTFE 分析
+### 1. 通过 `comptime` 参数进行 CTFE
 
-Yo 会自动分析函数，判断其是否可以在编译期求值。当一个函数的所有参数都在编译期已知时，Yo 会尝试在编译过程中执行它。
+当一个函数的输入是 `comptime(...)` 参数、返回类型是 `comptime(...)`
+时，它就在编译期求值。循环条件依赖 comptime 值时，必须用
+`while(comptime(cond), body)` 显式选择编译期展开。
 
 ```rust
-// 无需特殊标注 — Yo 自动检测到
-// 这个函数可以在编译期求值
-sum_squares :: (fn(n : i32) -> i32) {
+// comptime(n) + comptime 返回值：在编译过程中运行
+sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
   result := i32(0);
   i := i32(1);
-  while i <= n, {
+  while(comptime(i <= n), {
     result = (result + (i * i));
-    i = (i + 1);
-  };
-  return result;
-};
+    i = (i + i32(1));
+  });
+  return(result);
+});
 
 // 编译期求值: 1 + 4 + 9 + 16 + 25 = 55
 total :: sum_squares(5);
@@ -59,20 +60,21 @@ Yo 的 CTFE 支持所有控制流结构：
 
 ```rust
 // 示例: 使用 continue 只对奇数求和
-sum_odd :: (fn(max : i32) -> i32) {
+sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
   result := i32(0);
   i := i32(0);
-  while i < max, {
-    i = (i + 1);
+  while(comptime(i < max), {
+    i = (i + i32(1));
     cond(
-      ((i % 2) == 0) => continue,  // 跳过偶数
+      ((i % 2) == 0) => continue,
+      // 跳过偶数
       true => {
         result = (result + i);
       }
     );
-  };
-  return result;
-};
+  });
+  return(result);
+});
 
 // 编译期求值: 1 + 3 + 5 + 7 + 9 = 25
 odd_sum :: sum_odd(10);
@@ -84,11 +86,13 @@ odd_sum :: sum_odd(10);
 
 ```rust
 // 在编译期创建一个泛型容器类型
-Container :: (fn(comptime(T) : Type) -> comptime(Type))
-  ref(struct(
-    value : T
-  ))
-;
+Container :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      value : T
+    )
+  )
+);
 
 // 类型在编译期计算
 IntContainer :: Container(i32);
@@ -100,17 +104,18 @@ StringContainer :: Container(String);
 使用 `comptime_assert` 在编译期验证条件：
 
 ```rust
-fib :: (fn(n : i32) -> i32) {
+fib :: (fn(comptime(n) : i32) -> comptime(i32))(
   cond(
-    (n <= 1) => n,
-    true => (fib((n - 1)) + fib((n - 2)))
+    (n <= i32(1)) => n,
+    true => (recur(n - i32(1)) + recur(n - i32(2)))
   )
-};
+);
 
 // 这些断言在编译期进行检查
-comptime_assert(fib(0) == 0);
-comptime_assert(fib(1) == 1);
-comptime_assert(fib(10) == 55);
+fib0 :: fib(0);
+fib10 :: fib(10);
+comptime_assert(fib0 == 0, "fib(0) = 0");
+comptime_assert(fib10 == 55, "fib(10) = 55");
 ```
 
 ### 5. 编译期参数
@@ -119,11 +124,11 @@ comptime_assert(fib(10) == 55);
 
 ```rust
 // T 必须在编译期已知，以便单态化
-Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))
+Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   struct(
-    data : [T; N]
+    data : [T ; N]
   )
-;
+);
 
 // 创建一个固定大小的数组类型
 IntArray5 :: Array(i32, 5);
@@ -136,9 +141,9 @@ IntArray5 :: Array(i32, 5);
 
 ```rust
 VERSION :: comptime_read_file("./VERSION");
-SHADER  :: comptime_read_file("./shaders/blit.wgsl");
+SHADER :: comptime_read_file("./shaders/blit.wgsl");
 
-comptime_assert(VERSION == "0.4.1\n");   // 在编译期检查
+comptime_assert(VERSION == "0.4.1\n"); // 在编译期检查
 ```
 
 两条规则保证它的行为可预测：
@@ -169,7 +174,7 @@ CFG :: comptime_json_parse(comptime_read_file("./config.json"));
 PORT :: CFG.get("port").as_int(8080);
 NAME :: CFG.get("name").as_str("unnamed");
 
-comptime_assert(PORT == 8080);        // 解析错误会导致**编译失败**
+comptime_assert(PORT == 8080); // 解析错误会导致**编译失败**
 ```
 
 `ComptimeValue` 是一个枚举——`Null`、`Bool`、`Int`、`Float`、`Str`、`List`、
@@ -207,14 +212,16 @@ Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：
 | 循环中的可变变量             | ✅ 支持                     | ✅ 支持（自 1.46 起）        |
 | `while` 循环                 | ✅ 支持                     | ✅ 支持（自 1.46 起）        |
 | CTFE 中的 `continue`/`break` | ✅ 支持                     | ✅ 支持（自 1.46 起）        |
-| 自动 CTFE 推断               | ✅ 支持                     | ❌ 需要 `const fn` 标注      |
+| 编译期显式选择               | ✅ `comptime` 参数          | ❌ 需要 `const fn` 标注      |
 | 一等类型                     | ✅ 支持                     | ❌ 不支持（使用泛型/宏替代） |
 | 运行时回退                   | ✅ 同一份代码可在运行时执行 | ⚠️ 需要为运行时另写一份      |
 | const 中的 trait 方法        | ✅ 不适用（使用不同模型）   | ⚠️ 有限支持（`const impl`）  |
 
 ### 核心优势
 
-1. **无需标注**：在 Yo 中，无需将函数标记为 `const fn`。编译器会根据输入自动判断函数是否可以在编译期求值。
+1. **一种写法，两个世界**：comptime 函数就是普通的 Yo——你在运行时
+   使用的运算符、循环和 `match` 都相同——当参数是 comptime 时在编译
+   期求值。而在 Rust 中你需要学习第二种方言（`const fn` 的限制）。
 
 2. **代码统一**：同一个函数无需修改即可同时在编译期和运行时工作。在 Rust 中，往往需要分别维护 `const fn` 和非 const 版本。
 
@@ -260,17 +267,18 @@ Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：
 
 3. **善用类型参数**：为需要单态化的泛型函数使用 `comptime(T) : Type`。
 
-4. **信任编译器**：不要过度标注。让 Yo 的自动 CTFE 分析完成其工作。
+4. **显式声明 comptime 意图**：需要编译期求值时把参数和返回值标记为
+   `comptime`；运行期版本使用普通参数即可。
 
 ```rust
-// 良好实践: 简洁清晰的代码，Yo 可以自动分析
-is_prime :: (fn(n : i32) -> bool) {
+// 良好实践: 简洁清晰的代码，在编译期求值
+is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
   cond(
     (n < 2) => false,
     true => {
       i := i32(2);
       result := true;
-      while ((i * i) <= n), {
+      while(comptime((i * i) <= n), {
         cond(
           ((n % i) == 0) => {
             result = false;
@@ -278,15 +286,15 @@ is_prime :: (fn(n : i32) -> bool) {
           },
           true => ()
         );
-        i = (i + 1);
-      };
+        i = (i + i32(1));
+      });
       result
     }
   )
-};
+);
 
 // 全部在编译期求值
-comptime_assert(is_prime(2) == true);
-comptime_assert(is_prime(17) == true);
-comptime_assert(is_prime(18) == false);
+comptime_assert(is_prime(2) == true, "2 是素数");
+comptime_assert(is_prime(17) == true, "17 是素数");
+comptime_assert(is_prime(18) == false, "18 不是素数");
 ```

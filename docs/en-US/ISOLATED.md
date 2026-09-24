@@ -35,17 +35,22 @@ For example:
 Data :: ref(struct(v : i32));
 Point :: ref(struct(x : Data, y : Data));
 
-impl(Data, Isolation(
-  can_isolate : ((self) -> rc(self) == 1)
-));
-
-impl(Point, Isolation(
-  can_isolate : ((self) ->
-    (rc(self) == 1) &&
-    (self.x.can_isolate()) &&
-    (self.y.can_isolate())
+impl(
+  Data,
+  Isolation(
+    can_isolate : (self -> (rc(self) == 1))
   )
-));
+);
+
+impl(
+  Point,
+  Isolation(
+    can_isolate : (
+      self ->
+        ((rc(self) == 1) && self.x.can_isolate() && self.y.can_isolate())
+    )
+  )
+);
 ```
 
 In the future, we will support the `derive` keyword to automatically generate `Isolation` implementations for user-defined types.
@@ -67,15 +72,13 @@ In the future, we will support the `derive` keyword to automatically generate `I
 ```rust
 // ❌ Rejected: x has alias y
 x := box(1);
-y := x;                    // y.isOwningTheSameRcValueAs = x
-iso := Iso(Box(i32))(x);   // COMPILE ERROR: x has aliases
-
+y := x; // y.isOwningTheSameRcValueAs = x
+iso := Iso(Box(i32))(x); // COMPILE ERROR: x has aliases
 // ✅ Accepted: x is unique
-x := box(1);               // x owns, no aliases
-iso := Iso(Box(i32))(x);   // OK: constructs Iso with atomic RC
-
+x := box(1); // x owns, no aliases
+iso := Iso(Box(i32))(x); // OK: constructs Iso with atomic RC
 // ✅ Can freely copy after construction
-iso2 := iso;               // Atomic dup - safe!
+iso2 := iso; // Atomic dup - safe!
 ```
 
 ## `extract` method
@@ -84,13 +87,13 @@ The `__yo_iso_extract` builtin extracts the inner value from an `Iso(T)`, return
 
 ```rust
 iso := Iso(Box(i32))(box(42));
-val_opt := __yo_iso_extract(iso);    // val_opt : Option(Box(i32))
-
-match(val_opt,
+val_opt := __yo_iso_extract(iso); // val_opt : Option(Box(i32))
+match(
+  val_opt,
   .Some(val) => {
     // Extract succeeds
     // val now uses non-atomic RC, keep it in this thread!
-    printf("Got value: %d\n", val.(*));
+    printf("Got value: %d\n", val.*);
   },
   .None => {
     // Extraction can potentially return None for stateful extraction
@@ -116,9 +119,9 @@ For convenience, use the `^` macro to isolate values with automatic type inferen
 
 ```rust
 x := Data(12);
-iso_opt := ^(x);  // Returns Option(Iso(Data))
-
-match(iso_opt,
+iso_opt := ^x; // Returns Option(Iso(Data))
+match(
+  iso_opt,
   .Some(iso) => {
     // Successfully isolated
     spawn(() => { /* use iso */ });
@@ -187,16 +190,15 @@ Option_T __yo_iso_extract_T(Iso_T* iso) {
 ```rust
 // Create isolated string
 s := String("Hello");
-iso := Iso(String)(s);    // s has no aliases, OK
-
+iso := Iso(String)(s); // s has no aliases, OK
 // Can freely copy (atomic RC)
-iso2 := iso;              // Atomic dup
-
+iso2 := iso; // Atomic dup
 // Send to thread safely
 spawn(() => {
-  iso3 := iso2;           // Atomic dup across threads - safe!
-  msg_opt := __yo_iso_extract(iso3);  // Extract String
-  match(msg_opt,
+  iso3 := iso2; // Atomic dup across threads - safe!
+  msg_opt := __yo_iso_extract(iso3); // Extract String
+  match(
+    msg_opt,
     .Some(msg) => printf("%s\n", msg),
     .None => printf("No value\n")
   );
@@ -204,7 +206,8 @@ spawn(() => {
 
 // Can still use original (atomic RC handles safety)
 msg2_opt := __yo_iso_extract(iso);
-match(msg2_opt,
+match(
+  msg2_opt,
   .Some(msg2) => printf("%s\n", msg2),
   .None => printf("No value\n")
 );
@@ -217,16 +220,14 @@ match(msg2_opt,
 ```rust
 // ❌ Cannot isolate: has alias
 x := box(42);
-y := x;                    // y.isOwningTheSameRcValueAs = x
-iso := Iso(Box(i32))(x);   // COMPILE ERROR: Cannot isolate x, also owned by y
-
+y := x; // y.isOwningTheSameRcValueAs = x
+iso := Iso(Box(i32))(x); // COMPILE ERROR: Cannot isolate x, also owned by y
 // ✅ Fix: Don't create aliases
-x := box(42);              // x is unique
-iso := Iso(Box(i32))(x);   // OK
-
+x := box(42); // x is unique
+iso := Iso(Box(i32))(x); // OK
 // ✅ Alternative fix: Drop alias first
 x := box(42);
 y := x;
-drop(y);                   // Explicitly drop y
-iso := Iso(Box(i32))(x);   // OK if compiler can prove y is dead
+drop(y); // Explicitly drop y
+iso := Iso(Box(i32))(x); // OK if compiler can prove y is dead
 ````

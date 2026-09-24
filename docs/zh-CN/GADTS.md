@@ -57,7 +57,7 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     MInt(i : i32) -> recur(i32),
     MBool(b : bool) -> recur(bool),
-    MGeneric(v : T)  // 无 GADT 注解 — 无约束
+    MGeneric(v : T) // 无 GADT 注解 — 无约束
   )
 );
 ```
@@ -68,16 +68,19 @@ GADT 的核心特性：对 GADT 值进行模式匹配时，类型系统会在每
 
 ```rust
 eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
-  match(v,
-    .IntVal(i) => i,      // T 被细化为 i32，i : i32，返回 i32 ✓
-    .BoolVal(b) => b,     // T 被细化为 bool，b : bool，返回 bool ✓
-    .PairVal(a, b) => a   // T 被细化为 i32，a : i32，返回 i32 ✓
+  match(
+    v,
+    .IntVal(i) => i,
+    // T 被细化为 i32，i : i32，返回 i32 ✓
+    .BoolVal(b) => b,
+    // T 被细化为 bool，b : bool，返回 bool ✓
+    .PairVal(a, b) => a // T 被细化为 i32，a : i32，返回 i32 ✓
   )
 );
 
 // 使用：
 v := Value(i32).IntVal(i32(42));
-result := eval_value(v);  // result : i32 = 42
+result := eval_value(v); // result : i32 = 42
 ```
 
 每个分支可以返回不同的具体类型 — 类型检查器会验证每个分支的返回类型是否匹配 GADT 细化后的类型参数。
@@ -90,7 +93,8 @@ result := eval_value(v);  // result : i32 = 42
 // Value(i32) 只能是 IntVal 或 PairVal
 // BoolVal 不可达（它返回 Value(bool)，而不是 Value(i32)）
 eval_int_only :: (fn(v : Value(i32)) -> i32)(
-  match(v,
+  match(
+    v,
     .IntVal(i) => i,
     .PairVal(a, b) => a
     // 不需要 .BoolVal — 对于 Value(i32) 它不可达

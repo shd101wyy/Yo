@@ -35,17 +35,22 @@ Isolation :: trait(
 Data :: ref(struct(v : i32));
 Point :: ref(struct(x : Data, y : Data));
 
-impl(Data, Isolation(
-  can_isolate : ((self) -> rc(self) == 1)
-));
-
-impl(Point, Isolation(
-  can_isolate : ((self) ->
-    (rc(self) == 1) &&
-    (self.x.can_isolate()) &&
-    (self.y.can_isolate())
+impl(
+  Data,
+  Isolation(
+    can_isolate : (self -> (rc(self) == 1))
   )
-));
+);
+
+impl(
+  Point,
+  Isolation(
+    can_isolate : (
+      self ->
+        ((rc(self) == 1) && self.x.can_isolate() && self.y.can_isolate())
+    )
+  )
+);
 ```
 
 未来我们将支持 `derive` 关键字，以自动生成用户定义类型的 `Isolation` 实现。
@@ -67,15 +72,13 @@ impl(Point, Isolation(
 ```rust
 // ❌ 拒绝：x 有别名 y
 x := box(1);
-y := x;                    // y.isOwningTheSameRcValueAs = x
-iso := Iso(Box(i32))(x);   // 编译错误：x 有别名引用
-
+y := x; // y.isOwningTheSameRcValueAs = x
+iso := Iso(Box(i32))(x); // 编译错误：x 有别名引用
 // ✅ 通过：x 是唯一所有者
-x := box(1);               // x 拥有所有权，无别名
-iso := Iso(Box(i32))(x);   // OK：使用原子引用计数构造 Iso
-
+x := box(1); // x 拥有所有权，无别名
+iso := Iso(Box(i32))(x); // OK：使用原子引用计数构造 Iso
 // ✅ 构造后可自由复制
-iso2 := iso;               // 原子 dup — 安全！
+iso2 := iso; // 原子 dup — 安全！
 ```
 
 ## `extract` 方法
@@ -84,13 +87,13 @@ iso2 := iso;               // 原子 dup — 安全！
 
 ```rust
 iso := Iso(Box(i32))(box(42));
-val_opt := __yo_iso_extract(iso);    // val_opt : Option(Box(i32))
-
-match(val_opt,
+val_opt := __yo_iso_extract(iso); // val_opt : Option(Box(i32))
+match(
+  val_opt,
   .Some(val) => {
     // 提取成功
     // val 现在使用非原子引用计数，请保持在当前线程中使用！
-    printf("Got value: %d\n", val.(*));
+    printf("Got value: %d\n", val.*);
   },
   .None => {
     // 对于有状态提取语义，提取可能返回 None
@@ -116,9 +119,9 @@ match(val_opt,
 
 ```rust
 x := Data(12);
-iso_opt := ^(x);  // 返回 Option(Iso(Data))
-
-match(iso_opt,
+iso_opt := ^x; // 返回 Option(Iso(Data))
+match(
+  iso_opt,
   .Some(iso) => {
     // 隔离成功
     spawn(() => { /* 使用 iso */ });
@@ -187,16 +190,15 @@ Option_T __yo_iso_extract_T(Iso_T* iso) {
 ```rust
 // 创建隔离字符串
 s := String("Hello");
-iso := Iso(String)(s);    // s 没有别名，OK
-
+iso := Iso(String)(s); // s 没有别名，OK
 // 可自由复制（原子引用计数）
-iso2 := iso;              // 原子 dup
-
+iso2 := iso; // 原子 dup
 // 安全地发送到其他线程
 spawn(() => {
-  iso3 := iso2;           // 跨线程原子 dup — 安全！
-  msg_opt := __yo_iso_extract(iso3);  // 提取 String
-  match(msg_opt,
+  iso3 := iso2; // 跨线程原子 dup — 安全！
+  msg_opt := __yo_iso_extract(iso3); // 提取 String
+  match(
+    msg_opt,
     .Some(msg) => printf("%s\n", msg),
     .None => printf("No value\n")
   );
@@ -204,7 +206,8 @@ spawn(() => {
 
 // 仍可使用原始值（原子引用计数保证安全）
 msg2_opt := __yo_iso_extract(iso);
-match(msg2_opt,
+match(
+  msg2_opt,
   .Some(msg2) => printf("%s\n", msg2),
   .None => printf("No value\n")
 );
@@ -217,16 +220,14 @@ match(msg2_opt,
 ```rust
 // ❌ 无法隔离：存在别名
 x := box(42);
-y := x;                    // y.isOwningTheSameRcValueAs = x
-iso := Iso(Box(i32))(x);   // 编译错误：无法隔离 x，y 也持有所有权
-
+y := x; // y.isOwningTheSameRcValueAs = x
+iso := Iso(Box(i32))(x); // 编译错误：无法隔离 x，y 也持有所有权
 // ✅ 修复：不要创建别名
-x := box(42);              // x 是唯一所有者
-iso := Iso(Box(i32))(x);   // OK
-
+x := box(42); // x 是唯一所有者
+iso := Iso(Box(i32))(x); // OK
 // ✅ 另一种修复方式：先 drop 别名
 x := box(42);
 y := x;
-drop(y);                   // 显式 drop y
-iso := Iso(Box(i32))(x);   // 如果编译器能证明 y 已失效，则 OK
+drop(y); // 显式 drop y
+iso := Iso(Box(i32))(x); // 如果编译器能证明 y 已失效，则 OK
 ````

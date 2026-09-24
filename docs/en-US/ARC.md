@@ -10,15 +10,19 @@ thread-shareable wrapper.
 ## Current definition
 
 ```rust
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))
-  atomic(ref(struct(
-    (*) : V
-  )))
-;
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
+  atomic(
+    ref(
+      struct(
+        (*) : V
+      )
+    )
+  )
+);
 
-arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(
   Arc(V)(value)
-;
+);
 ```
 
 ## When to use `Arc`
@@ -47,12 +51,12 @@ same := Arc(i32)(i32(42));
 
 ### Dereferencing
 
-Access the inner value with `.(*)`, which yields borrowed access:
+Access the inner value with `.*`, which yields borrowed access:
 
 ```rust
 value := arc(i32(42));
-copied := value.(*);
-assert((copied == i32(42)), "inner value is 42");
+copied := value.*;
+assert(copied == i32(42), "inner value is 42");
 ```
 
 ### Copying
@@ -64,8 +68,8 @@ a := arc(i32(42));
 b := a;
 c := b;
 
-assert((a.(*) == b.(*)), "same shared value");
-assert((b.(*) == c.(*)), "same shared value");
+assert(a.* == b.*, "same shared value");
+assert(b.* == c.*, "same shared value");
 ```
 
 ### Cross-thread sharing
@@ -75,12 +79,12 @@ assert((b.(*) == c.(*)), "same shared value");
 
 shared := arc(i32(42));
 
-t := Thread(unit).spawn((io) => {
-  assert((shared.(*) == i32(42)), "thread sees shared value");
+t := Thread(unit).spawn(io => {
+  assert(shared.* == i32(42), "thread sees shared value");
 });
 
 t.join();
-assert((shared.(*) == i32(42)), "main still sees shared value");
+assert(shared.* == i32(42), "main still sees shared value");
 ```
 
 ## `Arc` vs `atomic(ref(struct(...)))` vs `Iso`
@@ -95,7 +99,7 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 - **Atomic RC**: `Arc` uses atomic increment/decrement operations.
 - **Shared ownership**: copying an `Arc` preserves the underlying allocation.
-- **Borrowed deref**: `.(*)` gives borrowed access to the wrapped value.
+- **Borrowed deref**: `.*` gives borrowed access to the wrapped value.
 - **Drop behavior**: when the last reference is dropped, the inner value is dropped and the allocation is freed.
 - **Closure capture**: capturing an `Arc` in a closure duplicates the shared reference.
 

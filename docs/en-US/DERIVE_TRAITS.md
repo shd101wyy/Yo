@@ -7,15 +7,16 @@ Every derivable trait in `std` is **self-hosted** — the derive rules are writt
 ## Basic Usage
 
 ```rust
+{ ToString } :: import("std/fmt"); // the ToString derive rule lives in std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 
-main :: (fn() -> unit) {
+main :: (fn() -> unit)({
   p1 := Point(i32(1), i32(2));
   p2 := Point(i32(1), i32(2));
-  assert((p1 == p2), "points should be equal");
-};
-export main;
+  assert(p1 == p2, "points should be equal");
+});
+export(main);
 ```
 
 `derive` accepts a type as the first argument followed by one or more trait expressions. Parameterized traits like `Eq` and `Ord` require explicit type arguments (e.g., `Eq(Point)`). Parameterless traits like `Hash`, `Clone`, and `ToString` can be passed as bare names.
@@ -31,7 +32,7 @@ Color :: struct(r : u8, g : u8, b : u8);
 derive(Color, Eq(Color));
 
 // Now you can use == and !=
-assert((Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0))), "same color");
+assert(Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0)), "same color");
 ```
 
 For enums, equality checks the variant tag first, then compares fields if the variants match:
@@ -40,7 +41,7 @@ For enums, equality checks the variant tag first, then compares fields if the va
 Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
 derive(Shape, Eq(Shape));
 
-assert((.Circle(i32(5)) == .Circle(i32(5))), "same circle");
+assert(.Circle(i32(5)) == .Circle(i32(5)), "same circle");
 ```
 
 ### Hash
@@ -51,8 +52,8 @@ Generates `hash(self, hasher)` — the Rust-style `Hash` method that feeds a val
 { hash_one, DefaultHasher } :: import("std/hash");
 derive(Point, Hash);
 // Point now implements the Hash trait
-h := hash_one(Point(i32(1), i32(2)));   // one value → u64
-hasher := DefaultHasher.new();          // or stream several values into one hasher
+h := hash_one(Point(i32(1), i32(2))); // one value → u64
+hasher := DefaultHasher.new(); // or stream several values into one hasher
 Point(i32(1), i32(2)).hash(hasher);
 Point(i32(3), i32(4)).hash(hasher);
 combined := hasher.finish();
@@ -80,7 +81,7 @@ derive(Point, Ord(Point));
 
 p1 := Point(i32(1), i32(2));
 p2 := Point(i32(1), i32(3));
-assert((p1 < p2), "p1 < p2");
+assert(p1 < p2, "p1 < p2");
 ```
 
 ### ToString
@@ -133,11 +134,14 @@ JsonError :: enum(
   UnexpectedEnd,
   Other(msg : String)
 );
-derive(JsonError, Error(
-  .UnexpectedChar => `unexpected character at position ${pos}`,
-  .UnexpectedEnd  => `unexpected end of input`,
-  .Other          => `JSON error: ${msg}`
-));
+derive(
+  JsonError,
+  Error(
+    .UnexpectedChar => `unexpected character at position ${pos}`,
+    .UnexpectedEnd => `unexpected end of input`,
+    .Other => `JSON error: ${msg}`
+  )
+);
 ```
 
 The message is **ordinary Yo**, spliced into the match arm that binds the payload, so `${pos}` is the variant's own field rather than a positional `{0}`. A typo in a field name is an ordinary unresolved-name error.
@@ -214,29 +218,29 @@ impl(i32, MyEq(i32)(my_eq : ((self, other) -> (self == other))));
 impl(bool, MyEq(bool)(my_eq : ((self, other) -> (self == other))));
 
 // Register derive rule for MyEq
-my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
-  {
-    info :: Type.get_info(T);
-    eq_body :: cond(
-      info.is_struct() => cond(
-        (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
-        true => Type.join_fields(
-          T,
-          (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-            quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
-          ),
-          quote(&&)
-        )
-      ),
-      true => quote(false)
-    );
-    ctx.make_impl(quote(
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  info :: Type.get_info(T);
+  eq_body :: cond(
+    info.is_struct() => cond(
+      (Type.get_struct_fields(T).len() == usize(0)) => quote(true),
+      true => Type.join_fields(
+        T,
+        (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+          quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+        ),
+        quote(&&)
+      )
+    ),
+    true => quote(false)
+  );
+  ctx.make_impl(
+    quote(
       MyEq(...#(trait_params))(
         my_eq : ((self, other) -> #(eq_body))
       )
-    ))
-  }
-);
+    )
+  )
+});
 
 derive_rule(MyEq, my_derive_eq);
 
@@ -285,7 +289,7 @@ Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(first : A, second : B)
 );
 
-derive(generic(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))), MyEq(Pair(T1, T2)));
+derive(generic(T1, T2), Pair(T1, T2), where(T1 <: MyEq(T1), T2 <: MyEq(T2)), MyEq(Pair(T1, T2)));
 ```
 
 The `DeriveContext.make_impl` method automatically includes the generic/where clauses in the generated impl.

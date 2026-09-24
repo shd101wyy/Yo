@@ -278,38 +278,29 @@ yo fmt --check             # 只检查格式，不写入变更
     像这样
   */
 */
-
 // Yo 的语法受到 Lisp 的启发，因此没有关键字
 // 它只使用原子和函数调用
-x // 一个原子（标识符）
-func(x, y) // 带两个参数 x 和 y 的函数调用。
-           // 注意函数名和括号之间没有空格
-           // 不带括号的调用（如 func x, y）是非法的。
-
+x; // 一个原子（标识符）
+func(x, y); // 带两个参数 x 和 y 的函数调用。
+// 注意函数名和括号之间没有空格
+// 不带括号的调用（如 func x, y）是非法的。
 // 调用必须使用紧贴的括号。以下写法是非法的：
 // func x, y
 // func (x, y)
-
 // Yo 区分大小写，所以 `X` 和 `x` 是不同的标识符
-
-// 在 Yo 中，一切都是函数：
-x := true;
-y :: 14;
-
-// 可以写成：
-(:=)(x, true);
-(::)(y, 14);
+// 在 Yo 中，一切都是函数：`x := true;` 与 `y :: 14;` 是保留运算符
+// `:=` / `::` 作用于两个参数，也可以写成前缀调用形式
+// （这里绑定新名字——不允许遮蔽已有名字）：
+(:=)(x2, true);
+(::)(y2, 14);
 // 虽然通常我们不会这么写 ^
-
 // Yo 中没有算术优先级
 // 除了 "." 不被视为运算符，但它具有最高优先级。
 // "." 有自己的解析规则，例如 a.b + c.d 被解析为 .(a, b) + .(c, d)
-
 // 每个中缀运算符接受左右两个参数。
 //
 // Yo 没有运算符优先级。相同运算符的链是左结合的，因此不需要括号：
 3 + 4 + 5; // 解析为 (3 + 4) + 5
-
 // 但相邻的不同运算符存在歧义，必须用显式括号消除歧义：
 //
 //   3 + 4 - 5; // 错误："+" 和 "-" 是不同的运算符
@@ -433,15 +424,16 @@ begin(
 ```rust
 // 值类型 - 栈分配，复制语义
 Point :: struct(x : i32, y : i32);
-p1 := Point(3, 4);
-p2 := p1;  // p2 是 p1 的副本
-
+p1 := Point(x : 3, y : 4);
+p2 := p1; // p2 是 p1 的副本
 // 引用语义类型 - 堆分配，引用计数
-MyString :: ref(struct(
-  _bytes : ArrayList(u8)
-));
+MyString :: ref(
+  struct(
+    _bytes : ArrayList(u8)
+  )
+);
 s1 := MyString.from("Hello");
-s2 := s1;  // s2 和 s1 指向同一个对象（引用计数）
+s2 := s1; // s2 和 s1 指向同一个对象（引用计数）
 ```
 
 ### 变量声明
@@ -449,10 +441,9 @@ s2 := s1;  // s2 和 s1 指向同一个对象（引用计数）
 Yo 中的变量使用 `:=`（运行时）或 `::`（编译期）声明。
 
 ```rust
-               // "comptime" 在这里表示编译期已知
-x := 5;        // x: i32，运行时变量
-y :: 5;        // y: comptime_int，编译期变量
-
+// "comptime" 在这里表示编译期已知
+x := 5; // x: i32，运行时变量
+y :: 5; // y: comptime_int，编译期变量
 // 带显式类型声明
 (x : i32) = 5; // x: i32，运行时变量
 (comptime(y) : comptime_int) = 5; // y: comptime_int，编译期变量
@@ -461,17 +452,14 @@ comptime(y) := 5;
 
 // 所有变量默认可变
 x := 1;
-x = 2;  // OK：允许重新赋值
-
+x = 2; // OK：允许重新赋值
 // (:) 函数用于标注类型
 // (=) 函数用于更新变量的值，或用一个值初始化变量
 // (:=) 函数用于声明一个类型自动推断的运行时变量
 // (::) 函数用于声明一个类型自动推断的编译期变量
-
-x : i32;        // 定义一个运行时变量
+x : i32; // 定义一个运行时变量
 comptime(x) : i32; // 定义一个编译期变量
 // 所有变量默认可变。为了简洁，没有不可变变量。
-
 // 初始化变量
 (comptime(x) : comptime_int) = 12;
 (y : i32) = 14;
@@ -513,10 +501,10 @@ x := 1;
 ```rust
 {
   x := 1;
-}
+};
 {
   x := 2; // 允许：不同的作用域
-}
+};
 ```
 
 #### 丢弃调用结果
@@ -539,18 +527,14 @@ _ := unsafe(unistd.close(fd));
 // String 是一个带自动引用计数的引用语义类型
 (my_string : String) = String.from("Hello, world"); // 堆分配
 my_string_2 := my_string; // 两者指向同一个对象（RC 递增）
-
 // 原始类型是复制的
 my_int := 1; // 栈分配
 my_int_2 := my_int; // my_int_2 是一个副本
-
 // 固定大小数组是值类型
 (my_int_array : Array(i32, 3)) = [1, 2, 3]; // 栈分配
 my_int_array := [1, 2, 3]; // Array(i32, 3)
-
 // ArrayList 是一个引用语义类型
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // 堆分配，RC
-
 // 枚举/ADT 可以是值类型或引用语义类型，取决于定义方式
 Person :: struct(name : String, age : i32); // 值类型（但包含引用语义类型字段）
 p := Person(name : String.from("Alice"), age : 30);
@@ -561,10 +545,8 @@ _(name, age) := p; // name : String, age : i32
 
 ```rust
 x : i32; // x : i32，未初始化
-
 // 编译器会阻止使用未初始化的变量。
 println(x); // 编译错误：x 未初始化。
-
 x = 1; // x : i32，已初始化
 ```
 
@@ -601,17 +583,14 @@ add :: (fn(x : i32, y : i32) -> i32)(
   x + y // 函数体
 );
 // 用函数体调用函数类型可以创建一个函数值
-
 // 或者先定义类型，再实现
 comptime(add) : (fn(x : i32, y : i32) -> i32);
 add = _(x + y); // 这里的 `_` 从 `add` 推断函数类型
-
 // 或者用匿名函数定义函数体
-add = ((a, b) -> (a + b));  // 类型从用法推断。可以使用不同的参数名
-
+add = ((a, b) -> (a + b)); // 类型从用法推断。可以使用不同的参数名
 // 带显式返回类型
 multiply :: (fn(x : i32, y : i32) -> i32)({
-  return((x * y));  // 显式返回
+  return(x * y); // 显式返回
 });
 
 // 最后一个表达式即为返回值
@@ -619,16 +598,18 @@ divide :: (fn(x : i32, y : i32) -> i32)(x / y);
 
 // 函数可以接受 `comptime` 参数并返回 `comptime` 值，如 Type：
 Point :: (fn(comptime(T) : Type) -> comptime(Type))({
-  return(struct(
-    x : T,
-    y : T
-  ));
+  return(
+    struct(
+      x : T,
+      y : T
+    )
+  );
 });
 I32Point :: Point(i32);
 BoolPoint :: Point(bool);
 
-p1 := I32Point(3, 4);
-p2 := BoolPoint(true, false);
+p1 := I32Point(x : 3, y : 4);
+p2 := BoolPoint(x : true, y : false);
 ```
 
 ### 命名参数
@@ -636,14 +617,12 @@ p2 := BoolPoint(true, false);
 Yo 中的命名参数必须按照函数签名中定义的顺序提供：
 
 ```rust
-add :: (fn(x : i32, y : i32) -> i32)
-  (x + y)
-;
+add :: (fn(x : i32, y : i32) -> i32)(x + y);
 
-add(3, 4);        // OK：位置参数
-add(x: 3, y: 4);  // OK：正确顺序的命名参数
-add(3, y: 4);     // OK：混合使用（先位置后命名）
-add(y: 4, x: 3);  // 错误：命名参数必须按顺序（x 在 y 之前）
+add(3, 4); // OK：位置参数
+add(x : 3, y : 4); // OK：正确顺序的命名参数
+add(3, y : 4); // OK：混合使用（先位置后命名）
+add(y : 4, x : 3); // 错误：命名参数必须按顺序（x 在 y 之前）
 ```
 
 ### 默认参数值
@@ -651,15 +630,12 @@ add(y: 4, x: 3);  // 错误：命名参数必须按顺序（x 在 y 之前）
 默认参数值可以使用 `?=` 语法定义：
 
 ```rust
-create_user :: (fn(
-    name: String,
-    (age: i32) ?= 18,
-  ) -> User)
-  User(name: name, age: age)
-;
+create_user :: (fn(name : String, (age : i32) ?= i32(18)) -> User)(
+  User(name : name, age : age)
+);
 
-create_user(name: "Alice");  // 使用默认值：age=18
-create_user(name: "Bob", age: 30);  // 显式指定 age
+create_user(name : `Alice`); // 使用默认值：age=18
+create_user(name : `Bob`, age : i32(30)); // 显式指定 age
 ```
 
 > 注意：默认参数必须使用编译期已知的值。
@@ -669,12 +645,10 @@ create_user(name: "Bob", age: 30);  // 显式指定 age
 你可以使用 `generic` 来定义泛型函数：
 
 ```rust
-identity :: (fn(generic(T : Type), arg : T) -> T)
-  arg
-;
+identity :: (fn(generic(T : Type), arg : T) -> T)(arg);
 
-x := identity(12);     // 类型推断：x: i32
-y := identity(true);   // 类型推断：y: bool
+x := identity(12); // 类型推断：x: i32
+y := identity(true); // 类型推断：y: bool
 ```
 
 泛型函数体在特化时做类型检查：每个实例化处，函数体的结果都必须与声明的返回类型一致
@@ -715,21 +689,21 @@ scale(i32.default(), n);   // error[E1101]: Parameter `factor` is `comptime` and
 你可以使用 `where` 子句在泛型参数上添加类型约束：
 
 ```rust
-add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
-  (x + y)
-;
+add :: (fn(generic(T : Type), x : T, y : T, where(T <: Add(T))) -> T)(x + y);
 ```
 
 `where` 子句可以指定多个约束：
 
 ```rust
-compare_and_add :: (fn(
+compare_and_add :: (
+  fn(
     generic(T : Type),
-    x: T,
-    y: T,
-    z: T,
+    x : T,
+    y : T,
+    z : T,
     where(T <: (Add(T), Eq(T)))
-  ) -> T)(
+  ) -> T
+)(
   cond(
     (x == y) => (x + z),
     true => (y + z)
@@ -751,17 +725,17 @@ impl(Point, T2(get_number : (self -> self.y)));
 
 // 隐式分派 — where(T <: T1) 约束 self.get_number() 只使用 T1 的方法
 use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
-  return(self.get_number());  // 返回 self.x (10)
+  return(self.get_number()); // 返回 self.x (10)
 });
 
 // 显式分派 — 使用 (T <: T2).method(self) 语法
 use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
-  return((T <: T2).get_number(self));  // 返回 self.y (20)
+  return((T <: T2).get_number(self)); // 返回 self.y (20)
 });
 
 point := Point(10, 20);
-use_t1(point);  // 10
-use_t2(point);  // 20
+use_t1(point); // 10
+use_t2(point); // 20
 ```
 
 ### 使用 `_` 进行偏应用（Partial Application）
@@ -771,11 +745,10 @@ use_t2(point);  // 20
 ```rust
 // Result 的 kind 是：(Type, Type) -> Type
 // 偏应用固定一个参数：
-IntResult :: Result(_, i32);    // kind: Type -> Type
-StrOkResult :: Result(str, _);  // kind: Type -> Type
-
+IntResult :: Result(_, i32); // kind: Type -> Type
+StrOkResult :: Result(str, _); // kind: Type -> Type
 // 像任何类型构造器一样使用：
-(r : IntResult(bool)) = .Ok(true);      // = Result(bool, i32)
+(r : IntResult(bool)) = .Ok(true); // = Result(bool, i32)
 (r2 : StrOkResult(i32)) = .Err(i32(404)); // = Result(str, i32)
 ```
 
@@ -783,12 +756,11 @@ StrOkResult :: Result(str, _);  // kind: Type -> Type
 
 ```rust
 // 类型构造器（返回 comptime(Type)）：
-IntResult :: Result(_, i32);    // kind: Type -> Type
-
+IntResult :: Result(_, i32); // kind: Type -> Type
 // 编译期值函数（返回 comptime(i32)、comptime(bool) 等）：
 add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
-add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
-result :: add1(i32(2));   // 3
+add1 :: add(i32(1), _); // fn(comptime(y) : i32) -> comptime(i32)
+result :: add1(i32(2)); // 3
 ```
 
 偏应用的类型构造器可以作为 HKT generic 参数使用：
@@ -813,26 +785,27 @@ Point :: struct(
   x : i32,
   y : i32
 );
-impl(Point,
+impl(
+  Point,
   // 类型方法在结构体 trait 中定义
-  distance_from_origin : (fn(self: Self) -> f64)(
+  distance_from_origin : (fn(self : Self) -> f64)(
     f64(
       sqrt(
         (self.x * self.x) +
-        (self.y * self.y)))
+          (self.y * self.y)
+      )
+    )
   ),
-
   move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
 );
 
-p := Point(3, 4);
-d := p.distance_from_origin();  // 类型方法调用 - OK
-
-p2 := Point(0, 0);
-p2.move_by(5, 10);  // `inout(self)` 在 C 中降为 `Self*` — 编译器自动插入 &(p2)
+p := Point(x : 3, y : 4);
+d := p.distance_from_origin(); // 类型方法调用 - OK
+p2 := Point(x : 0, y : 0);
+p2.move_by(5, 10); // `inout(self)` 在 C 中降为 `Self*` — 编译器自动插入 &(p2)
 // p2 现在是 Point(5, 10)
 ```
 
@@ -843,14 +816,15 @@ p2.move_by(5, 10);  // `inout(self)` 在 C 中降为 `Self*` — 编译器自动
 
 ```rust
 Point :: struct(x : i32, y : i32);
-impl(Point,
+impl(
+  Point,
   set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
 
-p := Point(3, 4);
-p.set_x(10);  // 无需写 `&(p)` — 编译器自动插入
+p := Point(x : 3, y : 4);
+p.set_x(10); // 无需写 `&(p)` — 编译器自动插入
 ```
 
 ### 私有成员
@@ -860,7 +834,8 @@ p.set_x(10);  // 无需写 `&(p)` — 编译器自动插入
 ```rust
 // counter.yo
 Counter :: struct(_count : i32, label : String);
-impl(Counter,
+impl(
+  Counter,
   new : (fn(label : String) -> Counter)(Counter(_count : i32(0), label : label)),
   _bump : (fn(self : Self, by : i32) -> Counter)(
     Counter(_count : (self._count + by), label : self.label.clone())
@@ -873,13 +848,13 @@ export(Counter);
 // app/main.yo —— 另一个目录
 { Counter } :: import("../counter.yo");
 c := Counter.new(String.from("clicks")).add(i32(2));
-c.count();                                  // OK —— 公开方法
-c.label;                                    // OK —— 公开字段
-c._count;                                   // error[E0405]: Field "_count" of Counter is private to its declaring module
-c._bump(i32(1));                            // error[E0405]: Method "_bump" of Counter is private to its declaring module
-Counter(_count : i32(9), label : c.label);  // error[E0405]: Cannot construct Counter outside its declaring module: field "_count" is private
-{ _count } := c;                            // error[E0405]: Cannot destructure field "_count" of Counter outside its declaring module: it is private
-{ label } := c;                             // OK —— 只点名公开字段
+c.count(); // OK —— 公开方法
+c.label; // OK —— 公开字段
+c._count; // error[E0405]: Field "_count" of Counter is private to its declaring module
+c._bump(i32(1)); // error[E0405]: Method "_bump" of Counter is private to its declaring module
+Counter(_count : i32(9), label : c.label); // error[E0405]: Cannot construct Counter outside its declaring module: field "_count" is private
+{ _count } := c; // error[E0405]: Cannot destructure field "_count" of Counter outside its declaring module: it is private
+{ label } := c; // OK —— 只点名公开字段
 ```
 
 由此推出的规则：
@@ -933,28 +908,29 @@ Yo 使用**引用语义类型**，配合[编译期引用计数与所有权和生
 
 ```rust
 // 定义一个引用语义类型
-MyString :: ref(struct(
-  _bytes : ArrayList(u8)
-));
-impl(MyString,
+MyString :: ref(
+  struct(
+    _bytes : ArrayList(u8)
+  )
+);
+impl(
+  MyString,
   // 方法
   from : (fn(s : str) -> Self)({
     // 实现...
   }),
-
   length : (fn(self : Self) -> usize)({
     // 实现...
   }),
-
   dispose : (fn(self : Self) -> unit)({
     // 当引用计数降为零时调用 `dispose` 函数
   })
 );
 
 // 使用
-s1 := MyString.from("Hello");  // RC = 1
-s2 := s1;                    // RC = 2（两者指向同一个对象）
-s3 := s2;                    // RC = 3
+s1 := MyString.from("Hello"); // RC = 1
+s2 := s1; // RC = 2（两者指向同一个对象）
+s3 := s2; // RC = 3
 // 当 s1、s2、s3 离开作用域时，RC 递减
 // 当 RC 降为 0 时，内存被释放
 // 实际上，我们通过所有权分析消除了许多 RC 操作
@@ -975,13 +951,15 @@ Yo 使用指针 (`*(T)`) 进行直接内存访问，类似 C。对原始指针�
 x := 1;
 y := 2;
 
-swap :: (fn(a : *(i32), b : *(i32)) -> unit)(unsafe({
-  tmp := a.*;  // 解引用指针
-  a.* = b.*;
-  b.* = tmp;
-}));
+swap :: (fn(a : *i32, b : *i32) -> unit)(
+  unsafe({
+    tmp := a.*; // 解引用指针
+    a.* = b.*;
+    b.* = tmp;
+  })
+);
 
-swap(&(x), &(y));  // 传入 x 和 y 的指针
+swap(&x, &y); // 传入 x 和 y 的指针
 // 现在 x == 2, y == 1
 ```
 
@@ -992,22 +970,18 @@ swap(&(x), &(y));  // 传入 x 和 y 的指针
 ```rust
 // 使用 & 运算符创建指针
 x := 42;
-ptr := &(x);  // ptr: *(i32)
-
+ptr := &x; // ptr: *(i32)
 // 使用 .* 解引用（需要 unsafe — 可能读取无效内存）
-value := unsafe(ptr.*);  // value == 42
-
+value := unsafe(ptr.*); // value == 42
 // 通过指针修改（需要 unsafe — 可能写入悬空指针）
-unsafe(ptr.* = 100);  // x 现在是 100
-
+unsafe(ptr.* = 100); // x 现在是 100
 // 指针算术（需要 unsafe — 可能产生越界地址）
 arr := [1, 2, 3, 4, 5];
-ptr := &(arr(0));  // 指向第一个元素的指针
-ptr2 := unsafe(ptr.add(2));  // 指向第三个元素
-value := unsafe(ptr2.*);  // value == 3
-
+ptr := &arr(0); // 指向第一个元素的指针
+ptr2 := unsafe(ptr.add(2)); // 指向第三个元素
+value := unsafe(ptr2.*); // value == 3
 // 指针类型转换（安全 — 只修改地址的类型标签）
-float_ptr := *(f32)(ptr);  // 将指针转换为 *(f32)
+float_ptr := (*f32)(ptr); // 将指针转换为 *(f32)
 ```
 
 ### 指针算术与比较
@@ -1017,22 +991,20 @@ float_ptr := *(f32)(ptr);  // 将指针转换为 *(f32)
 ```rust
 test("Pointer arithmetic", {
   x := 12;
-  p := &(x);
+  p := &x;
 
   // 加法和减法（需要 unsafe — 可能产生越界地址）
-  q := unsafe(p.add(2));   // 指针前进 2 个元素
-  z := unsafe(q.sub(2));   // 指针后退 2 个元素
-
+  q := unsafe(p.add(2)); // 指针前进 2 个元素
+  z := unsafe(q.sub(2)); // 指针后退 2 个元素
   // 比较运算符（安全 — 地址只是数据）
-  assert(q > p);  // q 在 p 之后
-  assert(p < q);  // p 在 q 之前
+  assert(q > p); // q 在 p 之后
+  assert(p < q); // p 在 q 之前
   assert(q >= p); // 大于等于
   assert(p <= q); // 小于等于
   assert(z == p); // 相等（相同地址）
   assert(p != q); // 不相等
-
   // 指针差值同样需要 unsafe（假定两指针指向同一对象）
-  diff := unsafe(q.offset_from(p));  // 距离：2 个元素
+  diff := unsafe(q.offset_from(p)); // 距离：2 个元素
   assert(diff == 2);
 });
 ```
@@ -1056,8 +1028,7 @@ test("Pointer arithmetic", {
 
 ```rust
 // 不使用 consume - 错误：尝试 drop 未初始化的值
-ptr.* = some_value;  // 危险！
-
+ptr.* = some_value; // 危险！
 // 使用 consume - OK：初始化，不 drop
 consume(ptr.* = some_value);
 ```
@@ -1071,7 +1042,8 @@ Yo 使用 `Option(*(T))` 来表示可空指针：
 ```rust
 // malloc 返回 Option(*(T))
 some_ptr := malloc(sizeof(i32));
-match(some_ptr,
+match(
+  some_ptr,
   .Some(ptr) => {
     ptr.* = 42;
     printf("value: %d\n", ptr.*);
@@ -1097,17 +1069,19 @@ Yo 的安全模型是分层的（设计计划见 [plans/reference/MEMORY_SAFETY.
 
 ```rust
 // 指针解引用需要 unsafe：
-read :: (fn(p : *(i32)) -> i32)(unsafe(p.*));
+read :: (fn(p : *i32) -> i32)(unsafe(p.*));
 
 // 指针算术同样：
-advance :: (fn(p : *(i32), n : usize) -> *(i32))(unsafe(p.add(n)));
+advance :: (fn(p : *i32, n : usize) -> *i32)(unsafe(p.add(n)));
 
 // 多语句 unsafe 用 begin-block 包裹（必须含分号 —
 // 不带分号的 `{ ... }` 是结构体字面量，而不是块）：
-write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
-  p.* = v;
-  p.*
-}));
+write_and_read :: (fn(p : *i32, v : i32) -> i32)(
+  unsafe({
+    p.* = v;
+    p.*
+  })
+);
 
 // 指针比较（==、< 等）和 *(T) 类型转换（如 (*u8)(p)）
 // 保持安全 — 它们不解引用，因此不被门控。
@@ -1125,9 +1099,9 @@ write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
 // 没有 pragma 的文件 — `unsafe(...)` 被拒绝：
 main :: (fn() -> unit)({
   x := i32(42);
-  v := unsafe(x);   // error: 'unsafe(...)' is not available in safe code.
-                    //        To use raw pointer operations, declare at the top:
-                    //            pragma(Pragma.AllowUnsafe);
+  v := unsafe(x); // error: 'unsafe(...)' is not available in safe code.
+  //        To use raw pointer operations, declare at the top:
+  //            pragma(Pragma.AllowUnsafe);
 });
 
 // 在文件顶部添加 pragma 即可启用：
@@ -1135,8 +1109,8 @@ pragma(Pragma.AllowUnsafe);
 
 main :: (fn() -> unit)({
   x := i32(42);
-  p := &(x);
-  v := unsafe(p.*);  // OK
+  p := &x;
+  v := unsafe(p.*); // OK
 });
 ```
 
@@ -1158,14 +1132,14 @@ increment :: (fn(inout(n) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // 调用点不需要 `&()` 语法
-  assert((x == i32(2)), "swapped");
-  assert((y == i32(1)), "swapped");
+  swap(x, y); // 调用点不需要 `&()` 语法
+  assert(x == i32(2), "swapped");
+  assert(y == i32(1), "swapped");
 
   counter := i32(0);
   increment(counter);
   increment(counter);
-  assert((counter == i32(2)), "incremented");
+  assert(counter == i32(2), "incremented");
 });
 ```
 
@@ -1177,7 +1151,7 @@ double :: (fn(inout(n) : i32) -> unit)({
 });
 
 double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
-  double(x);  // 将 &x 透传给 double 的 `inout` 参数
+  double(x); // 将 &x 透传给 double 的 `inout` 参数
   double(y);
 });
 ```
@@ -1188,7 +1162,7 @@ Yo 通过引用计数自动管理引用语义类型的内存。当对象的引�
 
 ```rust
 test :: (fn() -> unit)({
-  x := String.from("World!");  // RC = 1
+  x := String.from("World!"); // RC = 1
   // ... 使用 x ...
   // 作用域结束时，RC 递减
   // 如果 RC 降为 0，内存自动释放
@@ -1201,37 +1175,33 @@ test :: (fn() -> unit)({
 
 ```rust
 my_unit := (); // my_unit: unit.
-
-my_i32_tuple := (12);  // my_i32_tuple: i32
+my_i32_tuple := 12; // my_i32_tuple: i32
 // 需要额外的逗号才能构成元组
 my_i32_tuple := (12,); // my_i32_tuple: (i32,). Free type
-
-(i32_tuple: (i32, i32, i32)) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
-
+(i32_tuple : (i32, i32, i32)) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
 mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32, bool, *u8[6,'\0']). Free type
-
 (a, b, c) := mixed_tuple; // a: i32, b: bool, c: *u8[6,'\0']. Free type
-
 a := mixed_tuple.0;
 b := mixed_tuple.1;
 c := mixed_tuple.2;
 
-// 注意：只有 1 个元素的元组需要加逗号才能成为元组。
-MyTuple := (i32)
+// 注意：只有 1 个元素的元组类型仍需要分隔符，否则它就是元素类型本身。
+MyTuple :: i32;
 // 等价于
-MyTuple := i32;
-// 要使其成为元组，需要加逗号
-MyTuple := (i32,);
+MyTuple :: i32;
+// 要使其成为单元素元组类型，需要加分号
+MyTuple :: (
+  i32;
+);
 ```
 
 ## 数组与区间
 
 ```rust
-i32_array := [i32;_](1, 2, 3); // i32_array: [i32; 3]
-                              // 对应 C 代码：int i32_array[3] = {1, 2, 3};
+i32_array := [i32 ; _](1, 2, 3); // i32_array: [i32; 3]
+// 对应 C 代码：int i32_array[3] = {1, 2, 3};
 i32_array.len(); // 3，编译期已知
-
-(i32_array2 : [i32; _]) = [1, 2, 3]; // i32_array2: [i32; 3]
+(i32_array2 : [i32 ; _]) = [1, 2, 3]; // i32_array2: [i32; 3]
 ```
 
 Yo 中不存在指向堆的切片类型。可能在底层缓冲区被释放后悬空的视图从构造上就被排除了：
@@ -1250,14 +1220,15 @@ Yo 中不存在指向堆的切片类型。可能在底层缓冲区被释放后�
 
 ```rust
 list := ArrayList(i32).new();
-list.push(i32(1)); list.push(i32(2)); list.push(i32(3)); list.push(i32(4));
+list.push(i32(1));
+list.push(i32(2));
+list.push(i32(3));
+list.push(i32(4));
 
 // 元素 1..3（不含端点）的拷贝 —— 一个独立的 ArrayList(i32)
-part := list(usize(1)..usize(3));   // [2, 3]
-
+part := list(usize(1) .. usize(3)); // [2, 3]
 // 含端点变体
-part2 := list(usize(1)..=usize(3)); // [2, 3, 4]
-
+part2 := list(usize(1) ..= usize(3)); // [2, 3, 4]
 // 修改拷贝不影响源
 part.set(usize(0), i32(99));
 assert(list(usize(1)) == i32(2));
@@ -1272,11 +1243,11 @@ Yo 中的数组自带一些实用方法：
 创建一个用指定值填充的数组：
 
 ```rust
-// 运行时填充
-zeros := Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
-
-// 编译期填充
-ones :: Array(i32, 5).fill(1);    // [1,1,1,1,1]
+// `fill` 要求一个编译期已知的实参（它定义在 `where(T <: Comptime)` 之下，
+// 接受 `comptime(val)`），但它的结果是一个运行时值——用 `:=` 绑定
+// （`::` 会被拒绝："Got runtime value"）。
+zeros := Array(i32, 10).fill(0); // [0,0,0,0,0,0,0,0,0,0]
+ones := Array(i32, 5).fill(1); // [1,1,1,1,1]
 ```
 
 #### Array.len
@@ -1284,12 +1255,10 @@ ones :: Array(i32, 5).fill(1);    // [1,1,1,1,1]
 获取数组的长度：
 
 ```rust
-arr := [1, 2, 3, 4, 5];
-len := arr.len();  // 5（定长数组在编译期已知）
-
+arr :: [1, 2, 3, 4, 5];
+len := arr.len(); // 5（运行时读取；长度也在类型里）
 // 适用于泛型数组
-generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T; n]) -> usize)
-  arr.len()  // 返回 n
+generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T ; n]) -> usize)(arr.len()); // 返回 n
 ;
 ```
 
@@ -1299,31 +1268,28 @@ Yo 可以使用 `_` 来推断数组长度：
 
 ```rust
 // 从初始化器推断长度
-arr1 := Array(i32, _)(1, 2, 3);         // Array(i32, 3)
-arr2 := [i32; _](10, 20, 30, 40);       // Array(i32, 4)
-
+arr1 :: Array(i32, _)(1, 2, 3); // Array(i32, 3)
+arr2 :: [i32 ; _](10, 20, 30, 40); // Array(i32, 4)
 // 字面量语法推断长度
-arr3 := [1, 2, 3];                      // Array(i32, 3)
-
+arr3 :: [1, 2, 3]; // Array(i32, 3)
 // 空数组
-empty := Array(i32, _)();               // Array(i32, 0)
-
+empty :: Array(i32, _)(); // Array(i32, 0)
 // 嵌套数组推断
-nested := Array(Array(i32, _), _)(
+nested :: Array(Array(i32, _), _)(
   Array(i32, _)(1, 2, 3),
   Array(i32, _)(4, 5, 6)
-);                                       // Array(Array(i32, 3), 2)
+); // Array(Array(i32, 3), 2)
 ```
 
 **限制**：不能在没有初始化的变量绑定中使用 `_`：
 
 ```rust
 // 错误：无法推断长度
-arr : Array(i32, _);  // 不允许！
+arr : Array(i32, _); // 不允许！
 arr = [1, 2, 3];
 
 // 正确：使用具体长度或立即初始化
-arr := Array(i32, _)(1, 2, 3);  // OK
+arr := Array(i32, _)(1, 2, 3); // OK
 ```
 
 ### 数组赋值与复制
@@ -1332,21 +1298,13 @@ arr := Array(i32, _)(1, 2, 3);  // OK
 
 ```rust
 // 创建数组
-arr1 := [1, 2, 3];
-arr2 := arr1;       // arr2 是 arr1 的副本
-
+arr1 := [i32(1), i32(2), i32(3)];
+arr2 := arr1; // arr2 是 arr1 的副本
 // 修改 arr2
-arr2(0) = 10;
+arr2(usize(0)) = i32(10);
 
-assert(arr1(0) == 1);   // arr1 未改变
-assert(arr2(0) == 10);  // arr2 已修改
-
-// 赋值返回旧值
-arr3 := [5, 6, 7];
-old := (arr3 = [8, 9, 10]);
-
-assert(arr3(0) == 8);   // arr3 有了新值
-assert(old(0) == 5);    // old 保存了之前的值
+assert(arr1(usize(0)) == i32(1), "arr1 未改变");
+assert(arr2(usize(0)) == i32(10), "arr2 已修改");
 ```
 
 更多数组示例请参阅 [array.test.yo](../tests/array.test.yo)。
@@ -1378,7 +1336,7 @@ assert(old(0) == 5);    // old 保存了之前的值
 ### cond
 
 ```rust
-use_cond :: (fn(x: i32) -> unit)(
+use_cond :: (fn(x : i32) -> unit)(
   cond(
     (x == 1) => println("x is 1"),
     (x == 2) => println("x is 2"),
@@ -1436,7 +1394,7 @@ main :: (fn() -> unit)({
 `while(condition, steps, do: body)`
 
 ```rust
-factorial :: (fn(n: i32) -> i32)({
+factorial :: (fn(n : i32) -> i32)({
   result := 1;
   i := 1;
   while(i <= n, {
@@ -1446,10 +1404,10 @@ factorial :: (fn(n: i32) -> i32)({
   result
 });
 
-factorial2 :: (fn(n: i32) -> i32)({
+factorial2 :: (fn(n : i32) -> i32)({
   result := 1;
   i := 1;
-  while((i <= n), (i = (i + 1)), {
+  while(i <= n, i = (i + 1), {
     result = (result * i);
   });
   result
@@ -1472,17 +1430,22 @@ Iterator :: trait(
 ```rust
 Counter :: struct(_current : i32, _max : i32);
 
-impl(Counter, Iterator(
-  Item : i32,
-  next : (self -> cond(
-    (self._current >= self._max) => .None,
-    true => {
-      val := self._current;
-      self._current = (self._current + i32(1));
-      .Some(val)
-    }
-  ))
-));
+impl(
+  Counter,
+  Iterator(
+    Item : i32,
+    next : (
+      self -> cond(
+        (self._current >= self._max) => .None,
+        true => {
+          val := self._current;
+          self._current = (self._current + i32(1));
+          .Some(val)
+        }
+      )
+    )
+  )
+);
 ```
 
 `IntoIterator` trait 将集合转换为迭代器。它有一个 `where` 子句，约束 `IntoIter` 关联类型必须实现具有匹配 `Item` 类型的 `Iterator`：
@@ -1500,7 +1463,7 @@ IntoIterator :: trait(
 
 ```rust
 // for 循环语法
-for(iter_expr, (variable) => {
+for(iter_expr, variable => {
   // 循环体
 });
 ```
@@ -1512,12 +1475,12 @@ for(iter_expr, (variable) => {
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
-for(list, (value) => {
+for(list, value => {
   println(value);
 });
 
 // 引用语义元素是句柄 — 变异落在集合里。
-for(names, (s) => {
+for(names, s => {
   s.push_str("!");
 });
 
@@ -1552,22 +1515,22 @@ ADT 还有一些优化。例如，如果 ADT 只有一个变体，`tag` 字段�
 此外，如果只有一个变体且只有一个字段，将直接使用字段类型而不是将其包装在记录中。这类似于 Haskell 中的 [newtype](https://wiki.haskell.org/Newtype)。
 
 ```rust
-Option :: (fn(comptime(T) : Type) -> comptime(Type))
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Some(value : T),
     None
   )
-;
+);
 
-(none: Option(i32)) = .None;
-(some: Option(i32)) = .Some(42);
+(none : Option(i32)) = .None;
+(some : Option(i32)) = .Some(i32(42));
 
 IpAddr :: enum(
   V4(a : u8, b : u8, c : u8, d : u8),
   V6(v : String)
 );
 
-home := IpAddr.V4(127, 0, 0, 1);
+home := IpAddr.V4(u8(127), u8(0), u8(0), u8(1));
 loopback := IpAddr.V6(String.from("::1"));
 
 // 使用记录作为变体
@@ -1579,8 +1542,8 @@ Message :: enum(
 );
 
 m := Message.Write(String.from("hello"));
-m := Message.Move(x: 3, y: 4);
-m := Message.ChangeColor(r: 1, g: 2, b: 3);
+m = Message.Move(i32(3), i32(4));
+m = Message.ChangeColor(i32(1), i32(2), i32(3));
 ```
 
 ## 高级类型系统
@@ -1601,15 +1564,17 @@ Yo 通过**编译期函数类型作为 Kind**来支持高阶类型。像 `Option
 
 ```rust
 // F 是一个类型构造器（kind: Type → Type）
-identity :: (fn(
-  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
-  x: F(A)
-) -> F(A))(x);
+identity :: (
+  fn(
+    generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
+    x : F(A)
+  ) -> F(A)
+)(x);
 
 // 使用：
 (x : Option(i32)) = .Some(i32(42));
-result := identity(generic(Option, i32), x);  // result: Option(i32)
-inferred := identity(x);                      // 由实参得到 F = Option，A = i32
+result := identity(generic(Option, i32), x); // result: Option(i32)
+inferred := identity(x); // 由实参得到 F = Option，A = i32
 ```
 
 带种类标注的参数可以从实参的实例化推断：`x : F(A)` 接收 `Option(i32)` 时，`F` 绑定到构造器 `Option`，`A` 绑定到 `i32`，结果 `F(A)` 就是直接调用所构造的同一个 `Option(i32)`。
@@ -1622,40 +1587,47 @@ inferred := identity(x);                      // 由实参得到 F = Option，A 
 // Functor trait —— F 是一个类型构造器
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    map : (fn(generic(A : Type, B : Type), self: F(A), f: (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
   )
 );
 
 // 为 Option 实现 Functor
-impl(generic(A : Type), Option(A), Functor(Option)(
-  map : (fn(generic(A : Type, B : Type), self: Option(A), f: (fn(a : A) -> B)) -> Option(B))(
-    match(self,
-      .Some(v) => .Some(f(v)),
-      .None => .None
+impl(
+  generic(A : Type),
+  Option(A),
+  Functor(Option)(
+    map : (fn(generic(A : Type, B : Type), self : Option(A), f : (fn(a : A) -> B)) -> Option(B))(
+      match(
+        self,
+        .Some(v) => .Some(f(v)),
+        .None => .None
+      )
     )
   )
-));
+);
 
 // 使用 trait 方法
 (x : Option(i32)) = .Some(i32(42));
-result := x.map(generic(i32), (fn(a: i32) -> i32)((a + i32(1))));
+result := x.map(generic(i32), (fn(a : i32) -> i32)(a + i32(1)));
 // result = .Some(i32(43))
 ```
 
 #### 使用 HKT where 子句的泛型函数
 
 ```rust
-do_map :: (fn(
-  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
-  container: F(A),
-  f: (fn(a : A) -> B),
-  where(F(A) <: Functor(F))
-) -> F(B))(
+do_map :: (
+  fn(
+    generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+    container : F(A),
+    f : (fn(a : A) -> B),
+    where(F(A) <: Functor(F))
+  ) -> F(B)
+)(
   container.map(generic(B), f)
 );
 
 (x : Option(i32)) = .Some(i32(10));
-result := do_map(generic(Option, i32, i32), x, (fn(a: i32) -> i32)((a * i32(2))));
+result := do_map(generic(Option, i32, i32), x, (fn(a : i32) -> i32)(a * i32(2)));
 // result = .Some(i32(20))
 ```
 
@@ -1679,15 +1651,18 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 ```rust
 eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
-  match(v,
-    .IntVal(i) => i,      // T 被细化为 i32，返回 i32 ✓
-    .BoolVal(b) => b,     // T 被细化为 bool，返回 bool ✓
-    .PairVal(a, b) => a   // T 被细化为 i32，返回 i32 ✓
+  match(
+    v,
+    .IntVal(i) => i,
+    // T 被细化为 i32，返回 i32 ✓
+    .BoolVal(b) => b,
+    // T 被细化为 bool，返回 bool ✓
+    .PairVal(a, b) => a // T 被细化为 i32，返回 i32 ✓
   )
 );
 
 v := Value(i32).IntVal(i32(42));
-result := eval_value(v);  // result : i32 = 42
+result := eval_value(v); // result : i32 = 42
 ```
 
 #### GADT 穷尽性检查
@@ -1698,7 +1673,8 @@ result := eval_value(v);  // result : i32 = 42
 // Value(i32) 只能是 IntVal 或 PairVal
 // BoolVal 不可达（它返回 Value(bool)，而不是 Value(i32)）
 eval_int_only :: (fn(v : Value(i32)) -> i32)(
-  match(v,
+  match(
+    v,
     .IntVal(i) => i,
     .PairVal(a, b) => a
     // 不需要 .BoolVal —— 对于 Value(i32) 它不可达
@@ -1722,7 +1698,8 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
 );
 
 my_fst :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> A)(
-  match(p,
+  match(
+    p,
     .MkIntBool(x, y) => x,
     .MkBoolInt(x, y) => x
   )
@@ -1747,7 +1724,7 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     MInt(i : i32) -> recur(i32),
     MBool(b : bool) -> recur(bool),
-    MGeneric(v : T)  // 无 GADT 注解 —— 无约束
+    MGeneric(v : T) // 无 GADT 注解 —— 无约束
   )
 );
 ```
@@ -1757,13 +1734,12 @@ GADTs 具有与普通枚举相同的运行时表示——所有类型细化都�
 ## C struct
 
 ```rust
-Point :: struct(x: i32, y: i32);
+Point :: struct(x : i32, y : i32);
 
 my_point := Point(
-  x: i32(10),
-  y: i32(20)
+  x : i32(10),
+  y : i32(20)
 );
-
 ```
 
 编译为 C
@@ -1802,24 +1778,22 @@ newtype(
 rune :: newtype(
   c : u32
 );
-impl(rune,
+impl(
+  rune,
   // 带验证的构造函数
-  from_u32 : ((fn(value: u32) -> Option(Self))
+  from_u32 : (fn(value : u32) -> Option(Self))(
     cond(
-      ((value <= u32(0x10FFFF)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
+      ((value <= u32(0x10FFFF)) && ((value < 0xD800) || (value > 0xDFFF))) => .Some(Self(c : value)),
       true => .None
     )
   ),
-
-  to_u32 : ((fn(self: Self) -> u32) self.c),
-
-  is_ascii : ((fn(self: Self) -> bool) (self.c <= 0x7F)),
-
+  to_u32 : (fn(self : Self) -> u32)(self.c),
+  is_ascii : (fn(self : Self) -> bool)(self.c <= u32(0x7F)),
   // 常量
-  NUL        : Self(c: 0x00),
-  TAB        : Self(c: 0x09),
-  NEWLINE    : Self(c: 0x0A),
-  SPACE      : Self(c: 0x20)
+  NUL : Self(c : 0x00),
+  TAB : Self(c : 0x09),
+  NEWLINE : Self(c : 0x0A),
+  SPACE : Self(c : 0x20)
 );
 ```
 
@@ -1842,7 +1816,7 @@ UserId :: newtype(value : i32);
 ## C union
 
 ```rust
-MyNumber := union(
+MyNumber :: union(
   i : i32,
   j : f32
 );
@@ -1864,13 +1838,15 @@ union MyNumber {
 与 ADT 相同，但所有变体都没有字段。
 
 ```rust
-State := enum(
+State :: enum(
   Working,
   Failed
 );
-Week := enum(
-  Monday, // 0
-  Tuesday, // 1
+Week :: enum(
+  Monday,
+  // 0
+  Tuesday,
+  // 1
   Wednesday // 2
 );
 
@@ -1898,23 +1874,31 @@ Display :: trait(
 NewsArticle :: struct(
   headline : String,
   location : String,
-  author   : String,
-  content  : String
+  author : String,
+  content : String
 );
 
 // 为 NewsArticle 实现 Summary trait
-impl(NewsArticle, Summary(
-  summarize : ((self) ->
-    `${self.headline}, by ${self.author} (${self.location})`
+impl(
+  NewsArticle,
+  Summary(
+    summarize : (
+      self ->
+        `${self.headline}, by ${self.author} (${self.location})`
+    )
   )
-));
+);
 
 // 为 NewsArticle 实现 Display trait
-impl(NewsArticle, Display(
-  display : ((self) ->
-    `Headline: ${self.headline}\n`
+impl(
+  NewsArticle,
+  Display(
+    display : (
+      self ->
+        `Headline: ${self.headline}\n`
+    )
   )
-));
+);
 
 // 传入函数
 notify :: (fn(inout(item) : NewsArticle) -> unit)({
@@ -1953,8 +1937,9 @@ Coin :: enum(
 // 参考：
 // - https://doc.rust-lang.org/book/ch06-02-match.html
 // - https://github.com/tc39/proposal-pattern-matching
-value_in_cents :: (fn(coin: Coin) -> u8)(
-  match(coin,
+value_in_cents :: (fn(coin : Coin) -> u8)(
+  match(
+    coin,
     .Penny => {
       printf("Lucky penny!\n");
       1
@@ -1967,11 +1952,12 @@ value_in_cents :: (fn(coin: Coin) -> u8)(
 
 Shape :: enum(
   Circle(r : i32),
-  Rectangle(w : i32 , h: i32)
+  Rectangle(w : i32, h : i32)
 );
 
-area :: (fn(shape: Shape) -> i32)(
-  match(shape,
+area :: (fn(shape : Shape) -> i32)(
+  match(
+    shape,
     .Circle(r) => (i32(3) * (r * r)),
     .Rectangle(w, h) => (w * h)
   )
@@ -1995,7 +1981,8 @@ area :: (fn(shape: Shape) -> i32)(
 
 ```rust
 classify :: (fn(r : Result(Option(i32), str)) -> i32)(
-  match(r,
+  match(
+    r,
     .Ok(.Some(0)) => i32(0),
     (.Ok(.Some(v)) && (v < i32(0))) => i32(-1),
     .Ok(.Some(v)) => v,
@@ -2006,9 +1993,10 @@ classify :: (fn(r : Result(Option(i32), str)) -> i32)(
 );
 
 bucket :: (fn(n : i32) -> str)(
-  match(n,
-    (0..10) => "small",
-    (10..=99) => "medium",
+  match(
+    n,
+    (0 .. 10) => "small",
+    (10 ..= 99) => "medium",
     other => cond((other < i32(0)) => "negative", true => "large")
   )
 );
@@ -2028,7 +2016,7 @@ command :: (fn(s : String) -> i32)(
 
 ```rust
 s := "Hello"; // s : str —— 字符串字面量就是内建的静态字符串视图 `str`。
-(s2 : *(u8)) = "Hi"; // 可以显式声明一个 C 字符串指针。
+(s2 : *u8) = "Hi"; // 可以显式声明一个 C 字符串指针。
 s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
 ```
 
@@ -2074,14 +2062,14 @@ name := `ada`;
 n := i32(255);
 pi := f64(3.14159);
 
-`[${name:>8}]`    // "[     ada]"   右对齐至宽度 8
-`[${name:<6}]`    // "[ada   ]"     左对齐
-`[${name:^7}]`    // "[  ada  ]"    居中
-`[${name:*>6}]`   // "[***ada]"     自定义填充字符
-`${n:x}`          // "ff"           小写十六进制
-`${n:#06x}`       // "0x00ff"       替代形式并补零
-`${pi:.2}`        // "3.14"         保留两位小数
-`${pi:>8.3}`      // "   3.142"     宽度在精度之后生效
+`[${name:>8}]`; // "[     ada]"   右对齐至宽度 8
+`[${name:<6}]`; // "[ada   ]"     左对齐
+`[${name:^7}]`; // "[  ada  ]"    居中
+`[${name:*>6}]`; // "[***ada]"     自定义填充字符
+`${n:x}`; // "ff"           小写十六进制
+`${n:#06x}`; // "0x00ff"       替代形式并补零
+`${pi:.2}`; // "3.14"         保留两位小数
+`${pi:>8.3}`; // "   3.142"     宽度在精度之后生效
 ```
 
 宽度以**字符**计。数字补零时，零位于符号或进制前缀与数字之间——`${i32(-(42)):08}`
@@ -2125,7 +2113,8 @@ printf("Capacity: %zu\n", list.capacity());
 
 // 通过索引获取元素
 first := list.get(usize(0));
-match(first,
+match(
+  first,
   .Some(value) => printf("First element: %d\n", value),
   .None => printf("No first element\n")
 );
@@ -2135,7 +2124,8 @@ list.set(usize(1), i32(150));
 
 // 弹出元素
 popped := list.pop();
-match(popped,
+match(
+  popped,
   .Some(value) => printf("Popped: %d\n", value),
   .None => printf("List is empty\n")
 );
@@ -2160,8 +2150,10 @@ map := HashMap(i32, i32).new();
 
 // 插入键值对
 result := map.insert(i32(1), i32(100));
-match(result,
-  .Ok(opt) => match(opt,
+match(
+  result,
+  .Ok(opt) => match(
+    opt,
     .None => printf("Inserted new key\n"),
     .Some(old_val) => printf("Updated, old value: %d\n", old_val)
   ),
@@ -2170,20 +2162,22 @@ match(result,
 
 // 获取值
 value_opt := map.get(i32(1));
-match(value_opt,
+match(
+  value_opt,
   .Some(v) => printf("Value: %d\n", v),
   .None => printf("Key not found\n")
 );
 
 // 检查键是否存在
 cond(
-  (map.has(i32(1))) => printf("Contains key 1\n"),
+  map.has(i32(1)) => printf("Contains key 1\n"),
   true => printf("Does not contain key 1\n")
 );
 
 // 删除键
 removed := map.remove(i32(1));
-match(removed,
+match(
+  removed,
   .Some(v) => printf("Removed value: %d\n", v),
   .None => printf("Key not found\n")
 );
@@ -2191,7 +2185,7 @@ match(removed,
 // 检查长度和是否为空
 printf("Length: %zu\n", map.length());
 cond(
-  (map.is_empty()) => printf("Map is empty\n"),
+  map.is_empty() => printf("Map is empty\n"),
   true => printf("Map is not empty\n")
 );
 
@@ -2211,7 +2205,8 @@ set := HashSet(i32).new();
 
 // 插入元素
 result := set.insert(i32(42));
-match(result,
+match(
+  result,
   .Ok(was_new) => cond(
     was_new => printf("Inserted new element\n"),
     true => printf("Element already exists\n")
@@ -2221,7 +2216,7 @@ match(result,
 
 // 检查是否包含
 cond(
-  (set.has(i32(42))) => printf("Contains 42\n"),
+  set.has(i32(42)) => printf("Contains 42\n"),
   true => printf("Does not contain 42\n")
 );
 
@@ -2246,14 +2241,16 @@ set2.insert(i32(4));
 
 // 并集
 union_result := set1.union(set2);
-match(union_result,
+match(
+  union_result,
   .Ok(union_set) => printf("Union size: %zu\n", union_set.length()),
   .Error(_) => printf("Union failed\n")
 );
 
 // 交集
 inter_result := set1.intersection(set2);
-match(inter_result,
+match(
+  inter_result,
   .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.length()),
   .Error(_) => printf("Intersection failed\n")
 );
@@ -2284,37 +2281,44 @@ list.push_front(i32(0));
 printf("Length: %zu\n", list.len());
 
 // 访问前端和后端
-match(list.front(),
+match(
+  list.front(),
   .Some(v) => printf("Front: %d\n", v),
   .None => printf("List is empty\n")
 );
 
-match(list.back(),
+match(
+  list.back(),
   .Some(v) => printf("Back: %d\n", v),
   .None => printf("List is empty\n")
 );
 
 // 从前端和后端弹出
-match(list.pop_front(),
+match(
+  list.pop_front(),
   .Some(v) => printf("Popped front: %d\n", v),
   .None => printf("List is empty\n")
 );
 
-match(list.pop_back(),
+match(
+  list.pop_back(),
   .Some(v) => printf("Popped back: %d\n", v),
   .None => printf("List is empty\n")
 );
 
 // 通过索引获取
-match(list.get(usize(0)),
+match(
+  list.get(usize(0)),
   .Some(v) => printf("At index 0: %d\n", v),
   .None => printf("Index out of bounds\n")
 );
 
 // 在索引位置插入
-match(list.set(usize(1), i32(20)),
+match(
+  list.set(usize(1), i32(20)),
   .Ok(_) => printf("Inserted at index 1\n"),
-  .Error(err) => match(err,
+  .Error(err) => match(
+    err,
     .IndexOutOfBounds => printf("Index out of bounds\n"),
     .EmptyList => printf("List is empty\n")
   )
@@ -2330,7 +2334,7 @@ drained := list.drain(usize(1) .. usize(3));
 
 // 检查是否包含
 cond(
-  (list.has(i32(20))) => printf("Contains 20\n"),
+  list.has(i32(20)) => printf("Contains 20\n"),
   true => printf("Does not contain 20\n")
 );
 
@@ -2366,15 +2370,16 @@ test_closure :: (fn() -> unit)({
   x := 1;
 
   // 使用 Impl 的显式闭包类型
-  (closure : Impl(Fn(y : i32) -> i32)) = ((y) => {
-    x = (x + y);
-    return(x);
-  });
+  (closure : Impl(Fn(y : i32) -> i32)) = (
+    y => {
+      x = (x + y);
+      return(x);
+    }
+  );
 
   closure(1); // x 现在是 2
   closure(1); // x 现在是 3
   result := closure(2); // x 现在是 5
-
   assert(result == 5);
 });
 ```
@@ -2386,7 +2391,7 @@ test_closure :: (fn() -> unit)({
   x := 1;
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
-  closure := (ClosureType {
+  closure := ClosureType({
     x = (x + y);
     return(x);
   });
@@ -2407,16 +2412,18 @@ test_closure :: (fn() -> unit)({
 ```rust
 test_capture :: (fn() -> unit)({
   // 值类型 — 按值捕获
-  counter := 0;
+  counter := i32(0);
 
   // 引用语义类型 — 按引用捕获
-  data := Box(i32)(42);
+  data := Box(i32)(i32(42));
 
-  closure := ((increment : i32) => {
-    counter = (counter + increment);  // 修改本地副本
-    data.* = (data.* + increment);     // 修改共享对象
-    return(counter);
-  });
+  (closure : Impl(Fn(increment : i32) -> i32)) = (
+    increment => {
+      counter = (counter + increment); // 修改本地副本
+      data.* = (data.* + increment); // 修改共享对象
+      return(counter);
+    }
+  );
 
   closure(5);
   // counter 仍然是 0（闭包有自己的副本）
@@ -2436,11 +2443,11 @@ test_error :: (fn() -> unit)({
   cond(
     some_condition() => {
       a := 1;
-      closure = ((y) => (y + a));  // 类型 1
+      closure = (y => (y + a)); // 类型 1
     },
     true => {
       b := 1;
-      closure = ((y) => (y + b));  // 类型 2 — 不同！
+      closure = (y => (y + b)); // 类型 2 — 不同！
     }
   );
   // 错误：即使两个闭包完全相同，它们的类型也不同
@@ -2466,12 +2473,14 @@ takes_fn((y) => (y + k), 5);     // 正确
 闭包可以与引用语义类型无缝配合使用：
 
 ```rust
-MyBox :: ref(struct(
-  (*) : i32
-));
+MyBox :: ref(
+  struct(
+    (*) : i32
+  )
+);
 
 make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32))({
-  return((unit) => {
+  return(() => {
     start.* = (start.* + 1);
     return(start.*);
   });
@@ -2520,9 +2529,11 @@ Yo 提供了 `Box` 和 `box` 用于将值类型堆分配并自动进行引用计
 ```rust
 // Box 定义在 std/prelude.yo 中
 Box :: (fn(comptime(V) : Type) -> comptime(Type))(
-  ref(struct(
-    (*) : V
-  ))
+  ref(
+    struct(
+      (*) : V
+    )
+  )
 );
 
 // box 函数创建一个 Box
@@ -2535,17 +2546,15 @@ box :: (fn(generic(V : Type), value : V) -> Box(V))(
 
 ```rust
 // 装箱一个基本值
-i := box(42);              // i: Box(i32)
-assert(i.* == 42);         // 使用 .* 解引用
-
+i := box(42); // i: Box(i32)
+assert(i.* == 42); // 使用 .* 解引用
 // 装箱一个结构体
-Point :: struct(x: i32, y: i32);
-p := box(Point(3, 4));     // p: Box(Point)
+Point :: struct(x : i32, y : i32);
+p := box(Point(x : 3, y : 4)); // p: Box(Point)
 assert(p.*.x == 3);
 
 // 使用显式类型的 Box
-b := Box(i32)(100);        // 等同于 box(100)
-
+b := Box(i32)(100); // 等同于 box(100)
 // 修改装箱的值
 m := box(10);
 m.* = 20;
@@ -2557,10 +2566,9 @@ assert(m.* == 20);
 ```rust
 test("Box assignment behavior", {
   x := box(1);
-  y := (x = box(2));  // y 获得旧值
-
-  assert(x.* == 2);   // x 现在指向新的 Box
-  assert(y.* == 1);   // y 持有旧的 Box
+  y := (x = box(2)); // y 获得旧值
+  assert(x.* == 2); // x 现在指向新的 Box
+  assert(y.* == 1); // y 持有旧的 Box
 });
 ```
 
@@ -2571,13 +2579,12 @@ test("Box assignment behavior", {
 ```rust
 test("Box reference counting", {
   original := box(42);
-  copy := original;        // 引用计数递增
-  another := copy;         // 引用计数递增
-
+  copy := original; // 引用计数递增
+  another := copy; // 引用计数递增
   // 三者都指向同一个 Box
   assert(original.* == 42);
   original.* = 100;
-  assert(copy.* == 100);   // 共享的！
+  assert(copy.* == 100); // 共享的！
   assert(another.* == 100);
 
   // 变量离开作用域时引用计数递减
@@ -2596,10 +2603,10 @@ test("Box reference counting", {
 impl(i32, SomeTrait(...));
 
 // 值类型必须装箱才能用于 Dyn
-use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({ ... };
+use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
 
 // 将 i32 装箱以用于 Dyn
-use_dyn(dyn box(42));
+use_dyn(dyn(box(i32(42))));
 ```
 
 ## Impl 类型
@@ -2615,24 +2622,31 @@ Id :: trait(
 );
 
 // 接受任何实现了 Id 的类型的函数
-use_id :: (fn(
-  generic(T : Type),
-  value : T,
-  where(T <: Id)
-) -> T)({
+use_id :: (
+  fn(
+    generic(T : Type),
+    value : T,
+    where(T <: Id)
+  ) -> T
+)({
   return(value.id());
 });
 
 // 为 i32 实现 Id
-impl(i32, Id(
-  id : ((self) -> {
-    printf("i32: %d\n", self);
-    return(self);
-  })
-));
+impl(
+  i32,
+  Id(
+    id : (
+      self -> {
+        printf("i32: %d\n", self);
+        return(self);
+      }
+    )
+  )
+);
 
 // 使用
-result := use_id(42);  // 打印 "i32: 42"，返回 42
+result := use_id(42); // 打印 "i32: 42"，返回 42
 ```
 
 ### Impl 作为返回类型
@@ -2646,9 +2660,9 @@ RetI32 :: trait(
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
   cond(
-    use_bool => return(true),   // bool 实现了 RetI32
-    true => return(i32(42))      // i32 实现了 RetI32
-  )
+    use_bool => return(i32(1)),
+    true => return(i32(42))
+  );
 });
 ```
 
@@ -2666,11 +2680,13 @@ Run :: trait(
 );
 
 // 类型必须同时实现 Speak 和 Run
-perform :: (fn(
-  generic(T : Type),
-  actor : T,
-  where(T <: (Speak, Run))
-) -> unit)({
+perform :: (
+  fn(
+    generic(T : Type),
+    actor : T,
+    where(T <: (Speak, Run))
+  ) -> unit
+)({
   actor.speak();
   actor.run();
 });
@@ -2697,34 +2713,42 @@ Yo 中的 `Dyn` 类型是引用计数的，与其他引用语义类型一样，�
 
 ```rust
 Speak :: trait(
-  speak: (fn(self : Self) -> i32)
+  speak : (fn(self : Self) -> i32)
 );
 
 Run :: trait(
-  run: (fn(self : Self) -> i32)
+  run : (fn(self : Self) -> i32)
 );
 
 // 必须是引用语义类型才能与 Dyn 配合使用
 Dog :: ref(struct());
 
-DogSpeak :: impl(Dog, Speak(
-  speak: ((self: Self) -> {
-    printf("Woof!\n");
-    return(1);
-  })
-));
+DogSpeak :: impl(
+  Dog,
+  Speak(
+    speak : (
+      (self : Self) -> {
+        printf("Woof!\n");
+        return(1);
+      }
+    )
+  )
+);
 
-DogRun :: impl(Dog, Run(
-  run: ((self: Self) -> {
-    printf("The dog is running!\n");
-    return(2);
-  })
-));
+DogRun :: impl(
+  Dog,
+  Run(
+    run : (
+      (self : Self) -> {
+        printf("The dog is running!\n");
+        return(2);
+      }
+    )
+  )
+);
 
 // Dyn 类型是引用计数的 — 不需要 &
-act :: (fn(s: Dyn(Speak, Run)) -> i32)
-  (s.speak() + s.run())
-;
+act :: (fn(s : Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
 
 main :: (fn() -> unit)({
   dog := Dog();
@@ -2743,13 +2767,13 @@ main :: (fn() -> unit)({
 
 ```rust
 // Impl — 静态分发（单态化）
-use_impl :: (fn(generic(T), value: T, where(T <: SomeTrait)) -> unit)({
-  value.method();  // 静态分发
+use_impl :: (fn(generic(T : Type), value : T, where(T <: SomeTrait)) -> unit)({
+  value.method(); // 静态分发
 });
 
 // Dyn — 动态分发（虚函数表）
-use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit)({
-  value.method();  // 动态分发
+use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({
+  value.method(); // 动态分发
 });
 ```
 
@@ -2793,18 +2817,20 @@ DivisionError :: enum(
 );
 
 // 可能失败的函数
-safe_div :: (fn(a: i32, b: i32) -> Result(i32, DivisionError))(
+safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivisionError))(
   cond(
     (b == i32(0)) => .Error(.DivideByZero),
-    true => .Ok((a / b))
+    true => .Ok(a / b)
   )
 );
 
 // 使用模式匹配处理错误
 result := safe_div(10, 2);
-match(result,
+match(
+  result,
   .Ok(value) => printf("Result: %d\n", value),
-  .Error(error) => match(error,
+  .Error(error) => match(
+    error,
     .DivideByZero => printf("Error: Cannot divide by zero\n"),
     .Overflow => printf("Error: Overflow\n")
   )
@@ -2824,21 +2850,24 @@ MathError :: enum(
   DivisionByZero,
   NegativeSqrt
 );
-derive(MathError, Error(
-  .DivisionByZero => `Division by zero`,
-  .NegativeSqrt => `Square root of a negative number`
-));
+derive(
+  MathError,
+  Error(
+    .DivisionByZero => `Division by zero`,
+    .NegativeSqrt => `Square root of a negative number`
+  )
+);
 
 // 消息就是普通的 Yo 代码，会被拼接进绑定负载的那条 match 分支，因此变体自己的
 // 字段可以按名字插值：
 //   .NotFound(path : String)  =>  `not found: ${path}`
 // 手写这两个 impl 依然可用；当消息不是简单的「每个变体一条字符串」时，就该那么写。
-
 // AnyError 是 Dyn(Error) — 任何实现了 Error 的类型都可以被包装：
 (err : AnyError) = dyn(MathError.DivisionByZero);
 
 // 向下转型回具体类型：
-match(downcast(err, MathError),
+match(
+  downcast(err, MathError),
   .Some(math_err) => printf("Got MathError\n"),
   .None => printf("Not a MathError\n")
 );
@@ -2853,7 +2882,7 @@ match(downcast(err, MathError),
 ```rust
 { Exception } :: import("std/error");
 
-safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
+safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   cond(
     (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
     true => (x / y)
@@ -2863,15 +2892,15 @@ safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
 // 安装处理器 — 注意 lambda 外层的括号（Yo 没有运算符优先级）。
 (exn : Exception) = Exception(
   throw : (
-    (err) -> {
-      println(`Error: ${err}`);  // 打印 "Error: Division by zero"
-      unwind(());                // 丢弃续延，从外围函数返回
+    err -> {
+      println(`Error: ${err}`); // 打印 "Error: Division by zero"
+      unwind(()); // 丢弃续延，从外围函数返回
     }
   )
 );
 
-result := safe_divide(6, 3);     // result = 2
-safe_divide(10, 0, exn);         // 处理器触发，unwind — 之后的代码不会执行
+result := safe_divide(6, 3); // result = 2
+safe_divide(10, 0, exn); // 处理器触发，unwind — 之后的代码不会执行
 ```
 
 ### ResumableException
@@ -2882,7 +2911,7 @@ safe_divide(10, 0, exn);         // 处理器触发，unwind — 之后的代码
 ```rust
 { ResumableException } :: import("std/error");
 
-safe_divide :: (fn(x: i32, y: i32, exn : ResumableException(i32)) -> i32)(
+safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(
     (y == i32(0)) => exn.throw(dyn(`division by zero`)),
     true => (x / y)
@@ -2891,15 +2920,15 @@ safe_divide :: (fn(x: i32, y: i32, exn : ResumableException(i32)) -> i32)(
 
 (exn : ResumableException(i32)) = ResumableException(i32)(
   throw : (
-    (err) -> {
+    err -> {
       println(`Error: ${err}`);
-      return(i32(0));  // 以恢复值 0 恢复续延
+      return(i32(0)); // 以恢复值 0 恢复续延
     }
   )
 );
 
-result := safe_divide(6, 3, exn);    // result = 2
-result2 := safe_divide(10, 0, exn);  // 处理器以 0 恢复续延，result2 = 0
+result := safe_divide(6, 3, exn); // result = 2
+result2 := safe_divide(10, 0, exn); // 处理器以 0 恢复续延，result2 = 0
 ```
 
 更多示例请参阅 [error.test.yo](../tests/error.test.yo)。
@@ -2912,17 +2941,17 @@ Yo 使用**基于状态机转换的 async/await** 实现高效的**单线程并�
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  task1 := io.async((io : Io)=> {
-    io.await(yield());
+  task1 := io.async((io : Io) => {
+    io.await(yield(io), io);
     return(i32(1));
   });
-  task2 := io.async((io : Io)=> {
-    io.await(yield());
+  task2 := io.async((io : Io) => {
+    io.await(yield(io), io);
     return(i32(2));
   });
-  handle1 := io.spawn(task1);  // 启动 task1，返回 JoinHandle(i32)
-  handle2 := io.spawn(task2);  // 启动 task2，返回 JoinHandle(i32)
-  r1 := handle1.await(io);  // 等待 → Option(i32)
+  handle1 := io.spawn(task1, io); // 启动 task1，返回 JoinHandle(i32)
+  handle2 := io.spawn(task2, io); // 启动 task2，返回 JoinHandle(i32)
+  r1 := handle1.await(io); // 等待 → Option(i32)
   r2 := handle2.await(io);
 });
 export(main);
@@ -2959,19 +2988,17 @@ export(main);
 shared := arc(i32(42));
 
 // 使用 .(*) 解引用（借用，只读）
-val := shared.(*);          // val == 42
-
+val := shared.*; // val == 42
 // 复制会递增引用计数
-copy := shared;             // 引用计数：1 → 2
-
+copy := shared; // 引用计数：1 → 2
 // 跨线程共享
 { Thread } :: import("std/thread");
 shared := arc(i32(42));
-t := Thread(unit).spawn((io) => {
-  assert((shared.(*) == i32(42)), "thread sees shared value");
+t := Thread(unit).spawn(io => {
+  assert(shared.* == i32(42), "thread sees shared value");
 });
 t.join();
-assert((shared.(*) == i32(42)), "main still sees shared value");
+assert(shared.* == i32(42), "main still sees shared value");
 ```
 
 完整详情请参阅 [ARC.md](./ARC.md)。
@@ -2987,7 +3014,7 @@ export(test);
 
 // module2.yo
 // 导出类型
-Option :: (fn(comptime(T): Type) -> comptime(Type))(
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Some(value : T),
     None
@@ -3089,13 +3116,13 @@ Yo 内置了通过 `test` 关键字使用的测试框架。
 ```rust
 test("Test description", {
   // 测试代码
-  x := 1 + 1;
-  assert(x == 2);
+  x := (1 + 1);
+  assert(x == 2, "x 应该为 2");
 });
 
 // Io 通过 `io` 自动注入到所有测试体中
 test("With effects", {
-  io.await(sleep(u64(1000)));
+  io.await(sleep(u64(1000)), io);
 });
 ```
 
@@ -3169,24 +3196,21 @@ test("Compile-time assertions", {
 test("Expected compile errors", {
   // 预期错误但不指定具体消息
   comptime_expect_error({
-    x :: (1 / 0);  // 除以零
+    x :: (1 / 0); // 除以零
   });
 
   // 预期错误并指定具体消息
-  comptime_expect_error(
-    {
-      arr : Array(i32, _);
-      arr = [1, 2, 3];
-    },
-    "Cannot infer array length in binding"
-  );
+  comptime_expect_error({
+    arr : Array(i32, _);
+    arr = [1, 2, 3];
+  }, "Cannot infer array length in binding");
 
   // 测试某些模式是无效的
   comptime_expect_error({
-    closure1 := ((x) => (x + 1));
-    closure2 := ((x) => (x + 1));
+    closure1 := (x => (x + 1));
+    closure2 := (x => (x + 1));
     // 每个闭包都有唯一类型
-    (c : typeof(closure1)) = closure2;  // 错误！
+    (c : typeof(closure1)) = closure2; // 错误！
   }, "no two closures have the same type");
 });
 ```
@@ -3197,7 +3221,6 @@ test("Expected compile errors", {
 
 ```rust
 // arithmetic.test.yo
-
 test("Addition", {
   assert((1 + 1) == 2);
   assert((5 + 3) == 8);
@@ -3224,14 +3247,21 @@ test("Division", {
 测试清理和释放：
 
 ```rust
-MyBox :: ref(struct(
-  (*) : i32
-));
-impl(MyBox, Dispose(
-  dispose : (self -> {
-    printf("Disposing MyBox with value: %d\n", self.*);
-  })
-));
+MyBox :: ref(
+  struct(
+    (*) : i32
+  )
+);
+impl(
+  MyBox,
+  Dispose(
+    dispose : (
+      self -> {
+        printf("Disposing MyBox with value: %d\n", self.*);
+      }
+    )
+  )
+);
 
 test("Object disposal", {
   // Box 在作用域结束时自动释放
@@ -3262,12 +3292,9 @@ Yo 测试文件通常使用 `.test.yo` 扩展名：
 `unquote_splicing` 只能在 `quote` 中使用，用于将值展开到 AST 中。
 
 ```rust
-x := quote(2); // comptime(x) : Expr
-
-list := quote((1, unquote(x), 3)); // 元组 (1, 2, 3)
-
-list2 = quote((1, x, 3)); // 元组 (1, x, 3)
-
+x :: quote(2); // comptime(x) : Expr
+list :: quote((1, unquote(x), 3)); // 元组 (1, 2, 3)
+list2 :: quote((1, x, 3)); // 元组 (1, x, 3)
 quote((0, unquote_splicing(list.get_args()), 4)); // 元组 (0, 1, 2, 3, 4)
 ```
 
@@ -3295,7 +3322,7 @@ pragma；在 comptime 函数中操作引用的 `Expr` 值（`derive_rule` 使用
 pragma(Pragma.AllowMacroDef);
 
 // 自定义宏示例 —— 惰性求值 body 的 `unless`
-unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
+unless :: (fn(quote(condition) : Expr, quote(do) : Expr) -> unquote(Expr))(
   quote(
     cond(unquote(condition) => (), true => unquote(do))
   )
@@ -3306,10 +3333,13 @@ prelude 的 `if` 宏是标准示例（当前编译器在解析阶段将 `if(...)
 为 `cond(...)`，该定义作为规范/回退保留）：
 
 ```rust
-if :: (fn(quote(condition): Expr,
-        quote(then): Expr,
-        (quote(else): Expr) ?= quote(())
-      ) -> unquote(Expr))(
+if :: (
+  fn(
+    quote(condition) : Expr,
+    quote(then) : Expr,
+    (quote(else) : Expr) ?= quote(())
+  ) -> unquote(Expr)
+)(
   quote(
     cond(
       unquote(condition) => unquote(then),
@@ -3338,15 +3368,16 @@ Yo 支持类似 Rust `#[derive(...)]` 的自动特征派生，但使用函数调
 五个特征具有内置派生支持：`Eq`、`Hash`、`Clone`、`Ord` 和 `ToString`。它们适用于结构体和枚举：
 
 ```rust
+{ ToString } :: import("std/fmt"); // ToString 的 derive 规则位于 std/fmt
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq, Hash, Clone, Ord, ToString);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 
 // 现在 Point 支持 ==、!=、哈希、克隆、比较和字符串转换
 main :: (fn() -> unit)({
-  p1 := Point(1, 2);
-  p2 := Point(1, 2);
-  assert((p1 == p2), "equal");
-  assert((p1.to_string() == `Point(1, 2)`), "to_string");
+  p1 := Point(x : 1, y : 2);
+  p2 := Point(x : 1, y : 2);
+  assert(p1 == p2, "equal");
+  assert(p1.to_string() == `Point(1, 2)`, "to_string");
 });
 export(main);
 ```
@@ -3371,16 +3402,18 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
     ),
     quote(&&)
   );
-  ctx.make_impl(quote(
-    MyEq(...#(trait_params))(
-      my_eq : ((self, other) -> #(eq_body))
+  ctx.make_impl(
+    quote(
+      MyEq(...#(trait_params))(
+        my_eq : ((self, other) -> #(eq_body))
+      )
     )
-  ))
+  )
 });
 derive_rule(MyEq, my_derive_eq);
 
 Point :: struct(x : i32, y : i32);
-derive(Point, MyEq(Point));  // 使用注册的 derive_rule
+derive(Point, MyEq(Point)); // 使用注册的 derive_rule
 ```
 
 ## 类型反射（Type Reflection）
@@ -3400,19 +3433,20 @@ comptime_assert(info2.is_struct(), "Point is a struct");
 
 ```rust
 // 提取数组元素类型和长度
-arr_info :: Type.get_info([i32; 3]);
+arr_info :: Type.get_info([i32 ; 3]);
 elem :: match(arr_info, .Array(e, _) => e, _ => unit);
 len :: match(arr_info, .Array(_, l) => l, _ => 0);
-comptime_assert((len == 3), "array length is 3");
+comptime_assert(len == 3, "array length is 3");
 
 // 检查结构体字段
 pt_info :: Type.get_info(Point);
 field_count :: match(pt_info, .Struct(f, _) => f.len(), _ => usize(0));
-comptime_assert((field_count == usize(2)), "Point has 2 fields");
+comptime_assert(field_count == usize(2), "Point has 2 fields");
 
 // 基于类型信息的 match 分发
 describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
-  match(Type.get_info(T),
+  match(
+    Type.get_info(T),
     .I32 => "32-bit signed integer",
     .Struct(_, _) => "struct type",
     .Enum(_) => "enum type",
@@ -3438,13 +3472,11 @@ Yo 拥有强大的编译时求值能力。你可以在编译时执行计算、�
 
 ```rust
 // 编译时整数
-x :: 42;                    // comptime_int
-y :: (x + 10);              // comptime_int = 52
-
+x :: 42; // comptime_int
+y :: (x + 10); // comptime_int = 52
 // 编译时类型
-MyInt :: i32;               // comptime(Type)
-value := MyInt(100);        // 运行时 i32
-
+MyInt :: i32; // comptime(Type)
+value := MyInt(100); // 运行时 i32
 // 编译时计算
 factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))(
   cond(
@@ -3452,7 +3484,7 @@ factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))(
     true => (n * recur(n - 1))
   )
 );
-result :: factorial(5);     // 编译时计算：120
+result :: factorial(5); // 编译时计算：120
 ```
 
 ### 编译时算术
@@ -3463,28 +3495,25 @@ result :: factorial(5);     // 编译时计算：120
 // 整数运算
 a :: 100;
 b :: 25;
-sum :: (a + b);            // 125
-diff :: (a - b);           // 75
-prod :: (a * b);           // 2500
-quot :: (a / b);           // 4
-rem :: (a % b);            // 0
-
+sum :: (a + b); // 125
+diff :: (a - b); // 75
+prod :: (a * b); // 2500
+quot :: (a / b); // 4
+rem :: (a % b); // 0
 // 比较运算
-eq :: (a == b);            // false
-lt :: (b < a);             // true
-gte :: (a >= b);           // true
-
+eq :: (a == b); // false
+lt :: (b < a); // true
+gte :: (a >= b); // true
 // 浮点运算
 pi :: f32(3.14159);
 radius :: f32(5.0);
-area :: (pi * (radius * radius));  // ~78.54
-
+area :: (pi * (radius * radius)); // ~78.54
 // 布尔运算
 flag1 :: true;
 flag2 :: false;
-and_result :: (flag1 && flag2);    // false
-or_result :: (flag1 || flag2);     // true
-not_result :: not(flag1);          // false
+and_result :: (flag1 && flag2); // false
+or_result :: (flag1 || flag2); // true
+not_result :: not(flag1); // false
 ```
 
 ### 编译时数组
@@ -3493,18 +3522,16 @@ not_result :: not(flag1);          // false
 
 ```rust
 // 推断长度
-arr :: [1, 2, 3, 4, 5];    // Array(i32, 5)
-len :: arr.len();          // 5（编译时）
-
-// 编译时 Array.fill
-zeros :: Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
-
+arr :: [1, 2, 3, 4, 5]; // Array(i32, 5)
+len := arr.len(); // 5（运行时读取；长度也在类型里）
+// Array.fill 接受编译期值，返回运行时数组
+zeros := Array(i32, 10).fill(0); // [0,0,0,0,0,0,0,0,0,0]
 // 泛型数组函数
-create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T; n])
+create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T ; n])(
   Array(T, n).fill(value)
-;
+);
 
-int_array :: create_array(i32, 5, 42);  // [42,42,42,42,42]
+int_array := create_array(i32, 5, 42); // [42,42,42,42,42]
 ```
 
 ### 编译时断言
@@ -3532,12 +3559,13 @@ test("Compile-time assertions", {
 test("Expected compile errors", {
   // 验证此代码会产生错误
   comptime_expect_error(
-    x :: (1 / 0),  // 除以零
+    x :: (1 / 0),
+    // 除以零
     "Division by zero"
   );
 
   comptime_expect_error({
-    arr : Array(i32, _);  // 无法在绑定中推断长度
+    arr : Array(i32, _); // 无法在绑定中推断长度
     arr = [1, 2, 3];
   });
 });
@@ -3549,26 +3577,22 @@ test("Expected compile errors", {
 
 ```rust
 // 编译时：使用 :: 或 comptime(...) 声明
-COMPT_VALUE :: 42;                // 编译时计算
-ComptimeType :: i32;                 // 编译时选择类型
-
+COMPT_VALUE :: 42; // 编译时计算
+ComptimeType :: i32; // 编译时选择类型
 // 运行时：使用 := 声明
-runtime_value := 42;              // 运行时计算
-runtime_type := i32(100);         // 运行时创建值
-
+runtime_value := 42; // 运行时计算
+runtime_type := i32(100); // 运行时创建值
 // 混合：编译时类型，运行时值
-(x : i32) = 42;                   // 类型在编译时已知
-                                  // 值在运行时计算
-
+(x : i32) = 42; // 类型在编译时已知
+// 值在运行时计算
 // 编译时函数参数
-array_fn :: (fn(comptime(n) : usize) -> Array(i32, n))
+array_fn :: (fn(comptime(n) : usize) -> Array(i32, n))(
   Array(i32, n).fill(0)
-;                                 // n 必须在编译时已知
-
+); // n 必须在编译时已知
 // 运行时函数参数
-increment :: (fn(x : i32) -> i32)
-  (x + 1)
-;                                 // x 是运行时值
+increment :: (fn(x : i32) -> i32)(
+  x + 1
+); // x 是运行时值
 ```
 
 ### 编译时求值的优势

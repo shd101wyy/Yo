@@ -58,11 +58,9 @@ impl(
   // Spawn a new OS thread running the given closure.
   // The closure receives its own per-thread Io event loop.
   spawn : (fn(own(cb) : Impl(Fn(io : Io) -> T, Send)) -> Self),
-
   // Wait for the thread to complete (blocking) and take its result.
   // Panics on a second call.
   join : (fn(self : Self) -> T),
-
   is_joined : (fn(self : Self) -> bool)
 );
 ```
@@ -73,10 +71,10 @@ impl(
 handle owns:
 
 ```rust
-{ Thread } :: import "std/thread";
+{ Thread } :: import("std/thread");
 
 t := Thread(i32).spawn((io : Io) => i32(42));
-answer := t.join();   // 42
+answer := t.join(); // 42
 ```
 
 `Thread(unit)` is the value-less thread the examples below use, and its
@@ -86,11 +84,11 @@ task's value back over a `Channel`.
 ### Usage
 
 ```rust
-{ Thread } :: import "std/thread";
-{ yield } :: import "std/async";
+{ Thread } :: import("std/thread");
+{ yield } :: import("std/async");
 
 // Spawn a dedicated thread (no async)
-thread := Thread(unit).spawn((io) => {
+thread := Thread(unit).spawn(io => {
   printf("Hello from thread\n");
 });
 thread.join();
@@ -98,10 +96,10 @@ thread.join();
 // Spawn a thread with async I/O
 thread := Thread(unit).spawn((io : Io) => {
   task := io.async((io : Io) => {
-    io.await(yield());
-    return i32(42);
+    io.await(yield(io), io);
+    return(i32(42));
   });
-  result := io.await(task);
+  result := io.await(task, io);
   assert(result == i32(42), "async result");
 });
 thread.join();
@@ -128,7 +126,7 @@ program drain each other's work as well.
 ### API
 
 ```rust
-{ ThreadPool, spawn } :: import "std/thread";
+{ ThreadPool, spawn } :: import("std/thread");
 
 // Create a pool that requests `num_threads` worker threads
 ThreadPool.new : (fn(num_threads : usize) -> ThreadPool);
@@ -153,8 +151,8 @@ ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
 ### Usage
 
 ```rust
-{ ThreadPool, spawn } :: import "std/thread";
-{ yield } :: import "std/async";
+{ ThreadPool, spawn } :: import("std/thread");
+{ yield } :: import("std/async");
 
 pool := ThreadPool.new(usize(4));
 
@@ -219,18 +217,18 @@ thread would be busy waiting for its own sentinel.
 Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer communication between threads.
 
 ```rust
-{ Channel } :: import "std/sync/channel";
+{ Channel } :: import("std/sync/channel");
 
 // Create a bounded channel (capacity 10)
 ch := Channel(i32).new(usize(10));
 
 // Producer thread
-Thread(unit).spawn((io) => {
+Thread(unit).spawn(io => {
   ch.send(i32(42));
 });
 
 // Consumer thread
-Thread(unit).spawn((io) => {
+Thread(unit).spawn(io => {
   val := ch.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
@@ -252,18 +250,17 @@ calls `close()`. When a consumer needs to know that the producers are *finished*
 one closes the channel by itself.
 
 ```rust
-{ Channel } :: import "std/sync/channel";
+{ Channel } :: import("std/sync/channel");
 
 rx := Channel(i32).receiver(usize(4)); // the queue and its one consumer
 {
-  tx := rx.sender();                   // a counted producer
+  tx := rx.sender(); // a counted producer
   tx.send(i32(1));
   tx.send(i32(2));
-};                                     // last sender dropped -> channel closed
-
-rx.recv().unwrap();                    // 1  - buffered values come out first
-rx.recv().unwrap();                    // 2
-rx.recv();                             // .Err(TryRecvError.Disconnected)
+}; // last sender dropped -> channel closed
+rx.recv().unwrap(); // 1  - buffered values come out first
+rx.recv().unwrap(); // 2
+rx.recv(); // .Err(TryRecvError.Disconnected)
 ```
 
 - `Sender` is cloneable (`tx.clone()`); every clone is another counted producer, and only
@@ -283,13 +280,13 @@ in the parent until the workers are running:
 ```rust
 rx := Channel(i32).receiver(usize(16));
 {
-  keeper := rx.sender();               // holds the count above zero
-  w := Thread(unit).spawn((io) => {
-    tx := rx.sender();                 // this thread's producer
+  keeper := rx.sender(); // holds the count above zero
+  w := Thread(unit).spawn(io => {
+    tx := rx.sender(); // this thread's producer
     tx.send(i32(7));
-  });                                  // tx drops when the body ends
+  }); // tx drops when the body ends
   w.join();
-};                                     // keeper drops -> channel closed
+}; // keeper drops -> channel closed
 ```
 
 A `Sender` *moved into* a `Thread(T).spawn` closure does close the channel: the spawn wrapper
@@ -308,15 +305,15 @@ Only types that implement `Send` can cross thread boundaries:
 
 ```rust
 // ✅ Sendable
-Point :: struct(x: i32, y: i32);
-Thread(unit).spawn((io) => {
-  p := Point(1, 2);  // OK: created inside thread
+Point :: struct(x : i32, y : i32);
+Thread(unit).spawn(io => {
+  p := Point(1, 2); // OK: created inside thread
 });
 
 // ❌ Not Sendable
-Node :: ref(struct(value: i32));
+Node :: ref(struct(value : i32));
 node := Node(42);
-Thread(unit).spawn((io) => {
+Thread(unit).spawn(io => {
   // ERROR: Cannot capture `node` (reference-semantics type is not Send)
   // node.value;
 });
@@ -365,14 +362,16 @@ thread. To return a result, hand it back over a `Channel`.
 ### Quick Reference
 
 ```rust
-{ Thread, ThreadPool, spawn } :: import "std/thread";
-{ Channel } :: import "std/sync/channel";
+{ Thread, ThreadPool, spawn } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
 
 // Dedicated thread with async I/O
 thread := Thread(unit).spawn((io : Io) => {
   // This thread has its own event loop
-  task := io.async((io : Io) => { io.await(yield()); });
-  io.await(task);
+  task := io.async((io : Io) => {
+    io.await(yield(io), io);
+  });
+  io.await(task, io);
 });
 thread.join();
 

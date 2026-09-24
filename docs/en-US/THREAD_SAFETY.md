@@ -41,7 +41,7 @@ local_data := MyList.new();
 
 // Atomic object — can be sent across threads
 shared_counter := AtomicBool(false);
-Thread(unit).spawn((io) => {
+Thread(unit).spawn(io => {
   shared_counter.store(true, MemoryOrder.Release);
 });
 ```
@@ -52,7 +52,7 @@ Direct writes to fields of an `atomic object` are **compile-time errors** in saf
 
 ```rust
 a := arc(i32(0));
-a.* = i32(5);  // ERROR: cannot write to atomic object field
+a.* = i32(5); // ERROR: cannot write to atomic object field
 ```
 
 This prevents the most common data-race vector — two threads writing to the same memory without synchronization. To mutate shared state, compose with the right primitive:
@@ -105,10 +105,9 @@ println(`count = ${counter.load(MemoryOrder.Acquire)}`);
 
 // The whole read-modify-write family, on every integer atomic:
 bits := AtomicU32(u32(0));
-bits.fetch_or(u32(4), MemoryOrder.AcqRel);   // set a bit
+bits.fetch_or(u32(4), MemoryOrder.AcqRel); // set a bit
 bits.fetch_and(u32(4294967291), MemoryOrder.AcqRel); // clear it again
-bits.fetch_xor(u32(1), MemoryOrder.AcqRel);  // flip a bit
-
+bits.fetch_xor(u32(1), MemoryOrder.AcqRel); // flip a bit
 high_water := AtomicUsize(usize(0));
 high_water.fetch_max(usize(512), MemoryOrder.AcqRel);
 ```
@@ -152,12 +151,12 @@ contention.
 counter := Mutex(i32).new(i32(0));
 
 // Thread-safe mutation via with_lock
-counter.with_lock((v) => {
+counter.with_lock(v => {
   v = (v + i32(1));
 });
 
 // Return values propagate through with_lock
-new_value := counter.with_lock((v) => (v + i32(1)));
+new_value := counter.with_lock(v => (v + i32(1)));
 ```
 
 The closure receives `inout(v) : T` — a **second-class reference** that:
@@ -178,7 +177,7 @@ Unlock is automatic — a private unlocker object calls `_raw_unlock()` on both 
 A type that would auto-derive `Send` can explicitly opt out with `!(Send)`:
 
 ```rust
-impl(MyHandle, !(Send()));   // MyHandle is NOT Send, regardless of fields
+impl(MyHandle, !Send()); // MyHandle is NOT Send, regardless of fields
 ```
 
 This is used by the standard library for:
@@ -194,9 +193,8 @@ Negative impls do **not** require `pragma(Pragma.AllowUnsafe)` — they are rest
 
 ```rust
 data := Box(MyData).new(...);
-iso := ^(data);   // '^' macro — wraps value in Iso
-
-Thread(unit).spawn((io) => {
+iso := ^data; // '^' macro — wraps value in Iso
+Thread(unit).spawn(io => {
   // extract() returns the inner value directly,
   // panicking if rc != 1 or already extracted
   inner := iso.extract();

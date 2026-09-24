@@ -86,7 +86,7 @@ never write `c_include` themselves:
 
 ```rust
 { strlen, memcpy } :: import("std/libc/string");
-fcntl :: import("std/libc/fcntl");   // fcntl.open, fcntl.O_RDONLY
+fcntl :: import("std/libc/fcntl"); // fcntl.open, fcntl.O_RDONLY
 ```
 
 ## C types whose name is not a Yo identifier
