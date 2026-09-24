@@ -10,6 +10,7 @@
 // transpile
 // (issues/generic-impl-method-result-passed-directly-to-a-generic-fn-fails-to-transpile.md).
 { assert } :: import("std/assert");
+{ Instant } :: import("std/time/instant");
 _some_eq :: (fn(o : Option(i32), want : i32) -> bool)(match(o, .Some(v) => (v == want), .None => false));
 _some_eq_u8 :: (fn(o : Option(u8), want : u8) -> bool)(match(o, .Some(v) => (v == want), .None => false));
 _none_i32 :: (fn(o : Option(i32)) -> bool)(match(o, .Some(_) => false, .None => true));
@@ -571,4 +572,23 @@ test("wrapping_mul's overflow fallback is logarithmic, not linear", {
   assert(u64(0x9E3779B97F4A7C15).wrapping_mul(u64(0xff51afd7ed558ccd)) == u64(0x2e72b4654e79d8d1), "fmix64-scale u64 product");
   assert(i64.MIN.wrapping_mul(i64(3)) == i64.MIN, "MIN*3 wraps back to MIN through the fallback");
   assert(u64(0x8000000000000000).wrapping_mul(u64(2)) == u64(0), "2^63*2 wraps to 0 through the fallback");
+});
+// wrapping_mul must lower to the one-instruction __yo_op_mul_wrap builtin. A
+// loop-based duplicate in the prelude's Integer impl silently won dispatch and
+// made every HashMap hash (mix_u64) a nested loop — `yo check` ran 4x slower
+// in v0.2.40 (issues/fixed/wrapping-methods-shadowed-by-a-loop-based-duplicate.md).
+// Measured on a Mac Mini M4: ~330 ns per step with the loop, ~1 ns with the
+// builtin, so 10M steps are ~3.3 s vs a few ms; the 1 s bound has a wide
+// margin on both sides.
+test("wrapping_mul and wrapping_add are the builtin ops, not loops", {
+  t0 := Instant.now();
+  (h : u64) = u64(1);
+  (i : u64) = u64(0);
+  while(i < u64(10000000), {
+    h = h.wrapping_mul(u64(18397679294719823053)).wrapping_add(i);
+    i = (i + u64(1));
+  });
+  ns := Instant.now().duration_since(t0).as_nanos();
+  assert(h != u64(0), "the product stays live");
+  assert(ns < i64(1000000000), "10M wrapping steps took over a second: a loop-based wrapping_* is shadowing the builtin");
 });

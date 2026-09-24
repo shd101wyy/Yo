@@ -4679,6 +4679,32 @@ impl(u16, Integer());
 impl(u32, Integer());
 impl(u64, Integer());
 impl(usize, Integer());
+// Wrapping arithmetic (safe mode Phase 3a-i, plans/SAFE_MODE.md §6). This
+// is the ONLY definition of wrapping_add/sub/mul: a second, loop-based copy in
+// the Integer impl below silently won dispatch (two blanket impls over the same
+// bound do not collide), and every HashMap hash ran a nested loop — `yo check`
+// 4x slower in v0.2.40 (issues/fixed/wrapping-methods-shadowed-by-a-loop-based-duplicate.md).
+// It sits BEFORE every user (`_popcount_u64`, the Integer impl's
+// overflowing_*/wrapping_pow): placed after them, a def-time evaluation read
+// `v.wrapping_mul(...)` as a Type value.
+// the BY-DESIGN-wrap escape hatch. The plain `+ - *` operators trap on
+// overflow (D1); these methods never do — they exist for arithmetic whose
+// SPEC is two's-complement wrap (hash mixing, sequence counters, checksums).
+// Each lowers to its own __yo_op_*_wrap builtin: the raw C op, which under
+// the unconditional -fwrapv is defined two's-complement wrap for signed and
+// modular arithmetic for unsigned. NOT comptime-evaluable (they are runtime
+// intrinsics, like every other extern-"Yo" builtin).
+impl(
+  generic(T : Type),
+  where(T <: Integer),
+  T,
+  /// `self + rhs` with two's-complement wrap on overflow.
+  wrapping_add : (fn(self : T, rhs : T) -> T)(__yo_op_add_wrap(self, rhs)),
+  /// `self - rhs` with two's-complement wrap on overflow.
+  wrapping_sub : (fn(self : T, rhs : T) -> T)(__yo_op_sub_wrap(self, rhs)),
+  /// `self * rhs` with two's-complement wrap on overflow.
+  wrapping_mul : (fn(self : T, rhs : T) -> T)(__yo_op_mul_wrap(self, rhs))
+);
 /**
 * Overflow-aware integer arithmetic, Rust's shapes: `checked_*` reports
 * overflow as `.None`, `saturating_*` clamps to the type's bound.
@@ -4760,37 +4786,6 @@ impl(
       .None => cond((rhs < T(0)) => T.MAX, true => T.MIN)
     )
   ),
-  /// `self + rhs` modulo the type's range — Rust's `wrapping_add`.
-  ///
-  /// Implemented as the classic bitwise carry loop (XOR / AND / shift only):
-  /// no intermediate can overflow, which the bound-reconstruction version
-  /// could not guarantee — its `(MIN - rhs) - self` shape trapped on
-  /// `i64.MIN + i64.MIN` and its shifted domain on `MAX + MIN`, both hit by
-  /// u64 bit patterns during the self-compile. Complement arithmetic gives
-  /// the wrapped result in at most width iterations.
-  wrapping_add : (fn(self : T, rhs : T) -> T)({
-    (sum : T) = self;
-    (carry : T) = rhs;
-    while(carry != T(0), {
-      (next : T) = ((sum & carry) << T(1));
-      sum = (sum ^ carry);
-      carry = next;
-    });
-    sum
-  }),
-  /// `self - rhs` modulo the type's range — Rust's `wrapping_sub`, as the
-  /// bitwise borrow loop (same overflow-freedom argument as wrapping_add;
-  /// `x ^ T.MAX` is the bitwise NOT).
-  wrapping_sub : (fn(self : T, rhs : T) -> T)({
-    (a : T) = self;
-    (b : T) = rhs;
-    while(b != T(0), {
-      (next : T) = (((a ^ T.MAX) & b) << T(1));
-      a = (a ^ b);
-      b = next;
-    });
-    a
-  }),
   /// `(wrapped sum, did it overflow)` — Rust's `overflowing_add`.
   overflowing_add : (fn(self : T, rhs : T) -> Tuple(T, bool))(
     match(self.checked_add(rhs), .Some(v) => (v, false), .None => (self.wrapping_add(rhs), true))
@@ -4856,40 +4851,6 @@ impl(
       (T.MIN == T(0)) => Option(T).None,
       (self == T.MIN) => Option(T).None,
       true => Option(T).Some((T(0) - self))
-    )
-  ),
-  /// `self * rhs` modulo the type's range — Rust's `wrapping_mul`.
-  ///
-  /// Accumulated with `wrapping_add` rather than by forming the product:
-  /// signed overflow is undefined behaviour in C, so the overflowing multiply
-  /// must never exist. Same reason `checked_mul` above tests by DIVISION.
-  /// Only reached on a path that already overflowed. The fallback is
-  /// Russian-peasant multiplication — halve `rhs`, double `self`, O(log|rhs|)
-  /// iterations. The first version ACCUMULATED `self` `rhs` times, which for
-  /// u64 hash constants (fmix64's 0xff51… on every HashMap key) is ~10^19
-  /// iterations: a hash took effectively forever and hung the tier-1
-  /// walker/module/corpus legs at rc=124.
-  wrapping_mul : (fn(self : T, rhs : T) -> T)(
-    match(
-      self.checked_mul(rhs),
-      .Some(v) => v,
-      .None => {
-        (neg : bool) = cond((rhs < T(0)) => !(self < T(0)), true => (self < T(0)));
-        (a : T) = cond((self < T(0)) => T(0).wrapping_sub(self), true => self);
-        (b : T) = cond((rhs < T(0)) => T(0).wrapping_sub(rhs), true => rhs);
-        (acc : T) = T(0);
-        while(b != T(0), {
-          cond(
-            ((b % T(2)) == T(1)) => {
-              acc = acc.wrapping_add(a);
-            },
-            true => ()
-          );
-          a = a.wrapping_add(a);
-          b = (b >> T(1));
-        });
-        cond(neg => T(0).wrapping_sub(acc), true => acc)
-      }
     )
   ),
   /// `(wrapped product, did it overflow)` — Rust's `overflowing_mul`.
@@ -5450,25 +5411,6 @@ impl(
       )
     )
   )
-);
-// Wrapping arithmetic (safe mode Phase 3a-i, plans/SAFE_MODE.md §6):
-// the BY-DESIGN-wrap escape hatch. The plain `+ - *` operators trap on
-// overflow (D1); these methods never do — they exist for arithmetic whose
-// SPEC is two's-complement wrap (hash mixing, sequence counters, checksums).
-// Each lowers to its own __yo_op_*_wrap builtin: the raw C op, which under
-// the unconditional -fwrapv is defined two's-complement wrap for signed and
-// modular arithmetic for unsigned. NOT comptime-evaluable (they are runtime
-// intrinsics, like every other extern-"Yo" builtin).
-impl(
-  generic(T : Type),
-  where(T <: Integer),
-  T,
-  /// `self + rhs` with two's-complement wrap on overflow.
-  wrapping_add : (fn(self : T, rhs : T) -> T)(__yo_op_add_wrap(self, rhs)),
-  /// `self - rhs` with two's-complement wrap on overflow.
-  wrapping_sub : (fn(self : T, rhs : T) -> T)(__yo_op_sub_wrap(self, rhs)),
-  /// `self * rhs` with two's-complement wrap on overflow.
-  wrapping_mul : (fn(self : T, rhs : T) -> T)(__yo_op_mul_wrap(self, rhs))
 );
 // The byte-conversion battery, written ONCE over `T` instead of four times per
 // integer type. This is what value substitution in a type position bought:
