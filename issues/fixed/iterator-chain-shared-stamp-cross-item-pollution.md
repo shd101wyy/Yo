@@ -1,6 +1,6 @@
 # Combinator-on-combinator chains share ONE under-resolved stamp — an Item-binding combinator after `.map` adopts the FIRST call's Item type
 
-**Status: OPEN.** Found 2026-08-24 while unparking std S1 chunk 4 (Range
+**Status: FIXED 2026-09-24** (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Found 2026-08-24 while unparking std S1 chunk 4 (Range
 iteration) on branch `fix/range-op-era-split`. Pre-existing on develop —
 reproduced with a develop-content binary and no ranges involved. Related to
 (but distinct from) the flat_map residual in
@@ -69,3 +69,33 @@ receiver instead (e.g. `(range).min()` directly). Chunk 4's tests do this —
 see tests/iterator_combinators.test.yo "ranges feed the iterator
 combinators" (mapped chain checked via `count`, `min` taken on the range
 receiver directly).
+
+## Root cause (MEASURED 2026-09-24)
+
+The shared stamp was real, but the reader that went wrong was a REGISTRY keyed by it, not the
+SomeT cells. A temporary specialization-cache trace showed `min`'s specialization for the SECOND
+chain keyed with `A = i32` while its receiver's `type_key` correctly said
+`IterMap(MyRange64, i64, <capture 2>)`. `A` comes from `where(Self <: Iterator(Item := A))`, and
+`_check_associated_type_constraints` / `resolve_assoc_type_for_target` read `Item` FIRST from the
+type-trait-methods registry under the receiver's type id. That entry is the "durable assoc-type
+registration" `try_match_generic_impl` makes on success — the matched generic impl's `Item : B`,
+substituted, registered under `type_id_or_empty(receiver)`, first registration wins. Both `.map`
+results carry the same id (`substitute()` rewrites `type_arguments` but keeps the
+declaration-era id), so the first chain's `Item = i32` answered for the second.
+
+## Fix
+
+The durable registration is keyed by the exact instantiation — `assoc_type_registry_key`: the id,
+plus the `type_key` for an instantiation (`src/evaluator/values/type_trait_methods.yo`) — and every
+reader that has the type consults `get_assoc_type_entries` (exact key first, then the plain id a
+concrete impl's `Item : i32` is registered under): the assoc-constraint check, the call path's
+assoc resolution, the where-clause recovery in `try_match_generic_impl`, and property access.
+Readers with only an id fall back to the generic-impl registry, which matches structurally.
+
+The per-call closure-`F` identity is untouched: nothing re-resolves `F` by name.
+
+## Verification
+
+The reproducer prints `len=3 min=-6`. `tests/type_soundness.test.yo` ("two .map chains at
+different Item types keep their own Item") fails on develop `b03c8b741` with
+`Expected: i32 Got: i64` and passes now; `tests/iterator_combinators.test.yo` 49/49.

@@ -1,6 +1,6 @@
 # Generic function types are compared by BINDER NAME, not alpha-equivalence
 
-**Status: OPEN. Not fixed — see "Why this is not a small fix".**
+**Status: FIXED 2026-09-24** (Phase 2.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
 
 **Severity: type-system correctness (under-approximation).** Two generic
 function types that differ only in the NAME of their `generic(...)` binder are
@@ -85,3 +85,25 @@ it, so it is filed rather than attempted there.
 answers with a comment naming this issue and the answer each case should give.
 They stay live assertions on purpose: when alpha-equivalence lands, those three
 go red, and that red is the reminder to restore them to `true`.
+
+## Fix (2026-09-24)
+
+The correspondence is threaded exactly as the note above requires — LOCAL to one `.Func` pair and
+consulted only at a SomeT leaf (`src/types/compatibility.yo`):
+
+- the `.Func` arm pushes one `AlphaPair` per binder position — the actual function's binder and
+  the expected one's, each identified by name + frame level (a SomeT's identity in this routine),
+  read off the binder's first occurrence in the parameters/result (`forall_types` holds the
+  binders' kinds, not their SomeTs) — compares parameters and result, and pops the pairs;
+- the SomeT-vs-SomeT arm accepts a pair that is on the stack.
+
+Nothing else relaxes SomeT identity: outside a `.Func` comparison the stack is empty, and inside
+one only that pair's binders correspond, by position — `fn(generic(T, U), x : T, y : U) -> T` vs
+`fn(generic(Z, W), a : Z, b : W) -> W` stays incompatible.
+
+## Verification
+
+The reproducer prints `true true true true`. `tests/comptime.test.yo` "Test types
+compatibility": the three pinned-`false` assertions are restored to `true`, plus two canaries
+(the position mismatch above, and generic vs concrete); `check ./std`, `check ./src`, the fast
+suite and the fixpoint green (the exact-mode cache comparisons included).

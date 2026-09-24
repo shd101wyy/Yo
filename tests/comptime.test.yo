@@ -2230,31 +2230,20 @@ test("Test types compatibility", {
       fn(a : i32, y : i32) -> i32
     ) == true
   );
-  // ALPHA-EQUIVALENCE GAP — these three pin the answer the compiler actually
-  // gives, not the one it should. `are_types_compatible` compares a generic
-  // fn's `forall_types` by SomeT IDENTITY, so renaming the binder `T` to `Z`
-  // makes two otherwise identical types incompatible; spelled `T` both sides
-  // (the assertion right below) it is `true`. The correct answer for all three
-  // is `true`. Filed as
-  // issues/generic-fn-type-compatibility-is-not-alpha-equivalent.md, with why
-  // the fix is not small: the binder correspondence would have to thread
-  // through `are_types_compatible`, which is also the comptime-fn CACHE
-  // identity predicate.
-  //
-  // They stay LIVE assertions deliberately: when alpha-equivalence lands they
-  // go red, and that red is the reminder to restore them to `true`. They were
-  // written as `== true` and never ran — `comptime_assert` was inert inside a
-  // `test(...)` body until 2026-09-05
-  // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+  // Generic fn types are compared up to ALPHA-EQUIVALENCE of their binders:
+  // renaming `T` to `Z` does not change the type
+  // (issues/fixed/generic-fn-type-compatibility-is-not-alpha-equivalent.md).
+  // The correspondence is by POSITION and local to the one Func pair, so a
+  // binder used in a different position is still a different type (the two
+  // canaries after MyBox/Point).
   comptime_assert(
     __yo_are_types_compatible(
-      // SHOULD be true (alpha-equivalent); measured false.
+      // true: alpha-equivalent
       fn(generic(T : Type), x : T, y : T) -> T,
       fn(generic(Z : Type), a : Z, b : Z) -> Z
-    ) == false
+    ) == true
   );
-  // The same pair with the SAME binder name IS compatible — this is what pins
-  // the defect to the binder's identity rather than to generic fns at large.
+  // The same pair with the SAME binder name.
   comptime_assert(
     __yo_are_types_compatible(
       // true
@@ -2279,17 +2268,31 @@ test("Test types compatibility", {
   MyBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(value : T));
   comptime_assert(
     __yo_are_types_compatible(
-      // SHOULD be true (alpha-equivalent); measured false — see the note above.
+      // true: alpha-equivalent through a type constructor
       fn(generic(T : Type), x : T) -> MyBox(T),
       fn(generic(Z : Type), a : Z) -> MyBox(Z)
-    ) == false
+    ) == true
   );
   Point :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(
     __yo_are_types_compatible(
-      // SHOULD be true (alpha-equivalent); measured false — see the note above.
+      // true: alpha-equivalent through a type constructor
       fn(generic(T : Type), x : T, y : T) -> Point(T),
       fn(generic(Z : Type), a : Z, b : Z) -> Point(Z)
+    ) == true
+  );
+  comptime_assert(
+    __yo_are_types_compatible(
+      // false: the result is the FIRST binder on one side, the SECOND on the other
+      fn(generic(T : Type, U : Type), x : T, y : U) -> T,
+      fn(generic(Z : Type, W : Type), a : Z, b : W) -> W
+    ) == false
+  );
+  comptime_assert(
+    __yo_are_types_compatible(
+      // false: a generic fn is not a concrete one
+      fn(generic(T : Type), x : T) -> T,
+      fn(x : i32) -> i32
     ) == false
   );
   // Test pointer type compatibility
