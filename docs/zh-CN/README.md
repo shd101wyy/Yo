@@ -1,6 +1,6 @@
 # Yo
 
-<img src="../../Yo_logo.png" width=96 height=96 />
+<img src="../assets/yo-logo.svg" alt="Yo logo" width=96 height=96 />
 
 [English](../../README.md) | **简体中文**
 
@@ -14,6 +14,12 @@ https://shd101wyy.github.io/Yo
 Yo 的目标是 **简单** 和 **快速**（比 C 语言慢约 0% - 15%）。
 
 > `Yo` 这个名字来源于中文单词 `柚`（yòu），意为柚子，一种类似葡萄柚的大型柑橘类水果。这是我女儿的小名。
+
+<img src="../assets/yo-mascot.svg" alt="Yo 熊猫柚柚" width=160 align="right" />
+
+**认识一下 Yo 的熊猫柚柚（Youyou）。** Rust 有螃蟹 Ferris，Yo 有柚柚，一只抱着半个柚子的熊猫。Logo 也是这个柚子：三瓣果肉之间的白色果络组成一个 **Y**，外面一圈圆圆的柚子皮就是 **o**。
+
+<br clear="right" />
 
 📖 [我与编程语言的故事](./MY_STORY_WITH_PROGRAMMING_LANGUAGES.md) —— 从 16 岁学 Java 到构建 Yo 的旅程。
 
