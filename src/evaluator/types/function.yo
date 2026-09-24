@@ -72,7 +72,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("../../token.yo");
-{ set_func_contract_hooks, set_refine_annotation_hook } :: import("../values/type_trait_methods.yo");
+{ set_func_contract_hooks, set_refine_annotation_hook, record_owned_func_id } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Macro side-tables (folded from former
 // `evaluator/types/macro_registry.yo`).
@@ -95,6 +95,7 @@ import("std/fmt");
 register_macro_quoted_params :: (fn(func_id : String, indices : ArrayList(usize)) -> unit)({
   cond(
     (indices.len() > usize(0)) => {
+      record_owned_func_id(func_id.clone());
       g_macro_quoted_param_indices.insert(func_id.clone(), indices);
     },
     true => ()
@@ -102,6 +103,7 @@ register_macro_quoted_params :: (fn(func_id : String, indices : ArrayList(usize)
 });
 /// Mark a function as having an `unquote(...)` return type. Idempotent.
 register_macro_return_is_unquote :: (fn(func_id : String) -> unit)({
+  record_owned_func_id(func_id.clone());
   g_macro_return_is_unquote.insert(func_id.clone(), true);
 });
 /// Returns the list of quoted parameter indices, or an empty list if none.
@@ -213,6 +215,7 @@ register_func_param_defaults :: (fn(func_id : String, defaults : ArrayList(Optio
     i = (i + usize(1));
   });
   if(any_default, {
+    record_owned_func_id(func_id.clone());
     g_func_param_defaults.insert(func_id.clone(), defaults);
   });
 });
@@ -240,6 +243,7 @@ VariadicParamEntry :: struct(label : String, ty : TypeValue);
   HashMap(String, VariadicParamEntry).new();
 register_func_variadic_param :: (fn(func_id : String, label : String, ty : TypeValue) -> unit)({
   if(label != "...", {
+    record_owned_func_id(func_id.clone());
     g_func_variadic_params.insert(func_id.clone(), VariadicParamEntry(label : label, ty : ty));
   });
 });
@@ -292,6 +296,7 @@ register_func_param_assigned_values :: (fn(func_id : String, assigned : ArrayLis
     i = (i + usize(1));
   });
   if(any_assigned, {
+    record_owned_func_id(func_id.clone());
     g_func_param_assigned_values.insert(func_id.clone(), assigned);
   });
 });
@@ -337,6 +342,7 @@ register_func_param_comptime :: (fn(func_id : String, flags : ArrayList(bool)) -
     i = (i + usize(1));
   });
   if(any_ct, {
+    record_owned_func_id(func_id.clone());
     g_func_param_comptime.insert(func_id.clone(), flags);
   });
 });
@@ -359,6 +365,7 @@ copy_func_param_comptime :: (fn(from_id : String, to_id : String) -> unit)({
 // struct-id mismatch.)
 (g_func_return_type_expr : HashMap(String, AstExpr)) = HashMap(String, AstExpr).new();
 register_func_return_type_expr :: (fn(func_id : String, e : AstExpr) -> unit)({
+  record_owned_func_id(func_id.clone());
   g_func_return_type_expr.insert(func_id.clone(), e);
 });
 copy_func_return_type_expr :: (fn(from_id : String, to_id : String) -> unit)({
@@ -398,6 +405,7 @@ register_func_param_default_exprs :: (fn(func_id : String, exprs : ArrayList(Opt
     i = (i + usize(1));
   });
   if(any_default, {
+    record_owned_func_id(func_id.clone());
     g_func_param_default_exprs.insert(func_id.clone(), exprs);
   });
 });
@@ -442,6 +450,7 @@ register_func_param_type_exprs :: (fn(func_id : String, exprs : ArrayList(Option
     tei = (tei + usize(1));
   });
   if(any_te, {
+    record_owned_func_id(func_id.clone());
     g_func_param_type_exprs.insert(func_id.clone(), exprs);
   });
 });
@@ -484,6 +493,7 @@ WhereConstraintEntry :: struct(
 /// No-op when the function has none (keeps the table sparse).
 register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(WhereConstraintEntry)) -> unit)({
   if(entries.len() > usize(0), {
+    record_owned_func_id(func_id.clone());
     g_func_where_constraints.insert(func_id.clone(), entries);
   });
 });
@@ -497,6 +507,7 @@ register_func_where_constraints :: (fn(func_id : String, entries : ArrayList(Whe
 /// No-op when the function has none (keeps the table sparse).
 register_func_where_clause_exprs :: (fn(func_id : String, exprs : ArrayList(AstExpr)) -> unit)({
   if(exprs.len() > usize(0), {
+    record_owned_func_id(func_id.clone());
     g_func_where_clause_exprs.insert(func_id.clone(), exprs);
   });
 });
@@ -590,6 +601,7 @@ register_func_refined_params :: (
     i = (i + usize(1));
   });
   if(any, {
+    record_owned_func_id(func_id.clone());
     g_func_refined_params.insert(func_id.clone(), preds);
   });
 });
@@ -633,12 +645,14 @@ refine_annotation_pred :: (fn(expr_id : usize) -> String)(
 /// (keeps the table sparse, like the where-constraints table).
 register_func_requires_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr)) -> unit)({
   if(preds.len() > usize(0), {
+    record_owned_func_id(func_id.clone());
     g_func_requires_exprs.insert(func_id.clone(), preds);
   });
 });
 /// Register the signature's `ensures(...)` predicates. No-op when empty.
 register_func_ensures_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr)) -> unit)({
   if(preds.len() > usize(0), {
+    record_owned_func_id(func_id.clone());
     g_func_ensures_exprs.insert(func_id.clone(), preds);
   });
 });
@@ -647,6 +661,7 @@ register_func_decreases_expr :: (fn(func_id : String, measure : Option(AstExpr))
   match(
     measure,
     .Some(m) => {
+      record_owned_func_id(func_id.clone());
       g_func_decreases_expr.insert(func_id.clone(), m);
     },
     .None => ()
@@ -655,6 +670,7 @@ register_func_decreases_expr :: (fn(func_id : String, measure : Option(AstExpr))
 /// Register the signature's `assumed()` marker. No-op when absent (sparse).
 register_func_assumed_body :: (fn(func_id : String, assumed : bool) -> unit)({
   if(assumed, {
+    record_owned_func_id(func_id.clone());
     g_func_assumed_body.insert(func_id.clone(), true);
   });
 });
@@ -740,6 +756,7 @@ register_func_return_label :: (
   match(
     label,
     .Some(l) => {
+      record_owned_func_id(func_id.clone());
       g_func_return_label.insert(func_id.clone(), l.clone());
     },
     .None => ()
@@ -5122,7 +5139,43 @@ evaluate_function_return_type_again :: (
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
+/// Drop the given function ids from every per-function side table of this
+/// module. `mm_invalidate_document` passes each removed module's ids
+/// (`take_owned_func_ids`); re-evaluation mints fresh ids, so the old entries
+/// could only ever be stale (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5).
+purge_function_side_tables :: (fn(ids : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r0 := g_macro_quoted_param_indices.remove(id.clone());
+        _r1 := g_macro_return_is_unquote.remove(id.clone());
+        _r2 := g_func_param_defaults.remove(id.clone());
+        _r3 := g_func_variadic_params.remove(id.clone());
+        _r4 := g_func_param_assigned_values.remove(id.clone());
+        _r5 := g_func_param_comptime.remove(id.clone());
+        _r6 := g_func_return_type_expr.remove(id.clone());
+        _r7 := g_func_param_default_exprs.remove(id.clone());
+        _r8 := g_func_param_type_exprs.remove(id.clone());
+        _r9 := g_func_where_constraints.remove(id.clone());
+        _r10 := g_func_where_clause_exprs.remove(id.clone());
+        _r11 := g_func_requires_exprs.remove(id.clone());
+        _r12 := g_func_ensures_exprs.remove(id.clone());
+        _r13 := g_func_decreases_expr.remove(id.clone());
+        _r14 := g_func_assumed_body.remove(id.clone());
+        _r15 := g_func_refined_params.remove(id.clone());
+        _r16 := g_func_return_label.remove(id.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 export(evaluate_function_type, _resolve_some_types_deep);
+/// Total entries across the per-function side tables (the B2 plateau test's probe).
+function_side_table_entry_count :: (fn() -> usize)(((((((((((((((((g_macro_quoted_param_indices.len() + g_macro_return_is_unquote.len()) + g_func_param_defaults.len()) + g_func_variadic_params.len()) + g_func_param_assigned_values.len()) + g_func_param_comptime.len()) + g_func_return_type_expr.len()) + g_func_param_default_exprs.len()) + g_func_param_type_exprs.len()) + g_func_where_constraints.len()) + g_func_where_clause_exprs.len()) + g_func_requires_exprs.len()) + g_func_ensures_exprs.len()) + g_func_decreases_expr.len()) + g_func_assumed_body.len()) + g_func_refined_params.len()) + g_func_return_label.len()));
+export(purge_function_side_tables, function_side_table_entry_count);
 export(evaluate_function_parameters);
 export(apply_where_clause_constraints);
 export(evaluate_function_parameter_type_again);

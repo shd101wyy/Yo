@@ -166,9 +166,53 @@ MethodEntry :: ref(
 set_registration_owner :: (fn(owner : String) -> unit)({
   _registration_owner = owner;
 });
+/// Function ids by owner, for the per-function side tables
+/// (`src/evaluator/types/function.yo`'s `g_func_*`, `src/function_value.yo`'s
+/// registries). A table records a function id here only at its FIRST
+/// registration under the function's own id; specialization COPIES (`to_id`)
+/// are not recorded, because the specialization cache shares them across
+/// modules. `mm_invalidate_document` takes each removed module's ids and
+/// purges them from every such table (plans/EVALUATOR_MEMORY_REDUCTION.md
+/// Phase 1 step 5).
+(g_owned_func_ids : HashMap(String, HashMap(String, bool))) = HashMap(String, HashMap(String, bool)).new();
 /// The current owner tag ("" outside any module evaluation). Read by this
 /// module's own registration and by impl.yo's generic-impl registry.
 registration_owner :: (fn() -> String)(_registration_owner.clone());
+/// Record `func_id` under the current owner (no-op outside a module load).
+record_owned_func_id :: (fn(func_id : String) -> unit)({
+  if(_registration_owner.len() == usize(0), {
+    return(());
+  });
+  match(
+    g_owned_func_ids.get(_registration_owner.clone()),
+    .Some(ids) => {
+      _old := ids.insert(func_id, true);
+    },
+    .None => {
+      ids := HashMap(String, bool).new();
+      _old := ids.insert(func_id, true);
+      g_owned_func_ids.insert(_registration_owner.clone(), ids);
+      ()
+    }
+  );
+});
+/// Remove and return the function ids `owner`'s evaluation registered.
+take_owned_func_ids :: (fn(owner : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  match(
+    g_owned_func_ids.remove(owner),
+    .Some(ids) => {
+      it := ids.keys();
+      nx := it.next();
+      while(nx.is_some(), {
+        match(nx, .Some(id) => out.push(id.clone()), .None => ());
+        nx = it.next();
+      });
+    },
+    .None => ()
+  );
+  out
+});
 /// Import-closure provider: the CANONICAL paths (`canonical_module_path`)
 /// of every module reachable from `module` through import edges, `module`
 /// itself included. Installed by module_loader.yo (`register_loading`),
@@ -817,6 +861,8 @@ export(
   visibility_report_enabled,
   get_visible_type_trait_methods_by_name,
   registration_owner,
+  record_owned_func_id,
+  take_owned_func_ids,
   purge_type_trait_methods_owned_by,
   type_trait_methods_entry_count
 );

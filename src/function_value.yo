@@ -12,6 +12,7 @@
 //!
 //! Both registries are keyed by `func_id : String` (the unique function id).
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 { eprintln } :: import("std/fmt");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -19,6 +20,7 @@
 { TypeValue } :: import("./types/definitions.yo");
 { t_unit } :: import("./types/creators.yo");
 { debug_knob } :: import("./utils.yo");
+{ record_owned_func_id } :: import("./evaluator/values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Control-function side-table
 // ---------------------------------------------------------------------------
@@ -323,6 +325,7 @@ get_closure_body_type :: (fn(func_id : String) -> Option(TypeValue))(
 /// Record a function's own resolved `Func` type by func_id (called when the
 /// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
 register_func_type :: (fn(func_id : String, func_ty : TypeValue) -> unit)({
+  record_owned_func_id(func_id.clone());
   g_func_type_registry.insert(func_id.clone(), func_ty);
 });
 // ---------------------------------------------------------------------------
@@ -390,13 +393,32 @@ get_func_type :: (fn(func_id : String) -> TypeValue)(
 /// Store the parameter-bound frame for a function, keyed by its `fn(...)`
 /// type-expression id. (Capture timing is critical — see DEFTIME_BODY_EVAL.md.)
 register_func_parameters_frame :: (fn(func_id : String, frame : Frame) -> unit)({
+  record_owned_func_id(func_id.clone());
   g_func_parameters_frame.insert(func_id.clone(), frame);
 });
 /// Retrieve a function's parameter-bound frame, if captured.
 get_func_parameters_frame :: (fn(func_id : String) -> Option(Frame))(
   g_func_parameters_frame.get(func_id.clone())
 );
+/// Drop the given function ids from this module's per-function registries
+/// (see `purge_function_side_tables`, plans/EVALUATOR_MEMORY_REDUCTION.md
+/// Phase 1 step 5).
+purge_function_value_tables :: (fn(ids : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ids.len(), {
+    match(
+      ids.get(i),
+      .Some(id) => {
+        _r0 := g_func_type_registry.remove(id.clone());
+        _r1 := g_func_parameters_frame.remove(id.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 export(mark_fn_unemittable, is_fn_unemittable, mark_fn_specialized, fn_has_specializations);
+export(purge_function_value_tables);
 export(
   registered_func_type_count,
   mark_as_control_fn,
