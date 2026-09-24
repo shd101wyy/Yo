@@ -1,6 +1,6 @@
 # `a == b` on a type with no `Eq` impl silently evaluates to `unit` instead of erroring
 
-**Status: OPEN.** **Class**: wrong-value / api-lie — a comparison that has no
+**Status: FIXED 2026-09-24** (Phase 1.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) for every CONCRETE nominal receiver and every operator. The `unit` receiver follow-up below was fixed separately by `issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md` (`unit == unit` and `derive(Eq)` over a `unit` field compare correctly; re-measured 2026-09-24). Originally OPEN.
 implementation is accepted, prints `()`, and in one position is reported as an
 "internal compiler error … please report it" against the user's own type error.
 
@@ -223,3 +223,19 @@ export(main);
 Inside a condition, `cond((p < q) => println(1), true => println(2))` also passes `yo check`, and
 `yo compile` then reports an internal compiler error. The fix should cover every operator whose
 trait lookup can miss, not only `==`.
+
+## Fix (2026-09-24)
+
+`src/evaluator/calls/function.yo`, the infix-operator dispatch: the hard-error gate now also
+covers `_is_concrete_nominal_operand` — a struct (not a source-namespace module struct), enum,
+union or `Array(T, N)` with a resolved length, with no SomeT anywhere in it. The gate is on the
+operator LOOKUP, so it covers `==`, `!=`, `<`, `<=`, the arithmetic operators and the rest alike.
+The measured fall-through shapes stay exempt: `unit` (also the placeholder an unevaluated
+operand leaves), a SomeT-bearing type, and a source-namespace struct.
+
+## Verification
+
+`NoEq == NoEq`, `!=`, `<` and an enum without `Eq` are E0610 `No matching call found for operator
+"==" with receiver type "NoEq"` (`tests/type_soundness.test.yo`); the over-rejection canaries
+(a generic `where(T <: Eq(T))` comparison at `i32` and `String`) still compile, and
+`check ./std` / `check ./src` found no violation.

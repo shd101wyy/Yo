@@ -1,6 +1,6 @@
 # A `comptime(...)` parameter given a non-comptime argument emits BROKEN C instead of an error
 
-**Status:** OPEN, and narrowed by measurement rather than reasoning. **Reported:**
+**Status:** FIXED 2026-09-24 (Phase 1.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). The probe target named below was right about the symptom and wrong about the site: see "Where the call actually binds". Originally OPEN.
 2026-09-17 by the peer session (yo-12) while root-causing
 `Array(T, N).fill(T.default())`; handed over because it is the same family as
 the diagnostics-flattening work in #733, and handed BACK after three probes
@@ -284,3 +284,35 @@ the def-time trial as of #733, so a typed error raised here reaches
   the variable is literal-vs-call, not generic-vs-concrete)
 - `plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` — the class this belongs
   to: a toolchain that reports success for work it did not do.
+
+## Where the call actually binds (MEASURED 2026-09-24)
+
+A probe on both specialization entry points (`try_to_call_function_with_arguments` and the inline
+FuncVal arm of `_evaluate_funcval_runtime_call`) never fired for `c(i32.default())`. The call binds
+its arguments in the parameter-binding loop of `evaluate_function_call` — the same loop where
+#856 checks comptime literal arguments — and the comptime parameter was bound to the runtime
+value there, unchecked.
+
+## Fix
+
+`runtime_value_for_comptime_param` (`src/evaluator/calls/helper.yo`) applies the established
+Step-5 rule of `check_if_function_parameter_matches_argument`: an argument is runtime when it
+has no value, is a RUNTIME-ONLY `UnknownVal` (a runtime call's result) or a `VarRef`. A plain
+`UnknownVal` is a compile-time placeholder (a definition-time parameter, a macro `quote`
+parameter), and the operator-overload trials depend on that distinction — the first cut treated
+every `UnknownVal` as runtime and made `!allow_missing_type` in `src/evaluator/effects/
+effect_analysis.yo` pick `comptime_not`'s gate and fail. A value of a comptime-only type, and a
+SomeT-typed one, are never judged. The gate runs in the binding loop and before both
+specialization calls, outside definition-time trials and CTFE-capability analysis:
+
+```
+error[E1101]: Parameter `v` is `comptime` and requires a compile-time argument, but the argument is a runtime value of type i32
+```
+
+The message is classified E1101 (`src/error.yo`), whose registry entry now names `comptime(...)`
+parameters.
+
+## Verification
+
+The repro and `h :: (fn(p : i32) -> i32)(c(p))` are rejected; `c(i32(3))` compiles
+(`tests/type_soundness.test.yo`). `check ./std` 176/176, `check ./src` 279/279.

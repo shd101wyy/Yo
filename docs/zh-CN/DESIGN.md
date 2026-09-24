@@ -568,6 +568,26 @@ println(x); // 编译错误：x 未初始化。
 x = 1; // x : i32，已初始化
 ```
 
+#### 整数字面量与编译期整数
+
+整数字面量、`::` 常量和折叠后的常量表达式的类型是 `comptime_int`，它没有位宽上限。只有进入某个定宽类型的“槽位”——
+带类型的绑定、赋值、实参、结构体或枚举字段、返回值、`cond`/`match` 汇合后的分支，或 `T(x)` 转换——时，它才取得该类型，
+并且其值必须放得下：
+
+```rust
+(a : u8) = 255;        // 正确
+(b : u8) = 300;        // error[E1102]: the literal 300 does not fit in u8 (0..=255)
+(c : i8) = -128;       // 正确
+(d : u8) = (200 + 100); // error[E1102]: the compile-time value 300 does not fit in u8
+k :: 3;
+(e : u8) = k;          // 正确：comptime_int 常量取得槽位的类型
+f := u8(300);          // error[E1102]
+g := u8(i32(300));     // 正确：两个带类型整数之间的转换按定义截断（g == 44）
+```
+
+没有槽位时，`comptime_int` 在成为运行时值时默认取 `i32`（`comptime_float` 取 `f64`）。在 `cond` 或 `match` 中，
+comptime 分支无论顺序如何都会在其具体兄弟分支的类型处汇合：`cond(c => 1, true => i64(2))` 的类型是 `i64`。
+
 ## 函数声明
 
 函数使用 `::` 运算符进行编译期定义，或使用 `:=` 作为运行时值。
@@ -655,6 +675,18 @@ identity :: (fn(generic(T : Type), arg : T) -> T)
 
 x := identity(12);     // 类型推断：x: i32
 y := identity(true);   // 类型推断：y: bool
+```
+
+泛型函数体在特化时做类型检查：每个实例化处，函数体的结果都必须与声明的返回类型一致
+（`(fn(generic(T : Type), x : T) -> i32)(true)` 在第一次调用处报 E0604）。
+
+`comptime(x) : T` 参数按其**值**特化，因此实参必须在编译期已知——字面量、`::` 常量或 comptime 函数的结果。
+运行时值是错误：
+
+```rust
+scale :: (fn(comptime(factor) : i32, x : i32) -> i32)((factor * x));
+scale(3, n);               // 正确
+scale(i32.default(), n);   // error[E1101]: Parameter `factor` is `comptime` and requires a compile-time argument
 ```
 
 ### 类型约束
@@ -1650,6 +1682,11 @@ eval_int_only :: (fn(v : Value(i32)) -> i32)(
 );
 ```
 
+#### GADT 索引属于类型本身
+
+`Value(i32)` 与 `Value(bool)` 是不同的类型，即使它们的负载形状相同；一个变体只能构造其 `-> recur(...)` 索引所指的实例：
+`Value(i32).BoolVal(true)` 与 `(v : Value(i32)) = .BoolVal(true)` 都是 E0601 错误。详见 [GADTS.md](GADTS.md)。
+
 #### 多参数 GADTs
 
 ```rust
@@ -2369,6 +2406,20 @@ test_error :: (fn() -> unit)({
   // 错误：即使两个闭包完全相同，它们的类型也不同
 });
 ```
+
+闭包永远不是裸函数指针。声明为 `fn(...) -> R` 的参数或字段只能容纳具名函数或不捕获任何变量的 `->` 字面量；
+`=>` 闭包需要能携带闭包的类型：
+
+```rust
+takes_ptr :: (fn(f : (fn(a : i32) -> i32), v : i32) -> i32)(f(v));
+takes_fn :: (fn(f : Impl(Fn(a : i32) -> i32), v : i32) -> i32)(f(v));
+k := i32(10);
+takes_ptr(double, 5);            // 正确：具名函数
+takes_ptr((y) => (y + k), 5);    // error[E0605]: a closure (`=>`) cannot be used where the function-pointer type ... is expected
+takes_fn((y) => (y + k), 5);     // 正确
+```
+
+闭包的函数体会与它所传入的 `Fn(...) -> R` 的返回类型做比较：`takes_fn(x => true, 5)` 是 E0604。
 
 ### 闭包与引用语义类型
 

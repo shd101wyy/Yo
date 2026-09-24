@@ -1,7 +1,10 @@
 # A closure's result type is never checked against the expected `Fn(...) -> R`
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 1).
-**Status:** OPEN. Soundness hole: wrong program, green `yo check`, runs and prints a wrong value.
+**Status:** PARTIALLY FIXED 2026-09-24 (Phase 1.2 of `plans/TYPE_SYSTEM_SOUNDNESS.md`): every
+shape against a CONCRETE `Fn(...) -> R` is rejected. OPEN for a generic callee
+(`Impl(Fn(x : T) -> T)`), which needs the per-call unification of Phase 2.4 — see "Remaining".
+Originally: soundness hole, wrong program, green `yo check`, runs and prints a wrong value.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro
@@ -49,3 +52,30 @@ shapes above.
 - `issues/generic-fn-body-is-not-checked-against-its-declared-result-type.md` (same missing check
   on the generic path).
 - `issues/closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`.
+
+## Fix (2026-09-24, concrete result)
+
+`src/evaluator/values/anonymous_function.yo`, after the closure-body trial: when the adopted
+`Func.result` and the body type are both SomeT-free, the body must be compatible with the result,
+under the named-fn path's guards (a control-flow tail, `void` and `Type`-kinded results are
+skipped). A mismatch is E0604 at the body, with the named path's `;`-tail hint for a unit body.
+It found one violation in `std/`: the prelude's `ComptimeIndex` impls for `comptime_str` returned
+a `comptime_str` where the trait promised `comptime(*(Self.Output))`. The three
+`__yo_comptime_string_index*` builtins now return a comptime pointer, like the array and list
+builtins (`std/prelude.yo`, `src/evaluator/builtins/comptime_index_fns.yo`).
+
+`tests/type_soundness.test.yo` covers `x => true`, `(x) -> true` and a `;`-terminated block
+against `Fn(x : i32) -> i32`, plus a canary for well-typed closures.
+
+## Remaining (MEASURED 2026-09-24)
+
+```rust
+applyg :: (fn(generic(T : Type), f : Impl(Fn(x : T) -> T), v : T) -> T)(f(v));
+main :: (fn() -> unit)({ println(`${applyg(x => true, i32(3))}`); });
+```
+
+still prints `1`. The closure is evaluated while `T` is unbound (argument order), and its bare
+`-> T` result is then bound to `bool` from the body while `v` binds `T` to `i32` — two concrete
+bindings of one binder that nothing compares. That is
+`issues/generic-type-var-rebinds-per-argument.md`; Phase 2.4 (solve non-lambda arguments first,
+reject a second disagreeing binding) closes it, and this doc moves to `fixed/` with it.

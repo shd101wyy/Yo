@@ -1,6 +1,6 @@
 # An enum variant constructed with the WRONG payload type passes `check` and emits ill-typed C
 
-**Status:** OPEN. **Found:** 2026-09-18, writing the M0 unit tests for
+**Status:** FIXED 2026-09-24 (Phase 1.7 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN: check-green / C-red.
 `plans/SELF_VERIFICATION.md` (a test passed `String` where the variant declares
 `ArrayList(String)`).
 **Severity:** check-green / C-red. The evaluator accepts a payload of any type;
@@ -78,3 +78,26 @@ found it is now correct and is not a regression test for this.
 Found while implementing `plans/SELF_VERIFICATION.md` M0; filed, not fixed
 there. The fix is an evaluator change in the variant-construction path and
 belongs in its own PR with the over-rejection canary above.
+
+## Root cause (confirmed 2026-09-24)
+
+Construction DOES check each payload (`calls/type.yo`, "Type mismatch for type member"); the
+check passed because `are_types_compatible(String, ArrayList(String))` was true. The lenient
+`Struct` arm of `src/types/compatibility.yo` treats an EMPTY name as a wildcard, and a generic
+instantiation's name is empty (only `::`-bound declarations are stamped). The struct-literal path
+the doc compares against fails the same way for the same pair; it simply had no test.
+
+## Fix
+
+The lenient arm rejects, before the wildcard, two SomeT-free structs with different ids when one
+is a generic instantiation (a constructor id) and the other is a declared non-generic struct (a
+stamped name, no constructor id), or when both are instantiations of different constructors. This
+is the part of Phase 3.2 ("an empty name is no longer a wildcard") that the construction check
+needs; the rest of 3.2 stays with
+`issues/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`.
+
+## Verification
+
+The repro is E0605 `Type mismatch for type member "core": Expected: ArrayList(String), Got:
+String`. `tests/type_soundness.test.yo` adds the rejection and a canary that the declared payload
+type still constructs; `check ./std` 176/176 and `check ./src` 279/279.

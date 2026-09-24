@@ -581,6 +581,28 @@ println(x); // Compiler Error: x is uninitialized.
 x = 1; // x : i32, initialized
 ```
 
+#### Integer literals and compile-time integers
+
+An integer literal, a `::` constant and a folded constant expression have type `comptime_int`,
+which is unbounded. It takes a fixed-width type only when it enters a slot of that type — a
+typed binding, an assignment, an argument, a struct or enum field, a return value, a joined
+`cond`/`match` arm, or a `T(x)` conversion — and it must fit that type:
+
+```rust
+(a : u8) = 255;        // OK
+(b : u8) = 300;        // error[E1102]: the literal 300 does not fit in u8 (0..=255)
+(c : i8) = -128;       // OK
+(d : u8) = (200 + 100); // error[E1102]: the compile-time value 300 does not fit in u8
+k :: 3;
+(e : u8) = k;          // OK: a comptime_int constant takes the slot's type
+f := u8(300);          // error[E1102]
+g := u8(i32(300));     // OK: a conversion between TYPED integers truncates (g == 44)
+```
+
+With no slot, a `comptime_int` defaults to `i32` (and a `comptime_float` to `f64`) when it becomes
+a runtime value. In a `cond` or `match`, a comptime arm joins at its concrete sibling's type in
+either order: `cond(c => 1, true => i64(2))` is an `i64`.
+
 ## Function Declaration
 
 Functions are declared using the `::` operator for compile-time definitions or `:=` for runtime values.
@@ -664,6 +686,20 @@ identity :: (fn(generic(T : Type), arg : T) -> T)(arg);
 
 x := identity(12);     // Type inferred: x: i32
 y := identity(true);   // Type inferred: y: bool
+```
+
+A generic body is type-checked when it is specialized: its result must match the declared
+result type at every instantiation (`(fn(generic(T : Type), x : T) -> i32)(true)` is an E0604 at
+the first call).
+
+A `comptime(x) : T` parameter is specialized on its VALUE, so its argument must be known at
+compile time — a literal, a `::` constant or the result of a comptime function. A runtime value is
+an error:
+
+```rust
+scale :: (fn(comptime(factor) : i32, x : i32) -> i32)((factor * x));
+scale(3, n);               // OK
+scale(i32.default(), n);   // error[E1101]: Parameter `factor` is `comptime` and requires a compile-time argument
 ```
 
 ### Type constraints
@@ -1671,6 +1707,13 @@ eval_int_only :: (fn(v : Value(i32)) -> i32)(
 );
 ```
 
+#### GADT indices are part of the type
+
+`Value(i32)` and `Value(bool)` are different types even though their payloads have the same
+shapes, and a variant constructs only the instantiation its `-> recur(...)` index names:
+`Value(i32).BoolVal(true)` and `(v : Value(i32)) = .BoolVal(true)` are E0601 errors. See
+[GADTS.md](GADTS.md) for the details.
+
 #### Multi-parameter GADTs
 
 ```rust
@@ -2403,6 +2446,21 @@ test_error :: (fn() -> unit)({
   // Error: no two closures, even if identical, have the same type
 });
 ```
+
+A closure is never a bare function pointer. A parameter or field declared `fn(...) -> R` holds a
+named function or a capture-free `->` literal; a `=>` closure needs a closure-carrying type:
+
+```rust
+takes_ptr :: (fn(f : (fn(a : i32) -> i32), v : i32) -> i32)(f(v));
+takes_fn :: (fn(f : Impl(Fn(a : i32) -> i32), v : i32) -> i32)(f(v));
+k := i32(10);
+takes_ptr(double, 5);            // OK: a named fn
+takes_ptr((y) => (y + k), 5);    // error[E0605]: a closure (`=>`) cannot be used where the function-pointer type ... is expected
+takes_fn((y) => (y + k), 5);     // OK
+```
+
+The closure's body is checked against the result of the `Fn(...) -> R` it is passed as:
+`takes_fn(x => true, 5)` is an E0604.
 
 ### Closures with Reference-Semantics Types
 

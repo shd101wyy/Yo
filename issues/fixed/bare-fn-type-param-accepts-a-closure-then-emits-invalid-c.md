@@ -1,6 +1,6 @@
 # A bare `fn(...)` parameter accepts a closure at `check`, then emits invalid C
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-24 (Phase 1.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). Originally OPEN.
 **Found:** 2026-08-25, auditing `.github/instructions/` for Impl/Dyn/closure accuracy —
 two HKT examples there declared their callback parameter as a bare `fn(...)`.
 **Severity:** medium. Loud (the C compiler rejects it), but `yo check` says OK,
@@ -63,3 +63,17 @@ where `Impl(Fn(...))` as a field type is rejected with a message that names
 `.github/instructions/yo-design.instructions.md` declared the HKT `Functor.map`
 callback and the `do_map` helper's `f` parameter as bare `fn(a : A) -> B`, which
 teaches exactly this broken shape. Both now use `Impl(Fn(a : A) -> B)`.
+
+## Fix
+
+`src/evaluator/values/anonymous_function.yo`: a `=>`/`=>>` closure checked against a bare
+`fn(...)` expected type (not a `ctl` handler type) is E0605 at the closure: `a closure (=>) cannot
+be used where the function-pointer type fn(a : i32) -> i32 is expected`, with a help line naming
+`Impl(Fn(...))`, `Dyn(Fn(...))` and the capture-free `->` literal. `check ./std` and `check ./src`
+found no closure passed to a bare `fn(...)` slot.
+
+## Verification
+
+`issues/repros/bare-fn-param-closure-invalid-c.yo` is rejected at `check`;
+`tests/type_soundness.test.yo` has the rejection and a canary that a named fn still fills the
+slot.
