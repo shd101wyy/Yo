@@ -47,10 +47,16 @@ k :: (fn(p : *(Entry), f : bool) -> unit)({
 // emitted: if (f) { } else { }
 ```
 
+Both `cond` lowerings had the gap: the if/else chain (`_emit_value_arm_body`)
+and the collapse-to-direct path taken when the first non-false arm is a
+compile-time true. `_resize`'s `Type.contains_rc_type(V) =>` arm takes the
+second one.
+
 ## Fix
 
-`_emit_value_arm_body` now emits an unassigned arm's non-empty rendered code
-as a statement (a bare temp name excepted), mirroring match.
+A shared `_emit_unassigned_arm_code` emits an unassigned arm's non-empty
+rendered code as a statement (a bare temp name excepted), mirroring match.
+Both lowerings call it.
 
 ## Test
 
