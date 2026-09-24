@@ -98,6 +98,30 @@ eval_int_only :: (fn(v : Value(i32)) -> i32)(
 );
 ```
 
+## Type Identity and Construction
+
+The type arguments of a GADT (or any generic enum) are part of its type, even when no variant
+payload mentions them. `Value(i32)` and `Value(bool)` have identical payload shapes, and are still
+two different types:
+
+```rust
+x := Value(i32).IntVal(i32(77));
+(y : Value(bool)) = x;  // error[E0601]: Incompatible types (Value(bool) vs Value(i32))
+```
+
+A variant constructs only the instantiation its `-> recur(...)` index names. Naming it through a
+different instantiation is a type error, both spelled out and as a shorthand:
+
+```rust
+Value(i32).BoolVal(true);         // error[E0601]: GADT variant "BoolVal" is declared
+                                  // `-> recur(bool)`, so it cannot construct a Value(i32)
+(v : Value(i32)) = .BoolVal(true); // same error
+(w : Value(bool)) = .BoolVal(true); // OK
+```
+
+This is what makes the exhaustiveness filtering above sound: a `Value(i32)` can never hold a
+`BoolVal`, so a match that omits that arm cannot fall off.
+
 ## Runtime Representation
 
 GADTs have the **same C representation as regular enums**. All type refinement is purely compile-time — at runtime, a GADT is just a tagged union. No special codegen is needed.
@@ -117,5 +141,11 @@ GADTs have the **same C representation as regular enums**. All type refinement i
 ## Limitations
 
 - **No existential types**: Constructors cannot introduce new type variables not in the enum's parameters.
-- **No nested destructuring**: Use multi-level matching as with regular enums.
 - Type refinement only applies in `match` expressions, not in `cond`.
+- A `generic` function's body is type-checked when it is called, so an arm is checked under its
+  refinement only once some caller instantiates that arm's index: an ill-typed `.BoolVal(b) => i32(7)`
+  arm passes `yo check` until a caller passes a `Value(bool)`
+  (`issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`).
+
+Nested patterns work on GADT values like on any enum (`.Wrap(.PairVal(a, true))`), and the
+exhaustiveness filter applies at every level.

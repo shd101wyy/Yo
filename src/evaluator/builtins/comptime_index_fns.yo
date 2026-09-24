@@ -638,6 +638,12 @@ ci_eval_array_index :: (
   );
   expr
 });
+/// A comptime pointer to a fresh cell holding the string literal `quoted`.
+_ci_str_pointer :: (fn(quoted : String) -> EvalValue)({
+  cell := ArrayList(EvalValue).new();
+  cell.push(EvalValue.StrLit(quoted));
+  EvalValue.PtrVal(cell, usize(0))
+});
 // ---------------------------------------------------------------------------
 // Handler: __yo_comptime_string_index / _range / _range_inclusive
 // ---------------------------------------------------------------------------
@@ -676,7 +682,17 @@ ci_eval_string_index :: (
   (cur_env : Environment) = expr_info_adopt_env(self_info);
   idx_info := ci_eval_arg(idx_arg, cur_env, ctx, String.from("Failed to evaluate index for comptime string index"), exn);
   cur_env = expr_info_adopt_env(idx_info);
-  result_ty := self_info.ty;
+  // The builtins are declared `-> comptime(*(comptime_str))`, the
+  // `ComptimeIndex` protocol's `-> comptime(*(Self.Output))`, like the array
+  // and list builtins: the result is a comptime POINTER to the indexed
+  // substring, which the index dispatcher (calls/index_trait.yo
+  // `_try_comptime_custom_type_index`) dereferences. They used to be typed
+  // `-> comptime_str`, so the prelude's `ComptimeIndex` impls for
+  // `comptime_str` returned a `comptime_str` where their trait promised a
+  // pointer — the closure result check (E0604) rejects that shape
+  // (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
+  // A string has no element place, so the pointer carries no ComptimeRef.
+  result_ty := t_ptr(t_comptime_string());
   // If self is not a known comptime_str, set no value.
   self_is_str := match(
     self_info.value,
@@ -766,7 +782,7 @@ ci_eval_string_index :: (
       unquoted.ceil_char_boundary(idx_usize + usize(1))
     );
     out_info := new_expr_info(cur_env, result_ty);
-    out_info.value = Option(EvalValue).Some(EvalValue.StrLit(ci_str_quote(char_str)));
+    out_info.value = Option(EvalValue).Some(_ci_str_pointer(ci_str_quote(char_str)));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
@@ -863,7 +879,7 @@ ci_eval_string_index :: (
   });
   sliced := unquoted.substring(start_idx, end_idx);
   out_info := new_expr_info(cur_env, result_ty);
-  out_info.value = Option(EvalValue).Some(EvalValue.StrLit(ci_str_quote(sliced)));
+  out_info.value = Option(EvalValue).Some(_ci_str_pointer(ci_str_quote(sliced)));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });

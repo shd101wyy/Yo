@@ -98,6 +98,27 @@ eval_int_only :: (fn(v : Value(i32)) -> i32)(
 );
 ```
 
+## 类型标识与构造
+
+GADT（以及任何泛型枚举）的类型参数属于其类型本身，即使没有任何变体负载提到它们。`Value(i32)` 与
+`Value(bool)` 的负载形状完全相同，但仍是两个不同的类型：
+
+```rust
+x := Value(i32).IntVal(i32(77));
+(y : Value(bool)) = x;  // error[E0601]: Incompatible types（Value(bool) 与 Value(i32)）
+```
+
+一个变体只能构造其 `-> recur(...)` 索引所指的实例。通过其他实例来构造它是类型错误，无论是完整写法还是简写：
+
+```rust
+Value(i32).BoolVal(true);         // error[E0601]: GADT variant "BoolVal" is declared
+                                  // `-> recur(bool)`, so it cannot construct a Value(i32)
+(v : Value(i32)) = .BoolVal(true); // 同样的错误
+(w : Value(bool)) = .BoolVal(true); // 正确
+```
+
+这正是上面穷尽性过滤成立的前提：`Value(i32)` 永远不可能持有 `BoolVal`，因此省略该分支的 match 不会落空。
+
 ## 运行时表示
 
 GADTs 具有**与普通枚举相同的 C 表示**。所有类型细化都纯粹是编译时的 — 在运行时，GADT 只是一个标签联合体。不需要特殊的代码生成。
@@ -117,5 +138,9 @@ GADTs 具有**与普通枚举相同的 C 表示**。所有类型细化都纯粹�
 ## 限制
 
 - **不支持存在类型**：构造器不能引入不在枚举参数中的新类型变量。
-- **不支持嵌套解构**：与普通枚举一样使用多级匹配。
 - 类型细化仅适用于 `match` 表达式，不适用于 `cond`。
+- `generic` 函数的函数体在被调用时才做类型检查，因此某个分支只有在某个调用方实例化了该分支的索引后，才会按其细化类型被检查：
+  一个类型错误的 `.BoolVal(b) => i32(7)` 分支在有调用方传入 `Value(bool)` 之前都能通过 `yo check`
+  （`issues/gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`）。
+
+嵌套模式在 GADT 值上与普通枚举一样可用（`.Wrap(.PairVal(a, true))`），穷尽性过滤在每一层都生效。

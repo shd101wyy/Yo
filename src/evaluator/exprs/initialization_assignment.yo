@@ -73,7 +73,8 @@
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type } :: import("../../types/guards.yo");
+{ is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
+{ check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { Token, TokenKind, is_reserved_operator_name } :: import("../../token.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
@@ -830,6 +831,21 @@ Bound type: ${type_to_string(rhs_info.ty)}`
           )
         );
       });
+      // A `comptime_int` VALUE (a folded `(200 + 100)`, a `::` constant)
+      // bound to a fixed-width integer must fit it; the widening above is
+      // value-blind, and the C constant truncated silently
+      // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
+      match(
+        rhs_info_opt,
+        .Some(ri_ct) => if(is_comptime_int_type(ri_ct.ty), {
+          match(
+            ri_ct.value,
+            .Some(ri_ctv) => match(ri_ctv, .IntLit(ri_raw) => check_comptime_int_value_fits(ri_raw, pre_type, ast_expr_token(rhs), exn), _ => ()),
+            .None => ()
+          );
+        }),
+        .None => ()
+      );
       lhs_type = pre_type;
     });
     // Check comptime modifier requirements. The tag-only helper misses

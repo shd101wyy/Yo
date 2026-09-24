@@ -4,14 +4,17 @@
 //! string of the parsed value. The type is determined from `ctx.expected_type`:
 //! if the expected type is a specific integer size, that type is used;
 //! otherwise `t_comptime_int()` is the default.
-import("std/string");
+{ String } :: import("std/string");
 import("std/fmt");
 { AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
-{ TokenKind } :: import("../../token.yo");
+{ Token, TokenKind } :: import("../../token.yo");
+{ integer_value_fits_type, integer_type_range_string, target_integer_type_range } :: import("../../types/utils.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 { t_comptime_int, t_u8, t_i8, t_u16, t_i16, t_u32, t_i32, t_u64, t_i64, t_usize, t_isize } :: import("../../types/creators.yo");
 {
   is_u8_type,
@@ -23,11 +26,101 @@ import("std/fmt");
   is_u64_type,
   is_i64_type,
   is_usize_type,
-  is_isize_type
+  is_isize_type,
+  is_comptime_int_type,
+  is_comptime_float_type,
+  is_float_type
 } :: import("../../types/guards.yo");
 { Exception } :: import("std/error");
 { format_error_message } :: import("../../error.yo");
 { parse_raw_int } :: import("../utils.yo");
+/// Throw E1102 when the integer literal spelled `text` (optionally with a
+/// leading `-`) does not fit the fixed-width integer type `ty`. No-op for a
+/// type without a fixed range (`comptime_int`, floats).
+check_literal_fits :: (fn(text : String, ty : TypeValue, tok : Token, exn : Exception) -> unit)({
+  negative := text.starts_with(`-`);
+  digits := if(negative, text.substring(usize(1), text.len()), text.clone());
+  match(
+    parse_raw_int(digits),
+    .Some(bits) => match(
+      // `bits` is the magnitude's u64 bit pattern (parse_raw_int).
+      integer_value_fits_type(negative, u64(bits), ty),
+      .Some(fits) => if(!fits, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              tok,
+              `Integer overflow: the literal ${text} does not fit in ${type_to_string(ty)} (${integer_type_range_string(ty)})`
+            )
+          )
+        );
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+});
+/// The E1102 message when a `comptime_int` VALUE (raw decimal, as `IntLit`
+/// carries it) converted into the fixed-width integer type `ty` does not fit — a
+/// comptime integer constant or a folded `comptime_int` expression flowing
+/// into a typed slot (`(y : u8) = (200 + 100)`, `u8(big_constant)`). One
+/// ambiguity is left open on purpose: a comptime integer above `i64::MAX` is
+/// carried as its i64 bit pattern, so a NEGATIVE raw value bound for a
+/// 64-bit unsigned target may be that bit pattern (`u64(18446744073709551615)`)
+/// and is accepted. Narrower targets are exact either way: neither reading of
+/// a negative raw fits them.
+comptime_int_value_misfit :: (fn(raw : String, ty : TypeValue) -> Option(String))({
+  negative := raw.starts_with(`-`);
+  unsigned64 := match(
+    target_integer_type_range(ty),
+    .Some(r) => ((r.min == i64(0)) && (r.max == u64(18446744073709551615))),
+    .None => false
+  );
+  if(negative && unsigned64, {
+    return(Option(String).None);
+  });
+  digits := if(negative, raw.substring(usize(1), raw.len()), raw.clone());
+  match(
+    parse_raw_int(digits),
+    .Some(bits) => match(
+      integer_value_fits_type(negative, u64(bits), ty),
+      .Some(fits) => if(fits, Option(String).None, Option(String).Some(`Integer overflow: the compile-time value ${raw} does not fit in ${type_to_string(ty)} (${integer_type_range_string(ty)})`)),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+});
+/// `comptime_int_value_misfit` as a check: throws its E1102 at `tok`.
+check_comptime_int_value_fits :: (fn(raw : String, ty : TypeValue, tok : Token, exn : Exception) -> unit)(
+  match(
+    comptime_int_value_misfit(raw, ty),
+    .Some(msg) => exn.throw(dyn(format_error_message(tok, msg))),
+    .None => ()
+  )
+);
+/// The type a comptime NUMERIC value (`comptime_int` / `comptime_float`)
+/// takes in a slot of type `slot_ty`, when the slot coerces it: a fixed-width
+/// integer slot (the value must fit — E1102) or a float slot. `.None` for any
+/// other pairing, which the caller converts the ordinary way. This is the one
+/// coercion rule every slot applies — a binding, an assignment, a struct or
+/// enum field — so a comptime integer never reaches a typed slot unchecked
+/// (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
+comptime_numeric_slot_type :: (
+  fn(arg_ty : TypeValue, value : Option(EvalValue), slot_ty : TypeValue, tok : Token, exn : Exception) -> Option(TypeValue)
+)(
+  cond(
+    (is_comptime_int_type(arg_ty) && target_integer_type_range(slot_ty).is_some()) => {
+      match(
+        value,
+        .Some(v) => match(v, .IntLit(raw) => check_comptime_int_value_fits(raw, slot_ty, tok, exn), _ => ()),
+        .None => ()
+      );
+      Option(TypeValue).Some(slot_ty)
+    },
+    ((is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty)) && is_float_type(slot_ty)) => Option(TypeValue).Some(slot_ty),
+    true => Option(TypeValue).None
+  )
+);
 evaluate_integer_literal :: (
   fn(
     expr : AstExpr,
@@ -82,10 +175,17 @@ evaluate_integer_literal :: (
     ),
     .None => t_comptime_int()
   );
+  // A literal typed by its context must fit the context's type: `(y : u8) =
+  // 300` and `f(300)` for an `a : u8` parameter used to take the type and
+  // emit a C constant that truncated to 44
+  // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
+  // The magnitude comes from the TOKEN, not `parsed`: a literal above
+  // `i64::MAX` is carried as its i64 bit pattern.
+  check_literal_fits(tok.value.clone(), ty, tok, exn);
   val := EvalValue.IntLit(raw.clone());
   info := new_expr_info(env, ty);
   info.value = .Some(val);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
   expr
 });
-export(evaluate_integer_literal);
+export(evaluate_integer_literal, check_literal_fits, comptime_int_value_misfit, check_comptime_int_value_fits, comptime_numeric_slot_type);

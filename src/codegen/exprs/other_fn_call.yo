@@ -704,6 +704,22 @@ _no_cast_by_value_param :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
+/// The C type of parameter `i` in a function-pointer call's cast: the
+/// storage type of a by-value parameter (a `unit` is the one-byte
+/// placeholder), and `T*` for a `ref`/`inout` one — the callee's prototype.
+_fn_pointer_param_type_string :: (
+  fn(param_types : ArrayList(TypeValue), param_is_ref : ArrayList(bool), i : usize, context : FunctionGenerationContext) -> String
+)(
+  match(
+    param_types.get(i),
+    .Some(t) => if(match(param_is_ref.get(i), .Some(r) => r, .None => false), {
+      rs := get_type_string(t, context.base);
+      rs.push_str("*");
+      rs
+    }, get_storage_type_string(t, context.base)),
+    .None => String.from("void*")
+  )
+);
 _per_arg_cast :: (fn(args_list : String, param_types : ArrayList(TypeValue), param_is_ref : ArrayList(bool), context : FunctionGenerationContext) -> String)(
   if(args_list.len() == usize(0), args_list, {
     parts := _split_top_level_args_list(args_list);
@@ -2339,9 +2355,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             cast.push_str(", ");
           });
           // Must match the callee's PROTOTYPE, where a by-value `unit` parameter
-          // is the one-byte placeholder. The return slot above keeps
-          // get_type_string — `void` is legal there.
-          cast.push_string(match(param_types.get(pi), .Some(t) => get_storage_type_string(t, context.base), .None => String.from("void*")));
+          // is the one-byte placeholder and a `ref`/`inout` parameter is a
+          // pointer. The return slot above keeps get_type_string — `void` is
+          // legal there. Ignoring `param_is_ref` here cast `&(v)` to `int32_t`
+          // and called an `int32_t*` function through a by-value pointer type,
+          // truncating the address
+          // (issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
+          cast.push_string(_fn_pointer_param_type_string(param_types, param_is_ref, pi, context));
           pi = (pi + usize(1));
         });
         cast.push_str("))");
@@ -2362,7 +2382,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 fa_out.push_str(", ");
               });
               // In lockstep with the fn-pointer cast above.
-              fa_pt := match(param_types.get(fa_i), .Some(t) => get_storage_type_string(t, context.base), .None => String.from("void*"));
+              fa_pt := _fn_pointer_param_type_string(param_types, param_is_ref, fa_i, context);
               fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");
               fa_out.push_string(fa_pt);

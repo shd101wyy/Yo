@@ -89,6 +89,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../../types/flowability.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
+{ comptime_numeric_slot_type } :: import("../values/integer.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding, set_defer_generic_fn_type_check } :: import("./binding.yo");
 { all_paths_unwind } :: import("../../expr_traversal.yo");
@@ -105,6 +106,21 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 /// Throw a descriptive error when the RHS of an assignment unconditionally
 /// transfers control flow (return / unwind / break / continue).
+/// The runtime type a comptime right-hand side takes in a slot of type
+/// `slot_ty`: the slot's own type when it coerces a comptime numeric
+/// (values/integer.yo `comptime_numeric_slot_type`, which range-checks an
+/// integer) — `x :: 3; y = x` for a `u8` `y` works like the literal `y = 3`,
+/// and `y = (200 + 100)` is a range error. It used to be defaulted to `i32`
+/// first and rejected as `Expected: u8, Given: i32`, while an out-of-range
+/// value that reached the slot some other way was never looked at
+/// (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
+/// Every other right-hand side keeps `converted`, the type the ordinary
+/// comptime-to-runtime conversion produced.
+_comptime_numeric_into_slot :: (
+  fn(rhs_info : ExprInfo, slot_ty : TypeValue, converted : TypeValue, tok : Token, exn : Exception) -> TypeValue
+)(
+  match(comptime_numeric_slot_type(rhs_info.ty, rhs_info.value, slot_ty, tok, exn), .Some(t) => t, .None => converted)
+);
 throw_rhs_contains_control_flow_expression_error :: (
   fn(
     rhs : AstExpr,
@@ -519,10 +535,16 @@ evaluate_assignment :: (
       // to `str`. Without the hint the check below
       // compares `*(u8)` against `str` and rejects
       // `(path : *(u8)) = "…"` — the C-string-literal form.
-      prop_rhs_type = convert_comptime_type_to_runtime_type_with_expected(
-        prop_rhs_type,
-        Option(TypeValue).Some(expected_ty),
-        env
+      prop_rhs_type = _comptime_numeric_into_slot(
+        prop_rhs_info,
+        expected_ty,
+        convert_comptime_type_to_runtime_type_with_expected(
+          prop_rhs_type,
+          Option(TypeValue).Some(expected_ty),
+          env
+        ),
+        ast_expr_token(prop_rhs),
+        exn
       );
       // The helper also stores the result on
       // the rhs's `convertedRuntimeType`. Codegen needs
@@ -1085,10 +1107,16 @@ comptime(${variable_name}) : ${dgc_ty_str}
     // Expected-type-aware (passing `expectedType: variable.type`):
     // a `comptime_str` assigned to a
     // `*(u8)` / `*(char)` variable becomes that pointer type, not `str`.
-    rhs_type = convert_comptime_type_to_runtime_type_with_expected(
-      rhs_type,
-      Option(TypeValue).Some(variable.ty),
-      env
+    rhs_type = _comptime_numeric_into_slot(
+      rhs_info,
+      variable.ty,
+      convert_comptime_type_to_runtime_type_with_expected(
+        rhs_type,
+        Option(TypeValue).Some(variable.ty),
+        env
+      ),
+      ast_expr_token(rhs_evaled),
+      exn
     );
     // Same `expr: rhs` side-effect as at the
     // property-assignment site above — see there for why codegen needs it.

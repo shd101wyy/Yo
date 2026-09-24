@@ -110,7 +110,8 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types, type_somes_all_resolve_concrete } :: import("../../types/utils.yo");
+{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range } :: import("../../types/utils.yo");
+{ check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -147,7 +148,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, resolve_param_types_from_expected, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -2441,6 +2442,19 @@ _rre_mentions_binder :: (fn(t : TypeValue, ids : ArrayList(String)) -> bool)({
   // one that leaves the previous behaviour in place.
   found || (steps >= usize(4096))
 });
+/// A struct / enum / union / `Array(T, N)` operand type that mentions no
+/// SomeT anywhere (and is not a source-namespace module struct): the
+/// receivers whose operator lookup cannot be waiting on a later binding.
+_is_concrete_nominal_operand :: (fn(t : TypeValue) -> bool)(
+  (get_all_some_types(t).len() == usize(0)) && match(
+    t,
+    .Struct({ is_source_namespace : ns }) => !(ns),
+    .EnumT(_, _, _, _, _, _, _, _, _) => true,
+    .Union(_, _, _) => true,
+    .Array(_, _, alv) => (alv.len() == usize(0)),
+    _ => false
+  )
+);
 _evaluate_funcval_runtime_call :: (
   fn(
     expr : AstExpr,
@@ -3114,6 +3128,10 @@ _evaluate_funcval_runtime_call :: (
       );
       sra_i = (sra_i + usize(1));
     });
+    // The inline FuncVal arm's twin of the comptime-argument gate in
+    // try_to_call_function_with_arguments (calls/helper.yo): `c(i32.default())`
+    // for a `comptime(v)` parameter specializes through HERE.
+    reject_runtime_comptime_arguments(cv, spec_reg_args, ast_expr_token(expr), ctx, exn);
     spec_av := ArgValues(
       forall_args : spec_forall_args,
       args : spec_reg_args,
@@ -3408,7 +3426,20 @@ evaluate_function_call :: (
       .Atom(_, atok) => {
         if(atok.kind == TokenKind.Integer, {
           neg_raw := `-${atok.value}`;
-          out_neg := new_expr_info(env, t_comptime_int());
+          // A negative literal in a fixed-width integer context takes that
+          // type once it fits, exactly like a positive literal
+          // (values/integer.yo): `(y : i8) = -128` is an `i8`, and
+          // `(z : u8) = -1` is an E1102 range error naming `u8` — it used to
+          // fail as `Expected: u8, Given: i32` because the comptime_int was
+          // defaulted to `i32` before the binding saw it
+          // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
+          neg_ty := match(
+            ctx.expected_type,
+            .Some(neg_et) => if(target_integer_type_range(neg_et.ty).is_some(), neg_et.ty, t_comptime_int()),
+            .None => t_comptime_int()
+          );
+          check_literal_fits(neg_raw.clone(), neg_ty, atok, exn);
+          out_neg := new_expr_info(env, neg_ty);
           out_neg.value = Option(EvalValue).Some(EvalValue.IntLit(neg_raw));
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_neg);
           return(expr);
@@ -3500,7 +3531,19 @@ evaluate_function_call :: (
     // (tests/comptime.test.yo arms 26/27,
     // issues/fixed/yo-self-cee-in-function-body.md). `TypeUni` was never in the
     // measured sample above.
-    if((op_methods.len() == usize(0)) && ((is_primitive_type(receiver_ty) && !(is_unit_type(receiver_ty))) || is_type_hierarchy_type(receiver_ty)), {
+    //
+    // CONCRETE NOMINAL receivers are in the hard-error set as well: a named
+    // struct/enum/union or an `Array(T, N)` with no SomeT anywhere in it is
+    // fully known at the call site, so a missing operator impl is a fact, not
+    // a deferred generic question. Letting it fall through made `a == b` on a
+    // struct with no `Eq` evaluate to `unit` — printed as `()`, an ICE as a
+    // `cond` condition — and `a < b` without `Ord` the same
+    // (issues/fixed/equality-operator-without-an-eq-impl-evaluates-to-unit.md).
+    // The measured fall-through shapes stay exempt: `unit` (also the
+    // placeholder an unevaluated operand leaves), a type still carrying a
+    // SomeT, and a source-namespace struct (an `impl({...})` operator module,
+    // resolved by the call-overload expansion).
+    if((op_methods.len() == usize(0)) && (((is_primitive_type(receiver_ty) && !(is_unit_type(receiver_ty))) || is_type_hierarchy_type(receiver_ty)) || _is_concrete_nominal_operand(receiver_ty)), {
       exn.throw(
         dyn(
           format_error_message(
@@ -6007,6 +6050,23 @@ Fix: wrap the call:
           // flag alone; the value-derived heuristic here keeps genuine
           // comptime VALUES comptime but must not claim runtime unknowns.
           (is_ct : bool) = match(arg_info.value, .Some(av) => (!(is_func_val(av)) && !(is_unknown_val(av))), .None => false);
+          // A SUPPLIED argument for a `comptime(...)` parameter must be a
+          // compile-time value (see reject_runtime_comptime_arguments,
+          // calls/helper.yo, the same gate on the specialization paths). This
+          // binding loop is the path a plain `c(i32.default())` call takes.
+          if((pi < n_supplied_reg) && match(fv_param_ct.get(pi), .Some(f) => f, .None => false), {
+            if(((!(in_def_time_trial()) && !(ctx.is_analyzing_ctfe_capability)) && runtime_value_for_comptime_param(arg_info.ty, arg_info.value)), {
+              exn.throw(
+                dyn(
+                  format_error_message_with_help(
+                    ast_expr_token(match(fv_args.get(pi), .Some(ae) => ae, .None => expr)),
+                    `Parameter \`${pname}\` is \`comptime\` and requires a compile-time argument, but the argument is a runtime value of type ${type_to_string(arg_info.ty)}`,
+                    Option(String).Some(String.from("pass a literal or a `::` constant, or compute the value with a comptime function; drop `comptime(...)` from the parameter if it may be runtime"))
+                  )
+                )
+              );
+            });
+          });
           // A SUPPLIED comptime literal must fit a CONCRETE declared type —
           // the literal widenings `are_types_compatible` defines (comptime_int
           // → any integer/float, comptime_float → any float, comptime_str →
@@ -6041,6 +6101,23 @@ Fix: wrap the call:
                     lit_msg
                   )
                 )
+              );
+            });
+            // ...and a known `comptime_int` value must also fit a fixed-width
+            // integer parameter: `f(200 + 100)` / `f(big_constant)` for an
+            // `a : u8` parameter (a bare literal was already checked when it
+            // was typed by the parameter, values/integer.yo)
+            // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
+            if(lit_concrete && is_comptime_int_type(arg_info.ty), {
+              match(
+                match(arg_info.value, .Some(ci_av) => match(ci_av, .IntLit(ci_raw) => comptime_int_value_misfit(ci_raw, resolved_decl_pt), _ => Option(String).None), .None => Option(String).None),
+                .Some(fit_msg) => {
+                  if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+                    flag_flow_violation(fit_msg.clone());
+                  });
+                  exn.throw(dyn(format_error_message(ast_expr_token(match(fv_args.get(pi), .Some(ae) => ae, .None => expr)), fit_msg)));
+                },
+                .None => ()
               );
             });
           });
