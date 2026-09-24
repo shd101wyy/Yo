@@ -260,6 +260,22 @@ When you find a test that causes a C codegen bug, don't weaken the test. Create 
 
 For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`.
 
+### A hand-written C declaration must be registered, or its drops vanish
+
+`generate_deferred_drop_expressions` (`src/codegen/exprs/drop_dup.yo`) silently
+skips a `___drop` whose target temp is not in `declared_c_var_names` (the guard
+against drops of temps whose declaration was elided). `get_variable_type_string`
+records every name it declares; a site that writes its own
+`get_type_string(t) + " " + name + ";"` line must call
+`context.base.declared_c_var_names.insert(name)` itself. The match and cond
+result temps did not, so a `match`/`cond` passed as a call argument leaked its
+value in every program, and the compiler leaked ~7 M TypeValues per self-check
+(`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`). When
+a scheduled drop is "missing" from the C, check this set before the evaluator.
+To confirm a suspected leak, use a `Dispose` counter on a `ref(struct)` /
+`ref(enum)` and read it after the scope that owns the value (statement temps are
+released at SCOPE end, not after the statement).
+
 ## Index trait codegen
 
 Array/Slice indexing through the Index trait uses compiler builtins that are inlined at call sites.
