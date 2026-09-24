@@ -19,7 +19,9 @@ Usage:
 Dump rows: `H <objects> <root global> <type>`; `R <objects> <external refs> <type>` for
 the LEAK ROOTS among the unreached (refcount above what the unreached set itself
 explains — held by an untracked object or a missing release); `U <objects> <type>` for tracked
-objects no root reaches (held only by locals / leaked). HOLDER_SCAN=1 adds a
+objects no root reaches (held only by locals / leaked). `L <length> <root>` rows give
+each container global's length (size for maps) — the only view of registries whose
+entries are untracked. HOLDER_SCAN=1 adds a
 conservative heap scan: `X <words> <target> <- <holder>` = RC objects of <holder> (reached or
 untracked) pointing at unreached <target> objects, `T <type> hits` = per-type hit histogram, `Y` = holders of the raw buffers that do
 (`S` rows: per-object hit histogram; 0 hits = no pointer anywhere, a missing release). HOLDER_MIN=<n> lowers the
@@ -45,6 +47,20 @@ slot = {b: i for i, b in enumerate(bases)}
 roots = re.findall(r"^static (__yo_t_?\d+)\* (\w+_m\d+); // module-level mutable variable$", src, re.M)
 roots = [(t, n) for t, n in roots if t in slot or True]
 nb, nr = len(bases), len(roots)
+# Container length per root global (`L <length> <root>` rows): the element
+# type may be UNTRACKED (no traverse_fn), which the H rows cannot see into,
+# so a registry that grows by untracked entries shows up only here.
+struct_body = {}
+for m in re.finditer(r"struct (__yo_t_?\d+)_struct \{ // [^\n]*\n(.*?)\n\};", src, re.S):
+    struct_body[m.group(1)] = m.group(2)
+len_exprs = []
+for i, (t, n) in enumerate(roots):
+    body = struct_body.get(t, "")
+    if re.search(r"\bsize_t _length;", body):
+        len_exprs.append((i, "(long long)((%s*)p)->_length" % t))
+    elif re.search(r"\bsize_t size;", body):
+        len_exprs.append((i, "(long long)((%s*)p)->size" % t))
+len_c = "\n".join("  { void* p = *(void* const*)__ho_root_addrs[%d]; if (p) fprintf(f, \"L %%lld %%s\\n\", %s, __ho_roots[%d]); }" % (i, e, i) for i, e in len_exprs)
 
 labels_c = ",\n".join('  "%s"' % tyname.get(b, b).replace('"', "'").replace("\\", "/")[:120] for b in bases)
 roots_c = ",\n".join('  "%s"' % n for _, n in roots)
@@ -283,12 +299,13 @@ static void __ho_census(void* st) {
   for (int t = 0; t < %(nb)d; t++) { long long c = __ho_count[(size_t)%(nr)d * %(nb)d + t]; if (c) fprintf(f, "U %%lld %%s\n", c, __ho_types[t]); }
   for (int t = 0; t < %(nb)d; t++) if (__ho_extn && __ho_extn[t]) fprintf(f, "R %%lld %%lld %%s\n", __ho_extn[t], __ho_ext[t], __ho_types[t]);
   if (getenv("HOLDER_SCAN")) { __ho_scan_skip = (void*)gc->gc_white; __ho_scan_heap(f); }
+%(len_c)s
   fclose(f);
 }
 __attribute__((destructor)) static void __ho_census_atexit(void) {
   for (__yo_thread_gc_state_t* g = __yo_all_thread_gcs; g != NULL; g = g->next) __ho_census(g);
 }
-""" % dict(nb=nb, nr=nr, labels=labels_c, roots=roots_c, ptrs=root_ptrs, cases=cases, dump=dump_path, disp_fns=disp_fns_c)
+""" % dict(nb=nb, nr=nr, labels=labels_c, roots=roots_c, ptrs=root_ptrs, cases=cases, dump=dump_path, disp_fns=disp_fns_c, len_c=len_c)
 
 cl = "static void __yo_cleanup_thread_gc() {"
 pos = src.find("\n" + cl)
