@@ -1,6 +1,6 @@
 # An overlapping blanket trait impl is silently DEAD — no error, no warning, no dispatch
 
-**Status:** OPEN. **Found:** 2026-09-17 by the peer session (yo-12) while
+**Status:** FIXED 2026-09-24 (option 1, `plans/reference/TRAIT_COHERENCE.md` rule 3). **Found:** 2026-09-17 by the peer session (yo-12) while
 probing whether `Default` could be refined by a comptime-capable sibling trait.
 
 **Verification status:** the measurement below is the REPORTER's, quoted as
@@ -97,3 +97,26 @@ The duplicate-inherent gate in `src/evaluator/values/impl.yo`
 (`_c3_eval_colon_pair`) skips generic receivers because `recv_id == ""`. A
 fix keys blanket impls on (bound, name), so impls over different bounds stay
 legal.
+
+## Fix (2026-09-24)
+
+Option 1: the overlap is an error, E0612, in either registration order
+(`plans/reference/TRAIT_COHERENCE.md` rule 3). `src/evaluator/values/impl.yo`:
+
+- a concrete impl checks every registered generic impl of the same base trait:
+  `try_match_generic_impl(receiver, entry, env, true)` (where-clauses enforced) and
+  `_trait_instances_agree` (the same trait instantiation after the forall bindings are
+  substituted) — `_check_concrete_impl_coherence`;
+- a generic impl checks every recorded concrete impl the same way —
+  `_check_generic_impl_coherence`.
+
+The one overlap in the tree was `std/fmt/format.yo`'s blanket `Format` over `ToString` beside
+the eighteen numeric impls; `Format` now has a default member and per-type impls (the decision
+doc's "Consequences" section).
+
+## Verification
+
+The reproducer shape is `tests/cli-cases/check-coherence-blanket-after-concrete` and
+`check-coherence-concrete-after-blanket` (E0612, rc=1); the canary
+`check-coherence-legitimate-impls` keeps a blanket whose where-clause excludes a concretely
+implemented type legal. `check ./std` 176/176.

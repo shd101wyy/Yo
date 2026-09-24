@@ -1,6 +1,6 @@
 # `HashSet(T)` registers `FromIterator` TWICE — two byte-identical impl blocks in one file
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-24
 **Severity:** papercut / latent — the duplicate is silently accepted today
 (first-wins), so nothing misbehaves; it is exactly the shape
 `plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md` wants rejected, and the
@@ -44,3 +44,10 @@ applied to the copy that does not win, and the tests would still pass.
 Delete the undocumented first block (lines ~419-433) and keep the documented
 one. No behaviour change; `tests/collections/hash_set.test.yo`'s `collect` cases
 are the guard.
+
+## Fix (2026-09-24)
+
+The undocumented first block is deleted. The duplicate is now a compile error
+(`plans/reference/TRAIT_COHERENCE.md` rule 1, E0612), which is how it would have been caught:
+with trait coherence enabled, `check ./std` rejected the two `FromIterator` impls.
+`tests/collections/hash_set.test.yo` 66/66.

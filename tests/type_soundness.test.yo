@@ -278,3 +278,22 @@ test("soundness canary: a trait default fills an omitted member", {
 //   issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md
 //     -> tests/cli-cases/check-unwind-type-mismatch-in-handler
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// issues/fixed/impl-trait-return-bound-is-not-checked.md (Phase 2.2): an
+// `Impl(Trait)` result or parameter takes only a type that implements it.
+// ---------------------------------------------------------------------------
+_Speaks :: trait(speak : (fn(self : Self) -> i32));
+_Dog :: struct(x : i32);
+_Rock :: struct(y : i32);
+impl(_Dog, _Speaks(speak : (self -> self.x)));
+_make_dog :: (fn() -> Impl(_Speaks))(_Dog(x : i32(3)));
+_hear :: (fn(v : Impl(_Speaks)) -> i32)(v.speak());
+test("soundness: an Impl(Trait) result or argument must implement the trait", {
+  comptime_expect_error(_bad_make :: (fn() -> Impl(_Speaks))(_Rock(y : i32(4))), "which does not implement required trait");
+  comptime_expect_error(_hear(_Rock(y : i32(4))), "does not implement required trait");
+  assert(true, "rejected");
+});
+test("soundness canary: an implementing type flows through Impl(Trait)", {
+  assert(_make_dog().speak() == i32(3), "Impl result");
+  assert(_hear(_Dog(x : i32(5))) == i32(5), "Impl argument");
+});

@@ -9,7 +9,10 @@
 //!     member (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3,
 //!     `force_in_flight_field`); return-type re-evaluation is deferred to
 //!     method lookup.
-//!   - The orphan rule and duplicate-impl checks are not enforced.
+//!   - Coherence (plans/reference/TRAIT_COHERENCE.md): a second impl of a
+//!     trait for a type, or a blanket impl overlapping a concrete one, is
+//!     E0612 (`_check_concrete_impl_coherence`,
+//!     `_check_generic_impl_coherence`). There is no orphan rule beyond it.
 //!
 //! Non-generic behavior:
 //!   - Methods are added to env with qualified names (ReceiverType.method_name).
@@ -87,7 +90,7 @@ pragma(Pragma.AllowUnsafe);
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_key } :: import("../../types/type_key.yo");
-{ stable_func_id, debug_knob } :: import("../../utils.yo");
+{ stable_func_id, debug_knob, display_module_path } :: import("../../utils.yo");
 { parse_raw_int } :: import("../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
@@ -1534,9 +1537,11 @@ find_matching_generic_impl :: (
 // Trait coherence (plans/reference/TRAIT_COHERENCE.md)
 // ---------------------------------------------------------------------------
 /// `module_path:row:column` (1-based) of an impl, as the coherence
-/// diagnostics name it.
+/// diagnostics name it. The path is canonicalized: the entry module's tokens
+/// carry the path as typed and a demand-loaded one's the `file://` key, and a
+/// replay of one impl under the other spelling is not a second impl.
 _impl_site_string :: (fn(tok : Token) -> String)(
-  `${tok.module_path}:${(tok.row + usize(1)).to_string()}:${(tok.column + usize(1)).to_string()}`
+  `${display_module_path(tok.module_path)}:${(tok.row + usize(1)).to_string()}:${(tok.column + usize(1)).to_string()}`
 );
 /// Does the generic entry's trait, with the forall BINDINGS a receiver match
 /// produced substituted in, name the same trait instantiation as `concrete`?
@@ -1635,24 +1640,70 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : TypeValue, trait_ty : TypeVa
 /// pattern and trait, binders renamed by position) from another site is a
 /// duplicate (rule 1), and a registered concrete impl the new entry covers is
 /// an overlap (rule 3, the direction `_check_concrete_impl_coherence` cannot
-/// see). Inherent generic impls (no trait) are not judged here.
+/// see). An inherent generic impl (no trait) is checked for a duplicate
+/// method under the same receiver pattern and bounds.
 _check_generic_impl_coherence :: (fn(entry : GenericImplEntry, env : Environment, tok : Token, exn : Exception) -> unit)({
-  if(!(match(entry.trait_type, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false)), {
-    return(());
-  });
+  // Two substitutions of the forall binders: `canon` renames them by
+  // position (`$0`, `$1`, …) so two impls that differ only in binder names
+  // compare equal, and `shown` strips their constraint lists so a diagnostic
+  // prints `HashSet(T)`, not the SomeT's whole bound set.
   canon := subst_new();
+  shown := subst_new();
   (cn_i : usize) = usize(0);
   while(cn_i < entry.forall_some_types.len(), {
     match(
       entry.forall_some_types.get(cn_i),
       .Some(cn_f) => match(
         cn_f,
-        .SomeT({ name : cn_n, frame_level : cn_l }) => subst_add(canon, cn_n, cn_l, t_some_t(`$${cn_i.to_string()}`, usize(0))),
+        .SomeT({ name : cn_n, frame_level : cn_l }) => {
+          subst_add(canon, cn_n, cn_l, t_some_t(`$${cn_i.to_string()}`, usize(0)));
+          subst_add(shown, cn_n, cn_l, t_some_t(match(entry.forall_names.get(cn_i), .Some(fnm) => fnm, .None => cn_n), usize(0)));
+        },
         _ => ()
       ),
       .None => ()
     );
     cn_i = (cn_i + usize(1));
+  });
+  shown_receiver := type_to_string(substitute(shown, entry.receiver_type_pattern));
+  if(!(match(entry.trait_type, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false)), {
+    // An INHERENT generic impl: the duplicate-inherent-method rule
+    // (plans/reference/FUNCTION_OVERLOADING_POLICY.md) for a generic
+    // receiver. Keyed on the receiver pattern AND the where-clause, so
+    // blanket impls over different bounds stay legal; two over the same
+    // bound defining one name used to register side by side, and the first
+    // in the file won dispatch
+    // (issues/fixed/wrapping-methods-shadowed-by-a-loop-based-duplicate.md).
+    bounds := ArrayList(String).new();
+    (bw_i : usize) = usize(0);
+    while(bw_i < entry.where_constraint_traits.len(), {
+      bw_subj := match(entry.where_constraint_some_types.get(bw_i), .Some(t) => t, .None => t_unit());
+      bw_tr := match(entry.where_constraint_traits.get(bw_i), .Some(t) => t, .None => t_unit());
+      bounds.push(`${type_to_string(substitute(canon, bw_subj))} <: ${get_base_trait_key(bw_tr)}`);
+      bw_i = (bw_i + usize(1));
+    });
+    bounds.sort();
+    inh_shape := `${type_to_string(substitute(canon, entry.receiver_type_pattern))}\n${String.from(", ").join(bounds)}`;
+    (fi : usize) = usize(0);
+    while(fi < entry.field_names.len(), {
+      f_name := match(entry.field_names.get(fi), .Some(n) => n, .None => String.new());
+      match(
+        note_trait_impl_site(String.from("generic-inherent"), `${inh_shape}\n${f_name}`, entry.site),
+        .Some(prev) => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                tok,
+                `Method "${f_name}" is already defined for type "${shown_receiver}" under the same bounds (first definition: ${prev}). Duplicate inherent method impls are not allowed — use a distinct name, or provide the second signature via a trait (plans/reference/FUNCTION_OVERLOADING_POLICY.md).`
+              )
+            )
+          );
+        },
+        .None => ()
+      );
+      fi = (fi + usize(1));
+    });
+    return(());
   });
   shape := `${type_to_string(substitute(canon, entry.receiver_type_pattern))}\n${type_to_string(substitute(canon, entry.trait_type))}`;
   match(
@@ -1662,7 +1713,7 @@ _check_generic_impl_coherence :: (fn(entry : GenericImplEntry, env : Environment
         dyn(
           format_error_message(
             tok,
-            `Trait "${type_to_string(entry.trait_type)}" is already implemented for type "${type_to_string(entry.receiver_type_pattern)}" (first impl: ${prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+            `Trait "${type_to_string(substitute(shown, entry.trait_type))}" is already implemented for type "${shown_receiver}" (first impl: ${prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
           )
         )
       );
@@ -3112,7 +3163,7 @@ _c3_eval_colon_pair :: (
     __dup_site := note_inherent_method_site(
       st.recv_id.clone(),
       method_name.clone(),
-      `${name_tok.module_path}:${name_tok.row}:${name_tok.column}`
+      _impl_site_string(name_tok)
     );
     match(
       __dup_site,
