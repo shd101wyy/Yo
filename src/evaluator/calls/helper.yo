@@ -5087,6 +5087,47 @@ _restore_rt_spans :: (fn(list : ArrayList(AstExpr), span_param : ArrayList(usize
   });
   out
 });
+/// The name of a binder among `binder_ids` that `t` still mentions with no
+/// resolution (empty cell, nothing registered) and that no inference channel
+/// bound (`bound_names`), or `.None`.
+unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), bound_names : ArrayList(String)) -> Option(String))({
+  somes := get_all_some_types(t);
+  match(t, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => somes.push(t), _ => ());
+  (si : usize) = usize(0);
+  while(si < somes.len(), {
+    match(
+      somes.get(si),
+      .Some(st) => match(
+        st,
+        .SomeT({ id : ub_id, name : ubn_label, resolved_concrete : ub_cell }) => {
+          (own : bool) = false;
+          (bi : usize) = usize(0);
+          while((bi < binder_ids.len()) && !(own), {
+            if(match(binder_ids.get(bi), .Some(b) => (b == ub_id), .None => false), {
+              own = true;
+            });
+            bi = (bi + usize(1));
+          });
+          (bound : bool) = false;
+          (ni : usize) = usize(0);
+          while((ni < bound_names.len()) && !(bound), {
+            if(match(bound_names.get(ni), .Some(n) => (n == ubn_label), .None => false), {
+              bound = true;
+            });
+            ni = (ni + usize(1));
+          });
+          if(((own && !(bound)) && (ub_cell.len() == usize(0))) && lookup_some_resolved_concrete(ub_id).is_none(), {
+            return(Option(String).Some(ubn_label));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+  Option(String).None
+});
 /// The CONCRETE type a call's `generic(...)` binder `label` is bound to in
 /// `env` right now, or `.None` while it is still a type variable. Reads the
 /// binding the way Step 8 extracts it (last binding; a SomeT through its
@@ -7217,47 +7258,6 @@ try_to_call_function_with_arguments :: (
         });
         forall_arg_vals = s10b_vals;
       });
-      // Step 10c: a binder that appears in the result and that nothing bound —
-      // no argument mentions it and no expected type fixed it — has no type to
-      // specialize at: E0613. A control function's `ResumeType` is exempt (the
-      // per-call-site rule below resolves it), as are externs (no body).
-      if(!(callee_is_extern) && !(__fm8.*.is_control), {
-        // The binder's OWN occurrences in the declared result (name match);
-        // `forall_types` holds the binders' kinds, not their SomeTs.
-        s10c_ret_somes := get_all_some_types(ret_b);
-        match(ret_b, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => s10c_ret_somes.push(ret_b), _ => ());
-        (s10c_i : usize) = usize(0);
-        while(s10c_i < fl.len(), {
-          s10c_label := match(fl.get(s10c_i), .Some(l) => l, .None => String.new());
-          s10c_i = (s10c_i + usize(1));
-          (s10c_unbound : bool) = false;
-          (s10c_r : usize) = usize(0);
-          while((s10c_r < s10c_ret_somes.len()) && !(s10c_unbound), {
-            match(
-              s10c_ret_somes.get(s10c_r),
-              .Some(rs) => match(
-                rs,
-                .SomeT({ id : rid, name : rnm }) => if(rnm == s10c_label, {
-                  s10c_unbound = _forall_binder_unbound(callee_env_m, s10c_label.clone(), rid);
-                }),
-                _ => ()
-              ),
-              .None => ()
-            );
-            s10c_r = (s10c_r + usize(1));
-          });
-          if(s10c_unbound, {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  tok,
-                  `Cannot infer the type parameter "${s10c_label}" of this call: it appears in the result type ${type_to_string(ret_b)}, and neither an argument nor the expected type determines it. Annotate the binding the result lands in, or pass the type with generic(...).`
-                )
-              )
-            );
-          });
-        });
-      });
       // A CONTROL (`ctl`) function whose result stays the generic ResumeType
       // SomeT (e.g. `Exception.throw : ctl(generic(ResumeType), ...) ->
       // ResumeType` — a runtime FIELD value, so the ctl-inline path never
@@ -7466,6 +7466,66 @@ try_to_call_function_with_arguments :: (
       // Step 12: Validate return type and build FuncCallResult.
       // ----------------------------------------------------------------
       validate_function_return_type(return_type, expr, callee_env_m, ctx, exn);
+      // A result that still mentions one of this callee's own binders,
+      // unresolved, with the binder's env binding still the signature's own
+      // SomeT: nothing — no argument, no expected type (Step 10/10b), no
+      // where-clause, no closure-identity cell — fixed it, so there is no type
+      // to specialize at: E0613
+      // (issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md).
+      // Both channels are consulted: a binder resolved only through a cell
+      // chain (`ch.filter(x => …)`'s per-call `F`) is resolved in the result
+      // even though its env slot still holds the marker. A control function's
+      // `ResumeType` is exempt (resolved per call site above), as are externs.
+      if((!(callee_is_extern) && !(__fm8.*.is_control)) && !(ctx.is_evaluating_function_type), {
+        s12_own_ids := ArrayList(String).new();
+        s12_somes := collect_somes_with_fn_sigs(ret_b);
+        match(ret_b, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => s12_somes.push(ret_b), _ => ());
+        (s12_i : usize) = usize(0);
+        while(s12_i < s12_somes.len(), {
+          match(
+            s12_somes.get(s12_i),
+            .Some(st) => match(
+              st,
+              .SomeT({ id : s12_id, name : s12_nm }) => {
+                (s12_j : usize) = usize(0);
+                while(s12_j < fl.len(), {
+                  if(match(fl.get(s12_j), .Some(l) => (l == s12_nm), .None => false), {
+                    s12_own_ids.push(s12_id.clone());
+                  });
+                  s12_j = (s12_j + usize(1));
+                });
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+          s12_i = (s12_i + usize(1));
+        });
+        match(
+          unresolved_own_binder(return_type, s12_own_ids, ArrayList(String).new()),
+          .Some(s12_name) => {
+            (s12_env_unbound : bool) = false;
+            (s12_k : usize) = usize(0);
+            while((s12_k < s12_own_ids.len()) && !(s12_env_unbound), {
+              if(_forall_binder_unbound(callee_env_m, s12_name.clone(), match(s12_own_ids.get(s12_k), .Some(x) => x, .None => String.new())), {
+                s12_env_unbound = true;
+              });
+              s12_k = (s12_k + usize(1));
+            });
+            if(s12_env_unbound, {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    tok,
+                    `Cannot infer the type parameter "${s12_name}" of this call: it appears in the result type ${type_to_string(ret_b)}, and neither an argument nor the expected type determines it. Annotate the binding the result lands in, or pass the type with generic(...).`
+                  )
+                )
+              );
+            });
+          },
+          .None => ()
+        );
+      });
       implicit_args_result := if(
         implicit_arg_vals.len() > usize(0),
         Option(ArrayList(ArgEntry)).Some(implicit_arg_vals),
@@ -7779,7 +7839,7 @@ try_to_call_function_with_arguments :: (
     }
   )
 });
-export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs);
+export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);

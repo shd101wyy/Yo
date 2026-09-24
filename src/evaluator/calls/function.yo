@@ -150,7 +150,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ try_to_call_function_with_arguments, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialized_function_inline, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -2059,14 +2059,20 @@ _fv_order_is_permuted :: (fn(order : ArrayList(usize)) -> bool)({
   });
   false
 });
-/// A deferred closure argument's expected type: its parameter type with every
-/// binder that an already-evaluated argument binds BY NAME (`v : T`)
-/// substituted by that argument's inferred type.
+/// A deferred function-literal argument's expected type: its parameter type
+/// with every binder an already-evaluated argument fixes substituted by that
+/// type — by name from a `v : T` parameter, else structurally from a composite
+/// one (`ptr : *(T)` given `*(usize)`). Substitution is keyed by the binder's
+/// own occurrences in the parameter type (name + frame level), so a caller's
+/// binder of the same name (`_outer`'s `T` around `_inner(idx, n, (a, b) =>
+/// …)`) can no longer answer for the callee's
+/// (issues/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md).
 _fv_refine_closure_expected :: (
   fn(
     param_ty : TypeValue,
     forall_names : ArrayList(String),
     param_type_names : ArrayList(String),
+    declared_param_types : ArrayList(TypeValue),
     infos : ArrayList(ExprInfo),
     info_arg_idx : ArrayList(usize),
     param_ct : ArrayList(bool),
@@ -2076,39 +2082,23 @@ _fv_refine_closure_expected :: (
   sb := subst_new();
   (any : bool) = false;
   mentioned := collect_somes_with_fn_sigs(param_ty);
+  // The structural channel's scratch env, built on first need.
+  (se_opt : Option(Environment)) = Option(Environment).None;
   (k : usize) = usize(0);
   while(k < forall_names.len(), {
     f_name := match(forall_names.get(k), .Some(n) => n, .None => String.new());
     k = (k + usize(1));
+    (f_ty : Option(TypeValue)) = Option(TypeValue).None;
     (p : usize) = usize(0);
-    (done : bool) = false;
-    while((p < param_type_names.len()) && !(done), {
+    while((p < param_type_names.len()) && f_ty.is_none(), {
       if(match(param_type_names.get(p), .Some(n) => (n == f_name), .None => false), {
         (q : usize) = usize(0);
-        while((q < info_arg_idx.len()) && !(done), {
+        while((q < info_arg_idx.len()) && f_ty.is_none(), {
           if(match(info_arg_idx.get(q), .Some(ix) => (ix == p), .None => false), {
-            done = true;
             q_info := match(infos.get(q), .Some(i) => i, .None => new_expr_info(env, t_unit()));
             q_ty := _funcval_infer_forall_ty(q_info.ty, t_unit(), match(param_ct.get(p), .Some(c) => c, .None => false), env);
             if((get_all_some_types(q_ty).len() == usize(0)) && !(is_some_type(q_ty)), {
-              // Keyed by the binder's own occurrences in the parameter type
-              // (name + frame level); `forall_types` holds the binders' KINDS.
-              (ms_i : usize) = usize(0);
-              while(ms_i < mentioned.len(), {
-                match(
-                  mentioned.get(ms_i),
-                  .Some(ms) => match(
-                    ms,
-                    .SomeT({ name : sg_n, frame_level : sg_l }) => if(sg_n == f_name, {
-                      subst_add(sb, sg_n, sg_l, q_ty);
-                      any = true;
-                    }),
-                    _ => ()
-                  ),
-                  .None => ()
-                );
-                ms_i = (ms_i + usize(1));
-              });
+              f_ty = Option(TypeValue).Some(q_ty);
             });
           });
           q = (q + usize(1));
@@ -2116,12 +2106,57 @@ _fv_refine_closure_expected :: (
       });
       p = (p + usize(1));
     });
+    if(f_ty.is_none(), {
+      se := match(
+        se_opt,
+        .Some(e) => e,
+        .None => {
+          se_new := Environment.new(env.module_path);
+          (sq : usize) = usize(0);
+          while(sq < info_arg_idx.len(), {
+            sp := match(info_arg_idx.get(sq), .Some(ix) => ix, .None => usize(0));
+            s_info := match(infos.get(sq), .Some(i) => i, .None => new_expr_info(env, t_unit()));
+            s_dpt := match(declared_param_types.get(sp), .Some(t) => t, .None => t_unit());
+            // Function-typed arguments are provisional here (see the
+            // composite cross-check); only value arguments inform.
+            if(!((is_function_type(s_info.ty) || is_fn_trait_type(s_info.ty)) || is_some_type(s_info.ty)), {
+              _funcval_try_synthesize_param(s_dpt, se_new, s_info.ty, env);
+            });
+            sq = (sq + usize(1));
+          });
+          se_opt = Option(Environment).Some(se_new);
+          se_new
+        }
+      );
+      f_ty = _scratch_concrete_binding(se, f_name.clone());
+    });
+    match(
+      f_ty,
+      .Some(ft) => {
+        (ms_i : usize) = usize(0);
+        while(ms_i < mentioned.len(), {
+          match(
+            mentioned.get(ms_i),
+            .Some(ms) => match(
+              ms,
+              .SomeT({ name : sg_n, frame_level : sg_l }) => if(sg_n == f_name, {
+                subst_add(sb, sg_n, sg_l, ft);
+                any = true;
+              }),
+              _ => ()
+            ),
+            .None => ()
+          );
+          ms_i = (ms_i + usize(1));
+        });
+      },
+      .None => ()
+    );
   });
-  refined := cond(
+  cond(
     any => substitute(sb, param_ty),
     true => param_ty
-  );
-  refined
+  )
 });
 /// Put per-argument infos evaluated out of order (`idx[i]` is the argument
 /// index of `list[i]`; every argument appears once) back in source order.
@@ -2611,47 +2646,6 @@ _funcval_bind_foralls :: (
 /// from that function's frame, shrinking the per-level frame on the deep CTFE
 /// recursion path (self-compile stack overflow). Pure code motion — same
 /// behavior. Returns the call expr.
-/// The name of a binder among `binder_ids` that `t` still mentions with no
-/// resolution (empty cell, nothing registered) and that no inference channel
-/// bound (`bound_names`), or `.None`.
-_unresolved_own_binder :: (fn(t : TypeValue, binder_ids : ArrayList(String), bound_names : ArrayList(String)) -> Option(String))({
-  somes := get_all_some_types(t);
-  match(t, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => somes.push(t), _ => ());
-  (si : usize) = usize(0);
-  while(si < somes.len(), {
-    match(
-      somes.get(si),
-      .Some(st) => match(
-        st,
-        .SomeT({ id : ub_id, name : ubn_label, resolved_concrete : ub_cell }) => {
-          (own : bool) = false;
-          (bi : usize) = usize(0);
-          while((bi < binder_ids.len()) && !(own), {
-            if(match(binder_ids.get(bi), .Some(b) => (b == ub_id), .None => false), {
-              own = true;
-            });
-            bi = (bi + usize(1));
-          });
-          (bound : bool) = false;
-          (ni : usize) = usize(0);
-          while((ni < bound_names.len()) && !(bound), {
-            if(match(bound_names.get(ni), .Some(n) => (n == ubn_label), .None => false), {
-              bound = true;
-            });
-            ni = (ni + usize(1));
-          });
-          if(((own && !(bound)) && (ub_cell.len() == usize(0))) && lookup_some_resolved_concrete(ub_id).is_none(), {
-            return(Option(String).Some(ubn_label));
-          });
-        },
-        _ => ()
-      ),
-      .None => ()
-    );
-    si = (si + usize(1));
-  });
-  Option(String).None
-});
 /// The SomeT **ids** of this callee's own forall binders, read off the DECLARED
 /// return type: every SomeT in it whose name is one of `forall_names`.
 ///
@@ -3186,7 +3180,7 @@ _evaluate_funcval_runtime_call :: (
   // A binder bound to a generic CALLER's type variable is a different SomeT,
   // so a call inside a generic body is not judged here.
   match(
-    _unresolved_own_binder(resolved_ret, rre_binder_ids, fa_bound_names),
+    unresolved_own_binder(resolved_ret, rre_binder_ids, fa_bound_names),
     .Some(ubn_label) => {
       exn.throw(
         dyn(
@@ -5947,7 +5941,7 @@ Fix: wrap the call:
                 cond(
                   (!(fv_keeps_source_order) && fn_literal_arg_is_deferred(fv_args, ai, n_p, resolved_param_types, forall_names)) => match(
                     resolved_param_types.get(ai),
-                    .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(r_apt, forall_names, param_type_names, evaled_arg_infos, fv_eai_idx, fv_param_ct, env)),
+                    .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(r_apt, forall_names, param_type_names, fv_param_types, evaled_arg_infos, fv_eai_idx, fv_param_ct, env)),
                     .None => Option(TypeValue).None
                   ),
                   true => resolved_param_types.get(ai)
