@@ -92,6 +92,8 @@ its own build-runner tasks still print the OLD abort-time line. Those lines
 fail to match the new pattern, so they are not scored as the program's
 output.
 
-**Follow-up once the seed carries the fix:** add a case asserting that `yo
-build` prints no unwind diagnostic at all. Today it would measure the seed's
-codegen, not this tree's.
+**Follow-up, done once v0.2.41 became the seed:**
+`tests/cli-cases/build-prints-no-unwind-diagnostic/` runs a cold build and
+then a warm `yo build` of a program that aborts nothing, and requires zero
+unwind lines in either wording. On the v0.2.40 binary it fails with the 18
+lines; with S1 built by the v0.2.41 seed it passes.
