@@ -9,8 +9,9 @@
 //!   - Discriminants are auto-assigned (one more than previous, starting at 0)
 //!
 //! RC + trait derivation (same scheme as `struct.yo`):
-//!   - Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived by
-//!     `auto_derive_traits_for_enum_type` after variant evaluation.
+//!   - Trait MARKERS (Send/Rc/Acyclic/Comptime/Runtime) are auto-derived by
+//!     `auto_derive_traits_for_enum_type` once the final type is built, with
+//!     the struct rules (reference rules for `ref(enum(…))`).
 //!   - RC functions (___drop/___dup) for reference-semantics enums
 //!     (`ref(enum(…))`) are lowered DIRECTLY in codegen (drop_dup.yo), like ref
 //!     structs — the value-enum TypeValue has no trait fields for evaluator-side
@@ -723,8 +724,6 @@ evaluate_enum_type :: (
       .None => ()
     );
   });
-  // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
-  auto_derive_traits_for_enum_type(enum_id.clone(), variant_fields, env);
   // Definition-time value-cycle rejection
   // (issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md): a plain
   // `enum(...)` whose variant fields reach itself by VALUE — no reference
@@ -808,6 +807,16 @@ evaluate_enum_type :: (
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
   register_enum_final(shell_id.clone(), enum_ty);
+  // Auto-derive trait markers (Send, Rc, Acyclic, Comptime, Runtime) from the
+  // FINAL type: a reference enum's Acyclic needs it for the RC-cycle walk.
+  auto_derive_traits_for_enum_type(
+    enum_id.clone(),
+    variant_fields,
+    force_reference_semantics,
+    is_atomic_rc,
+    env,
+    enum_ty
+  );
   // Validate the enum can exist in at least ONE evaluation context — a
   // variant with comptime-only fields alongside one with runtime-only
   // fields has empty availability. Without this check the invalid

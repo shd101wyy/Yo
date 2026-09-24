@@ -847,8 +847,12 @@ type_implements_trait :: (
           }),
           true => ()
         ),
-        // Enums are value types: all (flattened) variant field types must hold.
-        .EnumT({ variant_fields : vfs }) => {
+        // Enums follow the struct rules over their flattened variant fields: a
+        // value enum needs every field to hold the marker; a `ref(enum)` is an
+        // object (Runtime always, Comptime never, Send only when atomic,
+        // Acyclic from the definition-time registry) —
+        // issues/fixed/ref-enum-derives-value-enum-marker-traits.md.
+        .EnumT({ variant_fields : vfs, is_reference_semantics : e_is_ref, is_atomic_rc : e_is_atomic }) => {
           flat := ArrayList(TypeValue).new();
           (vi : usize) = usize(0);
           while(vi < vfs.len(), {
@@ -860,7 +864,18 @@ type_implements_trait :: (
             });
             vi = (vi + usize(1));
           });
-          fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+          cond(
+            !(e_is_ref) => {
+              fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+            },
+            (tn == "Runtime") => {
+              direct_true = true;
+            },
+            ((tn == "Send") && e_is_atomic) => {
+              fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+            },
+            true => ()
+          );
         },
         // Tuples are structural VALUE aggregates: they have no nominal id, so
         // nothing ever registered a marker for them, and the prelude declares

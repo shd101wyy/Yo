@@ -115,7 +115,8 @@ _all_fields_implement_runtime :: (fn(field_types : ArrayList(TypeValue), env : E
 // ---------------------------------------------------------------------------
 // auto_derive_traits_for_struct_type
 // ---------------------------------------------------------------------------
-/// Auto-derive trait markers for a struct/object/newtype type.
+/// Auto-derive trait markers for a struct/object/newtype type (and, through
+/// `auto_derive_traits_for_enum_type`, for an enum over its variant fields).
 ///
 /// `begin_send_derivation` / `end_send_derivation` are called here so
 /// struct.yo does not need to import trait_checking.yo directly.
@@ -194,35 +195,37 @@ _flatten_variant_fields :: (fn(variant_fields : ArrayList(ArrayList(TypeValue)))
   });
   result
 });
-/// Auto-derive trait markers for an enum type.
+/// Auto-derive trait markers for an enum type: exactly the struct rules
+/// applied to the union of all variant field types. A value `enum(...)` gets
+/// the value-struct rules (each marker holds iff every field holds it); a
+/// `ref(enum(...))` / `atomic(ref(enum(...)))` gets the reference-struct rules
+/// — `Rc` always, `Send` only when atomic, `Runtime` always, `Comptime`
+/// never, `Acyclic` when no RC cycle (`can_type_form_rc_cycle` walks
+/// reference enums too). The enum rules used to predate `ref(enum)` and apply
+/// the value rules to every enum: no `Rc` (so `Dispose` was rejected) and a
+/// non-atomic ref enum was `Send`
+/// (issues/fixed/ref-enum-derives-value-enum-marker-traits.md).
 ///
-/// Enums are always value types (no reference semantics).
-/// Traits are derived from the union of all variant field types.
+/// `self_type` is the final EnumT — used for `can_type_form_rc_cycle`.
 auto_derive_traits_for_enum_type :: (
   fn(
     enum_id : String,
     variant_fields : ArrayList(ArrayList(TypeValue)),
-    env : Environment
+    is_reference_semantics : bool,
+    is_atomic_rc : bool,
+    env : Environment,
+    self_type : TypeValue
   ) -> unit
-)({
-  all_field_types := _flatten_variant_fields(variant_fields);
-  // Send: all fields Send.
-  if(_all_fields_implement_send(all_field_types, env), {
-    register_type_trait(enum_id, "Send", env);
-  });
-  // Acyclic: all fields Acyclic.
-  if(_all_fields_implement_acyclic(all_field_types, env), {
-    register_type_trait(enum_id, "Acyclic", env);
-  });
-  // Comptime: all fields Comptime.
-  if(_all_fields_implement_comptime(all_field_types, env), {
-    register_type_trait(enum_id, "Comptime", env);
-  });
-  // Runtime: all fields Runtime.
-  if(_all_fields_implement_runtime(all_field_types, env), {
-    register_type_trait(enum_id, "Runtime", env);
-  });
-});
+)(
+  auto_derive_traits_for_struct_type(
+    enum_id,
+    _flatten_variant_fields(variant_fields),
+    is_reference_semantics,
+    is_atomic_rc,
+    env,
+    self_type
+  )
+);
 // ---------------------------------------------------------------------------
 // auto_derive_traits_for_union_type
 // ---------------------------------------------------------------------------

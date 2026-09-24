@@ -215,3 +215,71 @@ test("fieldless ref(enum) compiles, matches, and is RC-managed", {
   assert(rc(a) == 2, "fieldless ref enum is a heap RC object (rc visible)");
   assert(rc(a2) == rc(a), "alias shares the same RC object");
 });
+
+// Regression (issues/fixed/ref-enum-derives-value-enum-marker-traits.md): the
+// marker-trait derivation for enums predated `ref(enum)` and applied the
+// VALUE-enum rules to reference enums, so a ref enum never got `Rc` (and
+// `impl(E, Dispose(...))` was rejected by Dispose's `where(Self <: Rc)`), a
+// NON-atomic ref enum with Send fields was `Send` (a non-atomic refcount shared
+// across threads), and Comptime / Runtime / Acyclic ignored reference
+// semantics. The rules are now the reference struct's: Rc always; Send only
+// when atomic; Runtime always; Comptime never; Acyclic when no RC cycle.
+PlainValueEnum :: enum(PvA, PvB(x : i32));
+RefEnumBox :: (fn(comptime(T) : Type) -> comptime(Type))(ref(enum(RbEmpty, RbHas(x : T))));
+AtomicRefEnumBox :: (fn(comptime(T) : Type) -> comptime(Type))(atomic(ref(enum(ArbEmpty, ArbHas(x : T)))));
+ref_enum_is_rc :: Type.impls(Shape, Rc);
+ref_enum_is_send :: Type.impls(Shape, Send);
+ref_enum_is_runtime :: Type.impls(Shape, Runtime);
+ref_enum_is_comptime :: Type.impls(Shape, Comptime);
+ref_enum_is_acyclic :: Type.impls(Shape, Acyclic);
+recursive_ref_enum_is_acyclic :: Type.impls(Tree, Acyclic);
+atomic_ref_enum_is_rc :: Type.impls(Atom, Rc);
+atomic_ref_enum_is_send :: Type.impls(Atom, Send);
+generic_ref_enum_is_rc :: Type.impls(RefEnumBox(i32), Rc);
+generic_ref_enum_is_send :: Type.impls(RefEnumBox(i32), Send);
+generic_atomic_ref_enum_is_send :: Type.impls(AtomicRefEnumBox(i32), Send);
+value_enum_is_rc :: Type.impls(PlainValueEnum, Rc);
+value_enum_is_send :: Type.impls(PlainValueEnum, Send);
+value_enum_is_comptime :: Type.impls(PlainValueEnum, Comptime);
+
+test("ref(enum) derives the reference-type marker traits", {
+  assert(ref_enum_is_rc, "a ref enum implements Rc");
+  assert(!ref_enum_is_send, "a non-atomic ref enum is not Send");
+  assert(ref_enum_is_runtime, "a ref enum is Runtime");
+  assert(!ref_enum_is_comptime, "a ref enum is never Comptime");
+  assert(ref_enum_is_acyclic, "a ref enum with no RC cycle is Acyclic");
+  assert(!recursive_ref_enum_is_acyclic, "a Self-recursive ref enum is not Acyclic");
+  assert(atomic_ref_enum_is_rc, "an atomic ref enum implements Rc");
+  assert(atomic_ref_enum_is_send, "an atomic ref enum with Send fields is Send");
+  assert(generic_ref_enum_is_rc, "an instantiated ref enum implements Rc");
+  assert(!generic_ref_enum_is_send, "an instantiated non-atomic ref enum is not Send");
+  assert(generic_atomic_ref_enum_is_send, "an instantiated atomic ref enum is Send");
+  assert(!value_enum_is_rc, "a value enum does not implement Rc");
+  assert(value_enum_is_send, "a value enum with Send fields stays Send");
+  assert(value_enum_is_comptime, "a value enum with Comptime fields stays Comptime");
+});
+
+(g_ref_enum_disposed : i32) = i32(0);
+Guarded :: ref(enum(GuardNone, GuardSome(label : String)));
+impl(
+  Guarded,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_ref_enum_disposed = (g_ref_enum_disposed + i32(1));
+    })
+  )
+);
+
+test("ref(enum) can implement Dispose; it runs once at the last release", {
+  before := g_ref_enum_disposed;
+  {
+    g := Guarded.GuardSome(String.from("x"));
+    alias := g;
+    assert(rc(alias) == 2, "alias shares the handle");
+  };
+  assert((g_ref_enum_disposed - before) == i32(1), "Dispose ran exactly once for the ref enum");
+  {
+    _n := Guarded.GuardNone;
+  };
+  assert((g_ref_enum_disposed - before) == i32(2), "Dispose also runs for a payload-free variant");
+});
