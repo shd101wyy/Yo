@@ -49,6 +49,7 @@ pragma(Pragma.AllowUnsafe);
   fv_capture_names,
   fv_capture_tys,
   fv_capture_has_name,
+  FvCaptureSource,
   fv_capture_source,
   fv_source_name,
   fv_source_ty,
@@ -1962,8 +1963,6 @@ create_specialized_function_inline :: (
       param_type_names := __fvm2.*.param_type_names;
       evidence_params := __fvm2.*.evidence_params;
       body := __fvm2.*.body;
-      cap_names := __fvm2.*.cap_names;
-      cap_tys := __fvm2.*.cap_tys;
       func_id := __fvm2.*.func_id;
       // ------------------------------------------------------------------
       // Collect compile-time arg values and runtime parameter types
@@ -3281,16 +3280,19 @@ create_specialized_function_inline :: (
             },
             .None => ()
           );
-          // Re-use existing captures from original function. A registered
-          // original stores no flat names/types (its handles carry them, and
-          // `new_cap_vars` inherits those) — so neither does this derivation.
+          // Re-use existing captures from original function. A derived FuncVal
+          // keeps FLAT names/types: its inherited handle list may carry
+          // definitions `adopt_resolved_definition` appended to the original's
+          // capture frame, which sit between the original's positions and the
+          // bindings appended below — so its handles are not parallel to its
+          // `cap_vals` (memory plan §0.7). The original's names/types are read
+          // through its capture source (a definition-site FuncVal stores none).
+          orig_src := fv_capture_source(__fvm2.*);
           (oci : usize) = usize(0);
           n_oc := cap_vals.len();
           while(oci < n_oc, {
-            if(!(have_cap_vars), {
-              new_cap_names.push(match(cap_names.get(oci), .Some(s) => s, .None => String.new()));
-              new_cap_tys.push(match(cap_tys.get(oci), .Some(t) => t, .None => t_unit()));
-            });
+            new_cap_names.push(fv_source_name(orig_src, oci));
+            new_cap_tys.push(fv_source_ty(orig_src, oci));
             new_cap_vals.push(match(cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
             oci = (oci + usize(1));
           });
@@ -3316,12 +3318,11 @@ create_specialized_function_inline :: (
                   match(
                     ev.value.get(usize(0)),
                     .Some(v) => {
+                      new_cap_names.push(label);
+                      new_cap_tys.push(ev.ty);
                       new_cap_vals.push(v);
                       if(have_cap_vars, {
                         new_cap_vars.push(ev);
-                      }, {
-                        new_cap_names.push(label);
-                        new_cap_tys.push(ev.ty);
                       });
                     },
                     .None => ()
@@ -4011,8 +4012,7 @@ evaluate_ctl_function_body_inline :: (
   orig_param_type_names := match(original_func_val, .FuncVal(__fvd5, _) => __fvd5.*.param_type_names, _ => ArrayList(String).new());
   orig_evidence_params := match(original_func_val, .FuncVal(__fvd6, _) => __fvd6.*.evidence_params, _ => ArrayList(String).new());
   orig_body := match(original_func_val, .FuncVal(__fvd7, _) => __fvd7.*.body, _ => make_err_expr());
-  orig_cap_names := match(original_func_val, .FuncVal(__fvd8, _) => __fvd8.*.cap_names, _ => ArrayList(String).new());
-  orig_cap_tys := match(original_func_val, .FuncVal(__fvd9, _) => __fvd9.*.cap_tys, _ => ArrayList(TypeValue).new());
+  orig_cap_src := match(original_func_val, .FuncVal(__fvd8, _) => fv_capture_source(__fvd8.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
   orig_cap_vals := match(original_func_val, .FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
   orig_func_id := match(original_func_val, .FuncVal(__fvd10, _) => __fvd10.*.func_id, _ => String.from("__err_ctl"));
   orig_env_key := match(original_func_val, .FuncVal(__fvd11, _) => __fvd11.*.env_key, _ => usize(0));
@@ -4241,15 +4241,14 @@ evaluate_ctl_function_body_inline :: (
     },
     .None => ()
   );
-  // A registered original stores no flat names/types (its handles carry
-  // them, inherited into `ctl_cap_vars`) — so neither does this derivation.
+  // Flat names/types for the derivation (see the note in
+  // create_specialized_function_inline: a derived handle list is not parallel
+  // to its values); the original's are read through its capture source.
   (oci : usize) = usize(0);
   n_oc := orig_cap_vals.len();
   while(oci < n_oc, {
-    if(!(ctl_have_vars), {
-      ctl_cap_names.push(match(orig_cap_names.get(oci), .Some(s) => s, .None => String.new()));
-      ctl_cap_tys.push(match(orig_cap_tys.get(oci), .Some(t) => t, .None => TypeValue.Unit));
-    });
+    ctl_cap_names.push(fv_source_name(orig_cap_src, oci));
+    ctl_cap_tys.push(fv_source_ty(orig_cap_src, oci));
     ctl_cap_vals.push(match(orig_cap_vals.get(oci), .Some(v) => v, .None => EvalValue.UnitVal));
     oci = (oci + usize(1));
   });
@@ -4258,6 +4257,8 @@ evaluate_ctl_function_body_inline :: (
   while(fi3 < n_forall, {
     fl3 := match(forall_labels.get(fi3), .Some(s) => s, .None => String.new());
     ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => TypeValue.Unit);
+    ctl_cap_names.push(fl3.clone());
+    ctl_cap_tys.push(ft3);
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
     if(ctl_have_vars, {
       ctl_cap_vars.push(
@@ -4268,9 +4269,6 @@ evaluate_ctl_function_body_inline :: (
           specialized_env.module_path
         )
       );
-    }, {
-      ctl_cap_names.push(fl3.clone());
-      ctl_cap_tys.push(ft3);
     });
     fi3 = (fi3 + usize(1));
   });

@@ -1751,8 +1751,9 @@ _inject_forall_captures :: (
               ifc_env_key = mint_funcval_env_key();
               register_funcval_cap_vars(ifc_env_key, new_cvars);
             });
-            // Registered: the handles carry names/types (memory plan §0.7).
-            injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : if(ifc_have_vars, ArrayList(String).new(), new_cns), cap_tys : if(ifc_have_vars, ArrayList(TypeValue).new(), new_cts), func_id : fid, env_key : ifc_env_key)), new_cvs);
+            // Flat names/types (a derived handle list is not parallel to its
+            // values — see create_specialized_function_inline, memory plan §0.7).
+            injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
             g_ifc_memo.insert(memo_key, injected);
             Option(EvalValue).Some(injected)
           }
