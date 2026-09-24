@@ -308,3 +308,39 @@ test("soundness canary: fn values and capture-free closures are Send", {
   assert(_run_send(() => (k + i32(1))) == i32(6), "a Send capture");
   assert(_run_send(_plain_fn) == i32(8), "a named fn");
 });
+// ---------------------------------------------------------------------------
+// issues/fixed/generic-type-var-rebinds-per-argument.md (Phase 2.4): every
+// mention of a type parameter in one call stands for one type.
+// ---------------------------------------------------------------------------
+_pair_same :: (fn(generic(A : Type), x : A, y : A) -> A)(x);
+_apply_g :: (fn(generic(T : Type), f : Impl(Fn(x : T) -> T), v : T) -> T)(f(v));
+test("soundness: two arguments cannot bind one type parameter to two types", {
+  comptime_expect_error(_pair_same(String.from("hello"), i32(2)), "Incompatible types for generic parameter");
+  comptime_expect_error(_pair_same(i32(3), String.from("world")), "Incompatible types for generic parameter");
+  comptime_expect_error(_apply_g(x => true, i32(3)), "");
+  assert(true, "rejected");
+});
+test("soundness canary: arguments that agree on a type parameter", {
+  assert(_pair_same(i32(3), i32(4)) == i32(3), "same type");
+  assert(_pair_same(i32(3), 4) == i32(3), "a literal adopts the binder");
+  assert(_apply_g(x => (x + i32(1)), i32(3)) == i32(4), "closure result agrees");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md
+// (Phase 2.4): a result-only type parameter comes from the expected type, or
+// is E0613.
+// ---------------------------------------------------------------------------
+_mk_none :: (fn(generic(T : Type)) -> Option(T))(.None);
+test("soundness: a result-only type parameter with nothing to infer it from", {
+  comptime_expect_error({
+    x := _mk_none();
+    x
+  }, "Cannot infer the type parameter");
+  assert(true, "rejected");
+});
+test("soundness canary: the expected type infers a result-only type parameter", {
+  (x : Option(i32)) = _mk_none();
+  assert(match(x, .Some(v) => v, .None => i32(9)) == i32(9), "annotated binding");
+  y := _mk_none(generic(bool));
+  assert(y.is_none(), "explicit generic argument");
+});

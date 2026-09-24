@@ -45,6 +45,7 @@ json :: import("std/encoding/json");
   E_NO_MATCHING_CALL,
   E_OPTIMISTIC_PANIC,
   E_CONFLICTING_IMPL,
+  E_CANNOT_INFER,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
@@ -578,6 +579,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Speak :: trait(speak : (fn(self : Self) -> i32));\nDog :: struct(x : i32);\nimpl(Dog, Speak(speak : (self -> self.x)));\n",
       "The second `impl(Dog, Speak(...))` is a second answer to one question; keep one.",
       "第二个 `impl(Dog, Speak(...))` 是对同一个问题的第二个答案；只保留一个。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CANNOT_INFER,
+      "a type parameter of a call cannot be inferred",
+      "调用的类型参数无法推断",
+      "A generic function's type parameter is fixed by the call: by an argument whose type mentions it, or by the type the call's result is expected to have. When neither mentions it — a `generic(T)` that appears only in the result, called where nothing says what the result should be — there is no type to specialize the function at.",
+      "泛型函数的类型参数由调用确定：要么来自类型中提到它的实参，要么来自调用结果被期望的类型。两者都没有提到它时 —— 例如只出现在结果类型中的 `generic(T)`，而调用处没有任何信息说明结果应是什么类型 —— 就没有可以用来特化该函数的类型。",
+      "Annotate the binding the result lands in, `(x : Option(i32)) = mk()`, or pass the type explicitly, `mk(generic(i32))`. Before this was an error the call specialized the function at an unresolved type, `check` passed, and `compile` failed with an internal compiler error.",
+      "为接收结果的绑定标注类型 `(x : Option(i32)) = mk()`，或显式传入类型 `mk(generic(i32))`。在这成为错误之前，调用会以未解析的类型特化函数，`check` 通过，而 `compile` 以内部编译器错误失败。",
+      "mk :: (fn(generic(T : Type)) -> Option(T))(.None);\nx := mk();\n",
+      "mk :: (fn(generic(T : Type)) -> Option(T))(.None);\n(x : Option(i32)) = mk();\n",
+      "Nothing says what `T` is: the result's type is the only mention of it.",
+      "没有任何信息说明 `T` 是什么：它只出现在结果的类型中。"
     )
   );
   out
