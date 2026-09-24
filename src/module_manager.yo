@@ -44,7 +44,7 @@ env_mod :: import("std/env");
 { fnv1a64 } :: import("./utils.yo");
 { ExprInfoTable } :: import("./expr_info.yo");
 { parse } :: import("./parser.yo");
-{ Environment, clone_env, build_prelude_var_cache } :: import("./env.yo");
+{ Environment, clone_env, build_prelude_var_cache, purge_funcval_cap_vars_owned_by } :: import("./env.yo");
 {
   EvalContext,
   eval_context_new,
@@ -560,7 +560,8 @@ mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
         purge_type_trait_methods_owned_by(owner.clone());
         purge_trait_impl_sites_owned_by(owner.clone());
         purge_concrete_trait_impls_owned_by(owner.clone());
-        purge_generic_impls_owned_by(owner);
+        purge_generic_impls_owned_by(owner.clone());
+        purge_funcval_cap_vars_owned_by(owner);
       },
       .None => ()
     );

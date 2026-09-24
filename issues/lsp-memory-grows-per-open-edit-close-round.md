@@ -29,9 +29,17 @@ different holder).
 | 10 documents × 1 round | 0.61 GB | 0.40 GB |
 | 10 documents × 5 rounds | 1.83 GB | 1.14 GB |
 
-Still open: ~0.18 GB per round remains. One known contributor is
-`g_funcval_cap_vars`, which gained ~83 K handle lists over four rounds under
-fresh `env_key`s that no invalidation purges.
+2026-09-25, second step: the FuncVal capture-handle registry
+(`g_funcval_cap_vars`) is purged per owner on invalidation (Phase 1 step 5):
+
+| session (stage-2 compilers) | before | after |
+| --- | --- | --- |
+| 10 documents × 1 round | 0.44 GB | 0.42 GB |
+| 10 documents × 5 rounds | 1.19 GB | 0.98 GB |
+
+Still open: ~0.14 GB per round. Next step: re-run the holder census
+(`scripts/bootstrap/holder_census_t.py`, 1 vs 5 rounds) on the current tree
+and compare the `H` rows per root.
 
 ## Expected
 
