@@ -21,7 +21,7 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier } :: import("../utils/index.yo");
-{ codegen_fatal_expr } :: import("../constants.yo");
+{ codegen_fatal_expr, codegen_user_error_expr } :: import("../constants.yo");
 { static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
@@ -185,7 +185,7 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : Stri
   if(context.in_async_state_machine.is_some(), {
     return(
       Option(String).Some(
-        codegen_fatal_expr(`'inout(${var_name}) := ...' is not supported inside an 'io.async' body yet. Read the value into a local, or call a function that takes 'inout(name) : T'.`)
+        codegen_user_error_expr(ast_expr_token(name_expr), `'inout(${var_name}) := ...' is not supported inside an 'io.async' body that awaits yet. Read the value into a local, or call a function that takes 'inout(name) : T'.`)
       )
     );
   });

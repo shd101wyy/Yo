@@ -18,6 +18,8 @@
 { HashSet } :: import("std/collections/hash_set");
 { Exception } :: import("std/error");
 { TypeTag } :: import("../types/tags.yo");
+{ Token } :: import("../token.yo");
+{ format_error_message } :: import("../error.yo");
 {
   BF_YO_OP_ADD,
   BF_YO_OP_SUB,
@@ -242,4 +244,33 @@ codegen_fatal_expr :: (fn(message : String) -> String)({
   codegen_fatal(message);
   String.from("")
 });
-export(is_builtin_yo_inline_function, is_primitive_type_tag, set_codegen_fatal_exn, codegen_fatal, codegen_fatal_expr);
+/// A USER error that only codegen can see: a language rule enforced where the
+/// `io.async` state-machine splitter runs (an `io.await` in a position it
+/// cannot split). Unlike `codegen_fatal` it is not an internal error: it
+/// builds a `YoError` from the user's token, so the CLI renders it with its
+/// code, the caret and the source line, honouring `--error-format`
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 4.1,
+/// issues/fixed/user-facing-async-restrictions-reported-as-internal-compiler-error.md).
+/// The rules that are decidable from the syntax are also enforced by the
+/// evaluator (`validate_await_placement`, evaluator/async/await_placement.yo),
+/// so `yo check` reports them; this is the backstop for the splitter's own
+/// limits.
+codegen_user_error :: (fn(tok : Token, message : String) -> unit)({
+  err := format_error_message(tok, message);
+  match(
+    g_codegen_fatal_exn,
+    .Some(exn) => {
+      exn.throw(dyn(err));
+      ()
+    },
+    .None => ()
+  );
+  eprintln(message);
+  __yo_panic("codegen user error with no handler registered (see message above)")
+});
+/// `codegen_user_error` in EXPRESSION position.
+codegen_user_error_expr :: (fn(tok : Token, message : String) -> String)({
+  codegen_user_error(tok, message);
+  String.from("")
+});
+export(is_builtin_yo_inline_function, is_primitive_type_tag, set_codegen_fatal_exn, codegen_fatal, codegen_fatal_expr, codegen_user_error, codegen_user_error_expr);

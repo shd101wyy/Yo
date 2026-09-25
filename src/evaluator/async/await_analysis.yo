@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN, BK_INOUT } :: import("../../expr.yo");
 { ExprInfo, lookup_io_builtin_call } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
@@ -661,6 +661,44 @@ get_local_variables_from_body :: (
 /// `generate_async_block` + `preregister_async_blocks_in_expr`.
 (g_closure_await_analysis : HashMap(String, AwaitAnalysisResult)) = HashMap(String, AwaitAnalysisResult).new();
 /// Register a closure's await analysis by func_id (only when it has awaits).
+/// The first `inout(name) := ...` binding in an `io.async` body, outside the
+/// nested closures and fn literals that are functions of their own. A body
+/// that awaits is lowered to a state machine, which addresses a local both as
+/// `sm->var_x` and as a per-state C copy, so a reference binding could read a
+/// stale copy after a write through it; codegen refuses one
+/// (`_generate_inout_local_binding`). The evaluator decides the same thing
+/// from the await analysis, so `yo check` reports it
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 4.1).
+first_inout_binding_in_async_body :: (fn(e : AstExpr) -> Option(AstExpr))(
+  match(
+    e,
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(_, callee, args, _, _) => cond(
+      (ast_expr_is_fn_call_of(e, "=>", Option(usize).None) || ast_expr_is_fn_call_of(e, "->", Option(usize).None)) => Option(AstExpr).None,
+      ast_expr_is_fn_call_of(callee, "fn", Option(usize).None) => Option(AstExpr).None,
+      (ast_expr_is_fn_call_of(e, ":=", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(lhs) => ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), .None => false)) =>
+        args.get(usize(0)),
+      true => {
+        (ai : usize) = usize(0);
+        while(ai < args.len(), {
+          match(
+            args.get(ai),
+            .Some(a) => match(
+              recur(a),
+              .Some(found) => {
+                return(Option(AstExpr).Some(found));
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          ai = (ai + usize(1));
+        });
+        Option(AstExpr).None
+      }
+    )
+  )
+);
 register_closure_await_analysis :: (fn(func_id : String, result : AwaitAnalysisResult) -> unit)({
   g_closure_await_analysis.insert(func_id.clone(), result);
 });
@@ -673,6 +711,7 @@ export(
   AwaitPointExtra,
   register_closure_await_analysis,
   get_closure_await_analysis,
+  first_inout_binding_in_async_body,
   // Future-trait helpers
   extract_future_trait_from_type,
   type_implements_future,

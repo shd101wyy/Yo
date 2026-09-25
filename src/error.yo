@@ -50,6 +50,7 @@
   E_CANNOT_INFER,
   E_DYN_UNCALLABLE,
   E_NEVER_FULLY_EVALUATED,
+  E_AWAIT_PLACEMENT,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW
@@ -235,6 +236,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
   });
   if(msg.contains(String.from("was never fully evaluated")), {
     return(_coded(E_NEVER_FULLY_EVALUATED));
+  });
+  if((((msg.contains(String.from("must BE the first condition")) || msg.contains(String.from("is not supported in this position inside an `io.async` block"))) || msg.contains(String.from("is not supported inside an `if` body within an `io.async` block"))) || msg.contains(String.from("in a `match` whose arms await inside an `io.async` block"))) || msg.contains(String.from("is not supported inside an 'io.async' body that awaits")), {
+    return(_coded(E_AWAIT_PLACEMENT));
   });
   if(msg.contains(String.from("forward reference")), {
     return(_coded(E_FORWARD_REFERENCE));
