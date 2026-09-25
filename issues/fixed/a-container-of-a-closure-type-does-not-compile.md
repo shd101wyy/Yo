@@ -77,6 +77,26 @@ because an extern future lowers to a pointer.
 - The chain walk `resolve_cell_chain` moved from `compatibility.yo` to `types/utils.yo` and is
   shared.
 
+What the rule touched on the way:
+
+- **An extern opaque type is concrete.** A closure capturing an `AtomicI32` carries the extern
+  `atomic_int` SomeT in its capture struct. The identity predicate accepts it
+  (`type_has_no_open_some`). `validate_function_return_type` no longer asks a module to "infer" it.
+  `typed_ptr.add(...)` inside `array_list.yo` returned it and failed with "Failed to infer the
+  function call return type".
+- **Rule D9 sees the closure behind its capture struct.** Identity makes a closure identity and
+  its capture struct one type, so either can reach a type argument. A capture-free closure's
+  struct has no fields, and judged as a struct it is `Send` whatever its code reaches.
+  `record_closure_capture_verdicts` now records capture struct → closure fids
+  (`g_closure_fids_by_capture`). `function_value_marker` judges a capture struct, or any copy of a
+  wrapper, through that registry. The Iso D9 walk treats a capture struct as a function value.
+  The impl match binds the closure identity itself, not its capture struct.
+- **The cycle analysis follows a closure identity** (`_type_refs_back_to_cyclic`): `^` over a list
+  of clean closures judged the element as an arbitrary SomeT, "may form a cycle".
+- **The `Impl(...)` reassignment rule runs before the compatibility check**
+  (`src/evaluator/exprs/assignment.yo`). Reassigning a closure variable to another closure now
+  fails compatibility too, and the rule is the error that explains why.
+
 ## Regression tests
 
 - `tests/closure.test.yo`:
