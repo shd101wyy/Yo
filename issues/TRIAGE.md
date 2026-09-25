@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 225 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 223 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 42 | 11 |
-| **Total** | **225** | **45** |
+| Other | 40 | 9 |
+| **Total** | **223** | **43** |
 
 ## Cross-cutting buckets
 
@@ -344,11 +344,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (42)
+### Other (40)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
-| [`a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`](./a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md) | OPEN | yes |
 | [`a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`](./a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md) | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | open | — |
 | [`a-two-line-comment-change-in-std-prelude-fails-check-std.md`](./a-two-line-comment-change-in-std-prelude-fails-check-std.md) | OPEN | — |
@@ -358,7 +357,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | OPEN | yes |
 | [`an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md`](./an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md) | — | yes |
-| [`arc-of-a-send-closure-emits-two-capture-struct-typedefs.md`](./arc-of-a-send-closure-emits-two-capture-struct-typedefs.md) | OPEN | yes |
 | [`arraylist-of-a-trait-object-cannot-be-indexed.md`](./arraylist-of-a-trait-object-cannot-be-indexed.md) | open | — |
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
 | [`cond-arm-initialization-merge-check-never-fires.md`](./cond-arm-initialization-merge-check-never-fires.md) | — | yes |

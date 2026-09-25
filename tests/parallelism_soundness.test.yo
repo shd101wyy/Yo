@@ -128,13 +128,41 @@ comptime_expect_error({
   });
   _d4_spawn_over_array_list();
 });
-// Canary: a closure whose only capture is an atomic satisfies a `Send` bound.
-// (The `arc(bump)` form of this canary is blocked on
-// issues/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md.)
+// D4 (Phase 4): the same closure through `arc(...)` — `Arc(V)` requires
+// `V <: Send`, and a closure type holds `Send` only when its captures do.
+comptime_expect_error({
+  _d4_arc_of_non_send_closure :: (fn() -> unit)({
+    items := ArrayList(i32).new();
+    (f : Impl(Fn() -> unit)) = (
+      () => {
+        items.push(i32(1));
+      }
+    );
+    _a := arc(f);
+  });
+  _d4_arc_of_non_send_closure();
+});
+// D4 (Phase 4): ...and through a generic `where(T <: Send)` function.
 _needs_send :: (fn(generic(T : Type), x : T, where(T <: Send)) -> unit)({
   x;
 });
-test("D4 canary: a closure over an atomic satisfies where(T <: Send)", {
+comptime_expect_error({
+  _d4_generic_send_bound :: (fn() -> unit)({
+    items := ArrayList(i32).new();
+    (f : Impl(Fn() -> unit)) = (
+      () => {
+        items.push(i32(1));
+      }
+    );
+    _needs_send(f);
+  });
+  _d4_generic_send_bound();
+});
+// Canary: a closure whose only capture is an atomic satisfies the bound, both
+// through a generic `where(T <: Send)` and through `arc(...)` (the `arc` form
+// emitted two Arc instances for one type until P-26,
+// issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
+test("D4 canary: a closure over an atomic satisfies where(T <: Send), and arc() of it runs on a thread", {
   hits := AtomicI32(i32(0));
   (bump : Impl(Fn() -> unit)) = (
     () => {
@@ -142,8 +170,14 @@ test("D4 canary: a closure over an atomic satisfies where(T <: Send)", {
     }
   );
   _needs_send(bump);
-  bump();
-  assert(hits.load(MemoryOrder.Acquire) == i32(1), "the closure still runs");
+  a := arc(bump);
+  t := Thread(unit).spawn((io : Io) => {
+    f := a.*;
+    f();
+    ()
+  });
+  t.join();
+  assert(hits.load(MemoryOrder.Acquire) == i32(1), "the closure ran on the thread");
 });
 // ============================================================================
 // D1 — module-level bindings
