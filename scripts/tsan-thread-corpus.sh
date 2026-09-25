@@ -15,14 +15,14 @@ CC=${CC:-clang}
 KNOWN=scripts/bootstrap/tsan-known-failing.tsv
 OUT=${OUT:-/tmp/tsan-thread-corpus}
 mkdir -p "$OUT"
+# Only files that spawn threads: tests/thread_safety, tests/atomic_object and
+# tests/iso_api_surface check their rules at compile time or on one thread,
+# where TSan has nothing to observe (every run of them was HOLLOW).
 FILES=(
   tests/thread.test.yo
   tests/thread_pool.test.yo
-  tests/thread_safety.test.yo
   tests/arc.test.yo
-  tests/atomic_object.test.yo
   tests/iso.test.yo
-  tests/iso_api_surface.test.yo
   tests/cross_thread_wake.test.yo
   tests/spawn_blocking.test.yo
   tests/imm_threading.test.yo
@@ -50,7 +50,7 @@ for f in "${FILES[@]}"; do
   echo "$verdict $f rc=$rc spawns=$spawns tsan_reports=$races${listed:+ (known-failing)}"
   case "$verdict" in
     PASS) if [ -n "$listed" ]; then echo "  -> listed in $KNOWN but now passes: remove its line"; bad=1; fi ;;
-    FAIL) if [ -z "$listed" ]; then echo "  -> new failure; log: $log"; grep -a -m3 -A12 'WARNING: ThreadSanitizer' "$log" | head -40; bad=1; fi ;;
+    FAIL) if [ -z "$listed" ]; then echo "  -> new failure; log: $log"; awk '/WARNING: ThreadSanitizer/{p=1} p{print} /SUMMARY: ThreadSanitizer/{if(p && ++n==3) exit; p=0}' "$log" | head -150; bad=1; fi ;;
     HOLLOW) echo "  -> no thread was spawned: the run proves nothing"; bad=1 ;;
   esac
 done
