@@ -37,6 +37,11 @@ import("std/fmt");
   is_function_type_and_returns_comptime_value
 } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ type_key } :: import("../../types/type_key.yo");
+{ debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
+{ is_some_type } :: import("../../types/guards.yo");
+{ type_implements_runtime_builtin } :: import("../../types/utils.yo");
 {
   prohibit_void_type,
   type_requires_comptime_modifier,
@@ -285,6 +290,36 @@ evaluate_binding :: (
   // Env-aware fallback for COMPOUND comptime-only types — see the twin gate
   // in initialization_assignment.yo.
   binding_requires_ct := (type_requires_comptime_modifier(user_defined_type) || (type_implements_comptime(user_defined_type, env) && !type_implements_runtime_full(user_defined_type, env)));
+  if(debug_knob(`YO_DEBUG_CTB`).is_some() && binding_requires_ct, {
+    eprintln(`[ctb] ty=${type_to_string(user_defined_type)} key=${type_key(user_defined_type)} req=${type_requires_comptime_modifier(user_defined_type).to_string()} ct=${type_implements_comptime(user_defined_type, env).to_string()} rt=${type_implements_runtime_full(user_defined_type, env).to_string()}`);
+    match(
+      user_defined_type,
+      .EnumT(_, _, _, ctb_vfs, _, _, _, _, _) => {
+        (ctb_i : usize) = usize(0);
+        while(ctb_i < ctb_vfs.len(), {
+          match(
+            ctb_vfs.get(ctb_i),
+            .Some(ctb_row) => {
+              (ctb_j : usize) = usize(0);
+              while(ctb_j < ctb_row.len(), {
+                match(
+                  ctb_row.get(ctb_j),
+                  .Some(ctb_ft) => {
+                    eprintln(`[ctb-field] ${type_to_string(ctb_ft)} some=${is_some_type(ctb_ft).to_string()} key=${type_key(ctb_ft)} ct=${type_implements_comptime(ctb_ft, env).to_string()} rt=${type_implements_runtime_full(ctb_ft, env).to_string()} rtb=${match(type_implements_runtime_builtin(ctb_ft), .Some(b) => b.to_string(), .None => String.from("none"))}`);
+                  },
+                  .None => ()
+                );
+                ctb_j = (ctb_j + usize(1));
+              });
+            },
+            .None => ()
+          );
+          ctb_i = (ctb_i + usize(1));
+        });
+      },
+      _ => ()
+    );
+  });
   // In a DEFINITION-time body trial a type still carrying unresolved SomeTs
   // cannot be judged comptime-only — the twin of the ::-vs-:= skip in
   // initialization_assignment.yo (root 7837, IterFilter's
