@@ -1,6 +1,8 @@
-# Parallelism soundness Phase 3 (rule D1): a Send value-typed global is fine to
-# READ from any thread, but assigning it anywhere makes it a mutable static
-# (`static mut` in Rust): rejected in a safe non-test file. thread_local(counter)
-# is the per-thread spelling; an AtomicI32 the shared one.
-stdout_keep_match=Cannot assign to module-level global 'counter'
+# Parallelism soundness Phase 3 (rule D1): a Send value-typed global that is
+# only READ may be shared by any thread, and one that is only WRITTEN is a
+# single-threaded mutable static; both at once is a data race (Rust's
+# `static mut`). Here the spawned closure reads `counter` and `bump` assigns it:
+# the write site is rejected, naming where the other thread reads it.
+# thread_local(counter) is the per-thread spelling; an AtomicI32 the shared one.
+stdout_keep_match=Cannot assign to module-level global 'counter' \(type i32\): a closure that runs on another thread reads it
 timeout=120

@@ -36,6 +36,7 @@
   BK_COLON
 } :: import("../../expr.yo");
 { get_variables_from_env, Environment, Variable } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
 {
   ExprInfoTable,
   expr_info_table_get,
@@ -3243,6 +3244,35 @@ function_param_mutation_mask :: (
 // ===========================================================================
 (g_gr_by_fid : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
 (g_gr_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
+// The mutable-static half of D1. A VALUE-typed global (a `Send` scalar or
+// struct) that is WRITTEN is fine on one thread, and one that is only READ is
+// a constant another thread may share; both at once is a data race. The
+// write sites (`src/evaluator/exprs/assignment.yo`) record into
+// `g_d1_written`, the reachability walk into `g_d1_reached`, each keyed by the
+// global's declaration token, and each side consults the other as it records,
+// so the order the evaluator reaches the two sites in does not matter. The
+// value is the site's location, for the diagnostic.
+(g_d1_written : HashMap(String, String)) = HashMap(String, String).new();
+(g_d1_reached : HashMap(String, String)) = HashMap(String, String).new();
+_d1_global_key :: (fn(decl : Token, name : String) -> String)(
+  `${decl.module_path}:${decl.row.to_string()}:${decl.column.to_string()}:${name}`
+);
+_d1_location :: (fn(t : Token) -> String)(
+  `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}`
+);
+/// Record a write to the module-level global declared at `decl`; returns where
+/// a closure that runs on another thread reaches it, if one does.
+d1_record_global_write :: (fn(decl : Token, name : String, write_tok : Token) -> Option(String))({
+  key := _d1_global_key(decl, name);
+  match(
+    g_d1_written.get(key.clone()),
+    .Some(_) => (),
+    .None => {
+      g_d1_written.insert(key.clone(), _d1_location(write_tok));
+    }
+  );
+  g_d1_reached.get(key)
+});
 _GrCtx :: ref(struct(table : ExprInfoTable, env : Environment, send : Option(TypeValue)));
 _gr_env_of :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(Environment))(
   match(
@@ -3274,9 +3304,24 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
     .None => true
   );
   if(send_ok, {
-    return(Option(String).None);
+    // A Send global another thread reads: a violation iff it is also written.
+    key := _d1_global_key(v.token, name.clone());
+    match(
+      g_d1_reached.get(key.clone()),
+      .Some(_) => (),
+      .None => {
+        g_d1_reached.insert(key.clone(), _d1_location(tok));
+      }
+    );
+    return(
+      match(
+        g_d1_written.get(key),
+        .Some(wloc) => Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${name}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state (at ${_d1_location(tok)})`),
+        .None => Option(String).None
+      )
+    );
   });
-  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is not Send — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Send globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${tok.module_path}:${(tok.row + usize(1)).to_string()}:${(tok.column + usize(1)).to_string()})`)
+  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is not Send — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Send globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(tok)})`)
 });
 _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   // A macro call: the expansion is what runs.
@@ -3419,4 +3464,4 @@ function_reaches_non_send_global :: (
   g_gr_by_fid.insert(fid.clone(), r);
   r
 });
-export(function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global);
+export(function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write);

@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 236 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 237 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 52 | 14 |
-| **Total** | **236** | **49** |
+| Other | 53 | 15 |
+| **Total** | **237** | **50** |
 
 ## Cross-cutting buckets
 
@@ -345,7 +345,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (52)
+### Other (53)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -368,6 +368,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`](./closure-body-type-errors-are-swallowed-into-a-runtime-abort.md) | OPEN | — |
 | [`cond-arm-initialization-merge-check-never-fires.md`](./cond-arm-initialization-merge-check-never-fires.md) | — | yes |
 | [`ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md`](./ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md) | OPEN | — |
+| [`d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`](./d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md) | OPEN — closes together with rule D4 (a closur | yes |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
 | [`inout-call-through-a-fn-value-loses-the-mutation.md`](./inout-call-through-a-fn-value-loses-the-mutation.md) | PARTIALLY FIXED 2026-09-24 | — |

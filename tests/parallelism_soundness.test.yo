@@ -193,6 +193,27 @@ test("D1 canary: a thread_local global is written independently per thread", {
   assert(t.join() == i32(10), "the thread started from its own zeroed instance");
   assert(tl_hits == i32(1), "the main thread's instance is untouched");
 });
+// D1 (Phase 3): a Send VALUE global is a mutable static once it is assigned,
+// so a spawned closure may not read one that is written anywhere.
+(g_level : i32) = i32(0);
+_raise_level :: (fn() -> unit)({
+  g_level = (g_level + i32(1));
+});
+comptime_expect_error({
+  _d1_spawn_reads_written_global :: (fn() -> i32)({
+    _raise_level();
+    t := Thread(i32).spawn((io : Io) => g_level);
+    t.join()
+  });
+  _d1_spawn_reads_written_global();
+});
+// Canary: a written value global that no other thread reaches is an ordinary
+// single-threaded mutable static.
+(g_main_only : i32) = i32(0);
+test("D1 canary: a value global written and read only on the main thread is legal", {
+  g_main_only = (g_main_only + i32(2));
+  assert(g_main_only == i32(2), "the write landed");
+});
 // ============================================================================
 // D8 — closures may not capture second-class bindings
 // ============================================================================
