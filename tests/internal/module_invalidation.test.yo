@@ -29,7 +29,9 @@
 { type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
 { finished_walk_has_context, finished_walk_expr_info_count } :: import("../../src/evaluator/context.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
-{ funcval_cap_vars_entry_count } :: import("../../src/env.yo");
+{ funcval_cap_vars_entry_count, new_frame, make_capture_variable, CaptureSlice, cap_slices_materialize, cap_slices_prefix, frame_truncate_variables } :: import("../../src/env.yo");
+{ t_i32 } :: import("../../src/types/creators.yo");
+{ EvalValue } :: import("../../src/value.yo");
 { function_side_table_entry_count } :: import("../../src/evaluator/types/function.yo");
 { expr_side_table_entry_count } :: import("../../src/expr_info.yo");
 { ifc_memo_entry_count } :: import("../../src/evaluator/values/impl.yo");
@@ -320,4 +322,30 @@ test("captures: a specialization of a handle-backed FuncVal stores no flat captu
   assert(specialization_cache_count() > specs_before, "the document specialized `pick`");
   added_flat := (specialization_flat_capture_count() - flat_before);
   assert(added_flat == usize(0), `the new specializations hold ${added_flat.to_string()} flat capture names; expected 0`);
+});
+test("captures: a captured frame slice survives the frame shrinking", {
+  // FuncVals record their capture handles as slices of the defining frames'
+  // own lists (`CaptureSlice`, plans/EVALUATOR_MEMORY_REDUCTION.md §0.14). That
+  // is only sound if a captured list never changes under its slice: the three
+  // shrink sites (a pending definition's reset, the c_include/extern scratch
+  // truncation, comptime_expect_error's stranded-variable pop) must hand the
+  // frame a fresh list instead of shrinking this one in place.
+  frame := new_frame(true);
+  frame.variables.push(make_capture_variable(String.from("a"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
+  frame.variables.push(make_capture_variable(String.from("b"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
+  frame.variables.push(make_capture_variable(String.from("c"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
+  slices := ArrayList(CaptureSlice).new();
+  slices.push(CaptureSlice(vars : frame.variables, start : usize(0), end : frame.variables.len()));
+  frame_truncate_variables(frame, usize(1));
+  assert(frame.variables.len() == usize(1), "the frame shrank");
+  captured := cap_slices_materialize(slices);
+  assert(captured.len() == usize(3), "the captured slice still names all three bindings");
+  assert(match(captured.get(usize(2)), .Some(v) => (v.name == "c"), .None => false), "the captured slice's last binding is intact");
+  // Growth after the shrink goes to the frame's new list, never into the slice.
+  frame.variables.push(make_capture_variable(String.from("d"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
+  again := cap_slices_materialize(slices);
+  assert(match(again.get(usize(1)), .Some(v) => (v.name == "b"), .None => false), "a later push does not overwrite the captured slice");
+  // A derivation's prefix is a slice of the same list, not a copy.
+  prefix := cap_slices_prefix(slices, usize(2));
+  assert(match(prefix.get(usize(0)), .Some(sl) => ((sl.start == usize(0)) && (sl.end == usize(2))), .None => false), "a prefix narrows the slice");
 });
