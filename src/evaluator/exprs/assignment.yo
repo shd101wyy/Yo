@@ -1172,8 +1172,12 @@ evaluate_assignment :: (
     );
   });
   // D1: reassigning a module-level global (not a thread-local) is a write to
-  // a static every thread shares.
-  if((variable.is_module_level && !variable.is_compile_time_only) && !is_thread_local(ast_expr_token(lhs_resolved).module_path.clone(), variable_name.clone()), {
+  // a static every thread shares. A typed module-level declaration
+  // `(g : T) = init` reaches this arm too, as the initialization of the
+  // binding at its own declaration token — that is not a write.
+  d1_lhs_tok := ast_expr_token(lhs_resolved);
+  d1_is_decl_init := (((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column)) && (d1_lhs_tok.module_path == variable.token.module_path));
+  if(((variable.is_module_level && !variable.is_compile_time_only) && !d1_is_decl_init) && !is_thread_local(d1_lhs_tok.module_path.clone(), variable_name.clone()), {
     _d1_record_write(variable, ast_expr_token(lhs_resolved), String.from("assign to"), String.new(), exn);
   });
   // Evaluate the RHS.
