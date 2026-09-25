@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 227 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 226 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -27,7 +27,7 @@ Three things are worth knowing before trusting any row.
 
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
-| CI/Release/Build | 14 | 1 |
+| CI/Release/Build | 13 | 1 |
 | Async / effects | 31 | 9 |
 | Codegen / emitted C | 21 | 3 |
 | Evaluator / types | 25 | 4 |
@@ -36,7 +36,7 @@ Three things are worth knowing before trusting any row.
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 47 | 13 |
-| **Total** | **227** | **47** |
+| **Total** | **226** | **47** |
 
 ## Cross-cutting buckets
 
@@ -121,7 +121,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 ## By area
 
 
-### CI/Release/Build (14)
+### CI/Release/Build (13)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -129,7 +129,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`build-release-small-is-identical-to-release-safe.md`](./build-release-small-is-identical-to-release-safe.md) | OPEN | — |
 | [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) | — | — |
 | [`emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md`](./emscripten-heap-is-fixed-at-16mb-so-thread-heavy-programs-abort.md) | OPEN | — |
-| [`http-limits-test-depends-on-httpbin-org-inside-a-required-gate.md`](./http-limits-test-depends-on-httpbin-org-inside-a-required-gate.md) | — | — |
 | [`leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`](./leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md) | OPEN | — |
 | [`manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md`](./manifest-package-yo-msrv-field-is-parsed-but-never-enforced.md) | OPEN | — |
 | [`release-gate-accepts-a-docs-only-fast-path-success.md`](./release-gate-accepts-a-docs-only-fast-path-success.md) | open (found 2026-09-10 while cutting v0 | — |

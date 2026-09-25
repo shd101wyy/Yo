@@ -3,12 +3,14 @@
 //! never constructed — no deadline, redirect cap or size limit existed.
 //! `FetchOptions` now carries all three; these tests drive each to its error.
 //!
-//! The timeout and response-size tests hit real endpoints over HTTPS; the
-//! redirect tests drive a LOOPBACK `HttpServer` serving a `/r/<n>` chain of
-//! 302s, so they need no egress and cannot be failed by a third-party host
-//! (issues/fixed/http-redirect-tests-depended-on-httpbin.md). Guarded off the
-//! wasm and Windows runners (no sockets / no OpenSSL). The handlers unwind, so
-//! a wrong outcome fails.
+//! Every test drives LOOPBACK sockets, so none needs egress or can be failed by
+//! a third-party host: the timeout test fetches from a listener that never
+//! answers, the response-size test from an `HttpServer` whose body is over the
+//! cap, and the redirect tests from an `HttpServer` serving a `/r/<n>` chain of
+//! 302s (issues/fixed/http-redirect-tests-depended-on-httpbin.md,
+//! issues/fixed/http-limits-test-depends-on-httpbin-org-inside-a-required-gate.md).
+//! Guarded off the wasm and Windows runners (no sockets / no OpenSSL). The
+//! handlers unwind, so a wrong outcome fails.
 pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM
 pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners
@@ -16,6 +18,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { fetch, fetch_with, FetchOptions, HttpError, HttpServer, HttpHeader, HttpRequest, HttpResponse, HeaderMap, StatusCode } :: import("std/http");
 { SocketAddr } :: import("std/net/addr");
+{ TcpListener } :: import("std/net/tcp");
 { ArrayList } :: import("std/collections/array_list");
 { Exception, IoExn } :: import("std/error");
 { Duration } :: import("std/time/duration");
@@ -27,34 +30,60 @@ pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 
+/// `fetch_with(url, opts)` and return the message of the error it threw, or
+/// `.None` if it returned normally. The handler unwinds THIS frame with the
+/// message (handlers are capture-free, so the caller does the checking), and the
+/// caller still closes its sockets.
+_fetch_error :: (fn(url : String, opts : FetchOptions, io : Io) -> Option(String))({
+  exn := Exception(
+    throw : (
+      err -> unwind(Option(String).Some(err.to_string()))
+    )
+  );
+  _r := io.await(fetch_with(url, opts, io), IoExn(io : io, exn : exn));
+  Option(String).None
+});
 test("with_timeout drives a too-short deadline to HttpError.Timeout", {
-  // 1 ms is far shorter than any real connect + TLS handshake + read, so the
-  // deadline wins and `fetch` throws Timeout.
+  // A listener that is bound but never accepts: the kernel completes the TCP
+  // handshake from its backlog, the request is sent, and no response can ever
+  // arrive, so the 1 ms deadline is the only way out.
   exn := Exception(
     throw : (
       err -> {
-        assert(err.to_string().contains(`timed out`), `expected Timeout`);
+        assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
     )
   );
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(19988)), io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(1)));
-  _r := io.await(fetch_with(`https://example.com`.to_string(), opts, io), IoExn(io : io, exn : exn));
-  assert(false, "fetch must throw Timeout under a 1ms deadline");
+  err := _fetch_error(`http://127.0.0.1:19988/`, opts, io);
+  assert(match(err, .Some(m) => m.contains(`timed out`), .None => false), `fetch must throw Timeout under a 1ms deadline against a silent peer, got: ${match(err, .Some(m) => m, .None => String.from("no error"))}`);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
-  // example.com's response is ~571 bytes; a 16-byte ceiling is exceeded.
+  // The server answers with a 64-byte body; a 16-byte ceiling is exceeded.
   exn := Exception(
     throw : (
       err -> {
-        assert(err.to_string().contains(`too large`), `expected ResponseTooLarge`);
+        assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
     )
   );
+  server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19989)), io), IoExn(io : io, exn : exn));
+  task := io.spawn(
+    server.serve(req => {
+      server.stop();
+      HttpResponse.with_status(StatusCode.OK()).with_body(`0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`)
+    }, io),
+    IoExn(io : io, exn : exn)
+  );
   opts := FetchOptions.new().with_max_response_bytes(usize(16));
-  _r := io.await(fetch_with(`https://example.com`.to_string(), opts, io), IoExn(io : io, exn : exn));
-  assert(false, "fetch must throw ResponseTooLarge over a 16-byte cap");
+  err := _fetch_error(`http://127.0.0.1:19989/`, opts, io);
+  assert(match(err, .Some(m) => m.contains(`too large`), .None => false), `fetch must throw ResponseTooLarge over a 16-byte cap, got: ${match(err, .Some(m) => m, .None => String.from("no error"))}`);
+  task.await(io);
+  io.await(server.close(io), IoExn(io : io, exn : exn));
 });
 /// `/r/<n>` answers 302 `Location: /r/<n-1>` while `n > 0`, and 200 `done`
 /// at `/r/0` — a redirect chain of any length on loopback.
