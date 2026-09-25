@@ -56,7 +56,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_early_return_only_deferred_drop_expressions,
   expr_info_set_index_method_type,
   expr_info_set_index_method_value,
-  expr_info_set_index_trait_ptr_type
+  expr_info_set_index_trait_ptr_type,
+  record_branch_consume
 } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, copy_frames, snapshot_env } :: import("../../env.yo");
 {
@@ -78,6 +79,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
@@ -88,7 +90,8 @@ pragma(Pragma.AllowUnsafe);
   throw_expr_is_implicit_variable_error,
   consume_case_body_temp_var,
   set_expr_as_needs_to_call_dup,
-  get_dup_use_site_token
+  get_dup_use_site_token,
+  snapshot_loop_flow
 } :: import("../utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -1969,6 +1972,7 @@ evaluate_begin_expression :: (
             )
           );
         });
+        match(ctx.is_evaluating_loop_body, .Some(brk_lc) => snapshot_loop_flow(brk_lc, brk_lc.break_states, env, ast_expr_token(expr_to_eval)), .None => ());
         out := new_expr_info(env, TypeValue.Unit);
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Break));
@@ -1991,6 +1995,7 @@ evaluate_begin_expression :: (
             )
           );
         });
+        match(ctx.is_evaluating_loop_body, .Some(cnt_lc) => snapshot_loop_flow(cnt_lc, cnt_lc.continue_states, env, ast_expr_token(expr_to_eval)), .None => ());
         out := new_expr_info(env, TypeValue.Unit);
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Continue));
@@ -2431,6 +2436,11 @@ evaluate_begin_expression :: (
               );
               if(rv.is_owning_the_rc_value && ((rv.frame_level == (env.frames.len() - usize(1))) || is_own_param_return) && rv.consumed_at_token.is_none(), {
                 // Transfer: consumed — the scope-end scheduler (e5) skips it.
+                // A named variable's transfer is a move (the flow log's
+                // per-path move state, `set_expr_as_consumed`).
+                if(!is_temp_variable_name(env.module_path, rv.name), {
+                  record_branch_consume(rv.id, ast_expr_token(last_expr), rv.initialized_at_token, Option(Token).None);
+                });
                 rv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(last_expr)));
               }, {
                 // Borrow/outer-frame share: balancing dup.

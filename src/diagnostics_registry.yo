@@ -52,6 +52,7 @@ json :: import("std/encoding/json");
   E_NEVER_FULLY_EVALUATED,
   E_AWAIT_PLACEMENT,
   E_FORWARD_REFERENCE,
+  E_MOVED_ON_SOME_PATHS,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -447,8 +448,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "错误信息会列出可能初始化与未初始化的分支。请在分支前初始化（`x : T = default`），或在每个分支都提供绑定，或重构为汇合点总有值。",
       "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
       "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32) = i32(0);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
-      "Only the first arm assigns `v`. NOTE: this check does not fire today (issues/cond-arm-initialization-merge-check-never-fires.md); initialise before the branch regardless.",
-      "只有第一个分支给 `v` 赋值。注意：目前该检查不会触发（issues/cond-arm-initialization-merge-check-never-fires.md）；无论如何请在分支前初始化。"
+      "Only the first arm assigns `v`, so after the `cond` it is initialized on one path only.",
+      "只有第一个分支给 `v` 赋值，因此 `cond` 之后它只在一条路径上被初始化。"
     )
   );
   out.push(
@@ -494,6 +495,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "fmt :: import(\"std/fmt\");\nmain :: (fn() -> unit)({\n  _p := fmt.println;\n});\nexport(main);\n",
       "`fmt` is bound by an import BELOW its use; imports, pragmas and runtime bindings are evaluated in order.",
       "`fmt` 由位于使用处下方的 import 绑定；import、pragma 和运行时绑定按顺序求值。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MOVED_ON_SOME_PATHS,
+      "value moved on some paths only",
+      "值只在部分路径上被移动",
+      "A value is moved on some paths and not on others where they meet.",
+      "值在一些路径上被移动，在另一些路径上没有，而这些路径随后汇合。",
+      "Yo decides every drop statically, so where the arms of a `cond`/`match` meet, or where the ways out of a loop meet, a value must be moved on all of them or on none. Move it in every arm (or `break` path), or in none and pass a clone where it is consumed. A loop also may not move a value from outside it without giving it a new value before the next iteration: the next iteration would read the moved value.",
+      "Yo 静态地决定每一次 drop，因此在 `cond`/`match` 的各分支汇合处，或循环的各个出口汇合处，一个值必须在所有路径上都被移动，或在所有路径上都不被移动。请在每个分支（或每条 `break` 路径）里都移动它，或都不移动、在消费处传入它的克隆。循环也不能移动来自循环外的值而不在下一次迭代前给它新值：下一次迭代会读到已被移动的值。",
+      "sink :: (fn(own(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => sink(b), true => ());\n});\nexport(main);\n",
+      "sink :: (fn(own(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => sink(b), true => sink(b));\n});\nexport(main);\n",
+      "Only the first arm moves `b`; after the `cond` it would be dropped on one path only.",
+      "只有第一个分支移动了 `b`；`cond` 之后它只会在一条路径上被 drop。"
     )
   );
   out.push(

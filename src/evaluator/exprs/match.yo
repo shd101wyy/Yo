@@ -39,7 +39,13 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_is_primitive_match,
   expr_info_set_primitive_pattern_values,
   expr_info_adopt_env,
-  expr_info_set_macro_expansion
+  expr_info_set_macro_expansion,
+  push_branch_group,
+  begin_branch_group_arm,
+  branch_group_stack_len,
+  truncate_branch_group_stack,
+  register_arm_init_range,
+  branch_init_log_len
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame, copy_frames, snapshot_env } :: import("../../env.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -74,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
-{ merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type } :: import("../utils.yo");
+{ merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
@@ -428,6 +434,17 @@ evaluate_match :: (
   // would be selected carries a guard whose value is unknown.
   (ct_undecidable : bool) = false;
   (all_classic : bool) = true;
+  // Sibling arms' initializations are invisible to each other (the
+  // Impl(...) reassignment rule and the definite-initialization merge read
+  // the arms' branch-init windows).
+  // A nested construct whose evaluation threw inside a swallowing trial
+  // leaves its group on the stack: arms and the exit truncate back to this
+  // group so they never read a stranded one.
+  bg_depth := branch_group_stack_len();
+  group_log_start := branch_init_log_len();
+  push_branch_group();
+  // The arm evaluated last (see `reset_sibling_flow_state`).
+  (prev_arm_body : Option(AstExpr)) = Option(AstExpr).None;
   (arm_i : usize) = usize(1);
   while(arm_i < all_args.len(), {
     arm_expr := match(
@@ -674,7 +691,13 @@ evaluate_match :: (
         },
         .None => ()
       );
+      truncate_branch_group_stack((bg_depth + usize(1)));
+      begin_branch_group_arm();
+      reset_sibling_flow_state(env, prev_arm_body);
+      bir_start_m := branch_init_log_len();
       evaluated_body := evaluate_begin_expression(body_ast, env, ctx, ArrayList(Variable).new(), false, exn);
+      register_arm_init_range(ast_expr_id(evaluated_body), bir_start_m, branch_init_log_len());
+      prev_arm_body = Option(AstExpr).Some(body_ast);
       if(arm_untaken_ct, {
         ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth - usize(1));
       });
@@ -856,6 +879,8 @@ evaluate_match :: (
       });
     });
   });
+  match(prev_arm_body, .Some(lab) => keep_last_arm_moves(env, lab, group_log_start), .None => ());
+  truncate_branch_group_stack(bg_depth);
   register_match_arms(ast_expr_id(expr), arms);
   // ---------------------------------------------------------------------------
   // Exhaustiveness and unreachability (usefulness over the compiled arms)
@@ -952,7 +977,10 @@ evaluate_match :: (
         expr_info_table_get(ctx.expr_info_table, ast_expr_id(b_em)),
         .None => (),
         .Some(bi) => {
-          if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
+          // Only the arms that reach the join: a `break`/`continue` arm leaves
+          // for the loop (its move state is snapshotted there, `break`/`continue`
+          // in begin.yo), like a `return`/`unwind` arm leaves the function.
+          if(!(has_any_control_flow(bi.control_flow)), {
             non_return_em.push(b_em);
           });
         }
@@ -1012,7 +1040,7 @@ evaluate_match :: (
       );
       // Case 4: runtime or multiple bodies → merge
       if(!(did_use_single), {
-        env = merge_and_check_envs(env, non_return_em, ctx, exn);
+        env = merge_and_check_envs(env, non_return_em, group_log_start, ctx, exn);
       });
     });
     // Determine output value

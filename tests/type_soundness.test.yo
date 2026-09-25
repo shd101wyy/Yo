@@ -716,3 +716,88 @@ test("soundness: never flows into every type and nothing flows into it", {
   assert(!_p36_into_never, "i32 does not flow into never");
   comptime_expect_error(_p36_returns :: (fn() -> never)(()), "declared result type is `never`");
 });
+// ---------------------------------------------------------------------------
+// Phase 5.1/5.2/5.6: per-path move and initialization state
+// (issues/fixed/moving-a-variable-inside-a-loop-body-is-not-rejected.md,
+// issues/fixed/cond-arm-initialization-merge-check-never-fires.md,
+// issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md).
+// Each box counts its releases: a leak or a double release shows as a wrong
+// count.
+// ---------------------------------------------------------------------------
+(g_p5_disposed : i32) = i32(0);
+_P5Box :: ref(struct(tag : i32));
+impl(
+  _P5Box,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_p5_disposed = (g_p5_disposed + i32(1));
+    })
+  )
+);
+_p5_sink :: (fn(own(b) : _P5Box) -> i32)(b.tag);
+_p5_early_return :: (fn(c : bool) -> i32)({
+  b := _P5Box(tag : i32(5));
+  if(c, {
+    return(_p5_sink(b));
+  });
+  b.tag + i32(1)
+});
+test("soundness: a move in an arm that returns does not reach the code after the branch", {
+  before := g_p5_disposed;
+  assert(_p5_early_return(true) == i32(5), "the returning path moved the box");
+  assert(_p5_early_return(false) == i32(6), "the other path still has it");
+  assert(g_p5_disposed == (before + i32(2)), `each box released once, got ${(g_p5_disposed - before).to_string()}`);
+});
+// The count above cannot see a second release of a freed box. Here a keeper
+// holds one more reference: a second release by the returning arm would
+// dispose the box while the keeper still holds it
+// (issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
+_p5_early_return_kept :: (fn(c : bool, keep : ArrayList(_P5Box)) -> i32)({
+  b := _P5Box(tag : i32(5));
+  keep.push(b);
+  if(c, {
+    return(_p5_sink(b));
+  });
+  b.tag + i32(1)
+});
+test("soundness: the returning arm releases its moved value once", {
+  keep := ArrayList(_P5Box).new();
+  before := g_p5_disposed;
+  assert(_p5_early_return_kept(true, keep) == i32(5), "the returning path moved the box");
+  assert(g_p5_disposed == before, `the keeper still holds the box, got ${(g_p5_disposed - before).to_string()} disposals`);
+  keep.clear();
+  assert(g_p5_disposed == (before + i32(1)), `released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
+});
+_p5_move_on_break :: (fn(n : i32) -> i32)({
+  b := _P5Box(tag : n);
+  (i : i32) = i32(0);
+  (r : i32) = i32(0);
+  while(true, {
+    i = (i + i32(1));
+    if(i == i32(3), {
+      r = _p5_sink(b);
+      break;
+    });
+  });
+  r
+});
+test("soundness: a loop may move an outer value on its only way out", {
+  before := g_p5_disposed;
+  assert(_p5_move_on_break(i32(9)) == i32(9), "moved at the break");
+  assert(g_p5_disposed == (before + i32(1)), `released once, got ${(g_p5_disposed - before).to_string()}`);
+});
+_P5Holder :: struct(s : String);
+_p5_clobber :: (fn(inout(a) : _P5Holder, b : _P5Holder) -> usize)({
+  (i : i32) = i32(0);
+  while(runtime(i < i32(3)), {
+    a = _P5Holder(s : `fresh-value-${i}-xxxxxxxxxxxxxxxxxxxxxxxx`);
+    i = (i + i32(1));
+  });
+  b.s.len()
+});
+test("soundness: a by-value argument outlives the inout argument it overlaps", {
+  x := _P5Holder(s : String.from("original-value-yyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+  n := _p5_clobber(x, x);
+  assert(n == usize(43), `the borrowed value survived the writes, len ${n.to_string()}`);
+  assert(x.s.starts_with(`fresh-value-2`), "the inout write reached the caller");
+});

@@ -706,6 +706,71 @@ strip_argument_label :: (fn(arg : AstExpr, param_label : String, exn : Exception
   });
   match(cl_args.get(usize(1)), .Some(a) => a, .None => arg)
 });
+/// The argument without its readability label (`x : e` → `e`).
+_unlabeled_argument :: (fn(arg : AstExpr) -> AstExpr)(
+  cond(
+    ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))) => match(_h_get_fn_call_args(arg).get(usize(1)), .Some(a) => a, .None => arg),
+    true => arg
+  )
+);
+/// The variable a place argument is rooted in: `x`, `x.f.g`, `x.a(i)` → `x`.
+argument_root_name :: (fn(arg : AstExpr) -> Option(String))({
+  (cur : AstExpr) = _unlabeled_argument(arg);
+  (walking : bool) = true;
+  while(walking, {
+    cond(
+      ast_expr_is_fn_call_of(cur, ".", .Some(usize(2))) => {
+        cur = match(_h_get_fn_call_args(cur).get(usize(0)), .Some(b) => b, .None => make_err_expr());
+      },
+      ast_expr_is_fn_call(cur) => {
+        cur = match(cur, .FnCall(_, fc, _, _, _) => fc, .Atom(_, _) => cur);
+      },
+      true => {
+        walking = false;
+      }
+    );
+  });
+  cond(
+    ast_expr_is_atom(cur) => Option(String).Some(ast_expr_token(cur).value),
+    true => Option(String).None
+  )
+});
+/// The root variables of a call's arguments bound to `inout` parameters.
+inout_argument_roots :: (fn(args : ArrayList(AstExpr), param_is_ref : ArrayList(bool)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    if(match(param_is_ref.get(ai), .Some(r) => r, .None => false), {
+      match(args.get(ai), .Some(a) => match(argument_root_name(a), .Some(n) => out.push(n), .None => ()), .None => ());
+    });
+    ai = (ai + usize(1));
+  });
+  out
+});
+/// Is a by-value argument the WHOLE variable that another argument of the same
+/// call passes `inout`? The callee can then replace the variable's value
+/// through the `inout` alias, dropping the value this argument borrows
+/// (`clobber(x, x)`, issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md
+/// addendum): the argument gets a caller-owned +1 for the call, like an
+/// aliased projection (Aliasing Stage 0).
+argument_is_aliased_by_inout :: (fn(arg : AstExpr, param_is_ref : bool, inout_roots : ArrayList(String)) -> bool)({
+  if(param_is_ref, {
+    return(false);
+  });
+  bare := _unlabeled_argument(arg);
+  if(!(ast_expr_is_atom(bare)), {
+    return(false);
+  });
+  name := ast_expr_token(bare).value;
+  (ri : usize) = usize(0);
+  while(ri < inout_roots.len(), {
+    if(match(inout_roots.get(ri), .Some(r) => (r == name), .None => false), {
+      return(true);
+    });
+    ri = (ri + usize(1));
+  });
+  false
+});
 /// The argument-side ownership rule, one call per argument:
 ///
 /// - 4a: the argument must not already be CONSUMED (moved). Unconditional.
@@ -727,7 +792,10 @@ consume_argument_for_parameter :: (
     callee_is_extern : bool,
     caller_env : Environment,
     ctx : EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// `argument_is_aliased_by_inout`: the argument is a whole variable that
+    /// the same call also passes `inout`.
+    (aliased_by_inout : bool) ?= false
   ) -> Option(AstExpr)
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
@@ -759,8 +827,8 @@ consume_argument_for_parameter :: (
       }
     );
   });
-  if(((((!(param_is_owning)) && !(param_is_ct)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern)) && arg_is_rc_projection_place(actual_arg, caller_env), {
-    return(set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn));
+  if(((((!(param_is_owning)) && !(param_is_ct)) && ((!(param_is_ref)) && !(ctx.is_in_function_call_checking_phase))) && !(callee_is_extern)) && (aliased_by_inout || arg_is_rc_projection_place(actual_arg, caller_env)), {
+    return(set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn, aliased_by_inout));
   });
   Option(AstExpr).None
 });
@@ -875,7 +943,9 @@ check_if_function_parameter_matches_argument :: (
     /// Aliasing Stage 0: true when the CALLEE is extern/builtin (no Yo code
     /// runs inside — its borrows cannot dangle), so Step 4c skips the
     /// projection dup.
-    (callee_is_extern : bool) ?= false
+    (callee_is_extern : bool) ?= false,
+    /// `argument_is_aliased_by_inout` for this argument.
+    (aliased_by_inout : bool) ?= false
   ) -> CheckParamResult
 )({
   // Step 1: labels are readability-only (see `strip_argument_label`).
@@ -948,7 +1018,7 @@ check_if_function_parameter_matches_argument :: (
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
   // Steps 4a–4c: the shared ownership rule (`consume_argument_for_parameter`).
-  s0_drop_captured := consume_argument_for_parameter(evaled_arg, actual_arg, arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, caller_env_r, ctx, exn);
+  s0_drop_captured := consume_argument_for_parameter(evaled_arg, actual_arg, arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, caller_env_r, ctx, exn, aliased_by_inout);
   s0_marked_arg_captured := if(s0_drop_captured.is_some(), Option(AstExpr).Some(evaled_arg), Option(AstExpr).None);
   // Step 5b: assigned-value check — if the parameter has an assigned value,
   // check that the argument value matches it. This is used for overload
@@ -6603,6 +6673,7 @@ try_to_call_function_with_arguments :: (
       s7_rt_span_start := ArrayList(usize).new();
       s7_rt_span_end := ArrayList(usize).new();
       (s7_k : usize) = usize(0);
+      s7_inout_roots := inout_argument_roots(adjusted_args, pref);
       while(s7_k < n_params, {
         pi = match(s7_order.get(s7_k), .Some(o) => o, .None => s7_k);
         s7_k = (s7_k + usize(1));
@@ -6731,7 +6802,8 @@ try_to_call_function_with_arguments :: (
           rt_args,
           exn,
           match(call_param_assigned.get(pi), .Some(a) => a, .None => Option(EvalValue).None),
-          callee_is_extern
+          callee_is_extern,
+          argument_is_aliased_by_inout(parg, match(pref.get(pi), .Some(b) => b, .None => false), s7_inout_roots)
         );
         match(
           pr.s0_drop,
@@ -7940,7 +8012,7 @@ try_to_call_function_with_arguments :: (
 export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValue))(_forall_binding_now(env, label));
-export(forall_binding_now, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter);
+export(forall_binding_now, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
 export(purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);

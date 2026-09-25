@@ -117,6 +117,16 @@ FuncOrAsyncBlockCtx :: ref(
 // Loop body context
 // ---------------------------------------------------------------------------
 LoopKind :: enum(While, For);
+/// At one `break` or `continue` in a loop body: the variables declared outside
+/// the loop that the body has touched so far, and whether each is moved-from
+/// there. A variable not listed is still in its state from before the loop.
+/// Read by the move-state checks at the loop (evaluator/utils.yo
+/// `check_loop_flow`).
+LoopFlowSnapshot :: struct(
+  site : Token,
+  var_ids : ArrayList(usize),
+  consumed : ArrayList(Option(Token))
+);
 LoopBodyCtx :: ref(
   struct(
     kind : LoopKind,
@@ -126,7 +136,13 @@ LoopBodyCtx :: ref(
     // frame-level comparisons must use this number, not env's current
     // length — a live read of the current length makes the while-loop init
     // gate false-fire on body-locals.
-    entry_frame_count : usize
+    entry_frame_count : usize,
+    /// The flow log's length when the body began: the body's events follow it.
+    log_start : usize,
+    /// The move state at each `break` (a way out of the loop) and each
+    /// `continue` (a way back to its condition).
+    break_states : ArrayList(LoopFlowSnapshot),
+    continue_states : ArrayList(LoopFlowSnapshot)
   )
 );
 // ---------------------------------------------------------------------------
@@ -3048,6 +3064,7 @@ export(
   FuncOrAsyncBlockCtx,
   fn_ctx_returns_comptime,
   LoopKind,
+  LoopFlowSnapshot,
   LoopBodyCtx,
   ExpectedTypeCtx,
   CaptureUsage,

@@ -63,7 +63,7 @@ program that passes both `check` and `compile`:
 | Program | What happens | Issue |
 | --- | --- | --- |
 | `(y : Value(bool)) = Value(i32).IntVal(77)` then `eval_value(y)` | prints `77` from a `bool` | `issues/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md` |
-| move an `ArrayList` into an `own` param inside a `while` | use-after-free, prints garbage | `issues/moving-a-variable-inside-a-loop-body-is-not-rejected.md` |
+| move an `ArrayList` into an `own` param inside a `while` | use-after-free, prints garbage | `issues/fixed/moving-a-variable-inside-a-loop-body-is-not-rejected.md` |
 | call an `inout` fn through a fn value | the pointer is truncated to `int32_t`; the seed's binary loses the mutation | `issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md` |
 | push to a module-global `ArrayList` from two threads | data race, contract failure | `issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md` |
 | `Iso` a wrapper whose interior is aliased | data race | `issues/iso-checks-only-the-wrapper-refcount-not-the-interior.md` |
@@ -519,6 +519,26 @@ Items 1, 2, 5 and 6 stay here.
    (`ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame`,
    `module-level-control-bound-binding-not-rejected`).
 6. **Definite initialization.** Make E0903 fire (`cond-arm-initialization-merge-check-never-fires`).
+
+**Items 1, 2, 5, 6 landed 2026-09-25.**
+
+- **The flow log (1, 6).** Every assignment and every move of a user-named variable is logged with
+  its init and move state before and after. A `cond`/`match` arm starts from the state before the
+  branch (`reset_sibling_flow_state`). `Variable` is one shared object per binding, so an arm used
+  to see its siblings' assignments and moves. A join reads each arm's end state from the log,
+  counting only the arms that reach it.
+- **The rules this enables.**
+  - E0903 fires.
+  - A partial move at a join is E0907 (new).
+  - A runtime loop checks that no value live at entry is moved on a way back to its condition
+    (E0901).
+  - It also checks that its ways out (the condition, each `break`) agree on what is moved
+    (E0907).
+  - A move in a returning arm no longer poisons the code after the branch.
+- **Aliasing (2).** A by-value argument that is the variable another argument passes `inout` gets
+  a `+1` for the call. FLOWABILITY.md is corrected.
+- **Control-bound fields (5).** `ref`/`atomic` structs and enums reject control-bound fields at
+  definition. Module-level typed bindings are checked for control-bound types like the `:=` form.
 
 Exit: each repro is rejected; a sanitizer run of the Phase 5 corpus under `--sanitize address`
 is clean for the accepted variants.

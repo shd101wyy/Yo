@@ -10,8 +10,10 @@
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
-  expr_info_adopt_env
+  expr_info_adopt_env,
+  record_branch_consume
 } :: import("../../expr_info.yo");
+{ is_temp_variable_name } :: import("../../utils.yo");
 {
   Variable,
   Environment,
@@ -96,6 +98,11 @@ set_variable_as_consumed :: (
       // write-back scan needed. An earlier alias-then-scan version was a pure
       // no-op that dominated evaluation: 88% of a heavy `check` sat in that
       // scan's String-id compares under scope-end drop scheduling.
+      // Logged first: per-path move state for joins and loops (a compiler
+      // temp's mark is ownership bookkeeping, not a move).
+      if(!is_temp_variable_name(env.module_path, variable.name), {
+        record_branch_consume(variable.id, token.clone(), variable.initialized_at_token, Option(Token).None);
+      });
       variable.consumed_at_token = Option(Box(Token)).Some(box(token.clone()));
     }
   );

@@ -1337,11 +1337,27 @@ _compat_some_resolved_init := (fn() -> bool)({
 /// (cond.yo / match.yo) record each arm's [start, end) window into this log
 /// keyed by the arm body's expr id; merge_and_check_envs consumes the
 /// windows for the cross-branch checks.
+/// What a record logs: an assignment, a move, or the joined state a branch
+/// or loop left the variable in (so an enclosing arm or loop reads one net
+/// effect instead of its inner paths' events).
+FlowEventKind :: enum(Assign, Consume, Join);
 BranchInitRecord :: ref(
   struct(
     var_id : usize,
     ty : TypeValue,
-    capture : Option(TypeValue)
+    capture : Option(TypeValue),
+    kind : FlowEventKind,
+    /// The event's token (the assignment target, the move site).
+    token : Token,
+    /// The variable's definite-initialization and move state right before and
+    /// right after the event. `Variable` is one shared object per binding,
+    /// so these are the only per-path record of it: a `cond`/`match` arm
+    /// starts from the state before the branch (`reset_sibling_flow_state`,
+    /// evaluator/utils.yo), and a join reads each arm's end state from here.
+    before_init : Option(Token),
+    before_consumed : Option(Token),
+    after_init : Option(Token),
+    after_consumed : Option(Token)
   )
 );
 (g_branch_init_log : ArrayList(BranchInitRecord)) = ArrayList(BranchInitRecord).new();
@@ -1349,9 +1365,34 @@ BranchInitRecord :: ref(
 /// has_dominating_branch_init O(records-for-this-var × active groups) instead
 /// of a full-log scan per reassignment (the log spans the WHOLE compile).
 (g_branch_init_by_var : HashMap(usize, ArrayList(usize))) = HashMap(usize, ArrayList(usize)).new();
-record_branch_init :: (fn(var_id : usize, ty : TypeValue, capture : Option(TypeValue)) -> unit)({
+/// Log a flow event. `record_branch_init` is the assignment form.
+record_flow_event :: (
+  fn(
+    var_id : usize,
+    ty : TypeValue,
+    capture : Option(TypeValue),
+    kind : FlowEventKind,
+    token : Token,
+    before_init : Option(Token),
+    before_consumed : Option(Token),
+    after_init : Option(Token),
+    after_consumed : Option(Token)
+  ) -> unit
+)({
   idx := g_branch_init_log.len();
-  g_branch_init_log.push(BranchInitRecord(var_id : var_id, ty : ty, capture : capture));
+  g_branch_init_log.push(
+    BranchInitRecord(
+      var_id : var_id,
+      ty : ty,
+      capture : capture,
+      kind : kind,
+      token : token,
+      before_init : before_init,
+      before_consumed : before_consumed,
+      after_init : after_init,
+      after_consumed : after_consumed
+    )
+  );
   match(
     g_branch_init_by_var.get(var_id),
     .Some(lst) => {
@@ -1365,6 +1406,27 @@ record_branch_init :: (fn(var_id : usize, ty : TypeValue, capture : Option(TypeV
     }
   );
 });
+/// An assignment: the variable is initialized (its first initialization's
+/// token is kept) and no longer moved-from.
+record_branch_init :: (
+  fn(var_id : usize, ty : TypeValue, capture : Option(TypeValue), token : Token, before_init : Option(Token), before_consumed : Option(Token)) -> unit
+)(
+  record_flow_event(
+    var_id,
+    ty,
+    capture,
+    FlowEventKind.Assign,
+    token.clone(),
+    before_init,
+    before_consumed,
+    match(before_init, .Some(bi) => Option(Token).Some(bi), .None => Option(Token).Some(token)),
+    Option(Token).None
+  )
+);
+/// A move of a user-named variable.
+record_branch_consume :: (fn(var_id : usize, token : Token, before_init : Option(Token), before_consumed : Option(Token)) -> unit)(
+  record_flow_event(var_id, TypeValue.Unit, Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token))
+);
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.len());
 get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.get(i));
 /// Arm-body expr id -> [start, end) window into the log.
@@ -1470,7 +1532,8 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
       (ii : usize) = usize(0);
       while(ii < idxs.len(), {
         i := match(idxs.get(ii), .Some(x) => x, .None => usize(0));
-        (excluded : bool) = false;
+        // Only assignments dominate (moves and joins are not inits).
+        (excluded : bool) = match(g_branch_init_log.get(i), .Some(r) => match(r.kind, .Assign => false, _ => true), .None => true);
         (gi : usize) = usize(0);
         while(gi < g_branch_group_stack.len(), {
           match(
@@ -1490,6 +1553,83 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
           found = true;
         });
         ii = (ii + usize(1));
+      });
+    },
+    .None => ()
+  );
+  found
+});
+/// The log indices of `var_id`'s assignment records, oldest first.
+branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_branch_init_by_var.get(var_id));
+/// The earliest record of each variable that a COMPLETED SIBLING arm of the
+/// innermost active group touched (records in `[group_start,
+/// current_arm_start)`). Its before-state is the state before the branch,
+/// which the next arm starts from. Read right after `begin_branch_group_arm`.
+sibling_first_flow_records :: (fn() -> ArrayList(BranchInitRecord))({
+  out := ArrayList(BranchInitRecord).new();
+  match(
+    g_branch_group_stack.get(g_branch_group_stack.len() - usize(1)),
+    .Some(g) => {
+      gs := match(g.get(usize(0)), .Some(x) => x, .None => usize(0));
+      ga := match(g.get(usize(1)), .Some(x) => x, .None => usize(0));
+      out = first_flow_records_in(gs, ga);
+    },
+    .None => ()
+  );
+  out
+});
+/// The earliest record of each variable in the log window `[start, end)`.
+first_flow_records_in :: (fn(start : usize, end : usize) -> ArrayList(BranchInitRecord))({
+  out := ArrayList(BranchInitRecord).new();
+  seen := HashMap(usize, bool).new();
+  (ri : usize) = start;
+  while(ri < end, {
+    match(
+      g_branch_init_log.get(ri),
+      .Some(r) => if(seen.get(r.var_id).is_none(), {
+        seen.insert(r.var_id, true);
+        out.push(r);
+      }),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  out
+});
+/// The last record of `var_id` in the log window `[start, end)`: the
+/// variable's state when that stretch of code finished.
+last_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Option(BranchInitRecord))({
+  (found : Option(BranchInitRecord)) = Option(BranchInitRecord).None;
+  match(
+    g_branch_init_by_var.get(var_id),
+    .Some(idxs) => {
+      (k : usize) = idxs.len();
+      while((k > usize(0)) && found.is_none(), {
+        k = (k - usize(1));
+        ix := match(idxs.get(k), .Some(x) => x, .None => usize(0));
+        if((start <= ix) && (ix < end), {
+          found = g_branch_init_log.get(ix);
+        });
+      });
+    },
+    .None => ()
+  );
+  found
+});
+/// The first record of `var_id` in `[start, end)`: its before-state is the
+/// variable's state when that stretch of code began.
+first_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Option(BranchInitRecord))({
+  (found : Option(BranchInitRecord)) = Option(BranchInitRecord).None;
+  match(
+    g_branch_init_by_var.get(var_id),
+    .Some(idxs) => {
+      (k : usize) = usize(0);
+      while((k < idxs.len()) && found.is_none(), {
+        ix := match(idxs.get(k), .Some(x) => x, .None => usize(0));
+        if((start <= ix) && (ix < end), {
+          found = g_branch_init_log.get(ix);
+        });
+        k = (k + usize(1));
       });
     },
     .None => ()
@@ -1775,6 +1915,14 @@ export(register_some_resolved_concrete, lookup_some_resolved_concrete, unregiste
 export(
   register_struct_ctor_fid,
   record_branch_init,
+  record_branch_consume,
+  record_flow_event,
+  FlowEventKind,
+  branch_init_indices_for,
+  sibling_first_flow_records,
+  first_flow_records_in,
+  first_flow_record_in,
+  last_flow_record_in,
   branch_init_log_len,
   get_branch_init_record,
   register_arm_init_range,

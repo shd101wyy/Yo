@@ -147,3 +147,12 @@ hit this immediately.
 
 A `match` over the Option compiles. `tests/error_source_chain.test.yo` spells
 its "no source" assertion that way deliberately, with a comment pointing here.
+
+## Second occurrence (2026-09-26)
+
+The compiler's own source reached it: `_record_codegen_error` (`src/codegen/constants.yo`,
+Phase 5's replacement for the stored codegen handler) wrote `g_codegen_error.is_none()` on an
+`Option(AnyError)`. The seed-built stage 1 compiled, but the stage-2 C (the stage-1 compiler
+compiling itself) called the undeclared `…_value_2015_ret_bool` and failed the fixpoint gate. The
+site uses a `match` over the slot. The key bug itself is the Phase 3.8 double-emission family's
+(`plans/TYPE_SYSTEM_SOUNDNESS.md`), and remains open here until fixed there.

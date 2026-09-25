@@ -236,7 +236,7 @@ printf("%d\n", x.*); // 始终有效：x 拥有一个有效引用
     drop 不构成风险——它们只针对拥有其值的变量，而借用按定义是非拥有的。
 
   复现程序、分阶段设计与落地记录见
-  `issues/borrowed-arg-invalidated-by-aliased-container-mutation.md`。
+  `issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md`。
 
 ## 何时调用 `___dup` 增加引用计数？
 

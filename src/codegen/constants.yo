@@ -13,10 +13,9 @@
 //! predicates. Names are stored as `String` to match the AST token-value
 //! type the callers compare against.
 { String } :: import("std/string");
-{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ Exception } :: import("std/error");
+{ Exception, AnyError } :: import("std/error");
 { TypeTag } :: import("../types/tags.yo");
 { Token } :: import("../token.yo");
 { format_error_message } :: import("../error.yo");
@@ -183,22 +182,44 @@ is_primitive_type_tag :: (fn(t : TypeTag) -> bool)(
 // ---------------------------------------------------------------------------
 // Fatal codegen errors
 // ---------------------------------------------------------------------------
-/// The exception handler codegen fatals are routed through — registered by
-/// `compile_module` (codegen_c.yo) at entry, exactly like the
-/// `set_evaluate_expression_fn` global-pointer pattern in
-/// `evaluator/exprs/expr.yo`. Emitters do not thread `exn`, so without this
-/// slot a fatal would have to `__yo_panic` (SIGABRT, rc=134) instead of
-/// exiting with a clean rc=1. See the await-position cli-cases.
-(g_codegen_fatal_exn : Option(Exception)) = Option(Exception).None;
-/// Register the handler fatal codegen errors unwind through.
-set_codegen_fatal_exn :: (fn(exn : Exception) -> unit)({
-  g_codegen_fatal_exn = Option(Exception).Some(exn);
-  ()
+/// The first fatal or user error codegen raised in this compile. Emitters do
+/// not thread `exn`, so they record the error here and return, and
+/// `compile_module` throws it through its own `exn` after each emission
+/// phase (`raise_codegen_error`), which exits the CLI with rc=1. This slot
+/// used to hold the driver's `Exception` itself; a stored handler can
+/// outlive the frame that installed it, so a module-level binding of one is
+/// rejected (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 5.5).
+(g_codegen_error : Option(AnyError)) = Option(AnyError).None;
+_record_codegen_error :: (fn(err : AnyError) -> unit)(
+  match(
+    g_codegen_error,
+    .None => {
+      g_codegen_error = Option(AnyError).Some(err);
+    },
+    .Some(_) => ()
+  )
+);
+/// Forget an error a previous compile recorded but never raised (it threw
+/// before its emission phase ended).
+clear_codegen_error :: (fn() -> unit)({
+  g_codegen_error = Option(AnyError).None;
 });
-/// Report a fatal, unrecoverable codegen error. Throws through the
-/// registered handler (the top-level CLI handler exits with rc=1); panics
-/// only when no handler was registered (a direct emitter invocation outside
-/// `compile_module` — never the CLI path).
+/// Throw the recorded codegen error, if any, through `exn` (the caller's
+/// handler, alive in the caller's frame).
+raise_codegen_error :: (fn(exn : Exception) -> unit)(
+  match(
+    g_codegen_error,
+    .Some(err) => {
+      g_codegen_error = Option(AnyError).None;
+      exn.throw(err);
+      ()
+    },
+    .None => ()
+  )
+);
+/// Report a fatal, unrecoverable codegen error. It is recorded
+/// (`g_codegen_error`), the emitter returns, and `compile_module` throws the
+/// first recorded error when its emission phase ends: the CLI exits with rc=1.
 ///
 /// P3 ICE wrapper (plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §7 P3, D11): every
 /// codegen_fatal is an internal-compiler-error class — an emitter
@@ -207,19 +228,7 @@ set_codegen_fatal_exn :: (fn(exn : Exception) -> unit)({
 /// like a user error.
 codegen_fatal :: (fn(message : String) -> unit)({
   wrapped := `internal compiler error: ${message}\nThis is a bug in the Yo compiler, not in your program — please report it:\nhttps://github.com/shd101wyy/Yo/issues`;
-  match(
-    g_codegen_fatal_exn,
-    .Some(exn) => {
-      // A clone: `throw` is a `ctl` operation, and a handler that resumes
-      // returns here, where `wrapped` is printed below. Moving it into the
-      // `Dyn` made that a use after move.
-      exn.throw(dyn(wrapped.clone()));
-      ()
-    },
-    .None => ()
-  );
-  eprintln(wrapped);
-  __yo_panic("fatal codegen error with no handler registered (see message above)")
+  _record_codegen_error(dyn(wrapped));
 });
 /// `codegen_fatal` in EXPRESSION position — for the emitters, whose signatures
 /// return the C text they built.
@@ -256,21 +265,11 @@ codegen_fatal_expr :: (fn(message : String) -> String)({
 /// so `yo check` reports them; this is the backstop for the splitter's own
 /// limits.
 codegen_user_error :: (fn(tok : Token, message : String) -> unit)({
-  err := format_error_message(tok, message);
-  match(
-    g_codegen_fatal_exn,
-    .Some(exn) => {
-      exn.throw(dyn(err));
-      ()
-    },
-    .None => ()
-  );
-  eprintln(message);
-  __yo_panic("codegen user error with no handler registered (see message above)")
+  _record_codegen_error(dyn(format_error_message(tok, message)));
 });
 /// `codegen_user_error` in EXPRESSION position.
 codegen_user_error_expr :: (fn(tok : Token, message : String) -> String)({
   codegen_user_error(tok, message);
   String.from("")
 });
-export(is_builtin_yo_inline_function, is_primitive_type_tag, set_codegen_fatal_exn, codegen_fatal, codegen_fatal_expr, codegen_user_error, codegen_user_error_expr);
+export(is_builtin_yo_inline_function, is_primitive_type_tag, clear_codegen_error, raise_codegen_error, codegen_fatal, codegen_fatal_expr, codegen_user_error, codegen_user_error_expr);

@@ -288,7 +288,7 @@ matching call" for `No matching call found`. **E0904 retired**: its message
 (`must BE the first condition`) has no raise site — await placement is a
 codegen `internal compiler error` today. Three `bad` halves are exempt with
 open issues: E0002 (`issues/parser-accepts-an-unclosed-call-paren.md`), E0903
-(`issues/cond-arm-initialization-merge-check-never-fires.md`), E0905 (a
+(`issues/fixed/cond-arm-initialization-merge-check-never-fires.md`), E0905 (a
 `compile`-stage code). Golden: `explain-list` pins the code set. NOT done:
 the E13xx/E15xx bands (the ICE wrapper and the install/fetch family stay
 uncoded prose) — no consumer asked for them yet.

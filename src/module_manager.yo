@@ -113,13 +113,13 @@ env_mod :: import("std/env");
 /// later module — issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md).
 (g_cached_prelude_frame_count : usize) = usize(0);
 // Demand-driven module loader state (set per load run). The import handler
-// `ctx.load_module` has a fixed `(path) -> LoadModuleResult` signature with no
-// `exn`, so the loading context is stashed here for the on-demand load
-// path. This enables CIRCULAR imports: a module is registered as "loading"
+// `ctx.load_module` has a fixed `(path) -> LoadModuleResult` signature, so the
+// loading context (the std path) is stashed here for the on-demand load path;
+// read, parse and evaluation errors are captured by local handlers and
+// returned, never thrown through a stored handler. This enables CIRCULAR imports: a module is registered as "loading"
 // (with its live env) before its body runs, so a cyclic import reads its
 // partial exports instead of failing "module not preloaded".
 (g_loader_std_path : Option(String)) = Option(String).None;
-(g_loader_exn : Option(Exception)) = Option(Exception).None;
 // Shared ExprInfoTable for codegen: when set (during `compile`), every
 // demand-loaded module's eval context writes its per-expression metadata into
 // THIS one table instead of a fresh per-module table. Codegen emits the bodies
@@ -259,15 +259,9 @@ resolve_std_path :: (fn() -> String)({
 // ---------------------------------------------------------------------------
 // State accessors (main.yo's compile path drives these directly)
 // ---------------------------------------------------------------------------
-/// Stash the std-path / exn the demand loader will use for nested imports.
-mm_set_loader_context :: (
-  fn(
-    std_path : String,
-    exn : Exception
-  ) -> unit
-)({
+/// Stash the std-path the demand loader will use for nested imports.
+mm_set_loader_context :: (fn(std_path : String) -> unit)({
   g_loader_std_path = Option(String).Some(std_path);
-  g_loader_exn = Option(Exception).Some(exn);
 });
 mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env);
 mm_has_prelude_env :: (fn() -> bool)(!g_cached_prelude_env.is_none());
@@ -415,16 +409,6 @@ DefDiff :: ref(
   )
 );
 mm_changed_definitions :: (fn(fs_path : String) -> Option(DefDiff))({
-  exn_opt := match(
-    g_loader_exn,
-    .Some(e) => Option(Exception).Some(e),
-    .None => Option(Exception).None
-  );
-  exn := match(
-    exn_opt,
-    .Some(e) => e,
-    .None => return(Option(DefDiff).None)
-  );
   // The stored hashes are keyed by the WALK's module path. Demand loads walk
   // under the `file://` cache key; entry modules under the path as typed —
   // try both before concluding the module was never walked here.
@@ -439,7 +423,18 @@ mm_changed_definitions :: (fn(fs_path : String) -> Option(DefDiff))({
     });
     return(Option(DefDiff).None);
   });
-  src_bytes := read_file_sync(fs_path.clone(), exn);
+  // A read or parse error means no diff: the caller falls back to the
+  // file-level reload, which reports the error.
+  read_out := ArrayList(ArrayList(u8)).new();
+  _read_source_capturing_error(fs_path.clone(), read_out);
+  src_bytes := match(
+    read_out.get(usize(0)),
+    .Some(b) => b,
+    .None => {
+      _take_load_error();
+      return(Option(DefDiff).None)
+    }
+  );
   (src : String) = String.from_bytes(src_bytes);
   match(
     _open_doc_text(fs_path.clone()),
@@ -448,7 +443,16 @@ mm_changed_definitions :: (fn(fs_path : String) -> Option(DefDiff))({
     },
     .None => ()
   );
-  mod_exprs := parse(src, walk_key.clone(), exn);
+  parse_out := ArrayList(ArrayList(AstExpr)).new();
+  _parse_capturing_error(src, walk_key.clone(), parse_out);
+  mod_exprs := match(
+    parse_out.get(usize(0)),
+    .Some(es) => es,
+    .None => {
+      _take_load_error();
+      return(Option(DefDiff).None)
+    }
+  );
   // Ordered-statement sequence first — a change there is not attributable to
   // any definition.
   stmt_state := String.new();
@@ -1663,7 +1667,6 @@ mm_reset :: (fn() -> unit)({
   g_cached_prelude_frame_count = usize(0);
   g_shared_expr_info_table = Option(ExprInfoTable).None;
   g_loader_std_path = Option(String).None;
-  g_loader_exn = Option(Exception).None;
   g_load_module_error = Option(String).None;
 });
 /// The `--imports <file>` mapping (global flag, stripped by main.yo like
@@ -1840,6 +1843,39 @@ _eval_module_exprs_capturing_error :: (
   out_tys.push(result.module_type);
   true
 });
+/// Read `fs_path` without a handler of the loader's own: a read error is
+/// stashed like an evaluation error and `out` stays empty. The loader used to
+/// keep the driver's `Exception` in a module global for this, and a stored
+/// handler can outlive the frame that installed it
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 5.5).
+_read_source_capturing_error :: (fn(fs_path : String, out : ArrayList(ArrayList(u8))) -> bool)({
+  local_exn := Exception(
+    throw : (
+      err -> {
+        _stash_load_error(render_any_error(err));
+        stash_error_diagnostics(err);
+        unwind(false)
+      }
+    )
+  );
+  out.push(read_file_sync(fs_path, local_exn));
+  true
+});
+/// Parse `src` as the module `module_path`, capturing a parse error the same
+/// way.
+_parse_capturing_error :: (fn(src : String, module_path : String, out : ArrayList(ArrayList(AstExpr))) -> bool)({
+  local_exn := Exception(
+    throw : (
+      err -> {
+        _stash_load_error(render_any_error(err));
+        stash_error_diagnostics(err);
+        unwind(false)
+      }
+    )
+  );
+  out.push(parse(src, module_path, local_exn));
+  true
+});
 export(_eval_module_exprs_capturing_error, _take_load_error);
 /// Profiling nesting accumulator (Phase 0): total wall nanos of demand loads
 /// completed inside the CURRENTLY OPEN module-evaluation window. Each window
@@ -1851,7 +1887,7 @@ export(_eval_module_exprs_capturing_error, _take_load_error);
 /// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
 /// register its exports. Registers it as "loading" (with its live env) BEFORE
 /// evaluating, so a circular import resolves to its partial exports. Uses the
-/// loader io / std_path / exn stashed by `mm_set_loader_context`. Returns
+/// std_path stashed by `mm_set_loader_context`. Returns
 /// `.Some(error)` when the module's top-level evaluation failed — the caller
 /// (`demand_load_module`) surfaces it as `LoadModuleResult.module_error` so the
 /// error rethrows through the IMPORT SITE's exn (catchable by
@@ -1941,7 +1977,6 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
     eprintln(`[warmload] MISS path=${abs.clone()}`);
   });
   std_path := match(g_loader_std_path, .Some(s) => s, .None => String.from(""));
-  exn := match(g_loader_exn, .Some(e) => e, .None => return(Option(String).None));
   fs_path := abs.replace(String.from("file://"), String.new());
   // Phase 0: this load's read+parse / evaluation walls. `prof_t0` spans the
   // WHOLE load so the parent window subtracts the load's true total.
@@ -1949,7 +1984,13 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   // COMPTIME read — synchronous on purpose (see manifest.yo `read_file_sync`): the demand
   // loader runs inside the evaluator's comptime import resolution, where the
   // async read's blocking poll loop would nest the event loop (C37/C42).
-  src_bytes := read_file_sync(fs_path.clone(), exn);
+  read_out := ArrayList(ArrayList(u8)).new();
+  _read_source_capturing_error(fs_path.clone(), read_out);
+  src_bytes := match(
+    read_out.get(usize(0)),
+    .Some(b) => b,
+    .None => return(Option(String).Some(match(_take_load_error(), .Some(m) => m, .None => `Failed to read module "${abs}"`)))
+  );
   // Record the hash of the bytes just read, NOT a re-read later: the artifact
   // stamp is built from this, and a re-read after the compile would absorb any
   // edit made during it
@@ -1975,7 +2016,13 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
     },
     .None => ()
   );
-  mod_exprs := parse(src, abs.clone(), exn);
+  parse_out := ArrayList(ArrayList(AstExpr)).new();
+  _parse_capturing_error(src, abs.clone(), parse_out);
+  mod_exprs := match(
+    parse_out.get(usize(0)),
+    .Some(es) => es,
+    .None => return(Option(String).Some(match(_take_load_error(), .Some(m) => m, .None => `Failed to parse module "${abs}"`)))
+  );
   _record_static_import_edges(abs.clone(), mod_exprs, std_path.clone());
   (prof_parse_ns : i64) = prof_t0.elapsed().as_nanos();
   prof_eval_t0 := Instant.now();
@@ -2263,7 +2310,7 @@ mm_eval_entry_exprs :: (
     exn : Exception
   ) -> ModuleLoadOutcome
 )({
-  mm_set_loader_context(std_path.clone(), exn);
+  mm_set_loader_context(std_path.clone());
   _load_imports_file(exn);
   _register_manifest_import_roots(entry_abs.replace(String.from("file://"), String.new()), exn);
   env := mm_fresh_module_env(entry_abs.clone());

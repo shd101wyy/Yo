@@ -6,7 +6,7 @@
 { ast_expr_token } :: import("../expr.yo");
 { profile_record_phase, profile_record_function_census, debug_knob } :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
-{ set_codegen_fatal_exn } :: import("./constants.yo");
+{ raise_codegen_error, clear_codegen_error } :: import("./constants.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
@@ -283,9 +283,10 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
 compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0), (chunk_by_module : bool) ?= false) -> String)({
-  // Route fatal emitter errors (codegen_fatal) through this compile's exn so
-  // they exit with a clean rc=1 instead of __yo_panic's SIGABRT.
-  set_codegen_fatal_exn(exn);
+  // Emitters record their errors (codegen_fatal, codegen_user_error); each
+  // emission phase below ends with `raise_codegen_error(exn)`, which throws
+  // the first one through this compile's exn (a clean rc=1).
+  clear_codegen_error();
   // Wire the mutual-recursion indirections before any collection / body walk.
   register_collect_type();
   register_on_demand_declare();
@@ -394,6 +395,7 @@ typedef enum {
   prof_emit_t0 := Instant.now();
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
+  raise_codegen_error(exn);
   // Re-key dyn impls to C names (now available), then emit dyn box types.
   fixup_dyn_impl_keys(base);
   generate_dyn_box_types(base);
@@ -429,12 +431,14 @@ static Slice_uint8_t_u42_ __yo_args;
   preregister_async_block_types(ctx);
   // Third pass: function declarations (prototypes).
   generate_function_declarations(base);
+  raise_codegen_error(exn);
   // Register Impl(Fn) closure → impl-fn mappings BEFORE function bodies, so a
   // specialized callee whose body calls a closure (e.g. Thread.spawn →
   // __yo_thread_spawn(cb)) resolves the closure regardless of generation order.
   register_impl_closure_call_mappings(ctx);
   // Fourth pass: function bodies (the dispatcher was registered above).
   generate_all_functions(ctx);
+  raise_codegen_error(exn);
   // Dyn dispatch scaffolding (box ctor/dispose, wrapper functions, typeid
   // vtables, and RC dup/drop).
   generate_dyn_box_functions(ctx);
@@ -444,6 +448,7 @@ static Slice_uint8_t_u42_ __yo_args;
   // Deferred async-block implementations (resume / set_effect / dispose / ctor),
   // after all regular + dyn functions to avoid nesting.
   generate_deferred_async_blocks(ctx);
+  raise_codegen_error(exn);
   // Module-level mutable variable declarations (file-scope statics). Emitted for
   // both executable and library builds so the C symbols exist. Returns the
   // (c_var_name, rhs) list for initialization.
@@ -458,6 +463,7 @@ static Slice_uint8_t_u42_ __yo_args;
   });
   // Type-tag dispose dispatch switch.
   emit_dispose_dispatch(base);
+  raise_codegen_error(exn);
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): assemble the
   // shared header + N linkable translation units from the recorded ranges;
   // hand them to the driver as parts[0] = header, parts[1..] = chunk bodies
