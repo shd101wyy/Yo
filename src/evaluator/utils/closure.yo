@@ -25,6 +25,7 @@
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_fn_trait_type, is_some_type, is_function_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
@@ -281,6 +282,102 @@ alias_closure_some_id :: (fn(new_id : String, of_id : String) -> unit)({
 _is_function_like :: (fn(ty : TypeValue) -> bool)(
   (is_some_type(ty) && extract_fn_trait_from_type(ty).is_some()) || is_function_type(ty)
 );
+/// Each closure's captured state judged per marker, taken where the closure is
+/// created — per captured VARIABLE, with the captured values as witnesses, so
+/// a captured function or closure is judged by its value and not by the field
+/// type of the capture struct (a `fn` field is not `Send` as a type).
+/// Keyed `fid|marker`; `.Some(reason)` names the first offending capture.
+(g_closure_capture_offense : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
+_captures_offense :: (
+  fn(cvwv : HashMap(String, FuncCapturedVarInfo), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(String)
+)({
+  mname := type_to_string(marker);
+  key_iter := cvwv.keys();
+  (more : bool) = true;
+  while(more, {
+    match(
+      key_iter.next(),
+      .None => {
+        more = false;
+      },
+      .Some(var_name) => match(
+        cvwv.get(var_name.clone()),
+        .None => (),
+        .Some(info) => if(!_declared_bound_requires(info.ty, marker), {
+          match(
+            function_value_marker(info.ty, info.value, marker, env, ctx),
+            .Some(fvm) => match(
+              fvm,
+              .Some(o) => {
+                return(Option(String).Some(`its captured variable '${var_name}' does not implement ${mname}: ${o}`));
+              },
+              .None => ()
+            ),
+            .None => match(
+              _capture_judgement_type(info.ty, info.value),
+              .Some(judged) => if(!type_implements_trait_bool(judged, marker, env), {
+                return(Option(String).Some(`its captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${mname}`));
+              }),
+              .None => ()
+            )
+          );
+        })
+      )
+    );
+  });
+  Option(String).None
+});
+/// Record closure `fid`'s capture verdicts (`Send`, `Acyclic`) at its creation.
+record_closure_capture_verdicts :: (
+  fn(fid : String, cvwv : Option(HashMap(String, FuncCapturedVarInfo)), env : Environment, ctx : EvalContext) -> unit
+)({
+  match(
+    cvwv,
+    .Some(cv) => {
+      markers := ArrayList(String).new();
+      markers.push(String.from("Send"));
+      markers.push(String.from("Acyclic"));
+      (mi : usize) = usize(0);
+      while(mi < markers.len(), {
+        mn := match(markers.get(mi), .Some(m) => m, .None => String.new());
+        match(
+          get_trait_type_from_env(env, mn.clone()),
+          .Some(mt) => {
+            g_closure_capture_offense.insert(`${fid}|${mn}`, _captures_offense(cv, mt, env, ctx));
+          },
+          .None => ()
+        );
+        mi = (mi + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
+/// A closure-typed SomeT that DECLARES `marker` (`Impl(Fn(...), Send)`): the
+/// obligation was discharged where a value was converted into it (a literal
+/// at its creation, an argument at the call, a result at the return).
+_declares_marker :: (fn(ty : TypeValue, marker : TypeValue) -> bool)(
+  match(
+    ty,
+    .SomeT({ required_trait_types : rtts }) => {
+      want := type_to_string(marker);
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < rtts.len()) && !found, {
+        match(
+          rtts.get(i),
+          .Some(t) => if(type_to_string(t) == want, {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
 /// Why the function value `fid` does not hold `marker`, or `.None`. The
 /// captured state first (D4), then — for `Send` — what its code reaches (D1).
 /// `body` is walked only when no verdict was memoized: a closure's own is
@@ -289,16 +386,25 @@ _function_value_offense :: (
   fn(fid : String, body : Option(AstExpr), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(String)
 )({
   mname := type_to_string(marker);
+  // The captures: the verdict taken at the closure's creation, per captured
+  // variable; without one, the capture struct as a type.
+  cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
   match(
-    get_closure_capture_info(fid.clone()),
-    .Some(cci) => if(!type_implements_trait_bool(cci.capture_type, marker, env), {
-      return(
-        Option(String).Some(
-          `its captured state (${type_to_string(cci.capture_type)}) does not implement ${mname} — a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead`
-        )
-      );
-    }),
-    .None => ()
+    g_closure_capture_offense.get(`${fid}|${mname}`),
+    .Some(cv) => match(
+      cv,
+      .Some(co) => {
+        return(Option(String).Some(`${co} — ${cap_hint}`));
+      },
+      .None => ()
+    ),
+    .None => match(
+      get_closure_capture_info(fid.clone()),
+      .Some(cci) => if(!type_implements_trait_bool(cci.capture_type, marker, env), {
+        return(Option(String).Some(`its captured state (${type_to_string(cci.capture_type)}) does not implement ${mname} — ${cap_hint}`));
+      }),
+      .None => ()
+    )
   );
   if(mname != "Send", {
     return(Option(String).None);
@@ -335,6 +441,9 @@ function_value_marker :: (
   mname := type_to_string(marker);
   if(!((mname == "Send") || (mname == "Acyclic")), {
     return(Option(Option(String)).None);
+  });
+  if(_declares_marker(ty, marker), {
+    return(Option(Option(String)).Some(Option(String).None));
   });
   match(
     witness,
@@ -969,7 +1078,7 @@ export(consume_captured_variables);
 export(build_path_collection_from_captured_variables);
 export(validate_capture_trait_requirements);
 export(validate_send_closure_global_reach);
-export(function_value_marker, register_function_value_marker, alias_closure_some_id, note_closure_for_some_id);
+export(function_value_marker, register_function_value_marker, alias_closure_some_id, note_closure_for_some_id, record_closure_capture_verdicts);
 export(enrich_captured_variables);
 export(create_capture_type_and_value);
 export(generate_captured_variable_dup_expressions);
