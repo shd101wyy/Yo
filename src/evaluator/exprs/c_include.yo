@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set, expr_info_table_get, register_extern_c_global, register_extern_c_module_id } :: import("../../expr_info.yo");
 { stable_module_id, fnv1a64 } :: import("../../utils.yo");
-{ Environment, Frame, new_frame, add_variable_to_env, get_variables_from_env, invalidate_frame_index, copy_frames } :: import("../../env.yo");
+{ Environment, Frame, new_frame, add_variable_to_env, get_variables_from_env, frame_truncate_variables, copy_frames } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { is_function_type } :: import("../../types/guards.yo");
@@ -476,10 +476,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   // Remove the field bindings again. A shrunk frame violates the name
   // index's append-only contract, so drop the index (the same idiom as
   // comptime_expect_error's frame restore and the pending-def reset).
-  if(scratch_frame.variables.len() > scratch_base, {
-    scratch_frame.variables.truncate(scratch_base);
-    invalidate_frame_index(scratch_frame);
-  });
+  frame_truncate_variables(scratch_frame, scratch_base);
   // The module value: a source-namespace struct, exactly the shape an
   // `import(...)` produces (anonymous_module.yo), so destructuring, property
   // access and the glob all work unchanged. The id is `source_namespace_`-

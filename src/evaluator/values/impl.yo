@@ -57,12 +57,14 @@ pragma(Pragma.AllowUnsafe);
   synthetic_token,
   get_funcval_cap_vars,
   aligned_derived_capture_handles,
+  register_funcval_cap_slices,
+  cap_slices_with_list,
+  CaptureSlice,
   fv_capture_source,
   fv_source_name,
   fv_source_ty,
   make_capture_variable,
   mint_funcval_env_key,
-  register_funcval_cap_vars,
   set_find_methods_from_generic_impls_fn,
   set_force_in_flight_field_fn
 } :: import("../../env.yo");
@@ -1921,12 +1923,13 @@ _inject_forall_captures :: (
             // Aligned or flat, as in create_specialized_function_inline
             // (`aligned_derived_capture_handles`, memory plan §0.13).
             (ifc_aligned : bool) = false;
+            (ifc_prefix : ArrayList(CaptureSlice)) = ArrayList(CaptureSlice).new();
             match(
               aligned_derived_capture_handles(__fvm9.*, cvs.len()),
-              .Some(aligned_handles) => {
+              .Some(aligned_slices) => {
                 ifc_have_vars = true;
                 ifc_aligned = true;
-                new_cvars = aligned_handles;
+                ifc_prefix = aligned_slices;
               },
               .None => match(
                 get_funcval_cap_vars(ifc_orig_env_key),
@@ -2035,7 +2038,7 @@ _inject_forall_captures :: (
             );
             if(ifc_have_vars, {
               ifc_env_key = mint_funcval_env_key();
-              register_funcval_cap_vars(ifc_env_key, new_cvars);
+              register_funcval_cap_slices(ifc_env_key, cap_slices_with_list(ifc_prefix, new_cvars));
             });
             // Flat names/types only when not aligned (see above).
             injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
