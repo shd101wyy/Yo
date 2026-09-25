@@ -269,6 +269,30 @@ comptime_expect_error({
   _d6_call_runtime_extern_through_module();
 });
 // ============================================================================
+// D2 — Iso: constructed only through ^, over a reference object
+// ============================================================================
+// D2 (Phase 2): the raw constructor is not available in safe code.
+comptime_expect_error({
+  _d2_raw_iso_constructor :: (fn() -> unit)({
+    b := box(i32(1));
+    _i := Iso(Box(i32))(b);
+  });
+  _d2_raw_iso_constructor();
+});
+// D2 (Phase 2): Iso of a value type is rejected at the type.
+comptime_expect_error({
+  _D2Scalar :: Iso(i32);
+});
+// Canary: `^` constructs an Iso in safe code.
+test("D2 canary: ^ isolates a uniquely owned Box in safe code", {
+  b := box(i32(7));
+  match(
+    ^b,
+    .Some(i) => assert(i.extract().* == i32(7), "the value came through"),
+    .None => assert(false, "a fresh Box is uniquely owned")
+  );
+});
+// ============================================================================
 // D8 — closures may not capture second-class bindings
 // ============================================================================
 // D8 (Phase 4): a closure inside a `with_lock` body may not capture the
