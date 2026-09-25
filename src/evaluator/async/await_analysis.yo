@@ -679,6 +679,37 @@ first_inout_binding_in_async_body :: (fn(e : AstExpr) -> Option(AstExpr))(
       lookup_macro_expansion(ast_expr_id(e)),
       .Some(expanded) => recur(expanded),
       .None => cond(
+        // A `cond`/`match` arm is `pattern => body`, not a closure: its body
+        // runs in this frame, so judge it (the borrowed `for` binds its element
+        // in a `match` arm).
+        (ast_expr_is_fn_call_of(e, "cond", Option(usize).None) || ast_expr_is_fn_call_of(e, "match", Option(usize).None)) => {
+          (mi : usize) = usize(0);
+          while(mi < args.len(), {
+            match(
+              args.get(mi),
+              .Some(a) => {
+                judged := cond(
+                  ast_expr_is_fn_call_of(a, "=>", Option(usize).Some(usize(2))) => match(
+                    a,
+                    .FnCall(_, _, arm_args, _, _) => match(arm_args.get(usize(1)), .Some(arm_body) => recur(arm_body), .None => Option(AstExpr).None),
+                    _ => Option(AstExpr).None
+                  ),
+                  true => recur(a)
+                );
+                match(
+                  judged,
+                  .Some(found) => {
+                    return(Option(AstExpr).Some(found));
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+            mi = (mi + usize(1));
+          });
+          Option(AstExpr).None
+        },
         (ast_expr_is_fn_call_of(e, "=>", Option(usize).None) || ast_expr_is_fn_call_of(e, "->", Option(usize).None)) => Option(AstExpr).None,
         ast_expr_is_fn_call_of(callee, "fn", Option(usize).None) => Option(AstExpr).None,
         (ast_expr_is_fn_call_of(e, ":=", Option(usize).Some(usize(2))) && match(args.get(usize(0)), .Some(lhs) => ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), .None => false)) =>
