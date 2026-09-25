@@ -66,7 +66,7 @@ import("std/fmt");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target } :: import("../trait_checking.yo");
+{ type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target, closure_bound_marker_offender } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -2199,6 +2199,22 @@ validate_concrete_type_constraints :: (
         if(!implemented, {
           exn.throw(dyn(format_error_message(ast_expr_token(constraint_expr), _unmet_trait_message(concrete_type, tv, env_mut))));
         });
+        // Rule D4: a closure type holds Send/Acyclic only when its captured
+        // state does (the `.Func` arm above answers for a bare fn pointer).
+        match(
+          closure_bound_marker_offender(env_mut, concrete_type, tv),
+          .Some(d4_cap) => {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(constraint_expr),
+                  `The closure type ${type_to_string(concrete_type)} does not implement required trait ${type_to_string(tv)}: its captured state (${type_to_string(d4_cap)}) does not. A closure has a marker trait only when every value it captures does — capture an atomic object (Arc(T), Mutex(T), Atomic*) instead.`
+                )
+              )
+            );
+          },
+          .None => ()
+        );
       });
     }, {
       exn.throw(

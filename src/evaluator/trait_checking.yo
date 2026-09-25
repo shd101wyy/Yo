@@ -42,6 +42,8 @@ pragma(Pragma.AllowUnsafe);
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("./context.yo");
 { Environment, get_where_clause_constraints_for_some_type, copy_frames } :: import("../env.yo");
 { Token } :: import("../token.yo");
+{ get_closure_capture_info } :: import("../function_value.yo");
+{ lookup_some_resolved_concrete } :: import("../expr_info.yo");
 { YoError, format_error_message } :: import("../error.yo");
 {
   find_matching_generic_impl,
@@ -1671,6 +1673,102 @@ impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env 
     _ => Option(TypeValue).None
   )
 );
+/// Rule D4 (plans/reference/PARALLELISM_RULES.md): a closure type holds an
+/// auto-derived marker (`Send`, `Acyclic`) only when its captured state does —
+/// Rust's auto-trait rule. Returns the offending capture struct when
+/// `ty` is a closure type (an `Impl(Fn...)` SomeT, or the plain `.Func` a
+/// generic parameter inferred from a closure argument binds) whose captures do
+/// NOT hold `trait_ty`; `.None` otherwise (not a closure type, not one of those
+/// markers, or the captures hold it). Called by BOTH where-clause paths
+/// (`validate_where_constraints_for_call`, `validate_concrete_type_constraints`).
+///
+/// The closures judged are the compile-time closure values bound to the
+/// CALLEE's own parameters of that type — a SomeT matched by id, a `.Func` by
+/// its rendering, every such parameter judged — each by its registered capture
+/// struct (a named fn or a capture-free closure has none and holds). With no
+/// capture struct found, a SomeT's own resolution is judged when it is a real
+/// type rather than the bare function type. (A SomeT's REQUIRED traits say
+/// nothing here: the generic's own bound is unified into them.)
+closure_bound_marker_offender :: (fn(env : Environment, ty : TypeValue, trait_ty : TypeValue) -> Option(TypeValue))({
+  marker := match(trait_ty, .TraitT(name : tn) => tn.clone(), _ => String.new());
+  if(!((marker == "Send") || (marker == "Acyclic")), {
+    return(Option(TypeValue).None);
+  });
+  is_closure_ty := ((is_some_type(ty) && extract_fn_trait_from_type(ty).is_some()) || is_function_type(ty));
+  if(!is_closure_ty, {
+    return(Option(TypeValue).None);
+  });
+  want_id := match(ty, .SomeT(wid, _, _, _, _, _, _, _, _, _, _) => wid, _ => String.new());
+  want_str := if(want_id.is_empty(), type_to_string(ty), String.new());
+  start := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
+  (judged : bool) = false;
+  (fi : usize) = start;
+  while(fi < env.frames.len(), {
+    match(
+      env.frames.get(fi),
+      .Some(fr) => {
+        (vi : usize) = usize(0);
+        while(vi < fr.variables.len(), {
+          match(
+            fr.variables.get(vi),
+            .Some(v) => {
+              matches := if(
+                want_id.is_empty(),
+                (is_function_type(v.ty) && (type_to_string(v.ty) == want_str)),
+                match(v.ty, .SomeT(vid, _, _, _, _, _, _, _, _, _, _) => (vid == want_id), _ => false)
+              );
+              if(matches, {
+                match(
+                  v.value.get(usize(0)),
+                  .Some(vv) => match(
+                    vv,
+                    .FuncVal(fvd, _) => match(
+                      get_closure_capture_info(fvd.*.func_id.clone()),
+                      .Some(cci) => {
+                        judged = true;
+                        if(!(type_implements_trait_bool(cci.capture_type, trait_ty, env)), {
+                          return(Option(TypeValue).Some(cci.capture_type));
+                        });
+                      },
+                      .None => ()
+                    ),
+                    _ => ()
+                  ),
+                  .None => ()
+                );
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  if(judged, {
+    return(Option(TypeValue).None);
+  });
+  resolved := match(
+    ty,
+    .SomeT({ id : sid, resolved_concrete : rc }) => match(
+      rc.get(usize(0)),
+      .Some(c) => Option(TypeValue).Some(c),
+      .None => lookup_some_resolved_concrete(sid)
+    ),
+    _ => Option(TypeValue).None
+  );
+  match(
+    resolved,
+    .Some(ct) => if(
+      (is_function_type(ct) || is_some_type(ct)) || type_implements_trait_bool(ct, trait_ty, env),
+      Option(TypeValue).None,
+      Option(TypeValue).Some(ct)
+    ),
+    .None => Option(TypeValue).None
+  )
+});
 /// The shared E0602 text for an argument that misses a trait of its
 /// `Impl(...)` parameter (both call paths emit it verbatim).
 impl_argument_unmet_trait_message :: (
@@ -2168,7 +2266,7 @@ export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
 export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message);
-export(impl_param_unmet_trait, impl_argument_unmet_trait_message);
+export(impl_param_unmet_trait, impl_argument_unmet_trait_message, closure_bound_marker_offender);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);
 export(extract_future_trait_from_type);

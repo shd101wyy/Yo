@@ -81,6 +81,7 @@ pragma(Pragma.AllowUnsafe);
   type_implements_future,
   type_implements_fn,
   type_implements_trait_bool,
+  closure_bound_marker_offender,
   resolve_assoc_type_for_target,
   extract_fn_trait_from_type,
   extract_future_trait_from_type,
@@ -188,7 +189,7 @@ pragma(Pragma.AllowUnsafe);
   find_closure_fid_by_capture_struct_id,
   ClosureCaptureInfo
 } :: import("../../function_value.yo");
-{ enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo, _capture_judgement_type, _declared_bound_requires } :: import("../utils/closure.yo");
+{ enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo } :: import("../utils/closure.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 { registration_owner } :: import("../values/type_trait_methods.yo");
@@ -4521,98 +4522,6 @@ evaluate_ctl_function_body_inline :: (
 /// through generic-instantiation fields that still carry constraint-bearing
 /// SomeTs — enforcing those today rejects valid std code (imm/map, hashmap).
 /// Widen as the trait checker closes those gaps.
-/// Rule D4: a capture struct among the closures a closure-typed bound `ty` is
-/// instantiated with that does NOT hold `trait_ty`, if any. The closures are
-/// the compile-time closure values bound to the CALLEE's own parameters of
-/// that type (a SomeT matched by id; a `.Func` — the generic-inference route —
-/// by its rendering, and then every such parameter is judged); each is judged
-/// by its registered capture struct (a named fn or a capture-free closure has
-/// none and holds). With no bound value, the SomeT's own resolution is judged
-/// when it is a real type rather than the bare function type.
-_d4_closure_bound_offender :: (fn(env : Environment, ty : TypeValue, trait_ty : TypeValue) -> Option(TypeValue))({
-  want_id := match(ty, .SomeT(wid, _, _, _, _, _, _, _, _, _, _) => wid, _ => String.new());
-  want_str := if(want_id.is_empty(), type_to_string(ty), String.new());
-  start := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
-  // YO_DEBUG_D4=1: trace what the closure-bound judgement sees.
-  d4_debug := match(debug_knob(`YO_DEBUG_D4`), .Some(d) => (d.len() > usize(0)), .None => false);
-  if(d4_debug, {
-    eprintln(`[d4] bound ${type_to_string(ty)} some=${is_some_type(ty)} func=${is_function_type(ty)} frames ${start}..${env.frames.len()}`);
-  });
-  (found_value : bool) = false;
-  (fi : usize) = start;
-  while(fi < env.frames.len(), {
-    match(
-      env.frames.get(fi),
-      .Some(fr) => {
-        (vi : usize) = usize(0);
-        while(vi < fr.variables.len(), {
-          match(
-            fr.variables.get(vi),
-            .Some(v) => {
-              matches := if(
-                want_id.is_empty(),
-                (is_function_type(v.ty) && (type_to_string(v.ty) == want_str)),
-                match(v.ty, .SomeT(vid, _, _, _, _, _, _, _, _, _, _) => (vid == want_id), _ => false)
-              );
-              if(matches, {
-                match(
-                  v.value.get(usize(0)),
-                  .Some(vv) => match(
-                    vv,
-                    .FuncVal(fvd, _) => {
-                      if(d4_debug, {
-                        eprintln(`[d4] param ${v.name} ty=${type_to_string(v.ty)} fid=${fvd.*.func_id} cci=${get_closure_capture_info(fvd.*.func_id.clone()).is_some()}`);
-                      });
-                      match(
-                        get_closure_capture_info(fvd.*.func_id.clone()),
-                        .Some(cci) => {
-                          found_value = true;
-                          if(!(type_implements_trait_bool(cci.capture_type, trait_ty, env)), {
-                            return(Option(TypeValue).Some(cci.capture_type));
-                          });
-                        },
-                        .None => ()
-                      );
-                    },
-                    _ => if(d4_debug, {
-                      eprintln(`[d4] param ${v.name} ty=${type_to_string(v.ty)} value is not a FuncVal`);
-                    })
-                  ),
-                  .None => if(d4_debug, {
-                    eprintln(`[d4] param ${v.name} ty=${type_to_string(v.ty)} has no compile-time value`);
-                  })
-                );
-              });
-            },
-            .None => ()
-          );
-          vi = (vi + usize(1));
-        });
-      },
-      .None => ()
-    );
-    fi = (fi + usize(1));
-  });
-  if(found_value || !(is_some_type(ty)), {
-    return(Option(TypeValue).None);
-  });
-  match(
-    _capture_judgement_type(ty, Option(EvalValue).None),
-    .Some(ct) => if(d4_debug, {
-      eprintln(`[d4] SomeT resolves to ${type_to_string(ct)}`);
-    }),
-    .None => ()
-  );
-  match(
-    _capture_judgement_type(ty, Option(EvalValue).None),
-    .Some(ct) => if(
-      (is_function_type(ct) || is_some_type(ct)) || type_implements_trait_bool(ct, trait_ty, env),
-      Option(TypeValue).None,
-      Option(TypeValue).Some(ct)
-    ),
-    .None => Option(TypeValue).None
-  )
-});
 validate_where_constraints_for_call :: (
   fn(
     func_id : String,
@@ -4675,19 +4584,11 @@ validate_where_constraints_for_call :: (
               // auto-trait rule — so judge its capture struct, resolved the
               // way the spawn-boundary check resolves a captured closure. No
               // capture struct: it captures nothing and trivially holds.
-              // A generic `T` inferred from a closure argument binds the
-              // closure's plain `.Func` type; an `Arc(V)`-style constructor
-              // binds its `Impl(Fn...)` SomeT. Either way the closure's own
-              // capture struct (registered by func_id) is the thing to judge;
-              // a SomeT that already DECLARES the trait (`cb : Impl(Fn, Send)`
-              // forwarded) was proven by its own caller.
-              d4_is_closure_ty := ((is_some_type(bound_ty) && extract_fn_trait_from_type(bound_ty).is_some()) || is_function_type(bound_ty));
-              if(match(debug_knob(`YO_DEBUG_D4`), .Some(d4d) => (d4d.len() > usize(0)), .None => false), {
-                eprintln(`[d4] where ${wce.lhs_label} <: ${type_to_string(wce.trait_ty)} bound=${type_to_string(bound_ty)} closure_ty=${d4_is_closure_ty} fid=${func_id}`);
-              });
-              if((d4_is_closure_ty && !(wce.is_negated)) && !(_declared_bound_requires(bound_ty, wce.trait_ty)), {
+              // `closure_bound_marker_offender` (trait_checking.yo) judges the
+              // closure's capture struct; it is a no-op for other types.
+              if(!(wce.is_negated), {
                 match(
-                  _d4_closure_bound_offender(callee_env, bound_ty, wce.trait_ty),
+                  closure_bound_marker_offender(callee_env, bound_ty, wce.trait_ty),
                   .Some(d4_cap) => {
                     exn.throw(
                       dyn(
