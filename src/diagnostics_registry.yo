@@ -448,8 +448,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "错误信息会列出可能初始化与未初始化的分支。请在分支前初始化（`x : T = default`），或在每个分支都提供绑定，或重构为汇合点总有值。",
       "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
       "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32) = i32(0);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
-      "Only the first arm assigns `v`. NOTE: this check does not fire today (issues/cond-arm-initialization-merge-check-never-fires.md); initialise before the branch regardless.",
-      "只有第一个分支给 `v` 赋值。注意：目前该检查不会触发（issues/cond-arm-initialization-merge-check-never-fires.md）；无论如何请在分支前初始化。"
+      "Only the first arm assigns `v`, so after the `cond` it is initialized on one path only.",
+      "只有第一个分支给 `v` 赋值，因此 `cond` 之后它只在一条路径上被初始化。"
     )
   );
   out.push(
