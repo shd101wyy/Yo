@@ -2255,6 +2255,10 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 line.push_string(casted);
                 line.push_str(");");
                 em.emit_string_line(line);
+                // The result temp's deferred drop reads its `sm->var_<id>`
+                // slot inside a state machine (`String.from_cstr(p).unwrap()`
+                // in read_dir's loop leaked the Option once per entry).
+                _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
                 _emit_borrow_releases(ou_bc2, indent.clone(), context);
               });
               generate_deferred_drop_expressions(expr, indent.clone(), context, true);
@@ -2536,6 +2540,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         fline.push_str(";");
         em.emit_string_line(fline);
       });
+      _store_temp_var_to_state_machine_if_needed(fp_tv.clone(), indent.clone(), context);
       _emit_borrow_releases(fp_bc2, indent.clone(), context);
     });
     generate_deferred_drop_expressions(expr, indent.clone(), context, true);
