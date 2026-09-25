@@ -3302,7 +3302,9 @@ _evaluate_funcval_runtime_call :: (
                     // codegen an unresolved receiver type it splices verbatim
                     // into C. Same guard as C18 / helper.yo's overload re-raise.
                     _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"${dyn_upcast_note(_ac_pty, _ac_aty)}${same_name_note(_ac_pty, _ac_aty)}`;
-                    raise_flow_violation(format_error_message(ast_expr_token(expr), _ac_mmsg), ctx, exn);
+                    // Reported at the ARGUMENT (index-aligned with the infos here).
+                    _ac_tok := ast_expr_token(match(runtime_arg_exprs.get(_ac_i), .Some(_ac_ae) => _ac_ae, .None => expr));
+                    raise_flow_violation(format_error_message(_ac_tok, _ac_mmsg), ctx, exn);
                   });
                 },
                 .None => ()
