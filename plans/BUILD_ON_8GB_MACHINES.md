@@ -25,7 +25,7 @@ at #891 (the memory the v0.2.42 seed will have), on the same tree.
 | Phase of `yo build` (the child `yo compile src/main.yo --optimize 2`) | Max RSS | Peak footprint | Wall |
 | --- | --- | --- | --- |
 | Type check only (`yo check src/main.yo`, Linux CI ratchet, authoritative) | 2.43 GB | — | 3:19 |
-| Type check + C generation (`--emit-c-to`, stops before cc) | 3.56 GB | **6.83 GB** | 5:22 |
+| Type check + C generation (the `yo` process; `--emit-c-to` did NOT stop before cc, so the wall includes clang — `issues/fixed/emit-c-to-help-says-it-stops-before-the-c-compiler.md`) | 3.56 GB | **6.83 GB** | 5:22 |
 | clang `-O2` on the emitted 145 MB C file, alone | 3.15 GB | — | 1:48 |
 | **During the cc step: `yo compile`'s heap + clang** | — | **≈ 6.6 + 3.1 ≈ 9.7 GB** | — |
 
