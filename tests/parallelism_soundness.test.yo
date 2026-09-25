@@ -226,6 +226,14 @@ comptime_expect_error({
   });
   _d6_call_runtime_extern();
 });
+// D6 (Phase 4): the same entry point reached as a field of the module value.
+_runtime_externs :: import("std/sys/externs.yo");
+comptime_expect_error({
+  _d6_call_runtime_extern_through_module :: (fn() -> unit)({
+    _runtime_externs.__yo_async_blocking_begin();
+  });
+  _d6_call_runtime_extern_through_module();
+});
 // ============================================================================
 // D8 — closures may not capture second-class bindings
 // ============================================================================

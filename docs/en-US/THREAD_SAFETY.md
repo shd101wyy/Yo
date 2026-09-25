@@ -317,14 +317,10 @@ the race it describes.
   calls (a captured helper closure, a closure parameter) or a `dyn` method: the global-reach
   check follows only calls it can resolve to a function body at compile time
   (`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`).
-- **A closure may capture a `with_lock` body's `inout(v)`** at `yo check` (codegen fails)
-  (`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`).
 - **Runtime races** that no user rule can avoid: the cross-thread `Waker` release ordering on a
   spawned thread's loop, the non-atomic `borrow_count` on atomic objects, `rc()` on an `Iso`
   handle, and Windows/macOS-specific runtime state — listed in `plans/PARALLELISM_SOUNDNESS.md`
   §3 (P-11 to P-25).
-- **A safe file can call raw runtime externs** imported from `std/sys/externs.yo`
-  (`issues/safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`).
 
 ## See Also
 
