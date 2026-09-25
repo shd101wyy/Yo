@@ -1202,6 +1202,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           dmd.push_str(";");
           dm_em2 := context.base.emitter;
           dm_em2.emit_string_line(dmd);
+          _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
           generate_deferred_drop_expressions(expr, indent.clone(), context, true);
           return(Option(String).Some(tv));
         },
@@ -1428,6 +1429,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 cmd.push_string(cm_call);
                 cmd.push_str(";");
                 cm_em2.emit_string_line(cmd);
+                _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
                 _emit_borrow_releases(cm_bc2, indent.clone(), context);
                 generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
@@ -1545,6 +1547,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 rmd.push_string(rm_call);
                 rmd.push_str(";");
                 rm_em2.emit_string_line(rmd);
+                _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
                 _emit_borrow_releases(rm_bc2, indent.clone(), context);
                 generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
