@@ -429,7 +429,15 @@ evaluate_while :: (
   // Evaluate the body with the loop-body context set so that break/continue
   // inside the body know they are inside a while loop.
   old_loop_body := ctx.is_evaluating_loop_body;
-  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : env, entry_frame_count : env.frames.len()));
+  loop_ctx := LoopBodyCtx(
+    kind : LoopKind.While,
+    env : env,
+    entry_frame_count : env.frames.len(),
+    log_start : branch_init_log_len(),
+    break_states : ArrayList(LoopFlowSnapshot).new(),
+    continue_states : ArrayList(LoopFlowSnapshot).new()
+  );
+  ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(loop_ctx);
   evaluated_body := evaluate_begin_expression(body_expr, env, ctx, ArrayList(Variable).new(), false, exn);
   ctx.is_evaluating_loop_body = old_loop_body;
   // Require ExprInfo for the body.
@@ -667,7 +675,16 @@ evaluate_while :: (
       while(cond_still_true && (unroll_iter < unroll_limit) && !unroll_abort, {
         cloned_body := clone_expr_fresh_ids(body_expr);
         old_loop_body_u := ctx.is_evaluating_loop_body;
-        ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : current_env, entry_frame_count : current_env.frames.len()));
+        ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(
+          LoopBodyCtx(
+            kind : LoopKind.While,
+            env : current_env,
+            entry_frame_count : current_env.frames.len(),
+            log_start : branch_init_log_len(),
+            break_states : ArrayList(LoopFlowSnapshot).new(),
+            continue_states : ArrayList(LoopFlowSnapshot).new()
+          )
+        );
         eval_body_u := evaluate_begin_expression(cloned_body, current_env, ctx, ArrayList(Variable).new(), false, exn);
         ctx.is_evaluating_loop_body = old_loop_body_u;
         match(

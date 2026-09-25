@@ -29,7 +29,8 @@ pragma(Pragma.AllowUnsafe);
   register_arm_init_range,
   push_branch_group,
   begin_branch_group_arm,
-  pop_branch_group,
+  branch_group_stack_len,
+  truncate_branch_group_stack,
   expr_info_set_case_executed,
   expr_info_adopt_env,
   expr_info_capture_type
@@ -58,6 +59,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message } :: import("../../error.yo");
 {
   merge_and_check_envs,
+  reset_sibling_flow_state,
   consume_case_body_temp_var,
   attach_temp_variable_to_expr,
   adopt_never_type
@@ -417,6 +419,11 @@ evaluate_cond :: (
       (nb_i : usize) = usize(0);
       // Sibling-arm inits must not read as prior inits inside later arms
       // (Impl reassignment rule) — group the arms' branch-init windows.
+      // A nested construct whose evaluation threw inside a swallowing trial
+      // leaves its group on the stack: arms and the exit truncate back to this
+      // group so they never read a stranded one.
+      bg_depth := branch_group_stack_len();
+      group_log_start := branch_init_log_len();
       push_branch_group();
       while(nb_i < evaluated_conds.len(), {
         match(
@@ -452,7 +459,9 @@ evaluate_cond :: (
               if(arm_untaken_ct, {
                 ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth + usize(1));
               });
+              truncate_branch_group_stack(bg_depth + usize(1));
               begin_branch_group_arm();
+              reset_sibling_flow_state(ec_item.case_env);
               bir_start_a := branch_init_log_len();
               evaluated_case_body := evaluate_begin_expression(
                 ec_item.case_body_expr,
@@ -597,7 +606,7 @@ evaluate_cond :: (
           }
         );
       });
-      pop_branch_group();
+      truncate_branch_group_stack(bg_depth);
       // Merge all control-flow flags from the arms.
       final_cf := cond(
         (control_flows.len() > usize(0)) => Option(ControlFlowFlags).Some(merge_control_flows(control_flows)),
@@ -707,7 +716,7 @@ evaluate_cond :: (
             ir_i = (ir_i + usize(1));
           });
         };
-        env = merge_and_check_envs(env, filtered_bodies, ctx, exn);
+        env = merge_and_check_envs(env, filtered_bodies, group_log_start, ctx, exn);
         // A runtime condition cannot select a compile-time-only value: a
         // `Type`, a module or a trait has no runtime representation, so
         // `T :: cond(b => i32, true => i64)` with a runtime `b` has no
