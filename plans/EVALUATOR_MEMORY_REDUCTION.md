@@ -1680,7 +1680,8 @@ eviction a lookup miss resolves it again.
 
 `check src/main.yo`, interleaved A/B on the same base (19fa4fcce), three pairs:
 **−178, −179, −166 MB (≈ −10.5 %)**, same wall. Emitted C byte-identical
-(149.2 MB).
+(149.2 MB). On Linux (the CI ratchet, re-baselined): `check src/main.yo` max RSS
+**1,852,336 → 1,664,136 kB (−10.2 %)**.
 
 **Next:** the `cap_vals` value snapshots (~190 MB of ~1,760-entry lists under
 the method registries and memos) are the remaining per-FuncVal copies. A value
