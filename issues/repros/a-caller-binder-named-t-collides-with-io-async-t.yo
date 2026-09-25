@@ -1,0 +1,9 @@
+{ println } :: import("std/fmt");
+_wrap :: (fn(generic(T : Type), v : T, io : Io) -> Impl(Future(Option(T), Io)))(
+  io.async((io : Io) => Option(T).Some(v))
+);
+main :: (fn(io : Io) -> unit)({
+  r := io.await(_wrap(i32(5), io), io);
+  match(r, .Some(x) => println(x), .None => println("none"));
+});
+export(main);

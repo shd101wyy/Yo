@@ -1,6 +1,7 @@
 # A `Box` over an `Impl(Fn(...))` is emitted as TWO C structs, and the return type mismatches
 
-**Status:** OPEN. **Found:** 2026-09-13, from develop's first full battery to
+**Status:** FIXED (measured 2026-09-26 on the v0.2.43 seed, Phase 3.8 of
+`plans/TYPE_SYSTEM_SOUNDNESS.md`). **Found:** 2026-09-13, from develop's first full battery to
 finish since the merge storm.
 **Severity:** ill-typed C everywhere; a hard ERROR on exactly one CI leg.
 
@@ -152,3 +153,13 @@ and the two obvious emission-time candidates are disproven above.
 
 Until it is fixed, `test (windows-11-arm)` stays red on every PR, because that
 leg is the only one that treats this as an error.
+
+## Resolution (2026-09-26)
+
+Re-measured for Phase 3.8 with the v0.2.43 seed on `tests/closure_param_forwarding.test.yo`
+(`YO_KEEP_BATCH=1`, reading the batch's `.c`): **0** `incompatible pointer` diagnostics, and exactly
+**3** `Box` structs, each `Box(<struct:capture_…>)` — no `Box( : (Fn(i32) -> i32))` spelling is
+emitted any more, and all 4 tests pass, including #598's `T = unit` arm. No single commit was
+attributed; the keying work between v0.2.31 and v0.2.43 (the Phase 2.3 and 3.3 identity changes,
+the Phase 2.4 per-call binders) removed the unresolved spelling from type collection. The guard
+is the `test (windows-11-arm)` leg, whose clang 22 makes `-Wincompatible-pointer-types` an error.
