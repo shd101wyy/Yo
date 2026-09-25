@@ -2037,44 +2037,8 @@ _push_forwarded_closure_key :: (fn(compile_time_args : ArrayList(EvalValue), cfi
 /// (an `Impl(Fn(...))` type bound to a generic parameter)? Such a SomeT is
 /// the call's instantiation, not an unresolved type variable, so a return type
 /// re-evaluated to carry it is as settled as a concrete one.
-_somes_are_closure_forall_args :: (
-  fn(somes : ArrayList(TypeValue), forall_args : ArrayList(ArgEntry), forall_names : ArrayList(String), callee_env : Environment) -> bool
-)({
+_somes_are_closure_forall_args :: (fn(somes : ArrayList(TypeValue), forall_args : ArrayList(ArgEntry)) -> bool)({
   ids := ArrayList(String).new();
-  // The binders as the CALLEE env holds them too: for a closure that captures
-  // nothing, the recorded forall argument is its plain `fn` type while `V` is
-  // bound to its `Impl(Fn...)` SomeT, the type the body's `Arc(V)(value)`
-  // builds (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
-  (fn_i : usize) = usize(0);
-  while(fn_i < forall_names.len(), {
-    match(
-      forall_names.get(fn_i),
-      .Some(fnm) => {
-        fvars := get_variables_from_env(callee_env, fnm);
-        match(
-          if(fvars.len() > usize(0), fvars.get(fvars.len() - usize(1)), Option(Variable).None),
-          .Some(fvar) => match(
-            fvar.value.get(usize(0)),
-            .Some(fval) => match(
-              fval,
-              .TypeVal(fty) => match(
-                fty,
-                .SomeT(fsid, _, _, _, _, _, _, _, _, _, _) => if(extract_fn_trait_from_type(fty).is_some(), {
-                  ids.push(fsid);
-                }),
-                _ => ()
-              ),
-              _ => ()
-            ),
-            .None => ()
-          ),
-          .None => ()
-        );
-      },
-      .None => ()
-    );
-    fn_i = (fn_i + usize(1));
-  });
   (fi : usize) = usize(0);
   while(fi < forall_args.len(), {
     match(
@@ -2544,6 +2508,27 @@ create_specialized_function_inline :: (
                           });
                           zbp = (zbp + usize(1));
                         });
+                        // A CLOSURE argument that captures nothing has no
+                        // capture struct to stand in for `V`: bind `V` to the
+                        // closure's own `Impl(Fn...)` SomeT, the type the
+                        // body binds it to, or the return re-evaluation
+                        // below builds `Arc(V)` over the signature's `V`
+                        // while the body builds `Arc(<closure SomeT>)` — two
+                        // instances, and clang rejects the return
+                        // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
+                        if(!(zb_done) && extract_fn_trait_from_type(zb_tb).is_some(), {
+                          _zb3 := add_variable_to_env(
+                            callee_env,
+                            zb_name,
+                            TypeValue.TypeUni(usize(0)),
+                            Option(EvalValue).Some(EvalValue.TypeVal(zb_tb.clone())),
+                            true,
+                            false,
+                            false,
+                            false,
+                            synthetic_token(zb_name, callee_env.module_path)
+                          );
+                        });
                       });
                     }),
                     _ => ()
@@ -2778,7 +2763,7 @@ create_specialized_function_inline :: (
                     // variable), a second nominal instance, and clang refused
                     // the return (issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
                     rte_somes := get_all_some_types(rte_ty);
-                    rte_only_closure_args := ((rte_somes.len() > usize(0)) && _somes_are_closure_forall_args(rte_somes, arg_values.forall_args, forall_names, callee_env));
+                    rte_only_closure_args := ((rte_somes.len() > usize(0)) && _somes_are_closure_forall_args(rte_somes, arg_values.forall_args));
                     if((((rte_somes.len() == usize(0)) || rte_only_closure_args) && !(_type_has_array_len_var(rte_ty))) && !(is_unit_type(rte_ty)), {
                       spec_ret_ty = rte_ty;
                       rte_adopted = true;
