@@ -185,6 +185,16 @@ _dyn_bound_check_type :: (fn(t : TypeValue, env : Environment) -> Option(TypeVal
 /// a dyn'd CLOSURE, which IS its own implementation — there is no registry impl
 /// to find (the same arm `_resolve_dyn_trait_values` special-cases below), and
 /// every other required-type shape is not a nominal trait at all.
+_name_in :: (fn(names : ArrayList(String), n : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    if(match(names.get(i), .Some(x) => (x == n), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 _require_dyn_traits_implemented :: (
   fn(
     dyn_type : TypeValue,
@@ -199,6 +209,50 @@ _require_dyn_traits_implemented :: (
   // `dyn(box(i32(42)))` and the auto-box path arrive here as `Box(i32)`, while
   // the impl is registered against `i32` (the same unwrap the trait-value
   // resolution does before its registry lookups).
+  // Rules D4 + D9: a FUNCTION payload (`dyn(k)` into `Dyn(Fn() -> R, Send)`)
+  // holds a marker by its value — what it captures, what its code reaches —
+  // not by its type (`call_function_value_marker`). Judged BEFORE the bound
+  // type is resolved: a closure's SomeT has no concrete type to resolve to,
+  // and the early return below skipped every check for it
+  // (issues/fixed/iso-of-a-graph-holding-a-function-value-bypasses-d9.md).
+  fv_payload := _unwrap_box_for_method_lookup(value_type);
+  fv_judged_names := ArrayList(String).new();
+  match(
+    dyn_type,
+    .DynT(required_trait_types : fv_rtt) => {
+      (fvi : usize) = usize(0);
+      while(fvi < fv_rtt.len(), {
+        match(
+          fv_rtt.get(fvi),
+          .Some(fv_req) => match(
+            fv_req,
+            .TraitT(name : fv_rn) => match(
+              call_function_value_marker(fv_payload, Option(EvalValue).None, fv_req.clone(), env, ctx),
+              .Some(fvm) => {
+                fv_judged_names.push(fv_rn.clone());
+                match(
+                  fvm,
+                  .Some(fvm_o) => {
+                    fv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold this ${type_to_string(fv_payload.clone())}: ${fvm_o}.`;
+                    if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
+                      flag_flow_violation(fv_msg.clone());
+                    });
+                    exn.throw(dyn(format_error_message(token, fv_msg)));
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            ),
+            _ => ()
+          ),
+          .None => ()
+        );
+        fvi = (fvi + usize(1));
+      });
+    },
+    _ => ()
+  );
   check_ty := match(
     _dyn_bound_check_type(_unwrap_box_for_method_lookup(value_type), env),
     .Some(c) => c,
@@ -221,31 +275,8 @@ _require_dyn_traits_implemented :: (
           }
         );
         req_is_nominal := match(req, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
-        // Rules D4 + D9: a FUNCTION payload (`dyn(k)` into `Dyn(Fn() -> R,
-        // Send)`) holds a marker by its value — what it captures, what its
-        // code reaches — not by its type (`call_function_value_marker`).
-        (fv_judged : bool) = false;
-        if(req_is_nominal, {
-          match(
-            call_function_value_marker(check_ty.clone(), Option(EvalValue).None, req.clone(), env, ctx),
-            .Some(fvm) => {
-              fv_judged = true;
-              match(
-                fvm,
-                .Some(fvm_o) => {
-                  fv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold this ${type_to_string(check_ty.clone())}: ${fvm_o}.`;
-                  if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
-                    flag_flow_violation(fv_msg.clone());
-                  });
-                  exn.throw(dyn(format_error_message(token, fv_msg)));
-                },
-                .None => ()
-              );
-            },
-            .None => ()
-          );
-        });
-        if(req_is_nominal && !fv_judged && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
+        req_judged := match(req, .TraitT(name : rjn) => _name_in(fv_judged_names, rjn), _ => false);
+        if(req_is_nominal && !req_judged && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
           // Prefer the trait's declared NAME; an anonymous trait has none, and
           // `type_to_string` renders its field dump instead.
           req_name := match(req, .TraitT(name : rn) => rn.clone(), _ => String.new());

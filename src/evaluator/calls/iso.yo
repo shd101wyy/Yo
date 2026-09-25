@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_iso, t_type } :: import("../../types/creators.yo");
 { is_iso_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_reference_struct_type, is_reference_enum_type, is_function_type, is_some_type } :: import("../../types/guards.yo");
-{ resolve_struct_shell, resolve_enum_shell } :: import("../../types/creators.yo");
+{ resolve_struct_shell, resolve_enum_shell, lookup_enum_type_arguments } :: import("../../types/creators.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -107,7 +107,15 @@ _iso_function_offense :: (
     ty,
     .Struct({ id : _ }) => match(
       resolve_struct_shell(ty),
-      .Struct({ field_types : fts }) => {
+      .Struct({ field_types : fts, type_arguments : stas }) => {
+        // An instance's identity lives in its type arguments; a generic's
+        // field types may still spell the definition's `T`
+        // (`ArrayList(typeof(k))`).
+        (ta_i : usize) = usize(0);
+        while(ta_i < stas.len(), {
+          match(stas.get(ta_i), .Some(sta) => children.push(sta), .None => ());
+          ta_i = (ta_i + usize(1));
+        });
         (fi : usize) = usize(0);
         while(fi < fts.len(), {
           match(fts.get(fi), .Some(ft) => children.push(ft), .None => ());
@@ -116,9 +124,15 @@ _iso_function_offense :: (
       },
       _ => ()
     ),
-    .EnumT(_, _, _, _, _, _, _, _, _) => match(
+    .EnumT(e_id, _, _, _, _, _, _, _, _) => match(
       resolve_enum_shell(ty),
       .EnumT(_, _, _, vfs, _, _, _, _, _) => {
+        e_tas := lookup_enum_type_arguments(e_id);
+        (eta_i : usize) = usize(0);
+        while(eta_i < e_tas.len(), {
+          match(e_tas.get(eta_i), .Some(eta) => children.push(eta), .None => ());
+          eta_i = (eta_i + usize(1));
+        });
         (vi : usize) = usize(0);
         while(vi < vfs.len(), {
           match(
