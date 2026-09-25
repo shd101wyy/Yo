@@ -302,6 +302,15 @@ flush_user_warnings :: (fn(std_root : String, cache_root : String) -> unit)({
 /// extracted once at construction — the renderer never re-reads files.
 /// `help` (P3) carries an in-band repair hint ("did you mean …"); it
 /// defaults to none so P1-era construction sites stay unchanged.
+/// A span path as a person reads it: a demand-loaded module's key is a
+/// `file://` URI, which the human and short renderers print as the plain path
+/// (the JSON and SARIF renderers keep the path as recorded).
+_display_path :: (fn(p : String) -> String)(
+  cond(
+    p.starts_with(`file://`) => p.slice_copy(usize(7) .. p.len()),
+    true => p.clone()
+  )
+);
 Diagnostic :: struct(
   code : Option(String),
   severity : Severity,
@@ -477,7 +486,7 @@ _render_block :: (fn(d : Diagnostic, w : usize, color : bool, out : ArrayList(St
     row_plus1 := (d.span.row + usize(1));
     col_plus1 := (d.span.col + usize(1));
     indent := String.from(" ").repeat(w + usize(1));
-    out.push(_colorize(`${indent}--> ${d.span.path}:${row_plus1}:${col_plus1}`, _ANSI_LOCATION, color));
+    out.push(_colorize(`${indent}--> ${_display_path(d.span.path)}:${row_plus1}:${col_plus1}`, _ANSI_LOCATION, color));
     if(d.source_line.len() > usize(0), {
       out.push(_colorize(`${indent}|`, _ANSI_LOCATION, color));
       padded := `${row_plus1}`;
@@ -569,10 +578,10 @@ render_diagnostics_short :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
         match(
           d.code,
           .Some(c) => out.push(
-            `${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
+            `${_display_path(d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
           ),
           .None => out.push(
-            `${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}: ${head}`
+            `${_display_path(d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}: ${head}`
           )
         );
       },

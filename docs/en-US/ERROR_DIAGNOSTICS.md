@@ -120,11 +120,13 @@ Lines with `"severity":"warning"`, in `short` as `warning:` lines.
 
 ## Error codes and `yo explain`
 
-Messages that match a known family carry a stable `EXXXX` code in the header
-and a `help:` tail pointing at the explainer. The codes are central: the
-compiler classifies its own message vocabulary into the families, so the same
-underlying mistake always produces the same code regardless of which stage
-reports it.
+Errors of a known family carry a stable `EXXXX` code in the header and a
+`help:` tail pointing at the explainer. The code belongs to the mistake, not to
+the wording: the place that raises an error names its family, so the same
+underlying mistake produces the same code whichever stage reports it (an
+argument of the wrong type is E0601 whether it is a function argument or a
+variant payload), and rewording a message never moves its code. Errors
+without a family render without a code.
 
 ```bash
 $ yo explain E0401
@@ -147,6 +149,23 @@ Example — this fails:
 Unknown code? `yo explain` suggests the nearest registered one — the same
 edit-distance engine behind the compiler's own "did you mean" hints for
 misspelled names and enum variants.
+
+## Where an error is reported
+
+An error points at the code that caused it: the argument that does not fit its
+parameter, the field a constructor call is missing. An error raised inside the
+standard library, while checking a call you wrote, is reported at that call,
+with the standard-library location as a note:
+
+```
+error[E0602]: Type P does not implement required trait ToString.
+  --> main.yo:5:3
+  |
+5 |   println(p);
+  |   ^^^^^^^
+note: raised here, inside the standard library
+  --> /…/std/fmt/index.yo:63:50
+```
 
 ## Where diagnostics surface
 

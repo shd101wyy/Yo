@@ -470,6 +470,21 @@ byte-identity renaming check passes; the extern-opaque vacuous-trait-list rule
    call-site check; remove internal names from user text
    (`type-error-diagnostics-point-into-std-and-use-inconsistent-codes`,
    `diagnostic-codes-are-assigned-by-substring-matching-the-message-text`).
+
+   **Landed 2026-09-25.** Three mechanisms:
+   - A call written in user code reports an error raised inside std at itself, with the std
+     location as a note (`evaluate_function_call` traps the error when the call's module is not
+     std; `reanchor_primary_at`).
+   - The flow-violation channel holds the thrown `YoError`, so a definition-time re-raise keeps
+     the raise site's span, code and notes instead of the enclosing function's `{`.
+   - Raise sites name their code (`with_code`). E0401's sites do, and the loose "not found"
+     substring rule that mis-coded destructuring labels, trait fields and internal errors is
+     deleted; the other families still fall back to the classifier until converted.
+
+   New codes: E0615 (argument label mismatch) and E1103 (compile-time division by zero). E0606
+   widened to "value is not callable". All 16 findings of the issue are resolved (its table). Found
+   on the way and fixed: a `::` over a `cond`/`if` with a runtime condition passed `check`
+   (`issues/fixed/a-comptime-binding-accepts-a-cond-over-a-runtime-condition.md`).
 5. **Match usefulness as warnings.** Per-arm usefulness through the landed warnings channel
    (#846), interval reasoning for ranges, precise witnesses
    (`match-redundancy-and-range-exhaustiveness-gaps`). Coordinate with the P4 step of
