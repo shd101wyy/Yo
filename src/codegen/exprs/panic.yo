@@ -6,7 +6,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
 { get_type_string } :: import("../utils/index.yo");
-{ is_str_type, is_u8_type } :: import("../../types/guards.yo");
+{ is_str_type, is_u8_type, is_never_type, is_unit_type, is_void_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { panic, assert } :: import("std/assert");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -113,6 +113,13 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       return(codegen_fatal_expr(String.from("panic accepts 0 or 1 arguments")));
     }
   );
+  // A panic typed `never`, `unit` or `void` stands in no value slot (a
+  // statement, or every arm of its cond diverges): nothing to render after
+  // the abort. (A unit panic used to render `(*((void*)NULL))`, which C
+  // warns about as a statement.)
+  if(is_never_type(return_type) || is_unit_type(return_type) || is_void_type(return_type), {
+    return(String.new());
+  });
   // Unreachable, type-correct dummy value.
   out := String.from("(*((");
   out.push_string(get_type_string(return_type, context.base));

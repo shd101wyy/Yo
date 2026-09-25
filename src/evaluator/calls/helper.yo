@@ -61,12 +61,12 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
-{ t_unit, t_type, t_resolved_cell, clone_some_fresh } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_ptr, t_resolved_cell, clone_some_fresh } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -79,7 +79,7 @@ pragma(Pragma.AllowUnsafe);
   same_name_note,
   type_contains_some_type_deep
 } :: import("../../types/utils.yo");
-{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 {
   type_implements_future,
@@ -3223,6 +3223,12 @@ create_specialized_function_inline :: (
             .Some(sb_info) => {
               sb_ty := sb_info.ty;
               sb_ret_is_ref := match(func_type, .Func({ meta : sb_m }) => sb_m.*.result_is_ref, _ => false);
+              // A specialized body ending in a `never` expression adopts the
+              // declared result (Phase 3.6; the concrete twin is in
+              // calls/function_type.yo).
+              if(is_never_type(sb_ty) && (get_all_some_types(spec_ret_ty).len() == usize(0)), {
+                adopt_never_type(specialized_body, if(sb_ret_is_ref, t_ptr(spec_ret_ty), spec_ret_ty), ctx);
+              });
               sb_skip := (((((has_any_control_flow(sb_info.control_flow) || is_void_type(spec_ret_ty)) || is_type_hierarchy_type(spec_ret_ty)) || (get_all_some_types(spec_ret_ty).len() > usize(0))) || (get_all_some_types(sb_ty).len() > usize(0))) || sb_ret_is_ref);
               if(!(sb_skip) && !(are_types_compatible(sb_ty, spec_ret_ty)), {
                 sb_inst := String.new();

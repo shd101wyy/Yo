@@ -491,6 +491,10 @@ is_long_double_type :: (fn(t : TypeValue) -> bool)(
 is_void_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .Void => true, _ => false)
 );
+/// The bottom type `never` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.6).
+is_never_type :: (fn(t : TypeValue) -> bool)(
+  match(t_refine_inner(t), .Never => true, _ => false)
+);
 is_future_trait_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .FutureTraitT(base_name : _) => true, _ => false)
 );
@@ -806,6 +810,7 @@ export(
   is_u_long_long_type,
   is_long_double_type,
   is_void_type,
+  is_never_type,
   is_future_trait_type,
   is_concrete_trait_type,
   is_c_compatible_type,

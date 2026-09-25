@@ -13,7 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
-{ is_int_type, is_float_type, is_some_type, is_dyn_type, is_extern_type_name } :: import("./guards.yo");
+{ is_int_type, is_float_type, is_some_type, is_dyn_type, is_extern_type_name, is_never_type } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
@@ -387,6 +387,14 @@ _compat_impl :: (
     visited : ArrayList(String)
   ) -> bool
 )({
+  // --- never ------------------------------------------------------------------
+  // The bottom type flows into every type (an arm that does not complete fits
+  // any join, a call to a `-> never` function any argument slot); as an
+  // identity it is only itself, and nothing else flows into it
+  // (plans/reference/TYPE_IDENTITY.md, Phase 3.6).
+  if(is_never_type(actual), {
+    return(!(require_exact) || is_never_type(expected));
+  });
   // --- ComptimeInt widening -------------------------------------------------
   if(is_comptime_int_type(actual), {
     return(

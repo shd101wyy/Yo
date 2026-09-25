@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   is_unknown_val
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_ptr, t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
+{ t_unit, t_ptr, t_bool, t_never, resolve_enum_shell } :: import("../../types/creators.yo");
 {
   is_bool_type,
   is_enum_type,
@@ -64,7 +64,8 @@ pragma(Pragma.AllowUnsafe);
   is_comptime_int_type,
   is_comptime_float_type,
   is_comptime_string_type,
-  is_function_type_and_returns_comptime_value
+  is_function_type_and_returns_comptime_value,
+  is_never_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
@@ -73,7 +74,7 @@ pragma(Pragma.AllowUnsafe);
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
-{ merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr } :: import("../utils.yo");
+{ merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
@@ -416,6 +417,9 @@ evaluate_match :: (
   arms := ArrayList(Arm).new();
   bodies := ArrayList(AstExpr).new();
   (result_type_em : Option(TypeValue)) = Option(TypeValue).None;
+  // Arms of type `never`: no part in the join, they adopt its type after it
+  // (Phase 3.6; the cond twin is in exprs/cond.yo).
+  never_bodies_em := ArrayList(AstExpr).new();
   (has_case_without_cf_em : bool) = false;
   control_flows_em := ArrayList(ControlFlowFlags).new();
   return_bodies_em := ArrayList(AstExpr).new();
@@ -779,8 +783,11 @@ evaluate_match :: (
           );
         });
       });
-      // Result type consistency
-      if(!(has_any_control_flow(body_info.control_flow)), {
+      // Result type consistency. A `never` arm is the join's identity.
+      if(is_never_type(body_info.ty) && !(has_any_control_flow(body_info.control_flow)), {
+        never_bodies_em.push(evaluated_body);
+      });
+      if(!(has_any_control_flow(body_info.control_flow)) && !(is_never_type(body_info.ty)), {
         if(is_gadt_match_em, {
           // GADT match: verify each branch body against
           // its GADT-REFINED expected type instead of cross-branch
@@ -898,6 +905,10 @@ evaluate_match :: (
     true => Option(ControlFlowFlags).None
   );
   if(has_case_without_cf_em || !(has_any_control_flow(final_cf_em)), {
+    // Every value arm diverges: the match itself is `never`.
+    if(result_type_em.is_none() && (never_bodies_em.len() > usize(0)), {
+      result_type_em = Option(TypeValue).Some(t_never());
+    });
     if(has_case_without_cf_em && result_type_em.is_none(), {
       exn.throw(
         dyn(
@@ -1023,6 +1034,11 @@ evaluate_match :: (
       is_gadt_match_em => match(gadt_exp_em, .Some(ge_fin) => ge_fin.ty, .None => rt_em),
       true => _arm_result_type(ctx, rt_em)
     );
+    (nb_mi : usize) = usize(0);
+    while(nb_mi < never_bodies_em.len(), {
+      match(never_bodies_em.get(nb_mi), .Some(nb) => adopt_never_type(nb, result_ty_final_em, ctx), .None => ());
+      nb_mi = (nb_mi + usize(1));
+    });
     out_em := new_expr_info(env, result_ty_final_em);
     out_em.value = out_val_em;
     if(is_primitive_switch, {

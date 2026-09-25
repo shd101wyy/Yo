@@ -43,6 +43,7 @@ generate_some_type_id :: (fn() -> String)({
 (g_t_str : TypeValue) = TypeValue.Str;
 (g_t_bool : TypeValue) = TypeValue.BoolT;
 (g_t_void : TypeValue) = TypeValue.Void;
+(g_t_never : TypeValue) = TypeValue.Never;
 (g_t_i8 : TypeValue) = TypeValue.Int(u8(8), true);
 (g_t_i16 : TypeValue) = TypeValue.Int(u8(16), true);
 (g_t_i32 : TypeValue) = TypeValue.Int(u8(32), true);
@@ -76,6 +77,8 @@ t_unit :: (fn() -> TypeValue)(g_t_unit);
 t_str :: (fn() -> TypeValue)(g_t_str);
 t_bool :: (fn() -> TypeValue)(g_t_bool);
 t_void :: (fn() -> TypeValue)(g_t_void);
+/// The bottom type `never` (see `TypeValue.Never`).
+t_never :: (fn() -> TypeValue)(g_t_never);
 t_i8 :: (fn() -> TypeValue)(g_t_i8);
 t_i16 :: (fn() -> TypeValue)(g_t_i16);
 t_i32 :: (fn() -> TypeValue)(g_t_i32);
@@ -336,6 +339,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .Unit => TypeTag.TUnit,
     .BoolT => TypeTag.TBool,
     .Void => TypeTag.TVoid,
+    .Never => TypeTag.TNever,
     .Int(bits, signed) => cond(
       signed => cond(
         (bits == u8(8)) => TypeTag.TI8,
@@ -758,6 +762,7 @@ export(
   t_str,
   t_bool,
   t_void,
+  t_never,
   t_i8,
   t_i16,
   t_i32,

@@ -652,6 +652,21 @@ add(3, y : 4); // OK: Mixed (positional then named)
 add(y : 4, x : 3); // Error: Named arguments must be in order (x before y)
 ```
 
+### The `never` type
+
+`never` is the type of an expression that does not complete: `__yo_panic(...)`, or a call to a function declared `-> never`. It flows into every type, so a diverging arm fits whatever the other arms produce, and nothing else flows into `never`:
+
+```rust
+die :: (fn(msg : str) -> never)(__yo_panic(msg));
+
+pick :: (fn(flag : bool) -> i64)({
+  x := cond(flag => i32(3), true => die("unreachable"));  // x : i32
+  i64(x)
+});
+```
+
+A `-> never` function whose body can complete is rejected (`Function body has type unit, but the declared result type is never`).
+
 ### Default parameter values
 
 Default parameter values can be defined using `?=` syntax:

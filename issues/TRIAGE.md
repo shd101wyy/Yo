@@ -261,7 +261,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`s3-fs-wrappers-windows-semantics-audit.md`](./s3-fs-wrappers-windows-semantics-audit.md) | OPEN | — |
 | [`std-doc-examples-use-parenless-import-which-does-not-parse.md`](./std-doc-examples-use-parenless-import-which-does-not-parse.md) | OPEN | — |
 | [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | — | yes |
-| [`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md`](./std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md) | OPEN | — |
+| [`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md`](./std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md) | PARTIALLY FIXED 2026-09-25 | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | OPEN | — |
 | [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | — | — |
 | [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | OPEN — | yes |

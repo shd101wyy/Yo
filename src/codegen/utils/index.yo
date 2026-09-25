@@ -1348,6 +1348,8 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     .RefineT(inner, _) => get_type_string(inner, context),
     .Unit => String.from("void"),
     .Void => String.from("void"),
+    // `never` has no values; a `-> never` function returns `void` in C.
+    .Never => String.from("void"),
     .BoolT => String.from("bool"),
     .Usize => String.from("size_t"),
     .Isize => String.from("intptr_t"),
