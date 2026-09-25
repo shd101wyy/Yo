@@ -2774,15 +2774,16 @@ create_specialized_function_inline :: (
             .Func({ meta : __fm_rb }) => __fm_rb.*.param_is_ref,
             _ => ArrayList(bool).new()
           );
-          // ...and the declared `own(p)` flags: the re-bound Variable is what
-          // the specialized body's parameters-frame pass reads, and it
-          // hardcoded a non-owning binding, so an `own` parameter re-bound
-          // here lost its scope-end release.
-          decl_param_is_owning := match(
-            func_type,
-            .Func({ meta : __fm_ro }) => __fm_ro.*.param_is_owning,
-            _ => ArrayList(bool).new()
-          );
+          // The re-bind is NON-owning even for an `own(p)` parameter, and
+          // that is load-bearing, not an oversight: it re-binds only a
+          // closure parameter or one whose argument FOLDED to a constant
+          // (a struct literal, a template string), and for those the CALLER
+          // keeps its temporary and releases it after the call. An owning
+          // re-bind added a callee-side release on top — measured as corrupt
+          // `downcast` payloads and a SIGSEGV in tests/error_ergonomics
+          // (`dyn(NotFound(...))` boxes a folded struct through
+          // `box(own(value))`). Phase 2.5 of plans/TYPE_SYSTEM_SOUNDNESS.md
+          // tried the declared flag here and reverted it.
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
@@ -3027,7 +3028,7 @@ create_specialized_function_inline :: (
                 Option(EvalValue).Some(create_unknown_val(bind_pt_cl)),
                 false,
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
-                match(decl_param_is_owning.get(rbp_i), .Some(b) => b, .None => false),
+                false,
                 synthetic_token(p_label, callee_env.module_path)
               );
             }, if(cur_is_folded_const, {
@@ -3041,7 +3042,7 @@ create_specialized_function_inline :: (
                     Option(EvalValue).Some(create_unknown_val(p_ty)),
                     false,
                     match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
-                    match(decl_param_is_owning.get(rbp_i), .Some(b) => b, .None => false),
+                    false,
                     synthetic_token(p_label, callee_env.module_path)
                   );
                 },

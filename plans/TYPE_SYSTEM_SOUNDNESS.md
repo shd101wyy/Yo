@@ -280,8 +280,7 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
    specialization re-binds call `bind_parameter`. Every binding takes its flags from the
    DECLARATION: compile-time-only iff declared `comptime(...)`, `inout` → a reassignable
    reference, `own` → an owning binding. The inline arm used to guess compile-time-only from
-   whether the argument had a value, and the specialization re-binds hardcoded a non-owning `own`
-   binding. Two user-visible bugs were copies of the rule drifting apart:
+   whether the argument had a value. Two user-visible bugs were copies of the rule drifting apart:
    `issues/fixed/a-free-function-call-accepts-an-already-moved-argument.md` (a use-after-move;
    the inline arm had no 4a) and
    `issues/fixed/a-folded-comptime-integer-argument-to-a-method-is-lowered-to-i32.md` (`h.g(100 +
@@ -291,7 +290,10 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
    The `try_to_call` path binds the declared type after synthesis, and the inline arm binds the
    argument's type. The explicit `generic(...)` application check exists only on the inline arm,
    which is the only path that accepts one. An `undefined` argument's substituted default is not
-   a caller expression and skips the ownership rule.
+   a caller expression and skips the ownership rule. The specialization re-binds of a closure parameter, or of one
+   whose argument folded to a constant, stay NON-owning even for `own(p)`. The caller keeps and
+   releases that temporary, and binding with the declared flag was tried and measured as a
+   double release (corrupt `downcast` payloads in `tests/error_ergonomics`).
 6. **Associated types in free-fn `where`.** Execute `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
    on top of step 4, because both are about binding a variable from a bound.
 
