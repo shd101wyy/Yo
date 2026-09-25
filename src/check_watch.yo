@@ -430,4 +430,30 @@ run_check_watch :: (
     ()
   });
 });
-export(watch_round, run_watch_once, run_check_watch, watch_snapshot, wait_for_change);
+/// `yo build --watch`'s round preparation: drop every changed file's module
+/// and its reverse import closure (B1 + B2) from the warm module cache, so the
+/// round's in-process artifact compiles re-read them. Without it the round
+/// reused the cached module of an edited IMPORT, so the rebuilt binary kept
+/// the old code and a broken import still built
+/// (issues/fixed/build-watch-reuses-a-stale-imported-module.md). Returns how
+/// many cached modules were dropped.
+invalidate_changed_files :: (fn(changed : ArrayList(String), std_path : String) -> usize)({
+  (total : usize) = usize(0);
+  (ci : usize) = usize(0);
+  while(ci < changed.len(), {
+    match(
+      changed.get(ci),
+      .Some(p) => {
+        // Same canonicalization as watch_round: the cache keys absolute
+        // `file://` paths, and `mm_invalidate_document` re-prefixes it.
+        p_key := mm_resolve_entry_abs(p.clone(), std_path.clone());
+        dropped := mm_invalidate_document(p_key.replace(String.from("file://"), String.new()));
+        total = (total + dropped.len());
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  total
+});
+export(watch_round, run_watch_once, run_check_watch, watch_snapshot, wait_for_change, invalidate_changed_files);

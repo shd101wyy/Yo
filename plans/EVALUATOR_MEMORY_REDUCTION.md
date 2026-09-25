@@ -595,7 +595,7 @@ problem is what stays, not what is allocated.
 | Share live `Frame` handles into def-time envs                | `issues/env-sharing-live-frame-membership-leak.md` | frames append in place → membership leaks → statements silently dropped from the C      |
 | `Frame.where_clause_constraints` eager HashMap               | `backlog/YO_SELF_ENV_SHARING.md` §4            | 157 k frames × 496 B ≈ 78 MB, not GB                                                       |
 | An arena / bump allocator for the compiler                   | `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`       | the footprint is retention; a no-free region turns 1.5 B gross constructions into ~150 GB  |
-| Owner-purge the specialization cache on LSP invalidation     | §5 Phase 1 step 5 (2026-09-25)                 | 5-round `yo lsp` 0.98 vs 0.99 GB: stable type ids make re-evaluation HIT the old entries (124 flat in a focused test) |
+| Owner-purge the specialization cache on LSP invalidation (as a MEMORY lever) | §5 Phase 1 step 5 (2026-09-25)                 | 5-round `yo lsp` 0.98 vs 0.99 GB: stable type ids make re-evaluation HIT the old entries (124 flat in a focused test). Landed anyway the same day for CORRECTNESS: #883's per-fid purge dropped function types the cache still handed back, and a `build --watch` round emitted an untranspiled call (`issues/fixed/build-watch-reuses-a-stale-imported-module.md`) |
 
 ---
 

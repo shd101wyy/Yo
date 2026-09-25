@@ -271,11 +271,20 @@ What a round does, so you can predict the row you will land in:
   sequence and add the shape to `tests/internal/check_watch.test.yo`.
 - `--watch-once` is the harness form: paths on stdin (one per line), one
   round, exit code = failures.
+- **An owner purge in `mm_invalidate_document` must cover every cache that
+  can hand back what it drops.** `check`, `check --watch` and `yo lsp` never
+  run codegen after an invalidation, so a purge that leaves a cache pointing
+  at deleted state passes all of them; only a `build --watch` round after an
+  edit catches it (#883's per-fid purge vs the specialization cache,
+  `issues/fixed/build-watch-reuses-a-stale-imported-module.md`). Smoke a new
+  purge with a two-module `yo build --watch` project: edit the import, break
+  it, revert it, and run the binary after each round.
 - The process accumulates every round's evaluator universe; expect its RSS to
   grow across a long session and restart it when the machine gets tight.
 
-**`yo build --watch`** does the same for a project: artifacts recompile
-in-process against the warm module cache, the `cc` leg stays a child process,
+**`yo build --watch`** does the same for a project: each round first
+invalidates the changed files (`invalidate_changed_files`), then artifacts
+recompile in-process against the warm module cache, the `cc` leg stays a child process,
 and the artifact stamp (`<output>.inputs-sha256`, "Incremental builds" in
 `docs/en-US/BUILD_SYSTEM.md`) still decides whether an artifact needs
 compiling at all. `--profile` prints `profile: watch round N <ms> rss=…MB`

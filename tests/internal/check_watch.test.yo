@@ -11,7 +11,7 @@
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
-{ watch_round } :: import("../../src/check_watch.yo");
+{ watch_round, invalidate_changed_files } :: import("../../src/check_watch.yo");
 { mm_load_file, mm_invalidate_document, mm_definitions_changed, mm_revalidate_plan, resolve_std_path } :: import("../../src/module_manager.yo");
 { force_pending_count, PendingDef, set_retain_walk_contexts, finished_walk_for } :: import("../../src/evaluator/context.yo");
 { AstExpr } :: import("../../src/expr.yo");
@@ -621,4 +621,49 @@ test("Phase 3 re-bind: an ordered statement that computed with the old value fal
   io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
   failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
   assert(failed == usize(0), `ordered-reader round must not fail: ${failed.to_string()}`);
+});
+
+// Regression (issues/fixed/build-watch-reuses-a-stale-imported-module.md):
+// `yo build --watch` compiles each round in process against the warm module
+// cache, which does not re-read a file on load. The watch loop never
+// invalidated anything, so an edited IMPORT was served from the cache: the
+// rebuilt binary kept the old code and a broken import still built. The loop
+// now calls `invalidate_changed_files` on the round's changed paths first.
+test("build --watch: invalidate_changed_files makes an edited import re-read on the next load", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  set_retain_walk_contexts(true);
+  dir := `/tmp/yo_check_watch_fixture_build_watch`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  reader_path := `${dir}/reader.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(reader_path.clone()), String.from(_RB_READER), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_RB_APP), io), ioexn);
+  std_path := resolve_std_path();
+  _r1 := mm_invalidate_document(lib_path.clone());
+  _r2 := mm_invalidate_document(reader_path.clone());
+  _r3 := mm_invalidate_document(app_path.clone());
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app load should pass");
+  reader_key := `file://${reader_path}`;
+  assert(_def_int_value(reader_key.clone(), String.from("doubled")) == "2", "doubled starts at 2");
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
+  // The premise the watch loop has to handle: the warm cache serves the
+  // edited import unchanged until something invalidates it.
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "a warm reload should pass");
+  assert(_def_int_value(reader_key.clone(), String.from("doubled")) == "2", "without invalidation the cache still serves the old import");
+  changed := ArrayList(String).new();
+  changed.push(lib_path.clone());
+  dropped := invalidate_changed_files(changed, std_path.clone());
+  assert(dropped >= usize(2), `the edited import and its importer must leave the cache, dropped ${dropped.to_string()}`);
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "the reload after invalidation should pass");
+  after := _def_int_value(reader_key.clone(), String.from("doubled"));
+  assert(after == "4", `the reloaded importer must see helper() == 2, so doubled == 4, got ${after}`);
 });
