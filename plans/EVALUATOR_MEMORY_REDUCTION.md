@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `cap_vals` value snapshots (~190 MB, §0.14 — they are snapshots, not live cells, so they need their own design), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). (§0.13) Derived FuncVals take only their parent's aligned handles and store no flat capture names/types: 2,069 → 1,551 MB. (§0.14) Capture handles are slices of the frames' own lists: ≈ −170 MB more. (§0.15) One-shot commands record no owner logs: ≈ 62 MB of key copies by the census. Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next: the `cap_vals` value snapshots (~190 MB, §0.14 — they are snapshots, not live cells, so they need their own design), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1688,6 +1688,30 @@ the method registries and memos) are the remaining per-FuncVal copies. A value
 snapshot is not the live cell: a forward-declared comptime fn filled later is a
 `VarRef` at capture time, and codegen's collection walks these values. So the
 value side needs its own design rather than riding on the slices.
+
+### 0.15 One-shot commands record no owner logs (2026-09-26)
+
+Phase 1 step 5 made every registry write record its key under the module
+being loaded (`OwnedKeys`, `record_owned_expr_id`, `record_owned_func_id`), so
+`mm_invalidate_document` can purge an edited module's entries. Only `yo lsp`,
+`check --watch` / `--watch-once`, `build --watch` and `yo fix` invalidate. A
+one-shot `check`, a top-level `compile` (every `build` child and `test`
+batch), `doc` and `verify` still paid for the logs. That meant a private copy
+of every string key: the census's `ArrayList(u8)` row carries 1.4–3.6 KB
+`type_intern` keys among them.
+
+`set_owner_logs_enabled` (`src/utils.yo`) switches all three logs off; the
+entry points above call it with `false` (`run_check` with `watch ||
+watch_once`), and the default stays on, so every other entry point (in-process
+watch rebuilds, the internal tests) keeps them. The capture-handle owner list
+(`g_funcval_cap_owners`) is left alone: it holds one `usize` per FuncVal.
+
+The holder census attributes **≈ 62 MB** of `check src/main.yo` to the logs.
+The interleaved macOS A/B (1,726 / 1,551 MB base, 1,633 / 1,633 MB new) is inside
+the ~180 MB footprint noise, so the Linux ratchet is the measure. Emitted C
+byte-identical. Test: `tests/internal/module_invalidation.test.yo` "owner logs: a
+one-shot command records none, an invalidating one does" (red with the three
+guards removed).
 
 ## 6. Gates (every phase)
 
