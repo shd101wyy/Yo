@@ -3943,6 +3943,9 @@ _evaluate_funcval_runtime_call :: (
       },
       _ => false
     );
+    if(debug_knob(`YO_DEBUG_P26`).is_some() && spec_fid.contains("9683631412907352354"), {
+      eprintln(`[p26-fv] mint_closure=${ou_mint_closure_ret} resolved_ret=${type_to_string(resolved_ret)} mint=${match(get_func_type(spec_fid.clone()), .Func({ result : dmr }) => type_to_string(dmr), _ => String.from("?"))} nfa=${spec_forall_args.len().to_string()}`);
+    });
     if((ou_spec_comptime_params || ou_ret_lenvar) || ou_mint_closure_ret, {
       // COMPTIME-PARAM callee: this arm's `resolved_ret` came from the
       // DECLARED return (no foralls to substitute), which is the DEF-ERA
@@ -4011,6 +4014,9 @@ _evaluate_funcval_runtime_call :: (
     // return either (the value-generic counterpart of the SomeT rule).
     is_ret_regression := (((cand_ret_somes > usize(0)) && (base_ret_somes == usize(0))) || _type_has_array_len_var(resolved_ret));
     spec_ty_fixed := if(is_ret_regression, base_spec_ty, spec_ty_candidate);
+    if(debug_knob(`YO_DEBUG_P26`).is_some() && spec_fid.contains("9683631412907352354"), {
+      eprintln(`[p26-fv-reg] regression=${is_ret_regression} final=${match(spec_ty_fixed, .Func({ result : dfr }) => type_to_string(dfr), _ => String.from("?"))}`);
+    });
     if(!(is_ret_regression), {
       register_func_type(spec_fid.clone(), spec_ty_fixed);
     });
