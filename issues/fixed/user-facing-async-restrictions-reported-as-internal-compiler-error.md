@@ -1,6 +1,6 @@
 # A user's typo in an `io.async` body is reported as `internal compiler error … This is a bug in the Yo compiler, not in your program`
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-25 (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.1). See "Resolution" at the end.
 **Severity:** api-lie. Four documented, deliberate, user-facing async
 restrictions are printed with the ICE prefix and a "please file a bug against
 the compiler" URL. They also lose their E-code, their caret/source line, and
@@ -237,3 +237,26 @@ and fail `yo compile --skip-c-compiler` with an internal compiler error:
      })
    );
    ```
+
+## Resolution (2026-09-25, Phase 4.1)
+
+- The splitter's placement rules are user errors, not internal ones. `codegen_user_error(tok, msg)`
+  (`src/codegen/constants.yo`) builds a `YoError` from the user's token, so the CLI prints the code,
+  the caret and the source line, and honours `--error-format`. The async state-machine emitters
+  (`src/codegen/async/state_code_gen.yo`, `src/codegen/exprs/async.yo`) and the `inout(name) :=`
+  binding (`src/codegen/exprs/init_assignment.yo`) use it. The internal `where` prefix is gone from
+  the text.
+- `inout(name) := …` inside an `io.async` body that awaits is now checked by the evaluator
+  (`first_inout_binding_in_async_body`, `src/evaluator/async/await_analysis.yo`; the check runs in
+  `anonymous_function.yo` right after the await analysis). `yo check` reports it; it used to surface
+  only at `compile`.
+- E0904 names the family again: the classifier (`src/error.yo`) matches the reworded placement
+  messages, and the registry entry exists.
+- A plain typo in an async body is a coded E0905 error, not an internal compiler error.
+
+Regression tests (CLI goldens):
+- `tests/cli-cases/async-await-in-an-operand`
+- `tests/cli-cases/async-awaiting-match-constant-pattern`
+- `tests/cli-cases/async-inout-binding-is-checked`
+- `tests/cli-cases/async-body-typo-is-not-an-ice`
+- `tests/cli-cases/await-in-later-cond-branch` (golden updated)

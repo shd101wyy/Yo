@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 230 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 227 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -28,15 +28,15 @@ Three things are worth knowing before trusting any row.
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
 | CI/Release/Build | 14 | 1 |
-| Async / effects | 32 | 9 |
+| Async / effects | 31 | 9 |
 | Codegen / emitted C | 21 | 3 |
 | Evaluator / types | 25 | 4 |
 | Std library | 55 | 14 |
-| Tooling (fmt/doc/lsp) | 15 | 1 |
+| Tooling (fmt/doc/lsp) | 14 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 48 | 13 |
-| **Total** | **230** | **47** |
+| Other | 47 | 13 |
+| **Total** | **227** | **47** |
 
 ## Cross-cutting buckets
 
@@ -140,7 +140,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (32)
+### Async / effects (31)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -154,7 +154,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`async-cond-value-with-await-arm-inside-while-yields-zero.md`](./async-cond-value-with-await-arm-inside-while-yields-zero.md) | — | — |
 | [`async-cond-value-with-throwing-arm-after-await-undeclared-temp.md`](./async-cond-value-with-throwing-arm-after-await-undeclared-temp.md) | — | — |
 | [`async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`](./async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md) | — | — |
-| [`async-loop-body-temp-drops-leak-one-allocation-per-iteration.md`](./async-loop-body-temp-drops-leak-one-allocation-per-iteration.md) | — | — |
 | [`async-nested-cond-await-duplicate-while-labels.md`](./async-nested-cond-await-duplicate-while-labels.md) | — | — |
 | [`async-postwhile-multiple-await-ifs.md`](./async-postwhile-multiple-await-ifs.md) | OPEN — std uses ONE post-cond awaiting `if` | — |
 | [`async-sm-fn-typed-local-across-suspension.md`](./async-sm-fn-typed-local-across-suspension.md) | — | — |
@@ -293,7 +292,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | — | — |
 
-### Tooling (fmt/doc/lsp) (15)
+### Tooling (fmt/doc/lsp) (14)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -307,7 +306,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`template-string-backslash-before-interpolation-eats-both.md`](./template-string-backslash-before-interpolation-eats-both.md) | — | — |
 | [`template-string-nested-inside-an-interpolation-fails-to-parse.md`](./template-string-nested-inside-an-interpolation-fails-to-parse.md) | — | — |
 | [`test-runner-std-path-shadowed-by-binary-tree-std.md`](./test-runner-std-path-shadowed-by-binary-tree-std.md) | — | — |
-| [`user-facing-async-restrictions-reported-as-internal-compiler-error.md`](./user-facing-async-restrictions-reported-as-internal-compiler-error.md) | OPEN | — |
 | [`yo-doc-document-private-flag-is-a-no-op.md`](./yo-doc-document-private-flag-is-a-no-op.md) | OPEN — found 2026-09-14 while fixing | — |
 | [`yo-doc-renders-std-prelude-as-an-empty-module.md`](./yo-doc-renders-std-prelude-as-an-empty-module.md) | — | — |
 | [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | open | — |
@@ -343,7 +341,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (48)
+### Other (47)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -384,7 +382,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md`](./runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md) | — | — |
 | [`tier1-check-std-now-requires-a-z3-solver.md`](./tier1-check-std-now-requires-a-z3-solver.md) | — | — |
 | [`type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md`](./type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md) | OPEN | — |
-| [`unknown-struct-field-has-no-diagnostic.md`](./unknown-struct-field-has-no-diagnostic.md) | OPEN | — |
 | [`unknown-type-argument-in-typed-binding-reports-expected-comptime.md`](./unknown-type-argument-in-typed-binding-reports-expected-comptime.md) | — | — |
 | [`verifier-contracted-generic-fn-is-silently-unverified.md`](./verifier-contracted-generic-fn-is-silently-unverified.md) | — | — |
 | [`verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md`](./verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md) | open | — |
