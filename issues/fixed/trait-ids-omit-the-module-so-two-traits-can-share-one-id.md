@@ -101,7 +101,7 @@ export(V);
 Importing both as `V1`/`V2` gives `Type.eq(typeof(V1), typeof(V2)) = 1`. Adding one blank line
 above `V` in `m2.yo` gives `eq=0`. (`Type.is_compatible_with` is 1 in both cases, which is the
 separate anonymous-wildcard bug in
-`issues/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`.)
+`issues/fixed/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`.)
 
 Position-keyed ids also make C type names follow the source position: adding one comment line
 above `P :: struct(...)` changed its C name from `__yo_t_2236567100777795219` to

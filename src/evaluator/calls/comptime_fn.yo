@@ -117,6 +117,28 @@ _has_abstract_some :: (fn(ty : TypeValue) -> bool)({
 /// falls back to pairwise era-equal variant FIELD lists. Concrete same-shape
 /// but different-ctor types still take the EXACT fallback (the MapEntry/ME
 /// cache-collision hazard).
+/// Equal struct ids decide identity only when the two sides' recorded type
+/// arguments agree pairwise: `substitute()` keeps the declaration's id on every
+/// instantiation, so `Iter(usize)` and `Iter(String)` share one
+/// (issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md). A recursive
+/// struct's self-shell shares both the id and the arguments, so it still unifies.
+_ctfe_same_id_type_args_agree :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> bool)({
+  a_ta := match(aty, .Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
+  b_ta := match(bty, .Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
+  if(a_ta.len() != b_ta.len(), {
+    // One era recorded its arguments and the other did not (a pattern-era
+    // copy): the id is all there is to go on.
+    return((a_ta.len() == usize(0)) || (b_ta.len() == usize(0)));
+  });
+  (i : usize) = usize(0);
+  while(i < a_ta.len(), {
+    if(!(_ctfe_types_era_equal(match(a_ta.get(i), .Some(t) => t, .None => t_unit()), match(b_ta.get(i), .Some(t) => t, .None => t_unit()), d + usize(1))), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
 _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> bool)({
   if(d > usize(6), {
     return(are_types_compatible_exact(aty, bty));
@@ -124,7 +146,7 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
   a_sid := match(aty, .Struct({ id : x }) => x, _ => String.from(""));
   b_sid := match(bty, .Struct({ id : x }) => x, _ => String.from(""));
   if((a_sid.len() > usize(0)) && (a_sid == b_sid), {
-    return(true);
+    return(_ctfe_same_id_type_args_agree(aty, bty, d));
   });
   a_eid := match(aty, .EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
   b_eid := match(bty, .EnumT(x, _, _, _, _, _, _, _, _) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
@@ -246,7 +268,7 @@ _ctfe_args_equal :: (
         a_enum_id := match(aty, .EnumT(ae_id, _, _, _, _, _, _, _, _) => ae_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
         b_enum_id := match(bty, .EnumT(be_id, _, _, _, _, _, _, _, _) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
         cond(
-          ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => true,
+          ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => _ctfe_same_id_type_args_agree(aty, bty, usize(0)),
           ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => true,
           // Both bare SomeT: must be the exact same id
           (a_is_some && b_is_some) => (

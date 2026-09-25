@@ -380,6 +380,21 @@ comptime_assert(Type.neq(A, B), "different definitions, not equal");
 
 `Type.eq` uses exact match with no coercion. `Type.is_compatible_with` allows implicit coercion like `comptime_int` → `i32`.
 
+What counts as the same type:
+
+- A named `struct`, `enum`, `union` or `newtype` is equal only to itself. Two declarations with the same fields are two types, and so are two modules' types that share a name.
+- An anonymous record (`struct(x : i32)`) is equal to another anonymous record with the same kind, field labels and field types. It is never equal to a named struct. It is still *compatible* with a named struct that has the same fields, so `(a : A) = { x : i32(1) }` works.
+- A tuple is equal to a tuple with the same labels and field types. A tuple literal is compatible with a labelled tuple of the same arity.
+- `Dyn(A, B)` is equal to `Dyn(B, A)` and not to `Dyn(A)`.
+
+The answers do not depend on which questions were asked earlier in the program.
+
+```rust
+comptime_assert(Type.eq(struct(x : i32), struct(x : i32)), "two anonymous records with the same fields");
+comptime_assert(Type.neq(struct(x : i32), A), "an anonymous record is not A");
+comptime_assert(Type.is_compatible_with(struct(x : i32), A), "but it flows into A");
+```
+
 ### Type.join_fields
 
 Map each field of a struct to an `Expr` and combine them with a binary operator:

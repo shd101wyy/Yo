@@ -702,9 +702,14 @@ _ti_eval_code :: (
   env_ptr.input_string = result_info.env.input_string;
   result_info.value
 });
-/// Build a ComptimeList from EvalValues.  If values is non-empty, the element
-/// type is inferred from the first value; otherwise `type_name` is evaluated to
-/// obtain the element type.  Binds the list to a fresh temp var and returns its name.
+/// Build a ComptimeList from EvalValues. The element type is the DECLARED
+/// `type_name` (`VariantInfo`, `TypeFieldInfo`, ...), evaluated in the env.
+/// It used to be `type_of_eval_value` of the first value, which rebuilds a
+/// struct type from field VALUES: no id, `comptime_int` for a `usize` field,
+/// `unit` for a list. Only the empty-name wildcard in struct compatibility let
+/// that stand-in pass for the declared struct
+/// (plans/reference/TYPE_IDENTITY.md). Binds the list to a fresh temp var and
+/// returns its name.
 _ti_bind_comptime_list :: (
   fn(
     env_ptr : Environment,
@@ -715,8 +720,7 @@ _ti_bind_comptime_list :: (
     exn : Exception
   ) -> String
 )({
-  elem_type := if(values.len() > usize(0), match(values.get(usize(0)), .Some(v) => type_of_eval_value(v), .None => t_unit()), {
-    // Evaluate the type name to discover the element type.
+  elem_type := {
     type_ast := generate_expr_from_code(type_name.clone(), exn);
     old_force := ctx.force_compile_time_bindings;
     ctx.force_compile_time_bindings = true;
@@ -736,7 +740,7 @@ _ti_bind_comptime_list :: (
       .Some(v) => match(v, .TypeVal(tv) => tv, _ => t_unit()),
       .None => t_unit()
     )
-  });
+  };
   list_type := t_comptime_list(elem_type);
   list_val := EvalValue.ComptimeListVal(values);
   name_str := stable_module_id(`__ti_${var_prefix}_`, env_ptr.module_path);
@@ -1007,13 +1011,20 @@ _ti_bind_function_info :: (
   fni_code.push_string(implicits_name);
   fni_code.push_str(", false)");
   fni_name := stable_module_id(String.from("__ti_fni_"), env_ptr.module_path);
+  // Bind with the DECLARED `FunctionInfo` type, not a reconstruction from the
+  // value's fields (see `_ti_bind_comptime_list`).
+  fni_declared_ty := match(
+    _ti_eval_code(env_ptr, String.from("FunctionInfo"), ctx, exn),
+    .Some(fni_tv) => match(fni_tv, .TypeVal(fni_tb) => Option(TypeValue).Some(fni_tb), _ => Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  );
   match(
     _ti_eval_code(env_ptr, fni_code, ctx, exn),
     .Some(v) => {
       _add := add_variable_to_env(
         env_ptr,
         fni_name.clone(),
-        type_of_eval_value(v),
+        match(fni_declared_ty, .Some(dt) => dt, .None => type_of_eval_value(v)),
         Option(EvalValue).Some(v),
         true,
         false,

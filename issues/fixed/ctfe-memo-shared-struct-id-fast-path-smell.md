@@ -1,8 +1,8 @@
 # The CTFE memo's raw-id fast paths rest on a false invariant (NOT reproduced)
 
-**Status:** OPEN as a hardening opportunity — **no reproducer found**. Filed so
-the next person does not re-derive the theory, and does not chase it as a live
-bug either.
+**Status:** HARDENED 2026-09-25 (Phase 3.4 of `plans/TYPE_SYSTEM_SOUNDNESS.md`), still with no
+direct reproducer: the "smallest sound hardening" below is what landed. Filed originally so the next
+person does not re-derive the theory.
 **Found:** 2026-08-25, while fixing
 issues/fixed/nested-same-adaptor-instantiation-identity-split.md.
 
@@ -72,4 +72,13 @@ serves many instantiations. That is a campaign, not a patch.
 The type-system audit reproduced order-dependent memo merging through a different predicate, the
 `are_types_compatible_exact` fallback in `_ctfe_args_equal`: an anonymous struct merges with a
 named one, and `fn(inout(x) : i32)` merges with `fn(x : i32)` (SIGSEGV). See
-`issues/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md`.
+`issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md`.
+
+## Hardening (2026-09-25)
+
+`src/evaluator/calls/comptime_fn.yo`, `_ctfe_same_id_type_args_agree`: in both fast paths
+(`_ctfe_types_era_equal` and `_ctfe_args_equal`), equal struct ids decide identity only when the
+two sides' recorded `type_arguments` are pairwise era-equal. A side that recorded none (a
+pattern-era copy) still matches on the id, and the enum `__self_shell` strip is untouched. It
+landed with the Phase 3.2/3.4 battery. The full-fix note above (instantiation-unique ids) is
+Phase 3.3/3.8's business.

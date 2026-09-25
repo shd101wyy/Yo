@@ -94,7 +94,7 @@ is a generic instantiation (a constructor id) and the other is a declared non-ge
 stamped name, no constructor id), or when both are instantiations of different constructors. This
 is the part of Phase 3.2 ("an empty name is no longer a wildcard") that the construction check
 needs; the rest of 3.2 stays with
-`issues/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`.
+`issues/fixed/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md`.
 
 ## Verification
 

@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
-{ type_value_tag, resolve_enum_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
+{ type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get, lookup_enum_type_arguments } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_extern_type_name } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
@@ -368,6 +368,17 @@ _pop_alpha_pairs :: (fn(n : usize) -> unit)({
     _d := g_alpha_pairs.drain((g_alpha_pairs.len() - n) .. g_alpha_pairs.len());
   });
 });
+/// `t` was an empty-field struct shell and `resolved` is its populated final.
+_is_resolved_shell :: (fn(t : TypeValue, resolved : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct({ field_types : tfts }) => (
+      (tfts.len() == usize(0))
+      && match(resolved, .Struct({ field_types : rfts }) => (rfts.len() > usize(0)), _ => false)
+    ),
+    _ => false
+  )
+);
 _compat_impl :: (
   fn(
     actual : TypeValue,
@@ -654,7 +665,41 @@ _compat_impl :: (
               return(true);
             });
           },
-          .None => ()
+          // An UNRESOLVED SomeType in the actual slot is a placeholder too
+          // (lenient only), mirroring the concrete-vs-SomeType rule above:
+          // the argument check's Step 8 passes (param, arg), so a parameter
+          // type still open after synthesis meets the concrete argument here
+          // (`List(MapEntry(K, V))` against `List(MapEntry(i32, i32))` in
+          // std/imm/sorted_map.yo's `_collect_entries` recursion). It accepts
+          // a concrete type that satisfies every bound not mentioning the
+          // SomeType itself. The empty-name struct wildcard used to accept
+          // such pairs one level up without looking inside
+          // (plans/reference/TYPE_IDENTITY.md). An extern opaque type is a
+          // concrete C type wearing a SomeType and stays itself only.
+          .None => if(!(require_exact) && !(_is_extern_some(actual)), {
+            a_reqs := match(actual, .SomeT(required_trait_types : a_rq) => a_rq, _ => ArrayList(TypeValue).new());
+            if(a_reqs.len() == usize(0), {
+              return(true);
+            });
+            match(
+              g_compat_type_implements_trait_fn,
+              .Some(a_impl_check) => {
+                (a_all_ok : bool) = true;
+                (a_ri : usize) = usize(0);
+                while((a_ri < a_reqs.len()) && a_all_ok, {
+                  a_req := match(a_reqs.get(a_ri), .Some(v) => v, .None => TypeValue.Unit);
+                  if(!(_bound_mentions_some(a_req, actual)) && !(a_impl_check(expected, a_req)), {
+                    a_all_ok = false;
+                  });
+                  a_ri = (a_ri + usize(1));
+                });
+                if(a_all_ok, {
+                  return(true);
+                });
+              },
+              .None => ()
+            );
+          })
         );
       },
       _ => ()
@@ -693,6 +738,19 @@ _compat_impl :: (
   // --- Tag mismatch ---------------------------------------------------------
   if(type_value_tag(actual) != type_value_tag(expected), {
     return(false);
+  });
+  // --- Struct self-shells ---------------------------------------------------
+  // A recursive struct's `Self` is an empty-field shell sharing its final's id
+  // (types/creators.yo). The empty-name wildcard used to let a shell match
+  // anything; without it a shell must be compared AS its final, or `Node(i32)`
+  // (a shell) would disagree with `Node(T)` on the field count
+  // (plans/reference/TYPE_IDENTITY.md). A shell whose final is not yet
+  // registered (inside its own definition) stays a shell, and the exact arm
+  // compares it by id.
+  a_final := resolve_struct_shell(actual);
+  e_final := resolve_struct_shell(expected);
+  if(_is_resolved_shell(actual, a_final) || _is_resolved_shell(expected, e_final), {
+    return(recur(a_final, e_final, require_exact, visited));
   });
   // --- Main structural match ------------------------------------------------
   match(
@@ -752,9 +810,14 @@ _compat_impl :: (
         while(i < n, {
           at := match(atypes.get(i), .Some(v) => v, .None => TypeValue.Unit);
           et := match(etypes.get(i), .Some(v) => v, .None => TypeValue.Unit);
-          // Labels are deliberately NOT compared — a Tuple is a structural
-          // type, so `(1, 3.4, true)` flows into `Tuple(a : i32, b : f64,
-          // c : bool)`.
+          // Labels are deliberately NOT compared for flow — a Tuple is a
+          // structural type, so `(1, 3.4, true)` flows into `Tuple(a : i32,
+          // b : f64, c : bool)`. They ARE part of its identity (the codegen
+          // key spells them), so the exact relation compares them: the CTFE
+          // memo must not answer `Tuple(c : i32)` with `Tuple(a : i32)`.
+          if(require_exact && (match(alabels.get(i), .Some(l) => l, .None => ``) != match(elabels.get(i), .Some(l) => l, .None => ``)), {
+            return(false);
+          });
           if(!(recur(at, et, require_exact, visited)), {
             return(false);
           });
@@ -904,8 +967,33 @@ _compat_impl :: (
               || (((ecfid.len() > usize(0)) && (acfid.len() == usize(0))) && (aname.len() > usize(0)))
             )
           ) => false,
-          (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) => true,
-          ((!(type_contains_some_type(actual)) && !(type_contains_some_type(expected))) && !((acfid.len() > usize(0)) && (acfid == ecfid))) => false,
+          // One declaration (or an era of it): the type-argument check above
+          // already told its instantiations apart.
+          ((aid.len() > usize(0)) && (aid == eid)) => true,
+          // Two instantiations of ONE generic constructor where a side is
+          // still generic: its fields are the constructor's fields at the
+          // type arguments, and the type-argument check above already
+          // rejected every concrete disagreement, so the fields have nothing
+          // left to say. Comparing them anyway sent each open SomeT to a
+          // leaf comparison against the other side's type parameter at
+          // another frame (`MapLeaf(K, V)` from `_branch_child_at` against
+          // `_all_entries_match`'s own `MapLeaf(K, V)` in std/imm/map.yo),
+          // which a placeholder cannot answer. The empty-name wildcard this
+          // replaces accepted such pairs by accident; this accepts them
+          // because the constructor says so (plans/reference/TYPE_IDENTITY.md).
+          ((((acfid.len() > usize(0)) && (acfid == ecfid)) && (ata.len() == eta.len())) && ((get_all_some_types(actual).len() > usize(0)) || (get_all_some_types(expected).len() > usize(0)))) => true,
+          // Two DIFFERENT declarations are one type under the lenient rule
+          // only when their shapes agree. An empty name used to be a
+          // wildcard and an equal name a pass, so an anonymous record with
+          // other fields flowed into a named struct, and two modules' `P`
+          // with different fields were interchangeable
+          // (issues/fixed/struct-compatibility-accepts-a-name-match-or-an-anonymous-wildcard.md).
+          // The kind is part of the shape: a value struct, a `ref` object, an
+          // atomic object and a `newtype` are four different things. A side
+          // still carrying a SomeT is a def-time placeholder and keeps the
+          // structural comparison below.
+          ((((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) && (((aref != eref) || (aatomic != eatomic)) || (anew != enew))) => (type_contains_some_type(actual) || type_contains_some_type(expected)),
+          ((!(type_contains_some_type(actual)) && !(type_contains_some_type(expected))) && ((((aname != ename) && (aname.len() > usize(0))) && (ename.len() > usize(0))) && !((acfid.len() > usize(0)) && (acfid == ecfid)))) => false,
           (alabels.len() != elabels.len()) => false,
           true => {
             vkey_ne := ((aid + String.from("=>ne")) + eid);
@@ -956,7 +1044,7 @@ _compat_impl :: (
           });
           ta_differ
         }) => false,
-        (aid == eid) => true,
+        ((aid.len() > usize(0)) && (aid == eid)) => true,
         // Self-SHELL identity (exact only): a struct self-shell is an
         // EMPTY-FIELDS, empty-name struct sharing its FINAL's struct_id
         // (struct.yo:76-95) — "distinguished from the final purely by its
@@ -1034,6 +1122,16 @@ _compat_impl :: (
         // closure's cached Box instantiation ("passing __yo_t32 to parameter
         // of incompatible type __yo_t26", the fn dyn-manual-boxing batch).
         (aid.starts_with("capture_") && eid.starts_with("capture_")) => (aid == eid),
+        // A NAMED declaration is never the same type as a different,
+        // anonymous one, however alike their fields: `A :: struct(x : i32)`
+        // and a `struct(x : i32)` expression. Treating them as one let the
+        // CTFE memo answer `Type.eq(A, B)` from an earlier
+        // `Type.eq(struct(x : i32), struct(x : i32))`, and hand `Wrap(A)` the
+        // `Wrap(struct(x : i32))` instance
+        // (issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md).
+        // Limited to non-generic declarations: an instantiation's unstamped
+        // copy may legitimately be nameless.
+        (((((aname.len() == usize(0)) != (ename.len() == usize(0))) && ((ata.len() == usize(0)) && (eta.len() == usize(0)))) && ((acfid.len() == usize(0)) && (ecfid.len() == usize(0)))) && ((!(type_contains_some_type(actual))) && (!(type_contains_some_type(expected))))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
           vkey := ((aid + String.from("=>")) + eid);
@@ -1158,7 +1256,23 @@ _compat_impl :: (
               });
               vp_differ
             }) => false,
-            true => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0)))
+            // One declaration, or two with the same shape: an empty name is
+            // no longer a wildcard — `enum(Blue)` is not an `E1 :: enum(Red,
+            // Green)` — so different declarations must agree on their variant
+            // names (payloads were compared just above).
+            ((aid.len() > usize(0)) && (aid == eid)) => true,
+            (((aname.len() > usize(0)) && (ename.len() > usize(0))) && (aname != ename)) => false,
+            true => ({
+              (vn_same : bool) = (avns.len() == evns.len());
+              (vni : usize) = usize(0);
+              while((vni < avns.len()) && vn_same, {
+                if(match(avns.get(vni), .Some(a) => a, .None => ``) != match(evns.get(vni), .Some(e) => e, .None => ``), {
+                  vn_same = false;
+                });
+                vni = (vni + usize(1));
+              });
+              vn_same
+            })
           ),
           // Nominal REJECT (exact only): two DECLARED enums with different
           // names are different types however alike their variants are. The
@@ -1220,9 +1334,30 @@ _compat_impl :: (
       ),
       _ => false
     ),
-    .Union(aname, _, _) => match(
+    // A union's name is its id (`union_<n>`, renamed by its binding), so equal
+    // names are one declaration; they must still agree on their fields, which
+    // used to be ignored.
+    .Union(aname, alabels, atypes) => match(
       expected,
-      .Union(ename, _, _) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
+      .Union(ename, elabels, etypes) => cond(
+        !((((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0)))) => false,
+        (alabels.len() != elabels.len()) => false,
+        true => {
+          (u_ok : bool) = true;
+          (ui : usize) = usize(0);
+          while((ui < alabels.len()) && u_ok, {
+            if(match(alabels.get(ui), .Some(a) => a, .None => ``) != match(elabels.get(ui), .Some(e) => e, .None => ``), {
+              u_ok = false;
+            }, {
+              if(!(recur(match(atypes.get(ui), .Some(t) => t, .None => TypeValue.Unit), match(etypes.get(ui), .Some(t) => t, .None => TypeValue.Unit), require_exact, visited)), {
+                u_ok = false;
+              });
+            });
+            ui = (ui + usize(1));
+          });
+          u_ok
+        }
+      ),
       _ => false
     ),
     // TraitT: nominal comparison; FnTraitT/FutureTraitT: structural.
@@ -1413,6 +1548,27 @@ _compat_impl :: (
               j = (j + usize(1));
             });
             i = (i + usize(1));
+          });
+          // Identity is the exact trait SET: every actual trait must be
+          // expected too, so `Dyn(A, B)` is not `Dyn(A)` to the CTFE memo or
+          // `Type.eq` (the lenient rule keeps the subset direction above).
+          if(require_exact, {
+            (xi : usize) = usize(0);
+            while(xi < artt.len(), {
+              xat := match(artt.get(xi), .Some(v) => v, .None => TypeValue.Unit);
+              (xfound : bool) = false;
+              (xj : usize) = usize(0);
+              while((xj < ertt.len()) && !(xfound), {
+                if(recur(match(ertt.get(xj), .Some(v) => v, .None => TypeValue.Unit), xat, true, visited), {
+                  xfound = true;
+                });
+                xj = (xj + usize(1));
+              });
+              if(!(xfound), {
+                return(false);
+              });
+              xi = (xi + usize(1));
+            });
           });
           true
         },
