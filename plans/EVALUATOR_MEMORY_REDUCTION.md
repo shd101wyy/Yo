@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB. Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB (#913). (§0.12) Synthesized tokens copied their module's whole source text: `check src/main.yo` 2,504 → 2,159 MB (#915). Landed since: Phase 0 step 6 (the CI memory ratchet, #872) and step 3c (the holder census, §0.6/§0.10/§0.12). Still open: Phase 0 step 2, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.12 exclusive shares): the derived-FuncVal capture copies (~0.4 GB across `g_funcval_cap_vars` and `g_ifc_memo`, §0.7), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1564,6 +1564,38 @@ Overload-trial clones cannot be purged the same way. A trial that type-checks
 a generic callee with a cloned closure argument creates and caches a
 specialization that holds the clone, and codegen reads 2,848 of those
 entries.
+
+### 0.12 Exclusive shares re-taken; synthesized tokens copied their source (2026-09-25)
+
+The §0.10 ranking was by first reach. Re-taken with `HOLDER_DEEP_LAST` per
+root (the root walked last gets exactly its exclusive bytes), on a compiler
+with the §0.11 purge, `check src/main.yo`:
+
+| root | first reach | exclusive | what it is |
+| --- | --- | --- | --- |
+| `_type_trait_methods` | 547 MB | 13 MB | shared graph; the snapshot ring and others reach the rest |
+| `g_funcval_cap_vars` | 262 MB | 220 MB | derived FuncVals' flat capture lists (§0.7's next lever) |
+| `g_macro_expansions` | 218 MB | 218 MB | 216 MB of it: 14,559 ~15 KB strings under expansion `Token`s |
+| `g_method_callee_values` | 217 MB | 4 MB | shared with `g_specialized_fn_caches` |
+| `g_ifc_memo` | 198 MB | 198 MB | 3,195 memoized FuncVals, each with ~1–2 K-entry flat capture lists |
+
+**The expansion strings were copies of whole module sources.** Eleven sites
+that synthesize a token from a source token wrote `input : tok.input.clone()`
+(and the same for `module_path`). `String.clone` copies the bytes, so each
+such token carried its own copy of its module's source text, while every
+lexed token shares one. The sites: gensym, the `begin` atom `match` builds for
+every arm with pattern tests, the numeric/pointer conversion atoms, the `&`
+atom of receiver trials and method dispatch, the pattern compiler, two
+contract sites and two formatter sites. They share the handles now. `check
+src/main.yo` **2,504 → 2,159 MB (−345 MB, −14 %)**, same wall; emitted C
+byte-identical (148.3 MB). Record:
+`issues/fixed/synthetic-tokens-copy-their-source-text.md`.
+
+**Next, on these numbers:** the derived-FuncVal flat capture lists are now the
+largest exclusive holder, in two registries: `g_funcval_cap_vars` 220 MB plus
+most of `g_ifc_memo`'s 198 MB (its FuncVals' `cap_names` 91 MB,
+`cap_tys` 46 MB, `cap_vals` 46 MB). That is §0.7's prefix-sharing step,
+about 0.4 GB.
 
 ## 6. Gates (every phase)
 
