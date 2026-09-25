@@ -1717,6 +1717,39 @@ specialization_cache_count :: (fn() -> usize)({
   });
   n
 });
+/// Capture VALUES held by cached specializations (`cap_vals` entries summed).
+/// A FuncVal with registered handles keeps none: it reads its values from the
+/// handles' cells (`fv_capture_val`, plans/EVALUATOR_MEMORY_REDUCTION.md §0.16);
+/// the value-snapshot test's probe.
+specialization_capture_value_count :: (fn() -> usize)({
+  (n : usize) = usize(0);
+  (ei : usize) = usize(0);
+  while(ei < g_specialized_fn_caches.len(), {
+    match(
+      g_specialized_fn_caches.get(ei),
+      .Some(entry) => {
+        (ci : usize) = usize(0);
+        while(ci < entry.caches.len(), {
+          match(
+            entry.caches.get(ci),
+            .Some(c) => match(
+              c.specialized_func_value,
+              .FuncVal(_, __scv) => {
+                n = (n + __scv.len());
+              },
+              _ => ()
+            ),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  n
+});
 /// Flat capture names held by cached specializations (`cap_names` entries
 /// summed). An aligned derivation stores none (`aligned_derived_capture_handles`);
 /// the capture-alignment test's probe.
@@ -8175,7 +8208,7 @@ export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValue))(_forall_binding_now(env, label));
 export(forall_binding_now, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
-export(purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count);
+export(purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);
