@@ -1,7 +1,7 @@
 # `Iso(T)` checks only the wrapper's refcount, so an aliased interior crosses threads
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 5).
-**Status:** OPEN. **Thread-safety design gap**.
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 2, rule D2). Was: OPEN. **Thread-safety design gap**.
 **Measured:** yo 0.2.39 seed; re-verified with the same result on a develop build `d455b6a67`.
 
 ## Repro
@@ -47,3 +47,20 @@ checks that the wrapper's own refcount is 1; nothing checks that the interior is
 Require a deep-uniqueness proof at `Iso(T)(v)`: either restrict `T` to types whose interior is
 `Send` (so aliasing is harmless), or walk the value at construction and require refcount 1 on
 every reachable ref. Rewrite ISOLATED.md to the chosen rule.
+
+## Fix (2026-09-26, rule D2)
+
+`^v` now walks the whole graph at runtime: `__yo_iso_unique_<Iso>(v)`
+(`generate_iso_uniqueness_functions`, `src/codegen/functions/constructors.yo`) visits `v` and
+every non-atomic object reachable from it and fails on the first whose `ref_count != 1`; an
+atomic object stops the walk (shared by design). It descends through the per-type traversal
+functions the cycle collector uses — whose visitor now receives each child's own traverse
+function as a second argument (`__yo_traverse_atomic_stop` marks an atomic child, NULL an unknown
+one, which fails) — so it needs no header state and works in a program without the cycle
+collector; traversal functions and container `Trace` methods are emitted whenever the program uses
+`Iso`. An explicit thread-local worklist keeps a long list from recursing; no visited set is
+needed, because reaching an object twice already means its count is at least 2. The `^` macro
+calls it through the `__yo_iso_unique` builtin, which reads its argument in place.
+
+Test: `tests/iso.test.yo` "^ answers .None when an object inside the value is shared" — this
+issue's shape (`Wrap(items : shared)`).

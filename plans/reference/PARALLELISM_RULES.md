@@ -28,11 +28,12 @@ thread of the process. In a file without the pragma:
   module-level global whose type is not `Send`, directly or through any function it can call:
   a walk over the evaluated closure body and its statically resolved callees (memoized,
   cycle-safe); a body defined in a pragma'd file is the audited base and is not descended into.
-  A call through a closure VALUE or a dyn method has no body to descend into and is not
-  followed yet — that residual closes with D4
-  (`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`). Treating such calls
-  as violations was measured and rejected: it convicts every spawn body that calls a captured
-  helper closure. A non-atomic RC
+  A call through a local closure VALUE is followed into the closure's body (its binding keeps
+  the `FuncVal`), and a `Dyn(Trait, Send)` value's vtable methods are walked at `dyn(...)`,
+  where the concrete impl is known
+  (`issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`). Treating every
+  unresolvable call as a violation was measured and rejected: it convicts every spawn body that
+  calls a captured helper closure. A non-atomic RC
   global (`ArrayList`, `HashMap`, `String`, any `ref(struct)`) therefore stays legal in a
   single-threaded program and for the main thread, but no other thread can touch it: even
   READING a field through such a handle performs reference-count traffic
@@ -57,22 +58,31 @@ must be `Send`" — it rejects every single-threaded program with a global cache
 collection is never `Send`), the compiler's own tree included. Rationale otherwise: Rust's
 `static: Sync` rule.
 
-## D2 — `Iso(T)` is constructed only through `^`, `T` must contain a reference, uniqueness is deep
+## D2 — `Iso(T)` is constructed only through `^`, `T` is a reference object, uniqueness is deep
 
-**Status:** PLANNED (Phase 2; the deep walk is seed-gated).
+**Status:** LANDED 2026-09-26 (Phase 2): `evaluate_iso_type_call` / `evaluate_iso_value_call`
+(`src/evaluator/calls/iso.yo`), `generate_iso_uniqueness_functions`
+(`src/codegen/functions/constructors.yo`), the `__yo_iso_unique` builtin and the `^` macro in
+`std/prelude.yo`. Not seed-gated after all: the new builtin appears only inside the macro's
+`quote`, which nothing the seed compiles expands.
 
 - In a file without the pragma, `Iso(T)(v)` is not callable; `^v` is the constructor.
-- `Iso(T)` requires a `T` that contains a reference-counted type (so `Iso(i32)` is a type
-  error) and may not contain an `Arc` or another `Iso`.
-- Uniqueness is checked at CONSTRUCTION and it is DEEP: the emitted `__yo_iso_unique_<T>` walks
-  every reachable non-atomic object (the same field list the tracer functions use; an atomic
-  object, a scalar or a `str` leaf stops the walk) and fails if any has `ref_count != 1`. On
-  failure `^v` is `.None`. The walk runs on the sending thread, where every reachable non-atomic
-  refcount is stable, so the check is race-free. `Isolation.can_isolate` becomes an optional
-  fast path a type may provide, never the whole check.
-- `extract()` keeps its one-shot flag and ALSO checks the wrapper's own `ref_count == 1`
-  (acquire load), so a copied `Iso` that the sending thread still holds panics instead of
-  handing out a second owner.
+- `Iso(T)` requires `T` to be a non-atomic reference OBJECT (a `ref(struct)`/`ref(enum)`:
+  `ArrayList`, `HashMap`, `Box`, a user `ref(struct)`), because the wrapper holds and releases the
+  child's handle. `Iso(i32)`, `Iso(<value struct>)`, `Iso(Arc(T))`, `Iso(<atomic object>)` and
+  `Iso(Iso(T))` are compile errors. An atomic object DEEPER in the value is allowed: it is shared
+  by design, and the walk stops at it.
+- Uniqueness is checked at CONSTRUCTION and it is DEEP: `__yo_iso_unique_<Iso>` walks every
+  reachable non-atomic object through the per-type traversal functions (the collector's; the
+  visitor receives each child's traverse function) with an explicit worklist, and fails if any
+  has `ref_count != 1`. On failure `^v` is `.None`. The walk runs on the sending thread, where
+  every reachable non-atomic refcount is stable, so the check is race-free. `Isolation` is no
+  longer consulted by `^`.
+- `extract()` hands the value out exactly once (its atomic one-shot flag). The originally planned
+  extra wrapper `ref_count == 1` check was dropped on analysis: `extract` is the only operation on
+  the inner value, so a sending thread holding a copy of the wrapper can never obtain the value
+  once the receiver has, and dropping that copy frees nothing — the flag is what makes the owner
+  unique, and a count check would depend on how many references the call's own `self` holds.
 
 Rejected alternative: bounding `Iso(T)` on an interior-`Send` `T` — that removes the feature,
 whose whole point is moving a non-`Send` graph to one other thread.
@@ -102,7 +112,8 @@ with "the callee may write through that inout parameter" on the call forms.
 
 ## D4 — A closure type is `Send` iff its capture struct is, wherever the question is asked
 
-**Status:** PLANNED (Phase 4).
+**Status:** LANDED 2026-09-26 (Phase 4, in the Phase 6 PR): `validate_where_constraints_for_call`
+(`src/evaluator/calls/helper.yo`) judges a closure-typed bound by its capture struct.
 
 Rust's auto-trait rule, applied uniformly: at the spawn boundary (already), and when a
 `where(T <: Send)` / `where(T <: Acyclic)` is discharged with `T` instantiated from a closure

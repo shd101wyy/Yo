@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-26, implementing `plans/PARALLELISM_SOUNDNESS.md` Phase 3 (rule D1 of
 `plans/reference/PARALLELISM_RULES.md`).
-**Status:** OPEN — closes together with rule D4 (a closure type is `Send` iff its captures are),
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 2 PR). Was: OPEN — closes together with rule D4 (a closure type is `Send` iff its captures are),
 which needs the same prerequisite: per-closure identity on `Func` types
 (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 3, type identity).
 **Class:** thread-safety design gap (a residual of the D1 fix, not a regression).
@@ -36,3 +36,22 @@ When closures carry their identity on the `Func` type, a closure that reaches a 
 is itself not `Send` (its "reach" joins its capture struct in the auto-trait computation), and the
 capture check at the spawn boundary rejects capturing it. That is rule D4's mechanism; D1 becomes
 one more input to it. A `dyn` receiver's `Send`-ness is already its dyn type's bound.
+
+## Fix (2026-09-26)
+
+Neither half needed per-closure identity on `Func` types after all:
+
+- **Closure values.** A local closure keeps its `FuncVal` in its binding's value cell even
+  though the call node carries none, so the reach walk resolves an atom callee through the env
+  (`_gr_walk_closure_callee`, `src/evaluator/effects/mutation_summary.yo`) and descends into
+  that body. A closure PARAMETER is covered at the literal's own creation site: a literal bound
+  to a `Send` slot runs the D1 check there.
+- **dyn methods.** At `dyn(...)` the concrete impl is known, so a `Dyn(Trait, Send)` value's
+  vtable methods are walked there (`_require_send_dyn_methods_reach_no_global`,
+  `src/evaluator/values/dyn.yo`), both coercion sites.
+
+Tests: the repro's shape (a spawn body calling a local closure that pushes to a global
+`ArrayList`) and a `Dyn(_GlobalPusher, Send)` whose method pushes to it, as
+`comptime_expect_error` blocks in `tests/parallelism_soundness.test.yo`; the thread corpus
+(`tests/thread_safety`, `tests/sync/rwlock` — spawn bodies calling captured helper closures that
+touch only atomics) stays green.
