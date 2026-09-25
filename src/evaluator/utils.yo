@@ -1233,7 +1233,10 @@ check_loop_flow :: (
             );
             bi = (bi + usize(1));
           });
-          if((exit_moved.len() > usize(0)) && (exit_live.len() > usize(0)), {
+          // Only a value with a drop is at stake: without drop flags its drop
+          // after the loop cannot be decided. A value with nothing to drop is
+          // simply moved after the loop (a later use is E0901).
+          if((exit_moved.len() > usize(0)) && (exit_live.len() > usize(0)) && type_contains_rc_type(v.ty), {
             entries2 := ArrayList(TokenAndError).new();
             entries2.push(
               TokenAndError(

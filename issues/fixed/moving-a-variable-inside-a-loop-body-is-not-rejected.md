@@ -81,3 +81,8 @@ Tests:
 - `tests/cli-cases/move-in-one-arm-is-e0907`
 - `tests/type_soundness.test.yo`: a move in a returning arm; a move on a loop's only way out. Both
   count releases with a `Dispose` counter.
+
+**Refinement (2026-09-26).** The ways-out check (E0907) applies only to a value with a drop
+(`type_contains_rc_type`): the problem is that its drop after the loop cannot be decided
+statically. A value with nothing to drop is simply moved after the loop, so a later use is
+E0901. `tests/basic.test.yo` drops an `i32` alias on the break paths only, and it stays valid.
