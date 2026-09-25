@@ -1,0 +1,20 @@
+{ Thread } :: import("std/thread");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  hits := AtomicI32(i32(0));
+  (bump : Impl(Fn() -> unit)) = (
+    () => {
+      hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+    }
+  );
+  a := arc(bump);
+  t := Thread(unit).spawn((io : Io) => {
+    f := a.*;
+    f();
+    ()
+  });
+  t.join();
+  println(`hits=${hits.load(MemoryOrder.Acquire)}`);
+});
+export(main);

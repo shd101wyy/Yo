@@ -300,8 +300,13 @@ a closure). Async tasks (`std/async/channel`, which has the same
 
 Only types that implement `Send` can cross thread boundaries:
 
-- **Sendable**: primitives (`i32`, `bool`, etc.), value structs composed of Send fields
-- **Not Sendable**: `ref(struct(...))`, `Dyn`, closures capturing non-Send values
+- **Sendable**: primitives (`i32`, `bool`, etc.), value structs/enums/tuples composed of Send
+  fields, atomic objects whose fields are all Send (`Arc`, `Mutex`, `Channel`, the `Atomic*`
+  wrappers), `Dyn(Trait, Send)` (the concrete type is checked at `dyn(...)`), `Iso(T)` (see
+  `THREAD_SAFETY.md`), and closures whose captures are all Send
+- **Not Sendable**: `ref(struct(...))` / `ref(enum(...))` (non-atomic RC: `ArrayList`,
+  `String`, `Box`, ...), `Dyn(Trait)` without `Send` in its bound, `Io`, `JoinHandle`, and
+  closures capturing any of those
 
 ```rust
 // ✅ Sendable

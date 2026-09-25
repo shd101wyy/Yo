@@ -189,20 +189,34 @@ Negative impls do **not** require `pragma(Pragma.AllowUnsafe)` — they are rest
 
 ## Iso(T) — Unique Ownership Transfer
 
-`Iso(T)` wraps a value for unique, one-shot transfer across threads. Unlike `Send` types (which can be shared freely), `Iso(T)` guarantees **at most one thread** observes the inner value at extraction time via a runtime `rc == 1` check.
+`Iso(T)` wraps a non-`Send` value for one-shot transfer to another thread: `T` can be a plain
+`ref(struct)` graph, and `Iso(T)` itself is `Send` without requiring `T <: Send`. The argument
+for that is uniqueness — at the moment of use, at most one thread holds the inner value.
 
 ```rust
-data := Box(MyData).new(...);
-iso := ^data; // '^' macro — wraps value in Iso
-Thread(unit).spawn(io => {
-  // extract() returns the inner value directly,
-  // panicking if rc != 1 or already extracted
-  inner := iso.extract();
-  // ... use inner ...
-});
+data := box(MyData(...));
+match(
+  ^data,                        // '^' constructs the Iso; .None if `data` is not unique
+  .Some(iso) => Thread(unit).spawn(io => {
+    inner := iso.extract();     // returns T; panics on a second extract
+    // ... use inner on this thread only ...
+  }),
+  .None => ()
+);
 ```
 
-`Iso(T)` is **unconditionally Send** — it does not require `T <: Send`. This is safe because `extract()` atomically verifies `rc == 1`, ensuring at most one thread observes `T` at a time.
+**What is enforced today (2026-09-25).** `^v` checks at compile time that `v` owns its value,
+has no other alias and cannot form a reference cycle, and at run time calls
+`Isolation.can_isolate` (`rc == 1` on the wrapper) — which only `Box(T)` implements. The raw
+constructor `Iso(T)(v)` runs the compile-time checks for a named variable and nothing for a
+literal argument; `extract()` checks a one-shot flag and does NOT check any reference count.
+Nothing looks inside the value: an aliased interior (`Wrap(items : shared)`) crosses threads.
+
+**What is being changed** (`plans/reference/PARALLELISM_RULES.md` D2): `^` becomes the only
+constructor in safe code, `T` must contain a reference type, uniqueness is checked DEEPLY at
+construction, and `extract()` gains the wrapper `rc == 1` check. Until that lands, treat `Iso`
+as safe only for a value you built yourself and never aliased — see
+`issues/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`.
 
 - `Iso(Arc(T))` is rejected at compile time — redundant (send the Arc directly)
 - `Arc(Iso(T))` is rejected at compile time — contradictory (Arc shares, Iso is unique)
@@ -226,7 +240,7 @@ Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in
 
 | Layer                      | What's Trusted                                 | What's Enforced                                                                                                                                      |
 | -------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send impls rejected. Atomic-object writes rejected. Non-Send captures rejected. |
+| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send impls rejected. Atomic-object FIELD ASSIGNMENT rejected (writes through `inout` and index assignment are not yet — see below). Non-Send captures rejected. |
 | **`std/sync/`** (pragma'd) | Primitive bodies implement contracts correctly | Manual Send impls require `// SAFETY:` comments. Phase F re-verifies atomic-object field Send-ness.                                                  |
 | **Codegen runtime**        | Atomic RC ops use correct memory ordering      | C11 `atomic_fetch_add_explicit(..., relaxed)` for increment, `atomic_fetch_sub_explicit(..., acq_rel)` for decrement.                                |
 | **`extern("c", ...)`**     | C functions are reentrant-safe                 | Out of scope — same audit boundary as the memory-safety pass.                                                                                        |
@@ -239,9 +253,46 @@ Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in
 - **`Sender(T)` / `Receiver(T)` split** — currently `Channel(T)` exposes both send and receive ends on the same handle. Rust-style split halves are a future ergonomic refinement.
 - **TSan empirical validation on CI** — `--sanitize thread` is plumbed and the Linux/Clang CI job runs `yo test ./tests/sync`. The job GATES pull requests — it is one of the required status checks (it was informational until 2026-08-06). The primary regression guard today is `tests/thread_safety.test.yo`, which pins the Send/atomic-field/negative-impl/field-visibility rules in Yo itself, plus the `tests/sync/` suite the TSan job runs; the old codegen pin tests (`src/tests/thread-safety-codegen.test.ts`) were retired with the TypeScript compiler tree and have no self-hosted successor.
 
+## Known Holes (2026-09-25 audit)
+
+The guarantee at the top of this page is the contract; the parallelism-soundness audit
+(`plans/PARALLELISM_SOUNDNESS.md`) measured these violations of it on the current compiler, and
+each is being closed by the phase named there. Until a bullet is removed, safe code CAN write
+the race it describes.
+
+- **Writes through an `Arc` via `inout`.** `a.*.bump()` with an `inout(self)` method,
+  `f(a.*)` with an `inout` parameter, and `a.*(0) = v` all write into the shared object; only
+  `a.*.field = v` is rejected
+  (`issues/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`).
+- **`Iso(T)` uniqueness is shallow and the constructor is unchecked** (section above).
+- **Module-level globals are shared statics** with no `Send` check
+  (`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`); inside std,
+  `html_decode`'s tables race on read
+  (`issues/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`).
+- **A closure type satisfies `where(T <: Send)`** regardless of its captures, so `arc(f)` and
+  `Channel(typeof(f))` pass `yo check` with a non-Send capture (the C compiler rejects the
+  program today by accident)
+  (`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`).
+- **A closure may capture a `with_lock` body's `inout(v)`** at `yo check` (codegen fails)
+  (`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`).
+- **`Cond.wait_with(m)` does not check that you hold `m`, and `RawMutex.unlock` is public**;
+  both reach pthread / `CRITICAL_SECTION` undefined behaviour from safe code
+  (`issues/cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md`,
+  `issues/rawmutex-is-exported-with-an-unbalanced-unlock.md`).
+- **`Once` re-entered from its own initializer** deadlocks on POSIX and runs twice on Windows
+  (`issues/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md`).
+- **Runtime races** that no user rule can avoid: the cross-thread `Waker` release ordering on a
+  spawned thread's loop, the non-atomic `borrow_count` on atomic objects, `rc()` on an `Iso`
+  handle, and Windows/macOS-specific runtime state — listed in `plans/PARALLELISM_SOUNDNESS.md`
+  §3 (P-11 to P-25).
+- **A safe file can call raw runtime externs** imported from `std/sys/externs.yo`
+  (`issues/safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`).
+
 ## See Also
 
-- `plans/archive/THREAD_SAFETY.md` — full design document with 27-vector inventory and phase breakdown
+- `plans/reference/PARALLELISM_RULES.md` — the rules (D1–D8) the compiler enforces or is being brought to
+- `plans/PARALLELISM_SOUNDNESS.md` — the 2026-09-25 audit and its fix plan
+- `plans/archive/THREAD_SAFETY.md` — the original design document with its 27-vector inventory (see its correction banner)
 - `docs/en-US/PARALLELISM.md` — Thread, ThreadPool, and Channel API
 - `docs/en-US/ISOLATED.md` — `Iso(T)` design details
 - `docs/en-US/MEMORY_SAFETY.md` — memory safety pass

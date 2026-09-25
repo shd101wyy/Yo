@@ -285,8 +285,8 @@ issues/a-closure-typed-slot-never-releases-its-captures.md）。异步任务
 
 只有实现了 `Send` 的类型才能跨越线程边界：
 
-- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体
-- **不可发送**：`ref(struct(...))`、`ref(enum(...))`、`Dyn`、捕获了非 Send 值的闭包
+- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、字段全部为 Send 的原子对象（`Arc`、`Mutex`、`Channel`、`Atomic*` 包装器）、`Dyn(Trait, Send)`（具体类型在 `dyn(...)` 处检查）、`Iso(T)`（见 `THREAD_SAFETY.md`），以及捕获值全部为 Send 的闭包
+- **不可发送**：`ref(struct(...))` / `ref(enum(...))`（非原子引用计数：`ArrayList`、`String`、`Box` 等）、约束中不含 `Send` 的 `Dyn(Trait)`、`Io`、`JoinHandle`，以及捕获了上述任一值的闭包
 
 ```rust
 // ✅ 可发送

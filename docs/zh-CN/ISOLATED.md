@@ -1,233 +1,125 @@
-# 隔离类型（Isolated Type）
+# 隔离类型
 
-`Iso(T)` 是一个使用**原子引用计数**实现的线程安全包装类型。
+`Iso(T)` 把一个**不是** `Send` 的值 —— 普通的 `ref(struct)` 对象图、`ArrayList`、`String` ——
+一次性地移交给另一个线程。这是非原子对象合法跨越线程边界的唯一途径。
 
-## 核心特性
+## 模型
 
-- **原子引用计数**：`Iso(T)` 使用原子引用计数，而非普通的非原子引用计数
-- **线程安全共享**：可以安全地跨线程复制和传递
-- **无移动语义**：行为与普通引用语义类型一致（可以存储、模式匹配等）
-- **构造时隔离**：`Iso(T)(v)` 要求 `v` 是唯一所有者（无别名引用）
-- **自动实现 `Send`**：可安全地跨线程发送
+- **包装器本身是原子对象。** `Iso(T)` 句柄使用原子引用计数，所以把它复制进 spawn 闭包、在两个线程上各自释放副本都是安全的。
+- **内部的 `T` 保持自己的非原子引用计数。** 除 `extract()` 之外，没有任何操作通过包装器触碰它；`extract()` 把它交给恰好一个线程。
+- **`Iso(T)` 无需 `T <: Send` 即为 `Send`。** 依据是唯一性：在 `extract()` 的那一刻最多只有一个线程能到达内部值，因此它的非原子引用计数只会被一个线程更新。
+- **唯一性在构造时建立**，由 `^` 运算符负责，也是安全性的落脚点。`plans/reference/PARALLELISM_RULES.md` 的 D2 规则会把它变成**深度**检查（每个可达的非原子对象都必须被唯一持有）；今天它是浅层的（见下文）。
 
-## 设计理念
-
-我们没有引入移动语义，而是在构造时确保隔离性，并使用原子引用计数来保证线程安全：
-
-1. **构造检查**：`Iso(T)(v)` 要求 `v` 没有别名引用（通过 `isOwningTheSameRcValueAs` 检查）
-2. **原子操作**：一旦包装完成，所有引用计数操作均使用原子指令
-3. **常规语义**：构造完成后，`Iso(T)` 可以自由复制和共享
-
-## Isolation trait
-
-`Isolation` trait 提供了检查类型是否可以隔离的函数。
+## 构造 `Iso`：`^` 运算符
 
 ```rust
-Isolation :: trait(
-  can_isolate : (fn(self : Self) -> bool)
+data := box(i32(42));
+iso_opt := ^data;              // Option(Iso(Box(i32)))
+match(
+  iso_opt,
+  .Some(iso) => { /* 发送它 */ },
+  .None => { /* `data` 被共享：什么都没有移动 */ }
 );
 ```
 
-用户应为自定义类型实现该 trait，以指示该类型是否支持隔离。
-例如：
+`^v` 消耗 `v`（之后再使用 `v` 会报 "use of moved value"），当值不唯一时返回 `.None` 而不是 panic。它执行：
+
+1. **对变量的编译期检查** —— `v` 必须拥有它的引用计数值，不能有其他变量作为别名，且其类型不能形成引用环（环需要每线程的循环收集器，而接收线程不会为它运行收集器）。
+2. **一次运行期唯一性检查** `Isolation.can_isolate(v)`。今天只有 `Box(T)` 实现了 `Isolation`（`rc(self) == 1`）；用户类型需要手写实现：
 
 ```rust
 Data :: ref(struct(v : i32));
 Point :: ref(struct(x : Data, y : Data));
-
-impl(
-  Data,
-  Isolation(
-    can_isolate : (self -> (rc(self) == 1))
-  )
-);
-
+impl(Data, Isolation(can_isolate : (self -> (rc(self) == 1))));
 impl(
   Point,
   Isolation(
-    can_isolate : (
-      self ->
-        ((rc(self) == 1) && self.x.can_isolate() && self.y.can_isolate())
-    )
+    can_isolate : (self -> ((rc(self) == 1) && self.x.can_isolate() && self.y.can_isolate()))
   )
 );
 ```
 
-未来我们将支持 `derive` 关键字，以自动生成用户定义类型的 `Isolation` 实现。
+`Point` 的实现说明了"深度"的含义，以及为什么手写的浅层实现是一个 bug：如果 `can_isolate` 只看 `rc(self)`，一个 `x` 与某个局部变量共享的 `Point` 会被移走，而那个局部变量继续修改 `x`。D2 用生成的遍历（`__yo_iso_unique_<T>`）取代这种手写遍历，`Isolation` 保留为可选的快速路径。
 
-## 构造约束
+**原始构造函数 `Iso(T)(v)`** 存在，是编译器为 `^` 生成的目标。直接调用它时，只有在参数是具名变量时才执行编译期检查，运行期什么也不检查；D2 会把它从安全代码中移除。不要在新代码中使用它。
 
-`Iso(T)(v)` 构造函数要求：
-
-1. **唯一所有权**：`v` 不能有任何别名引用
-
-   - 检查：`v.isOwningTheRcValue == true`
-   - 检查：`v.isOwningTheSameRcValueAs == undefined`
-   - 检查：没有其他变量的 `isOwningTheSameRcValueAs == v.id`
-
-2. **递归隔离**（对于引用类型）：
-   - 如果 `T` 包含嵌套引用语义类型，这些值也必须是唯一所有的
-   - 通过 `v.can_isolate()` 方法检查（参见上文 Isolation trait）
+## `extract`
 
 ```rust
-// ❌ 拒绝：x 有别名 y
-x := box(1);
-y := x; // y.isOwningTheSameRcValueAs = x
-iso := Iso(Box(i32))(x); // 编译错误：x 有别名引用
-// ✅ 通过：x 是唯一所有者
-x := box(1); // x 拥有所有权，无别名
-iso := Iso(Box(i32))(x); // OK：使用原子引用计数构造 Iso
-// ✅ 构造后可自由复制
-iso2 := iso; // 原子 dup — 安全！
+inner := iso.extract();        // T
 ```
 
-## `extract` 方法
+`extract()` 直接返回内部的 `T`（不是 `Option`），把 `Iso` 标记为已提取，并且在同一个 `Iso` 的任何副本上第二次调用时 panic：
 
-内建函数 `__yo_iso_extract` 从 `Iso(T)` 中提取内部值，返回 `Option(T)`。
-
-```rust
-iso := Iso(Box(i32))(box(42));
-val_opt := __yo_iso_extract(iso); // val_opt : Option(Box(i32))
-match(
-  val_opt,
-  .Some(val) => {
-    // 提取成功
-    // val 现在使用非原子引用计数，请保持在当前线程中使用！
-    printf("Got value: %d\n", val.*);
-  },
-  .None => {
-    // 对于有状态提取语义，提取可能返回 None
-    printf("No value\n");
-  }
-);
+```
+panic: Iso::extract() called on already-extracted Iso
 ```
 
-**实现细节：** `__yo_iso_extract(iso)` 返回类型为 `Option(T)` 的包装值：
+提取之后该值使用非原子引用计数：把它留在提取它的线程上。释放一个从未被提取的 `Iso` 会释放内部值（在释放最后一个句柄的那个线程上 —— 这是安全的，因为那时只有该线程能到达它）。
 
-- 返回 `.Some(inner_value)`，包含内部值
-- 对于有状态提取语义（尚未实现），可能返回 `.None`
+D2 给 `extract()` 增加第二项检查：包装器自身的引用计数必须为 1，这样仍然持有 `Iso` 副本的发送线程会得到 panic 而不是第二个所有者。今天这项检查并不存在；旧资料里反复出现的 "extract 验证 rc == 1" 描述的是设计意图，不是生成的代码。
 
-**重要提示：** 提取后，内部的 `T` 使用非原子引用计数。该值应留在执行提取的线程中，以避免对其非原子引用计数器产生数据竞争。
-
-**注意：** 目前提取操作不会消耗 `Iso(T)` 参数，以确保引用计数的 drop 逻辑正常工作。因此可能进行多次提取（返回相同的值），但此行为在未来的实现中可能会更改，以强制单次提取语义。
-
-## `^` 宏
-
-为方便使用，可以使用 `^` 宏来隔离值，并自动推断类型：
-
-### 基本用法
-
-```rust
-x := Data(12);
-iso_opt := ^x; // 返回 Option(Iso(Data))
-match(
-  iso_opt,
-  .Some(iso) => {
-    // 隔离成功
-    spawn(() => { /* 使用 iso */ });
-  },
-  .None => {
-    // 隔离失败（存在别名或 rc > 1）
-  }
-);
-```
-
-## 原子引用计数实现
-
-`Iso(T)` 对所有引用计数操作使用原子操作：
+## 生成的 C 代码
 
 ```c
-// 普通引用语义类型：非原子引用计数
 typedef struct {
-  size_t ref_count;        // 非原子计数器
-  void (*dispose_fn)(void*);
-  T value;
-} Object_T;
+  __yo_ref_header_t header;   // 原子引用计数 —— 句柄是原子对象
+  _Atomic bool extracted;     // 一次性标志
+  T value;                    // 内部值，非原子引用计数
+} Iso_T_struct;
 
-// 隔离引用语义类型：原子引用计数
-typedef struct {
-  _Atomic size_t ref_count;  // 原子计数器（线程安全）
-  void (*dispose_fn)(void*);
-  T value;                   // 内部值（非原子引用计数！）
-} Iso_T;
-
-// 构造函数：创建时 ref_count = 1
-Iso_T* __yo_create_iso_T(T inner_value) {
-  Iso_T* iso = (Iso_T*)__yo_alloc(sizeof(Iso_T));
-  atomic_init(&iso->ref_count, 1);
-  iso->dispose_fn = NULL;  // 不需要 dispose 函数
-  iso->value = inner_value;
-  return iso;
+T __yo_iso_extract_T(Iso_T iso) {
+  if (atomic_exchange(&iso->extracted, true)) { /* panic: already extracted */ }
+  return iso->value;
 }
-
-// Dup 使用原子递增
-void __yo_incr_rc_atomic(Iso_T* iso) {
-  atomic_fetch_add(&iso->ref_count, 1);  // 线程安全的递增
-}
-
-// Drop 使用原子递减
-void __yo_decr_rc_atomic(Iso_T* iso) {
-  size_t old_count = atomic_fetch_sub(&iso->ref_count, 1);
-  if (old_count == 1) {
-    // 最后一个引用，释放内存
-    if (iso->dispose_fn) {
-      iso->dispose_fn(iso);  // 必要时清理内部值
-    }
-    __yo_free(iso);
-  }
-}
-
-// Extract：返回包含内部值的 Option(T)
-Option_T __yo_iso_extract_T(Iso_T* iso) {
-  // 当前返回 Some(value)
-  // 未来：可添加原子 extracted 标志以实现单次提取语义
-  return Option_Some_T(iso->value);
+void __yo_iso_dispose_T(Iso_T iso) {
+  if (!atomic_load(&iso->extracted)) { __yo_decr_rc((void*)iso->value); }
 }
 ```
 
-## 示例：线程安全用法
+## 组合规则
+
+- `Iso(Arc(T))` 是编译错误 —— `Arc` 已经是 `Send`，直接发送它。
+- `Arc(Iso(T))` 是编译错误 —— `Arc` 共享，`Iso` 唯一。
+- 当 `T` 是 `Acyclic` 时，`Iso(T)` 也是 `Acyclic`。
+
+## 示例：把工作线程上构建的列表交回主线程
 
 ```rust
-// 创建隔离字符串
-s := String("Hello");
-iso := Iso(String)(s); // s 没有别名，OK
-// 可自由复制（原子引用计数）
-iso2 := iso; // 原子 dup
-// 安全地发送到其他线程
-spawn(() => {
-  iso3 := iso2; // 跨线程原子 dup — 安全！
-  msg_opt := __yo_iso_extract(iso3); // 提取 String
-  match(
-    msg_opt,
-    .Some(msg) => printf("%s\n", msg),
-    .None => printf("No value\n")
-  );
+{ Thread } :: import("std/thread");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+
+build :: (fn() -> Option(Iso(ArrayList(String))))({
+  xs := ArrayList(String).new();
+  xs.push(`built on the worker`);
+  ^xs
 });
 
-// 仍可使用原始值（原子引用计数保证安全）
-msg2_opt := __yo_iso_extract(iso);
-match(
-  msg2_opt,
-  .Some(msg2) => printf("%s\n", msg2),
-  .None => printf("No value\n")
-);
+main :: (fn() -> unit)({
+  t := Thread(Option(Iso(ArrayList(String)))).spawn((io : Io) => build());
+  match(
+    t.join(),
+    .Some(iso) => {
+      xs := iso.extract();     // 列表现在属于主线程
+      // ...
+    },
+    .None => ()
+  );
+});
 ```
 
-````
+（对 `ArrayList` 使用 `^xs` 要等 D2 落地后才能编译 —— 今天它需要一个 `Isolation` 实现，而 `ArrayList` 没有；原始构造函数可用但没有任何检查。）
 
-## 示例：无效的隔离操作
+## 示例：在构造时被拒绝
 
 ```rust
-// ❌ 无法隔离：存在别名
-x := box(42);
-y := x; // y.isOwningTheSameRcValueAs = x
-iso := Iso(Box(i32))(x); // 编译错误：无法隔离 x，y 也持有所有权
-// ✅ 修复：不要创建别名
-x := box(42); // x 是唯一所有者
-iso := Iso(Box(i32))(x); // OK
-// ✅ 另一种修复方式：先 drop 别名
-x := box(42);
+x := box(i32(42));
 y := x;
-drop(y); // 显式 drop y
-iso := Iso(Box(i32))(x); // 如果编译器能证明 y 已失效，则 OK
-````
+iso := ^x;                     // 编译错误：cannot isolate x, also owned by y
+```
+
+## 已知缺口（2026-09-25）
+
+`issues/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md` 与
+`issues/iso-checks-only-the-wrapper-refcount-not-the-interior.md`：值的内部没有被检查，原始构造函数接受字面量参数和标量 `T`，`extract()` 不检查任何引用计数。`plans/PARALLELISM_SOUNDNESS.md` 第 2 阶段关闭这些缺口。

@@ -153,17 +153,26 @@ impl(MyHandle, !Send()); // MyHandle 不是 Send
 
 ## Iso(T) — 唯一所有权转移
 
-`Iso(T)` 包装一个值用于跨线程的唯一、一次性转移。`extract()` 通过运行时 `rc == 1` 检查保证最多只有一个线程观察内部值。
+`Iso(T)` 包装一个**非** `Send` 的值，一次性地转移给另一个线程：`T` 可以是普通的 `ref(struct)` 对象图，而 `Iso(T)` 本身是 `Send`，不要求 `T <: Send`。依据是唯一性 —— 在使用的那一刻，最多只有一个线程持有内部值。
 
 ```rust
-data := Box(MyData).new(...);
-iso := ^data;
-Thread(unit).spawn(io => {
-  inner := iso.extract(); // rc != 1 或已提取时 panic
-});
+data := box(MyData(...));
+match(
+  ^data,                        // '^' 构造 Iso；`data` 不唯一时为 .None
+  .Some(iso) => Thread(unit).spawn(io => {
+    inner := iso.extract();     // 返回 T；第二次 extract 会 panic
+    // ... 只在本线程使用 inner ...
+  }),
+  .None => ()
+);
 ```
 
-`Iso(T)` 无条件实现 Send — 不要求 `T <: Send`。`Iso(Arc(T))` 和 `Arc(Iso(T))` 在编译时被拒绝。
+**今天实际强制的内容（2026-09-25）。** `^v` 在编译期检查 `v` 拥有它的值、没有其他别名、不能形成引用环，在运行期调用 `Isolation.can_isolate`（包装器的 `rc == 1`）—— 只有 `Box(T)` 实现了它。原始构造函数 `Iso(T)(v)` 只对具名变量执行编译期检查，对字面量参数什么都不检查；`extract()` 只检查一次性标志，**不检查**任何引用计数。没有任何检查会看进值的内部：一个内部有别名的值（`Wrap(items : shared)`）会跨线程。
+
+**正在改变的内容**（`plans/reference/PARALLELISM_RULES.md` D2）：`^` 成为安全代码中唯一的构造方式，`T` 必须包含引用类型，唯一性在构造时**深度**检查，`extract()` 增加包装器 `rc == 1` 检查。在此之前，只把 `Iso` 用于你自己构建、从未起过别名的值 —— 见 `issues/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`。
+
+- `Iso(Arc(T))` 在编译时被拒绝 —— 冗余（直接发送 Arc）
+- `Arc(Iso(T))` 在编译时被拒绝 —— 矛盾（Arc 共享，Iso 唯一）
 
 ## 字段可见性 — `_` 前缀约定
 
@@ -173,13 +182,29 @@ Thread(unit).spawn(io => {
 
 | 层次                         | 信任内容                       | 强制执行                            |
 | ---------------------------- | ------------------------------ | ----------------------------------- |
-| **用户代码**（无 pragma）    | 无                             | 所有跨线程共享通过 `std/sync/` 原语 |
+| **用户代码**（无 pragma）    | 无                             | 所有跨线程共享通过 `std/sync/` 原语；原子对象的字段赋值被拒绝（经 `inout` 和索引赋值的写入尚未被拒绝，见下文） |
 | **`std/sync/`**（有 pragma） | 原语正确实现合约               | 手动 Send 需要 `// SAFETY:` 注释    |
 | **代码生成运行时**           | 原子 RC 操作使用正确的内存顺序 | C11 原子操作                        |
 | **`extern("c", ...)`**       | C 函数可重入安全               | 不在范围内                          |
+
+## 已知缺口（2026-09-25 审计）
+
+本页开头的保证是合约；并行性可靠性审计（`plans/PARALLELISM_SOUNDNESS.md`）在当前编译器上测得以下违反，每一项都由该文档中命名的阶段关闭。在某一条被删除之前，安全代码**能够**写出它描述的数据竞争。
+
+- **经 `inout` 写穿 `Arc`。** 带 `inout(self)` 方法的 `a.*.bump()`、带 `inout` 参数的 `f(a.*)`、以及 `a.*(0) = v` 都会写入共享对象；只有 `a.*.field = v` 被拒绝（`issues/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`）。
+- **`Iso(T)` 的唯一性检查是浅层的，原始构造函数没有检查**（见上一节）。
+- **模块级全局变量是共享的静态变量**，没有 `Send` 检查（`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`）；在 std 内部，`html_decode` 的表在读取时竞争（`issues/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`）。
+- **闭包类型满足 `where(T <: Send)`** 而不看其捕获，因此带有非 Send 捕获的 `arc(f)` 和 `Channel(typeof(f))` 能通过 `yo check`（今天是 C 编译器碰巧拒绝了程序）（`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`）。
+- **闭包可以在 `yo check` 下捕获 `with_lock` 闭包体的 `inout(v)`**（代码生成失败）（`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`）。
+- **`Cond.wait_with(m)` 不检查你是否持有 `m`，`RawMutex.unlock` 是公开的**；二者都能从安全代码到达 pthread / `CRITICAL_SECTION` 的未定义行为（`issues/cond-wait-with-does-not-check-that-the-caller-holds-the-mutex.md`、`issues/rawmutex-is-exported-with-an-unbalanced-unlock.md`）。
+- **`Once` 从自己的初始化器中重入**在 POSIX 上死锁、在 Windows 上运行两次（`issues/once-re-entered-from-its-own-closure-deadlocks-on-posix-and-double-runs-on-windows.md`）。
+- **用户规则无法避免的运行时竞争**：派生线程事件循环上的跨线程 `Waker` 释放顺序、原子对象上的非原子 `borrow_count`、`Iso` 句柄上的 `rc()`，以及 Windows/macOS 特有的运行时状态 —— 列于 `plans/PARALLELISM_SOUNDNESS.md` §3（P-11 至 P-25）。
+- **安全文件可以调用从 `std/sys/externs.yo` 导入的原始运行时 extern**（`issues/safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`）。
 
 ## 参见
 
 - `plans/archive/THREAD_SAFETY.md` — 完整设计文档
 - `docs/en-US/PARALLELISM.md` — Thread / ThreadPool / Channel API
-- `docs/en-US/ISOLATED.md` — Iso(T) 设计细节
+- `plans/reference/PARALLELISM_RULES.md` — 编译器强制或正在落实的规则（D1–D8）
+- `plans/PARALLELISM_SOUNDNESS.md` — 2026-09-25 的审计及其修复计划
+- `docs/zh-CN/ISOLATED.md` — Iso(T) 设计细节
