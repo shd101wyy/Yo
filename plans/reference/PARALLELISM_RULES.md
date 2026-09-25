@@ -127,14 +127,24 @@ and never a platform-dependent difference:
 Recursion on a Windows `CRITICAL_SECTION` is masked by the owner check so that observable
 behaviour is identical to POSIX.
 
-## D6 — Calling an `extern`-bound function is a safe-mode violation unless the calling file has the pragma
+## D6 — Calling a runtime extern by name is a safe-mode violation unless the calling file has the pragma
 
-**Status:** PLANNED (Phase 4).
+**Status:** LANDED 2026-09-26 (Phase 4): the `gate_is_extern_runtime` check in
+`evaluate_function_call` (`src/evaluator/calls/function.yo`), beside the extern-"c" `unsafe(...)`
+gate.
 
-Naming or importing an extern (its type flows through `std`'s wrappers) stays legal; CALLING it
-from a file without `pragma(Pragma.AllowUnsafe)` is the same violation as `unsafe(...)`.
-Declaring one already requires the pragma; this closes the re-export route
-(`issues/safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`).
+Naming or importing an extern (its type flows through `std`'s wrappers) stays legal. CALLING a
+runtime extern — any `extern` whose language is not `"c"`, i.e. the `__yo_*` entry points
+`std/sys/externs.yo` exports — BY NAME (the callee is a bare identifier, as a destructured import
+binds it, or a field of a module value) from a file without `pragma(Pragma.AllowUnsafe)` is an error. Declaring one already
+requires the pragma; this closes the re-export route
+(`issues/fixed/safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`). An
+extern `"c"` call already needs `unsafe(...)`, which needs the pragma.
+
+A dot-access callee stays legal: `io.await`, `io.async`, `io.spawn` are extern-bound FIELDS of
+the `Io` value, std's sanctioned async surface. Rejected: "every extern call" — it rejects every
+async program for exactly that reason. Compiler-synthesized code (`auto-generated://`) is exempt,
+as for the `unsafe(...)` gate.
 
 ## D7 — A loop never observes `live_wakers == 0` while a post it will receive is in flight
 
@@ -147,9 +157,14 @@ alive until every cross-thread message addressed to it has been processed.
 
 ## D8 — Closures may not capture second-class bindings
 
-**Status:** PLANNED (Phase 4).
+**Status:** LANDED 2026-09-26 (Phase 4): the rule already existed in
+`_check_anon_fn_captures` (`src/evaluator/values/anonymous_function.yo`); what landed is that its
+rejection is flagged on the flow-violation channel (`_raise_capture_rejection`), so the enclosing
+definition re-raises it instead of its definition-time trial swallowing it.
 
 A closure that captures an `inout(...)` or `ref(...)` parameter, or any control-bound value, is
 a compile error at the capture token. This is `plans/reference/MEMORY_SAFETY.md` Phase B's rule
 restated as an evaluator check; it is what makes `Mutex.with_lock`'s `inout(v)` unable to
-escape the critical section.
+escape the critical section. Before the fix the check fired inside the enclosing closure's
+trial evaluation, which swallowed it: `yo check` was green and codegen died on the hollowed
+body (`issues/fixed/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`).

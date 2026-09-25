@@ -1,6 +1,6 @@
 # Parallelism soundness: make data-race freedom true for safe code
 
-**Status:** ACTIVE, proposed 2026-09-25. Phases 0, 1, 3 and 5 LANDED 2026-09-26 (the per-phase "Landed" notes below); Phases 2, 4, 6, 7, 8 open. Source: a full audit of Yo's
+**Status:** ACTIVE, proposed 2026-09-25. Phases 0, 1, 3 and 5 LANDED 2026-09-26 and Phase 4 in part (the per-phase "Landed" notes below); Phases 2, 6, 7, 8 and Phase 4's D4 items open. Source: a full audit of Yo's
 parallelism surface — the `Send`/`Acyclic` marker rules, `Iso(T)`, atomic objects and the
 Phase O write gate, `std/thread`, every `std/sync` and `std/async` primitive, `std/imm`, the
 module-global inventory of `std`, the spawn lowering, the atomic-RC/GC runtime and the
@@ -374,6 +374,27 @@ unaffected.
    inside `with_lock` capturing a local COPY.
 5. Exit: all four repros rejected at `check`; `tests/spawn_blocking.test.yo` and
    `tests/sync/once.test.yo` (the two closure-forwarding shapes) still pass.
+
+**Landed in part 2026-09-26** (branch `ps/phase4-closures-externs`, stacked on Phase 3): items 2
+and 3. Items 0 and 1 (D4, P-4, P-26) stay open: judging a closure TYPE by its capture struct
+needs per-closure identity on `Func` types, the type-system plan's Phase 3 (type identity), and
+the same prerequisite closes D1's closure-value residual
+(`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`).
+
+- **D8** needed no new rule: `_check_anon_fn_captures` already rejected capturing an `inout` /
+  `ref` / control-bound binding, but the rejection fired inside the ENCLOSING closure's
+  definition-time trial, which swallowed it. It is now flagged on the flow-violation channel
+  (`_raise_capture_rejection`) and re-raised with the capture site in the message. Gate: the
+  check-level cli-case `check-closure-captures-lock-inout-rejected` (a `comptime_expect_error`
+  observes swallowed errors, so it could not be red first).
+- **D6** is narrower than item 3: `io.await` / `io.async` are extern-bound fields of `Io`, so
+  "every extern call" rejects every async program. What landed gates a non-"c" (runtime) extern
+  called BY NAME — a bare identifier or a module-value field — from a file without the pragma
+  (extern "c" calls already need `unsafe(...)`). Seven `std/sys` wrappers (`timer`, `fcntl`,
+  `lock`, `seek`, `umask`, `fallocate`, `socket`) called runtime externs unpragma'd and now
+  declare the pragma; five public APIs that were bare aliases of a runtime extern
+  (`get_thread_id`, `get_hardware_threads`, `get_cpu_id`, `gc.collect`, `gc.tracked_count`)
+  are now wrapper functions.
 
 ### Phase 5: primitives trap, never UB; pool barrier (P-5, P-6, P-7, P-8) (M, std only)
 

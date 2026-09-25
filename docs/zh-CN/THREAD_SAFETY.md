@@ -220,9 +220,7 @@ match(
 - **`Iso(T)` 的唯一性检查是浅层的，原始构造函数没有检查**（见上一节）。
 - **闭包类型满足 `where(T <: Send)`** 而不看其捕获，因此带有非 Send 捕获的 `arc(f)` 和 `Channel(typeof(f))` 能通过 `yo check`（今天是 C 编译器碰巧拒绝了程序）（`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`）。
 - **被派生的闭包可以通过它调用的闭包值**（捕获的辅助闭包、闭包参数）**或 `dyn` 方法触及非 Send 的模块级全局变量**：全局可达性检查只跟随编译期能解析到函数体的调用（`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`）。
-- **闭包可以在 `yo check` 下捕获 `with_lock` 闭包体的 `inout(v)`**（代码生成失败）（`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`）。
 - **用户规则无法避免的运行时竞争**：派生线程事件循环上的跨线程 `Waker` 释放顺序、原子对象上的非原子 `borrow_count`、`Iso` 句柄上的 `rc()`，以及 Windows/macOS 特有的运行时状态 —— 列于 `plans/PARALLELISM_SOUNDNESS.md` §3（P-11 至 P-25）。
-- **安全文件可以调用从 `std/sys/externs.yo` 导入的原始运行时 extern**（`issues/safe-code-reaches-pragmad-runtime-externs-through-std-sys-externs.md`）。
 
 ## 参见
 

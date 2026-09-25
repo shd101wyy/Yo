@@ -512,6 +512,22 @@ _trial_eval_annotation_type :: (
 ///     frame with the closure).
 /// `env` still carries the parameter frame; `outer_frames_len` is the frame
 /// count from BEFORE it was pushed.
+/// A closure-capture rejection (rule D8, `plans/reference/PARALLELISM_RULES.md`)
+/// is a deliberate user-facing error, but it fires while the ENCLOSING body is
+/// trial-evaluated, whose wall swallows it — the closure then hollows and
+/// `check` stays green (a `with_lock` body's `inout(v)` captured and escaped
+/// past the unlock, `issues/fixed/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`).
+/// Flag it on the flow-violation channel first so the def-time caller
+/// re-raises it; the re-raise lands on the enclosing definition's token, so
+/// the message carries the capture site.
+_raise_capture_rejection :: (
+  fn(ctx : EvalContext, exn : Exception, capture_tok : Token, msg : String) -> unit
+)({
+  if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
+    flag_flow_violation(`${msg} (captured at ${capture_tok.module_path}:${(capture_tok.row + usize(1)).to_string()}:${(capture_tok.column + usize(1)).to_string()})`);
+  });
+  exn.throw(dyn(format_error_message(capture_tok, msg)));
+});
 _check_anon_fn_captures :: (
   fn(
     caps : HashMap(String, CapturedVarInfo),
@@ -520,6 +536,7 @@ _check_anon_fn_captures :: (
     outer_frames_len : usize,
     func_id : String,
     tok : Token,
+    ctx : EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -594,25 +611,21 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                       frame.variables.get(vi),
                       .Some(v) => if(v.name == k, {
                         if(v.is_ref, {
-                          exn.throw(
-                            dyn(
-                              format_error_message(
-                                ci.token,
-                                `Cannot capture inout binding '${k}' in a closure. \`inout(${k}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`
-                              )
-                            )
+                          _raise_capture_rejection(
+                            ctx,
+                            exn,
+                            ci.token,
+                            `Cannot capture inout binding '${k}' in a closure. \`inout(${k}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`
                           );
                         });
                         if(!v.is_compile_time_only && type_is_control_bound(v.ty), {
-                          exn.throw(
-                            dyn(
-                              format_error_message(
-                                ci.token,
-                                `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(v.ty)}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
+                          _raise_capture_rejection(
+                            ctx,
+                            exn,
+                            ci.token,
+                            `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(v.ty)}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
 
 Pass \`${k}\` as a regular function parameter instead of capturing it in a closure.`
-                              )
-                            )
                           );
                         });
                       }),
@@ -1821,7 +1834,7 @@ Result type: ${type_to_string(decl_result_ty)}`
     match(
       body_eval_ctx.captured_variables,
       .Some(anon_caps) => if(anon_caps.len() > usize(0), {
-        _check_anon_fn_captures(anon_caps, env, is_creating_closure, n_cap_fr, func_id.clone(), tok, exn);
+        _check_anon_fn_captures(anon_caps, env, is_creating_closure, n_cap_fr, func_id.clone(), tok, ctx, exn);
       }),
       .None => ()
     );

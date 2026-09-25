@@ -1,0 +1,9 @@
+# Parallelism soundness Phase 4 (rule D8, plans/reference/PARALLELISM_RULES.md):
+# a closure inside a Mutex.with_lock body may not capture the body's
+# second-class `inout(v)` — stored in `keep`, it would run after the unlock and
+# write the protected value with no lock held. The rejection existed but fired
+# inside the enclosing closure's definition-time trial, which swallowed it, so
+# `check` was green and codegen died on the hollow body
+# (issues/fixed/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md).
+stdout_keep_match=Cannot capture inout binding 'v' in a closure
+timeout=120

@@ -3,6 +3,7 @@
 { Mutex } :: import("std/sync/mutex");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
+{ __yo_async_blocking_begin } :: import("std/sys/externs.yo");
 /// The parallelism-soundness corpus (`plans/PARALLELISM_SOUNDNESS.md`, Phase 0).
 ///
 /// One `comptime_expect_error` block per rule the plan's phases add, and one
@@ -215,8 +216,45 @@ test("D1 canary: a value global written and read only on the main thread is lega
   assert(g_main_only == i32(2), "the write landed");
 });
 // ============================================================================
+// D6 — runtime externs are not callable from safe code
+// ============================================================================
+// D6 (Phase 4): importing (naming) a runtime extern stays legal; CALLING it
+// from a file without the pragma is rejected.
+comptime_expect_error({
+  _d6_call_runtime_extern :: (fn() -> unit)({
+    __yo_async_blocking_begin();
+  });
+  _d6_call_runtime_extern();
+});
+// D6 (Phase 4): the same entry point reached as a field of the module value.
+_runtime_externs :: import("std/sys/externs.yo");
+comptime_expect_error({
+  _d6_call_runtime_extern_through_module :: (fn() -> unit)({
+    _runtime_externs.__yo_async_blocking_begin();
+  });
+  _d6_call_runtime_extern_through_module();
+});
+// ============================================================================
 // D8 — closures may not capture second-class bindings
 // ============================================================================
+// D8 (Phase 4): a closure inside a `with_lock` body may not capture the
+// body's second-class `inout(v)` (the check-level gate is the cli-case
+// check-closure-captures-lock-inout-rejected; a comptime_expect_error observes
+// the def-time error even while `check` swallows it).
+comptime_expect_error({
+  _d8_capture_lock_param :: (fn() -> unit)({
+    m := Mutex(Counter).new(Counter(n : i32(0)));
+    (_u : unit) = m.with_lock((v) => {
+      (k : Impl(Fn() -> unit)) = (
+        () => {
+          v.n = (v.n + i32(1));
+        }
+      );
+      k();
+    });
+  });
+  _d8_capture_lock_param();
+});
 // Canary: a closure inside a `with_lock` body that captures a local COPY is legal.
 test("D8 canary: a closure over a copy of the protected value is legal", {
   m := Mutex(Counter).new(Counter(n : i32(7)));

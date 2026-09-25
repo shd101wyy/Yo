@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   desugar_if_calls,
   BF_YO_AS
 } :: import("../../expr.yo");
-{ is_auto_generated_expansion, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
+{ is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
 {
   ExprInfo,
@@ -107,7 +107,7 @@ pragma(Pragma.AllowUnsafe);
   flag_pending_impl_force_error,
   take_pending_impl_force_error
 } :: import("../context.yo");
-{ is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module } :: import("../../types/guards.yo");
+{ is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
@@ -4170,6 +4170,47 @@ _try_eval_operand_type :: (
     .None => ()
   );
 });
+/// Rule D6: is this callee expression a runtime extern named directly — a
+/// bare identifier (a destructured import), or a field of a MODULE value —
+/// rather than a field of a runtime value (`io.await`)?
+_d6_callee_is_by_name :: (fn(func_expr : AstExpr, ctx : EvalContext) -> bool)({
+  if(ast_expr_is_atom(func_expr), {
+    return(true);
+  });
+  (recv_is_module : bool) = false;
+  match(
+    func_expr,
+    .FnCall(_, d6_dot, d6_args, _, _) => {
+      d6_is_dot := match(d6_dot, .Atom(_, d6_dtok) => (d6_dtok.kind == TokenKind.Dot), _ => false);
+      if(d6_is_dot && (d6_args.len() == usize(2)), {
+        match(
+          d6_args.get(usize(0)),
+          .Some(d6_recv) => match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(d6_recv)),
+            .Some(d6_ri) => {
+              recv_is_module = is_module_type(d6_ri.ty);
+              match(
+                d6_ri.value,
+                .Some(d6_v) => match(
+                  d6_v,
+                  .TypeVal(d6_t) => {
+                    recv_is_module = (recv_is_module || is_module_type(d6_t));
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+    },
+    _ => ()
+  );
+  recv_is_module
+});
 evaluate_function_call :: (
   fn(
     expr : AstExpr,
@@ -4837,6 +4878,31 @@ evaluate_function_call :: (
     _ => false
   );
   gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.clone()));
+  // Rule D6 (`plans/reference/PARALLELISM_RULES.md`): a runtime extern (an
+  // `extern` other than "c" — the `__yo_*` entry points `std/sys/externs.yo`
+  // exports) called BY NAME from a file without the pragma. Declaring one
+  // needs the pragma, but a pragma'd module that exports it handed it to every
+  // importer (`__yo_async_blocking_begin()` unbalanced the event loop's
+  // cross-thread bracket from safe code). A field of a std VALUE
+  // (`io.await`, `io.async`) is the sanctioned surface and stays legal; a
+  // field of a MODULE (`X := import("std/sys/externs.yo"); X.__yo_...()`)
+  // is a by-name call (`_d6_callee_is_by_name`). An extern "c" callee is
+  // gated by the `unsafe(...)` rule below.
+  gate_is_extern_runtime := match(
+    callee_ty_for_gate,
+    .Func({ meta : __fm_d6 }) => match(__fm_d6.*.is_extern, .Some(lang) => (lang != "c"), .None => false),
+    _ => false
+  );
+  if(((gate_is_extern_runtime && _d6_callee_is_by_name(func_expr, ctx)) && !(gate_in_autogen)) && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `Calling the runtime extern '${match(callee_ty_for_gate, .Func({ meta : __fm_d6n }) => match(__fm_d6n.*.extern_name, .Some(n) => n, .None => ast_expr_to_string(func_expr)), _ => ast_expr_to_string(func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
+        )
+      )
+    );
+  });
   if((gate_is_extern_c && !(ctx.unsafe_context)) && !(gate_in_autogen), {
     callee_name := match(
       callee_ty_for_gate,
