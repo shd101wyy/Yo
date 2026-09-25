@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign. Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1457,6 +1457,84 @@ The original investigation plan, kept for the record:
    a check error, fixed on the same branch.
 
 ---
+
+### 0.10 After the leak fixes: what is left, and a lever for the counters (2026-09-25)
+
+Deep holder census of `check src/main.yo`, stage-2 of develop plus #904
+(`holder_census_t.py`, `HOLDER_SCAN=1 HOLDER_DEEP=1`): **2.25 GB** of RC
+objects live at exit. Linux max RSS by the stage-2 compiler: 2.49 GB, held by
+the ratchet.
+
+**The missing releases are gone.** Zero-hit leak roots (objects no heap,
+stack or global word points at):
+
+| type | before | after |
+| --- | --- | --- |
+| `ArrayList(ArrayList(String))` | 32,291 | 0 — #893 (a `match` call argument on an explicit `return`) |
+| `ArrayList(u8)` | 748 | 4 — #904 (state-machine temps never stored to their slot: `read_dir`'s entries) |
+| `Path` | 209 | 0 — #904 |
+| `ArrayList(expr)` | 3,705 | 3,747, parked |
+
+The parked root is the lists built in `try_to_convert_to_numeric_type`'s
+`__yo_as` lowering. They have zero RC events after allocation, and the expr
+dispose does release `FnCall.args`, so the holder that dies without releasing
+them is still unknown. They total about 0.3 MB; parked on cost.
+
+**The 303 MB "unreached" group is not a leak.** It survives a full cycle
+collection and has heap hits: objects held by the running command's stack
+locals (the check driver's contexts) rather than by a module global.
+
+First-reach holders, largest first:
+
+| holder | size |
+| --- | --- |
+| `_type_trait_methods` (the shared graph) | 546 MB |
+| `g_funcval_cap_vars` | 262 MB |
+| `g_macro_expansions` | 217 MB |
+| `g_method_callee_values` | 217 MB |
+| `g_ifc_memo` | 197 MB |
+| `g_frame_indexes` | 94 MB (exclusive) |
+| `g_emission_occurrence` | 78 MB (exclusive) |
+| `g_finished_walks` | 46 MB (exclusive) |
+
+`g_finished_walks` is already context-free outside watch and LSP (F1); what is
+left is the definitions the post-walk miss fallback serves.
+
+**The emission-name counters kept 66 MB of key strings.**
+`g_emission_occurrence` counted temp and label ordinals under
+`"<module path>:<row>:<col>[:<slot>]"` string keys: 428,645 of them.
+
+It is now keyed by the key's FNV-1a hash (`HashMap(u64, usize)`), and the temp
+minter passes the hash it already computed. A collision only merges two
+counters, and the names built from them also carry the hash (temps) or the
+position (labels), so they stay distinct. The compiler's emitted C is
+byte-identical to develop's (146.8 MB, `cmp`). The exclusive share drops from
+78 MB to the map storage (the Linux ratchet reading is on the PR).
+
+**The frame name index copied every name it keyed.** `_frame_index_refresh`
+inserted `v.name.clone()`, and `String.clone` copies the bytes: 723,641
+private copies (61 MB of `g_frame_indexes`' 94 MB exclusive share) of names
+every `Variable` already holds. The key now shares the binding's buffer.
+`HashMap.insert` dups a borrowed key into its `MapEntry`, so ownership is
+unchanged. `check src/main.yo` under `MallocScribble` stays clean, and the
+fixpoint holds.
+
+**Incremental compilation checked against the campaign (#901).** A per-owner
+purge must cover every cache that can hand back the ids it drops. #883's
+per-function purge left the specialization cache pointing at deleted function
+types. The first `build --watch` round after an edit then emitted an
+untranspiled call. Nothing else runs codegen after an invalidation, so nothing
+else could see it. The spec cache is now owner-tagged and purged in the same
+step (`issues/fixed/build-watch-reuses-a-stale-imported-module.md`; the
+testing instructions carry the smoke recipe).
+
+**Next levers, re-ranked on these numbers:**
+- **Derived-FuncVal capture sharing (§0.7):** `g_funcval_cap_vars`, 262 MB.
+- **The frame name index (#873):** after the key sharing, what remains is
+  the per-frame maps and `prev` lists (~33 MB).
+- **`g_macro_expansions` / `g_method_callee_values`:** these hold AST and
+  FuncVal graphs keyed per call site. Measure their exclusive share with
+  `HOLDER_DEEP_LAST` before choosing.
 
 ## 6. Gates (every phase)
 
