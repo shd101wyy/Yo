@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 232 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 231 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -35,8 +35,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 50 | 13 |
-| **Total** | **232** | **47** |
+| Other | 49 | 13 |
+| **Total** | **231** | **47** |
 
 ## Cross-cutting buckets
 
@@ -343,7 +343,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (50)
+### Other (49)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -368,7 +368,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`](./d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md) | OPEN — closes together with rule D4 (a closur | yes |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | — | — |
 | [`gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md`](./gadt-arm-is-type-checked-only-when-its-index-is-instantiated.md) | OPEN | — |
-| [`inout-call-through-a-fn-value-loses-the-mutation.md`](./inout-call-through-a-fn-value-loses-the-mutation.md) | PARTIALLY FIXED 2026-09-24 | — |
 | [`iso-checks-only-the-wrapper-refcount-not-the-interior.md`](./iso-checks-only-the-wrapper-refcount-not-the-interior.md) | OPEN | — |
 | [`iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`](./iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md) | OPEN | yes |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | open — | — |

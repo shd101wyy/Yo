@@ -627,6 +627,18 @@ p1 := I32Point(x : 3, y : 4);
 p2 := BoolPoint(x : true, y : false);
 ```
 
+### Parameter modes are part of the function type
+
+`fn(inout(x) : i32) -> unit`, `fn(own(x) : String) -> usize` and `fn(x : i32) -> unit` are three different types: an `inout` parameter is passed by reference, an `own` parameter is moved into the callee, and a plain parameter is borrowed. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
+
+```rust
+bump :: (fn(inout(x) : i32) -> unit)({ x = (x + i32(1)); });
+(f : (fn(inout(x) : i32) -> unit)) = bump; // OK
+(g : (fn(x : i32) -> unit)) = bump;        // Error: Incompatible types
+```
+
+The one exception is the receiver of an `impl` member: a trait method declared with `inout(self) : Self` may be implemented with `self : Self`, because each call site adapts to the impl's own signature.
+
 ### Named arguments
 
 Named arguments in Yo must be provided in the same order as they are defined in the function signature:
