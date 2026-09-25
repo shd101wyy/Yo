@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-25, while writing the D4 over-rejection canary for
 `tests/parallelism_soundness.test.yo` (`plans/PARALLELISM_SOUNDNESS.md` Phase 0).
-**Status:** OPEN. **Class:** valid code fails to compile (codegen). It is ALSO the accident
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 4). Was: OPEN. **Class:** valid code fails to compile (codegen). It is ALSO the accident
 that currently keeps `issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`
 from being a runtime hole: the non-Send case fails in clang for the same reason the Send case
 does.
@@ -55,3 +55,17 @@ instead until this is fixed, and Phase 4 of the plan carries this fix as a prere
 
 The repro as a runtime test (`hits=1`) in `tests/arc.test.yo` once fixed, plus the D4 canary in
 `tests/parallelism_soundness.test.yo` switched to the `arc` form.
+
+## Fix (2026-09-26)
+
+In `create_specialized_function_inline` (`src/evaluator/calls/helper.yo`): the return-type
+RE-EVALUATION (the declared return expr evaluated in the specialization's env — the same env and
+memo the body's `Arc(V)(value)` uses) was already computed, but adopted only when the result was
+SomeT-free, and `Arc(<f's Impl>)` carries the closure's `Impl` SomeT. It is now also adopted when
+every SomeT it carries is one of the call's own CLOSURE-typed forall arguments
+(`_somes_are_closure_forall_args`) — that SomeT is the call's instantiation, not an unresolved type
+variable. Owned here rather than by the type-system plan's Phase 3.7/3.8 double-emission work
+(agreed with that session: its same-id memo hardening would not merge the two instances).
+
+Test: the D4 canary in `tests/parallelism_soundness.test.yo` — `arc(bump)` of a closure over an
+`AtomicI32`, read back and called on a spawned thread (`hits == 1`); clang rejected it before.

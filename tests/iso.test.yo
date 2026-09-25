@@ -1,5 +1,9 @@
 pragma(Pragma.AllowUnsafe);
 { assert, panic } :: import("std/assert");
+{ Thread } :: import("std/thread");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 test("Test basic Iso related functions", {
   {
     x := Box(i32)(42);
@@ -55,4 +59,86 @@ test("Test ^ operator for constructing Iso value", {
       assert(false, "Expected Some, got None");
     }
   );
+});
+// P-19 (plans/archive/PARALLELISM_SOUNDNESS.md Phase 6): `rc()` of an `Iso` handle is
+// an ATOMIC load — the wrapper's count is updated with the atomic RC ops, and
+// the spawned thread's copy is dropped on that thread
+// (issues/fixed/rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md). The
+// value oracle is the join; the race itself is the TSan job's to catch.
+test("rc() of an Iso handle copied into a spawned thread reads the atomic count", {
+  x := Box(i32)(42);
+  i1 := Iso(Box(i32))(x);
+  t := Thread(unit).spawn((io : Io) => {
+    _i2 := i1;
+    ()
+  });
+  t.join();
+  assert(rc(i1) == 1, "the thread's copy was released; only i1 remains");
+  e := i1.extract();
+  assert(e.* == i32(42), "and the value is intact");
+});
+// ============================================================================
+// Rule D2 (plans/reference/PARALLELISM_RULES.md, PARALLELISM_SOUNDNESS Phase 2):
+// `^v` proves the WHOLE reference graph uniquely owned at runtime.
+// ============================================================================
+_IsoWrap :: ref(struct(items : ArrayList(i32)));
+test("^ answers .None when an object inside the value is shared", {
+  // `w` itself is uniquely owned, but `shared` still reaches w.items: moving
+  // w to another thread would let two threads touch one non-atomic list
+  // (issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md —
+  // the unchecked constructor SIGSEGV'd 5/5 on this shape).
+  shared := ArrayList(i32).new();
+  w := _IsoWrap(items : shared);
+  r := ^w;
+  assert(r.is_none(), "an aliased interior is not isolated");
+  shared.push(i32(1));
+  assert(shared.len() == usize(1), "the shared list is untouched and still usable");
+});
+test("^ isolates a uniquely owned graph and it crosses a thread", {
+  xs := ArrayList(String).new();
+  (i : i32) = i32(0);
+  while(runtime(i < i32(1000)), {
+    xs.push(`s${i}`);
+    i = (i + i32(1));
+  });
+  match(
+    ^xs,
+    .Some(iso) => {
+      t := Thread(usize).spawn((io : Io) => {
+        got := iso.extract();
+        got.len()
+      });
+      assert(t.join() == usize(1000), "the list, strings and all, moved to the thread");
+    },
+    .None => assert(false, "a freshly built list of fresh strings is uniquely owned")
+  );
+});
+// An atomic's payload is an opaque C type (`atomic_int`), a SomeT placeholder
+// the cycle check used to answer "maybe cyclic" for — so every AtomicI32 and
+// every struct holding one read as cycle-capable, and `^` refused it
+// (issues/fixed/atomic-types-read-as-cycle-capable-through-their-opaque-c-payload.md).
+_ATOMIC_I32_CAN_CYCLE :: Type.can_form_rc_cycle(AtomicI32);
+test("an AtomicI32 cannot form a reference cycle", {
+  assert(!_ATOMIC_I32_CAN_CYCLE, "an opaque C payload holds no Yo reference");
+});
+_IsoWithCounter :: ref(struct(items : ArrayList(i32), hits : AtomicI32));
+test("^ does not descend into an atomic object: sharing one is fine", {
+  hits := AtomicI32(i32(0));
+  v := _IsoWithCounter(items : ArrayList(i32).new(), hits : hits);
+  match(
+    ^v,
+    .Some(iso) => {
+      t := Thread(unit).spawn((io : Io) => {
+        got := iso.extract();
+        _n := got.hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+        ()
+      });
+      t.join();
+      assert(hits.load(MemoryOrder.Acquire) == i32(1), "the shared atomic counter was bumped on the thread");
+    },
+    .None => assert(false, "an atomic object inside is shared by design and does not block isolation")
+  );
+});
+comptime_expect_error({
+  _IsoScalar :: Iso(i32);
 });

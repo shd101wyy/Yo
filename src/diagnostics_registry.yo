@@ -417,10 +417,10 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "`own` 值已被消耗，之后又被使用。",
       "Passing an `own` argument transfers ownership; the binding is dead afterwards. Re-order the uses, clone first (`clone(x)`), or take the value by plain parameter instead of `own`.",
       "传递 `own` 参数会转移所有权，之后该绑定即失效。请调整使用顺序、先克隆（`clone(x)`），或使用普通参数代替 `own`。",
-      "main :: (fn() -> unit)({\n  x := Box(i32)(42);\n  moved := Iso(Box(i32))(x);\n  _y := x;\n});\nexport(main);\n",
-      "main :: (fn() -> unit)({\n  x := Box(i32)(42);\n  moved := Iso(Box(i32))(x);\n  _y := moved;\n});\nexport(main);\n",
-      "`Iso(...)(x)` takes ownership of `x`; the later `x` reads a moved value.",
-      "`Iso(...)(x)` 取得了 `x` 的所有权；后面的 `x` 读到的是已移动的值。"
+      "_take :: (fn(own(_b) : Box(i32)) -> unit)(());\nmain :: (fn() -> unit)({\n  x := Box(i32)(42);\n  _take(x);\n  _y := x;\n});\nexport(main);\n",
+      "_take :: (fn(own(_b) : Box(i32)) -> unit)(());\nmain :: (fn() -> unit)({\n  x := Box(i32)(42);\n  _y := x;\n  _take(x);\n});\nexport(main);\n",
+      "`_take(x)` passes `x` to an `own` parameter, which takes ownership; the later `x` reads a moved value.",
+      "`_take(x)` 把 `x` 传给 `own` 参数，所有权随之转移；后面的 `x` 读到的是已移动的值。"
     )
   );
   out.push(

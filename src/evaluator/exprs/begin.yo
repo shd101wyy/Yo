@@ -59,7 +59,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_trait_ptr_type,
   record_branch_consume
 } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, copy_frames, snapshot_env } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, copy_frames, snapshot_env, frame_is_isolating } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -2458,7 +2458,9 @@ evaluate_begin_expression :: (
   // the M3 driver below attaches their early-return-only drops.
   match(
     current_frame_opt,
-    .Some(opt_fr) => _optimize_dup_drop_pairs(opt_fr, begin_args, last_info.variable_name, last_expr, ctx),
+    // Not in a function that isolates a value (`^v`): the uniqueness walk
+    // needs every count to equal its live handles (`frame_is_isolating`).
+    .Some(opt_fr) => if(!frame_is_isolating(opt_fr), _optimize_dup_drop_pairs(opt_fr, begin_args, last_info.variable_name, last_expr, ctx)),
     .None => ()
   );
   // M1: schedule scope-end RC drops for this frame's owning named locals BEFORE the

@@ -9,7 +9,7 @@
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
 { String } :: import("std/string");
-{ function_reaches_non_send_global } :: import("../effects/mutation_summary.yo");
+{ function_reaches_non_send_global, d1_reach_memo } :: import("../effects/mutation_summary.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -25,13 +25,14 @@
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_fn_trait_type } :: import("../../types/guards.yo");
+{ is_fn_trait_type, is_some_type, is_function_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
-{ type_implements_trait_bool } :: import("../trait_checking.yo");
+{ type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
-{ get_closure_capture_info } :: import("../../function_value.yo");
+{ get_closure_capture_info, get_func_type } :: import("../../function_value.yo");
 // Deterministic capture-struct ids: keyed by the closure's source position +
 // capture field signature, so the SAME closure (re-evaluated across the eval and
 // codegen passes) gets the SAME capture-struct id. A fresh `random_id` per call
@@ -50,7 +51,8 @@
 {
   CapturedVarInfo,
   CaptureUsage,
-  EvalContext
+  EvalContext,
+  set_function_value_marker_fn
 } :: import("../context.yo");
 {
   TypeField
@@ -213,6 +215,333 @@ _declared_bound_requires :: (fn(ty : TypeValue, trait_type : TypeValue) -> bool)
 // (`function_reaches_non_send_global`). Separate from the capture check
 // because a closure with NO captures has no capture struct and still reaches
 // globals. A pragma'd file (std's relay closures included) is the audited
+// ===========================================================================
+// Rules D1 + D4 for function VALUES (plans/reference/PARALLELISM_RULES.md)
+// ===========================================================================
+// A function-like type — a bare `fn(...)`, a closure's `Impl(Fn...)` — holds
+// `Send` only through its VALUES: a function value is `Send` iff its captured
+// state is (D4) and its code reaches no thread-affine module global (D1).
+// The type alone cannot say: two functions of one signature share the type,
+// and a closure that captures nothing still runs code
+// (issues/fixed/function-values-bypass-the-d1-reach-walk.md).
+/// The closures created against each closure-typed SomeT, by the SomeT's id —
+/// the only handle a type-level judgement (`Channel(typeof(k))`, a generic
+/// binder bound to `k`'s type) has on the closure behind the type.
+(g_closure_fids_by_some : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+_some_id_of :: (fn(ty : TypeValue) -> String)(
+  match(ty, .SomeT(sid, _, _, _, _, _, _, _, _, _, _) => sid, _ => String.new())
+);
+_note_fid_for_some_id :: (fn(sid : String, fid : String) -> unit)({
+  if(sid.is_empty(), {
+    return(());
+  });
+  match(
+    g_closure_fids_by_some.get(sid.clone()),
+    .Some(fids) => {
+      (seen : bool) = false;
+      (fi : usize) = usize(0);
+      while((fi < fids.len()) && !seen, {
+        if(match(fids.get(fi), .Some(x) => (x == fid), .None => false), {
+          seen = true;
+        });
+        fi = (fi + usize(1));
+      });
+      if(!seen, {
+        fids.push(fid);
+      });
+    },
+    .None => {
+      fids := ArrayList(String).new();
+      fids.push(fid);
+      g_closure_fids_by_some.insert(sid, fids);
+    }
+  );
+});
+/// Record that the SomeT with id `sid` names closure `fid`.
+note_closure_for_some_id :: (fn(sid : String, fid : String) -> unit)(_note_fid_for_some_id(sid, fid));
+/// A SomeT minted as a copy of closure SomeT `of_id` (a specialization's
+/// fresh binder for a closure argument) names the same closures.
+alias_closure_some_id :: (fn(new_id : String, of_id : String) -> unit)({
+  match(
+    g_closure_fids_by_some.get(of_id),
+    .Some(fids) => {
+      (ai : usize) = usize(0);
+      while(ai < fids.len(), {
+        match(fids.get(ai), .Some(f) => _note_fid_for_some_id(new_id.clone(), f), .None => ());
+        ai = (ai + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
+_is_function_like :: (fn(ty : TypeValue) -> bool)(
+  (is_some_type(ty) && extract_fn_trait_from_type(ty).is_some()) || is_function_type(ty)
+);
+/// Each closure's captured state judged per marker, taken where the closure is
+/// created — per captured VARIABLE, with the captured values as witnesses, so
+/// a captured function or closure is judged by its value and not by the field
+/// type of the capture struct (a `fn` field is not `Send` as a type).
+/// Keyed `fid|marker`; `.Some(reason)` names the first offending capture.
+(g_closure_capture_offense : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
+_captures_offense :: (
+  fn(cvwv : HashMap(String, FuncCapturedVarInfo), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(String)
+)({
+  mname := type_to_string(marker);
+  key_iter := cvwv.keys();
+  (more : bool) = true;
+  while(more, {
+    match(
+      key_iter.next(),
+      .None => {
+        more = false;
+      },
+      .Some(var_name) => match(
+        cvwv.get(var_name.clone()),
+        .None => (),
+        .Some(info) => if(!_declared_bound_requires(info.ty, marker), {
+          match(
+            function_value_marker(info.ty, info.value, marker, env, ctx),
+            .Some(fvm) => match(
+              fvm,
+              .Some(o) => {
+                return(Option(String).Some(`its captured variable '${var_name}' does not implement ${mname}: ${o}`));
+              },
+              .None => ()
+            ),
+            .None => match(
+              _capture_judgement_type(info.ty, info.value),
+              .Some(judged) => if(!type_implements_trait_bool(judged, marker, env), {
+                return(Option(String).Some(`its captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${mname}`));
+              }),
+              .None => ()
+            )
+          );
+        })
+      )
+    );
+  });
+  Option(String).None
+});
+/// Record closure `fid`'s capture verdicts (`Send`, `Acyclic`) at its creation.
+record_closure_capture_verdicts :: (
+  fn(fid : String, cvwv : Option(HashMap(String, FuncCapturedVarInfo)), env : Environment, ctx : EvalContext) -> unit
+)({
+  match(
+    cvwv,
+    .Some(cv) => {
+      markers := ArrayList(String).new();
+      markers.push(String.from("Send"));
+      markers.push(String.from("Acyclic"));
+      (mi : usize) = usize(0);
+      while(mi < markers.len(), {
+        mn := match(markers.get(mi), .Some(m) => m, .None => String.new());
+        match(
+          get_trait_type_from_env(env, mn.clone()),
+          .Some(mt) => {
+            g_closure_capture_offense.insert(`${fid}|${mn}`, _captures_offense(cv, mt, env, ctx));
+          },
+          .None => ()
+        );
+        mi = (mi + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
+/// A closure-typed SomeT that DECLARES `marker` (`Impl(Fn(...), Send)`): the
+/// obligation was discharged where a value was converted into it (a literal
+/// at its creation, an argument at the call, a result at the return).
+_declares_marker :: (fn(ty : TypeValue, marker : TypeValue) -> bool)(
+  match(
+    ty,
+    .SomeT({ required_trait_types : rtts }) => {
+      want := type_to_string(marker);
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < rtts.len()) && !found, {
+        match(
+          rtts.get(i),
+          .Some(t) => if(type_to_string(t) == want, {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+/// Why the function value `fid` does not hold `marker`, or `.None`. The
+/// captured state first (D4), then — for `Send` — what its code reaches (D1).
+/// `body` is walked only when no verdict was memoized: a closure's own is
+/// taken where it is created, with its defining env.
+_function_value_offense :: (
+  fn(fid : String, body : Option(AstExpr), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(String)
+)({
+  mname := type_to_string(marker);
+  // The captures: the verdict taken at the closure's creation, per captured
+  // variable; without one, the capture struct as a type.
+  cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
+  match(
+    g_closure_capture_offense.get(`${fid}|${mname}`),
+    .Some(cv) => match(
+      cv,
+      .Some(co) => {
+        return(Option(String).Some(`${co} — ${cap_hint}`));
+      },
+      .None => ()
+    ),
+    .None => match(
+      get_closure_capture_info(fid.clone()),
+      .Some(cci) => if(!type_implements_trait_bool(cci.capture_type, marker, env), {
+        return(Option(String).Some(`its captured state (${type_to_string(cci.capture_type)}) does not implement ${mname} — ${cap_hint}`));
+      }),
+      .None => ()
+    )
+  );
+  if(mname != "Send", {
+    return(Option(String).None);
+  });
+  // An extern runs no Yo code.
+  (is_extern : bool) = match(get_func_type(fid.clone()), .Func({ meta : fm }) => fm.*.extern_name.is_some(), _ => false);
+  if(is_extern, {
+    return(Option(String).None);
+  });
+  reach := match(
+    d1_reach_memo(fid.clone()),
+    .Some(r) => r,
+    .None => match(
+      body,
+      .Some(b) => function_reaches_non_send_global(fid.clone(), b, ctx.expr_info_table, env),
+      .None => Option(String).None
+    )
+  );
+  match(
+    reach,
+    .Some(r) => Option(String).Some(`its code ${r}`),
+    .None => Option(String).None
+  )
+});
+/// The marker judgement of a function-like type from its VALUES
+/// (`call_function_value_marker`, `context.yo`, documents the contract):
+/// `witness` when the caller has the value; otherwise the values of `ty` in
+/// scope — `env`'s function-local bindings of that type (a SomeT matched by
+/// id, a bare `fn` by its rendering) — and the closures created against a
+/// closure SomeT. `.None` when no value was found.
+function_value_marker :: (
+  fn(ty : TypeValue, witness : Option(EvalValue), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(Option(String))
+)({
+  mname := type_to_string(marker);
+  if(!((mname == "Send") || (mname == "Acyclic")), {
+    return(Option(Option(String)).None);
+  });
+  if(_declares_marker(ty, marker), {
+    return(Option(Option(String)).Some(Option(String).None));
+  });
+  match(
+    witness,
+    .Some(wv) => match(
+      wv,
+      .FuncVal(wfvd, _) => {
+        return(Option(Option(String)).Some(_function_value_offense(wfvd.*.func_id.clone(), Option(AstExpr).Some(wfvd.*.body), marker, env, ctx)));
+      },
+      _ => ()
+    ),
+    .None => ()
+  );
+  if(!_is_function_like(ty), {
+    return(Option(Option(String)).None);
+  });
+  want_id := _some_id_of(ty);
+  want_str := if(want_id.is_empty(), type_to_string(ty), String.new());
+  (found : bool) = false;
+  start := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
+  (fi : usize) = start;
+  while(fi < env.frames.len(), {
+    match(
+      env.frames.get(fi),
+      .Some(fr) => {
+        (vi : usize) = usize(0);
+        while(vi < fr.variables.len(), {
+          match(
+            fr.variables.get(vi),
+            .Some(v) => {
+              // A `::` function definition (module-level or local) is not a
+              // value OF this type: it only shares the signature. Judging
+              // every definition of the signature convicted `f := count`
+              // for what an unrelated `fill` touches.
+              if(!(v.is_module_level || v.is_compile_time_only), {
+                matches := if(
+                  want_id.is_empty(),
+                  is_function_type(v.ty) && (type_to_string(v.ty) == want_str),
+                  _some_id_of(v.ty) == want_id
+                );
+                if(matches, {
+                  match(
+                    v.value.get(usize(0)),
+                    .Some(vv) => match(
+                      vv,
+                      .FuncVal(fvd, _) => {
+                        found = true;
+                        match(
+                          _function_value_offense(fvd.*.func_id.clone(), Option(AstExpr).Some(fvd.*.body), marker, env, ctx),
+                          .Some(o) => {
+                            return(Option(Option(String)).Some(Option(String).Some(o)));
+                          },
+                          .None => ()
+                        );
+                      },
+                      _ => ()
+                    ),
+                    .None => ()
+                  );
+                });
+              });
+            },
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  if(!want_id.is_empty(), {
+    match(
+      g_closure_fids_by_some.get(want_id),
+      .Some(fids) => {
+        (ci : usize) = usize(0);
+        while(ci < fids.len(), {
+          match(
+            fids.get(ci),
+            .Some(cfid) => {
+              found = true;
+              match(
+                _function_value_offense(cfid, Option(AstExpr).None, marker, env, ctx),
+                .Some(o) => {
+                  return(Option(Option(String)).Some(Option(String).Some(o)));
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
+  if(found, Option(Option(String)).Some(Option(String).None), Option(Option(String)).None)
+});
+/// Install `function_value_marker` in `context.yo`'s slot (called once from
+/// `register_evaluate_expression`).
+register_function_value_marker :: (fn() -> unit)({
+  set_function_value_marker_fn(function_value_marker);
+});
 // base and is skipped.
 validate_send_closure_global_reach :: (
   fn(
@@ -240,10 +569,18 @@ validate_send_closure_global_reach :: (
     },
     _ => false
   );
-  if(wants_send && !is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.clone())), {
+  // The closure is walked HERE, with its defining env, whether or not this
+  // slot is `Send`: the verdict is memoized by fid, and a later judgement of
+  // the closure's type (`arc(k)`, `where(T <: Send)`, an `Impl(Fn, Send)`
+  // parameter) reads it through `g_closure_fids_by_some`. Walking it there,
+  // with no defining env, would not resolve the local closures it calls.
+  _note_fid_for_some_id(_some_id_of(wrapper_type), closure_fid.clone());
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.clone())), {
     match(
       function_reaches_non_send_global(closure_fid, closure_body, ctx.expr_info_table, env),
-      .Some(reason) => _raise_capture_trait_violation(ctx, exn, error_token, `This closure runs on another thread (it is bound to a Send closure type) but ${reason}.`),
+      .Some(reason) => if(wants_send, {
+        _raise_capture_trait_violation(ctx, exn, error_token, `This closure runs on another thread (it is bound to a Send closure type) but ${reason}.`);
+      }),
       .None => ()
     );
   });
@@ -289,14 +626,34 @@ validate_capture_trait_requirements :: (
                   .Some(var_name) => match(
                     cvwv.get(var_name.clone()),
                     .None => (),
-                    .Some(info) => match(
-                      _capture_judgement_type(info.ty, info.value),
-                      .None => (),
-                      .Some(judged) => if(!_declared_bound_requires(info.ty, trait_type) && !type_implements_trait_bool(judged, trait_type, env), {
-                        var_msg := `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}. To move it across threads, wrap it in Arc/Iso, or capture a ${trait_name} projection of it instead.`;
-                        _raise_capture_trait_violation(ctx, exn, info.token, var_msg);
-                      })
-                    )
+                    .Some(info) => if(!_declared_bound_requires(info.ty, trait_type), {
+                      // A captured FUNCTION value holds a marker by its value
+                      // — what it captures, what its code reaches (rules D4 +
+                      // D1) — not by its type (`function_value_marker`).
+                      match(
+                        function_value_marker(info.ty, info.value, trait_type, env, ctx),
+                        .Some(fvm) => match(
+                          fvm,
+                          .Some(fvm_o) => {
+                            _raise_capture_trait_violation(
+                              ctx,
+                              exn,
+                              info.token,
+                              `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}: ${fvm_o}.`
+                            );
+                          },
+                          .None => ()
+                        ),
+                        .None => match(
+                          _capture_judgement_type(info.ty, info.value),
+                          .None => (),
+                          .Some(judged) => if(!type_implements_trait_bool(judged, trait_type, env), {
+                            var_msg := `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}. To move it across threads, wrap it in Arc/Iso, or capture a ${trait_name} projection of it instead.`;
+                            _raise_capture_trait_violation(ctx, exn, info.token, var_msg);
+                          })
+                        )
+                      );
+                    })
                   )
                 );
               });
@@ -718,6 +1075,7 @@ export(consume_captured_variables);
 export(build_path_collection_from_captured_variables);
 export(validate_capture_trait_requirements);
 export(validate_send_closure_global_reach);
+export(function_value_marker, register_function_value_marker, alias_closure_some_id, note_closure_for_some_id, record_closure_capture_verdicts);
 export(enrich_captured_variables);
 export(create_capture_type_and_value);
 export(generate_captured_variable_dup_expressions);

@@ -39,9 +39,10 @@ pragma(Pragma.AllowUnsafe);
   get_all_some_types
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
-{ force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("./context.yo");
+{ force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker } :: import("./context.yo");
 { Environment, get_where_clause_constraints_for_some_type, copy_frames } :: import("../env.yo");
 { Token } :: import("../token.yo");
+{ EvalValue } :: import("../value.yo");
 { YoError, format_error_message } :: import("../error.yo");
 {
   find_matching_generic_impl,
@@ -889,15 +890,17 @@ type_implements_trait :: (
         .Tuple({ field_types : tuple_fts }) => {
           fields_opt = Option(ArrayList(TypeValue)).Some(tuple_fts);
         },
-        // A `fn(...)` type is a code pointer: it carries no state, so it is
-        // Send and Acyclic. A closure's state is judged where it is captured
-        // ("Captured variable … does not implement Send", the capture rule),
-        // and a capturing closure cannot flow into a bare `fn` slot
-        // (issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md).
-        // Without this arm the `Impl(Fn() -> T, Send)` argument check
-        // (issues/fixed/impl-trait-return-bound-is-not-checked.md) rejected
-        // every closure passed to `spawn_blocking`.
-        .Func({ result : _ }) => if((tn == "Send") || (tn == "Acyclic"), {
+        // A `fn(...)` type is a code pointer: it holds no reference, so it is
+        // Acyclic. It is NOT Send as a type: whether a function may run on
+        // another thread depends on what its CODE touches (rule D1), and every
+        // function of the signature shares the type. `Send` for a function
+        // value is judged from the value where the value is known — an
+        // argument, a captured variable, a callee parameter bound to it
+        // (`function_value_marker`, utils/closure.yo); a bare `fn` whose value
+        // is unknown here (a struct field, a `Channel(fn() -> unit)` payload)
+        // is not Send, Swift's rule for plain function types
+        // (issues/fixed/function-values-bypass-the-d1-reach-walk.md).
+        .Func({ result : _ }) => if(tn == "Acyclic", {
           direct_true = true;
         }),
         // `*(T)`: Send/Acyclic iff `T` is (mirrors the prelude
@@ -1647,7 +1650,12 @@ or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 /// Without it a `Q` bound to `v : Impl(Foo)` was accepted, and the first use
 /// of a `Foo` method in the body failed as E0610 on `(v.f)()`
 /// (issues/fixed/impl-trait-return-bound-is-not-checked.md).
-impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env : Environment) -> Option(TypeValue))(
+///
+/// `markers_judged`: the caller already judged the marker traits (`Send`,
+/// `Acyclic`) from the argument's VALUE (`call_function_value_marker`) — a
+/// function value holds them by what it captures and what its code reaches,
+/// which its type cannot say — so they are skipped here.
+impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env : Environment, markers_judged : bool) -> Option(TypeValue))(
   match(
     param_type,
     .SomeT({ name : ip_nm, required_trait_types : ip_req, is_effects_row : ip_row }) => cond(
@@ -1658,7 +1666,8 @@ impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env 
         while((ip_i < ip_req.len()) && ip_miss.is_none(), {
           match(
             ip_req.get(ip_i),
-            .Some(ip_t) => if(!(is_fn_trait_type(ip_t)) && !(type_implements_trait_bool(arg_type, ip_t, env)), {
+            .Some(ip_t) => if((!(is_fn_trait_type(ip_t)) && !(markers_judged && ((type_to_string(ip_t) == "Send") || (type_to_string(ip_t) == "Acyclic"))))
+            && !(type_implements_trait_bool(arg_type, ip_t, env)), {
               ip_miss = Option(TypeValue).Some(ip_t);
             }),
             .None => ()
@@ -1671,6 +1680,45 @@ impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env 
     _ => Option(TypeValue).None
   )
 );
+/// The marker traits (`Send`, `Acyclic`) of an `Impl(...)` PARAMETER, judged
+/// from the argument's VALUE when it is a function (both call paths, before
+/// `impl_param_unmet_trait`, which then skips them when `judged`), and the
+/// same for a function's `Impl(...)` RESULT and its body's value.
+FunctionArgMarkers :: struct(judged : bool, offense : Option(String));
+judge_function_argument_markers :: (
+  fn(param_type : TypeValue, arg_type : TypeValue, arg_value : Option(EvalValue), env : Environment, ctx : EvalContext) -> FunctionArgMarkers
+)({
+  (judged : bool) = false;
+  match(
+    param_type,
+    .SomeT({ name : pn, required_trait_types : prtts, is_effects_row : prow }) => if((pn == "Impl") && !prow, {
+      (pi : usize) = usize(0);
+      while(pi < prtts.len(), {
+        match(
+          prtts.get(pi),
+          .Some(pt) => match(
+            call_function_value_marker(arg_type, arg_value, pt, env, ctx),
+            .Some(v) => {
+              judged = true;
+              match(
+                v,
+                .Some(o) => {
+                  return(FunctionArgMarkers(judged : true, offense : Option(String).Some(`the function value does not implement ${type_to_string(pt)}: ${o}`)));
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+    }),
+    _ => ()
+  );
+  FunctionArgMarkers(judged : judged, offense : Option(String).None)
+});
 /// The shared E0602 text for an argument that misses a trait of its
 /// `Impl(...)` parameter (both call paths emit it verbatim).
 impl_argument_unmet_trait_message :: (
@@ -2168,7 +2216,7 @@ export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
 export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message);
-export(impl_param_unmet_trait, impl_argument_unmet_trait_message);
+export(impl_param_unmet_trait, impl_argument_unmet_trait_message, FunctionArgMarkers, judge_function_argument_markers);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);
 export(extract_future_trait_from_type);

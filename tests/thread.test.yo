@@ -406,3 +406,25 @@ test("Test rand draws from a PER-THREAD generator, not a shared locked one", {
   m2 := rand_u64();
   assert(m1 != m2, "the main thread's generator advances independently");
 });
+// A thread created and joined by another spawned thread, 5000 times. On
+// emscripten such a thread finishes its cleanup on the JS main thread, which
+// `main` (blocked in `join`) never let run: every one stayed allocated until
+// the heap ran out, Aborted(OOM)
+// (issues/fixed/emscripten-threads-created-off-the-main-thread-are-never-reclaimed.md).
+test("Test a spawned thread joins a thread of its own, 5000 times", {
+  done := AtomicUsize.new(usize(0));
+  (i : i32) = i32(0);
+  while(runtime(i < i32(5000)), {
+    t := Thread(unit).spawn((io : Io) => {
+      inner := Thread(unit).spawn((iio : Io) => {
+        _n := done.fetch_add(usize(1), MemoryOrder.AcqRel);
+        ()
+      });
+      inner.join();
+      ()
+    });
+    t.join();
+    i = (i + i32(1));
+  });
+  assert(done.load(MemoryOrder.Acquire) == usize(5000), "every inner thread ran");
+});

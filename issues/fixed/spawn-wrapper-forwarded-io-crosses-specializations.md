@@ -1,6 +1,6 @@
 # A spawn wrapper closure that forwards its `io : Io` parameter gets a stale `Io` C type
 
-**Status:** OPEN — blocks a std-side wrapper around a user task closure
+**Status:** FIXED (no longer reproduces; measured 2026-09-26, `plans/PARALLELISM_SOUNDNESS.md` Phase 6 item 2). Was: OPEN — blocked a std-side wrapper around a user task closure
 (per-task `JoinHandle`-analog, completion accounting), plans/archive/STD_API_AUDIT.md D7.
 
 ## Symptom
@@ -59,3 +59,19 @@ into the vtable thunk.
 - `join_all` is implemented as a **barrier** (one sentinel task per worker
   thread, relying on the runtime's round-robin distribution + per-worker FIFO
   queues) rather than as a completion counter.
+
+## Resolution (2026-09-26)
+
+Re-measured on the develop tree the parallelism stack is based on (`d68bc1913` + the stack): the
+repro compiles and runs (`rc=0`), and so does a FOUR-shape variant — a no-op task, an
+`io.async` + `io.await(yield(io))` task, a bare `io.await(yield(io))` task and an `io.spawn` +
+`JoinHandle.await` task, each forwarded through the same `submit` wrapper — which is the case the
+"partial workaround" section says still crossed. The fix came with the closure-specialization
+work that landed between this issue and the re-measurement; no commit here changes it.
+
+What it unblocked landed with it: `ThreadPool.spawn` now wraps the user's task closure
+(`cb(io); tasks.done()`), and `join_all` is a per-pool completion counter (a `WaitGroup`)
+instead of the one-sentinel-per-worker barrier. Tests: `tests/thread_pool.test.yo` "ThreadPool
+tasks of several async shapes in one program" (the crossing shape, now through the std wrapper)
+and "join_all waits for its own pool's tasks only" (hangs on the barrier: red on the old std,
+green now).

@@ -24,7 +24,7 @@
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
-{ get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
+{ get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member, is_index_entry_method } :: import("../../function_value.yo");
 { get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _return_type_override } :: import("./declarations.yo");
@@ -38,7 +38,7 @@
 { generate_sys_runtime, AsyncRuntimeOptions, generate_tls_runtime } :: import("../async/runtime_io_common.yo");
 { generate_async_runtime } :: import("../async/runtime.yo");
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
-{ generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
+{ generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_iso_uniqueness_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 { codegen_fatal } :: import("../constants.yo");
 
 // Insert `attr_line` on its own line immediately before the FIRST declaration
@@ -504,6 +504,10 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
 /// closures are skipped: their C prototypes do not carry the parameters.
 _maybe_emit_method_entry_borrow_assert :: (fn(function_type : TypeValue, func_id : String, body : AstExpr, em : Emitter, context : FunctionGenerationContext) -> unit)({
   if(is_closure_fn(func_id.clone()), return(()));
+  // The `index` method of an index-trait call runs while its caller already
+  // holds the container's borrow for the interior argument it produces
+  // (`is_index_entry_method`, function_value.yo).
+  if(is_index_entry_method(func_id.clone()), return(()));
   match(
     function_type,
     .Func({ param_types : pts, result : r, meta : __fm }) => {
@@ -544,7 +548,8 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : TypeValue, func_id
           // the caller's handle slot); the object the flag lives on is `*name`.
           is_ref := match(__fm.*.param_is_ref.get(i), .Some(b) => b, .None => false);
           pname := sanitize_for_c_identifier(label.clone(), false);
-          line := String.from("  __yo_borrow_assert_unborrowed((void*)");
+          // An atomic object's counter is shared across threads: read it atomically.
+          line := if(is_atomic_reference_struct_type(pt), String.from("  __yo_borrow_assert_unborrowed_atomic((void*)"), String.from("  __yo_borrow_assert_unborrowed((void*)"));
           if(is_ref, {
             line.push_str("(*");
             line.push_string(pname);
@@ -992,6 +997,8 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   ctor_block_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
   generate_ref_struct_constructor_functions(context);
   generate_ref_enum_constructor_functions(context);
+  // After both traversal passes: the Iso walk calls the traversal functions.
+  generate_iso_uniqueness_functions(context);
   generate_closure_constructor_functions(context);
   if(context.base.chunk_mode, {
     context.base.chunk_header_ranges.push(

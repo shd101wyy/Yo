@@ -72,7 +72,8 @@ pragma(Pragma.AllowUnsafe);
   create_capture_type_and_value,
   validate_capture_trait_requirements,
   validate_send_closure_global_reach,
-  FuncCapturedVarInfo
+  FuncCapturedVarInfo,
+  record_closure_capture_verdicts
 } :: import("../utils/closure.yo");
 /// Convert a closure body expression into a typed closure value against
 /// `fn_module_type` (an FnTrait type) wrapped in `wrapper_type` (Some or Dyn).
@@ -314,6 +315,8 @@ try_to_implement_closure_by_fn_module_type :: (
     tok
   );
   capture_ty := cap_result.capture_type;
+  // Rules D4 + D9: the captured state's marker verdicts (anonymous_function.yo).
+  record_closure_capture_verdicts(closure_id.clone(), captured_vars_with_values_opt, caller_env, ctx);
   // Validate that the capture struct implements every required non-Fn trait
   // of the wrapper (e.g. `Send` on a spawn closure).
   match(

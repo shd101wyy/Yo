@@ -25,7 +25,7 @@
 //! not be: it belongs to the loop that created it.
 { assert } :: import("std/assert");
 { Park } :: import("std/async/waker");
-{ Thread, get_thread_id } :: import("std/thread");
+{ Thread, get_thread_id, spawn_blocking } :: import("std/thread");
 { AtomicI32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { Duration } :: import("std/time/duration");
 { sleep_blocking } :: import("std/time/sleep");
@@ -178,4 +178,30 @@ test("the common ordering — owner drops its waker copy first, worker wakes lat
     round = (round + i32(1));
   });
   assert(round == i32(5), "every park woken after the owner's release resumed");
+});
+// Rule D7 (plans/reference/PARALLELISM_RULES.md): `spawn_blocking` from a task
+// on a SPAWNED thread. Its worker wakes the park, ends the blocking bracket,
+// and only THEN drops its captured `Waker` — a foreign release into a loop
+// that has nothing else left. Before the fix that release decremented the
+// loop's live-waker count before posting, so the spawned thread's loop could
+// exit and die (it is a _Thread_local) with the post still on its way in
+// (issues/fixed/a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md).
+// The window is a few instructions wide, so this is a stress shape: one
+// exposure per iteration, and the Linux ASan leg is the oracle for the
+// use-after-free. The count checks every iteration completed — a release the
+// drain failed to consume would now hang the loop instead of leaking silently
+// (issues/fixed/a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md).
+test("spawn_blocking from a task on a spawned thread, 2000 times: each loop outlives the release posted into it", {
+  total := AtomicI32(i32(0));
+  (i : i32) = i32(0);
+  while(runtime(i < i32(2000)), {
+    t := Thread(unit).spawn((io : Io) => {
+      v := io.await(spawn_blocking(() => i32(1), io), io);
+      _n := total.fetch_add(v, MemoryOrder.AcqRel);
+      ()
+    });
+    t.join();
+    i = (i + i32(1));
+  });
+  assert(total.load(MemoryOrder.Acquire) == i32(2000), "every spawned thread received its blocking result");
 });

@@ -1028,7 +1028,14 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 
 ## WASM testing
 
-- Run a test on Emscripten: `yo test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-unknown-emscripten`)
+- Run a test on Emscripten: `yo test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-unknown-emscripten`).
+  The runner selects each test with the `YO_TEST_INDEX` environment variable, and emcc 4.0.12's
+  node glue does not forward the environment: there every test fails with "YO_TEST_INDEX is not
+  set". Use CI's emsdk (6.0.6) for an emcc verdict. To check a runtime behavior with an older
+  emcc, compile the case as a program (`yo compile x.yo --c-compiler emcc -o x.js && node x.js`)
+  (`issues/fixed/an-emcc-test-batch-passes-without-running-a-test.md`).
+- A threaded program links with `-sPROXY_TO_PTHREAD` on Emscripten: `main` runs on a pthread
+  (`plans/reference/WASM_SUPPORT.md`).
 - Run a test on standalone WASI: `yo test ./tests/XXX.test.yo --target wasm32-wasip1` (runs via `wasmtime`)
 - Use `pragma(Pragma.SkipWasm32Emscripten);` to skip a test file on the Emscripten target.
 - Use `pragma(Pragma.SkipWasm32Wasi);` to skip a test file on the standalone WASI target.

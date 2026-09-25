@@ -1318,9 +1318,14 @@ evaluate_comptime_fn_call :: (
   // structurally unambiguous (single `*` field) and never unify with user
   // types, so naming ONLY them is safe. FuncVal carries no funcName, so
   // read it from the callee expr (the `Box` atom).
+  // `Arc` is the ATOMIC box, stamped for the same reason: a `Dyn(..., Send)`
+  // boxes its payload with `arc`, and `is_boxed_type` must recognise that box
+  // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md). It is
+  // equally unambiguous: `atomic(ref(struct((*) : V)))`.
   ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(ce).value, .None => String.from(""));
-  ctfe_box_name := if(!(ctfe_fn_name == "Box"), String.from(""), {
-    nm := String.from("Box(");
+  ctfe_box_name := if(!((ctfe_fn_name == "Box") || (ctfe_fn_name == "Arc")), String.from(""), {
+    nm := ctfe_fn_name.clone();
+    nm.push_str("(");
     (cni : usize) = usize(0);
     while(cni < all_arg_vals.len(), {
       if(cni > usize(0), {

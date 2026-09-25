@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-11;
 raised by the std-primitives sub-audit, verified by reading).
-**Status:** OPEN. **Use-after-free (hypothesis: the ordering is verified in the source; the
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 6). Was: OPEN. **Use-after-free (hypothesis: the ordering is verified in the source; the
 crash was not reproduced).** Only loops on SPAWNED threads are exposed: the main thread's loop
 lives until process exit.
 **Where:** `src/codegen/async/runtime_core.yo` — `__yo_waker_release` (~753-770),
@@ -61,3 +61,32 @@ release path's decrement where it is. Then a foreign release keeps the loop aliv
 itself has processed the release. Test: `tests/cross_thread_wake.test.yo` gains the
 spawn-inside-spawn shape above in a loop of a few thousand iterations; it is the Linux ASan leg's
 job to catch the regression.
+
+## Fix (2026-09-26, rule D7)
+
+`src/codegen/async/runtime_core.yo`, three changes that together keep a loop alive exactly as
+long as anything addressed to it is in flight:
+
+1. **The live-waker decrement moved to the owner.** A foreign `__yo_waker_release` no longer
+   touches `live_wakers`; it sets `release_pending`, posts, and drops its handle reference. The
+   owner's drain decrements when it consumes the release (`__yo_waker_consume_release`), so the
+   loop cannot see zero live wakers while a release addressed to it has not been processed. The
+   local release keeps its immediate decrement, except when a wake is already queued, in which
+   case the drain does it too.
+2. **A visitor count on the loop.** Even with (1), a poster links the token under the owner's
+   lock and calls `__yo_io_notify(owner)` AFTER unlocking (the Linux backend's notify takes the
+   same lock, so it cannot move inside); an owner that wakes for another reason could drain,
+   reach zero and exit in between, and the notify would land on dead `_Thread_local` storage.
+   `__yo_waker_post` and `__yo_async_blocking_end` now bracket every touch of a foreign loop with
+   `loop->visitors` (incremented while the loop is provably alive — the caller holds a waker
+   reference, or the blocking bracket is still open), and `__yo_async_loop_quiesce()` runs
+   before every `__yo_io_cleanup()` (both thread entry points and the async-main driver) and
+   waits for it to reach zero. That also closes the `blocking_end` decrement-then-notify window
+   this issue describes.
+3. The drain's re-check (`issues/fixed/a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md`).
+
+Test: `tests/cross_thread_wake.test.yo` "spawn_blocking from a task on a spawned thread, 2000
+times" — the issue's shape, one exposure per iteration. It passed 3/3 on the unfixed runtime too
+(the window is a few instructions wide and was never reproduced on macOS); the Linux ASan leg is
+its oracle for the use-after-free, and its completion count is the oracle for the lost release,
+which now hangs the loop instead of leaking silently.

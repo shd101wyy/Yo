@@ -1,7 +1,7 @@
 # `Iso(T)(v)` is an unchecked constructor and `extract()` verifies nothing, so `Iso` enforces no uniqueness at all
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-2).
-**Status:** OPEN. **Memory-unsafe in safe code** (SIGSEGV, both with and without threads).
+**Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 2, rule D2). Was: OPEN. **Memory-unsafe in safe code** (SIGSEGV, both with and without threads).
 Companion of `issues/iso-checks-only-the-wrapper-refcount-not-the-interior.md` (the type-system
 audit's finding, which measured the interior-aliasing race through the same constructor); this
 record is about the two mechanisms underneath it, which are worse than that doc assumes.
@@ -115,3 +115,28 @@ Tests: `tests/iso.test.yo` gains the interior-alias `.None` case, the scalar rej
 constructor rejection (`comptime_expect_error`), and a cross-thread hand-off of an
 `ArrayList(String)` built on the child (`issues/repros/…` shape) that must stay green — that
 shape works today and is the feature's whole point.
+
+## Fix (2026-09-26, rule D2)
+
+1. **Constructor.** `evaluate_iso_value_call` (`src/evaluator/calls/iso.yo`) rejects `Iso(T)(v)`
+   in a file without the pragma ("construct with `^value`"); the `^` expansion is prelude code.
+2. **`T` is a non-atomic reference object.** `evaluate_iso_type_call` rejects a concrete `T`
+   that is not a `ref(struct)`/`ref(enum)` (repro 2 — `Iso(i32)` — is now a compile error), an
+   atomic object and another `Iso`. Stricter than "contains a reference type": the Iso holds the
+   child's HANDLE and releases it with `__yo_decr_rc`, which a value struct is not.
+3. **Deep uniqueness at construction** — see
+   `issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md`. Repro 1's shape now
+   answers `.None` from `^w`.
+4. **`extract()`'s wrapper `rc == 1` check was NOT added**, on measurement of what it would
+   protect: `extract` is the only operation on the inner value and its atomic one-shot flag
+   already hands the value out exactly once; a sending thread that keeps a copy of the wrapper
+   can never obtain the value, and dropping that copy frees nothing once extracted. The check
+   would also depend on how many references the call's own `self` argument holds. Recorded as a
+   refinement of D2 in `plans/reference/PARALLELISM_RULES.md`.
+5. `docs/{en-US,zh-CN}/ISOLATED.md` and the `Iso` section of `THREAD_SAFETY.md` describe the
+   landed rule; the prelude's SAFETY comment cites D2.
+
+Tests: `tests/iso.test.yo` (aliased interior → `.None`; a 1000-`String` `ArrayList` built and
+isolated, extracted on a spawned thread; an atomic object inside does not block isolation;
+`Iso(i32)` rejected), `tests/parallelism_soundness.test.yo` (raw constructor and `Iso(i32)`
+rejected in safe code; `^` canary), `tests/iso_api_surface.test.yo` moved to `^`.

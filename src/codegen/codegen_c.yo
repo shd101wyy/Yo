@@ -374,7 +374,9 @@ typedef enum {
   // before function declarations so the specialized `trace` gets a prototype+body.
   // (there is no codegen-time monomorphizer; the collector drives the
   // evaluator's create_specialized_function_inline with the threaded ctx/exn/env.)
-  if(base.needs_cycle_gc, {
+  // The same traversals serve Iso's uniqueness walk (rule D2), so the trace
+  // methods are needed whenever the program uses Iso too.
+  if(base.needs_cycle_gc || (base.iso_types.len() > usize(0)), {
     collect_trace_methods_from_generic_impls(base, eval_ctx, module_env, info, exn);
   });
   // Auto-derive the ___dispose (recursive RC-field drop) for RC struct types lacking

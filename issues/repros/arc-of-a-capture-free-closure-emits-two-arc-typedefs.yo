@@ -1,0 +1,17 @@
+{ Thread } :: import("std/thread");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  (k : Impl(Fn() -> unit)) = (
+    () => {
+      println("ran");
+    }
+  );
+  a := arc(k);
+  t := Thread(unit).spawn((io : Io) => {
+    f := a.*;
+    f();
+    ()
+  });
+  t.join();
+});
+export(main);

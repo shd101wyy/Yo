@@ -34,6 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { RawMutex, __yo_thread_self } :: import("./sync/mutex");
 { AtomicBool, MemoryOrder } :: import("./sync/atomic");
 { Channel } :: import("./sync/channel");
+{ WaitGroup } :: import("./sync/waitgroup");
 { assert } :: import("./assert");
 { Park } :: import("./async/waker.yo");
 {
@@ -152,10 +153,10 @@ impl(
 ///   * the `num_threads` passed to `new` is a request — it only takes effect
 ///     while the runtime pool has not started yet, so the first `ThreadPool`
 ///     created (before any task is spawned) fixes the count for the process;
-///   * `join_all` and `shutdown` drain the *runtime* pool, so if a program
-///     holds two `ThreadPool` values they drain each other's work as well
-///     (every submission in the process goes through one lock, so a second
-///     pool submitting concurrently cannot make a drain return early).
+///   * the worker threads are shared by every `ThreadPool` value, but each
+///     pool counts ITS OWN tasks: `join_all` and `shutdown` wait for the work
+///     submitted through that pool (and for the tasks that work submits into
+///     it), not for another pool's.
 ///
 /// Uses atomic reference counting, so a pool may be shared across threads.
 ///
@@ -174,16 +175,15 @@ impl(
 ThreadPool :: atomic(
   ref(
     struct(
-      _used : AtomicBool,
+      _tasks : WaitGroup,
       _closed : AtomicBool
     )
   )
 );
-/// The submission lock — ONE for the process, not one per `ThreadPool` value,
-/// because the runtime's worker pool and its round-robin counter are
-/// process-global: `join_all`'s barrier (one sentinel per worker) is only
-/// sound when NO submission from any pool value interleaves with the sentinel
-/// loop (issues/fixed/threadpool-join-all-barrier-is-defeated-by-a-second-pool-and-shutdown-races-spawn.md).
+/// The submission lock. It orders a submission's `_closed` check and its
+/// task-count increment against `shutdown` setting `_closed`, so a drain can
+/// never return with a task that passed the check still uncounted
+/// (issues/fixed/threadpool-join-all-barrier-is-defeated-by-a-second-pool-and-shutdown-races-spawn.md).
 /// `RawMutex` records its holder, which is what makes a submission from a task
 /// the runtime runs INLINE on the submitting thread (no worker thread could be
 /// created) re-enter instead of self-deadlocking
@@ -199,7 +199,7 @@ impl(
     assert(num_threads > usize(0), "ThreadPool.new: num_threads must be > 0");
     __yo_worker_set_num_threads(num_threads);
     Self(
-      _used : AtomicBool(false),
+      _tasks : WaitGroup.new(),
       _closed : AtomicBool(false)
     )
   }),
@@ -212,57 +212,30 @@ impl(
   num_threads : (fn(self : Self) -> usize)(
     __yo_worker_get_num_threads()
   ),
-  /// Block until every task submitted to this pool so far has finished.
+  /// Block until every task submitted to this pool so far has finished,
+  /// including the tasks those tasks submitted into it before finishing.
   /// The pool stays open — further `spawn` calls are still accepted.
   ///
-  /// The drain is a barrier, not a counter: it submits one sentinel task per
-  /// worker thread and waits for all of them. The runtime hands consecutive
-  /// submissions to consecutive worker threads (round-robin, guarded by the
-  /// runtime's pool mutex) and each worker runs its own queue in FIFO order,
-  /// so once every sentinel has run, every task queued before it has run too.
-  /// `spawn` and this submission loop share the process-wide submission
-  /// lock, so a task submitted concurrently through ANY pool value cannot
-  /// break the round-robin stride.
+  /// A completion counter: `spawn` counts the task in under the submission
+  /// lock and the task's wrapper counts it out after it returns. (Until
+  /// 2026-09-26 this was a barrier of one sentinel task per worker thread,
+  /// which leaned on the runtime's round-robin distribution and drained every
+  /// pool's work at once; a wrapper around the user's task closure was not
+  /// expressible before, issues/fixed/spawn-wrapper-forwarded-io-crosses-specializations.md.)
   ///
-  /// Must not be called from inside a pool task: the caller's worker thread
-  /// would be busy waiting for its own sentinel.
-  ///
-  /// The ~344 bytes this used to leak per call — the sentinels' `drained`
-  /// channel, whose reference a spawn wrapper never released — are freed as of
-  /// 2026-09-11 (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`).
+  /// Must not be called from inside a task of this pool: the task would be
+  /// waiting for itself.
   join_all : (fn(self : Self) -> unit)({
-    cond(
-      self._used.load(MemoryOrder.Acquire) => {
-        workers := __yo_worker_get_num_threads();
-        drained := Channel(bool).new(workers);
-        // Submit exactly one sentinel per worker, with no interleaved
-        // submission from this pool.
-        took := _lock_for_submission(self);
-        (i : usize) = usize(0);
-        while(runtime(i < workers), {
-          __yo_worker_spawn((io : Io) => {
-            drained.send(true);
-            ()
-          });
-          i = (i + usize(1));
-        });
-        _unlock_after_submission(self, took);
-        // Wait for every sentinel. Nothing is held while we block, so tasks
-        // may keep arriving behind the barrier.
-        (seen : usize) = usize(0);
-        while(runtime(seen < workers), {
-          drained.recv().unwrap();
-          seen = (seen + usize(1));
-        });
-      },
-      true => ()
-    );
+    self._tasks.wait();
   }),
   /// Refuse new work, then block until every outstanding task has finished.
   ///
   /// Idempotent. The runtime's OS worker threads are process-global and are
   /// reclaimed at process exit; `shutdown` closes *this* pool and drains the
-  /// work it submitted.
+  /// work it submitted. Exit does NOT wait for tasks: work that is still
+  /// queued or running when `main` returns is abandoned, as a detached
+  /// `Thread` is, so a program that needs its tasks' effects calls
+  /// `join_all` or `shutdown` first.
   shutdown : (fn(self : Self) -> unit)({
     // Under the submission lock, so a `spawn` that has not yet taken the lock
     // sees `_closed` once it does and cannot queue behind the drain.
@@ -321,12 +294,11 @@ _unlock_after_submission :: (fn(pool : ThreadPool, took : bool) -> unit)({
   );
 });
 spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
-  // The submission lock serializes every submission in the process so that
-  // `join_all`'s sentinel tasks land on distinct worker threads (see
-  // `ThreadPool.join_all`); it is held across `__yo_worker_spawn` because that
-  // call may run the task inline, so it must be re-entrant for the task's own
-  // spawns. `_closed` is read UNDER it, so `shutdown` (which sets it under the
-  // same lock) cannot race a submission that already passed the check.
+  // `_closed` is read and the task counted in UNDER the submission lock, so
+  // `shutdown` (which sets `_closed` under the same lock, then drains) cannot
+  // race a submission that already passed the check. The lock is held across
+  // `__yo_worker_spawn` because that call may run the task inline, so it must
+  // be re-entrant for the task's own spawns.
   took := _lock_for_submission(pool);
   cond(
     pool._closed.load(MemoryOrder.Acquire) => {
@@ -335,8 +307,13 @@ spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
     },
     true => ()
   );
-  pool._used.store(true, MemoryOrder.Release);
-  __yo_worker_spawn(cb);
+  tasks := pool._tasks;
+  tasks.add(i32(1));
+  __yo_worker_spawn((io : Io) => {
+    cb(io);
+    tasks.done();
+    ()
+  });
   _unlock_after_submission(pool, took);
 });
 /// Run a BLOCKING call on its own OS thread and await the result, without

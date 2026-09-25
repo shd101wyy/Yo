@@ -293,6 +293,8 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
   // Builtin reference counting functions (static — single C file).
   em.emit_declaration_line("static inline void __yo_decr_rc(void* ptr); // Decrement reference count");
   em.emit_declaration_line("static inline void* __yo_incr_rc(void* ptr); // Increment reference count");
+  em.emit_declaration_line("static inline void* __yo_dyn_retain(void* data, const void* vtable); // Dyn payload retain through its vtable");
+  em.emit_declaration_line("static inline void __yo_dyn_release(void* data, const void* vtable); // Dyn payload release through its vtable");
   // The ATOMIC pair is defined in the CODE buffer (gc_runtime.yo, both the
   // lightweight and the full-GC path) and so lands AFTER everything in the
   // declaration buffer. Declaration-buffer code that releases a reference —

@@ -423,6 +423,15 @@ is_type_0 :: (fn(t : TypeValue) -> bool)(
 is_iso_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .IsoT(_) => true, _ => false)
 );
+/// True for an RC handle whose reference count other threads update
+/// atomically: an atomic reference struct, an atomic reference enum, or an
+/// `Iso(T)` wrapper — the three cases `drop_dup.yo` lowers to
+/// `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic`. Every READ of that count
+/// (`rc(x)`) must be an atomic load too, or it races the atomic RC ops
+/// (issues/fixed/rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md).
+is_atomically_counted_rc_type :: (fn(t : TypeValue) -> bool)(
+  is_atomic_reference_struct_type(t) || is_atomic_reference_enum_type(t) || is_iso_type(t)
+);
 is_dyn_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .DynT(required_trait_types : _) => true, _ => false)
 );
@@ -724,8 +733,16 @@ is_boxed_type :: (fn(t : TypeValue) -> bool)(
     false,
     match(
       t,
-      .Struct({ name, field_labels }) =>
-        ((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false) && name.starts_with("Box(")),
+      .Struct({ name, field_labels, field_types }) =>
+        (
+          (field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false) && (
+            name.starts_with("Box(")
+            // A value boxed ATOMICALLY for a `Dyn(..., Send)` (`dyn(...)` boxes
+            // with `arc` there; issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
+            // An Arc of an OBJECT is an object in its own right, not a box.
+            || (name.starts_with("Arc(") && !match(field_types.get(usize(0)), .Some(ft) => is_reference_struct_type(ft), .None => false))
+          )
+        ),
       _ => false
     )
   )
@@ -779,6 +796,7 @@ export(
   is_atomic_reference_struct_type,
   is_reference_enum_type,
   is_atomic_reference_enum_type,
+  is_atomically_counted_rc_type,
   is_newtype_type,
   is_str_type,
   is_box_type,

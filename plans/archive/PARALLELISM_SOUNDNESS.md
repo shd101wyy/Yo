@@ -1,6 +1,25 @@
 # Parallelism soundness: make data-race freedom true for safe code
 
-**Status:** ACTIVE, proposed 2026-09-25. Phases 0, 1, 3 and 5 LANDED 2026-09-26 and Phase 4 in part (the per-phase "Landed" notes below); Phases 2, 6, 7, 8 and Phase 4's D4 items open. Source: a full audit of Yo's
+**ARCHIVED 2026-09-26 — COMPLETE.** Every phase landed, and the guarantee in
+`docs/en-US/THREAD_SAFETY.md` holds with an empty Known Holes list.
+
+- **What landed, and where:**
+  - Phases 0, 1, 3 and 5: PRs #894–#900.
+  - Phases 6 and 7 (the runtime, the TSan corpus): PR #902.
+  - Phase 2 (`Iso`) and the rest of Phase 4 (D4, P-26): PR #903.
+  - Rule **D9** (function values), found while closing this plan: the `ps/d1-function-values`
+    branch.
+  - One test hotfix to develop: #907.
+- **Decisions:** `plans/reference/PARALLELISM_RULES.md` (D1–D9, all LANDED).
+- **Bugs:** each is in `issues/fixed/`.
+- **Measured numbers:** the per-phase "Landed" notes below. They include the `^` walk's cost
+  (Phase 2) and the TSan corpus (Phase 7).
+- **Proven by:**
+  - the local gates on the combined tip (seed check, build, fresh-binary check of `src` and
+    `std`, the thread corpus, the fast suite, the CLI corpus, `yo fmt --check`);
+  - PR #902's full CI battery, whose ThreadSanitizer job is the standing proof.
+
+The rest of this document is the frozen record. It was proposed 2026-09-25 as ACTIVE. Source: a full audit of Yo's
 parallelism surface — the `Send`/`Acyclic` marker rules, `Iso(T)`, atomic objects and the
 Phase O write gate, `std/thread`, every `std/sync` and `std/async` primitive, `std/imm`, the
 module-global inventory of `std`, the spawn lowering, the atomic-RC/GC runtime and the
@@ -310,6 +329,29 @@ green, `check ./src` and `check ./std` clean.
    interior repro returns `.None`; the deep walk's cost is measured on a 1e6-node list and
    recorded here.
 
+**Landed 2026-09-26** (PR #903, stacked on #902). Differences from the text above, each measured:
+not seed-gated (the new `__yo_iso_unique` builtin appears only inside the `^` macro's `quote`,
+which nothing the seed compiles expands); `T` must be a non-atomic reference OBJECT, not merely
+"contain a reference" (the wrapper releases the child's handle with `__yo_decr_rc`); the
+`extract` `rc == 1` check was dropped (the atomic one-shot flag already gives one owner — see
+D2); the walk descends through the collector's traversal functions, whose visitor now receives
+each child's traverse function, instead of a separately generated field walk. Two bugs surfaced
+and were fixed on the way: the dup/drop MOVE optimizer hid a live alias from the walk
+(`issues/fixed/the-dup-drop-move-optimizer-hides-an-alias-from-iso-uniqueness.md` — the
+optimizer now skips the frames of a function that isolates), and every `AtomicI32` read as
+cycle-capable (`issues/fixed/atomic-types-read-as-cycle-capable-through-their-opaque-c-payload.md`).
+The deep walk's cost is O(reachable graph) once per hand-off on the sending thread. Measured
+2026-09-25 (macOS arm64, `--optimize 2`, 3 runs each):
+
+| `^v` over | Objects walked | Time |
+| --- | --- | --- |
+| an `ArrayList(String)` of 1e6 strings | 1e6 + 1 | 6.6–7.8 ms |
+| an `ArrayList(Box(String))` of 1e6 boxes | 2e6 + 1 | 10.4–10.6 ms |
+
+That is about 5–7 ns per object. A deep linked chain cannot be measured this way: a
+self-referential node type is cycle-capable, and `^` rejects it at compile time, as D2
+requires.
+
 ### Phase 3: module-level globals (P-3, P-10) (M; evaluator + one std fix)
 
 1. **std first** (no seed dependency): `std/encoding/html.yo`'s tables become RC-free
@@ -375,11 +417,27 @@ unaffected.
 5. Exit: all four repros rejected at `check`; `tests/spawn_blocking.test.yo` and
    `tests/sync/once.test.yo` (the two closure-forwarding shapes) still pass.
 
-**Landed in part 2026-09-26** (branch `ps/phase4-closures-externs`, stacked on Phase 3): items 2
-and 3. Items 0 and 1 (D4, P-4, P-26) stay open: judging a closure TYPE by its capture struct
-needs per-closure identity on `Func` types, the type-system plan's Phase 3 (type identity), and
-the same prerequisite closes D1's closure-value residual
-(`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`).
+**Landed 2026-09-26.** Items 2 and 3 on branch `ps/phase4-closures-externs` (stacked on
+Phase 3); items 0, 1 and 4 in the Phase 6 and Phase 2 PRs (#902, #903). Per-closure identity on
+`Func` types was not needed after all:
+
+- **P-26.** `create_specialized_function_inline` adopts the return type's re-evaluation when
+  its only SomeTs are the call's own closure-typed binders
+  (`issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md`). The
+  capture-free case, whose recorded forall argument is its plain `fn` type, reads those binders
+  from the callee env
+  (`issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md`).
+- **D4** is judged on every where-clause path from the closure's values: the callee's parameters
+  bound to the type, then the closures created against a closure's `Impl` SomeT.
+- **D1's closure-value residual** is closed by following a local closure callee through the
+  env and walking a `Send` `dyn`'s vtable at coercion.
+
+Closing the plan found one more route and a rule for it, **D9**: a function VALUE that reaches
+a non-Send global crossed threads unchecked through a named spawn body, `arc`, a generic bound,
+an `Impl(Fn, Send)` parameter, a struct field or a value passed inside a spawn body
+(`issues/fixed/function-values-bypass-the-d1-reach-walk.md`). D9 judges function values by
+what they capture and what their code reaches, wherever the value is known; a bare `fn` type
+with no value is not `Send`.
 
 - **D8** needed no new rule: `_check_anon_fn_captures` already rejected capturing an `inout` /
   `ref` / control-bound binding, but the rejection fired inside the ENCLOSING closure's
@@ -452,6 +510,19 @@ pinned as four `tests/cli-cases/*-panics` cases (rc 1 + the message), the portab
    `main` returns (the process must exit); Windows legs: the two-thread pool submission test and
    a socket-per-thread test.
 
+**Landed 2026-09-26** (PR #902). Items 1, 3 and 4 as written, with one addition the analysis
+forced: moving the live-waker decrement to the owner is not sufficient on its own, because a
+poster notifies AFTER unlocking the owner (the Linux notify takes that lock) — so every foreign
+touch of a loop registers in a `visitors` count and loop teardown waits for it
+(`__yo_async_loop_quiesce`). Item 2: P-15 no longer reproduced (two- and four-shape variants), and
+`ThreadPool.join_all` became a per-pool completion counter (a `WaitGroup`) with the task closure
+wrapped. Item 3 kept the borrow pair for atomic containers and made it atomic (D3 still allows a
+read-only `inout` into an atomic object), and fixed the `Index` self-inflicted panic by skipping
+the index method's own entry assert. Item 4's socket registry is process-wide under an
+`SRWLOCK`, not per-loop (a socket handle may move to another thread). P-11/P-12's race was never
+reproduced locally (3/3 green on the unfixed runtime); the Linux ASan leg and the TSan job are its
+oracle.
+
 ### Phase 7: the standing proof — TSan over the whole thread corpus (S–M, CI)
 
 - Today the Linux/Clang TSan job runs `tests/sync` only. Extend it to `tests/thread*.test.yo`,
@@ -464,6 +535,11 @@ pinned as four `tests/cli-cases/*-panics` cases (rc 1 + the message), the portab
   "hollow-green gate hygiene") — the job prints the number of threads created per test.
 - Add the job to the branch-protection required list by hand (ruleset 13548862).
 
+**Landed 2026-09-26** (PR #902): `scripts/tsan-thread-corpus.sh` over 13 thread-corpus files,
+the both-ways ratchet `scripts/bootstrap/tsan-known-failing.tsv`, and the `YO_REPORT_SPAWNS`
+runtime knob the hollowness check reads; the job keeps its name because it is a required check.
+Its first measurement is the PR's own full battery (TSan does not start on this macOS host).
+
 ### Phase 8: documentation sync and closure (S)
 
 - `docs/{en-US,zh-CN}/THREAD_SAFETY.md` "Known holes" list emptied; `ISOLATED.md`, `ARC.md`,
@@ -471,6 +547,16 @@ pinned as four `tests/cli-cases/*-panics` cases (rc 1 + the message), the portab
   "Parallelism rules" paragraph (D1, D3, D8 are the ones a std author hits).
 - `plans/archive/THREAD_SAFETY.md` correction banner updated to "closed by
   PARALLELISM_SOUNDNESS"; this document moves to `plans/archive/` with the measured numbers.
+
+**Landed 2026-09-26.**
+
+- The Known Holes list is empty in both languages; `THREAD_SAFETY.md` gained a "Functions and
+  Closures Across Threads" section (D4 + D9).
+- `PARALLELISM.md`'s Sendable list and `ARC.md` state the function-value rule; `ISOLATED.md`
+  was rewritten in Phase 2.
+- The design instructions carry the D4 + D9 paragraph.
+- The archived `THREAD_SAFETY.md` banner says CLOSED.
+- This document moved here, and `plans/README.md` and `plans/ROADMAP.md` list it as done.
 
 ## 7. Order and sizing
 

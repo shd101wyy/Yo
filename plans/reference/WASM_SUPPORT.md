@@ -39,6 +39,7 @@ yo compile hello.yo --cc emcc -o app.js       # → app.js + app.wasm (no HTML)
 | `-sNODERAWFS=1`                      | Real filesystem via Node.js         | Emscripten target only    |
 | `-sSTANDALONE_WASM`                  | Produce WASI-compatible `.wasm`     | WASI target only          |
 | `-pthread -sPTHREAD_POOL_SIZE=4`     | Threading support                   | When program uses threads |
+| `-sPROXY_TO_PTHREAD`                 | `main` runs on a pthread            | With `-pthread`           |
 | `-sEXIT_RUNTIME=1`                   | Clean shutdown for pthread          | With `-pthread`           |
 
 ### WASI errno numbering
@@ -276,7 +277,13 @@ and the test now passes on WASM without any arch guard.
 ### Threading (pthread)
 
 Emscripten supports POSIX threads via the `-pthread` flag. The compiler automatically adds
-`-pthread -sPTHREAD_POOL_SIZE=4 -sEXIT_RUNTIME=1` when the program uses threading.
+`-pthread -sPTHREAD_POOL_SIZE=4 -sPROXY_TO_PTHREAD -sEXIT_RUNTIME=1` when the program uses threading.
+
+`-sPROXY_TO_PTHREAD` runs `main` on a pthread and leaves the JS main thread free. A thread reaped
+off the JS main thread (joined by, or detached from, another spawned thread) finishes its cleanup
+on the JS main thread through its event loop. A `main` blocked in `join` never returns to that
+loop, so without the flag every such thread stayed allocated until the heap ran out
+(`issues/fixed/emscripten-threads-created-off-the-main-thread-are-never-reclaimed.md`).
 
 ### File System I/O
 

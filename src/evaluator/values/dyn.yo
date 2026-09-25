@@ -19,13 +19,15 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ function_reaches_non_send_global } :: import("../effects/mutation_summary.yo");
+{ EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry, call_function_value_marker } :: import("../context.yo");
 { EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_resolved_cell, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { type_contains_some_type_deep } :: import("../../types/utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -53,8 +55,13 @@ pragma(Pragma.AllowUnsafe);
 /// type-constructor with `V` pre-bound to inner_type in the callee env.
 /// evaluate_comptime_fn_call evals the body in the passed callee_env and
 /// does NOT bind params, so V must be pre-bound.
-_create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))({
-  vars := get_variables_from_env(env, String.from("Box"));
+_create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))(
+  _create_box_type_via(String.from("Box"), inner_type, env, ctx, exn)
+);
+/// `Box(inner_type)`, or the atomic box `Arc(inner_type)` a `Dyn(..., Send)`
+/// payload takes, evaluated like the constructor call it stands for.
+_create_box_type_via :: (fn(ctor : String, inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))({
+  vars := get_variables_from_env(env, ctor.clone());
   (box_fv : Option(EvalValue)) = Option(EvalValue).None;
   (box_ft : TypeValue) = t_unit();
   nv := vars.len();
@@ -101,13 +108,37 @@ _create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalC
       // failed is_boxed_type and the boxed-dyn path registered the impl
       // against the Box pointer itself (dyn_dispatch_autobox_value printed
       // a blank instead of 'Q').
-      b_callee_tok := synthetic_token(String.from("Box"), cenv.module_path);
+      b_callee_tok := synthetic_token(ctor.clone(), cenv.module_path);
       b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), box_ft, bfv, bav, env, cenv, ctx, exn);
       cenv.pop_frame();
       match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
     }
   )
+});
+/// Does a `dyn(...)` build a `Dyn(..., Send)`? From the expected Dyn type, or
+/// from the value's own `Impl(..., Send)` wrapper when nothing is expected.
+_dyn_target_requires_send :: (fn(expected : Option(ExpectedTypeCtx), value_type : TypeValue) -> bool)({
+  from_expected := match(
+    expected,
+    .Some(et) => match(et.ty, .DynT(required_trait_types : ert) => Option(bool).Some(_traits_name_send(ert)), _ => Option(bool).None),
+    .None => Option(bool).None
+  );
+  match(
+    from_expected,
+    .Some(b) => b,
+    .None => match(value_type, .SomeT({ required_trait_types : vrt }) => _traits_name_send(vrt), _ => false)
+  )
+});
+_traits_name_send :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+  (tsi : usize) = usize(0);
+  while(tsi < tys.len(), {
+    if(match(tys.get(tsi), .Some(t) => match(t, .TraitT(name : tn) => (tn == "Send"), _ => false), .None => false), {
+      return(true);
+    });
+    tsi = (tsi + usize(1));
+  });
+  false
 });
 _unwrap_box_for_method_lookup :: (fn(t : TypeValue) -> TypeValue)({
   (result : TypeValue) = t;
@@ -183,6 +214,16 @@ _dyn_bound_check_type :: (fn(t : TypeValue, env : Environment) -> Option(TypeVal
 /// a dyn'd CLOSURE, which IS its own implementation — there is no registry impl
 /// to find (the same arm `_resolve_dyn_trait_values` special-cases below), and
 /// every other required-type shape is not a nominal trait at all.
+_name_in :: (fn(names : ArrayList(String), n : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < names.len(), {
+    if(match(names.get(i), .Some(x) => (x == n), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 _require_dyn_traits_implemented :: (
   fn(
     dyn_type : TypeValue,
@@ -197,6 +238,54 @@ _require_dyn_traits_implemented :: (
   // `dyn(box(i32(42)))` and the auto-box path arrive here as `Box(i32)`, while
   // the impl is registered against `i32` (the same unwrap the trait-value
   // resolution does before its registry lookups).
+  // Rules D4 + D9: a FUNCTION payload (`dyn(k)` into `Dyn(Fn() -> R, Send)`)
+  // holds a marker by its value — what it captures, what its code reaches —
+  // not by its type (`call_function_value_marker`). Judged BEFORE the bound
+  // type is resolved: a closure's SomeT has no concrete type to resolve to,
+  // and the early return below skipped every check for it
+  // (issues/fixed/iso-of-a-graph-holding-a-function-value-bypasses-d9.md).
+  // A `Dyn(..., Send)` shares its data object across threads, so the object
+  // must be atomically counted: a `box(...)` payload is not
+  // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
+  if(match(dyn_type, .DynT(required_trait_types : sd_rtt) => _traits_name_send(sd_rtt), _ => false) && is_boxed_type(value_type) && !is_atomic_reference_struct_type(value_type), {
+    sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`arc\`) or \`arc(v)\`.`;
+    raise_flow_violation(format_error_message(token, sd_msg), ctx, exn);
+  });
+  fv_payload := _unwrap_box_for_method_lookup(value_type);
+  fv_judged_names := ArrayList(String).new();
+  match(
+    dyn_type,
+    .DynT(required_trait_types : fv_rtt) => {
+      (fvi : usize) = usize(0);
+      while(fvi < fv_rtt.len(), {
+        match(
+          fv_rtt.get(fvi),
+          .Some(fv_req) => match(
+            fv_req,
+            .TraitT(name : fv_rn) => match(
+              call_function_value_marker(fv_payload, Option(EvalValue).None, fv_req.clone(), env, ctx),
+              .Some(fvm) => {
+                fv_judged_names.push(fv_rn.clone());
+                match(
+                  fvm,
+                  .Some(fvm_o) => {
+                    fv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold this ${type_to_string(fv_payload.clone())}: ${fvm_o}.`;
+                    raise_flow_violation(format_error_message(token, fv_msg), ctx, exn);
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            ),
+            _ => ()
+          ),
+          .None => ()
+        );
+        fvi = (fvi + usize(1));
+      });
+    },
+    _ => ()
+  );
   check_ty := match(
     _dyn_bound_check_type(_unwrap_box_for_method_lookup(value_type), env),
     .Some(c) => c,
@@ -219,7 +308,8 @@ _require_dyn_traits_implemented :: (
           }
         );
         req_is_nominal := match(req, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
-        if(req_is_nominal && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
+        req_judged := match(req, .TraitT(name : rjn) => _name_in(fv_judged_names, rjn), _ => false);
+        if(req_is_nominal && !req_judged && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
           // Prefer the trait's declared NAME; an anonymous trait has none, and
           // `type_to_string` renders its field dump instead.
           req_name := match(req, .TraitT(name : rn) => rn.clone(), _ => String.new());
@@ -240,6 +330,87 @@ _require_dyn_traits_implemented :: (
     },
     _ => ()
   );
+});
+/// Rule D1 (plans/reference/PARALLELISM_RULES.md) for trait objects: a
+/// `Dyn(..., Send)` value may be called from another thread, but a call
+/// through it is invisible to the spawn-boundary reach walk (the impl is not
+/// known there). So the walk runs HERE, where the concrete impl is: every
+/// method in the vtable must not reach a non-Send module-level global
+/// (issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md).
+_require_send_dyn_methods_reach_no_global :: (
+  fn(
+    dyn_type : TypeValue,
+    trait_vals : ArrayList(EvalValue),
+    token : Token,
+    ctx : EvalContext,
+    env : Environment,
+    exn : Exception
+  ) -> unit
+)({
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(token.module_path.clone())), {
+    return(());
+  });
+  wants_send := match(
+    dyn_type,
+    .DynT(required_trait_types : rtt) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while(i < rtt.len(), {
+        match(
+          rtt.get(i),
+          .Some(t) => if(match(t, .TraitT(name : tn) => (tn == "Send"), _ => false), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  );
+  if(!wants_send, {
+    return(());
+  });
+  (ti : usize) = usize(0);
+  while(ti < trait_vals.len(), {
+    match(
+      trait_vals.get(ti),
+      .Some(tv) => match(
+        tv,
+        .TraitVal(_, fnames, fvals) => {
+          (fi : usize) = usize(0);
+          while(fi < fvals.len(), {
+            match(
+              fvals.get(fi),
+              .Some(fv_opt) => match(
+                fv_opt,
+                .Some(fv) => match(
+                  fv,
+                  .FuncVal(fvd, _) => match(
+                    function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.expr_info_table, env),
+                    .Some(reason) => {
+                      mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                      msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is Send), but its method '${mname}' ${reason}.`;
+                      raise_flow_violation(format_error_message(token, msg), ctx, exn);
+                    },
+                    .None => ()
+                  ),
+                  _ => ()
+                ),
+                .None => ()
+              ),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    ti = (ti + usize(1));
+  });
 });
 /// Monomorphize a trait `?=`-default method FuncVal to a concrete receiver.
 /// The registered default is GENERIC over `Self` (e.g. `Error.source ?= (self)
@@ -675,10 +846,12 @@ evaluate_dyn_value :: (
     );
     (ne_final_expr : AstExpr) = inner_ne;
     if(!is_reference_struct_type(ne_value_type) && !is_dyn_type(ne_value_type), {
+      // The same box the executing path below picks: `arc` for a Send Dyn.
+      ne_send := _dyn_target_requires_send(ctx.expected_type, ne_value_type);
       match(
-        _create_boxed_type(ne_box_inner_ty, env, ctx, exn),
+        _create_box_type_via(if(ne_send, String.from("Arc"), String.from("Box")), ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
-          ne_box_tok := synthetic_token(String.from("box"), env.module_path);
+          ne_box_tok := synthetic_token(if(ne_send, String.from("arc"), String.from("box")), env.module_path);
           ne_box_atom := AstExpr.Atom(alloc_global_expr_id(), ne_box_tok);
           ne_box_args := ArrayList(AstExpr).new();
           ne_box_args.push(inner_ne);
@@ -713,7 +886,9 @@ evaluate_dyn_value :: (
       if(ne_have_inner_ty, {
         _require_dyn_traits_implemented(ret_type.clone(), ne_value_type.clone(), expr_tok, ctx, env, exn);
       });
-      expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn)));
+      ne_trait_vals := _resolve_dyn_trait_values(ret_type.clone(), ne_value_type, ctx, env, exn);
+      _require_send_dyn_methods_reach_no_global(ret_type, ne_trait_vals, expr_tok, ctx, env, exn);
+      expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(ne_trait_vals));
     });
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     // Attach the temp variable C codegen reads for the fat-pointer struct.
@@ -747,9 +922,15 @@ evaluate_dyn_value :: (
   (final_value_type : TypeValue) = value_type;
   // Auto-box non-object, non-dyn values. No Future-implementing SomeType
   // special case exists — all non-object, non-dyn values are wrapped in box().
+  // A `Dyn(..., Send)` boxes with `arc` instead: the Dyn's data object is
+  // SHARED — every copy of the Dyn, and the box's own handle, hold it — and a
+  // Send value is shared across threads, so its reference count must be
+  // atomic. A plain `box` put a non-atomic count on two threads
+  // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
   (final_value_expr_ex : AstExpr) = eval_inner;
   if(!is_reference_struct_type(value_type) && !is_dyn_type(value_type), {
-    box_tok := synthetic_token(String.from("box"), cur_env.module_path);
+    box_fn_name := if(_dyn_target_requires_send(ctx.expected_type, value_type), String.from("arc"), String.from("box"));
+    box_tok := synthetic_token(box_fn_name, cur_env.module_path);
     box_atom := AstExpr.Atom(usize(0), box_tok);
     box_args := ArrayList(AstExpr).new();
     box_args.push(eval_inner);
@@ -861,6 +1042,7 @@ evaluate_dyn_value :: (
   // registered impl methods through the registry. Resolved on the pre-box
   // concrete type.
   trait_vals := _resolve_dyn_trait_values(dyn_type.clone(), value_type, ctx, cur_env, exn);
+  _require_send_dyn_methods_reach_no_global(dyn_type.clone(), trait_vals, expr_tok, ctx, cur_env, exn);
   // Annotate the outer dyn(...) expression with the resolved DynType and
   // the ordered trait values for C codegen vtable emission.
   out_info := new_expr_info(cur_env, dyn_type);

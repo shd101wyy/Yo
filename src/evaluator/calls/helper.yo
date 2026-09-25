@@ -95,7 +95,8 @@ pragma(Pragma.AllowUnsafe);
   fn_constrained_param_requires_callable,
   fn_argument_not_callable_message,
   impl_param_unmet_trait,
-  impl_argument_unmet_trait_message
+  impl_argument_unmet_trait_message,
+  judge_function_argument_markers
 } :: import("../trait_checking.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call } :: import("../async/await_analysis.yo");
 {
@@ -126,7 +127,8 @@ pragma(Pragma.AllowUnsafe);
   SpecializedFunctionCacheEntry,
   in_def_time_trial,
   force_pending_impls_for_type_name,
-  type_head_name_for_impl_forcing
+  type_head_name_for_impl_forcing,
+  call_function_value_marker
 } :: import("../context.yo");
 {
   PathCollection,
@@ -196,7 +198,7 @@ pragma(Pragma.AllowUnsafe);
   find_closure_fid_by_capture_struct_id,
   ClosureCaptureInfo
 } :: import("../../function_value.yo");
-{ enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo } :: import("../utils/closure.yo");
+{ enrich_captured_variables, create_capture_type_and_value, FuncCapturedVarInfo, alias_closure_some_id, note_closure_for_some_id } :: import("../utils/closure.yo");
 { Exception } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 { registration_owner } :: import("../values/type_trait_methods.yo");
@@ -911,8 +913,18 @@ check_argument_for_parameter :: (
       _arg_rule_throw(arg_tok, fn_argument_not_callable_message(param_label.clone(), resolved_pt, lowered), ctx, exn);
     });
   });
+  // A FUNCTION argument's marker traits come from its value first — what it
+  // captures and what its code reaches (rules D4 + D9,
+  // `judge_function_argument_markers`); the type-level check below then
+  // skips the markers it judged.
+  fam := judge_function_argument_markers(resolved_pt, lowered, arg_info.value, env, ctx);
   match(
-    impl_param_unmet_trait(resolved_pt, lowered, env),
+    fam.offense,
+    .Some(fam_o) => _arg_rule_throw(arg_tok, `Argument for parameter "${param_label}" (type ${type_to_string(lowered)}) cannot be passed as ${type_to_string(resolved_pt)}: ${fam_o}.`, ctx, exn),
+    .None => ()
+  );
+  match(
+    impl_param_unmet_trait(resolved_pt, lowered, env, fam.judged),
     .Some(um_tr) => _arg_rule_throw(arg_tok, impl_argument_unmet_trait_message(param_label.clone(), resolved_pt, lowered, um_tr), ctx, exn),
     .None => ()
   );
@@ -2078,6 +2090,56 @@ _push_forwarded_closure_key :: (fn(compile_time_args : ArrayList(EvalValue), cfi
     _ => ()
   )
 );
+/// Is every SomeT in `somes` one of this call's CLOSURE-typed forall arguments
+/// (an `Impl(Fn(...))` type bound to a generic parameter)? Such a SomeT is
+/// the call's instantiation, not an unresolved type variable, so a return type
+/// re-evaluated to carry it is as settled as a concrete one.
+_somes_are_closure_forall_args :: (fn(somes : ArrayList(TypeValue), forall_args : ArrayList(ArgEntry)) -> bool)({
+  ids := ArrayList(String).new();
+  (fi : usize) = usize(0);
+  while(fi < forall_args.len(), {
+    match(
+      forall_args.get(fi),
+      .Some(fa) => match(
+        fa.value,
+        .Some(fv) => match(
+          fv,
+          .TypeVal(ft) => match(
+            ft,
+            .SomeT(fid, _, _, _, _, _, _, _, _, _, _) => if(extract_fn_trait_from_type(ft).is_some(), {
+              ids.push(fid);
+            }),
+            _ => ()
+          ),
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  if(ids.len() == usize(0), {
+    return(false);
+  });
+  (si : usize) = usize(0);
+  while(si < somes.len(), {
+    sid := match(somes.get(si), .Some(st) => match(st, .SomeT(sid0, _, _, _, _, _, _, _, _, _, _) => sid0, _ => String.new()), .None => String.new());
+    (found : bool) = false;
+    (ii : usize) = usize(0);
+    while((ii < ids.len()) && !(found), {
+      if(match(ids.get(ii), .Some(x) => (x == sid), .None => false), {
+        found = true;
+      });
+      ii = (ii + usize(1));
+    });
+    if(!(found), {
+      return(false);
+    });
+    si = (si + usize(1));
+  });
+  true
+});
 create_specialized_function_inline :: (
   fn(
     original_func_val : EvalValue,
@@ -2503,6 +2565,27 @@ create_specialized_function_inline :: (
                           });
                           zbp = (zbp + usize(1));
                         });
+                        // A CLOSURE argument that captures nothing has no
+                        // capture struct to stand in for `V`: bind `V` to the
+                        // closure's own `Impl(Fn...)` SomeT, the type the
+                        // body binds it to, or the return re-evaluation
+                        // below builds `Arc(V)` over the signature's `V`
+                        // while the body builds `Arc(<closure SomeT>)` — two
+                        // instances, and clang rejects the return
+                        // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
+                        if(!(zb_done) && extract_fn_trait_from_type(zb_tb).is_some(), {
+                          _zb3 := add_variable_to_env(
+                            callee_env,
+                            zb_name,
+                            TypeValue.TypeUni(usize(0)),
+                            Option(EvalValue).Some(EvalValue.TypeVal(zb_tb.clone())),
+                            true,
+                            false,
+                            false,
+                            false,
+                            synthetic_token(zb_name, callee_env.module_path)
+                          );
+                        });
                       });
                     }),
                     _ => ()
@@ -2728,7 +2811,17 @@ create_specialized_function_inline :: (
                 match(
                   rte_out.get(usize(0)),
                   .Some(rte_ty) => {
-                    if(((get_all_some_types(rte_ty).len() == usize(0)) && !(_type_has_array_len_var(rte_ty))) && !(is_unit_type(rte_ty)), {
+                    // Concrete, OR carrying only this call's own CLOSURE-typed
+                    // forall arguments: a closure's type is an `Impl(Fn...)`
+                    // SomeT, so `arc(f)`'s `-> Arc(V)` re-evaluates to
+                    // `Arc(<f's Impl>)` — the very instance the body's
+                    // `Arc(V)(value)` builds through the same memo. Rejecting
+                    // it kept the signature's `Arc(V)` (V still the bound
+                    // variable), a second nominal instance, and clang refused
+                    // the return (issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
+                    rte_somes := get_all_some_types(rte_ty);
+                    rte_only_closure_args := ((rte_somes.len() > usize(0)) && _somes_are_closure_forall_args(rte_somes, arg_values.forall_args));
+                    if((((rte_somes.len() == usize(0)) || rte_only_closure_args) && !(_type_has_array_len_var(rte_ty))) && !(is_unit_type(rte_ty)), {
                       spec_ret_ty = rte_ty;
                       rte_adopted = true;
                     });
@@ -3078,6 +3171,26 @@ create_specialized_function_inline :: (
                   );
                   register_some_resolved_concrete(fresh_some_id.clone(), cap_ty);
                   register_some_resolved_concrete(closure_some_id.clone(), cap_ty);
+                  // Rules D1 + D4: the fresh binder names the ARGUMENT's
+                  // closure, for a marker judgement of the parameter's type
+                  // inside the body (`function_value_marker`).
+                  match(
+                    arg_values.args.get(rbp_i),
+                    .Some(cb_ae3) => match(
+                      cb_ae3.value,
+                      .Some(cb_v3) => match(
+                        cb_v3,
+                        .FuncVal(cb_fvd3, _) => note_closure_for_some_id(fresh_some_id.clone(), cb_fvd3.*.func_id.clone()),
+                        _ => ()
+                      ),
+                      .None => match(
+                        cb_ae3.arg_type,
+                        .SomeT({ id : cb_sid3 }) => alias_closure_some_id(fresh_some_id.clone(), cb_sid3),
+                        _ => ()
+                      )
+                    ),
+                    .None => ()
+                  );
                   // The declared Fn bound's RESULT is the enclosing function's
                   // own generic (`cb : Impl(Fn(io : Io) -> T)`), and nothing
                   // else here resolves it: `cb` is bound VALUELESS, so the
@@ -4045,7 +4158,14 @@ create_specialized_function_inline :: (
                   ydb = (ydb + usize(1));
                 });
                 if(ys_any, {
-                  spec_result = substitute(ys_ret, sp_res_b);
+                  // An ADOPTED return (above) is already this call's
+                  // instance, the one the body was checked against; the
+                  // positional substitution of the DECLARED return would
+                  // mint a second one (`Arc(V)` with `V := <param type>`)
+                  // (issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md).
+                  if(!(rte_adopted), {
+                    spec_result = substitute(ys_ret, sp_res_b);
+                  });
                   // Rebuild the param list through the same substitution
                   // (ArrayList has no indexed set).
                   y_new_params := ArrayList(TypeValue).new();
@@ -4547,6 +4667,7 @@ validate_where_constraints_for_call :: (
     func_id : String,
     callee_env : Environment,
     tok : Token,
+    ctx : EvalContext,
     exn : Exception
   ) -> unit
 )({
@@ -4595,11 +4716,47 @@ validate_where_constraints_for_call :: (
             lv,
             .TypeVal(bound_tb) => {
               bound_ty := bound_tb;
+              // Rules D4 + D1 (plans/reference/PARALLELISM_RULES.md): a
+              // FUNCTION type holds `Send`/`Acyclic` only through its values —
+              // what a closure captures and what its code reaches — so the
+              // bound's values decide (`call_function_value_marker`: the callee's
+              // parameters bound to this type, the closures created against a
+              // closure SomeT). A closure type is an `Impl(Fn(...))` SomeT, so
+              // the concrete-only gate below never saw one and `arc(f)` accepted
+              // a closure over an `ArrayList`
+              // (issues/fixed/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md),
+              // and a closure that captures nothing but pushes to a non-Send
+              // global passed every such bound
+              // (issues/fixed/function-values-bypass-the-d1-reach-walk.md).
+              (value_judged : bool) = false;
+              if(!(wce.is_negated), {
+                match(
+                  call_function_value_marker(bound_ty, Option(EvalValue).None, wce.trait_ty, callee_env, ctx),
+                  .Some(fvm) => {
+                    value_judged = true;
+                    match(
+                      fvm,
+                      .Some(fvm_o) => {
+                        exn.throw(
+                          dyn(
+                            format_error_message(
+                              tok,
+                              `The function type ${type_to_string(bound_ty)} does not implement required trait ${type_to_string(wce.trait_ty)}: ${fvm_o}.`
+                            )
+                          )
+                        );
+                      },
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                );
+              });
               // Fully concrete only: a bound type still carrying SomeTs (a
               // generic instantiation inside an impl body) defers to
               // constraint propagation, which the marker derivation
               // can't see through yet.
-              if((!(is_some_type(bound_ty))) && (get_all_some_types(bound_ty).len() == usize(0)), {
+              if(((!(is_some_type(bound_ty))) && (get_all_some_types(bound_ty).len() == usize(0))) && !(value_judged), {
                 (wc_implemented : bool) = type_implements_trait_bool(bound_ty, wce.trait_ty, callee_env);
                 // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): the
                 // bound may be satisfied by an impl placed later in its
@@ -7063,7 +7220,7 @@ try_to_call_function_with_arguments :: (
         .Some(wfv) => match(
           wfv,
           .FuncVal(__fvd12, _) => {
-            validate_where_constraints_for_call(__fvd12.*.func_id.clone(), callee_env_m, tok, exn);
+            validate_where_constraints_for_call(__fvd12.*.func_id.clone(), callee_env_m, tok, ctx, exn);
             reapply_where_clause_exprs_for_call(__fvd12.*.func_id.clone(), callee_env_m, ctx, exn);
           },
           _ => ()
@@ -8018,6 +8175,7 @@ export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
 export(check_if_function_parameter_matches_argument);
 export(validate_where_constraints_for_call);
+export(_somes_are_closure_forall_args);
 export(reapply_where_clause_exprs_for_call);
 export(extract_function_value);
 export(validate_function_return_type);

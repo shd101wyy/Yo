@@ -86,9 +86,11 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   cast_expr := if(is_reference_struct_type(target_type), {
     o := String.from("((");
     o.push_string(target_type_c_name.clone());
-    o.push_str(")__yo_incr_rc((void*)");
+    o.push_str(")__yo_dyn_retain((void*)");
     o.push_string(dyn_code.clone());
-    o.push_str(".data))");
+    o.push_str(".data, (const void*)");
+    o.push_string(dyn_code.clone());
+    o.push_str(".vtable))");
     o
   }, {
     // Value/newtype target: find the Box in the dyn_impls (same dyn, concrete ==

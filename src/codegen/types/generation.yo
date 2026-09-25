@@ -779,6 +779,21 @@ static __YO_COND_TYPE __yo_cond_create(void);
 // the parallelism runtime are emitted independently and either can be present
 // without the other.
 static _Atomic size_t __yo_threads_ever_spawned = 0;
+// YO_REPORT_SPAWNS=1 prints, at exit, how many threads and pool tasks the
+// process spawned. The ThreadSanitizer gate uses it to reject a HOLLOW run —
+// TSan reports nothing on a program that never spawned a second thread
+// (plans/archive/PARALLELISM_SOUNDNESS.md Phase 7).
+static void __yo_report_spawns_at_exit(void) {
+  fprintf(stderr, "yo: spawns=%zu\\n", (size_t)atomic_load(&__yo_threads_ever_spawned));
+}
+static inline void __yo_note_spawn(void) {
+  if (atomic_fetch_add(&__yo_threads_ever_spawned, 1) == 0) {
+    const char* v = getenv("YO_REPORT_SPAWNS");
+    if (v && v[0] && v[0] != '0') {
+      atexit(__yo_report_spawns_at_exit);
+    }
+  }
+}
 static inline int __yo_atomic_load_int(_Atomic int* obj, memory_order order) {
   return atomic_load_explicit(obj, order);
 }
@@ -975,7 +990,10 @@ typedef struct __yo_ref_header_t {
   // below is a strict PREFIX of this one: __yo_decr_rc reads flags and
   // dispose_fn at the same offsets for both layouts, branch-free.
   void (*dispose_fn)(void*);
-  void (*traverse_fn)(void*, void (*visit)(void*));
+  // The visitor receives each managed child AND that child's own traverse
+  // function (a void pointer, NULL when none was generated), so a walker that is not
+  // the collector — the Iso uniqueness walk — can descend without a header.
+  void (*traverse_fn)(void*, void (*visit)(void*, void*));
   struct __yo_ref_header_t* gc_next;
   struct __yo_ref_header_t* gc_prev;
   struct __yo_ref_header_t* roots_next;  // Bacon-Rajan possible-roots intrusive list (O(1) unlink at free)
@@ -1428,6 +1446,10 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
   );
   em.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
   em.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
+  // The payload's RC functions, in `__yo_vtable_prefix_t`'s layout
+  // (functions/gc_runtime.yo): `__yo_dyn_retain` / `__yo_dyn_release`.
+  em.emit_declaration_line("  void* (*__yo_retain)(void*); // payload retain: atomic for an atomically counted payload");
+  em.emit_declaration_line("  void (*__yo_release)(void*); // payload release");
   (mi : usize) = usize(0);
   while(mi < members.len(), {
     match(members.get(mi), .Some(line) => em.emit_declaration_string_line(line), .None => ());

@@ -82,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name }
 :: import("../utils.yo");
-{ EvalValue, is_unknown_val, is_type_value, is_var_ref } :: import("../value.yo");
+{ EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { is_never_type } :: import("../types/guards.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
@@ -566,6 +566,17 @@ set_expr_as_consumed :: (
             exn.throw(dyn(format_error_messages_with_help(entries, hint)));
           });
           v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(env));
+          // A compile-time-only FUNCTION binding (`f :: (fn(...) -> R)(...)`)
+          // is a code pointer re-materialized at every use: like a type value,
+          // it is never consumed. Passing a named function to an `own`
+          // parameter (`Thread.spawn(worker)`) marked the definition itself as
+          // moved, and every later use of `worker` was "use of moved value"
+          // (issues/fixed/passing-a-named-function-to-an-own-parameter-moves-the-definition.md).
+          // A local closure VALUE is not compile-time-only and still moves: its
+          // captured state moves with it.
+          if(v.is_compile_time_only && match(info.value, .Some(cfv) => is_func_val(cfv), .None => false), {
+            return(());
+          });
           // `inout` local bindings (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 B2):
           // a live binding aliases this variable's SLOT; moving the slot's
           // count out (an `own` argument) would leave the alias reading a

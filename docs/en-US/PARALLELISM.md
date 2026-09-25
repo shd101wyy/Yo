@@ -302,11 +302,17 @@ Only types that implement `Send` can cross thread boundaries:
 
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs/enums/tuples composed of Send
   fields, atomic objects whose fields are all Send (`Arc`, `Mutex`, `Channel`, the `Atomic*`
-  wrappers), `Dyn(Trait, Send)` (the concrete type is checked at `dyn(...)`), `Iso(T)` (see
-  `THREAD_SAFETY.md`), and closures whose captures are all Send
+  wrappers), `Dyn(Trait, Send)` (the concrete type is checked at `dyn(...)`, and its payload is
+  atomically counted: `dyn(v)` boxes a value type with `arc`), `Iso(T)` (see
+  `THREAD_SAFETY.md`), and function values (a named function or a closure) whose captures are
+  all Send and whose code reaches no non-Send module global — judged from the value where the
+  compiler can see it: a spawn body, an `Impl(Fn(...), Send)` argument, a generic
+  `where(T <: Send)` argument, a captured variable
 - **Not Sendable**: `ref(struct(...))` / `ref(enum(...))` (non-atomic RC: `ArrayList`,
-  `String`, `Box`, ...), `Dyn(Trait)` without `Send` in its bound, `Io`, `JoinHandle`, and
-  closures capturing any of those
+  `String`, `Box`, ...), `Dyn(Trait)` without `Send` in its bound, `Io`, `JoinHandle`,
+  function values capturing any of those or reaching a non-Send global, and a bare
+  `fn(...)` type whose value is not known there (a struct field, a `Channel(fn() -> unit)`
+  payload) — see "Functions and Closures Across Threads" in `THREAD_SAFETY.md`
 
 ```rust
 // ✅ Sendable

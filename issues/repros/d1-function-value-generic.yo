@@ -1,0 +1,14 @@
+{ ArrayList } :: import("std/collections/array_list");
+g := ArrayList(i32).new();
+_needs_send :: (fn(generic(T : Type), x : T, where(T <: Send)) -> unit)({
+  x;
+});
+main :: (fn() -> unit)({
+  (fill : Impl(Fn() -> unit)) = (
+    () => {
+      g.push(i32(1));
+    }
+  );
+  _needs_send(fill);
+});
+export(main);
