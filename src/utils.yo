@@ -743,7 +743,8 @@ generate_new_temp_variable_name :: (
     module_path : String,
     (row : usize) ?= usize(0),
     (column : usize) ?= usize(0),
-    (slot : String) ?= String.new()
+    (slot : String) ?= String.new(),
+    (anchor_module : String) ?= String.new()
   ) -> String
 )({
   prefix := generate_temp_variable_name_prefix(module_path);
@@ -767,9 +768,18 @@ generate_new_temp_variable_name :: (
   if(mp.starts_with(String.from("file://")), {
     mp = mp.substring(usize(7), mp.len());
   });
-  // Anchored to the enclosing top-level statement (`_anchored_position`), so
-  // a comment added above a function leaves its temps' names alone.
-  (pos_key, _pos_part) := _anchored_position(module_path, row, column);
+  // Anchored to the enclosing top-level statement of the module the POSITION
+  // belongs to (`anchor_module`: the token's module, which is not
+  // `module_path` when a std specialization is evaluated in its caller's env),
+  // so a comment added above a function leaves its temps' names alone. A
+  // positionless mint passes no anchor module and keeps the raw key.
+  pos_key := cond(
+    (anchor_module.len() > usize(0)) => {
+      (k0, _k1) := _anchored_position(anchor_module, row, column);
+      k0
+    },
+    true => `${row.to_string()}:${column.to_string()}`
+  );
   key := `${mp}:${pos_key}:${slot}`;
   k := fnv1a64(key);
   // EMISSION-name namespace (reset per compile) — see g_emission_occurrence.
