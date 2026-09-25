@@ -3015,6 +3015,11 @@ CcPlan :: struct(
   chunk_files : ArrayList(String),
   chunk_hashes : ArrayList(String),
   jobs : usize,
+  /// CHUNKED: the largest unit's C bytes (its body plus the shared header),
+  /// and whether `jobs` was the default, which the memory cap may lower
+  /// (`_chunk_jobs_for_memory`); an explicit `--jobs` is kept as given.
+  chunk_max_bytes : usize,
+  jobs_memory_capped : bool,
   /// STATIC_LIB: the object `argv` writes and the archive it goes into.
   obj_path : String,
   ar_out : String
@@ -3033,6 +3038,8 @@ _new_cc_plan :: (fn(mode : u8, cc : String, c_path : String, output : String) ->
     chunk_files : ArrayList(String).new(),
     chunk_hashes : ArrayList(String).new(),
     jobs : usize(0),
+    chunk_max_bytes : usize(0),
+    jobs_memory_capped : false,
     obj_path : String.new(),
     ar_out : String.new()
   )
@@ -3084,6 +3091,8 @@ _cc_plan_serialize :: (fn(plan : CcPlan) -> String)({
   out := String.from("yo-cc-plan 1\n");
   out.push_string(`mode ${plan.mode.to_string()}\n`);
   out.push_string(`jobs ${plan.jobs.to_string()}\n`);
+  out.push_string(`chunk_max_bytes ${plan.chunk_max_bytes.to_string()}\n`);
+  out.push_string(`jobs_memory_capped ${if(plan.jobs_memory_capped, String.from("1"), String.from("0"))}\n`);
   out.push_string(`cc ${_cc_plan_escape(plan.cc)}\n`);
   out.push_string(`c_path ${_cc_plan_escape(plan.c_path)}\n`);
   out.push_string(`output ${_cc_plan_escape(plan.output)}\n`);
@@ -3116,6 +3125,12 @@ _cc_plan_parse :: (fn(text : String, exn : Exception) -> CcPlan)({
           },
           (key == "jobs") => {
             plan.jobs = usize(val.parse_u64().unwrap_or(u64(0)));
+          },
+          (key == "chunk_max_bytes") => {
+            plan.chunk_max_bytes = usize(val.parse_u64().unwrap_or(u64(0)));
+          },
+          (key == "jobs_memory_capped") => {
+            plan.jobs_memory_capped = (val == "1");
           },
           (key == "cc") => {
             plan.cc = val;
@@ -3154,6 +3169,131 @@ _cc_plan_parse :: (fn(text : String, exn : Exception) -> CcPlan)({
   });
   plan
 });
+/// Physical memory in MB, lowered to this process's cgroup limit on Linux
+/// (a CI runner or container can cap far below the machine). 0 when unknown.
+/// `YO_ASSUME_MEMORY_MB=<n>` overrides it: a tuning knob for a machine whose
+/// other work the OS figure does not show, and what lets a test pin the cap.
+_physical_memory_mb :: (fn() -> usize)(
+  match(
+    proc_env.get(String.from("YO_ASSUME_MEMORY_MB")),
+    .Some(v) => usize(v.parse_u64().unwrap_or(u64(0))),
+    .None => cond(
+      (platform == Platform.Macos) => _physical_memory_mb_darwin(),
+      (platform == Platform.Windows) => _physical_memory_mb_windows(),
+      true => _physical_memory_mb_linux()
+    )
+  )
+);
+/// Linux: `MemTotal` from /proc/meminfo, then the cgroup v2 `memory.max` of
+/// this process's cgroup when that is a number.
+_physical_memory_mb_linux :: (fn() -> usize)({
+  swallow := Exception(throw : ((_err) -> unwind(usize(0))));
+  (total_mb : usize) = usize(0);
+  lines := String.from_bytes(read_file_sync(String.from("/proc/meminfo"), swallow)).split(String.from("\n"));
+  (li : usize) = usize(0);
+  while(li < lines.len(), {
+    line := match(lines.get(li), .Some(l) => l, .None => String.new());
+    if(line.starts_with(String.from("MemTotal:")), {
+      digits := line.substring(usize(9), line.len()).trim().split(String.from(" "));
+      total_mb = match(digits.get(usize(0)), .Some(kb) => usize(kb.parse_u64().unwrap_or(u64(0)) / u64(1024)), .None => usize(0));
+    });
+    li = (li + usize(1));
+  });
+  cg_lines := String.from_bytes(read_file_sync(String.from("/proc/self/cgroup"), swallow)).split(String.from("\n"));
+  match(
+    cg_lines.get(usize(0)),
+    .Some(cg) => if(cg.starts_with(String.from("0::")), {
+      max_text := String.from_bytes(read_file_sync(`/sys/fs/cgroup${cg.substring(usize(3), cg.len())}/memory.max`, swallow)).trim();
+      match(
+        max_text.parse_u64(),
+        .Some(limit) => {
+          limit_mb := usize(limit / u64(1048576));
+          if((limit_mb > usize(0)) && ((total_mb == usize(0)) || (limit_mb < total_mb)), {
+            total_mb = limit_mb;
+          });
+        },
+        .None => ()
+      );
+    }),
+    .None => ()
+  );
+  total_mb
+});
+/// macOS: `sysctlbyname("hw.memsize")`, a u64 byte count.
+_physical_memory_mb_darwin :: (fn() -> usize)({
+  { sysctlbyname } :: c_include(
+    "<sys/sysctl.h>",
+    sysctlbyname : (fn(name : *(char), oldp : *void, oldlenp : *void, newp : ?*void, newlen : usize) -> i32)
+  );
+  name := String.from("hw.memsize").to_cstr();
+  out := ArrayList(u64).new();
+  out.push(u64(0));
+  lens := ArrayList(usize).new();
+  lens.push(usize(8));
+  match(
+    name.ptr(),
+    .Some(np) => match(
+      out.ptr(),
+      .Some(op) => match(
+        lens.ptr(),
+        .Some(lp) => {
+          rc := unsafe(sysctlbyname((*char)(np), (*void)(op), (*void)(lp), .None, usize(0)));
+          cond(
+            (rc == i32(0)) => match(out.get(usize(0)), .Some(b) => usize(b / u64(1048576)), .None => usize(0)),
+            true => usize(0)
+          )
+        },
+        .None => usize(0)
+      ),
+      .None => usize(0)
+    ),
+    .None => usize(0)
+  )
+});
+/// Windows: `GlobalMemoryStatusEx`. `MEMORYSTATUSEX` is 64 bytes = eight u64:
+/// `dwLength` (set to 64) and `dwMemoryLoad` share element 0, `ullTotalPhys`
+/// is element 1. The out parameter is `*void` (see `_current_rss_mb_windows`).
+_physical_memory_mb_windows :: (fn() -> usize)({
+  { GlobalMemoryStatusEx } :: c_include("<windows.h>", GlobalMemoryStatusEx : (fn(buffer : *void) -> i32));
+  status := ArrayList(u64).new();
+  status.push(u64(64));
+  (si : usize) = usize(1);
+  while(si < usize(8), {
+    status.push(u64(0));
+    si = (si + usize(1));
+  });
+  match(
+    status.ptr(),
+    .Some(sp) => {
+      ok := unsafe(GlobalMemoryStatusEx((*void)(sp)));
+      cond(
+        (ok != i32(0)) => match(status.get(usize(1)), .Some(b) => usize(b / u64(1048576)), .None => usize(0)),
+        true => usize(0)
+      )
+    },
+    .None => usize(0)
+  )
+});
+/// How many chunk compiles may run at once without the machine running out:
+/// half of physical memory (the rest is the OS, the user's other programs
+/// and the link that follows) over a per-job estimate for the LARGEST unit.
+/// The estimate, 64 MB + 16 bytes per byte of C, is fitted conservatively to
+/// the measured clang -O2 peaks on `src/main.yo`: 345 MB for a 25 MB unit,
+/// 3.26 GB for the whole 145 MB file (plans/BUILD_ON_8GB_MACHINES.md Phase
+/// 3). Never below 1, never above `jobs`; unknown memory keeps `jobs`.
+_chunk_jobs_for_memory :: (fn(jobs : usize, max_unit_bytes : usize) -> usize)({
+  mem_mb := _physical_memory_mb();
+  if((mem_mb == usize(0)) || (max_unit_bytes == usize(0)), {
+    return(jobs);
+  });
+  per_job_mb := (usize(64) + ((max_unit_bytes * usize(16)) / usize(1048576)));
+  fit := ((mem_mb / usize(2)) / per_job_mb);
+  cond(
+    (fit < usize(1)) => usize(1),
+    (fit < jobs) => fit,
+    true => jobs
+  )
+});
 /// Run a plan: the C-compiler half of `run_compile`, unchanged in behaviour
 /// wherever it runs.
 _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
@@ -3175,6 +3315,7 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
     return(())
   });
   chunked := (plan.mode == _CC_PLAN_CHUNKED);
+  chunk_jobs := if(plan.jobs_memory_capped, _chunk_jobs_for_memory(plan.jobs, plan.chunk_max_bytes), plan.jobs);
   (chunk_used_cache : bool) = false;
   if(chunked, {
     // One `cc -c` per chunk, in parallel and behind the `.o` cache; the link
@@ -3187,7 +3328,7 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
       plan.chunk_files,
       plan.chunk_hashes,
       plan.output.clone(),
-      plan.jobs,
+      chunk_jobs,
       false,
       chunk_hits,
       io,
@@ -3217,7 +3358,7 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
         plan.chunk_files,
         plan.chunk_hashes,
         plan.output.clone(),
-        plan.jobs,
+        chunk_jobs,
         true,
         retry_hits,
         io,
@@ -3755,6 +3896,9 @@ run_compile :: (
   });
   // --jobs default: 8, or the auto cap (no point minting more chunks than
   // the driver will compile at once).
+  // An explicit `--jobs` is kept as given; the default may be lowered for
+  // memory when the chunks are compiled (`_chunk_jobs_for_memory`).
+  jobs_defaulted := (jobs == usize(0));
   if(jobs == usize(0), {
     jobs = cond((chunk_auto_cap >= usize(1)) => chunk_auto_cap, true => usize(8));
   });
@@ -3909,6 +4053,7 @@ run_compile :: (
   // Whether the chunk `.o` cache actually served anything, plus the compile
   // flag prefix — both needed to retry without the cache if the link fails.
   chunk_compile_flags := ArrayList(String).new();
+  (chunk_max_bytes : usize) = usize(0);
   // Phase 0: arm the profiler before anything is evaluated (the module loader
   // and codegen record only when armed). `profile_reset` first so this
   // compile's report is this compile alone even in a long-lived process.
@@ -4152,6 +4297,10 @@ run_compile :: (
           io.await(write_string(Path.new(cf.clone()), cbody.clone(), io), IoExn(io : io, exn : exn));
           chunk_c_files.push(cf);
           chunk_text_hashes.push(sha256_hex(cbody.as_bytes()));
+          unit_bytes := (cbody.len() + match(chunk_parts.get(usize(0)), .Some(h) => h.len(), .None => usize(0)));
+          if(unit_bytes > chunk_max_bytes, {
+            chunk_max_bytes = unit_bytes;
+          });
           pi2 = (pi2 + usize(1));
         });
         c_path = match(chunk_c_files.get(usize(0)), .Some(x) => x.clone(), .None => c_path.clone());
@@ -4645,6 +4794,8 @@ run_compile :: (
   plan.chunk_files = chunk_c_files;
   plan.chunk_hashes = chunk_text_hashes;
   plan.jobs = jobs;
+  plan.chunk_max_bytes = chunk_max_bytes;
+  plan.jobs_memory_capped = jobs_defaulted;
   _finish_cc_plan(plan, profile_json.clone(), io, exn);
 });
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
