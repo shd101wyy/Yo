@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ can_type_form_rc_cycle, get_all_some_types } :: import("../../types/utils.yo");
+{ can_type_form_rc_cycle, type_has_no_open_some } :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { EvalContext, ExpectedTypeCtx, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
@@ -279,8 +279,12 @@ evaluate_iso_type_call :: (
   // An atomic object (Iso(Arc) is rejected above) and another Iso are already
   // sendable as they are. Only a
   // concrete `T`: the prelude's own `impl(generic(T), Iso(T), ...)` builds
-  // `Iso(T)` over a type variable.
-  if(get_all_some_types(child_type).len() == usize(0), {
+  // `Iso(T)` over a type variable. "Concrete" is `type_has_no_open_some`, not
+  // "mentions no SomeT": an `AtomicI32` field carries the extern opaque
+  // `atomic_int` SomeT, and the SomeT-free test let any graph holding an
+  // atomic skip D2 and D9 entirely
+  // (issues/fixed/an-atomic-field-exempts-an-iso-graph-from-rule-d9.md).
+  if(type_has_no_open_some(child_type), {
     if(is_iso_type(child_type), {
       exn.throw(
         dyn(

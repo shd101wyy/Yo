@@ -532,6 +532,69 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
     )
   )
 });
+/// True when no SomeT inside `t` is an open type variable: each is an extern
+/// opaque type (a concrete C type wearing a SomeT, such as `AtomicI32`'s
+/// `atomic_int`) or resolves, through its cell chain, to a non-SomeT type. A
+/// rule that applies only to a concrete type must still apply to such a `t`
+/// (issues/fixed/an-atomic-field-exempts-an-iso-graph-from-rule-d9.md).
+type_has_no_open_some :: (fn(t : TypeValue) -> bool)({
+  hno_somes := get_all_some_types(t);
+  (hno_i : usize) = usize(0);
+  while(hno_i < hno_somes.len(), {
+    match(
+      hno_somes.get(hno_i),
+      .Some(hno_s) => {
+        hno_extern := match(hno_s, .SomeT({ name : hno_nm }) => is_extern_type_name(hno_nm), _ => false);
+        if(!hno_extern && is_some_type(_hno_chain_end(hno_s)), {
+          return(false);
+        });
+      },
+      .None => ()
+    );
+    hno_i = (hno_i + usize(1));
+  });
+  true
+});
+/// The end of a SomeT's resolution-cell chain (cycle-guarded); the SomeT
+/// itself when the chain ends unresolved.
+_hno_chain_end :: (fn(t_in : TypeValue) -> TypeValue)({
+  (cur : TypeValue) = t_in;
+  (seen : ArrayList(String)) = ArrayList(String).new();
+  (walk : bool) = true;
+  while(walk, {
+    match(
+      cur,
+      .SomeT({ id : hce_id, resolved_concrete : hce_rc }) => {
+        (revisit : bool) = false;
+        (hi : usize) = usize(0);
+        while(hi < seen.len(), {
+          if(match(seen.get(hi), .Some(x) => (x == hce_id), .None => false), {
+            revisit = true;
+          });
+          hi = (hi + usize(1));
+        });
+        if(revisit, {
+          walk = false;
+        }, {
+          seen.push(hce_id.clone());
+          match(
+            hce_rc.get(usize(0)),
+            .Some(nx) => {
+              cur = nx;
+            },
+            .None => {
+              walk = false;
+            }
+          );
+        });
+      },
+      _ => {
+        walk = false;
+      }
+    );
+  });
+  cur
+});
 /// Return `true` if the type contains an RC-managed type (object/Dyn/Iso).
 ///
 /// Recursively checks compound types (Array, Tuple, Union, Struct, Enum).
@@ -2034,6 +2097,7 @@ export(func_params_have_raw_some_type);
 
 export(fields_have_incompatible_contexts);
 export(type_somes_all_resolve_concrete);
+export(type_has_no_open_some);
 export(type_contains_some_type_deep);
 export(get_size_of_type, get_alignment_of_type);
 export(type_representation_contains_raw_ptr, type_may_provide_slice_source);

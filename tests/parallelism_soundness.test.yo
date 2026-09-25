@@ -501,6 +501,18 @@ comptime_expect_error({
   });
   _d9_iso_of_fn_field();
 });
+// An atomic beside the function does not exempt the graph: `AtomicI32` carries
+// an extern opaque SomeT, and the Iso rules once ran only on a SomeT-free `T`
+// (issues/fixed/an-atomic-field-exempts-an-iso-graph-from-rule-d9.md).
+_D9WrapAtomic :: ref(struct(counter : AtomicI32, f : (fn() -> unit)));
+comptime_expect_error({
+  _d9_iso_of_fn_field_beside_an_atomic :: (fn() -> unit)({
+    w := _D9WrapAtomic(counter : AtomicI32.new(i32(0)), f : _d9_push);
+    r := ^w;
+    r;
+  });
+  _d9_iso_of_fn_field_beside_an_atomic();
+});
 comptime_expect_error({
   _d9_iso_of_reaching_closures :: (fn() -> unit)({
     (k : Impl(Fn() -> unit)) = (
