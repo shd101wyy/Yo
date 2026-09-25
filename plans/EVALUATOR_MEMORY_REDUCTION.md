@@ -1,6 +1,6 @@
 # Evaluator memory reduction — audit and implementation plan
 
-**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
+**Status: ACTIVE 2026-09-25 — `check src/main.yo` 19.9 → 2.59 GB over the campaign (Linux max RSS 2.49 GB, ratcheted); the missing-release hunt is closed (§0.10: zero-hit roots 32 K + 748 + 209 → 0 + 4 + 0 via #893 and #904). Landed: Phase 0 steps 1/4/5, Phase 1 steps 1/4 (#805, #807), Phase 2/F3 (#814), Phase 7 incl. the ExprInfo diet (#817), the value-cell change (#825). 2026-09-24 (§0.5): the exit heap walk found the "untouched" TypeValue cluster was a LEAK — a `match`/`cond` passed as a call argument never released its result, and `_substitute_at`'s `intern_type(match(...))` leaked every rebuilt node: 9.86 → 6.84 GB (−31%) with the codegen fix (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`); the frame name index no longer keeps a list per name: 6.84 → 5.96 GB (§0.6); definition-site FuncVals read capture names/types from their shared handles: 5.96 → 5.47 GB (§0.7); 2026-09-25 (§0.8): every `HashMap` rehash leaked one reference per RC key/value — a `cond` arm rendering `unsafe.drop(...)` was never emitted — 5.54 → 2.59 GB (−53 %) (`issues/fixed/cond-unit-arm-statement-is-dropped.md`). (§0.9) Three expression-position shapes left a call's argument temp unreleased — struct-literal tails (#888), operator operands in `if` conditions and in `cond`/`match` arm values (#891): 1.1 M leaked strings at `check` exit. (§0.11) `compile`'s shared table kept every executed CTFE clone's metadata: 1.56 GB, now dropped when the call returns — compile front half 6.70 → 5.07 GB. Still open: Phase 0 steps 2/3c/6, Phase 1 steps 2/3/5, Phases 3, 4, 5b, 6; Phase 5a is superseded (§0.5). Next (§0.6 ranking): the CI memory ratchet (#872), the derived-FuncVal capture copies (~0.5 GB, §0.7), shared UnknownVal value cells (~0.3 GB), then the `Variable` diet / header / `Option(ref)` layout work.** Originally: audit complete, nothing implemented. Written
 after measuring the current tree (§0) and re-reading every earlier memory
 campaign (§3). Companion research: `backlog/ARENA_ALLOCATOR_FEASIBILITY.md`
 (whether an arena allocator can help; short answer: not with this problem).
@@ -1535,6 +1535,35 @@ testing instructions carry the smoke recipe).
 - **`g_macro_expansions` / `g_method_callee_values`:** these hold AST and
   FuncVal graphs keyed per call site. Measure their exclusive share with
   `HOLDER_DEEP_LAST` before choosing.
+
+### 0.11 What `compile` keeps that `check` does not: executed CTFE clones (2026-09-25)
+
+`compile src/main.yo` peaked at 6.70 GB in its front half against ~2.7 GB for
+`check`. The difference is F1 in reverse. `check` gives each module its own
+`ExprInfoTable`, which dies with the module's walk. `compile` shares ONE table
+across every module (codegen reads any function's metadata), so everything
+the evaluator ever recorded lives until exit.
+
+A probe build that logged codegen's `expr_info_table_get` calls and the live
+malloc bytes found the table already at 5.7 GB when codegen started. Of its
+2.95 M entries, codegen reads 1.92 M; the other 1.03 M pinned 2.1 GB.
+Tagging each `clone_expr_fresh_ids` id with its call site split that 2.1 GB
+as follows:
+- executed CTFE body clones: 119 K entries, 1.56 GB;
+- call-overload trial clones: 286 K entries, 176 MB;
+- the rest: under 60 MB.
+
+`evaluate_comptime_fn_call` now drops an executed clone's metadata once the
+call's value is out, keeping any subtree that evaluated to a function (a
+method or closure defined in the body can outlive the call). Emitted C is
+byte-identical, and codegen reads none of the 268 K purged ids. The compile
+front half drops **6.70 → 5.07 GB** footprint. Record:
+`issues/fixed/ctfe-clone-metadata-outlives-the-call.md`.
+
+Overload-trial clones cannot be purged the same way. A trial that type-checks
+a generic callee with a cloned closure argument creates and caches a
+specialization that holds the clone, and codegen reads 2,848 of those
+entries.
 
 ## 6. Gates (every phase)
 

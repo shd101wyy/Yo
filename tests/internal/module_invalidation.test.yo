@@ -27,7 +27,7 @@
   resolve_std_path
 } :: import("../../src/module_manager.yo");
 { type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
-{ finished_walk_has_context } :: import("../../src/evaluator/context.yo");
+{ finished_walk_has_context, finished_walk_expr_info_count } :: import("../../src/evaluator/context.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
 { funcval_cap_vars_entry_count } :: import("../../src/env.yo");
 { function_side_table_entry_count } :: import("../../src/evaluator/types/function.yo");
@@ -246,4 +246,47 @@ test("B3: only open documents keep their walk context", {
     finished_walk_has_context(app_path.clone()) == Option(bool).Some(false),
     "closing the document releases its walk's context"
   );
+});
+/// A document whose `A<k>` bindings each run one CTFE call with a distinct
+/// argument, so every call executes a fresh clone of `make`'s body.
+_ctfe_doc :: (fn(calls : usize) -> String)({
+  doc := String.from("make :: (fn(comptime(n) : i32) -> comptime(i32))({\n  a :: (n + i32(1));\n  b :: (a * i32(2));\n  c :: (b - i32(3));\n  d :: (c + (a * b));\n  d\n});\n");
+  (k : usize) = usize(0);
+  while(k < calls, {
+    doc.push_string(`A${k.to_string()} :: make(i32(${k.to_string()}));\n`);
+    k = (k + usize(1));
+  });
+  doc.push_str("main :: (fn() -> unit)({\n  _x := A0;\n});\nexport(main);\n");
+  doc
+});
+/// ExprInfo entries the open document's walk retains after analyzing `text`.
+_retained_info_count :: (fn(doc_path : String, text : String, std_path : String, io : Io) -> usize)({
+  assert(_doc_round(doc_path.clone(), text, std_path, io), "the CTFE document analyzes clean");
+  n := match(finished_walk_expr_info_count(doc_path.clone()), .Some(c) => c, .None => usize(0));
+  mm_forget_open_document(doc_path);
+  n
+});
+test("CTFE: an executed clone's metadata does not outlive the call", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_ctfe_purge_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  std_path := resolve_std_path();
+  one_path := `${dir}/one.yo`;
+  eleven_path := `${dir}/eleven.yo`;
+  io.await(write_string(Path.new(one_path.clone()), _ctfe_doc(usize(1)), io), ioexn);
+  io.await(write_string(Path.new(eleven_path.clone()), _ctfe_doc(usize(11)), io), ioexn);
+  one := _retained_info_count(one_path, _ctfe_doc(usize(1)), std_path.clone(), io);
+  eleven := _retained_info_count(eleven_path, _ctfe_doc(usize(11)), std_path, io);
+  per_call := ((eleven - one) / usize(10));
+  // `A<k> :: make(i32(<k>))` is 8 nodes (`::`, its atom, `A<k>`, the call, `make`,
+  // `i32(<k>)`, `i32`, the literal). Each call also executed a fresh clone of
+  // `make`'s body, whose entries must be gone once the call returned.
+  assert(per_call <= usize(8), `each CTFE call retains ${per_call.to_string()} ExprInfo entries; expected at most its own 8 nodes`);
 });
