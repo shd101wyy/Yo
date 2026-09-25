@@ -15,7 +15,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { Error, Exception, IoExn } :: import("std/error");
 { Format, StringBuilder, println, print, eprintln } :: import("std/fmt");
-{ args, cwd } :: import("std/env");
+{ args, cwd, current_exe } :: import("std/env");
+{ stdout, stderr, fflush } :: import("std/libc/stdio");
 { env : proc_env } :: import("std/env");
 { CURRENT_YO_VERSION, read_yo_version } :: import("./version.yo");
 {
@@ -577,6 +578,10 @@ _resolve_for_match :: (fn(p : String) -> String)({
 /// identifiers in every std file, and a name the scan misses means "no
 /// repair", never a wrong one. Once per process; ~180 small reads.
 (g_std_exports_indexed : bool) = false;
+/// Set by `main` for a top-level `yo compile`, the only caller whose process
+/// may be replaced: in-process compiles (`build --watch`, `YO_TEST_IN_PROCESS`,
+/// the warm selfcheck) must come back to their caller.
+(g_compile_may_exec_cc : bool) = false;
 _index_std_exports :: (fn(std_path : String, io : Io, exn : Exception) -> unit)({
   if(g_std_exports_indexed, {
     return(());
@@ -2571,6 +2576,10 @@ _chunk_write_stamp :: (fn(path : String, stamp : String, io : Io) -> unit)({
 /// emission time, the compile flags, and the compiler version) — so a flag
 /// change or a type renumbering invalidates every chunk, which is the
 /// intended behaviour. `YO_BUILD_NO_CACHE=1` disables it.
+/// A chunk's object file: `<chunk>.c` → `<chunk>.o`.
+_chunk_obj_path :: (fn(cf : String) -> String)(
+  `${cf.substring(usize(0), cf.len() - usize(2))}.o`
+);
 _compile_chunks_parallel :: (
   fn(
     cc : String,
@@ -2595,7 +2604,7 @@ _compile_chunks_parallel :: (
   (i : usize) = usize(0);
   while(i < chunk_c_files.len(), {
     cf := match(chunk_c_files.get(i), .Some(x) => x, .None => String.new());
-    obj := `${cf.substring(usize(0), cf.len() - usize(2))}.o`;
+    obj := _chunk_obj_path(cf.clone());
     objs.push(obj.clone());
     text_hash := match(chunk_text_hashes.get(i), .Some(h) => h, .None => String.new());
     stamp_src := ArrayList(u8).new();
@@ -2983,6 +2992,293 @@ run_warm_selfcheck_compile :: (fn(argv : ArrayList(String), io : Io, exn : Excep
     unsafe(exit(int(1)));
   });
   unsafe(exit(int(0)));
+});
+/// The C-compiler step of `yo compile`, as data: every argv `run_compile`
+/// derived from the evaluated program, so the step can run in a FRESH process
+/// image. `yo compile` otherwise waits on cc with the whole evaluator and
+/// codegen universe still resident: measured on `src/main.yo`, the compile
+/// process held 6.6 GB while clang took another 3.1 GB, a 9.7 GB peak
+/// (plans/backlog/BUILD_ON_8GB_MACHINES.md Phase 1).
+CcPlan :: struct(
+  /// `_CC_PLAN_EXE` (one compile + link), `_CC_PLAN_CHUNKED` (a `cc -c` per
+  /// chunk behind the `.o` cache, then the link) or `_CC_PLAN_STATIC_LIB`
+  /// (`cc -c` then `ar rcs`).
+  mode : u8,
+  cc : String,
+  /// The C file named in failure messages.
+  c_path : String,
+  output : String,
+  /// EXE / CHUNKED: the link line. STATIC_LIB: the `-c` line.
+  argv : ArrayList(String),
+  /// CHUNKED: the compile flags each chunk's `cc -c` replays.
+  chunk_flags : ArrayList(String),
+  chunk_files : ArrayList(String),
+  chunk_hashes : ArrayList(String),
+  jobs : usize,
+  /// STATIC_LIB: the object `argv` writes and the archive it goes into.
+  obj_path : String,
+  ar_out : String
+);
+_CC_PLAN_EXE :: u8(0);
+_CC_PLAN_CHUNKED :: u8(1);
+_CC_PLAN_STATIC_LIB :: u8(2);
+_new_cc_plan :: (fn(mode : u8, cc : String, c_path : String, output : String) -> CcPlan)(
+  CcPlan(
+    mode : mode,
+    cc : cc,
+    c_path : c_path,
+    output : output,
+    argv : ArrayList(String).new(),
+    chunk_flags : ArrayList(String).new(),
+    chunk_files : ArrayList(String).new(),
+    chunk_hashes : ArrayList(String).new(),
+    jobs : usize(0),
+    obj_path : String.new(),
+    ar_out : String.new()
+  )
+);
+/// A plan-file line value: `\` and newline escaped, so any argv survives.
+_cc_plan_escape :: (fn(v : String) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < v.len(), {
+    b := v.byte_at(i);
+    cond(
+      (b == u8(92)) => out.push_str("\\\\"),
+      (b == u8(10)) => out.push_str("\\n"),
+      true => out.push_byte(b)
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+_cc_plan_unescape :: (fn(v : String) -> String)({
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < v.len(), {
+    b := v.byte_at(i);
+    if((b == u8(92)) && ((i + usize(1)) < v.len()), {
+      nb := v.byte_at(i + usize(1));
+      out.push_byte(if(nb == u8(110), u8(10), nb));
+      i = (i + usize(2));
+    }, {
+      out.push_byte(b);
+      i = (i + usize(1));
+    });
+  });
+  out
+});
+_cc_plan_push_list :: (fn(out : String, key : str, items : ArrayList(String)) -> unit)({
+  (i : usize) = usize(0);
+  while(i < items.len(), {
+    out.push_str(key);
+    out.push_str(" ");
+    out.push_string(_cc_plan_escape(match(items.get(i), .Some(x) => x, .None => String.new())));
+    out.push_str("\n");
+    i = (i + usize(1));
+  });
+});
+/// Serialize a plan: a version line, then one `<key> <escaped value>` line per
+/// scalar and per list item.
+_cc_plan_serialize :: (fn(plan : CcPlan) -> String)({
+  out := String.from("yo-cc-plan 1\n");
+  out.push_string(`mode ${plan.mode.to_string()}\n`);
+  out.push_string(`jobs ${plan.jobs.to_string()}\n`);
+  out.push_string(`cc ${_cc_plan_escape(plan.cc)}\n`);
+  out.push_string(`c_path ${_cc_plan_escape(plan.c_path)}\n`);
+  out.push_string(`output ${_cc_plan_escape(plan.output)}\n`);
+  out.push_string(`obj_path ${_cc_plan_escape(plan.obj_path)}\n`);
+  out.push_string(`ar_out ${_cc_plan_escape(plan.ar_out)}\n`);
+  _cc_plan_push_list(out, "argv", plan.argv);
+  _cc_plan_push_list(out, "chunk_flag", plan.chunk_flags);
+  _cc_plan_push_list(out, "chunk_file", plan.chunk_files);
+  _cc_plan_push_list(out, "chunk_hash", plan.chunk_hashes);
+  out
+});
+_cc_plan_parse :: (fn(text : String, exn : Exception) -> CcPlan)({
+  plan := _new_cc_plan(_CC_PLAN_EXE, String.new(), String.new(), String.new());
+  lines := text.split(String.from("\n"));
+  if(match(lines.get(usize(0)), .Some(l) => (l != "yo-cc-plan 1"), .None => true), {
+    exn.throw(dyn(String.from("compile: not a yo-cc-plan 1 file")));
+  });
+  (li : usize) = usize(1);
+  while(li < lines.len(), {
+    line := match(lines.get(li), .Some(l) => l, .None => String.new());
+    li = (li + usize(1));
+    match(
+      line.index_of(String.from(" ")),
+      .Some(sp) => {
+        key := line.substring(usize(0), sp);
+        val := _cc_plan_unescape(line.substring(sp + usize(1), line.len()));
+        cond(
+          (key == "mode") => {
+            plan.mode = u8(val.parse_u64().unwrap_or(u64(0)));
+          },
+          (key == "jobs") => {
+            plan.jobs = usize(val.parse_u64().unwrap_or(u64(0)));
+          },
+          (key == "cc") => {
+            plan.cc = val;
+          },
+          (key == "c_path") => {
+            plan.c_path = val;
+          },
+          (key == "output") => {
+            plan.output = val;
+          },
+          (key == "obj_path") => {
+            plan.obj_path = val;
+          },
+          (key == "ar_out") => {
+            plan.ar_out = val;
+          },
+          (key == "argv") => {
+            plan.argv.push(val);
+          },
+          (key == "chunk_flag") => {
+            plan.chunk_flags.push(val);
+          },
+          (key == "chunk_file") => {
+            plan.chunk_files.push(val);
+          },
+          (key == "chunk_hash") => {
+            plan.chunk_hashes.push(val);
+          },
+          true => {
+            exn.throw(dyn(`compile: unknown yo-cc-plan key "${key}"`));
+          }
+        );
+      },
+      .None => ()
+    );
+  });
+  plan
+});
+/// Run a plan: the C-compiler half of `run_compile`, unchanged in behaviour
+/// wherever it runs.
+_run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
+  cc := plan.cc;
+  if(plan.mode == _CC_PLAN_STATIC_LIB, {
+    cst := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
+    if(cst.raw != i32(0), {
+      exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
+      return(())
+    });
+    arcmd := Command.new(String.from("ar"));
+    arcmd.arg(String.from("rcs"));
+    arcmd.arg(plan.ar_out.clone());
+    arcmd.arg(plan.obj_path.clone());
+    ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
+    if(ast.raw != i32(0), {
+      exn.throw(dyn(`compile: ar failed (exit ${ast.code().unwrap_or(i32(-1)).to_string()}) creating ${plan.ar_out}`));
+    });
+    return(())
+  });
+  chunked := (plan.mode == _CC_PLAN_CHUNKED);
+  (chunk_used_cache : bool) = false;
+  if(chunked, {
+    // One `cc -c` per chunk, in parallel and behind the `.o` cache; the link
+    // line already names every chunk's object.
+    chunk_hits := ArrayList(usize).new();
+    prof_cc_t0 := Instant.now();
+    _objs := _compile_chunks_parallel(
+      cc.clone(),
+      plan.chunk_flags,
+      plan.chunk_files,
+      plan.chunk_hashes,
+      plan.output.clone(),
+      plan.jobs,
+      false,
+      chunk_hits,
+      io,
+      exn
+    );
+    profile_record_phase(String.from("cc compile (chunks)"), prof_cc_t0.elapsed().as_nanos());
+    chunk_used_cache = match(chunk_hits.get(usize(0)), .Some(h) => (h > usize(0)), .None => false);
+  });
+  prof_link_t0 := Instant.now();
+  st := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
+  profile_record_phase(
+    if(chunked, String.from("link"), String.from("cc compile+link")),
+    prof_link_t0.elapsed().as_nanos()
+  );
+  if(st.raw != i32(0), {
+    // A chunk `.o` can be present with a matching stamp yet unusable (a
+    // truncated or clobbered file — the stamp records the INPUTS, so it cannot
+    // detect that). Rather than make the user discover `YO_BUILD_NO_CACHE=1`,
+    // treat a link failure after cache hits as a poisoned cache: recompile
+    // every chunk from source and link once more. A second failure is real.
+    if(chunk_used_cache, {
+      eprintln(String.from("compile: link failed with cached chunk objects — recompiling all chunks and retrying"));
+      retry_hits := ArrayList(usize).new();
+      _r := _compile_chunks_parallel(
+        cc.clone(),
+        plan.chunk_flags,
+        plan.chunk_files,
+        plan.chunk_hashes,
+        plan.output.clone(),
+        plan.jobs,
+        true,
+        retry_hits,
+        io,
+        exn
+      );
+      st2 := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
+      if(st2.raw != i32(0), {
+        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
+      });
+      return(())
+    });
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
+  });
+});
+/// Hand the C-compiler step to a fresh image when this process may be
+/// replaced, else run it here. The fresh image is this same `yo` binary
+/// (`__cc-plan <file>`, `run_cc_plan_cmd`): execve keeps the pid, the open
+/// stdio and the parent's wait, so `yo build` and shells see the same exit
+/// code, while every byte of the evaluator and codegen universe is released
+/// before cc starts. Not taken on Windows (no execve that keeps the waiting
+/// parent), under `--profile` (the phase table lives in this process), or with
+/// `YO_CC_IN_PROCESS=1`.
+_finish_cc_plan :: (fn(plan : CcPlan, profile_json : String, io : Io, exn : Exception) -> unit)({
+  may_exec := ((g_compile_may_exec_cc && !(platform == Platform.Windows)) && (!(profile_enabled()) && proc_env.get(String.from("YO_CC_IN_PROCESS")).is_none()));
+  if(may_exec, {
+    match(
+      current_exe(),
+      .Ok(exe) => {
+        plan_path := `${plan.output}.ccplan`;
+        io.await(write_string(Path.new(plan_path.clone()), _cc_plan_serialize(plan), io), IoExn(io : io, exn : exn));
+        // What `main` would have printed at exit must not die with this image.
+        flush_user_warnings(resolve_std_path(), get_global_cache_dir());
+        unsafe(fflush(.Some(stdout)));
+        unsafe(fflush(.Some(stderr)));
+        exec_cstrs := ArrayList(ArrayList(u8)).new();
+        exec_cstrs.push(exe.to_string().to_cstr());
+        exec_cstrs.push(String.from("__cc-plan").to_cstr());
+        exec_cstrs.push(plan_path.to_cstr());
+        _exec_argv(exec_cstrs);
+      },
+      // No executable path to re-exec: keep the step in this process.
+      .Err(_) => ()
+    );
+  });
+  _run_cc_plan(plan, io, exn);
+  _print_compile_profile(profile_json.clone(), io, exn);
+});
+/// `yo __cc-plan <file>`: run a C-compiler plan written by `_finish_cc_plan`
+/// in this fresh image, then remove the file. Not a user command.
+run_cc_plan_cmd :: (fn(argv : ArrayList(String), io : Io, exn : Exception) -> unit)({
+  plan_path := match(
+    argv.get(usize(2)),
+    .Some(p) => p,
+    .None => {
+      exn.throw(dyn(String.from("compile: __cc-plan needs a plan file")));
+      String.new()
+    }
+  );
+  plan := _cc_plan_parse(String.from_bytes(read_file_sync(plan_path.clone(), exn)), exn);
+  _rm := io.await(remove_file(Path.new(plan_path.clone()), io), IoExn(io : io, exn : exn));
+  _run_cc_plan(plan, io, exn);
 });
 run_compile :: (
   fn(
@@ -3612,8 +3908,7 @@ run_compile :: (
   chunk_text_hashes := ArrayList(String).new();
   // Whether the chunk `.o` cache actually served anything, plus the compile
   // flag prefix — both needed to retry without the cache if the link fails.
-  (chunk_used_cache : bool) = false;
-  chunk_link_flags := ArrayList(String).new();
+  chunk_compile_flags := ArrayList(String).new();
   // Phase 0: arm the profiler before anything is evaluated (the module loader
   // and codegen record only when armed). `profile_reset` first so this
   // compile's report is this compile alone even in a long-lived process.
@@ -4221,20 +4516,11 @@ run_compile :: (
     cmd.arg(c_path.clone());
     cmd.arg(String.from("-o"));
     cmd.arg(obj_path.clone());
-    cst := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
-    if(cst.raw != i32(0), {
-      exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
-      return(())
-    });
-    ar_out := if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
-    arcmd := Command.new(String.from("ar"));
-    arcmd.arg(String.from("rcs"));
-    arcmd.arg(ar_out.clone());
-    arcmd.arg(obj_path.clone());
-    ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
-    if(ast.raw != i32(0), {
-      exn.throw(dyn(`compile: ar failed (exit ${ast.code().unwrap_or(i32(-1)).to_string()}) creating ${ar_out}`));
-    });
+    lib_plan := _new_cc_plan(_CC_PLAN_STATIC_LIB, cc.clone(), c_path.clone(), output.clone());
+    lib_plan.argv = cmd.recorded;
+    lib_plan.obj_path = obj_path;
+    lib_plan.ar_out = if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
+    _finish_cc_plan(lib_plan, profile_json.clone(), io, exn);
     return(())
   });
   // The OpenSSL probe's INCLUDE flags must precede the chunk compiles below —
@@ -4261,29 +4547,16 @@ run_compile :: (
       // Everything recorded so far is the COMPILE flag set; replay it for one
       // `cc -c` per chunk, in parallel and behind the `.o` cache, then link
       // the objects with the same command line.
-      chunk_hits := ArrayList(usize).new();
-      prof_cc_t0 := Instant.now();
-      chunk_objs := _compile_chunks_parallel(
-        cc.clone(),
-        cmd.recorded,
-        chunk_c_files,
-        chunk_text_hashes,
-        output.clone(),
-        jobs,
-        false,
-        chunk_hits,
-        io,
-        exn
-      );
-      profile_record_phase(String.from("cc compile (chunks)"), prof_cc_t0.elapsed().as_nanos());
-      chunk_link_flags = cmd.recorded;
-      chunk_used_cache = match(chunk_hits.get(usize(0)), .Some(h) => (h > usize(0)), .None => false);
+      // The compile flags are SNAPSHOT here: `cmd.recorded` keeps growing
+      // into the link line (the objects, `-o`, the libraries), and the
+      // poisoned-cache retry used to replay that whole line per chunk.
+      chunk_compile_flags = cmd.recorded.clone();
       (cci : usize) = usize(0);
-      while(cci < chunk_objs.len(), {
+      while(cci < chunk_c_files.len(), {
         match(
-          chunk_objs.get(cci),
-          .Some(f) => {
-            _arg_c := cmd.arg(f.clone());
+          chunk_c_files.get(cci),
+          .Some(cf) => {
+            _arg_c := cmd.arg(_chunk_obj_path(cf));
           },
           .None => ()
         );
@@ -4366,45 +4639,13 @@ run_compile :: (
     cmd.arg(String.from("-lsecur32"));
     cmd.arg(String.from("-lcrypt32"));
   });
-  prof_link_t0 := Instant.now();
-  st := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
-  profile_record_phase(
-    cond(
-      (chunk_c_files.len() > usize(0)) => String.from("link"),
-      true => String.from("cc compile+link")
-    ),
-    prof_link_t0.elapsed().as_nanos()
-  );
-  if(st.raw != i32(0), {
-    // A chunk `.o` can be present with a matching stamp yet unusable (a
-    // truncated or clobbered file — the stamp records the INPUTS, so it cannot
-    // detect that). Rather than make the user discover `YO_BUILD_NO_CACHE=1`,
-    // treat a link failure after cache hits as a poisoned cache: recompile
-    // every chunk from source and link once more. A second failure is real.
-    if(chunk_used_cache, {
-      eprintln(String.from("compile: link failed with cached chunk objects — recompiling all chunks and retrying"));
-      retry_hits := ArrayList(usize).new();
-      _r := _compile_chunks_parallel(
-        cc.clone(),
-        chunk_link_flags,
-        chunk_c_files,
-        chunk_text_hashes,
-        output.clone(),
-        jobs,
-        true,
-        retry_hits,
-        io,
-        exn
-      );
-      st2 := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
-      if(st2.raw != i32(0), {
-        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
-      });
-      return(())
-    });
-    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
-  });
-  _print_compile_profile(profile_json.clone(), io, exn);
+  plan := _new_cc_plan(if(chunk_c_files.len() > usize(0), _CC_PLAN_CHUNKED, _CC_PLAN_EXE), cc.clone(), c_path.clone(), output.clone());
+  plan.argv = cmd.recorded;
+  plan.chunk_flags = chunk_compile_flags;
+  plan.chunk_files = chunk_c_files;
+  plan.chunk_hashes = chunk_text_hashes;
+  plan.jobs = jobs;
+  _finish_cc_plan(plan, profile_json.clone(), io, exn);
 });
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
 /// for a file) — the check walker, filtered to `.test.yo`.
@@ -8931,8 +9172,13 @@ main :: (fn(io : Io) -> unit)({
     if(warm_gate, {
       run_warm_selfcheck_compile(argv, io, exn);
     }, {
+      // The top-level compile is the one process that may hand its C-compiler
+      // step to a fresh image (`_finish_cc_plan`).
+      g_compile_may_exec_cc = true;
       run_compile(argv, io, exn);
     });
+  }, if(subcmd == "__cc-plan", {
+    run_cc_plan_cmd(argv, io, exn);
   }, if(subcmd == "test", {
     run_test(argv, io, exn);
   }, if(subcmd == "fmt", {
@@ -8973,7 +9219,7 @@ main :: (fn(io : Io) -> unit)({
     run_version_cmd(argv, io, exn);
   }, {
     exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
-  })))))))))))))))));
+  }))))))))))))))))));
   print_spec_report_if_requested();
   flush_user_warnings(resolve_std_path(), get_global_cache_dir());
 });
