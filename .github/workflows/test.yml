@@ -1784,6 +1784,47 @@ jobs:
 
       - name: Measure `check src/main.yo` against the ratchet
         run: bash scripts/bootstrap/memory_ratchet.sh /tmp/stage2/yo-stage2-bin
+  # The 8 GB build claim (plans/BUILD_ON_8GB_MACHINES.md Phase 4):
+  # `compile src/main.yo`, C compiler included, by the STAGE-2 compiler inside
+  # an 8 GB cgroup with swap forbidden. The cgroup's memory.peak is the whole
+  # process tree together (GNU time reports only the largest single process,
+  # which hid a 6.6 GB `yo compile` waiting on a 3.1 GB clang). Fails on an OOM
+  # kill, and ±10% both ways against scripts/bootstrap/memory-ratchet.tsv.
+  build-memory-8gb:
+    name: Compiler build inside 8 GB
+    needs: [changes, bootstrap-fixpoint]
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install liburing and OpenSSL headers
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev
+
+      - name: Download stage-2 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-stage2
+          path: /tmp/stage2
+
+      - name: Make the stage-2 binary executable
+        run: chmod +x /tmp/stage2/yo-stage2-bin
+
+      - name: Fetch the project's Yo dependencies
+        uses: ./.github/actions/install-deps
+        with:
+          yo: /tmp/stage2/yo-stage2-bin
+
+      - name: Build the compiler inside 8 GB and measure against the ratchet
+        run: bash scripts/bootstrap/compile_memory_ratchet.sh /tmp/stage2/yo-stage2-bin
   # The self-hosted binary's OWN `test` subcommand. When this job was written CI
   # ran `./tests` through the TypeScript compiler (deleted with the TS src/ in Group E;
   # the `test` job now runs the corpus under stage-1), and the bootstrap-fixpoint

@@ -57,7 +57,7 @@ authorship from day one.
   ([`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md)). Next
   after it: building the compiler on an 8 GB machine, i.e. the codegen phase
   and cc no longer running while `yo compile` holds its heap
-  ([`backlog/BUILD_ON_8GB_MACHINES.md`](backlog/BUILD_ON_8GB_MACHINES.md)).
+  ([`BUILD_ON_8GB_MACHINES.md`](BUILD_ON_8GB_MACHINES.md)).
 - **Yo verifies Yo.** The compiler as the verifier's flagship user, rung by
   rung ([`SELF_VERIFICATION.md`](SELF_VERIFICATION.md)).
 - **Type-system soundness.** Make `yo check` a gate, not a filter: the
