@@ -748,6 +748,26 @@ test("soundness: a move in an arm that returns does not reach the code after the
   assert(_p5_early_return(false) == i32(6), "the other path still has it");
   assert(g_p5_disposed == (before + i32(2)), `each box released once, got ${(g_p5_disposed - before).to_string()}`);
 });
+// The count above cannot see a second release of a freed box. Here a keeper
+// holds one more reference: a second release by the returning arm would
+// dispose the box while the keeper still holds it
+// (issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
+_p5_early_return_kept :: (fn(c : bool, keep : ArrayList(_P5Box)) -> i32)({
+  b := _P5Box(tag : i32(5));
+  keep.push(b);
+  if(c, {
+    return(_p5_sink(b));
+  });
+  b.tag + i32(1)
+});
+test("soundness: the returning arm releases its moved value once", {
+  keep := ArrayList(_P5Box).new();
+  before := g_p5_disposed;
+  assert(_p5_early_return_kept(true, keep) == i32(5), "the returning path moved the box");
+  assert(g_p5_disposed == before, `the keeper still holds the box, got ${(g_p5_disposed - before).to_string()} disposals`);
+  keep.clear();
+  assert(g_p5_disposed == (before + i32(1)), `released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
+});
 _p5_move_on_break :: (fn(n : i32) -> i32)({
   b := _P5Box(tag : n);
   (i : i32) = i32(0);

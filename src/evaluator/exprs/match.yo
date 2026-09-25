@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message } :: import("../../error.yo");
-{ merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state } :: import("../utils.yo");
+{ merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
 {
@@ -443,6 +443,8 @@ evaluate_match :: (
   bg_depth := branch_group_stack_len();
   group_log_start := branch_init_log_len();
   push_branch_group();
+  // The arm evaluated last (see `reset_sibling_flow_state`).
+  (prev_arm_body : Option(AstExpr)) = Option(AstExpr).None;
   (arm_i : usize) = usize(1);
   while(arm_i < all_args.len(), {
     arm_expr := match(
@@ -691,10 +693,11 @@ evaluate_match :: (
       );
       truncate_branch_group_stack((bg_depth + usize(1)));
       begin_branch_group_arm();
-      reset_sibling_flow_state(env);
+      reset_sibling_flow_state(env, prev_arm_body);
       bir_start_m := branch_init_log_len();
       evaluated_body := evaluate_begin_expression(body_ast, env, ctx, ArrayList(Variable).new(), false, exn);
       register_arm_init_range(ast_expr_id(evaluated_body), bir_start_m, branch_init_log_len());
+      prev_arm_body = Option(AstExpr).Some(body_ast);
       if(arm_untaken_ct, {
         ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth - usize(1));
       });
@@ -876,6 +879,7 @@ evaluate_match :: (
       });
     });
   });
+  match(prev_arm_body, .Some(lab) => keep_last_arm_moves(env, lab, group_log_start), .None => ());
   truncate_branch_group_stack(bg_depth);
   register_match_arms(ast_expr_id(expr), arms);
   // ---------------------------------------------------------------------------

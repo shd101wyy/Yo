@@ -63,7 +63,9 @@ pragma(Pragma.AllowUnsafe);
   generate_variable_id,
   add_variable_to_begin_block_frame,
   find_live_inout_borrowers,
-  snapshot_env
+  snapshot_env,
+  UndoneMove,
+  variable_record_undone_move
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext, LoopBodyCtx, LoopFlowSnapshot } :: import("./context.yo");
@@ -1099,7 +1101,13 @@ consume_case_body_temp_var :: (
 /// initialized, or be told a value was moved when only a sibling moved it, and
 /// the join could not tell which arms did what
 /// (issues/fixed/cond-arm-initialization-merge-check-never-fires.md).
-reset_sibling_flow_state :: (fn(env : Environment) -> unit)({
+///
+/// A move the previous arm made is undone here for the arms after it, but a
+/// cleanup point inside that arm (an early `return`, an effect escape) still
+/// runs after it: the move is kept as an `UndoneMove` up to the arm's last
+/// token (`prev_arm`), which codegen consults
+/// (issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
+reset_sibling_flow_state :: (fn(env : Environment, prev_arm : Option(AstExpr)) -> unit)({
   recs := sibling_first_flow_records();
   if(recs.len() == usize(0), {
     return(());
@@ -1111,9 +1119,77 @@ reset_sibling_flow_state :: (fn(env : Environment) -> unit)({
       .Some(r) => match(
         find_variable_by_id(env, r.var_id),
         .Some(v) => {
+          match(prev_arm, .Some(pa) => _keep_undone_move(v, r.before_consumed, pa), .None => ());
           v.initialized_at_token = r.before_init;
           v.consumed_at_token = match(r.before_consumed, .Some(bc) => Option(Box(Token)).Some(box(bc)), .None => Option(Box(Token)).None);
         },
+        .None => ()
+      ),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+});
+/// The latest token of `e`'s own source: the end of an arm.
+_last_token_of :: (fn(e : AstExpr, root : Token) -> Token)({
+  (best : Token) = root;
+  tok := ast_expr_token(e);
+  if((tok.module_path == root.module_path) && (tok.character > best.character), {
+    best = tok;
+  });
+  match(
+    e,
+    .FnCall(_, callee, args, _, _) => {
+      c := recur(callee, root);
+      if((c.module_path == root.module_path) && (c.character > best.character), {
+        best = c;
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            t := recur(a, root);
+            if((t.module_path == root.module_path) && (t.character > best.character), {
+              best = t;
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  best
+});
+/// Keep the move `v` has now, made by the arm `arm`, when the flow log
+/// undoes it back to `before`: codegen's cleanup points inside `arm` still
+/// see it (see `reset_sibling_flow_state`).
+_keep_undone_move :: (fn(v : Variable, before : Option(Token), arm : AstExpr) -> unit)(
+  match(
+    v.consumed_at_token,
+    .Some(ct) => {
+      same := match(before, .Some(b) => ((b.module_path == ct.*.module_path) && (b.character == ct.*.character)), .None => false);
+      if(!same, {
+        variable_record_undone_move(v, UndoneMove(moved_at : ct.*.clone(), until : _last_token_of(arm, ct.*), inclusive : true));
+      });
+    },
+    .None => ()
+  )
+);
+/// After the last arm of a `cond`/`match`, before the join: keep the moves
+/// that arm made. The join restores the state from the arms that reach it,
+/// and a diverging last arm is not one of them.
+keep_last_arm_moves :: (fn(env : Environment, last_arm : AstExpr, group_log_start : usize) -> unit)({
+  recs := first_flow_records_in(group_log_start, branch_init_log_len());
+  (ri : usize) = usize(0);
+  while(ri < recs.len(), {
+    match(
+      recs.get(ri),
+      .Some(r) => match(
+        find_variable_by_id(env, r.var_id),
+        .Some(v) => _keep_undone_move(v, r.before_consumed, last_arm),
         .None => ()
       ),
       .None => ()
@@ -2219,7 +2295,7 @@ export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(doc_comment_lookup_key_from_token);
-export(consume_case_body_temp_var, merge_and_check_envs, reset_sibling_flow_state, snapshot_loop_flow, check_loop_flow);
+export(consume_case_body_temp_var, merge_and_check_envs, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
 export(are_values_equal);
 /// Render an f64 with ROUND-TRIP precision (`%.17g`) for a FloatLit raw.
 /// The naive `v.to_string()` is C `%g` — SIX significant digits — and

@@ -60,6 +60,7 @@ pragma(Pragma.AllowUnsafe);
 {
   merge_and_check_envs,
   reset_sibling_flow_state,
+  keep_last_arm_moves,
   consume_case_body_temp_var,
   attach_temp_variable_to_expr,
   adopt_never_type
@@ -425,6 +426,8 @@ evaluate_cond :: (
       bg_depth := branch_group_stack_len();
       group_log_start := branch_init_log_len();
       push_branch_group();
+      // The arm evaluated last (see `reset_sibling_flow_state`).
+      (prev_arm_body : Option(AstExpr)) = Option(AstExpr).None;
       while(nb_i < evaluated_conds.len(), {
         match(
           evaluated_conds.get(nb_i),
@@ -461,7 +464,7 @@ evaluate_cond :: (
               });
               truncate_branch_group_stack(bg_depth + usize(1));
               begin_branch_group_arm();
-              reset_sibling_flow_state(ec_item.case_env);
+              reset_sibling_flow_state(ec_item.case_env, prev_arm_body);
               bir_start_a := branch_init_log_len();
               evaluated_case_body := evaluate_begin_expression(
                 ec_item.case_body_expr,
@@ -472,6 +475,7 @@ evaluate_cond :: (
                 exn
               );
               register_arm_init_range(ast_expr_id(evaluated_case_body), bir_start_a, branch_init_log_len());
+              prev_arm_body = Option(AstExpr).Some(ec_item.case_body_expr);
               if(arm_untaken_ct, {
                 ctx.ctfe_untaken_arm_depth = (ctx.ctfe_untaken_arm_depth - usize(1));
               });
@@ -606,6 +610,7 @@ evaluate_cond :: (
           }
         );
       });
+      match(prev_arm_body, .Some(lab) => keep_last_arm_moves(env, lab, group_log_start), .None => ());
       truncate_branch_group_stack(bg_depth);
       // Merge all control-flow flags from the arms.
       final_cf := cond(
