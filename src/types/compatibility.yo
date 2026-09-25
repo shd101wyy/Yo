@@ -59,6 +59,16 @@ _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
 _is_extern_some :: (fn(t : TypeValue) -> bool)(
   match(t, .SomeT({ name : ies_nm }) => is_extern_type_name(ies_nm), _ => false)
 );
+/// A resolved annotation wrapper: a SomeT with the reserved name "Impl" whose
+/// resolution chain reaches a concrete type, e.g. a closure's
+/// `(k : Impl(Fn() -> unit))`, resolved to k's capture struct.
+_is_resolved_impl_wrapper :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .SomeT({ name : riw_nm }) => ((riw_nm == "Impl") && !(is_some_type(_resolve_cell_chain(t)))),
+    _ => false
+  )
+);
 /// Walk a SomeT's resolution-cell chain (cycle-guarded) to its terminal.
 /// Returns the input unchanged when the chain doesn't terminate concrete.
 /// Used by the Future-effect comparison + the wrapper-carrier concreteness
@@ -1446,6 +1456,16 @@ _compat_impl :: (
     .SomeT(name : aname, frame_level : alvl, required_trait_types : artt) => match(
       expected,
       .SomeT(name : ename, frame_level : elvl, required_trait_types : ertt) => cond(
+        // Two resolved annotation wrappers are one type exactly when their
+        // resolutions are: every closure's `Impl(Fn(...))` wrapper carries
+        // the reserved name "Impl", so name + level alone made two different
+        // closures one type (their lists shared one instance, and pushing one
+        // closure into the other's list type-checked;
+        // issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+        // It is the rule a resolved SomeT meets against a concrete type above,
+        // and the key `type_key` gives such a wrapper in an argument slot.
+        (_is_resolved_impl_wrapper(actual) && _is_resolved_impl_wrapper(expected)) =>
+          recur(_resolve_cell_chain(actual), _resolve_cell_chain(expected), require_exact, visited),
         ((aname == ename) && (alvl == elvl)) => true,
         // Corresponding binders of the two `Func` types being compared.
         _alpha_pair_active(aname.clone(), alvl, ename.clone(), elvl) => true,

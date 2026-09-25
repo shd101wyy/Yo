@@ -72,7 +72,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_ptr, t_resolved_cell, clone_some_fresh } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
-{ type_key } :: import("../../types/type_key.yo");
+{ type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
 {
   get_all_some_types,
   type_contains_some_type,
@@ -1875,50 +1875,9 @@ _build_forward_ref_funcval :: (
 );
 // ---------------------------------------------------------------------------
 // create_specialized_function_inline
-/// Resolve a SomeT through its resolved-concrete cell chain (the same walk as
-/// type_key's `_tk_resolve_arg_slot`, incl. the "Impl"/nameless exclusions).
-/// Returns the input unchanged when the chain ends unresolved.
-_spec_resolve_slot_cell :: (fn(t_in : TypeValue) -> TypeValue)({
-  (cur : TypeValue) = t_in;
-  (seen : ArrayList(String)) = ArrayList(String).new();
-  (walk : bool) = true;
-  while(walk, {
-    match(
-      cur,
-      .SomeT({ id : brs_id, name : brs_nm, resolved_concrete : brs_rc }) => {
-        if((brs_nm == "Impl") || (brs_nm.len() == usize(0)), {
-          return(t_in);
-        });
-        (revisit : bool) = false;
-        (bri : usize) = usize(0);
-        while(bri < seen.len(), {
-          if(match(seen.get(bri), .Some(s) => (s == brs_id), .None => false), {
-            revisit = true;
-          });
-          bri = (bri + usize(1));
-        });
-        if(revisit, {
-          walk = false;
-        }, {
-          seen.push(brs_id.clone());
-          match(
-            brs_rc.get(usize(0)),
-            .Some(nx) => {
-              cur = nx;
-            },
-            .None => {
-              walk = false;
-            }
-          );
-        });
-      },
-      _ => {
-        walk = false;
-      }
-    );
-  });
-  cond(is_some_type(cur) => t_in, true => cur)
-});
+/// Resolve a type-argument SomeT the way `type_key` keys it
+/// (`_tk_resolve_arg_slot`): the snapshot must agree with the key.
+_spec_resolve_slot_cell :: (fn(t_in : TypeValue) -> TypeValue)(_tk_resolve_arg_slot(t_in));
 /// SNAPSHOT a ctor-stamped record's generic slots at SPECIALIZATION time:
 /// resolve each `type_arguments`/`field_types` SomeT through its cell chain
 /// NOW, so the registered spec signature reads the CALL era instead of

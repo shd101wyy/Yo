@@ -80,14 +80,22 @@ _tk_resolve_arg_slot :: (fn(t_in : TypeValue) -> TypeValue)({
     match(
       cur,
       .SomeT({ id : ras_id, name : ras_nm, resolved_concrete : ras_rc }) => {
-        // Annotation-era wrappers (reserved name "Impl" —
-        // builtins/impl_constraint.yo) and the dyn-coercion wrappers (minted
-        // NAMELESS, values/dyn.yo:336) keep their OWN identity: the dyn/box
-        // closure machinery lowers them to a distinct fat call/data C struct,
-        // and hopping to the capture struct merged the two ("no member named
-        // 'call'" across the dyn corpus). Only where-clause foralls and the
-        // synthetic `__impl_fn` hop.
-        if((ras_nm == "Impl") || (ras_nm.len() == usize(0)), {
+        // The dyn-coercion wrappers (minted NAMELESS, values/dyn.yo) keep
+        // their OWN identity: the dyn/box closure machinery lowers them to a
+        // distinct fat call/data C struct, and hopping to the capture struct
+        // merged the two ("no member named 'call'" across the dyn corpus).
+        //
+        // An annotation wrapper (reserved name "Impl",
+        // builtins/impl_constraint.yo) hops like a where-clause forall: its
+        // C type IS its resolution (codegen lowers a resolved SomeT to the
+        // concrete type), and a closure's `Impl(Fn(...))` wrapper is copied
+        // under fresh SomeT ids as the value flows. Keying by the id gave one
+        // closure's `ArrayList(typeof(k))` a C type per copy, and every
+        // closure's wrapper shares the name "Impl", so identity's name+level
+        // rule merged two closures' lists into one
+        // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
+        // An UNRESOLVED wrapper still keys by its id (the final line below).
+        if(ras_nm.len() == usize(0), {
           return(t_in);
         });
         (revisit : bool) = false;
