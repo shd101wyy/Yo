@@ -1623,10 +1623,28 @@ Test: `tests/internal/module_invalidation.test.yo` "captures: a specialization o
 handle-backed FuncVal stores no flat capture lists" (13,594 flat names with the
 rule disabled, 0 with it).
 
-The remaining copies are the values and the prefix of handles, one list each.
-Sharing that prefix by reference is §0.7's full design: it needs a `cap_vals`
-representation that is not a flat per-FuncVal list, and `capture_env_for`
-concatenating at first call.
+**Exclusive shares re-taken on this compiler** (`HOLDER_DEEP_LAST`, `check
+src/main.yo`): `g_macro_expansions` 218 → 3 MB (#915), `g_ifc_memo` 198 →
+77 MB, `g_specialized_fn_caches` 8 MB. `g_funcval_cap_vars` still holds
+**218 MB exclusively**, and 207 MB of that is 14,732 `ArrayList(Variable)` of
+~1,760 handles each. The `Variable`s are shared (4 MB); the cost is one private
+handle list per FuncVal, definition-site ones included.
+`try_to_implement_function_by_function_type` (and its twin in
+`anonymous_function.yo`) copies every variable of every frame of the defining
+env into `cap_vars`, beside a `cap_vals` snapshot of the same length.
+
+**Next lever: frame-slice captures.** A module-level function's capture list
+is a prefix of its defining frames' `variables` lists, and so is every other
+function's in that module. Recording `(frame list, length)` slices instead of
+copies would remove the ~0.2 GB of handle lists, and the `cap_vals` snapshots
+next to them if the value side can follow. Four constraints decide the design:
+- `cap_vals` is a snapshot. A forward-declared comptime fn filled later reads
+  `VarRef` at capture time, so values cannot simply be read from the live
+  handles.
+- The slice length is the snapshot bound that ordered runtime globals (the
+  E0906 forward-reference rule) rely on.
+- The `__recur_fn` binder is skipped, which breaks the prefix shape.
+- `adopt_resolved_definition` appends to the capture frame through the alias.
 
 ## 6. Gates (every phase)
 
