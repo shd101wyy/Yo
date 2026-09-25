@@ -1,7 +1,12 @@
 # Building Yo on an 8 GB machine — plan
 
-**Status: BACKLOG 2026-09-25. Starts after
-[`EVALUATOR_MEMORY_REDUCTION.md`](../EVALUATOR_MEMORY_REDUCTION.md) closes.**
+**Status: ACTIVE 2026-09-25.** Phase 1 landed: cc no longer runs beside the
+evaluator heap, so a full compile of `src/main.yo` peaks at 6.35 GB instead of
+≈ 9.7 GB (§1 Phase 1). Phase 4 items 1–2 landed as one CI job
+(`compile_memory_ratchet.sh`: the build inside an 8 GB no-swap cgroup, its
+memory.peak ratcheted). Open: Phase 2 (the codegen phase), Phase 3 (chunk
+jobs), Phase 4 items 3–4 (they wait for a seed that carries Phases 1–2).
+Companion: [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md).
 That campaign shrinks what `check` retains. This one covers the rest of a
 `yo build` of the compiler: the codegen phase, and the C compiler running while
 `yo compile` still holds its heap.
@@ -70,6 +75,30 @@ Options, in order of preference:
 
 Exit check: the §0 sampler (yo + all descendants, footprint every 5 s) shows the
 `yo compile` process gone, or under 100 MB, while cc runs.
+
+**Landed (2026-09-25): option 2, generalized to every mode.** `run_compile`
+still assembles every argv exactly as before, but the three places that ran
+cc (the single-unit compile + link, the chunked `cc -c` per unit + link with
+the poisoned-cache retry, and `--static-library`'s `cc -c` + `ar`) now record
+a `CcPlan` instead. `_finish_cc_plan` serializes the plan next to the output
+(`<output>.ccplan`), flushes the accumulated warnings and stdio, and `execve`s
+this same binary as `yo __cc-plan <file>`, which runs the plan in a fresh
+image and removes the file. execve keeps the pid, the open stdio and the
+parent's wait, so `yo build`, `yo test` batches and shells see the same exit
+code and output. It stays in process where the process must come back: any
+compile that `main` did not dispatch as the top-level `compile` (`build
+--watch`, `YO_TEST_IN_PROCESS`, the warm selfcheck), Windows (its `_exec`
+does not keep a waiting parent), `--profile` (the phase table lives in the
+first image), and `YO_CC_IN_PROCESS=1`.
+
+Measured with the process-tree sampler on `yo compile src/main.yo --optimize 2`
+(stage 1 of the branch, Mac Mini M4): while clang ran, the `yo` process held
+1 MB (the plan runner) and clang peaked at 3,262 MB; the front half peaked at
+6,345 MB. **Peak 9.7 GB → 6.35 GB.** A failing C compiler still reports
+`compile: C compiler failed (exit N) on <file>` with exit status 1, and no
+plan file survives. The chunked path also stopped replaying the growing link
+line (objects, `-o`, libraries) as each chunk's compile flags on the
+poisoned-cache retry: the flags are snapshot where the chunks start.
 
 ### Phase 2: shrink the codegen phase
 
