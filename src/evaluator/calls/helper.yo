@@ -2346,6 +2346,9 @@ create_specialized_function_inline :: (
             evaluate_function_return_type_again(declared_ret, callee_env, ctx),
           true => declared_ret
         );
+        if(debug_knob(`YO_DEBUG_CC`).is_some(), {
+          eprintln(`[cc-retsig] fid=${func_id} probe=${type_key(ret_probe)}`);
+        });
         ret_sig_ty = Option(TypeValue).Some(ret_probe);
         compile_time_args.push(EvalValue.TypeVal(ret_probe));
       };
