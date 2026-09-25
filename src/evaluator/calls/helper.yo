@@ -2779,9 +2779,6 @@ create_specialized_function_inline :: (
                     // the return (issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
                     rte_somes := get_all_some_types(rte_ty);
                     rte_only_closure_args := ((rte_somes.len() > usize(0)) && _somes_are_closure_forall_args(rte_somes, arg_values.forall_args, forall_names, callee_env));
-                    if(debug_knob(`YO_DEBUG_P26`).is_some() && type_to_string(rte_ty).starts_with("Arc"), {
-                      eprintln(`[p26-rte] ${func_id} -> ${specialized_func_id} rte=${type_to_string(rte_ty)} only_closure=${rte_only_closure_args}`);
-                    });
                     if((((rte_somes.len() == usize(0)) || rte_only_closure_args) && !(_type_has_array_len_var(rte_ty))) && !(is_unit_type(rte_ty)), {
                       spec_ret_ty = rte_ty;
                       rte_adopted = true;
@@ -4228,9 +4225,6 @@ create_specialized_function_inline :: (
                 ),
                 ArrayList(TypeValue).new()
               );
-              if(debug_knob(`YO_DEBUG_P26`).is_some() && type_to_string(spec_result).starts_with("Arc"), {
-                eprintln(`[p26-reg] ${func_id} -> ${specialized_func_id} result=${type_to_string(spec_result)} adopted=${rte_adopted} spec_ret=${type_to_string(spec_ret_ty)}`);
-              });
               register_func_type(specialized_func_id.clone(), spec_type);
             },
             _ => ()
