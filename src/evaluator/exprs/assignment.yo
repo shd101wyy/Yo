@@ -39,6 +39,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_paths_for_write,
   expr_info_set_converted_runtime_type,
   register_thread_local,
+  is_thread_local,
   expr_info_capture_type,
   expr_info_comptime_ref,
   expr_info_index_trait_ptr_type,
@@ -84,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
   convert_comptime_type_to_runtime_type_with_expected,
   get_value_of_some_type_from_env
 } :: import("../../types/env_lookup.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file, is_class1_panic_exempt_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation }
 :: import("../../types/flowability.yo");
@@ -272,7 +273,45 @@ get_root_expr_of_place :: (fn(expr : AstExpr) -> AstExpr)(
 // ---------------------------------------------------------------------------
 /// One `inout` parameter of the call being evaluated whose argument is a place
 /// rooted in an atomic object, waiting for the callee's mutation mask.
-D3PendingInout :: struct(param_index : usize, place : AstExpr, how : String, root_text : String, root_type : String);
+D3PendingInout :: struct(param_index : usize, place : AstExpr, how : String, noun : String, root_text : String, root_type : String);
+/// D1 applies to files without the pragma that are not test files (`*.test.yo`
+/// and the runner's batch files are single-threaded programs by construction
+/// and exercise module-level RC state on purpose — the same exemption the
+/// class-1 panic ban uses).
+_d1_applies_to_file :: (fn(module_path : String) -> bool)(
+  !is_implicitly_unsafe_capable_file(Option(String).Some(module_path.clone())) && !is_class1_panic_exempt_file(Option(String).Some(module_path))
+);
+/// The module-level (non-thread-local) global a place is rooted in, if any,
+/// with its type — the D1 write rule's counterpart of
+/// `get_atomic_object_root_type`.
+_module_global_root_type :: (
+  fn(root_expr : AstExpr, env : Environment) -> Option(TypeValue)
+)({
+  if(!ast_expr_is_atom(root_expr), {
+    return(Option(TypeValue).None);
+  });
+  tok := ast_expr_token(root_expr);
+  var_name := tok.value;
+  if(var_name.is_empty(), {
+    return(Option(TypeValue).None);
+  });
+  variables := get_variables_from_env(env, var_name.clone());
+  if(variables.len() == usize(0), {
+    return(Option(TypeValue).None);
+  });
+  match(
+    variables.get(variables.len() - usize(1)),
+    // Only a VALUE-typed global (a `Send` scalar/struct: `static mut`): a
+    // non-atomic RC global cannot be reached from another thread at all (the
+    // reachability walk, `function_reaches_non_send_global`), and an atomic
+    // object is covered by the atomic-root rule above.
+    .Some(v) => if((v.is_module_level && !is_thread_local(tok.module_path.clone(), var_name.clone())) && !type_contains_rc_type(v.ty), Option(TypeValue).Some(v.ty), Option(TypeValue).None),
+    .None => Option(TypeValue).None
+  )
+});
+_d1_hint :: (fn() -> String)(
+  String.from("A module-level binding is one static shared by every thread. Use thread_local(name) for per-thread state, or an atomic object (Mutex(T), Arc(T), Atomic*) for shared state.")
+);
 /// Record `place` (the argument bound to `inout` parameter `param_index` of
 /// the call being matched) when it is rooted in an atomic object and the
 /// CALLER's file has no pragma. Nothing is decided here: whether the binding
@@ -285,6 +324,7 @@ d3_record_inout_place :: (
     return(());
   });
   root_expr := get_root_expr_of_place(place);
+  how := if(param_label == "self", String.from("call an inout(self) method on"), String.from("pass an inout argument rooted in"));
   match(
     get_atomic_object_root_type(root_expr, env),
     .Some(root_ty) => {
@@ -292,7 +332,8 @@ d3_record_inout_place :: (
         D3PendingInout(
           param_index : param_index,
           place : place,
-          how : if(param_label == "self", String.from("call an inout(self) method on"), String.from("pass an inout argument rooted in")),
+          how : how,
+          noun : String.from("atomic object"),
           root_text : ast_expr_to_string(root_expr),
           root_type : type_to_string(root_ty)
         )
@@ -300,6 +341,25 @@ d3_record_inout_place :: (
     },
     .None => ()
   );
+  // D1: the same question for a place rooted in a module-level global.
+  if(_d1_applies_to_file(ast_expr_token(place).module_path.clone()), {
+    match(
+      _module_global_root_type(root_expr, env),
+      .Some(g_ty) => {
+        pending.push(
+          D3PendingInout(
+            param_index : param_index,
+            place : place,
+            how : how,
+            noun : String.from("module-level global"),
+            root_text : ast_expr_to_string(root_expr),
+            root_type : type_to_string(g_ty)
+          )
+        );
+      },
+      .None => ()
+    );
+  });
 });
 /// D3 (`plans/reference/PARALLELISM_RULES.md`): an `inout` binding rooted in an
 /// atomic object is a data race iff the callee may WRITE through that
@@ -330,7 +390,7 @@ d3_check_pending :: (
           dyn(
             format_error_message(
               ast_expr_token(entry.place),
-              `Cannot ${entry.how} atomic object '${entry.root_text}' (type ${entry.root_type}) in safe code: the callee may write through that inout parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
+              `Cannot ${entry.how} ${entry.noun} '${entry.root_text}' (type ${entry.root_type}) in safe code: the callee may write through that inout parameter. ${if(entry.noun == "atomic object", String.from("Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T))."), _d1_hint())}`
             )
           )
         );
@@ -372,6 +432,24 @@ throw_if_write_through_atomic_root :: (
     },
     .None => ()
   );
+  // D1: a write rooted in a module-level global (not a thread-local) is a
+  // write to a static every thread shares.
+  if(_d1_applies_to_file(ast_expr_token(place).module_path.clone()), {
+    match(
+      _module_global_root_type(root_expr, env),
+      .Some(g_ty) => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(place),
+              `Cannot ${how} module-level global '${ast_expr_to_string(root_expr)}' (type ${type_to_string(g_ty)}) in safe code. ${_d1_hint()}`
+            )
+          )
+        );
+      },
+      .None => ()
+    );
+  });
 });
 // ---------------------------------------------------------------------------
 // get_atomic_object_root_type
@@ -1081,6 +1159,18 @@ evaluate_assignment :: (
         format_error_message(
           ast_expr_token(lhs_resolved),
           `Cannot reassign "${variable_name}".\nYou can mutate fields (e.g., ${variable_name}.field = value) but cannot reassign itself.`
+        )
+      )
+    );
+  });
+  // D1: reassigning a module-level global (not a thread-local) from a safe
+  // non-test file is a write to a static every thread shares.
+  if(((variable.is_module_level && !is_thread_local(ast_expr_token(lhs_resolved).module_path.clone(), variable_name.clone())) && !type_contains_rc_type(variable.ty)) && _d1_applies_to_file(ast_expr_token(lhs_resolved).module_path.clone()), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(lhs_resolved),
+          `Cannot assign to module-level global '${variable_name}' (type ${type_to_string(variable.ty)}) in safe code. ${_d1_hint()}`
         )
       )
     );

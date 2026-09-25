@@ -147,6 +147,36 @@ test("D4 canary: a closure over an atomic satisfies where(T <: Send)", {
 // ============================================================================
 // D1 — module-level bindings
 // ============================================================================
+// D1 (Phase 3): a spawn closure may not reach a non-Send global, even
+// through a called function.
+g_items := ArrayList(i32).new();
+_fill_global :: (fn() -> unit)({
+  g_items.push(i32(1));
+});
+comptime_expect_error({
+  _d1_spawn_reaches_global :: (fn() -> unit)({
+    t := Thread(unit).spawn(io => {
+      _fill_global();
+      ()
+    });
+    t.join();
+  });
+  _d1_spawn_reaches_global();
+});
+// Canary: a spawn closure may call a function that reads a `Send` constant
+// and an atomic global; the non-Send global above is untouched by it.
+g_hits := AtomicI32(i32(0));
+_count_hit :: (fn() -> i32)({
+  g_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+  LIMIT
+});
+test("D1 canary: a spawned closure may call a function that reaches Send globals", {
+  t := Thread(i32).spawn((io : Io) => _count_hit());
+  assert(t.join() == i32(5), "the callee read LIMIT on the thread");
+  assert(g_hits.load(MemoryOrder.Acquire) == i32(1), "and bumped the atomic");
+  g_items.push(i32(7));
+  assert(g_items.len() == usize(1), "the non-Send global is still usable on the main thread");
+});
 // Canary: a `Send` value-type constant may be read from two threads.
 test("D1 canary: a module-level value constant is readable from a spawned thread", {
   t := Thread(i32).spawn((io : Io) => (LIMIT + i32(1)));

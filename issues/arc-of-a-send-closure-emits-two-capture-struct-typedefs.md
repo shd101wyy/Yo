@@ -21,14 +21,28 @@ error: incompatible pointer types returning '__yo_t_… *' (aka 'struct __yo_t_�
 
 `yo check` is green. The same shape through `Channel(typeof(f))` fails identically.
 
-## Mechanism (not yet read)
+## Mechanism (READ 2026-09-26, tree-built compiler at develop 848fc09c4 + Phase 1)
 
-The `arc` specialization at `V = <closure type>` and the `Arc(V)` constructor emit the closure's
-capture struct under two different C type names (one per resolution of the closure's SomeT, it
-appears), and the `__yo_new_`/getter of the `Arc` returns one while the caller expects the
-other. Where the two names come from — `resolve_some_type_to_concrete` on the `Impl(Fn)`
-wrapper vs the registered capture struct — is the thing to read first
-(`src/codegen/exprs/closures.yo`, `src/codegen/types/collection.yo`).
+Not a capture-struct problem at all: the two typedefs are two instantiations of `Arc`. In the
+emitted C the `arc` specialization is declared
+
+```c
+static inline __yo_t_7166924921173181532* yo_id_…_Impl____Fn______unit___Send___Acyclic__…(…)
+//                 ^ struct __yo_t_7166924921173181532_struct { … } // Arc(V : (Send + Acyclic))
+  __yo_t_6030970656195994572* tmp = __yo_new___yo_t_6030970656195994572(value);
+//                 ^ struct __yo_t_6030970656195994572_struct { … } // Arc(Impl : (Fn() -> unit + Send + Acyclic))
+  __yo_t_7166924921173181532* __yo_scope_ret = tmp;   // clang: incompatible pointer types
+```
+
+The specialization's RETURN type is `Arc(V)` evaluated with `V` still the unresolved bound
+variable (`V : (Send + Acyclic)`), while the body's constructor call evaluates `Arc(V)` with `V`
+resolved to the closure's `Impl` SomeT — and `Arc` is a nominal type constructor, so the two
+evaluations mint two struct ids. For a nominal argument (`arc(i32(1))`) both evaluations resolve
+`V` the same way; a closure-typed argument is the case where the bound variable's identity
+differs between the signature and the body. This is the "one notion of type identity for
+resolved type variables" problem of `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 3, not a parallelism
+one; handed over to that plan (2026-09-26), and `plans/PARALLELISM_SOUNDNESS.md` Phase 4 keeps
+only the D4 consequence (the legal `arc(closure_over_atomic)` canary waits on it).
 
 ## Why it matters for the parallelism plan
 

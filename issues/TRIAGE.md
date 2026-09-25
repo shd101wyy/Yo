@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 238 open docs in
+**Generated** by `scripts/gen-issue-triage.py` over the 236 open docs in
 `issues/` root. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -31,12 +31,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 32 | 9 |
 | Codegen / emitted C | 21 | 3 |
 | Evaluator / types | 27 | 5 |
-| Std library | 56 | 14 |
+| Std library | 55 | 14 |
 | Tooling (fmt/doc/lsp) | 15 | 1 |
 | Self-hosting legacy | 17 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 53 | 14 |
-| **Total** | **238** | **49** |
+| Other | 52 | 14 |
+| **Total** | **236** | **49** |
 
 ## Cross-cutting buckets
 
@@ -235,7 +235,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | OPEN (deliberate scope boundary, not regressi | — |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | — | — |
 
-### Std library (56)
+### Std library (55)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -262,7 +262,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`redirect-resolution-never-removes-dot-segments.md`](./redirect-resolution-never-removes-dot-segments.md) | — | — |
 | [`s3-fs-wrappers-windows-semantics-audit.md`](./s3-fs-wrappers-windows-semantics-audit.md) | OPEN | — |
 | [`std-doc-examples-use-parenless-import-which-does-not-parse.md`](./std-doc-examples-use-parenless-import-which-does-not-parse.md) | OPEN | — |
-| [`std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`](./std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md) | OPEN | — |
 | [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | — | yes |
 | [`std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md`](./std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md) | OPEN | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | OPEN | — |
@@ -346,7 +345,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (53)
+### Other (52)
 
 | Doc | Status (self-reported) | Repro |
 | --- | --- | --- |
@@ -378,7 +377,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | — | — |
 | [`macos-io-notify-races-io-cleanup-on-the-notify-handle.md`](./macos-io-notify-races-io-cleanup-on-the-notify-handle.md) | OPEN | — |
 | [`match-redundancy-and-range-exhaustiveness-gaps.md`](./match-redundancy-and-range-exhaustiveness-gaps.md) | OPEN | — |
-| [`module-globals-bypass-send-so-safe-code-can-data-race.md`](./module-globals-bypass-send-so-safe-code-can-data-race.md) | OPEN | — |
 | [`moving-a-variable-inside-a-loop-body-is-not-rejected.md`](./moving-a-variable-inside-a-loop-body-is-not-rejected.md) | OPEN | — |
 | [`option-of-a-trait-object-never-emits-its-inherent-methods.md`](./option-of-a-trait-object-never-emits-its-inherent-methods.md) | OPEN | yes |
 | [`option-self-field-on-environment-splits-into-two-c-types.md`](./option-self-field-on-environment-splits-into-two-c-types.md) | — | — |

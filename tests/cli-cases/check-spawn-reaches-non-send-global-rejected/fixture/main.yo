@@ -1,0 +1,17 @@
+{ Thread } :: import("std/thread");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+g := ArrayList(i32).new();
+fill :: (fn() -> unit)({
+  g.push(i32(1));
+});
+main :: (fn() -> unit)({
+  fill();
+  t := Thread(unit).spawn((io : Io) => {
+    fill();
+    ()
+  });
+  t.join();
+  println(`len=${g.len()}`);
+});
+export(main);

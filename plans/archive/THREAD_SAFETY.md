@@ -19,7 +19,7 @@ claim never landed.** Row 6 / Phase H: the emitted `extract()` checks only a one
 flag, never `rc == 1`, and the raw `Iso(T)(v)` constructor runs none of the `^` macro's
 checks (`issues/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`).
 Row 17: a module-level `:=` binding IS a mutable static reachable from every thread
-(`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`). Row 26: no call-site
+(`issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md`). Row 26: no call-site
 rule exists; `inout(self)` receivers, `inout` arguments and index assignment write through
 an atomic object in safe code
 (`issues/fixed/phase-o-atomic-write-gate-misses-inout-receivers-arguments-and-index-assignment.md`).

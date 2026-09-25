@@ -9,6 +9,8 @@
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
 { String } :: import("std/string");
+{ function_reaches_non_send_global } :: import("../effects/mutation_summary.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -224,7 +226,13 @@ validate_capture_trait_requirements :: (
     env : Environment,
     ctx : EvalContext,
     error_token : Token,
-    exn : Exception
+    exn : Exception,
+    /// The closure's own id and evaluated body, for rule D1's reachability
+    /// walk (`function_reaches_non_send_global`): a `Send`-bounded closure may
+    /// not reach a non-Send module-level global, directly or through the
+    /// functions it calls. Defaulted so callers without a body skip it.
+    (closure_fid : String) ?= String.new(),
+    (closure_body : Option(AstExpr)) ?= Option(AstExpr).None
   ) -> unit
 )({
   match(
@@ -235,6 +243,19 @@ validate_capture_trait_requirements :: (
         trait_type := rtts(ti);
         if(!is_fn_trait_type(trait_type), {
           trait_name := type_to_string(trait_type);
+          // D1: globals reachable from a Send closure (in a safe file only —
+          // a pragma'd file, std's relay closures included, is the audited base).
+          if((trait_name == "Send") && !is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.clone())), {
+            match(
+              closure_body,
+              .Some(cb) => match(
+                function_reaches_non_send_global(closure_fid.clone(), cb, ctx.expr_info_table, env),
+                .Some(reason) => _raise_capture_trait_violation(ctx, exn, error_token, `This closure runs on another thread (it is bound to a Send closure type) but ${reason}.`),
+                .None => ()
+              ),
+              .None => ()
+            );
+          });
           // Per-variable first: each offending capture gets its own error at
           // the capture site, not the closure site.
           match(

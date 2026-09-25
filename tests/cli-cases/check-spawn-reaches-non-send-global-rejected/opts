@@ -1,0 +1,9 @@
+# Parallelism soundness Phase 3 (rule D1, plans/reference/PARALLELISM_RULES.md):
+# a non-Send module-level global (here an ArrayList — non-atomic RC) is fine in
+# a single-threaded program, but a closure bound to a Send closure type (a
+# Thread.spawn body) may not REACH it, directly or through the functions it
+# calls: `fill` pushes to `g`, and the spawn closure calls `fill`. Even a read
+# through the handle updates a refcount, a data race from two threads
+# (issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md).
+stdout_keep_match=calls 'fill', which references the module-level global 'g'
+timeout=120

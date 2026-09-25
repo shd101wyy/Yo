@@ -1974,7 +1974,13 @@ Result type: ${type_to_string(decl_result_ty)}`
     // and for the capture struct.
     match(
       closure_capture_type,
-      .Some(vct) => validate_capture_trait_requirements(expected_ty, vct, cvwv, env, ctx, tok, exn),
+      // The D1 reachability walk needs the EVALUATED body; this path's body
+      // evaluation is trial/deferred (`_trial_eval_anon_body` works on a
+      // clone), so no body is handed over here. A closure bound to an
+      // `Impl(Fn(...), Send)` slot is created through
+      // `try_to_implement_closure_by_fn_module_type` (calls/closure_type.yo),
+      // which hands its evaluated body over.
+      .Some(vct) => validate_capture_trait_requirements(expected_ty, vct, cvwv, env, ctx, tok, exn, func_id.clone(), Option(AstExpr).None),
       .None => ()
     );
     // Prefer an already-REGISTERED (larger) capture struct for this fid — see

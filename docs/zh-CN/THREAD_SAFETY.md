@@ -148,6 +148,26 @@ new_value := counter.with_lock(v => (v + i32(1)));
 
 解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都调用 `_raw_unlock()`，保证结构化解锁配对。**可重入锁定会导致死锁。**
 
+## 模块级全局变量
+
+模块级运行期绑定（在任何函数之外的 `name := init` 或 `(name : T) = init`）是一个被所有线程共享的静态变量。在安全代码中：
+
+- 在另一个线程上运行的闭包（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调 —— 任何绑定到 `Impl(Fn(...), Send)` 的闭包）不能直接或经由它调用的任何函数触及类型不是 `Send` 的全局变量。非原子引用计数的全局变量（`ArrayList`、`String`、任何 `ref(struct)`）对主线程仍然合法，但通过这样的句柄读取字段会更新引用计数，所以其他线程不能碰它；
+- `Send` 值类型的全局变量（其他线程可以读取的那一类）不能被赋值、不能以它为根做字段或索引写入、也不能交给被调用者会通过其写入的 `inout` 参数 —— 它是共享常量，不是 `static mut`。
+
+```rust
+LIMIT :: i32(5);                              // 常量：任何线程都可读
+hits := AtomicI32(i32(0));                    // 原子对象：共享状态，可以
+(thread_local(scratch) : i32) = i32(0);       // 每线程可变状态：可以
+g := ArrayList(i32).new();                    // 只在主线程上可用
+fill :: (fn() -> unit)({ g.push(i32(1)); });
+Thread(unit).spawn(io => { fill(); });        // 错误：闭包调用了触及 g 的 fill
+(counter : i32) = i32(0);
+bump :: (fn() -> unit)({ counter = (counter + i32(1)); });   // 错误：对模块级全局变量赋值
+```
+
+测试文件（`*.test.yo`）豁免写入规则，与一类 panic 禁令相同：它们是单线程程序，刻意把计数器放在全局变量里。可达性规则对它们同样适用。
+
 ## 负向实现 — 选择退出 Send
 
 可以通过 `!(Send)` 明确退出自动派生的 `Send`：
@@ -199,7 +219,6 @@ match(
 本页开头的保证是合约；并行性可靠性审计（`plans/PARALLELISM_SOUNDNESS.md`）在当前编译器上测得以下违反，每一项都由该文档中命名的阶段关闭。在某一条被删除之前，安全代码**能够**写出它描述的数据竞争。
 
 - **`Iso(T)` 的唯一性检查是浅层的，原始构造函数没有检查**（见上一节）。
-- **模块级全局变量是共享的静态变量**，没有 `Send` 检查（`issues/module-globals-bypass-send-so-safe-code-can-data-race.md`）；在 std 内部，`html_decode` 的表在读取时竞争（`issues/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`）。
 - **闭包类型满足 `where(T <: Send)`** 而不看其捕获，因此带有非 Send 捕获的 `arc(f)` 和 `Channel(typeof(f))` 能通过 `yo check`（今天是 C 编译器碰巧拒绝了程序）（`issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`）。
 - **闭包可以在 `yo check` 下捕获 `with_lock` 闭包体的 `inout(v)`**（代码生成失败）（`issues/a-closure-capturing-an-inout-lock-body-parameter-passes-check.md`）。
 - **用户规则无法避免的运行时竞争**：派生线程事件循环上的跨线程 `Waker` 释放顺序、原子对象上的非原子 `borrow_count`、`Iso` 句柄上的 `rc()`，以及 Windows/macOS 特有的运行时状态 —— 列于 `plans/PARALLELISM_SOUNDNESS.md` §3（P-11 至 P-25）。

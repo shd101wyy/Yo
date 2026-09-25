@@ -45,6 +45,7 @@
 { ArrayList } :: import("../collections/array_list");
 { is_valid_entity_code, from_code_point } :: import("./html_char_utils");
 { _build_entity_map, _build_legacy_set } :: import("./html_entities");
+{ RawMutex } :: import("../sync/mutex");
 // Module-level state: the entity map and legacy set, built ONCE when the
 // module is initialised (before `main`, single-threaded). They used to be
 // lazily initialised by the first `decode` through an unsynchronised
@@ -52,6 +53,36 @@
 // (issues/fixed/html-and-log-globals-raced.md).
 _entity_map := _build_entity_map();
 _legacy_set := _build_legacy_set();
+// SAFETY: the two tables above are NON-atomic reference-counted objects (a
+// `HashMap(String, String)` and a `HashSet(String)`) shared by every thread
+// that decodes — and a lookup is not a pure read: `get` dups and drops the
+// bucket key and hands back the value's handle, all with plain refcount
+// arithmetic, so two threads decoding at once raced on those counters
+// (issues/fixed/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md).
+// Every lookup runs under this lock and returns a deep COPY made inside it,
+// so no non-atomic handle of the tables ever escapes to the caller's thread.
+// Rule D1 (plans/reference/PARALLELISM_RULES.md) forbids exactly this shape
+// in safe code; here the pragma carries the audit.
+_tables_lock := RawMutex.new();
+/// The decoded replacement for `name`, as a fresh `String` owned by the
+/// caller, or `.None`.
+_lookup_entity :: (fn(name : String) -> Option(String))({
+  _tables_lock.lock();
+  found := match(
+    _entity_map.get(name),
+    .Some(decoded) => Option(String).Some(decoded.clone()),
+    .None => Option(String).None
+  );
+  _tables_lock.unlock();
+  found
+});
+/// Whether `name` is a legacy entity (valid without its `;`).
+_is_legacy_entity :: (fn(name : String) -> bool)({
+  _tables_lock.lock();
+  hit := _legacy_set.contains(name);
+  _tables_lock.unlock();
+  hit
+});
 // Parse a hex string to i32
 _parse_hex :: (fn(s : String) -> i32)({
   (result : i32) = i32(0);
@@ -307,7 +338,7 @@ decode :: (fn(input : String) -> String)({
           if(has_semi, {
             // Try exact match with semicolon
             match(
-              _entity_map.get(name_str),
+              _lookup_entity(name_str),
               .Some(decoded) => {
                 _a := result.push_string(decoded);
                 i = (name_end + usize(1));
@@ -326,9 +357,9 @@ decode :: (fn(input : String) -> String)({
             (try_end : usize) = name_end;
             while((try_end > name_start) && !matched, {
               try_name := _slice_runes(input, table, name_start, try_end);
-              if(_legacy_set.contains(try_name), {
+              if(_is_legacy_entity(try_name), {
                 match(
-                  _entity_map.get(try_name),
+                  _lookup_entity(try_name),
                   .Some(decoded) => {
                     _a := result.push_string(decoded);
                     i = try_end;

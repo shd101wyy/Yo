@@ -14,24 +14,40 @@ These rules are what makes the user-facing guarantee in `docs/en-US/THREAD_SAFET
 
 ## D1 — Module-level runtime bindings must be thread-safe
 
-**Status:** PLANNED (Phase 3).
+**Status:** LANDED 2026-09-26 (Phase 3): `function_reaches_non_send_global`
+(`src/evaluator/effects/mutation_summary.yo`) called from the spawn-boundary capture check, and
+the module-global branch of the write/inout rules in `src/evaluator/exprs/assignment.yo`. The
+write rule exempts `*.test.yo` files (single-threaded programs that keep dispose counters in
+globals on purpose); the reachability rule applies to them.
 
 A module-level `name := value` or `(name : T) = value` binding is one static shared by every
 thread of the process. In a file without the pragma:
 
-- its type must be `Send`, and a type that is or contains a NON-atomic reference-counted value
-  (any `ref(struct)` / `ref(enum)`, `String`, `ArrayList`, `HashMap`, a closure with captures)
-  is a compile error — "immutable after init" is not enough, because READING a field through a
-  non-atomic handle performs reference-count traffic
-  (`issues/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`);
-- a scalar or value-type global that is ASSIGNED anywhere in the module is a mutable static and
-  is a compile error too.
+- a closure bound to a `Send` closure type (a `Thread.spawn` body, a pool task, a
+  `spawn_blocking` callback — anything coerced to `Impl(Fn(...), Send)`) may not REACH a
+  module-level global whose type is not `Send`, directly or through any function it can call:
+  a walk over the evaluated closure body and its resolvable callees (memoized, cycle-safe); a
+  callee that cannot be resolved statically — a dyn method — is a violation too, and a body
+  defined in a pragma'd file is the audited base and is not descended into. A non-atomic RC
+  global (`ArrayList`, `HashMap`, `String`, any `ref(struct)`) therefore stays legal in a
+  single-threaded program and for the main thread, but no other thread can touch it: even
+  READING a field through such a handle performs reference-count traffic
+  (`issues/fixed/std-html-entity-tables-are-non-atomic-globals-read-from-every-thread.md`);
+- a VALUE-typed global (a `Send` scalar or struct — the one kind another thread may read) that
+  is ASSIGNED anywhere, or is the root of a field/index store, or is bound to an `inout`
+  parameter of a callee that may write through it (the D3 mutation-mask decision), is a
+  mutable static (`static mut`) and is a compile error. Writes to an atomic-object global are
+  governed by D3; a non-Send RC global is main-thread-only by the first rule, so its writes are
+  ordinary.
 
-The diagnostic points at the alternatives: `thread_local(name)` for per-thread state
+The diagnostics point at the alternatives: `thread_local(name)` for per-thread state
 (`plans/reference/THREAD_LOCAL_STORAGE.md`), an atomic object (`Mutex(T)`, `Arc(T)`, `Atomic*`)
 for shared state, or a value with no reference inside for a constant. Pragma'd files keep
 today's behaviour and carry the audit burden (std's `std/log.yo` globals are under a mutex;
-`std/encoding/html.yo` is rewritten to comply). Rationale: Rust's `static: Sync` rule.
+`std/encoding/html.yo`'s tables are read under a lock). Rejected: "every module-level global
+must be `Send`" — it rejects every single-threaded program with a global cache (an Rc-based
+collection is never `Send`), the compiler's own tree included. Rationale otherwise: Rust's
+`static: Sync` rule.
 
 ## D2 — `Iso(T)` is constructed only through `^`, `T` must contain a reference, uniqueness is deep
 
