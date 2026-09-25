@@ -27,7 +27,7 @@
   format_error_messages,
   format_error_message
 } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
 /// Mark the variable identified by `variable_name` in `env` as consumed at `token`.
 /// If the variable is already consumed and `allow_consume_again` is false, throws.
@@ -122,7 +122,11 @@ evaluate_consume :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression(arg_expr, env, ctx);
+  // Through the caller's `exn`: the 3-argument `evaluate_expression` swallows
+  // any throw and hands back an error node whose env is not the caller's, so
+  // an error in the argument vanished and the enclosing block went on in the
+  // wrong environment (issues/fixed/consume-swallows-its-arguments-error-and-its-env.md).
+  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
   (cur_env : Environment) = match(arg_info_opt, .Some(i) => expr_info_adopt_env(i), .None => env);
   match(
