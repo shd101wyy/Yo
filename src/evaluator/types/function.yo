@@ -2365,6 +2365,27 @@ apply_single_trait_constraint :: (
       )
     );
   });
+  // Rule D4: a generic parameter instantiated with a CLOSURE's type binds that
+  // closure's `Impl(Fn...)` SomeT, and a SomeT bound only gains the constraint
+  // below — nothing ever checked it. A closure holds Send/Acyclic only when its
+  // captured state does, so judge the capture struct first. (Inert at
+  // definition time: the SomeT is then the generic's own type variable.)
+  if(!is_negated, {
+    match(
+      closure_bound_marker_offender(env_mut, some_ty, trait_ty),
+      .Some(d4_cap) => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(original_constraint_expr),
+              `The closure type ${type_to_string(some_ty)} does not implement required trait ${type_to_string(trait_ty)}: its captured state (${type_to_string(d4_cap)}) does not. A closure has a marker trait only when every value it captures does — capture an atomic object (Arc(T), Mutex(T), Atomic*) instead.`
+            )
+          )
+        );
+      },
+      .None => ()
+    );
+  });
   // Add the constraint directly to the SomeT's ArrayLists
   _add_where_clause_constraint(some_ty, trait_ty, is_negated);
   true
