@@ -8,8 +8,9 @@ task :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
     xs := ArrayList(i32).new();
     xs.push(i32(1));
     e.io.await(sleep(Duration.from_millis(i64(1)), e.io), e.io);
+    n := i32(1);
     if(xs.len() > usize(0), {
-      inout(x) := xs(usize(0)); // rejected (v1): an inout local inside a state machine
+      inout(x) := n; // rejected (v1): an inout local inside a state machine
       x = (x + i32(1));
     });
     return(xs(usize(0)));
