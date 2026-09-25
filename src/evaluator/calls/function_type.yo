@@ -99,7 +99,7 @@ pragma(Pragma.AllowUnsafe);
 { stable_func_id, display_module_path, debug_knob } :: import("../../utils.yo");
 { register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
 { get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound } :: import("../../types/utils.yo");
-{ are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 { format_error_message, yo_error_from_diagnostics, YoError, with_code_carried } :: import("../../error.yo");
 { Diagnostic } :: import("../../diagnostics.yo");
 { Exception, AnyError } :: import("std/error");
@@ -2076,7 +2076,7 @@ Result type: ${type_to_string(result_box)}`
                       .None => ()
                     );
                   });
-                  if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_exact(dg_trial_ty, dg_expected))), {
+                  if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_invariant(dg_trial_ty, dg_expected))), {
                     dg_exp_str := type_to_string(dg_expected);
                     dg_got_str := type_to_string(dg_trial_ty);
                     // Deliberate user-facing rejection — flagged for the def-time
