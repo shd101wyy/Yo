@@ -35,6 +35,7 @@
 { ifc_memo_entry_count } :: import("../../src/evaluator/values/impl.yo");
 { trait_default_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
 { type_intern_entry_count } :: import("../../src/types/intern.yo");
+{ specialization_cache_count } :: import("../../src/evaluator/calls/helper.yo");
 
 _IMPL_DOC :: "Point :: struct(x : i32);\nimpl(\n  Point,\n  get_x : (fn(self : Self) -> i32)(self.x)\n);\nmain :: (fn() -> unit)({\n  p := Point(x : i32(1));\n  _y := p.get_x();\n});\nexport(main);\n";
 _LIB_V1 :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
@@ -143,18 +144,21 @@ test("B2: repeated re-analysis keeps registry entry counts stable", {
   fcv1 := funcval_cap_vars_entry_count();
   fst1 := function_side_table_entry_count();
   est1 := expr_side_table_entry_count();
+  sc1 := specialization_cache_count();
   assert(_impl_doc_round(doc_path.clone(), std_path.clone(), io), "round 2 should analyze clean");
   ttm2 := type_trait_methods_entry_count();
   gi2 := generic_impl_entry_count();
   fcv2 := funcval_cap_vars_entry_count();
   fst2 := function_side_table_entry_count();
   est2 := expr_side_table_entry_count();
+  sc2 := specialization_cache_count();
   assert(_impl_doc_round(doc_path.clone(), std_path.clone(), io), "round 3 should analyze clean");
   ttm3 := type_trait_methods_entry_count();
   gi3 := generic_impl_entry_count();
   fcv3 := funcval_cap_vars_entry_count();
   fst3 := function_side_table_entry_count();
   est3 := expr_side_table_entry_count();
+  sc3 := specialization_cache_count();
   assert(ttm2 == ttm1, `trait-method registry leaked: ${ttm1} -> ${ttm2}`);
   assert(ttm3 == ttm2, `trait-method registry leaked: ${ttm2} -> ${ttm3}`);
   assert(gi2 == gi1, `generic-impl registry leaked: ${gi1} -> ${gi2}`);
@@ -173,6 +177,10 @@ test("B2: repeated re-analysis keeps registry entry counts stable", {
   // by fresh expression ids (the doc's `p.get_x()` method call).
   assert(est2 == est1, `expr-id side tables leaked: ${est1} -> ${est2}`);
   assert(est3 == est2, `expr-id side tables leaked: ${est2} -> ${est3}`);
+  // Specializations the doc requested of cached (std) functions: purged with
+  // the doc, then re-created by its re-evaluation.
+  assert(sc2 == sc1, `specialization cache leaked: ${sc1} -> ${sc2}`);
+  assert(sc3 == sc2, `specialization cache leaked: ${sc2} -> ${sc3}`);
 });
 
 test("B2: re-analysis keeps the memo and trait-default registries flat", {
