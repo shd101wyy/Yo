@@ -45,7 +45,7 @@
 { set_lookup_assoc_const } :: import("../../types/substitution.yo");
 { EvalValue } :: import("../../value.yo");
 { AstExpr } :: import("../../expr.yo");
-{ canonical_module_path, debug_knob, set_current_owner, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../../utils.yo");
+{ canonical_module_path, debug_knob, set_current_owner, owner_logs_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 /// Extract the unique `id` string from a `TypeValue` variant that
 /// carries one (Struct / EnumT / TraitT / SomeT). Returns
@@ -228,7 +228,7 @@ registration_owner :: (fn() -> String)(_registration_owner.clone());
 (g_owned_expr_ids : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
 /// Record expression id `id` under the current owner (no-op outside a module load).
 record_owned_expr_id :: (fn(id : usize) -> unit)({
-  if(_registration_owner.len() == usize(0), {
+  if((_registration_owner.len() == usize(0)) || !owner_logs_enabled(), {
     return(());
   });
   match(
@@ -242,13 +242,42 @@ record_owned_expr_id :: (fn(id : usize) -> unit)({
     }
   );
 });
+/// Entries across the owned expr-id and func-id logs (the owner-log test's probe).
+owned_id_log_entry_count :: (fn() -> usize)({
+  (n : usize) = usize(0);
+  eit := g_owned_expr_ids.values();
+  enx := eit.next();
+  while(enx.is_some(), {
+    match(
+      enx,
+      .Some(ids) => {
+        n = (n + ids.len());
+      },
+      .None => ()
+    );
+    enx = eit.next();
+  });
+  fit := g_owned_func_ids.values();
+  fnx := fit.next();
+  while(fnx.is_some(), {
+    match(
+      fnx,
+      .Some(ids) => {
+        n = (n + ids.len());
+      },
+      .None => ()
+    );
+    fnx = fit.next();
+  });
+  n
+});
 /// Remove and return the expression ids `owner`'s evaluation recorded.
 take_owned_expr_ids :: (fn(owner : String) -> ArrayList(usize))(
   match(g_owned_expr_ids.remove(owner), .Some(ids) => ids, .None => ArrayList(usize).new())
 );
 /// Record `func_id` under the current owner (no-op outside a module load).
 record_owned_func_id :: (fn(func_id : String) -> unit)({
-  if(_registration_owner.len() == usize(0), {
+  if((_registration_owner.len() == usize(0)) || !owner_logs_enabled(), {
     return(());
   });
   match(
@@ -986,6 +1015,7 @@ export(
   get_visible_type_trait_methods_by_name,
   registration_owner,
   record_owned_func_id,
+  owned_id_log_entry_count,
   take_owned_func_ids,
   record_owned_expr_id,
   take_owned_expr_ids,
