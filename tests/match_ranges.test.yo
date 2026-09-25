@@ -86,6 +86,9 @@ test("ranges covering a fixed-width type need no catch-all", {
   assert(pieces(i8(-1)) == i32(-1));
   assert(pieces(i8(0)) == i32(0));
   assert(pieces(i8(127)) == i32(1));
+  // A trailing catch-all after complete coverage is still accepted.
+  covered :: (fn(m : u8) -> i32)(match(m, (0 ..= 127) => i32(1), (128 ..= 255) => i32(2), _ => i32(3)));
+  assert(covered(u8(200)) == i32(2));
   wide :: (fn(m : u64) -> i32)(
     match(
       m,

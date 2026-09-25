@@ -71,7 +71,7 @@ Found on the way and fixed: `issues/fixed/a-repeated-or-pattern-alternative-is-a
 
 `tests/match_ranges.test.yo` (full-domain ranges run without `_`) and the cli-cases
 `match-range-subsumed-by-an-earlier-range-is-an-error`, `match-arm-covered-by-earlier-arms-warns`,
-`match-full-u8-range-is-exhaustive`, `match-integer-gap-is-the-missing-case`,
+`match-integer-gap-is-the-missing-case`,
 `match-usize-ranges-need-a-catch-all`, `match-empty-range-arm-is-an-error`,
 `match-gadt-excluded-variant-arm-is-an-error`, `match-guard-leaves-the-missing-case`,
 `match-missing-variant-witness-shows-its-payload`.
