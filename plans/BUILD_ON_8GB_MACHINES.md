@@ -5,8 +5,11 @@ evaluator heap, so a full compile of `src/main.yo` peaks at 6.35 GB instead of
 ≈ 9.7 GB (§1 Phase 1). Phase 4 items 1–2 landed as one CI job
 (`compile_memory_ratchet.sh`: the build inside an 8 GB no-swap cgroup, its
 memory.peak ratcheted). Phase 3 measured chunking below the single unit and
-landed a memory cap on the default chunk job count. Open: Phase 2 (the codegen
-phase), Phase 4 items 3–4 (they wait for a seed that carries Phases 1–2).
+landed a memory cap on the default chunk job count. Phase 2 found the codegen
+phase's extra memory was the shared ExprInfo table keeping every executed CTFE
+clone, and drops it (#913): the whole build now peaks at 4.85 GiB on Linux
+(6.35 before), with #915's token fix on top. Open: Phase 4 items 3–4 (they
+wait for a seed that carries Phases 1–2).
 Companion: [`EVALUATOR_MEMORY_REDUCTION.md`](EVALUATOR_MEMORY_REDUCTION.md).
 That campaign shrinks what `check` retains. This one covers the rest of a
 `yo build` of the compiler: the codegen phase, and the C compiler running while
