@@ -310,10 +310,14 @@ test("suggest_name finds near identifiers and rejects far ones", {
 });
 test("format_error_message_with_help renders the hint block", {
   tok := make_token(`t.yo`, `compute(x);`, usize(0), usize(0), `compute`);
-  err := format_error_message_with_help(
-    tok,
-    `Variable "computee" not found.`,
-    Option(String).Some(`did you mean "compute"?`)
+  // The raise site names the code (with_code); the text no longer does.
+  err := with_code(
+    format_error_message_with_help(
+      tok,
+      `Variable "computee" not found.`,
+      Option(String).Some(`did you mean "compute"?`)
+    ),
+    "E0401"
   );
   s := err.to_string();
   assert(s.starts_with(`error[E0401]: Variable "computee" not found.`), `coded header, got:\n${s}`);
@@ -328,10 +332,10 @@ test("format_error_message_with_help renders the hint block", {
 test("color: human render carries SGR when on and is byte-identical when off", {
   tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
   set_color_enabled(false);
-  plain := render_diagnostics_human(format_error_message(tok, `Variable "x" not found.`).diagnostics);
+  plain := render_diagnostics_human(with_code(format_error_message(tok, `Variable "x" not found.`), "E0401").diagnostics);
   assert(!plain.contains(`\u{1b}`), `plain render must not contain ESC, got:\n${plain}`);
   set_color_enabled(true);
-  colored := render_diagnostics_human(format_error_message(tok, `Variable "x" not found.`).diagnostics);
+  colored := render_diagnostics_human(with_code(format_error_message(tok, `Variable "x" not found.`), "E0401").diagnostics);
   // Restore BEFORE asserting so a failure cannot leak color into the rest
   // of this file's exact-string pins (they run in this same process).
   set_color_enabled(false);
@@ -367,12 +371,15 @@ test("color: the json render never carries ESC, even with color forced on", {
 // ─── P4: SARIF ───────────────────────────────────────────────────────────────
 test("sarif: a valid 2.1.0 log with rule, region and fix", {
   tok := make_token(`t.yo`, `countr := 1;`, usize(0), usize(8), `countr`);
-  err := format_error_message_with_repair(
-    tok,
-    `Variable "countr" not found.`,
-    Option(String).None,
-    String.from("counter"),
-    String.from("rename to the closest name in scope")
+  err := with_code(
+    format_error_message_with_repair(
+      tok,
+      `Variable "countr" not found.`,
+      Option(String).None,
+      String.from("counter"),
+      String.from("rename to the closest name in scope")
+    ),
+    "E0401"
   );
   s := render_diagnostics_sarif(err.diagnostics);
   assert(s.contains(`"$schema":"https://json.schemastore.org/sarif-2.1.0.json"`), `schema, got:\n${s}`);
