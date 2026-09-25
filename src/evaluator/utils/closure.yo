@@ -61,7 +61,7 @@
   register_struct_fields
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_contains_rc_type, is_closure_capture_struct } :: import("../../types/utils.yo");
+{ type_contains_rc_type, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
@@ -526,7 +526,10 @@ function_value_marker :: (
     );
     fi = (fi + usize(1));
   });
-  want_cap := _capture_id_of(ty);
+  // A closure identity's capture struct names its closure whichever copy of
+  // the wrapper `ty` is: a copy minted under a fresh SomeT id is in neither
+  // the frames scan nor `g_closure_fids_by_some`.
+  want_cap := _capture_id_of(if(is_bound_closure_identity(ty), resolve_cell_chain(ty), ty));
   if(!want_cap.is_empty(), {
     match(
       g_closure_fids_by_capture.get(want_cap),
