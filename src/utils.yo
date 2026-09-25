@@ -885,6 +885,19 @@ set_current_owner :: (fn(owner : String) -> unit)({
   g_current_owner = owner;
 });
 current_owner :: (fn() -> String)(g_current_owner.clone());
+/// Whether the owner logs (`OwnedKeys` and the owned expr/func-id logs) are
+/// recorded at all. They exist only so `mm_invalidate_document`
+/// can purge an edited module's entries, which `yo lsp`, `check --watch`,
+/// `build --watch` and `yo fix` do. A one-shot `check`, top-level `compile`
+/// (every `build` child and `test` batch), `doc` or `verify` never invalidates,
+/// so it switches them off and saves the logs' copies of every registry key
+/// (plans/EVALUATOR_MEMORY_REDUCTION.md §0.15). Default on, so every other entry
+/// point (including in-process watch rebuilds and internal tests) keeps them.
+(g_owner_logs_enabled : bool) = true;
+set_owner_logs_enabled :: (fn(on : bool) -> unit)({
+  g_owner_logs_enabled = on;
+});
+owner_logs_enabled :: (fn() -> bool)(g_owner_logs_enabled);
 /// Keys a registry wrote, grouped by the owner current at the write
 /// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5): `owned_keys_record`
 /// at insert, `owned_keys_take` when `mm_invalidate_document` drops that owner.
@@ -892,7 +905,7 @@ OwnedKeys :: ref(struct(by_owner : HashMap(String, ArrayList(String))));
 owned_keys_new :: (fn() -> OwnedKeys)(OwnedKeys(by_owner : HashMap(String, ArrayList(String)).new()));
 /// Record `key` under the current owner (no-op outside a module load).
 owned_keys_record :: (fn(log : OwnedKeys, key : String) -> unit)({
-  if(g_current_owner.len() == usize(0), {
+  if((g_current_owner.len() == usize(0)) || !g_owner_logs_enabled, {
     return(());
   });
   match(
@@ -910,7 +923,7 @@ owned_keys_record :: (fn(log : OwnedKeys, key : String) -> unit)({
 owned_keys_take :: (fn(log : OwnedKeys, owner : String) -> ArrayList(String))(
   match(log.by_owner.remove(owner), .Some(keys) => keys, .None => ArrayList(String).new())
 );
-export(set_current_owner, current_owner, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take);
+export(set_current_owner, current_owner, set_owner_logs_enabled, owner_logs_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take);
 export(debug_knob);
 // ---------------------------------------------------------------------------
 // Template interpolation scanning — shared by the lexer (where a template

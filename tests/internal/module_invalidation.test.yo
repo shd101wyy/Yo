@@ -26,7 +26,8 @@
   mm_invalidate_document,
   resolve_std_path
 } :: import("../../src/module_manager.yo");
-{ type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
+{ type_trait_methods_entry_count, owned_id_log_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
+{ set_owner_logs_enabled } :: import("../../src/utils.yo");
 { finished_walk_has_context, finished_walk_expr_info_count } :: import("../../src/evaluator/context.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
 { funcval_cap_vars_entry_count, new_frame, make_capture_variable, CaptureSlice, cap_slices_materialize, cap_slices_prefix, frame_truncate_variables } :: import("../../src/env.yo");
@@ -348,4 +349,35 @@ test("captures: a captured frame slice survives the frame shrinking", {
   // A derivation's prefix is a slice of the same list, not a copy.
   prefix := cap_slices_prefix(slices, usize(2));
   assert(match(prefix.get(usize(0)), .Some(sl) => ((sl.start == usize(0)) && (sl.end == usize(2))), .None => false), "a prefix narrows the slice");
+});
+test("owner logs: a one-shot command records none, an invalidating one does", {
+  // The owner logs exist only so `mm_invalidate_document` can purge an edited
+  // module's registry entries. A one-shot `check`/`compile`/`doc`/`verify`
+  // never invalidates, so it switches them off (plans/EVALUATOR_MEMORY_REDUCTION.md
+  // §0.15); `yo lsp` and the watch modes keep the default, on.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_owner_log_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  std_path := resolve_std_path();
+  off_path := `${dir}/off.yo`;
+  on_path := `${dir}/on.yo`;
+  io.await(write_string(Path.new(off_path.clone()), String.from(_IMPL_DOC), io), ioexn);
+  io.await(write_string(Path.new(on_path.clone()), String.from(_IMPL_DOC), io), ioexn);
+  set_owner_logs_enabled(false);
+  before_off := owned_id_log_entry_count();
+  assert(_doc_round(off_path.clone(), String.from(_IMPL_DOC), std_path.clone(), io), "the document analyzes clean with owner logs off");
+  mm_forget_open_document(off_path);
+  assert(owned_id_log_entry_count() == before_off, `owner logs off: the logs grew by ${(owned_id_log_entry_count() - before_off).to_string()}`);
+  set_owner_logs_enabled(true);
+  before_on := owned_id_log_entry_count();
+  assert(_doc_round(on_path.clone(), String.from(_IMPL_DOC), std_path, io), "the document analyzes clean with owner logs on");
+  mm_forget_open_document(on_path);
+  assert(owned_id_log_entry_count() > before_on, "owner logs on: analyzing a document records its ids");
 });
