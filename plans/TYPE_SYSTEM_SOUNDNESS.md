@@ -526,6 +526,23 @@ Correct the docs the audit found stale, in `docs/en-US/` and `docs/zh-CN/` both:
 
 Each phase also updates these docs for the rules it adds.
 
+**Status 2026-09-25.** Done:
+- `DYN_DESIGN.md` (with 2.7).
+- `DESIGN.md` §Pattern Matching: the unreachable-arm rule is true now (E0608); verified with a
+  repeated `.A` arm.
+- `GADTS.md`: nested patterns are documented as working, and the refinement text matches Phase 1.1
+  and names the open generic-arm issue.
+- `ISOLATED.md`: rewritten by the parallelism audit.
+- `MEMORY_SAFETY.md` and `DESIGN.md`: they now document the working `for(coll, inout(x) => ...)` form
+  instead of calling it removed; verified, `x = x + 10` writes the element.
+- `ERROR_DIAGNOSTICS.md` and the `-fwrapv` note.
+- The archive banner for row 17.
+
+Open:
+- `FLOWABILITY.md`'s "by-value overlap is fine too" lands with Phase 5.2, which changes the rule.
+- `THREAD_SAFETY.md`'s "sharing unsynchronized state across threads is a compile error" is
+  `plans/PARALLELISM_SOUNDNESS.md`'s to settle, as its rules land.
+
 ## 6. Order and sizing
 
 | Phase | Depends on | Size | Why this position |

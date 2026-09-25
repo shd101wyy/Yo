@@ -1523,7 +1523,16 @@ while(i < usize(3), {
 
 组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
 
-旧的借用形式 `for(coll, inout(x) => body)` 已移除（指向可重分配存储的内部引用已无法表达 —— 见 [FLOWABILITY.md](./FLOWABILITY.md)）；使用它会产生带迁移指引的编译错误。
+借用形式 `for(coll, inout(x) => body)` 把每个元素原地交给循环体：给 `x` 赋值即写入该元素。循环会固定（pin）集合并持有它的运行时借用标志，因此在元素被借用期间，循环体不能让集合增长或缩短（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
+
+```rust
+xs := ArrayList(i32).new();
+xs.push(i32(1));
+for(xs, inout(x) => {
+  x = (x + i32(10));
+});
+// 现在 xs(usize(0)) 为 11。
+```
 
 字符串有专门的 `chars()`（rune 迭代）、`char_indices()`（携带每个 rune
 字节偏移的 rune 迭代）和 `bytes()`（字节迭代）方法。字符串索引本身以

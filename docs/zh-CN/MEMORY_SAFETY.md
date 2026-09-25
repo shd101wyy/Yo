@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`）。引用语义类型（`ref(struct(...))`）元素是句柄，在循环体内变异 `item` 即就地变异元素；struct/标量元素用索引赋值写回（`coll(i) = v`）。旧的借用形式 `for(coll, inout(item) => …)` 已移除，使用时会产生带上述迁移指引的编译错误。
+`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`）。引用语义类型（`ref(struct(...))`）元素是句柄，在循环体内变异 `item` 即就地变异元素；struct/标量元素可以用 `for(coll, inout(item) => …)` 逐个借用，对 `item` 赋值即原地写入元素；也可以用索引赋值写回（`coll(i) = v`）。
 
 ## 安全代码不能做什么
 
