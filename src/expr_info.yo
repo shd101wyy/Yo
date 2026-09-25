@@ -1959,21 +1959,65 @@ purge_expr_side_tables :: (fn(ids : ArrayList(usize)) -> unit)({
   while(i < ids.len(), {
     match(
       ids.get(i),
-      .Some(id) => {
-        _t := g_method_callee_types.remove(id);
-        _b := g_io_builtin_calls.remove(id);
-        _v := g_method_callee_values.remove(id);
-        _a := g_arm_init_ranges.remove(id);
-        _m := g_macro_expansions.remove(id);
-      },
+      .Some(id) => _purge_expr_side_tables_at(id),
       .None => ()
     );
     i = (i + usize(1));
   });
+});
+_purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
+  _t := g_method_callee_types.remove(id);
+  _b := g_io_builtin_calls.remove(id);
+  _v := g_method_callee_values.remove(id);
+  _a := g_arm_init_ranges.remove(id);
+  _m := g_macro_expansions.remove(id);
+});
+/// Drop the metadata an EXECUTED fresh-id clone left behind: every node of
+/// `root`'s tree whose id lies in `[lo, hi)` (the ids the clone minted, see
+/// `next_global_expr_id`) loses its ExprInfo and its ExprId-keyed side-table
+/// entries, EXCEPT a subtree whose root evaluated to a function. A method,
+/// closure or nested function defined in the executed body can outlive the
+/// execution (an instantiated type's `impl` methods are the common case), and
+/// codegen emits it from that definition-time metadata. The walk stops at a
+/// node outside the range, which the evaluator spliced in and does not own.
+///
+/// CTFE runs one clone per call (`evaluate_comptime_fn_call`) and keeps only
+/// the resulting value. Before this, each clone's metadata lived as long as
+/// the table. In `compile` that is the whole run (one shared table): for
+/// `src/main.yo`, 119 K entries pinning 1.56 GB of a 6.3 GB front half
+/// (plans/BUILD_ON_8GB_MACHINES.md Phase 2).
+purge_executed_clone_metadata :: (fn(table : ExprInfoTable, root : AstExpr, lo : ExprId, hi : ExprId) -> unit)({
+  id := ast_expr_id(root);
+  if((id < lo) || (id >= hi), {
+    return(());
+  });
+  defines_fn := match(
+    table.data.get(id),
+    .Some(info) => match(info.value, .Some(v) => match(v, .FuncVal(_, _) => true, _ => false), .None => false),
+    .None => false
+  );
+  if(defines_fn, {
+    return(());
+  });
+  _e := table.data.remove(id);
+  _purge_expr_side_tables_at(id);
+  match(
+    root,
+    .FnCall(_, callee, args, _, _) => {
+      purge_executed_clone_metadata(table, callee, lo, hi);
+      (ai : usize) = usize(0);
+      while(ai < args.len(), {
+        match(args.get(ai), .Some(a) => purge_executed_clone_metadata(table, a, lo, hi), .None => ());
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+});
 });
 /// Total entries across those tables (the B2 plateau test's probe).
 expr_side_table_entry_count :: (fn() -> usize)(
   ((((g_method_callee_types.len() + g_io_builtin_calls.len()) + g_method_callee_values.len()) + g_arm_init_ranges.len()) + g_macro_expansions.len())
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
-export(purge_expr_side_tables, expr_side_table_entry_count);
+export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
