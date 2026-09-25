@@ -296,19 +296,22 @@ stable_occurrence_key :: (fn(key : String) -> usize)({
   g_stable_occurrence.insert(key.clone(), next + usize(1));
   next
 });
+/// Memo of `canonical_module_path` for type-id owners and identity anchors: a
+/// type id is minted per instantiation, and canonicalizing reads the cwd.
+(g_stable_type_id_owner_memo : HashMap(String, String)) = HashMap(String, String).new();
 /// A top-level statement of a module, as an anchor for identity mints
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3): where it starts, and a label
 /// that does not depend on where it is — the bound name (`P` for
 /// `P :: struct(...)`), `impl_<receiver>` for an impl, and for an unnamed
 /// statement the previous label plus a count (`P_s1`).
 TopLevelAnchor :: struct(row : usize, column : usize, label : String);
-/// Anchors per module, keyed by the module path its tokens carry, ordered by
+/// Anchors per module, keyed by the CANONICAL module path, ordered by
 /// position. Written by the module walk before it evaluates anything
 /// (`register_top_level_anchors`); a re-walk of the same module (an LSP edit,
 /// `--watch`) replaces its entry.
 (g_top_level_anchors : HashMap(String, ArrayList(TopLevelAnchor))) = HashMap(String, ArrayList(TopLevelAnchor)).new();
 register_top_level_anchors :: (fn(module_path : String, anchors : ArrayList(TopLevelAnchor)) -> unit)({
-  g_top_level_anchors.insert(module_path, anchors);
+  g_top_level_anchors.insert(_stable_type_id_owner_key(module_path), anchors);
   ()
 });
 /// The position part of an identity mint: `(key, spelling)`. Relative to the
@@ -322,7 +325,9 @@ register_top_level_anchors :: (fn(module_path : String, anchors : ArrayList(TopL
 /// anchor.
 _anchored_position :: (fn(module_path : String, row : usize, column : usize) -> Tuple(String, String))(
   match(
-    g_top_level_anchors.get(module_path),
+    // Canonical: a module's tokens carry one spelling of its path and codegen
+    // may pass the other (AGENTS.md), and both must find the same anchors.
+    g_top_level_anchors.get(_stable_type_id_owner_key(module_path)),
     .Some(list) => {
       (lo : usize) = usize(0);
       (hi : usize) = list.len();
@@ -370,9 +375,6 @@ stable_label_id :: (
 /// it (`stable_type_id`). A module's two path spellings (AGENTS.md) share one
 /// owner.
 (g_stable_type_id_owner : HashMap(String, String)) = HashMap(String, String).new();
-/// Memo of `canonical_module_path` for type-id owners: a type id is minted
-/// per instantiation, and canonicalizing reads the cwd.
-(g_stable_type_id_owner_memo : HashMap(String, String)) = HashMap(String, String).new();
 /// A TYPE identity mint at a source position:
 /// `<prefix><module_stem>_<anchor>_r<row offset>c<col>_n<k>`, the position
 /// relative to the enclosing top-level statement (`_anchored_position`), so a
