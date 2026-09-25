@@ -338,12 +338,16 @@ test("soundness canary: an implementing type flows through Impl(Trait)", {
   assert(_make_dog().speak() == i32(3), "Impl result");
   assert(_hear(_Dog(x : i32(5))) == i32(5), "Impl argument");
 });
-// Canary for the Impl(Trait) argument check: a fn value is a code pointer,
-// Send and Acyclic; a closure's captures are judged by the capture rule.
+// Canary for the Impl(Trait) argument check. A function VALUE is Send when
+// its captures are and its code reaches no thread-affine global (rule D9,
+// plans/reference/PARALLELISM_RULES.md), so each argument below is judged by
+// value. The bare type `fn() -> i32` has no value to judge and is not Send;
+// Acyclic stays a property of the type (a code pointer holds no reference).
 _run_send :: (fn(generic(T : Type), cb : Impl(Fn() -> T, Send), where(T <: Send)) -> T)(cb());
 _plain_fn :: (fn() -> i32)(i32(8));
 test("soundness canary: fn values and capture-free closures are Send", {
-  comptime_assert(Type.impls(fn() -> i32, Send));
+  comptime_assert(!Type.impls(fn() -> i32, Send));
+  comptime_assert(Type.impls(fn() -> i32, Acyclic));
   assert(_run_send(() => (i32(20) + i32(22))) == i32(42), "closure through Impl(Fn, Send)");
   k := i32(5);
   assert(_run_send(() => (k + i32(1))) == i32(6), "a Send capture");
