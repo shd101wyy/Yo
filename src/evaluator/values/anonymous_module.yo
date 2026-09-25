@@ -57,6 +57,7 @@ pragma(Pragma.AllowUnsafe);
   PendingDefState,
   PendingResolution,
   begin_module_walk,
+  register_module_anchors,
   end_module_walk,
   walk_pending_def_at,
   push_forcing_def,
@@ -259,6 +260,9 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   _prev_mod_exprs := get_module_begin_exprs();
   _prev_mod_idx := get_module_begin_expr_index();
   set_module_walk(begin_exprs);
+  // Identity anchors (Phase 3.3): before anything in this module mints a type,
+  // trait or function id.
+  register_module_anchors(begin_exprs);
   // Push new frame to the env
   env.push_frame(false);
   // Lazy top-level bindings (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.1): pre-scan

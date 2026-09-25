@@ -42,7 +42,7 @@
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
-{ fnv1a64, debug_knob, canonical_module_path } :: import("../utils.yo");
+{ fnv1a64, debug_knob, canonical_module_path, TopLevelAnchor, register_top_level_anchors } :: import("../utils.yo");
 // ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
 // ---------------------------------------------------------------------------
@@ -1907,6 +1907,107 @@ classify_pending_def :: (fn(e : AstExpr, index : usize) -> Option(PendingDef))(
     true => Option(PendingDef).None
   )
 );
+/// Keep `[A-Za-z0-9_]` of an anchor label; anything else becomes `_`.
+_anchor_label_chars :: (fn(raw : String) -> String)({
+  out := String.new();
+  (ci : usize) = usize(0);
+  while(ci < raw.len(), {
+    b := raw.byte_at(ci);
+    ok := ((((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90)))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))));
+    if(ok, {
+      out.push_byte(b);
+    }, {
+      out.push_str("_");
+    });
+    ci = (ci + usize(1));
+  });
+  out
+});
+/// Where a top-level statement starts: the earlier of its head token and its
+/// first argument's (`P :: ...` is headed by `::`, after `P`).
+_statement_start :: (fn(e : AstExpr) -> (usize, usize))({
+  ht := ast_expr_token(e);
+  (row, column) := (ht.row, ht.column);
+  match(
+    e,
+    .FnCall(_, _, sargs, _, _) => match(
+      sargs.get(usize(0)),
+      .Some(a0) => {
+        at := ast_expr_token(a0);
+        if((at.module_path == ht.module_path) && ((at.row < row) || ((at.row == row) && (at.column < column))), {
+          row = at.row;
+          column = at.column;
+        });
+      },
+      .None => ()
+    ),
+    _ => ()
+  );
+  (row, column)
+});
+/// Register the module's top-level statements as identity anchors
+/// (`TopLevelAnchor`, src/utils.yo; plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3),
+/// so a type, trait or function id minted inside one is keyed by the
+/// statement's label and the offset within it, not by its absolute line.
+register_module_anchors :: (fn(begin_exprs : ArrayList(AstExpr)) -> unit)({
+  module_path := match(
+    begin_exprs.get(usize(0)),
+    .Some(first) => ast_expr_token(first).module_path.clone(),
+    .None => {
+      return(());
+    }
+  );
+  anchors := ArrayList(TopLevelAnchor).new();
+  used := HashMap(String, bool).new();
+  (prev : String) = String.from("top");
+  (unnamed_since : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < begin_exprs.len(), {
+    match(
+      begin_exprs.get(i),
+      .Some(e) => {
+        named := match(
+          classify_pending_def(e, i),
+          .Some(def) => if(def.name.len() > usize(0), Option(String).Some(if(def.is_impl, `impl_${_anchor_label_chars(def.name)}`, _anchor_label_chars(def.name))), Option(String).None),
+          .None => Option(String).None
+        );
+        raw := match(
+          named,
+          .Some(n) => {
+            prev = n.clone();
+            unnamed_since = usize(0);
+            n
+          },
+          .None => {
+            unnamed_since = (unnamed_since + usize(1));
+            `${prev}_s${unnamed_since.to_string()}`
+          }
+        );
+        // A label already produced in this module (a second `impl_P`, or a
+        // name that happens to spell a synthesized one) takes an ordinal, so
+        // labels stay unique.
+        (label : String) = raw.clone();
+        (dup : usize) = usize(1);
+        while(used.get(label).is_some(), {
+          dup = (dup + usize(1));
+          label = `${raw}_d${dup.to_string()}`;
+        });
+        used.insert(label.clone(), true);
+        (srow, scol) := _statement_start(e);
+        // Kept ordered by position for `_anchored_position`'s binary search:
+        // statements arrive in source order, so this is a no-op in practice.
+        (at : usize) = anchors.len();
+        while((at > usize(0)) && match(anchors.get(at - usize(1)), .Some(pa) => ((pa.row > srow) || ((pa.row == srow) && (pa.column > scol))), .None => false), {
+          at = (at - usize(1));
+        });
+        anchors.insert(at, TopLevelAnchor(row : srow, column : scol, label : label));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  register_top_level_anchors(module_path, anchors);
+});
 /// Start a walk: pre-scan `begin_exprs`, push the walk record. A previous
 /// finished-walk table for this module (an LSP re-check) is dropped so stale
 /// Variables are never served during the re-evaluation.
@@ -2960,6 +3061,7 @@ export(
   set_force_pending_def_fn,
   copy_eval_context,
   begin_module_walk,
+  register_module_anchors,
   end_module_walk,
   set_retain_walk_contexts,
   set_walk_context_retained,
