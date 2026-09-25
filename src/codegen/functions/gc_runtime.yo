@@ -397,6 +397,28 @@ static void __yo_decr_rc_atomic(void* ptr) {
     }
     __yo_free(ptr);
   }
+}
+
+// A Dyn's data object is released and retained through its VTABLE, whose
+// first slots after the type id are the concrete payload's own RC functions:
+// atomic for an atomically counted payload (a Dyn(..., Send) boxes with
+// arc), plain otherwise. The static Dyn type cannot choose: a
+// Dyn(Fn, Send) upcast to Dyn(Fn) still shares its box with other threads
+// (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
+typedef struct {
+  uintptr_t __yo_type_id;
+  void* (*__yo_retain)(void*);
+  void (*__yo_release)(void*);
+} __yo_vtable_prefix_t;
+
+static inline void* __yo_dyn_retain(void* data, const void* vtable) {
+  if (data == NULL) return NULL;
+  return ((const __yo_vtable_prefix_t*)vtable)->__yo_retain(data);
+}
+
+static inline void __yo_dyn_release(void* data, const void* vtable) {
+  if (data == NULL) return;
+  ((const __yo_vtable_prefix_t*)vtable)->__yo_release(data);
 }`
   );
   // Effect unwind flag and value buffer (always needed).
@@ -584,6 +606,28 @@ static void __yo_decr_rc_atomic(void* ptr) {
     }
     __yo_free(ptr);
   }
+}
+
+// A Dyn's data object is released and retained through its VTABLE, whose
+// first slots after the type id are the concrete payload's own RC functions:
+// atomic for an atomically counted payload (a Dyn(..., Send) boxes with
+// arc), plain otherwise. The static Dyn type cannot choose: a
+// Dyn(Fn, Send) upcast to Dyn(Fn) still shares its box with other threads
+// (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
+typedef struct {
+  uintptr_t __yo_type_id;
+  void* (*__yo_retain)(void*);
+  void (*__yo_release)(void*);
+} __yo_vtable_prefix_t;
+
+static inline void* __yo_dyn_retain(void* data, const void* vtable) {
+  if (data == NULL) return NULL;
+  return ((const __yo_vtable_prefix_t*)vtable)->__yo_retain(data);
+}
+
+static inline void __yo_dyn_release(void* data, const void* vtable) {
+  if (data == NULL) return;
+  ((const __yo_vtable_prefix_t*)vtable)->__yo_release(data);
 }`
   );
   // Effect-unwind flag + value buffer (declaration section).

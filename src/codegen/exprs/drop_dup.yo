@@ -247,10 +247,14 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
       },
       _ => String.from("")
     ),
+    // Through the vtable: the payload's own RC functions
+    // (`__yo_dyn_release`, functions/gc_runtime.yo).
     is_dyn_type(concrete_type) => {
-      out := String.from("__yo_decr_rc((void*)(");
+      out := String.from("__yo_dyn_release((void*)(");
       out.push_string(value_code.clone());
-      out.push_str(").data)");
+      out.push_str(").data, (const void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(").vtable)");
       out
     },
     is_atomic_reference_struct_type(concrete_type) => {
@@ -525,9 +529,11 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
       dyn_c_name := get_type_string(concrete_type, context.base);
       out := String.from("((");
       out.push_string(dyn_c_name);
-      out.push_str("){ .data = __yo_incr_rc((void*)(");
+      out.push_str("){ .data = __yo_dyn_retain((void*)(");
       out.push_string(value_code.clone());
-      out.push_str(").data), .vtable = (");
+      out.push_str(").data, (const void*)(");
+      out.push_string(value_code.clone());
+      out.push_str(").vtable), .vtable = (");
       out.push_string(value_code.clone());
       out.push_str(").vtable })");
       out

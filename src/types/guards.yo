@@ -733,8 +733,16 @@ is_boxed_type :: (fn(t : TypeValue) -> bool)(
     false,
     match(
       t,
-      .Struct({ name, field_labels }) =>
-        ((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false) && name.starts_with("Box(")),
+      .Struct({ name, field_labels, field_types }) =>
+        (
+          (field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false) && (
+            name.starts_with("Box(")
+            // A value boxed ATOMICALLY for a `Dyn(..., Send)` (`dyn(...)` boxes
+            // with `arc` there; issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
+            // An Arc of an OBJECT is an object in its own right, not a box.
+            || (name.starts_with("Arc(") && !match(field_types.get(usize(0)), .Some(ft) => is_reference_struct_type(ft), .None => false))
+          )
+        ),
       _ => false
     )
   )

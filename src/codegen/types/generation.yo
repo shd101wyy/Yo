@@ -1446,6 +1446,10 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
   );
   em.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
   em.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
+  // The payload's RC functions, in `__yo_vtable_prefix_t`'s layout
+  // (functions/gc_runtime.yo): `__yo_dyn_retain` / `__yo_dyn_release`.
+  em.emit_declaration_line("  void* (*__yo_retain)(void*); // payload retain: atomic for an atomically counted payload");
+  em.emit_declaration_line("  void (*__yo_release)(void*); // payload release");
   (mi : usize) = usize(0);
   while(mi < members.len(), {
     match(members.get(mi), .Some(line) => em.emit_declaration_string_line(line), .None => ());

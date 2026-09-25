@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_resolved_cell, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { type_contains_some_type_deep } :: import("../../types/utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -55,8 +55,13 @@ pragma(Pragma.AllowUnsafe);
 /// type-constructor with `V` pre-bound to inner_type in the callee env.
 /// evaluate_comptime_fn_call evals the body in the passed callee_env and
 /// does NOT bind params, so V must be pre-bound.
-_create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))({
-  vars := get_variables_from_env(env, String.from("Box"));
+_create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))(
+  _create_box_type_via(String.from("Box"), inner_type, env, ctx, exn)
+);
+/// `Box(inner_type)`, or the atomic box `Arc(inner_type)` a `Dyn(..., Send)`
+/// payload takes, evaluated like the constructor call it stands for.
+_create_box_type_via :: (fn(ctor : String, inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))({
+  vars := get_variables_from_env(env, ctor.clone());
   (box_fv : Option(EvalValue)) = Option(EvalValue).None;
   (box_ft : TypeValue) = t_unit();
   nv := vars.len();
@@ -103,13 +108,37 @@ _create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalC
       // failed is_boxed_type and the boxed-dyn path registered the impl
       // against the Box pointer itself (dyn_dispatch_autobox_value printed
       // a blank instead of 'Q').
-      b_callee_tok := synthetic_token(String.from("Box"), cenv.module_path);
+      b_callee_tok := synthetic_token(ctor.clone(), cenv.module_path);
       b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), box_ft, bfv, bav, env, cenv, ctx, exn);
       cenv.pop_frame();
       match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
     }
   )
+});
+/// Does a `dyn(...)` build a `Dyn(..., Send)`? From the expected Dyn type, or
+/// from the value's own `Impl(..., Send)` wrapper when nothing is expected.
+_dyn_target_requires_send :: (fn(expected : Option(ExpectedTypeCtx), value_type : TypeValue) -> bool)({
+  from_expected := match(
+    expected,
+    .Some(et) => match(et.ty, .DynT(required_trait_types : ert) => Option(bool).Some(_traits_name_send(ert)), _ => Option(bool).None),
+    .None => Option(bool).None
+  );
+  match(
+    from_expected,
+    .Some(b) => b,
+    .None => match(value_type, .SomeT({ required_trait_types : vrt }) => _traits_name_send(vrt), _ => false)
+  )
+});
+_traits_name_send :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+  (tsi : usize) = usize(0);
+  while(tsi < tys.len(), {
+    if(match(tys.get(tsi), .Some(t) => match(t, .TraitT(name : tn) => (tn == "Send"), _ => false), .None => false), {
+      return(true);
+    });
+    tsi = (tsi + usize(1));
+  });
+  false
 });
 _unwrap_box_for_method_lookup :: (fn(t : TypeValue) -> TypeValue)({
   (result : TypeValue) = t;
@@ -215,6 +244,16 @@ _require_dyn_traits_implemented :: (
   // type is resolved: a closure's SomeT has no concrete type to resolve to,
   // and the early return below skipped every check for it
   // (issues/fixed/iso-of-a-graph-holding-a-function-value-bypasses-d9.md).
+  // A `Dyn(..., Send)` shares its data object across threads, so the object
+  // must be atomically counted: a `box(...)` payload is not
+  // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
+  if(match(dyn_type, .DynT(required_trait_types : sd_rtt) => _traits_name_send(sd_rtt), _ => false) && is_boxed_type(value_type) && !is_atomic_reference_struct_type(value_type), {
+    sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`arc\`) or \`arc(v)\`.`;
+    if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
+      flag_flow_violation(sd_msg.clone());
+    });
+    exn.throw(dyn(format_error_message(token, sd_msg)));
+  });
   fv_payload := _unwrap_box_for_method_lookup(value_type);
   fv_judged_names := ArrayList(String).new();
   match(
@@ -813,10 +852,12 @@ evaluate_dyn_value :: (
     );
     (ne_final_expr : AstExpr) = inner_ne;
     if(!is_reference_struct_type(ne_value_type) && !is_dyn_type(ne_value_type), {
+      // The same box the executing path below picks: `arc` for a Send Dyn.
+      ne_send := _dyn_target_requires_send(ctx.expected_type, ne_value_type);
       match(
-        _create_boxed_type(ne_box_inner_ty, env, ctx, exn),
+        _create_box_type_via(if(ne_send, String.from("Arc"), String.from("Box")), ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
-          ne_box_tok := synthetic_token(String.from("box"), env.module_path);
+          ne_box_tok := synthetic_token(if(ne_send, String.from("arc"), String.from("box")), env.module_path);
           ne_box_atom := AstExpr.Atom(alloc_global_expr_id(), ne_box_tok);
           ne_box_args := ArrayList(AstExpr).new();
           ne_box_args.push(inner_ne);
@@ -887,9 +928,15 @@ evaluate_dyn_value :: (
   (final_value_type : TypeValue) = value_type;
   // Auto-box non-object, non-dyn values. No Future-implementing SomeType
   // special case exists — all non-object, non-dyn values are wrapped in box().
+  // A `Dyn(..., Send)` boxes with `arc` instead: the Dyn's data object is
+  // SHARED — every copy of the Dyn, and the box's own handle, hold it — and a
+  // Send value is shared across threads, so its reference count must be
+  // atomic. A plain `box` put a non-atomic count on two threads
+  // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
   (final_value_expr_ex : AstExpr) = eval_inner;
   if(!is_reference_struct_type(value_type) && !is_dyn_type(value_type), {
-    box_tok := synthetic_token(String.from("box"), cur_env.module_path);
+    box_fn_name := if(_dyn_target_requires_send(ctx.expected_type, value_type), String.from("arc"), String.from("box"));
+    box_tok := synthetic_token(box_fn_name, cur_env.module_path);
     box_atom := AstExpr.Atom(usize(0), box_tok);
     box_args := ArrayList(AstExpr).new();
     box_args.push(eval_inner);
