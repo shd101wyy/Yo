@@ -4623,6 +4623,12 @@ run_compile :: (
     if(get_uses_parallelism() && !(is_target_standalone_wasi(target)), {
       cmd.arg(String.from("-pthread"));
       cmd.arg(String.from("-sPTHREAD_POOL_SIZE=4"));
+      // `main` runs on a pthread, not on the JS main thread. A thread
+      // reaped off the JS main thread finishes its cleanup there through the
+      // JS event loop, which a `main` blocked in `join` never returns to:
+      // every thread a spawned thread created stayed allocated until the heap
+      // ran out (issues/fixed/emscripten-threads-created-off-the-main-thread-are-never-reclaimed.md).
+      cmd.arg(String.from("-sPROXY_TO_PTHREAD"));
       cmd.arg(String.from("-sEXIT_RUNTIME=1"));
     });
   });
