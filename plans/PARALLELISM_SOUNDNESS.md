@@ -388,11 +388,27 @@ unaffected.
 5. Exit: all four repros rejected at `check`; `tests/spawn_blocking.test.yo` and
    `tests/sync/once.test.yo` (the two closure-forwarding shapes) still pass.
 
-**Landed in part 2026-09-26** (branch `ps/phase4-closures-externs`, stacked on Phase 3): items 2
-and 3. Items 0 and 1 (D4, P-4, P-26) stay open: judging a closure TYPE by its capture struct
-needs per-closure identity on `Func` types, the type-system plan's Phase 3 (type identity), and
-the same prerequisite closes D1's closure-value residual
-(`issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`).
+**Landed 2026-09-26.** Items 2 and 3 on branch `ps/phase4-closures-externs` (stacked on
+Phase 3); items 0, 1 and 4 in the Phase 6 and Phase 2 PRs (#902, #903). Per-closure identity on
+`Func` types was not needed after all:
+
+- **P-26.** `create_specialized_function_inline` adopts the return type's re-evaluation when
+  its only SomeTs are the call's own closure-typed binders
+  (`issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md`). The
+  capture-free case, whose recorded forall argument is its plain `fn` type, reads those binders
+  from the callee env
+  (`issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md`).
+- **D4** is judged on every where-clause path from the closure's values: the callee's parameters
+  bound to the type, then the closures created against a closure's `Impl` SomeT.
+- **D1's closure-value residual** is closed by following a local closure callee through the
+  env and walking a `Send` `dyn`'s vtable at coercion.
+
+Closing the plan found one more route and a rule for it, **D9**: a function VALUE that reaches
+a non-Send global crossed threads unchecked through a named spawn body, `arc`, a generic bound,
+an `Impl(Fn, Send)` parameter, a struct field or a value passed inside a spawn body
+(`issues/fixed/function-values-bypass-the-d1-reach-walk.md`). D9 judges function values by
+what they capture and what their code reaches, wherever the value is known; a bare `fn` type
+with no value is not `Send`.
 
 - **D8** needed no new rule: `_check_anon_fn_captures` already rejected capturing an `inout` /
   `ref` / control-bound binding, but the rejection fired inside the ENCLOSING closure's

@@ -87,6 +87,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../types/env_lookup.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ judge_function_argument_markers } :: import("../trait_checking.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation }
 :: import("../../types/flowability.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note } :: import("../../types/utils.yo");
@@ -1351,6 +1352,22 @@ comptime(${variable_name}) : ${dgc_ty_str}
       )
     );
   });
+  // Rule D9: a FUNCTION value bound to a declared `Impl(Fn(...), Send)` takes
+  // on the promise the declaration makes, and nothing later re-judges a
+  // declared marker — so the value is judged here, once: what it captures and
+  // what its code reaches (`judge_function_argument_markers`).
+  bind_fam := judge_function_argument_markers(variable.ty, rhs_type, rhs_info.value, env, ctx);
+  match(
+    bind_fam.offense,
+    .Some(bind_fo) => {
+      bind_msg := `A value of type ${type_to_string(rhs_type)} cannot be bound as ${type_to_string(variable.ty)}: ${bind_fo}.`;
+      // Flag it so a def-time trial swallow re-raises it (as the raw-pointer
+      // flow check above does).
+      flag_flow_violation(bind_msg.clone());
+      exn.throw(dyn(format_error_message(ast_expr_token(lhs_resolved), bind_msg)));
+    },
+    .None => ()
+  );
   // Re-fetch variable after RHS evaluation (env may have been updated).
   updated_vars := get_variables_from_env(env, variable_name);
   updated_variable := match(

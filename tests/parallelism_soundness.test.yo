@@ -449,6 +449,20 @@ comptime_expect_error({
   });
   _d9_send_param_of_reaching_closure();
 });
+// D9: a declared `Impl(Fn(...), Send)` binding is where a function value takes
+// on the promise, so the value is judged there — a named function that
+// reaches the global cannot be bound to it.
+comptime_expect_error({
+  _d9_declared_send_binding :: (fn() -> unit)({
+    (f : Impl(Fn(Io) -> unit, Send)) = _d9_fill;
+    t := Thread(unit).spawn((io : Io) => {
+      f(io);
+      ()
+    });
+    t.join();
+  });
+  _d9_declared_send_binding();
+});
 // D9: a function used as a VALUE inside a spawn body is walked as if called —
 // whatever receives it may call it.
 comptime_expect_error({
@@ -495,7 +509,10 @@ test("D9 canary: function values that reach only atomics are Send by every route
     ()
   });
   t2.join();
-  f := _d9_count;
+  // A plain `f := _d9_count` carries no value into the capture (a bare `fn`
+  // local is not Send, D9); the declared binding carries the promise and is
+  // judged where it is made.
+  (f : Impl(Fn(Io) -> unit, Send)) = _d9_count;
   t3 := Thread(unit).spawn((io : Io) => {
     f(io);
     ()

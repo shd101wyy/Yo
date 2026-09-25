@@ -29,6 +29,7 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Ar
 - 当你要定义**自己的共享类型**时，使用 `atomic(ref(struct(...)))`。
 - 当你想要**转移**而不是共享所有权时，使用 `Iso(T)`。
 - `Arc(T)` 只接受实现了 `Send` 的子类型；普通 `ref(struct(...))` 并不满足这个条件。
+- 对函数值（闭包或具名函数）调用 `arc(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
 
 许多标准库类型已经不再需要额外的 `Arc(...)` 包装。例如 `std/sync`
 原语和 `std/imm` 集合本身就基于 `atomic(ref(struct(...)))` 实现，可以直接跨线程共享。

@@ -473,9 +473,11 @@ function_value_marker :: (
           match(
             fr.variables.get(vi),
             .Some(v) => {
-              // A module-level function is not a value OF this type: it only
-              // shares the signature.
-              if(!v.is_module_level, {
+              // A `::` function definition (module-level or local) is not a
+              // value OF this type: it only shares the signature. Judging
+              // every definition of the signature convicted `f := count`
+              // for what an unrelated `fill` touches.
+              if(!(v.is_module_level || v.is_compile_time_only), {
                 matches := if(
                   want_id.is_empty(),
                   is_function_type(v.ty) && (type_to_string(v.ty) == want_str),

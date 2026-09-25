@@ -285,8 +285,8 @@ issues/a-closure-typed-slot-never-releases-its-captures.md）。异步任务
 
 只有实现了 `Send` 的类型才能跨越线程边界：
 
-- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、字段全部为 Send 的原子对象（`Arc`、`Mutex`、`Channel`、`Atomic*` 包装器）、`Dyn(Trait, Send)`（具体类型在 `dyn(...)` 处检查）、`Iso(T)`（见 `THREAD_SAFETY.md`），以及捕获值全部为 Send 的闭包
-- **不可发送**：`ref(struct(...))` / `ref(enum(...))`（非原子引用计数：`ArrayList`、`String`、`Box` 等）、约束中不含 `Send` 的 `Dyn(Trait)`、`Io`、`JoinHandle`，以及捕获了上述任一值的闭包
+- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、字段全部为 Send 的原子对象（`Arc`、`Mutex`、`Channel`、`Atomic*` 包装器）、`Dyn(Trait, Send)`（具体类型在 `dyn(...)` 处检查）、`Iso(T)`（见 `THREAD_SAFETY.md`），以及捕获值全部为 Send、且代码不触及任何非 Send 模块级全局变量的函数值（具名函数或闭包）—— 在编译器能看到该值的地方按值判断：派生闭包体、`Impl(Fn(...), Send)` 参数、泛型 `where(T <: Send)` 参数、被捕获的变量
+- **不可发送**：`ref(struct(...))` / `ref(enum(...))`（非原子引用计数：`ArrayList`、`String`、`Box` 等）、约束中不含 `Send` 的 `Dyn(Trait)`、`Io`、`JoinHandle`，捕获了上述任一值或触及非 Send 全局变量的函数值，以及在该处不知道其值的裸 `fn(...)` 类型（结构体字段、`Channel(fn() -> unit)` 的载荷）—— 见 `THREAD_SAFETY.md` 的“跨线程的函数与闭包”
 
 ```rust
 // ✅ 可发送

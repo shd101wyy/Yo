@@ -13,6 +13,18 @@ below is the frozen 2026-08-25 state, and
 `issues/fixed/thread-safety-phase-p-never-landed-but-plan-says-complete.md`
 is its resolution record. Vector 27 is closed for real.
 
+**CLOSED 2026-09-26 by `plans/archive/PARALLELISM_SOUNDNESS.md`.** The correction below is
+resolved. Every row it names is closed by a rule in `plans/reference/PARALLELISM_RULES.md`:
+
+- **Row 6 / Phase H (`Iso`):** D2. `^v` is the only safe constructor and proves the whole graph
+  unique at runtime.
+- **Row 17 (module globals):** D1, together with D9 for function values that reach a global.
+- **Row 26 (the atomic write gate):** D3.
+- **Rows 15/16 (lock primitives):** D5. The primitives record their owner and trap on misuse.
+
+The corrected claims are the ones in `docs/en-US/THREAD_SAFETY.md`, whose Known Holes list is
+empty.
+
 **CORRECTION 2026-09-25 (`plans/PARALLELISM_SOUNDNESS.md`, the parallelism-soundness
 audit): four rows of the vector table below are NOT closed as written, and one Phase H
 claim never landed.** Row 6 / Phase H: the emitted `extract()` checks only a one-shot
