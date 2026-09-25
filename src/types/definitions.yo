@@ -106,6 +106,13 @@ TypeValue :: ref(
     Unit,
     BoolT,
     Void,
+    /// `never` — the bottom type: the type of an expression that does not
+    /// complete (`__yo_panic`, a call to a `-> never` function such as
+    /// `std/assert`'s `panic` or `std/process`'s `exit`). It flows into every
+    /// type and is the identity of a `cond`/`match` arm join, so a diverging
+    /// arm does not constrain the result (plans/TYPE_SYSTEM_SOUNDNESS.md
+    /// Phase 3.6). No value of it exists; C lowers it to `void`.
+    Never,
     /// `str` — builtin immutable fat-pointer view of STATIC string bytes.
     /// C lowering:
     /// `typedef struct { const uint8_t* ptr; size_t len; } __yo_str;`

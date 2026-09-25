@@ -39,14 +39,15 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_bool_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_bool, t_unit } :: import("../../types/creators.yo");
+{ t_bool, t_unit, t_never } :: import("../../types/creators.yo");
 {
   is_bool_type,
   is_some_type,
   is_pointer_type,
   is_comptime_int_type,
   is_comptime_float_type,
-  is_function_type_and_returns_comptime_value
+  is_function_type_and_returns_comptime_value,
+  is_never_type
 } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
@@ -57,7 +58,8 @@ pragma(Pragma.AllowUnsafe);
 {
   merge_and_check_envs,
   consume_case_body_temp_var,
-  attach_temp_variable_to_expr
+  attach_temp_variable_to_expr,
+  adopt_never_type
 } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression } :: import("./expr.yo");
@@ -400,6 +402,9 @@ evaluate_cond :: (
       (has_case_without_control_flow : bool) = false;
       control_flows := ArrayList(ControlFlowFlags).new();
       return_bodies := ArrayList(AstExpr).new();
+      // Arms of type `never` (a panic, a call to a `-> never` function): they
+      // take no part in the join and adopt its type afterwards (Phase 3.6).
+      never_bodies := ArrayList(AstExpr).new();
       (has_runtime_body_val : bool) = false;
       (nb_i : usize) = usize(0);
       // Sibling-arm inits must not read as prior inits inside later arms
@@ -529,8 +534,12 @@ evaluate_cond :: (
                     });
                   }
                 );
-                // Update the running value type.
-                if(!has_any_control_flow(body_cf2), {
+                // Update the running value type. A `never` arm is the join's
+                // identity: it does not constrain the result.
+                if(is_never_type(body_einfo.ty) && !has_any_control_flow(body_cf2), {
+                  never_bodies.push(evaluated_case_body);
+                });
+                if(!has_any_control_flow(body_cf2) && !is_never_type(body_einfo.ty), {
                   match(
                     value_type,
                     .None => {
@@ -581,6 +590,10 @@ evaluate_cond :: (
       );
       if(has_case_without_control_flow || !has_any_control_flow(final_cf), {
         // At least one arm produces a value (no diverge).
+        // Every value arm diverges: the cond itself is `never`.
+        if(value_type.is_none() && (never_bodies.len() > usize(0)), {
+          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : t_never(), env : env));
+        });
         if(has_case_without_control_flow && value_type.is_none(), {
           exn.throw(
             dyn(
@@ -690,6 +703,11 @@ evaluate_cond :: (
             match(ctx.expected_type, .Some(et) => et.ty, .None => vts.ty),
           true => vts.ty
         );
+        (nb_ai : usize) = usize(0);
+        while(nb_ai < never_bodies.len(), {
+          match(never_bodies.get(nb_ai), .Some(nb) => adopt_never_type(nb, result_ty, ctx), .None => ());
+          nb_ai = (nb_ai + usize(1));
+        });
         out_info := new_expr_info(env, result_ty);
         out_info.value = result_val;
         expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);

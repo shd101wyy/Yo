@@ -21,7 +21,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, FuncOrAsyncBlockKind } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_unit, t_bool, t_ptr } :: import("../../types/creators.yo");
+{ t_unit, t_bool, t_ptr, t_never } :: import("../../types/creators.yo");
 { is_comptime_string_type, is_str_type, is_u8_type } :: import("../../types/guards.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
@@ -77,33 +77,19 @@ evaluate_panic :: (
       )
     );
   });
-  // Determine the divergent panic's stand-in type:
-  //   1. the propagated expected type (a match arm's sibling-arm type, a
-  //      cond arm, an assignment RHS) when present;
-  //   2. else the enclosing function's return type — wrapped in `*(T)` when
-  //      the return is declared `inout(T)` (panic in tail position of an
-  //      `-> inout(T)` body must produce `*(T)` to match the body's C-ABI
-  //      return; sibling `unsafe(&(...))` arms are `*(T)` too);
-  //   3. test/async blocks → unit.
+  // The panic's type: the propagated expected type (a match arm's
+  // sibling-arm type, an assignment RHS, an argument slot) when there is one,
+  // else `never` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.6). A `never` panic
+  // is the identity of a cond/match join and adopts the join's type, or the
+  // enclosing function's declared result when it is the body's tail
+  // (`adopt_never_type`), so codegen still gets a real type for the
+  // unreachable placeholder. It used to fall back to the function's result
+  // type here, which made `x := cond(c => i32(3), true => __yo_panic("boom"))`
+  // in an `-> i64` function a spurious "Previous: i32, Current: i64".
   (return_ty : TypeValue) = match(
     ctx.expected_type,
     .Some(et) => et.ty,
-    .None => match(
-      fn_ctx.kind,
-      .FunctionBody => match(
-        fn_ctx.func_type,
-        .Some(ty) => match(
-          ty,
-          .Func({ result, meta : __fm1 }) => cond(
-            __fm1.*.result_is_ref => t_ptr(result),
-            true => result
-          ),
-          _ => t_unit()
-        ),
-        .None => t_unit()
-      ),
-      _ => t_unit()
-    )
+    .None => t_never()
   );
   // If there's a message argument, evaluate it and validate its type.
   args := match(
@@ -220,7 +206,6 @@ evaluate_panic :: (
       )
     );
   });
-  // Annotate with the surrounding function's return type (panic diverges).
   info := new_expr_info(cur_env, return_ty);
   // panic never returns a value — leave info.value as .None
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);

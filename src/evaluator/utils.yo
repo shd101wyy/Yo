@@ -24,7 +24,10 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   BF_DUP,
   BF_DROP,
-  BF_DOT
+  BF_DOT,
+  BK_BEGIN,
+  BK_COND,
+  BK_MATCH
 } :: import("../expr.yo");
 {
   ExprInfo,
@@ -70,6 +73,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref } :: import("../value.yo");
 { TypeValue } :: import("../types/definitions.yo");
+{ is_never_type } :: import("../types/guards.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
 { type_contains_rc_type } :: import("../types/utils.yo");
@@ -1874,11 +1878,59 @@ parse_raw_float :: (fn(raw : String) -> Option(f64))({
     .None => .None
   )
 });
+/// Give a `never`-typed expression the type of the context it flows into
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.6). The type checker has already
+/// accepted it there — `never` flows into every type — and codegen needs a
+/// real type for the unreachable placeholder a diverging expression leaves in
+/// a value slot (`generate_panic`'s `(*((T*)NULL))`, the value of a call to a
+/// `-> never` function). Reaches the node codegen reads: a block's tail, and
+/// the diverging arms of a nested `cond`/`match`. A no-op for a node that is
+/// not `never`-typed and for a `never` context.
+adopt_never_type :: (fn(e : AstExpr, ty : TypeValue, ctx : EvalContext) -> unit)({
+  if(is_never_type(ty), {
+    return(());
+  });
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+    .Some(info) => if(is_never_type(info.ty), {
+      info.ty = ty;
+      match(
+        e,
+        .FnCall(_, _, nargs, _, _) => cond(
+          ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => if(nargs.len() > usize(0), {
+            match(nargs.get(nargs.len() - usize(1)), .Some(tail) => recur(tail, ty, ctx), .None => ());
+          }),
+          (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => {
+            (ai : usize) = usize(0);
+            while(ai < nargs.len(), {
+              match(
+                nargs.get(ai),
+                .Some(arm) => if(ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))), {
+                  match(
+                    arm,
+                    .FnCall(_, _, arm_args, _, _) => match(arm_args.get(usize(1)), .Some(arm_body) => recur(arm_body, ty, ctx), .None => ()),
+                    _ => ()
+                  );
+                }),
+                .None => ()
+              );
+              ai = (ai + usize(1));
+            });
+          },
+          true => ()
+        ),
+        _ => ()
+      );
+    }),
+    .None => ()
+  );
+});
 export(
   find_rc_value_owner_relationship,
   is_valid_variable_name,
   set_expr_as_consumed,
-  expect_expr_to_have_been_evaluated
+  expect_expr_to_have_been_evaluated,
+  adopt_never_type
 );
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);

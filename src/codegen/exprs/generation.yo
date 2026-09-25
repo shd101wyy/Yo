@@ -95,7 +95,7 @@
 } :: import("../../expr.yo");
 { has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
-{ is_unit_type, is_primitive_type, is_pointer_type, is_array_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_primitive_type, is_pointer_type, is_array_type, is_never_type, is_void_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
@@ -871,8 +871,49 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   )
 });
 /// Top-level expression dispatch.
+/// The callee of `expr` is a function whose declared result is `never`.
+_calls_a_never_function :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+  match(
+    expr,
+    .FnCall(_, callee, _, _, _) => match(
+      context.base.get_expr_info(callee),
+      .Some(cei) => match(cei.ty, .Func({ result : cres }) => is_never_type(cres), _ => false),
+      .None => false
+    ),
+    _ => false
+  )
+);
 _generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
-  match(expr, .FnCall(_, _, _, _, _) => generate_func_call(expr, indent, context), .Atom(_, _) => generate_atom(expr, context, indent))
+  match(
+    expr,
+    .FnCall(_, _, _, _, _) => {
+      code := generate_func_call(expr, indent.clone(), context);
+      cond(
+        // A call to a `-> never` function returns `void` in C and does not
+        // come back: it runs as a statement, and the slot it stands in
+        // (a cond/match arm's value, a body's tail) gets an unreachable
+        // placeholder of the type it adopted (plans/TYPE_SYSTEM_SOUNDNESS.md
+        // Phase 3.6; the `__yo_panic` twin is `generate_panic`).
+        ((code.len() > usize(0)) && _calls_a_never_function(expr, context)) => {
+          line := indent.clone();
+          line.push_string(code);
+          line.push_str(";");
+          nv_em := context.base.emitter;
+          nv_em.emit_string_line(line);
+          match(
+            context.base.get_expr_info(expr),
+            .Some(nei) => cond(
+              (is_never_type(nei.ty) || is_unit_type(nei.ty) || is_void_type(nei.ty)) => String.new(),
+              true => `(*((${get_type_string(nei.ty, context.base)}*)NULL))`
+            ),
+            .None => String.new()
+          )
+        },
+        true => code
+      )
+    },
+    .Atom(_, _) => generate_atom(expr, context, indent)
+  )
 );
 /// Register `_generate_expr` as the `_call_generate_expr` indirection target.
 /// The driver calls this once before walking function bodies.

@@ -55,7 +55,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind } :: import("../../types/creators.yo");
-{ is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type } :: import("../../types/guards.yo");
+{ is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
+{ adopt_never_type } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 {
   wrap_function_body_with_contracts,
@@ -1715,6 +1716,12 @@ Result type: ${type_to_string(result_box)}`
               expr_info_table_get(ctx.expr_info_table, ast_expr_id(ub_body)),
               .Some(ub_info) => {
                 ub_ty := ub_info.ty;
+                // A body that ends in a `never` expression (a panic, a call
+                // to a `-> never` function) adopts the declared result, so
+                // codegen can type its unreachable placeholder (Phase 3.6).
+                if(is_never_type(ub_ty), {
+                  adopt_never_type(ub_body, if(result_is_ref, t_ptr(result_box), result_box), ctx);
+                });
                 // An `Impl(Trait)` result is judged by its traits, not by
                 // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
                 // the deferred-generic twin is below.
