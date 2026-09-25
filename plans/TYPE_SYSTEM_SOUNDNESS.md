@@ -293,7 +293,10 @@ open (Phase 6): `issues/gadt-arm-is-type-checked-only-when-its-index-is-instanti
    a caller expression and skips the ownership rule. The specialization re-binds of a closure parameter, or of one
    whose argument folded to a constant, stay NON-owning even for `own(p)`. The caller keeps and
    releases that temporary, and binding with the declared flag was tried and measured as a
-   double release (corrupt `downcast` payloads in `tests/error_ergonomics`).
+   double release (corrupt `downcast` payloads in `tests/error_ergonomics`). The parallelism
+   plan's D3 record (an `inout` argument rooted in an atomic object, `d3_record_inout_place`) is
+   one predicate call in each argument loop, decided once the callee is known, so it needs no
+   helper of its own.
 6. **Associated types in free-fn `where`.** Execute `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
    on top of step 4, because both are about binding a variable from a bound.
 
