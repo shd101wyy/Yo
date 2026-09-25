@@ -2005,7 +2005,30 @@ _gen_general_match :: (fn(expr : AstExpr, arms : ArrayList(Arm), indent : String
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
 /// Generate a match expression.
+///
+/// The result temp is declared bare before the switch and assigned in the
+/// arms, which the emitter's block-scope scan cannot see; register it once the
+/// switch is closed, or an explicit `return` / escape after the match skips its
+/// release and nothing later runs it (a match passed as a call argument leaked
+/// on every early return:
+/// issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md).
 generate_match_expression :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  code := _generate_match_expression_body(expr, indent, context);
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.variable_name,
+      .Some(tv) => if(!is_unit_type(ei.ty) && (code == tv), {
+        em := context.base.emitter;
+        em.mark_declared_in_scope(tv);
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  code
+});
+_generate_match_expression_body :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
   temp_var_opt := ei.variable_name;
   value_type := ei.ty;
